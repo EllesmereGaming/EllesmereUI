@@ -121,13 +121,14 @@ initFrame:SetScript("OnEvent", function(self)
             local bgSwatch, bgSwatchRefresh = EllesmereUI.BuildColorSwatch(
                 rgn, bgRow:GetFrameLevel() + 3,
                 function()
-                    return (Cfg("bgR") or 0.03), (Cfg("bgG") or 0.045), (Cfg("bgB") or 0.05)
+                    return Cfg("bgR"), Cfg("bgG"), Cfg("bgB")
                 end,
                 function(r, g, b)
                     Set("bgR", r); Set("bgG", g); Set("bgB", b)
                     RefreshAll()
                 end,
-                false, 20)
+                false, 20,
+                function() return 0.03, 0.045, 0.05 end)
             PP.Point(bgSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             EllesmereUI.RegisterWidgetRefresh(function() bgSwatchRefresh() end)
         end
@@ -374,8 +375,9 @@ initFrame:SetScript("OnEvent", function(self)
                 local customSwatch, refreshCustom = EllesmereUI.BuildColorSwatch(
                     rgn, borderRow:GetFrameLevel() + 3,
                     function()
-                        local c = Cfg("panelBorderColor") or { r=1, g=1, b=1 }
-                        return c.r, c.g, c.b, Cfg("panelBorderOpacity") or 0.18
+                        local c = Cfg("panelBorderColor")
+                        if not c then return nil end
+                        return c.r, c.g, c.b, Cfg("panelBorderOpacity")
                     end,
                     function(r, g, b, a)
                         Set("panelBorderColor", { r=r, g=g, b=b })
@@ -383,7 +385,8 @@ initFrame:SetScript("OnEvent", function(self)
                         Set("panelBorderColorMode", "custom")
                         if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
                     end,
-                    true, 20)
+                    true, 20,
+                    function() return 1, 1, 1, 0.18 end)
                 PP.Point(customSwatch, "RIGHT", accentSwatch, "LEFT", -8, 0)
                 local customClick = customSwatch:GetScript("OnClick")
                 customSwatch:SetScript("OnClick", function(self, ...)
@@ -579,12 +582,13 @@ initFrame:SetScript("OnEvent", function(self)
                 { tooltip = "Custom Color",
                   hasAlpha = false,
                   getValue = function()
-                      return (Cfg("iconR") or 1), (Cfg("iconG") or 1), (Cfg("iconB") or 1)
+                      return Cfg("iconR"), Cfg("iconG"), Cfg("iconB")
                   end,
                   setValue = function(r, g, b)
                       Set("iconR", r); Set("iconG", g); Set("iconB", b)
                       if ECHAT.ApplyIconColor then ECHAT.ApplyIconColor() end
                   end,
+                  getFactoryDefault = function() return 1, 1, 1 end,
                   onClick = function(self)
                       if Cfg("iconUseAccent") then
                           Set("iconUseAccent", false)
@@ -875,14 +879,16 @@ initFrame:SetScript("OnEvent", function(self)
                     return {
                         { tooltip="Custom Color", hasAlpha=true,
                           getValue=function()
-                              local c=Cfg(key) or fallback
-                              return c.r,c.g,c.b,c.a == nil and fallback.a or c.a
+                              local c=Cfg(key)
+                              if not c then return nil end
+                              return c.r,c.g,c.b,c.a or fallback.a
                           end,
                           setValue=function(r,g,b,a)
                               Set(key,{r=r,g=g,b=b,a=a})
                               Set("tabFontColorActiveMode","custom")
                               if ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
                           end,
+                          getFactoryDefault=function() return fallback.r, fallback.g, fallback.b, fallback.a end,
                           onClick=function(self)
                               if (Cfg("tabFontColorActiveMode") or "custom") ~= "custom" then
                                   SetMode("custom"); return
@@ -920,14 +926,16 @@ initFrame:SetScript("OnEvent", function(self)
                 return {
                     { tooltip="Custom Color", hasAlpha=true,
                       getValue=function()
-                          local c=Cfg(key) or fallback
-                          return c.r,c.g,c.b,c.a == nil and fallback.a or c.a
+                          local c=Cfg(key)
+                          if not c then return nil end
+                          return c.r,c.g,c.b,c.a or fallback.a
                       end,
                       setValue=function(r,g,b,a)
                           Set(key,{r=r,g=g,b=b,a=a})
                           Set("tabFontColorMode","custom")
                           if ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
                       end,
+                      getFactoryDefault=function() return fallback.r, fallback.g, fallback.b, fallback.a end,
                       onClick=function(self)
                           if (Cfg("tabFontColorMode") or "custom") ~= "custom" then
                               SetMode("custom"); return
@@ -975,15 +983,17 @@ initFrame:SetScript("OnEvent", function(self)
                 return {
                     { tooltip="Custom Color", hasAlpha=false,
                       getValue=function()
-                          local c=Cfg("tabBackgroundColor") or fallback
-                          return c.r,c.g,c.b,c.a == nil and fallback.a or c.a
+                          local c=Cfg("tabBackgroundColor")
+                          if not c then return nil end
+                          return c.r,c.g,c.b,c.a or fallback.a
                       end,
                       setValue=function(r,g,b)
                           local c=Cfg("tabBackgroundColor") or fallback
-                          local a=c.a == nil and fallback.a or c.a
+                          local a=c.a or fallback.a
                           Set("tabBackgroundColor",{r=r,g=g,b=b,a=a})
                           if ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
-                      end },
+                      end,
+                      getFactoryDefault=function() return fallback.r, fallback.g, fallback.b, fallback.a end },
                 }
             end
             local function ActiveTabBgSwatches()
@@ -998,15 +1008,17 @@ initFrame:SetScript("OnEvent", function(self)
                 return {
                     { tooltip="Custom Color", hasAlpha=false,
                       getValue=function()
-                          local c=Cfg(key) or fallback
-                          return c.r,c.g,c.b,c.a == nil and fallback.a or c.a
+                          local c=Cfg(key)
+                          if not c then return nil end
+                          return c.r,c.g,c.b,c.a or fallback.a
                       end,
                       setValue=function(r,g,b)
                           local c=Cfg(key) or fallback
-                          local a=c.a == nil and fallback.a or c.a
+                          local a=c.a or fallback.a
                           Set(key,{r=r,g=g,b=b,a=a}); Set(modeKey,"custom")
                           if ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
                       end,
+                      getFactoryDefault=function() return fallback.r, fallback.g, fallback.b, fallback.a end,
                       onClick=function(self)
                           if (Cfg(modeKey) or "custom") ~= "custom" then
                               SetMode("custom"); return
@@ -1090,14 +1102,16 @@ initFrame:SetScript("OnEvent", function(self)
                 return {
                     { tooltip="Custom Color", hasAlpha=true,
                       getValue=function()
-                          local c=Cfg("activeUnderlineColor") or {r=.05,g=.82,b=.61,a=1}
-                          return c.r,c.g,c.b,c.a == nil and 1 or c.a
+                          local c=Cfg("activeUnderlineColor")
+                          if not c then return nil end
+                          return c.r,c.g,c.b,c.a or 1
                       end,
                       setValue=function(r,g,b,a)
                           Set("activeUnderlineColor",{r=r,g=g,b=b,a=a})
                           Set("activeUnderlineColorMode","custom")
                           if ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
                       end,
+                      getFactoryDefault=function() return .05, .82, .61, 1 end,
                       onClick=function(self)
                           if UnderlineMode() ~= "custom" then
                               Set("activeUnderlineColorMode","custom")
@@ -1290,9 +1304,9 @@ initFrame:SetScript("OnEvent", function(self)
                     function() return EllesmereUI.GetAccentColor() end, function() end, false, 20)
                 PP.Point(accentSw,"RIGHT",classSw,"LEFT",-8,0); accentSw:SetScript("OnClick",function() SetMode("accent") end)
                 local customSw, refreshCustom = EllesmereUI.BuildColorSwatch(rgn, borderRow:GetFrameLevel()+3,
-                    function() local c=Cfg("tabBorderColor") or {r=1,g=1,b=1}; return c.r,c.g,c.b,Cfg("tabBorderOpacity") or 0.18 end,
+                    function() local c=Cfg("tabBorderColor"); if not c then return nil end; return c.r,c.g,c.b,Cfg("tabBorderOpacity") end,
                     function(r,g,b,a) Set("tabBorderColor",{r=r,g=g,b=b}); Set("tabBorderOpacity",a); Set("tabBorderColorMode","custom"); ECHAT.ApplyTabBorders() end,
-                    true,20)
+                    true,20, function() return 1,1,1,0.18 end)
                 PP.Point(customSw,"RIGHT",accentSw,"LEFT",-8,0)
                 local orig=customSw:GetScript("OnClick")
                 customSw:SetScript("OnClick",function(self,...)
@@ -1327,14 +1341,15 @@ initFrame:SetScript("OnEvent", function(self)
                 local swatch, refreshSwatch = EllesmereUI.BuildColorSwatch(
                     rgn, activeBorderRow:GetFrameLevel() + 3,
                     function()
-                        local c = Cfg("tabBorderColorActive") or { r=1, g=1, b=1 }
-                        return c.r, c.g, c.b, c.a == nil and 0.18 or c.a
+                        local c = Cfg("tabBorderColorActive")
+                        if not c then return nil end
+                        return c.r, c.g, c.b, c.a or 0.18
                     end,
                     function(r, g, b, a)
                         Set("tabBorderColorActive", { r=r, g=g, b=b, a=a })
                         if ECHAT.ApplyTabBorders then ECHAT.ApplyTabBorders() end
                     end,
-                    true, 20)
+                    true, 20, function() return 1, 1, 1, 0.18 end)
                 PP.Point(swatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                 rgn._lastInline = swatch
                 swatch:SetScript("OnEnter", function()
@@ -1473,8 +1488,9 @@ initFrame:SetScript("OnEvent", function(self)
             local swatch, refreshSwatch = EllesmereUI.BuildColorSwatch(
                 rgn, extrasBorderRow:GetFrameLevel() + 3,
                 function()
-                    local c = Cfg("innerBorderColor") or { r=1, g=1, b=1, a=0.06 }
-                    return c.r, c.g, c.b, c.a == nil and 0.06 or c.a
+                    local c = Cfg("innerBorderColor")
+                    if not c then return nil end
+                    return c.r, c.g, c.b, c.a or 0.06
                 end,
                 function(r, g, b, a)
                     Set("innerBorderColor", { r=r, g=g, b=b, a=a })
@@ -1483,7 +1499,7 @@ initFrame:SetScript("OnEvent", function(self)
                     if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
                     if ECHAT.ApplyTabSeparators then ECHAT.ApplyTabSeparators() end
                 end,
-                true, 20)
+                true, 20, function() return 1, 1, 1, 0.06 end)
             PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
             -- Accent mode swatch sits left of the custom one (select-mode-
             -- first convention, matching the tab border color trio).

@@ -1454,14 +1454,15 @@ initFrame:SetScript("OnEvent", function(self)
                       { tooltip = "Custom Color",
                         getValue = function()
                             local c = S().customColor
-                            if c then return c.r or 1, c.g or 1, c.b or 1 end
-                            return 1, 1, 1
+                            if not c then return nil end
+                            return c.r, c.g, c.b
                         end,
                         setValue = function(r, g, b)
                             S().customColor = { r = r, g = g, b = b }
                             S().colorMode = "custom"
                             RefreshDataBar(barKey)
                         end,
+                        getFactoryDefault = function() return 1, 1, 1 end,
                         onClick = function(self)
                             if S().colorMode ~= "custom" then
                                 S().colorMode = "custom"
@@ -2509,14 +2510,15 @@ initFrame:SetScript("OnEvent", function(self)
                     local bgRgn = orientRow._rightRegion
                     local bgColorGet = function()
                         local c = SGet("bgColor")
-                        if not c then return 0, 0, 0, 0.5 end
+                        if not c then return nil end
                         return c.r, c.g, c.b, c.a
                     end
                     local bgColorSet = function(r, g, b, a)
                         SSetColor("bgColor", r, g, b, a, function(k) EAB:ApplyBackgroundForBar(k) end)
                         SUpdatePreview()
                     end
-                    local bgSwatch, bgUpdateSwatch = EllesmereUI.BuildColorSwatch(bgRgn, bgRgn:GetFrameLevel() + 5, bgColorGet, bgColorSet, true, 20)
+                    local bgColorDefault = function() return 0, 0, 0, 0.5 end
+                    local bgSwatch, bgUpdateSwatch = EllesmereUI.BuildColorSwatch(bgRgn, bgRgn:GetFrameLevel() + 5, bgColorGet, bgColorSet, true, 20, bgColorDefault)
                     PP.Point(bgSwatch, "RIGHT", bgRgn._control, "LEFT", -12, 0)
                     bgRgn._lastInline = bgSwatch
                     EllesmereUI.RegisterWidgetRefresh(function()
@@ -2704,7 +2706,8 @@ initFrame:SetScript("OnEvent", function(self)
                   disabled=BgDisabled,
                   disabledTooltip="Bar Background",
                   getValue=function()
-                      local c = SGet("bgColor") or { r=0, g=0, b=0, a=0.5 }
+                      local c = SGet("bgColor")
+                      if not c then return nil end
                       return c.r, c.g, c.b, 1
                   end,
                   setValue=function(r, g, b)
@@ -2712,7 +2715,8 @@ initFrame:SetScript("OnEvent", function(self)
                       SSetColor("bgColor", r, g, b, old.a or 0.5,
                           function(k) EAB:ApplyBackgroundForBar(k) end)
                       SUpdatePreview()
-                  end },
+                  end,
+                  getFactoryDefault=function() return 0, 0, 0, 1 end },
                 { type="slider", text="Background Opacity", min=0, max=100, step=1,
                   disabled=BgDisabled,
                   disabledTooltip="Bar Background",
@@ -2834,13 +2838,14 @@ initFrame:SetScript("OnEvent", function(self)
                     local region = bgBorderRow._rightRegion
                     local borderSwatch, refreshBorder = EllesmereUI.BuildColorSwatch(region, region:GetFrameLevel() + 5,
                         function()
-                            local c = SGet("bgBorderColor") or { r=0, g=0, b=0, a=1 }
+                            local c = SGet("bgBorderColor")
+                            if not c then return nil end
                             return c.r, c.g, c.b, c.a
                         end,
                         function(r, g, b, a)
                             SSetColor("bgBorderColor", r, g, b, a, function(k) EAB:ApplyBackgroundForBar(k) end)
                             SUpdatePreview()
-                    end, true, 20)
+                    end, true, 20, function() return 0, 0, 0, 1 end)
                     PP.Point(borderSwatch, "RIGHT", region._control, "LEFT", -12, 0)
                     region._lastInline = borderSwatch
                     EllesmereUI.RegisterWidgetRefresh(function()
@@ -3366,7 +3371,7 @@ initFrame:SetScript("OnEvent", function(self)
                     rightRgn, abBsRow:GetFrameLevel() + 3,
                     function()
                         local c = SGet("borderColor")
-                        if not c then return 0, 0, 0 end
+                        if not c then return nil end
                         return c.r, c.g, c.b
                     end,
                     function(r, g, b)
@@ -3379,7 +3384,7 @@ initFrame:SetScript("OnEvent", function(self)
                         end)
                         SUpdatePreview()
                     end,
-                    false, 20)
+                    false, 20, function() return 0, 0, 0 end)
                 PP.Point(customSwatch, "RIGHT", classBorderSwatch, "LEFT", -8, 0)
                 customSwatch:SetScript("OnEnter", function()
                     EllesmereUI.ShowWidgetTooltip(customSwatch, "Custom Color")
@@ -3841,14 +3846,15 @@ initFrame:SetScript("OnEvent", function(self)
                 local sbgSwatch, sbgUpdateSwatch = EllesmereUI.BuildColorSwatch(
                     rgn, slotBgRow:GetFrameLevel() + 3,
                     function()
-                        local c = EAB.db.profile.slotBgColor or { r=0.15, g=0.15, b=0.15 }
+                        local c = EAB.db.profile.slotBgColor
+                        if not c then return nil end
                         return c.r, c.g, c.b, 1
                     end,
                     function(r, g, b)
                         EAB.db.profile.slotBgColor = { r = r, g = g, b = b }
                         EAB:ApplySlotBackgroundColor()
                     end,
-                    false, 20)
+                    false, 20, function() return 0.15, 0.15, 0.15, 1 end)
                 PP.Point(sbgSwatch, "RIGHT", rgn._control, "LEFT", -8, 0)
                 rgn._lastInline = sbgSwatch
                 sbgSwatch:SetAlpha(SbgOff() and 0.15 or 1)
@@ -3989,13 +3995,14 @@ initFrame:SetScript("OnEvent", function(self)
                 local leftRgn = rangeRankRow._leftRegion
                 local rangeColorGet = function()
                     local c = SGet("outOfRangeColor")
-                    if not c then return 0.7, 0.2, 0.2 end
+                    if not c then return nil end
                     return c.r, c.g, c.b
                 end
                 local rangeColorSet = function(r, g, b)
                     SSetColor("outOfRangeColor", r, g, b, nil, function() EAB:ApplyRangeColoring() end)
                 end
-                local rangeSwatch, rangeUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, rangeColorGet, rangeColorSet, false, 20)
+                local rangeColorDefault = function() return 0.7, 0.2, 0.2 end
+                local rangeSwatch, rangeUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, rangeColorGet, rangeColorSet, false, 20, rangeColorDefault)
                 PP.Point(rangeSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
                 leftRgn._lastInline = rangeSwatch
 
@@ -4083,14 +4090,15 @@ initFrame:SetScript("OnEvent", function(self)
                 local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
                     rgn, cdEffectsRow:GetFrameLevel() + 5,
                     function()
-                        local c = EAB.db.profile.cdSwipeColor or {}
-                        return c.r or 0, c.g or 0, c.b or 0
+                        local c = EAB.db.profile.cdSwipeColor
+                        if not c then return nil end
+                        return c.r, c.g, c.b
                     end,
                     function(r, g, b)
                         EAB.db.profile.cdSwipeColor = { r = r, g = g, b = b }
                         if EAB.ApplyCooldownSwipeColor then EAB:ApplyCooldownSwipeColor() end
                     end,
-                    false, 20)
+                    false, 20, function() return 0, 0, 0 end)
                 PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
                 rgn._lastInline = swatch
                 -- Canonical inline-swatch pattern: auto-disable at 0 opacity (invisible swipe has no visible colour).
@@ -4442,14 +4450,14 @@ initFrame:SetScript("OnEvent", function(self)
                     rgn, keybindRow:GetFrameLevel() + 3,
                     function()
                         local c = SGet("keybindFontColor")
-                        if not c then return 1, 1, 1 end
+                        if not c then return nil end
                         return c.r, c.g, c.b
                     end,
                     function(r, g, b)
                         SSetColor("keybindFontColor", r, g, b, nil, function(k) EAB:ApplyFontsForBar(k) end)
                         SUpdatePreview()
                     end,
-                    false, 20)
+                    false, 20, function() return 1, 1, 1 end)
                 PP.Point(kbSwatch, "RIGHT", ctrl, "LEFT", -12, 0)
                 rgn._lastInline = kbSwatch
                 EllesmereUI.RegisterWidgetRefresh(function() kbUpdateSwatch() end)
@@ -4595,14 +4603,14 @@ initFrame:SetScript("OnEvent", function(self)
                     rgn, macroRow:GetFrameLevel() + 3,
                     function()
                         local c = SGet("macroFontColor")
-                        if not c then return 1, 1, 1 end
+                        if not c then return nil end
                         return c.r, c.g, c.b
                     end,
                     function(r, g, b)
                         SSetColor("macroFontColor", r, g, b, nil, function(k) EAB:ApplyFontsForBar(k) end)
                         SUpdatePreview()
                     end,
-                    false, 20)
+                    false, 20, function() return 1, 1, 1 end)
                 PP.Point(mcSwatch, "RIGHT", ctrl, "LEFT", -12, 0)
                 rgn._lastInline = mcSwatch
                 EllesmereUI.RegisterWidgetRefresh(function() mcUpdateSwatch() end)
@@ -4709,14 +4717,14 @@ initFrame:SetScript("OnEvent", function(self)
                     rgn, chargesRow:GetFrameLevel() + 3,
                     function()
                         local c = SGet("countFontColor")
-                        if not c then return 1, 1, 1 end
+                        if not c then return nil end
                         return c.r, c.g, c.b
                     end,
                     function(r, g, b)
                         SSetColor("countFontColor", r, g, b, nil, function(k) EAB:ApplyFontsForBar(k) end)
                         SUpdatePreview()
                     end,
-                    false, 20)
+                    false, 20, function() return 1, 1, 1 end)
                 PP.Point(ctSwatch, "RIGHT", ctrl, "LEFT", -12, 0)
                 rgn._lastInline = ctSwatch
                 EllesmereUI.RegisterWidgetRefresh(function() ctUpdateSwatch() end)
@@ -4816,14 +4824,14 @@ initFrame:SetScript("OnEvent", function(self)
                     rgn, chargesRow:GetFrameLevel() + 3,
                     function()
                         local c = SGet("cooldownTextColor")
-                        if not c then return 1, 1, 1 end
+                        if not c then return nil end
                         return c.r, c.g, c.b
                     end,
                     function(r, g, b)
                         SSetColor("cooldownTextColor", r, g, b, nil, function(k) EAB:ApplyCooldownFontsForBar(k) end)
                         SUpdatePreview()
                     end,
-                    false, 20)
+                    false, 20, function() return 1, 1, 1 end)
                 PP.Point(cdSwatch, "RIGHT", ctrl, "LEFT", -12, 0)
                 rgn._lastInline = cdSwatch
                 EllesmereUI.RegisterWidgetRefresh(function() cdUpdateSwatch() end)
@@ -5487,12 +5495,13 @@ initFrame:SetScript("OnEvent", function(self)
               rawTooltip=true,
               getValue=function()
                   local c = p.pushedCustomColor
-                  if not c then return 0.973, 0.839, 0.604, 1 end
+                  if not c then return nil end
                   return c.r, c.g, c.b, c.a
               end,
               setValue=function(r, g, b, a)
                   SetUnifiedColor(r, g, b, a)
               end,
+              getFactoryDefault=function() return 0.973, 0.839, 0.604, 1 end,
               hasAlpha=true },
             { type="toggle", text="Class Colored Bar Interactions",
               tooltip=INTERACTIONS_TIP,
@@ -5736,7 +5745,8 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(function() UpdateProcGlowPreview(_procGlowPreview) end)
 
             local glowSwatchGet = function()
-                local c = p.procGlowColor or { r = 1, g = 0.776, b = 0.376 }
+                local c = p.procGlowColor
+                if not c then return nil end
                 return c.r, c.g, c.b
             end
             local glowSwatchSet = function(r, g, b)
@@ -5744,7 +5754,8 @@ initFrame:SetScript("OnEvent", function(self)
                 EAB:RefreshProcGlows()
                 UpdateProcGlowPreview(_procGlowPreview)
             end
-            local glowSwatch, glowUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, glowSwatchGet, glowSwatchSet, nil, 20)
+            local glowSwatchDefault = function() return 1, 0.776, 0.376 end
+            local glowSwatch, glowUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, glowSwatchGet, glowSwatchSet, nil, 20, glowSwatchDefault)
             PP.Point(glowSwatch, "RIGHT", _procGlowPreview, "LEFT", -12, 0)
 
             local GLOW_DISABLED_TIP = "This option requires a custom glow to be selected"

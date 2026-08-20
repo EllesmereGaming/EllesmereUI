@@ -499,8 +499,9 @@ function ns.BMP_BuildBaseDetail(root, leftW, visibleH, s, fontPath, PP)
     do
         local rgn = row3._rightRegion
         local swatch = EllesmereUI.BuildColorSwatch(rgn, row3:GetFrameLevel() + 3,
-            function() local c = bs.borderColor or { r = 0, g = 0, b = 0 }; return c.r, c.g, c.b, 1 end,
-            function(r, g, b) bs.borderColor = { r = r, g = g, b = b }; BApply() end, false, 20)
+            function() local c = bs.borderColor; if not c then return nil end; return c.r, c.g, c.b, 1 end,
+            function(r, g, b) bs.borderColor = { r = r, g = g, b = b }; BApply() end, false, 20,
+            function() return 0, 0, 0, 1 end)
         swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         rgn._lastInline = swatch
     end
@@ -518,8 +519,9 @@ function ns.BMP_BuildBaseDetail(root, leftW, visibleH, s, fontPath, PP)
     do
         local rgn = row4._rightRegion
         local swatch = EllesmereUI.BuildColorSwatch(rgn, row4:GetFrameLevel() + 3,
-            function() local c = bs.durTextColor or { r = 1, g = 1, b = 1 }; return c.r, c.g, c.b, 1 end,
-            function(r, g, b) bs.durTextColor = { r = r, g = g, b = b }; BApply() end, false, 20)
+            function() local c = bs.durTextColor; if not c then return nil end; return c.r, c.g, c.b, 1 end,
+            function(r, g, b) bs.durTextColor = { r = r, g = g, b = b }; BApply() end, false, 20,
+            function() return 1, 1, 1, 1 end)
         swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         rgn._lastInline = swatch
 
@@ -560,8 +562,9 @@ function ns.BMP_BuildBaseDetail(root, leftW, visibleH, s, fontPath, PP)
     do
         local rgn = row5._leftRegion
         local swatch = EllesmereUI.BuildColorSwatch(rgn, row5:GetFrameLevel() + 3,
-            function() local c = bs.stacksTextColor or { r = 1, g = 1, b = 1 }; return c.r, c.g, c.b, 1 end,
-            function(r, g, b) bs.stacksTextColor = { r = r, g = g, b = b }; BApply() end, false, 20)
+            function() local c = bs.stacksTextColor; if not c then return nil end; return c.r, c.g, c.b, 1 end,
+            function(r, g, b) bs.stacksTextColor = { r = r, g = g, b = b }; BApply() end, false, 20,
+            function() return 1, 1, 1, 1 end)
         swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         rgn._lastInline = swatch
 
@@ -922,12 +925,16 @@ local function BuildFxEffects(frame, sy, fxOwner)
 
             local glowSwatch, updateGlowSwatch = EllesmereUI.BuildColorSwatch(
                 rgn, row:GetFrameLevel() + 3,
-                function() return e.glowR or 1.0, e.glowG or 0.776, e.glowB or 0.376 end,
+                function()
+                    if e.glowR == nil then return nil end
+                    return e.glowR, e.glowG, e.glowB
+                end,
                 function(r, g, b)
                     e.glowR, e.glowG, e.glowB = r, g, b
                     DmApply()
                 end,
-                false, 20)
+                false, 20,
+                function() return 1.0, 0.776, 0.376 end)
             PP.Point(glowSwatch, "RIGHT", classSwatch, "LEFT", -8, 0)
             glowSwatch:SetScript("OnEnter", function()
                 EllesmereUI.ShowWidgetTooltip(glowSwatch, "Custom Colored")
@@ -971,13 +978,15 @@ local function BuildFxEffects(frame, sy, fxOwner)
             local rgn = bRow._leftRegion
             local swatch = EllesmereUI.BuildColorSwatch(rgn, bRow:GetFrameLevel() + 3,
                 function()
-                    local c = e.borderColor or { r = 0, g = 0, b = 0 }
-                    return c.r or 0, c.g or 0, c.b or 0, 1
+                    local c = e.borderColor
+                    if not c then return nil end
+                    return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     e.borderColor = { r = r, g = g, b = b }
                     DmApply()
-                end, false, 20)
+                end, false, 20,
+                function() return 0, 0, 0, 1 end)
             swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = swatch
         end
@@ -1326,13 +1335,15 @@ local function BuildBaseDetailDM(frame, fontPath)
         local rgn = bRow._leftRegion
         local swatch = EllesmereUI.BuildColorSwatch(rgn, bRow:GetFrameLevel() + 3,
             function()
-                local c = p.debuffBorderColor or { r = 0, g = 0, b = 0 }
-                return c.r or 0, c.g or 0, c.b or 0, 1
+                local c = p.debuffBorderColor
+                if not c then return nil end
+                return c.r, c.g, c.b, 1
             end,
             function(r, g, b)
                 p.debuffBorderColor = { r = r, g = g, b = b }
                 DmApply()
-            end, false, 20)
+            end, false, 20,
+            function() return 0, 0, 0, 1 end)
         swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         rgn._lastInline = swatch
     end
@@ -1350,13 +1361,15 @@ local function BuildBaseDetailDM(frame, fontPath)
         local rgn = dtRow._leftRegion
         local swatch = EllesmereUI.BuildColorSwatch(rgn, dtRow:GetFrameLevel() + 3,
             function()
-                local c = p.debuffDurTextColor or { r = 1, g = 1, b = 1 }
-                return c.r or 1, c.g or 1, c.b or 1, 1
+                local c = p.debuffDurTextColor
+                if not c then return nil end
+                return c.r, c.g, c.b, 1
             end,
             function(r, g, b)
                 p.debuffDurTextColor = { r = r, g = g, b = b }
                 DmApply()
-            end, false, 20)
+            end, false, 20,
+            function() return 1, 1, 1, 1 end)
         swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         rgn._lastInline = swatch
 
@@ -1390,13 +1403,15 @@ local function BuildBaseDetailDM(frame, fontPath)
         local rgn = dtRow._rightRegion
         local swatch = EllesmereUI.BuildColorSwatch(rgn, dtRow:GetFrameLevel() + 3,
             function()
-                local c = p.debuffStacksTextColor or { r = 1, g = 1, b = 1 }
-                return c.r or 1, c.g or 1, c.b or 1, 1
+                local c = p.debuffStacksTextColor
+                if not c then return nil end
+                return c.r, c.g, c.b, 1
             end,
             function(r, g, b)
                 p.debuffStacksTextColor = { r = r, g = g, b = b }
                 DmApply()
-            end, false, 20)
+            end, false, 20,
+            function() return 1, 1, 1, 1 end)
         swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         rgn._lastInline = swatch
 
@@ -1582,13 +1597,18 @@ local function BuildTileDetail(frame, fontPath, t)
             local rgn = bRow._leftRegion
             local swatch = EllesmereUI.BuildColorSwatch(rgn, bRow:GetFrameLevel() + 3,
                 function()
-                    local c = t.borderColor or p.debuffBorderColor or { r = 0, g = 0, b = 0 }
-                    return c.r or 0, c.g or 0, c.b or 0, 1
+                    local c = t.borderColor
+                    if not c then return nil end
+                    return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     t.borderColor = { r = r, g = g, b = b }
                     DmApply()
-                end, false, 20)
+                end, false, 20,
+                function()
+                    local c = p.debuffBorderColor or { r = 0, g = 0, b = 0 }
+                    return c.r or 0, c.g or 0, c.b or 0, 1
+                end)
             swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = swatch
         end
@@ -1606,13 +1626,18 @@ local function BuildTileDetail(frame, fontPath, t)
             local rgn = dtRow._leftRegion
             local swatch = EllesmereUI.BuildColorSwatch(rgn, dtRow:GetFrameLevel() + 3,
                 function()
-                    local c = t.durTextColor or p.debuffDurTextColor or { r = 1, g = 1, b = 1 }
-                    return c.r or 1, c.g or 1, c.b or 1, 1
+                    local c = t.durTextColor
+                    if not c then return nil end
+                    return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     t.durTextColor = { r = r, g = g, b = b }
                     DmApply()
-                end, false, 20)
+                end, false, 20,
+                function()
+                    local c = p.debuffDurTextColor or { r = 1, g = 1, b = 1 }
+                    return c.r or 1, c.g or 1, c.b or 1, 1
+                end)
             swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = swatch
 
@@ -1646,13 +1671,18 @@ local function BuildTileDetail(frame, fontPath, t)
             local rgn = dtRow._rightRegion
             local swatch = EllesmereUI.BuildColorSwatch(rgn, dtRow:GetFrameLevel() + 3,
                 function()
-                    local c = t.stacksTextColor or p.debuffStacksTextColor or { r = 1, g = 1, b = 1 }
-                    return c.r or 1, c.g or 1, c.b or 1, 1
+                    local c = t.stacksTextColor
+                    if not c then return nil end
+                    return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     t.stacksTextColor = { r = r, g = g, b = b }
                     DmApply()
-                end, false, 20)
+                end, false, 20,
+                function()
+                    local c = p.debuffStacksTextColor or { r = 1, g = 1, b = 1 }
+                    return c.r or 1, c.g or 1, c.b or 1, 1
+                end)
             swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = swatch
 
@@ -1701,13 +1731,15 @@ local function BuildTileDetail(frame, fontPath, t)
             _, hh = W:DualRow(frame, sy,
                 { type = "colorpicker", text = "Color", hasAlpha = true,
                   getValue = function()
-                      local c = t.color or { r = 1, g = 0.35, b = 0.35, a = 1 }
-                      return c.r or 1, c.g or 0.35, c.b or 0.35, c.a or 1
+                      local c = t.color
+                      if not c then return nil end
+                      return c.r, c.g, c.b, c.a or 1
                   end,
                   setValue = function(r, g, b, a)
                       t.color = { r = r, g = g, b = b, a = a or 1 }
                       DmApply()
-                  end },
+                  end,
+                  getFactoryDefault = function() return 1, 0.35, 0.35, 1 end },
                 { type = "label", text = "" }); sy = sy - hh
         end
 
@@ -1760,15 +1792,17 @@ local function BuildTileDetail(frame, fontPath, t)
         local rgn = catRow._rightRegion
         local swatch = EllesmereUI.BuildColorSwatch(rgn, catRow:GetFrameLevel() + 3,
             function()
-                local c = t.color or { r = 1, g = 1, b = 1 }
-                return c.r or 1, c.g or 1, c.b or 1, 1
+                local c = t.color
+                if not c or c.r == nil then return nil end
+                return c.r, c.g, c.b, 1
             end,
             function(r, g, b)
                 local c = t.color or {}
                 c.r, c.g, c.b = r, g, b
                 t.color = c
                 DmApply()
-            end, false, 20)
+            end, false, 20,
+            function() return 1, 1, 1, 1 end)
         -- Label slots have no _control: anchor to the region itself.
         swatch:SetPoint("RIGHT", rgn, "RIGHT", -20, 0)
         rgn._lastInline = swatch
@@ -1880,13 +1914,15 @@ local function BuildTileDetail(frame, fontPath, t)
             local colorSwatch = EllesmereUI.BuildColorSwatch(
                 rgn, barBgRow:GetFrameLevel() + 3,
                 function()
-                    local c = t.color or { r = 0.25, g = 0.8, b = 0.45 }
-                    return c.r or 0.25, c.g or 0.8, c.b or 0.45, 1
+                    local c = t.color
+                    if not c then return nil end
+                    return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     t.color = { r = r, g = g, b = b }
                     DmApply()
-                end, false, 20)
+                end, false, 20,
+                function() return 0.25, 0.8, 0.45, 1 end)
             colorSwatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = colorSwatch
         end
@@ -1895,13 +1931,15 @@ local function BuildTileDetail(frame, fontPath, t)
             local bgSwatch = EllesmereUI.BuildColorSwatch(
                 rgn, barBgRow:GetFrameLevel() + 3,
                 function()
-                    local c = t.barBgColor or { r = 0, g = 0, b = 0 }
-                    return c.r or 0, c.g or 0, c.b or 0, 1
+                    local c = t.barBgColor
+                    if not c then return nil end
+                    return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     t.barBgColor = { r = r, g = g, b = b }
                     DmApply()
-                end, false, 20)
+                end, false, 20,
+                function() return 0, 0, 0, 1 end)
             bgSwatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = bgSwatch
         end

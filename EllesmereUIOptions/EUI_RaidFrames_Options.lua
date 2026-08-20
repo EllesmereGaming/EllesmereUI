@@ -1008,13 +1008,14 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, row:GetFrameLevel() + 3,
                 function()
                     local c = SGet("customFillColor")
-                    if c then return c.r, c.g, c.b, 1 end
-                    return 37/255, 193/255, 29/255, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     SWrite("customFillColor", { r=r, g=g, b=b })
                     ReloadAndUpdate()
-                end, false, 20)
+                end, false, 20,
+                function() return 37/255, 193/255, 29/255, 1 end)
             swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = swatch
             -- Blocking overlay: non-clickable + tooltip unless Fill Color is Custom.
@@ -1038,13 +1039,15 @@ initFrame:SetScript("OnEvent", function(self)
                 local sw = EllesmereUI.BuildColorSwatch(
                     rgn, row:GetFrameLevel() + 3,
                     function()
-                        local c = SGet(dd.key) or dd.def
+                        local c = SGet(dd.key)
+                        if not c then return nil end
                         return c.r, c.g, c.b, 1
                     end,
                     function(r, g, b)
                         SWrite(dd.key, { r=r, g=g, b=b })
                         ReloadAndUpdate()
-                    end, false, 18)
+                    end, false, 18,
+                    function() return dd.def.r, dd.def.g, dd.def.b, 1 end)
                 sw:SetPoint("RIGHT", prevAnchor, "LEFT", (prevAnchor == rgn._control) and -8 or -6, 0)
                 sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, dd.tip) end)
                 sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
@@ -1100,13 +1103,14 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, row:GetFrameLevel() + 3,
                 function()
                     local c = SGet("customBgColor")
-                    if c then return c.r, c.g, c.b, 1 end
-                    return 17/255, 17/255, 17/255, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     SWrite("customBgColor", { r=r, g=g, b=b })
                     ReloadAndUpdate()
-                end, false, 20)
+                end, false, 20,
+                function() return 17/255, 17/255, 17/255, 1 end)
             bgSwatch._eabOrigClick = bgSwatch:GetScript("OnClick")
             bgSwatch:SetScript("OnClick", function(self)
                 if SVal("bgClassColored", false) then
@@ -1161,13 +1165,14 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, healPredRow:GetFrameLevel() + 3,
                 function()
                     local c = SGet("healPredColor")
-                    if c then return c.r, c.g, c.b, 1 end
-                    return 102/255, 243/255, 102/255, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     SWrite("healPredColor", { r=r, g=g, b=b })
                     ReloadAndUpdate()
-                end, false, 20)
+                end, false, 20,
+                function() return 102/255, 243/255, 102/255, 1 end)
             swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = swatch
             local function UpdateHealPredSwatchVis()
@@ -1288,13 +1293,14 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, absorbRow:GetFrameLevel() + 3,
                 function()
                     local c = SGet("absorbColor")
-                    if c then return c.r, c.g, c.b, 1 end
-                    return 1, 1, 1, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     SWrite("absorbColor", { r=r, g=g, b=b })
                     ReloadAndUpdate()
-                end, false, 20)
+                end, false, 20,
+                function() return 1, 1, 1, 1 end)
             swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = swatch
             -- BuildColorSwatch has no disabled state, so a mouse-enabled frame on top eats clicks when the color isn't user-editable (no absorb, or hardcoded-color "Blizzard (Modern)").
@@ -1464,13 +1470,14 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, absorbBarRow:GetFrameLevel() + 3,
                 function()
                     local c = SGet("absorbBarColor")
-                    if c then return c.r, c.g, c.b, c.a or 1 end
-                    return 1, 1, 1, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b, c.a or 1
                 end,
                 function(r, g, b, a)
                     SWrite("absorbBarColor", { r=r, g=g, b=b, a=a })
                     ReloadAndUpdate()
-                end, true, 20)
+                end, true, 20,
+                function() return 1, 1, 1, 1 end)
             swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = swatch
             local function UpdateAbsorbBarSwatchVis()
@@ -1505,13 +1512,14 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, healAbsorbRow:GetFrameLevel() + 3,
                 function()
                     local c = SGet("healAbsorbColor")
-                    if c then return c.r, c.g, c.b, 1 end
-                    return 0.8, 0.15, 0.15, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     SWrite("healAbsorbColor", { r=r, g=g, b=b })
                     ReloadAndUpdate()
-                end, false, 20)
+                end, false, 20,
+                function() return 0.8, 0.15, 0.15, 1 end)
             swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = swatch
             -- Blocked for "none" and the pre-colored heal styles (healBlizzModern is hardcoded white).
@@ -1605,13 +1613,14 @@ initFrame:SetScript("OnEvent", function(self)
                     rgn, healAbsorbBarRow:GetFrameLevel() + 3,
                     function()
                         local c = SGet("healAbsorbBarColor")
-                        if c then return c.r, c.g, c.b, c.a or 1 end
-                        return 200/255, 29/255, 29/255, 1
+                        if not c then return nil end
+                        return c.r, c.g, c.b, c.a or 1
                     end,
                     function(r, g, b, a)
                         SWrite("healAbsorbBarColor", { r=r, g=g, b=b, a=a })
                         ReloadAndUpdate()
-                    end, true, 20)
+                    end, true, 20,
+                    function() return 200/255, 29/255, 29/255, 1 end)
                 swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                 rgn._lastInline = swatch
                 local function UpdateHealAbsorbBarSwatchVis()
@@ -1690,13 +1699,14 @@ initFrame:SetScript("OnEvent", function(self)
                     rgn, maxHealthRow:GetFrameLevel() + 3,
                     function()
                         local c = SGet("maxHealthColor")
-                        if c then return c.r, c.g, c.b, 1 end
-                        return 0.7, 0.1, 0.1, 1
+                        if not c then return nil end
+                        return c.r, c.g, c.b, 1
                     end,
                     function(r, g, b)
                         SWrite("maxHealthColor", { r=r, g=g, b=b })
                         ReloadAndUpdate()
-                    end, false, 20)
+                    end, false, 20,
+                    function() return 0.7, 0.1, 0.1, 1 end)
                 swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                 rgn._lastInline = swatch
                 -- Blocked for "none" and the pre-colored styles.
@@ -1973,14 +1983,15 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, pwBdrRow:GetFrameLevel() + 3,
                 function()
                     local c = SGet("powerBorderColor")
-                    if c then return c.r, c.g, c.b, SVal("powerBorderAlpha", 1) end
-                    return 0, 0, 0, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b, SVal("powerBorderAlpha", 1)
                 end,
                 function(r, g, b, a)
                     SWrite("powerBorderColor", { r=r, g=g, b=b })
                     SWrite("powerBorderAlpha", a)
                     ReloadAndUpdate()
-                end, true, 20)
+                end, true, 20,
+                function() return 0, 0, 0, 1 end)
             swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = swatch
             local block = CreateFrame("Frame", nil, swatch)
@@ -2034,13 +2045,14 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, pwBgRow:GetFrameLevel() + 3,
                 function()
                     local c = SGet("powerBgColor")
-                    if c then return c.r, c.g, c.b, 1 end
-                    return 0, 0, 0, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     SWrite("powerBgColor", { r=r, g=g, b=b })
                     ReloadAndUpdate()
-                end, false, 20)
+                end, false, 20,
+                function() return 0, 0, 0, 1 end)
             bgSwatch._eabOrigClick = bgSwatch:GetScript("OnClick")
             bgSwatch:SetScript("OnClick", function(self)
                 if SVal("powerBgPowerColored", false) then
@@ -2080,13 +2092,14 @@ initFrame:SetScript("OnEvent", function(self)
                   hasAlpha = false,
                   getValue = function()
                       local c = SGet("nameCustomColor")
-                      if c then return c.r, c.g, c.b end
-                      return 1, 1, 1
+                      if not c then return nil end
+                      return c.r, c.g, c.b
                   end,
                   setValue = function(r, g, b)
                       SWrite("nameCustomColor", { r=r, g=g, b=b })
                       ReloadAndUpdate()
                   end,
+                  getFactoryDefault = function() return 1, 1, 1 end,
                   onClick = function(self)
                       if SVal("nameColorMode", "class") ~= "custom" then
                           SSet("nameColorMode", "custom")
@@ -2196,9 +2209,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- Health Text color swatches (custom/class/accent), mirroring the Name Color triple. Custom is added FIRST so the _lastInline chain places it next to the dropdown, matching Name Color.
         if not EllesmereUI._prebuilding then
             local rgn = row._rightRegion
-            local function AddHTSwatch(getColor, setColor, mode, opensPicker, tooltip)
+            local function AddHTSwatch(getColor, setColor, mode, opensPicker, tooltip, getFactoryDefault)
                 local sw = EllesmereUI.BuildColorSwatch(
-                    rgn, row:GetFrameLevel() + 3, getColor, setColor, false, 20)
+                    rgn, row:GetFrameLevel() + 3, getColor, setColor, false, 20, getFactoryDefault)
                 sw:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                 rgn._lastInline = sw
                 -- Preserve the picker-opening click, then switch mode on click (same technique multiSwatch uses for Name Color).
@@ -2226,13 +2239,14 @@ initFrame:SetScript("OnEvent", function(self)
             AddHTSwatch(
                 function()
                     local c = SGet("healthTextCustomColor")
-                    if c then return c.r, c.g, c.b, 1 end
-                    return 1, 1, 1, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     SWrite("healthTextCustomColor", { r=r, g=g, b=b })
                     ReloadAndUpdate()
-                end, "custom", true, "Custom Color")
+                end, "custom", true, "Custom Color",
+                function() return 1, 1, 1, 1 end)
             AddHTSwatch(
                 function()
                     local _, ct = UnitClass("player")
@@ -2306,9 +2320,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- Heal Absorb Text swatches (custom/class/accent), same pattern as the Health Text triple above.
         if not EllesmereUI._prebuilding then
             local rgn = row._leftRegion
-            local function AddHASwatch(getColor, setColor, mode, opensPicker, tooltip)
+            local function AddHASwatch(getColor, setColor, mode, opensPicker, tooltip, getFactoryDefault)
                 local sw = EllesmereUI.BuildColorSwatch(
-                    rgn, row:GetFrameLevel() + 3, getColor, setColor, false, 20)
+                    rgn, row:GetFrameLevel() + 3, getColor, setColor, false, 20, getFactoryDefault)
                 sw:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                 rgn._lastInline = sw
                 sw._eabOrigClick = sw:GetScript("OnClick")
@@ -2334,13 +2348,14 @@ initFrame:SetScript("OnEvent", function(self)
             AddHASwatch(
                 function()
                     local c = SGet("healAbsorbTextCustomColor")
-                    if c then return c.r, c.g, c.b, 1 end
-                    return 1, 0.3, 0.3, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     SWrite("healAbsorbTextCustomColor", { r=r, g=g, b=b })
                     ReloadAndUpdate()
-                end, "custom", true, "Custom Color")
+                end, "custom", true, "Custom Color",
+                function() return 1, 0.3, 0.3, 1 end)
             AddHASwatch(
                 function()
                     local _, ct = UnitClass("player")
@@ -2797,13 +2812,14 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, stRow:GetFrameLevel() + 3,
                 function()
                     local c = SGet("statusTextColor")
-                    if c then return c.r, c.g, c.b, 1 end
-                    return 1, 1, 1, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     SWrite("statusTextColor", { r=r, g=g, b=b })
                     ReloadAndUpdate()
-                end, false, 20)
+                end, false, 20,
+                function() return 1, 1, 1, 1 end)
             swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = swatch
         end
@@ -2961,13 +2977,14 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, ciRow:GetFrameLevel() + 3,
                 function()
                     local c = SGet("combatIndicatorCustomColor")
-                    if c then return c.r, c.g, c.b, 1 end
-                    return 1, 0.2, 0.2, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     SWrite("combatIndicatorCustomColor", { r=r, g=g, b=b })
                     if ns._UpdateCombatIcons then ns._UpdateCombatIcons() end
-                end, false, 20)
+                end, false, 20,
+                function() return 1, 0.2, 0.2, 1 end)
             swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = swatch
         end
@@ -2988,13 +3005,14 @@ initFrame:SetScript("OnEvent", function(self)
                     rgn, gnRow:GetFrameLevel() + 3,
                     function()
                         local c = SGet("groupNumberColor")
-                        if c then return c.r, c.g, c.b, c.a or 0.75 end
-                        return 1, 1, 1, 0.75
+                        if not c then return nil end
+                        return c.r, c.g, c.b, c.a or 0.75
                     end,
                     function(r, g, b, a)
                         SWrite("groupNumberColor", { r=r, g=g, b=b, a=a })
                         ReloadAndUpdate()
-                    end, true, 20)
+                    end, true, 20,
+                    function() return 1, 1, 1, 0.75 end)
                 swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                 rgn._lastInline = swatch
             end
@@ -3211,20 +3229,25 @@ initFrame:SetScript("OnEvent", function(self)
               -- Per-type alpha 0 hides that type's border/overlay entirely.
               swatches = {
                 { tooltip = "Magic", hasAlpha = true,
-                  getValue = function() local c = SGet("dispelColorMagic"); if c then return c.r, c.g, c.b, c.a or 1 end return 0.354, 0.396, 0.74, 1 end,
-                  setValue = function(r, g, b, a) SWrite("dispelColorMagic", { r=r, g=g, b=b, a=a or 1 }); ReloadAndUpdate() end },
+                  getValue = function() local c = SGet("dispelColorMagic"); if not c then return nil end return c.r, c.g, c.b, c.a or 1 end,
+                  setValue = function(r, g, b, a) SWrite("dispelColorMagic", { r=r, g=g, b=b, a=a or 1 }); ReloadAndUpdate() end,
+                  getFactoryDefault = function() return 0.354, 0.396, 0.74, 1 end },
                 { tooltip = "Curse", hasAlpha = true,
-                  getValue = function() local c = SGet("dispelColorCurse"); if c then return c.r, c.g, c.b, c.a or 1 end return 0.636, 0.0, 0.64, 1 end,
-                  setValue = function(r, g, b, a) SWrite("dispelColorCurse", { r=r, g=g, b=b, a=a or 1 }); ReloadAndUpdate() end },
+                  getValue = function() local c = SGet("dispelColorCurse"); if not c then return nil end return c.r, c.g, c.b, c.a or 1 end,
+                  setValue = function(r, g, b, a) SWrite("dispelColorCurse", { r=r, g=g, b=b, a=a or 1 }); ReloadAndUpdate() end,
+                  getFactoryDefault = function() return 0.636, 0.0, 0.64, 1 end },
                 { tooltip = "Disease", hasAlpha = true,
-                  getValue = function() local c = SGet("dispelColorDisease"); if c then return c.r, c.g, c.b, c.a or 1 end return 0.71, 0.379, 0.0, 1 end,
-                  setValue = function(r, g, b, a) SWrite("dispelColorDisease", { r=r, g=g, b=b, a=a or 1 }); ReloadAndUpdate() end },
+                  getValue = function() local c = SGet("dispelColorDisease"); if not c then return nil end return c.r, c.g, c.b, c.a or 1 end,
+                  setValue = function(r, g, b, a) SWrite("dispelColorDisease", { r=r, g=g, b=b, a=a or 1 }); ReloadAndUpdate() end,
+                  getFactoryDefault = function() return 0.71, 0.379, 0.0, 1 end },
                 { tooltip = "Poison", hasAlpha = true,
-                  getValue = function() local c = SGet("dispelColorPoison"); if c then return c.r, c.g, c.b, c.a or 1 end return 0.052, 0.586, 0.62, 1 end,
-                  setValue = function(r, g, b, a) SWrite("dispelColorPoison", { r=r, g=g, b=b, a=a or 1 }); ReloadAndUpdate() end },
+                  getValue = function() local c = SGet("dispelColorPoison"); if not c then return nil end return c.r, c.g, c.b, c.a or 1 end,
+                  setValue = function(r, g, b, a) SWrite("dispelColorPoison", { r=r, g=g, b=b, a=a or 1 }); ReloadAndUpdate() end,
+                  getFactoryDefault = function() return 0.052, 0.586, 0.62, 1 end },
                 { tooltip = "Bleed", hasAlpha = true,
-                  getValue = function() local c = SGet("dispelColorBleed"); if c then return c.r, c.g, c.b, c.a or 1 end return 0.75, 0.15, 0.15, 1 end,
-                  setValue = function(r, g, b, a) SWrite("dispelColorBleed", { r=r, g=g, b=b, a=a or 1 }); ReloadAndUpdate() end },
+                  getValue = function() local c = SGet("dispelColorBleed"); if not c then return nil end return c.r, c.g, c.b, c.a or 1 end,
+                  setValue = function(r, g, b, a) SWrite("dispelColorBleed", { r=r, g=g, b=b, a=a or 1 }); ReloadAndUpdate() end,
+                  getFactoryDefault = function() return 0.75, 0.15, 0.15, 1 end },
               } },
             { type="toggle", text="Only Show Dispellable",
               -- Inverse of dispelShowAll: ON = only-mine (dispelShowAll=false).
@@ -3267,13 +3290,14 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, tnbRow2:GetFrameLevel() + 3,
                 function()
                     local c = SGet("topNameBarBgColor")
-                    if c then return c.r, c.g, c.b, 1 end
-                    return 17/255, 17/255, 17/255, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     SWrite("topNameBarBgColor", { r=r, g=g, b=b })
                     ReloadAndUpdate()
-                end, false, 20)
+                end, false, 20,
+                function() return 17/255, 17/255, 17/255, 1 end)
             bgSwatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = bgSwatch
         end
@@ -3315,9 +3339,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- Custom rightmost (opens picker), class leftmost. Clicking switches topNameBarTextColorMode; the inactive one dims. Custom is added FIRST so it sits next to the dropdown.
         if not EllesmereUI._prebuilding then
             local rgn = tnbRow3._leftRegion
-            local function AddTNBSwatch(getColor, setColor, mode, opensPicker, tooltip)
+            local function AddTNBSwatch(getColor, setColor, mode, opensPicker, tooltip, getFactoryDefault)
                 local sw = EllesmereUI.BuildColorSwatch(
-                    rgn, tnbRow3:GetFrameLevel() + 3, getColor, setColor, false, 20)
+                    rgn, tnbRow3:GetFrameLevel() + 3, getColor, setColor, false, 20, getFactoryDefault)
                 sw:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                 rgn._lastInline = sw
                 sw._eabOrigClick = sw:GetScript("OnClick")
@@ -3342,13 +3366,14 @@ initFrame:SetScript("OnEvent", function(self)
             AddTNBSwatch(
                 function()
                     local c = SGet("topNameBarTextColor")
-                    if c then return c.r, c.g, c.b, 1 end
-                    return 1, 1, 1, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     SWrite("topNameBarTextColor", { r=r, g=g, b=b })
                     ReloadAndUpdate()
-                end, "custom", true, "Custom Color")
+                end, "custom", true, "Custom Color",
+                function() return 1, 1, 1, 1 end)
             AddTNBSwatch(
                 function()
                     local _, ct = UnitClass("player")
@@ -3534,13 +3559,14 @@ initFrame:SetScript("OnEvent", function(self)
                     rgn, row:GetFrameLevel() + 3,
                     function()
                         local c = FBSet().healthColor
-                        if c then return c.r, c.g, c.b, 1 end
-                        return 23/255, 172/255, 49/255, 1
+                        if not c then return nil end
+                        return c.r, c.g, c.b, 1
                     end,
                     function(r, g, b)
                         FBSet().healthColor = { r=r, g=g, b=b }
                         if ns.FB_Apply then ns.FB_Apply() end
-                    end, false, 20)
+                    end, false, 20,
+                    function() return 23/255, 172/255, 49/255, 1 end)
                 swatch:SetPoint("RIGHT", rgn, "RIGHT", -20, 0)
                 rgn._lastInline = swatch
                 -- Dimming alone leaves the swatch clickable; this blocks it.
@@ -4083,7 +4109,8 @@ initFrame:SetScript("OnEvent", function(self)
                 { tooltip = "Custom Colored",
                   getValue = function()
                       local c = HMS().color
-                      return (c and c.r) or 1, (c and c.g) or 1, (c and c.b) or 1, 1
+                      if not c then return nil end
+                      return c.r, c.g, c.b, 1
                   end,
                   setValue = function(r, g, b)
                       local hm = HMS()
@@ -4091,6 +4118,7 @@ initFrame:SetScript("OnEvent", function(self)
                       hm.colorMode = "custom"
                       HMRefresh()
                   end,
+                  getFactoryDefault = function() return 1, 1, 1, 1 end,
                   onClick = function(self)
                       local hm = HMS()
                       if hm.colorMode == "power" then
@@ -4233,11 +4261,13 @@ initFrame:SetScript("OnEvent", function(self)
             { type="multiSwatch", text="Status Colors",
               swatches = {
                 { tooltip = "Offline", hasAlpha = false,
-                  getValue = function() local c = SGet("statusColorOffline"); if c then return c.r, c.g, c.b end return 0x66/255, 0x66/255, 0x66/255 end,
-                  setValue = function(r, g, b) SWrite("statusColorOffline", { r=r, g=g, b=b }); ReloadAndUpdate() end },
+                  getValue = function() local c = SGet("statusColorOffline"); if not c then return nil end return c.r, c.g, c.b end,
+                  setValue = function(r, g, b) SWrite("statusColorOffline", { r=r, g=g, b=b }); ReloadAndUpdate() end,
+                  getFactoryDefault = function() return 0x66/255, 0x66/255, 0x66/255 end },
                 { tooltip = "Dead", hasAlpha = false,
-                  getValue = function() local c = SGet("statusColorDead"); if c then return c.r, c.g, c.b end return 0x24/255, 0x17/255, 0x17/255 end,
-                  setValue = function(r, g, b) SWrite("statusColorDead", { r=r, g=g, b=b }); ReloadAndUpdate() end },
+                  getValue = function() local c = SGet("statusColorDead"); if not c then return nil end return c.r, c.g, c.b end,
+                  setValue = function(r, g, b) SWrite("statusColorDead", { r=r, g=g, b=b }); ReloadAndUpdate() end,
+                  getFactoryDefault = function() return 0x24/255, 0x17/255, 0x17/255 end },
               } });  y = y - h
 
         -- Right-click + drag over a raid/party frame turns the camera (mouselook).
@@ -4724,12 +4754,14 @@ initFrame:SetScript("OnEvent", function(self)
             local borderSwatch, updBorder = EllesmereUI.BuildColorSwatch(
                 rgn, lvl,
                 function()
-                    local c = SGet("borderColor") or { r = 0, g = 0, b = 0 }
+                    local c = SGet("borderColor")
+                    if not c then return nil end
                     return c.r, c.g, c.b, SVal("borderAlpha", 1)
                 end,
                 function(r, g, b, a)
                     SWrite("borderColor", { r=r, g=g, b=b }); SWrite("borderAlpha", a); ReloadAndUpdate()
-                end, true, 20)
+                end, true, 20,
+                function() return 0, 0, 0, SVal("borderAlpha", 1) end)
             borderSwatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = borderSwatch
             borderSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(borderSwatch, "Border") end)
@@ -4780,12 +4812,14 @@ initFrame:SetScript("OnEvent", function(self)
             local hoverSwatch, updHover = EllesmereUI.BuildColorSwatch(
                 rightRgn, lvl,
                 function()
-                    local c = SGet("hoverBorderColor") or { r = 1, g = 1, b = 1 }
+                    local c = SGet("hoverBorderColor")
+                    if not c then return nil end
                     return c.r, c.g, c.b, SVal("hoverBorderAlpha", 1)
                 end,
                 function(r, g, b, a)
                     SWrite("hoverBorderColor", { r=r, g=g, b=b }); SWrite("hoverBorderAlpha", a); ReloadAndUpdate()
-                end, true, 20)
+                end, true, 20,
+                function() return 1, 1, 1, SVal("hoverBorderAlpha", 1) end)
             hoverSwatch:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
             rightRgn._lastInline = hoverSwatch
             hoverSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(hoverSwatch, "Hover") end)
@@ -4794,12 +4828,14 @@ initFrame:SetScript("OnEvent", function(self)
             local targetSwatch, updTarget = EllesmereUI.BuildColorSwatch(
                 rightRgn, lvl,
                 function()
-                    local c = SGet("targetBorderColor") or { r = 1, g = 1, b = 1 }
+                    local c = SGet("targetBorderColor")
+                    if not c then return nil end
                     return c.r, c.g, c.b, SVal("targetBorderAlpha", 1)
                 end,
                 function(r, g, b, a)
                     SWrite("targetBorderColor", { r=r, g=g, b=b }); SWrite("targetBorderAlpha", a); ReloadAndUpdate()
-                end, true, 20)
+                end, true, 20,
+                function() return 1, 1, 1, SVal("targetBorderAlpha", 1) end)
             targetSwatch:SetPoint("RIGHT", rightRgn._lastInline, "LEFT", -8, 0)
             rightRgn._lastInline = targetSwatch
             targetSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(targetSwatch, "Target") end)

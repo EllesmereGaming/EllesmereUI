@@ -1019,14 +1019,15 @@ initFrame:SetScript("OnEvent", function(self)
               disabledTooltip = DIS_TIP,
               get = function()
                   local c = getBarData()
-                  if not c then return 1, 1, 1, 0.7 end
-                  return c.hashColorR or 1, c.hashColorG or 1, c.hashColorB or 1, c.hashColorA or 0.7
+                  if not c or c.hashColorR == nil then return nil end
+                  return c.hashColorR, c.hashColorG, c.hashColorB, c.hashColorA or 0.7
               end,
               set = function(r, g, b, a)
                   local c = getBarData(); if not c then return end
                   c.hashColorR, c.hashColorG, c.hashColorB, c.hashColorA = r, g, b, a
                   refreshFn()
-              end },
+              end,
+              getFactoryDefault = function() return 1, 1, 1, 0.7 end },
         }
 
         local _, showFn = EllesmereUI.BuildCogPopup({
@@ -1352,8 +1353,8 @@ initFrame:SetScript("OnEvent", function(self)
             function()
                 local ent = CurrentBandEntry()
                 local band = ent and ent.bands and ent.bands[row._idx]
-                if not band then return _bandDefR, _bandDefG, _bandDefB, _bandDefA end
-                return band.r or _bandDefR, band.g or _bandDefG, band.b or _bandDefB, band.a or _bandDefA
+                if not band or band.r == nil then return nil end
+                return band.r, band.g, band.b, band.a
             end,
             function(r, g, b, a)
                 local ent = CurrentBandEntry()
@@ -1362,7 +1363,8 @@ initFrame:SetScript("OnEvent", function(self)
                     band.r, band.g, band.b, band.a = r, g, b, a
                     if _bandRefreshFn then _bandRefreshFn() end
                 end
-            end, true, 19)
+            end, true, 19,
+            function() return _bandDefR, _bandDefG, _bandDefB, _bandDefA end)
         swatch:SetPoint("LEFT", input, "RIGHT", 10, 0)
         row.swatch = swatch
         row.swatchSnap = swatchSnap
@@ -1666,14 +1668,15 @@ initFrame:SetScript("OnEvent", function(self)
             function()
                 local ent = CurrentBuffEntry()
                 local e = ent and ent.buffColors and ent.buffColors[row._idx]
-                if not e then return 0.2, 0.6, 1.0, 1 end
-                return e.r or 0.2, e.g or 0.6, e.b or 1.0, e.a or 1
+                if not e or e.r == nil then return nil end
+                return e.r, e.g, e.b, e.a
             end,
             function(r, g, b, a)
                 local ent = CurrentBuffEntry()
                 local e = ent and ent.buffColors and ent.buffColors[row._idx]
                 if e then e.r, e.g, e.b, e.a = r, g, b, a; if _buffRefreshFn then _buffRefreshFn() end end
-            end, true, 19)
+            end, true, 19,
+            function() return 0.2, 0.6, 1.0, 1 end)
         swatch:SetPoint("RIGHT", rf, "RIGHT", -24, 0)
         row.swatch = swatch
         row.swatchSnap = swatchSnap
@@ -2445,11 +2448,11 @@ initFrame:SetScript("OnEvent", function(self)
                                   end },
                                 { type = "colorpicker", label = "Hash Color", hasAlpha = true,
                                   get = function()
-                                      if not ef._entryIdx then return 1, 1, 1, 0.7 end
-                                      local bd2 = cfg.getBarData(); if not bd2 then return 1, 1, 1, 0.7 end
+                                      if not ef._entryIdx then return nil end
+                                      local bd2 = cfg.getBarData(); if not bd2 then return nil end
                                       local ent = bd2.thresholdSpecs and bd2.thresholdSpecs[ef._entryIdx]
-                                      if not ent then return 1, 1, 1, 0.7 end
-                                      return ent.hashColorR or 1, ent.hashColorG or 1, ent.hashColorB or 1, ent.hashColorA or 0.7
+                                      if not ent or ent.hashColorR == nil then return nil end
+                                      return ent.hashColorR, ent.hashColorG, ent.hashColorB, ent.hashColorA or 0.7
                                   end,
                                   set = function(r, g, b, a)
                                       if not ef._entryIdx then return end
@@ -2459,7 +2462,8 @@ initFrame:SetScript("OnEvent", function(self)
                                           ent.hashColorR, ent.hashColorG, ent.hashColorB, ent.hashColorA = r, g, b, a
                                           cfg.rebuildFn()
                                       end
-                                  end },
+                                  end,
+                                  getFactoryDefault = function() return 1, 1, 1, 0.7 end },
                             },
                         })
                         local hashCogBtn = CreateFrame("Button", nil, ef)
@@ -2502,18 +2506,19 @@ initFrame:SetScript("OnEvent", function(self)
 
                     local entrySwatch, entrySwatchSnap = EllesmereUI.BuildColorSwatch(ef, ef:GetFrameLevel() + 4,
                         function()
-                            if not ef._entryIdx then return defR, defG, defB, defA end
-                            local bd2 = cfg.getBarData(); if not bd2 then return defR, defG, defB, defA end
+                            if not ef._entryIdx then return nil end
+                            local bd2 = cfg.getBarData(); if not bd2 then return nil end
                             local ent = bd2.thresholdSpecs and bd2.thresholdSpecs[ef._entryIdx]
-                            if not ent then return defR, defG, defB, defA end
-                            return ent.thresholdR or defR, ent.thresholdG or defG, ent.thresholdB or defB, ent.thresholdA or defA
+                            if not ent or ent.thresholdR == nil then return nil end
+                            return ent.thresholdR, ent.thresholdG, ent.thresholdB, ent.thresholdA
                         end,
                         function(r, g, b, a)
                             if not ef._entryIdx then return end
                             local bd2 = cfg.getBarData(); if not bd2 then return end
                             local ent = bd2.thresholdSpecs and bd2.thresholdSpecs[ef._entryIdx]
                             if ent then ent.thresholdR, ent.thresholdG, ent.thresholdB, ent.thresholdA = r, g, b, a; cfg.refreshFn() end
-                        end, true, 19)
+                        end, true, 19,
+                        function() return defR, defG, defB, defA end)
                     entrySwatch:SetPoint("LEFT", threshInput, "RIGHT", 8, 0)
                     ef._entrySwatch = entrySwatch
                     ef._entrySwatchSnap = entrySwatchSnap
@@ -3118,15 +3123,16 @@ initFrame:SetScript("OnEvent", function(self)
                     rgn, hpBsRow:GetFrameLevel() + 3,
                     function()
                         local c = cfg()
-                        return (c and c.borderR or 0), (c and c.borderG or 0),
-                               (c and c.borderB or 0), (c and c.borderA or 1)
+                        if not c or c.borderR == nil then return nil end
+                        return c.borderR, c.borderG, c.borderB, c.borderA or 1
                     end,
                     function(r, g, b, a)
                         local c = cfg(); if not c then return end
                         c.borderR, c.borderG, c.borderB, c.borderA = r, g, b, a
                         SmoothRefresh(); EllesmereUI:RefreshPage()
                     end,
-                    true, 20)
+                    true, 20,
+                    function() return 0, 0, 0, 1 end)
                 PP.Point(borderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
                 EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
                 local swBlock = CreateFrame("Frame", nil, borderSwatch)
@@ -3499,7 +3505,7 @@ initFrame:SetScript("OnEvent", function(self)
                   hasAlpha = true,
                   getValue = function()
                       local c = cfg()
-                      if not c then return 1, 1, 1, 1 end
+                      if not c or c.textFillR == nil then return nil end
                       return c.textFillR, c.textFillG, c.textFillB, c.textFillA
                   end,
                   setValue = function(r, g, b, a)
@@ -3507,6 +3513,7 @@ initFrame:SetScript("OnEvent", function(self)
                       c.textFillR, c.textFillG, c.textFillB, c.textFillA = r, g, b, a
                       RebuildHealth(); SmoothRefresh()
                   end,
+                  getFactoryDefault = function() return 1, 1, 1, 1 end,
                   onClick = function(self)
                       local c = cfg(); if not c then return end
                       if c.textCustomColored == false then
@@ -3887,15 +3894,16 @@ initFrame:SetScript("OnEvent", function(self)
                     rgn, pwrBsRow:GetFrameLevel() + 3,
                     function()
                         local c = cfg()
-                        return (c and c.borderR or 0), (c and c.borderG or 0),
-                               (c and c.borderB or 0), (c and c.borderA or 1)
+                        if not c or c.borderR == nil then return nil end
+                        return c.borderR, c.borderG, c.borderB, c.borderA or 1
                     end,
                     function(r, g, b, a)
                         local c = cfg(); if not c then return end
                         c.borderR, c.borderG, c.borderB, c.borderA = r, g, b, a
                         SmoothRefresh(); EllesmereUI:RefreshPage()
                     end,
-                    true, 20)
+                    true, 20,
+                    function() return 0, 0, 0, 1 end)
                 PP.Point(borderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
                 EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
                 local swBlock = CreateFrame("Frame", nil, borderSwatch)
@@ -4269,7 +4277,7 @@ initFrame:SetScript("OnEvent", function(self)
                   hasAlpha = true,
                   getValue = function()
                       local c = cfg()
-                      if not c then return 1, 1, 1, 1 end
+                      if not c or c.textFillR == nil then return nil end
                       return c.textFillR, c.textFillG, c.textFillB, c.textFillA
                   end,
                   setValue = function(r, g, b, a)
@@ -4277,6 +4285,7 @@ initFrame:SetScript("OnEvent", function(self)
                       c.textFillR, c.textFillG, c.textFillB, c.textFillA = r, g, b, a
                       RebuildPower(); SmoothRefresh()
                   end,
+                  getFactoryDefault = function() return 1, 1, 1, 1 end,
                   onClick = function(self)
                       local c = cfg(); if not c then return end
                       if c.textCustomColored == false then
@@ -4808,15 +4817,16 @@ initFrame:SetScript("OnEvent", function(self)
                     rgn, classBsRow:GetFrameLevel() + 3,
                     function()
                         local c = cfg()
-                        return (c and c.borderR or 0), (c and c.borderG or 0),
-                               (c and c.borderB or 0), (c and c.borderA or 1)
+                        if not c or c.borderR == nil then return nil end
+                        return c.borderR, c.borderG, c.borderB, c.borderA or 1
                     end,
                     function(r, g, b, a)
                         local c = cfg(); if not c then return end
                         c.borderR, c.borderG, c.borderB, c.borderA = r, g, b, a
                         SmoothRefresh(); EllesmereUI:RefreshPage()
                     end,
-                    true, 20)
+                    true, 20,
+                    function() return 0, 0, 0, 1 end)
                 PP.Point(borderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
                 EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
             end
@@ -5013,15 +5023,16 @@ initFrame:SetScript("OnEvent", function(self)
                     rgn, classGapRow:GetFrameLevel() + 3,
                     function()
                         local c = cfg()
-                        return (c and c.gapR or 0), (c and c.gapG or 0),
-                               (c and c.gapB or 0), (c and c.gapA or 1)
+                        if not c or c.gapR == nil then return nil end
+                        return c.gapR, c.gapG, c.gapB, c.gapA or 1
                     end,
                     function(r, g, b, a)
                         local c = cfg(); if not c then return end
                         c.gapR, c.gapG, c.gapB, c.gapA = r, g, b, a
                         SmoothRefresh(); EllesmereUI:RefreshPage()
                     end,
-                    true, 20)
+                    true, 20,
+                    function() return 0, 0, 0, 1 end)
                 PP.Point(gapSwatch, "RIGHT", rgn._lastInline or ctrl, "LEFT", -8, 0)
                 rgn._lastInline = gapSwatch
                 EllesmereUI.RegisterWidgetRefresh(function() updateGapSwatch() end)
@@ -5061,15 +5072,16 @@ initFrame:SetScript("OnEvent", function(self)
                     rgn, classGapRow:GetFrameLevel() + 3,
                     function()
                         local c = cfg()
-                        return (c and c.bgR or 1), (c and c.bgG or 1),
-                               (c and c.bgB or 1), 1
+                        if not c or c.bgR == nil then return nil end
+                        return c.bgR, c.bgG, c.bgB, 1
                     end,
                     function(r, g, b)
                         local c = cfg(); if not c then return end
                         c.bgR, c.bgG, c.bgB = r, g, b
                         RefreshClass(); EllesmereUI:RefreshPage()
                     end,
-                    false, 20)
+                    false, 20,
+                    function() return 1, 1, 1, 1 end)
                 PP.Point(ovSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
                 EllesmereUI.RegisterWidgetRefresh(function() updateOvSwatch() end)
             end
@@ -5206,16 +5218,16 @@ initFrame:SetScript("OnEvent", function(self)
                     { type = "colorpicker", label = "Charged Color", hasAlpha = false,
                       get = function()
                           local c = cfg()
-                          if not c then return 0.44, 0.77, 1.00, 1 end
-                          return c.chargedR or 0.44, c.chargedG or 0.77,
-                                 c.chargedB or 1.00, c.chargedA or 1
+                          if not c or c.chargedR == nil then return nil end
+                          return c.chargedR, c.chargedG, c.chargedB, c.chargedA or 1
                       end,
                       set = function(cr, cg, cb, ca)
                           local c = cfg(); if not c then return end
                           c.chargedR, c.chargedG = cr, cg
                           c.chargedB, c.chargedA = cb, ca
                           RebuildClass(); SmoothRefresh()
-                      end },
+                      end,
+                      getFactoryDefault = function() return 0.44, 0.77, 1.00, 1 end },
                 },
                 footer = false,
             })
@@ -5335,15 +5347,16 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, classColorRow:GetFrameLevel() + 3,
                 function()
                     local p = DB()
-                    if not p then return 1, 1, 1, 1 end
-                    return p.secondary.textR or 1, p.secondary.textG or 1, p.secondary.textB or 1, 1
+                    if not p or p.secondary.textR == nil then return nil end
+                    return p.secondary.textR, p.secondary.textG, p.secondary.textB, 1
                 end,
                 function(r, g, b)
                     local p = DB(); if not p then return end
                     p.secondary.textR, p.secondary.textG, p.secondary.textB = r, g, b
                     RefreshClass()
                 end,
-                false, 20)
+                false, 20,
+                function() return 1, 1, 1, 1 end)
             PP.Point(swatch, "RIGHT", rgn._lastInline or ctrl, "LEFT", -8, 0)
             rgn._lastInline = swatch
             local swatchDis = CreateFrame("Frame", nil, swatch)
@@ -6162,14 +6175,15 @@ initFrame:SetScript("OnEvent", function(self)
 				local hashSwatch, hashSwatchSnap = EllesmereUI.BuildColorSwatch(
 					hashRow, hashRow:GetFrameLevel() + 4,
 					function()
-						local ent = CurEntry(); if not ent then return 1, 1, 1, 0.7 end
-						return ent.hashColorR or 1, ent.hashColorG or 1, ent.hashColorB or 1, ent.hashColorA or 0.7
+						local ent = CurEntry(); if not ent or ent.hashColorR == nil then return nil end
+						return ent.hashColorR, ent.hashColorG, ent.hashColorB, ent.hashColorA or 0.7
 					end,
 					function(r, g, b, a)
 						local ent = CurEntry(); if not ent then return end
 						ent.hashColorR, ent.hashColorG, ent.hashColorB, ent.hashColorA = r, g, b, a
 						RebuildClass()
-					end, true, 19)
+					end, true, 19,
+					function() return 1, 1, 1, 0.7 end)
 				hashSwatch:SetPoint("RIGHT", hashCogBtn, "LEFT", -8, 0)
 				hashRow._swatchSnap = hashSwatchSnap
 				local hashInput = MakeInput(hashRow, 120, false)
@@ -6276,19 +6290,22 @@ initFrame:SetScript("OnEvent", function(self)
 					threshRow, threshRow:GetFrameLevel() + 4,
 					function()
 						local ent = CurEntry()
-						local pp = DB()
-						local base = pp and pp.secondary
-						if not ent then return 0x0c/255, 0xd2/255, 0x9d/255, 1 end
-						return ent.thresholdR or (base and base.thresholdR) or 0x0c/255,
-							ent.thresholdG or (base and base.thresholdG) or 0xd2/255,
-							ent.thresholdB or (base and base.thresholdB) or 0x9d/255,
-							ent.thresholdA or (base and base.thresholdA) or 1
+						if not ent or ent.thresholdR == nil then return nil end
+						return ent.thresholdR, ent.thresholdG, ent.thresholdB, ent.thresholdA or 1
 					end,
 					function(r, g, b, a)
 						local ent = CurEntry(); if not ent then return end
 						ent.thresholdR, ent.thresholdG, ent.thresholdB, ent.thresholdA = r, g, b, a
 						SmoothRefresh()
-					end, true, 19)
+					end, true, 19,
+					function()
+						local pp = DB()
+						local base = pp and pp.secondary
+						return (base and base.thresholdR) or 0x0c/255,
+							(base and base.thresholdG) or 0xd2/255,
+							(base and base.thresholdB) or 0x9d/255,
+							(base and base.thresholdA) or 1
+					end)
 				threshSwatch:SetPoint("RIGHT", threshCogBtn, "LEFT", -8, 0)
 				local threshInput = MakeInput(threshRow, 50, true)
 				threshInput:SetPoint("RIGHT", threshSwatch, "LEFT", -8, 0)
@@ -7065,8 +7082,8 @@ initFrame:SetScript("OnEvent", function(self)
                     local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
                         rgn, simpleRuneRow:GetFrameLevel() + 3,
                         function()
-                            local c = cfg(); if not c then return 0.5, 0.5, 0.5, 1 end
-                            return c.runesRechargeR or 0.5, c.runesRechargeG or 0.5, c.runesRechargeB or 0.5, c.runesRechargeA or 1
+                            local c = cfg(); if not c or c.runesRechargeR == nil then return nil end
+                            return c.runesRechargeR, c.runesRechargeG, c.runesRechargeB, c.runesRechargeA or 1
                         end,
                         function(r, g, b, a)
                             local c = cfg(); if not c then return end
@@ -7075,7 +7092,8 @@ initFrame:SetScript("OnEvent", function(self)
                             c.runesRechargeB = b
                             c.runesRechargeA = a
                             SmoothRefresh()
-                        end, true, 20)
+                        end, true, 20,
+                        function() return 0.5, 0.5, 0.5, 1 end)
                     swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                     rgn._lastInline = swatch
                     local swatchBlock = CreateFrame("Frame", nil, swatch)
@@ -7138,8 +7156,8 @@ initFrame:SetScript("OnEvent", function(self)
                     local swatch = EllesmereUI.BuildColorSwatch(
                         rgn, enhRow:GetFrameLevel() + 3,
                         function()
-                            local c = cfg(); if not c then return 1, 0.6, 0.2, 1 end
-                            return c.enhanceOverflowR or 1, c.enhanceOverflowG or 0.6, c.enhanceOverflowB or 0.2, 1
+                            local c = cfg(); if not c or c.enhanceOverflowR == nil then return nil end
+                            return c.enhanceOverflowR, c.enhanceOverflowG, c.enhanceOverflowB, 1
                         end,
                         function(r, g, b)
                             local c = cfg(); if not c then return end
@@ -7147,7 +7165,8 @@ initFrame:SetScript("OnEvent", function(self)
                             c.enhanceOverflowG = g
                             c.enhanceOverflowB = b
                             SmoothRefresh()
-                        end, false, 20)
+                        end, false, 20,
+                        function() return 1, 0.6, 0.2, 1 end)
                     swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                     rgn._lastInline = swatch
                     local function UpdateEnhSwatchVis()
@@ -7370,12 +7389,13 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, bgRow:GetFrameLevel() + 3,
                 function()
                     local p = DB()
-                    if p and p.splitBg == true then
-                        return p.secondary.barBgR or 0, p.secondary.barBgG or 0,
-                               p.secondary.barBgB or 0
+                    if not p then return nil end
+                    if p.splitBg == true then
+                        if p.secondary.barBgR == nil then return nil end
+                        return p.secondary.barBgR, p.secondary.barBgG, p.secondary.barBgB
                     end
-                    return (p and p.health.bgR or 0x11/255), (p and p.health.bgG or 0x11/255),
-                           (p and p.health.bgB or 0x11/255)
+                    if p.health.bgR == nil then return nil end
+                    return p.health.bgR, p.health.bgG, p.health.bgB
                 end,
                 function(r, g, b)
                     local p = DB(); if not p then return end
@@ -7389,7 +7409,8 @@ initFrame:SetScript("OnEvent", function(self)
                     SmoothRefresh()
                     EllesmereUI:RefreshPage()
                 end,
-                nil, 20)
+                nil, 20,
+                function() return 0x11/255, 0x11/255, 0x11/255 end)
             PP.Point(bgSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             EllesmereUI.RegisterWidgetRefresh(bgUpdateSwatch)
 
@@ -7470,8 +7491,8 @@ initFrame:SetScript("OnEvent", function(self)
                         rgn, splitRow:GetFrameLevel() + 3,
                         function()
                             local p = DB()
-                            return (p and p.health.bgR or 0x11/255), (p and p.health.bgG or 0x11/255),
-                                   (p and p.health.bgB or 0x11/255)
+                            if not p or p.health.bgR == nil then return nil end
+                            return p.health.bgR, p.health.bgG, p.health.bgB
                         end,
                         function(r, g, b)
                             local p = DB(); if not p then return end
@@ -7479,7 +7500,8 @@ initFrame:SetScript("OnEvent", function(self)
                             SmoothRefresh()
                             EllesmereUI:RefreshPage()
                         end,
-                        nil, 20)
+                        nil, 20,
+                        function() return 0x11/255, 0x11/255, 0x11/255 end)
                     PP.Point(hSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
                     EllesmereUI.RegisterWidgetRefresh(hUpdateSwatch)
                 end
@@ -7490,8 +7512,8 @@ initFrame:SetScript("OnEvent", function(self)
                         rgn, splitRow:GetFrameLevel() + 3,
                         function()
                             local p = DB()
-                            return (p and p.primary.bgR or 0x11/255), (p and p.primary.bgG or 0x11/255),
-                                   (p and p.primary.bgB or 0x11/255)
+                            if not p or p.primary.bgR == nil then return nil end
+                            return p.primary.bgR, p.primary.bgG, p.primary.bgB
                         end,
                         function(r, g, b)
                             local p = DB(); if not p then return end
@@ -7499,7 +7521,8 @@ initFrame:SetScript("OnEvent", function(self)
                             SmoothRefresh()
                             EllesmereUI:RefreshPage()
                         end,
-                        nil, 20)
+                        nil, 20,
+                        function() return 0x11/255, 0x11/255, 0x11/255 end)
                     PP.Point(pSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
                     EllesmereUI.RegisterWidgetRefresh(pUpdateSwatch)
                 end
@@ -8526,15 +8549,16 @@ initFrame:SetScript("OnEvent", function(self)
                     rgn, cbBsRow:GetFrameLevel() + 3,
                     function()
                         local p = DB()
-                        return (p and p.castBar.borderR or 0), (p and p.castBar.borderG or 0),
-                               (p and p.castBar.borderB or 0), (p and p.castBar.borderA or 1)
+                        if not p or p.castBar.borderR == nil then return nil end
+                        return p.castBar.borderR, p.castBar.borderG, p.castBar.borderB, p.castBar.borderA or 1
                     end,
                     function(r, g, b, a)
                         local p = DB(); if not p then return end
                         p.castBar.borderR, p.castBar.borderG, p.castBar.borderB, p.castBar.borderA = r, g, b, a
                         RefreshCast(); EllesmereUI:RefreshPage()
                     end,
-                    true, 20)
+                    true, 20,
+                    function() return 0, 0, 0, 1 end)
                 PP.Point(borderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
                 -- Disable swatch when border size is 0
                 local borderSwatchBlock = CreateFrame("Frame", nil, borderSwatch)
@@ -8768,14 +8792,16 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, castColorRow:GetFrameLevel() + 3,
                 function()
                     local p = DB()
-                    return (p and p.castBar.bgR or 0), (p and p.castBar.bgG or 0), (p and p.castBar.bgB or 0)
+                    if not p or p.castBar.bgR == nil then return nil end
+                    return p.castBar.bgR, p.castBar.bgG, p.castBar.bgB
                 end,
                 function(r, g, b)
                     local p = DB(); if not p then return end
                     p.castBar.bgR, p.castBar.bgG, p.castBar.bgB = r, g, b
                     RefreshCast()
                 end,
-                nil, 20)
+                nil, 20,
+                function() return 0, 0, 0 end)
             PP.Point(bgSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             local function UpdateBgSwatch()
                 local p = DB()
@@ -8956,9 +8982,9 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Helper: attach an inline color swatch to a region with disabled overlay
-        local function AttachInlineSwatch(rgn, getFunc, setFunc, disabledFunc, disabledTooltip)
+        local function AttachInlineSwatch(rgn, getFunc, setFunc, disabledFunc, disabledTooltip, getFactoryDefault)
             if EllesmereUI._prebuilding then return end
-            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, getFunc, setFunc, true, 20)
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, getFunc, setFunc, true, 20, getFactoryDefault)
             PP.Point(swatch, "RIGHT", rgn._control, "LEFT", -12, 0)
 
             local block = CreateFrame("Frame", nil, swatch)
@@ -9011,9 +9037,9 @@ initFrame:SetScript("OnEvent", function(self)
 
         AttachInlineSwatch(marksRow1._rightRegion,
             function()
-                local p = DB(); if not p then return 1, 1, 1, 0.7 end
-                return p.castBar.tickMarksR or 1, p.castBar.tickMarksG or 1,
-                       p.castBar.tickMarksB or 1, p.castBar.tickMarksA or 0.7
+                local p = DB(); if not p or p.castBar.tickMarksR == nil then return nil end
+                return p.castBar.tickMarksR, p.castBar.tickMarksG,
+                       p.castBar.tickMarksB, p.castBar.tickMarksA or 0.7
             end,
             function(r, g, b, a)
                 local p = DB(); if not p then return end
@@ -9022,7 +9048,8 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshCast()
             end,
             function() return marksOff() or not (DB() and DB().castBar.showTickMarks) end,
-            "Channel Ticks"
+            "Channel Ticks",
+            function() return 1, 1, 1, 0.7 end
         )
 
         -- Marks Row 2: Last Tick (+ color) | Colored Empowered Stages
@@ -9051,9 +9078,9 @@ initFrame:SetScript("OnEvent", function(self)
 
         AttachInlineSwatch(marksRow2._leftRegion,
             function()
-                local p = DB(); if not p then return 1, 0.82, 0, 0.95 end
-                return p.castBar.lastTickR or 1, p.castBar.lastTickG or 0.82,
-                       p.castBar.lastTickB or 0, p.castBar.lastTickA or 0.95
+                local p = DB(); if not p or p.castBar.lastTickR == nil then return nil end
+                return p.castBar.lastTickR, p.castBar.lastTickG,
+                       p.castBar.lastTickB, p.castBar.lastTickA or 0.95
             end,
             function(r, g, b, a)
                 local p = DB(); if not p then return end
@@ -9062,7 +9089,8 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshCast()
             end,
             function() return marksOff() or not (DB() and DB().castBar.showLastTick) end,
-            "Last Tick"
+            "Last Tick",
+            function() return 1, 0.82, 0, 0.95 end
         )
 
         -- LATENCY section
@@ -9099,9 +9127,9 @@ initFrame:SetScript("OnEvent", function(self)
 
         AttachInlineSwatch(latRow1._leftRegion,
             function()
-                local p = DB(); if not p then return 0.835, 0.290, 0.290, 1 end
-                return p.castBar.latencyR or 0.835, p.castBar.latencyG or 0.290,
-                       p.castBar.latencyB or 0.290, p.castBar.latencyA or 1
+                local p = DB(); if not p or p.castBar.latencyR == nil then return nil end
+                return p.castBar.latencyR, p.castBar.latencyG,
+                       p.castBar.latencyB, p.castBar.latencyA or 1
             end,
             function(r, g, b, a)
                 local p = DB(); if not p then return end
@@ -9110,7 +9138,8 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshCast()
             end,
             latOff,
-            "Latency Overlay"
+            "Latency Overlay",
+            function() return 0.835, 0.290, 0.290, 1 end
         )
 
         -- Wire up click mappings for cast bar preview hit overlays (never from a hidden pre-build: the shared live table would end up pointing at off-screen rows)
@@ -9317,15 +9346,16 @@ initFrame:SetScript("OnEvent", function(self)
                     rgn, bsRow:GetFrameLevel() + 3,
                     function()
                         local p = DB()
-                        return (p and p.totemBar.borderR or 0), (p and p.totemBar.borderG or 0),
-                               (p and p.totemBar.borderB or 0), (p and p.totemBar.borderA or 1)
+                        if not p or p.totemBar.borderR == nil then return nil end
+                        return p.totemBar.borderR, p.totemBar.borderG, p.totemBar.borderB, p.totemBar.borderA or 1
                     end,
                     function(r, g, b, a)
                         local p = DB(); if not p then return end
                         p.totemBar.borderR = r; p.totemBar.borderG = g; p.totemBar.borderB = b; p.totemBar.borderA = a
                         RefreshTotem(); EllesmereUI:RefreshPage()
                     end,
-                    true, 20)
+                    true, 20,
+                    function() return 0, 0, 0, 1 end)
                 PP.Point(borderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
                 -- Disable swatch when border size is 0
                 local borderSwatchBlock = CreateFrame("Frame", nil, borderSwatch)
@@ -9658,14 +9688,15 @@ initFrame:SetScript("OnEvent", function(self)
                     rgn, bsRow:GetFrameLevel() + 3,
                     function()
                         local p = DB()
-                        return (p and p.gcdBar.borderR or 0), (p and p.gcdBar.borderG or 0),
-                               (p and p.gcdBar.borderB or 0), (p and p.gcdBar.borderA or 1)
+                        if not p or p.gcdBar.borderR == nil then return nil end
+                        return p.gcdBar.borderR, p.gcdBar.borderG, p.gcdBar.borderB, p.gcdBar.borderA or 1
                     end,
                     function(r, g, b, a)
                         local p = DB(); if not p then return end
                         p.gcdBar.borderR, p.gcdBar.borderG, p.gcdBar.borderB, p.gcdBar.borderA = r, g, b, a
                         RefreshGCD(); EllesmereUI:RefreshPage()
-                    end, true, 20)
+                    end, true, 20,
+                    function() return 0, 0, 0, 1 end)
                 PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
                 local block = CreateFrame("Frame", nil, swatch)
                 block:SetAllPoints()
@@ -9724,13 +9755,15 @@ initFrame:SetScript("OnEvent", function(self)
               disabled = gcdOff, disabledTooltip = "GCD Bar",
               swatches = {
                   { tooltip = "Gradient End Color", hasAlpha = true,
-                    getValue = function() local p = DB(); if not p then return 0.20, 0.20, 0.80, 1 end; return p.gcdBar.gradientR, p.gcdBar.gradientG, p.gcdBar.gradientB, p.gcdBar.gradientA end,
-                    setValue = function(r, g, b, a) local p = DB(); if not p then return end; p.gcdBar.gradientR, p.gcdBar.gradientG, p.gcdBar.gradientB, p.gcdBar.gradientA = r, g, b, a; RefreshGCD() end },
+                    getValue = function() local p = DB(); if not p then return nil end; return p.gcdBar.gradientR, p.gcdBar.gradientG, p.gcdBar.gradientB, p.gcdBar.gradientA end,
+                    setValue = function(r, g, b, a) local p = DB(); if not p then return end; p.gcdBar.gradientR, p.gcdBar.gradientG, p.gcdBar.gradientB, p.gcdBar.gradientA = r, g, b, a; RefreshGCD() end,
+                    getFactoryDefault = function() return 0.20, 0.20, 0.80, 1 end },
                   { tooltip = "Custom Colored", hasAlpha = true,
-                    getValue = function() local p = DB(); if not p then local _, cf = UnitClass("player"); local cc = CLASS_COLORS[cf]; return cc and cc[1] or 1, cc and cc[2] or 0.70, cc and cc[3] or 0, 1 end; return p.gcdBar.fillR, p.gcdBar.fillG, p.gcdBar.fillB, p.gcdBar.fillA end,
+                    getValue = function() local p = DB(); if not p then return nil end; return p.gcdBar.fillR, p.gcdBar.fillG, p.gcdBar.fillB, p.gcdBar.fillA end,
                     setValue = function(r, g, b, a) local p = DB(); if not p then return end; p.gcdBar.fillR, p.gcdBar.fillG, p.gcdBar.fillB, p.gcdBar.fillA = r, g, b, a; if p.gcdBar.classColored then p.gcdBar.classColored = false end; RefreshGCD(); EllesmereUI:RefreshPage() end,
                     onClick = function(self) local p = DB(); if not p then return end; if p.gcdBar.classColored then p.gcdBar.classColored = false; RefreshGCD(); EllesmereUI:RefreshPage(); return end; if self._eabOrigClick then self._eabOrigClick(self) end end,
-                    refreshAlpha = function() local p = DB(); return (p and not p.gcdBar.classColored) and 1 or 0.3 end },
+                    refreshAlpha = function() local p = DB(); return (p and not p.gcdBar.classColored) and 1 or 0.3 end,
+                    getFactoryDefault = function() local _, cf = UnitClass("player"); local cc = CLASS_COLORS[cf]; return cc and cc[1] or 1, cc and cc[2] or 0.70, cc and cc[3] or 0, 1 end },
                   { tooltip = "Class Colored",
                     getValue = function() local _, classFile = UnitClass("player"); local cc = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]; if cc then return cc.r, cc.g, cc.b, 1 end; return 1, 0.70, 0, 1 end,
                     setValue = function() end,
@@ -9787,9 +9820,10 @@ initFrame:SetScript("OnEvent", function(self)
             local ctrl = rgn._control
             local bgSwatch, bgUpdateSwatch = EllesmereUI.BuildColorSwatch(
                 rgn, colorRow:GetFrameLevel() + 3,
-                function() local p = DB(); return (p and p.gcdBar.bgR or 0), (p and p.gcdBar.bgG or 0), (p and p.gcdBar.bgB or 0) end,
+                function() local p = DB(); if not p or p.gcdBar.bgR == nil then return nil end; return p.gcdBar.bgR, p.gcdBar.bgG, p.gcdBar.bgB end,
                 function(r, g, b) local p = DB(); if not p then return end; p.gcdBar.bgR, p.gcdBar.bgG, p.gcdBar.bgB = r, g, b; RefreshGCD() end,
-                nil, 20)
+                nil, 20,
+                function() return 0, 0, 0 end)
             PP.Point(bgSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             local function UpdateBgSwatch()
                 local p = DB()

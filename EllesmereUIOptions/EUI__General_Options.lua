@@ -2837,7 +2837,10 @@ initFrame:SetScript("OnEvent", function(self)
                   hasAlpha = false,
                   getValue = function()
                       local _, ca = EllesmereUI.GetActiveAccentState()
-                      if ca then return ca.r, ca.g, ca.b, 1 end
+                      if not ca then return nil end
+                      return ca.r, ca.g, ca.b, 1
+                  end,
+                  getFactoryDefault = function()
                       return EllesmereUI.DEFAULT_ACCENT_R, EllesmereUI.DEFAULT_ACCENT_G, EllesmereUI.DEFAULT_ACCENT_B, 1
                   end,
                   setValue = function(r, g, b)
@@ -2885,8 +2888,8 @@ initFrame:SetScript("OnEvent", function(self)
             local tcGet = function()
                 local db = EllesmereUIDB
                 local sa = db and db.accentColor
-                if sa then return sa.r, sa.g, sa.b, 1 end
-                return EllesmereUI.GetAccentColor()
+                if not sa then return nil end
+                return sa.r, sa.g, sa.b, 1
             end
             local tcSet = function(r, g, b)
                 if not EllesmereUIDB then EllesmereUIDB = {} end
@@ -2896,7 +2899,11 @@ initFrame:SetScript("OnEvent", function(self)
                     EllesmereUI._applyBgTint(r, g, b)
                 end
             end
-            local tcSwatch, tcUpdateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, tcGet, tcSet, nil, 20)
+            local tcGetFactoryDefault = function()
+                local r, g, b = EllesmereUI.GetAccentColor()
+                return r, g, b, 1
+            end
+            local tcSwatch, tcUpdateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, tcGet, tcSet, nil, 20, tcGetFactoryDefault)
             PP.Point(tcSwatch, "RIGHT", rightRgn._control, "LEFT", -12, 0)
             rightRgn._lastInline = tcSwatch
             EllesmereUI.RegisterWidgetRefresh(function()
@@ -4690,13 +4697,15 @@ initFrame:SetScript("OnEvent", function(self)
                   tooltip = "The flat fill colour bars use when Dark Mode is enabled (Unit Frames, Raid Frames, Resource Bars).",
                   getValue = function()
                       local d = EllesmereUI.GetDarkModeDB()
-                      return d.fillR or DM_DEF.fillR, d.fillG or DM_DEF.fillG, d.fillB or DM_DEF.fillB, 1
+                      if d.fillR == nil then return nil end
+                      return d.fillR, d.fillG, d.fillB, 1
                   end,
                   setValue = function(r, g, b)
                       local d = EllesmereUI.GetDarkModeDB()
                       d.fillR, d.fillG, d.fillB = r, g, b
                       EllesmereUI.RefreshDarkMode()
-                  end },
+                  end,
+                  getFactoryDefault = function() return DM_DEF.fillR, DM_DEF.fillG, DM_DEF.fillB, 1 end },
                 { type = "slider", text = "Dark Mode Fill Opacity",
                   min = 0, max = 100, step = 5,
                   tooltip = "Fill opacity for Dark Mode bars. Applies to Unit Frames and Raid Frames only (Resource Bars ignore it).",
@@ -4716,13 +4725,15 @@ initFrame:SetScript("OnEvent", function(self)
                   tooltip = "The background colour behind Dark Mode bars (Unit Frames, Raid Frames, Resource Bars).",
                   getValue = function()
                       local d = EllesmereUI.GetDarkModeDB()
-                      return d.bgR or DM_DEF.bgR, d.bgG or DM_DEF.bgG, d.bgB or DM_DEF.bgB, 1
+                      if d.bgR == nil then return nil end
+                      return d.bgR, d.bgG, d.bgB, 1
                   end,
                   setValue = function(r, g, b)
                       local d = EllesmereUI.GetDarkModeDB()
                       d.bgR, d.bgG, d.bgB = r, g, b
                       EllesmereUI.RefreshDarkMode()
-                  end },
+                  end,
+                  getFactoryDefault = function() return DM_DEF.bgR, DM_DEF.bgG, DM_DEF.bgB, 1 end },
                 { type = "slider", text = "Background Opacity",
                   min = 0, max = 100, step = 5,
                   tooltip = "Background opacity for Dark Mode bars. Applies to Unit Frames and Raid Frames only (Resource Bars ignore it).",

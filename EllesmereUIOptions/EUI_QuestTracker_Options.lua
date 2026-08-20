@@ -154,13 +154,14 @@ initFrame:SetScript("OnEvent", function(self)
             local bgSwatch, bgSwatchRefresh = EllesmereUI.BuildColorSwatch(
                 rgn, bgRow:GetFrameLevel() + 3,
                 function()
-                    return (Cfg("bgR") or 0), (Cfg("bgG") or 0), (Cfg("bgB") or 0)
+                    return Cfg("bgR"), Cfg("bgG"), Cfg("bgB")
                 end,
                 function(r, g, b)
                     Set("bgR", r); Set("bgG", g); Set("bgB", b)
                     if EQT.ApplyBackground then EQT.ApplyBackground() end
                 end,
-                false, 20)
+                false, 20,
+                function() return 0, 0, 0 end)
             PP.Point(bgSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             EllesmereUI.RegisterWidgetRefresh(function() bgSwatchRefresh() end)
         end
@@ -252,13 +253,14 @@ initFrame:SetScript("OnEvent", function(self)
                 local sw, swRefresh = EllesmereUI.BuildColorSwatch(
                     rgn, r:GetFrameLevel() + 3,
                     function()
-                        return (Cfg(keys.r) or default[1]), (Cfg(keys.g) or default[2]), (Cfg(keys.b) or default[3])
+                        return Cfg(keys.r), Cfg(keys.g), Cfg(keys.b)
                     end,
                     function(cr, cg, cb)
                         Set(keys.r, cr); Set(keys.g, cg); Set(keys.b, cb)
                         RefreshAll()
                     end,
-                    false, 20)
+                    false, 20,
+                    function() return default[1], default[2], default[3] end)
                 PP.Point(sw, "RIGHT", rgn, "RIGHT", -20, 0)
                 EllesmereUI.RegisterWidgetRefresh(function() swRefresh() end)
             end
@@ -306,13 +308,14 @@ initFrame:SetScript("OnEvent", function(self)
             local customSwatch = {
                 tooltip = "Custom Color", hasAlpha = false,
                 getValue = function()
-                    return (Cfg(rKey) or customDefault[1]), (Cfg(gKey) or customDefault[2]), (Cfg(bKey) or customDefault[3])
+                    return Cfg(rKey), Cfg(gKey), Cfg(bKey)
                 end,
                 setValue = function(r, g, b)
                     Set(rKey, r); Set(gKey, g); Set(bKey, b)
                     Set(classKey, false); Set(accentKey, false)
                     RefreshAll(); EllesmereUI:RefreshPage()
                 end,
+                getFactoryDefault = function() return customDefault[1], customDefault[2], customDefault[3] end,
                 onClick = function(self)
                     if isClass() or isAccent() then
                         Set(classKey, false); Set(accentKey, false)
@@ -351,9 +354,10 @@ initFrame:SetScript("OnEvent", function(self)
             if not EllesmereUI._prebuilding then
             local sw, swRefresh = EllesmereUI.BuildColorSwatch(
                 r._leftRegion, r:GetFrameLevel() + 3,
-                function() return (Cfg("focusR") or 0.871), (Cfg("focusG") or 0.251), (Cfg("focusB") or 1.0) end,
+                function() return Cfg("focusR"), Cfg("focusG"), Cfg("focusB") end,
                 function(cr, cg, cb) Set("focusR", cr); Set("focusG", cg); Set("focusB", cb); RefreshAll() end,
-                false, 20)
+                false, 20,
+                function() return 0.871, 0.251, 1.0 end)
             PP.Point(sw, "RIGHT", r._leftRegion, "RIGHT", -20, 0)
             EllesmereUI.RegisterWidgetRefresh(function() swRefresh() end)
             end

@@ -175,14 +175,16 @@ initFrame:SetScript("OnEvent", function(self)
             local swatch, refreshSwatch = EllesmereUI.BuildColorSwatch(
                 rgn, windowBorderRow:GetFrameLevel() + 3,
                 function()
-                    local c = Cfg("windowBorderColor") or {}
-                    return c.r or 0, c.g or 0, c.b or 0, c.a or 1
+                    local c = Cfg("windowBorderColor")
+                    if not c then return nil end
+                    return c.r, c.g, c.b, c.a or 1
                 end,
                 function(r, g, b, a)
                     Set("windowBorderColor", { r=r, g=g, b=b, a=a or 1 })
                     ApplyWindowBrd()
                 end,
-                true, 20)
+                true, 20,
+                function() return 0, 0, 0, 1 end)
             PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
             EllesmereUI.RegisterWidgetRefresh(refreshSwatch)
         end
@@ -206,13 +208,14 @@ initFrame:SetScript("OnEvent", function(self)
             local bgSwatch, bgSwatchRefresh = EllesmereUI.BuildColorSwatch(
                 rgn, bgRow:GetFrameLevel() + 3,
                 function()
-                    return (Cfg("bgR") or 0), (Cfg("bgG") or 0), (Cfg("bgB") or 0)
+                    return Cfg("bgR"), Cfg("bgG"), Cfg("bgB")
                 end,
                 function(r, g, b)
                     Set("bgR", r); Set("bgG", g); Set("bgB", b)
                     if ns.ApplyBackground then ns.ApplyBackground() end
                 end,
-                false, 20)
+                false, 20,
+                function() return 0, 0, 0 end)
             PP.Point(bgSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             EllesmereUI.RegisterWidgetRefresh(function() bgSwatchRefresh() end)
         end
@@ -408,14 +411,15 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, hdrRow1:GetFrameLevel() + 3,
                 function()
                     local c = Cfg("hdrBgColor")
-                    if c then return c.r or 0x1B/255, c.g or 0x1B/255, c.b or 0x1B/255 end
-                    return 0x1B/255, 0x1B/255, 0x1B/255
+                    if not c then return nil end
+                    return c.r, c.g, c.b
                 end,
                 function(r, g, b)
                     Set("hdrBgColor", { r = r, g = g, b = b })
                     ApplyHdr()
                 end,
-                false, 20)
+                false, 20,
+                function() return 0x1B/255, 0x1B/255, 0x1B/255 end)
             PP.Point(hdrSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             EllesmereUI.RegisterWidgetRefresh(function() hdrSwatchRefresh() end)
         end
@@ -437,14 +441,16 @@ initFrame:SetScript("OnEvent", function(self)
             local swatch, refreshSwatch = EllesmereUI.BuildColorSwatch(
                 rgn, hdrBorderRow:GetFrameLevel() + 3,
                 function()
-                    local c = Cfg("hdrBottomBorderColor") or {}
-                    return c.r or 0, c.g or 0, c.b or 0, c.a or 1
+                    local c = Cfg("hdrBottomBorderColor")
+                    if not c then return nil end
+                    return c.r, c.g, c.b, c.a or 1
                 end,
                 function(r, g, b, a)
                     Set("hdrBottomBorderColor", { r=r, g=g, b=b, a=a or 1 })
                     ApplyHdr()
                 end,
-                true, 20)
+                true, 20,
+                function() return 0, 0, 0, 1 end)
             PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
             EllesmereUI.RegisterWidgetRefresh(refreshSwatch)
         end
@@ -457,8 +463,8 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, hdrBorderRow:GetFrameLevel() + 3,
                 function()
                     local c = Cfg("iconColor")
-                    if c then return c.r or 1, c.g or 1, c.b or 1 end
-                    return 1, 1, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b
                 end,
                 function(r, g, b)
                     Set("iconColorUseAccent", false)
@@ -466,7 +472,8 @@ initFrame:SetScript("OnEvent", function(self)
                     if ns.ApplyIconColor then ns.ApplyIconColor() end
                     EllesmereUI:RefreshPage()
                 end,
-                false, 20)
+                false, 20,
+                function() return 1, 1, 1 end)
             PP.Point(customSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             local origIconClick = customSwatch:GetScript("OnClick")
             customSwatch:SetScript("OnClick", function(self, ...)
@@ -555,15 +562,16 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, hdrRow2:GetFrameLevel() + 3,
                 function()
                     local c = Cfg("hdrTextColor")
-                    if c then return c.r or 1, c.g or 1, c.b or 1 end
-                    return 1, 1, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b
                 end,
                 function(r, g, b)
                     Set("hdrTextUseAccent", false)
                     Set("hdrTextColor", { r = r, g = g, b = b })
                     ApplyHdr(); EllesmereUI:RefreshPage()
                 end,
-                false, 20)
+                false, 20,
+                function() return 1, 1, 1 end)
             PP.Point(customSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             local origHdrTextClick = customSwatch:GetScript("OnClick")
             customSwatch:SetScript("OnClick", function(self, ...)
@@ -672,14 +680,15 @@ initFrame:SetScript("OnEvent", function(self)
                     hasAlpha = false,
                     getValue = function()
                         local c = Cfg("barColor")
-                        if c then return c.r or 0.35, c.g or 0.55, c.b or 0.8 end
-                        return 0.35, 0.55, 0.8
+                        if not c then return nil end
+                        return c.r, c.g, c.b
                     end,
                     setValue = function(r, g, b)
                         Set("barColor", { r = r, g = g, b = b })
                         Set("showClassColor", false); Set("barColorUseAccent", false)
                         Refresh(); EllesmereUI:RefreshPage()
                     end,
+                    getFactoryDefault = function() return 0.35, 0.55, 0.8 end,
                     onClick = function(self)
                         if Cfg("showClassColor") ~= false or Cfg("barColorUseAccent") ~= false then
                             Set("showClassColor", false); Set("barColorUseAccent", false)
@@ -897,13 +906,14 @@ initFrame:SetScript("OnEvent", function(self)
             local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
                 rgn, bsRow:GetFrameLevel() + 3,
                 function()
-                    return Cfg("borderR") or 0, Cfg("borderG") or 0, Cfg("borderB") or 0, Cfg("borderA") or 1
+                    return Cfg("borderR"), Cfg("borderG"), Cfg("borderB"), Cfg("borderA")
                 end,
                 function(r, g, b, a)
                     Set("borderR", r); Set("borderG", g); Set("borderB", b); Set("borderA", a)
                     ApplyBrd()
                 end,
-                true, 20)
+                true, 20,
+                function() return 0, 0, 0, 1 end)
             PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
             EllesmereUI.RegisterWidgetRefresh(function() updateSwatch() end)
         end
@@ -1012,13 +1022,14 @@ initFrame:SetScript("OnEvent", function(self)
             local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
                 rgn, ibsRow:GetFrameLevel() + 3,
                 function()
-                    return Cfg("iconBorderR") or 0, Cfg("iconBorderG") or 0, Cfg("iconBorderB") or 0, Cfg("iconBorderA") or 1
+                    return Cfg("iconBorderR"), Cfg("iconBorderG"), Cfg("iconBorderB"), Cfg("iconBorderA")
                 end,
                 function(r, g, b, a)
                     Set("iconBorderR", r); Set("iconBorderG", g); Set("iconBorderB", b); Set("iconBorderA", a)
                     ApplyIconBrd()
                 end,
-                true, 20)
+                true, 20,
+                function() return 0, 0, 0, 1 end)
             PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
             EllesmereUI.RegisterWidgetRefresh(function() updateSwatch() end)
         end
@@ -1043,7 +1054,7 @@ initFrame:SetScript("OnEvent", function(self)
             local barBgSwatch, barBgSwatchRefresh = EllesmereUI.BuildColorSwatch(
                 rgn, bdRow:GetFrameLevel() + 3,
                 function()
-                    return (Cfg("barBgR") or 0), (Cfg("barBgG") or 0), (Cfg("barBgB") or 0)
+                    return Cfg("barBgR"), Cfg("barBgG"), Cfg("barBgB")
                 end,
                 function(r, g, b)
                     Set("barBgUseClassColor", false)
@@ -1051,7 +1062,8 @@ initFrame:SetScript("OnEvent", function(self)
                     if ns.ApplyBarBg then ns.ApplyBarBg() end
                     EllesmereUI:RefreshPage()
                 end,
-                false, 20)
+                false, 20,
+                function() return 0, 0, 0 end)
             PP.Point(barBgSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             local origClick = barBgSwatch:GetScript("OnClick")
             barBgSwatch:SetScript("OnClick", function(self, ...)
@@ -1195,15 +1207,16 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, btRow:GetFrameLevel() + 3,
                 function()
                     local c = Cfg("leftTextColor")
-                    if c then return c.r or 1, c.g or 1, c.b or 1 end
-                    return 1, 1, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b
                 end,
                 function(r, g, b)
                     Set("leftTextUseClassColor", false)
                     Set("leftTextColor", { r = r, g = g, b = b })
                     Refresh(); EllesmereUI:RefreshPage()
                 end,
-                false, 20)
+                false, 20,
+                function() return 1, 1, 1 end)
             PP.Point(customSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             local origClick = customSwatch:GetScript("OnClick")
             customSwatch:SetScript("OnClick", function(self, ...)
@@ -1289,15 +1302,16 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, btRow:GetFrameLevel() + 3,
                 function()
                     local c = Cfg("rightTextColor")
-                    if c then return c.r or 1, c.g or 1, c.b or 1 end
-                    return 1, 1, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b
                 end,
                 function(r, g, b)
                     Set("rightTextUseClassColor", false)
                     Set("rightTextColor", { r = r, g = g, b = b })
                     Refresh(); EllesmereUI:RefreshPage()
                 end,
-                false, 20)
+                false, 20,
+                function() return 1, 1, 1 end)
             PP.Point(customSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             local origClick = customSwatch:GetScript("OnClick")
             customSwatch:SetScript("OnClick", function(self, ...)
@@ -1420,13 +1434,14 @@ initFrame:SetScript("OnEvent", function(self)
                     hasAlpha = false,
                     getValue = function()
                         local c = Cfg("standaloneTimerColor")
-                        if c then return c.r or 1, c.g or 1, c.b or 1 end
-                        return 1, 1, 1
+                        if not c then return nil end
+                        return c.r, c.g, c.b
                     end,
                     setValue = function(r, g, b)
                         Set("standaloneTimerColor", { r = r, g = g, b = b })
                         ApplySAT()
                     end,
+                    getFactoryDefault = function() return 1, 1, 1 end,
                     onClick = function(self)
                         if Cfg("standaloneTimerUseAccent") then
                             Set("standaloneTimerUseAccent", false)
@@ -1798,12 +1813,13 @@ initFrame:SetScript("OnEvent", function(self)
             local swatch, swatchRefresh = EllesmereUI.BuildColorSwatch(
                 rgn, bgRow:GetFrameLevel() + 3,
                 function()
-                    return (SHDB().bgR or 0), (SHDB().bgG or 0), (SHDB().bgB or 0)
+                    return SHDB().bgR, SHDB().bgG, SHDB().bgB
                 end,
                 function(r, g, b)
                     SHDB().bgR = r; SHDB().bgG = g; SHDB().bgB = b; RefreshSH()
                 end,
-                false, 20)
+                false, 20,
+                function() return 0, 0, 0 end)
             PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
             local block = CreateFrame("Frame", nil, swatch)
             block:SetAllPoints(); block:SetFrameLevel(swatch:GetFrameLevel() + 10)
@@ -1877,14 +1893,15 @@ initFrame:SetScript("OnEvent", function(self)
                     hasAlpha = false,
                     getValue = function()
                         local c = SHDB().barColor
-                        if c then return c.r or 0.298, c.g or 0.565, c.b or 0.494 end
-                        return 0.298, 0.565, 0.494
+                        if not c then return nil end
+                        return c.r, c.g, c.b
                     end,
                     setValue = function(r, g, b)
                         SHDB().barColor = { r = r, g = g, b = b }
                         SHDB().barColorUseClass = false; SHDB().barColorUseAccent = false
                         RefreshSH(); EllesmereUI:RefreshPage()
                     end,
+                    getFactoryDefault = function() return 0.298, 0.565, 0.494 end,
                     onClick = function(self)
                         if SHDB().barColorUseClass or SHDB().barColorUseAccent then
                             SHDB().barColorUseClass = false; SHDB().barColorUseAccent = false
@@ -1927,15 +1944,16 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, textRow:GetFrameLevel() + 3,
                 function()
                     local c = SHDB().textColor
-                    if c then return c.r or 1, c.g or 1, c.b or 1 end
-                    return 1, 1, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b
                 end,
                 function(r, g, b)
                     SHDB().textColorUseAccent = false
                     SHDB().textColor = { r = r, g = g, b = b }
                     RefreshSH(); EllesmereUI:RefreshPage()
                 end,
-                false, 20)
+                false, 20,
+                function() return 1, 1, 1 end)
             PP.Point(customSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             local origClick = customSwatch:GetScript("OnClick")
             customSwatch:SetScript("OnClick", function(self, ...)

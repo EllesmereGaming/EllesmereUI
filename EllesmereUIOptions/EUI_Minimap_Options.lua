@@ -410,10 +410,10 @@ initFrame:SetScript("OnEvent", function(self)
                 function()
                     local m = MinimapDB()
                     local c = m and m.borderColor
-                    if c then return c.r, c.g, c.b, (m.borderA) or 1 end
+                    if c then return c.r, c.g, c.b, m.borderA or 1 end
                     -- Legacy: pre-style users' border colour keys
-                    if m then return m.borderR or 0, m.borderG or 0, m.borderB or 0, m.borderA or 1 end
-                    return 0, 0, 0, 1
+                    if m and m.borderR ~= nil then return m.borderR, m.borderG, m.borderB, m.borderA or 1 end
+                    return nil
                 end,
                 function(r, g, b, a)
                     local m = MinimapDB(); if not m then return end
@@ -421,7 +421,8 @@ initFrame:SetScript("OnEvent", function(self)
                     m.borderA = a
                     RefreshMinimap()
                 end,
-                true, 18)
+                true, 18,
+                function() return 0, 0, 0, 1 end)
             -- Preserve BuildColorSwatch's picker click, but while class or accent
             -- mode is on a click just switches back to custom mode instead.
             local openPicker = customSwatch:GetScript("OnClick")
@@ -1841,14 +1842,15 @@ initFrame:SetScript("OnEvent", function(self)
                 function()
                     local m = MinimapDB()
                     local c = m and m.fpsColor
-                    if c then return c.r or 1, c.g or 1, c.b or 1, 1 end
-                    return 1, 1, 1, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     local m = MinimapDB(); if not m then return end
                     m.fpsColor = { r = r, g = g, b = b }
                     RefreshMinimap()
-                end, false, 18)
+                end, false, 18,
+                function() return 1, 1, 1, 1 end)
             local openPicker = customSwatch:GetScript("OnClick")
             customSwatch:SetScript("OnClick", function(self)
                 local m = MinimapDB()

@@ -286,9 +286,10 @@ initFrame:SetScript("OnEvent", function(self)
                   hasAlpha = false,
                   getValue = function()
                       local c = FriendsDB()
-                      if not c then return 0.05, 0.05, 0.05 end
+                      if not c or c.borderR == nil then return nil end
                       return c.borderR, c.borderG, c.borderB
                   end,
+                  getFactoryDefault = function() return 0.05, 0.05, 0.05 end,
                   setValue = function(r, g, b)
                       local c = FriendsDB(); if not c then return end
                       c.borderR, c.borderG, c.borderB = r, g, b

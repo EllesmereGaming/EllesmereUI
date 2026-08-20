@@ -81,6 +81,20 @@ initFrame:SetScript("OnEvent", function(self)
         return c.r, c.g, c.b
     end
 
+    -- GUI-swatch variants: DBColorRaw returns nil when no override is stored (so
+    -- BuildColorSwatch's popup Reset button knows the color is unset), and
+    -- DBColorDefault supplies the factory default for that key.
+    local function DBColorRaw(key)
+        local db = DB()
+        local c = db and db[key]
+        if not c then return nil end
+        return c.r, c.g, c.b
+    end
+    local function DBColorDefault(key)
+        local d = defaults[key]
+        return d.r, d.g, d.b
+    end
+
     local FOCUS_LETTER_ANCHORS = {
         CENTER = "Center",
         LEFT = "Left",
@@ -2508,12 +2522,17 @@ initFrame:SetScript("OnEvent", function(self)
             return {
                 { tooltip = "Custom Color", hasAlpha = false,
                   getValue = function()
-                      local c = DBVal("friendlyBelowNameColor") or defaults.friendlyBelowNameColor
+                      local c = DBVal("friendlyBelowNameColor")
+                      if not c then return nil end
                       return c.r, c.g, c.b
                   end,
                   setValue = function(r, g, b)
                       DB().friendlyBelowNameColor = { r = r, g = g, b = b }
                       if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
+                  end,
+                  getFactoryDefault = function()
+                      local d = defaults.friendlyBelowNameColor
+                      return d.r, d.g, d.b
                   end,
                   onClick = function(self)
                       if DBVal("friendlyBelowNameClassColor") == true then
@@ -2695,12 +2714,13 @@ initFrame:SetScript("OnEvent", function(self)
                 npcSwatch:SetMouseClickEnabled(not off)
             end
             npcSwatch, updateNpcSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
-                function() local c = DBVal("friendlyNPCColor") or defaults.friendlyNPCColor; return c.r, c.g, c.b end,
+                function() local c = DBVal("friendlyNPCColor"); if not c then return nil end; return c.r, c.g, c.b end,
                 function(r, g, b)
                     DB().friendlyNPCColor = { r = r, g = g, b = b }
                     if ns.RefreshFriendlyColors then ns.RefreshFriendlyColors() end
                     refreshNpcSwatch()
-                end, nil, 20)
+                end, nil, 20,
+                function() local d = defaults.friendlyNPCColor; return d.r, d.g, d.b end)
             PP.Point(npcSwatch, "RIGHT", btn, "LEFT", -8, 0)
             rgn._lastInline = npcSwatch
             local origNpcClick = npcSwatch:GetScript("OnClick")
@@ -3038,7 +3058,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline color swatch next to the Glow Style dropdown
         if not EllesmereUI._prebuilding then
             local glowColorGet = function()
-                local c = DB().pandemicGlowColor or defaults.pandemicGlowColor
+                local c = DB().pandemicGlowColor
+                if not c then return nil end
                 return c.r, c.g, c.b
             end
             local glowColorSet = function(r, g, b)
@@ -3046,8 +3067,9 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshAllAuras()
                 RefreshPandemicPreview()
             end
+            local glowColorDefault = function() local d = defaults.pandemicGlowColor; return d.r, d.g, d.b end
             local leftRgn = glowStyleRow._leftRegion
-            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, glowColorGet, glowColorSet, nil, 20)
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, glowColorGet, glowColorSet, nil, 20, glowColorDefault)
             PP.Point(swatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             leftRgn._lastInline = swatch
             -- Gray out swatch when pandemic glow is off
@@ -3203,13 +3225,18 @@ initFrame:SetScript("OnEvent", function(self)
                     lbl5:SetText(EllesmereUI.L("Background Color")); lbl5:SetPoint("TOPLEFT", pf, "TOPLEFT", SIDE_PAD, r5Y)
                     local bgSwatch, bgUpdate = BuildColorSwatch(pf, pf:GetFrameLevel() + 2,
                         function()
-                            local c = DB().pandemicGlowBackgroundColor or defaults.pandemicGlowBackgroundColor or { r = 0, g = 0, b = 0 }
-                            return c.r or 0, c.g or 0, c.b or 0
+                            local c = DB().pandemicGlowBackgroundColor
+                            if not c then return nil end
+                            return c.r, c.g, c.b
                         end,
                         function(r, g, b)
                             DB().pandemicGlowBackgroundColor = { r = r, g = g, b = b }
                             RefreshAllAuras(); RefreshPandemicPreview()
-                        end, false, 20)
+                        end, false, 20,
+                        function()
+                            local d = defaults.pandemicGlowBackgroundColor or { r = 0, g = 0, b = 0 }
+                            return d.r, d.g, d.b
+                        end)
                     bgSwatch:ClearAllPoints()
                     bgSwatch:SetPoint("RIGHT", pf, "TOPRIGHT", -SIDE_PAD, r5Y - ROW_H / 2)
                     local bgBlock = CreateFrame("Frame", nil, bgSwatch)
@@ -3401,7 +3428,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline color swatch for dispel glow
         if not EllesmereUI._prebuilding then
             local glowColorGet = function()
-                local c = DB().dispelGlowColor or defaults.dispelGlowColor
+                local c = DB().dispelGlowColor
+                if not c then return nil end
                 return c.r, c.g, c.b
             end
             local glowColorSet = function(r, g, b)
@@ -3409,10 +3437,11 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshAllAuras()
                 UpdatePreview()
             end
+            local glowColorDefault = function() local d = defaults.dispelGlowColor; return d.r, d.g, d.b end
             -- Dispel Glow Style lives in the RIGHT slot (the Enemy Buff Filter
             -- dropdown took the left), so its swatch and eye follow it there.
             local leftRgn = dispelGlowRow._rightRegion
-            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, glowColorGet, glowColorSet, nil, 20)
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, glowColorGet, glowColorSet, nil, 20, glowColorDefault)
             PP.Point(swatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             leftRgn._lastInline = swatch
             -- Blocking overlay (canonical inline disabled-state pattern):
@@ -3551,7 +3580,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline color swatch for hash line custom color
         if not EllesmereUI._prebuilding then
             local hashColorGet = function()
-                local c = (DB() and DB().hashLineColor) or defaults.hashLineColor
+                local c = DB() and DB().hashLineColor
+                if not c then return nil end
                 return c.r, c.g, c.b
             end
             local hashColorSet = function(r, g, b)
@@ -3559,8 +3589,9 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshAllPlates()
                 UpdatePreview()
             end
+            local hashColorDefault = function() local d = defaults.hashLineColor; return d.r, d.g, d.b end
             local leftRgn = row._leftRegion
-            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, hashColorGet, hashColorSet, nil, 20)
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, hashColorGet, hashColorSet, nil, 20, hashColorDefault)
             PP.Point(swatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             -- Gray out swatch when hash line is off
             EllesmereUI.RegisterWidgetRefresh(function()
@@ -3826,14 +3857,16 @@ initFrame:SetScript("OnEvent", function(self)
         if not EllesmereUI._prebuilding then
             local rgn = tfRangeRow._leftRegion
             local rangeColorGet = function()
-                local c = (DB() and DB().rangeTextColor) or defaults.rangeTextColor
+                local c = DB() and DB().rangeTextColor
+                if not c then return nil end
                 return c.r, c.g, c.b
             end
             local rangeColorSet = function(r, g, b)
                 DB().rangeTextColor = { r = r, g = g, b = b }
                 if ns.RangeText_Refresh then ns.RangeText_Refresh() end
             end
-            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, rangeColorGet, rangeColorSet, nil, 20)
+            local rangeColorDefault = function() local d = defaults.rangeTextColor; return d.r, d.g, d.b end
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, rangeColorGet, rangeColorSet, nil, 20, rangeColorDefault)
             PP.Point(swatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = swatch
             EllesmereUI.RegisterWidgetRefresh(function()
@@ -4502,7 +4535,8 @@ initFrame:SetScript("OnEvent", function(self)
                 return not v
             end
             local borderColorGet = function()
-                local c = (DB() and DB().borderColor) or defaults.borderColor
+                local c = DB() and DB().borderColor
+                if not c then return nil end
                 return c.r, c.g, c.b
             end
             local borderColorSet = function(r, g, b)
@@ -4510,7 +4544,8 @@ initFrame:SetScript("OnEvent", function(self)
                 ns.RefreshBorderColor()
                 UpdatePreview()
             end
-            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, borderColorGet, borderColorSet, nil, 20)
+            local borderColorDefault = function() local d = defaults.borderColor; return d.r, d.g, d.b end
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, borderColorGet, borderColorSet, nil, 20, borderColorDefault)
             PP.Point(swatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             leftRgn._lastInline = swatch
             EllesmereUI.RegisterWidgetRefresh(function()
@@ -4685,8 +4720,9 @@ initFrame:SetScript("OnEvent", function(self)
             if not EllesmereUI._prebuilding then
                 local rightRgn = customBorderRow._rightRegion
                 local cbColGet = function()
-                    local c = (DB() and DB().customBorderColor) or defaults.customBorderColor
-                    return c.r, c.g, c.b, (DBVal("customBorderAlpha") or defaults.customBorderAlpha or 1)
+                    local c = DB() and DB().customBorderColor
+                    if not c then return nil end
+                    return c.r, c.g, c.b, DBVal("customBorderAlpha") or defaults.customBorderAlpha or 1
                 end
                 local cbColSet = function(r, g, b, a)
                     DB().customBorderColor = { r = r, g = g, b = b }
@@ -4694,7 +4730,11 @@ initFrame:SetScript("OnEvent", function(self)
                     ns.RefreshBorderColor()
                     UpdatePreview()
                 end
-                local cbSwatch, cbUpdateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, cbColGet, cbColSet, true, 20)
+                local cbColDefault = function()
+                    local d = defaults.customBorderColor
+                    return d.r, d.g, d.b, defaults.customBorderAlpha or 1
+                end
+                local cbSwatch, cbUpdateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, cbColGet, cbColSet, true, 20, cbColDefault)
                 PP.Point(cbSwatch, "RIGHT", rightRgn._control, "LEFT", -12, 0)
                 rightRgn._lastInline = cbSwatch
                 EllesmereUI.RegisterWidgetRefresh(function() cbUpdateSwatch() end)
@@ -4771,7 +4811,8 @@ initFrame:SetScript("OnEvent", function(self)
         if not EllesmereUI._prebuilding then
             local leftRgn = bgHoverRow._leftRegion
             local cbColorGet = function()
-                local c = (DB() and DB().bgColor) or defaults.bgColor
+                local c = DB() and DB().bgColor
+                if not c then return nil end
                 return c.r, c.g, c.b
             end
             local cbColorSet = function(r, g, b)
@@ -4782,7 +4823,8 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 UpdatePreview()
             end
-            local cbSwatch, cbUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, cbColorGet, cbColorSet, nil, 20)
+            local cbColorDefault = function() local d = defaults.bgColor; return d.r, d.g, d.b end
+            local cbSwatch, cbUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, cbColorGet, cbColorSet, nil, 20, cbColorDefault)
             PP.Point(cbSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             leftRgn._lastInline = cbSwatch
             EllesmereUI.RegisterWidgetRefresh(function() cbUpdateSwatch() end)
@@ -4792,7 +4834,8 @@ initFrame:SetScript("OnEvent", function(self)
         if not EllesmereUI._prebuilding then
             local rgn = bgHoverRow._rightRegion
             local acColorGet = function()
-                local c = (DB() and DB().absorbColor) or defaults.absorbColor or { r = 1, g = 1, b = 1 }
+                local c = DB() and DB().absorbColor
+                if not c then return nil end
                 return c.r, c.g, c.b
             end
             local acColorSet = function(r, g, b)
@@ -4800,7 +4843,11 @@ initFrame:SetScript("OnEvent", function(self)
                 ns.ApplyAbsorbStyleAll()
                 UpdatePreview()
             end
-            local acSwatch, acUpdateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, acColorGet, acColorSet, nil, 20)
+            local acColorDefault = function()
+                local d = defaults.absorbColor or { r = 1, g = 1, b = 1 }
+                return d.r, d.g, d.b
+            end
+            local acSwatch, acUpdateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, acColorGet, acColorSet, nil, 20, acColorDefault)
             PP.Point(acSwatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = acSwatch
             local function absorbColorOff() return (DBVal("absorbStyle") or "blizzard") == "blizzard" end
@@ -6587,7 +6634,8 @@ initFrame:SetScript("OnEvent", function(self)
             local rgn = row[regionKey]
             local colorKey = slotKey .. "Color"
             local function getColor()
-                local c = (DB() and DB()[colorKey]) or defaults[colorKey]
+                local c = DB() and DB()[colorKey]
+                if not c then return nil end
                 return c.r, c.g, c.b
             end
             local function setColor(r, g, b)
@@ -6595,7 +6643,11 @@ initFrame:SetScript("OnEvent", function(self)
                 ns.RefreshAllSettings()
                 UpdatePreview()
             end
-            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, getColor, setColor, nil, 20)
+            local function getColorDefault()
+                local d = defaults[colorKey]
+                return d.r, d.g, d.b
+            end
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, getColor, setColor, nil, 20, getColorDefault)
             PP.Point(swatch, "RIGHT", rgn._control, "LEFT", -12, 0)
             rgn._lastInline = swatch
             EllesmereUI.RegisterWidgetRefresh(function()
@@ -6859,7 +6911,8 @@ initFrame:SetScript("OnEvent", function(self)
         if not EllesmereUI._prebuilding then
             local leftRgn = castBgRow._leftRegion
             local castBgColorGet = function()
-                local c = (DB() and DB().castBgColor) or defaults.castBgColor
+                local c = DB() and DB().castBgColor
+                if not c then return nil end
                 return c.r, c.g, c.b
             end
             local castBgColorSet = function(r, g, b)
@@ -6870,7 +6923,8 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 UpdatePreview()
             end
-            local castBgSwatch, castBgUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, castBgColorGet, castBgColorSet, nil, 20)
+            local castBgColorDefault = function() local d = defaults.castBgColor; return d.r, d.g, d.b end
+            local castBgSwatch, castBgUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, castBgColorGet, castBgColorSet, nil, 20, castBgColorDefault)
             PP.Point(castBgSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             leftRgn._lastInline = castBgSwatch
             EllesmereUI.RegisterWidgetRefresh(function() castBgUpdateSwatch() end)
@@ -6879,7 +6933,8 @@ initFrame:SetScript("OnEvent", function(self)
         if not EllesmereUI._prebuilding then
             local rightRgn = castBgRow._rightRegion
             local castBorderColorGet = function()
-                local c = (DB() and DB().castBorderColor) or defaults.castBorderColor
+                local c = DB() and DB().castBorderColor
+                if not c then return nil end
                 return c.r, c.g, c.b
             end
             local castBorderColorSet = function(r, g, b)
@@ -6887,7 +6942,8 @@ initFrame:SetScript("OnEvent", function(self)
                 ns.RefreshCastBorderColor()
                 UpdatePreview()
             end
-            local cbSwatch, cbUpdateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, castBorderColorGet, castBorderColorSet, nil, 20)
+            local castBorderColorDefault = function() local d = defaults.castBorderColor; return d.r, d.g, d.b end
+            local cbSwatch, cbUpdateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, castBorderColorGet, castBorderColorSet, nil, 20, castBorderColorDefault)
             PP.Point(cbSwatch, "RIGHT", rightRgn._control, "LEFT", -12, 0)
             rightRgn._lastInline = cbSwatch
             EllesmereUI.RegisterWidgetRefresh(function() cbUpdateSwatch() end)
@@ -6932,7 +6988,8 @@ initFrame:SetScript("OnEvent", function(self)
         if not EllesmereUI._prebuilding then
             local leftRgn = castTimerRow._leftRegion
             local ctColorGet = function()
-                local c = (DB() and DB().castTimerColor) or defaults.castTimerColor
+                local c = DB() and DB().castTimerColor
+                if not c then return nil end
                 return c.r, c.g, c.b
             end
             local ctColorSet = function(r, g, b)
@@ -6942,7 +6999,8 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 UpdatePreview()
             end
-            local ctSwatch, ctUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, ctColorGet, ctColorSet, nil, 20)
+            local ctColorDefault = function() local d = defaults.castTimerColor; return d.r, d.g, d.b end
+            local ctSwatch, ctUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, ctColorGet, ctColorSet, nil, 20, ctColorDefault)
             PP.Point(ctSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             leftRgn._lastInline = ctSwatch
             EllesmereUI.RegisterWidgetRefresh(function() ctUpdateSwatch() end)
@@ -6995,29 +7053,33 @@ initFrame:SetScript("OnEvent", function(self)
             { type="multiSwatch", text="Cast Color",
               swatches = {
                 { tooltip = "Interruptible Cast",
-                  getValue = function() return DBColor("castBar") end,
+                  getValue = function() return DBColorRaw("castBar") end,
                   setValue = function(r, g, b)
                     DB().castBar = { r = r, g = g, b = b }
                     RefreshAllPlates(); UpdatePreview()
-                  end },
+                  end,
+                  getFactoryDefault = function() return DBColorDefault("castBar") end },
                 { tooltip = "Interrupt on CD",
-                  getValue = function() return DBColor("interruptReady") end,
+                  getValue = function() return DBColorRaw("interruptReady") end,
                   setValue = function(r, g, b)
                     DB().interruptReady = { r = r, g = g, b = b }
                     RefreshAllPlates()
-                  end },
+                  end,
+                  getFactoryDefault = function() return DBColorDefault("interruptReady") end },
                 { tooltip = "Uninterruptible Cast",
-                  getValue = function() return DBColor("castBarUninterruptible") end,
+                  getValue = function() return DBColorRaw("castBarUninterruptible") end,
                   setValue = function(r, g, b)
                     DB().castBarUninterruptible = { r = r, g = g, b = b }
                     RefreshAllPlates()
-                  end },
+                  end,
+                  getFactoryDefault = function() return DBColorDefault("castBarUninterruptible") end },
                 { tooltip = "Important Cast",
-                  getValue = function() return DBColor("castBarImportant") end,
+                  getValue = function() return DBColorRaw("castBarImportant") end,
                   setValue = function(r, g, b)
                     DB().castBarImportant = { r = r, g = g, b = b }
                     RefreshAllPlates()
                   end,
+                  getFactoryDefault = function() return DBColorDefault("castBarImportant") end,
                   disabled = function()
                     local db = DB()
                     local on = db and db.importantCastColorEnabled
@@ -7071,13 +7133,15 @@ initFrame:SetScript("OnEvent", function(self)
                 local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
                     rightRgn, castColorRow:GetFrameLevel() + 3,
                     function()
-                        local c = DB().interruptMidCastColor or defaults.interruptMidCastColor
+                        local c = DB().interruptMidCastColor
+                        if not c then return nil end
                         return c.r, c.g, c.b
                     end,
                     function(r, g, b)
                         DB().interruptMidCastColor = { r = r, g = g, b = b }
                         ns.RefreshAllSettings()
-                    end, nil, 20)
+                    end, nil, 20,
+                    function() local d = defaults.interruptMidCastColor; return d.r, d.g, d.b end)
                 PP.Point(swatch, "RIGHT", ctrl, "LEFT", -12, 0)
                 rightRgn._lastInline = swatch
                 swatch:SetScript("OnEnter", function(s) EllesmereUI.ShowWidgetTooltip(s, "Interrupt Ready Mid-Cast") end)
@@ -7210,13 +7274,18 @@ initFrame:SetScript("OnEvent", function(self)
                     local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
                         leftRgn, impGlowRow:GetFrameLevel() + 3,
                         function()
-                            local c = DB().importantCastGlowColor or defaults.importantCastGlowColor
-                            return c.r or 1, c.g or 0.2, c.b or 0.2
+                            local c = DB().importantCastGlowColor
+                            if not c then return nil end
+                            return c.r, c.g, c.b
                         end,
                         function(r, g, b)
                             DB().importantCastGlowColor = { r = r, g = g, b = b }
                             RefreshAllPlates()
-                        end, nil, 20)
+                        end, nil, 20,
+                        function()
+                            local d = defaults.importantCastGlowColor or { r = 1, g = 0.2, b = 0.2 }
+                            return d.r, d.g, d.b
+                        end)
                     PP.Point(swatch, "RIGHT", ctrl, "LEFT", -12, 0)
                     leftRgn._lastInline = swatch
                     EllesmereUI.RegisterWidgetRefresh(function()
@@ -7249,10 +7318,15 @@ initFrame:SetScript("OnEvent", function(self)
                           set = function(v) DB().importantCastGlowBackground = v and true or nil; RefreshAllPlates() end },
                         { type = "colorpicker", label = "Background Color",
                           get = function()
-                              local c = DB().importantCastGlowBackgroundColor or defaults.importantCastGlowBackgroundColor or { r = 0, g = 0, b = 0 }
-                              return c.r or 0, c.g or 0, c.b or 0
+                              local c = DB().importantCastGlowBackgroundColor
+                              if not c then return nil end
+                              return c.r, c.g, c.b
                           end,
                           set = function(r, g, b) DB().importantCastGlowBackgroundColor = { r = r, g = g, b = b }; RefreshAllPlates() end,
+                          getFactoryDefault = function()
+                              local d = defaults.importantCastGlowBackgroundColor or { r = 0, g = 0, b = 0 }
+                              return d.r, d.g, d.b
+                          end,
                           disabled = function() return DB().importantCastGlowBackground ~= true end,
                           disabledTooltip = "Pixel Glow Background" },
                     },
@@ -7363,13 +7437,15 @@ initFrame:SetScript("OnEvent", function(self)
                     local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
                         rgn, row3:GetFrameLevel() + 3,
                         function()
-                            local c = DB().interruptedFlashColor or defaults.interruptedFlashColor
+                            local c = DB().interruptedFlashColor
+                            if not c then return nil end
                             return c.r, c.g, c.b
                         end,
                         function(r, g, b)
                             DB().interruptedFlashColor = { r = r, g = g, b = b }
                             RefreshAllPlates()
-                        end, nil, 20)
+                        end, nil, 20,
+                        function() local d = defaults.interruptedFlashColor; return d.r, d.g, d.b end)
                     PP.Point(swatch, "RIGHT", rgn._lastInline or ctrl, "LEFT", -12, 0)
                     rgn._lastInline = swatch
                     swatch:SetScript("OnEnter", function(s) EllesmereUI.ShowWidgetTooltip(s, "Interrupted Flash Colour") end)
@@ -7494,12 +7570,13 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Inline Border Color swatch: edits targetBorderColor (default white), tints the custom border; dimmed+non-interactive unless Border Color is checked.
             local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5,
-                function() local c = ns.GetTargetBorderColor(); return c.r, c.g, c.b end,
+                function() local c = DB() and DB().targetBorderColor; if not c then return nil end; return c.r, c.g, c.b end,
                 function(r, g, b)
                     DB().targetBorderColor = { r = r, g = g, b = b }
                     for _, plate in pairs(plates) do plate:ApplyTarget() end
                     UpdatePreview()
-                end, nil, 20)
+                end, nil, 20,
+                function() local d = defaults.targetBorderColor; return d.r, d.g, d.b end)
             PP.Point(swatch, "RIGHT", leftRgn._control, "LEFT", -8, 0)
             leftRgn._lastInline = swatch
             -- Tooltip so the swatch's purpose is clear (shown while interactive, i.e. Border Color on).
@@ -7516,12 +7593,13 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Inline Glow Color swatch: edits targetGlowColor (default the signature blue), tints the EUI background glow; dimmed+non-interactive unless EUI Glow is checked.
             local glowSwatch, updateGlowSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5,
-                function() local c = ns.GetTargetGlowColor(); return c.r, c.g, c.b end,
+                function() local c = DB() and DB().targetGlowColor; if not c then return nil end; return c.r, c.g, c.b end,
                 function(r, g, b)
                     DB().targetGlowColor = { r = r, g = g, b = b }
                     for _, plate in pairs(plates) do plate:ApplyTarget() end
                     UpdatePreview()
-                end, nil, 20)
+                end, nil, 20,
+                function() local d = defaults.targetGlowColor; return d.r, d.g, d.b end)
             PP.Point(glowSwatch, "RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
             leftRgn._lastInline = glowSwatch
             glowSwatch:SetScript("OnEnter", function() if EllesmereUI.ShowWidgetTooltip then EllesmereUI.ShowWidgetTooltip(glowSwatch, "Glow Color") end end)
@@ -7541,12 +7619,13 @@ initFrame:SetScript("OnEvent", function(self)
                     title = "More Effects",
                     rows = {
                         { type="colorpicker", label="Highlight Color", hasAlpha=false,
-                          get=function() local c = ns.GetTargetHighlightColor(); return c.r, c.g, c.b end,
+                          get=function() local c = DB() and DB().targetHighlightColor; if not c then return nil end; return c.r, c.g, c.b end,
                           set=function(r, g, b)
                             DB().targetHighlightColor = { r = r, g = g, b = b }
                             for _, plate in pairs(plates) do plate:ApplyTarget() end
                             UpdatePreview()
-                          end },
+                          end,
+                          getFactoryDefault=function() local d = defaults.targetHighlightColor; return d.r, d.g, d.b end },
                         { type="slider", label="Highlight Opacity", min=0, max=100, step=1,
                           get=function() return math.floor((ns.GetTargetHighlightAlpha() * 100) + 0.5) end,
                           set=function(v)
@@ -7620,13 +7699,14 @@ initFrame:SetScript("OnEvent", function(self)
                 classSwatch:SetMouseClickEnabled(not off)
             end
             customSwatch, updateCustom = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
-                function() local c = DBVal("targetArrowColor") or defaults.targetArrowColor; return c.r, c.g, c.b end,
+                function() local c = DB() and DB().targetArrowColor; if not c then return nil end; return c.r, c.g, c.b end,
                 function(r, g, b)
                     DB().targetArrowColor = { r = r, g = g, b = b }
                     DB().targetArrowClassColor = false
                     for _, plate in pairs(plates) do plate:ApplyTarget() end
                     UpdatePreview(); refreshArrowSwatches()
-                end, nil, 20)
+                end, nil, 20,
+                function() local d = defaults.targetArrowColor; return d.r, d.g, d.b end)
             PP.Point(customSwatch, "RIGHT", rightRgn._control, "LEFT", -8, 0)
             local origCustomClick = customSwatch:GetScript("OnClick")
             customSwatch:SetScript("OnClick", function(self, ...)
@@ -7814,13 +7894,14 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline Target Color swatch
         if not EllesmereUI._prebuilding then
             local leftRgn = targetColorRow._leftRegion
-            local targetColorGet = function() return DBColor("target") end
+            local targetColorGet = function() return DBColorRaw("target") end
+            local targetColorDefault = function() return DBColorDefault("target") end
             local targetColorSet = function(r, g, b)
                 DB().target = { r = r, g = g, b = b }
                 RefreshAllPlates()
                 if targetPrev then targetPrev.UpdateColor() end
             end
-            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, targetColorGet, targetColorSet, nil, 20)
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, targetColorGet, targetColorSet, nil, 20, targetColorDefault)
             PP.Point(swatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             EllesmereUI.RegisterWidgetRefresh(function()
                 local off = isTargetColorDisabled()
@@ -7836,13 +7917,14 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline Focus Color swatch
         if not EllesmereUI._prebuilding then
             local rightRgn = targetColorRow._rightRegion
-            local focusColorGet = function() return DBColor("focus") end
+            local focusColorGet = function() return DBColorRaw("focus") end
+            local focusColorDefault = function() return DBColorDefault("focus") end
             local focusColorSet = function(r, g, b)
                 DB().focus = { r = r, g = g, b = b }
                 RefreshAllPlates()
                 if focusPrev then focusPrev.UpdateColor() end
             end
-            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, focusColorGet, focusColorSet, nil, 20)
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, focusColorGet, focusColorSet, nil, 20, focusColorDefault)
             PP.Point(swatch, "RIGHT", rightRgn._control, "LEFT", -12, 0)
             EllesmereUI.RegisterWidgetRefresh(function()
                 local off = isFocusColorDisabled()
@@ -7909,7 +7991,8 @@ initFrame:SetScript("OnEvent", function(self)
         if not EllesmereUI._prebuilding then
             local leftRgn = textureDualRow._leftRegion
             local targetTexColorGet = function()
-                local c = (DB() and DB().targetOverlayColor) or defaults.targetOverlayColor
+                local c = DB() and DB().targetOverlayColor
+                if not c then return nil end
                 return c.r, c.g, c.b
             end
             local targetTexColorSet = function(r, g, b)
@@ -7917,7 +8000,8 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshAllPlates()
                 if targetPrev and targetPrev.UpdateOverlay then targetPrev.UpdateOverlay() end
             end
-            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, targetTexColorGet, targetTexColorSet, nil, 20)
+            local targetTexColorDefault = function() local d = defaults.targetOverlayColor; return d.r, d.g, d.b end
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, targetTexColorGet, targetTexColorSet, nil, 20, targetTexColorDefault)
             PP.Point(swatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             leftRgn._lastInline = swatch
             EllesmereUI.RegisterWidgetRefresh(function()
@@ -7991,7 +8075,8 @@ initFrame:SetScript("OnEvent", function(self)
         if not EllesmereUI._prebuilding then
             local rightRgn = textureDualRow._rightRegion
             local focusTexColorGet = function()
-                local c = (DB() and DB().focusOverlayColor) or defaults.focusOverlayColor
+                local c = DB() and DB().focusOverlayColor
+                if not c then return nil end
                 return c.r, c.g, c.b
             end
             local focusTexColorSet = function(r, g, b)
@@ -7999,7 +8084,8 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshAllPlates()
                 if focusPrev and focusPrev.UpdateOverlay then focusPrev.UpdateOverlay() end
             end
-            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, focusTexColorGet, focusTexColorSet, nil, 20)
+            local focusTexColorDefault = function() local d = defaults.focusOverlayColor; return d.r, d.g, d.b end
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, focusTexColorGet, focusTexColorSet, nil, 20, focusTexColorDefault)
             PP.Point(swatch, "RIGHT", rightRgn._control, "LEFT", -12, 0)
             rightRgn._lastInline = swatch
             EllesmereUI.RegisterWidgetRefresh(function()
@@ -8231,11 +8317,12 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Inline Border Color swatch: dimmed unless Border Color is checked.
             local hvBSwatch, hvUpdateBSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
-                function() local c = ns.GetHoverBorderColor(); return c.r, c.g, c.b end,
+                function() local c = DB() and DB().hoverBorderColor; if not c then return nil end; return c.r, c.g, c.b end,
                 function(r, g, b)
                     DB().hoverBorderColor = { r = r, g = g, b = b }
                     ns.RefreshHoverEffect()
-                end, nil, 20)
+                end, nil, 20,
+                function() local d = defaults.hoverBorderColor; return d.r, d.g, d.b end)
             PP.Point(hvBSwatch, "RIGHT", rightRgn._control, "LEFT", -8, 0)
             rightRgn._lastInline = hvBSwatch
             hvBSwatch:SetScript("OnEnter", function() if EllesmereUI.ShowWidgetTooltip then EllesmereUI.ShowWidgetTooltip(hvBSwatch, "Border Color") end end)
@@ -8251,11 +8338,12 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Inline Glow Color swatch: dimmed unless EUI Glow is checked.
             local hvGSwatch, hvUpdateGSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
-                function() local c = ns.GetHoverGlowColor(); return c.r, c.g, c.b end,
+                function() local c = DB() and DB().hoverGlowColor; if not c then return nil end; return c.r, c.g, c.b end,
                 function(r, g, b)
                     DB().hoverGlowColor = { r = r, g = g, b = b }
                     ns.RefreshHoverEffect()
-                end, nil, 20)
+                end, nil, 20,
+                function() local d = defaults.hoverGlowColor; return d.r, d.g, d.b end)
             PP.Point(hvGSwatch, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
             rightRgn._lastInline = hvGSwatch
             hvGSwatch:SetScript("OnEnter", function() if EllesmereUI.ShowWidgetTooltip then EllesmereUI.ShowWidgetTooltip(hvGSwatch, "Glow Color") end end)
@@ -8277,14 +8365,16 @@ initFrame:SetScript("OnEvent", function(self)
                     rows = {
                         { type="colorpicker", label="Highlight Color", hasAlpha=false,
                           get=function()
-                            local c = (DB() and DB().hoverColor) or defaults.hoverColor
+                            local c = DB() and DB().hoverColor
+                            if not c then return nil end
                             return c.r, c.g, c.b
                           end,
                           set=function(r, g, b)
                             DB().hoverColor = { r = r, g = g, b = b }
                             ns.RefreshHoverEffect()
                             UpdatePreview()
-                          end },
+                          end,
+                          getFactoryDefault=function() local d = defaults.hoverColor; return d.r, d.g, d.b end },
                         { type="slider", label="Highlight Opacity", min=0, max=100, step=1,
                           get=function()
                             return math.floor(((DBVal("hoverAlpha") or defaults.hoverAlpha) * 100) + 0.5)
@@ -8414,13 +8504,15 @@ initFrame:SetScript("OnEvent", function(self)
                   disabled = classPowerDisabled,
                   disabledTooltip = "Show Class Resource",
                   getValue = function()
-                      local c = (DB() and DB().classPowerCustomColor) or defaults.classPowerCustomColor
+                      local c = DB() and DB().classPowerCustomColor
+                      if not c then return nil end
                       return c.r, c.g, c.b
                   end,
                   setValue = function(r, g, b)
                       DB().classPowerCustomColor = { r = r, g = g, b = b }
                       ns.RefreshClassPower(); UpdatePreview()
                   end,
+                  getFactoryDefault = function() local d = defaults.classPowerCustomColor; return d.r, d.g, d.b end,
                   onClick = function(self)
                       local v = DBVal("classPowerClassColors")
                       if v == nil then v = defaults.classPowerClassColors end
@@ -8529,13 +8621,15 @@ initFrame:SetScript("OnEvent", function(self)
               end },
             { type="colorpicker", text="Background Color", hasAlpha=true,
               getValue=function()
-                local c = (DB() and DB().classPowerBgColor) or defaults.classPowerBgColor
+                local c = DB() and DB().classPowerBgColor
+                if not c then return nil end
                 return c.r, c.g, c.b, c.a
               end,
               setValue=function(r, g, b, a)
                 DB().classPowerBgColor = { r=r, g=g, b=b, a=a }
                 ns.RefreshClassPower(); UpdatePreview()
-              end });  y = y - h
+              end,
+              getFactoryDefault=function() local d = defaults.classPowerBgColor; return d.r, d.g, d.b, d.a end });  y = y - h
 
         -- Row 4: Shape | Border (inline color swatch + thickness cog on Border)
         local classResourceRow4
@@ -8568,14 +8662,16 @@ initFrame:SetScript("OnEvent", function(self)
                 return classPowerDisabled() or DBVal("classPowerBorder") ~= true
             end
             local colorGet = function()
-                local c = (DB() and DB().classPowerBorderColor) or defaults.classPowerBorderColor
+                local c = DB() and DB().classPowerBorderColor
+                if not c then return nil end
                 return c.r, c.g, c.b
             end
             local colorSet = function(r, g, b)
                 DB().classPowerBorderColor = { r = r, g = g, b = b, a = 1 }
                 ns.RefreshClassPower(); UpdatePreview()
             end
-            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, colorGet, colorSet, nil, 20)
+            local colorDefault = function() local d = defaults.classPowerBorderColor; return d.r, d.g, d.b end
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, colorGet, colorSet, nil, 20, colorDefault)
             PP.Point(swatch, "RIGHT", rgn._control, "LEFT", -12, 0)
             rgn._lastInline = swatch
             EllesmereUI.RegisterWidgetRefresh(function()
@@ -8660,14 +8756,17 @@ initFrame:SetScript("OnEvent", function(self)
             local function AttachDurationTools(region, kind)
                 local cfg = durationTypes[kind]
                 local colorGet = function()
-                    local c = AuraDurationVal(kind, "Color")
+                    local db = DB()
+                    local c = db and (db[kind .. "DurationTextColor"] or db.auraDurationTextColor)
+                    if not c then return nil end
                     return c.r, c.g, c.b
                 end
                 local colorSet = function(r, g, b)
                     DB()[kind .. "DurationTextColor"] = { r = r, g = g, b = b }
                     RefreshDuration(kind)
                 end
-                local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(region, region:GetFrameLevel() + 5, colorGet, colorSet, nil, 20)
+                local colorDefault = function() local d = defaults.auraDurationTextColor; return d.r, d.g, d.b end
+                local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(region, region:GetFrameLevel() + 5, colorGet, colorSet, nil, 20, colorDefault)
                 PP.Point(swatch, "RIGHT", region._control, "LEFT", -12, 0)
                 region._lastInline = swatch
                 EllesmereUI.RegisterWidgetRefresh(function() updateSwatch() end)
@@ -8728,9 +8827,11 @@ initFrame:SetScript("OnEvent", function(self)
             -- RIGHT: Aura Stacks inline color swatch
             local rightRgn = durationRow2._rightRegion
             local asColorGet = function()
-                local c = (DB() and DB().auraStackTextColor) or defaults.auraStackTextColor
+                local c = DB() and DB().auraStackTextColor
+                if not c then return nil end
                 return c.r, c.g, c.b
             end
+            local asColorDefault = function() local d = defaults.auraStackTextColor; return d.r, d.g, d.b end
             local asColorSet = function(r, g, b)
                 DB().auraStackTextColor = { r = r, g = g, b = b }
                 for _, plate in pairs(plates) do
@@ -8746,7 +8847,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end -- 12.1 containers
                 UpdatePreview()
             end
-            local asSwatch, asUpdateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, asColorGet, asColorSet, nil, 20)
+            local asSwatch, asUpdateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, asColorGet, asColorSet, nil, 20, asColorDefault)
             PP.Point(asSwatch, "RIGHT", rightRgn._control, "LEFT", -12, 0)
             rightRgn._lastInline = asSwatch
             EllesmereUI.RegisterWidgetRefresh(function() asUpdateSwatch() end)
@@ -8839,7 +8940,8 @@ initFrame:SetScript("OnEvent", function(self)
         if not EllesmereUI._prebuilding then
             -- LEFT: Spell Name inline color swatch
             local leftRgn = spellNameRow._leftRegion
-            local snColorGet = function() return DBColor("castNameColor") end
+            local snColorGet = function() return DBColorRaw("castNameColor") end
+            local snColorDefault = function() return DBColorDefault("castNameColor") end
             local snColorSet = function(r, g, b)
                 DB().castNameColor = { r = r, g = g, b = b }
                 for _, plate in pairs(plates) do
@@ -8847,7 +8949,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 UpdatePreview()
             end
-            local snSwatch, snUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, snColorGet, snColorSet, nil, 20)
+            local snSwatch, snUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, snColorGet, snColorSet, nil, 20, snColorDefault)
             PP.Point(snSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             EllesmereUI.RegisterWidgetRefresh(function() snUpdateSwatch() end)
 
@@ -8921,13 +9023,14 @@ initFrame:SetScript("OnEvent", function(self)
             ccSwatch:SetScript("OnLeave", function() if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end end)
 
             -- Custom color swatch (to the left of class swatch)
-            local stColorGet = function() return DBColor("castTargetColor") end
+            local stColorGet = function() return DBColorRaw("castTargetColor") end
+            local stColorDefault = function() return DBColorDefault("castTargetColor") end
             local stColorSet = function(r, g, b)
                 DB().castTargetColor = { r = r, g = g, b = b }
                 for _, plate in pairs(plates) do plate:UpdateHealth() end
                 UpdatePreview()
             end
-            local stSwatch, stUpdate = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, stColorGet, stColorSet, nil, 20)
+            local stSwatch, stUpdate = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, stColorGet, stColorSet, nil, 20, stColorDefault)
             PP.Point(stSwatch, "RIGHT", ccSwatch, "LEFT", -9, 0)
             stSwatch._eabOrigClick = stSwatch:GetScript("OnClick")
             stSwatch:SetScript("OnClick", function(self)
@@ -10051,29 +10154,33 @@ initFrame:SetScript("OnEvent", function(self)
             { type="multiSwatch", text="Enemy Types",
               swatches = {
                 { tooltip = "Enemies",
-                  getValue = function() return DBColor("enemyInCombat") end,
+                  getValue = function() return DBColorRaw("enemyInCombat") end,
                   setValue = function(r, g, b)
                     DB().enemyInCombat = { r = r, g = g, b = b }
                     RefreshAllPlates()
-                  end },
+                  end,
+                  getFactoryDefault = function() return DBColorDefault("enemyInCombat") end },
                 { tooltip = "Spell Casters",
-                  getValue = function() return DBColor("caster") end,
+                  getValue = function() return DBColorRaw("caster") end,
                   setValue = function(r, g, b)
                     DB().caster = { r = r, g = g, b = b }
                     RefreshAllPlates()
-                  end },
+                  end,
+                  getFactoryDefault = function() return DBColorDefault("caster") end },
                 { tooltip = "Mini-Bosses",
-                  getValue = function() return DBColor("miniboss") end,
+                  getValue = function() return DBColorRaw("miniboss") end,
                   setValue = function(r, g, b)
                     DB().miniboss = { r = r, g = g, b = b }
                     RefreshAllPlates()
-                  end },
+                  end,
+                  getFactoryDefault = function() return DBColorDefault("miniboss") end },
                 { tooltip = "Bosses",
-                  getValue = function() return DBColor("boss") end,
+                  getValue = function() return DBColorRaw("boss") end,
                   setValue = function(r, g, b)
                     DB().boss = { r = r, g = g, b = b }
                     RefreshAllPlates()
-                  end },
+                  end,
+                  getFactoryDefault = function() return DBColorDefault("boss") end },
               } },
             { type="toggle", text="Enable Quest Mob Color",
               getValue=function() return DBVal("questMobColorEnabled") == true end,
@@ -10090,15 +10197,17 @@ initFrame:SetScript("OnEvent", function(self)
         if not EllesmereUI._prebuilding then
             local rightRgn = enemyTypesRow._rightRegion
             local questColorGet = function()
-                local c = DB().questMobColor or defaults.questMobColor
+                local c = DB().questMobColor
+                if not c then return nil end
                 return c.r, c.g, c.b
             end
             local questColorSet = function(r, g, b)
                 DB().questMobColor = { r = r, g = g, b = b }
                 RefreshAllPlates()
             end
+            local questColorDefault = function() local d = defaults.questMobColor; return d.r, d.g, d.b end
             local isQuestOff = function() return DBVal("questMobColorEnabled") ~= true end
-            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, questColorGet, questColorSet, nil, 20)
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, questColorGet, questColorSet, nil, 20, questColorDefault)
             PP.Point(swatch, "RIGHT", rightRgn._control, "LEFT", -12, 0)
             EllesmereUI.RegisterWidgetRefresh(function()
                 local off = isQuestOff()
@@ -10133,11 +10242,12 @@ initFrame:SetScript("OnEvent", function(self)
                         RefreshAllPlates()
                       end },
                     { type="colorpicker", label="All Enemies",
-                      get=function() return DBColor("owBasicColor") end,
+                      get=function() return DBColorRaw("owBasicColor") end,
                       set=function(r, g, b)
                         DB().owBasicColor = { r = r, g = g, b = b }
                         RefreshAllPlates()
                       end,
+                      getFactoryDefault=function() return DBColorDefault("owBasicColor") end,
                       disabled=isOWOff,
                       disabledTooltip="Full Coloring M+ Only" },
                 },
@@ -10161,16 +10271,23 @@ initFrame:SetScript("OnEvent", function(self)
             { type="multiSwatch", text="Neutral & Mini Enemies",
               swatches = {
                 { tooltip = "Neutral",
-                  getValue = function() return DBColor("neutral") end,
+                  getValue = function() return DBColorRaw("neutral") end,
                   setValue = function(r, g, b)
                     DB().neutral = { r = r, g = g, b = b }
                     RefreshAllPlates()
-                  end },
+                  end,
+                  getFactoryDefault = function() return DBColorDefault("neutral") end },
                 { tooltip = "Mini Enemies",
                   -- Until explicitly set, views the user's "Enemies" color so the swatch starts matching enemyInCombat (see GetReactionColor).
                   getValue = function()
                     local db = DB()
-                    local c = (db and db.miniEnemy) or (db and db.enemyInCombat) or defaults.enemyInCombat
+                    local c = db and db.miniEnemy
+                    if not c then return nil end
+                    return c.r, c.g, c.b
+                  end,
+                  getFactoryDefault = function()
+                    local db = DB()
+                    local c = (db and db.enemyInCombat) or defaults.enemyInCombat
                     return c.r, c.g, c.b
                   end,
                   setValue = function(r, g, b)
@@ -10295,25 +10412,29 @@ initFrame:SetScript("OnEvent", function(self)
             local isReactionOff = function() return DBVal("enemyNameTextReactionColor") ~= true end
 
             local hostileGet = function()
-                local c = (DB() and DB().enemyNameHostileColor) or defaults.hostile
+                local c = DB() and DB().enemyNameHostileColor
+                if not c then return nil end
                 return c.r, c.g, c.b
             end
             local hostileSet = function(r, g, b)
                 DB().enemyNameHostileColor = { r = r, g = g, b = b }
                 RefreshAllPlates()
             end
-            local hostileSwatch, updateHostileSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, hostileGet, hostileSet, nil, 20)
+            local hostileDefault = function() local d = defaults.hostile; return d.r, d.g, d.b end
+            local hostileSwatch, updateHostileSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, hostileGet, hostileSet, nil, 20, hostileDefault)
             PP.Point(hostileSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
 
             local neutralGet = function()
-                local c = (DB() and DB().enemyNameNeutralColor) or defaults.neutral
+                local c = DB() and DB().enemyNameNeutralColor
+                if not c then return nil end
                 return c.r, c.g, c.b
             end
             local neutralSet = function(r, g, b)
                 DB().enemyNameNeutralColor = { r = r, g = g, b = b }
                 RefreshAllPlates()
             end
-            local neutralSwatch, updateNeutralSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, neutralGet, neutralSet, nil, 20)
+            local neutralDefault = function() local d = defaults.neutral; return d.r, d.g, d.b end
+            local neutralSwatch, updateNeutralSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, neutralGet, neutralSet, nil, 20, neutralDefault)
             PP.Point(neutralSwatch, "RIGHT", hostileSwatch, "LEFT", -8, 0)
 
             -- Two side-by-side unlabeled chips: hover tooltips say which is
@@ -10360,32 +10481,36 @@ initFrame:SetScript("OnEvent", function(self)
             { type="multiSwatch", text="Tank Threat",
               swatches = {
                 { tooltip = "Losing Aggro",
-                  getValue = function() return DBColor("tankLosingAggro") end,
+                  getValue = function() return DBColorRaw("tankLosingAggro") end,
                   setValue = function(r, g, b)
                     DB().tankLosingAggro = { r = r, g = g, b = b }
                     RefreshAllPlates()
-                  end },
+                  end,
+                  getFactoryDefault = function() return DBColorDefault("tankLosingAggro") end },
                 { tooltip = "No Aggro",
-                  getValue = function() return DBColor("tankNoAggro") end,
+                  getValue = function() return DBColorRaw("tankNoAggro") end,
                   setValue = function(r, g, b)
                     DB().tankNoAggro = { r = r, g = g, b = b }
                     RefreshAllPlates()
-                  end },
+                  end,
+                  getFactoryDefault = function() return DBColorDefault("tankNoAggro") end },
               } },
             { type="multiSwatch", text="Non-Tank Threat",
               swatches = {
                 { tooltip = "Has Aggro",
-                  getValue = function() return DBColor("dpsHasAggro") end,
+                  getValue = function() return DBColorRaw("dpsHasAggro") end,
                   setValue = function(r, g, b)
                     DB().dpsHasAggro = { r = r, g = g, b = b }
                     RefreshAllPlates()
-                  end },
+                  end,
+                  getFactoryDefault = function() return DBColorDefault("dpsHasAggro") end },
                 { tooltip = "Near Aggro",
-                  getValue = function() return DBColor("dpsNearAggro") end,
+                  getValue = function() return DBColorRaw("dpsNearAggro") end,
                   setValue = function(r, g, b)
                     DB().dpsNearAggro = { r = r, g = g, b = b }
                     RefreshAllPlates()
-                  end },
+                  end,
+                  getFactoryDefault = function() return DBColorDefault("dpsNearAggro") end },
               } });  y = y - h
 
         -- Inline cog on "Non-Tank Threat": steady red execute-style glow
@@ -10477,12 +10602,13 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline "No Aggro" color swatch next to left toggle
         if not EllesmereUI._prebuilding then
             local leftRgn = dpsDualFrame._leftRegion
-            local dpsNoAggroColorGet = function() return DBColor("dpsNoAggro") end
+            local dpsNoAggroColorGet = function() return DBColorRaw("dpsNoAggro") end
+            local dpsNoAggroColorDefault = function() return DBColorDefault("dpsNoAggro") end
             local dpsNoAggroColorSet = function(r, g, b)
                 DB().dpsNoAggro = { r = r, g = g, b = b }
                 RefreshAllPlates()
             end
-            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, dpsNoAggroColorGet, dpsNoAggroColorSet, nil, 20)
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, dpsNoAggroColorGet, dpsNoAggroColorSet, nil, 20, dpsNoAggroColorDefault)
             PP.Point(swatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             EllesmereUI.RegisterWidgetRefresh(function()
                 local off = isDpsNoAggroDisabled()
@@ -10538,12 +10664,13 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline "Has Aggro" color swatch next to Classic Tank Aggro toggle
         if not EllesmereUI._prebuilding then
             local rightRgn = dpsDualFrame._rightRegion
-            local aggroColorGet = function() return DBColor("tankHasAggro") end
+            local aggroColorGet = function() return DBColorRaw("tankHasAggro") end
+            local aggroColorDefault = function() return DBColorDefault("tankHasAggro") end
             local aggroColorSet = function(r, g, b)
                 DB().tankHasAggro = { r = r, g = g, b = b }
                 RefreshAllPlates()
             end
-            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, aggroColorGet, aggroColorSet, nil, 20)
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, aggroColorGet, aggroColorSet, nil, 20, aggroColorDefault)
             PP.Point(swatch, "RIGHT", rightRgn._control, "LEFT", -12, 0)
             EllesmereUI.RegisterWidgetRefresh(function()
                 local off = isClassicTankAggroDisabled()
@@ -10587,12 +10714,13 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline "Has Aggro" color swatch next to left toggle
         if not EllesmereUI._prebuilding then
             local leftRgn = tankDualFrame._leftRegion
-            local tankAggroColorGet = function() return DBColor("tankHasAggro") end
+            local tankAggroColorGet = function() return DBColorRaw("tankHasAggro") end
+            local tankAggroColorDefault = function() return DBColorDefault("tankHasAggro") end
             local tankAggroColorSet = function(r, g, b)
                 DB().tankHasAggro = { r = r, g = g, b = b }
                 RefreshAllPlates()
             end
-            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, tankAggroColorGet, tankAggroColorSet, nil, 20)
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, tankAggroColorGet, tankAggroColorSet, nil, 20, tankAggroColorDefault)
             PP.Point(swatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             EllesmereUI.RegisterWidgetRefresh(function()
                 local off = isTankHasAggroDisabled()
@@ -10648,12 +10776,13 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline "Off-Tank" color swatch next to right toggle
         if not EllesmereUI._prebuilding then
             local rightRgn = tankDualFrame._rightRegion
-            local otColorGet = function() return DBColor("offTankAggro") end
+            local otColorGet = function() return DBColorRaw("offTankAggro") end
+            local otColorDefault = function() return DBColorDefault("offTankAggro") end
             local otColorSet = function(r, g, b)
                 DB().offTankAggro = { r = r, g = g, b = b }
                 RefreshAllPlates()
             end
-            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, otColorGet, otColorSet, nil, 20)
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, otColorGet, otColorSet, nil, 20, otColorDefault)
             PP.Point(swatch, "RIGHT", rightRgn._control, "LEFT", -12, 0)
             EllesmereUI.RegisterWidgetRefresh(function()
                 local off = isOffTankDisabled()

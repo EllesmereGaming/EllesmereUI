@@ -152,10 +152,10 @@ initFrame:SetScript("OnEvent", function(self)
                   hasAlpha = false,
                   getValue = function()
                       local p = DB()
-                      if not p then return 12/255, 210/255, 157/255 end
-                      local r, g, b = HexToRGB(p.hex)
-                      return r, g, b
+                      if not p or p.hex == nil then return nil end
+                      return HexToRGB(p.hex)
                   end,
+                  getFactoryDefault = function() return 12/255, 210/255, 157/255 end,
                   setValue = function(r, g, b)
                       local p = DB(); if not p then return end
                       p.hex = RGBToHex(r, g, b)
@@ -325,9 +325,10 @@ initFrame:SetScript("OnEvent", function(self)
                   hasAlpha = false,
                   getValue = function()
                       local g = GCD_DB()
-                      local r, ng, b = HexToRGB(g.hex)
-                      return r, ng, b
+                      if g.hex == nil then return nil end
+                      return HexToRGB(g.hex)
                   end,
+                  getFactoryDefault = function() return 12/255, 210/255, 157/255 end,
                   setValue = function(r, g, b)
                       local gd = GCD_DB()
                       gd.hex = RGBToHex(r, g, b)
@@ -476,9 +477,10 @@ initFrame:SetScript("OnEvent", function(self)
                   hasAlpha = false,
                   getValue = function()
                       local c = Cast_DB()
-                      local r, ng, b = HexToRGB(c.hex)
-                      return r, ng, b
+                      if c.hex == nil then return nil end
+                      return HexToRGB(c.hex)
                   end,
+                  getFactoryDefault = function() return 12/255, 210/255, 157/255 end,
                   setValue = function(r, g, b)
                       local cd = Cast_DB()
                       cd.hex = RGBToHex(r, g, b)

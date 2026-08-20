@@ -484,14 +484,15 @@ initFrame:SetScript("OnEvent", function(self)
                 function()
                     local d = pf._getData(); local k = pf._keys.backgroundColor
                     local c = d and k and d[k]
-                    if c then return c.r or 0, c.g or 0, c.b or 0 end
-                    return 0, 0, 0
+                    if not c then return nil end
+                    return c.r, c.g, c.b
                 end,
                 function(r, g, b)
                     local d = pf._getData(); local k = pf._keys.backgroundColor
                     if d and k then d[k] = { r = r, g = g, b = b } end
                     if pf._refresh then pf._refresh() end
-                end, false, 20)
+                end, false, 20,
+                function() return 0, 0, 0 end)
             bgSwatch:ClearAllPoints()
             bgSwatch:SetPoint("RIGHT", pf, "TOPRIGHT", -SIDE_PAD, r5Y - ROW_H / 2)
             local bgBlock = CreateFrame("Frame", nil, bgSwatch)
@@ -3112,8 +3113,8 @@ initFrame:SetScript("OnEvent", function(self)
                 local cfg = CurrentStackThreshCfg()
                 local list = cfg and cfg.stackThresholds
                 local ent = list and list[row._idx]
-                if not ent then return ST_DEF_R, ST_DEF_G, ST_DEF_B, ST_DEF_A end
-                return ent.r or ST_DEF_R, ent.g or ST_DEF_G, ent.b or ST_DEF_B, ent.a or ST_DEF_A
+                if not ent then return nil end
+                return ent.r, ent.g, ent.b, ent.a
             end,
             function(r, g, b, a)
                 local cfg = CurrentStackThreshCfg()
@@ -3123,7 +3124,8 @@ initFrame:SetScript("OnEvent", function(self)
                     ent.r, ent.g, ent.b, ent.a = r, g, b, a
                     if _stRefreshFn then _stRefreshFn() end
                 end
-            end, true, 19)
+            end, true, 19,
+            function() return ST_DEF_R, ST_DEF_G, ST_DEF_B, ST_DEF_A end)
         swatch:SetPoint("LEFT", input, "RIGHT", 10, 0)
         row.swatch = swatch
         row.swatchSnap = swatchSnap
@@ -4916,16 +4918,10 @@ initFrame:SetScript("OnEvent", function(self)
             local ctrl = region._control
             local function GetColor()
                 local bd = SelectedTBB()
-                if not bd then return 1, 1, 1, 0.9 end
+                if not bd then return nil end
                 local r = bd[prefix .. "TextR"]
-                local g = bd[prefix .. "TextG"]
-                local b = bd[prefix .. "TextB"]
-                local a = bd[prefix .. "TextA"]
-                if r == nil then r = 1 end
-                if g == nil then g = 1 end
-                if b == nil then b = 1 end
-                if a == nil then a = 0.9 end
-                return r, g, b, a
+                if r == nil then return nil end
+                return r, bd[prefix .. "TextG"], bd[prefix .. "TextB"], bd[prefix .. "TextA"]
             end
             local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
                 region, row:GetFrameLevel() + 3, GetColor,
@@ -4937,7 +4933,8 @@ initFrame:SetScript("OnEvent", function(self)
                     bd[prefix .. "TextA"] = a
                     RefreshTBB()
                 end,
-                true, 20)
+                true, 20,
+                function() return 1, 1, 1, 0.9 end)
             PP.Point(swatch, "RIGHT", ctrl, "LEFT", -12, 0)
             region._lastInline = swatch
 
@@ -5410,18 +5407,18 @@ initFrame:SetScript("OnEvent", function(self)
                     { type = "colorpicker", label = "Line Color", hasAlpha = true,
                       get = function()
                           local bd = SelectedTBB()
-                          if not bd then return 0, 0, 0, 1 end
-                          local a = bd.chargeHashLineA
-                          if a == nil then a = 1 end
-                          return bd.chargeHashLineR or 0, bd.chargeHashLineG or 0,
-                              bd.chargeHashLineB or 0, a
+                          if not bd then return nil end
+                          local r = bd.chargeHashLineR
+                          if r == nil then return nil end
+                          return r, bd.chargeHashLineG, bd.chargeHashLineB, bd.chargeHashLineA
                       end,
                       set = function(r, g, b, a)
                           local bd = SelectedTBB(); if not bd then return end
                           bd.chargeHashLineR, bd.chargeHashLineG = r, g
                           bd.chargeHashLineB, bd.chargeHashLineA = b, a
                           RefreshTBB()
-                      end },
+                      end,
+                      getFactoryDefault = function() return 0, 0, 0, 1 end },
                 },
             })
             local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.COGS_ICON)
@@ -5593,11 +5590,7 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, fillRow:GetFrameLevel() + 3,
                 function()
                     local bd = SelectedTBB()
-                    if not bd then
-                        local _, cf = UnitClass("player")
-                        local cc = RAID_CLASS_COLORS[cf]
-                        return cc and cc.r or 1, cc and cc.g or 0.70, cc and cc.b or 0, 1
-                    end
+                    if not bd then return nil end
                     return bd.fillR, bd.fillG, bd.fillB, bd.fillA
                 end,
                 function(r, g, b, a)
@@ -5605,7 +5598,12 @@ initFrame:SetScript("OnEvent", function(self)
                     bd.fillColorMode = "custom"
                     bd.fillR, bd.fillG, bd.fillB, bd.fillA = r, g, b, a; RefreshTBB()
                 end,
-                true, 20)
+                true, 20,
+                function()
+                    local _, cf = UnitClass("player")
+                    local cc = RAID_CLASS_COLORS[cf]
+                    return cc and cc.r or 1, cc and cc.g or 0.70, cc and cc.b or 0, 1
+                end)
             PP.Point(fillSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
 
             -- Swatch 2 (left of swatch 1): Gradient End Color
@@ -5613,14 +5611,15 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, fillRow:GetFrameLevel() + 3,
                 function()
                     local bd = SelectedTBB()
-                    if not bd then return 0.20, 0.20, 0.80, 1 end
+                    if not bd then return nil end
                     return bd.gradientR, bd.gradientG, bd.gradientB, bd.gradientA
                 end,
                 function(r, g, b, a)
                     local bd = SelectedTBB(); if not bd then return end
                     bd.gradientR, bd.gradientG, bd.gradientB, bd.gradientA = r, g, b, a; RefreshTBB()
                 end,
-                true, 20)
+                true, 20,
+                function() return 0.20, 0.20, 0.80, 1 end)
             PP.Point(gradSwatch, "RIGHT", fillSwatch, "LEFT", -4, 0)
 
             -- Disable block on fill swatch when Auto mode
@@ -5692,13 +5691,15 @@ initFrame:SetScript("OnEvent", function(self)
                     rgn, tbbBsRow:GetFrameLevel() + 3,
                     function()
                         local bd = SelectedTBB()
-                        return (bd and bd.borderR or 0), (bd and bd.borderG or 0), (bd and bd.borderB or 0)
+                        if not bd or bd.borderR == nil then return nil end
+                        return bd.borderR, bd.borderG, bd.borderB
                     end,
                     function(r, g, b)
                         local bd = SelectedTBB(); if not bd then return end
                         bd.borderR, bd.borderG, bd.borderB = r, g, b; RefreshTBB()
                     end,
-                    false, 20)
+                    false, 20,
+                    function() return 0, 0, 0 end)
                 PP.Point(borderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
                 EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
             end
@@ -5784,12 +5785,14 @@ initFrame:SetScript("OnEvent", function(self)
                   { tooltip = "Background Color", hasAlpha = true,
                     getValue = function()
                         local bd = SelectedTBB()
-                        return (bd and bd.bgR or 0), (bd and bd.bgG or 0), (bd and bd.bgB or 0), (bd and bd.bgA or 0.4)
+                        if not bd or bd.bgR == nil then return nil end
+                        return bd.bgR, bd.bgG, bd.bgB, bd.bgA or 0.4
                     end,
                     setValue = function(r, g, b, a)
                         local bd = SelectedTBB(); if not bd then return end
                         bd.bgR, bd.bgG, bd.bgB, bd.bgA = r, g, b, a; RefreshTBB()
-                    end },
+                    end,
+                    getFactoryDefault = function() return 0, 0, 0, 0.4 end },
               } },
             { type = "label", text = "" }
         );  y = y - h
@@ -5863,12 +5866,14 @@ initFrame:SetScript("OnEvent", function(self)
                         tbbLR, tbbPanRow:GetFrameLevel() + 3,
                         function()
                             local bd = SelectedTBB(); local c = bd and bd.pandemicGlowColor
-                            if c then return c.r or 1, c.g or 1, c.b or 0 end; return 1, 1, 0
+                            if not c then return nil end
+                            return c.r, c.g, c.b
                         end,
                         function(r, g, b)
                             local bd = SelectedTBB(); if not bd then return end
                             bd.pandemicGlowColor = { r = r, g = g, b = b }; RefreshTBB()
-                        end, nil, 20)
+                        end, nil, 20,
+                        function() return 1, 1, 0 end)
                     PP.Point(swatch, "RIGHT", tbbCtrl, "LEFT", -12, 0)
                     tbbLR._lastInline = swatch
                     EllesmereUI.RegisterWidgetRefresh(function()
@@ -6016,18 +6021,17 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, box:GetFrameLevel() + 1,
                 function()
                     local bd = SelectedTBB()
-                    if not bd then return 1, 1, 1, 1 end
-                    local a = bd.stackThresholdTickA
-                    if a == nil then a = 1 end
-                    return bd.stackThresholdTickR or 1, bd.stackThresholdTickG or 1,
-                           bd.stackThresholdTickB or 1, a
+                    if not bd or bd.stackThresholdTickR == nil then return nil end
+                    return bd.stackThresholdTickR, bd.stackThresholdTickG,
+                           bd.stackThresholdTickB, bd.stackThresholdTickA or 1
                 end,
                 function(r, g, b, a)
                     local bd = SelectedTBB(); if not bd then return end
                     bd.stackThresholdTickR, bd.stackThresholdTickG = r, g
                     bd.stackThresholdTickB, bd.stackThresholdTickA = b, a; RefreshTBB()
                 end,
-                true, 20)
+                true, 20,
+                function() return 1, 1, 1, 1 end)
             PP.Point(tickSwatch, "RIGHT", box, "LEFT", -8, 0)
             local tickBlock = CreateFrame("Frame", nil, tickSwatch)
             tickBlock:SetAllPoints(); tickBlock:SetFrameLevel(tickSwatch:GetFrameLevel() + 10)
@@ -6090,14 +6094,15 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, threshRow:GetFrameLevel() + 3,
                 function()
                     local bd = SelectedTBB()
-                    if not bd then return 0.8, 0.1, 0.1, 1 end
-                    return bd.stackThresholdR or 0.8, bd.stackThresholdG or 0.1, bd.stackThresholdB or 0.1, bd.stackThresholdA or 1
+                    if not bd or bd.stackThresholdR == nil then return nil end
+                    return bd.stackThresholdR, bd.stackThresholdG, bd.stackThresholdB, bd.stackThresholdA or 1
                 end,
                 function(r, g, b, a)
                     local bd = SelectedTBB(); if not bd then return end
                     bd.stackThresholdR, bd.stackThresholdG, bd.stackThresholdB, bd.stackThresholdA = r, g, b, a; RefreshTBB()
                 end,
-                true, 20)
+                true, 20,
+                function() return 0.8, 0.1, 0.1, 1 end)
             PP.Point(threshSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             local threshBlock = CreateFrame("Frame", nil, threshSwatch)
             threshBlock:SetAllPoints(); threshBlock:SetFrameLevel(threshSwatch:GetFrameLevel() + 10)
@@ -10586,7 +10591,13 @@ initFrame:SetScript("OnEvent", function(self)
                                       get=function() return ss.cooldownFontSize or (cdmBd and cdmBd.cooldownFontSize) or 12 end,
                                       set=function(v) EnsureSS(); ss.cooldownFontSize = v; if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end if row._updateLabel then row._updateLabel() end end },
                                     { type="colorpicker", label="Color",
-                                      get=function() return ss.cooldownTextR or (cdmBd and cdmBd.cooldownTextR) or 1, ss.cooldownTextG or (cdmBd and cdmBd.cooldownTextG) or 1, ss.cooldownTextB or (cdmBd and cdmBd.cooldownTextB) or 1 end,
+                                      get=function()
+                                          if ss.cooldownTextR == nil then return nil end
+                                          return ss.cooldownTextR, ss.cooldownTextG, ss.cooldownTextB
+                                      end,
+                                      getFactoryDefault=function()
+                                          return (cdmBd and cdmBd.cooldownTextR) or 1, (cdmBd and cdmBd.cooldownTextG) or 1, (cdmBd and cdmBd.cooldownTextB) or 1
+                                      end,
                                       set=function(r, g, b) EnsureSS(); ss.cooldownTextR = r; ss.cooldownTextG = g; ss.cooldownTextB = b; if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end if row._updateLabel then row._updateLabel() end end },
                                     { type="dropdown", label="Position",
                                       values=durationPositionValues, order=durationPositionOrder,
@@ -10627,7 +10638,13 @@ initFrame:SetScript("OnEvent", function(self)
                                       get=function() return ss.stackCountSize or (cdmBd and cdmBd.stackCountSize) or 11 end,
                                       set=function(v) EnsureSS(); ss.stackCountSize = v; if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end if row._updateLabel then row._updateLabel() end end },
                                     { type="colorpicker", label="Color",
-                                      get=function() return ss.stackCountR or (cdmBd and cdmBd.stackCountR) or 1, ss.stackCountG or (cdmBd and cdmBd.stackCountG) or 1, ss.stackCountB or (cdmBd and cdmBd.stackCountB) or 1 end,
+                                      get=function()
+                                          if ss.stackCountR == nil then return nil end
+                                          return ss.stackCountR, ss.stackCountG, ss.stackCountB
+                                      end,
+                                      getFactoryDefault=function()
+                                          return (cdmBd and cdmBd.stackCountR) or 1, (cdmBd and cdmBd.stackCountG) or 1, (cdmBd and cdmBd.stackCountB) or 1
+                                      end,
                                       set=function(r, g, b) EnsureSS(); ss.stackCountR = r; ss.stackCountG = g; ss.stackCountB = b; if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end if row._updateLabel then row._updateLabel() end end },
                                     { type="dropdown", label="Position",
                                       values={ bottomright="Bottom Right", bottom="Bottom", bottomleft="Bottom Left", left="Left", topleft="Top Left", top="Top", topright="Top Right", right="Right", center="Center" },
@@ -10660,7 +10677,13 @@ initFrame:SetScript("OnEvent", function(self)
                                       get=function() return ss.borderSize or (cdmBd and cdmBd.borderSize) or 1 end,
                                       set=function(v) EnsureSS(); ss.borderSize = v; if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end if row._updateLabel then row._updateLabel() end end },
                                     { type="colorpicker", label="Color",
-                                      get=function() return ss.borderR or (cdmBd and cdmBd.borderR) or 0, ss.borderG or (cdmBd and cdmBd.borderG) or 0, ss.borderB or (cdmBd and cdmBd.borderB) or 0 end,
+                                      get=function()
+                                          if ss.borderR == nil then return nil end
+                                          return ss.borderR, ss.borderG, ss.borderB
+                                      end,
+                                      getFactoryDefault=function()
+                                          return (cdmBd and cdmBd.borderR) or 0, (cdmBd and cdmBd.borderG) or 0, (cdmBd and cdmBd.borderB) or 0
+                                      end,
                                       set=function(r, g, b) EnsureSS(); ss.borderR = r; ss.borderG = g; ss.borderB = b; if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end if row._updateLabel then row._updateLabel() end end },
                                 },
                             })
@@ -16449,12 +16472,17 @@ initFrame:SetScript("OnEvent", function(self)
             if ctrl and EllesmereUI.BuildColorSwatch then
                 local bgSwatch, updateBgSwatch = EllesmereUI.BuildColorSwatch(
                     rgn, opacityRow:GetFrameLevel() + 3,
-                    function() return BD().barBgR or 0, BD().barBgG or 0, BD().barBgB or 0, BD().barBgA or 0.5 end,
+                    function()
+                        local bd = BD()
+                        if bd.barBgR == nil then return nil end
+                        return bd.barBgR, bd.barBgG, bd.barBgB, bd.barBgA or 0.5
+                    end,
                     function(r, g, b, a)
                         BD().barBgR = r; BD().barBgG = g; BD().barBgB = b; BD().barBgA = a
                         ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview()
                     end,
-                    true, 20)
+                    true, 20,
+                    function() return 0, 0, 0, 0.5 end)
                 PP.Point(bgSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
                 local block = CreateFrame("Frame", nil, bgSwatch)
                 block:SetAllPoints(); block:SetFrameLevel(bgSwatch:GetFrameLevel() + 10); block:EnableMouse(true)
@@ -16963,14 +16991,16 @@ initFrame:SetScript("OnEvent", function(self)
                     rgn, npRow:GetFrameLevel() + 3,
                     function()
                         local bd = BD()
-                        return bd.focusReminderR or 1, bd.focusReminderG or 1, bd.focusReminderB or 1
+                        if bd.focusReminderR == nil then return nil end
+                        return bd.focusReminderR, bd.focusReminderG, bd.focusReminderB
                     end,
                     function(r, g, b)
                         BD().focusReminderR, BD().focusReminderG, BD().focusReminderB = r, g, b
                         BD().focusReminderUseAccent = false
                         if ns.RefreshFocusReminders then ns.RefreshFocusReminders() end
                     end,
-                    false, 20)
+                    false, 20,
+                    function() return 1, 1, 1 end)
                 PP.Point(customSwatch, "RIGHT", accentSwatch, "LEFT", -8, 0)
                 customSwatch:SetScript("OnEnter", function()
                     EllesmereUI.ShowWidgetTooltip(customSwatch, "Custom Color")
@@ -17643,14 +17673,19 @@ initFrame:SetScript("OnEvent", function(self)
                     local UpdateBorderState
                     local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
                         leftRgn, buffBsRow:GetFrameLevel() + 3,
-                        function() return BD().borderR or 0, BD().borderG or 0, BD().borderB or 0 end,
+                        function()
+                            local bd = BD()
+                            if bd.borderR == nil then return nil end
+                            return bd.borderR, bd.borderG, bd.borderB
+                        end,
                         function(r, g, b)
                             -- Picking a color always switches off class color so the chosen custom color actually applies.
                             BD().borderClassColor = false
                             BD().borderR, BD().borderG, BD().borderB = r, g, b
                             ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
                         end,
-                        false, 20)
+                        false, 20,
+                        function() return 0, 0, 0 end)
                     PP.Point(swatch, "RIGHT", classBorderSwatch, "LEFT", -8, 0)
                     swatch:SetScript("OnEnter", function()
                         EllesmereUI.ShowWidgetTooltip(swatch, "Custom Colored")
@@ -18064,12 +18099,17 @@ initFrame:SetScript("OnEvent", function(self)
                 -- Custom color swatch (left of class swatch)
                 local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
                     rightRgn, bsRow:GetFrameLevel() + 3,
-                    function() return BD().borderR or 0, BD().borderG or 0, BD().borderB or 0 end,
+                    function()
+                        local bd = BD()
+                        if bd.borderR == nil then return nil end
+                        return bd.borderR, bd.borderG, bd.borderB
+                    end,
                     function(r, g, b)
                         BD().borderR, BD().borderG, BD().borderB = r, g, b
                         ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
                     end,
-                    false, 20)
+                    false, 20,
+                    function() return 0, 0, 0 end)
                 PP.Point(swatch, "RIGHT", classBorderSwatch, "LEFT", -8, 0)
                 swatch:SetScript("OnEnter", function()
                     EllesmereUI.ShowWidgetTooltip(swatch, "Custom Color")
@@ -18262,12 +18302,17 @@ initFrame:SetScript("OnEvent", function(self)
             local ctrl = leftRgn._control
             local durSwatch, updateDurSwatch = EllesmereUI.BuildColorSwatch(
                 leftRgn, durationRow:GetFrameLevel() + 3,
-                function() return BD().cooldownTextR or 1, BD().cooldownTextG or 1, BD().cooldownTextB or 1 end,
+                function()
+                    local bd = BD()
+                    if bd.cooldownTextR == nil then return nil end
+                    return bd.cooldownTextR, bd.cooldownTextG, bd.cooldownTextB
+                end,
                 function(r, g, b)
                     BD().cooldownTextR = r; BD().cooldownTextG = g; BD().cooldownTextB = b
                     ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
                 end,
-                false, 20)
+                false, 20,
+                function() return 1, 1, 1 end)
             PP.Point(durSwatch, "RIGHT", ctrl, "LEFT", -12, 0)
             leftRgn._lastInline = durSwatch
 
@@ -18326,12 +18371,17 @@ initFrame:SetScript("OnEvent", function(self)
             local ctrl = rightRgn._control
             local scSwatch, updateScSwatch = EllesmereUI.BuildColorSwatch(
                 rightRgn, durationRow:GetFrameLevel() + 3,
-                function() return BD().stackCountR or 1, BD().stackCountG or 1, BD().stackCountB or 1 end,
+                function()
+                    local bd = BD()
+                    if bd.stackCountR == nil then return nil end
+                    return bd.stackCountR, bd.stackCountG, bd.stackCountB
+                end,
                 function(r, g, b)
                     BD().stackCountR = r; BD().stackCountG = g; BD().stackCountB = b
                     ns.RefreshCDMIconAppearance(BD().key); ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview()
                 end,
-                false, 20)
+                false, 20,
+                function() return 1, 1, 1 end)
             PP.Point(scSwatch, "RIGHT", ctrl, "LEFT", -12, 0)
             rightRgn._lastInline = scSwatch
 
@@ -18464,11 +18514,16 @@ initFrame:SetScript("OnEvent", function(self)
                               ns.BuildAllCDMBars(); if ns.RequestBarGlowUpdate then ns.RequestBarGlowUpdate() end
                           end },
                         { type="colorpicker", label="Background Color",
-                          get=function() return BD().pixelGlowBackgroundR or 0, BD().pixelGlowBackgroundG or 0, BD().pixelGlowBackgroundB or 0 end,
+                          get=function()
+                              local bd = BD()
+                              if bd.pixelGlowBackgroundR == nil then return nil end
+                              return bd.pixelGlowBackgroundR, bd.pixelGlowBackgroundG, bd.pixelGlowBackgroundB
+                          end,
                           set=function(r, g, b)
                               BD().pixelGlowBackgroundR = r; BD().pixelGlowBackgroundG = g; BD().pixelGlowBackgroundB = b
                               ns.BuildAllCDMBars(); if ns.RequestBarGlowUpdate then ns.RequestBarGlowUpdate() end
                           end,
+                          getFactoryDefault=function() return 0, 0, 0 end,
                           disabled=function() return BD().pixelGlowBackground ~= true end,
                           disabledTooltip="Pixel Glow Background" },
                     },
@@ -18523,11 +18578,16 @@ initFrame:SetScript("OnEvent", function(self)
                               ns.BuildAllCDMBars(); if ns.RefreshBuffGlows then ns.RefreshBuffGlows() end
                           end },
                         { type="colorpicker", label="Background Color",
-                          get=function() return BD().buffGlowBackgroundR or 0, BD().buffGlowBackgroundG or 0, BD().buffGlowBackgroundB or 0 end,
+                          get=function()
+                              local bd = BD()
+                              if bd.buffGlowBackgroundR == nil then return nil end
+                              return bd.buffGlowBackgroundR, bd.buffGlowBackgroundG, bd.buffGlowBackgroundB
+                          end,
                           set=function(r, g, b)
                               BD().buffGlowBackgroundR = r; BD().buffGlowBackgroundG = g; BD().buffGlowBackgroundB = b
                               ns.BuildAllCDMBars(); if ns.RefreshBuffGlows then ns.RefreshBuffGlows() end
                           end,
+                          getFactoryDefault=function() return 0, 0, 0 end,
                           disabled=function() return BD().buffGlowBackground ~= true end,
                           disabledTooltip="Pixel Glow Background" },
                     },
@@ -18631,12 +18691,17 @@ initFrame:SetScript("OnEvent", function(self)
             if ctrl and EllesmereUI.BuildColorSwatch then
                 kbSwatch, updateKbSwatch = EllesmereUI.BuildColorSwatch(
                     rgn, kbRow:GetFrameLevel() + 3,
-                    function() return BD().keybindR or 1, BD().keybindG or 1, BD().keybindB or 1 end,
+                    function()
+                        local bd = BD()
+                        if bd.keybindR == nil then return nil end
+                        return bd.keybindR, bd.keybindG, bd.keybindB
+                    end,
                     function(r, g, b)
                         BD().keybindR = r; BD().keybindG = g; BD().keybindB = b
                         ns.RefreshCDMIconAppearance(BD().key); ns.ApplyCachedKeybinds(); UpdateCDMPreview(); EllesmereUI:RefreshPage()
                     end,
-                    false, 20)
+                    false, 20,
+                    function() return 1, 1, 1 end)
                 PP.Point(kbSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             end
 

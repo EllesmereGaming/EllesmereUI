@@ -1166,14 +1166,16 @@ initFrame:SetScript("OnEvent", function(self)
             local swatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel()+5,
                 function()
                     local d = DDB()
-                    local tc = d and d.textColor or {r=1, g=1, b=1}
+                    local tc = d and d.textColor
+                    if not tc then return nil end
                     return tc.r, tc.g, tc.b, 1
                 end,
                 function(r, g, b)
                     local d = DDB(); if not d then return end
                     d.textColor = {r=r, g=g, b=b}
                     RefreshAll(); UpdatePreviewHeader()
-                end, false, 20)
+                end, false, 20,
+                function() return 1, 1, 1, 1 end)
             swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
             rgn._lastInline = swatch
 
@@ -1744,18 +1746,21 @@ initFrame:SetScript("OnEvent", function(self)
                 function()
                     local c = CDB()
                     local col = c and c.rcManaWarnColor
-                    if col then return col.r, col.g, col.b, 1 end
-                    local mc = EllesmereUI.GetPowerColor and EllesmereUI.GetPowerColor("MANA")
-                    if mc then
-                        return math.min(mc.r * 1.5, 1), math.min(mc.g * 1.5, 1), math.min(mc.b * 1.5, 1), 1
-                    end
-                    return 0, 0.825, 1, 1
+                    if not col then return nil end
+                    return col.r, col.g, col.b, 1
                 end,
                 function(r, g, b)
                     local c = CDB(); if not c then return end
                     c.rcManaWarnColor = { r = r, g = g, b = b }
                     if _G._EABR_RCWarnApply then _G._EABR_RCWarnApply() end
-                end, false, 20)
+                end, false, 20,
+                function()
+                    local mc = EllesmereUI.GetPowerColor and EllesmereUI.GetPowerColor("MANA")
+                    if mc then
+                        return math.min(mc.r * 1.5, 1), math.min(mc.g * 1.5, 1), math.min(mc.b * 1.5, 1), 1
+                    end
+                    return 0, 0.825, 1, 1
+                end)
             swatch:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -12, 0)
             leftRgn._lastInline = swatch
 

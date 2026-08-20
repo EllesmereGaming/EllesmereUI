@@ -218,13 +218,14 @@ initFrame:SetScript("OnEvent", function(self)
                   hasAlpha = false,
                   getValue = function()
                       local c = Cfg(colorKey)
-                      if c then return c.r or defR, c.g or defG, c.b or defB end
-                      return defR, defG, defB
+                      if not c then return nil end
+                      return c.r, c.g, c.b
                   end,
                   setValue = function(r, g, b)
                       Set(colorKey, { r = r, g = g, b = b })
                       Refresh()
                   end,
+                  getFactoryDefault = function() return defR, defG, defB end,
                   onClick = function(self)
                       if Cfg(useAccentKey) ~= false then
                           Set(useAccentKey, false)
@@ -261,14 +262,15 @@ initFrame:SetScript("OnEvent", function(self)
                   hasAlpha = false,
                   getValue = function()
                       local c = Cfg(colorKey)
-                      if c then return c.r or defR, c.g or defG, c.b or defB end
-                      return defR, defG, defB
+                      if not c then return nil end
+                      return c.r, c.g, c.b
                   end,
                   setValue = function(r, g, b)
                       Set(colorKey, { r = r, g = g, b = b })
                       if afterSet then afterSet(r, g, b) end
                       Refresh()
-                  end },
+                  end,
+                  getFactoryDefault = function() return defR, defG, defB end },
             }
         end
 
@@ -308,15 +310,16 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, rgn:GetFrameLevel() + 5,
                 function()
                     local c = Cfg(colorKey)
-                    if c then return c.r or defR, c.g or defG, c.b or defB, 1 end
-                    return defR, defG, defB, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     Set(colorKey, { r = r, g = g, b = b })
                     if afterSet then afterSet(r, g, b) end
                     Refresh()
                 end,
-                false, 18)
+                false, 18,
+                function() return defR, defG, defB, 1 end)
             PP.Point(swatch, "RIGHT", rgn._lastInline or rgn._control or rgn, "LEFT", -8, 0)
             rgn._lastInline = swatch
             local block = CreateFrame("Frame", nil, swatch)
@@ -368,12 +371,13 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, rgn:GetFrameLevel() + 5,
                 function()
                     local c = Cfg(colorKey)
-                    if c then return c.r or defR, c.g or defG, c.b or defB, 1 end
-                    return defR, defG, defB, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     Set(colorKey, { r = r, g = g, b = b }); Refresh()
-                end, false, 18)
+                end, false, 18,
+                function() return defR, defG, defB, 1 end)
             -- Preserve BuildColorSwatch's picker click, but while accent mode is on a
             -- click just switches back to custom mode (accent turns off) instead.
             local openPicker = customSwatch:GetScript("OnClick")
@@ -719,13 +723,14 @@ initFrame:SetScript("OnEvent", function(self)
                     local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
                         rgn, rgn:GetFrameLevel() + 3,
                         function()
-                            return Cfg("borderR") or 0, Cfg("borderG") or 0, Cfg("borderB") or 0, Cfg("borderA") or 1
+                            return Cfg("borderR"), Cfg("borderG"), Cfg("borderB"), Cfg("borderA")
                         end,
                         function(r, g, b, a)
                             Set("borderR", r); Set("borderG", g); Set("borderB", b); Set("borderA", a)
                             ApplyBorder()
                         end,
-                        true, 20)
+                        true, 20,
+                        function() return 0, 0, 0, 1 end)
                     PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
                     EllesmereUI.RegisterWidgetRefresh(function() updateSwatch() end)
                 end
@@ -1130,24 +1135,28 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue = function()
                       local c = TSB()
                       local col = c and c.barColor
-                      return (col and col.r) or 0.70, (col and col.g) or 0.40, (col and col.b) or 0.90
+                      if not col then return nil end
+                      return col.r, col.g, col.b
                   end,
                   setValue = function(r, g, b)
                       local c = TSB(); if not c then return end
                       c.barColor = { r = r, g = g, b = b }
                       TSBRefresh()
-                  end },
+                  end,
+                  getFactoryDefault = function() return 0.70, 0.40, 0.90 end },
                 { tooltip = "Background Color", hasAlpha = true,
                   getValue = function()
                       local c = TSB()
                       local col = c and c.bgColor
-                      return (col and col.r) or 0, (col and col.g) or 0, (col and col.b) or 0, (col and col.a) or 0.45
+                      if not col then return nil end
+                      return col.r, col.g, col.b, col.a or 0.45
                   end,
                   setValue = function(r, g, b, a)
                       local c = TSB(); if not c then return end
                       c.bgColor = { r = r, g = g, b = b, a = a }
                       TSBRefresh()
-                  end },
+                  end,
+                  getFactoryDefault = function() return 0, 0, 0, 0.45 end },
               } });  y = y - h
 
         _, h = W:DualRow(parent, y,
@@ -1236,13 +1245,15 @@ initFrame:SetScript("OnEvent", function(self)
                       get=function()
                           local c = TSB()
                           local col = c and c.targetColor
-                          return (col and col.r) or 1, (col and col.g) or 1, (col and col.b) or 1
+                          if not col then return nil end
+                          return col.r, col.g, col.b
                       end,
                       set=function(r, g, b)
                           local c = TSB(); if not c then return end
                           c.targetColor = { r = r, g = g, b = b }
                           TSBRefresh()
-                      end },
+                      end,
+                      getFactoryDefault=function() return 1, 1, 1 end },
                 },
             })
             MakeCog(row._leftRegion, showTargetCog, "Spell Target Settings")
@@ -1376,35 +1387,41 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue = function()
                       local t = TFB()
                       local c = t and t.castColor
-                      return (c and c.r) or 0.70, (c and c.g) or 0.40, (c and c.b) or 0.90
+                      if not c then return nil end
+                      return c.r, c.g, c.b
                   end,
                   setValue = function(r, g, b)
                       local t = TFB(); if not t then return end
                       t.castColor = { r = r, g = g, b = b }
                       TFBRefresh()
-                  end },
+                  end,
+                  getFactoryDefault = function() return 0.70, 0.40, 0.90 end },
                 { tooltip = "Interrupt on CD",
                   getValue = function()
                       local t = TFB()
                       local c = t and t.interruptReady
-                      return (c and c.r) or 0.92, (c and c.g) or 0.35, (c and c.b) or 0.20
+                      if not c then return nil end
+                      return c.r, c.g, c.b
                   end,
                   setValue = function(r, g, b)
                       local t = TFB(); if not t then return end
                       t.interruptReady = { r = r, g = g, b = b }
                       TFBRefresh()
-                  end },
+                  end,
+                  getFactoryDefault = function() return 0.92, 0.35, 0.20 end },
                 { tooltip = "Uninterruptible Cast",
                   getValue = function()
                       local t = TFB()
                       local c = t and t.uninterruptible
-                      return (c and c.r) or 0.45, (c and c.g) or 0.45, (c and c.b) or 0.45
+                      if not c then return nil end
+                      return c.r, c.g, c.b
                   end,
                   setValue = function(r, g, b)
                       local t = TFB(); if not t then return end
                       t.uninterruptible = { r = r, g = g, b = b }
                       TFBRefresh()
-                  end },
+                  end,
+                  getFactoryDefault = function() return 0.45, 0.45, 0.45 end },
                 { tooltip = "Important Cast",
                   disabled = function()
                       local t = TFB()
@@ -1414,13 +1431,15 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue = function()
                       local t = TFB()
                       local c = t and t.importantColor
-                      return (c and c.r) or 1, (c and c.g) or 0.2, (c and c.b) or 0.2
+                      if not c then return nil end
+                      return c.r, c.g, c.b
                   end,
                   setValue = function(r, g, b)
                       local t = TFB(); if not t then return end
                       t.importantColor = { r = r, g = g, b = b }
                       TFBRefresh()
-                  end },
+                  end,
+                  getFactoryDefault = function() return 1, 0.2, 0.2 end },
               } },
             { type="dropdown", text="Kick Ready Mid-Cast Hint",
               disabled=SharedOff, disabledTooltip=SHARED_REQ,
@@ -1479,24 +1498,28 @@ initFrame:SetScript("OnEvent", function(self)
                       get=function()
                           local t = TFB()
                           local c = t and t.midCastColor
-                          return (c and c.r) or 0.318, (c and c.g) or 0.820, (c and c.b) or 0.357
+                          if not c then return nil end
+                          return c.r, c.g, c.b
                       end,
                       set=function(r, g, b)
                           local t = TFB(); if not t then return end
                           t.midCastColor = { r = r, g = g, b = b }
                           TFBRefresh()
-                      end },
+                      end,
+                      getFactoryDefault=function() return 0.318, 0.820, 0.357 end },
                     { type="colorpicker", label="Tick Color",
                       get=function()
                           local t = TFB()
                           local c = t and t.kickTickColor
-                          return (c and c.r) or 1, (c and c.g) or 1, (c and c.b) or 1
+                          if not c then return nil end
+                          return c.r, c.g, c.b
                       end,
                       set=function(r, g, b)
                           local t = TFB(); if not t then return end
                           t.kickTickColor = { r = r, g = g, b = b }
                           TFBRefresh()
-                      end },
+                      end,
+                      getFactoryDefault=function() return 1, 1, 1 end },
                 },
             })
             MakeCog(row._rightRegion, kickHintCog, "Kick Hint Settings")
@@ -1521,13 +1544,15 @@ initFrame:SetScript("OnEvent", function(self)
                       get=function()
                           local t = TFB()
                           local c = t and t.interruptedColor
-                          return (c and c.r) or 0.8, (c and c.g) or 0, (c and c.b) or 0
+                          if not c then return nil end
+                          return c.r, c.g, c.b
                       end,
                       set=function(r, g, b)
                           local t = TFB(); if not t then return end
                           t.interruptedColor = { r = r, g = g, b = b }
                           TFBRefresh()
-                      end },
+                      end,
+                      getFactoryDefault=function() return 0.8, 0, 0 end },
                 },
             })
             MakeCog(row._leftRegion, flashCog, "Interrupted Flash Settings")
@@ -1543,13 +1568,15 @@ initFrame:SetScript("OnEvent", function(self)
                       get=function()
                           local t = TFB()
                           local c = t and t.targetColor
-                          return (c and c.r) or 1, (c and c.g) or 1, (c and c.b) or 1
+                          if not c then return nil end
+                          return c.r, c.g, c.b
                       end,
                       set=function(r, g, b)
                           local t = TFB(); if not t then return end
                           t.targetColor = { r = r, g = g, b = b }
                           TFBRefresh()
-                      end },
+                      end,
+                      getFactoryDefault=function() return 1, 1, 1 end },
                     { type="slider", label="Text Size (Target)", min=6, max=20, step=1,
                       get=function()
                           local c = TFBBar("target")

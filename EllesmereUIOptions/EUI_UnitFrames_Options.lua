@@ -3901,7 +3901,8 @@ initFrame:SetScript("OnEvent", function(self)
             local borderSwatch, updateBorderSwatch = EllesmereUI.BuildColorSwatch(
                 leftRgn, borderRow:GetFrameLevel() + 3,
                 function()
-                    local c = settingsTable.borderColor or { r = 0, g = 0, b = 0 }
+                    local c = settingsTable.borderColor
+                    if not c then return nil end
                     return c.r, c.g, c.b, settingsTable.borderAlpha or 1
                 end,
                 function(r, g, b, a)
@@ -3909,7 +3910,8 @@ initFrame:SetScript("OnEvent", function(self)
                     settingsTable.borderAlpha = a
                     ReloadAndUpdate()
                 end,
-                true, 20)
+                true, 20,
+                function() return 0, 0, 0, 1 end)
             PP.Point(borderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             borderSwatch:SetScript("OnEnter", function()
                 EllesmereUI.ShowWidgetTooltip(borderSwatch, "Border")
@@ -3920,7 +3922,8 @@ initFrame:SetScript("OnEvent", function(self)
             local hlSwatch, updateHlSwatch = EllesmereUI.BuildColorSwatch(
                 leftRgn, borderRow:GetFrameLevel() + 3,
                 function()
-                    local c = settingsTable.highlightColor or { r = 1, g = 1, b = 1 }
+                    local c = settingsTable.highlightColor
+                    if not c then return nil end
                     return c.r, c.g, c.b, settingsTable.highlightAlpha or 1
                 end,
                 function(r, g, b, a)
@@ -3928,7 +3931,8 @@ initFrame:SetScript("OnEvent", function(self)
                     settingsTable.highlightAlpha = a
                     ReloadAndUpdate()
                 end,
-                true, 20)
+                true, 20,
+                function() return 1, 1, 1, 1 end)
             PP.Point(hlSwatch, "RIGHT", borderSwatch, "LEFT", -8, 0)
             hlSwatch:SetScript("OnEnter", function()
                 EllesmereUI.ShowWidgetTooltip(hlSwatch, "Highlight")
@@ -4980,7 +4984,8 @@ initFrame:SetScript("OnEvent", function(self)
             local borderSwatch, updateBorderSwatch = EllesmereUI.BuildColorSwatch(
                 leftRgn, sharedScaleBorderRow:GetFrameLevel() + 3,
                 function()
-                    local c = SGet("borderColor") or { r = 0, g = 0, b = 0 }
+                    local c = SGet("borderColor")
+                    if not c then return nil end
                     return c.r, c.g, c.b, SVal("borderAlpha", 1)
                 end,
                 function(r, g, b, a)
@@ -4988,7 +4993,8 @@ initFrame:SetScript("OnEvent", function(self)
                     UNIT_DB_MAP[selectedUnit]().borderAlpha = a
                     ReloadAndUpdate()
                 end,
-                true, 20)
+                true, 20,
+                function() return 0, 0, 0, 1 end)
             PP.Point(borderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             borderSwatch:SetScript("OnEnter", function()
                 EllesmereUI.ShowWidgetTooltip(borderSwatch, "Border")
@@ -5237,7 +5243,8 @@ initFrame:SetScript("OnEvent", function(self)
             local hlSwatch, updHl = EllesmereUI.BuildColorSwatch(
                 rightRgn, lvl,
                 function()
-                    local c = UNIT_DB_MAP.player().highlightColor or { r = 1, g = 1, b = 1 }
+                    local c = UNIT_DB_MAP.player().highlightColor
+                    if not c then return nil end
                     return c.r, c.g, c.b, UNIT_DB_MAP.player().highlightAlpha or 1
                 end,
                 function(r, g, b, a)
@@ -5248,7 +5255,8 @@ initFrame:SetScript("OnEvent", function(self)
                         d.highlightAlpha = a
                     end
                     ReloadAndUpdate()
-                end, true, 20)
+                end, true, 20,
+                function() return 1, 1, 1, 1 end)
             hlSwatch:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
             rightRgn._lastInline = hlSwatch
             hlSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(hlSwatch, "Highlight") end)
@@ -5260,13 +5268,15 @@ initFrame:SetScript("OnEvent", function(self)
                 hasSwatch, updHas = EllesmereUI.BuildColorSwatch(
                     rightRgn, lvl,
                     function()
-                        local c = db.profile.playerThreatHasAggroColor or { r = 1, g = 0.5, b = 0 }
+                        local c = db.profile.playerThreatHasAggroColor
+                        if not c then return nil end
                         return c.r, c.g, c.b, 1
                     end,
                     function(r, g, b)
                         db.profile.playerThreatHasAggroColor = { r=r, g=g, b=b }
                         if ns.UpdatePlayerThreatBorder then ns.UpdatePlayerThreatBorder() end
-                    end, false, 20)
+                    end, false, 20,
+                    function() return 1, 0.5, 0 end)
                 hasSwatch:SetPoint("RIGHT", rightRgn._lastInline, "LEFT", -8, 0)
                 rightRgn._lastInline = hasSwatch
                 hasSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(hasSwatch, "Has Aggro") end)
@@ -5276,13 +5286,15 @@ initFrame:SetScript("OnEvent", function(self)
                 nearSwatch, updNear = EllesmereUI.BuildColorSwatch(
                     rightRgn, lvl,
                     function()
-                        local c = db.profile.playerThreatNearAggroColor or { r = 0.81, g = 0.72, b = 0.19 }
+                        local c = db.profile.playerThreatNearAggroColor
+                        if not c then return nil end
                         return c.r, c.g, c.b, 1
                     end,
                     function(r, g, b)
                         db.profile.playerThreatNearAggroColor = { r=r, g=g, b=b }
                         if ns.UpdatePlayerThreatBorder then ns.UpdatePlayerThreatBorder() end
-                    end, false, 20)
+                    end, false, 20,
+                    function() return 0.81, 0.72, 0.19 end)
                 nearSwatch:SetPoint("RIGHT", rightRgn._lastInline, "LEFT", -8, 0)
                 rightRgn._lastInline = nearSwatch
                 nearSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(nearSwatch, "Close to Aggro") end)
@@ -5657,13 +5669,14 @@ initFrame:SetScript("OnEvent", function(self)
                   hasAlpha = false,
                   getValue = function()
                       local c = SGet("detachedPortraitBorderColor")
-                      c = c or { r=0, g=0, b=0 }
+                      if not c then return nil end
                       return c.r, c.g, c.b
                   end,
                   setValue = function(r, g, b)
                       UNIT_DB_MAP[selectedUnit]().detachedPortraitBorderColor = { r=r, g=g, b=b }
                       ReloadAndUpdate(); UpdatePreview()
                   end,
+                  getFactoryDefault = function() return 0, 0, 0 end,
                   onClick = function(self)
                       if SVal("detachedPortraitClassColor", true) then
                           SSet("detachedPortraitClassColor", false)
@@ -5943,13 +5956,14 @@ initFrame:SetScript("OnEvent", function(self)
                   disabledTooltip = function() return "Gradient" end,
                   getValue = function()
                       local c = SGet("gradientColor")
-                      if c then return c.r, c.g, c.b end
-                      return 0.20, 0.20, 0.80
+                      if not c then return nil end
+                      return c.r, c.g, c.b
                   end,
                   setValue = function(r, g, b)
                       UNIT_DB_MAP[selectedUnit]().gradientColor = { r=r, g=g, b=b }
                       ReloadAndUpdate(); UpdatePreview()
-                  end },
+                  end,
+                  getFactoryDefault = function() return 0.20, 0.20, 0.80 end },
                 { tooltip = "Custom Colored Fill",
                   hasAlpha = false,
                   -- Dynamic Color resolves the fill from health percent, so the flat
@@ -5961,13 +5975,14 @@ initFrame:SetScript("OnEvent", function(self)
                   disabledTooltip = "Dynamic Color is on -- the fill color comes from the unit's health", rawTooltip = true,
                   getValue = function()
                       local c = SGet("customFillColor")
-                      if c then return c.r, c.g, c.b end
-                      return 37/255, 193/255, 29/255
+                      if not c then return nil end
+                      return c.r, c.g, c.b
                   end,
                   setValue = function(r, g, b)
                       UNIT_DB_MAP[selectedUnit]().customFillColor = { r=r, g=g, b=b }
                       ReloadAndUpdate(); UpdatePreview()
                   end,
+                  getFactoryDefault = function() return 37/255, 193/255, 29/255 end,
                   onClick = function(self)
                       if SVal("healthClassColored", true) then
                           -- Seed the custom fill on first use: without a stored
@@ -6045,14 +6060,15 @@ initFrame:SetScript("OnEvent", function(self)
             -- Custom background color swatch.
             local bgSwGet = function()
                 local c = SGet("customBgColor")
-                if c then return c.r, c.g, c.b end
-                return 17/255, 17/255, 17/255
+                if not c then return nil end
+                return c.r, c.g, c.b
             end
             local bgSwSet = function(r, g, b)
                 UNIT_DB_MAP[selectedUnit]().customBgColor = { r=r, g=g, b=b }
                 ReloadAndUpdate(); UpdatePreview()
             end
-            local bgSw, bgSwUpdate = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, bgSwGet, bgSwSet, false, 20)
+            local bgSwDefault = function() return 17/255, 17/255, 17/255 end
+            local bgSw, bgSwUpdate = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, bgSwGet, bgSwSet, false, 20, bgSwDefault)
             bgSw._eabOrigClick = bgSw:GetScript("OnClick")
             bgSw:SetScript("OnClick", function(self)
                 if SVal("bgClassColored", false) then
@@ -6240,13 +6256,15 @@ initFrame:SetScript("OnEvent", function(self)
                 local sw, swUpdate = EllesmereUI.BuildColorSwatch(
                     rgn, sharedHealthColorRow:GetFrameLevel() + 3,
                     function()
-                        local c = SGet(dd.key) or dd.def
+                        local c = SGet(dd.key)
+                        if not c then return nil end
                         return c.r, c.g, c.b, 1
                     end,
                     function(r, g, b)
                         UNIT_DB_MAP[selectedUnit]()[dd.key] = { r=r, g=g, b=b }
                         ReloadAndUpdate(); UpdatePreview()
-                    end, false, 18)
+                    end, false, 18,
+                    function() return dd.def.r, dd.def.g, dd.def.b, 1 end)
                 sw:SetPoint("RIGHT", prevAnchor, "LEFT", -8, 0)
                 sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, dd.tip) end)
                 sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
@@ -6432,13 +6450,16 @@ initFrame:SetScript("OnEvent", function(self)
             ltClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             -- Custom Colored swatch (left of the class swatch): opens the color picker.
             local ltSwGet = function()
-                return SVal("leftTextColorR", 1), SVal("leftTextColorG", 1), SVal("leftTextColorB", 1)
+                local r = SGet("leftTextColorR")
+                if r == nil then return nil end
+                return r, SGet("leftTextColorG"), SGet("leftTextColorB")
             end
             local ltSwSet = function(r, g, b)
                 SSet("leftTextColorR", r); SSet("leftTextColorG", g); SSet("leftTextColorB", b)
                 UpdatePreview()
             end
-            local ltSwatch, ltUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, ltSwGet, ltSwSet, nil, 20)
+            local ltSwDefault = function() return 1, 1, 1 end
+            local ltSwatch, ltUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, ltSwGet, ltSwSet, nil, 20, ltSwDefault)
             PP.Point(ltSwatch, "RIGHT", ltClassSwatch, "LEFT", -8, 0)
             leftRgn._lastInline = ltSwatch
             local ltOrigClick = ltSwatch:GetScript("OnClick")
@@ -6495,8 +6516,9 @@ initFrame:SetScript("OnEvent", function(self)
                       disabledTooltip="Only applies when Name > Target is selected.",
                       swatches = {
                         { tooltip = "Custom Colored", hasAlpha = false,
-                          getValue = function() local c = SVal("leftTextTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                          getValue = function() local c = SVal("leftTextTargetSepColor", nil); if type(c) ~= "table" then return nil end return c.r, c.g, c.b end,
                           setValue = function(r, g, b) SSet("leftTextTargetSepColor", { r=r, g=g, b=b }); UpdatePreview() end,
+                          getFactoryDefault = function() return 1, 1, 1 end,
                           onClick = function(self)
                               if SVal("leftTextTargetSepClassColor", false) then
                                   SSet("leftTextTargetSepClassColor", false); UpdatePreview()
@@ -6620,13 +6642,16 @@ initFrame:SetScript("OnEvent", function(self)
             rtClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(rtClassSwatch, "Class Colored") end)
             rtClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local rtSwGet = function()
-                return SVal("rightTextColorR", 1), SVal("rightTextColorG", 1), SVal("rightTextColorB", 1)
+                local r = SGet("rightTextColorR")
+                if r == nil then return nil end
+                return r, SGet("rightTextColorG"), SGet("rightTextColorB")
             end
             local rtSwSet = function(r, g, b)
                 SSet("rightTextColorR", r); SSet("rightTextColorG", g); SSet("rightTextColorB", b)
                 UpdatePreview()
             end
-            local rtSwatch, rtUpdateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, rtSwGet, rtSwSet, nil, 20)
+            local rtSwDefault = function() return 1, 1, 1 end
+            local rtSwatch, rtUpdateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, rtSwGet, rtSwSet, nil, 20, rtSwDefault)
             PP.Point(rtSwatch, "RIGHT", rtClassSwatch, "LEFT", -8, 0)
             rightRgn._lastInline = rtSwatch
             local rtOrigClick = rtSwatch:GetScript("OnClick")
@@ -6681,8 +6706,9 @@ initFrame:SetScript("OnEvent", function(self)
                       disabledTooltip="Only applies when Name > Target is selected.",
                       swatches = {
                         { tooltip = "Custom Colored", hasAlpha = false,
-                          getValue = function() local c = SVal("rightTextTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                          getValue = function() local c = SVal("rightTextTargetSepColor", nil); if type(c) ~= "table" then return nil end return c.r, c.g, c.b end,
                           setValue = function(r, g, b) SSet("rightTextTargetSepColor", { r=r, g=g, b=b }); UpdatePreview() end,
+                          getFactoryDefault = function() return 1, 1, 1 end,
                           onClick = function(self)
                               if SVal("rightTextTargetSepClassColor", false) then
                                   SSet("rightTextTargetSepClassColor", false); UpdatePreview()
@@ -6818,13 +6844,16 @@ initFrame:SetScript("OnEvent", function(self)
             ctClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(ctClassSwatch, "Class Colored") end)
             ctClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local ctSwGet = function()
-                return SVal("centerTextColorR", 1), SVal("centerTextColorG", 1), SVal("centerTextColorB", 1)
+                local r = SGet("centerTextColorR")
+                if r == nil then return nil end
+                return r, SGet("centerTextColorG"), SGet("centerTextColorB")
             end
             local ctSwSet = function(r, g, b)
                 SSet("centerTextColorR", r); SSet("centerTextColorG", g); SSet("centerTextColorB", b)
                 UpdatePreview()
             end
-            local ctSwatch, ctUpdateSwatch = EllesmereUI.BuildColorSwatch(ctrRgn, ctrRgn:GetFrameLevel() + 5, ctSwGet, ctSwSet, nil, 20)
+            local ctSwDefault = function() return 1, 1, 1 end
+            local ctSwatch, ctUpdateSwatch = EllesmereUI.BuildColorSwatch(ctrRgn, ctrRgn:GetFrameLevel() + 5, ctSwGet, ctSwSet, nil, 20, ctSwDefault)
             PP.Point(ctSwatch, "RIGHT", ctClassSwatch, "LEFT", -8, 0)
             ctrRgn._lastInline = ctSwatch
             local ctOrigClick = ctSwatch:GetScript("OnClick")
@@ -6869,8 +6898,9 @@ initFrame:SetScript("OnEvent", function(self)
                       disabledTooltip="Only applies when Name > Target is selected.",
                       swatches = {
                         { tooltip = "Custom Colored", hasAlpha = false,
-                          getValue = function() local c = SVal("centerTextTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                          getValue = function() local c = SVal("centerTextTargetSepColor", nil); if type(c) ~= "table" then return nil end return c.r, c.g, c.b end,
                           setValue = function(r, g, b) SSet("centerTextTargetSepColor", { r=r, g=g, b=b }); UpdatePreview() end,
+                          getFactoryDefault = function() return 1, 1, 1 end,
                           onClick = function(self)
                               if SVal("centerTextTargetSepClassColor", false) then
                                   SSet("centerTextTargetSepClassColor", false); UpdatePreview()
@@ -6994,13 +7024,16 @@ initFrame:SetScript("OnEvent", function(self)
             etClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(etClassSwatch, "Class Colored") end)
             etClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local etSwGet = function()
-                return SVal("extraTextColorR", 1), SVal("extraTextColorG", 1), SVal("extraTextColorB", 1)
+                local r = SGet("extraTextColorR")
+                if r == nil then return nil end
+                return r, SGet("extraTextColorG"), SGet("extraTextColorB")
             end
             local etSwSet = function(r, g, b)
                 SSet("extraTextColorR", r); SSet("extraTextColorG", g); SSet("extraTextColorB", b)
                 UpdatePreview()
             end
-            local etSwatch, etUpdateSwatch = EllesmereUI.BuildColorSwatch(etrRgn, etrRgn:GetFrameLevel() + 5, etSwGet, etSwSet, nil, 20)
+            local etSwDefault = function() return 1, 1, 1 end
+            local etSwatch, etUpdateSwatch = EllesmereUI.BuildColorSwatch(etrRgn, etrRgn:GetFrameLevel() + 5, etSwGet, etSwSet, nil, 20, etSwDefault)
             PP.Point(etSwatch, "RIGHT", etClassSwatch, "LEFT", -8, 0)
             etrRgn._lastInline = etSwatch
             local etOrigClick = etSwatch:GetScript("OnClick")
@@ -7049,8 +7082,9 @@ initFrame:SetScript("OnEvent", function(self)
                       disabledTooltip="Only applies when Name > Target is selected.",
                       swatches = {
                         { tooltip = "Custom Colored", hasAlpha = false,
-                          getValue = function() local c = SVal("extraTextTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                          getValue = function() local c = SVal("extraTextTargetSepColor", nil); if type(c) ~= "table" then return nil end return c.r, c.g, c.b end,
                           setValue = function(r, g, b) SSet("extraTextTargetSepColor", { r=r, g=g, b=b }); UpdatePreview() end,
+                          getFactoryDefault = function() return 1, 1, 1 end,
                           onClick = function(self)
                               if SVal("extraTextTargetSepClassColor", false) then
                                   SSet("extraTextTargetSepClassColor", false); UpdatePreview()
@@ -7366,24 +7400,26 @@ initFrame:SetScript("OnEvent", function(self)
                   disabledTooltip = function() return "Gradient" end,
                   getValue = function()
                       local c = SGet("powerGradientColor")
-                      if c then return c.r, c.g, c.b end
-                      return 0.20, 0.20, 0.80
+                      if not c then return nil end
+                      return c.r, c.g, c.b
                   end,
                   setValue = function(r, g, b)
                       UNIT_DB_MAP[selectedUnit]().powerGradientColor = { r=r, g=g, b=b }
                       ReloadAndUpdate(); UpdatePreview()
-                  end },
+                  end,
+                  getFactoryDefault = function() return 0.20, 0.20, 0.80 end },
                 { tooltip = "Custom Colored Fill",
                   hasAlpha = false,
                   getValue = function()
                       local c = SGet("customPowerFillColor")
-                      if c then return c.r, c.g, c.b end
-                      return 0, 0, 1
+                      if not c then return nil end
+                      return c.r, c.g, c.b
                   end,
                   setValue = function(r, g, b)
                       UNIT_DB_MAP[selectedUnit]().customPowerFillColor = { r=r, g=g, b=b }
                       ReloadAndUpdate(); UpdatePreview()
                   end,
+                  getFactoryDefault = function() return 0, 0, 1 end,
                   onClick = function(self)
                       local v = SVal("powerPercentPowerColor", true)
                       if v then
@@ -7447,14 +7483,15 @@ initFrame:SetScript("OnEvent", function(self)
             -- Custom background color swatch.
             local bgSwGet = function()
                 local c = SGet("customPowerBgColor")
-                if c then return c.r, c.g, c.b end
-                return 17/255, 17/255, 17/255
+                if not c then return nil end
+                return c.r, c.g, c.b
             end
             local bgSwSet = function(r, g, b)
                 UNIT_DB_MAP[selectedUnit]().customPowerBgColor = { r=r, g=g, b=b }
                 ReloadAndUpdate(); UpdatePreview()
             end
-            local bgSw, bgSwUpdate = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, bgSwGet, bgSwSet, false, 20)
+            local bgSwDefault = function() return 17/255, 17/255, 17/255 end
+            local bgSw, bgSwUpdate = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, bgSwGet, bgSwSet, false, 20, bgSwDefault)
             bgSw._eabOrigClick = bgSw:GetScript("OnClick")
             bgSw:SetScript("OnClick", function(self)
                 if SVal("powerBgPowerColored", false) then
@@ -7609,13 +7646,14 @@ initFrame:SetScript("OnEvent", function(self)
                   hasAlpha = false,
                   getValue = function()
                       local c = SGet("powerTextColor")
-                      if c then return c.r, c.g, c.b end
-                      return 1, 1, 1
+                      if not c then return nil end
+                      return c.r, c.g, c.b
                   end,
                   setValue = function(r, g, b)
                       UNIT_DB_MAP[selectedUnit]().powerTextColor = { r=r, g=g, b=b }
                       ReloadAndUpdate(); UpdatePreview()
                   end,
+                  getFactoryDefault = function() return 1, 1, 1 end,
                   onClick = function(self)
                       local v = SVal("powerPercentTextPowerColor", false)
                       if v then
@@ -7871,7 +7909,8 @@ initFrame:SetScript("OnEvent", function(self)
             local pbSwatch, updatePBSwatch = EllesmereUI.BuildColorSwatch(
                 rightRgn, sharedPowerBorderRow:GetFrameLevel() + 3,
                 function()
-                    local c = SGet("powerBorderColor") or { r = 0, g = 0, b = 0 }
+                    local c = SGet("powerBorderColor")
+                    if not c then return nil end
                     return c.r, c.g, c.b, SVal("powerBorderAlpha", 1)
                 end,
                 function(r, g, b, a)
@@ -7879,7 +7918,8 @@ initFrame:SetScript("OnEvent", function(self)
                     UNIT_DB_MAP[selectedUnit]().powerBorderAlpha = a
                     ReloadAndUpdate()
                 end,
-                true, 20)
+                true, 20,
+                function() return 0, 0, 0, 1 end)
             PP.Point(pbSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             pbSwatch:SetScript("OnEnter", function()
                 EllesmereUI.ShowWidgetTooltip(pbSwatch, "Border Color")
@@ -8075,13 +8115,14 @@ initFrame:SetScript("OnEvent", function(self)
                 local sw, updateSw = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5,
                     function()
                         local c = SGetSupported(colorKey)
-                        c = c or fallback
+                        if not c then return nil end
                         return c.r, c.g, c.b, 1
                     end,
                     function(r, g, b)
                         SSetSupported(colorKey, { r = r, g = g, b = b })
                         ReloadAndUpdate(); UpdatePreview()
-                    end, false, 20)
+                    end, false, 20,
+                    function() return fallback.r, fallback.g, fallback.b, 1 end)
                 PP.Point(sw, "RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
                 sw:SetScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, tooltip) end)
                 sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
@@ -8448,14 +8489,15 @@ initFrame:SetScript("OnEvent", function(self)
             local rgn = castRow2._rightRegion
             local bgSwGet = function()
                 local c = UNIT_DB_MAP[selectedUnit]().castBgColor
-                if c then return c.r, c.g, c.b end
-                return 0, 0, 0
+                if not c then return nil end
+                return c.r, c.g, c.b
             end
             local bgSwSet = function(r, g, b)
                 UNIT_DB_MAP[selectedUnit]().castBgColor = { r=r, g=g, b=b }
                 ReloadAndUpdate(); UpdatePreview()
             end
-            local bgSw, bgSwUpdate = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, bgSwGet, bgSwSet, false, 20)
+            local bgSwDefault = function() return 0, 0, 0 end
+            local bgSw, bgSwUpdate = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, bgSwGet, bgSwSet, false, 20, bgSwDefault)
             PP.Point(bgSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = bgSw
             RegisterWidgetRefresh(function() bgSwUpdate() end)
@@ -8549,13 +8591,14 @@ initFrame:SetScript("OnEvent", function(self)
             local snSw = EllesmereUI.BuildColorSwatch(snRgn, snRgn:GetFrameLevel() + 5,
                 function()
                     local c = SGetSupported("castSpellNameColor")
-                    c = c or { r=1, g=1, b=1 }
+                    if not c then return nil end
                     return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     UNIT_DB_MAP[selectedUnit]().castSpellNameColor = { r=r, g=g, b=b }
                     ReloadAndUpdate(); UpdatePreview()
-                end, false, 20)
+                end, false, 20,
+                function() return 1, 1, 1, 1 end)
             snSw:SetPoint("RIGHT", snRgn._lastInline or snRgn._control, "LEFT", -12, 0)
             snRgn._lastInline = snSw
         end
@@ -8599,13 +8642,14 @@ initFrame:SetScript("OnEvent", function(self)
             local dtSw = EllesmereUI.BuildColorSwatch(dtRgn, dtRgn:GetFrameLevel() + 5,
                 function()
                     local c = SGetSupported("castDurationColor")
-                    c = c or { r=1, g=1, b=1 }
+                    if not c then return nil end
                     return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     UNIT_DB_MAP[selectedUnit]().castDurationColor = { r=r, g=g, b=b }
                     ReloadAndUpdate(); UpdatePreview()
-                end, false, 20)
+                end, false, 20,
+                function() return 1, 1, 1, 1 end)
             dtSw:SetPoint("RIGHT", dtRgn._lastInline or dtRgn._control, "LEFT", -12, 0)
             dtRgn._lastInline = dtSw
         end
@@ -8756,13 +8800,14 @@ initFrame:SetScript("OnEvent", function(self)
             local trgSw = EllesmereUI.BuildColorSwatch(trgRgn, trgRgn:GetFrameLevel() + 5,
                 function()
                     local c = SGetSupported("castSpellTargetColor")
-                    c = c or { r=1, g=1, b=1 }
+                    if not c then return nil end
                     return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     UNIT_DB_MAP[selectedUnit]().castSpellTargetColor = { r=r, g=g, b=b }
                     ReloadAndUpdate(); UpdatePreview()
-                end, false, 20)
+                end, false, 20,
+                function() return 1, 1, 1, 1 end)
             trgSw:SetPoint("RIGHT", trgRgn._lastInline or trgRgn._control, "LEFT", -12, 0)
             trgRgn._lastInline = trgSw
         end
@@ -8939,15 +8984,15 @@ initFrame:SetScript("OnEvent", function(self)
             local sw = EllesmereUI.BuildColorSwatch(btbRgn, btbRgn:GetFrameLevel() + 5,
                 function()
                     local c = SGet("btbBgColor")
-                    c = c or { r=0.2, g=0.2, b=0.2 }
-                    local a = SGet("btbBgOpacity")
-                    return c.r, c.g, c.b, a or 1.0
+                    if not c then return nil end
+                    return c.r, c.g, c.b, SGet("btbBgOpacity") or 1.0
                 end,
                 function(r, g, b, a)
                     UNIT_DB_MAP[selectedUnit]().btbBgColor = { r=r, g=g, b=b }
                     UNIT_DB_MAP[selectedUnit]().btbBgOpacity = a
                     ReloadAndUpdate(); UpdatePreview()
-                end, true, 20)
+                end, true, 20,
+                function() return 0.2, 0.2, 0.2, 1.0 end)
             sw:SetPoint("RIGHT", btbRgn._lastInline or btbRgn._control, "LEFT", -12, 0)
             btbRgn._lastInline = sw
             -- Disabled state for swatch when text bar is off
@@ -9158,13 +9203,16 @@ initFrame:SetScript("OnEvent", function(self)
             blClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(blClassSwatch, "Class Colored") end)
             blClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local blSwGet = function()
-                return SVal("btbLeftColorR", 1), SVal("btbLeftColorG", 1), SVal("btbLeftColorB", 1)
+                local r = SGet("btbLeftColorR")
+                if r == nil then return nil end
+                return r, SGet("btbLeftColorG"), SGet("btbLeftColorB")
             end
             local blSwSet = function(r, g, b)
                 SSet("btbLeftColorR", r); SSet("btbLeftColorG", g); SSet("btbLeftColorB", b)
                 UpdatePreview()
             end
-            local blSwatch, blUpdateSwatch = EllesmereUI.BuildColorSwatch(btbLRgn, btbLRgn:GetFrameLevel() + 5, blSwGet, blSwSet, nil, 20)
+            local blSwDefault = function() return 1, 1, 1 end
+            local blSwatch, blUpdateSwatch = EllesmereUI.BuildColorSwatch(btbLRgn, btbLRgn:GetFrameLevel() + 5, blSwGet, blSwSet, nil, 20, blSwDefault)
             PP.Point(blSwatch, "RIGHT", blClassSwatch, "LEFT", -8, 0)
             btbLRgn._lastInline = blSwatch
             local blOrigClick = blSwatch:GetScript("OnClick")
@@ -9233,8 +9281,9 @@ initFrame:SetScript("OnEvent", function(self)
                       disabledTooltip="Only applies when Name > Target is selected.",
                       swatches = {
                         { tooltip = "Custom Colored", hasAlpha = false,
-                          getValue = function() local c = SVal("btbLeftTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                          getValue = function() local c = SVal("btbLeftTargetSepColor", nil); if type(c) ~= "table" then return nil end return c.r, c.g, c.b end,
                           setValue = function(r, g, b) SSet("btbLeftTargetSepColor", { r=r, g=g, b=b }); UpdatePreview() end,
+                          getFactoryDefault = function() return 1, 1, 1 end,
                           onClick = function(self)
                               if SVal("btbLeftTargetSepClassColor", false) then
                                   SSet("btbLeftTargetSepClassColor", false); UpdatePreview()
@@ -9310,13 +9359,16 @@ initFrame:SetScript("OnEvent", function(self)
             brClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(brClassSwatch, "Class Colored") end)
             brClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local brSwGet = function()
-                return SVal("btbRightColorR", 1), SVal("btbRightColorG", 1), SVal("btbRightColorB", 1)
+                local r = SGet("btbRightColorR")
+                if r == nil then return nil end
+                return r, SGet("btbRightColorG"), SGet("btbRightColorB")
             end
             local brSwSet = function(r, g, b)
                 SSet("btbRightColorR", r); SSet("btbRightColorG", g); SSet("btbRightColorB", b)
                 UpdatePreview()
             end
-            local brSwatch, brUpdateSwatch = EllesmereUI.BuildColorSwatch(btbRRgn, btbRRgn:GetFrameLevel() + 5, brSwGet, brSwSet, nil, 20)
+            local brSwDefault = function() return 1, 1, 1 end
+            local brSwatch, brUpdateSwatch = EllesmereUI.BuildColorSwatch(btbRRgn, btbRRgn:GetFrameLevel() + 5, brSwGet, brSwSet, nil, 20, brSwDefault)
             PP.Point(brSwatch, "RIGHT", brClassSwatch, "LEFT", -8, 0)
             btbRRgn._lastInline = brSwatch
             local brOrigClick = brSwatch:GetScript("OnClick")
@@ -9385,8 +9437,9 @@ initFrame:SetScript("OnEvent", function(self)
                       disabledTooltip="Only applies when Name > Target is selected.",
                       swatches = {
                         { tooltip = "Custom Colored", hasAlpha = false,
-                          getValue = function() local c = SVal("btbRightTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                          getValue = function() local c = SVal("btbRightTargetSepColor", nil); if type(c) ~= "table" then return nil end return c.r, c.g, c.b end,
                           setValue = function(r, g, b) SSet("btbRightTargetSepColor", { r=r, g=g, b=b }); UpdatePreview() end,
+                          getFactoryDefault = function() return 1, 1, 1 end,
                           onClick = function(self)
                               if SVal("btbRightTargetSepClassColor", false) then
                                   SSet("btbRightTargetSepClassColor", false); UpdatePreview()
@@ -9543,13 +9596,16 @@ initFrame:SetScript("OnEvent", function(self)
             bcClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(bcClassSwatch, "Class Colored") end)
             bcClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local bcSwGet = function()
-                return SVal("btbCenterColorR", 1), SVal("btbCenterColorG", 1), SVal("btbCenterColorB", 1)
+                local r = SGet("btbCenterColorR")
+                if r == nil then return nil end
+                return r, SGet("btbCenterColorG"), SGet("btbCenterColorB")
             end
             local bcSwSet = function(r, g, b)
                 SSet("btbCenterColorR", r); SSet("btbCenterColorG", g); SSet("btbCenterColorB", b)
                 UpdatePreview()
             end
-            local bcSwatch, bcUpdateSwatch = EllesmereUI.BuildColorSwatch(btbCRgn, btbCRgn:GetFrameLevel() + 5, bcSwGet, bcSwSet, nil, 20)
+            local bcSwDefault = function() return 1, 1, 1 end
+            local bcSwatch, bcUpdateSwatch = EllesmereUI.BuildColorSwatch(btbCRgn, btbCRgn:GetFrameLevel() + 5, bcSwGet, bcSwSet, nil, 20, bcSwDefault)
             PP.Point(bcSwatch, "RIGHT", bcClassSwatch, "LEFT", -8, 0)
             btbCRgn._lastInline = bcSwatch
             local bcOrigClick = bcSwatch:GetScript("OnClick")
@@ -9618,8 +9674,9 @@ initFrame:SetScript("OnEvent", function(self)
                       disabledTooltip="Only applies when Name > Target is selected.",
                       swatches = {
                         { tooltip = "Custom Colored", hasAlpha = false,
-                          getValue = function() local c = SVal("btbCenterTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                          getValue = function() local c = SVal("btbCenterTargetSepColor", nil); if type(c) ~= "table" then return nil end return c.r, c.g, c.b end,
                           setValue = function(r, g, b) SSet("btbCenterTargetSepColor", { r=r, g=g, b=b }); UpdatePreview() end,
+                          getFactoryDefault = function() return 1, 1, 1 end,
                           onClick = function(self)
                               if SVal("btbCenterTargetSepClassColor", false) then
                                   SSet("btbCenterTargetSepClassColor", false); UpdatePreview()
@@ -9815,7 +9872,7 @@ initFrame:SetScript("OnEvent", function(self)
                   hasAlpha = false,
                   getValue = function()
                       local c = SGetSupported("classPowerCustomColor")
-                      c = c or { r = 1, g = 0.82, b = 0 }
+                      if not c then return nil end
                       return c.r, c.g, c.b, 1
                   end,
                   setValue = function(r, g, b)
@@ -9825,6 +9882,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end
                       ReloadAndUpdate(); UpdatePreview()
                   end,
+                  getFactoryDefault = function() return 1, 0.82, 0, 1 end,
                   onClick = function(self)
                       if SGetSupported("classPowerClassColor") then
                           SSetSupported("classPowerClassColor", false)
@@ -9865,7 +9923,7 @@ initFrame:SetScript("OnEvent", function(self)
             local emptySwatch = EllesmereUI.BuildColorSwatch(ccRgn, ccRgn:GetFrameLevel() + 5,
                 function()
                     local c = SGetSupported("classPowerEmptyColor")
-                    c = c or { r = 0.2, g = 0.2, b = 0.2, a = 1.0 }
+                    if not c then return nil end
                     return c.r, c.g, c.b, c.a or 1
                 end,
                 function(r, g, b, a)
@@ -9874,7 +9932,8 @@ initFrame:SetScript("OnEvent", function(self)
                         ns.frames._toggleClassPower()
                     end
                     ReloadAndUpdate(); UpdatePreview()
-                end, true, 20)
+                end, true, 20,
+                function() return 0.2, 0.2, 0.2, 1.0 end)
             emptySwatch:SetPoint("RIGHT", ccRgn._lastInline or ccRgn._control, "LEFT", -6, 0)
             ccRgn._lastInline = emptySwatch
             local function UpdateEmptySwatch()
@@ -10116,13 +10175,14 @@ initFrame:SetScript("OnEvent", function(self)
               disabledTooltip="Class Resource must be set to Modern", rawTooltip=true,
               getValue=function()
                   local c = SGetSupported("classPowerBgColor")
-                  c = c or { r=0.082, g=0.082, b=0.082, a=1.0 }
+                  if not c then return nil end
                   return c.r, c.g, c.b, c.a
               end,
               setValue=function(r, g, b, a)
                   SSetSupported("classPowerBgColor", { r=r, g=g, b=b, a=a or 1 })
                   UpdatePreview()
-              end });  y = y - h
+              end,
+              getFactoryDefault=function() return 0.082, 0.082, 0.082, 1.0 end });  y = y - h
         SApplySupport(sharedClassResRow3._leftRegion, "classPowerSpacing")
         SApplySupport(sharedClassResRow3._rightRegion, "classPowerBgColor")
         -- Sync icons: Bar Spacing (left) and Background Color (right)
@@ -10682,11 +10742,16 @@ initFrame:SetScript("OnEvent", function(self)
                 local rgn = auraBorderRow._rightRegion
                 local swatch, refreshSwatch = EllesmereUI.BuildColorSwatch(
                     rgn, auraBorderRow:GetFrameLevel() + 3,
-                    function() return SVal("auraBorderR", 0), SVal("auraBorderG", 0), SVal("auraBorderB", 0), SVal("auraBorderA", 1) end,
+                    function()
+                        local r = SGet("auraBorderR")
+                        if r == nil then return nil end
+                        return r, SGet("auraBorderG"), SGet("auraBorderB"), SGet("auraBorderA") or 1
+                    end,
                     function(r, g, b, a)
                         local s = SDB(); s.auraBorderR = r; s.auraBorderG = g; s.auraBorderB = b; s.auraBorderA = a
                         ReloadAndUpdate(); UpdatePreview()
-                    end, true, 20)
+                    end, true, 20,
+                    function() return 0, 0, 0, 1 end)
                 PP.Point(swatch, "RIGHT", rgn._control, "LEFT", -8, 0)
                 EllesmereUI.RegisterWidgetRefresh(refreshSwatch)
             end
@@ -11118,20 +11183,25 @@ initFrame:SetScript("OnEvent", function(self)
                   disabledTooltip="Dispel Overlay",
                   swatches = {
                     { tooltip = "Magic", hasAlpha = false,
-                      getValue = function() local c = db.profile.dispelColorMagic; if c then return c.r, c.g, c.b end return 0.349, 0.475, 1.0 end,
-                      setValue = function(r, g, b) db.profile.dispelColorMagic = { r=r, g=g, b=b }; DispelRefresh() end },
+                      getValue = function() local c = db.profile.dispelColorMagic; if not c then return nil end return c.r, c.g, c.b end,
+                      setValue = function(r, g, b) db.profile.dispelColorMagic = { r=r, g=g, b=b }; DispelRefresh() end,
+                      getFactoryDefault = function() return 0.349, 0.475, 1.0 end },
                     { tooltip = "Curse", hasAlpha = false,
-                      getValue = function() local c = db.profile.dispelColorCurse; if c then return c.r, c.g, c.b end return 0.636, 0.0, 0.64 end,
-                      setValue = function(r, g, b) db.profile.dispelColorCurse = { r=r, g=g, b=b }; DispelRefresh() end },
+                      getValue = function() local c = db.profile.dispelColorCurse; if not c then return nil end return c.r, c.g, c.b end,
+                      setValue = function(r, g, b) db.profile.dispelColorCurse = { r=r, g=g, b=b }; DispelRefresh() end,
+                      getFactoryDefault = function() return 0.636, 0.0, 0.64 end },
                     { tooltip = "Disease", hasAlpha = false,
-                      getValue = function() local c = db.profile.dispelColorDisease; if c then return c.r, c.g, c.b end return 0.671, 0.384, 0.098 end,
-                      setValue = function(r, g, b) db.profile.dispelColorDisease = { r=r, g=g, b=b }; DispelRefresh() end },
+                      getValue = function() local c = db.profile.dispelColorDisease; if not c then return nil end return c.r, c.g, c.b end,
+                      setValue = function(r, g, b) db.profile.dispelColorDisease = { r=r, g=g, b=b }; DispelRefresh() end,
+                      getFactoryDefault = function() return 0.671, 0.384, 0.098 end },
                     { tooltip = "Poison", hasAlpha = false,
-                      getValue = function() local c = db.profile.dispelColorPoison; if c then return c.r, c.g, c.b end return 0.0, 0.706, 0.286 end,
-                      setValue = function(r, g, b) db.profile.dispelColorPoison = { r=r, g=g, b=b }; DispelRefresh() end },
+                      getValue = function() local c = db.profile.dispelColorPoison; if not c then return nil end return c.r, c.g, c.b end,
+                      setValue = function(r, g, b) db.profile.dispelColorPoison = { r=r, g=g, b=b }; DispelRefresh() end,
+                      getFactoryDefault = function() return 0.0, 0.706, 0.286 end },
                     { tooltip = "Bleed", hasAlpha = false,
-                      getValue = function() local c = db.profile.dispelColorBleed; if c then return c.r, c.g, c.b end return 0.75, 0.15, 0.15 end,
-                      setValue = function(r, g, b) db.profile.dispelColorBleed = { r=r, g=g, b=b }; DispelRefresh() end },
+                      getValue = function() local c = db.profile.dispelColorBleed; if not c then return nil end return c.r, c.g, c.b end,
+                      setValue = function(r, g, b) db.profile.dispelColorBleed = { r=r, g=g, b=b }; DispelRefresh() end,
+                      getFactoryDefault = function() return 0.75, 0.15, 0.15 end },
                   } });  y = y - h
             -- Inline eyeball: preview a magic dispel overlay on the top player preview.
             if not EllesmereUI._prebuilding then
@@ -11347,13 +11417,14 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, absorbRow:GetFrameLevel() + 3,
                 function()
                     local c = SGetSupported("absorbColor")
-                    if c then return c.r, c.g, c.b, 1 end
-                    return 1, 1, 1, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     UNIT_DB_MAP[selectedUnit]().absorbColor = { r=r, g=g, b=b }
                     ReloadAndUpdate(); UpdatePreview()
-                end, false, 20)
+                end, false, 20,
+                function() return 1, 1, 1, 1 end)
             swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = swatch
             local function UpdateAbsorbSwatchVis()
@@ -11529,13 +11600,14 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, healAbsorbRow:GetFrameLevel() + 3,
                 function()
                     local c = SGetSupported("healAbsorbColor")
-                    if c then return c.r, c.g, c.b, 1 end
-                    return 0.8, 0.15, 0.15, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     UNIT_DB_MAP[selectedUnit]().healAbsorbColor = { r=r, g=g, b=b }
                     ReloadAndUpdate(); UpdatePreview()
-                end, false, 20)
+                end, false, 20,
+                function() return 0.8, 0.15, 0.15, 1 end)
             swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = swatch
             -- Blocking overlay: disabled for "none" and the pre-colored
@@ -11648,13 +11720,14 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, absorbBarRow:GetFrameLevel() + 3,
                 function()
                     local c = SGetSupported("absorbBarColor")
-                    if c then return c.r, c.g, c.b, c.a or 1 end
-                    return 1, 1, 1, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b, c.a or 1
                 end,
                 function(r, g, b, a)
                     UNIT_DB_MAP[selectedUnit]().absorbBarColor = { r=r, g=g, b=b, a=a }
                     ReloadAndUpdate(); UpdatePreview()
-                end, true, 20)
+                end, true, 20,
+                function() return 1, 1, 1, 1 end)
             swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = swatch
             local function UpdateAbsorbBarSwatchVis()
@@ -11685,13 +11758,14 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, healAbsorbBarRow:GetFrameLevel() + 3,
                 function()
                     local c = SGetSupported("healAbsorbBarColor")
-                    if c then return c.r, c.g, c.b, c.a or 1 end
-                    return 200/255, 29/255, 29/255, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b, c.a or 1
                 end,
                 function(r, g, b, a)
                     UNIT_DB_MAP[selectedUnit]().healAbsorbBarColor = { r=r, g=g, b=b, a=a }
                     ReloadAndUpdate(); UpdatePreview()
-                end, true, 20)
+                end, true, 20,
+                function() return 200/255, 29/255, 29/255, 1 end)
             swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = swatch
             local function UpdateHealAbsorbBarSwatchVis()
@@ -11752,15 +11826,18 @@ initFrame:SetScript("OnEvent", function(self)
                 getValue = function()
                     local ec = db.profile.enemyColors or {}
                     local c = ec[key]
-                    if c then return c.r, c.g, c.b end
-                    local f = defIdx and FACTION_BAR_COLORS[defIdx]
-                    if f then return f.r, f.g, f.b end
-                    return dr, dg, dbb
+                    if not c then return nil end
+                    return c.r, c.g, c.b
                 end,
                 setValue = function(r, g, b)
                     db.profile.enemyColors = db.profile.enemyColors or {}
                     db.profile.enemyColors[key] = { r = r, g = g, b = b }
                     if ns.ApplyEnemyColors then ns.ApplyEnemyColors() end
+                end,
+                getFactoryDefault = function()
+                    local f = defIdx and FACTION_BAR_COLORS[defIdx]
+                    if f then return f.r, f.g, f.b end
+                    return dr, dg, dbb
                 end,
             }
         end
@@ -11852,13 +11929,14 @@ initFrame:SetScript("OnEvent", function(self)
             local combatSwatch = EllesmereUI.BuildColorSwatch(ciRgn, ciRgn:GetFrameLevel() + 5,
                 function()
                     local cc = SGetSupported("combatIndicatorCustomColor")
-                    cc = cc or { r=1, g=1, b=1 }
+                    if not cc then return nil end
                     return cc.r, cc.g, cc.b, 1
                 end,
                 function(r, g, b)
                     UNIT_DB_MAP[selectedUnit]().combatIndicatorCustomColor = { r=r, g=g, b=b }
                     ReloadAndUpdate(); UpdatePreview()
-                end, false, 20)
+                end, false, 20,
+                function() return 1, 1, 1, 1 end)
             combatSwatch:SetPoint("RIGHT", ciRgn._lastInline or ciRgn._control, "LEFT", -8, 0)
             ciRgn._lastInline = combatSwatch
             local combatSwatchBlock = CreateFrame("Frame", nil, combatSwatch)
@@ -12742,14 +12820,16 @@ initFrame:SetScript("OnEvent", function(self)
                 local hoverSwatch, updHover = EllesmereUI.BuildColorSwatch(
                     rightRgn, lvl,
                     function()
-                        local c = settingsTable.bossHoverBorderColor or { r = 1, g = 1, b = 1 }
+                        local c = settingsTable.bossHoverBorderColor
+                        if not c then return nil end
                         return c.r, c.g, c.b, settingsTable.bossHoverBorderAlpha or 1
                     end,
                     function(r, g, b, a)
                         settingsTable.bossHoverBorderColor = { r=r, g=g, b=b }
                         settingsTable.bossHoverBorderAlpha = a
                         ReloadAndUpdate()
-                    end, true, 20)
+                    end, true, 20,
+                    function() return 1, 1, 1, 1 end)
                 hoverSwatch:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
                 rightRgn._lastInline = hoverSwatch
                 hoverSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(hoverSwatch, "Hover") end)
@@ -12758,14 +12838,16 @@ initFrame:SetScript("OnEvent", function(self)
                 local targetSwatch, updTarget = EllesmereUI.BuildColorSwatch(
                     rightRgn, lvl,
                     function()
-                        local c = settingsTable.bossTargetBorderColor or { r = 1, g = 1, b = 1 }
+                        local c = settingsTable.bossTargetBorderColor
+                        if not c then return nil end
                         return c.r, c.g, c.b, settingsTable.bossTargetBorderAlpha or 1
                     end,
                     function(r, g, b, a)
                         settingsTable.bossTargetBorderColor = { r=r, g=g, b=b }
                         settingsTable.bossTargetBorderAlpha = a
                         ReloadAndUpdate()
-                    end, true, 20)
+                    end, true, 20,
+                    function() return 1, 1, 1, 1 end)
                 targetSwatch:SetPoint("RIGHT", rightRgn._lastInline, "LEFT", -8, 0)
                 rightRgn._lastInline = targetSwatch
                 targetSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(targetSwatch, "Target") end)
@@ -12875,13 +12957,14 @@ initFrame:SetScript("OnEvent", function(self)
                     { tooltip = "Custom Colored Fill", hasAlpha = false,
                       getValue = function()
                           local c = MGet("customFillColor")
-                          if c then return c.r, c.g, c.b end
-                          return 37/255, 193/255, 29/255
+                          if not c then return nil end
+                          return c.r, c.g, c.b
                       end,
                       setValue = function(r, g, b)
                           settingsTable.customFillColor = { r=r, g=g, b=b }
                           ReloadAndUpdate()
                       end,
+                      getFactoryDefault = function() return 37/255, 193/255, 29/255 end,
                       onClick = function(self)
                           if MVal("healthClassColored", false) then
                               if MGet("customFillColor") == nil then
@@ -12954,14 +13037,15 @@ initFrame:SetScript("OnEvent", function(self)
 
                     local fCustomGet = function()
                         local c = MGet("customFillColor")
-                        if c then return c.r, c.g, c.b end
-                        return 37/255, 193/255, 29/255
+                        if not c then return nil end
+                        return c.r, c.g, c.b
                     end
                     local fCustomSet = function(r, g, b)
                         settingsTable.customFillColor = { r=r, g=g, b=b }
                         ReloadAndUpdate()
                     end
-                    local fCustomSw, fCustomUpdate = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, fCustomGet, fCustomSet, false, 20)
+                    local fCustomDefault = function() return 37/255, 193/255, 29/255 end
+                    local fCustomSw, fCustomUpdate = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, fCustomGet, fCustomSet, false, 20, fCustomDefault)
                     fCustomSw._eabOrigClick = fCustomSw:GetScript("OnClick")
                     fCustomSw:SetScript("OnClick", function(self)
                         if MVal("healthClassColored", false) then
@@ -13013,14 +13097,15 @@ initFrame:SetScript("OnEvent", function(self)
 
                     local bgSwGet = function()
                         local c = MGet("customBgColor")
-                        if c then return c.r, c.g, c.b end
-                        return 17/255, 17/255, 17/255
+                        if not c then return nil end
+                        return c.r, c.g, c.b
                     end
                     local bgSwSet = function(r, g, b)
                         settingsTable.customBgColor = { r=r, g=g, b=b }
                         ReloadAndUpdate()
                     end
-                    local bgSw, bgSwUpdate = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, bgSwGet, bgSwSet, false, 20)
+                    local bgSwDefault = function() return 17/255, 17/255, 17/255 end
+                    local bgSw, bgSwUpdate = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, bgSwGet, bgSwSet, false, 20, bgSwDefault)
                     bgSw._eabOrigClick = bgSw:GetScript("OnClick")
                     bgSw:SetScript("OnClick", function(self)
                         if MVal("bgClassColored", false) then
@@ -13081,13 +13166,14 @@ initFrame:SetScript("OnEvent", function(self)
                     { tooltip = "Custom Background Color", hasAlpha = false,
                       getValue = function()
                           local c = MGet("customBgColor")
-                          if c then return c.r, c.g, c.b end
-                          return 17/255, 17/255, 17/255
+                          if not c then return nil end
+                          return c.r, c.g, c.b
                       end,
                       setValue = function(r, g, b)
                           settingsTable.customBgColor = { r=r, g=g, b=b }
                           ReloadAndUpdate()
                       end,
+                      getFactoryDefault = function() return 17/255, 17/255, 17/255 end,
                       onClick = function(self)
                           if MVal("bgClassColored", false) then
                               settingsTable.bgClassColored = false
@@ -13172,13 +13258,16 @@ initFrame:SetScript("OnEvent", function(self)
             classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, "Class Colored") end)
             classSw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local swGet = function()
-                return MVal("leftTextColorR", 1), MVal("leftTextColorG", 1), MVal("leftTextColorB", 1)
+                local r = MGet("leftTextColorR")
+                if r == nil then return nil end
+                return r, MGet("leftTextColorG"), MGet("leftTextColorB")
             end
             local swSet = function(r, g, b)
                 settingsTable.leftTextColorR = r; settingsTable.leftTextColorG = g; settingsTable.leftTextColorB = b
                 ReloadAndUpdate()
             end
-            local sw, swUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, nil, 20)
+            local swDefault = function() return 1, 1, 1 end
+            local sw, swUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, nil, 20, swDefault)
             PP.Point(sw, "RIGHT", classSw, "LEFT", -8, 0)
             rgn._lastInline = sw
             local origClick = sw:GetScript("OnClick")
@@ -13220,8 +13309,9 @@ initFrame:SetScript("OnEvent", function(self)
                       disabledTooltip="Only applies when Name > Target is selected.",
                       swatches = {
                         { tooltip = "Custom Colored", hasAlpha = false,
-                          getValue = function() local c = MVal("leftTextTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                          getValue = function() local c = MVal("leftTextTargetSepColor", nil); if type(c) ~= "table" then return nil end return c.r, c.g, c.b end,
                           setValue = function(r, g, b) MSet("leftTextTargetSepColor", { r=r, g=g, b=b }) end,
+                          getFactoryDefault = function() return 1, 1, 1 end,
                           onClick = function(self)
                               if MVal("leftTextTargetSepClassColor", false) then
                                   MSet("leftTextTargetSepClassColor", false)
@@ -13286,13 +13376,16 @@ initFrame:SetScript("OnEvent", function(self)
             classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, "Class Colored") end)
             classSw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local swGet = function()
-                return MVal("rightTextColorR", 1), MVal("rightTextColorG", 1), MVal("rightTextColorB", 1)
+                local r = MGet("rightTextColorR")
+                if r == nil then return nil end
+                return r, MGet("rightTextColorG"), MGet("rightTextColorB")
             end
             local swSet = function(r, g, b)
                 settingsTable.rightTextColorR = r; settingsTable.rightTextColorG = g; settingsTable.rightTextColorB = b
                 ReloadAndUpdate()
             end
-            local sw, swUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, nil, 20)
+            local swDefault = function() return 1, 1, 1 end
+            local sw, swUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, nil, 20, swDefault)
             PP.Point(sw, "RIGHT", classSw, "LEFT", -8, 0)
             rgn._lastInline = sw
             local origClick = sw:GetScript("OnClick")
@@ -13334,8 +13427,9 @@ initFrame:SetScript("OnEvent", function(self)
                       disabledTooltip="Only applies when Name > Target is selected.",
                       swatches = {
                         { tooltip = "Custom Colored", hasAlpha = false,
-                          getValue = function() local c = MVal("rightTextTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                          getValue = function() local c = MVal("rightTextTargetSepColor", nil); if type(c) ~= "table" then return nil end return c.r, c.g, c.b end,
                           setValue = function(r, g, b) MSet("rightTextTargetSepColor", { r=r, g=g, b=b }) end,
+                          getFactoryDefault = function() return 1, 1, 1 end,
                           onClick = function(self)
                               if MVal("rightTextTargetSepClassColor", false) then
                                   MSet("rightTextTargetSepClassColor", false)
@@ -13419,13 +13513,16 @@ initFrame:SetScript("OnEvent", function(self)
             classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, "Class Colored") end)
             classSw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local swGet = function()
-                return MVal("centerTextColorR", 1), MVal("centerTextColorG", 1), MVal("centerTextColorB", 1)
+                local r = MGet("centerTextColorR")
+                if r == nil then return nil end
+                return r, MGet("centerTextColorG"), MGet("centerTextColorB")
             end
             local swSet = function(r, g, b)
                 settingsTable.centerTextColorR = r; settingsTable.centerTextColorG = g; settingsTable.centerTextColorB = b
                 ReloadAndUpdate()
             end
-            local sw, swUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, nil, 20)
+            local swDefault = function() return 1, 1, 1 end
+            local sw, swUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, nil, 20, swDefault)
             PP.Point(sw, "RIGHT", classSw, "LEFT", -8, 0)
             rgn._lastInline = sw
             local origClick = sw:GetScript("OnClick")
@@ -13467,8 +13564,9 @@ initFrame:SetScript("OnEvent", function(self)
                       disabledTooltip="Only applies when Name > Target is selected.",
                       swatches = {
                         { tooltip = "Custom Colored", hasAlpha = false,
-                          getValue = function() local c = MVal("centerTextTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                          getValue = function() local c = MVal("centerTextTargetSepColor", nil); if type(c) ~= "table" then return nil end return c.r, c.g, c.b end,
                           setValue = function(r, g, b) MSet("centerTextTargetSepColor", { r=r, g=g, b=b }) end,
+                          getFactoryDefault = function() return 1, 1, 1 end,
                           onClick = function(self)
                               if MVal("centerTextTargetSepClassColor", false) then
                                   MSet("centerTextTargetSepClassColor", false)
@@ -13536,13 +13634,16 @@ initFrame:SetScript("OnEvent", function(self)
             classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, "Class Colored") end)
             classSw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local swGet = function()
-                return MVal("extraTextColorR", 1), MVal("extraTextColorG", 1), MVal("extraTextColorB", 1)
+                local r = MGet("extraTextColorR")
+                if r == nil then return nil end
+                return r, MGet("extraTextColorG"), MGet("extraTextColorB")
             end
             local swSet = function(r, g, b)
                 settingsTable.extraTextColorR = r; settingsTable.extraTextColorG = g; settingsTable.extraTextColorB = b
                 ReloadAndUpdate()
             end
-            local sw, swUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, nil, 20)
+            local swDefault = function() return 1, 1, 1 end
+            local sw, swUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, nil, 20, swDefault)
             PP.Point(sw, "RIGHT", classSw, "LEFT", -8, 0)
             rgn._lastInline = sw
             local swOrigClick = sw:GetScript("OnClick")
@@ -13588,8 +13689,9 @@ initFrame:SetScript("OnEvent", function(self)
                       disabledTooltip="Only applies when Name > Target is selected.",
                       swatches = {
                         { tooltip = "Custom Colored", hasAlpha = false,
-                          getValue = function() local c = MVal("extraTextTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                          getValue = function() local c = MVal("extraTextTargetSepColor", nil); if type(c) ~= "table" then return nil end return c.r, c.g, c.b end,
                           setValue = function(r, g, b) MSet("extraTextTargetSepColor", { r=r, g=g, b=b }) end,
+                          getFactoryDefault = function() return 1, 1, 1 end,
                           onClick = function(self)
                               if MVal("extraTextTargetSepClassColor", false) then
                                   MSet("extraTextTargetSepClassColor", false)
@@ -13709,14 +13811,15 @@ initFrame:SetScript("OnEvent", function(self)
 
                 local bgGet = function()
                     local c = MGet("customPowerBgColor")
-                    if c then return c.r, c.g, c.b end
-                    return 17/255, 17/255, 17/255
+                    if not c then return nil end
+                    return c.r, c.g, c.b
                 end
                 local bgSet = function(r, g, b)
                     settingsTable.customPowerBgColor = { r=r, g=g, b=b }
                     ReloadAndUpdate()
                 end
-                local bgSw, bgSwUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, bgGet, bgSet, false, 20)
+                local bgDefault = function() return 17/255, 17/255, 17/255 end
+                local bgSw, bgSwUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, bgGet, bgSet, false, 20, bgDefault)
                 bgSw._eabOrigClick = bgSw:GetScript("OnClick")
                 bgSw:SetScript("OnClick", function(self)
                     if MVal("powerBgPowerColored", false) then
@@ -13764,14 +13867,15 @@ initFrame:SetScript("OnEvent", function(self)
 
                 local fGet = function()
                     local c = MGet("customPowerFillColor")
-                    if c then return c.r, c.g, c.b end
-                    return 0, 0, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b
                 end
                 local fSet = function(r, g, b)
                     settingsTable.customPowerFillColor = { r=r, g=g, b=b }
                     ReloadAndUpdate()
                 end
-                local fSw, fSwUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, fGet, fSet, false, 20)
+                local fDefault = function() return 0, 0, 1 end
+                local fSw, fSwUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, fGet, fSet, false, 20, fDefault)
                 fSw._eabOrigClick = fSw:GetScript("OnClick")
                 fSw:SetScript("OnClick", function(self)
                     if MVal("powerPercentPowerColor", true) ~= false then
@@ -13826,13 +13930,14 @@ initFrame:SetScript("OnEvent", function(self)
                 local customSw, customSwUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
                     function()
                         local c = MGet("powerTextColor")
-                        if c then return c.r, c.g, c.b end
-                        return 1, 1, 1
+                        if not c then return nil end
+                        return c.r, c.g, c.b
                     end,
                     function(r, g, b)
                         settingsTable.powerTextColor = { r=r, g=g, b=b }
                         ReloadAndUpdate()
-                    end, false, 20)
+                    end, false, 20,
+                    function() return 1, 1, 1 end)
                 PP.Point(customSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                 rgn._lastInline = customSw
                 local customOrigClick = customSw:GetScript("OnClick")
@@ -13945,7 +14050,8 @@ initFrame:SetScript("OnEvent", function(self)
                 local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
                     rgn, pwrBorderRow:GetFrameLevel() + 3,
                     function()
-                        local c = MGet("powerBorderColor") or { r=0, g=0, b=0 }
+                        local c = MGet("powerBorderColor")
+                        if not c then return nil end
                         return c.r, c.g, c.b, MVal("powerBorderAlpha", 1)
                     end,
                     function(r, g, b, a)
@@ -13953,7 +14059,8 @@ initFrame:SetScript("OnEvent", function(self)
                         settingsTable.powerBorderAlpha = a
                         ReloadAndUpdate()
                     end,
-                    true, 20)
+                    true, 20,
+                    function() return 0, 0, 0, 1 end)
                 PP.Point(swatch, "RIGHT", rgn._control, "LEFT", -8, 0)
                 swatch:SetScript("OnEnter", function()
                     EllesmereUI.ShowWidgetTooltip(swatch, "Border Color")
@@ -14367,8 +14474,9 @@ initFrame:SetScript("OnEvent", function(self)
                 local buffOff = function() return BossBuffLocationActive() or ns.GetBossSimpleBuffMode(db.profile.boss) == "none" end
                 do
                     local sw, upd = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
-                        function() local c = db.profile.boss.buffCooldownTextColor; if c then return c.r, c.g, c.b end; return 1, 1, 1 end,
-                        function(r, g, b) db.profile.boss.buffCooldownTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
+                        function() local c = db.profile.boss.buffCooldownTextColor; if not c then return nil end; return c.r, c.g, c.b end,
+                        function(r, g, b) db.profile.boss.buffCooldownTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20,
+                        function() return 1, 1, 1 end)
                     sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Duration Text Color") end)
                     sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                     PP.Point(sw, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
@@ -14378,8 +14486,9 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 do
                     local sw, upd = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
-                        function() local c = db.profile.boss.buffStackTextColor; if c then return c.r, c.g, c.b end; return 1, 1, 1 end,
-                        function(r, g, b) db.profile.boss.buffStackTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
+                        function() local c = db.profile.boss.buffStackTextColor; if not c then return nil end; return c.r, c.g, c.b end,
+                        function(r, g, b) db.profile.boss.buffStackTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20,
+                        function() return 1, 1, 1 end)
                     sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Stack Text Color") end)
                     sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                     PP.Point(sw, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
@@ -14511,8 +14620,9 @@ initFrame:SetScript("OnEvent", function(self)
                 local debuffOff = function() return BossDebuffLocationActive() or ns.GetBossSimpleDebuffMode(db.profile.boss) == "none" end
                 do
                     local sw, upd = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
-                        function() local c = db.profile.boss.debuffCooldownTextColor; if c then return c.r, c.g, c.b end; return 1, 1, 1 end,
-                        function(r, g, b) db.profile.boss.debuffCooldownTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
+                        function() local c = db.profile.boss.debuffCooldownTextColor; if not c then return nil end; return c.r, c.g, c.b end,
+                        function(r, g, b) db.profile.boss.debuffCooldownTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20,
+                        function() return 1, 1, 1 end)
                     sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Duration Text Color") end)
                     sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                     PP.Point(sw, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
@@ -14522,8 +14632,9 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 do
                     local sw, upd = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
-                        function() local c = db.profile.boss.debuffStackTextColor; if c then return c.r, c.g, c.b end; return 1, 1, 1 end,
-                        function(r, g, b) db.profile.boss.debuffStackTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
+                        function() local c = db.profile.boss.debuffStackTextColor; if not c then return nil end; return c.r, c.g, c.b end,
+                        function(r, g, b) db.profile.boss.debuffStackTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20,
+                        function() return 1, 1, 1 end)
                     sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Stack Text Color") end)
                     sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                     PP.Point(sw, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
@@ -14698,8 +14809,9 @@ initFrame:SetScript("OnEvent", function(self)
                 local buffOff = function() return not BossBuffLocationActive() end
                 do
                     local sw, upd = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
-                        function() local c = db.profile.boss.buffCooldownTextColor; if c then return c.r, c.g, c.b end; return 1, 1, 1 end,
-                        function(r, g, b) db.profile.boss.buffCooldownTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
+                        function() local c = db.profile.boss.buffCooldownTextColor; if not c then return nil end; return c.r, c.g, c.b end,
+                        function(r, g, b) db.profile.boss.buffCooldownTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20,
+                        function() return 1, 1, 1 end)
                     sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Duration Text Color") end)
                     sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                     PP.Point(sw, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
@@ -14709,8 +14821,9 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 do
                     local sw, upd = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
-                        function() local c = db.profile.boss.buffStackTextColor; if c then return c.r, c.g, c.b end; return 1, 1, 1 end,
-                        function(r, g, b) db.profile.boss.buffStackTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
+                        function() local c = db.profile.boss.buffStackTextColor; if not c then return nil end; return c.r, c.g, c.b end,
+                        function(r, g, b) db.profile.boss.buffStackTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20,
+                        function() return 1, 1, 1 end)
                     sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Stack Text Color") end)
                     sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                     PP.Point(sw, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
@@ -14845,8 +14958,9 @@ initFrame:SetScript("OnEvent", function(self)
                     local debuffOff = function() return not BossDebuffLocationActive() end
                     do
                         local sw, upd = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
-                            function() local c = db.profile.boss.debuffCooldownTextColor; if c then return c.r, c.g, c.b end; return 1, 1, 1 end,
-                            function(r, g, b) db.profile.boss.debuffCooldownTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
+                            function() local c = db.profile.boss.debuffCooldownTextColor; if not c then return nil end; return c.r, c.g, c.b end,
+                            function(r, g, b) db.profile.boss.debuffCooldownTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20,
+                            function() return 1, 1, 1 end)
                         sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Duration Text Color") end)
                         sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                         PP.Point(sw, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
@@ -14856,8 +14970,9 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                     do
                         local sw, upd = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
-                            function() local c = db.profile.boss.debuffStackTextColor; if c then return c.r, c.g, c.b end; return 1, 1, 1 end,
-                            function(r, g, b) db.profile.boss.debuffStackTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
+                            function() local c = db.profile.boss.debuffStackTextColor; if not c then return nil end; return c.r, c.g, c.b end,
+                            function(r, g, b) db.profile.boss.debuffStackTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20,
+                            function() return 1, 1, 1 end)
                         sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Stack Text Color") end)
                         sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                         PP.Point(sw, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
@@ -14953,8 +15068,9 @@ initFrame:SetScript("OnEvent", function(self)
                     if not EllesmereUI._prebuilding then
                         local rgn=borderRow._rightRegion
                         local sw,upd=EllesmereUI.BuildColorSwatch(rgn,borderRow:GetFrameLevel()+3,
-                            function() return B.auraBorderR or 0,B.auraBorderG or 0,B.auraBorderB or 0,B.auraBorderA or 1 end,
-                            function(r,g,b,a) B.auraBorderR=r;B.auraBorderG=g;B.auraBorderB=b;B.auraBorderA=a;ReloadAndUpdate() end,true,20)
+                            function() if B.auraBorderR==nil then return nil end; return B.auraBorderR,B.auraBorderG,B.auraBorderB,B.auraBorderA or 1 end,
+                            function(r,g,b,a) B.auraBorderR=r;B.auraBorderG=g;B.auraBorderB=b;B.auraBorderA=a;ReloadAndUpdate() end,true,20,
+                            function() return 0,0,0,1 end)
                         PP.Point(sw,"RIGHT",rgn._control,"LEFT",-8,0)
                         EllesmereUI.RegisterWidgetRefresh(upd)
                     end
@@ -15365,13 +15481,15 @@ initFrame:SetScript("OnEvent", function(self)
                 local function AddCastColorSwatch(tooltip, colorKey, fallback, disabledFn)
                     local sw, updateSw = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
                         function()
-                            local c = B[colorKey] or fallback
+                            local c = B[colorKey]
+                            if not c then return nil end
                             return c.r, c.g, c.b, 1
                         end,
                         function(r, g, b)
                             B[colorKey] = { r=r, g=g, b=b }
                             ReloadAndUpdate()
-                        end, false, 20)
+                        end, false, 20,
+                        function() return fallback.r, fallback.g, fallback.b, 1 end)
                     sw:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                     sw:SetScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, tooltip) end)
                     sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
@@ -15483,10 +15601,11 @@ initFrame:SetScript("OnEvent", function(self)
                 local sw = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
                     function()
                         local c = B.castBgColor
-                        if c then return c.r, c.g, c.b end
-                        return 0, 0, 0
+                        if not c then return nil end
+                        return c.r, c.g, c.b
                     end,
-                    function(r, g, b) B.castBgColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
+                    function(r, g, b) B.castBgColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20,
+                    function() return 0, 0, 0 end)
                 sw:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                 sw:SetScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, "Cast Background") end)
                 sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
@@ -15530,8 +15649,9 @@ initFrame:SetScript("OnEvent", function(self)
             if not EllesmereUI._prebuilding then
                 local rgn = castTextRow._leftRegion
                 local sw = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
-                    function() local c = B.castSpellNameColor or { r=1, g=1, b=1 }; return c.r, c.g, c.b end,
-                    function(r, g, b) B.castSpellNameColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
+                    function() local c = B.castSpellNameColor; if not c then return nil end; return c.r, c.g, c.b end,
+                    function(r, g, b) B.castSpellNameColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20,
+                    function() return 1, 1, 1 end)
                 sw:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
                 rgn._lastInline = sw
                 local _, cogShow = EllesmereUI.BuildCogPopup({
@@ -15554,8 +15674,9 @@ initFrame:SetScript("OnEvent", function(self)
             if not EllesmereUI._prebuilding then
                 local rgn = castTextRow._rightRegion
                 local sw = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
-                    function() local c = B.castDurationColor or { r=1, g=1, b=1 }; return c.r, c.g, c.b end,
-                    function(r, g, b) B.castDurationColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
+                    function() local c = B.castDurationColor; if not c then return nil end; return c.r, c.g, c.b end,
+                    function(r, g, b) B.castDurationColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20,
+                    function() return 1, 1, 1 end)
                 sw:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
                 rgn._lastInline = sw
                 local _, cogShow = EllesmereUI.BuildCogPopup({

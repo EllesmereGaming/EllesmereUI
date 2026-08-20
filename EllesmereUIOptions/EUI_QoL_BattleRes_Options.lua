@@ -62,13 +62,14 @@ local function MakeBorderColorSwatches()
           hasAlpha = false,
           getValue = function()
               local c = Cfg("borderColor")
-              if c then return c.r or 0, c.g or 0, c.b or 0 end
-              return 0, 0, 0
+              if not c then return nil end
+              return c.r, c.g, c.b
           end,
           setValue = function(r, g, b)
               Set("borderColor", { r = r, g = g, b = b, a = 1 })
               Refresh()
           end,
+          getFactoryDefault = function() return 0, 0, 0 end,
           onClick = function(self)
               if Cfg("borderUseClass") then
                   Set("borderUseClass", false)
@@ -378,13 +379,14 @@ _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
             local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
                 function()
                     local c = Cfg(colorKey)
-                    if c then return c.r or 1, c.g or 1, c.b or 1 end
-                    return 1, 1, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b
                 end,
                 function(r, g, b)
                     Set(colorKey, { r = r, g = g, b = b })
                     Refresh()
-                end, nil, 20)
+                end, nil, 20,
+                function() return 1, 1, 1 end)
             PP.Point(swatch, "RIGHT", anchorTo, "LEFT", -8, 0)
             swatch:HookScript("OnEnter", function()
                 if TextModeOn() then EllesmereUI.ShowWidgetTooltip(swatch, tipText) end
@@ -502,13 +504,14 @@ local function MakeBloodlustBorderColorSwatches()
           hasAlpha = false,
           getValue = function()
               local c = BL_Cfg("borderColor")
-              if c then return c.r or 0, c.g or 0, c.b or 0 end
-              return 0, 0, 0
+              if not c then return nil end
+              return c.r, c.g, c.b
           end,
           setValue = function(r, g, b)
               BL_Set("borderColor", { r = r, g = g, b = b, a = 1 })
               BL_Refresh()
           end,
+          getFactoryDefault = function() return 0, 0, 0 end,
           onClick = function(self)
               if BL_Cfg("borderUseClass") then
                   BL_Set("borderUseClass", false)

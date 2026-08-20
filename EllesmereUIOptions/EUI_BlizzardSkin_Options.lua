@@ -55,10 +55,10 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(UpdCogState)
             UpdCogState()
 
-            local function AddModeSwatch(anchor, mode, tip, getColor, custom)
+            local function AddModeSwatch(anchor, mode, tip, getColor, custom, getFactoryDefault)
                 local sw, refresh=EllesmereUI.BuildColorSwatch(right,right:GetFrameLevel()+5,getColor,
                     function(r,g,b,a) EllesmereUIDB[prefix.."BorderColor"]={r=r,g=g,b=b}; EllesmereUIDB[prefix.."BorderOpacity"]=a; EllesmereUIDB[prefix.."BorderColorMode"]="custom" end,
-                    custom,20)
+                    custom,20,getFactoryDefault)
                 PP.Point(sw,"RIGHT",anchor,"LEFT",-8,0)
                 local orig=sw:GetScript("OnClick")
                 sw:SetScript("OnClick",function(self)
@@ -81,7 +81,13 @@ initFrame:SetScript("OnEvent", function(self)
             end
             local accent=AddModeSwatch(right._control,"accent","Accent Color",function() local c=EllesmereUI.ELLESMERE_GREEN; return c.r,c.g,c.b,1 end,false)
             local class=AddModeSwatch(accent,"class","Class Color",function() local _,k=UnitClass("player"); local c=RAID_CLASS_COLORS[k]; return c.r,c.g,c.b,1 end,false)
-            local custom=AddModeSwatch(class,"custom","Custom Color",function() local c=EllesmereUIDB[prefix.."BorderColor"] or {r=1,g=1,b=1}; return c.r,c.g,c.b,EllesmereUIDB[prefix.."BorderOpacity"] or EllesmereUI.RESKIN.BRD_ALPHA end,true)
+            local custom=AddModeSwatch(class,"custom","Custom Color",
+                function()
+                    local c=EllesmereUIDB[prefix.."BorderColor"]
+                    if not c then return nil end
+                    return c.r,c.g,c.b,EllesmereUIDB[prefix.."BorderOpacity"]
+                end,true,
+                function() return 1,1,1,EllesmereUI.RESKIN.BRD_ALPHA end)
             right._lastInline=custom
             end
         end
@@ -142,14 +148,14 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         _,h=W:DualRow(parent,y,
-            {type="colorpicker",text="Button Background",hasAlpha=true,disabled=popupOff,getValue=function() local c=EllesmereUIDB.popupMenuButtonBackgroundColor or {r=.1,g=.1,b=.1,a=.8}; return c.r,c.g,c.b,c.a end,setValue=function(r,g,b,a) EllesmereUIDB.popupMenuButtonBackgroundColor={r=r,g=g,b=b,a=a} end},
+            {type="colorpicker",text="Button Background",hasAlpha=true,disabled=popupOff,getValue=function() local c=EllesmereUIDB.popupMenuButtonBackgroundColor; if not c then return nil end return c.r,c.g,c.b,c.a end,setValue=function(r,g,b,a) EllesmereUIDB.popupMenuButtonBackgroundColor={r=r,g=g,b=b,a=a} end,getFactoryDefault=function() return .1,.1,.1,.8 end},
             {type="multiSwatch",text="Element & Text Color",disabled=popupOff,swatches={
                 -- Effective mode comes from the skin file's resolver: unset =
                 -- native unless the legacy Accent Colored Elements opt-in is present.
                 -- All four highlights read it so the default state is shown truthfully.
                 {tooltip="Native Colors",hasAlpha=false,getValue=function() return 1,1,1 end,setValue=function() end,onClick=function() EllesmereUIDB.popupMenuButtonTextColorMode="native"; EllesmereUI:RefreshPage() end,refreshAlpha=function() local m=EllesmereUI._getPopupMenuElementMode and EllesmereUI._getPopupMenuElementMode() or "native"; return m=="native" and 1 or .3 end},
                 {tooltip="Accent Color",hasAlpha=false,getValue=function() local c=EllesmereUI.ELLESMERE_GREEN; return c.r,c.g,c.b end,setValue=function() end,onClick=function() EllesmereUIDB.popupMenuButtonTextColorMode="accent"; EllesmereUI:RefreshPage() end,refreshAlpha=function() local m=EllesmereUI._getPopupMenuElementMode and EllesmereUI._getPopupMenuElementMode() or "native"; return m=="accent" and 1 or .3 end},
-                {tooltip="Custom Color",hasAlpha=false,getValue=function() local c=EllesmereUIDB.popupMenuButtonTextColor or {r=1,g=1,b=1}; return c.r,c.g,c.b end,setValue=function(r,g,b) EllesmereUIDB.popupMenuButtonTextColorMode="custom"; EllesmereUIDB.popupMenuButtonTextColor={r=r,g=g,b=b} end,onClick=function(self) local m=EllesmereUI._getPopupMenuElementMode and EllesmereUI._getPopupMenuElementMode() or "native"; if m~="custom" then EllesmereUIDB.popupMenuButtonTextColorMode="custom"; EllesmereUI:RefreshPage(); return end self._eabOrigClick(self) end,refreshAlpha=function() local m=EllesmereUI._getPopupMenuElementMode and EllesmereUI._getPopupMenuElementMode() or "native"; return m=="custom" and 1 or .3 end},
+                {tooltip="Custom Color",hasAlpha=false,getValue=function() local c=EllesmereUIDB.popupMenuButtonTextColor; if not c then return nil end return c.r,c.g,c.b end,setValue=function(r,g,b) EllesmereUIDB.popupMenuButtonTextColorMode="custom"; EllesmereUIDB.popupMenuButtonTextColor={r=r,g=g,b=b} end,getFactoryDefault=function() return 1,1,1 end,onClick=function(self) local m=EllesmereUI._getPopupMenuElementMode and EllesmereUI._getPopupMenuElementMode() or "native"; if m~="custom" then EllesmereUIDB.popupMenuButtonTextColorMode="custom"; EllesmereUI:RefreshPage(); return end self._eabOrigClick(self) end,refreshAlpha=function() local m=EllesmereUI._getPopupMenuElementMode and EllesmereUI._getPopupMenuElementMode() or "native"; return m=="custom" and 1 or .3 end},
                 {tooltip="Class Color",hasAlpha=false,getValue=function() local _,k=UnitClass("player"); local c=RAID_CLASS_COLORS[k]; return c.r,c.g,c.b end,setValue=function() end,onClick=function() EllesmereUIDB.popupMenuButtonTextColorMode="class"; EllesmereUI:RefreshPage() end,refreshAlpha=function() local m=EllesmereUI._getPopupMenuElementMode and EllesmereUI._getPopupMenuElementMode() or "native"; return m=="class" and 1 or .3 end},
             }}); y=y-h
 
@@ -473,7 +479,10 @@ initFrame:SetScript("OnEvent", function(self)
               disabled=ttReskinOff, disabledTooltip="Reskin Tooltip",
               getValue=function()
                   local c = EllesmereUIDB and EllesmereUIDB.tooltipBgColor
-                  if c then return c.r, c.g, c.b end
+                  if not c then return nil end
+                  return c.r, c.g, c.b
+              end,
+              getFactoryDefault=function()
                   local R = EllesmereUI.RESKIN
                   return R.BG_R, R.BG_G, R.BG_B
               end,
@@ -914,8 +923,8 @@ initFrame:SetScript("OnEvent", function(self)
             if not EllesmereUI._prebuilding then
             local swGet = function()
                 local c = EllesmereUIDB and EllesmereUIDB.statCategoryColors and EllesmereUIDB.statCategoryColors[dbColorKey]
-                if c then return c.r, c.g, c.b, 1 end
-                return defaultColor.r, defaultColor.g, defaultColor.b, 1
+                if not c then return nil end
+                return c.r, c.g, c.b, 1
             end
             local swSet = function(r, g, b)
                 if not EllesmereUIDB then EllesmereUIDB = {} end
@@ -925,7 +934,8 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.statCategoryUseColor[dbColorKey] = true
                 if EllesmereUI._refreshCharacterSheetColors then EllesmereUI._refreshCharacterSheetColors() end
             end
-            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, false, 20)
+            local swDefault = function() return defaultColor.r, defaultColor.g, defaultColor.b, 1 end
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, false, 20, swDefault)
             PP.Point(swatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -9, 0)
             rgn._lastInline = swatch
             local function refresh()
@@ -1661,9 +1671,14 @@ initFrame:SetScript("OnEvent", function(self)
     -- windows already on Modern recolor immediately (no Apply to All).
     local function AttachModernSwatch(host, anchorTo)
         local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(host, host:GetFrameLevel() + 5,
-            function() return WSModernGet() end,
+            function()
+                local c = EllesmereUIDB and EllesmereUIDB.blizzWindowModernDefault
+                if not (c and c.r) then return nil end
+                return c.r, c.g, c.b, c.a
+            end,
             function(r, g, b, a) WSModernSet(r, g, b, a) end,
-            true, 20)
+            true, 20,
+            function() return 0.067, 0.067, 0.067, 0.97 end)
         EllesmereUI.PanelPP.Point(swatch, "RIGHT", anchorTo, "LEFT", -8, 0)
         swatch:HookScript("OnEnter", function(s)
             EllesmereUI.ShowWidgetTooltip(s, "Background color for the Modern style.")
@@ -1697,15 +1712,16 @@ initFrame:SetScript("OnEvent", function(self)
             function()
                 local c = WSLook(key)
                 local col = c and c.color
-                if col then return col.r or 1, col.g or 1, col.b or 1 end
-                return 1, 1, 1
+                if not col then return nil end
+                return col.r, col.g, col.b
             end,
             function(r, g, b)
                 WSLookSet(key, "color", { r = r, g = g, b = b })
                 WSLookSet(key, "useCustom", true)
                 EllesmereUI:RefreshPage()
             end,
-            false, 20)
+            false, 20,
+            function() return 1, 1, 1 end)
         PP.Point(customSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
         local origClick = customSwatch:GetScript("OnClick")
         customSwatch:SetScript("OnClick", function(self, ...)
@@ -2757,14 +2773,15 @@ initFrame:SetScript("OnEvent", function(self)
                     getValue = function()
                         local c = WSLook("blizzWinLinks")
                         local col = c and c.color
-                        if col then return col.r or 1, col.g or 1, col.b or 1 end
-                        return 1, 1, 1
+                        if not col then return nil end
+                        return col.r, col.g, col.b
                     end,
                     setValue = function(r, g, b)
                         WSLookSet("blizzWinLinks", "color", { r = r, g = g, b = b })
                         WSLookSet("blizzWinLinks", "useCustom", true)
                         EllesmereUI:RefreshPage()
                     end,
+                    getFactoryDefault = function() return 1, 1, 1 end,
                     onClick = function(self)
                         local c = WSLook("blizzWinLinks")
                         if not (c and c.useCustom) then

@@ -4325,13 +4325,15 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
                     rgn, thRow:GetFrameLevel() + 3,
                     function()
-                        local c = ind.thresholdColor or { r=1, g=0.2, b=0.2 }
+                        local c = ind.thresholdColor
+                        if not c then return nil end
                         return c.r, c.g, c.b
                     end,
                     function(r, g, b)
                         ind.thresholdColor = { r=r, g=g, b=b }
                         ReloadAndUpdate()
-                    end, false, 20)
+                    end, false, 20,
+                    function() return 1, 0.2, 0.2 end)
                 swatch:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
                 -- Click-gate while the threshold is off (dimmed swatch).
                 local origClick = swatch:GetScript("OnClick")
@@ -4763,13 +4765,15 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 local swatch = EllesmereUI.BuildColorSwatch(
                     rgn, bdrRow:GetFrameLevel() + 3,
                     function()
-                        local c = ind.indBorderColor or { r=0, g=0, b=0 }
+                        local c = ind.indBorderColor
+                        if not c then return nil end
                         return c.r, c.g, c.b, 1
                     end,
                     function(r, g, b)
                         ind.indBorderColor = { r=r, g=g, b=b }
                         ReloadAndUpdate()
-                    end, false, 20)
+                    end, false, 20,
+                    function() return 0, 0, 0, 1 end)
                 swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                 rgn._lastInline = swatch
             end
@@ -4787,13 +4791,15 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 local swatch = EllesmereUI.BuildColorSwatch(
                     rgn, durRow:GetFrameLevel() + 3,
                     function()
-                        local c = ind.durationTextColor or { r=1, g=1, b=1 }
+                        local c = ind.durationTextColor
+                        if not c then return nil end
                         return c.r, c.g, c.b, 1
                     end,
                     function(r, g, b)
                         ind.durationTextColor = { r=r, g=g, b=b }
                         ReloadAndUpdate()
-                    end, false, 20)
+                    end, false, 20,
+                    function() return 1, 1, 1, 1 end)
                 swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                 rgn._lastInline = swatch
 
@@ -4838,13 +4844,15 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 local swatch = EllesmereUI.BuildColorSwatch(
                     rgn, stacksRow:GetFrameLevel() + 3,
                     function()
-                        local c = ind.stacksTextColor or { r=1, g=1, b=1 }
+                        local c = ind.stacksTextColor
+                        if not c then return nil end
                         return c.r, c.g, c.b, 1
                     end,
                     function(r, g, b)
                         ind.stacksTextColor = { r=r, g=g, b=b }
                         ReloadAndUpdate()
-                    end, false, 20)
+                    end, false, 20,
+                    function() return 1, 1, 1, 1 end)
                 swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                 rgn._lastInline = swatch
             end
@@ -5004,12 +5012,16 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
 
                 local glowSwatch, updateGlowSwatch = EllesmereUI.BuildColorSwatch(
                     rightRgn, mdRow:GetFrameLevel() + 3,
-                    function() return ind.displayGlowR or 1.0, ind.displayGlowG or 0.776, ind.displayGlowB or 0.376 end,
+                    function()
+                        if ind.displayGlowR == nil then return nil end
+                        return ind.displayGlowR, ind.displayGlowG, ind.displayGlowB
+                    end,
                     function(r, g, b)
                         ind.displayGlowR, ind.displayGlowG, ind.displayGlowB = r, g, b
                         ReloadAndUpdate()
                     end,
-                    false, 20)
+                    false, 20,
+                    function() return 1.0, 0.776, 0.376 end)
                 PPl.Point(glowSwatch, "RIGHT", classSwatch, "LEFT", -8, 0)
                 glowSwatch:SetScript("OnEnter", function()
                     EllesmereUI.ShowWidgetTooltip(glowSwatch, "Custom Colored")
@@ -5143,13 +5155,15 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     local colorSwatch = EllesmereUI.BuildColorSwatch(
                         rgn, barBgRow:GetFrameLevel() + 3,
                         function()
-                            local c = ind.color or { r=0x0C/255, g=0xD2/255, b=0x9D/255 }
+                            local c = ind.color
+                            if not c then return nil end
                             return c.r, c.g, c.b, 1
                         end,
                         function(r, g, b)
                             ind.color = { r=r, g=g, b=b }
                             ReloadAndUpdate()
-                        end, false, 20)
+                        end, false, 20,
+                        function() return 0x0C/255, 0xD2/255, 0x9D/255, 1 end)
                     colorSwatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                     rgn._lastInline = colorSwatch
                 end
@@ -5158,13 +5172,15 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     local bgSwatch = EllesmereUI.BuildColorSwatch(
                         rgn, barBgRow:GetFrameLevel() + 3,
                         function()
-                            local c = ind.barBgColor or { r=0, g=0, b=0 }
+                            local c = ind.barBgColor
+                            if not c then return nil end
                             return c.r, c.g, c.b, 1
                         end,
                         function(r, g, b)
                             ind.barBgColor = { r=r, g=g, b=b }
                             ReloadAndUpdate()
-                        end, false, 20)
+                        end, false, 20,
+                        function() return 0, 0, 0, 1 end)
                     bgSwatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                     rgn._lastInline = bgSwatch
                 end
@@ -5290,13 +5306,15 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     local colorSwatch = EllesmereUI.BuildColorSwatch(
                         rgn, bdrColorRow:GetFrameLevel() + 3,
                         function()
-                            local c = ind.color or { r=ac.r, g=ac.g, b=ac.b }
+                            local c = ind.color
+                            if not c then return nil end
                             return c.r, c.g, c.b, 1
                         end,
                         function(r, g, b)
                             ind.color = { r=r, g=g, b=b }
                             ReloadAndUpdate()
-                        end, false, 20)
+                        end, false, 20,
+                        function() return ac.r, ac.g, ac.b, 1 end)
                     colorSwatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                     rgn._lastInline = colorSwatch
                 end
@@ -5329,13 +5347,15 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 SettingsRow(
                     { type="colorpicker", text="Color", hasAlpha=false,
                       getValue=function()
-                          local c = ind.color or { r=0x0C/255, g=0xD2/255, b=0x9D/255 }
+                          local c = ind.color
+                          if not c then return nil end
                           return c.r, c.g, c.b
                       end,
                       setValue=function(r, g, b)
                           ind.color = { r=r, g=g, b=b }
                           ReloadAndUpdate()
-                      end },
+                      end,
+                      getFactoryDefault=function() return 0x0C/255, 0xD2/255, 0x9D/255 end },
                     { type="slider", text="Opacity", min=5, max=100, step=1,
                       getValue=function() return ind.opacity or 100 end,
                       setValue=function(v) ind.opacity = v; ReloadAndUpdate() end })

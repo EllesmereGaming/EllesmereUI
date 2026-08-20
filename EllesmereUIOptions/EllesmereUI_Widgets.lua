@@ -1951,7 +1951,7 @@ local function BuildColorPickerPopup()
 
     local currentH, currentS, currentV, currentA = 0, 1, 1, 1
     local prevR, prevG, prevB, prevA = 1, 1, 1, 1
-    local swatchFunc, opacityFunc, cancelFunc
+    local swatchFunc, opacityFunc, cancelFunc, getFactoryDefault
     local hasOpacity = false
     local updating = false
 
@@ -2023,6 +2023,27 @@ local function BuildColorPickerPopup()
         popup:Hide()
     end)
 
+    -- Reset-to-default: mirrors closeBtn on the opposite corner, only shown when the swatch that opened
+    -- the popup supplied a getFactoryDefault callback (see BuildColorSwatch).
+    local resetBtn = CreateFrame("Button", nil, popup)
+    resetBtn:SetSize(25, 25)
+    resetBtn:SetPoint("TOPLEFT", popup, "TOPLEFT", 13, -12)
+    resetBtn:SetFrameLevel(popup:GetFrameLevel() + 5)
+    local resetIcon = resetBtn:CreateTexture(nil, "ARTWORK")
+    resetIcon:SetSize(16, 16)
+    resetIcon:SetPoint("CENTER")
+    resetIcon:SetTexture(EllesmereUI.UNDO_ICON)
+    resetIcon:SetAlpha(0.40)
+    resetBtn:SetScript("OnEnter", function()
+        resetIcon:SetAlpha(0.50)
+        ShowWidgetTooltip(resetBtn, EllesmereUI.L("Reset to default"))
+    end)
+    resetBtn:SetScript("OnLeave", function()
+        resetIcon:SetAlpha(0.40)
+        HideWidgetTooltip()
+    end)
+    resetBtn:Hide()
+
     -- Getters kept Blizzard-API-compatible
     local outR, outG, outB, outA = 1, 1, 1, 1
     function popup:GetColorRGB() return outR, outG, outB end
@@ -2052,6 +2073,15 @@ local function BuildColorPickerPopup()
         if newPreviewTex then newPreviewTex:SetColorTexture(r, g, b, currentA) end
         updating = false
     end
+
+    resetBtn:SetScript("OnClick", function()
+        if not getFactoryDefault then return end
+        local dr, dg, db, da = getFactoryDefault()
+        dr, dg, db, da = dr or 0, dg or 0, db or 0, da or 1
+        currentH, currentS, currentV = RGBtoHSV(dr, dg, db)
+        currentA = hasOpacity and da or 1
+        UpdateAllControls(); FireCallbacks()
+    end)
 
     local svPad = CreateFrame("Frame", nil, popup)
     svPad:SetSize(SV_SIZE, SV_SIZE)
@@ -2482,6 +2512,8 @@ local function BuildColorPickerPopup()
         swatchFunc = info.swatchFunc
         opacityFunc = info.opacityFunc
         cancelFunc = info.cancelFunc
+        getFactoryDefault = info.getFactoryDefault
+        if getFactoryDefault then resetBtn:Show() else resetBtn:Hide() end
         hasOpacity = info.hasOpacity or false
         local r, g, b = info.r or 0, info.g or 0, info.b or 0
         local a = info.opacity or 1
@@ -2539,7 +2571,9 @@ function EllesmereUI:ShowColorPicker(info, anchorFrame)
 end
 
 -- Shared color swatch: border + fill + UpdateSwatch + OnClick. Returns swatch (Button), UpdateSwatch (function), caller positions it. Border textures are deferred until first show to keep page builds light.
-local function BuildColorSwatch(parentFrame, baseLevel, getValue, setValue, hasAlpha, overrideSize)
+-- getFactoryDefault (optional): () -> r, g, b, a. When getValue() returns nil (no override stored), its result
+-- fills the swatch and seeds the picker; it also enables the popup's "Reset to default" button.
+local function BuildColorSwatch(parentFrame, baseLevel, getValue, setValue, hasAlpha, overrideSize, getFactoryDefault)
     -- Spec Overrides auto-capture (see BuildToggleControl): fires for direct swatch writes and every color-picker change routed through it.
     do
         local _s = setValue
@@ -2549,6 +2583,13 @@ local function BuildColorSwatch(parentFrame, baseLevel, getValue, setValue, hasA
         end
     end
     do local _r = setValue; setValue = function(...) _r(...); EllesmereUI._settingsChanged = true end end
+    local function ResolveColor()
+        local r, g, b, a = getValue()
+        if r == nil and getFactoryDefault then
+            return getFactoryDefault()
+        end
+        return r, g, b, a
+    end
     local SWATCH_SZ = overrideSize or 24
     local swatch = CreateFrame("Button", nil, parentFrame)
     PP.Size(swatch, SWATCH_SZ, SWATCH_SZ)
@@ -2580,13 +2621,13 @@ local function BuildColorSwatch(parentFrame, baseLevel, getValue, setValue, hasA
     end
 
     local function UpdateSwatch()
-        local r, g, b, a = getValue()
+        local r, g, b, a = ResolveColor()
         sFill:SetColorTexture(r or 0, g or 0, b or 0, a or 1)
     end
 
     -- Initial fill color (no border needed yet)
     do
-        local r, g, b, a = getValue()
+        local r, g, b, a = ResolveColor()
         sFill:SetColorTexture(r or 0, g or 0, b or 0, a or 1)
     end
 
@@ -2597,7 +2638,7 @@ local function BuildColorSwatch(parentFrame, baseLevel, getValue, setValue, hasA
     if swatch:IsVisible() then BuildBorder() end
 
     swatch:SetScript("OnClick", function()
-        local r, g, b, a = getValue()
+        local r, g, b, a = ResolveColor()
         r, g, b, a = r or 0, g or 0, b or 0, a or 1
         local snapR, snapG, snapB, snapA = r, g, b, a
         local function OnColorChanged()
@@ -2616,6 +2657,7 @@ local function BuildColorSwatch(parentFrame, baseLevel, getValue, setValue, hasA
             opacity = a,
             cancelFunc = function() setValue(snapR, snapG, snapB, snapA); UpdateSwatch() end,
             r = r, g = g, b = b,
+            getFactoryDefault = getFactoryDefault,
         }
         EllesmereUI:ShowColorPicker(info, swatch)
     end)
@@ -3038,7 +3080,7 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
             ApplyDisabledState()
 
         elseif t == "colorpicker" then
-            local swatch, _updateSwatch = BuildColorSwatch(region, frame:GetFrameLevel() + 2, cfg.getValue, cfg.setValue, cfg.hasAlpha)
+            local swatch, _updateSwatch = BuildColorSwatch(region, frame:GetFrameLevel() + 2, cfg.getValue, cfg.setValue, cfg.hasAlpha, nil, cfg.getFactoryDefault)
             PP.Point(swatch, "RIGHT", region, "RIGHT", -SIDE_PAD, 0)
             controlFrame = swatch
             controlAnchor = swatch
@@ -3080,7 +3122,7 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
             local leftmostSwatch
             for i = #swatches, 1, -1 do
                 local sc = swatches[i]
-                local swatch, updateSwatch = BuildColorSwatch(region, frame:GetFrameLevel() + 2, sc.getValue, sc.setValue, sc.hasAlpha)
+                local swatch, updateSwatch = BuildColorSwatch(region, frame:GetFrameLevel() + 2, sc.getValue, sc.setValue, sc.hasAlpha, nil, sc.getFactoryDefault)
                 PP.Point(swatch, "RIGHT", region, "RIGHT", anchorX, 0)
                 anchorX = anchorX - SWATCH_SZ - SWATCH_GAP
                 leftmostSwatch = swatch
@@ -3465,7 +3507,7 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
             ApplyDisabledState()
 
         elseif t == "colorpicker" then
-            local swatch, _updateSwatch = BuildColorSwatch(region, frame:GetFrameLevel() + 2, cfg.getValue, cfg.setValue, cfg.hasAlpha)
+            local swatch, _updateSwatch = BuildColorSwatch(region, frame:GetFrameLevel() + 2, cfg.getValue, cfg.setValue, cfg.hasAlpha, nil, cfg.getFactoryDefault)
             PP.Point(swatch, "RIGHT", region, "RIGHT", -SIDE_PAD, 0)
             controlFrame = swatch
             RegisterWidgetRefresh(function() _updateSwatch(); ApplyDisabledState() end)
@@ -3606,7 +3648,7 @@ function WidgetFactory:MultiSwatchRow(parent, yOffset, cfg)
     local anchorX = -SIDE_PAD
     for i = #swatches, 1, -1 do
         local sc = swatches[i]
-        local swatch, updateSwatch = BuildColorSwatch(frame, frame:GetFrameLevel() + 2, sc.getValue, sc.setValue, sc.hasAlpha)
+        local swatch, updateSwatch = BuildColorSwatch(frame, frame:GetFrameLevel() + 2, sc.getValue, sc.setValue, sc.hasAlpha, nil, sc.getFactoryDefault)
         PP.Point(swatch, "RIGHT", frame, "RIGHT", anchorX, 0)
         anchorX = anchorX - 24 - SWATCH_GAP
 
@@ -4327,7 +4369,7 @@ local function BuildCogPopup(opts)
                         row.set(r, g, b, a)
                         if pf._refresh then pf._refresh() end
                     end,
-                    row.hasAlpha, 20)
+                    row.hasAlpha, 20, row.getFactoryDefault)
                 cpSwatch:ClearAllPoints()
                 cpSwatch:SetPoint('RIGHT', pf, 'TOPRIGHT', -SIDE_PAD, curY - ROW_H / 2)
 
@@ -4392,7 +4434,7 @@ local function BuildCogPopup(opts)
                             end
                             if pf._refresh then pf._refresh() end
                         end,
-                        sc.hasAlpha, 20)
+                        sc.hasAlpha, 20, sc.getFactoryDefault)
                     swatch:ClearAllPoints()
                     swatch:SetPoint('RIGHT', pf, 'TOPRIGHT', mswX, curY - ROW_H / 2)
                     mswX = mswX - 20 - MSW_GAP
@@ -6218,7 +6260,7 @@ local function BuildInlineSwatches(region, swatches, opts)
     local anchorTo = region._lastInline or region._control
     for i = #swatches, 1, -1 do
         local sc = swatches[i]
-        local swatch, updateSwatch = BuildColorSwatch(region, level, sc.getValue, sc.setValue, sc.hasAlpha)
+        local swatch, updateSwatch = BuildColorSwatch(region, level, sc.getValue, sc.setValue, sc.hasAlpha, nil, sc.getFactoryDefault)
         PP.Point(swatch, "RIGHT", anchorTo, "LEFT", -8, 0)
         anchorTo = swatch
         region._lastInline = swatch

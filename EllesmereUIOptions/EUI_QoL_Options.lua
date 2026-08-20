@@ -902,14 +902,16 @@ initFrame:SetScript("OnEvent", function(self)
                       disabled=enterClassOn,
                       disabledTooltip="Disable Class Color to pick a custom color.", rawTooltip=true,
                       get=function()
-                        local c = (EllesmereUIDB and EllesmereUIDB.combatAlertEnterColor) or { r=1.00, g=1.00, b=1.00 }
+                        local c = EllesmereUIDB and EllesmereUIDB.combatAlertEnterColor
+                        if not c then return nil end
                         return c.r, c.g, c.b
                       end,
                       set=function(r, g, b)
                         if not EllesmereUIDB then EllesmereUIDB = {} end
                         EllesmereUIDB.combatAlertEnterColor = { r=r, g=g, b=b }
                         if EllesmereUI._combatAlertPreview then EllesmereUI._combatAlertPreview("enter") end
-                      end },
+                      end,
+                      getFactoryDefault=function() return 1.00, 1.00, 1.00 end },
                     { type="toggle", label="Enter Class Color",
                       get=function() return enterClassOn() end,
                       set=function(v)
@@ -930,14 +932,16 @@ initFrame:SetScript("OnEvent", function(self)
                       disabled=leaveClassOn,
                       disabledTooltip="Disable Class Color to pick a custom color.", rawTooltip=true,
                       get=function()
-                        local c = (EllesmereUIDB and EllesmereUIDB.combatAlertLeaveColor) or { r=1.00, g=1.00, b=1.00 }
+                        local c = EllesmereUIDB and EllesmereUIDB.combatAlertLeaveColor
+                        if not c then return nil end
                         return c.r, c.g, c.b
                       end,
                       set=function(r, g, b)
                         if not EllesmereUIDB then EllesmereUIDB = {} end
                         EllesmereUIDB.combatAlertLeaveColor = { r=r, g=g, b=b }
                         if EllesmereUI._combatAlertPreview then EllesmereUI._combatAlertPreview("leave") end
-                      end },
+                      end,
+                      getFactoryDefault=function() return 1.00, 1.00, 1.00 end },
                     { type="toggle", label="Leave Class Color",
                       get=function() return leaveClassOn() end,
                       set=function(v)
@@ -1066,8 +1070,8 @@ initFrame:SetScript("OnEvent", function(self)
 
             local fpsSwGet = function()
                 local c = EllesmereUI.QoLExtrasGet("fpsColor")
-                if c then return c.r, c.g, c.b, c.a end
-                return 1, 1, 1, 1
+                if not c then return nil end
+                return c.r, c.g, c.b, c.a
             end
             local fpsSwSet = function(r, g, b, a)
                 EllesmereUI.QoLExtrasSet("fpsColor", { r = r, g = g, b = b, a = a })
@@ -1075,9 +1079,10 @@ initFrame:SetScript("OnEvent", function(self)
                 if EllesmereUI._applyFPSDisplay then EllesmereUI._applyFPSDisplay() end
                 if fpsUpdateState then fpsUpdateState() end
             end
+            local fpsSwDefault = function() return 1, 1, 1, 1 end
             -- Custom swatch (nearest the control): a click switches to custom
             -- mode first; a second click opens the picker.
-            local fpsSwatch, fpsUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, fpsSwGet, fpsSwSet, true, 20)
+            local fpsSwatch, fpsUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, fpsSwGet, fpsSwSet, true, 20, fpsSwDefault)
             do
                 local openPicker = fpsSwatch:GetScript("OnClick")
                 fpsSwatch:SetScript("OnClick", function(self)
@@ -1438,15 +1443,16 @@ initFrame:SetScript("OnEvent", function(self)
             -- Color swatch (rightmost inline, closest to toggle)
             local durSwGet = function()
                 local c = EllesmereUIDB and EllesmereUIDB.durWarnColor
-                if c then return c.r, c.g, c.b end
-                return 1, 0.27, 0.27
+                if not c then return nil end
+                return c.r, c.g, c.b
             end
             local durSwSet = function(r, g, b)
                 if not EllesmereUIDB then EllesmereUIDB = {} end
                 EllesmereUIDB.durWarnColor = { r = r, g = g, b = b }
                 if EllesmereUI._applyDurWarn then EllesmereUI._applyDurWarn() end
             end
-            local durSwatch, durUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, durSwGet, durSwSet, nil, 20)
+            local durSwDefault = function() return 1, 0.27, 0.27 end
+            local durSwatch, durUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, durSwGet, durSwSet, nil, 20, durSwDefault)
             PP.Point(durSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             leftRgn._lastInline = durSwatch
 
@@ -1680,15 +1686,16 @@ initFrame:SetScript("OnEvent", function(self)
                 leftRgn, leftRgn:GetFrameLevel() + 5,
                 function()
                     local c = EllesmereUI.QoLExtrasGet("secondaryStatsColor")
-                    if c then return c.r, c.g, c.b end
-                    return 1, 1, 1
+                    if not c then return nil end
+                    return c.r, c.g, c.b
                 end,
                 function(r, g, b)
                     EllesmereUI.QoLExtrasSet("secondaryStatsColor", { r = r, g = g, b = b })
                     EllesmereUI.QoLExtrasSet("secondaryStatsColorMode", "custom")
                     if EllesmereUI._applySecondaryStats then EllesmereUI._applySecondaryStats() end
                     if ssUpdateState then ssUpdateState() end
-                end, nil, 20)
+                end, nil, 20,
+                function() return 1, 1, 1 end)
             do
                 local openPicker = ssCustom:GetScript("OnClick")
                 ssCustom:SetScript("OnClick", function(self)
@@ -2315,14 +2322,15 @@ initFrame:SetScript("OnEvent", function(self)
 
             local chSwGet = function()
                 local c = cget("crosshairColor")
-                if c then return c.r, c.g, c.b, c.a end
-                return 1, 1, 1, 0.75
+                if not c then return nil end
+                return c.r, c.g, c.b, c.a
             end
             local chSwSet = function(r, g, b, a)
                 cset("crosshairColor", { r = r, g = g, b = b, a = a or 1 })
                 if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
             end
-            local chSwatch, chUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, chSwGet, chSwSet, true, 20)
+            local chSwDefault = function() return 1, 1, 1, 0.75 end
+            local chSwatch, chUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, chSwGet, chSwSet, true, 20, chSwDefault)
             PP.Point(chSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             leftRgn._lastInline = chSwatch
 
@@ -2394,13 +2402,14 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="colorpicker", label="Border Color", hasAlpha=true,
                       get=function()
                           local bc = cget("crosshairBorderColor")
-                          if bc then return bc.r, bc.g, bc.b, bc.a end
-                          return 0, 0, 0, 1
+                          if not bc then return nil end
+                          return bc.r, bc.g, bc.b, bc.a
                       end,
                       set=function(r, g, b, a)
                           cset("crosshairBorderColor", { r = r, g = g, b = b, a = a or 1 })
                           applyCH()
-                      end },
+                      end,
+                      getFactoryDefault=function() return 0, 0, 0, 1 end },
                     { type="slider", label="X Offset", min=-200, max=200, step=1,
                       get=function() return cget("crosshairXOffset") or 0 end,
                       set=function(v) dbset("crosshairXOffset", v) end },
@@ -2487,14 +2496,15 @@ initFrame:SetScript("OnEvent", function(self)
             end
             local mcGet = function()
                 local c = cget("crosshairMeleeColor")
-                if c then return c.r, c.g, c.b, c.a end
-                return 1, 0, 0, 1
+                if not c then return nil end
+                return c.r, c.g, c.b, c.a
             end
             local mcSet = function(r, g, b, a)
                 cset("crosshairMeleeColor", { r = r, g = g, b = b, a = a or 1 })
                 if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
             end
-            local mcSwatch, mcUpdate = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, mcGet, mcSet, true, 20)
+            local mcDefault = function() return 1, 0, 0, 1 end
+            local mcSwatch, mcUpdate = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, mcGet, mcSet, true, 20, mcDefault)
             PP.Point(mcSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             leftRgn._lastInline = mcSwatch
 

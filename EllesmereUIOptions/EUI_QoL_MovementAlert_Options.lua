@@ -659,9 +659,13 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
         -- clicking while class color is active switches back to custom first.
         local dmSwatch, dmUpdateSwatch = EllesmereUI.BuildColorSwatch(
             leftRgn, leftRgn:GetFrameLevel() + 5,
-            function() return ma.textColorR or 1, ma.textColorG or 1, ma.textColorB or 1 end,
+            function()
+                if ma.textColorR == nil then return nil end
+                return ma.textColorR, ma.textColorG, ma.textColorB
+            end,
             function(r, g, b) ma.textColorR, ma.textColorG, ma.textColorB = r, g, b; Refresh() end,
-            nil, 20)
+            nil, 20,
+            function() return 1, 1, 1 end)
         PP.Point(dmSwatch, "RIGHT", dmClassSwatch, "LEFT", -8, 0)
         leftRgn._lastInline = dmSwatch
         local dmOrigClick = dmSwatch:GetScript("OnClick")
@@ -1135,8 +1139,12 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
                 { type="colorpicker", label="Color",
                   disabled=function() return ma.tsColorUseClass end,
                   disabledTooltip="Disable Class Color to pick a custom color.", rawTooltip=true,
-                  get=function() return ma.tsColorR or 0.53, ma.tsColorG or 1, ma.tsColorB or 0 end,
-                  set=function(r, g, b) ma.tsColorR, ma.tsColorG, ma.tsColorB = r, g, b; Refresh() end },
+                  get=function()
+                      if ma.tsColorR == nil then return nil end
+                      return ma.tsColorR, ma.tsColorG, ma.tsColorB
+                  end,
+                  set=function(r, g, b) ma.tsColorR, ma.tsColorG, ma.tsColorB = r, g, b; Refresh() end,
+                  getFactoryDefault=function() return 0.53, 1, 0 end },
                 { type="toggle", label="Use Class Color",
                   get=function() return ma.tsColorUseClass == true end,
                   set=function(v) ma.tsColorUseClass = v; Refresh() end },
@@ -1212,8 +1220,12 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
                 { type="colorpicker", label="Color",
                   disabled=function() return ma.gwColorUseClass end,
                   disabledTooltip="Disable Class Color to pick a custom color.", rawTooltip=true,
-                  get=function() return ma.gwColorR or 0.7, ma.gwColorG or 0, ma.gwColorB or 1 end,
-                  set=function(r, g, b) ma.gwColorR, ma.gwColorG, ma.gwColorB = r, g, b; Refresh() end },
+                  get=function()
+                      if ma.gwColorR == nil then return nil end
+                      return ma.gwColorR, ma.gwColorG, ma.gwColorB
+                  end,
+                  set=function(r, g, b) ma.gwColorR, ma.gwColorG, ma.gwColorB = r, g, b; Refresh() end,
+                  getFactoryDefault=function() return 0.7, 0, 1 end },
                 { type="toggle", label="Use Class Color",
                   get=function() return ma.gwColorUseClass == true end,
                   set=function(v) ma.gwColorUseClass = v; Refresh() end },

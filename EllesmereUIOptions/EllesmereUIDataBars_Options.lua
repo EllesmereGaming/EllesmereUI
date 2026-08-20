@@ -1952,11 +1952,8 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, opacityRow:GetFrameLevel() + 3,
                 function()
                     local c = theme.modernColor
-                    if not c then return 0.067, 0.067, 0.067 end
-                    local r = c.r; if r == nil then r = 0.067 end
-                    local g = c.g; if g == nil then g = 0.067 end
-                    local b2 = c.b; if b2 == nil then b2 = 0.067 end
-                    return r, g, b2
+                    if not c or c.r == nil then return nil end
+                    return c.r, c.g, c.b
                 end,
                 function(r, g, b2)
                     local c = theme.modernColor
@@ -1965,7 +1962,8 @@ initFrame:SetScript("OnEvent", function(self)
                     ns.ApplyTheme(barId)
                     RefreshPreviewTheme()
                 end,
-                false, 20)
+                false, 20,
+                function() return 0.067, 0.067, 0.067 end)
             PP.Point(swatch, "RIGHT", rgn._control, "LEFT", -8, 0)
             if theme.style ~= "modern" then
                 swatch:SetAlpha(0.3)
@@ -2281,8 +2279,8 @@ initFrame:SetScript("OnEvent", function(self)
                     { tooltip = "Custom Color", hasAlpha = false,
                       getValue = function()
                           local c = b.color
-                          if c then return c.r or 1, c.g or 1, c.b or 1 end
-                          return 1, 1, 1
+                          if not c or c.r == nil then return nil end
+                          return c.r, c.g, c.b
                       end,
                       setValue = function(r, g, bl)
                           b.color = { r = r, g = g, b = bl }
@@ -2299,7 +2297,8 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       refreshAlpha = function()
                           return (b.useClassColor or b.useAccentColor) and 0.3 or 1
-                      end },
+                      end,
+                      getFactoryDefault = function() return 1, 1, 1 end },
                     { tooltip = "Class Colored", hasAlpha = false,
                       getValue = function()
                           local _, classFile = UnitClass("player")
@@ -2429,18 +2428,15 @@ initFrame:SetScript("OnEvent", function(self)
                     rgn, bgRow:GetFrameLevel() + 3,
                     function()
                         local c = b.bg
-                        if not c then return 0, 0, 0, 0.5 end
-                        local r = c.r; if r == nil then r = 0 end
-                        local g = c.g; if g == nil then g = 0 end
-                        local b2 = c.b; if b2 == nil then b2 = 0 end
-                        local a = c.a; if a == nil then a = 0.5 end
-                        return r, g, b2, a
+                        if not c or c.r == nil then return nil end
+                        return c.r, c.g, c.b, c.a or 0.5
                     end,
                     function(r, g, b2, a)
                         b.bg = { r = r, g = g, b = b2, a = a }
                         Apply()
                     end,
-                    true, 20)
+                    true, 20,
+                    function() return 0, 0, 0, 0.5 end)
                 PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
                 local block = CreateFrame("Frame", nil, swatch)
                 block:SetAllPoints()
@@ -2493,13 +2489,14 @@ initFrame:SetScript("OnEvent", function(self)
                     { tooltip = "Custom Color", hasAlpha = false,
                       getValue = function()
                           local c = b.iconColor
-                          if c then return c.r or 1, c.g or 1, c.b or 1 end
-                          return ns.BlockIconDefault(b.type)
+                          if not c or c.r == nil then return nil end
+                          return c.r, c.g, c.b
                       end,
                       setValue = function(r, g, bl)
                           b.iconColor = { r = r, g = g, b = bl }
                           ApplyBlockColor()
                       end,
+                      getFactoryDefault = function() return ns.BlockIconDefault(b.type) end,
                       onClick = function(self)
                           -- Switching from Class/Accent/Default: SEED the custom color
                           -- (from the themed default) so custom actually lights on this
@@ -3067,9 +3064,10 @@ initFrame:SetScript("OnEvent", function(self)
                     { tip = "Custom Color",
                       get = function()
                           local c = b.iconColor
-                          if c then return c.r or 1, c.g or 1, c.b or 1 end
-                          return 1, 1, 1
+                          if not c or c.r == nil then return nil end
+                          return c.r, c.g, c.b
                       end,
+                      getFactoryDefault = function() return 1, 1, 1 end,
                       set = function(r, g, bl)
                           b.iconColor = { r = r, g = g, b = bl }
                           ApplyBlockColor()
@@ -3092,9 +3090,17 @@ initFrame:SetScript("OnEvent", function(self)
                     local sp = specs[i]
                     local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
                         rgn, msIconRow:GetFrameLevel() + 3,
-                        function() local r, g, bl = sp.get(); return r, g, bl, 1 end,
+                        function()
+                            local r, g, bl = sp.get()
+                            if r == nil then return nil end
+                            return r, g, bl, 1
+                        end,
                         sp.set or function() end,
-                        false, 20)
+                        false, 20,
+                        sp.getFactoryDefault and function()
+                            local r, g, bl = sp.getFactoryDefault()
+                            return r, g, bl, 1
+                        end or nil)
                     swatch._eabOrigClick = swatch:GetScript("OnClick")
                     swatch:SetScript("OnClick", function(self) sp.click(self) end)
                     swatch:HookScript("OnEnter", function()

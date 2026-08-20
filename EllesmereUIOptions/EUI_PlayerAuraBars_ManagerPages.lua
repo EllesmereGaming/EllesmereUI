@@ -1017,9 +1017,13 @@ local function BuildCoreFields(frame, fontPath, sy, cfg, apply, isBuff)
         local rgn = dsRow._leftRegion
         local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
             rgn, dsRow:GetFrameLevel() + 3,
-            function() return (cfg.durationColorR or 1), (cfg.durationColorG or 1), (cfg.durationColorB or 1), 1 end,
+            function()
+                if cfg.durationColorR == nil then return nil end
+                return cfg.durationColorR, cfg.durationColorG, cfg.durationColorB, 1
+            end,
             function(r, g, b) cfg.durationColorR, cfg.durationColorG, cfg.durationColorB = r, g, b; apply() end,
-            false, 20)
+            false, 20,
+            function() return 1, 1, 1, 1 end)
         swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         rgn._lastInline = swatch
         EllesmereUI.RegisterWidgetRefresh(updateSwatch)
@@ -1049,9 +1053,13 @@ local function BuildCoreFields(frame, fontPath, sy, cfg, apply, isBuff)
         local rgn = dsRow._rightRegion
         local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
             rgn, dsRow:GetFrameLevel() + 3,
-            function() return (cfg.stackColorR or 1), (cfg.stackColorG or 1), (cfg.stackColorB or 1), 1 end,
+            function()
+                if cfg.stackColorR == nil then return nil end
+                return cfg.stackColorR, cfg.stackColorG, cfg.stackColorB, 1
+            end,
             function(r, g, b) cfg.stackColorR, cfg.stackColorG, cfg.stackColorB = r, g, b; apply() end,
-            false, 20)
+            false, 20,
+            function() return 1, 1, 1, 1 end)
         swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         rgn._lastInline = swatch
         EllesmereUI.RegisterWidgetRefresh(updateSwatch)
@@ -1110,13 +1118,15 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
         local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
             rgn, borderRow:GetFrameLevel() + 3,
             function()
-                return (cfg.borderR or 0), (cfg.borderG or 0), (cfg.borderB or 0), (cfg.borderA or 1)
+                if cfg.borderR == nil then return nil end
+                return cfg.borderR, cfg.borderG, cfg.borderB, cfg.borderA or 1
             end,
             function(r, g, b, a)
                 cfg.borderR, cfg.borderG, cfg.borderB, cfg.borderA = r, g, b, a
                 apply()
             end,
-            true, 20)
+            true, 20,
+            function() return 0, 0, 0, 1 end)
         swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         rgn._lastInline = swatch
         EllesmereUI.RegisterWidgetRefresh(updateSwatch)
@@ -1377,14 +1387,15 @@ local function BuildDispelColorFields(frame, fontPath, sy, cfg, apply)
             rgn, rgn:GetFrameLevel() + 3,
             function()
                 local c = cfg[entry.key]
-                if c then return c.r or 1, c.g or 1, c.b or 1, 1 end
-                return entry.fallback[1], entry.fallback[2], entry.fallback[3], 1
+                if not c then return nil end
+                return c.r, c.g, c.b, 1
             end,
             function(r, g, b)
                 cfg[entry.key] = { r = r, g = g, b = b }
                 apply()
             end,
-            false, 18)
+            false, 18,
+            function() return entry.fallback[1], entry.fallback[2], entry.fallback[3], 1 end)
         PP.Point(swatch, "RIGHT", rgn, "RIGHT", -20, 0)
         EllesmereUI.RegisterWidgetRefresh(updateSwatch)
     end
@@ -1534,12 +1545,16 @@ local function BuildFxEffects(frame, sy, cfg, apply)
 
             local glowSwatch, updateGlowSwatch = EllesmereUI.BuildColorSwatch(
                 rgn, row:GetFrameLevel() + 3,
-                function() return e.glowR or 1.0, e.glowG or 0.776, e.glowB or 0.376 end,
+                function()
+                    if e.glowR == nil then return nil end
+                    return e.glowR, e.glowG, e.glowB
+                end,
                 function(r, g, b)
                     e.glowR, e.glowG, e.glowB = r, g, b
                     apply()
                 end,
-                false, 20)
+                false, 20,
+                function() return 1.0, 0.776, 0.376 end)
             PP.Point(glowSwatch, "RIGHT", classSwatch, "LEFT", -8, 0)
             glowSwatch:SetScript("OnEnter", function()
                 EllesmereUI.ShowWidgetTooltip(glowSwatch, "Custom Colored")
@@ -1591,13 +1606,15 @@ local function BuildFxEffects(frame, sy, cfg, apply)
             local rgn = bRow._leftRegion
             local swatch = EllesmereUI.BuildColorSwatch(rgn, bRow:GetFrameLevel() + 3,
                 function()
-                    local c = e.borderColor or { r = 0, g = 0, b = 0 }
-                    return c.r or 0, c.g or 0, c.b or 0, 1
+                    local c = e.borderColor
+                    if not c then return nil end
+                    return c.r, c.g, c.b, 1
                 end,
                 function(r, g, b)
                     e.borderColor = { r = r, g = g, b = b }
                     apply()
-                end, false, 20)
+                end, false, 20,
+                function() return 0, 0, 0, 1 end)
             swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = swatch
         end

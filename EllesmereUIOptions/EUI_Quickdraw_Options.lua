@@ -3578,8 +3578,9 @@ initFrame:SetScript("OnEvent", function(self)
             local customSwatch, updateCustom = EllesmereUI.BuildColorSwatch(
                 rgn, row:GetFrameLevel() + 3,
                 function()
-                    local c = ACfg("selectColor") or {}
-                    return c[1] or 0.047, c[2] or 0.824, c[3] or 0.624
+                    local c = ACfg("selectColor")
+                    if not c then return nil end
+                    return c[1], c[2], c[3]
                 end,
                 function(r2, g2, b2)
                     ASet("selectColor", { r2, g2, b2 })
@@ -3587,7 +3588,8 @@ initFrame:SetScript("OnEvent", function(self)
                     ASet("useClassColor", false)
                     Refresh()
                 end,
-                false, 20)
+                false, 20,
+                function() return 0.047, 0.824, 0.624 end)
             PPQ.Point(customSwatch, "RIGHT", rgn, "RIGHT", -20, 0)
             local origClick = customSwatch:GetScript("OnClick")
             customSwatch:SetScript("OnClick", function(self2, ...)
