@@ -4018,6 +4018,12 @@ local function UpdateHealthBar()
     end
 end
 
+-- ActiveBuffColor/ActiveSpenderColor are defined further below (also used by
+-- UpdateIronfurBar/UpdateSecondaryResource), but UpdatePrimaryBar -- which also
+-- needs them -- is defined earlier in the file. Forward-declared here so it can
+-- call them; same idiom already used above for ResolveThresholdSpecEntry.
+local ActiveBuffColor, ActiveSpenderColor
+
 local function UpdatePrimaryBar()
     if not primaryBar or not primaryBar:IsShown() then return end
     -- Config resolution cache: ResolvePowerCfg/ResolveThresholdSpecEntry/
@@ -4129,15 +4135,46 @@ local function UpdatePrimaryBar()
     local _ppBandOn, _ppBands, _ppBandMode, _ppBandRev = pc.bandOn, pc.bands, pc.bandMode, pc.bandRev
     local ft = primaryBar:GetStatusBarTexture()
     local _ppTextInstead = _ppTsEntry and _ppTsEntry.thresholdTextInstead and pp.textFormat ~= "none"
-    if (_ppTsEntry or _ppBandOn) and ft and UnitPowerPercent then
-        local curve
-        local baseR, baseG, baseB
-        if pp.customColored then
-            baseR, baseG, baseB = pp.fillR, pp.fillG, pp.fillB
+
+    -- Base fill color: needed by the buff/spender override below, the
+    -- threshold curve's text-instead fill, and the plain default branch --
+    -- computed once here instead of three times.
+    local baseR, baseG, baseB
+    if pp.customColored then
+        baseR, baseG, baseB = pp.fillR, pp.fillG, pp.fillB
+    else
+        local _powerColorDef = POWER_COLORS[cachedPrimary]
+        if _powerColorDef then baseR, baseG, baseB = _powerColorDef[1], _powerColorDef[2], _powerColorDef[3]
+        else baseR, baseG, baseB = 1, 1, 1 end
+    end
+
+    -- A tracked buff overrides the fill (buff wins over threshold/band).
+    -- Spenders is checked only when no buff is active, so it can never
+    -- override Buff Colors -- same _buffEntry = _tsEntry coupling Class
+    -- Resource Bar already uses (buff/spender requires threshold to not be
+    -- explicitly disabled on this entry). Both return plain, non-secret
+    -- colors, so unlike the threshold/band path below they never need the
+    -- ColorCurve -- applied directly via SetVertexColor instead.
+    local _bfr, _bfg, _bfb, _bfa = ActiveBuffColor(_ppTsEntry)
+    if not _bfr then
+        _bfr, _bfg, _bfb, _bfa = ActiveSpenderColor(_ppTsEntry)
+    end
+    local _buffActive = _bfr ~= nil
+
+    if _buffActive then
+        if _ppTextInstead then
+            if primaryBar._text then primaryBar._text:SetTextColor(_bfr, _bfg, _bfb, _bfa or 1) end
+            if pp.gradientEnabled then
+                ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL", baseR, baseG, baseB, 1,
+                    pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
+            else
+                ApplyBarFlat(ft, baseR, baseG, baseB, 1)
+            end
         else
-            local pc = POWER_COLORS[cachedPrimary]
-            if pc then baseR, baseG, baseB = pc[1], pc[2], pc[3] else baseR, baseG, baseB = 1, 1, 1 end
+            ft:SetVertexColor(_bfr, _bfg, _bfb, _bfa or 1)
         end
+    elseif (_ppTsEntry or _ppBandOn) and ft and UnitPowerPercent then
+        local curve
         local _bandOn, _bands, _bandMode, _bandRev = _ppBandOn, _ppBands, _ppBandMode, _ppBandRev
         local rvR, rvG, rvB = baseR, baseG, baseB
         if _ppTextInstead then
@@ -4184,15 +4221,12 @@ local function UpdatePrimaryBar()
             end
         end
     elseif not pp.customColored then
-        local r, g, b
-        local pc = POWER_COLORS[cachedPrimary]
-        if pc then r, g, b = pc[1], pc[2], pc[3] else r, g, b = 1, 1, 1 end
         if pp.gradientEnabled then
             ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL",
-                r, g, b, 1,
+                baseR, baseG, baseB, 1,
                 pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
         else
-            ApplyBarFlat(ft, r, g, b, 1)
+            ApplyBarFlat(ft, baseR, baseG, baseB, 1)
         end
     end
 
@@ -4356,7 +4390,7 @@ local function PlayerHasBuff(spellID)
 end
 
 -- Buff coloring for the class-resource bar
-local function ActiveBuffColor(entry)
+ActiveBuffColor = function(entry)
     if not entry or not entry.buffColorEnabled then return nil end
     local list = entry.buffColors
     if not list then return nil end
@@ -4396,7 +4430,7 @@ end
 -- override target itself has no cost data for (confirmed via GetSpellPowerCost returning
 -- empty on the override target while behaving correctly on the base ID). Querying the
 -- override target's spellID directly returns a static, meaningless result.
-local function ActiveSpenderColor(entry)
+ActiveSpenderColor = function(entry)
     if not entry or not entry.spenderColorEnabled then return nil end
     local list = entry.spenderColors
     if not (list and C_Spell and C_Spell.IsSpellUsable) then return nil end
