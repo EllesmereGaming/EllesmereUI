@@ -1473,7 +1473,7 @@ initFrame:SetScript("OnEvent", function(self)
             if not ent.bands then ent.bands = {} end
             -- First open seeds a starter band from the single threshold
             if #ent.bands == 0 then
-                local seedTo = _bandCountBased and (ent.thresholdCount or 3) or (ent.thresholdPct or 30)
+                local seedTo = _bandCountBased and (ent.thresholdCount or 3) or (ent.thresholdCount or 30)
                 ent.bands[1] = {
                     to = seedTo,
                     r = ent.thresholdR or _bandDefR, g = ent.thresholdG or _bandDefG,
@@ -1893,11 +1893,11 @@ initFrame:SetScript("OnEvent", function(self)
         local FORM_LABEL = { mana = "Caster", rage = "Bear", energy = "Cat" }
         local function DefaultFormEntries()
             return {
-                { formKey = "mana",   thresholdEnabled = true, thresholdPct = 30, thresholdPartialOnly = true,
+                { formKey = "mana",   thresholdEnabled = true, thresholdCount = 30, thresholdMode = "percent", thresholdReverse = true,
                   thresholdR = defR, thresholdG = defG, thresholdB = defB, thresholdA = defA },
-                { formKey = "rage",   thresholdEnabled = true, thresholdPct = 30, thresholdPartialOnly = false,
+                { formKey = "rage",   thresholdEnabled = true, thresholdCount = 30, thresholdMode = "percent", thresholdReverse = false,
                   thresholdR = defR, thresholdG = defG, thresholdB = defB, thresholdA = defA },
-                { formKey = "energy", thresholdEnabled = true, thresholdPct = 30, thresholdPartialOnly = true,
+                { formKey = "energy", thresholdEnabled = true, thresholdCount = 30, thresholdMode = "percent", thresholdReverse = true,
                   thresholdR = defR, thresholdG = defG, thresholdB = defB, thresholdA = defA },
             }
         end
@@ -2216,8 +2216,9 @@ initFrame:SetScript("OnEvent", function(self)
                 local newEntry = {
                     specIDs = ids,
                     thresholdEnabled = true,
-                    thresholdPct = cfg.threshMin == 1 and 30 or 30,
-                    thresholdPartialOnly = false,
+                    thresholdCount = 30,
+                    thresholdMode = "percent",
+                    thresholdReverse = false,
                     thresholdR = defR, thresholdG = defG, thresholdB = defB, thresholdA = defA,
                 }
                 if cfg.showHash then
@@ -2226,8 +2227,6 @@ initFrame:SetScript("OnEvent", function(self)
                     newEntry.hashWidth = 1
                     newEntry.hashColorR = 1; newEntry.hashColorG = 1; newEntry.hashColorB = 1; newEntry.hashColorA = 0.7
                     newEntry.thresholdCount = isBar and 30 or 3
-                else
-                    newEntry.thresholdPct = 30
                 end
                 -- Default for the power bar's "Threshold color below value": spenders (mana/energy/focus)
                 -- start ON (warn when low), builders (rage/runic/fury) OFF (warn when high). Only when
@@ -2240,7 +2239,7 @@ initFrame:SetScript("OnEvent", function(self)
                             if sid == curSpecID then
                                 local _, token = UnitPowerType("player")
                                 if token == "MANA" or token == "FOCUS" or token == "ENERGY" then
-                                    newEntry.thresholdPartialOnly = true
+                                    newEntry.thresholdReverse = true
                                 end
                                 break
                             end
@@ -2376,7 +2375,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- singleSpec (Advanced): exactly one config, no spec chrome
             if cfg.singleSpec and #entries == 0 then
                 entries[1] = { specIDs = { 0 }, thresholdEnabled = false,
-                    thresholdPct = 30, thresholdR = defR, thresholdG = defG, thresholdB = defB, thresholdA = defA }
+                    thresholdCount = 30, thresholdMode = "percent", thresholdR = defR, thresholdG = defG, thresholdB = defB, thresholdA = defA }
             end
 
             local scrollChild = popup._scrollChild
@@ -2583,13 +2582,13 @@ initFrame:SetScript("OnEvent", function(self)
                                     if not ef._entryIdx then return false end
                                     local bd2 = cfg.getBarData(); if not bd2 then return false end
                                     local ent = bd2.thresholdSpecs and bd2.thresholdSpecs[ef._entryIdx]
-                                    return ent and ent.thresholdPartialOnly
+                                    return ent and ent.thresholdReverse
                                 end,
                                 set = function(v)
                                     if not ef._entryIdx then return end
                                     local bd2 = cfg.getBarData(); if not bd2 then return end
                                     local ent = bd2.thresholdSpecs and bd2.thresholdSpecs[ef._entryIdx]
-                                    if ent then ent.thresholdPartialOnly = v; cfg.refreshFn() end
+                                    if ent then ent.thresholdReverse = v; cfg.refreshFn() end
                                 end }
                         end
                         cogRows[#cogRows + 1] = { type = "toggle", label = "Recolor Text Instead Of Bar",
@@ -2777,7 +2776,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end)
                 end
 
-                local threshKey = cfg.showHash and "thresholdCount" or "thresholdPct"
+                local threshKey = "thresholdCount"
                 local threshDef = cfg.showHash and (IsEntryBarType_L(entry) and 30 or 3) or 30
                 local threshMaxVal = cfg.threshMax or 99
                 if cfg.showHash then
@@ -3587,7 +3586,7 @@ initFrame:SetScript("OnEvent", function(self)
                         else single[k] = v end
                     end
                 else
-                    single.thresholdEnabled = false; single.thresholdPct = 30
+                    single.thresholdEnabled = false; single.thresholdCount = 30; single.thresholdMode = "percent"
                     single.thresholdR = 1; single.thresholdG = 0.2; single.thresholdB = 0.2; single.thresholdA = 1
                 end
                 single.specIDs = { 0 }
@@ -4363,7 +4362,7 @@ initFrame:SetScript("OnEvent", function(self)
                         else single[k] = v end
                     end
                 else
-                    single.thresholdEnabled = false; single.thresholdPct = 30
+                    single.thresholdEnabled = false; single.thresholdCount = 30; single.thresholdMode = "percent"
                     single.thresholdR = 1; single.thresholdG = 0.2; single.thresholdB = 0.2; single.thresholdA = 1
                 end
                 single.specIDs = { 0 }
