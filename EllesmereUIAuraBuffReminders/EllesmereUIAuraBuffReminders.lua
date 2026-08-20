@@ -3707,7 +3707,9 @@ local function Refresh()
                 for i = 1, (NUM_PET_ACTION_SLOTS or 10) do
                     local nm, tx, tok, active = GetPetActionInfo(i)
                     if nm == "PET_MODE_PASSIVE" then
-                        if not isSecret(active) then passiveActive = (active == true) end
+                        -- isActive comes back as 1/nil, not a boolean, so the
+                        -- old "== true" was always false and this never fired.
+                        if not isSecret(active) then passiveActive = (active and true or false) end
                         passiveTex, passiveIsToken = tx, tok
                         break
                     end
