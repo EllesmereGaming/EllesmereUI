@@ -4021,3 +4021,73 @@ EllesmereUI.RegisterMigration({
         migrateBar(rb.health)
     end,
 })
+
+--------------------------------------------------------------------------------
+--  Power Bar / Health Bar threshold values used a simpler, percent-only model
+--  (thresholdPct) than Class Resource Bar's (thresholdCount + thresholdMode,
+--  supporting both percent and value/count thresholds). Unifying onto that
+--  model means renaming the field, not just copying it -- and thresholdMode
+--  must be stamped "percent" explicitly, since Power/Health's old field was
+--  implicitly percent-only with no mode concept at all.
+--
+--  thresholdPartialOnly requires special care: on Power/Health it was reused
+--  to mean curve DIRECTION (verified by tracing the exact GetBarThresholdCurve
+--  argument order both systems produce -- Power/Health's thresholdPartialOnly
+--  = true produces the identical curve as Class Resource Bar's
+--  thresholdReverse = true). Class Resource Bar's OWN thresholdPartialOnly
+--  field means something unrelated (pips below the threshold index don't
+--  recolor) and its UI toggle is explicitly disabled for bar-type resources,
+--  which Power/Health always are -- so migrating same-name-to-same-name would
+--  silently and permanently lose anyone's non-default direction setting. This
+--  renames to thresholdReverse instead, the field Class Resource Bar's own
+--  bar-type render path actually reads for direction, confirmed against real
+--  profile data to correctly carry forward a live non-default value.
+--
+--  Health Bar needs one more piece Power Bar doesn't: its pre-existing render
+--  code was hardcoded to the OPPOSITE curve direction from Power Bar's/Class
+--  Resource Bar's default (threshold color at/below the value -- the natural
+--  low-health warning -- vs. above), and never exposed a
+--  thresholdPartialOnly/direction toggle to capture that as data. An existing
+--  Health Bar entry with threshold data but no explicit direction gets
+--  thresholdReverse=true stamped on explicitly, or the new unified render's
+--  default (matching Power Bar/CRB, not Health Bar's actual prior behavior)
+--  would silently invert every existing Health Bar threshold user's colors.
+--------------------------------------------------------------------------------
+EllesmereUI.RegisterMigration({
+    id          = "resourcebars_power_health_threshold_perspec_v1",
+    scope       = "profile",
+    description = "Rename Power Bar / Health Bar per-spec threshold fields (thresholdPct, thresholdPartialOnly) onto Class Resource Bar's model (thresholdCount+thresholdMode, thresholdReverse)",
+    body        = function(ctx)
+        local rb = ctx.profile.addons and ctx.profile.addons.EllesmereUIResourceBars
+        if type(rb) ~= "table" then return end
+
+        local function migrateBarThreshold(bar, healthDefaultReverse)
+            if type(bar) ~= "table" or type(bar.thresholdSpecs) ~= "table" then return end
+            for _, entry in ipairs(bar.thresholdSpecs) do
+                if entry.thresholdPct ~= nil then
+                    entry.thresholdCount = entry.thresholdPct
+                    entry.thresholdMode = "percent"
+                    entry.thresholdPct = nil
+                end
+                if entry.thresholdPartialOnly ~= nil then
+                    entry.thresholdReverse = entry.thresholdPartialOnly
+                    entry.thresholdPartialOnly = nil
+                elseif healthDefaultReverse and entry.thresholdReverse == nil and entry.thresholdCount ~= nil then
+                    -- Health Bar's pre-existing hardcoded curve order was the
+                    -- OPPOSITE of Class Resource Bar's/Power Bar's default
+                    -- (threshold color at/below the value, not above -- the
+                    -- natural low-health warning). Health Bar never exposed a
+                    -- thresholdPartialOnly/direction toggle at all, so an
+                    -- existing entry with threshold data but no explicit
+                    -- direction needs this stamped, or the new unified
+                    -- render's default (which matches Power Bar/CRB, not
+                    -- Health Bar) would silently invert it.
+                    entry.thresholdReverse = true
+                end
+            end
+        end
+
+        migrateBarThreshold(rb.primary, false)
+        migrateBarThreshold(rb.health, true)
+    end,
+})
