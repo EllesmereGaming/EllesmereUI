@@ -2911,6 +2911,32 @@ local function LayoutCastbarIcon(castbar, inWidth, iconH, onRight, offX, offY)
         PP.Point(castbar, "TOPLEFT", bg, "TOPLEFT", inWidth and side or 0, 0)
         PP.Point(castbar, "BOTTOMRIGHT", bg, "BOTTOMRIGHT", 0, 0)
     end
+
+    -- Icon and bar are separate frames, each with its own full 1px border
+    -- (PP.CreateBorder at creation, on iconFrame and on castbar). In every
+    -- inWidth/onRight combination above they sit flush against each other,
+    -- so both draw a strip at the shared seam -- doubling it to 2px. Suppress
+    -- the facing edge on each side, same _hideLeft/_hideRight pattern as the
+    -- health/power seam elsewhere in this file. Only when truly flush (no
+    -- configured icon offset): with an offset there's a real gap, and hiding
+    -- both edges would leave it with no border on either side.
+    if iconFrame then
+        local iconEdges = PP.GetBorders(iconFrame)
+        local barEdges = PP.GetBorders(castbar)
+        if iconEdges and barEdges then
+            if offX == 0 and offY == 0 then
+                iconEdges._hideRight = (not onRight) or nil
+                iconEdges._hideLeft  = onRight or nil
+                barEdges._hideLeft   = (not onRight) or nil
+                barEdges._hideRight  = onRight or nil
+            else
+                iconEdges._hideLeft, iconEdges._hideRight = nil, nil
+                barEdges._hideLeft, barEdges._hideRight = nil, nil
+            end
+            PP.SetBorderSize(iconFrame, 1)
+            PP.SetBorderSize(castbar, 1)
+        end
+    end
 end
 
 -- Donor settings table for mini frames (focus > target > player); source of
@@ -12776,7 +12802,6 @@ function InitializeFrames()
         if classPowerStyle == "blizzard" then
             if savedClassPowerBar then
                 _blizzCPActive = true
-                savedClassPowerBar.ignoreFramePositionManager = true
                 HookBlizzardClassPower(savedClassPowerBar)
                 PositionClassPowerBar(savedClassPowerBar)
                 frames._classPowerBar = savedClassPowerBar
@@ -12819,7 +12844,6 @@ function InitializeFrames()
         elseif frames._classPowerBar then
             frames._classPowerBar:Hide()
             frames._classPowerBar:ClearAllPoints()
-            frames._classPowerBar.ignoreFramePositionManager = nil
             local origParent = _blizzCPState.origParent or PlayerFrame or UIParent
             frames._classPowerBar:SetParent(origParent)
             frames._classPowerBar = nil
@@ -12848,7 +12872,6 @@ function InitializeFrames()
             if cpFrame then
                 _blizzCPState.origParent = cpFrame:GetParent()
                 _blizzCPActive = true
-                cpFrame.ignoreFramePositionManager = true
                 HookBlizzardClassPower(cpFrame)
                 cpFrame:SetParent(UIParent)
                 frames._classPowerBar = cpFrame
@@ -12885,9 +12908,6 @@ function InitializeFrames()
         if unit ~= "player" then return end
         if not cpSpecInitDone then return end
         DestroyCustomClassPower()
-        if frames._classPowerBar then
-            frames._classPowerBar.ignoreFramePositionManager = nil
-        end
         frames._classPowerBar = nil
         C_Timer.After(0.1, function()
             if ns.ReloadFrames then ns.ReloadFrames() end
