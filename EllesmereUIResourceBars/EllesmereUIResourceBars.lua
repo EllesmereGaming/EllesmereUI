@@ -1120,7 +1120,8 @@ local DEFAULTS = {
             visHideNoEnemy = false,
             orientation = "HORIZONTAL",  -- "HORIZONTAL","VERTICAL_UP","VERTICAL_DOWN"
             thresholdEnabled = false,
-            thresholdPct     = 30,
+            thresholdCount   = 30,
+            thresholdMode    = "percent",
             thresholdR = 1.0, thresholdG = 0.2, thresholdB = 0.2, thresholdA = 1,
             thresholdSpecs = {},
             thresholdTextInstead = false,
@@ -1173,8 +1174,9 @@ local DEFAULTS = {
             visHideNoEnemy = false,
             orientation = "HORIZONTAL",  -- "HORIZONTAL","VERTICAL_UP","VERTICAL_DOWN"
             thresholdEnabled = false,
-            thresholdPct     = 30,
-            thresholdPartialOnly = false,
+            thresholdCount   = 30,
+            thresholdMode    = "percent",
+            thresholdReverse = false,
             thresholdR = 1.0, thresholdG = 0.2, thresholdB = 0.2, thresholdA = 1,
             thresholdSpecs = {},
             thresholdTextInstead = false,
@@ -3922,6 +3924,13 @@ local function UpdateHealthBar()
     if not _hpTsEnabled then _hpTsEntry = nil end
     local ft = healthBar:GetStatusBarTexture()
     local _hpTextInstead = _hpTsEntry and _hpTsEntry.thresholdTextInstead and hp.textFormat ~= "none"
+    -- Curve direction, used by both the text-instead and normal branches below.
+    -- No Health-Bar-specific default here going forward -- existing users'
+    -- actual prior (opposite-of-default) behavior was already made explicit
+    -- data by the migration; this fallback only matters for genuinely new
+    -- entries, which get the same default as Power Bar/Class Resource Bar.
+    local _hpReverse = _hpTsEntry and _hpTsEntry.thresholdReverse
+    if _hpReverse == nil then _hpReverse = hp.thresholdReverse end
 
     -- Base fill color: needed by the buff/spender override below, the
     -- threshold curve's fill-stays-base case, and the plain default branch --
@@ -3980,7 +3989,16 @@ local function UpdateHealthBar()
                 local tR = _hpTsEntry.thresholdR or hp.thresholdR or 1
                 local tG = _hpTsEntry.thresholdG or hp.thresholdG or 0.2
                 local tB = _hpTsEntry.thresholdB or hp.thresholdB or 0.2
-                curve = GetBarThresholdCurve(tbR, tbG, tbB, tR, tG, tB, _hpTsEntry.thresholdPct or hp.thresholdPct or 30)
+                local _hpThreshCount = _hpTsEntry.thresholdCount or hp.thresholdCount or 30
+                local tPct = _hpThreshCount
+                if _hpTsEntry.thresholdMode == "value" and mx and mx > 0 then
+                    tPct = math.min(100, _hpThreshCount / mx * 100)
+                end
+                if _hpReverse then
+                    curve = GetBarThresholdCurve(tbR, tbG, tbB, tR, tG, tB, tPct)
+                else
+                    curve = GetBarThresholdCurve(tR, tG, tB, tbR, tbG, tbB, tPct)
+                end
             end
             if curve and healthBar._text then
                 local ok, colorResult = pcall(UnitHealthPercent, "player", false, curve)
@@ -4003,7 +4021,16 @@ local function UpdateHealthBar()
                 local tR = _hpTsEntry.thresholdR or hp.thresholdR or 1
                 local tG = _hpTsEntry.thresholdG or hp.thresholdG or 0.2
                 local tB = _hpTsEntry.thresholdB or hp.thresholdB or 0.2
-                curve = GetBarThresholdCurve(baseR, baseG, baseB, tR, tG, tB, _hpTsEntry.thresholdPct or hp.thresholdPct or 30)
+                local _hpThreshCount = _hpTsEntry.thresholdCount or hp.thresholdCount or 30
+                local tPct = _hpThreshCount
+                if _hpTsEntry.thresholdMode == "value" and mx and mx > 0 then
+                    tPct = math.min(100, _hpThreshCount / mx * 100)
+                end
+                if _hpReverse then
+                    curve = GetBarThresholdCurve(baseR, baseG, baseB, tR, tG, tB, tPct)
+                else
+                    curve = GetBarThresholdCurve(tR, tG, tB, baseR, baseG, baseB, tPct)
+                end
             end
             if curve then
                 local ok, colorResult = pcall(UnitHealthPercent, "player", false, curve)
@@ -4222,10 +4249,17 @@ local function UpdatePrimaryBar()
             local tR = _ppTsEntry.thresholdR or pp.thresholdR or 1
             local tG = _ppTsEntry.thresholdG or pp.thresholdG or 0.2
             local tB = _ppTsEntry.thresholdB or pp.thresholdB or 0.2
-            local tPct = _ppTsEntry.thresholdPct or pp.thresholdPct or 30
-            local _ppPartial = _ppTsEntry.thresholdPartialOnly
-            if _ppPartial == nil then _ppPartial = pp.thresholdPartialOnly end
-            if _ppPartial then
+            -- thresholdCount/thresholdMode mirror Class Resource Bar exactly: a
+            -- "value" mode threshold is an absolute amount, converted to a percent
+            -- against mx for the curve (which always works in percent terms).
+            local _ppThreshCount = _ppTsEntry.thresholdCount or pp.thresholdCount or 30
+            local tPct = _ppThreshCount
+            if _ppTsEntry.thresholdMode == "value" and mx and mx > 0 then
+                tPct = math.min(100, _ppThreshCount / mx * 100)
+            end
+            local _ppReverse = _ppTsEntry.thresholdReverse
+            if _ppReverse == nil then _ppReverse = pp.thresholdReverse end
+            if _ppReverse then
                 curve = GetBarThresholdCurve(rvR, rvG, rvB, tR, tG, tB, tPct)
             else
                 curve = GetBarThresholdCurve(tR, tG, tB, rvR, rvG, rvB, tPct)
