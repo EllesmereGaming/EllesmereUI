@@ -3806,13 +3806,25 @@ local function BuildBars()
         EllesmereUI.SetElementVisibility(secondaryFrame, false)
     end
 
-    -- Hash lines on the health and power bars
+    -- Hash lines on the health and power bars: hash-specific fields now live
+    -- per-spec on thresholdSpecs (matching Class Resource Bar's model) rather
+    -- than bar-wide. ApplyHashLines itself is unchanged -- it only ever reads
+    -- cfg.hashEnabled/hashValues/hashMode/hashWidth/hashColor*, and a resolved
+    -- thresholdSpecs entry carries the exact same field names. Deliberately NOT
+    -- preserving the old bar-wide borderSize-driven vertical inset here, to
+    -- match Class Resource Bar's own hash lines exactly (which never had one) --
+    -- reduces divergence between the three bars' hash rendering instead of
+    -- keeping Power/Health as a bordered special case. ResolveThresholdSpecEntry
+    -- returning nil (no matching/no entries) is handled by ApplyHashLines itself,
+    -- which no-ops cleanly on a nil cfg.
     do
         local _prof = ERB.db and ERB.db.profile
         if _prof then
-            ns.ApplyHashLines(healthBar, _prof.health,
+            local _healthEntry = _prof.health and ResolveThresholdSpecEntry(_prof.health)
+            local _primaryEntry = _prof.primary and ResolveThresholdSpecEntry(_prof.primary)
+            ns.ApplyHashLines(healthBar, _healthEntry,
                 function() return UnitHealthMax("player") end)
-            ns.ApplyHashLines(primaryBar, _prof.primary,
+            ns.ApplyHashLines(primaryBar, _primaryEntry,
                 function() return UnitPowerMax("player", GetPrimaryPowerType()) end)
         end
     end
@@ -5315,9 +5327,6 @@ local function UpdateSecondaryResource()
                         end
                     elseif _tsEntry and powerType == "SOUL_FRAGMENTS_DEVOURER" then
                         local threshVal = _tsThreshCount or 30
-                        if _tsEntry.thresholdMode ~= "value" and maxC and maxC > 0 then
-                            threshVal = maxC * threshVal / 100
-                        end
                         if _spTextInstead then
                             -- Fill at base; tint the count text when at/over the threshold.
                             ft:SetVertexColor(r, g, b, a)
