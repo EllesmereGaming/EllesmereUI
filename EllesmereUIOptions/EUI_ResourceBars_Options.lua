@@ -1560,7 +1560,7 @@ initFrame:SetScript("OnEvent", function(self)
             titleFS = EllesmereUI.MakeFont(popup, 13, nil, 1, 1, 1)
             titleFS:SetAlpha(0.7)
             titleFS:SetPoint("TOP", popup, "TOP", 0, -BAND_PAD)
-            titleFS:SetText(EllesmereUI.L(kind.title))
+            titleFS:SetText(kind.title)
 			local ht = popup:CreateFontString(nil, "OVERLAY")
 			local FONT = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
 			ht:SetFont(FONT, 10, "")
@@ -1575,7 +1575,7 @@ initFrame:SetScript("OnEvent", function(self)
             abg:SetAllPoints()
             addBtn._border = EllesmereUI.MakeBorder(addBtn, 1, 1, 1, 0.4, PP)
             local albl = EllesmereUI.MakeFont(addBtn, 12, nil, 1, 1, 1)
-            albl:SetAlpha(0.5); albl:SetPoint("CENTER"); albl:SetText(EllesmereUI.L(kind.addLabel))
+            albl:SetAlpha(0.5); albl:SetPoint("CENTER"); albl:SetText(kind.addLabel)
             addBtn:SetScript("OnEnter", function() albl:SetAlpha(0.7); if addBtn._border and addBtn._border.SetColor then addBtn._border:SetColor(1, 1, 1, 0.6) end end)
             addBtn:SetScript("OnLeave", function() albl:SetAlpha(0.5); if addBtn._border and addBtn._border.SetColor then addBtn._border:SetColor(1, 1, 1, 0.4) end end)
             addBtn:SetScript("OnClick", function()
@@ -1817,7 +1817,7 @@ initFrame:SetScript("OnEvent", function(self)
         "Recolor the bar while you have a buff. The first active buff in the list wins, so order = priority. Overrides threshold coloring while active.\n"
         .. "You must be tracking the buff in Blizzard CDM, added to EUI CDM, and this only works with CDM trackable buffs."
     local _buffEditor = BuildActivityColorPopup({
-        field = "buffColors", title = "Buff Colors", addLabel = "+ Add Buff",
+        field = "buffColors", title = EllesmereUI.L("Buff Colors"), addLabel = EllesmereUI.L("+ Add Buff"),
     })
     local ShowBuffEditor = _buffEditor.Show
 
@@ -1826,7 +1826,7 @@ initFrame:SetScript("OnEvent", function(self)
         .. "Never overrides Buff Colors -- if a tracked buff above is also active, that color wins instead. Works with any spell ID; the spell does not need to be tracked in CDM.\n"
         .. "For abilities with Spell Overrides, always use the original/base Spell ID."
     local _spenderEditor = BuildActivityColorPopup({
-        field = "spenderColors", title = "Spenders", addLabel = "+ Add Spender",
+        field = "spenderColors", title = EllesmereUI.L("Spenders"), addLabel = EllesmereUI.L("+ Add Spender"),
     })
     local ShowSpenderEditor = _spenderEditor.Show
 
