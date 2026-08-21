@@ -3969,7 +3969,12 @@ local function UpdateHealthBar()
                 ApplyBarFlat(ft, baseR, baseG, baseB, 1)
             end
         else
-            ft:SetVertexColor(_bfr, _bfg, _bfb, _bfa or 1)
+            if hp.gradientEnabled then
+                ApplyBarGradient(ft, hp.gradientDir or "HORIZONTAL", _bfr, _bfg, _bfb, _bfa or 1,
+                    hp.gradientR, hp.gradientG, hp.gradientB, hp.gradientA)
+            else
+                ApplyBarFlat(ft, _bfr, _bfg, _bfb, _bfa or 1)
+            end
         end
     elseif (_hpTsEntry or _hpBandOn) and ft and UnitHealthPercent then
         local curve
@@ -4036,6 +4041,12 @@ local function UpdateHealthBar()
                 local ok, colorResult = pcall(UnitHealthPercent, "player", false, curve)
                 if ok and colorResult and colorResult.GetRGBA then
                     ft:SetVertexColor(colorResult:GetRGBA())
+                    -- This bypasses ApplyBarFlat/ApplyBarGradient's dedup cache (the curve
+                    -- result is secret-evaluated, so there's no clean r,g,b to cache against
+                    -- anyway). Invalidate both so a LATER cache-aware write (e.g. the default
+                    -- branch below, when Threshold gets toggled off) can't be silently skipped
+                    -- as a false-positive "unchanged" match against this bypassed value.
+                    ft._lfOn, ft._lgOn = nil, nil
                 end
             end
         end
@@ -4229,7 +4240,12 @@ local function UpdatePrimaryBar()
                 ApplyBarFlat(ft, baseR, baseG, baseB, 1)
             end
         else
-            ft:SetVertexColor(_bfr, _bfg, _bfb, _bfa or 1)
+            if pp.gradientEnabled then
+                ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL", _bfr, _bfg, _bfb, _bfa or 1,
+                    pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
+            else
+                ApplyBarFlat(ft, _bfr, _bfg, _bfb, _bfa or 1)
+            end
         end
     elseif (_ppTsEntry or _ppBandOn) and ft and UnitPowerPercent then
         local curve
@@ -4272,6 +4288,12 @@ local function UpdatePrimaryBar()
                     if primaryBar._text then primaryBar._text:SetTextColor(colorResult:GetRGBA()) end
                 else
                     ft:SetVertexColor(colorResult:GetRGBA())
+                    -- This bypasses ApplyBarFlat/ApplyBarGradient's dedup cache (the curve
+                    -- result is secret-evaluated, so there's no clean r,g,b to cache against
+                    -- anyway). Invalidate both so a LATER cache-aware write (e.g. the default
+                    -- branch below, when Threshold gets toggled off) can't be silently skipped
+                    -- as a false-positive "unchanged" match against this bypassed value.
+                    ft._lfOn, ft._lgOn = nil, nil
                 end
             end
         end
