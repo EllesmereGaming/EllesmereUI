@@ -341,6 +341,7 @@ ShowPrompt = function()
     pendingHide = nil
     UpdateButtonVisuals()
     popup:Show()
+    if _G._EUI_RefreshHearthTeleportHighlight then _G._EUI_RefreshHearthTeleportHighlight() end
 end
 
 HidePrompt = function()
@@ -354,6 +355,7 @@ HidePrompt = function()
     if InCombatLockdown() then pendingHide = true; return end
     pendingHide = nil
     popup:Hide()
+    if _G._EUI_RefreshHearthTeleportHighlight then _G._EUI_RefreshHearthTeleportHighlight() end
 end
 
 ClearPending = function()
@@ -373,6 +375,12 @@ end
 _G._EUI_HideTeleportPrompt = function()
     ClearPending()
     HidePrompt()
+end
+
+-- Read-only: static spell id while the LFG Reminder is showing, else nil.
+_G._EUI_GetTeleportPromptSpellID = function()
+    if popup and popup:IsShown() and pendingSpellID then return pendingSpellID end
+    return nil
 end
 
 -------------------------------------------------------------------------------
