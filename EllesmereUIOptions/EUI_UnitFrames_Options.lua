@@ -110,6 +110,79 @@ initFrame:SetScript("OnEvent", function(self)
         fs:SetFont(font, size, f)
     end
 
+    -- Per-slot font/outline for health-bar text. "__global"/nil follows the
+    -- unit-frames module font (or EUI Global) -- same sentinel as moduleFonts.
+    -- Resolve the path at call time: PREVIEW_FONT is declared later in this
+    -- function, so closing over that name here would be nil (Lua local scope
+    -- starts at the declaration, not the top of the block).
+    local function SetPVSlotFont(fs, s, prefix, size)
+        if not (fs and fs.SetFont) then return end
+        local font = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("unitFrames"))
+            or "Fonts\\FRIZQT__.TTF"
+        local fontKey = s and s[prefix .. "Font"]
+        if fontKey and fontKey ~= "__global" and EllesmereUI.ResolveFontName then
+            font = EllesmereUI.ResolveFontName(fontKey) or font
+        end
+        local f
+        local mode = s and s[prefix .. "Outline"]
+        if mode and mode ~= "__global" then
+            if mode == "outline" then
+                f = (EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG"
+            elseif mode == "thick" then
+                f = (EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("THICKOUTLINE, SLUG")) or "THICKOUTLINE, SLUG"
+            else
+                f = ""
+            end
+        else
+            f = (EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("unitFrames")) or GetUFOptOutline()
+        end
+        if EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, f == "") end
+        fs:SetFont(font, size or 12, f)
+    end
+
+    local UF_TEXT_OUTLINE_VALUES = {
+        ["__global"] = { text = "EUI Global Outline" },
+        ["none"]     = { text = "Drop Shadow" },
+        ["outline"]  = { text = "Outline" },
+        ["thick"]    = { text = "Thick Outline" },
+    }
+    local UF_TEXT_OUTLINE_ORDER = { "__global", "none", "outline", "thick" }
+
+    -- Insert Font + Font Outline after Size / Text Size / Timer Size, else after
+    -- leading toggles, else at the top of the cog.
+    -- getVal/setVal match SVal/SSet and MVal/MSet (key, default) / (key, value).
+    local function InsertTextFontCogRows(rows, prefix, getVal, setVal, afterSet)
+        local fontValues, fontOrder = EllesmereUI.BuildFontDropdownData()
+        local insertAt = 0
+        local sizeAt
+        for i, row in ipairs(rows) do
+            local label = row.label
+            if label == "Size" or label == "Text Size" or label == "Timer Size" then
+                sizeAt = i
+                break
+            elseif row.type == "toggle" and not sizeAt then
+                insertAt = i
+            end
+        end
+        if sizeAt then insertAt = sizeAt end
+        table.insert(rows, insertAt + 1, {
+            type = "dropdown", label = "Font", values = fontValues, order = fontOrder,
+            get = function() return getVal(prefix .. "Font", "__global") end,
+            set = function(v)
+                setVal(prefix .. "Font", v)
+                if afterSet then afterSet() end
+            end,
+        })
+        table.insert(rows, insertAt + 2, {
+            type = "dropdown", label = "Font Outline", values = UF_TEXT_OUTLINE_VALUES, order = UF_TEXT_OUTLINE_ORDER,
+            get = function() return getVal(prefix .. "Outline", "__global") end,
+            set = function(v)
+                setVal(prefix .. "Outline", v)
+                if afterSet then afterSet() end
+            end,
+        })
+    end
+
     ---------------------------------------------------------------------------
     --  Shared helpers
     ---------------------------------------------------------------------------
@@ -1187,25 +1260,25 @@ initFrame:SetScript("OnEvent", function(self)
         local leftTS = settings.leftTextSize or settings.textSize or 12
         local rightTS = settings.rightTextSize or settings.textSize or 12
         local leftFS = textOverlay:CreateFontString(nil, "OVERLAY")
-        SetPVFont(leftFS, PREVIEW_FONT, leftTS)
+        SetPVSlotFont(leftFS, settings, "leftText", leftTS)
         leftFS:SetTextColor(1, 1, 1)
         leftFS:SetWordWrap(false)
 
         -- Right text
         local rightFS = textOverlay:CreateFontString(nil, "OVERLAY")
-        SetPVFont(rightFS, PREVIEW_FONT, rightTS)
+        SetPVSlotFont(rightFS, settings, "rightText", rightTS)
         rightFS:SetTextColor(1, 1, 1)
         rightFS:SetWordWrap(false)
 
         local centerFS = textOverlay:CreateFontString(nil, "OVERLAY")
-        SetPVFont(centerFS, PREVIEW_FONT, settings.centerTextSize or settings.textSize or 12)
+        SetPVSlotFont(centerFS, settings, "centerText", settings.centerTextSize or settings.textSize or 12)
         centerFS:SetTextColor(1, 1, 1)
         centerFS:SetWordWrap(false)
 
         -- Extra Text FontString: anchored per extraTextAlign, never width-constrained
         -- (live frames never truncate it either).
         local extraFS = textOverlay:CreateFontString(nil, "OVERLAY")
-        SetPVFont(extraFS, PREVIEW_FONT, settings.extraTextSize or settings.textSize or 12)
+        SetPVSlotFont(extraFS, settings, "extraText", settings.extraTextSize or settings.textSize or 12)
         extraFS:SetTextColor(1, 1, 1)
         extraFS:SetWordWrap(false)
 
@@ -1358,7 +1431,7 @@ initFrame:SetScript("OnEvent", function(self)
 
 
             local ec = s.extraTextContent or "none"
-            extraFS:SetFont(PREVIEW_FONT, (s.extraTextSize or s.textSize or 12), GetUFOptOutline())
+            SetPVSlotFont(extraFS, s, "extraText", s.extraTextSize or s.textSize or 12)
             extraFS:ClearAllPoints()
             extraFS:SetWidth(0)
             if ec ~= "none" then
@@ -1383,7 +1456,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
 
             -- Each text position renders independently; Center does not hide Left/Right.
-            centerFS:SetFont(PREVIEW_FONT, csz, GetUFOptOutline())
+            SetPVSlotFont(centerFS, s, "centerText", csz)
             centerFS:ClearAllPoints()
             if cc ~= "none" then
                 centerFS:SetJustifyH("CENTER")
@@ -1395,7 +1468,7 @@ initFrame:SetScript("OnEvent", function(self)
                 centerFS:Hide()
             end
 
-            leftFS:SetFont(PREVIEW_FONT, lsz, GetUFOptOutline())
+            SetPVSlotFont(leftFS, s, "leftText", lsz)
             leftFS:ClearAllPoints()
             if lc ~= "none" then
                 leftFS:SetJustifyH("LEFT")
@@ -1417,7 +1490,7 @@ initFrame:SetScript("OnEvent", function(self)
                 leftFS:Hide()
             end
 
-            rightFS:SetFont(PREVIEW_FONT, rsz, GetUFOptOutline())
+            SetPVSlotFont(rightFS, s, "rightText", rsz)
             rightFS:ClearAllPoints()
             if rc ~= "none" then
                 rightFS:SetJustifyH("RIGHT")
@@ -1740,17 +1813,17 @@ initFrame:SetScript("OnEvent", function(self)
             btbTextOvr:SetFrameLevel(barArea:GetFrameLevel() + 10)
 
             btbLeftFS = btbTextOvr:CreateFontString(nil, "OVERLAY")
-            SetPVFont(btbLeftFS, PREVIEW_FONT, settings.btbLeftSize or 11)
+            SetPVSlotFont(btbLeftFS, settings, "btbLeft", settings.btbLeftSize or 11)
             btbLeftFS:SetTextColor(1, 1, 1)
             btbLeftFS:SetWordWrap(false)
 
             btbRightFS = btbTextOvr:CreateFontString(nil, "OVERLAY")
-            SetPVFont(btbRightFS, PREVIEW_FONT, settings.btbRightSize or 11)
+            SetPVSlotFont(btbRightFS, settings, "btbRight", settings.btbRightSize or 11)
             btbRightFS:SetTextColor(1, 1, 1)
             btbRightFS:SetWordWrap(false)
 
             btbCenterFS = btbTextOvr:CreateFontString(nil, "OVERLAY")
-            SetPVFont(btbCenterFS, PREVIEW_FONT, settings.btbCenterSize or 11)
+            SetPVSlotFont(btbCenterFS, settings, "btbCenter", settings.btbCenterSize or 11)
             btbCenterFS:SetTextColor(1, 1, 1)
             btbCenterFS:SetWordWrap(false)
 
@@ -1771,7 +1844,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local rsz = s.btbRightSize or 11
                 local csz = s.btbCenterSize or 11
 
-                btbLeftFS:SetFont(PREVIEW_FONT, lsz, GetUFOptOutline())
+                SetPVSlotFont(btbLeftFS, s, "btbLeft", lsz)
                 btbLeftFS:ClearAllPoints()
                 if lc ~= "none" then
                     btbLeftFS:SetJustifyH("LEFT")
@@ -1782,7 +1855,7 @@ initFrame:SetScript("OnEvent", function(self)
                     PreviewPowerColor(btbLeftFS, lc, s.btbLeftPowerColor)
                 else btbLeftFS:Hide() end
 
-                btbRightFS:SetFont(PREVIEW_FONT, rsz, GetUFOptOutline())
+                SetPVSlotFont(btbRightFS, s, "btbRight", rsz)
                 btbRightFS:ClearAllPoints()
                 if rc ~= "none" then
                     btbRightFS:SetJustifyH("RIGHT")
@@ -1793,7 +1866,7 @@ initFrame:SetScript("OnEvent", function(self)
                     PreviewPowerColor(btbRightFS, rc, s.btbRightPowerColor)
                 else btbRightFS:Hide() end
 
-                btbCenterFS:SetFont(PREVIEW_FONT, csz, GetUFOptOutline())
+                SetPVSlotFont(btbCenterFS, s, "btbCenter", csz)
                 btbCenterFS:ClearAllPoints()
                 if cc ~= "none" then
                     btbCenterFS:SetJustifyH("CENTER")
@@ -2916,7 +2989,7 @@ initFrame:SetScript("OnEvent", function(self)
                     if castNameFS2 then
                         local spellName = (unitKey == "player") and (_previewCastSpell and _previewCastSpell.name or "Spell Name") or "Spell Name"
                         castNameFS2:SetText(spellName)
-                        castNameFS2:SetFont(PREVIEW_FONT, s.castSpellNameSize or 11, GetUFOptOutline())
+                        SetPVSlotFont(castNameFS2, s, "castSpellName", s.castSpellNameSize or 11)
                         local snC = s.castSpellNameColor or { r=1, g=1, b=1 }
                         castNameFS2:SetTextColor(snC.r, snC.g, snC.b)
                         castNameFS2:ClearAllPoints()
@@ -2933,7 +3006,7 @@ initFrame:SetScript("OnEvent", function(self)
                     if castTimeFS then
                         local spCastTime = (_previewCastSpell and _previewCastSpell.castTime) or 3.0
                         castTimeFS:SetText(string.format("%.1f", spCastTime * (1 - (_previewCastFill or 0.6))))
-                        castTimeFS:SetFont(PREVIEW_FONT, s.castDurationSize or 10, GetUFOptOutline())
+                        SetPVSlotFont(castTimeFS, s, "castDuration", s.castDurationSize or 10)
                         local dtC = s.castDurationColor or { r=1, g=1, b=1 }
                         castTimeFS:SetTextColor(dtC.r, dtC.g, dtC.b)
                         castTimeFS:SetShown(showDur)
@@ -2946,7 +3019,7 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                     end
                     if castTargetFS then
-                        castTargetFS:SetFont(PREVIEW_FONT, s.castSpellTargetSize or 11, GetUFOptOutline())
+                        SetPVSlotFont(castTargetFS, s, "castSpellTarget", s.castSpellTargetSize or 11)
                         local tsC = s.castSpellTargetColor or { r=1, g=1, b=1 }
                         castTargetFS:SetTextColor(tsC.r, tsC.g, tsC.b)
                         castTargetFS:SetShown(showTgt)
@@ -4035,10 +4108,16 @@ initFrame:SetScript("OnEvent", function(self)
         castbarHeight        = { target=true, focus=true },
         castbarHideWhenInactive = { player=true, target=true, focus=true },
         castSpellNameSize    = { player=true, target=true, focus=true },
+        castSpellNameFont    = { player=true, target=true, focus=true },
+        castSpellNameOutline = { player=true, target=true, focus=true },
         castSpellNameColor   = { player=true, target=true, focus=true },
         castDurationSize     = { player=true, target=true, focus=true },
+        castDurationFont     = { player=true, target=true, focus=true },
+        castDurationOutline  = { player=true, target=true, focus=true },
         castDurationColor    = { player=true, target=true, focus=true },
         castSpellTargetSize  = { player=true, target=true, focus=true },
+        castSpellTargetFont  = { player=true, target=true, focus=true },
+        castSpellTargetOutline = { player=true, target=true, focus=true },
         castSpellTargetColor = { player=true, target=true, focus=true },
         showCastDuration     = { player=true, target=true, focus=true },
         showCastTarget       = { player=true, target=true, focus=true },
@@ -6369,6 +6448,7 @@ initFrame:SetScript("OnEvent", function(self)
                         d.leftTextSize = src.leftTextSize
                         d.leftTextX, d.leftTextY = src.leftTextX, src.leftTextY
                         d.leftTextWidthPct = src.leftTextWidthPct
+                        d.leftTextFont, d.leftTextOutline = src.leftTextFont, src.leftTextOutline
                     end
                 end
                 ReloadAndUpdate(); EllesmereUI:RefreshPage()
@@ -6392,6 +6472,8 @@ initFrame:SetScript("OnEvent", function(self)
                         if (d.leftTextX or 0) ~= (src.leftTextX or 0) then return false end
                         if (d.leftTextY or 0) ~= (src.leftTextY or 0) then return false end
                         if (d.leftTextWidthPct or 100) ~= (src.leftTextWidthPct or 100) then return false end
+                        if (d.leftTextFont or "__global") ~= (src.leftTextFont or "__global") then return false end
+                        if (d.leftTextOutline or "__global") ~= (src.leftTextOutline or "__global") then return false end
                     end
                     return true
                 end,
@@ -6475,9 +6557,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Cogwheel on Left Text (left region)
         if not EllesmereUI._prebuilding then
             local leftRgn = sharedTextRow._leftRegion
-            local _, leftCogShowRaw = EllesmereUI.BuildCogPopup({
-                title = "Left Text Settings",
-                rows = {
+            local leftCogRows = {
                     { type="slider", label="Size", min=8, max=100, step=1,
                       get=function() return SVal("leftTextSize", SDB().textSize or 12) end,
                       set=function(v) SSet("leftTextSize", v); UpdatePreview() end },
@@ -6525,7 +6605,11 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       disabled=function() return SVal("leftTextContent","name") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected." },
-                                    },
+            }
+            InsertTextFontCogRows(leftCogRows, "leftText", SVal, SSet, UpdatePreview)
+            local _, leftCogShowRaw = EllesmereUI.BuildCogPopup({
+                title = "Left Text Settings",
+                rows = leftCogRows,
             })
             local leftCogShow = leftCogShowRaw
             local leftCogBtn = MakeCogBtn(leftRgn, leftCogShow)
@@ -6559,6 +6643,7 @@ initFrame:SetScript("OnEvent", function(self)
                         d.rightTextSize = src.rightTextSize
                         d.rightTextX, d.rightTextY = src.rightTextX, src.rightTextY
                         d.rightTextWidthPct = src.rightTextWidthPct
+                        d.rightTextFont, d.rightTextOutline = src.rightTextFont, src.rightTextOutline
                     end
                 end
                 ReloadAndUpdate(); EllesmereUI:RefreshPage()
@@ -6582,6 +6667,8 @@ initFrame:SetScript("OnEvent", function(self)
                         if (d.rightTextX or 0) ~= (src.rightTextX or 0) then return false end
                         if (d.rightTextY or 0) ~= (src.rightTextY or 0) then return false end
                         if (d.rightTextWidthPct or 100) ~= (src.rightTextWidthPct or 100) then return false end
+                        if (d.rightTextFont or "__global") ~= (src.rightTextFont or "__global") then return false end
+                        if (d.rightTextOutline or "__global") ~= (src.rightTextOutline or "__global") then return false end
                     end
                     return true
                 end,
@@ -6661,9 +6748,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Cogwheel on Right Text (right region)
         if not EllesmereUI._prebuilding then
             local rightRgn = sharedTextRow._rightRegion
-            local _, rightCogShowRaw = EllesmereUI.BuildCogPopup({
-                title = "Right Text Settings",
-                rows = {
+            local rightCogRows = {
                     { type="slider", label="Size", min=8, max=100, step=1,
                       get=function() return SVal("rightTextSize", SDB().textSize or 12) end,
                       set=function(v) SSet("rightTextSize", v); UpdatePreview() end },
@@ -6711,7 +6796,11 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       disabled=function() return SVal("rightTextContent","both") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected." },
-                                    },
+            }
+            InsertTextFontCogRows(rightCogRows, "rightText", SVal, SSet, UpdatePreview)
+            local _, rightCogShowRaw = EllesmereUI.BuildCogPopup({
+                title = "Right Text Settings",
+                rows = rightCogRows,
             })
             local rightCogShow = rightCogShowRaw
             local rightCogBtn = MakeCogBtn(rightRgn, rightCogShow)
@@ -6761,6 +6850,7 @@ initFrame:SetScript("OnEvent", function(self)
                         d.centerTextSize = src.centerTextSize
                         d.centerTextX, d.centerTextY = src.centerTextX, src.centerTextY
                         d.centerTextWidthPct = src.centerTextWidthPct
+                        d.centerTextFont, d.centerTextOutline = src.centerTextFont, src.centerTextOutline
                     end
                 end
                 ReloadAndUpdate(); EllesmereUI:RefreshPage()
@@ -6784,6 +6874,8 @@ initFrame:SetScript("OnEvent", function(self)
                         if (d.centerTextX or 0) ~= (src.centerTextX or 0) then return false end
                         if (d.centerTextY or 0) ~= (src.centerTextY or 0) then return false end
                         if (d.centerTextWidthPct or 100) ~= (src.centerTextWidthPct or 100) then return false end
+                        if (d.centerTextFont or "__global") ~= (src.centerTextFont or "__global") then return false end
+                        if (d.centerTextOutline or "__global") ~= (src.centerTextOutline or "__global") then return false end
                     end
                     return true
                 end,
@@ -6849,9 +6941,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Cogwheel on Center Text (left region)
         if not EllesmereUI._prebuilding then
             local ctrRgn = sharedCenterTextRow._leftRegion
-            local _, centerCogShowRaw = EllesmereUI.BuildCogPopup({
-                title = "Center Text Settings",
-                rows = {
+            local centerCogRows = {
                     { type="slider", label="Size", min=8, max=100, step=1,
                       get=function() return SVal("centerTextSize", SDB().textSize or 12) end,
                       set=function(v) SSet("centerTextSize", v); UpdatePreview() end },
@@ -6899,7 +6989,11 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       disabled=function() return SVal("centerTextContent","none") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected." },
-                                    },
+            }
+            InsertTextFontCogRows(centerCogRows, "centerText", SVal, SSet, UpdatePreview)
+            local _, centerCogShowRaw = EllesmereUI.BuildCogPopup({
+                title = "Center Text Settings",
+                rows = centerCogRows,
             })
             local centerCogShow = centerCogShowRaw
             local centerCogBtn = MakeCogBtn(ctrRgn, centerCogShow)
@@ -6936,6 +7030,7 @@ initFrame:SetScript("OnEvent", function(self)
                         d.extraTextX, d.extraTextY = src.extraTextX, src.extraTextY
                         d.extraTextAlign = src.extraTextAlign
                         d.extraTextWidthPct = src.extraTextWidthPct
+                        d.extraTextFont, d.extraTextOutline = src.extraTextFont, src.extraTextOutline
                     end
                 end
                 ReloadAndUpdate(); EllesmereUI:RefreshPage()
@@ -6960,6 +7055,8 @@ initFrame:SetScript("OnEvent", function(self)
                         if (d.extraTextY or 0) ~= (src.extraTextY or 0) then return false end
                         if (d.extraTextAlign or "left") ~= (src.extraTextAlign or "left") then return false end
                         if (d.extraTextWidthPct or 100) ~= (src.extraTextWidthPct or 100) then return false end
+                        if (d.extraTextFont or "__global") ~= (src.extraTextFont or "__global") then return false end
+                        if (d.extraTextOutline or "__global") ~= (src.extraTextOutline or "__global") then return false end
                     end
                     return true
                 end,
@@ -7025,9 +7122,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Cogwheel on Extra Text (Center row right region): Alignment + Size/X/Y
         if not EllesmereUI._prebuilding then
             local etrRgn = sharedCenterTextRow._rightRegion
-            local _, extraCogShowRaw = EllesmereUI.BuildCogPopup({
-                title = "Extra Text Settings",
-                rows = {
+            local extraCogRows = {
                     { type="dropdown", label="Alignment",
                       values={ ["left"]="Left", ["right"]="Right", ["center"]="Center" }, order={ "left", "right", "center" },
                       get=function() return SVal("extraTextAlign", "left") end,
@@ -7079,7 +7174,11 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       disabled=function() return SVal("extraTextContent","none") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected." },
-                                    },
+            }
+            InsertTextFontCogRows(extraCogRows, "extraText", SVal, SSet, UpdatePreview)
+            local _, extraCogShowRaw = EllesmereUI.BuildCogPopup({
+                title = "Extra Text Settings",
+                rows = extraCogRows,
             })
             local extraCogShow = extraCogShowRaw
             local extraCogBtn = MakeCogBtn(etrRgn, extraCogShow)
@@ -8573,6 +8672,7 @@ initFrame:SetScript("OnEvent", function(self)
                       get=function() return SValSupported("castSpellNameY", 0) end,
                       set=function(v) SSetSupported("castSpellNameY", v); ReloadAndUpdate(); UpdatePreview() end },
             }
+            InsertTextFontCogRows(snCogRows, "castSpellName", SValSupported, SSetSupported)
             if selectedUnit == "target" or selectedUnit == "focus" then
                 snCogRows[#snCogRows + 1] = { type="toggle", label="Combine Spell Name and Target",
                     tooltip="Appends the cast target to the spell name (Spell Name - Target), class colored, and disables the separate Spell Target display.",
@@ -8612,9 +8712,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline cog on Duration Size: toggle + X/Y offsets
         if not EllesmereUI._prebuilding then
             local dtCogRgn = castTextRow._rightRegion
-            local _, dtCogShowRaw = EllesmereUI.BuildCogPopup({
-                title = "Duration",
-                rows = {
+            local dtCogRows = {
                     { type="slider", label="Size", min=6, max=20, step=1,
                       get=function() return SValSupported("castDurationSize", 10) end,
                       set=function(v) SSetSupported("castDurationSize", v); ReloadAndUpdate(); UpdatePreview() end },
@@ -8624,7 +8722,11 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Y Offset", min=-50, max=50, step=1,
                       get=function() return SValSupported("castDurationY", 0) end,
                       set=function(v) SSetSupported("castDurationY", v); ReloadAndUpdate(); UpdatePreview() end },
-                },
+            }
+            InsertTextFontCogRows(dtCogRows, "castDuration", SValSupported, SSetSupported)
+            local _, dtCogShowRaw = EllesmereUI.BuildCogPopup({
+                title = "Duration",
+                rows = dtCogRows,
             })
             local dtCogBtn = MakeCogBtn(dtCogRgn, dtCogShowRaw)
             dtCogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
@@ -8639,20 +8741,27 @@ initFrame:SetScript("OnEvent", function(self)
                 region  = rgn,
                 tooltip = "Apply Spell Name Size and Color to all Frames",
                 onClick = function()
-                    local v = UNIT_DB_MAP[selectedUnit]().castSpellNameSize or 11
-                    local c = UNIT_DB_MAP[selectedUnit]().castSpellNameColor
+                    local src = UNIT_DB_MAP[selectedUnit]()
+                    local v = src.castSpellNameSize or 11
+                    local c = src.castSpellNameColor
                     for _, key in ipairs(GROUP_UNIT_ORDER) do
-                        UNIT_DB_MAP[key]().castSpellNameSize = v
-                        if c then UNIT_DB_MAP[key]().castSpellNameColor = { r=c.r, g=c.g, b=c.b } end
+                        local d = UNIT_DB_MAP[key]()
+                        d.castSpellNameSize = v
+                        d.castSpellNameFont, d.castSpellNameOutline = src.castSpellNameFont, src.castSpellNameOutline
+                        if c then d.castSpellNameColor = { r=c.r, g=c.g, b=c.b } end
                     end
                     ReloadAndUpdate(); EllesmereUI:RefreshPage()
                 end,
                 isSynced = function()
-                    local v = UNIT_DB_MAP[selectedUnit]().castSpellNameSize or 11
-                    local c = UNIT_DB_MAP[selectedUnit]().castSpellNameColor
+                    local src = UNIT_DB_MAP[selectedUnit]()
+                    local v = src.castSpellNameSize or 11
+                    local c = src.castSpellNameColor
                     for _, key in ipairs(GROUP_UNIT_ORDER) do
-                        if (UNIT_DB_MAP[key]().castSpellNameSize or 11) ~= v then return false end
-                        local kc = UNIT_DB_MAP[key]().castSpellNameColor
+                        local d = UNIT_DB_MAP[key]()
+                        if (d.castSpellNameSize or 11) ~= v then return false end
+                        if (d.castSpellNameFont or "__global") ~= (src.castSpellNameFont or "__global") then return false end
+                        if (d.castSpellNameOutline or "__global") ~= (src.castSpellNameOutline or "__global") then return false end
+                        local kc = d.castSpellNameColor
                         if c and kc then
                             if kc.r ~= c.r or kc.g ~= c.g or kc.b ~= c.b then return false end
                         elseif c ~= kc then return false end
@@ -8665,11 +8774,14 @@ initFrame:SetScript("OnEvent", function(self)
                     elementLabels = SHORT_LABELS,
                     getCurrentKey = function() return selectedUnit end,
                     onApply       = function(checkedKeys)
-                        local v = UNIT_DB_MAP[selectedUnit]().castSpellNameSize or 11
-                        local c = UNIT_DB_MAP[selectedUnit]().castSpellNameColor
+                        local src = UNIT_DB_MAP[selectedUnit]()
+                        local v = src.castSpellNameSize or 11
+                        local c = src.castSpellNameColor
                         for _, key in ipairs(checkedKeys) do
-                            UNIT_DB_MAP[key]().castSpellNameSize = v
-                            if c then UNIT_DB_MAP[key]().castSpellNameColor = { r=c.r, g=c.g, b=c.b } end
+                            local d = UNIT_DB_MAP[key]()
+                            d.castSpellNameSize = v
+                            d.castSpellNameFont, d.castSpellNameOutline = src.castSpellNameFont, src.castSpellNameOutline
+                            if c then d.castSpellNameColor = { r=c.r, g=c.g, b=c.b } end
                         end
                         ReloadAndUpdate(); EllesmereUI:RefreshPage()
                     end,
@@ -8682,20 +8794,27 @@ initFrame:SetScript("OnEvent", function(self)
                 region  = rgn,
                 tooltip = "Apply Duration Size and Color to all Frames",
                 onClick = function()
-                    local v = UNIT_DB_MAP[selectedUnit]().castDurationSize or 10
-                    local c = UNIT_DB_MAP[selectedUnit]().castDurationColor
+                    local src = UNIT_DB_MAP[selectedUnit]()
+                    local v = src.castDurationSize or 10
+                    local c = src.castDurationColor
                     for _, key in ipairs(GROUP_UNIT_ORDER) do
-                        UNIT_DB_MAP[key]().castDurationSize = v
-                        if c then UNIT_DB_MAP[key]().castDurationColor = { r=c.r, g=c.g, b=c.b } end
+                        local d = UNIT_DB_MAP[key]()
+                        d.castDurationSize = v
+                        d.castDurationFont, d.castDurationOutline = src.castDurationFont, src.castDurationOutline
+                        if c then d.castDurationColor = { r=c.r, g=c.g, b=c.b } end
                     end
                     ReloadAndUpdate(); EllesmereUI:RefreshPage()
                 end,
                 isSynced = function()
-                    local v = UNIT_DB_MAP[selectedUnit]().castDurationSize or 10
-                    local c = UNIT_DB_MAP[selectedUnit]().castDurationColor
+                    local src = UNIT_DB_MAP[selectedUnit]()
+                    local v = src.castDurationSize or 10
+                    local c = src.castDurationColor
                     for _, key in ipairs(GROUP_UNIT_ORDER) do
-                        if (UNIT_DB_MAP[key]().castDurationSize or 10) ~= v then return false end
-                        local kc = UNIT_DB_MAP[key]().castDurationColor
+                        local d = UNIT_DB_MAP[key]()
+                        if (d.castDurationSize or 10) ~= v then return false end
+                        if (d.castDurationFont or "__global") ~= (src.castDurationFont or "__global") then return false end
+                        if (d.castDurationOutline or "__global") ~= (src.castDurationOutline or "__global") then return false end
+                        local kc = d.castDurationColor
                         if c and kc then
                             if kc.r ~= c.r or kc.g ~= c.g or kc.b ~= c.b then return false end
                         elseif c ~= kc then return false end
@@ -8708,11 +8827,14 @@ initFrame:SetScript("OnEvent", function(self)
                     elementLabels = SHORT_LABELS,
                     getCurrentKey = function() return selectedUnit end,
                     onApply       = function(checkedKeys)
-                        local v = UNIT_DB_MAP[selectedUnit]().castDurationSize or 10
-                        local c = UNIT_DB_MAP[selectedUnit]().castDurationColor
+                        local src = UNIT_DB_MAP[selectedUnit]()
+                        local v = src.castDurationSize or 10
+                        local c = src.castDurationColor
                         for _, key in ipairs(checkedKeys) do
-                            UNIT_DB_MAP[key]().castDurationSize = v
-                            if c then UNIT_DB_MAP[key]().castDurationColor = { r=c.r, g=c.g, b=c.b } end
+                            local d = UNIT_DB_MAP[key]()
+                            d.castDurationSize = v
+                            d.castDurationFont, d.castDurationOutline = src.castDurationFont, src.castDurationOutline
+                            if c then d.castDurationColor = { r=c.r, g=c.g, b=c.b } end
                         end
                         ReloadAndUpdate(); EllesmereUI:RefreshPage()
                     end,
@@ -8769,9 +8891,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline cog on Spell Target Size: toggle + X/Y offsets
         if not EllesmereUI._prebuilding then
             local tgCogRgn = castTargetRow._leftRegion
-            local _, tgCogShowRaw = EllesmereUI.BuildCogPopup({
-                title = "Spell Target",
-                rows = {
+            local tgCogRows = {
                     { type="slider", label="Size", min=6, max=20, step=1,
                       get=function() return SValSupported("castSpellTargetSize", 10) end,
                       set=function(v) SSetSupported("castSpellTargetSize", v); ReloadAndUpdate(); UpdatePreview() end },
@@ -8781,7 +8901,11 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Y Offset", min=-50, max=50, step=1,
                       get=function() return SValSupported("castSpellTargetY", 0) end,
                       set=function(v) SSetSupported("castSpellTargetY", v); ReloadAndUpdate(); UpdatePreview() end },
-                },
+            }
+            InsertTextFontCogRows(tgCogRows, "castSpellTarget", SValSupported, SSetSupported)
+            local _, tgCogShowRaw = EllesmereUI.BuildCogPopup({
+                title = "Spell Target",
+                rows = tgCogRows,
             })
             local tgCogBtn = MakeCogBtn(tgCogRgn, tgCogShowRaw)
             tgCogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
@@ -8796,20 +8920,27 @@ initFrame:SetScript("OnEvent", function(self)
                 region  = rgn,
                 tooltip = "Apply Spell Target Size and Color to all Frames",
                 onClick = function()
-                    local v = UNIT_DB_MAP[selectedUnit]().castSpellTargetSize or 11
-                    local c = UNIT_DB_MAP[selectedUnit]().castSpellTargetColor
+                    local src = UNIT_DB_MAP[selectedUnit]()
+                    local v = src.castSpellTargetSize or 11
+                    local c = src.castSpellTargetColor
                     for _, key in ipairs(GROUP_UNIT_ORDER) do
-                        UNIT_DB_MAP[key]().castSpellTargetSize = v
-                        if c then UNIT_DB_MAP[key]().castSpellTargetColor = { r=c.r, g=c.g, b=c.b } end
+                        local d = UNIT_DB_MAP[key]()
+                        d.castSpellTargetSize = v
+                        d.castSpellTargetFont, d.castSpellTargetOutline = src.castSpellTargetFont, src.castSpellTargetOutline
+                        if c then d.castSpellTargetColor = { r=c.r, g=c.g, b=c.b } end
                     end
                     ReloadAndUpdate(); EllesmereUI:RefreshPage()
                 end,
                 isSynced = function()
-                    local v = UNIT_DB_MAP[selectedUnit]().castSpellTargetSize or 11
-                    local c = UNIT_DB_MAP[selectedUnit]().castSpellTargetColor
+                    local src = UNIT_DB_MAP[selectedUnit]()
+                    local v = src.castSpellTargetSize or 11
+                    local c = src.castSpellTargetColor
                     for _, key in ipairs(GROUP_UNIT_ORDER) do
-                        if (UNIT_DB_MAP[key]().castSpellTargetSize or 11) ~= v then return false end
-                        local kc = UNIT_DB_MAP[key]().castSpellTargetColor
+                        local d = UNIT_DB_MAP[key]()
+                        if (d.castSpellTargetSize or 11) ~= v then return false end
+                        if (d.castSpellTargetFont or "__global") ~= (src.castSpellTargetFont or "__global") then return false end
+                        if (d.castSpellTargetOutline or "__global") ~= (src.castSpellTargetOutline or "__global") then return false end
+                        local kc = d.castSpellTargetColor
                         if c and kc then
                             if kc.r ~= c.r or kc.g ~= c.g or kc.b ~= c.b then return false end
                         elseif c ~= kc then return false end
@@ -8822,11 +8953,14 @@ initFrame:SetScript("OnEvent", function(self)
                     elementLabels = SHORT_LABELS,
                     getCurrentKey = function() return selectedUnit end,
                     onApply       = function(checkedKeys)
-                        local v = UNIT_DB_MAP[selectedUnit]().castSpellTargetSize or 11
-                        local c = UNIT_DB_MAP[selectedUnit]().castSpellTargetColor
+                        local src = UNIT_DB_MAP[selectedUnit]()
+                        local v = src.castSpellTargetSize or 11
+                        local c = src.castSpellTargetColor
                         for _, key in ipairs(checkedKeys) do
-                            UNIT_DB_MAP[key]().castSpellTargetSize = v
-                            if c then UNIT_DB_MAP[key]().castSpellTargetColor = { r=c.r, g=c.g, b=c.b } end
+                            local d = UNIT_DB_MAP[key]()
+                            d.castSpellTargetSize = v
+                            d.castSpellTargetFont, d.castSpellTargetOutline = src.castSpellTargetFont, src.castSpellTargetOutline
+                            if c then d.castSpellTargetColor = { r=c.r, g=c.g, b=c.b } end
                         end
                         ReloadAndUpdate(); EllesmereUI:RefreshPage()
                     end,
@@ -9213,9 +9347,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Cogwheel on BTB Left Text
         if not EllesmereUI._prebuilding then
             local btbLRgn = sharedBtbTextRow._leftRegion
-            local _, btbLeftCogShowRaw = EllesmereUI.BuildCogPopup({
-                title = "BTB Left Text Settings",
-                rows = {
+            local btbLeftCogRows = {
                     { type="slider", label="Size", min=8, max=100, step=1,
                       get=function() return SVal("btbLeftSize", 11) end,
                       set=function(v) SSet("btbLeftSize", v); UpdatePreview() end },
@@ -9263,7 +9395,11 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       disabled=function() return SVal("btbLeftContent","none") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected." },
-                                    },
+            }
+            InsertTextFontCogRows(btbLeftCogRows, "btbLeft", SVal, SSet, UpdatePreview)
+            local _, btbLeftCogShowRaw = EllesmereUI.BuildCogPopup({
+                title = "BTB Left Text Settings",
+                rows = btbLeftCogRows,
             })
             local btbLeftCogShow = btbLeftCogShowRaw
             local btbLCogBtn = MakeCogBtn(btbLRgn, btbLeftCogShow)
@@ -9365,9 +9501,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Cogwheel on BTB Right Text
         if not EllesmereUI._prebuilding then
             local btbRRgn = sharedBtbTextRow._rightRegion
-            local _, btbRightCogShowRaw = EllesmereUI.BuildCogPopup({
-                title = "BTB Right Text Settings",
-                rows = {
+            local btbRightCogRows = {
                     { type="slider", label="Size", min=8, max=100, step=1,
                       get=function() return SVal("btbRightSize", 11) end,
                       set=function(v) SSet("btbRightSize", v); UpdatePreview() end },
@@ -9415,7 +9549,11 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       disabled=function() return SVal("btbRightContent","none") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected." },
-                                    },
+            }
+            InsertTextFontCogRows(btbRightCogRows, "btbRight", SVal, SSet, UpdatePreview)
+            local _, btbRightCogShowRaw = EllesmereUI.BuildCogPopup({
+                title = "BTB Right Text Settings",
+                rows = btbRightCogRows,
             })
             local btbRightCogShow = btbRightCogShowRaw
             local btbRCogBtn = MakeCogBtn(btbRRgn, btbRightCogShow)
@@ -9598,9 +9736,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Cogwheel on BTB Center Text
         if not EllesmereUI._prebuilding then
             local btbCRgn = sharedBtbCenterRow._leftRegion
-            local _, btbCenterCogShowRaw = EllesmereUI.BuildCogPopup({
-                title = "BTB Center Text Settings",
-                rows = {
+            local btbCenterCogRows = {
                     { type="slider", label="Size", min=8, max=100, step=1,
                       get=function() return SVal("btbCenterSize", 11) end,
                       set=function(v) SSet("btbCenterSize", v); UpdatePreview() end },
@@ -9648,7 +9784,11 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       disabled=function() return SVal("btbCenterContent","none") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected." },
-                                    },
+            }
+            InsertTextFontCogRows(btbCenterCogRows, "btbCenter", SVal, SSet, UpdatePreview)
+            local _, btbCenterCogShowRaw = EllesmereUI.BuildCogPopup({
+                title = "BTB Center Text Settings",
+                rows = btbCenterCogRows,
             })
             local btbCenterCogShow = btbCenterCogShowRaw
             local btbCCogBtn = MakeCogBtn(btbCRgn, btbCenterCogShow)
@@ -13200,9 +13340,7 @@ initFrame:SetScript("OnEvent", function(self)
             RegisterWidgetRefresh(function() swUp(); classSwUp(); UpdSwatches() end)
             UpdSwatches()
 
-            local _, cogShowFn = EllesmereUI.BuildCogPopup({
-                title = "Left Text Settings",
-                rows = {
+            local mLeftCogRows = {
                     { type="slider", label="Size", min=8, max=100, step=1,
                       get=function() return MVal("leftTextSize", settingsTable.textSize or 12) end,
                       set=function(v) MSet("leftTextSize", v) end },
@@ -13250,7 +13388,11 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       disabled=function() return MVal("leftTextContent","name") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected." },
-                                    },
+            }
+            InsertTextFontCogRows(mLeftCogRows, "leftText", MVal, MSet)
+            local _, cogShowFn = EllesmereUI.BuildCogPopup({
+                title = "Left Text Settings",
+                rows = mLeftCogRows,
             })
             local cogBtn = MCogBtn(rgn, cogShowFn)
             local function UpdCog()
@@ -13314,9 +13456,7 @@ initFrame:SetScript("OnEvent", function(self)
             RegisterWidgetRefresh(function() swUp(); classSwUp(); UpdSwatches() end)
             UpdSwatches()
 
-            local _, cogShowFn = EllesmereUI.BuildCogPopup({
-                title = "Right Text Settings",
-                rows = {
+            local mRightCogRows = {
                     { type="slider", label="Size", min=8, max=100, step=1,
                       get=function() return MVal("rightTextSize", settingsTable.textSize or 12) end,
                       set=function(v) MSet("rightTextSize", v) end },
@@ -13364,7 +13504,11 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       disabled=function() return MVal("rightTextContent","none") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected." },
-                                    },
+            }
+            InsertTextFontCogRows(mRightCogRows, "rightText", MVal, MSet)
+            local _, cogShowFn = EllesmereUI.BuildCogPopup({
+                title = "Right Text Settings",
+                rows = mRightCogRows,
             })
             local cogBtn = MCogBtn(rgn, cogShowFn)
             local function UpdCog()
@@ -13447,9 +13591,7 @@ initFrame:SetScript("OnEvent", function(self)
             RegisterWidgetRefresh(function() swUp(); classSwUp(); UpdSwatches() end)
             UpdSwatches()
 
-            local _, cogShowFn = EllesmereUI.BuildCogPopup({
-                title = "Center Text Settings",
-                rows = {
+            local mCenterCogRows = {
                     { type="slider", label="Size", min=8, max=100, step=1,
                       get=function() return MVal("centerTextSize", settingsTable.textSize or 12) end,
                       set=function(v) MSet("centerTextSize", v) end },
@@ -13497,7 +13639,11 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       disabled=function() return MVal("centerTextContent","none") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected." },
-                                    },
+            }
+            InsertTextFontCogRows(mCenterCogRows, "centerText", MVal, MSet)
+            local _, cogShowFn = EllesmereUI.BuildCogPopup({
+                title = "Center Text Settings",
+                rows = mCenterCogRows,
             })
             local cogBtn = MCogBtn(rgn, cogShowFn)
             local function UpdCog()
@@ -13564,9 +13710,7 @@ initFrame:SetScript("OnEvent", function(self)
             RegisterWidgetRefresh(function() swUp(); classSwUp(); UpdSwatches() end)
             UpdSwatches()
 
-            local _, cogShowFn = EllesmereUI.BuildCogPopup({
-                title = "Extra Text Settings",
-                rows = {
+            local mExtraCogRows = {
                     { type="dropdown", label="Alignment",
                       values={ ["left"]="Left", ["right"]="Right", ["center"]="Center" }, order={ "left", "right", "center" },
                       get=function() return MVal("extraTextAlign", "left") end,
@@ -13618,7 +13762,11 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       disabled=function() return MVal("extraTextContent","none") ~= "nametotarget" end,
                       disabledTooltip="Only applies when Name > Target is selected." },
-                                    },
+            }
+            InsertTextFontCogRows(mExtraCogRows, "extraText", MVal, MSet)
+            local _, cogShowFn = EllesmereUI.BuildCogPopup({
+                title = "Extra Text Settings",
+                rows = mExtraCogRows,
             })
             local cogBtn = MCogBtn(rgn, cogShowFn)
             local function UpdCog()
@@ -15240,16 +15388,24 @@ initFrame:SetScript("OnEvent", function(self)
             -- runtime and preview already consume (castSpellTargetX/Y ->
             -- _tgtOX/_tgtOY in the cast text zone layout).
             if not EllesmereUI._prebuilding then
-                local _, bossTgtCogShow = EllesmereUI.BuildCogPopup({
-                    title = "Spell Target",
-                    rows = {
+                local bossTgtCogRows = {
                         { type="slider", label="X Offset", min=-300, max=300, step=1,
                           get=function() return db.profile.boss.castSpellTargetX or 0 end,
                           set=function(v) db.profile.boss.castSpellTargetX = v; ReloadAndUpdate() end },
                         { type="slider", label="Y Offset", min=-300, max=300, step=1,
                           get=function() return db.profile.boss.castSpellTargetY or 0 end,
                           set=function(v) db.profile.boss.castSpellTargetY = v; ReloadAndUpdate() end },
-                    },
+                }
+                InsertTextFontCogRows(bossTgtCogRows, "castSpellTarget",
+                    function(key, default)
+                        local v = db.profile.boss[key]
+                        if v ~= nil then return v end
+                        return default
+                    end,
+                    function(key, val) db.profile.boss[key] = val; ReloadAndUpdate() end)
+                local _, bossTgtCogShow = EllesmereUI.BuildCogPopup({
+                    title = "Spell Target",
+                    rows = bossTgtCogRows,
                 })
                 ICogBtn(bossTgtRow._rightRegion, bossTgtCogShow)
             end
@@ -15534,9 +15690,7 @@ initFrame:SetScript("OnEvent", function(self)
                     function(r, g, b) B.castSpellNameColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
                 sw:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
                 rgn._lastInline = sw
-                local _, cogShow = EllesmereUI.BuildCogPopup({
-                    title = "Spell Name",
-                    rows = {
+                local snCogRows = {
                         { type="slider", label="Size", min=6, max=20, step=1,
                           get=function() return B.castSpellNameSize or 11 end,
                           set=function(v) B.castSpellNameSize = v; ReloadAndUpdate() end },
@@ -15546,7 +15700,13 @@ initFrame:SetScript("OnEvent", function(self)
                         { type="slider", label="Y Offset", min=-50, max=50, step=1,
                           get=function() return B.castSpellNameY or 0 end,
                           set=function(v) B.castSpellNameY = v; ReloadAndUpdate() end },
-                    },
+                }
+                InsertTextFontCogRows(snCogRows, "castSpellName",
+                    function(key, default) local v = B[key]; if v ~= nil then return v end; return default end,
+                    function(key, val) B[key] = val; ReloadAndUpdate() end)
+                local _, cogShow = EllesmereUI.BuildCogPopup({
+                    title = "Spell Name",
+                    rows = snCogRows,
                 })
                 CCogBtn(rgn, cogShow)
             end
@@ -15558,9 +15718,7 @@ initFrame:SetScript("OnEvent", function(self)
                     function(r, g, b) B.castDurationColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
                 sw:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
                 rgn._lastInline = sw
-                local _, cogShow = EllesmereUI.BuildCogPopup({
-                    title = "Duration",
-                    rows = {
+                local dtCogRows = {
                         { type="slider", label="Size", min=6, max=20, step=1,
                           get=function() return B.castDurationSize or 10 end,
                           set=function(v) B.castDurationSize = v; ReloadAndUpdate() end },
@@ -15570,7 +15728,13 @@ initFrame:SetScript("OnEvent", function(self)
                         { type="slider", label="Y Offset", min=-50, max=50, step=1,
                           get=function() return B.castDurationY or 0 end,
                           set=function(v) B.castDurationY = v; ReloadAndUpdate() end },
-                    },
+                }
+                InsertTextFontCogRows(dtCogRows, "castDuration",
+                    function(key, default) local v = B[key]; if v ~= nil then return v end; return default end,
+                    function(key, val) B[key] = val; ReloadAndUpdate() end)
+                local _, cogShow = EllesmereUI.BuildCogPopup({
+                    title = "Duration",
+                    rows = dtCogRows,
                 })
                 CCogBtn(rgn, cogShow)
             end
