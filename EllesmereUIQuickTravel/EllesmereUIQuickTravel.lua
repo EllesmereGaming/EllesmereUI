@@ -8,10 +8,12 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --   - Every spell/item/toy id is a static integer from HEARTH_TELEPORT_DATA or
 --     EllesmereUI.SEASON_PORTALS. Never read LFG or other secret fields.
 --   - SecureActionButtonTemplate rows are pooled once on first enable (OOC).
---     SetAttribute runs only out of combat; combat toggles Show/Hide on the
---     unprotected shell using the last layout.
+--     SetAttribute runs only out of combat; the last OOC layout is what
+--     stays on the unprotected shell.
 --   - Cooldown reads skip in protected instances.
---   - popup:Hide() is deferred while in combat (secure children).
+--   - Lua cannot Show() or Hide() the popup in combat (secure children).
+--     A companion SecureHandlerStateTemplate hides the shell and flyouts
+--     on combat entry. Lua Hide() is still deferred if it runs in lockdown.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
@@ -55,6 +57,7 @@ local dungeonTab = "current"
 local pendingLayout
 local db
 local pendingHide
+local combatHider
 local ev
 
 local DB_DEFAULTS = {
@@ -477,7 +480,18 @@ end
 local function HideAllFlyouts()
     if not flyouts then return end
     for _, f in ipairs(flyouts) do
-        f:Hide()
+        if f:IsShown() then
+            f:Hide()
+        end
+    end
+end
+
+local function SetCombatHiderEnabled(on)
+    if not combatHider or InCombatLockdown() then return end
+    if on then
+        RegisterStateDriver(combatHider, "euiqtcombat", "[combat] combat; nocombat")
+    else
+        UnregisterStateDriver(combatHider, "euiqtcombat")
     end
 end
 
@@ -1224,12 +1238,33 @@ local function BuildPopupShell()
         end
     end)
     popup:SetScript("OnHide", function()
+        pendingHide = nil
         ev:UnregisterEvent("SPELL_UPDATE_COOLDOWN")
         ev:UnregisterEvent("BAG_UPDATE_COOLDOWN")
         HideAllFlyouts()
     end)
 
     CreateRowPool()
+    combatHider = CreateFrame("Frame", nil, UIParent, "SecureHandlerStateTemplate")
+    combatHider:Hide()
+    combatHider:SetFrameRef("popup", popup)
+    for i, f in ipairs(flyouts) do
+        combatHider:SetFrameRef("flyout" .. i, f)
+    end
+    combatHider:SetAttribute("_onstate-euiqtcombat", [[
+        if newstate == "combat" then
+            local p = self:GetFrameRef("popup")
+            if p then p:Hide() end
+            local i = 1
+            while true do
+                local f = self:GetFrameRef("flyout" .. i)
+                if not f then break end
+                f:Hide()
+                i = i + 1
+            end
+        end
+    ]])
+    SetCombatHiderEnabled(true)
     ApplySavedPosition()
     popup:Hide()
 end
@@ -1336,9 +1371,11 @@ ApplyHearthTeleport = function()
         BuildToggleButton()
         ApplyToggleKeybind()
         EnsureTeleportPromptHook()
+        SetCombatHiderEnabled(true)
     else
         HidePopup()
         if toggleBtn then ClearOverrideBindings(toggleBtn) end
+        SetCombatHiderEnabled(false)
     end
     SyncEvents()
     if popup and popup:IsShown() and not InCombatLockdown() then BuildAll() end
