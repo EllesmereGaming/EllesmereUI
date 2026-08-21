@@ -36,10 +36,10 @@ EUI_QoL_AutoLogging_Options.lua
 EUI_QoL_Shifter_Options.lua
 EUI_QoL_MovementAlert_Options.lua
 EUI_QoL_RaidTools_Options.lua
-EUI_QoL_HearthTeleport_Options.lua
 EUI_UpgradeCalc_Options.lua
 EUI_QuestTracker_Options.lua
 EUI_Quickdraw_Options.lua
+EUI_QuickTravel_Options.lua
 EUI_RaidFrames_ManagerPages.lua
 EUI_RaidFrames_Options.lua
 EUI_ResourceBars_Options.lua

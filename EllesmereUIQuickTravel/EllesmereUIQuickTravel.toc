@@ -1,0 +1,16 @@
+## Interface: 120000, 120001, 120005, 120007, 120100
+## Title: |cff0cd29fEllesmereUI|r Quick Travel
+## Category: |cff0cd29fEllesmere|rUI
+## Group: EllesmereUI
+## Notes: Hearthstones, class and racial travel, mage teleports and portals, and Hero's Path dungeon teleports.
+## Author: Ellesmere
+## Version: 8.9.7
+## Dependencies: EllesmereUI
+## SavedVariables: EllesmereUIQuickTravelDB
+## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
+
+# Main Lua
+EllesmereUIQuickTravel_Data.lua
+EllesmereUIQuickTravel.lua
+
+# Options page lives in the LoadOnDemand EllesmereUIOptions addon.

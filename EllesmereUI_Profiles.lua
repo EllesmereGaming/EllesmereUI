@@ -80,6 +80,7 @@ local ADDON_DB_MAP = {
     { folder = "EllesmereUIChat",             display = "Chat",                svName = "EllesmereUIChatDB",              suffix = "Chat"              },
     { folder = "EllesmereUIDataBars",         display = "DataBars",            svName = "EllesmereUIDataBarsDB",          suffix = "DataBars"          },
     { folder = "EllesmereUIQuickdraw",        display = "Quickdraw",           svName = "EllesmereUIQuickdrawDB",         suffix = "Quickdraw"         },
+    { folder = "EllesmereUIQuickTravel",      display = "Quick Travel",        svName = "EllesmereUIQuickTravelDB",       suffix = "QuickTravel"       },
 }
 EllesmereUI._ADDON_DB_MAP = ADDON_DB_MAP
 
@@ -1405,9 +1406,10 @@ local REFRESH_ADDON_STEPS = {
     -- DataBars (bar set + blocks + layout + positions are all per-profile)
     function() if _G._EDB_Apply then _G._EDB_Apply() end end,
     -- Quickdraw (enable state + palette count drive the override bindings),
-    -- Dragon Riding HUD, Minimap (flyout button state)
+    -- Quick Travel (enable state + keybind), Dragon Riding HUD, Minimap (flyout button state)
     function()
         if _G._EQD_Apply then _G._EQD_Apply() end
+        if _G._EUI_ApplyHearthTeleport then _G._EUI_ApplyHearthTeleport() end
         if _G._EDR_Rebuild then _G._EDR_Rebuild() end
         if _G._EMIN_RefreshFlyout then _G._EMIN_RefreshFlyout() end
     end,

@@ -1087,6 +1087,7 @@ local TILE_BUILDERS = {
     EllesmereUIBags              = { TileBags,             "Item count, item level, category and label text" },
     EllesmereUIDataBars          = { TileDataBars,         "Per-bar text scale" },
     EllesmereUIQuickdraw         = { TileFontOnly,         "Font face and outline only" },
+    EllesmereUIQuickTravel       = { TileFontOnly,         "Font face and outline only" },
 }
 
 local function BuildTileList()

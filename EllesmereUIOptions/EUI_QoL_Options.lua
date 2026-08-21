@@ -17,10 +17,6 @@ local PAGE_UPGCALC  = "Upgrader"
 local PAGE_SHIFTER  = "Shifter"
 local PAGE_MOVEMENT = "MoveAlert"
 local PAGE_RAIDTOOLS = "Raid Tools"
-local PAGE_HEARTHTELEPORT = "Hearthstone / Teleport"
-
-EllesmereUI.TAB_LABEL_OVERRIDES = EllesmereUI.TAB_LABEL_OVERRIDES or {}
-EllesmereUI.TAB_LABEL_OVERRIDES[PAGE_HEARTHTELEPORT] = "Travel"
 
 -------------------------------------------------------------------------------
 --  Hide Item Transforms picker popup
@@ -2759,8 +2755,8 @@ initFrame:SetScript("OnEvent", function(self)
     EllesmereUI:RegisterModule("EllesmereUIQoL", {
         title       = "Quality of Life",
         description = "Quality of life features and custom cursor.",
-        pages       = { PAGE_QOL, PAGE_RAIDTOOLS, PAGE_HEARTHTELEPORT, PAGE_CURSOR, PAGE_SHIFTER, PAGE_MOVEMENT, PAGE_UPGCALC },
-        searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "upgrade", "ilvl", "item level", "crest", "upgrade calculator", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "target distance", "distance to target", "range text", "yard", "yards", "movement", "mobility", "gap closer", "blink", "gateway", "warlock gateway", "control shard", "time spiral", "free movement", "raid tools", "raid", "pull timer", "pull", "ready check", "role check", "raid marker", "target marker", "world marker", "flare", "disband", "convert to raid", "countdown", "hearth", "hearthstone", "teleport", "portal", "porter", "mage", "vulpera", "camp", "racial", "seasonal", "keystone", "eht", "hearth teleport" },
+        pages       = { PAGE_QOL, PAGE_RAIDTOOLS, PAGE_CURSOR, PAGE_SHIFTER, PAGE_MOVEMENT, PAGE_UPGCALC },
+        searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "upgrade", "ilvl", "item level", "crest", "upgrade calculator", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "target distance", "distance to target", "range text", "yard", "yards", "movement", "mobility", "gap closer", "blink", "gateway", "warlock gateway", "control shard", "time spiral", "free movement", "raid tools", "raid", "pull timer", "pull", "ready check", "role check", "raid marker", "target marker", "world marker", "flare", "disband", "convert to raid", "countdown" },
         buildPage   = function(pageName, parent, yOffset)
             -- The Raid Tools settings preview ends when any OTHER QoL page
             -- builds (the CDM tracking-bars placeholder arrangement); window
@@ -2787,9 +2783,6 @@ initFrame:SetScript("OnEvent", function(self)
             end
             if pageName == PAGE_RAIDTOOLS and _G._EUI_BuildRaidToolsPage then
                 return _G._EUI_BuildRaidToolsPage(pageName, parent, yOffset)
-            end
-            if pageName == PAGE_HEARTHTELEPORT and _G._EUI_BuildHearthTeleportPage then
-                return _G._EUI_BuildHearthTeleportPage(pageName, parent, yOffset)
             end
         end,
         -- Cached pages are restored WITHOUT a rebuild, so buildPage never runs
@@ -2863,12 +2856,6 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 EllesmereUIDB.hideTransforms = false
                 EllesmereUIDB.hideTransformItems = nil
-                EllesmereUIDB.hearthTeleport = nil
-                local getHT = _G._EUI_HearthTeleport_DB
-                if getHT then
-                    local root = getHT()
-                    if root and root.profile then root.profile.hearthTeleport = nil end
-                end
             end
             EllesmereUIDB.autoLogging = nil
             if _G._EUI_ResetUpgradeCalc then _G._EUI_ResetUpgradeCalc() end
@@ -2886,7 +2873,6 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._applyAutoOpenContainers then EllesmereUI._applyAutoOpenContainers() end
             if EllesmereUI._ShutdownShifter then EllesmereUI._ShutdownShifter() end
             if _G._EUI_AutoLogging_Check then _G._EUI_AutoLogging_Check() end
-            if _G._EUI_ApplyHearthTeleport then _G._EUI_ApplyHearthTeleport() end
             EllesmereUI:InvalidatePageCache()
         end,
         -- Tears down Duration Warning, Raid Tools, and Movement Alert

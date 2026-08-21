@@ -74,6 +74,7 @@ local FOLDER_BLACKLIST = {
     EllesmereUIFriends           = true,
     EllesmereUIBags              = true,
     EllesmereUIQoL               = true,
+    EllesmereUIQuickTravel       = true,
     EllesmereUIAuraBuffReminders = true,
     -- Minimap + Chat + CooldownManager ARE override-eligible; their
     -- spell/engine-coupled settings are excluded per-path via
@@ -100,6 +101,7 @@ local REFRESH_FNS = {
     EllesmereUIDamageMeters      = { "_EDM_Apply" },
     EllesmereUIDataBars          = { "_EDB_Apply" },
     EllesmereUIQuickdraw         = { "_EQD_Apply" },
+    EllesmereUIQuickTravel       = { "_EUI_ApplyHearthTeleport" },
     EllesmereUIAuraBuffReminders = { "_EABR_RequestRefresh", "_EABR_ApplyUnlockPos" },
     -- Capture/apply-blacklisted (see FOLDER_BLACKLIST); insurance so a leaked
     -- key can never hit the unmapped-folder fallback's full RefreshAllAddons.
@@ -3103,6 +3105,7 @@ local EXCLUDED_CONTEXTS = {
     ["EllesmereUIFriends"]           = true,
     ["EllesmereUIBags"]              = true,
     ["EllesmereUIQoL"]               = true,   -- whole module
+    ["EllesmereUIQuickTravel"]       = true,   -- whole module
     ["EllesmereUIAuraBuffReminders"] = true,
     -- CDM: module eligible (bar settings override); these two tabs are
     -- spell/spec-coupled systems with their own per-spec storage.

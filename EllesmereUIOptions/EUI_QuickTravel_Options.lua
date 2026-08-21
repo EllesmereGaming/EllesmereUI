@@ -1,14 +1,19 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
---  EUI_QoL_HearthTeleport_Options.lua
---  Hearthstone / Teleport page for the QoL module.
+--  EUI_QuickTravel_Options.lua
+--  Quick Travel sidebar addon: hearthstones, class/racial travel, mage
+--  teleports and portals, and Hero's Path dungeon/raid teleports.
 -------------------------------------------------------------------------------
-if not EllesmereUI._ModuleNS["EllesmereUIQoL"] then return end
+local ADDON_NAME = "EllesmereUIQuickTravel"
+local ns = EllesmereUI._ModuleNS[ADDON_NAME]
+if not ns then return end  -- module disabled: no options page
+
+local PAGE_DISPLAY = "Quick Travel"
 
 local function DB()
     local get = _G._EUI_HearthTeleport_DB
     local root = get and get()
-    return root and root.profile and root.profile.hearthTeleport
+    return root and root.profile
 end
 
 local function Set(key, val)
@@ -86,7 +91,7 @@ local function BuildRandomPoolItems()
     return out
 end
 
-_G._EUI_BuildHearthTeleportPage = function(pageName, parent, yOffset)
+local function BuildPage(pageName, parent, yOffset)
     local W  = EllesmereUI.Widgets
     local PP = EllesmereUI.PanelPP
     local y  = yOffset
@@ -94,11 +99,11 @@ _G._EUI_BuildHearthTeleportPage = function(pageName, parent, yOffset)
 
     parent._showRowDivider = true
 
-    _, h = W:SectionHeader(parent, "HEARTHSTONE / TELEPORT", y); y = y - h
+    _, h = W:SectionHeader(parent, "QUICK TRAVEL", y); y = y - h
 
     local kbRow
     kbRow, h = W:DualRow(parent, y,
-        { type = "toggle", text = "Enable Hearthstone / Teleport",
+        { type = "toggle", text = "Enable Quick Travel",
           tooltip = "Shows a popup with hearthstones, class and racial travel, mage teleports and portals, and Hero's Path dungeon teleports. Use /eht or /euihearth, or bind a key below.",
           getValue = function() local c = DB(); return c and c.enabled == true end,
           setValue = EllesmereUI.DependentSetValue(
@@ -108,7 +113,7 @@ _G._EUI_BuildHearthTeleportPage = function(pageName, parent, yOffset)
                   Apply()
                   EllesmereUI:RefreshPage()
               end) },
-        { type = "label", text = "Toggle Hearthstone / Teleport" }
+        { type = "label", text = "Toggle Quick Travel" }
     ); y = y - h
 
     if not EllesmereUI._prebuilding then
@@ -195,12 +200,12 @@ _G._EUI_BuildHearthTeleportPage = function(pageName, parent, yOffset)
 
         kbBtn:SetScript("OnEnter", function(self)
             if Disabled() then
-                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("Enable Hearthstone / Teleport"))
+                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("Enable Quick Travel"))
                 return
             end
             kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
             if kbBtn._border and kbBtn._border.SetColor then kbBtn._border:SetColor(1, 1, 1, 0.3) end
-            EllesmereUI.ShowWidgetTooltip(self, "Toggles the Hearthstone / Teleport window.\n\nLeft-click to set a keybind.\nRight-click to unbind.")
+            EllesmereUI.ShowWidgetTooltip(self, "Toggles the Quick Travel window. You can also type /eht or /euihearth in chat or a macro.\n\nLeft-click to set a keybind.\nRight-click to unbind.")
         end)
         kbBtn:SetScript("OnLeave", function()
             if listening then return end
@@ -216,7 +221,7 @@ _G._EUI_BuildHearthTeleportPage = function(pageName, parent, yOffset)
         RefreshKbState()
         EllesmereUI.RegisterWidgetRefresh(RefreshKbState)
         EllesmereUI.AddCaptureAccessor(rgn, {
-            type = "keybind", text = "Toggle Hearthstone / Teleport",
+            type = "keybind", text = "Toggle Quick Travel",
             getValue = function() local c = DB(); return c and c.toggleKey end,
             setValue = function(v) Set("toggleKey", v); Apply(); RefreshLabel() end,
         })
@@ -226,7 +231,7 @@ _G._EUI_BuildHearthTeleportPage = function(pageName, parent, yOffset)
         _, h = W:DualRow(parent, y,
             { type = "slider", text = "Window Scale",
               min = 50, max = 150, step = 5,
-              tooltip = "Scale of the Hearthstone / Teleport popup.",
+              tooltip = "Scale of the Quick Travel popup.",
               getValue = function()
                   local c = DB()
                   return math.floor(((c and c.scale) or 1.05) * 100 + 0.5)
@@ -250,7 +255,7 @@ _G._EUI_BuildHearthTeleportPage = function(pageName, parent, yOffset)
     hsRow, h = W:DualRow(parent, y,
         { type = "toggle", text = "Hearthstones",
           disabled = Disabled,
-          disabledTooltip = "Enable Hearthstone / Teleport",
+          disabledTooltip = "Enable Quick Travel",
           tooltip = "Show hearthstones, random hearth, Dalaran / Arcantina, and owned cosmetic toys.",
           getValue = function() return ShowOn("hearthstones") end,
           setValue = function(v)
@@ -445,3 +450,44 @@ _G._EUI_BuildHearthTeleportPage = function(pageName, parent, yOffset)
 
     return math.abs(y - yOffset)
 end
+
+local initFrame = CreateFrame("Frame")
+initFrame:RegisterEvent("PLAYER_LOGIN")
+initFrame:SetScript("OnEvent", function()
+    SLASH_EUIQUICKTRAVEL1 = "/eqt"
+    SLASH_EUIQUICKTRAVEL2 = "/quicktravel"
+    SlashCmdList.EUIQUICKTRAVEL = function()
+        if InCombatLockdown and InCombatLockdown() then
+            print("Cannot open options in combat")
+            return
+        end
+        EllesmereUI:ShowModule("EllesmereUIQuickTravel")
+    end
+
+    EllesmereUI:RegisterModule("EllesmereUIQuickTravel", {
+        title       = "Quick Travel",
+        description = "Hearthstones, class and racial travel, mage teleports and portals, and Hero's Path dungeon teleports.",
+        pages       = { PAGE_DISPLAY },
+        searchTerms = { "hearth", "hearthstone", "teleport", "portal", "porter", "mage", "vulpera", "camp", "racial", "seasonal", "keystone", "eht", "hearth teleport", "quick travel", "eqt" },
+        buildPage   = BuildPage,
+        onReset     = function()
+            if EllesmereUIDB then
+                EllesmereUIDB.hearthTeleport = nil
+            end
+            if EllesmereUIDB and EllesmereUIDB.profiles then
+                local profile = EllesmereUIDB.activeProfile or "Default"
+                local p = EllesmereUIDB.profiles[profile]
+                if p and p.addons and p.addons.EllesmereUIQuickTravel then
+                    wipe(p.addons.EllesmereUIQuickTravel)
+                end
+            end
+            local target = _G._EUI_HearthTeleport_DB and _G._EUI_HearthTeleport_DB()
+            if target and target.profile and ns.DB_DEFAULTS then
+                EllesmereUI.Lite.DeepMergeDefaults(target.profile, ns.DB_DEFAULTS.profile)
+            end
+            if _G._EUI_ApplyHearthTeleport then _G._EUI_ApplyHearthTeleport() end
+        end,
+    })
+end)
+-- LoadOnDemand: this addon loads after PLAYER_LOGIN, so the event above will never fire; run the init now.
+if IsLoggedIn() then initFrame:GetScript("OnEvent")(initFrame) end

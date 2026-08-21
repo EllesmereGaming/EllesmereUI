@@ -1,8 +1,8 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
---  EllesmereUIQoL_HearthTeleport_Data.lua
---  Static travel IDs for the Hearthstone / Teleport popup. Spell/item/toy IDs
---  live here so the runtime never depends on a third-party travel addon.
+--  EllesmereUIQuickTravel_Data.lua
+--  Static travel IDs for the Quick Travel popup. Spell/item/toy IDs live here
+--  so the runtime never depends on a third-party travel addon.
 -------------------------------------------------------------------------------
 local EUI = EllesmereUI
 if not EUI then return end
@@ -21,9 +21,10 @@ D.COSMETIC_HEARTHS = {
 }
 
 -- Fixed hearths listed individually in the popup (never in the random pool or toy flyout).
+-- Unique destinations, shown under the Hearthstones flyout: Arcantina, then Dalaran.
 D.FIXED_HEARTHS = {
-    { kind = "item", id = 140192 }, -- Dalaran Hearthstone
     { kind = "toy",  id = 253629 }, -- Key to the Arcantina
+    { kind = "item", id = 140192 }, -- Dalaran Hearthstone
 }
 
 D.RACE_LOCKED_HEARTHS = {
