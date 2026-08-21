@@ -2,8 +2,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EllesmereUIQoL_HearthTeleport_Data.lua
 --  Static travel IDs for the Hearthstone / Teleport popup. Spell/item/toy IDs
---  sourced from Porter (Data.lua) and EllesmereUI hearth lists; kept here so
---  the runtime never depends on the Porter addon being installed.
+--  live here so the runtime never depends on a third-party travel addon.
 -------------------------------------------------------------------------------
 local EUI = EllesmereUI
 if not EUI then return end
@@ -27,8 +26,6 @@ D.FIXED_HEARTHS = {
     { kind = "toy",  id = 253629 }, -- Key to the Arcantina
 }
 
-D.UNIQUE_HEARTHS = D.FIXED_HEARTHS
-
 D.RACE_LOCKED_HEARTHS = {
     [210455] = { "Draenei", "LightforgedDraenei" },
 }
@@ -51,7 +48,7 @@ D.RACIALS = {
     { spell = 312370, race = "Vulpera" },
     { spell = 312372, race = "Vulpera" },
     { spell = 265225, race = "DarkIronDwarf" },
-    { spell = 1238686, race = "Harronir" },
+    { spell = 1238686, race = "Haranir" },
 }
 
 -- Class teleports (non-mage)
@@ -62,9 +59,8 @@ D.CLASS_TELEPORTS = {
     { spell = 193753, class = "DRUID", cancelForm = true },
 }
 
--- Legacy dungeon Hero's Path (spell id, optional mapID, expansion for legacy grouping)
--- Current-season dungeons: EllesmereUI.SEASON_PORTALS (also used by LFG Reminder).
--- Season updates: cross-check github.com/dfrezell/DungeonTeleport DungeonTeleport.lua.
+-- Legacy dungeon Hero's Path (spell id, optional mapID, expansion for grouping).
+-- Current-season dungeons live only in EllesmereUI.SEASON_PORTALS (LFG Reminder).
 D.LEGACY_EXPANSION_ORDER = {
     "Midnight",
     "The War Within",
@@ -87,15 +83,6 @@ D.FACTION_SPELLS = {
 }
 
 D.LEGACY_DUNGEONS = {
-    -- Midnight current season (keep in sync with EllesmereUI.SEASON_PORTALS / LFG Reminder)
-    { spell = 1286801, mapID = 3102, expansion = "Midnight" },
-    { spell = 1286804, mapID = 3106, expansion = "Midnight" },
-    { spell = 1286807, mapID = 3051, expansion = "Midnight" },
-    { spell = 1286809, mapID = 3090, expansion = "Midnight" },
-    { spell = 1286812, mapID = 3191, expansion = "Midnight" },
-    { spell = 393256,  mapID = 2361, expansion = "Dragonflight" },
-    { spell = 1286828, mapID = 1694, expansion = "Dragonflight" },
-    { spell = 1286831, mapID = 1785, expansion = "Dragonflight" },
     -- Prior season pools (legacy once off SEASON_PORTALS)
     { spell = 1216786, mapID = 525,  expansion = "The War Within" },
     { spell = 1237215, mapID = 542,  expansion = "The War Within" },

@@ -280,6 +280,7 @@ Enable
 Enable %1$s to edit its text settings.
 Enable %1$s to edit its texture settings.
 Enable %1$s to edit these settings.
+Enable Hearthstone / Teleport in EllesmereUI QoL options.
 Enable hash lines first
 Enable/Disable Bar per Form
 Enable/Disable per Form
@@ -345,6 +346,7 @@ HS
 Hash Lines
 Hash at %1$s
 Health Bar Hash Lines
+Hearthstone / Teleport cannot open in combat.
 Hex#
 Hide
 Hide Item Transforms

@@ -10,7 +10,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --   - SecureActionButtonTemplate rows are pooled once on first enable (OOC).
 --     SetAttribute runs only out of combat; combat toggles Show/Hide on the
 --     unprotected shell using the last layout.
---   - Cooldown reads skip or pcall in protected instances.
+--   - Cooldown reads skip in protected instances.
+--   - popup:Hide() is deferred while in combat (secure children).
 -------------------------------------------------------------------------------
 local EUI = EllesmereUI
 local PP  = EUI and EUI.PP
@@ -39,7 +40,6 @@ local FLYOUT_PAD  = 8
 local FLYOUT_MAX_H = 380
 local FLYOUT_BTN_POOL = 60
 local FLYOUT_PANEL_COUNT = 14
-local FLYOUT_HIDE_DELAY = 0.35
 local FLYOUT_BRIDGE_W = 24
 local FLYOUT_GAP = 2
 local TRIGGER_POOL_SZ = 14
@@ -50,6 +50,8 @@ local flyoutMeasureFS
 local dungeonTab = "current"
 local pendingLayout
 local db
+local pendingHide
+local ev
 
 local DB_DEFAULTS = {
     profile = {
@@ -115,15 +117,7 @@ local BuildAll, ApplyHearthTeleport, TogglePopup, ShowPopup, HidePopup
 local RefreshHighlights, SavePosition, ApplySavedPosition
 local PopulateFlyout
 local pendingFlyoutPopulate
-
-local seasonSpellSet = {}
-do
-    if EUI and EUI.SEASON_PORTALS then
-        for _, e in ipairs(EUI.SEASON_PORTALS) do
-            if e.spellID then seasonSpellSet[e.spellID] = true end
-        end
-    end
-end
+local EnsureTeleportPromptHook, SyncEvents
 
 local mapToSpell = {}
 do
@@ -132,17 +126,9 @@ do
             if e.mapID and e.spell then mapToSpell[e.mapID] = e.spell end
         end
     end
-    if EUI and EUI.SEASON_PORTALS and C_ChallengeMode and C_ChallengeMode.GetMapTable then
-        local byName = {}
+    if EUI and EUI.SEASON_PORTALS then
         for _, e in ipairs(EUI.SEASON_PORTALS) do
-            for _, n in ipairs(e.names or {}) do byName[n:lower()] = e.spellID end
-        end
-        for _, mapID in ipairs(C_ChallengeMode.GetMapTable()) do
-            local name = C_ChallengeMode.GetMapUIInfo(mapID)
-            if name then
-                local sid = byName[name:lower()]
-                if sid then mapToSpell[mapID] = sid end
-            end
+            if e.dungeonID and e.spellID then mapToSpell[e.dungeonID] = e.spellID end
         end
     end
 end
@@ -259,7 +245,6 @@ local function SpellEntryRef(spellID, opts)
         name = info and info.name or ("Spell " .. castID),
         icon = info and info.iconID or 134400,
         cancelForm = opts.cancelForm,
-        available = IsKnownSpellOrFaction(spellID),
     }
 end
 
@@ -269,37 +254,21 @@ local function SpellEntry(spellID, opts)
     return SpellEntryRef(spellID, opts)
 end
 
-local function EntryAvailable(entry)
-    return entry and entry.available ~= false
-end
-
-local function ApplyEntryVisuals(icon, nameFS, entry)
-    local avail = EntryAvailable(entry)
+local function ApplyEntryVisuals(icon, nameFS)
     if icon then
-        icon:SetDesaturated(not avail)
-        icon:SetVertexColor(1, 1, 1, avail and 1 or 0.4)
+        icon:SetDesaturated(false)
+        icon:SetVertexColor(1, 1, 1, 1)
     end
     if nameFS then
-        if avail then
-            nameFS:SetTextColor(0.85, 0.85, 0.85, 1)
-        else
-            nameFS:SetTextColor(0.35, 0.35, 0.35, 1)
-        end
+        nameFS:SetTextColor(0.85, 0.85, 0.85, 1)
     end
 end
 
-local function ApplyEntryInteractivity(btn, entry)
+local function ApplyEntryInteractivity(btn)
     if not btn then return end
-    local avail = EntryAvailable(entry)
-    if avail then
-        btn:Enable()
-        btn:EnableMouse(true)
-        if btn._hl then btn._hl:Show() end
-    else
-        btn:Disable()
-        btn:EnableMouse(false)
-        if btn._hl then btn._hl:Hide() end
-    end
+    btn:Enable()
+    btn:EnableMouse(true)
+    if btn._hl then btn._hl:Show() end
 end
 
 local function ToyEntry(id)
@@ -350,6 +319,7 @@ local function RollRandomHearth()
 end
 
 local function GetOwnedKeystone()
+    if EUI and EUI.InProtectedInstance and EUI.InProtectedInstance() then return 0, 0 end
     if not C_MythicPlus then return 0, 0 end
     local map = C_MythicPlus.GetOwnedKeystoneChallengeMapID and C_MythicPlus.GetOwnedKeystoneChallengeMapID() or 0
     local lvl = C_MythicPlus.GetOwnedKeystoneLevel and C_MythicPlus.GetOwnedKeystoneLevel() or 0
@@ -360,6 +330,9 @@ local function HighlightSpellIDs()
     local keySpell, reminderSpell, keyLvl
     local p = P()
     if not p then return keySpell, reminderSpell, keyLvl end
+    if EUI and EUI.InProtectedInstance and EUI.InProtectedInstance() then
+        return keySpell, reminderSpell, keyLvl
+    end
     if ShowOn("seasonalDungeons") and p.highlightCurrentKey ~= false then
         local map, lvl = GetOwnedKeystone()
         if map and map > 0 and lvl and lvl > 0 then
@@ -385,7 +358,7 @@ RefreshHighlights = function()
         local r = rowPool[i]
         if r:IsShown() and r._nameFS then
             local sid = r._spellID
-            local hl = sid and EntryAvailable(r._entry) and ((keySpell and sid == keySpell) or (reminderSpell and sid == reminderSpell))
+            local hl = sid and ((keySpell and sid == keySpell) or (reminderSpell and sid == reminderSpell))
             if hl and EG then
                 local txt = r._baseName or "?"
                 if keySpell and sid == keySpell and keyLvl and keyLvl > 0 then
@@ -395,29 +368,25 @@ RefreshHighlights = function()
                 r._nameFS:SetTextColor(EG.r, EG.g, EG.b, 1)
             elseif r._baseName then
                 r._nameFS:SetText(r._baseName)
-                ApplyEntryVisuals(r._icon, r._nameFS, r._entry)
+                ApplyEntryVisuals(r._icon, r._nameFS)
             end
         end
     end
 end
 _G._EUI_RefreshHearthTeleportHighlight = RefreshHighlights
 
-local function ApplyRowAttributes(row, entry)
-    local btn = row._btn
+local function ApplySecureAttributes(btn, entry)
     if not btn then return end
     btn:SetAttribute("type", nil)
     btn:SetAttribute("spell", nil)
     btn:SetAttribute("item", nil)
     btn:SetAttribute("toy", nil)
     btn:SetAttribute("macrotext", nil)
-    if not entry or not EntryAvailable(entry) then
-        ApplyEntryInteractivity(btn, entry)
+    if not entry then
+        ApplyEntryInteractivity(btn)
         return
     end
-    if entry.kind == "random" and entry.macro then
-        btn:SetAttribute("type", "macro")
-        btn:SetAttribute("macrotext", entry.macro)
-    elseif entry.kind == "spell" then
+    if entry.kind == "spell" then
         if entry.cancelForm then
             btn:SetAttribute("type", "macro")
             local info = C_Spell.GetSpellInfo(entry.id)
@@ -433,7 +402,11 @@ local function ApplyRowAttributes(row, entry)
         btn:SetAttribute("type", "item")
         btn:SetAttribute("item", entry.id)
     end
-    ApplyEntryInteractivity(btn, entry)
+    ApplyEntryInteractivity(btn)
+end
+
+local function ApplyRowAttributes(row, entry)
+    ApplySecureAttributes(row._btn, entry)
 end
 
 local function UpdateRowCooldown(row, entry)
@@ -443,14 +416,13 @@ local function UpdateRowCooldown(row, entry)
         return
     end
     if not entry then row._cd:Clear(); return end
-    if not EntryAvailable(entry) then row._cd:Clear(); return end
     if entry.kind == "spell" then
         local cdInfo = C_Spell and C_Spell.GetSpellCooldown and C_Spell.GetSpellCooldown(entry.id)
         if cdInfo and cdInfo.duration and cdInfo.duration > 1.5 then
             row._cd:SetCooldown(cdInfo.startTime, cdInfo.duration)
         else row._cd:Clear() end
-    elseif entry.kind == "toy" or entry.kind == "item" or entry.kind == "random" then
-        local id = entry.randomRef and entry.iconId or entry.id
+    elseif entry.kind == "toy" or entry.kind == "item" then
+        local id = entry.id
         if id and C_Container and C_Container.GetItemCooldown then
             local ok, start, dur = pcall(C_Container.GetItemCooldown, id)
             if ok and start and dur and dur > 1.5 then
@@ -489,37 +461,16 @@ local function FlyoutHoverActive(flyout)
     return false
 end
 
-local function StopFlyoutHoverWatch(flyout)
-    if not flyout then return end
-    flyout._hoverElapsed = 0
-    flyout:SetScript("OnUpdate", nil)
-end
-
-local function StartFlyoutHoverWatch(flyout)
-    if not flyout then return end
-    flyout._hoverElapsed = 0
-    flyout:SetScript("OnUpdate", function(self, dt)
-        if not self:IsShown() then
-            StopFlyoutHoverWatch(self)
-            return
-        end
-        if FlyoutHoverActive(self) then
-            self._hoverElapsed = 0
-            return
-        end
-        self._hoverElapsed = (self._hoverElapsed or 0) + dt
-        if self._hoverElapsed >= FLYOUT_HIDE_DELAY then
-            self:Hide()
-            StopFlyoutHoverWatch(self)
-        end
-    end)
+local function MaybeHideFlyout(flyout)
+    if flyout and flyout:IsShown() and not FlyoutHoverActive(flyout) then
+        flyout:Hide()
+    end
 end
 
 local function HideAllFlyouts()
     if not flyouts then return end
     for _, f in ipairs(flyouts) do
         f:Hide()
-        StopFlyoutHoverWatch(f)
     end
 end
 
@@ -554,7 +505,6 @@ local function OpenFlyout(flyout)
         for _, f in ipairs(flyouts) do
             if f ~= flyout then
                 f:Hide()
-                StopFlyoutHoverWatch(f)
             end
         end
     end
@@ -572,7 +522,6 @@ local function OpenFlyout(flyout)
     end
     flyout:Show()
     flyout:Raise()
-    StartFlyoutHoverWatch(flyout)
 end
 
 local function RefreshCooldowns()
@@ -590,7 +539,8 @@ local function EnsureFlyoutBridge(flyout)
         local bridge = CreateFrame("Frame", nil, flyout)
         bridge:SetFrameLevel(flyout:GetFrameLevel() + 5)
         bridge:EnableMouse(true)
-        bridge:SetScript("OnEnter", function() flyout._hoverElapsed = 0 end)
+        bridge:SetScript("OnEnter", function() end)
+        bridge:SetScript("OnLeave", function() MaybeHideFlyout(flyout) end)
         flyout._bridge = bridge
     end
     local bridge = flyout._bridge
@@ -598,38 +548,6 @@ local function EnsureFlyoutBridge(flyout)
     bridge:SetWidth(FLYOUT_BRIDGE_W)
     bridge:SetPoint("TOPRIGHT", flyout, "TOPLEFT", 0, 0)
     return bridge
-end
-
-local function ApplyFlyoutButtonAttributes(btn, entry)
-    btn:SetAttribute("type", nil)
-    btn:SetAttribute("spell", nil)
-    btn:SetAttribute("item", nil)
-    btn:SetAttribute("toy", nil)
-    btn:SetAttribute("macrotext", nil)
-    if not entry or not EntryAvailable(entry) then
-        ApplyEntryInteractivity(btn, entry)
-        return
-    end
-    if entry.kind == "random" and entry.macro then
-        btn:SetAttribute("type", "macro")
-        btn:SetAttribute("macrotext", entry.macro)
-    elseif entry.kind == "spell" then
-        if entry.cancelForm then
-            btn:SetAttribute("type", "macro")
-            local info = C_Spell.GetSpellInfo(entry.id)
-            btn:SetAttribute("macrotext", "/cancelform\n/cast " .. (info and info.name or ""))
-        else
-            btn:SetAttribute("type", "spell")
-            btn:SetAttribute("spell", entry.id)
-        end
-    elseif entry.kind == "toy" then
-        btn:SetAttribute("type", "toy")
-        btn:SetAttribute("toy", entry.id)
-    elseif entry.kind == "item" then
-        btn:SetAttribute("type", "item")
-        btn:SetAttribute("item", entry.id)
-    end
-    ApplyEntryInteractivity(btn, entry)
 end
 
 local function CreateFlyoutPool()
@@ -669,6 +587,7 @@ local function CreateFlyoutPool()
         end)
         r:SetScript("OnLeave", function(self)
             if self._nameFS then self._nameFS:SetTextColor(0.85, 0.85, 0.85, 1) end
+            MaybeHideFlyout(self._flyout)
         end)
         flyoutTriggerPool[i] = r
     end
@@ -682,12 +601,13 @@ local function CreateFlyoutPool()
         bg:SetAllPoints()
         bg:SetColorTexture(0.08, 0.08, 0.10, 0.96)
         if PP and PP.CreateBorder then PP.CreateBorder(f, 0.25, 0.25, 0.25, 0.8, 1, "OVERLAY", 5) end
+        f:SetScript("OnLeave", function(self) MaybeHideFlyout(self) end)
         if not f._mousePad then
             f._mousePad = CreateFrame("Frame", nil, f)
             f._mousePad:SetAllPoints()
             f._mousePad:SetFrameLevel(f:GetFrameLevel() + 1)
             f._mousePad:EnableMouse(true)
-            f._mousePad:SetScript("OnEnter", function() f._hoverElapsed = 0 end)
+            f._mousePad:SetScript("OnLeave", function() MaybeHideFlyout(f) end)
         end
         EnsureFlyoutBridge(f)
         flyouts[i] = f
@@ -696,9 +616,8 @@ local function CreateFlyoutPool()
         flyoutBtnPool[i] = CreateFrame("Button", "EUIHearthFlyoutBtn" .. i, UIParent, "SecureActionButtonTemplate")
         flyoutBtnPool[i]:Hide()
         flyoutBtnPool[i]:RegisterForClicks("AnyUp", "AnyDown")
-        flyoutBtnPool[i]:SetScript("OnEnter", function(btn)
-            local root = FlyoutRoot(btn)
-            if root then root._hoverElapsed = 0 end
+        flyoutBtnPool[i]:SetScript("OnLeave", function(btn)
+            MaybeHideFlyout(FlyoutRoot(btn))
         end)
         flyoutBtnPool[i]:SetScript("PostClick", function(btn)
             if btn._randomRef then
@@ -707,7 +626,7 @@ local function CreateFlyoutPool()
                 end)
             end
             local hp = P()
-            if (not hp or hp.hideAfterUse ~= false) and popup then popup:Hide() end
+            if not hp or hp.hideAfterUse ~= false then HidePopup() end
         end)
     end
 end
@@ -725,7 +644,7 @@ local function EnsureFlyoutScroll(flyout)
         local maxS = math.max(0, (child and child:GetHeight() or 0) - self:GetHeight())
         self:SetVerticalScroll(math.max(0, math.min(maxS, cur - delta * 20)))
     end)
-    sf:SetScript("OnEnter", function() flyout._hoverElapsed = 0 end)
+    sf:SetScript("OnLeave", function() MaybeHideFlyout(flyout) end)
     local child = CreateFrame("Frame", nil, sf)
     sf:SetScrollChild(child)
     flyout._scrollFrame = sf
@@ -779,7 +698,7 @@ PopulateFlyout = function(flyout, entries, anchor, btnOffset)
         btn:Show()
         btn._entry = entry
         btn._randomRef = entry.randomRef
-        ApplyFlyoutButtonAttributes(btn, entry)
+        ApplySecureAttributes(btn, entry)
         if not btn._icon then
             btn._icon = btn:CreateTexture(nil, "ARTWORK")
             btn._icon:SetSize(20, 20)
@@ -797,8 +716,8 @@ PopulateFlyout = function(flyout, entries, anchor, btnOffset)
         end
         btn._icon:SetTexture(entry.icon)
         btn._nameFS:SetText(entry.name or "?")
-        ApplyEntryVisuals(btn._icon, btn._nameFS, entry)
-        ApplyEntryInteractivity(btn, entry)
+        ApplyEntryVisuals(btn._icon, btn._nameFS)
+        ApplyEntryInteractivity(btn)
     end
 
     for j = btnOffset + #entries + 1, FLYOUT_BTN_POOL do
@@ -842,7 +761,7 @@ local function CreateRowPool()
                 end)
             end
             local hp = P()
-            if (not hp or hp.hideAfterUse ~= false) and popup then popup:Hide() end
+            if not hp or hp.hideAfterUse ~= false then HidePopup() end
         end)
         r._btn = btn
         local cd = CreateFrame("Cooldown", nil, r, "CooldownFrameTemplate")
@@ -852,7 +771,7 @@ local function CreateRowPool()
         r._cd = cd
         local EG = EUI and EUI.ELLESMERE_GREEN
         btn:SetScript("OnEnter", function()
-            if EG and EntryAvailable(r._entry) then r._nameFS:SetTextColor(EG.r, EG.g, EG.b, 1) end
+            if EG then r._nameFS:SetTextColor(EG.r, EG.g, EG.b, 1) end
         end)
         btn:SetScript("OnLeave", RefreshHighlights)
         rowPool[i] = r
@@ -884,10 +803,10 @@ local function CollectEntries()
                 local pick = RollRandomHearth()
                 if pick then
                     rows[#rows + 1] = {
-                        kind = "random", name = "Random Hearthstone",
+                        kind = pick.kind, id = pick.id,
+                        name = "Random Hearthstone",
                         icon = pick.kind == "item" and (C_Item.GetItemIconByID(pick.id) or 134414) or ToyIcon(pick.id),
-                        iconId = pick.id, randomRef = true,
-                        macro = "/use item:" .. pick.id,
+                        randomRef = true,
                     }
                 end
             end
@@ -1008,20 +927,6 @@ local function CollectEntries()
                     end
                 end
             end
-            -- Current-season portals (same source as LFG Reminder) belong under Midnight on Legacy.
-            for _, e in ipairs(EUI.SEASON_PORTALS or {}) do
-                local sid = e.spellID
-                if sid and not seen[FactionGroupKey(sid)] then
-                    seen[FactionGroupKey(sid)] = true
-                    local se = SpellEntry(sid)
-                    if se then
-                        if e.short then se.name = se.name .. " (" .. e.short .. ")" end
-                        local exp = "Midnight"
-                        if not byExpansion[exp] then byExpansion[exp] = {} end
-                        byExpansion[exp][#byExpansion[exp] + 1] = se
-                    end
-                end
-            end
             local function SortEntries(list)
                 table.sort(list, function(a, b) return (a.name or "") < (b.name or "") end)
             end
@@ -1113,7 +1018,7 @@ BuildAll = function()
             r._spellID = entry.kind == "spell" and entry.id or nil
             r._randomRef = entry.randomRef
             r._entry = entry
-            ApplyEntryVisuals(r._icon, r._nameFS, entry)
+            ApplyEntryVisuals(r._icon, r._nameFS)
             ApplyRowAttributes(r, entry)
             UpdateRowCooldown(r, entry)
             y = y + ROW_H
@@ -1306,8 +1211,11 @@ local function BuildPopupShell()
     if EUI and EUI.RegisterEscapeClose then EUI.RegisterEscapeClose(popup) end
     popup:SetScript("OnShow", function()
         RefreshHighlights()
-        ev:RegisterEvent("SPELL_UPDATE_COOLDOWN")
-        ev:RegisterEvent("BAG_UPDATE_COOLDOWN")
+        EnsureTeleportPromptHook()
+        if ev then
+            ev:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+            ev:RegisterEvent("BAG_UPDATE_COOLDOWN")
+        end
     end)
     popup:SetScript("OnHide", function()
         ev:UnregisterEvent("SPELL_UPDATE_COOLDOWN")
@@ -1331,7 +1239,7 @@ ShowPopup = function()
     if not IsEnabled() then return end
     if not popup then
         if InCombatLockdown() then
-            EUI.Print("|cff0cd29fEllesmereUI:|r Hearthstone / Teleport cannot open in combat.")
+            EUI.Print("|cff0cd29fEllesmereUI:|r " .. EllesmereUI.L("Hearthstone / Teleport cannot open in combat."))
             return
         end
         BuildPopupShell()
@@ -1339,9 +1247,10 @@ ShowPopup = function()
     end
     if InCombatLockdown() then
         if popup:IsShown() then HidePopup()
-        else EUI.Print("|cff0cd29fEllesmereUI:|r Hearthstone / Teleport cannot open in combat.") end
+        else EUI.Print("|cff0cd29fEllesmereUI:|r " .. EllesmereUI.L("Hearthstone / Teleport cannot open in combat.")) end
         return
     end
+    pendingHide = nil
     BuildAll()
     local hp = P()
     popup:SetScale((hp and hp.scale) or 1.05)
@@ -1349,12 +1258,19 @@ ShowPopup = function()
 end
 
 HidePopup = function()
-    if popup and popup:IsShown() then popup:Hide() end
+    if not (popup and popup:IsShown()) then pendingHide = nil; return end
+    if InCombatLockdown() then
+        pendingHide = true
+        SyncEvents()
+        return
+    end
+    pendingHide = nil
+    popup:Hide()
 end
 
 TogglePopup = function()
     if not IsEnabled() then
-        EUI.Print("|cff0cd29fEllesmereUI:|r Enable Hearthstone / Teleport in EllesmereUI QoL options.")
+        EUI.Print("|cff0cd29fEllesmereUI:|r " .. EllesmereUI.L("Enable Hearthstone / Teleport in EllesmereUI QoL options."))
         return
     end
     if popup and popup:IsShown() then HidePopup() else ShowPopup() end
@@ -1370,31 +1286,71 @@ local function ApplyToggleKeybind()
     end
 end
 
+local _tpHooked = false
+EnsureTeleportPromptHook = function()
+    if _tpHooked then return end
+    local p = P()
+    if not (IsEnabled() and p and p.keystoneReminder == true) then return end
+    local tp = _G.EUITeleportPopup
+    if not tp then return end
+    _tpHooked = true
+    tp:HookScript("OnShow", RefreshHighlights)
+    tp:HookScript("OnHide", RefreshHighlights)
+end
+
+SyncEvents = function()
+    if not ev then return end
+    if IsEnabled() then
+        ev:RegisterEvent("PLAYER_REGEN_ENABLED")
+        local p = P()
+        if p and p.keystoneReminder == true then
+            ev:RegisterEvent("LFG_LIST_JOINED_GROUP")
+        else
+            ev:UnregisterEvent("LFG_LIST_JOINED_GROUP")
+        end
+    else
+        ev:UnregisterEvent("LFG_LIST_JOINED_GROUP")
+        if not (pendingHide or pendingLayout or pendingFlyoutPopulate) then
+            ev:UnregisterEvent("PLAYER_REGEN_ENABLED")
+        end
+        if not (popup and popup:IsShown()) then
+            ev:UnregisterEvent("SPELL_UPDATE_COOLDOWN")
+            ev:UnregisterEvent("BAG_UPDATE_COOLDOWN")
+        end
+    end
+end
+
 ApplyHearthTeleport = function()
     if IsEnabled() then
         if not popup and InCombatLockdown() then
             pendingLayout = true
+            SyncEvents()
             return
         end
         BuildToggleButton()
         ApplyToggleKeybind()
+        EnsureTeleportPromptHook()
     else
         HidePopup()
         if toggleBtn then ClearOverrideBindings(toggleBtn) end
     end
+    SyncEvents()
     if popup and popup:IsShown() and not InCombatLockdown() then BuildAll() end
 end
 _G._EUI_ApplyHearthTeleport = ApplyHearthTeleport
 
 SLASH_EUIHEARTHTELEPORT1 = "/eht"
-SLASH_EUIHEARTHTELEPORT2 = "/hearth"
+SLASH_EUIHEARTHTELEPORT2 = "/euihearth"
 SlashCmdList["EUIHEARTHTELEPORT"] = TogglePopup
 
-local ev = CreateFrame("Frame")
-ev:RegisterEvent("PLAYER_REGEN_ENABLED")
+ev = CreateFrame("Frame")
 ev:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_REGEN_ENABLED" then
-        if pendingLayout and IsEnabled() and popup and rowPool then BuildAll() end
+        if pendingHide then HidePopup() end
+        if pendingLayout and IsEnabled() and popup and rowPool then
+            pendingLayout = nil
+            BuildAll()
+        end
         if pendingFlyoutPopulate and not InCombatLockdown() then
             local flyout = pendingFlyoutPopulate
             pendingFlyoutPopulate = nil
@@ -1402,6 +1358,10 @@ ev:SetScript("OnEvent", function(_, event)
                 PopulateFlyout(flyout, flyout._entries or {}, flyout._anchor, 0)
             end
         end
+        SyncEvents()
+    elseif event == "LFG_LIST_JOINED_GROUP" then
+        EnsureTeleportPromptHook()
+        RefreshHighlights()
     elseif event == "SPELL_UPDATE_COOLDOWN" or event == "BAG_UPDATE_COOLDOWN" then
         if popup and popup:IsShown() and rowPool and not InCombatLockdown() then
             RefreshCooldowns()
