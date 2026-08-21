@@ -105,6 +105,39 @@ EllesmereUI.ComputeCastBarTint = ComputeCastBarTint
 local menuProxies = setmetatable({}, { __mode = "k" })
 local proxyCounter = 0
 
+-- Which units togglemenu can be trusted with, so they never have to reach for
+-- the compact opener below (SecureTemplates.lua SECURE_ACTIONS.togglemenu):
+-- party/boss/focus/arena tokens hit an explicit token special-case before any
+-- unit lookup runs, and "player"/"pet"/"vehicle" resolve on its first UnitIsUnit
+-- checks. Someone else's pet is fine too -- no token case, but the
+-- UnitIsOtherPlayersPet branch it lands on is the right answer for a pet.
+--
+-- Every OTHER token -- target, targettarget, focustarget, and the raidN the
+-- group header hands its buttons -- falls through to UnitIsOtherPlayersPet /
+-- UnitIsOtherPlayersBattlePet, which answer true for a unit whose data has not
+-- streamed (a group member zoned elsewhere), and opens the pet menu:
+-- Dismiss/Rename where Set Focus and Remove from group belong.
+--
+-- Blizzard's own target frame has the same bug -- its menu-function is NOT
+-- CompactUnitFrame_OpenMenu and misclassifies identically (verified in-game
+-- 2026-08-21), so routing the click into Blizzard's button instead does not
+-- help. The compact opener is the only classifier in the client that gets it
+-- right, and reaching it costs the taint below. Frames that don't need it must
+-- not pay for it.
+local TOGGLEMENU_SAFE_UNIT = {
+    player = true, pet = true, focus = true, vehicle = true,
+}
+local TOGGLEMENU_SAFE_TOKEN = {
+    party = true, boss = true, arena = true, arenapet = true,
+    partypet = true, raidpet = true,
+}
+local function TogglemenuHandlesUnit(unit)
+    if type(unit) ~= "string" then return false end
+    unit = unit:lower()
+    if TOGGLEMENU_SAFE_UNIT[unit] then return true end
+    return TOGGLEMENU_SAFE_TOKEN[unit:match("^([a-z]+)[0-9]+$") or unit] or false
+end
+
 -- Create (once) and return the hidden SecureActionButton proxy for a unit button.
 -- Use this when wiring a SPECIFIC click/key binding to the menu -- it does NOT
 -- touch the frame's own type attributes (so it won't clobber other bindings).
@@ -140,7 +173,9 @@ function EllesmereUI.GetSecureMenuProxy(frame)
         proxy:SetAlpha(0)
         proxy:EnableMouse(false)          -- never catches real mouse; only the secure click delegate reaches it
         proxy:RegisterForClicks("AnyUp")
-        local useCompact = type(CompactUnitFrame_OpenMenu) == "function"
+        local unit = frame.GetAttribute and frame:GetAttribute("unit")
+        local useCompact = not TogglemenuHandlesUnit(unit)
+            and type(CompactUnitFrame_OpenMenu) == "function"
         local action = useCompact and "menu" or "togglemenu"
         proxy:SetAttribute("type", action)
         -- The secure resolver looks up type by BUTTON SUFFIX (RightButton -> type2);
