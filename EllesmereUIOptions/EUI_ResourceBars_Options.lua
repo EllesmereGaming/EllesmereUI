@@ -2904,6 +2904,20 @@ local function BuildThresholdDetailEditor(cfg)
     local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
     local ROW_H = 50
     local ROW_GAP = 6
+
+    -- Bar-type classification: ns.IsSpecBarType/IsEntryBarType answer "is THIS
+    -- SPEC'S CLASS RESOURCE (secondary) bar-type" -- a question that only makes
+    -- sense for Class Resource Bar, where the answer genuinely varies per spec
+    -- (Combo Points vs. a continuous resource). Power Bar and Health Bar always
+    -- display a continuous resource regardless of spec, so they override this to
+    -- unconditionally true via cfg.isBarTypeFn. Not overridden (Class Resource
+    -- Bar's own instantiation), defaults to the existing per-spec check --
+    -- unchanged behavior.
+    local isBarTypeFn = cfg.isBarTypeFn or ns.IsSpecBarType
+    local function isEntryBarType(entry)
+        if not entry or not entry.specIDs or #entry.specIDs == 0 then return false end
+        return isBarTypeFn(entry.specIDs[1])
+    end
     local CLOSE_ICON_PATH = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png"
     local CLASS_COLORS_L = CLASS_COLORS
     local BTN_W, BTN_H = 140, 30
@@ -3259,7 +3273,7 @@ local function BuildThresholdDetailEditor(cfg)
 						end
 						if #ids == 0 then return end
 						if not p.secondary.thresholdSpecs then p.secondary.thresholdSpecs = {} end
-						local isBar = ns.IsSpecBarType(ids[1])
+						local isBar = isBarTypeFn(ids[1])
 						local _enhAdd = false
 						if p.secondary.enhanceFiveBar then
 							for _, sid in ipairs(ids) do if sid == 263 then _enhAdd = true; break end end
@@ -3539,7 +3553,7 @@ local function BuildThresholdDetailEditor(cfg)
 					rows = {
 						{ type = "toggle", label = "Position by percent",
 						  disabled = function()
-						      local ent = CurEntry(); return not (ent and ns.IsEntryBarType(ent))
+						      local ent = CurEntry(); return not (ent and isEntryBarType(ent))
 						  end,
 						  disabledTooltip = "Bar-type resources only (pips use stack counts)",
 						  get = function() local ent = CurEntry(); return (ent and ent.hashMode == "percent") and true or false end,
@@ -3603,7 +3617,7 @@ local function BuildThresholdDetailEditor(cfg)
 				local threshRow = DRow("Threshold", ROWH)
 				-- Threshold options cog: per-entry gating mirrors RefreshDetail so Threshold as / Direction / Only color at-above grey correctly.
 				local function _thrEnt() return CurEntry() end
-				local function _thrIsBar() local e=_thrEnt(); return (e and ns.IsEntryBarType(e)) and true or false end
+				local function _thrIsBar() local e=_thrEnt(); return (e and isEntryBarType(e)) and true or false end
 				local function _thrIsStagger()
 					local e=_thrEnt(); if not e then return false end
 					if advSingle then return ctx.specID == 268 end
@@ -3769,7 +3783,7 @@ local function BuildThresholdDetailEditor(cfg)
 						getBarData = function() local pp = DB(); return pp and pp.secondary end,
 						refreshFn = function() cfg.refreshFn() end,
 						entryIdx = _selectedIdx, anchor = self,
-						countBased = not ns.IsEntryBarType(ent),
+						countBased = not isEntryBarType(ent),
 						lockPercent = isStag, percentMax = isStag and 500 or nil,
 						defR = 0x0c/255, defG = 0xd2/255, defB = 0x9d/255, defA = 1,
 					})
@@ -3953,7 +3967,7 @@ local function BuildThresholdDetailEditor(cfg)
 					end
 					dPlaceholder:Hide()
 
-					local isBar = ns.IsEntryBarType(ent)
+					local isBar = isEntryBarType(ent)
 					local isGuardian, isIgnorePain, isVengeance
 					if advSingle then
 						isGuardian = (ctx.specID == 104)
@@ -4354,7 +4368,7 @@ local function BuildThresholdDetailEditor(cfg)
                             local p2 = DB(); if not p2 then return end
                             local sp2 = p2.secondary; if not sp2 then return end
                             if not sp2.thresholdSpecs then sp2.thresholdSpecs = {} end
-                            local isBar = ns.IsSpecBarType(ctx.specID)
+                            local isBar = isBarTypeFn(ctx.specID)
                             sp2.thresholdSpecs[#sp2.thresholdSpecs + 1] = {
                                 specIDs = { 0 },
                                 hashValues = "", hashWidth = 1,
@@ -5981,29 +5995,22 @@ end
             end
         end
         if not EllesmereUI._prebuilding then
-        local powerSettingsBtn = BuildThresholdSettingsButton({
+        BuildThresholdDetailEditor({
             parentRgn = powerColorRow._rightRegion,
-            getBarData = function() return cfg() end,
-            singleSpec = ctx.advanced or nil,
+            parent = parent,
+            getBarData = cfg,
+            barKey = "primary",
             refreshFn = function() RefreshPower(); SmoothRefresh() end,
             rebuildFn = function() RebuildPower() end,
             disabledFn = powerOff,
             disabledTip = "Power Bar",
-            showHash = false,
-            showPartialCog = true,
-            thresholdLabel = "Threshold %",
-            threshMin = 1, threshMax = 99,
-            popupTitle = "Power Bar Threshold",
             defaultR = 1.0, defaultG = 0.2, defaultB = 0.2, defaultA = 1,
-            formCapable = true,
-        })
-
-        BuildHashCog({
-            parentRgn = powerColorRow._rightRegion,
-            anchorTo = powerSettingsBtn,
-            getBarData = function() return DB().primary end,
-            refreshFn = function() RebuildPower() end,
-            popupTitle = EllesmereUI.L("Power Bar Hash Lines"),
+            ctx = ctx,
+            topY = _advTop,
+            botY = y,
+            showSpenders = true,
+            showBuffColors = true,
+            isBarTypeFn = function() return true end,
         })
         end
         -- Thresholds have their own per-spec system, so lock the slot during a Spec Overrides editing session.
