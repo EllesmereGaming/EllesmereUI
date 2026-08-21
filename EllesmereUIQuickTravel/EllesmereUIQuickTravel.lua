@@ -1,8 +1,8 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
---  EllesmereUIQoL_HearthTeleport.lua
---  Hearthstone / Teleport popup: hearths, class/racial travel, mage teleports/
---  portals, and Hero's Path dungeon/raid teleports. Opt-in via QoL options.
+--  EllesmereUIQuickTravel.lua
+--  Quick Travel popup: hearths, class/racial travel, mage teleports/portals,
+--  and Hero's Path dungeon/raid teleports. Opt-in via Quick Travel options.
 --
 --  Taint / secret-value safety:
 --   - Every spell/item/toy id is a static integer from HEARTH_TELEPORT_DATA or
@@ -13,6 +13,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --   - Cooldown reads skip in protected instances.
 --   - popup:Hide() is deferred while in combat (secure children).
 -------------------------------------------------------------------------------
+local ADDON_NAME, ns = ...
+if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+EllesmereUI._ModuleNS[ADDON_NAME] = ns
+
 local EUI = EllesmereUI
 local PP  = EUI and EUI.PP
 local DATA = EUI and EUI.HEARTH_TELEPORT_DATA
@@ -24,7 +28,7 @@ local LEFT_COL_W  = 200
 local RIGHT_COL_W = 340
 local BODY_W      = POPUP_W - PAD * 2
 local COL_RIGHT_X = LEFT_COL_W + COL_GAP
-local TITLE_H     = 27
+local TITLE_H     = 32
 local ROW_H       = 28
 local SEC_HDR_H   = 18
 local SEC_GAP     = 8
@@ -55,23 +59,22 @@ local ev
 
 local DB_DEFAULTS = {
     profile = {
-        hearthTeleport = {
-            enabled = false,
-            toggleKey = false,
-            scale = 1.05,
-            hideAfterUse = true,
-            highlightCurrentKey = true,
-            keystoneReminder = false,
-            show = {},
-            randomPool = {},
-            randomHearthstones = true,
-            pos = nil,
-        },
+        enabled = false,
+        toggleKey = false,
+        scale = 1.05,
+        hideAfterUse = true,
+        highlightCurrentKey = true,
+        keystoneReminder = false,
+        show = {},
+        randomPool = {},
+        randomHearthstones = true,
+        pos = nil,
     },
 }
+ns.DB_DEFAULTS = DB_DEFAULTS
 
 local function P()
-    return db and db.profile and db.profile.hearthTeleport
+    return db and db.profile
 end
 
 local function IsEnabled()
@@ -134,10 +137,10 @@ do
 end
 
 local function ResolveFont()
-    return (EUI and EUI.GetFontPath and EUI.GetFontPath("extras")) or "Fonts\\FRIZQT__.TTF"
+    return (EUI and EUI.GetFontPath and EUI.GetFontPath("quickTravel")) or "Fonts\\FRIZQT__.TTF"
 end
 local function ResolveOutline()
-    return (EUI and EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("extras")) or ""
+    return (EUI and EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("quickTravel")) or ""
 end
 local function MakeLabel(parent, size, r, g, b, a)
     local fs = parent:CreateFontString(nil, "OVERLAY")
@@ -167,7 +170,7 @@ local function HasToy(id)
 end
 
 local function HasItem(id)
-    return C_Item and C_Item.GetItemCount and C_Item.GetItemCount(id) > 0
+    return C_Item and C_Item.GetItemCount and (C_Item.GetItemCount(id) or 0) > 0
 end
 
 local function ToyIcon(id)
@@ -292,8 +295,12 @@ end
 
 local function FixedHearthEntry(entry)
     if not entry then return nil end
-    if entry.kind == "item" then return ItemEntry(entry.id) end
-    return ToyEntry(entry.id)
+    -- Unique destination stones can live as a bag item or a toy depending on
+    -- the account; try the declared kind first, then the other.
+    if entry.kind == "item" then
+        return ItemEntry(entry.id) or ToyEntry(entry.id)
+    end
+    return ToyEntry(entry.id) or ItemEntry(entry.id)
 end
 
 local function BuildRandomPool()
@@ -1168,7 +1175,7 @@ local function BuildPopupShell()
     bg:SetTexCoord(0.25, 1, 0, 0.75)
     local overlay = popup:CreateTexture(nil, "BACKGROUND", nil, 1)
     overlay:SetAllPoints()
-    overlay:SetColorTexture(0, 0, 0, 0.55)
+    overlay:SetColorTexture(0, 0, 0, 0.5)
     if PP and PP.CreateBorder then PP.CreateBorder(popup, 0.1, 0.1, 0.1, 1, 1, "OVERLAY", 7) end
 
     local hdrBg = popup:CreateTexture(nil, "BORDER")
@@ -1177,19 +1184,18 @@ local function BuildPopupShell()
     hdrBg:SetPoint("TOPRIGHT", -1, 0)
     hdrBg:SetHeight(TITLE_H)
 
-    local title = MakeLabel(popup, 11, 1, 1, 1, 1)
-    title:SetPoint("TOPLEFT", PAD, -8)
-    title:SetText("Hearthstone / Teleport")
+    local title = MakeLabel(popup, 13, 1, 1, 1, 1)
+    title:SetPoint("TOPLEFT", 10, -10)
+    title:SetText(EllesmereUI.L("Quick Travel"))
 
     local xBtn = CreateFrame("Button", nil, popup)
-    xBtn:SetSize(14, 14)
-    xBtn:SetPoint("RIGHT", hdrBg, "RIGHT", -8, 0)
-    local xTex = xBtn:CreateTexture(nil, "ARTWORK")
-    xTex:SetAllPoints()
-    xTex:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png")
-    xTex:SetAlpha(0.5)
-    xBtn:SetScript("OnEnter", function() xTex:SetAlpha(1) end)
-    xBtn:SetScript("OnLeave", function() xTex:SetAlpha(0.5) end)
+    xBtn:SetSize(24, 24)
+    xBtn:SetPoint("RIGHT", hdrBg, "RIGHT", -5, 5)
+    local closeTxt = MakeLabel(xBtn, 16, 1, 1, 1, 0.75)
+    closeTxt:SetPoint("CENTER", -2, -3)
+    closeTxt:SetText("x")
+    xBtn:SetScript("OnEnter", function() closeTxt:SetTextColor(1, 1, 1, 1) end)
+    xBtn:SetScript("OnLeave", function() closeTxt:SetTextColor(1, 1, 1, 0.75) end)
     xBtn:SetScript("OnClick", HidePopup)
 
     local sf = CreateFrame("ScrollFrame", nil, popup)
@@ -1239,7 +1245,7 @@ ShowPopup = function()
     if not IsEnabled() then return end
     if not popup then
         if InCombatLockdown() then
-            EUI.Print("|cff0cd29fEllesmereUI:|r " .. EllesmereUI.L("Hearthstone / Teleport cannot open in combat."))
+            EUI.Print("|cff0cd29fEllesmereUI:|r " .. EllesmereUI.L("Quick Travel cannot open in combat."))
             return
         end
         BuildPopupShell()
@@ -1247,7 +1253,7 @@ ShowPopup = function()
     end
     if InCombatLockdown() then
         if popup:IsShown() then HidePopup()
-        else EUI.Print("|cff0cd29fEllesmereUI:|r " .. EllesmereUI.L("Hearthstone / Teleport cannot open in combat.")) end
+        else EUI.Print("|cff0cd29fEllesmereUI:|r " .. EllesmereUI.L("Quick Travel cannot open in combat.")) end
         return
     end
     pendingHide = nil
@@ -1270,7 +1276,7 @@ end
 
 TogglePopup = function()
     if not IsEnabled() then
-        EUI.Print("|cff0cd29fEllesmereUI:|r " .. EllesmereUI.L("Enable Hearthstone / Teleport in EllesmereUI QoL options."))
+        EUI.Print("|cff0cd29fEllesmereUI:|r " .. EllesmereUI.L("Enable Quick Travel in EllesmereUI options."))
         return
     end
     if popup and popup:IsShown() then HidePopup() else ShowPopup() end
@@ -1369,14 +1375,58 @@ ev:SetScript("OnEvent", function(_, event)
     end
 end)
 
-local function MigrateLegacySettings()
-    local legacy = EllesmereUIDB and EllesmereUIDB.hearthTeleport
-    local p = P()
-    if not p or type(legacy) ~= "table" then return end
-    for k, v in pairs(legacy) do
-        if p[k] == nil then p[k] = v end
+local FOLDER = "EllesmereUIQuickTravel"
+
+local function CopyInto(dest, src)
+    if type(dest) ~= "table" or type(src) ~= "table" then return end
+    for k, v in pairs(src) do
+        dest[k] = v
     end
-    EllesmereUIDB.hearthTeleport = nil
+end
+
+-- Move the old QoL nested slice onto dest. Source wins so an already-enabled
+-- Travel setting survives the split; dest is the live NewDB table for the
+-- active profile (or a newly created folder table for inactive profiles).
+local function MigrateProfile(prof, live)
+    local addons = prof and prof.addons
+    if type(addons) ~= "table" then return end
+    local qol = addons.EllesmereUIQoL
+    local src = qol and qol.hearthTeleport
+    local dest = live
+    if not dest then
+        if type(addons[FOLDER]) ~= "table" then addons[FOLDER] = {} end
+        dest = addons[FOLDER]
+    end
+    if type(src) == "table" then
+        CopyInto(dest, src)
+        qol.hearthTeleport = nil
+    end
+    if EUI.Lite and EUI.Lite.DeepMergeDefaults and DB_DEFAULTS.profile then
+        EUI.Lite.DeepMergeDefaults(dest, DB_DEFAULTS.profile)
+    end
+end
+
+local function MigrateLegacySettings()
+    local live = P()
+    local profiles = EllesmereUIDB and EllesmereUIDB.profiles
+    local active = (db and db._profileName) or (EllesmereUIDB and EllesmereUIDB.activeProfile) or "Default"
+    if type(profiles) == "table" then
+        for name, prof in pairs(profiles) do
+            if name == active then
+                MigrateProfile(prof, live)
+            else
+                MigrateProfile(prof, nil)
+            end
+        end
+    end
+    -- Account-wide leftover from before the QoL store.
+    local legacy = EllesmereUIDB and EllesmereUIDB.hearthTeleport
+    if type(legacy) == "table" and live then
+        for k, v in pairs(legacy) do
+            if live[k] == nil then live[k] = v end
+        end
+        EllesmereUIDB.hearthTeleport = nil
+    end
 end
 
 local boot = CreateFrame("Frame")
@@ -1384,7 +1434,8 @@ boot:RegisterEvent("PLAYER_LOGIN")
 boot:SetScript("OnEvent", function(self)
     self:UnregisterAllEvents()
     if not (EUI and EUI.Lite and EUI.Lite.NewDB) then return end
-    db = EUI.Lite.NewDB("EllesmereUIQoLDB", DB_DEFAULTS, true)
+    db = EUI.Lite.NewDB("EllesmereUIQuickTravelDB", DB_DEFAULTS)
+    ns.db = db
     _G._EUI_HearthTeleport_DB = function() return db end
     MigrateLegacySettings()
     ApplyHearthTeleport()

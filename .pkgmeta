@@ -3,6 +3,7 @@ package-as: EllesmereUI
 move-folders:
   EllesmereUI/EllesmereUIActionBars: EllesmereUIActionBars
   EllesmereUI/EllesmereUIQuickdraw: EllesmereUIQuickdraw
+  EllesmereUI/EllesmereUIQuickTravel: EllesmereUIQuickTravel
   EllesmereUI/EllesmereUIAuraBuffReminders: EllesmereUIAuraBuffReminders
   EllesmereUI/EllesmereUIBags: EllesmereUIBags
   EllesmereUI/EllesmereUIBlizzardSkin: EllesmereUIBlizzardSkin
