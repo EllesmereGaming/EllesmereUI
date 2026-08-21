@@ -11,10 +11,6 @@ local function DB()
     return root and root.profile and root.profile.hearthTeleport
 end
 
-local function Cfg()
-    return DB()
-end
-
 local function Set(key, val)
     local p = DB()
     if p then p[key] = val end
@@ -103,7 +99,7 @@ _G._EUI_BuildHearthTeleportPage = function(pageName, parent, yOffset)
     local kbRow
     kbRow, h = W:DualRow(parent, y,
         { type = "toggle", text = "Enable Hearthstone / Teleport",
-          tooltip = "Shows a popup with hearthstones, class and racial travel, mage teleports and portals, and Hero's Path dungeon teleports. Use /eht or /hearth, or bind a key below.",
+          tooltip = "Shows a popup with hearthstones, class and racial travel, mage teleports and portals, and Hero's Path dungeon teleports. Use /eht or /euihearth, or bind a key below.",
           getValue = function() local c = DB(); return c and c.enabled == true end,
           setValue = EllesmereUI.DependentSetValue(
               function() local c = DB(); return c and c.enabled == true end,
@@ -142,7 +138,7 @@ _G._EUI_BuildHearthTeleportPage = function(pageName, parent, yOffset)
 
         local function RefreshLabel()
             if listening then return end
-            local k = Cfg() and Cfg().toggleKey
+            local k = DB() and DB().toggleKey
             if k == false then k = nil end
             kbLbl:SetText(FormatKey(k))
         end
@@ -203,11 +199,13 @@ _G._EUI_BuildHearthTeleportPage = function(pageName, parent, yOffset)
                 return
             end
             kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
+            if kbBtn._border and kbBtn._border.SetColor then kbBtn._border:SetColor(1, 1, 1, 0.3) end
             EllesmereUI.ShowWidgetTooltip(self, "Toggles the Hearthstone / Teleport window.\n\nLeft-click to set a keybind.\nRight-click to unbind.")
         end)
         kbBtn:SetScript("OnLeave", function()
             if listening then return end
             kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
+            if kbBtn._border and kbBtn._border.SetColor then kbBtn._border:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A) end
             EllesmereUI.HideWidgetTooltip()
         end)
         kbBtn:SetScript("OnHide", function()
@@ -267,18 +265,6 @@ _G._EUI_BuildHearthTeleportPage = function(pageName, parent, yOffset)
           getValue = function() local c = DB(); return not c or c.randomHearthstones ~= false end,
           setValue = function(v) Set("randomHearthstones", v); Apply() end }
     ); y = y - h
-
-    if not EllesmereUI._prebuilding then
-        local p = RandomPoolCfg()
-        local DATA = EllesmereUI.HEARTH_TELEPORT_DATA
-        if DATA then
-            local base = DATA.BASE_HEARTH_ITEM
-            if base and not HasHearthstone() then p[base] = false end
-            for _, id in ipairs(DATA.COSMETIC_HEARTHS or {}) do
-                if not HasToy(id) then p[id] = false end
-            end
-        end
-    end
 
     if not EllesmereUI._prebuilding then
         local rightRgn = hsRow._rightRegion

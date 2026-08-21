@@ -341,7 +341,6 @@ ShowPrompt = function()
     pendingHide = nil
     UpdateButtonVisuals()
     popup:Show()
-    if _G._EUI_RefreshHearthTeleportHighlight then _G._EUI_RefreshHearthTeleportHighlight() end
 end
 
 HidePrompt = function()
@@ -355,7 +354,6 @@ HidePrompt = function()
     if InCombatLockdown() then pendingHide = true; return end
     pendingHide = nil
     popup:Hide()
-    if _G._EUI_RefreshHearthTeleportHighlight then _G._EUI_RefreshHearthTeleportHighlight() end
 end
 
 ClearPending = function()
