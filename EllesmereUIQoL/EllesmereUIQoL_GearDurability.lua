@@ -7,8 +7,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 --  Lightweight by design:
 --    * Nothing is created and no events are registered unless the feature is on.
---    * Pure event driven: samples only on UPDATE_INVENTORY_DURABILITY and
---      PLAYER_ENTERING_WORLD. No OnUpdate, no ticker, no polling.
+--    * Pure event driven: re-samples only on the discrete durability-change edges
+--      the game announces (damage/repair, combat end, resurrect, gear swap, vendor
+--      repair, zone/login). No OnUpdate, no ticker, no polling.
 --
 --  The durability maths and the white -> red warning gradient mirror the
 --  DataBars durability block so the two readouts always agree; the icon reuses
@@ -252,7 +253,16 @@ local function _ensureEvents(enabled)
         _eventFrame:SetScript("OnEvent", _onEvent)
     end
     if enabled then
+        -- Durability changes on discrete edges the game announces; we re-sample on
+        -- each rather than poll. UPDATE_INVENTORY_DURABILITY alone is not enough for
+        -- a standalone readout: durability is lost in combat / on death, where that
+        -- event can fire before the value settles, so we also re-sample when combat
+        -- ends, on resurrect, on gear swaps, after a vendor repair, and on zone/login.
         _eventFrame:RegisterEvent("UPDATE_INVENTORY_DURABILITY")
+        _eventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+        _eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+        _eventFrame:RegisterEvent("PLAYER_UNGHOST")
+        _eventFrame:RegisterEvent("MERCHANT_CLOSED")
         _eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     else
         _eventFrame:UnregisterAllEvents()
