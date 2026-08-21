@@ -36,6 +36,15 @@ if IS_STANDALONE then return end
 local PP = EllesmereUI.PanelPP
 local MakeBorder = EllesmereUI.MakeBorder
 
+-- Register() parks each guide's def table verbatim, so nothing localizes the
+-- strings on the way in. They are localized here instead, at the single place
+-- the engine puts one on screen (SetGuide) -- resolved per Show, so a locale
+-- loaded after this file still applies. L() is identity on a missing key, so
+-- an untranslated guide keeps its English.
+local function L(s)
+    return (s and EllesmereUI.L and EllesmereUI.L(s)) or s
+end
+
 -- The override system's gold (used by guide art, exposed via ctx).
 local GOLD = { r = 1, g = 0.82, b = 0.30 }
 
@@ -282,7 +291,7 @@ local function BuildShell()
     eb:SetScript("OnEnterPressed", function(self) Dismiss() end)
     eb:SetScript("OnKeyDown", function(self, key)
         if key == "C" and IsControlKeyDown() then
-            hint:SetText("Link copied - paste it into your browser")
+            hint:SetText(L("Link copied - paste it into your browser"))
             hint:SetTextColor(cur.r, cur.g, cur.b, 0.9)
         end
     end)
@@ -300,7 +309,7 @@ local function BuildShell()
     local okLbl = okBtn:CreateFontString(nil, "OVERLAY")
     okLbl:SetFont(FONT, 15, "")
     PP.Point(okLbl, "CENTER", okBtn, "CENTER", 0, 0)
-    okLbl:SetText("Okay")
+    okLbl:SetText(L("Okay"))
     ui.okLbl = okLbl
     ui.okBtn = okBtn
     okBtn:SetScript("OnEnter", function()
@@ -376,7 +385,7 @@ local function SetGuide(id, def)
     ui.blurb:SetWidth(w - 80)
     ui.footnote:SetWidth(w - 80)
     PP.Size(ui.urlWell, def.urlWidth or 350, 34)
-    ui.okLbl:SetText(def.okText or "Okay")
+    ui.okLbl:SetText(L(def.okText or "Okay"))
     ui._onDismiss = def.onDismiss
 
     -- Bullet rows: accent-dotted short labels, up to two centered lines; the
@@ -388,7 +397,7 @@ local function SetGuide(id, def)
         local function Line(items)
             local parts = {}
             for i = 1, #items do
-                parts[i] = "|cff" .. hex .. "\226\128\162|r " .. items[i]
+                parts[i] = "|cff" .. hex .. "\226\128\162|r " .. L(items[i])
             end
             return table.concat(parts, "    ")
         end
@@ -408,17 +417,17 @@ local function SetGuide(id, def)
         PP.Point(ui.urlWell, "TOP", ui.blurb, "BOTTOM", 0, -(gUrl or 18))
     end
 
-    ui.eyebrow:SetText(def.eyebrow or "VIDEO GUIDE")
+    ui.eyebrow:SetText(L(def.eyebrow or "VIDEO GUIDE"))
     ui.eyebrow:SetTextColor(accent.r, accent.g, accent.b, 0.9)
     ui.tri:SetColorTexture(accent.r, accent.g, accent.b, 0.9)
     ui.rule:SetColorTexture(accent.r, accent.g, accent.b, 0.35)
-    ui.title:SetText(def.title or "")
-    ui.blurb:SetText(def.blurb or "")
-    ui.hint:SetText("Ctrl+C to copy, Escape to close")
+    ui.title:SetText(L(def.title) or "")
+    ui.blurb:SetText(L(def.blurb) or "")
+    ui.hint:SetText(L("Ctrl+C to copy, Escape to close"))
     ui.hint:SetTextColor(1, 1, 1, 0.45)
     ui.okLbl:SetTextColor(accent.r, accent.g, accent.b, 0.9)
     ui.okBrd:SetColor(accent.r, accent.g, accent.b, 0.9)
-    ui.footnote:SetText(def.footnote or "")
+    ui.footnote:SetText(L(def.footnote) or "")
 
     ui.eb._readOnly = def.url or ""
     ui.eb:SetText(def.url or "")
