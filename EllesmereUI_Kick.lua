@@ -108,10 +108,11 @@ local proxyCounter = 0
 -- Create (once) and return the hidden SecureActionButton proxy for a unit button.
 -- Use this when wiring a SPECIFIC click/key binding to the menu -- it does NOT
 -- touch the frame's own type attributes (so it won't clobber other bindings).
--- Group frames use Blizzard's native compact-frame menu function rather than
--- the addon-facing "togglemenu" classifier, whose raid-token handling can
--- misclassify an unstreamed player as a pet.
-function EllesmereUI.GetSecureMenuProxy(frame, useCompactMenu)
+-- Keep addon-created proxies on Blizzard's addon-facing "togglemenu" action.
+-- Setting "menu-function" from addon code taints the menu build, which blocks
+-- protected predicates such as CheckInteractDistance.
+-- ponytail: unstreamed raid units may misclassify; use a Blizzard-provided taint-safe classifier when one exists.
+function EllesmereUI.GetSecureMenuProxy(frame)
     if not frame then return end
     local proxy = menuProxies[frame]
     if not proxy then
@@ -133,11 +134,6 @@ function EllesmereUI.GetSecureMenuProxy(frame, useCompactMenu)
         -- up-click when ActionButtonUseKeyDown is on (the delegate fires an up).
         proxy:SetAttribute("useOnKeyDown", false)
         menuProxies[frame] = proxy
-    end
-    if useCompactMenu and type(CompactUnitFrame_OpenMenu) == "function" then
-        proxy:SetAttribute("type", "menu")
-        for i = 1, 5 do proxy:SetAttribute("type" .. i, "menu") end
-        proxy:SetAttribute("menu-function", CompactUnitFrame_OpenMenu)
     end
     return proxy
 end
@@ -175,9 +171,9 @@ end
 
 -- Route a unit button's default RIGHT-CLICK to the secure menu proxy via the
 -- ungated "click" action. Clears any specific type2 so the wildcard governs.
-function EllesmereUI.AttachSecureUnitMenu(frame, useCompactMenu)
+function EllesmereUI.AttachSecureUnitMenu(frame)
     if not frame then return end
-    local proxy = EllesmereUI.GetSecureMenuProxy(frame, useCompactMenu)
+    local proxy = EllesmereUI.GetSecureMenuProxy(frame)
     frame:SetAttribute("type2", nil)
     frame:SetAttribute("*type2", "click")
     frame:SetAttribute("*clickbutton2", proxy)
