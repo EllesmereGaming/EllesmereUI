@@ -108,10 +108,27 @@ local proxyCounter = 0
 -- Create (once) and return the hidden SecureActionButton proxy for a unit button.
 -- Use this when wiring a SPECIFIC click/key binding to the menu -- it does NOT
 -- touch the frame's own type attributes (so it won't clobber other bindings).
--- Group frames use Blizzard's native compact-frame menu function rather than
--- the addon-facing "togglemenu" classifier, whose raid-token handling can
--- misclassify an unstreamed player as a pet.
-function EllesmereUI.GetSecureMenuProxy(frame, useCompactMenu)
+--
+-- Every proxy opens through Blizzard's own CompactUnitFrame_OpenMenu instead of
+-- the addon-facing "togglemenu" classifier. togglemenu resolves the menu type
+-- through a UnitIsUnit chain that tests "pet" BEFORE the player check, and its
+-- token special-cases do not cover every unit token; for a group member whose
+-- unit data has not streamed (zoned elsewhere) that pet test can misfire and the
+-- whole chain lands on PET -- the frame answers with Dismiss/Rename instead of
+-- Set Focus / Remove from group. Blizzard's own UI never runs togglemenu (it is
+-- marked "Unused by Blizzard code"), which is why only addon frames show the
+-- bug; raid frames were merely where it was reported first, since target/focus/
+-- targettarget/boss sit on the exact same action.
+--
+-- The compact opener is a drop-in for ALL of them, not just group frames: its
+-- signature (frame, unit, button, isKeyPress) is exactly what the secure "menu"
+-- action passes, and it classifies SELF / VEHICLE / PET / RAID_PLAYER / PARTY /
+-- PLAYER with a TARGET fallback for NPCs -- so right-clicking an enemy, a boss
+-- or a vehicle still opens that unit's normal menu. Being Blizzard-owned code
+-- called from inside the secure click, the open stays untainted and protected
+-- items (Set Focus, Follow) keep working. togglemenu remains the fallback for
+-- clients that do not expose the function.
+function EllesmereUI.GetSecureMenuProxy(frame)
     if not frame then return end
     local proxy = menuProxies[frame]
     if not proxy then
@@ -123,21 +140,21 @@ function EllesmereUI.GetSecureMenuProxy(frame, useCompactMenu)
         proxy:SetAlpha(0)
         proxy:EnableMouse(false)          -- never catches real mouse; only the secure click delegate reaches it
         proxy:RegisterForClicks("AnyUp")
-        proxy:SetAttribute("type", "togglemenu")
+        local useCompact = type(CompactUnitFrame_OpenMenu) == "function"
+        local action = useCompact and "menu" or "togglemenu"
+        proxy:SetAttribute("type", action)
         -- The secure resolver looks up type by BUTTON SUFFIX (RightButton -> type2);
         -- the bare "type" may not fall back, so set every button explicitly.
-        for i = 1, 5 do proxy:SetAttribute("type" .. i, "togglemenu") end
+        for i = 1, 5 do proxy:SetAttribute("type" .. i, action) end
+        if useCompact then
+            proxy:SetAttribute("menu-function", CompactUnitFrame_OpenMenu)
+        end
         proxy:SetAttribute("useparent-unit", true)
         -- Act on mouse-up regardless of the "cast on key down" CVar. Without this,
         -- SecureActionButton_OnClick's clickAction gate skips the menu action on the
         -- up-click when ActionButtonUseKeyDown is on (the delegate fires an up).
         proxy:SetAttribute("useOnKeyDown", false)
         menuProxies[frame] = proxy
-    end
-    if useCompactMenu and type(CompactUnitFrame_OpenMenu) == "function" then
-        proxy:SetAttribute("type", "menu")
-        for i = 1, 5 do proxy:SetAttribute("type" .. i, "menu") end
-        proxy:SetAttribute("menu-function", CompactUnitFrame_OpenMenu)
     end
     return proxy
 end
@@ -175,9 +192,9 @@ end
 
 -- Route a unit button's default RIGHT-CLICK to the secure menu proxy via the
 -- ungated "click" action. Clears any specific type2 so the wildcard governs.
-function EllesmereUI.AttachSecureUnitMenu(frame, useCompactMenu)
+function EllesmereUI.AttachSecureUnitMenu(frame)
     if not frame then return end
-    local proxy = EllesmereUI.GetSecureMenuProxy(frame, useCompactMenu)
+    local proxy = EllesmereUI.GetSecureMenuProxy(frame)
     frame:SetAttribute("type2", nil)
     frame:SetAttribute("*type2", "click")
     frame:SetAttribute("*clickbutton2", proxy)
