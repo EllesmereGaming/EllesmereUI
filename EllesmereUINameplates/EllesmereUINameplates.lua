@@ -6223,9 +6223,16 @@ function NameplateFrame:UpdateHealthValues()
                 self._castLockout = nil
                 if ns.NPC_UpdateLockout then ns.NPC_UpdateLockout(self) end
             end
+            -- Unit changed without a full add/remove cycle: clear old
+            -- target/hover border state and re-check it for the new unit.
+            self._targetBorderSized = nil
+            self._hoverBorderSized = nil
+            self._hoverFxOn = nil
             self:UpdateName()
             self._castDirtyFull = true
             self:UpdateCast()
+            self:ApplyTarget()
+            self:ApplyMouseover()
         end
     end
 
