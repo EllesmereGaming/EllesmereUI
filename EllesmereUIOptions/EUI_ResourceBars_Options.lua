@@ -3767,7 +3767,7 @@ end
                       local c = cfg()
                       if not c or not c.enabled then return "Health Bar" end
                       local tse = _G._ERB_ResolveThresholdSpecEntry and _G._ERB_ResolveThresholdSpecEntry(c)
-                      if tse and (tse.thresholdEnabled ~= false) then return "This option requires Threshold Settings to be disabled" end
+                      if tse and (tse.thresholdEnabled ~= false) then return "This option requires Threshold & Hash Lines to be disabled" end
                       return "Gradient"
                   end,
                   getValue = function()
@@ -4062,7 +4062,7 @@ end
                   local c = cfg(); if not c then return end
                   c.textSize = v; RefreshHealth()
               end },
-            { type = "label", text = "Threshold Settings" }
+            { type = "label", text = "Threshold & Hash Lines" }
         );  y = y - h
         -- Threshold Settings popup. Simple edits DB().health (multi-spec, with the spec
         -- dropdown). Advanced edits the per-spec override cfg() in singleSpec mode: collapse
@@ -4526,7 +4526,7 @@ end
                       local c = cfg()
                       if not c or not c.enabled then return powerDisTip end
                       local tse = _G._ERB_ResolveThresholdSpecEntry and _G._ERB_ResolveThresholdSpecEntry(c)
-                      if tse and (tse.thresholdEnabled ~= false) then return "This option requires Threshold Settings to be disabled" end
+                      if tse and (tse.thresholdEnabled ~= false) then return "This option requires Threshold & Hash Lines to be disabled" end
                       return "Gradient"
                   end,
                   getValue = function()
@@ -4780,7 +4780,7 @@ end
                   local c = cfg(); if not c then return end
                   c.textSize = v; RefreshPower()
               end },
-            { type = "label", text = "Threshold Settings" }
+            { type = "label", text = "Threshold & Hash Lines" }
         );  y = y - h
         -- Power Text inline cog: percent sign, anchor, x/y offsets
         if not EllesmereUI._prebuilding then
