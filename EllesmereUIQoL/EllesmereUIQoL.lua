@@ -229,7 +229,10 @@ qolFrame:SetScript("OnEvent", function(self)
             return (MailFrame and MailFrame:IsShown()) and true or false
         end
         local function BankOpen()
-            return (BankFrame and BankFrame:IsShown()) and true or false
+            -- return (BankFrame and BankFrame:IsShown()) and true or false
+            -- Changed to checking interaction state instead of framestate for wider
+            -- compatability with other addons.
+            return C_PlayerInteractionManager.IsInteractingWithNpcOfType(Enum.PlayerInteractionType.MailInfo) and true or false
         end
         -- "Exclude Warbound Containers": checks the item's own bind type
         -- instead of asking the bank if it would accept a deposit right now --
