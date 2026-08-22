@@ -1332,16 +1332,33 @@ qolFrame:SetScript("OnEvent", function(self)
             end)
 
             -- Auto-accept role check; Holding Shift skips it so the dialog stays open (e.g. to type a signup note).
-            if LFGListApplicationDialog then
+            -- Click is issued from a secure handler to avoid tainting the protected call it triggers.
+            local signupHandler = CreateFrame("Frame", nil, LFGListApplicationDialog, "SecureHandlerBaseTemplate")
+                signupHandler:SetAttribute("signUpButton", LFGListApplicationDialog.SignUpButton)
                 LFGListApplicationDialog:HookScript("OnShow", function(self)
-                    if not (EllesmereUIDB and EllesmereUIDB.quickSignup) then return end
-                    if self.SignUpButton:IsEnabled() and not IsShiftKeyDown() then
-                        self.SignUpButton:Click()
-                    end
+                    local quickSignup = EllesmereUIDB and EllesmereUIDB.quickSignup
+                    signupHandler:SetAttribute("quickSignup", quickSignup and true or false)
+                    signupHandler:SetAttribute("shiftDown", IsShiftKeyDown() and true or false)
                 end)
+                SecureHandlerWrapScript(LFGListApplicationDialog, "OnShow", signupHandler, [[
+                    local btn = self:GetAttribute("signUpButton")
+                    if self:GetAttribute("quickSignup") and btn and btn:IsEnabled() and not self:GetAttribute("shiftDown") then
+                        btn:Click()
+                    end
+                ]])
             end
 
             -- Classic Dungeon Finder role check
+            -- Same taint risk as above, same fix: click via a secure handler.
+            local roleCheckHandler = CreateFrame("Frame", nil, nil, "SecureHandlerBaseTemplate")
+            roleCheckHandler:SetAttribute("acceptButton", LFDRoleCheckPopupAcceptButton)
+            SecureHandlerWrapScript(LFDRoleCheckPopupAcceptButton, "OnEnable", roleCheckHandler, [[
+                if self:GetAttribute("triggerAccept") then
+                    self:SetAttribute("triggerAccept", false)
+                    local btn = self:GetAttribute("acceptButton")
+                    if btn then btn:Click() end
+                end
+            ]])
             roleFrame = CreateFrame("Frame")
             roleFrame:SetScript("OnEvent", function()
                 if not (EllesmereUIDB and EllesmereUIDB.quickSignup) then return end
@@ -1358,8 +1375,8 @@ qolFrame:SetScript("OnEvent", function(self)
                 if LFDRoleCheckPopupRoleButtonDPS.checkButton:IsEnabled() then
                     LFDRoleCheckPopupRoleButtonDPS.checkButton:SetChecked(dps)
                 end
+                roleCheckHandler:SetAttribute("triggerAccept", true)
                 LFDRoleCheckPopupAcceptButton:Enable()
-                LFDRoleCheckPopupAcceptButton:Click()
             end)
         end
 
