@@ -3919,6 +3919,7 @@ local function UpdateHealthBar()
     -- Color: threshold via ColorCurve (same as the power bar), from the
     -- per-spec threshold entry.
     local _hpTsEntry = ResolveThresholdSpecEntry(hp)
+    local _hpBuffEntry = _hpTsEntry
     local _hpTsEnabled = _hpTsEntry and (_hpTsEntry.thresholdEnabled ~= false) or false
     local _hpBandOn, _hpBands, _hpBandMode, _hpBandRev = ResolveBandConfig(hp, _hpTsEntry)
     if not _hpTsEnabled then _hpTsEntry = nil end
@@ -3953,9 +3954,9 @@ local function UpdateHealthBar()
     -- from the UI for Health Bar specifically (step 4), not to fork the
     -- render logic per bar. Both return plain, non-secret colors, so unlike
     -- the threshold/band path below they never need the ColorCurve.
-    local _bfr, _bfg, _bfb, _bfa = ActiveBuffColor(_hpTsEntry)
+    local _bfr, _bfg, _bfb, _bfa = ActiveBuffColor(_hpBuffEntry)
     if not _bfr then
-        _bfr, _bfg, _bfb, _bfa = ActiveSpenderColor(_hpTsEntry)
+        _bfr, _bfg, _bfb, _bfa = ActiveSpenderColor(_hpBuffEntry)
     end
     local _buffActive = _bfr ~= nil
 
@@ -4110,6 +4111,11 @@ local function UpdatePrimaryBar()
         -- ResolveBandConfig must see the RAW entry, not the enabled-gated one.
         pc.bandOn, pc.bands, pc.bandMode, pc.bandRev = ResolveBandConfig(pc.pp, e)
         pc.tsEntry = (e and (e.thresholdEnabled ~= false)) and e or nil
+        -- Buff Colors/Spenders must ALSO see the raw entry, not the enabled-gated
+        -- one -- same reasoning as ResolveBandConfig above. Class Resource Bar's
+        -- equivalent (_buffEntry) was never gated on Threshold in the first place;
+        -- Power Bar's was, incorrectly, until this fix.
+        pc.rawEntry = e
     end
     local pp = pc.pp
 
@@ -4224,9 +4230,9 @@ local function UpdatePrimaryBar()
     -- explicitly disabled on this entry). Both return plain, non-secret
     -- colors, so unlike the threshold/band path below they never need the
     -- ColorCurve -- applied directly via SetVertexColor instead.
-    local _bfr, _bfg, _bfb, _bfa = ActiveBuffColor(_ppTsEntry)
+    local _bfr, _bfg, _bfb, _bfa = ActiveBuffColor(pc.rawEntry)
     if not _bfr then
-        _bfr, _bfg, _bfb, _bfa = ActiveSpenderColor(_ppTsEntry)
+        _bfr, _bfg, _bfb, _bfa = ActiveSpenderColor(pc.rawEntry)
     end
     local _buffActive = _bfr ~= nil
 
@@ -9150,7 +9156,19 @@ local function OnEvent(self, event, ...)
     elseif event == "UNIT_AURA" then
         local unit = ...
         if unit == "player" then
-            if cachedPrimary == "EBON_MIGHT" then UpdatePrimaryBar() end
+            -- Power/Health Bar never had an aura-driven refresh at all before this
+            -- (only the unrelated Ebon Might special case) -- Class Resource Bar's
+            -- own buff/spender coloring has always had this; Power/Health's version
+            -- only worked opportunistically, whenever an unrelated power/health tick
+            -- happened to coincide with a buff applying or expiring. SecondaryTracksBuff/
+            -- SecondaryTracksSpender/SecondaryNeedsLiveColorTracking already take a
+            -- generic bar-data table (never hardcoded to p.secondary), so reused as-is.
+            if cachedPrimary == "EBON_MIGHT" or SecondaryNeedsLiveColorTracking(_G._ERB_ResolvePowerCfg()) then
+                UpdatePrimaryBar()
+            end
+            if SecondaryNeedsLiveColorTracking(_G._ERB_ResolveHealthCfg()) then
+                UpdateHealthBar()
+            end
             if cachedSecondary then
                 -- Refresh on aura change for custom resources and for buff/spender coloring
                 -- (any resource type -- a tracked buff gain/loss, or an aura-gated reactive
