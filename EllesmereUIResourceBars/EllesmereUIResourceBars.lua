@@ -3893,6 +3893,38 @@ end
 -- above for ResolveThresholdSpecEntry.
 local ActiveBuffColor, ActiveSpenderColor
 
+-- AbbreviateNumbers is a Blizzard API function (FrameXML global, promoted to a
+-- proper API in Patch 12.0.0) that does raw numeric comparison and arithmetic on
+-- its argument with no secret-value protection at all -- confirmed against its
+-- actual published implementation (warcraft.wiki.gg): `value >= data.breakpoint`
+-- and `value / data.significandDivisor`, unguarded. Power Bar's own cur is already
+-- known to be secret at least transiently for some custom power types (see the
+-- negative-clamp guard in UpdatePrimaryBar), so calling AbbreviateNumbers(cur)
+-- directly would throw the moment that happens. Guard explicitly (cheap, matches
+-- the issecretvalue idiom already used throughout this file) and pcall as
+-- defense-in-depth for any other, untested edge case, since this is Blizzard's
+-- own function, not something inspectable/fixable here. tostring() as the pcall-
+-- failure fallback is only reached once the value is already confirmed non-secret
+-- above, so it's safe there -- tostring() on a genuinely secret value is not
+-- guaranteed safe either, hence the separate, earlier check.
+local function SafeAbbreviateNumbers(value)
+    if issecretvalue and issecretvalue(value) then
+        -- Can't safely compare/divide a secret value (which is what
+        -- AbbreviateNumbers does internally), but format("%s", ...) renders a
+        -- secret's digits natively, engine-side -- the same trick already used
+        -- elsewhere in this file and by Class Resource Bar's own bar-type
+        -- resources for exactly this reason. Loses the k/m abbreviation for
+        -- the secret case (which, in practice, is not the rare edge case the
+        -- comment above originally assumed -- it happens routinely enough that
+        -- returning "" here blanked the value display outright), but still
+        -- shows the actual number instead of nothing.
+        return format("%s", value)
+    end
+    local ok, result = pcall(AbbreviateNumbers, value)
+    if ok and result then return result end
+    return tostring(value)
+end
+
 local function UpdateHealthBar()
     if not healthBar or not healthBar:IsShown() then return end
     local hp = _G._ERB_ResolveHealthCfg()
@@ -3946,14 +3978,15 @@ local function UpdateHealthBar()
 
     -- A tracked buff overrides the fill (buff wins over threshold/band).
     -- Spenders is checked only when no buff is active, so it can never
-    -- override Buff Colors -- same _buffEntry = _tsEntry coupling Class
-    -- Resource Bar and Power Bar both already use. Spenders on a health bar is
-    -- an unusual pairing (recoloring health based on spell castability), but
-    -- deliberately wired in the same way as the other two bars rather than
-    -- special-cased out at the render level -- the plan is to hide the option
-    -- from the UI for Health Bar specifically (step 4), not to fork the
-    -- render logic per bar. Both return plain, non-secret colors, so unlike
-    -- the threshold/band path below they never need the ColorCurve.
+    -- override Buff Colors. Uses _hpBuffEntry (the raw entry, captured before
+    -- threshold-gating above) so this works independently of whether
+    -- Threshold is enabled -- matching Class Resource Bar and Power Bar.
+    -- Spenders on a health bar is an unusual pairing (recoloring health based
+    -- on spell castability), but deliberately wired in the same way as the
+    -- other two bars rather than special-cased out at the render level -- the
+    -- plan is to hide the option from the UI for Health Bar specifically, not
+    -- to fork the render logic per bar. Both return plain, non-secret colors,
+    -- so unlike the threshold/band path below they never need the ColorCurve.
     local _bfr, _bfg, _bfb, _bfa = ActiveBuffColor(_hpBuffEntry)
     if not _bfr then
         _bfr, _bfg, _bfb, _bfa = ActiveSpenderColor(_hpBuffEntry)
@@ -4048,10 +4081,26 @@ local function UpdateHealthBar()
                     -- branch below, when Threshold gets toggled off) can't be silently skipped
                     -- as a false-positive "unchanged" match against this bypassed value.
                     ft._lfOn, ft._lgOn = nil, nil
+                else
+                    -- Curve evaluation failed (pcall error, or a malformed/missing result) --
+                    -- without this, the fill silently freezes at whatever it last showed.
+                    -- CRB has the identical fallback for its own bar-type curve; Health Bar
+                    -- had no equivalent until this fix. Uses Health Bar's own baseR/G/B (the
+                    -- class color or custom fill), never Class Resource Bar's color.
+                    ft:SetVertexColor(baseR, baseG, baseB, 1)
+                    ft._lfOn, ft._lgOn = nil, nil
                 end
             end
         end
-    elseif ft and not hp.customColored then
+    elseif ft then
+        -- No condition on hp.customColored: baseR/G/B was already correctly
+        -- resolved for either case above (pp.customColored ? pp.fillR/G/B :
+        -- the power-type color). This used to be conditional, which was
+        -- harmless before Buff Colors/Spenders existed (nothing else ever
+        -- wrote a DIFFERENT color here to revert from) -- but with them, a
+        -- customColored bar with Threshold/Band both off had no fallback
+        -- branch at all once a buff/spender released control, leaving the
+        -- fill permanently stuck on whatever color it last showed.
         if hp.gradientEnabled then
             ApplyBarGradient(ft, hp.gradientDir or "HORIZONTAL",
                 baseR, baseG, baseB, 1,
@@ -4072,7 +4121,7 @@ local function UpdateHealthBar()
     if hp.textFormat ~= "none" and not _G._ERB_TextHiddenByForm(hp) then
         local fmt = hp.textFormat
         local pctStr = format("%d", pctRaw)
-        local curStr = AbbreviateNumbers(cur)
+        local curStr = SafeAbbreviateNumbers(cur)
         local txt
         if fmt == "both" then
             txt = curStr .. " | " .. pctStr .. "%"
@@ -4225,11 +4274,12 @@ local function UpdatePrimaryBar()
 
     -- A tracked buff overrides the fill (buff wins over threshold/band).
     -- Spenders is checked only when no buff is active, so it can never
-    -- override Buff Colors -- same _buffEntry = _tsEntry coupling Class
-    -- Resource Bar already uses (buff/spender requires threshold to not be
-    -- explicitly disabled on this entry). Both return plain, non-secret
-    -- colors, so unlike the threshold/band path below they never need the
-    -- ColorCurve -- applied directly via SetVertexColor instead.
+    -- override Buff Colors. Uses pc.rawEntry (the raw entry, captured before
+    -- threshold-gating above) so this works independently of whether
+    -- Threshold is enabled -- matching Class Resource Bar and Health Bar.
+    -- Both return plain, non-secret colors, so unlike the threshold/band
+    -- path below they never need the ColorCurve -- applied directly via
+    -- SetVertexColor instead.
     local _bfr, _bfg, _bfb, _bfa = ActiveBuffColor(pc.rawEntry)
     if not _bfr then
         _bfr, _bfg, _bfb, _bfa = ActiveSpenderColor(pc.rawEntry)
@@ -4301,6 +4351,19 @@ local function UpdatePrimaryBar()
                     -- as a false-positive "unchanged" match against this bypassed value.
                     ft._lfOn, ft._lgOn = nil, nil
                 end
+            elseif not _ppTextInstead then
+                -- Curve evaluation failed (pcall error, or a malformed/missing result) --
+                -- without this, the fill silently freezes at whatever it last showed.
+                -- CRB has the identical fallback for its own bar-type curve (Maelstrom/
+                -- Insanity/Focus/Lunar Power); Power Bar had no equivalent until this fix.
+                -- Uses Power Bar's own baseR/G/B (the actual power-type color -- Energy/
+                -- Mana/Rage/Fury/etc, or the custom fill if set), never Class Resource
+                -- Bar's color. Matches CRB's own scope exactly: no equivalent fallback
+                -- for the text-instead+colorText case either there or here (a stale text
+                -- color is a far smaller issue than a frozen fill, and the fill already
+                -- gets a guaranteed-correct reset just below regardless).
+                ft:SetVertexColor(baseR, baseG, baseB, 1)
+                ft._lfOn, ft._lgOn = nil, nil
             end
         end
         if _ppTextInstead then
@@ -4313,7 +4376,15 @@ local function UpdatePrimaryBar()
                 ApplyBarFlat(ft, baseR, baseG, baseB, 1)
             end
         end
-    elseif not pp.customColored then
+    else
+        -- No condition on pp.customColored: baseR/G/B was already correctly
+        -- resolved for either case above (pp.customColored ? pp.fillR/G/B :
+        -- the power-type color). This used to be conditional, which was
+        -- harmless before Buff Colors/Spenders existed (nothing else ever
+        -- wrote a DIFFERENT color here to revert from) -- but with them, a
+        -- customColored bar with Threshold/Band both off had no fallback
+        -- branch at all once a buff/spender released control, leaving the
+        -- fill permanently stuck on whatever color it last showed.
         if pp.gradientEnabled then
             ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL",
                 baseR, baseG, baseB, 1,
@@ -4338,15 +4409,15 @@ local function UpdatePrimaryBar()
         local txt
         if fmt == "smart" then
             local isPercent = EllesmereUI.IsSmartPowerPercent and EllesmereUI.IsSmartPowerPercent(cachedPrimary)
-            txt = isPercent and percentText or AbbreviateNumbers(cur)
+            txt = isPercent and percentText or SafeAbbreviateNumbers(cur)
         elseif fmt == "both" then
-            txt = AbbreviateNumbers(cur) .. " | " .. percentText
+            txt = SafeAbbreviateNumbers(cur) .. " | " .. percentText
         elseif fmt == "curpp" then
-            txt = AbbreviateNumbers(cur)
+            txt = SafeAbbreviateNumbers(cur)
         elseif fmt == "perpp" then
             txt = percentText
         else
-            txt = AbbreviateNumbers(cur)
+            txt = SafeAbbreviateNumbers(cur)
         end
         primaryBar._text:SetText(txt)
         primaryBar._text:Show()
@@ -6281,32 +6352,60 @@ end, 1 / 30)
 -- 10Hz, Evoker Essence recharge at 20Hz. ONE ticker at a 20Hz base; 10Hz jobs
 -- skip every other fire. All paths funnel into UpdateSecondaryResource, whose
 -- value early-out makes an unchanged poll nearly free.
+--
+-- Power Bar / Health Bar buff/spender tracking rides this same ticker (below,
+-- after the 10Hz flip) -- same reasoning as Class Resource Bar's own stb check:
+-- a genuinely secret buff tracked via Buff Colors has no reliable event at all
+-- (not even the UNIT_AURA fix), so this poll is the only thing that can ever
+-- catch it. The original unconditional "if not cs then return end" is replaced
+-- with "if cs then ... end" wrapping the exact same CRB logic unchanged, so CRB's
+-- behavior is identical when cs exists; the difference is only that execution
+-- can now fall through to the new Power/Health checks when it doesn't.
 ns.PollTick = EllesmereUI.Tick.NewAnimTicker(CreateFrame("Frame"), function()    local cs = cachedSecondary
-    if not cs then return end
-    local pwr, typ = cs.power, cs.type
-    if _essenceNextTick and pwr == PT.ESSENCE then
-        UpdateSecondaryResource()
-        return true
+    if cs then
+        local pwr, typ = cs.power, cs.type
+        if _essenceNextTick and pwr == PT.ESSENCE then
+            UpdateSecondaryResource()
+            return true
+        end
     end
     ns._pollFlip = not ns._pollFlip
     if ns._pollFlip then return true end
-    if typ == "runes" or typ == "custom" or typ == "bar" or cs.frac then
-        -- cs.frac (Destruction shard fragments): sub-unit movement, including
-        -- out-of-combat decay, has no reliable event. The fragment-aware value
-        -- guard costs one UnitPower per fire when nothing moved.
-        UpdateSecondaryResource()
-        return true
+    if cs then
+        local pwr, typ = cs.power, cs.type
+        if typ == "runes" or typ == "custom" or typ == "bar" or cs.frac then
+            -- cs.frac (Destruction shard fragments): sub-unit movement, including
+            -- out-of-combat decay, has no reliable event. The fragment-aware value
+            -- guard costs one UnitPower per fire when nothing moved.
+            UpdateSecondaryResource()
+            return true
+        end
+        local stb = ns.STB
+        if not stb or stb.gen ~= ns.CfgGen then
+            if not stb then stb = {}; ns.STB = stb end
+            stb.gen = ns.CfgGen
+            stb.v = SecondaryNeedsLiveColorTracking(_G._ERB_ResolveSecondaryCfg())
+        end
+        if stb.v then
+            UpdateSecondaryResource()
+            return true
+        end
     end
-    local stb = ns.STB
-    if not stb or stb.gen ~= ns.CfgGen then
-        if not stb then stb = {}; ns.STB = stb end
-        stb.gen = ns.CfgGen
-        stb.v = SecondaryNeedsLiveColorTracking(_G._ERB_ResolveSecondaryCfg())
+    local ptb = ns.PTB
+    if not ptb or ptb.gen ~= ns.CfgGen then
+        if not ptb then ptb = {}; ns.PTB = ptb end
+        ptb.gen = ns.CfgGen
+        ptb.v = SecondaryNeedsLiveColorTracking(_G._ERB_ResolvePowerCfg())
     end
-    if stb.v then
-        UpdateSecondaryResource()
-        return true
+    if ptb.v then UpdatePrimaryBar() end
+    local htb = ns.HTB
+    if not htb or htb.gen ~= ns.CfgGen then
+        if not htb then htb = {}; ns.HTB = htb end
+        htb.gen = ns.CfgGen
+        htb.v = SecondaryNeedsLiveColorTracking(_G._ERB_ResolveHealthCfg())
     end
+    if htb.v then UpdateHealthBar() end
+    if ptb.v or htb.v then return true end
 end, 0.05)
 
 
@@ -6337,6 +6436,25 @@ function ns.ArmTick()
             if stb.v then ns.PollTick.Start() end
         end
     end
+    -- Power Bar / Health Bar buff/spender tracking also needs the poll safety
+    -- net (PollTick above), independent of whether Class Resource Bar itself
+    -- needs it -- a user can have Buff Colors on Power Bar with Class Resource
+    -- Bar's Buff Colors off entirely, or vice versa. Same ns.STB-style
+    -- per-config-generation cache pattern, separate slots (ns.PTB/ns.HTB).
+    local ptb = ns.PTB
+    if not ptb or ptb.gen ~= ns.CfgGen then
+        if not ptb then ptb = {}; ns.PTB = ptb end
+        ptb.gen = ns.CfgGen
+        ptb.v = SecondaryNeedsLiveColorTracking(_G._ERB_ResolvePowerCfg())
+    end
+    if ptb.v then ns.PollTick.Start() end
+    local htb = ns.HTB
+    if not htb or htb.gen ~= ns.CfgGen then
+        if not htb then htb = {}; ns.HTB = htb end
+        htb.gen = ns.CfgGen
+        htb.v = SecondaryNeedsLiveColorTracking(_G._ERB_ResolveHealthCfg())
+    end
+    if htb.v then ns.PollTick.Start() end
     if cachedPrimary == "EBON_MIGHT" and not ns.EMB121_Owns
        and _ebonMightExpiry > GetTime() then
         ns.EMTick.Start()
@@ -9129,6 +9247,7 @@ local function OnEvent(self, event, ...)
         cachedSecondary = GetSecondaryResource()
         BuildBars()
         BuildCastBar()
+        UpdateHealthBar()
         UpdatePrimaryBar()
         UpdateSecondaryResource()
         UpdateVisibility()
