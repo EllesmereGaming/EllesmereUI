@@ -1203,6 +1203,154 @@ ns.BlockFactories.durability = function(blockCfg, slot, content, barCtx)
     })
 end
 
+ns.BlockFactories.combat = function(blockCfg, slot, content, barCtx)
+    local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
+    inst.key = InstKey(barCtx, blockCfg)
+    inst.events = { "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD" }
+
+    local function IsInCombat()
+        return UnitAffectingCombat("player") and 1 or 0
+    end
+
+    local function CombatLabel(value)
+        return value == 1 and L["IN_COMBAT"] or L["OUT_OF_COMBAT"]
+    end
+
+    local function CombatTooltip()
+        ns.Tip_Begin(content)
+        ns.Tip_AddDouble(L["COMBAT_STATUS"], CombatLabel(IsInCombat()), 1, 1, 1, 1, 1, 1)
+        ns.Tip_Show()
+    end
+
+    local mouseOver = false
+    local lastValue = -1
+    local fontSize = max(9, floor(CONTENT_BASE * 0.4333 + 0.5))
+
+    local function D() return blockCfg.settings or {} end
+    local function BC() return barCtx.cfg end
+
+    local frame = CreateFrame("Button", nil, content)
+    frame:SetSize(60, 20)
+    frame:EnableMouse(true)
+    frame:RegisterForClicks("AnyUp")
+
+    local text = frame:CreateFontString(nil, "OVERLAY")
+    AttachTextOffset(inst, text)
+    text:SetPoint("LEFT")
+
+    local measureFS = frame:CreateFontString(nil, "OVERLAY")
+    measureFS:Hide()
+
+    local function ApplyColors()
+        local r, g, b
+        if mouseOver then
+            r, g, b = ns.GetAccent()
+        else
+            r, g, b = BlockColorOf(blockCfg)
+        end
+        text:SetTextColor(r, g, b, 1)
+    end
+
+    function inst:Refresh()
+        local barCfg = BC()
+        local barH = barCtx.GetThickness()
+        local isSide = barCtx.IsVertical()
+        local value = lastValue
+        if value < 0 then value = IsInCombat(); lastValue = value end
+        local collapsed = D().onlyInCombat == true and value ~= 1
+
+        if not collapsed and not content:IsShown() then content:Show() end
+
+        ns.SetFont(text, fontSize, barCfg)
+        text:SetText(EllesmereUI.L(CombatLabel(value)))
+        ApplyColors()
+
+        if InCombatLockdown() then
+            MaybeRelayout(inst)
+            return
+        end
+
+        if isSide then
+            local slotW = VSlotW(inst)
+            local innerW = max(36, slotW - 8)
+            frame:SetSize(innerW, fontSize + 4)
+            frame:ClearAllPoints()
+            frame:SetPoint("CENTER", content, "CENTER", 0, 0)
+            text:ClearAllPoints()
+            text:SetPoint("CENTER", frame, "CENTER", 0, 0)
+            ns.SetWrappedText(text, innerW, "CENTER")
+            content:SetSize(slotW, max(fontSize + 12, barH))
+        else
+            local align = blockCfg.align or "CENTER"
+            ns.ResetInlineText(text, align)
+            text:ClearAllPoints()
+            text:SetPoint("LEFT", frame, "LEFT", 0, 0)
+            ns.SetFont(measureFS, fontSize, barCfg)
+            measureFS:SetText(EllesmereUI.L(CombatLabel(0)))
+            local width = max(30, ns.SnapToPixelGrid(measureFS:GetStringWidth() or 30) + 2)
+            text:SetWidth(width)
+            frame:SetSize(width, barH)
+            frame:ClearAllPoints()
+            frame:SetPoint("CENTER", content, "CENTER", 0, 0)
+            content:SetSize(width, barH)
+        end
+        if collapsed then
+            content:Hide()
+            ns.Tip_Hide(content)
+        end
+        MaybeRelayout(inst)
+    end
+
+    local function RefreshFromEvent()
+        local value = IsInCombat()
+        if value == lastValue then return end
+        lastValue = value
+        inst:Refresh()
+        if mouseOver then CombatTooltip() end
+    end
+
+    frame:SetScript("OnEnter", function()
+        mouseOver = true
+        ApplyColors()
+        CombatTooltip()
+    end)
+    frame:SetScript("OnLeave", function()
+        mouseOver = false
+        ns.Tip_Hide(content)
+        ApplyColors()
+    end)
+
+    function inst:Enable()
+        content:Show()
+        lastValue = -1
+        if not self.eventFrame then
+            self.eventFrame = MakeEventFrame(self, RefreshFromEvent)
+        end
+        RegisterInstEvents(self)
+        RefreshFromEvent()
+    end
+
+    function inst:Disable()
+        UnregisterInstEvents(self)
+        content:Hide()
+    end
+
+    function inst:GetAutoLength()
+        if D().onlyInCombat == true and lastValue ~= 1 then return 0 end
+        if not content:IsShown() then return 0 end
+        if barCtx.IsVertical() then return max(content:GetHeight() or 40, 40) end
+        return max(content:GetWidth() or 70, 40)
+    end
+
+    function inst:Destroy()
+        self._dead = true
+        UnregisterInstEvents(self)
+        content:Hide()
+    end
+
+    return inst
+end
+
 -------------------------------------------------------------------------------
 --  LOCATION + COORDINATES (two block types on one text renderer)
 -------------------------------------------------------------------------------
