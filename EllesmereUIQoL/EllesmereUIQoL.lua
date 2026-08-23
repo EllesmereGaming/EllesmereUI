@@ -2876,7 +2876,7 @@ do
 
     local rcInitFrame = CreateFrame("Frame")
     rcInitFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    rrcInitFrame:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
+    rcInitFrame:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
     rcInitFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
     rcInitFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
     rcInitFrame:SetScript("OnEvent", function(self, event)
