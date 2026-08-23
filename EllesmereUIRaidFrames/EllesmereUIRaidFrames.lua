@@ -3717,6 +3717,13 @@ local function StyleButton(button)
             -- landing after the roster-timer rebuild can never leave it blank or route live events
             -- to a stale button. Fires only for buttons whose unit changed, so bounded.
             local d = GetFFD(self)
+            -- Fires even on a same-unit re-confirm (see the private-aura note above), so only drop
+            -- the power-hide cache on a genuine occupant change -- else it forces an unconditional
+            -- Show/Hide/SetHeight repaint, reintroducing the pop the deferred-power fix removed.
+            if d._lastUnit ~= u then
+                d._lastUnit = u
+                d._appliedHidePower = nil
+            end
             -- Extra Frames duplicates never enter the real routing maps (one button per unit);
             -- XF_Apply owns ns._xfUnitToButton. The repaint/range/private-aura work below is 1:1.
             if d._isExtra then
@@ -3965,19 +3972,42 @@ local function UpdateButton(button)
         -- Extra Frames duplicates carry a per-group size offset (Extra Height), so the BUTTON is
         -- authoritative -- the shared setting would shrink health and leave a gap every update.
         local frameH = d._isExtra and button:GetHeight() or (s.frameHeight or 46)
-        if hidePower then
-            power:Hide()
-            if d.powerBorderFrame then d.powerBorderFrame:Hide() end
-            -- Expand health bar to full frame height (minus the Top Name Bar)
-            if d.health then
-                d.health:SetHeight(PixelSnap(frameH - tnbH))
+
+        -- power:Show()/Hide() and the two SetHeight branches below reflow every decoration
+        -- anchored to health (RF_AnchorHost anchors to the live health frame, not a stable
+        -- ref). Applying that transition on every call lets an in-combat identity/roster event
+        -- (role resync race, a GROUP_ROSTER_UPDATE storm at pull start) pop the whole button's
+        -- content stack mid-fight. Only run the transition when hidePower actually changes, and
+        -- defer it to combat end if combat is up; flushed from PLAYER_REGEN_ENABLED alongside
+        -- the existing _rosterDirtyInCombat/_sizeTierDirtyInCombat deferrals. nil (fresh occupant,
+        -- see the OnAttributeChanged reset) always applies immediately, never inheriting a stale layout.
+        if d._appliedHidePower ~= hidePower then
+            if inCombat and d._appliedHidePower ~= nil then
+                d._powerDirtyInCombat = true
+                ns._powerDirtyInCombat = true
+            else
+                d._appliedHidePower = hidePower
+                if hidePower then
+                    power:Hide()
+                    if d.powerBorderFrame then d.powerBorderFrame:Hide() end
+                    -- Expand health bar to full frame height (minus the Top Name Bar)
+                    if d.health then
+                        d.health:SetHeight(PixelSnap(frameH - tnbH))
+                    end
+                else
+                    -- Restore health bar height with power bar space (and Top Name Bar)
+                    local powerH = PixelSnap(s.powerHeight or 4)
+                    if d.health then
+                        d.health:SetHeight(PixelSnap(frameH - ns.RF_HealthPowerInset(s, powerH) - tnbH))
+                    end
+                end
             end
-        else
-            -- Restore health bar height with power bar space (and Top Name Bar)
-            local powerH = PixelSnap(s.powerHeight or 4)
-            if d.health then
-                d.health:SetHeight(PixelSnap(frameH - ns.RF_HealthPowerInset(s, powerH) - tnbH))
-            end
+        end
+
+        -- Value/color refresh for the power bar in its last APPLIED shown state (not the
+        -- freshly computed one), so a deferred transition keeps rendering the old state
+        -- instead of updating a bar whose show/hide hasn't actually changed yet.
+        if d._appliedHidePower == false then
             -- Smooth interpolation only animates correctly on a bar already shown last frame; on a
             -- fresh hidden->shown transition (profile swap replacing the fill texture) it leaves
             -- the fill at 0. Snap plainly on first show, smooth only after that.
@@ -6989,7 +7019,11 @@ local function ReloadFrames(skipButtons)
             if d.ReanchorAbsorbToFill then d.ReanchorAbsorbToFill() end
         end
 
-        -- Power bar (always hide here; UpdateButton handles per-role show)
+        -- Power bar (always hide here; UpdateButton handles per-role show). This is a
+        -- second writer of health height alongside UpdateButton's own cached transition
+        -- (LayoutTopNameBar above sized health assuming power reserved), so drop the
+        -- cache or UpdateAllButtons below sees applied == computed and never corrects it.
+        d._appliedHidePower = nil
         if d.power then
             d.power:Hide()
             if powerH > 0 then
@@ -7937,6 +7971,27 @@ local function OnEvent(self, event, arg1, ...)
             if ns._ApplyTierOffset then ns._ApplyTierOffset() end
             if ns._partyFramesVisible then
                 ns._LayoutPartyFrames()
+            end
+        end
+        -- Flush any power show/hide transitions deferred during combat (see UpdateButton);
+        -- only the buttons actually marked dirty get a repaint.
+        if ns._powerDirtyInCombat then
+            ns._powerDirtyInCombat = nil
+            for _, btn in ipairs(allButtons) do
+                local d = GetFFD(btn)
+                if d._powerDirtyInCombat then
+                    d._powerDirtyInCombat = nil
+                    UpdateButton(btn)
+                end
+            end
+            if ns._partyAllButtons then
+                for _, btn in ipairs(ns._partyAllButtons) do
+                    local d = GetFFD(btn)
+                    if d._powerDirtyInCombat then
+                        d._powerDirtyInCombat = nil
+                        UpdateButton(btn)
+                    end
+                end
             end
         end
         -- Restore child frame levels after a deferred strata change.
@@ -9332,7 +9387,11 @@ ns.ReloadPartyFrames = function(skipButtons)
             if d.ReanchorAbsorbToFill then d.ReanchorAbsorbToFill() end
         end
 
-        -- Power bar (always hide here; UpdateButton handles per-role show)
+        -- Power bar (always hide here; UpdateButton handles per-role show). This is a
+        -- second writer of health height alongside UpdateButton's own cached transition
+        -- (LayoutTopNameBar above sized health assuming power reserved), so drop the
+        -- cache or UpdateAllButtons below sees applied == computed and never corrects it.
+        d._appliedHidePower = nil
         if d.power then
             d.power:Hide()
             if powerH > 0 then

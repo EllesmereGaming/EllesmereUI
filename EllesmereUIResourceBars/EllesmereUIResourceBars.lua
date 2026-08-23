@@ -785,8 +785,12 @@ ResolveThresholdSpecEntry = function(sp)
     if not entries or #entries == 0 then return nil end
 
     -- Form-specific mode (druid power bar): pick the entry matching the current
+    -- form. Moonkin (31/35) is checked directly by form ID since it shares
+    -- Mana with Caster on GetPrimaryPowerType() and would otherwise collide
+    -- with the "mana" bucket.
     if sp.thresholdFormMode then
-        local key = FORM_THRESHOLD_KEY[GetPrimaryPowerType()]
+        local form = GetShapeshiftFormID()
+        local key = (form == 31 or form == 35) and "moonkin" or FORM_THRESHOLD_KEY[GetPrimaryPowerType()]
         if not key then return nil end
         for _, entry in ipairs(entries) do
             if entry.formKey == key then return entry end
@@ -1054,14 +1058,15 @@ end
 local _, playerClassFile = UnitClass("player")
 
 -- Druid "hide bar text per form". isClassResource: Moonkin (31/35) is exempt on
--- the class resource bar (shows Astral there); power/health keep it in "Caster".
+-- the class resource bar (shows Astral there); power/health get their own
+-- "Moonkin" bucket, separate from "Caster" (no form).
 _G._ERB_TextHiddenByForm = function(cfg, isClassResource)
     if playerClassFile ~= "DRUID" then return false end
     local df = cfg and cfg.textDisabledForms
     if not df then return false end
     local f = GetShapeshiftFormID()
     if isClassResource and (f == 31 or f == 35) then return false end
-    local key = (f == 1) and "energy" or (f == 5) and "rage" or "mana"
+    local key = (f == 1) and "energy" or (f == 5) and "rage" or (f == 31 or f == 35) and "moonkin" or "mana"
     return df[key] and true or false
 end
 -- Druid "hide whole bar per form": same buckets/isClassResource rule as above,
@@ -1072,7 +1077,7 @@ _G._ERB_BarHiddenByForm = function(cfg, isClassResource)
     if not df then return false end
     local f = GetShapeshiftFormID()
     if isClassResource and (f == 31 or f == 35) then return false end
-    local key = (f == 1) and "energy" or (f == 5) and "rage" or "mana"
+    local key = (f == 1) and "energy" or (f == 5) and "rage" or (f == 31 or f == 35) and "moonkin" or "mana"
     return df[key] and true or false
 end
 -- Static neutral defaults for custom fill colors; used only as the initial custom
