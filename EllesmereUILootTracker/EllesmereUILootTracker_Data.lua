@@ -4,7 +4,7 @@ local ADDON_NAME, ns = ...
 -- Season 2 source identity. Loot itself is read from Blizzard's Encounter
 -- Journal at runtime; this compact table only joins Challenge Mode / encounter
 -- IDs to the item displayed by the Voidcore confirmation prompt.
-ns.SEASON_DATA_REVISION = 2
+ns.SEASON_DATA_REVISION = 3
 ns.SUPPORTED_SEASON_ID = 18
 ns.SUPPORTED_DISPLAY_SEASON_ID = 2
 
@@ -29,6 +29,25 @@ ns.RAID_SOURCES = {
     { journalInstanceID = 1320, instanceID = 3004, encounterID = 2887, chestItemID = 278289 },
     { journalInstanceID = 1320, instanceID = 3004, encounterID = 2883, chestItemID = 278290 },
     { journalInstanceID = 1320, instanceID = 3004, encounterID = 2895, chestItemID = 278284 },
+}
+
+-- Tier tokens do not expose an equip location through the item API. Keep the
+-- current season's small token-to-slot mapping here so Encounter Journal rows
+-- survive the catalog's slot validation and participate in slot filtering.
+-- The Encounter Journal loot-spec filter remains responsible for selecting the
+-- appropriate Woven, Cured, Cast, or Forged token for the player's class.
+ns.RAID_TOKEN_SLOTS = {
+    [270909] = "TIER", -- Slumbering Coil Curio (Ula'tek omni-token)
+    [270910] = "INVTYPE_HAND", [270911] = "INVTYPE_HAND",
+    [270912] = "INVTYPE_HAND", [270913] = "INVTYPE_HAND",
+    [270914] = "INVTYPE_HEAD", [270915] = "INVTYPE_HEAD",
+    [270916] = "INVTYPE_HEAD", [270917] = "INVTYPE_HEAD",
+    [270918] = "INVTYPE_LEGS", [270919] = "INVTYPE_LEGS",
+    [270920] = "INVTYPE_LEGS", [270921] = "INVTYPE_LEGS",
+    [270922] = "INVTYPE_SHOULDER", [270923] = "INVTYPE_SHOULDER",
+    [270924] = "INVTYPE_SHOULDER", [270925] = "INVTYPE_SHOULDER",
+    [270926] = "INVTYPE_CHEST", [270927] = "INVTYPE_CHEST",
+    [270928] = "INVTYPE_CHEST", [270929] = "INVTYPE_CHEST",
 }
 
 -- Voidcore M+ rewards use the Great Vault reward level for the completed key.
