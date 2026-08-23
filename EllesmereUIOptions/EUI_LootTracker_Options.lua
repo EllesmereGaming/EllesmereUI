@@ -135,6 +135,19 @@ local function ShowItemTooltip(frame, item, targetLevel, showActions, targetLink
     GameTooltip:Show()
 end
 
+local function DisplayItemLink(item, targetLink)
+    if targetLink then
+        local _, cachedLink = C_Item.GetItemInfo(targetLink)
+        if cachedLink then return cachedLink end
+        -- Seasonal fallback items can still have their original rare-quality
+        -- link cached. The target link always carries the modern epic bonus;
+        -- build its display hyperlink immediately while Blizzard caches it.
+        local itemName = item.name or C_Item.GetItemNameByID(item.itemID) or ("Item " .. item.itemID)
+        return "|cffa335ee|H" .. targetLink .. "|h[" .. itemName .. "]|h|r"
+    end
+    return item.link or item.name or ("Item " .. item.itemID)
+end
+
 local function PriorityText(goal)
     if not goal then return L("Not marked"), 0.55, 0.55, 0.55 end
     local color = ns.PRIORITY_COLORS[goal.priority] or { 1, 1, 1 }
@@ -154,7 +167,6 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
     name:SetPoint("TOPLEFT", icon, "TOPRIGHT", 9, -2)
     name:SetPoint("RIGHT", frame, "RIGHT", -185, 0)
     name:SetJustifyH("LEFT")
-    name:SetText(item.link or item.name or ("Item " .. item.itemID))
     local slot = Font(frame, 9, 0.55, 0.58, 0.64, 1)
     slot:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT", 9, 2)
     -- Dungeon links carry the Encounter Journal's base item level, which does
@@ -170,6 +182,7 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
     end
     local targetLink = ns.GetTargetItemLink(item.itemID, specID, displayItemLevel,
         source.kind, difficultyID, Profile().selectedKeyLevel)
+    name:SetText(DisplayItemLink(item, targetLink))
     local slotText = item.slot or ""
     if displayItemLevel then slotText = slotText .. "  |cff777d88• iLvl " .. displayItemLevel .. "|r" end
     slot:SetText(slotText)
@@ -192,16 +205,21 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
         poolState:SetColorTexture(0.38, 0.4, 0.45, 0.7)
     end
 
-    -- A final sibling overlay sits above the complete card hierarchy, including
-    -- its border frame. Parenting it to the page wrapper avoids child-frame
-    -- level constraints that can otherwise leave a visible row mouse-dead.
-    local hitbox = CreateFrame("Button", nil, parent)
+    -- Put the interaction surface directly under the real scroll viewport.
+    -- Cached page wrappers can render descendants outside their effective mouse
+    -- bounds; anchoring the button to the row retains scrolling/clipping while
+    -- bypassing that otherwise mouse-dead intermediate frame.
+    local interactionParent = EllesmereUI._scrollFrame or parent
+    local hitbox = CreateFrame("Button", nil, interactionParent)
     hitbox:SetAllPoints(frame)
-    hitbox:SetFrameLevel(parent:GetFrameLevel() + 100)
+    hitbox:SetFrameLevel(interactionParent:GetFrameLevel() + 50)
     hitbox:EnableMouse(true)
     if hitbox.SetMouseClickEnabled then hitbox:SetMouseClickEnabled(true) end
     if hitbox.SetMouseMotionEnabled then hitbox:SetMouseMotionEnabled(true) end
-    hitbox:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    -- Down clicks cannot be cancelled by the movable window's drag handling.
+    hitbox:RegisterForClicks("AnyDown")
+    parent:HookScript("OnHide", function() hitbox:Hide() end)
+    parent:HookScript("OnShow", function() hitbox:Show() end)
     local check = hitbox:CreateTexture(nil, "OVERLAY")
     check:SetAtlas("common-icon-checkmark")
     check:SetSize(16, 16)
@@ -234,13 +252,8 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
     end)
     local hover = frame:CreateTexture(nil, "ARTWORK")
     hover:SetAllPoints(); hover:SetColorTexture(1, 1, 1, 0); frame._hover = hover
-    hitbox:SetScript("OnMouseDown", function()
-        frame._hover:SetColorTexture(1, 1, 1, 0.075)
-    end)
-    hitbox:SetScript("OnMouseUp", function()
-        frame._hover:SetColorTexture(1, 1, 1, 0.035)
-    end)
     hitbox:SetScript("OnClick", function(_, button)
+        frame._hover:SetColorTexture(1, 1, 1, 0.075)
         local ok, err = pcall(HandleItemClick, button)
         if not ok then
             print("|cffff5555EllesmereUI Loot Tracker click error:|r " .. tostring(err))
@@ -449,7 +462,6 @@ local function BuildOverview(parent, yOffset)
                 local target = goal.minItemLevel and ("  |cff777d88(" .. goal.minItemLevel .. "+)|r") or ""
                 local obtained = goal.state == "archived" or ns.IsItemOwned(goal.itemID, goal.minItemLevel)
                 local done = obtained and ("  " .. CHECK_MARKUP .. " |cff55dd88" .. L("Obtained") .. "|r") or ""
-                line:SetText((goal.itemLink or goal.itemName or goal.itemID) .. target .. done)
                 local tooltipItem = {
                     itemID = goal.itemID,
                     name = goal.itemName,
@@ -459,6 +471,7 @@ local function BuildOverview(parent, yOffset)
                 local targetLevel = goal.minItemLevel
                 local targetLink = ns.GetTargetItemLink(goal.itemID, goal.specID, targetLevel,
                     goal.sourceKind, goal.difficultyID, goal.keyLevel)
+                line:SetText(DisplayItemLink(tooltipItem, targetLink) .. target .. done)
                 local itemHitbox = CreateFrame("Button", nil, card)
                 itemHitbox:SetPoint("TOPLEFT", card, "TOPLEFT", 12, offset + 4)
                 itemHitbox:SetPoint("RIGHT", card, "RIGHT", -12, 0)
