@@ -22,7 +22,11 @@ local function ResolveDungeonJournalIDs()
     dungeonJournalIDs = {}
     local wanted = {}
     for _, source in ipairs(ns.DUNGEON_SOURCES) do
-        wanted[source.instanceID] = true
+        if source.journalInstanceID then
+            dungeonJournalIDs[source.instanceID] = source.journalInstanceID
+        else
+            wanted[source.instanceID] = true
+        end
     end
     for index = 1, 300 do
         local journalID, _, _, _, _, _, _, _, _, _, instanceID = EJ_GetInstanceByIndex(index, false)
@@ -37,7 +41,7 @@ local function ResolveSourceNames()
     for _, source in ipairs(ns.DUNGEON_SOURCES) do
         source.kind = "dungeon"
         source.key = DungeonKey(source.challengeModeID)
-        source.journalInstanceID = dungeonIDs[source.instanceID]
+        source.journalInstanceID = source.journalInstanceID or dungeonIDs[source.instanceID]
         local name, _, _, texture = C_ChallengeMode.GetMapUIInfo(source.challengeModeID)
         if not name and source.journalInstanceID then name = EJ_GetInstanceInfo(source.journalInstanceID) end
         source.name = name or ("Dungeon " .. source.challengeModeID)
@@ -46,12 +50,16 @@ local function ResolveSourceNames()
         sourceByChest[source.chestItemID] = source
         sourceByKey[source.key] = source
     end
+    local journal = _G.EncounterJournal
+    local oldInstanceID = journal and journal.instanceID
+    local oldEncounterID = journal and journal.encounterID
     for _, source in ipairs(ns.RAID_SOURCES) do
         source.kind = "raid"
         source.coreCost = 2
         sourceByChest[source.chestItemID] = source
         local instanceName = EJ_GetInstanceInfo(source.journalInstanceID)
         source.instanceName = instanceName
+        EJ_SelectInstance(source.journalInstanceID)
         for index = 1, 30 do
             local name, _, journalEncounterID, _, _, _, dungeonEncounterID =
                 EJ_GetEncounterInfoByIndex(index, source.journalInstanceID)
@@ -66,6 +74,10 @@ local function ResolveSourceNames()
         for _, difficultyID in ipairs(ns.RAID_DIFFICULTIES) do
             sourceByKey[RaidKey(source.encounterID, difficultyID)] = source
         end
+    end
+    if oldInstanceID then
+        EJ_SelectInstance(oldInstanceID)
+        if oldEncounterID then EJ_SelectEncounter(oldEncounterID) end
     end
 end
 
@@ -144,7 +156,10 @@ local function BuildCatalog(source, specID, difficultyID)
         if a.slot == b.slot then return (a.name or "") < (b.name or "") end
         return (a.slot or "") < (b.slot or "")
     end)
-    catalog[key][specID] = items
+    -- The Encounter Journal fills its item cache asynchronously. Never cache an
+    -- empty result permanently; EJ_LOOT_DATA_RECIEVED will invalidate and ask
+    -- the visible options page to rebuild once Blizzard supplies the records.
+    if #items > 0 then catalog[key][specID] = items end
     return items
 end
 

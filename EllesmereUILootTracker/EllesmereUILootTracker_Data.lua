@@ -9,14 +9,14 @@ ns.SUPPORTED_SEASON_ID = 18
 ns.SUPPORTED_DISPLAY_SEASON_ID = 2
 
 ns.DUNGEON_SOURCES = {
-    { challengeModeID = 249, instanceID = 1762, chestItemID = 279621 }, -- King's Rest
-    { challengeModeID = 250, instanceID = 1877, chestItemID = 279624 }, -- Temple of Sethraliss
-    { challengeModeID = 399, instanceID = 2521, chestItemID = 279622 }, -- Ruby Life Pools
-    { challengeModeID = 584, instanceID = 2859, chestItemID = 279619 }, -- Blinding Vale
-    { challengeModeID = 585, instanceID = 2923, chestItemID = 279625 }, -- Voidscar Arena
-    { challengeModeID = 586, instanceID = 2825, chestItemID = 279620 }, -- Nalorakk's Den
-    { challengeModeID = 587, instanceID = 2813, chestItemID = 279623 }, -- Murder Row
-    { challengeModeID = 588, instanceID = 2993, chestItemID = 279618 }, -- Altar of Fangs
+    { challengeModeID = 249, instanceID = 1762, journalInstanceID = 1041, chestItemID = 279621 }, -- King's Rest
+    { challengeModeID = 250, instanceID = 1877, journalInstanceID = 1030, chestItemID = 279624 }, -- Temple of Sethraliss
+    { challengeModeID = 399, instanceID = 2521, journalInstanceID = 1202, chestItemID = 279622 }, -- Ruby Life Pools
+    { challengeModeID = 584, instanceID = 2859, journalInstanceID = 1309, chestItemID = 279619 }, -- Blinding Vale
+    { challengeModeID = 585, instanceID = 2923, journalInstanceID = 1313, chestItemID = 279625 }, -- Voidscar Arena
+    { challengeModeID = 586, instanceID = 2825, journalInstanceID = 1311, chestItemID = 279620 }, -- Nalorakk's Den
+    { challengeModeID = 587, instanceID = 2813, journalInstanceID = 1304, chestItemID = 279623 }, -- Murder Row
+    { challengeModeID = 588, instanceID = 2993, journalInstanceID = 1322, chestItemID = 279618 }, -- Altar of Fangs
 }
 
 ns.RAID_SOURCES = {
