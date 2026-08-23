@@ -37,22 +37,41 @@ local pendingRoll
 local scanQueued
 local pendingItemLoads = {}
 
-local function SeasonID()
-    if C_SeasonInfo and C_SeasonInfo.GetCurrentDisplaySeasonID then
-        local id = C_SeasonInfo.GetCurrentDisplaySeasonID()
-        if id and id > 0 then return id end
-    end
+local function CurrentSeasonIDs()
+    local seasonID = 0
+    local displaySeasonID = 0
     if C_MythicPlus and C_MythicPlus.GetCurrentSeason then
         local id = C_MythicPlus.GetCurrentSeason()
-        if id and id > 0 then return id end
+        if id and id > 0 then seasonID = id end
     end
-    return 0
+    if C_SeasonInfo and C_SeasonInfo.GetCurrentDisplaySeasonID then
+        local id = C_SeasonInfo.GetCurrentDisplaySeasonID()
+        if id and id > 0 then displaySeasonID = id end
+    end
+    return seasonID, displaySeasonID
+end
+
+local function SeasonID()
+    local seasonID, displaySeasonID = CurrentSeasonIDs()
+    -- Display season IDs restart with each expansion. Normalize the supported
+    -- display ID to its globally unique Mythic+ season ID so SavedVariables do
+    -- not move between keys while Blizzard's Mythic+ data is still loading.
+    if seasonID == ns.SUPPORTED_SEASON_ID then
+        return ns.SUPPORTED_SEASON_ID
+    end
+    if seasonID > 0 then return seasonID end
+    if displaySeasonID == ns.SUPPORTED_DISPLAY_SEASON_ID then
+        return ns.SUPPORTED_SEASON_ID
+    end
+    return displaySeasonID
 end
 ns.GetSeasonID = SeasonID
 
 function ns.IsSeasonSupported()
-    local seasonID = SeasonID()
-    return seasonID == 0 or seasonID == ns.SUPPORTED_SEASON_ID
+    local seasonID, displaySeasonID = CurrentSeasonIDs()
+    if seasonID > 0 then return seasonID == ns.SUPPORTED_SEASON_ID end
+    return displaySeasonID == 0
+        or displaySeasonID == ns.SUPPORTED_DISPLAY_SEASON_ID
 end
 
 local function ResolveSpecID(specID)
@@ -71,6 +90,14 @@ local function EnsureCharacterDB()
     db.schema = 1
     db.seasons = db.seasons or {}
     local season = tostring(SeasonID())
+    local legacyDisplaySeason = tostring(ns.SUPPORTED_DISPLAY_SEASON_ID or "")
+    if season == tostring(ns.SUPPORTED_SEASON_ID)
+        and legacyDisplaySeason ~= season
+        and db.seasons[legacyDisplaySeason]
+        and not db.seasons[season] then
+        db.seasons[season] = db.seasons[legacyDisplaySeason]
+        db.seasons[legacyDisplaySeason] = nil
+    end
     db.seasons[season] = db.seasons[season] or { specs = {}, pools = {}, rolls = {} }
     db.activeSeason = season
     return db, db.seasons[season]
