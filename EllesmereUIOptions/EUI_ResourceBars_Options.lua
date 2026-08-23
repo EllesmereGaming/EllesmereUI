@@ -4651,6 +4651,10 @@ initFrame:SetScript("OnEvent", function(self)
                       setValue = function(v)
                           local p = DB(); if not p then return end
                           p.secondary.brewExtendedStaggerBar = v; RebuildClass()
+                          local tc = ns._thrCtx
+                          if tc and tc.page and tc.page:IsShown() and tc.refreshDetail then
+                              tc.refreshDetail()
+                          end
                           EllesmereUI:RefreshPage()
                       end },
                     { type = "slider", text = "Scale", min = ES_MIN, max = ES_MAX, step = 1,
@@ -4731,9 +4735,12 @@ initFrame:SetScript("OnEvent", function(self)
                 }
                 local esSwatches = {}
                 for i = 1, ES_MAX do
-                    esSwatches[i] = {
-                        tooltip = esStepTips[i], hasAlpha = false,
-                        disabled = function() return i > esScale() end,
+                    -- Lua 5.1 reuses the numeric-for control variable. Capture a
+                    -- per-iteration copy so every swatch keeps its own step index.
+                    local step = i
+                    esSwatches[step] = {
+                        tooltip = esStepTips[step], hasAlpha = false,
+                        disabled = function() return step > esScale() end,
                         -- Two reasons a swatch locks: the feature is off (standard
                         -- requirement wrapper) or the step is past the current Scale.
                         disabledTooltip = function()
@@ -4744,9 +4751,9 @@ initFrame:SetScript("OnEvent", function(self)
                         getValue = function()
                             local p = DB()
                             local t = p and p.secondary.brewExtendedStaggerColors
-                            local c = t and t[i]
+                            local c = t and t[step]
                             if c then return c.r or 1, c.g or 1, c.b or 1 end
-                            local d = _G._ERB_EXT_STAGGER_COLORS and _G._ERB_EXT_STAGGER_COLORS[i]
+                            local d = _G._ERB_EXT_STAGGER_COLORS and _G._ERB_EXT_STAGGER_COLORS[step]
                             if d then return d[1], d[2], d[3] end
                             return 1, 1, 1
                         end,
@@ -4754,7 +4761,7 @@ initFrame:SetScript("OnEvent", function(self)
                             local p = DB(); if not p then return end
                             local t = p.secondary.brewExtendedStaggerColors
                             if not t then t = {}; p.secondary.brewExtendedStaggerColors = t end
-                            t[i] = { r = r, g = g, b = b }
+                            t[step] = { r = r, g = g, b = b }
                             RefreshClass()
                         end,
                     }

@@ -3048,15 +3048,24 @@ do
         local dg = sp.brewExtendedStaggerDividerG or 0
         local db = sp.brewExtendedStaggerDividerB or 0
         local da = sp.brewExtendedStaggerDividerA or 1
+        local oriSb = sb._sb or (sb.GetOrientation and sb)
+        local vert = (oriSb and oriSb.GetOrientation
+            and oriSb:GetOrientation() == "VERTICAL") or false
+        local revFill = (vert and oriSb.GetReverseFill
+            and oriSb:GetReverseFill()) or false
+        local pp = EllesmereUI and EllesmereUI.PP
+        local mult = (pp and pp.mult) or 1
         local st = sb._extStagDivState
         if st and st.scale == scale and st.dw == dw and st.r == dr and st.g == dg
-           and st.b == db and st.a == da and st.barW == barW and st.barH == barH then
+           and st.b == db and st.a == da and st.barW == barW and st.barH == barH
+           and st.vert == vert and st.rev == revFill and st.mult == mult then
             return
         end
         if not st then st = {}; sb._extStagDivState = st end
         st.scale, st.dw = scale, dw
         st.r, st.g, st.b, st.a = dr, dg, db, da
         st.barW, st.barH = barW, barH
+        st.vert, st.rev, st.mult = vert, revFill, mult
         ApplyResourceBarTicks(sb, 100, DividerPositions(scale), dividerTicks,
             dw, dr, dg, db, da, true)
     end
