@@ -492,9 +492,14 @@ local function BuildSettings(parent, yOffset)
         { type="toggle", text="Item Tooltip Status",
           getValue=function() return Profile().showItemTooltips end,
           setValue=function(v) Profile().showItemTooltips=v end },
+        { type="toggle", text="Wishlist Icon Markers",
+          getValue=function() return Profile().showWishlistMarkers ~= false end,
+          setValue=function(v) Profile().showWishlistMarkers=v; ns.RefreshWishlistMarkers() end }); y = y - h
+    _, h = W:DualRow(parent, y,
         { type="toggle", text="Automatically Archive Items",
           getValue=function() return Profile().autoArchive end,
-          setValue=function(v) Profile().autoArchive=v; if v then ns.QueueInventoryScan() end end }); y = y - h
+          setValue=function(v) Profile().autoArchive=v; if v then ns.QueueInventoryScan() end end },
+        nil); y = y - h
     _, h = W:Toggle(parent, "Show Archived Goals", y,
         function() return Profile().showArchived end,
         function(v) Profile().showArchived=v; QueuePageRebuild() end,
