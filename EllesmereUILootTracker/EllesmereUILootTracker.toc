@@ -1,0 +1,15 @@
+## Interface: 120000, 120001, 120005, 120007, 120100
+## Title: |cff0cd29fEllesmereUI|r Loot Tracker
+## Category: |cff0cd29fEllesmere|rUI
+## Group: EllesmereUI
+## Notes: Character and specialization-aware gearing wishlist with Voidcore tracking.
+## Author: Ellesmere
+## Version: 8.9.8
+## Dependencies: EllesmereUI
+## SavedVariables: EllesmereUILootTrackerDB
+## SavedVariablesPerCharacter: EllesmereUILootTrackerCharDB
+## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
+
+EllesmereUILootTracker_Data.lua
+EllesmereUILootTracker_Catalog.lua
+EllesmereUILootTracker.lua
