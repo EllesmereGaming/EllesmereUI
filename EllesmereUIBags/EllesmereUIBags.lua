@@ -146,6 +146,13 @@ local function IsGearItem(itemLink)
     local _, _, _, _, _, classID = GetItemInfoInstant(itemLink)
     return classID == ITEM_CLASS_WEAPON or classID == ITEM_CLASS_ARMOR
 end
+local function GetItemLevelAtLocation(loc, itemLink)
+    if loc and loc:IsValid() and C_Item.DoesItemExist(loc) then
+        local level = C_Item.GetCurrentItemLevel(loc)
+        if level and level > 0 then return level end
+    end
+    return itemLink and C_Item.GetDetailedItemLevelInfo(itemLink) or nil
+end
 local function GetFont() return (EUI.GetFontPath and EUI.GetFontPath("bags")) or "Fonts\\FRIZQT__.TTF" end
 local function GetOutline() return (EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("bags")) or "" end
 local function SetBagFont(fs, size)
@@ -5050,17 +5057,19 @@ function EUI_Bags:RefreshInventory()
                 d.bag = bag; d.slot = slot; d.info = info; d.itemLink = itemLink
                 -- Pre-cache per-item data for RenderButton (zero API calls at render time)
                 if itemLink then
-                    local _, _, q, ilvl, _, _, _, _, _, _, _, _, _, bindType = GetItemInfo(itemLink)
+                    local _, _, q, _, _, _, _, _, _, _, _, _, _, bindType = GetItemInfo(itemLink)
+                    local loc = ItemLocation:CreateFromBagAndSlot(bag, slot)
                     -- Slot-grouping fields (_equipSlot/_classID/_subclassID) are NOT
                     -- pre-cached here: GetArmorySlotBucket fetches them lazily, only
                     -- for gear items and only while Group Armory by Slot is on, so the
                     -- feature costs nothing on the refresh path when disabled.
                     d._giQuality = q
-                    d._giIlvl = ilvl
                     d._giBindType = bindType
                     -- Track rank + cooldown: only for types that need them
                     local isGear = IsGearItem(itemLink)
                     d._isGear = isGear
+                    d._giIlvl = isGear and BP().showItemlevelInBags ~= false
+                        and GetItemLevelAtLocation(loc, itemLink) or nil
                     if isGear and GetUpgradeTrack then
                         local rankText, trackColor = GetUpgradeTrack(itemLink)
                         if rankText and rankText ~= "" then
@@ -5069,7 +5078,6 @@ function EUI_Bags:RefreshInventory()
                         end
                     end
                     -- Warbound check (warbank dim overlay) + WuE bind check (gear only, when bind-type text is enabled).
-                    local loc = ItemLocation:CreateFromBagAndSlot(bag, slot)
                     if loc and C_Item.DoesItemExist(loc) then
                         if C_Bank and C_Bank.IsItemAllowedInBankType then
                             d._isWarbound = C_Bank.IsItemAllowedInBankType(Enum.BankType.Account, loc)
@@ -6656,8 +6664,10 @@ function EUI_BagsReagent:RefreshInventory()
                 local showItemlevel = BP().showItemlevelInBags ~= false
                 if showItemlevel then
                     if itemLink then
-                        local _, _, quality, level = GetItemInfo(itemLink)
+                        local _, _, quality = GetItemInfo(itemLink)
                         if IsGearItem(itemLink) then
+                            local loc = ItemLocation:CreateFromBagAndSlot(data.bag, data.slot)
+                            local level = GetItemLevelAtLocation(loc, itemLink)
                             local fs = BP().itemlevelFontSize or 12
                             btn.ItemLevelText:SetFont(STANDARD_TEXT_FONT, fs, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
                             btn.ItemLevelText:SetText(level or "")

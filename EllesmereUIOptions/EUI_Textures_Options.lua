@@ -135,7 +135,7 @@ local function NoteRow(parent, y, text)
 end
 
 local function DisabledTile(parent, y, W, tile)
-    return NoteRow(parent, y, "Enable " .. tile.display .. " to edit its texture settings.")
+    return NoteRow(parent, y, EllesmereUI.Lf("Enable %1$s to edit its texture settings.", EllesmereUI.L(tile.display)))
 end
 
 -------------------------------------------------------------------------------

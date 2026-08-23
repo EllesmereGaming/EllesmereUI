@@ -2894,23 +2894,38 @@ do
     -- every frame under the cursor and walk up parents. Nameplates' clickable
     -- frame has an OnEnter that builds nothing (its tip comes from the engine's
     -- mouseover unit on a real hover), so fall back to driving the unit tooltip directly when one is up.
+    -- Skip forbidden frames entirely; touching them taints secure code.
+    local function IsFrameForbidden(frame)
+        return frame and frame.IsForbidden and frame:IsForbidden()
+    end
+    -- Skip protected frames too; their OnEnter can call protected functions.
+    local function IsFrameProtected(frame)
+        return frame and frame.IsProtected and frame:IsProtected()
+    end
     local function FireHoveredOnEnter()
         local foci = (GetMouseFoci and GetMouseFoci()) or (GetMouseFocus and { GetMouseFocus() })
         local anchorFrame = foci and foci[1]
+        if IsFrameForbidden(anchorFrame) then anchorFrame = nil end
         if foci then
             for _, focus in ipairs(foci) do
                 local frame = focus
                 while frame and frame ~= WorldFrame and frame ~= UIParent do
-                    if frame.GetScript then
-                        local onEnter = frame:GetScript("OnEnter")
-                        if onEnter then
+                    if IsFrameForbidden(frame) then
+                        break
+                    end
+                    if not IsFrameProtected(frame) and frame.GetScript then
+                        local ok, onEnter = pcall(frame.GetScript, frame, "OnEnter")
+                        if ok and onEnter then
                             pcall(onEnter, frame)
                             if GameTooltip:IsShown() then return end
                             anchorFrame = frame
                             break
                         end
                     end
-                    frame = frame.GetParent and frame:GetParent()
+                    if not frame.GetParent then break end
+                    local okParent, parent = pcall(frame.GetParent, frame)
+                    if not okParent or IsFrameForbidden(parent) then break end
+                    frame = parent
                 end
             end
         end

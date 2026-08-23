@@ -3313,11 +3313,12 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
         diffFrame:ClearAllPoints()
         diffFrame:SetPoint("TOPRIGHT", minimap, "TOPRIGHT", 2, 1)
         -- Text mode overrides Show Blizzard Elements: the flag is always suppressed.
-        if p.hideRaidDifficulty or p.diffTextEnabled then
-            diffFrame:SetAlpha(0)
-        else
-            diffFrame:SetAlpha(1)
-        end
+        -- Alpha leaves the hit region live, so a suppressed flag still answers mouseover
+        -- with Blizzard's difficulty tooltip at the top-right corner.
+        local suppressed = p.hideRaidDifficulty or p.diffTextEnabled
+        diffFrame:SetAlpha(suppressed and 0 or 1)
+        diffFrame:EnableMouseMotion(not suppressed)
+        if diffFrame.Guild then diffFrame.Guild:EnableMouseMotion(not suppressed) end
     end
     if not minimap.Layout then minimap.Layout = function() end end
 

@@ -3760,8 +3760,10 @@ ns._StyleButtonSecure = function(button)
     button:SetAttribute("type1", "target")
     -- Wildcard fallback so left-click target survives if the click-cast engine later clears type1.
     button:SetAttribute("*type1", "target")
-    -- Route right-click through a SecureActionButton proxy and Blizzard's native
-    -- compact-frame menu function so units stay secure and classify correctly.
+    -- The engine gates SecureUnitButton's togglemenu; route right-click through a
+    -- SecureActionButton proxy so the menu (and protected items like Set Focus) works
+    -- without taint. Group tokens stay on togglemenu; InstallMenuClassifierFix corrects
+    -- the rare misclassification (EllesmereUI_Kick.lua).
     if EllesmereUI.AttachSecureUnitMenu then
         EllesmereUI.AttachSecureUnitMenu(button)
     else

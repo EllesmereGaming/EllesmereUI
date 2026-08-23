@@ -4449,7 +4449,7 @@ end
 --  Equipment Flyout item levels -- Blizzard's gear flyout (hover a character-
 --  sheet slot -> popup of same-slot bag/equipped items) only shows icons; when
 --  enabled, overlays each button with the item's level, coloured by quality. Hooks
---  EquipmentFlyout_DisplayButton (fires per button on populate) and reads EllesmereUIDB
+--  EquipmentFlyout_UpdateItems (after every flyout shape is populated) and reads EllesmereUIDB
 --  live, so the toggle applies to the next flyout with no reload. Toggle: EllesmereUIDB.flyoutItemLevels (Quality of Life -> UI).
 -------------------------------------------------------------------------------
 do
@@ -4472,7 +4472,13 @@ do
             end
             return
         end
-        -- Equipped / bank inventory slot.
+        -- Equipped inventory slot.
+        if ItemLocation then
+            local loc = ItemLocation:CreateFromEquipmentSlot(slot)
+            if loc and loc:IsValid() and C_Item.DoesItemExist(loc) then
+                return C_Item.GetCurrentItemLevel(loc), C_Item.GetItemQuality(loc), C_Item.GetItemLink(loc)
+            end
+        end
         local link = GetInventoryItemLink("player", slot)
         if link then
             local quality = GetInventoryItemQuality and GetInventoryItemQuality("player", slot)
@@ -4483,8 +4489,8 @@ do
     -- Item level + quality + link for a flyout button. Handles all three flyout
     -- shapes: modern buttons storing an ItemLocation object; retail packed location
     -- via EquipmentManager_GetLocationData; older clients via EquipmentManager_UnpackLocation.
-    local function ButtonItemInfo(button)
-        if button.GetItemLocation then
+    local function ButtonItemInfo(button, useItemLocation)
+        if useItemLocation and button.GetItemLocation then
             local ok, loc = pcall(button.GetItemLocation, button)
             if ok and loc and loc.IsValid and loc:IsValid() and C_Item.DoesItemExist(loc) then
                 return C_Item.GetCurrentItemLevel(loc), C_Item.GetItemQuality(loc), C_Item.GetItemLink(loc)
@@ -4531,35 +4537,54 @@ do
         return fs
     end
 
-    local function InstallHook()
-        if not EquipmentFlyout_DisplayButton then return end
-        hooksecurefunc("EquipmentFlyout_DisplayButton", function(button)
-            local fs = _flyoutFS[button]
-            if not FlyoutEnabled() then
-                if fs then fs:SetText("") end
-                return
-            end
+    local function PaintButton(button, useItemLocation)
+        local fs = _flyoutFS[button]
+        if not FlyoutEnabled() or not button:IsShown() then
+            if fs then fs:SetText("") end
+            return
+        end
 
-            local ilvl, quality, link = ButtonItemInfo(button)
-            fs = EnsureText(button)
-            if ilvl and ilvl > 0 then
-                fs:SetText(ilvl)
-                -- Match the character sheet: custom color > upgrade track > rarity.
-                local c
-                if EllesmereUI.GetItemLevelColor then
-                    c = EllesmereUI.GetItemLevelColor(link, quality)
-                elseif quality and ITEM_QUALITY_COLORS then
-                    c = ITEM_QUALITY_COLORS[quality]
-                end
-                if c then
-                    fs:SetTextColor(c.r, c.g, c.b, 1)
-                else
-                    fs:SetTextColor(1, 1, 1, 1)
-                end
-            else
-                fs:SetText("")
+        local ilvl, quality, link = ButtonItemInfo(button, useItemLocation)
+        fs = EnsureText(button)
+        if ilvl and ilvl > 0 then
+            fs:SetText(ilvl)
+            -- Match the character sheet: custom color > upgrade track > rarity.
+            local c
+            if EllesmereUI.GetItemLevelColor then
+                c = EllesmereUI.GetItemLevelColor(link, quality)
+            elseif quality and ITEM_QUALITY_COLORS then
+                c = ITEM_QUALITY_COLORS[quality]
             end
-        end)
+            if c then
+                fs:SetTextColor(c.r, c.g, c.b, 1)
+            else
+                fs:SetTextColor(1, 1, 1, 1)
+            end
+        else
+            fs:SetText("")
+        end
+    end
+
+    local function RefreshFlyoutItemLevels()
+        local flyout = EquipmentFlyoutFrame
+        if not flyout or not flyout.buttons then return end
+        local source = flyout.button
+        local parent = source and source:GetParent()
+        local settings = parent and parent.flyoutSettings
+        local useItemLocation = settings and settings.useItemLocation == true
+        for _, button in ipairs(flyout.buttons) do
+            PaintButton(button, useItemLocation)
+        end
+    end
+
+    local function InstallHook()
+        if not EquipmentFlyout_UpdateItems then return end
+        -- Item-upgrade flyouts use ItemLocation objects and bypass
+        -- EquipmentFlyout_DisplayButton entirely. They also leave that ItemLocation
+        -- on pooled buttons when an ordinary numeric-location flyout reuses them.
+        -- Refresh after the shared update and follow the active flyout's mode, so
+        -- both paths repaint instead of inheriting the other's item or overlay.
+        hooksecurefunc("EquipmentFlyout_UpdateItems", RefreshFlyoutItemLevels)
     end
 
     local f = CreateFrame("Frame")

@@ -963,6 +963,14 @@ end
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
     {
+        version = "8.9.8",
+        mini = true,
+        fixes = {
+            { module = "AuraBuff Reminders", text = "Fixed invisible tooltips appearing over hidden reminder icons during boss encounters." },
+            { module = "Blizz UI Enhanced", text = "Moving an item between trade slots now flashes the slot the item moved to instead of the one it left." },
+        },
+    },
+    {
         version = "8.9.7",
         heroes = {
             {

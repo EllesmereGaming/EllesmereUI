@@ -13514,6 +13514,9 @@ function HP.ApplyTrade()
                 HP.CloseButton(f, f.CloseButton or _G.TradeFrameCloseButton)
             end,
             function() HP.TradeHidePortrait() end,
+            -- Behavior, not chrome, but it rides the phase list for the
+            -- same crash isolation. No-op after its first run.
+            function() HP.TradeAlertFix() end,
         }
     end
 
@@ -13561,6 +13564,100 @@ function HP.TradeSlots()
             HP.SkinTradeSlot(_G["TradePlayerItem" .. i])
             HP.SkinTradeSlot(_G["TradeRecipientItem" .. i])
         end
+end
+
+-- THE CHANGE GLOW FOLLOWS THE ITEM. A drag between trade slots is a REMOVE
+-- then an ADD (OnDragStart and OnReceiveDrag both call ClickTradeButton), so
+-- two slots change and TradeFrame_AlertItemIfChanged lights the wrong one:
+-- the emptied slot alerts, and the filled one stays silent while its itemKey
+-- is nil -- Blizzard skips a slot's first item, and the enchant slot behind
+-- "Will not be traded" is almost always in that state. Latched per side: a
+-- slot going empty arms its side, the next slot on that side to gain an item
+-- consumes the latch. side -> the Alert frame left glowing on the empty slot.
+HP.tradeVacated = {}
+
+-- Named so the state above can be dropped between trades. Slot 7 is the
+-- enchant slot on both halves.
+HP.TRADE_ALERT_BUTTONS = {}
+for i = 1, 7 do
+    HP.TRADE_ALERT_BUTTONS[#HP.TRADE_ALERT_BUTTONS + 1] = "TradePlayerItem" .. i .. "ItemButton"
+    HP.TRADE_ALERT_BUTTONS[#HP.TRADE_ALERT_BUTTONS + 1] = "TradeRecipientItem" .. i .. "ItemButton"
+end
+
+-- Stop() alone lands the alpha at 0 only if the group is still running;
+-- zeroing it too covers a stop between steps, which is when this is called.
+function HP.TradeAlertStop(alert)
+    if not alert or (alert.IsForbidden and alert:IsForbidden()) then return end
+    if alert.ItemIconAlertAnim then alert.ItemIconAlertAnim:Stop() end
+    if alert.LoopFlipbook then alert.LoopFlipbook:SetAlpha(0) end
+end
+
+-- Which half a button is on, read off its name: the two halves use otherwise
+-- identical templates and share this one alert function, and a partner
+-- rearranging their offer must not steal the glow off yours.
+function HP.TradeButtonSide(btn)
+    local n = btn and btn.GetName and btn:GetName()
+    if not n then return end
+    if n:find("TradePlayerItem", 1, true) == 1 then return "player" end
+    if n:find("TradeRecipientItem", 1, true) == 1 then return "recipient" end
+end
+
+-- Only a MOVE is redirected: an item that leaves the offer for good never gets
+-- its latch consumed, so its removal glow survives. That is a CHANGE warning,
+-- not the accept state (TradeHighlightPlayer/Recipient, left stock below).
+-- Blizzard's oldItemKey is gone by the time a post-hook runs, hence the shadow
+-- flag -- which also makes a button's FIRST sighting quiet, so a /reload
+-- mid-trade initializes instead of alerting on all fourteen slots.
+function HP.OnTradeItemAlert(btn, itemID)
+    if not btn or (btn.IsForbidden and btn:IsForbidden()) then return end
+    local side = HP.TradeButtonSide(btn)
+    if not side then return end
+    local d = GetFFD(btn)
+    local had = d.tradeHadItem
+    -- Blizzard's own emptiness test: an empty slot reports 0, not nil.
+    local has = (itemID or 0) > 0
+    d.tradeHadItem = has
+    if had and not has then
+        HP.tradeVacated[side] = btn.Alert
+    elseif has and not had then
+        local src = HP.tradeVacated[side]
+        if not src then return end
+        HP.tradeVacated[side] = nil
+        -- Source first: dropping an item back where it came from makes src and
+        -- the destination the same frame, so the restart has to win.
+        HP.TradeAlertStop(src)
+        local alert = btn.Alert
+        if alert and alert.ItemIconAlertAnim and not (alert.IsForbidden and alert:IsForbidden()) then
+            alert.ItemIconAlertAnim:Restart()
+        end
+    end
+end
+
+-- Dropped with the window. A trade cancelled with items still in its slots
+-- would otherwise leave them flagged as filled, and the next trade's first
+-- update would read as an emptying and arm the latch against nothing.
+function HP.TradeAlertReset()
+    wipe(HP.tradeVacated)
+    for i = 1, #HP.TRADE_ALERT_BUTTONS do
+        local btn = _G[HP.TRADE_ALERT_BUTTONS[i]]
+        if btn then GetFFD(btn).tradeHadItem = nil end
+    end
+end
+
+-- Once per session, from the pack because this window has no other owner.
+function HP.TradeAlertFix()
+    if HP.tradeAlertHooked then return end
+    if type(_G.TradeFrame_AlertItemIfChanged) ~= "function" then return end
+    HP.tradeAlertHooked = true
+    hooksecurefunc("TradeFrame_AlertItemIfChanged", function(btn, itemID)
+        -- Inside Blizzard's event handler: a throw would surface as an error
+        -- in their update, not ours.
+        pcall(HP.OnTradeItemAlert, btn, itemID)
+    end)
+    local f = _G.TradeFrame
+    if f and not f:IsForbidden() then
+        f:HookScript("OnHide", function() pcall(HP.TradeAlertReset) end)
+    end
 end
 
 -- Both player names and both "Will not be traded" enchant captions. White,
