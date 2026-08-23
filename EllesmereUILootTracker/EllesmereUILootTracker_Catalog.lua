@@ -136,6 +136,14 @@ local function BuildCatalog(source, specID, difficultyID)
             if (not slot or slot == "") and equipLoc and equipLoc ~= "" then
                 slot = _G[equipLoc] or equipLoc
             end
+            if (not slot or slot == "") and ns.RAID_TOKEN_SLOTS then
+                local tokenSlot = ns.RAID_TOKEN_SLOTS[itemID]
+                if tokenSlot == "TIER" then
+                    slot = EllesmereUI.L("Tier Token")
+                elseif tokenSlot then
+                    slot = _G[tokenSlot] or tokenSlot
+                end
+            end
             if not name or not link then
                 incomplete = true
                 if C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(itemID) end
