@@ -9,13 +9,24 @@ local PAGE_DUNGEONS = "Dungeons"
 local PAGE_RAIDS = "Raids"
 local PAGE_SETTINGS = "Settings"
 local ROW_H, ROW_GAP = 46, 3
+local pageRebuildQueued
+
+local function QueuePageRebuild()
+    if pageRebuildQueued then return end
+    pageRebuildQueued = true
+    C_Timer.After(0, function()
+        pageRebuildQueued = nil
+        local activeModule = EllesmereUI.GetActiveModule and EllesmereUI:GetActiveModule()
+        if activeModule == ADDON_NAME then EllesmereUI:RefreshPage(true) end
+    end)
+end
 
 local function Profile()
     return ns.GetProfile()
 end
 
 local function SelectedSpecID()
-    local value = Profile().selectedSpecID
+    local value = tonumber(Profile().selectedSpecID)
     if value and value > 0 then return value end
     return ns.ResolveSpecID()
 end
@@ -39,6 +50,7 @@ local function BuildSourceValues(kind)
 end
 
 local function FindSource(kind, id)
+    id = tonumber(id) or id
     for _, source in ipairs(ns.GetSources(kind)) do
         local sourceID = kind == "raid" and source.encounterID or source.challengeModeID
         if sourceID == id then return source end
@@ -101,7 +113,15 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
     name:SetText(item.link or item.name or ("Item " .. item.itemID))
     local slot = Font(frame, 9, 0.55, 0.58, 0.64, 1)
     slot:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT", 9, 2)
-    slot:SetText(item.slot or "")
+    local displayItemLevel = item.itemLevel
+    if not displayItemLevel then
+        displayItemLevel = source.kind == "raid"
+            and ns.GetRaidTargetLevel(source, specID, difficultyID, item.itemID)
+            or ns.GetMPlusTargetLevel(Profile().selectedKeyLevel)
+    end
+    local slotText = item.slot or ""
+    if displayItemLevel then slotText = slotText .. "  |cff777d88• iLvl " .. displayItemLevel .. "|r" end
+    slot:SetText(slotText)
 
     local goal = ns.GetGoal(sourceKey, item.itemID, specID)
     local priorityText, pr, pg, pb = PriorityText(goal)
@@ -147,7 +167,7 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
             ns.ReactivateGoal(sourceKey, item.itemID, specID)
         else
             local target = source.kind == "raid"
-                and (item.itemLevel or ns.GetRaidTargetLevel(source, specID, difficultyID, item.itemID))
+                and displayItemLevel
                 or ns.GetMPlusTargetLevel(Profile().selectedKeyLevel)
             ns.CycleGoal(source, item, specID, difficultyID, target)
         end
@@ -164,10 +184,10 @@ local function SelectorRows(parent, y, kind)
     local _, h = W:DualRow(parent, y,
         { type="dropdown", text="Loot Specialization", values=specValues, order=specOrder,
           getValue=function() return SelectedSpecID() end,
-          setValue=function(v) Profile().selectedSpecID=v; EllesmereUI:RefreshPage() end },
+          setValue=function(v) Profile().selectedSpecID=tonumber(v) or v; ns.InvalidateCatalog(); QueuePageRebuild() end },
         { type="dropdown", text=kind == "raid" and "Raid Boss" or "Dungeon", values=sourceValues, order=sourceOrder,
           getValue=function() return Profile()[sourceField] or firstSource end,
-          setValue=function(v) Profile()[sourceField]=v; EllesmereUI:RefreshPage() end })
+          setValue=function(v) Profile()[sourceField]=tonumber(v) or v; QueuePageRebuild() end })
     y = y - h
 
     if kind == "raid" then
@@ -176,15 +196,15 @@ local function SelectorRows(parent, y, kind)
             values[id], order[#order + 1] = GetDifficultyInfo(id) or tostring(id), id
         end
         _, h = W:Dropdown(parent, "Raid Difficulty", y, values,
-            function() return Profile().raidDifficulty or 16 end,
-            function(v) Profile().raidDifficulty=v; EllesmereUI:RefreshPage() end, order,
+            function() return tonumber(Profile().raidDifficulty) or 16 end,
+            function(v) Profile().raidDifficulty=tonumber(v) or 16; ns.InvalidateCatalog(); QueuePageRebuild() end, order,
             "Voidcore raid pools are tracked separately for each difficulty.")
     else
         local values, order = {}, {}
         for level = 2, 10 do values[level], order[#order + 1] = "+" .. level, level end
         _, h = W:Dropdown(parent, "Target Keystone Level", y, values,
-            function() return Profile().selectedKeyLevel or 10 end,
-            function(v) Profile().selectedKeyLevel=v; EllesmereUI:RefreshPage() end, order,
+            function() return tonumber(Profile().selectedKeyLevel) or 10 end,
+            function(v) Profile().selectedKeyLevel=tonumber(v) or 10; QueuePageRebuild() end, order,
             "A goal is completed only by this Voidcore reward item level or higher.")
     end
     return y - h
@@ -209,12 +229,12 @@ local function BuildSearchRow(parent, y)
     box:SetScript("OnEnterPressed", function(self)
         Profile().lootSearch = self:GetText():lower()
         self:ClearFocus()
-        EllesmereUI:RefreshPage()
+        QueuePageRebuild()
     end)
     box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     local clear = StyledButton(row, "Clear", 90, function()
         Profile().lootSearch = ""
-        EllesmereUI:RefreshPage()
+        QueuePageRebuild()
     end)
     clear:SetPoint("RIGHT", row, "RIGHT", -10, 0)
     return 56
@@ -241,12 +261,13 @@ local function BuildCatalogPage(parent, yOffset, kind)
     local sourceID = kind == "raid" and Profile().selectedRaidEncounterID or Profile().selectedDungeonID
     local source = FindSource(kind, sourceID)
     if not source then parent:SetHeight(math.abs(y)); return math.abs(y) end
-    local difficultyID = kind == "raid" and (Profile().raidDifficulty or 16) or nil
+    local difficultyID = kind == "raid" and (tonumber(Profile().raidDifficulty) or 16) or nil
     local summary = ns.GetSourceSummary(source, specID, difficultyID)
     local info = Card(parent, y, 42)
     local title = Font(info, 12, 1, 1, 1, 1)
     title:SetPoint("LEFT", info, "LEFT", 12, 0)
-    title:SetText(source.name)
+    local difficultyName = kind == "raid" and GetDifficultyInfo(difficultyID)
+    title:SetText(difficultyName and (source.name .. "  |cff777d88• " .. difficultyName .. "|r") or source.name)
     local chance = Font(info, 11, 0.05, 0.82, 0.62, 1)
     chance:SetPoint("RIGHT", info, "RIGHT", -12, 0)
     local confidence = summary.confidence == "verified" and "" or (" " .. L("estimated"))
@@ -270,8 +291,8 @@ local function BuildCatalogPage(parent, yOffset, kind)
     end)
     if Profile().lootSlotFilter and not slotValues[Profile().lootSlotFilter] then Profile().lootSlotFilter = "ALL" end
     _, h = W:Dropdown(parent, "Item Slot", y, slotValues,
-        function() return Profile().lootSlotFilter or "ALL" end,
-        function(v) Profile().lootSlotFilter=v; EllesmereUI:RefreshPage() end,
+        function() return tostring(Profile().lootSlotFilter or "ALL") end,
+        function(v) Profile().lootSlotFilter=tostring(v); QueuePageRebuild() end,
         slotOrder); y = y - h
     y = y - BuildSearchRow(parent, y)
     if #items == 0 then
@@ -281,7 +302,7 @@ local function BuildCatalogPage(parent, yOffset, kind)
         y = y - 40
     else
         local shown = 0
-        local slotFilter = Profile().lootSlotFilter or "ALL"
+        local slotFilter = tostring(Profile().lootSlotFilter or "ALL")
         local search = (Profile().lootSearch or ""):lower()
         for _, item in ipairs(items) do
             local slotMatch = slotFilter == "ALL" or item.slot == slotFilter
@@ -310,7 +331,7 @@ local function BuildOverview(parent, yOffset)
     local specValues, specOrder = BuildSpecValues()
     _, h = W:Dropdown(parent, "Loot Specialization", y, specValues,
         function() return SelectedSpecID() end,
-        function(v) Profile().selectedSpecID=v; EllesmereUI:RefreshPage() end,
+        function(v) Profile().selectedSpecID=tonumber(v) or v; QueuePageRebuild() end,
         specOrder); y = y - h
     local goals = ns.GetGoals(SelectedSpecID(), Profile().showArchived)
     local grouped, keys = {}, {}
@@ -374,14 +395,14 @@ local function BuildSettings(parent, yOffset)
           setValue=function(v) Profile().autoArchive=v; if v then ns.QueueInventoryScan() end end }); y = y - h
     _, h = W:Toggle(parent, "Show Archived Goals", y,
         function() return Profile().showArchived end,
-        function(v) Profile().showArchived=v; EllesmereUI:RefreshPage() end,
+        function(v) Profile().showArchived=v; QueuePageRebuild() end,
         "Shows completed goals in the gearing overview."); y = y - h
     _, h = W:SectionHeader(parent, "VOIDCORE POOLS", y); y = y - h
     _, h = W:WideButton(parent, "Rescan Voidcore Pools", y, function()
         print("|cff0cd29fEllesmereUI Loot Tracker|r: " .. L("Scanning Voidcore pools..."))
         ns.RescanVoidcorePools(function()
             print("|cff0cd29fEllesmereUI Loot Tracker|r: " .. L("Voidcore pool scan complete."))
-            EllesmereUI:RefreshPage()
+            QueuePageRebuild()
         end)
     end, 360); y = y - h
     local note = Card(parent, y, 84)
@@ -400,14 +421,8 @@ initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
     if not EllesmereUI or not EllesmereUI.RegisterModule then return end
-    local refreshQueued
     ns.RegisterCallback(function()
-        if refreshQueued then return end
-        refreshQueued = true
-        C_Timer.After(0, function()
-            refreshQueued = nil
-            if EllesmereUI._mainFrame and EllesmereUI._mainFrame:IsShown() then EllesmereUI:RefreshPage() end
-        end)
+        QueuePageRebuild()
     end)
     EllesmereUI:RegisterModule(ADDON_NAME, {
         title = "Loot Tracker",
