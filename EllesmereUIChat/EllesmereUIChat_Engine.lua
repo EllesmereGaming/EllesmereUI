@@ -357,6 +357,13 @@ local function CJKHeight(alphabet, size)
     if alphabet == CJK_CLIENT_ALPHABET then return size end
     return size + 2
 end
+-- Line spacing, per alphabet. Blizzard's chat family (ChatFontNormal ->
+-- NumberFont_Shadow_Med) pads its korean member with spacing="3" and gives
+-- the other alphabets none: hangul fills the line box top to bottom, so
+-- without that pad the log packs tight -- the "spacing got tighter" half of
+-- the koKR report that produced CJKHeight. CreateFontFamilyMemberInfo has no
+-- spacing field, so it goes on the member object after creation.
+local CJK_SPACING = { korean = 3 }
 function ECHAT.EngineFontFamily(id, font, size, flags)
     flags = flags or ""
     local fam = FAMS[id]
@@ -376,13 +383,15 @@ function ECHAT.EngineFontFamily(id, font, size, flags)
         local ok, created = pcall(CreateFontFamily, "EUIChatFontFamily" .. id, members)
         if not ok or not created then FAMS[id] = false; return nil end
         FAMS[id] = created
-        return created
+        fam = created
     end
     local ok = pcall(function()
         fam:GetFontObjectForAlphabet("roman"):SetFont(font, size, flags)
         fam:GetFontObjectForAlphabet("russian"):SetFont(font, size, flags)
         for alphabet, file in pairs(CJK_FILES) do
-            fam:GetFontObjectForAlphabet(alphabet):SetFont(file, CJKHeight(alphabet, size), flags)
+            local member = fam:GetFontObjectForAlphabet(alphabet)
+            member:SetFont(file, CJKHeight(alphabet, size), flags)
+            member:SetSpacing(CJK_SPACING[alphabet] or 0)
         end
     end)
     if not ok then return nil end

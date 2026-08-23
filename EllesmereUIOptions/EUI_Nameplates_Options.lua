@@ -278,6 +278,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Vertical edges inset between horizontal edges to avoid corner overlap
             local l = mkB(); l:SetPoint("TOPLEFT", t, "BOTTOMLEFT", 0, 0); l:SetPoint("BOTTOMLEFT", b, "TOPLEFT", 0, 0); l:SetWidth(px)
             local r = mkB(); r:SetPoint("TOPRIGHT", t, "BOTTOMRIGHT", 0, 0); r:SetPoint("BOTTOMRIGHT", b, "TOPRIGHT", 0, 0); r:SetWidth(px)
+            f._euiIconEdges = { t, b, l, r }
             _borderRefreshers[#_borderRefreshers + 1] = function()
                 local npx = Snap(1)
                 t:SetHeight(npx); b:SetHeight(npx)
@@ -734,7 +735,7 @@ initFrame:SetScript("OnEvent", function(self)
             d.icon:SetPoint("BOTTOMRIGHT", d, "BOTTOMRIGHT", -px, px)
             d.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
             d.icon:SetTexture(debuffData[i].icon)
-            _insetIcons[#_insetIcons + 1] = { tex = d.icon, parent = d }
+            _insetIcons[#_insetIcons + 1] = { tex = d.icon, parent = d, kind = "debuffs" }
 
             -- Text child frame: sits above the icon frame so highlights can be sandwiched between icon artwork and text via frame levels.
             local textFrame = CreateFrame("Frame", nil, d)
@@ -779,7 +780,7 @@ initFrame:SetScript("OnEvent", function(self)
             bf.icon:SetPoint("BOTTOMRIGHT", bf, "BOTTOMRIGHT", -px, px)
             bf.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
             bf.icon:SetTexture(buffData[i].icon)
-            _insetIcons[#_insetIcons + 1] = { tex = bf.icon, parent = bf }
+            _insetIcons[#_insetIcons + 1] = { tex = bf.icon, parent = bf, kind = "buffs" }
             local bfTextFrame = CreateFrame("Frame", nil, bf)
             bfTextFrame:SetAllPoints()
             bfTextFrame:SetFrameLevel(bf:GetFrameLevel() + 2)
@@ -807,7 +808,7 @@ initFrame:SetScript("OnEvent", function(self)
             cf.icon:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", -px, px)
             cf.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
             cf.icon:SetTexture(ccData[i].icon)
-            _insetIcons[#_insetIcons + 1] = { tex = cf.icon, parent = cf }
+            _insetIcons[#_insetIcons + 1] = { tex = cf.icon, parent = cf, kind = "ccs" }
             local cfTextFrame = CreateFrame("Frame", nil, cf)
             cfTextFrame:SetAllPoints()
             cfTextFrame:SetFrameLevel(cf:GetFrameLevel() + 2)
@@ -942,13 +943,29 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Refresh all 1px AddBorder edges (cast icon, aura icons)
             for _, refreshFn in ipairs(_borderRefreshers) do refreshFn() end
+            do
+                local function setEdges(f, on)
+                    local e = f and f._euiIconEdges
+                    if not e then return end
+                    for i = 1, #e do e[i]:SetShown(on) end
+                end
+                local ib = ns.GetIconBorderEnabled
+                setEdges(castParts.iconFrame, not ib or ib("cast"))
+                for i = 1, PV_CONST.DEBUFF_COUNT do setEdges(debuffs[i], not ib or ib("debuffs")) end
+                for i = 1, PV_CONST.BUFF_COUNT do setEdges(buffs[i], not ib or ib("buffs")) end
+                for i = 1, PV_CONST.CC_COUNT do setEdges(ccs[i], not ib or ib("ccs")) end
+            end
 
             -- Refresh icon insets (1px from border) for current scale
             local curPx = Snap(1)
             for _, entry in ipairs(_insetIcons) do
+                local inset = curPx
+                if entry.kind and ns.GetIconBorderEnabled and not ns.GetIconBorderEnabled(entry.kind) then
+                    inset = 0
+                end
                 entry.tex:ClearAllPoints()
-                entry.tex:SetPoint("TOPLEFT", entry.parent, "TOPLEFT", curPx, -curPx)
-                entry.tex:SetPoint("BOTTOMRIGHT", entry.parent, "BOTTOMRIGHT", -curPx, curPx)
+                entry.tex:SetPoint("TOPLEFT", entry.parent, "TOPLEFT", inset, -inset)
+                entry.tex:SetPoint("BOTTOMRIGHT", entry.parent, "BOTTOMRIGHT", -inset, inset)
             end
 
             local bc = (DB() and DB().borderColor) or defaults.borderColor
@@ -3378,8 +3395,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- -- it is just the style the dispellable group wears, so every shown
         -- dispellable buff glows when a style is set.
         local buffFilterDropdown = { type="dropdown", text="Enemy Buff Filter",
-            tooltip = "Which enemy buffs show on nameplates. Important shows the buffs Blizzard flags for enemy nameplates plus anything dispellable; Dispellable shows only buffs that can be dispelled, purged or soothed. With a Dispel Glow style set, every dispellable buff shown glows.",
-            values = { important = "Important", dispellable = "Dispellable" },
+            tooltip = "Which enemy buffs show on nameplates. Important shows the buffs Blizzard flags for enemy nameplates plus anything dispellable; Only Dispellable shows just the buffs that can be dispelled, purged or soothed. With a Dispel Glow style set, every dispellable buff shown glows.",
+            values = { important = "Important", dispellable = "Only Dispellable" },
             order = { "important", "dispellable" },
             getValue = function()
                 local m = DBVal("npEnemyBuffFilter")
@@ -6205,6 +6222,32 @@ initFrame:SetScript("OnEvent", function(self)
                     opts.cropPctGet = function() return DBVal(cropPctKey) or 10 end
                     opts.cropPctSet = function(v) DB()[cropPctKey] = v; RefreshAllSlots(); UpdatePreview() end
                 end
+                local borderKey
+                if element == "debuffs" then
+                    borderKey = "hideDebuffIconBorder"
+                elseif element == "buffs" then
+                    borderKey = "hideBuffIconBorder"
+                elseif element == "ccs" then
+                    borderKey = "hideCCIconBorder"
+                end
+                if borderKey then
+                    opts.toggleLabel = "Hide Border"
+                    opts.toggleGet = function()
+                        local v = DBVal(borderKey)
+                        if v == nil then return false end
+                        return v and true or false
+                    end
+                    opts.toggleSet = function(v)
+                        DB()[borderKey] = v and true or false
+                        -- Full settings pass: RefreshAllSlots repositions but
+                        -- never re-runs ApplyAppearance, so without this the
+                        -- live slot borders only catch up on plate recycle
+                        -- (and the container styles ride NPC_ReloadAll).
+                        if ns.RefreshAllSettings then ns.RefreshAllSettings() end
+                        RefreshAllSlots()
+                        UpdatePreview()
+                    end
+                end
                 -- Rare/Quest Indicator: "Show In Instances" lifts the open-world-only gates (UpdateClassification render gate + IsQuestMob's tooltip-scan gate); RefreshQuestObjective wipes quest-mob caches AND re-runs UpdateClassification everywhere.
                 if element == "classification" then
                     opts.toggleLabel = "Show In Instances"
@@ -6787,6 +6830,18 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       set=function(v)
                         DB().castIconFullSize = v
+                        ns.RefreshAllSettings()
+                        UpdatePreview()
+                      end },
+                    { type="toggle", label="Hide Border",
+                      tooltip="Hide the 1-pixel border around the cast bar spell icon.",
+                      get=function()
+                        local db = DB()
+                        if db and db.hideCastIconBorder ~= nil then return db.hideCastIconBorder and true or false end
+                        return false
+                      end,
+                      set=function(v)
+                        DB().hideCastIconBorder = v and true or false
                         ns.RefreshAllSettings()
                         UpdatePreview()
                       end },

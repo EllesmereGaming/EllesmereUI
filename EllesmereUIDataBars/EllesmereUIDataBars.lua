@@ -41,7 +41,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --   ns.LOC_MAX_WIDTH_DEFAULT               Manual-mode width before one is set
 --   ns.BlockTextDynamic(blockType) -> r, g, b   state-driven Text Color swatch
 --   ns.UpdateAllBarVisibility()
---   ns.MakePreviewBackdrop(host, themeCfg)
+--   ns.MakePreviewBackdrop(host, themeCfg, showBorder)
 --   ns.BLOCK_TYPES / ns.BLOCK_DEFAULTS / ns.EDB_VIS_CAPS / ns.EDGE_PAD
 --
 --  The one call that runs the other way (options file -> runtime): a block
@@ -113,6 +113,9 @@ local L = {
     CHANGE_LOOT_SPEC     = "Change Loot Spec",
     OPEN_TALENTS         = "Open Talents",
     CANNOT_USE_COMBAT    = "Cannot Use While In Combat",
+    COMBAT_STATUS        = "Combat Status",
+    IN_COMBAT            = "In Combat",
+    OUT_OF_COMBAT        = "Out of Combat",
     AUDIO                = "Audio",
     AUDIO_MASTER         = "Master",
     AUDIO_SFX            = "Sound Effects",
@@ -187,6 +190,7 @@ ns.BLOCK_TYPES = {
     { key = "coords",     label = "Coordinates" },
     { key = "gold",       label = "Gold" },
     { key = "durability", label = "Durability" },
+    { key = "combat",     label = "Combat Status" },
     { key = "xprep",      label = "XP / Reputation Bar" },
     { key = "spec",       label = "Spec & Loot Spec" },
     { key = "profession", label = "Professions" },
@@ -210,6 +214,7 @@ ns.BLOCK_DEFAULTS = {
     coords     = { showIcon = true, precision = 0, hideInInstance = true },
     gold       = { showIcons = true, showBagSpace = false, showSmall = false, coinIcons = false },
     durability = { showIcon = true },
+    combat     = { onlyInCombat = false },
     xprep      = { mode = "auto" },
     spec       = { showLoadout = true, useUppercase = false },
     profession = {},
@@ -1709,7 +1714,7 @@ local function EnsureThemeTextures(host)
     UpdateBgTexCoords()
 end
 
-local function ApplyThemeToHost(host, theme, texKey)
+local function ApplyThemeToHost(host, theme, texKey, showBorder)
     EnsureThemeTextures(host)
     theme = theme or {}
     -- Bar Texture (per-bar cfg.barTexture): resolved through the shared
@@ -1752,13 +1757,20 @@ local function ApplyThemeToHost(host, theme, texKey)
     end
     -- Bar Opacity carries the border with it: the base border alpha (0.8)
     -- is baked into the strip textures, frame alpha multiplies on top.
-    -- SetAlpha is combat-legal even on implicitly protected bars.
-    if host._edbBorder then host._edbBorder:SetAlpha(op) end
+    -- SetAlpha is combat-legal even on implicitly protected bars. Off
+    -- (cfg.hideBorder == true) zeros it rather than Hide(), same reason.
+    if host._edbBorder then
+        if showBorder == false then
+            host._edbBorder:SetAlpha(0)
+        else
+            host._edbBorder:SetAlpha(op)
+        end
+    end
 end
 
 -- Exposed so the options preview strip renders the exact same recipe.
-function ns.MakePreviewBackdrop(host, themeCfg)
-    ApplyThemeToHost(host, themeCfg)
+function ns.MakePreviewBackdrop(host, themeCfg, showBorder)
+    ApplyThemeToHost(host, themeCfg, nil, showBorder)
 end
 
 -------------------------------------------------------------------------------
@@ -2194,7 +2206,7 @@ function ns.ApplyBar(id)
     end
 
     ApplyBarPosition(id)
-    ApplyThemeToHost(rec.bar, cfg.theme, cfg.barTexture)
+    ApplyThemeToHost(rec.bar, cfg.theme, cfg.barTexture, not cfg.hideBorder)
 
     -- Reconcile block instances against cfg.blocks
     local want = {}
@@ -2255,7 +2267,7 @@ function ns.ApplyTheme(id)
     local rec = live[id]
     local cfg = ns.GetBar(id)
     if not (rec and rec.bar and cfg) then return end
-    ApplyThemeToHost(rec.bar, cfg.theme, cfg.barTexture)
+    ApplyThemeToHost(rec.bar, cfg.theme, cfg.barTexture, not cfg.hideBorder)
 end
 
 function ns.GetLiveAutoLength(barId, blockId)

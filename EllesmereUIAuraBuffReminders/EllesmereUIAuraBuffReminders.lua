@@ -2284,7 +2284,7 @@ function EABR.SyncProviderCastSpell()
         btn:SetAttribute("spell", spellID)
         btn:SetAttribute("item", nil)
         btn:SetAttribute("macrotext", nil)
-        btn:SetAttribute("unit", nil) -- raid buffs are self-cast, no unit needed
+        btn:SetAttribute("unit", "player") -- explicit unit so casting doesn't depend on your current target
         btn._icon:SetTexture(Tex(spellID) or 134400)
         btn._tooltipSpell = spellID
         btn._tooltipItem = nil
@@ -2852,7 +2852,7 @@ local refreshQueued = false
 local pendingOOCRefresh = false
 
 local function HideAllIcons()
-    if InCombat() then return end  -- cannot hide SecureActionButtons in combat
+    if InCombatLockdown() then return end  -- cannot hide SecureActionButtons after lockdown begins
     -- Sweep the WHOLE pool, never just activeIcons: a combat fade leaves icons
     -- shown at alpha 0, and any window where the list rebuilds without those
     -- frames orphans them -- shown, invisible, still hover/tooltip-live (field:
@@ -4756,7 +4756,8 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
             and UnitExists("target") and C_UnitAuras.GetUnitAuraBySpellID("target", 257284) then
             _huntersMarkNeeded = false
         end
-        -- Hides secure buttons BEFORE setting the combat flag (HideAllIcons checks InCombat, returns early if true); PLAYER_REGEN_DISABLED fires before InCombatLockdown() is true, so Hide() is safe.
+        -- Hide secure buttons before lockdown. ENCOUNTER_START may already have
+        -- set our combat flag, so HideAllIcons guards on InCombatLockdown itself.
         HideAllIcons()
         HideCursorIcons()
         _eabrInCombat = true

@@ -60,6 +60,13 @@ local function IsGearItem(itemLink)
     local _, _, _, _, _, classID = GetItemInfoInstant(itemLink)
     return classID == ITEM_CLASS_WEAPON or classID == ITEM_CLASS_ARMOR
 end
+local function GetItemLevelAtLocation(loc, itemLink)
+    if loc and loc:IsValid() and C_Item.DoesItemExist(loc) then
+        local level = C_Item.GetCurrentItemLevel(loc)
+        if level and level > 0 then return level end
+    end
+    return itemLink and C_Item.GetDetailedItemLevelInfo(itemLink) or nil
+end
 local function GetAccentRGB()
     if EUI.GetAccentColor then return EUI.GetAccentColor() end
     return 0.05, 0.82, 0.62
@@ -1909,16 +1916,18 @@ function EUI_Bank:RefreshBank()
             local showBindType = isGear and not info.isBound and BP().bagDisplayBindType
             local showIlvl = isGear and BP().showItemlevelInBags ~= false
             local giIlvl, giBindType
+            local loc
             if showBindType or showIlvl then
-                local _, _, _, i4, _, _, _, _, _, _, _, _, _, b14 = GetItemInfo(itemLink)
-                giIlvl, giBindType = i4, b14
+                local _, _, _, _, _, _, _, _, _, _, _, _, _, b14 = GetItemInfo(itemLink)
+                loc = ItemLocation:CreateFromBagAndSlot(bagID, slot)
+                giIlvl = showIlvl and GetItemLevelAtLocation(loc, itemLink) or nil
+                giBindType = b14
             end
 
             -- Bind Type : BoE / WuE bottom-left (gear only)
             if btn.BindTypeText then
                 if showBindType then
                     local isWuE = false
-                    local loc = ItemLocation:CreateFromBagAndSlot(bagID, slot)
                     if loc and C_Item.DoesItemExist(loc) then
                         isWuE = C_Item.IsBoundToAccountUntilEquip(loc)
                     end

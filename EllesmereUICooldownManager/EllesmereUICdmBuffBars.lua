@@ -2780,12 +2780,22 @@ ns.ApplyTBBBarSettings = ApplyTrackedBuffBarSettings
 --  Matches by cooldownID first (cached on cfg), then by spell ID variants from
 --  cooldownInfo. No external caches, no stale data in combat.
 -------------------------------------------------------------------------------
+-- cfg -> base-spell id seen once, awaiting a confirming second pass before the
+-- permanent cfg.baseSpellID write (a pool frame mid-reuse can echo another
+-- slot's ids for one pass). Separate table: frame-adjacent state must never
+-- ride the config into SavedVariables.
+local _tbbBaseCapturePending = {}
+
 local function MatchesSID(info, sid)
-    if info.overrideSpellID == sid then return true end
-    if info.spellID == sid then return true end
+    -- cooldownInfo id fields can read SECRET in restricted content, and a
+    -- secret on either side of == hard-errors: every compare is gated. sid is
+    -- the caller's cfg-side id (plain by contract).
+    local isSec = issecretvalue
+    if not (isSec and isSec(info.overrideSpellID)) and info.overrideSpellID == sid then return true end
+    if not (isSec and isSec(info.spellID)) and info.spellID == sid then return true end
     if info.linkedSpellIDs then
         for _, lid in ipairs(info.linkedSpellIDs) do
-            if lid == sid then return true end
+            if not (isSec and isSec(lid)) and lid == sid then return true end
         end
     end
     return false
@@ -2807,10 +2817,21 @@ local function MatchFrameToConfig(frame, cfg)
     -- cooldownInfo carries the override id ONLY while talented, so without the
     -- stored base the bar goes dark when untalented (the cast becomes the base
     -- spell). Also backfills bars saved without a pick-time baseSpellID.
+    local isSec = issecretvalue
     if cfg.spellID and cfg.spellID > 0 and not cfg.baseSpellID
+       and not (isSec and isSec(info.overrideSpellID))
+       and not (isSec and isSec(info.spellID))
        and info.overrideSpellID == cfg.spellID
        and info.spellID and info.spellID > 0 and info.spellID ~= cfg.spellID then
-        cfg.baseSpellID = info.spellID
+        -- Two matching reads on separate passes before committing: the write is
+        -- permanent (SavedVariables), so a single transient echo from a frame
+        -- mid-reuse must never corrupt the config's identity.
+        if _tbbBaseCapturePending[cfg] == info.spellID then
+            cfg.baseSpellID = info.spellID
+            _tbbBaseCapturePending[cfg] = nil
+        else
+            _tbbBaseCapturePending[cfg] = info.spellID
+        end
     end
     -- Fast path: match via cooldownInfo struct fields.
     if cfg.spellIDs then
@@ -2863,6 +2884,7 @@ function ns.InvalidateTBBFrameCache()
     wipe(_findChildCache)
     wipe(_tbbStickyFrame)
     wipe(_tbbStickyCdID)
+    wipe(_tbbBaseCapturePending)
     -- Every structural edge funnels here (pool Acquire, spec swap, rebuilds), so the assignment memo retires with the caches.
     _tbbAssignDirty = true
 end
@@ -2919,11 +2941,16 @@ local _tbbAssignment   = {}
 local _tbbFrameScratch = {}
 local _tbbConsumed     = {}
 local _tbbFrameSID     = {}  -- frame -> canonical spell id, computed once per call
+local _tbbFrameMember  = {}  -- frame -> live linked-family member, computed once per call
 
 local function CfgWantsSID(cfg, sid)
     -- Cooldown-tracking bars NEVER match buff-viewer frames or buff coverage.
     if cfg.trackType == "cooldown" then return false end
     if not sid then return false end
+    -- Tick paths feed raw aura/struct ids (icon, coverage): a secret survives
+    -- the nil check and hard-errors on ==. Narrow matcher: secret = not
+    -- provably ours.
+    if issecretvalue and issecretvalue(sid) then return false end
     if cfg.spellIDs then
         for _, s in ipairs(cfg.spellIDs) do if s == sid then return true end end
         return false
@@ -2947,6 +2974,10 @@ end
 local function TbbNameFamily(name)
     if type(name) ~= "string" or name == "" then return nil end
     local i = name:find(":", 1, true)
+    -- zhCN/zhTW labels separate variants with the fullwidth colon (U+FF1A;
+    -- decimal byte escapes -- Lua 5.1 has no hex escapes).
+    local j = name:find("\239\188\154", 1, true)
+    if j and (not i or j < i) then i = j end
     local fam = i and name:sub(1, i - 1) or name
     fam = fam:gsub("^%s+", ""):gsub("%s+$", ""):lower()
     if fam == "" then return nil end
@@ -2966,6 +2997,164 @@ local function TbbFrameNameFamily(frame)
     local nm = ad.name
     if nm == nil or (issecretvalue and issecretvalue(nm)) then return nil end
     return TbbNameFamily(nm)
+end
+
+-- Which member of a LINKED FAMILY a buff slot is mirroring right now. Blizzard
+-- binds ONE cooldownID to whichever of its linkedSpellIDs is on the player and
+-- publishes the answer as cooldownInfo.linkedSpellID, maintained on the aura
+-- edges (CooldownViewerItemMixin:NeedsAddedAuraUpdate / OnUnitAuraRemovedEvent),
+-- so Roll the Bones cycles a single slot through every outcome and the hint
+-- follows. Needed because GetSpellID()/GetAuraSpellID() read secret while the
+-- slot is active, leaving the canonical resolver to answer from the clean-read
+-- memo keyed on cooldownID, which still names the member that was up at the last
+-- CLEAN read: the previous outcome keeps the frame and mirrors the new outcome's
+-- timer while the new outcome draws a second bar off the per-spell aura fallback.
+local function TbbLinkedMemberSID(frame)
+    local info = frame.cooldownInfo
+    if not info then
+        local fnGetInfo = frame.GetCooldownInfo
+        if type(fnGetInfo) ~= "function" then return nil end
+        info = fnGetInfo(frame)
+    end
+    local linked = info and info.linkedSpellIDs
+    if type(linked) ~= "table" or #linked < 2 then return nil end
+    -- Set from the added aura's spellId, so it can be secret in restricted content.
+    local sid = info.linkedSpellID
+    if type(sid) ~= "number" or (issecretvalue and issecretvalue(sid)) then return nil end
+    return sid
+end
+
+-- Per-config name families for label/binding compatibility: cfg.name (the
+-- picker's display name) plus the resolved spellID/baseSpellID names.
+-- Weak-keyed memo; every input is re-checked on hit so options edits
+-- self-invalidate, and entries with unloaded spell data retry until resolved
+-- (same class as the deferred name fill).
+local _tbbCfgFamilies = setmetatable({}, { __mode = "k" })
+
+local function TbbCfgFamilies(cfg)
+    local e = _tbbCfgFamilies[cfg]
+    if e and not e.retry and e.nm == cfg.name and e.sid == cfg.spellID
+       and e.bsid == cfg.baseSpellID then
+        return e
+    end
+    if not e then e = {}; _tbbCfgFamilies[cfg] = e end
+    e.nm, e.sid, e.bsid = cfg.name, cfg.spellID, cfg.baseSpellID
+    e.retry = nil
+    e.f1 = TbbNameFamily(cfg.name)
+    e.f2, e.f3 = nil, nil
+    if cfg.spellID and cfg.spellID > 0 then
+        local si = C_Spell.GetSpellInfo(cfg.spellID)
+        if si and si.name then e.f2 = TbbNameFamily(si.name) else e.retry = true end
+    end
+    if cfg.baseSpellID and cfg.baseSpellID > 0 then
+        local si = C_Spell.GetSpellInfo(cfg.baseSpellID)
+        if si and si.name then e.f3 = TbbNameFamily(si.name) else e.retry = true end
+    end
+    return e
+end
+
+-- Two families are compatible when equal or one extends the other ("eclipse"
+-- vs "eclipse (solar)") -- variant naming keeps the base name as a prefix,
+-- while different abilities ("spirit walk" vs "spirit wolf") never do.
+local function TbbFamiliesCompatible(a, b)
+    if not a or not b then return false end
+    if a == b then return true end
+    return a:find(b, 1, true) == 1 or b:find(a, 1, true) == 1
+end
+
+-- fam vs ANY of the config's known families. openOnUnknown decides the
+-- verdict when either side is unknowable (the label gate fails OPEN to
+-- today's behavior; variant evidence fails CLOSED).
+local function TbbCfgFamilyMatch(cfg, fam, openOnUnknown)
+    local e = TbbCfgFamilies(cfg)
+    local f1, f2, f3 = e.f1, e.f2, e.f3
+    if fam == nil or not (f1 or f2 or f3) then return openOnUnknown end
+    return TbbFamiliesCompatible(fam, f1) or TbbFamiliesCompatible(fam, f2)
+        or TbbFamiliesCompatible(fam, f3)
+end
+
+-- cooldownID -> definite "variant-labeled slot" verdict, session-long (cdIDs
+-- are stable per session; verdicts only come from fully readable inputs). A
+-- slot is variant-labeled when its linked forms resolve to MORE THAN ONE
+-- distinct display string (Diabolist ritual trios, Eclipse Solar/Lunar) --
+-- the only case where a SECRET label can say something the config name
+-- cannot. Field 2026-08: a hidden pool frame can render another slot's text
+-- persistently after re-acquire, so unproven slots never paint secret labels.
+local _tbbVariantSlot = {}
+
+local function TbbSlotVariantLabeled(bar, cdID)
+    if type(cdID) ~= "number" or (issecretvalue and issecretvalue(cdID)) then
+        return false
+    end
+    local known = _tbbVariantSlot[cdID]
+    if known ~= nil then return known end
+    -- In combat one indefinite probe is pinned per binding (secret linked ids
+    -- would otherwise re-derive at 60Hz); out of combat retries until the
+    -- verdict is definite (spell data load is the only wait).
+    if bar._varProbeCd == cdID and InCombatLockdown() then
+        return bar._varProbeVal or false
+    end
+    local verdict, complete = false, false
+    if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+        local ok, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cdID)
+        if ok and info then
+            local isSec = issecretvalue
+            local lids = info.linkedSpellIDs
+            if not lids or #lids == 0 then
+                -- No linked forms at all: definitively single-labeled.
+                _tbbVariantSlot[cdID] = false
+                return false
+            end
+            complete = true
+            local baseNm
+            local bsid = info.spellID
+            if bsid and not (isSec and isSec(bsid)) then
+                local si = C_Spell.GetSpellInfo(bsid)
+                local nm = si and si.name
+                if nm and not (isSec and isSec(nm)) then baseNm = nm:lower() end
+            end
+            if not baseNm then complete = false end
+            local firstNm
+            for k = 1, #lids do
+                local lid = lids[k]
+                local nm
+                if type(lid) == "number" and not (isSec and isSec(lid)) then
+                    local si = C_Spell.GetSpellInfo(lid)
+                    nm = si and si.name
+                    if nm and (isSec and isSec(nm)) then nm = nil end
+                end
+                if not nm then
+                    complete = false
+                else
+                    nm = nm:lower()
+                    if baseNm and nm ~= baseNm then verdict = true; break end
+                    if firstNm == nil then
+                        firstNm = nm
+                    elseif nm ~= firstNm then
+                        verdict = true; break
+                    end
+                end
+            end
+        end
+    end
+    if verdict or complete then
+        _tbbVariantSlot[cdID] = verdict
+    else
+        bar._varProbeCd, bar._varProbeVal = cdID, verdict
+    end
+    return verdict
+end
+
+-- Pass-3 candidate veto: a fuzzy struct match (linked-group membership) can
+-- be a mechanically different neighbor -- Blizzard links Spirit Walk into the
+-- Spirit Wolf slot's group, and with Spirit Walk's own frame inactive the
+-- neighbor is the UNIQUE match (field 2026-08). A READABLE live aura name
+-- that is family-incompatible with the config rejects the candidate;
+-- secret/unreadable fails open so variant slots stay bindable in combat.
+local function TbbFuzzyNameOK(cfg, frame)
+    local fam = TbbFrameNameFamily(frame)
+    if not fam then return true end
+    return TbbCfgFamilyMatch(cfg, fam, true)
 end
 
 local function AssignFramesToConfigs(bars)
@@ -2994,9 +3183,39 @@ local function AssignFramesToConfigs(bars)
     local frames = _tbbFrameScratch
     wipe(frames)
     wipe(_tbbFrameSID)
+    wipe(_tbbFrameMember)
     for frame in viewer.itemFramePool:EnumerateActive() do
         frames[#frames + 1] = frame
         _tbbFrameSID[frame] = GetCanonical and GetCanonical(frame) or nil
+        if frame.IsActive and frame:IsActive() then
+            _tbbFrameMember[frame] = TbbLinkedMemberSID(frame)
+        end
+    end
+
+    -- The family hint overrides the canonical memo only where (1) some enabled
+    -- bar actually WANTS the member: a single bar tracking the family under
+    -- its base/shared id must keep its per-slot memo, or the flip releases a
+    -- working binding for nothing (claim-style gate; also keeps shared-id
+    -- configs like Diabolist's on their memos if a variant stamp ever reads
+    -- clean), and (2) it is UNIQUE among the active slots: collided slots each
+    -- list the whole family (Eclipse Solar and Lunar, both up), so an added
+    -- aura stamps the same member on BOTH and only their per-slot memos still
+    -- tell them apart.
+    for i = 1, #frames do
+        local m = _tbbFrameMember[frames[i]]
+        if m then
+            local wanted = false
+            for _, c in ipairs(bars) do
+                if CfgWantsSID(c, m) then wanted = true; break end
+            end
+            local unique = wanted
+            if unique then
+                for j = 1, #frames do
+                    if j ~= i and _tbbFrameMember[frames[j]] == m then unique = false; break end
+                end
+            end
+            if unique then _tbbFrameSID[frames[i]] = m end
+        end
     end
 
     local consumed = _tbbConsumed
@@ -3094,7 +3313,8 @@ local function AssignFramesToConfigs(bars)
             local candidate, matches = nil, 0
             for i = 1, #frames do
                 local frame = frames[i]
-                if not consumed[frame] and MatchFrameToConfig(frame, cfg) then
+                if not consumed[frame] and MatchFrameToConfig(frame, cfg)
+                   and TbbFuzzyNameOK(cfg, frame) then
                     matches = matches + 1
                     candidate = frame
                 end
@@ -3102,7 +3322,8 @@ local function AssignFramesToConfigs(bars)
             if matches == 1 then
                 local cfgMatches = 0
                 for _, other in ipairs(bars) do
-                    if not assignment[other] and MatchFrameToConfig(candidate, other) then
+                    if not assignment[other] and MatchFrameToConfig(candidate, other)
+                       and TbbFuzzyNameOK(other, candidate) then
                         cfgMatches = cfgMatches + 1
                     end
                 end
@@ -4949,23 +5170,22 @@ function ns.UpdateTrackedBuffBarTimers()
                         end
                     end
 
-                    -- Name resolution ladder (Diabolist field probe 2026-08-16,
-                    -- /euitbbdbg: on the ACTIVE ritual frame GetSpellID,
-                    -- GetAuraSpellID AND the aura-instance read are all
-                    -- secret/nil even out of combat -- the variant identity is
-                    -- unreadable to Lua; only Blizzard's own label knows which
-                    -- ritual is up):
+                    -- Name resolution ladder:
                     --  1. Blizzard's rendered label FontString on the BOUND
-                    --     frame -- the ONLY channel that carries the live
-                    --     variant name (Overlord / Mother of Chaos / Pit Lord)
-                    --     while ids are unreadable. Handed straight to SetText
-                    --     (accepts secrets natively; NEVER compared or stored),
-                    --     and taken only while that frame is SHOWN with a bound
-                    --     aura: the old wrong-name report came from scraping a
-                    --     label whose pooled frame had been recycled under a
-                    --     stale binding -- bindings are cooldownID-anchored now
-                    --     (sticky releases on slot change), and a shown frame's
-                    --     label belongs to its current occupant.
+                    --     frame -- the only channel carrying live variant
+                    --     names (Diabolist probe 2026-08-16: on the active
+                    --     ritual frame every id AND the aura-instance read are
+                    --     secret even out of combat; only the label knows
+                    --     which ritual is up). FIELD-PROVEN 2026-08: a hidden
+                    --     pool frame's label can ALSO hold another slot's
+                    --     readable text persistently after re-acquire (binding
+                    --     right, label lying -- SotR as "Consecration", Bone
+                    --     Shield as "Blood Draw"), so the label is trusted
+                    --     only inside the config's name family: readable text
+                    --     must be family-compatible, and secret text paints
+                    --     only on slots whose linked forms provably render
+                    --     distinct names. Secrets pass straight to SetText
+                    --     (never compared or stored).
                     --  2. Live aura data, when readable and provably this bar's
                     --     family (exact config ids or the bound slot's
                     --     cooldownInfo override/spellID/linkedSpellIDs).
@@ -4976,13 +5196,10 @@ function ns.UpdateTrackedBuffBarTimers()
                         -- (probe-confirmed): type() reads the tag without touching
                         -- the value -- the taint-safe presence test for secrets.
                         -- SLOT CHECK (the Wardead class, 2+ bars in one group in
-                        -- combat): the frame's label is right for its CURRENT
-                        -- occupant, so it is wrong only when OUR binding is stale
-                        -- -- a pool re-acquire that moved this frame to another
-                        -- slot before the next re-pair. cooldownID stays a plain
-                        -- readable number in secret windows, so comparing it to
-                        -- the slot we bound under catches that same-tick window
-                        -- (the sticky pass applies the identical test on its own
+                        -- combat): cooldownID stays a plain readable number in
+                        -- secret windows, so a pooled frame moved to another slot
+                        -- since binding is caught before its label is read (the
+                        -- sticky pass applies the identical test on its own
                         -- schedule); a mismatch skips the label and falls through.
                         if blzChild and blzChild:IsShown() and blizzBar
                            and type(blzChild.auraInstanceID) ~= "nil"
@@ -4991,9 +5208,26 @@ function ns.UpdateTrackedBuffBarTimers()
                             local blizzNameFS = GetBlizzBarFontStrings(blizzBar)
                             if blizzNameFS then
                                 local ok, txt = pcall(blizzNameFS.GetText, blizzNameFS)
-                                if ok and txt ~= nil
-                                   and ((issecretvalue and issecretvalue(txt)) or txt ~= "") then
-                                    nameStr = txt
+                                if ok and txt ~= nil then
+                                    if issecretvalue and issecretvalue(txt) then
+                                        if TbbSlotVariantLabeled(bar, blzChild.cooldownID) then
+                                            nameStr = txt
+                                        end
+                                    elseif txt ~= "" then
+                                        -- Family gate memoized on (cfg, cfg.name,
+                                        -- text): the verdict only moves when the
+                                        -- rendered string or the config does.
+                                        if bar._labelGateCfg ~= cfg
+                                           or bar._labelGateNm ~= cfg.name
+                                           or bar._labelGateTxt ~= txt then
+                                            bar._labelGateCfg = cfg
+                                            bar._labelGateNm  = cfg.name
+                                            bar._labelGateTxt = txt
+                                            bar._labelGateOk  = TbbCfgFamilyMatch(
+                                                cfg, TbbNameFamily(txt), true)
+                                        end
+                                        if bar._labelGateOk then nameStr = txt end
+                                    end
                                 end
                             end
                         end

@@ -517,14 +517,24 @@ ns.RegisterDMUnlock = function()
     if DB().standaloneTimer and ns.MakeSATimerUnlockElement then
         elements[#elements + 1] = ns.MakeSATimerUnlockElement(MK)
     end
+    -- Icon History is owned by the spell-history file, but participates in the
+    -- same first-class unlock system as the meter windows and combat timer.
+    local spellHistory = DB().spellHistory
+    if spellHistory and spellHistory.iconEnabled and ns.MakeIconHistoryUnlockElement then
+        elements[#elements + 1] = ns.MakeIconHistoryUnlockElement(MK)
+    end
     EUI:RegisterUnlockElements(elements, "EllesmereUIDamageMeters")
-    -- Drop registrations for window slots beyond the live count and the timer while disabled (symmetric across profile swaps)
+    -- Drop registrations for window slots beyond the live count and optional
+    -- elements while disabled (symmetric across profile swaps).
     if EUI.UnregisterUnlockElement then
         for i = #_windows + 1, MAX_WINDOWS do
             EUI:UnregisterUnlockElement("EDM_Win" .. i)
         end
         if not DB().standaloneTimer then
             EUI:UnregisterUnlockElement("EDM_CombatTimer")
+        end
+        if not (spellHistory and spellHistory.iconEnabled) then
+            EUI:UnregisterUnlockElement("EDM_IconHistory")
         end
     end
 end
@@ -814,10 +824,11 @@ local function GetDMOutline()
     return (EUI and EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("damageMeters")) or ""
 end
 
-local function SetDMFont(fs, size)
+local function SetDMFont(fs, size, flagsOverride)
     if not (fs and fs.SetFont) then return end
     local font = GetDMFont()
-    local flags = GetDMOutline()
+    local flags = flagsOverride
+    if flags == nil then flags = GetDMOutline() end
     if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, flags == "") end
     fs:SetFont(font, size, flags)
 end
@@ -4510,8 +4521,14 @@ end
 -- Standalone Combat Timer
 local _saTimer  -- frame reference
 local _saTimerFS -- fontstring
+local _saTimerBG -- backdrop texture
+local _saTimerBorders -- four solid edge textures
 local _saTimerPreview = false
 local _saTimerLive = false  -- last live/idle state seen (drives OOC desaturation)
+
+local function GetSATimerPreviewText()
+    return DB().standaloneTimerDecimal and "11:37.0" or "11:37"
+end
 
 local function GetSATimerColor()
     local cfg = DB()
@@ -4536,23 +4553,66 @@ local function ApplySATimerStyle()
     if not _saTimer or not _saTimerFS then return end
     local cfg = DB()
     _saTimer:SetFrameStrata(cfg.standaloneTimerStrata or "HIGH")
-    SetDMFont(_saTimerFS, cfg.standaloneTimerSize or 14)
+
+    local outline = cfg.standaloneTimerOutline or "INHERIT"
+    local outlineFlags
+    if outline == "NONE" then
+        outlineFlags = ""
+    elseif outline == "THICKOUTLINE" then
+        outlineFlags = "THICKOUTLINE"
+    elseif outline == "INHERIT" then
+        outlineFlags = nil
+    else
+        outlineFlags = "OUTLINE"
+    end
+    SetDMFont(_saTimerFS, cfg.standaloneTimerSize or 26, outlineFlags)
     ApplySATimerColor()
+
+    local previousText = _saTimerFS:GetText()
+    _saTimerFS:SetText("99:99")
+    local autoWidth = (_saTimerFS:GetStringWidth() or 30) + 4
+    local autoHeight = (_saTimerFS:GetStringHeight() or 14) + 4
+    _saTimerFS:SetText(previousText)
+    _saTimer:SetSize(cfg.standaloneTimerWidth and math.max(40, cfg.standaloneTimerWidth) or autoWidth,
+                     cfg.standaloneTimerHeight and math.max(20, cfg.standaloneTimerHeight) or autoHeight)
+
+    if _saTimerBG then
+        local c = cfg.standaloneTimerBackgroundColor or { r = 0, g = 0, b = 0, a = 0 }
+        _saTimerBG:SetColorTexture(c.r or 0, c.g or 0, c.b or 0, c.a or 0)
+    end
+
+    if _saTimerBorders then
+        local c = cfg.standaloneTimerBorderColor or { r = 0, g = 0, b = 0, a = 1 }
+        local borderSize = math.max(0, math.floor((cfg.standaloneTimerBorderSize or 0) + 0.5))
+        for _, edge in ipairs(_saTimerBorders) do
+            edge:SetColorTexture(c.r or 0, c.g or 0, c.b or 0, c.a == nil and 1 or c.a)
+            edge:SetShown(borderSize > 0)
+        end
+        if borderSize > 0 then
+            _saTimerBorders[1]:SetHeight(borderSize)
+            _saTimerBorders[2]:SetHeight(borderSize)
+            _saTimerBorders[3]:SetWidth(borderSize)
+            _saTimerBorders[4]:SetWidth(borderSize)
+        end
+    end
+
     _saTimerFS:ClearAllPoints()
-    local anchor = cfg.standaloneTimerAnchor or "free"
-    local alignLeft
-    if anchor == "free" then
-        alignLeft = cfg.standaloneTimerAlignLeft
-    else
-        alignLeft = anchor == "topleft" or anchor == "bottomleft"
+    local borderSize = cfg.standaloneTimerBorderSize or 0
+    local inset = borderSize > 0 and borderSize + 3 or 0
+    _saTimerFS:SetPoint("LEFT", _saTimer, "LEFT", inset, 0)
+    _saTimerFS:SetPoint("RIGHT", _saTimer, "RIGHT", -inset, 0)
+    -- Preserve the old binary left-align preference until the user chooses
+    -- a value in the new three-way alignment control.
+    local textAlign = cfg.standaloneTimerTextAlign
+    if not textAlign then
+        local anchor = cfg.standaloneTimerAnchor or "free"
+        if anchor == "free" then
+            textAlign = cfg.standaloneTimerAlignLeft and "LEFT" or "RIGHT"
+        else
+            textAlign = (anchor == "topleft" or anchor == "bottomleft") and "LEFT" or "RIGHT"
+        end
     end
-    if alignLeft then
-        _saTimerFS:SetPoint("LEFT")
-        _saTimerFS:SetJustifyH("LEFT")
-    else
-        _saTimerFS:SetPoint("RIGHT")
-        _saTimerFS:SetJustifyH("RIGHT")
-    end
+    _saTimerFS:SetJustifyH(textAlign)
 end
 
 -- Decimal display: API duration is whole seconds, so tenths are derived from a GetTime() anchor
@@ -4698,20 +4758,25 @@ local function CreateSATimer()
         end
     end)
 
-    _saTimerFS = _saTimer:CreateFontString(nil, "OVERLAY")
-    _saTimerFS:SetPoint("RIGHT")
-    ApplySATimerStyle()
-    _saTimerFS:SetText("0:00")
+    _saTimerBG = _saTimer:CreateTexture(nil, "BACKGROUND")
+    _saTimerBG:SetAllPoints()
 
-    -- Size to text
-    _saTimer:SetScript("OnSizeChanged", nil)
-    local function ResizeToText()
-        local w = (_saTimerFS:GetStringWidth() or 30) + 4
-        local h = (_saTimerFS:GetStringHeight() or 14) + 4
-        _saTimer:SetSize(w, h)
+    _saTimerBorders = {}
+    for i = 1, 4 do
+        local edge = _saTimer:CreateTexture(nil, "BORDER")
+        _saTimerBorders[i] = edge
     end
-    _saTimerFS:SetText("99:99")
-    ResizeToText()
+    _saTimerBorders[1]:SetPoint("TOPLEFT")
+    _saTimerBorders[1]:SetPoint("TOPRIGHT")
+    _saTimerBorders[2]:SetPoint("BOTTOMLEFT")
+    _saTimerBorders[2]:SetPoint("BOTTOMRIGHT")
+    _saTimerBorders[3]:SetPoint("TOPLEFT")
+    _saTimerBorders[3]:SetPoint("BOTTOMLEFT")
+    _saTimerBorders[4]:SetPoint("TOPRIGHT")
+    _saTimerBorders[4]:SetPoint("BOTTOMRIGHT")
+
+    _saTimerFS = _saTimer:CreateFontString(nil, "OVERLAY")
+    ApplySATimerStyle()
     _saTimerFS:SetText("0:00")
 
     RepositionSATimer()
@@ -4725,15 +4790,10 @@ ns.ApplySATimer = function()
     if cfg.standaloneTimer then
         if not _saTimer then CreateSATimer() end
         ApplySATimerStyle()
-        -- Resize for new font size (measure with worst-case, then restore)
         local prevText = _saTimerFS:GetText()
-        _saTimerFS:SetText("99:99")
-        local w = (_saTimerFS:GetStringWidth() or 30) + 4
-        local h = (_saTimerFS:GetStringHeight() or 14) + 4
-        _saTimer:SetSize(w, h)
         RepositionSATimer()
         if _saTimerPreview then
-            _saTimerFS:SetText("11:37")
+            _saTimerFS:SetText(GetSATimerPreviewText())
         else
             _saTimerFS:SetText(prevText or "0:00")
             UpdateSATimerText()
@@ -4752,7 +4812,7 @@ ns.ShowSATimerPreview = function()
         return
     end
     _saTimerPreview = true
-    _saTimerFS:SetText("11:37")
+    _saTimerFS:SetText(GetSATimerPreviewText())
     _saTimer:Show()
 end
 ns.HideSATimerPreview = function()
@@ -5182,6 +5242,9 @@ initFrame:SetScript("OnEvent", function(self)
             _windows[i] = CreateDMWindow(i)
             ns.ApplyWindowBorder()
         end
+        -- Spell History caches its profile table; refresh it before rebuilding
+        -- optional unlock registrations so enable state and positions agree.
+        if ns.RefreshSpellHistoryProfile then ns.RefreshSpellHistoryProfile() end
         -- Refresh unlock registrations for the new profile's window count
         ns.RegisterDMUnlock()
         -- Recreate standalone timer if enabled

@@ -1079,6 +1079,191 @@ ns.ProfessionPositionName = function(index, extra, specialization)
 end
 
 -------------------------------------------------------------------------------
+--  Interface panels: one entry per Blizzard panel, so the whole micro menu
+--  fits on a ring and costs one keybind. A panel with a micro button fires as
+--  "/click <button>", the click Blizzard's own menu makes: the macro runs
+--  untainted from the secure button, where an addon opening the frame from its
+--  own Lua taints what it draws (EllesmereUIDataBars_Blocks.lua:4138). The five
+--  with no button to click fire from FireInsecure, out of combat only.
+-------------------------------------------------------------------------------
+do
+    -- Scoped, with the accessors on ns: the main chunk is at Lua's ceiling of
+    -- 200 locals (see UsableSlots). The ".png" on each name is not optional --
+    -- the client only finds a PNG by its full filename.
+    local ART = "Interface\\AddOns\\EllesmereUI\\media\\micromenu\\"
+
+    -- button: the micro button to click; a LIST is tried in order, since the
+    --   spellbook button was renamed when talents and the spellbook merged.
+    -- fire: the toggle for a panel with no button, called from FireInsecure.
+    -- label: the client's own caption, by GLOBAL NAME rather than by value so
+    --   no English one is baked in; first that answers wins, `default` last.
+    -- minor: left out of the preset menu. The panels run two past MAX_SLOTS on
+    --   a full client, and the Shop and Customer Support are the two a ring is
+    --   worth the least. Both are still in the picker.
+    local PANELS = {
+        { key = "character",   icon = ART .. "menu-character.png",
+          button = "CharacterMicroButton",
+          label = "CHARACTER_BUTTON",           default = "Character" },
+        { key = "spellbook",   icon = ART .. "menu-spellbook.png",
+          button = { "PlayerSpellsMicroButton", "SpellbookMicroButton" },
+          label = { "PLAYERSPELLS_BUTTON", "TALENTS_BUTTON" },
+          default = "Spellbook and Talents" },
+        { key = "professions", icon = ART .. "menu-professions.png",
+          button = "ProfessionMicroButton",
+          label = "PROFESSIONS_BUTTON",         default = "Professions" },
+        { key = "achievements", icon = ART .. "menu-achievements.png",
+          button = "AchievementMicroButton",
+          label = { "ACHIEVEMENT_BUTTON", "ACHIEVEMENTS" },
+          default = "Achievements" },
+        { key = "quests",      icon = ART .. "menu-quests.png",
+          button = "QuestLogMicroButton",
+          label = { "QUESTLOG_BUTTON", "QUEST_LOG" }, default = "Quest Log" },
+        { key = "guild",       icon = ART .. "menu-guild.png",
+          button = "GuildMicroButton",
+          label = { "GUILD_AND_COMMUNITIES", "GUILD" }, default = "Guild" },
+        { key = "groupfinder", icon = ART .. "menu-group.png",
+          button = "LFDMicroButton",
+          label = "DUNGEONS_BUTTON",            default = "Group Finder" },
+        -- No micro button of its own since the Group Finder swallowed the tab:
+        -- TogglePVPUI is the call the game's own binding makes, and it lives in
+        -- a [Bootstrap] file, so it answers from login however late the panel
+        -- itself loads.
+        { key = "pvp",         icon = ART .. "menu-pvp.png",
+          fire = function() if TogglePVPUI then TogglePVPUI() end end,
+          exists = function() return TogglePVPUI ~= nil end,
+          label = { "PLAYER_V_PLAYER", "PVP" },  default = "Player vs Player" },
+        { key = "adventure",   icon = ART .. "menu-adventure.png",
+          button = "EJMicroButton",
+          label = { "ADVENTURE_JOURNAL", "ENCOUNTER_JOURNAL" },
+          default = "Adventure Guide" },
+        { key = "collections", icon = ART .. "menu-collections.png",
+          button = "CollectionsMicroButton",
+          label = "COLLECTIONS",                default = "Collections" },
+        { key = "housing",     icon = ART .. "menu-housing.png",
+          button = "HousingMicroButton",
+          label = "HOUSING_MICRO_BUTTON",       default = "Housing" },
+        -- The Quick Join toast, which is what the game binds TOGGLESOCIAL to
+        -- now that the social micro button is gone. Same button the micro menu
+        -- data bar block clicks for its Friends entry.
+        { key = "social",      icon = ART .. "menu-friends.png",
+          button = "QuickJoinToastButton",
+          label = { "SOCIAL_LABEL", "SOCIAL_BUTTON", "FRIENDS" },
+          default = "Social" },
+        { key = "map",         icon = ART .. "menu-map.png",
+          fire = function() if ToggleWorldMap then ToggleWorldMap() end end,
+          exists = function() return ToggleWorldMap ~= nil end,
+          label = { "WORLD_MAP", "WORLDMAP_BUTTON" }, default = "Map" },
+        { key = "bags",        icon = ART .. "menu-bags.png",
+          fire = function() if ToggleAllBags then ToggleAllBags() end end,
+          exists = function() return ToggleAllBags ~= nil end,
+          label = { "BAGSLOTTEXT", "INVENTORY_TOOLTIP" }, default = "Bags" },
+        -- The Great Vault, which the game gives no keybind of its own at all.
+        -- Blizzard's entry point only ever SHOWS it, so the toggle half is
+        -- ours: a second press on an open vault closes it, which is how every
+        -- other entry here answers a second press.
+        { key = "greatvault",  icon = ART .. "menu-vault.png",
+          fire = function()
+              local f = WeeklyRewardsFrame
+              if f and f:IsShown() then
+                  HideUIPanel(f)
+              elseif WeeklyRewards_ShowUI then
+                  WeeklyRewards_ShowUI()
+              end
+          end,
+          exists = function() return WeeklyRewards_ShowUI ~= nil end,
+          label = "GREAT_VAULT_REWARDS",        default = "Great Vault" },
+        -- The one panel with a micro button that cannot be clicked: its OnClick
+        -- opens nothing unless the cursor is ON the button
+        -- (MainMenuBarMicroButtons.lua:1844), which a macro's click never is.
+        { key = "gamemenu",    icon = ART .. "menu-options.png",
+          fire = function()
+              if GameMenuFrame and GameMenuFrame:IsShown() then
+                  HideUIPanel(GameMenuFrame)
+              elseif GameMenuFrame_Show then
+                  GameMenuFrame_Show()
+              end
+          end,
+          exists = function() return GameMenuFrame_Show ~= nil end,
+          label = "MAINMENU_BUTTON",            default = "Game Menu" },
+        { key = "shop",        icon = ART .. "menu-shop.png", minor = true,
+          button = "StoreMicroButton",
+          label = "BLIZZARD_STORE",             default = "Shop" },
+        { key = "help",        icon = ART .. "menu-cs.png", minor = true,
+          button = "HelpMicroButton",
+          label = "HELP_BUTTON",                default = "Customer Support" },
+    }
+
+    local byKey = {}
+    for _, def in ipairs(PANELS) do byKey[def.key] = def end
+
+    -- The button this panel is clicked by, or nil for the ones with none and
+    -- for a client that has not got the button. IsForbidden as well as
+    -- existence: /click refuses a frame an addon may not reach
+    -- (SlashCommands.lua:738), so an entry pointing at one would fire nothing.
+    local function PanelButton(def)
+        local names = def and def.button
+        if not names then return nil end
+        if type(names) == "string" then names = { names } end
+        for _, name in ipairs(names) do
+            local f = _G[name]
+            if f and f.Click and f.IsForbidden and not f:IsForbidden() then
+                return name
+            end
+        end
+        return nil
+    end
+
+    ns.PanelDef = function(slot)
+        return slot and byKey[slot.key]
+    end
+
+    ns.PanelName = function(def)
+        if not def then return nil end
+        local names = def.label
+        if type(names) == "string" then names = { names } end
+        for _, g in ipairs(names) do
+            local s = _G[g]
+            if type(s) == "string" and s ~= "" then return s end
+        end
+        return EllesmereUI.L(def.default)
+    end
+
+    -- The macro a panel entry fires, or nil for the ones FireInsecure takes.
+    ns.PanelMacro = function(def)
+        local name = PanelButton(def)
+        return name and ("/click " .. name) or nil
+    end
+
+    ns.PanelFire = function(def)
+        if def and def.fire and (not def.exists or def.exists()) then def.fire() end
+    end
+
+    -- Whether this client has the panel at all: Housing arrived in 12.0, the
+    -- Shop is not built into every region's client, and a panel whose addon
+    -- never loaded has no toggle to call. An entry that answers no goes dark
+    -- under Hide Unusable Entries rather than sitting there firing nothing.
+    ns.PanelAvailable = function(def)
+        if not def then return false end
+        if def.button then return PanelButton(def) ~= nil end
+        return (def.fire ~= nil) and (not def.exists or def.exists())
+    end
+
+    -- Candidate slots for the picker and the preset, in the order the micro
+    -- menu itself runs. keepOrder holds them in it: the panels are a row the
+    -- player already reads left to right, and alphabetising them would be the
+    -- one place in the interface they are not in that order.
+    ns.PanelSlots = function(includeMinor)
+        local out = {}
+        for _, def in ipairs(PANELS) do
+            if (includeMinor or not def.minor) and ns.PanelAvailable(def) then
+                out[#out + 1] = { kind = "panel", key = def.key }
+            end
+        end
+        return out
+    end
+end
+
+-------------------------------------------------------------------------------
 --  Dynamic Rez
 --
 --  One entry that is whichever resurrection spell this character has, so a
@@ -1295,6 +1480,12 @@ local function SlotUsable(slot)
         return SpellKnownHere(tonumber(slot.id))
     elseif k == "macro" then
         return GetMacroInfo(slot.name or slot.id) ~= nil
+    elseif k == "panel" then
+        -- The one kind whose availability is the CLIENT's rather than the
+        -- character's: Housing arrived in 12.0 and the Shop is not in every
+        -- region's build. Hidden by the same setting all the same -- an entry
+        -- that can never open anything is one to keep off the ring.
+        return ns.PanelAvailable(ns.PanelDef(slot))
     elseif k == "dynamicrez" then
         -- By CLASS rather than by what is in the book right now, which is what
         -- ns.HasRezKit answers: a paladin who has not taken Intercession still
@@ -1494,6 +1685,16 @@ local function ResolveAction(slot, p)
         if not text then return nil end
         return "macro", "macrotext", text, "macro"
 
+    elseif k == "panel" then
+        -- "/click <micro button>", so the panel opens on Blizzard's own click
+        -- rather than on ours: the macro runs untainted from the secure
+        -- button, and a panel opened by an addon's Lua carries that addon's
+        -- taint into everything it draws. The panels with no micro button
+        -- answer nothing here and go to FireInsecure instead.
+        local text = ns.PanelMacro(ns.PanelDef(slot))
+        if not text then return nil end
+        return "macro", "macrotext", text, "macro"
+
     elseif k == "cycleraidtarget" or k == "cycleworldmarker" then
         -- The step the position on the slot says is up. The snippet overwrites
         -- this with its own answer on every press -- see the eqdCycN branch --
@@ -1543,6 +1744,12 @@ local function FireInsecure(slot)
         local pf = P()
         local id = pf and pf.lastMountID
         C_MountJournal.SummonByID(type(id) == "number" and id or 0)
+
+    elseif slot.kind == "panel" then
+        -- Only the panels ResolveAction had no micro button for. Out of combat
+        -- only, which is the game's rule rather than ours: an insecure
+        -- ShowUIPanel is refused in a fight, and it refuses it quietly.
+        ns.PanelFire(ns.PanelDef(slot))
 
     elseif slot.kind == "spec" or slot.kind == "dynamicspec" then
         local index = SpecIndexFor(slot)
@@ -1769,6 +1976,16 @@ local function SlotDisplay(slot)
         local id = CycleNext(slot)
         local what = (k == "cycleraidtarget") and "Target" or "World"
         return MarkerIcon(id), "Cycle " .. what .. " Marker: " .. MARKER_NAMES[id]
+
+    elseif k == "panel" then
+        -- The art is ours rather than the micro button's own: those atlases
+        -- are the 32x40 shape of a micro button and would be stretched square
+        -- by the icon a menu entry draws at.
+        local def = ns.PanelDef(slot)
+        if def then return def.icon, ns.PanelName(def) end
+        -- A key from a newer version of the module, or one that has been
+        -- retired. Drawn as an occupied slot, like every other unresolved kind.
+        return QUESTION_MARK, slot.name or "Interface Panel"
 
     elseif k == "palette" then
         -- ReadPalette, not EnsurePalette: a nested parent is repainted from the
@@ -2261,7 +2478,11 @@ local function ApplyIconCrop(tex, icon)
 
     if type(icon) == "string"
        and (icon:find("RaidTargetingIcon", 1, true)
-            or icon:find("UI-GroupLoot-Pass-Up", 1, true)) then
+            or icon:find("UI-GroupLoot-Pass-Up", 1, true)
+            -- The interface panel glyphs, which are drawn to the edge of their
+            -- own square the way the marker textures are. The crop is sized
+            -- for the border every spell icon carries and would cut into these.
+            or icon:find("micromenu", 1, true)) then
         tex:SetTexCoord(0, 1, 0, 1)
     else
         tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)

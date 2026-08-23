@@ -359,7 +359,7 @@ local function BuildNPStyle(kind, variant)
         width = size,
         height = height,
         texCoord = CropCoords(cropped),
-        border = { 0, 0, 0, 1, size = 1 },
+        border = (not ns.GetIconBorderEnabled or ns.GetIconBorderEnabled(kind)) and { 0, 0, 0, 1, size = 1 } or false,
         cooldownReverse = true,
         noDefaultFonts = true,
         noTooltips = true,
@@ -1271,6 +1271,9 @@ function ns.NPC_UpdateLockout(plate)
             f.cd:SetDrawEdge(false)
             local PP = EllesmereUI.PP
             if PP and PP.CreateBorder then PP.CreateBorder(f, 0, 0, 0, 1, 1) end
+            if ns.ApplyFrameIconBorder then
+                ns.ApplyFrameIconBorder(f, ns.GetIconBorderEnabled and ns.GetIconBorderEnabled("ccs"))
+            end
             plate.npcLockout = f
         end
         local size = NPSize("cc")
@@ -1281,6 +1284,9 @@ function ns.NPC_UpdateLockout(plate)
         f.icon:SetTexCoord(tc[1], tc[2], tc[3], tc[4])
         f.cd:SetCooldown(lockout.start, lockout.duration)
         PositionLockout(plate, f, cs)
+        if ns.ApplyFrameIconBorder then
+            ns.ApplyFrameIconBorder(f, ns.GetIconBorderEnabled and ns.GetIconBorderEnabled("ccs"))
+        end
         f:Show()
     elseif f then
         f:Hide()
@@ -1474,7 +1480,11 @@ local function StyleFPFor(kind, idx)
     local durFP = FP(dur.size, dur.x, dur.y, dur.pos, dur.color.r, dur.color.g, dur.color.b)
     local stkFP = FP(stk.size, stk.x, stk.y, stk.pos, stk.color.r, stk.color.g, stk.color.b)
     return FP(kind, size, height, durFP, stkFP, purge,
-        EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("nameplates") or "")
+        EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("nameplates") or "",
+        -- NOT `fn(kind) or true`: the getter legitimately returns false, and
+        -- `false or true` would pin this fingerprint input to a constant so
+        -- the toggle never restyles (the ternary-falsy trap).
+        (not ns.GetIconBorderEnabled) or ns.GetIconBorderEnabled(kind))
 end
 
 local function GeoFP()
@@ -1671,6 +1681,18 @@ function ns.NPC_ReloadAll()
         -- their next attach; active ones right now).
         geoGen = geoGen + 1
         ReanchorActive()
+    end
+    -- Cast-lockout is a hand-built CC icon, not an AuraKit style, so it
+    -- has to pick up Show Border here rather than through RestyleSoon.
+    do
+        local on = ns.GetIconBorderEnabled and ns.GetIconBorderEnabled("ccs")
+        if ns.ApplyFrameIconBorder then
+            for plate in pairs(active) do
+                if plate.npcLockout then
+                    ns.ApplyFrameIconBorder(plate.npcLockout, on)
+                end
+            end
+        end
     end
 end
 

@@ -1690,7 +1690,7 @@ local SECRET_CLASS_COLOR = CreateColor(1, 1, 1, 1)
 -- creation. colorSelection is not carried over (needs oUF-private unitSelectionType;
 -- no EUI health element enables it).
 local function UF_SecretSafeHealthColor(self, event, unit)
-    if not unit or self.unit ~= unit then return end
+    if not unit or self._euiUnit ~= unit then return end
     local element = self.Health
 
     local color
@@ -1883,7 +1883,7 @@ local function ApplyDarkTheme(health, unit)
                 AnchorHealthBg(self)
                 local bgClassOk, bgClassR, bgClassG, bgClassB
                 if bgClassColored then
-                    local classUnit = ClassColorSourceUnit(uKey, unit or self.unit or uKey)
+                    local classUnit = ClassColorSourceUnit(uKey, unit or self._euiUnit or uKey)
                     bgClassOk, bgClassR, bgClassG, bgClassB = ns.ResolveBgClassColor(classUnit)
                 end
                 if bgClassOk then
@@ -1915,7 +1915,7 @@ local function ApplyDarkTheme(health, unit)
             local bgClassColored = unitSettings and unitSettings.bgClassColored
             local bgClassOk, bgClassR, bgClassG, bgClassB
             if bgClassColored then
-                local classUnit = ClassColorSourceUnit(unitKey, unitKey or (health.__owner and health.__owner.unit))
+                local classUnit = ClassColorSourceUnit(unitKey, unitKey or (health.__owner and health.__owner._euiUnit))
                 bgClassOk, bgClassR, bgClassG, bgClassB = ns.ResolveBgClassColor(classUnit)
             end
             if bgClassOk then
@@ -1955,7 +1955,7 @@ ns.ApplyDarkTheme = ApplyDarkTheme
 if EllesmereUI.RegisterDarkModeRefresh then
     EllesmereUI.RegisterDarkModeRefresh(function()
         for _, obj in pairs(frames) do
-            if type(obj) == "table" and obj.Health then ApplyDarkTheme(obj.Health, obj.unit) end
+            if type(obj) == "table" and obj.Health then ApplyDarkTheme(obj.Health, obj._euiUnit) end
         end
         -- Boss "Activate Preview" fake frames need their red class-color
         -- substitute re-applied after the dark repaint above.
@@ -2427,7 +2427,7 @@ end
 function ns.RefreshAllUnitNames()
     for _, f in pairs(frames) do
         if type(f) == "table" and f._euiTextZones then
-            ns.UF_PaintText(f, f.unit)
+            ns.UF_PaintText(f, f._euiUnit)
         end
     end
 end
@@ -2449,7 +2449,7 @@ do
                     local fs = zones[i].fs
                     if fs and fs.SetText then fs:SetText("") end
                 end
-                if #zones > 0 then ns.UF_PaintText(f, f.unit) end
+                if #zones > 0 then ns.UF_PaintText(f, f._euiUnit) end
             end
         end
     end
@@ -2911,6 +2911,32 @@ local function LayoutCastbarIcon(castbar, inWidth, iconH, onRight, offX, offY)
         PP.Point(castbar, "TOPLEFT", bg, "TOPLEFT", inWidth and side or 0, 0)
         PP.Point(castbar, "BOTTOMRIGHT", bg, "BOTTOMRIGHT", 0, 0)
     end
+
+    -- Icon and bar are separate frames, each with its own full 1px border
+    -- (PP.CreateBorder at creation, on iconFrame and on castbar). In every
+    -- inWidth/onRight combination above they sit flush against each other,
+    -- so both draw a strip at the shared seam -- doubling it to 2px. Suppress
+    -- the facing edge on each side, same _hideLeft/_hideRight pattern as the
+    -- health/power seam elsewhere in this file. Only when truly flush (no
+    -- configured icon offset): with an offset there's a real gap, and hiding
+    -- both edges would leave it with no border on either side.
+    if iconFrame then
+        local iconEdges = PP.GetBorders(iconFrame)
+        local barEdges = PP.GetBorders(castbar)
+        if iconEdges and barEdges then
+            if offX == 0 and offY == 0 then
+                iconEdges._hideRight = (not onRight) or nil
+                iconEdges._hideLeft  = onRight or nil
+                barEdges._hideLeft   = (not onRight) or nil
+                barEdges._hideRight  = onRight or nil
+            else
+                iconEdges._hideLeft, iconEdges._hideRight = nil, nil
+                barEdges._hideLeft, barEdges._hideRight = nil, nil
+            end
+            PP.SetBorderSize(iconFrame, 1)
+            PP.SetBorderSize(castbar, 1)
+        end
+    end
 end
 
 -- Donor settings table for mini frames (focus > target > player); source of
@@ -3224,7 +3250,7 @@ local PortraitOverride  -- forward declaration; painter registrations below the 
 function PortraitOverride(self, event, evtUnit)
     local element = self.Portrait
     if not element then return end
-    local u = self.unit
+    local u = self._euiUnit
     if not u then return end
     if element.PreUpdate then element:PreUpdate(u) end
     local isAvailable = UnitIsConnected(u) and UnitIsVisible(u)
@@ -3347,7 +3373,7 @@ function ns.UF_StampPortraitForceUpdate(frame)
     if not p or p.ForceUpdate then return end
     p.ForceUpdate = function()
         if ns.Engine.ElementOn(frame, "Portrait") then
-            PortraitOverride(frame, "ForceUpdate", frame.unit)
+            PortraitOverride(frame, "ForceUpdate", frame._euiUnit)
         end
     end
 end
@@ -3384,7 +3410,7 @@ do
 
     local function AuraTooltipUpdate(self)
         if GameTooltip:IsForbidden() then return end
-        GameTooltip:SetUnitAuraByAuraInstanceID(self:GetParent().__owner.unit, self.auraInstanceID)
+        GameTooltip:SetUnitAuraByAuraInstanceID(self:GetParent().__owner._euiUnit, self.auraInstanceID)
     end
     local function AuraOnEnter(self)
         if GameTooltip:IsForbidden() or not self:IsVisible() then return end
@@ -3622,8 +3648,8 @@ do
         if not container then return end
         container.needFullUpdate = true
         local owner = container.__owner
-        if owner and owner.unit then
-            PaintSimpleAuras(owner, owner.unit, "ForceUpdate")
+        if owner and owner._euiUnit then
+            PaintSimpleAuras(owner, owner._euiUnit, "ForceUpdate")
         end
     end
 end
@@ -3987,7 +4013,7 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
         ns.SetTextZone(frame, leftFS, lc, "btbLeft", settings)
         ns.SetTextZone(frame, rightFS, rc, "btbRight", settings)
         ns.SetTextZone(frame, centerFS, cc, "btbCenter", settings)
-        ns.UF_PaintText(frame, frame.unit or unit)
+        ns.UF_PaintText(frame, frame._euiUnit or unit)
     end
 
     -- Power-color override for power-content text. Mirrors the power bar text
@@ -4342,8 +4368,8 @@ local function UpdateBordersForScale(frame, unit)
         if castbarBg then
             -- Trim castbar bg width to the frame width, only when the user has no
             -- custom width (castbarWidth > 0 = custom). Use the settings resolved
-            -- from this function's unit parameter, NOT frame.unit: boss preview
-            -- swaps frame.unit to "player", which has no castbarWidth, and the
+            -- from this function's unit parameter, NOT frame._euiUnit: boss preview
+            -- swaps frame._euiUnit to "player", which has no castbarWidth, and the
             -- trim would eat the boss castbar's custom width while previewing.
             local cbW = castbarBg:GetWidth()
             local hasCustomW = (settings.castbarWidth or 0) > 0
@@ -4607,7 +4633,7 @@ local function ApplyHealAbsorbStyle(haBar, style, settings)
     local tiled = (style == "stripedReversed" or style == "stripedThick" or style == "stripedThickR" or style == "largeStripes" or style == "largeStripesR" or style == "largeOutlinedStripes" or style == "largeOutlinedStripesR")
     local mask = haBar._absorbMask
     haBar:SetStatusBarTexture(tex)
-    haBar:SetStatusBarColor(hc.r, hc.g, hc.b, alpha)
+    haBar:SetStatusBarColor(hc.r or 0.8, hc.g or 0.15, hc.b or 0.15, alpha)
     local fill = haBar:GetStatusBarTexture()
     if fill then
         fill:SetDrawLayer("ARTWORK", 2)
@@ -4639,7 +4665,7 @@ end
 -- Re-anchor existing absorb bars for the current fill state (reverse + axis).
 -- Called from the live-update path on a reverse/vertical fill toggle.
 -- `settingsOverride` lets the creation path pass the settings table it already
--- holds, for frames whose .unit is not resolvable yet.
+-- holds, for frames whose ._euiUnit is not resolvable yet.
 local function UpdateAbsorbBarReverseFill(frame, isReversed, settingsOverride)
     if not frame or not frame.HealthPrediction then return end
     local ab = frame.HealthPrediction.damageAbsorb
@@ -4658,7 +4684,7 @@ local function UpdateAbsorbBarReverseFill(frame, isReversed, settingsOverride)
     --   overlay = backfill into the filled health from the HP edge (default)
     --   right   = full bar, fill from the frame's right edge
     --   left    = full bar, fill from the frame's left edge
-    local s = settingsOverride or GetSettingsForUnit(frame.unit)
+    local s = settingsOverride or GetSettingsForUnit(frame._euiUnit)
     local absorbMode = (s and s.absorbEdgeMode) or "overlay"
     local healMode = (s and s.healAbsorbEdgeMode) or "overlay"
     -- Overshield "From Left" (overlay placement only): the excess grows from
@@ -5166,7 +5192,7 @@ local function CreateAbsorbBar(frame, unit, settings)
     frame.HealthPrediction = {
         damageAbsorb = backfillBar,
         Override = function(self, event, updUnit)
-            if self.unit ~= updUnit then return end
+            if self._euiUnit ~= updUnit then return end
 
             -- Incoming-heal prediction is never rendered on unit frames, so its frequent
             -- healer-cast-driven events change nothing we paint; absorb/health changes
@@ -5378,7 +5404,8 @@ local function CreateAbsorbBar(frame, unit, settings)
                     ha:Hide()
                 else
                     local hc = (s and s.healAbsorbColor) or { r = 0.8, g = 0.15, b = 0.15 }
-                    local haKey = haStyle .. ((s and s.healAbsorbOpacity) or 65) .. hc.r .. hc.g .. hc.b
+                    local hcR, hcG, hcB = hc.r or 0.8, hc.g or 0.15, hc.b or 0.15
+                    local haKey = haStyle .. ((s and s.healAbsorbOpacity) or 65) .. hcR .. hcG .. hcB
                     if ha._lastHaKey ~= haKey then
                         ha._lastHaKey = haKey
                         ApplyHealAbsorbStyle(ha, haStyle, s)
@@ -5402,7 +5429,7 @@ local function CreateAbsorbBar(frame, unit, settings)
 
     -- The anchors above are the horizontal layout; hand the cluster to the shared
     -- re-anchor pass so a vertical-fill frame starts correct without waiting for
-    -- the first settings apply. `settings` is passed through because frame.unit is
+    -- the first settings apply. `settings` is passed through because frame._euiUnit is
     -- not resolvable this early on every frame.
     UpdateAbsorbBarReverseFill(frame, isReversed, settings)
 
@@ -5700,7 +5727,7 @@ local function CreatePowerBar(frame, unit, settings)
         else -- "perpp" default
             ns.SetTextZoneRaw(frame, ppFS, "%s" .. pctSuffix, { TP.perpp })
         end
-        ns.UF_PaintText(frame, frame.unit or unit)
+        ns.UF_PaintText(frame, frame._euiUnit or unit)
 
         -- Priority: power-colored (per-unit) > custom color > white.
         ApplyPowerTextColor(s)
@@ -5883,7 +5910,7 @@ local function CreatePortrait(frame, side, frameHeight, unit)
         model3D:SetCamDistanceScale(camScale)
         -- Re-apply zoom after oUF's SetUnit, which resets the camera.
         model3D.PostUpdate = function(self)
-            local u = self.__owner and self.__owner.unit
+            local u = self.__owner and self.__owner._euiUnit
             if not u then return end
             local uk = UnitToSettingsKey(u)
             local us = uk and db.profile[uk]
@@ -6042,7 +6069,7 @@ local UF_UNINTERRUPT_GREY = { r = 0.5, g = 0.5, b = 0.5 }
 local function ApplyUnitFrameCastColor(castbar)
     if not castbar or not castbar.castTintLayer then return end
     local settings = castbar._eufSettings
-    local ownerUnit = castbar.__owner and castbar.__owner.unit
+    local ownerUnit = castbar.__owner and castbar.__owner._euiUnit
     -- Zero-alloc: values flow as scalars instead of building up to three throwaway
     -- color tables per call (two default literals + the blended kick tint).
     local r, g, b
@@ -6091,7 +6118,7 @@ end
 local function UpdateUnitFrameKickTick(castbar)
     if not castbar or not castbar.kickPositioner then return end
     local settings = castbar._eufSettings
-    local ownerUnit = castbar.__owner and castbar.__owner.unit
+    local ownerUnit = castbar.__owner and castbar.__owner._euiUnit
     if not IsKickCastbarUnit(ownerUnit) then
         HideUnitFrameKickTick(castbar)
         return
@@ -6259,7 +6286,7 @@ local function RefreshUnitFrameKickTick(castbar)
         -- Transient read miss during an ongoing cast: skip, do not hide.
         return
     end
-    local ownerUnit = castbar.__owner and castbar.__owner.unit
+    local ownerUnit = castbar.__owner and castbar.__owner._euiUnit
     if not (UnitCastingDuration and ownerUnit) then return end
     local castDuration
     if castbar._kickIsChannel then
@@ -6293,7 +6320,7 @@ local ufKickWatcher = CreateFrame("Frame")
 ufKickWatcher:SetScript("OnEvent", function(_, event)
     if event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_USABLE" then
         for cb in pairs(ns._castingCastbars) do
-            if cb:IsShown() and cb.__owner and cb.__owner.unit then
+            if cb:IsShown() and cb.__owner and cb.__owner._euiUnit then
                 ApplyUnitFrameCastColor(cb)
                 -- Light refresh once the kick bars are set up; re-run the full geometry/
                 -- fill setup only when not shown (kick learned mid-cast, CD info late,
@@ -6310,7 +6337,7 @@ ufKickWatcher:SetScript("OnEvent", function(_, event)
 end)
 local function NotifyCastbarStarted(castbar)
     if not castbar or not castbar.__owner then return end
-    if not IsKickCastbarUnit(castbar.__owner.unit) then return end
+    if not IsKickCastbarUnit(castbar.__owner._euiUnit) then return end
     if ns._castingCastbars[castbar] then return end
     ns._castingCastbars[castbar] = true
     activeCastbarCount = activeCastbarCount + 1
@@ -6731,7 +6758,7 @@ local function SetupShowOnCastBar(frame, unit)
         -- Spell target text (who the unit is casting on)
         if self.Target then
             local spellTarget, spellTargetClass
-            local ownerUnit = self.__owner and self.__owner.unit
+            local ownerUnit = self.__owner and self.__owner._euiUnit
             -- Channels are excluded: UnitSpellTargetName tracks the last CAST
             -- and keeps returning the previous hard-cast's target for the
             -- whole channel (field-verified stale), and no channel-target API
@@ -6893,7 +6920,7 @@ end
 
 local function FrameBorderEnter(self)
     if not self.unifiedBorder then return end
-    local unit = self.unit or "player"
+    local unit = self._euiUnit or "player"
     if unit:match("^boss%d$") then
         self._hovered = true
         ns.ApplyBossBorderState(self)
@@ -6913,7 +6940,7 @@ local function FrameBorderEnter(self)
 end
 local function FrameBorderLeave(self)
     if not self.unifiedBorder then return end
-    local unit = self.unit or "player"
+    local unit = self._euiUnit or "player"
     if unit:match("^boss%d$") then
         self._hovered = false
         ns.ApplyBossBorderState(self)
@@ -7872,7 +7899,7 @@ local function StyleFullFrame(frame, unit)
         ApplyAbsorbGate("right", rightText, rc)
         ApplyAbsorbGate("center", centerText, cc)
         ApplyAbsorbGate("extra", extraText, ec)
-        ns.UF_PaintText(frame, frame.unit or unit)
+        ns.UF_PaintText(frame, frame._euiUnit or unit)
     end
     ApplyTextTags(leftContent, rightContent, centerContent, extraContent)
     frame._applyTextTags = ApplyTextTags
@@ -8194,7 +8221,7 @@ local function StyleFocusFrame(frame, unit)
         ApplyAbsorbGate("right", rightText, rc)
         ApplyAbsorbGate("center", centerText, cc)
         ApplyAbsorbGate("extra", extraText, ec)
-        ns.UF_PaintText(frame, frame.unit or unit)
+        ns.UF_PaintText(frame, frame._euiUnit or unit)
     end
     ApplyTextTags(leftContent, rightContent, centerContent, extraContent)
     frame._applyTextTags = ApplyTextTags
@@ -8470,7 +8497,7 @@ local function StyleSimpleFrame(frame, unit)
         ApplyAbsorbGate("left", leftText, lc)
         ApplyAbsorbGate("right", rightText, rc)
         ApplyAbsorbGate("center", centerText, cc)
-        ns.UF_PaintText(frame, frame.unit or unit)
+        ns.UF_PaintText(frame, frame._euiUnit or unit)
     end
     ApplyTextTags(leftContent, rightContent, centerContent)
     frame._applyTextTags = ApplyTextTags
@@ -8705,7 +8732,7 @@ local function StylePetFrame(frame, unit)
         ApplyAbsorbGate("left", leftText, lc)
         ApplyAbsorbGate("right", rightText, rc)
         ApplyAbsorbGate("center", centerText, cc)
-        ns.UF_PaintText(frame, frame.unit or unit)
+        ns.UF_PaintText(frame, frame._euiUnit or unit)
     end
     ApplyTextTags(leftContent, rightContent, centerContent)
     frame._applyTextTags = ApplyTextTags
@@ -8966,7 +8993,7 @@ local function StyleBossFrame(frame, unit)
         ApplyAbsorbGate("right", rightText, rc)
         ApplyAbsorbGate("center", centerText, cc)
         ApplyAbsorbGate("extra", extraText, ec)
-        ns.UF_PaintText(frame, frame.unit or unit)
+        ns.UF_PaintText(frame, frame._euiUnit or unit)
     end
     ApplyTextTags(leftContent, rightContent, centerContent, extraContent)
     frame._applyTextTags = ApplyTextTags
@@ -9070,13 +9097,13 @@ local function SwapPortraitMode(frame)
 
     local wantMode
     do
-        local unit2 = frame.unit or frame:GetAttribute("unit")
+        local unit2 = frame._euiUnit or frame:GetAttribute("unit")
         local uKey = UnitToSettingsKey(unit2)
         local s = uKey and db.profile[uKey]
         wantMode = (s and s.portraitMode) or db.profile.portraitMode or "2d"
     end
 
-    local unit = frame.unit or frame:GetAttribute("unit")
+    local unit = frame._euiUnit or frame:GetAttribute("unit")
 
     local curMode
     if portrait.isClass then curMode = "class"
@@ -9391,6 +9418,11 @@ local function CreateCustomClassPower(playerFrame, style)
     end
 
     local pips = {}
+    -- Tracks how many pips are CURRENTLY shown, separate from #pips: pip frames
+    -- are only ever Hide()'d when the resource max drops (never removed from the
+    -- table), so #pips is a high-water mark that stops matching a shrunk-then-
+    -- regrown max and silently skips the rebuild below.
+    local shownPipCount = 0
     local staggerBar  -- set only in bar mode
     if isBarMode then
         -- Single StatusBar filling the container; color updates per-tier.
@@ -9408,6 +9440,7 @@ local function CreateCustomClassPower(playerFrame, style)
         for i = 1, maxPower do
             pips[i] = MakePip(container, i)
         end
+        shownPipCount = maxPower
     end
 
     -- Update function
@@ -9506,8 +9539,11 @@ local function CreateCustomClassPower(playerFrame, style)
             end
         end
 
-        -- Rebuild pips if max changed
-        if max ~= #pips and max > 0 then
+        -- Rebuild pips if max changed. Compare against shownPipCount, not #pips:
+        -- #pips only ever grows (hidden pips stay in the table), so it stops
+        -- matching once max shrinks and regrows to a previously-seen value,
+        -- leaving the high pips stuck hidden and the container stuck narrow.
+        if max ~= shownPipCount and max > 0 then
             for _, p in ipairs(pips) do p:Hide() end
             local newTotalW = max * pipSize + (max - 1) * gap + pad
             container:SetWidth(newTotalW)
@@ -9521,6 +9557,7 @@ local function CreateCustomClassPower(playerFrame, style)
                 PP.Size(pips[i], pipSize, pipH)
                 pips[i]:Show()
             end
+            shownPipCount = max
             -- Re-stretch pips if in "above" position
             if container._repositionForWidth then
                 local fw = db and db.profile and db.profile.player and db.profile.player.frameWidth or 181
@@ -12185,7 +12222,7 @@ function ns.ResolveFrameAlpha(s, inCombat)
 end
 
 local function UnitFrame_OnEnter(self)
-    local unit = self.unit
+    local unit = self._euiUnit
     if not unit then return end
     local unitKey = unit:match("^boss%d$") and "boss" or unit
     local s = db and db.profile and db.profile[unitKey]
@@ -12225,7 +12262,7 @@ local function UnitFrame_OnEnter(self)
                     return
                 end
                 GameTooltip_SetDefaultAnchor(GameTooltip, self)
-                if GameTooltip:SetUnit(self.unit) then
+                if GameTooltip:SetUnit(self._euiUnit) then
                     GameTooltip:Show()
                 end
             end)
@@ -12234,7 +12271,7 @@ local function UnitFrame_OnEnter(self)
 end
 
 local function UnitFrame_OnLeave(self)
-    local unit = self.unit
+    local unit = self._euiUnit
     if not unit then return end
     local unitKey = unit:match("^boss%d$") and "boss" or unit
     local s = db and db.profile and db.profile[unitKey]
@@ -13125,7 +13162,7 @@ function InitializeFrames()
             -- refresh runs (login/reload timing), and the API rejects a nil
             -- unit outright. Hide and stand down: the leader/roster/target
             -- events below re-run this refresh once the unit exists.
-            local unit = uf.unit
+            local unit = uf._euiUnit
             if not unit or (issecretvalue and issecretvalue(unit)) then tex:Hide(); return end
             local isLeader = UnitIsGroupLeader(unit)
             local isAssist = UnitIsGroupAssistant(unit)
@@ -13223,7 +13260,7 @@ function InitializeFrames()
             if not s.eliteIndicatorShowInInstances and IsInInstance() then
                 tex:Hide(); return
             end
-            local c = UnitClassification(uf.unit)
+            local c = UnitClassification(uf._euiUnit)
             -- Secrecy check MUST run before any comparison, same rule as the
             -- leader checks above.
             local atlas = (not issecretvalue(c)) and _eliteAtlas(c) or nil
@@ -14681,7 +14718,7 @@ function SetupOptionsPanel()
             fs._previewSavedZone = nil
         end
         f._previewNameFS = nil
-        if ns.UF_PaintText then ns.UF_PaintText(f, f.unit) end
+        if ns.UF_PaintText then ns.UF_PaintText(f, f._euiUnit) end
     end
 
     local function ApplyBossPreviewColor(f)

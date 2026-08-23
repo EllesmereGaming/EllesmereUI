@@ -73,7 +73,7 @@ initFrame:SetScript("OnEvent", function(self)
     local EST_LEN = {
         clock = 150, fps = 70, ms = 70, gold = 150, xprep = 140, spec = 130,
         profession = 120, travel = 40, micromenu = 340, currency = 90, spacer = 40,
-        durability = 70, profession2 = 120, greatvault = 100,
+        durability = 70, combat = 105, profession2 = 120, greatvault = 100,
         location = 140, coords = 70,
     }
 
@@ -134,7 +134,7 @@ initFrame:SetScript("OnEvent", function(self)
     local function RefreshPreviewTheme()
         local cfg = SelectedBar()
         if _edbPreviewHost and _edbPreviewHost:IsShown() and cfg then
-            ns.MakePreviewBackdrop(_edbPreviewHost, cfg.theme)
+            ns.MakePreviewBackdrop(_edbPreviewHost, cfg.theme, not cfg.hideBorder)
         end
     end
 
@@ -678,7 +678,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Border handle set BEFORE the backdrop so the theme pass can fade
         -- it with Bar Opacity, exactly like the live bar.
         strip._edbBorder = PP.CreateBorder(strip, 0, 0, 0, 0.8, 1, "OVERLAY", 7)
-        ns.MakePreviewBackdrop(strip, cfg.theme)
+        ns.MakePreviewBackdrop(strip, cfg.theme, not cfg.hideBorder)
         _edbPreviewHost = strip
 
         local stripUsable = stripLen - SEDGE * 2
@@ -1911,6 +1911,14 @@ initFrame:SetScript("OnEvent", function(self)
                   cfg.hoverHighlight = v and true or false
                   Apply()
               end }
+        local showBorderCfg = { type = "toggle", text = "Hide Border",
+              tooltip = "Hide the 1-pixel outline around the bar.",
+              getValue = function() return cfg.hideBorder == true end,
+              setValue = function(v)
+                  cfg.hideBorder = v and true or false
+                  ns.ApplyTheme(barId)
+                  RefreshPreviewTheme()
+              end }
         -- Bar Opacity drives BOTH styles: the Modern flat color's alpha or
         -- the EllesmereUI shell's backdrop dim, whichever is active.
         local opacityRow
@@ -2057,6 +2065,9 @@ initFrame:SetScript("OnEvent", function(self)
               end });  y = y - h
 
         _, h = W:DualRow(parent, y, scaleCfg, hoverBlocksCfg);  y = y - h
+        -- Odd last slot: blank right label per the DualRow rules (a nil right
+        -- config would stretch the toggle across the full row).
+        _, h = W:DualRow(parent, y, showBorderCfg, { type = "label", text = "" });  y = y - h
 
         -- Bar deletion lives in the selector dropdown's inline delete -- no
         -- body row. Visibility moved to the top of the section; rename =
@@ -2725,6 +2736,11 @@ initFrame:SetScript("OnEvent", function(self)
                     MkToggle("Mail Alert", "showMail", "Shows an envelope icon when you have unread mail."),
                     MkToggle("Resting Icon", "showResting", "Shows a rest icon while your character is resting."),
                 }
+            elseif b.type == "combat" then
+                typeRows = {
+                    MkToggle("Show Only In Combat", "onlyInCombat",
+                        "Shows the combat status text only while your character is in combat."),
+                }
             elseif b.type == "ms" then
                 typeRows = {
                     { type = "dropdown", text = "Latency",
@@ -3334,6 +3350,7 @@ initFrame:SetScript("OnEvent", function(self)
             cfg.thickness = 30
             cfg.fontScale = 100
             cfg.theme = { style = "eui", euiAlpha = 0.5, modernColor = { r = 0.067, g = 0.067, b = 0.067, a = 0.95 } }
+            cfg.hideBorder = nil
             cfg.visibility = "always"
             cfg.visibilityModes = nil
             for _, item in ipairs(EllesmereUI.VIS_OPT_ITEMS) do

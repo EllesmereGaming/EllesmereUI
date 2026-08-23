@@ -1505,7 +1505,7 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn, healAbsorbRow:GetFrameLevel() + 3,
                 function()
                     local c = SGet("healAbsorbColor")
-                    if c then return c.r, c.g, c.b, 1 end
+                    if c then return c.r or 0.8, c.g or 0.15, c.b or 0.15, 1 end
                     return 0.8, 0.15, 0.15, 1
                 end,
                 function(r, g, b)
@@ -1690,7 +1690,7 @@ initFrame:SetScript("OnEvent", function(self)
                     rgn, maxHealthRow:GetFrameLevel() + 3,
                     function()
                         local c = SGet("maxHealthColor")
-                        if c then return c.r, c.g, c.b, 1 end
+                        if c then return c.r or 0.7, c.g or 0.1, c.b or 0.1, 1 end
                         return 0.7, 0.1, 0.1, 1
                     end,
                     function(r, g, b)
@@ -4850,8 +4850,6 @@ initFrame:SetScript("OnEvent", function(self)
                       if SVal("showSelfFirst", false) then return "first" end
                       return "none"
                   end,
-                  disabled=function() return SVal("mergeGroups", false) end,
-                  disabledTooltip="Not available with Merge Groups enabled", rawTooltip=true,
                   setValue=function(v)
                       SSet("showSelfFirst", v == "first")
                       SSet("showSelfLast", v == "last")

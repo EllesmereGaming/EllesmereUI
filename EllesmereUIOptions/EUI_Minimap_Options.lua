@@ -49,6 +49,13 @@ initFrame:SetScript("OnEvent", function(self)
         return p and p.minimap
     end
 
+    -- Square and Rectangular share the rect layout/border engine (not the circle wrap).
+    local function ShapeUsesRectLayout()
+        local m = MinimapDB()
+        local s = m and m.shape or "square"
+        return s == "square" or s == "rectangular"
+    end
+
     local function FriendsDB()
         local p = DB()
         return p and p.friends
@@ -151,6 +158,9 @@ initFrame:SetScript("OnEvent", function(self)
                     if shape == "circle" or shape == "textured_circle" then
                         minimap._dragOverlay:SetTexture("Interface\\Common\\CommonMaskCircle")
                         minimap._dragOverlay:SetVertexColor(0, 0, 0, 1)
+                    elseif shape == "rectangular" then
+                        minimap._dragOverlay:SetTexture("Interface\\AddOns\\EllesmereUIMinimap\\Media\\minimap_rectangular-mask.blp")
+                        minimap._dragOverlay:SetVertexColor(0, 0, 0, 1)
                     else
                         minimap._dragOverlay:SetColorTexture(0, 0, 0, 1)
                     end
@@ -183,8 +193,8 @@ initFrame:SetScript("OnEvent", function(self)
         local shapeRow
         shapeRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Shape",
-              values = { square = "Square", circle = "Circle", textured_circle = "Textured Circle" },
-              order  = { "square", "circle", "textured_circle" },
+              values = { square = "Square", rectangular = "Rectangular", circle = "Circle", textured_circle = "Textured Circle" },
+              order  = { "square", "rectangular", "circle", "textured_circle" },
               getValue=function() local m = MinimapDB(); return m and m.shape or "square" end,
               setValue=function(v)
                 local m = MinimapDB(); if not m then return end
@@ -238,8 +248,8 @@ initFrame:SetScript("OnEvent", function(self)
         borderRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Border Style",
               values=texValues, order=texOrder,
-              disabled=function() local m = MinimapDB(); return m and (m.shape or "square") ~= "square" end,
-              disabledTooltip="Square Shape",
+              disabled=function() return not ShapeUsesRectLayout() end,
+              disabledTooltip="Square or Rectangular Shape",
               getValue=function() local m = MinimapDB(); return (m and m.borderTexture) or "solid" end,
               setValue=function(v)
                   local m = MinimapDB(); if not m then return end
@@ -354,9 +364,8 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
             cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
             local function UpdateCogVis()
-                local m = MinimapDB()
-                local square = not m or (m.shape or "square") == "square"
-                if square and BorderTex() ~= "solid" then cogBtn:Show() else cogBtn:Hide() end
+                local rect = ShapeUsesRectLayout()
+                if rect and BorderTex() ~= "solid" then cogBtn:Show() else cogBtn:Hide() end
             end
             EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
             UpdateCogVis()
@@ -1052,8 +1061,8 @@ initFrame:SetScript("OnEvent", function(self)
             { type="dropdown", text="Element Row Position",
               tooltip="Which minimap corner the Blizzard element row (tracking, calendar, mail, crafting) builds out from and the direction it grows.",
               values = ROW_POS_VALUES, order = ROW_POS_ORDER,
-              disabled=function() local m = MinimapDB(); return m and (m.shape or "square") ~= "square" end,
-              disabledTooltip="Square Shape",
+              disabled=function() return not ShapeUsesRectLayout() end,
+              disabledTooltip="Square or Rectangular Shape",
               itemDisabled=function(val) return val == BtnRowPos() end,
               itemDisabledTooltip=function(val)
                   if val == BtnRowPos() then return "Already used by Button Row Position" end
@@ -1135,7 +1144,7 @@ initFrame:SetScript("OnEvent", function(self)
         if not EllesmereUI._prebuilding then
             local rgn = elRowRow._leftRegion
             local function elOff()
-                local m = MinimapDB(); return m and (m.shape or "square") ~= "square"
+                return not ShapeUsesRectLayout()
             end
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Element Row Spacing",
@@ -1170,7 +1179,7 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
             local cogBlock = CreateFrame("Frame", nil, cogBtn)
             cogBlock:SetAllPoints(); cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10); cogBlock:EnableMouse(true)
-            cogBlock:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Square Shape")) end)
+            cogBlock:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Square or Rectangular Shape")) end)
             cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             EllesmereUI.RegisterWidgetRefresh(function()
                 local off = elOff()

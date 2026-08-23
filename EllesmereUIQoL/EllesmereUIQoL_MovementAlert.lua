@@ -1953,7 +1953,7 @@ local gatewayFrame = CreateFrame("Frame", "EUI_GatewayShardFrame", UIParent)
 gatewayFrame:SetSize(200, 40)
 gatewayFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 150)
 gatewayFrame:Hide()
-local gatewayText = gatewayFrame:CreateFontString(nil, "OVERLAY")
+local gatewayText = gatewayFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 gatewayText:SetPoint("CENTER")
 
 local lastGatewayUsable = false

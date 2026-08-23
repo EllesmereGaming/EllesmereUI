@@ -280,7 +280,13 @@ local function GetCanonicalSpellIDForFrame(frame)
     local fnGetAura = frame.GetAuraSpellID
     if type(fnGetAura) == "function" then
         local sid = fnGetAura(frame)
-        if _IsUsableSID(sid) then return sid end
+        if _IsUsableSID(sid) then
+            -- Clean read: prime the cooldownID cache here too, so buff frames
+            -- (no GetSpellID) still resolve while their aura is up.
+            local cdid = frame.cooldownID
+            if type(cdid) == "number" then _cleanSidByCDID[cdid] = sid end
+            return sid
+        end
     end
 
     -- Active-frame fallback: both getters returned secret/nil (aura is up).

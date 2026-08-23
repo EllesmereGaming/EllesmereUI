@@ -485,6 +485,7 @@ initFrame:SetScript("OnEvent", function(self)
                     or (slot.kind == "cycleworldmarker"
                         and "world marker, next on each press")
                     or (slot.kind == "randommount" and "mount")
+                    or (slot.kind == "panel" and "interface panel")
                     or (slot.kind == "spec" and "specialization")
                     -- Same icon and same name as a fixed spec entry on the
                     -- character that made it, so the caption is the only place
@@ -991,6 +992,21 @@ initFrame:SetScript("OnEvent", function(self)
         return out
     end
 
+    -- The interface panels this client has, in micro-menu order. The module
+    -- owns the list -- which panel is clicked how, and which of them this
+    -- client even has -- so the picker only draws what it is handed. Panels
+    -- missing from this build (Housing before 12.0, the Shop in a region whose
+    -- client has none) never reach the list, so a row here always opens
+    -- something.
+    local function PanelEntries()
+        local out = {}
+        for _, slot in ipairs(ns.PanelSlots and ns.PanelSlots(true) or {}) do
+            local icon, name = ns.SlotDisplay(slot)
+            out[#out + 1] = { icon = icon, name = name, slot = slot }
+        end
+        return out
+    end
+
     -- Every palette this one may open. Not a list of things the game owns, so
     -- it is rebuilt on each use rather than cached: adding a palette or filling
     -- one in has to show up here without reopening the picker.
@@ -1058,6 +1074,12 @@ initFrame:SetScript("OnEvent", function(self)
         -- Archaeology in the fixed order the game lists them, then the same
         -- five positions' second abilities. noSearch: ten rows.
         { key = "profession", label = "Professions", build = DynamicProfessionEntries,
+          keepOrder = true, noSearch = true },
+        -- keepOrder: the panels run in the order the micro menu draws them,
+        -- which is the row the player already reads left to right. noSearch:
+        -- the whole interface is under twenty rows, and a search box over a
+        -- list the user is scanning by ICON buys nothing.
+        { key = "panel",     label = "Interface Panels", build = PanelEntries,
           keepOrder = true, noSearch = true },
         { key = "macrotext", label = "Custom Macro...", custom = true },
     }
@@ -1922,7 +1944,18 @@ initFrame:SetScript("OnEvent", function(self)
         return slots
     end
 
+    -- The micro menu as a menu, which is the whole of what this preset is for:
+    -- one keybind in place of the dozen the panels take between them. The
+    -- module drops the panels this client has not got and holds back the two
+    -- worth least in a ring -- the Shop and Customer Support -- so a full house
+    -- lands on MAX_SLOTS exactly rather than reporting an overflow every time.
+    -- Both are still in the picker for anyone who wants them.
+    local function InterfacePanelSlots()
+        return ns.PanelSlots and ns.PanelSlots(false) or {}
+    end
+
     local PALETTE_PRESETS = {
+        { label = "Interface Panels", build = InterfacePanelSlots },
         { label = "Target Markers", build = TargetMarkerSlots },
         { label = "World Markers",  build = WorldMarkerSlots },
         { label = "Pings",          build = PingSlots },

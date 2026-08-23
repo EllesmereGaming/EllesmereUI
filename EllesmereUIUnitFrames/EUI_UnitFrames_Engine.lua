@@ -14,7 +14,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  - Vehicle handling is done at REGISTRATION, not remap time: the player
 --    frame's tracker registers every unit event for BOTH "player" and
 --    "vehicle", the pet frame's for both "pet" and "player". Painters read
---    frame.unit (the live token) at paint time, so a vehicle swap needs no
+--    frame._euiUnit (the live token) at paint time, so a vehicle swap needs no
 --    event surgery at all.
 --  - targettarget/focustarget have no unit events; ONE shared 0.5s ticker
 --    repaints them (value channels every tick, identity channels only when
@@ -53,7 +53,11 @@ end
 --  absorb covers both absorb kinds plus heal prediction.)
 -------------------------------------------------------------------------------
 local CHANNEL_EVENTS = {
-    health   = { "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_CONNECTION", "UNIT_FACTION" },
+    -- UNIT_MAX_HEALTH_MODIFIERS_CHANGED rides health/text: modifier changes can
+    -- move the value and effective max with no UNIT_HEALTH/UNIT_MAXHEALTH behind
+    -- them (Blizzard's own unit frames repaint health from this event).
+    health   = { "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_CONNECTION", "UNIT_FACTION",
+                 "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" },
     power    = { "UNIT_POWER_UPDATE", "UNIT_MAXPOWER", "UNIT_DISPLAYPOWER", "UNIT_POWER_BAR_SHOW", "UNIT_POWER_BAR_HIDE", "UNIT_CONNECTION" },
     -- UNIT_AURA for the same reason as the absorb channel below: the long-form
     -- Absorb / Heal Absorb text zones render from PaintText, so a shield lost to
@@ -61,7 +65,8 @@ local CHANNEL_EVENTS = {
     -- _absGate lockstep instead, which the absorb channel already covers.)
     text     = { "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_POWER_UPDATE", "UNIT_MAXPOWER", "UNIT_DISPLAYPOWER",
                  "UNIT_NAME_UPDATE", "UNIT_LEVEL", "UNIT_CONNECTION", "UNIT_AURA",
-                 "UNIT_ABSORB_AMOUNT_CHANGED", "UNIT_HEAL_ABSORB_AMOUNT_CHANGED" },
+                 "UNIT_ABSORB_AMOUNT_CHANGED", "UNIT_HEAL_ABSORB_AMOUNT_CHANGED",
+                 "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" },
     -- (UNIT_HEAL_PREDICTION deliberately absent: the absorb painter never
     -- rendered incoming heals and early-returned on it; not delivering it at
     -- all is the same behavior for less dispatch.)
@@ -398,7 +403,7 @@ local function Paint(frame, channel, event)
         if key == gen then return end
         stamps[channel] = gen
     end
-    fn(frame, frame.unit, event)
+    fn(frame, frame._euiUnit, event)
 end
 
 -- Full repaint of every attached channel on one frame (identity changes:
@@ -426,6 +431,16 @@ EllesmereUI._UFEngineForceAll = Engine.ForceAll
 -------------------------------------------------------------------------------
 --  Event routing
 -------------------------------------------------------------------------------
+-- A max-health change lands in two steps: the max moves first, the value
+-- follows. A paint driven by UNIT_MAXHEALTH runs between them and renders the
+-- new max against the pre-change value, same-frame dedupe drops the correcting
+-- UNIT_HEALTH, and at full health nothing else fires afterwards (druid form
+-- stamina talents). One next-frame repaint reads settled values.
+local RESETTLE_EVENTS = {
+    UNIT_MAXHEALTH = true,
+    UNIT_MAX_HEALTH_MODIFIERS_CHANGED = true,
+}
+
 -- tracker.channelsByEvent: event -> { channelName, ... } for its frame.
 local function TrackerOnEvent(self, event, unitToken, ...)
     local frame = self._euiFrame
@@ -439,10 +454,20 @@ local function TrackerOnEvent(self, event, unitToken, ...)
             -- aura delta lists), and consecutive same-frame events each carry
             -- distinct data -- never deduped.
             local fn = painters[ch]
-            if fn then fn(frame, frame.unit, event, unitToken, ...) end
+            if fn then fn(frame, frame._euiUnit, event, unitToken, ...) end
         else
             Paint(frame, ch, event)
         end
+    end
+
+    if RESETTLE_EVENTS[event] and not self._euiResettle then
+        self._euiResettle = true
+        C_Timer.After(0, function()
+            self._euiResettle = nil
+            local f = self._euiFrame
+            if not f or not f:IsShown() then return end
+            for i = 1, #chans do Paint(f, chans[i], "Resettle") end
+        end)
     end
 end
 
@@ -511,7 +536,7 @@ local pollAccum = 0
 local POLL_INTERVAL = 0.5
 
 local function GuidChanged(frame)
-    local unit = frame.unit
+    local unit = frame._euiUnit
     local guid = UnitExists(unit) and UnitGUID(unit) or nil
     local old = frame._euiLastGuid
     if issecretvalue and (issecretvalue(guid) or issecretvalue(old)) then
@@ -530,7 +555,7 @@ pollTicker:SetScript("OnUpdate", function(self, elapsed)
     if pollAccum < POLL_INTERVAL then return end
     pollAccum = 0
     for frame in pairs(pollFrames) do
-        if frame:IsShown() and UnitExists(frame.unit) then
+        if frame:IsShown() and UnitExists(frame._euiUnit) then
             if GuidChanged(frame) then
                 Engine.RepaintAll(frame, "PollIdentity")
             else
@@ -598,11 +623,11 @@ end
 local function EvalActiveUnit(frame)
     if not frame then return end
     local resolved = ResolveActiveUnit(frame)
-    if resolved and resolved ~= frame.unit then
+    if resolved and resolved ~= frame._euiUnit then
         -- Never adopt a unit that does not exist yet. Vehicle entry resolves
         -- "vehicle" at transition START, before the unit is queryable: adopting
         -- then paints empty text (UnitName nil renders ""), and every later
-        -- vehicle edge no-ops on resolved == frame.unit, so an idle vehicle
+        -- vehicle edge no-ops on resolved == frame._euiUnit, so an idle vehicle
         -- stays blank for the whole ride. Holding the OLD unit keeps this
         -- re-firing on each transition edge until the resolved unit is real,
         -- and THAT swap's RepaintAll paints with live data -- the same guard
@@ -610,7 +635,7 @@ local function EvalActiveUnit(frame)
         -- adoptable (nonexistent target/focus frames hide via unit-watch, and
         -- refusing the base would strand a stale token instead).
         if resolved ~= frame._euiBaseUnit and not UnitExists(resolved) then return end
-        frame.unit = resolved
+        frame._euiUnit = resolved
         Engine.RepaintAll(frame, "UnitChanged")
     end
 end
@@ -645,7 +670,7 @@ local function Frame_EnableElement(self, elementName)
     local channel = ELEMENT_CHANNEL[elementName]
     if channel == "castbar" or channel == "auras" then
         local fn = painters[channel]
-        if fn then fn(self, self.unit, "ForceUpdate") end
+        if fn then fn(self, self._euiUnit, "ForceUpdate") end
     elseif channel then
         Paint(self, channel, "ForceUpdate")
     end
@@ -660,37 +685,21 @@ end
 --- Spawns one secure unit button. The caller styles it and attaches engine
 --- channels afterward; RegisterUnitWatch owns show/hide from here on.
 function Engine.SpawnUnitFrame(unit, name)
-    -- Contextual pings: the template rides EVERY frame; safety is the
-    -- DYNAMIC GetIsPingable gate below, never the template choice (the old
-    -- blanket disable killed player/focus pings too, which was scope creep
-    -- -- only SECRET-identity units are the hazard). Blizzard's 12.1 bug
-    -- stands: pinging a secret-identity unit hard-errors in PingManager's
-    -- securecopy (reproduces with no addon code in the path), so the gate
-    -- admits the player always and friendly units outside protected
-    -- instances, and answers false for hostiles and protected-instance
-    -- units -- the ping system shows a clean denied toast instead of
-    -- erroring. When Blizzard fixes the securecopy, relax the GATE; the
-    -- template needs no change.
+    -- Contextual pings: TEMPLATE-PURE, and the button must NEVER carry a
+    -- `.unit` FIELD. Blizzard's ping mixin reads `self.unit or
+    -- self:GetAttribute("unit")` inside PingManager's secure gather, and an
+    -- addon-written field is a tainted read that turns a secret GUID
+    -- "inaccessible" to the securecopy at the secure boundary (hard error +
+    -- wedged listener); the attribute is the sanctioned channel and keeps
+    -- the whole chain secure, so secrets pass and enemy pings work exactly
+    -- like the default frames (field-proven 2026-08-20). Hence the live
+    -- token lives in `_euiUnit`, and GetIsPingable/GetTargetInfo are never
+    -- overridden here (raw override = securecopy error, secrecy-guarded
+    -- override = pings dead in all restricted content; both field-failed).
     local frame = CreateFrame("Button", name, petBattleHider,
         "SecureUnitButtonTemplate, PingableUnitFrameTemplate")
     frame._euiBaseUnit = unit
-    frame.unit = unit
-    -- Evaluated at ping time on the LIVE unit (vehicle swaps rewrite
-    -- frame.unit). Order per secret doctrine: token compare first (unit
-    -- TOKENS are our own plain strings; unit DATA is what goes secret),
-    -- the content gate second, and the hostility read gated through
-    -- issecretvalue before any branch touches it.
-    frame.GetIsPingable = function(self)
-        local u = self.unit or self._euiBaseUnit
-        if u == "player" then return true end
-        if not u then return false end
-        if EllesmereUI.InProtectedInstance and EllesmereUI.InProtectedInstance() then
-            return false
-        end
-        local hostile = UnitIsEnemy("player", u)
-        if issecretvalue and issecretvalue(hostile) then return false end
-        return hostile ~= true
-    end
+    frame._euiUnit = unit
     frame.IsElementEnabled = Frame_IsElementEnabled
     frame.EnableElement = Frame_EnableElement
     frame.DisableElement = Frame_DisableElement
@@ -722,7 +731,7 @@ end
 
 -- Vehicle/pet transitions for the player and pet frames: the dual-token
 -- event registration means nothing re-registers here -- these just move
--- frame.unit and trigger the full repaint.
+-- frame._euiUnit and trigger the full repaint.
 local vehicleWatch = CreateFrame("Frame")
 vehicleWatch:RegisterUnitEvent("UNIT_ENTERED_VEHICLE", "player")
 vehicleWatch:RegisterUnitEvent("UNIT_EXITED_VEHICLE", "player")
@@ -767,14 +776,14 @@ globalFrame:SetScript("OnEvent", function(self, event)
         local fn = painters.raidicon
         if fn then
             for frame, info in pairs(attached) do
-                if frame:IsShown() then fn(frame, frame.unit, event) end
+                if frame:IsShown() then fn(frame, frame._euiUnit, event) end
             end
         end
     elseif event == "PORTRAITS_UPDATED" then
         local fn = painters.portrait
         if fn then
             for frame in pairs(attached) do
-                if frame:IsShown() then fn(frame, frame.unit, event) end
+                if frame:IsShown() then fn(frame, frame._euiUnit, event) end
             end
         end
     else -- PLAYER_ENTERING_WORLD: the world changed under every frame.
