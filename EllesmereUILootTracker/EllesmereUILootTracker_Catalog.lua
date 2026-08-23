@@ -174,6 +174,44 @@ local function BuildCatalog(source, specID, difficultyID)
         end
     end
 
+    -- Some legacy dungeons return no usable loot rows at Challenge difficulty
+    -- even though their current-season pool is valid (notably King's Rest).
+    -- Merge the compact seasonal fallback and let Blizzard's spec predicate
+    -- select only items eligible for the active class and loot specialization.
+    if source.kind == "dungeon" and source.fallbackItems then
+        local present = {}
+        for _, item in ipairs(items) do present[item.itemID] = true end
+        for _, itemID in ipairs(source.fallbackItems) do
+            local eligible = true
+            if C_Item.DoesItemContainSpec then
+                local ok, result = pcall(C_Item.DoesItemContainSpec, itemID, classID or 0, specID)
+                if ok and result ~= nil and not (issecretvalue and issecretvalue(result)) then eligible = result end
+            end
+            if eligible and not present[itemID] then
+                local _, _, _, equipLoc, icon = C_Item.GetItemInfoInstant(itemID)
+                local name = C_Item.GetItemNameByID(itemID)
+                local link = select(2, C_Item.GetItemInfo(itemID))
+                local slot = equipLoc and equipLoc ~= "" and (_G[equipLoc] or equipLoc)
+                if slot then
+                    items[#items + 1] = {
+                        itemID = itemID,
+                        name = name or ("Item " .. itemID),
+                        link = link,
+                        icon = icon,
+                        slot = slot,
+                    }
+                    present[itemID] = true
+                else
+                    incomplete = true
+                end
+                if not name or not link or not slot then
+                    incomplete = true
+                    if C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(itemID) end
+                end
+            end
+        end
+    end
+
     if oldClassID then EJ_SetLootFilter(oldClassID, oldSpecID or 0) else EJ_ResetLootFilter() end
     if oldSlotFilter and C_EncounterJournal and C_EncounterJournal.SetSlotFilter then
         C_EncounterJournal.SetSlotFilter(oldSlotFilter)
@@ -238,6 +276,51 @@ end
 function ns.GetMPlusTargetLevel(keyLevel)
     keyLevel = math.max(2, math.min(10, tonumber(keyLevel) or 10))
     return ns.MPLUS_TARGET_LEVELS[keyLevel]
+end
+
+local function GetItemLevelBonusID(levelDifference)
+    if levelDifference == 0 then return nil end
+    if levelDifference >= -100 and levelDifference <= 200 then
+        return 1472 + levelDifference
+    end
+    if levelDifference >= 201 and levelDifference <= 400 then
+        return 2929 + levelDifference
+    end
+end
+
+function ns.GetTargetItemLink(itemID, specID, targetLevel, sourceKind, difficultyID, keyLevel)
+    targetLevel = tonumber(targetLevel)
+    if not itemID or not targetLevel or not C_Item.GetDetailedItemLevelInfo then return nil end
+    local _, _, _, equipLoc, _, itemClassID = C_Item.GetItemInfoInstant(itemID)
+    if not equipLoc or equipLoc == "" then return nil end
+    if Enum and Enum.ItemClass and itemClassID
+        and itemClassID ~= Enum.ItemClass.Armor and itemClassID ~= Enum.ItemClass.Weapon then return nil end
+
+    local _, _, baseItemLevel = C_Item.GetDetailedItemLevelInfo(itemID)
+    if issecretvalue and issecretvalue(baseItemLevel) then return nil end
+    baseItemLevel = tonumber(baseItemLevel)
+    if not baseItemLevel then return nil end
+
+    local trackBonusID
+    if sourceKind == "dungeon" then
+        keyLevel = math.max(2, math.min(10, tonumber(keyLevel) or 10))
+        trackBonusID = ns.MPLUS_TARGET_BONUS_IDS[keyLevel]
+    else
+        local difficultyBonuses = ns.RAID_TARGET_BONUS_IDS[difficultyID or 16]
+        trackBonusID = difficultyBonuses and difficultyBonuses[targetLevel]
+    end
+    if not trackBonusID then return nil end
+
+    local bonusIDs = {}
+    local levelBonusID = GetItemLevelBonusID(targetLevel - baseItemLevel)
+    if levelBonusID then bonusIDs[#bonusIDs + 1] = levelBonusID end
+    bonusIDs[#bonusIDs + 1] = trackBonusID
+    bonusIDs[#bonusIDs + 1] = 1674
+    if equipLoc == "INVTYPE_FINGER" or equipLoc == "INVTYPE_NECK" then
+        bonusIDs[#bonusIDs + 1] = 13534
+    end
+    return string.format("item:%d:%s:::%d:%d:::%d:%s", itemID, "::::",
+        UnitLevel("player"), ResolveSpec(specID), #bonusIDs, table.concat(bonusIDs, ":"))
 end
 
 function ns.GetRaidTargetLevel(source, specID, difficultyID, itemID)

@@ -99,8 +99,19 @@ local function EnsureCharacterDB()
         db.seasons[legacyDisplaySeason] = nil
     end
     db.seasons[season] = db.seasons[season] or { specs = {}, pools = {}, rolls = {} }
+    local activeSeason = db.seasons[season]
+    if activeSeason.dataRevision ~= ns.SEASON_DATA_REVISION then
+        for _, specData in pairs(activeSeason.specs or {}) do
+            for _, goal in pairs(specData.goals or {}) do
+                if goal.sourceKind == "dungeon" and goal.keyLevel then
+                    goal.minItemLevel = ns.GetMPlusTargetLevel(goal.keyLevel)
+                end
+            end
+        end
+        activeSeason.dataRevision = ns.SEASON_DATA_REVISION
+    end
     db.activeSeason = season
-    return db, db.seasons[season]
+    return db, activeSeason
 end
 
 function ns.GetProfile()

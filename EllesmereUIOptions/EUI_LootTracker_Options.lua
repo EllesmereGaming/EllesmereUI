@@ -116,12 +116,14 @@ local function ReplaceTooltipItemLevel(tooltip, item, targetLevel)
     return false
 end
 
-local function ShowItemTooltip(frame, item, targetLevel, showActions)
+local function ShowItemTooltip(frame, item, targetLevel, showActions, targetLink)
     GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
-    if item.link then GameTooltip:SetHyperlink(item.link) else GameTooltip:SetItemByID(item.itemID) end
-    local levelReplaced = ReplaceTooltipItemLevel(GameTooltip, item, targetLevel)
-    if targetLevel and not levelReplaced and targetLevel ~= item.itemLevel then
-        GameTooltip:AddLine(EllesmereUI.Lf("Target item level: %d", targetLevel), 0.05, 0.82, 0.62)
+    if targetLink or item.link then GameTooltip:SetHyperlink(targetLink or item.link) else GameTooltip:SetItemByID(item.itemID) end
+    if not targetLink then
+        local levelReplaced = ReplaceTooltipItemLevel(GameTooltip, item, targetLevel)
+        if targetLevel and not levelReplaced and targetLevel ~= item.itemLevel then
+            GameTooltip:AddLine(EllesmereUI.Lf("Target item level: %d", targetLevel), 0.05, 0.82, 0.62)
+        end
     end
     if showActions then
         GameTooltip:AddLine(" ")
@@ -164,6 +166,8 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
         displayItemLevel = item.itemLevel
             or ns.GetRaidTargetLevel(source, specID, difficultyID, item.itemID)
     end
+    local targetLink = ns.GetTargetItemLink(item.itemID, specID, displayItemLevel,
+        source.kind, difficultyID, Profile().selectedKeyLevel)
     local slotText = item.slot or ""
     if displayItemLevel then slotText = slotText .. "  |cff777d88• iLvl " .. displayItemLevel .. "|r" end
     slot:SetText(slotText)
@@ -189,7 +193,7 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
     hitbox:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     hitbox:SetScript("OnEnter", function(self)
         frame._hover:SetColorTexture(1, 1, 1, 0.035)
-        ShowItemTooltip(self, item, displayItemLevel, true)
+        ShowItemTooltip(self, item, displayItemLevel, true, targetLink)
     end)
     hitbox:SetScript("OnLeave", function()
         frame._hover:SetColorTexture(1, 1, 1, 0)
@@ -427,6 +431,8 @@ local function BuildOverview(parent, yOffset)
                     icon = goal.itemIcon,
                 }
                 local targetLevel = goal.minItemLevel
+                local targetLink = ns.GetTargetItemLink(goal.itemID, goal.specID, targetLevel,
+                    goal.sourceKind, goal.difficultyID, goal.keyLevel)
                 local itemHitbox = CreateFrame("Button", nil, card)
                 itemHitbox:SetPoint("TOPLEFT", card, "TOPLEFT", 12, offset + 4)
                 itemHitbox:SetPoint("RIGHT", card, "RIGHT", -12, 0)
@@ -434,7 +440,7 @@ local function BuildOverview(parent, yOffset)
                 itemHitbox:SetFrameLevel(card:GetFrameLevel() + 2)
                 itemHitbox:EnableMouse(true)
                 itemHitbox:SetScript("OnEnter", function(self)
-                    ShowItemTooltip(self, tooltipItem, targetLevel, false)
+                    ShowItemTooltip(self, tooltipItem, targetLevel, false, targetLink)
                 end)
                 itemHitbox:SetScript("OnLeave", function() GameTooltip:Hide() end)
                 offset = offset - 22
