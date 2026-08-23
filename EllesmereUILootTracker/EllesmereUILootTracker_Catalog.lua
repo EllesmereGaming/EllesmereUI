@@ -124,22 +124,39 @@ local function BuildCatalog(source, specID, difficultyID)
         EJ_SelectEncounter(source.journalEncounterID)
     end
 
+    local incomplete
     for index = 1, EJ_GetNumLoot() do
         local info = C_EncounterJournal.GetLootInfoByIndex(index)
-        if info and info.itemID and info.slot and info.slot ~= "" then
+        if info and info.itemID then
+            local itemID = info.itemID
+            local _, _, _, equipLoc, instantIcon = C_Item.GetItemInfoInstant(itemID)
+            local name = info.name or C_Item.GetItemNameByID(itemID)
+            local link = info.link or select(2, C_Item.GetItemInfo(itemID))
+            local slot = info.slot
+            if (not slot or slot == "") and equipLoc and equipLoc ~= "" then
+                slot = _G[equipLoc] or equipLoc
+            end
+            if not name or not link then
+                incomplete = true
+                if C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(itemID) end
+            end
             local itemLevel
-            if info.link and C_Item.GetDetailedItemLevelInfo then
-                itemLevel = C_Item.GetDetailedItemLevelInfo(info.link)
+            if C_Item.GetDetailedItemLevelInfo then
+                itemLevel = C_Item.GetDetailedItemLevelInfo(link or itemID)
                 if issecretvalue and issecretvalue(itemLevel) then itemLevel = nil end
             end
-            items[#items + 1] = {
-                itemID = info.itemID,
-                name = info.name,
-                link = info.link,
-                icon = info.icon,
-                slot = info.slot,
-                itemLevel = itemLevel,
-            }
+            if slot and slot ~= "" then
+                items[#items + 1] = {
+                    itemID = itemID,
+                    name = name or ("Item " .. itemID),
+                    link = link,
+                    icon = info.icon or instantIcon,
+                    slot = slot,
+                    itemLevel = itemLevel,
+                }
+            end
+        else
+            incomplete = true
         end
     end
 
@@ -159,7 +176,7 @@ local function BuildCatalog(source, specID, difficultyID)
     -- The Encounter Journal fills its item cache asynchronously. Never cache an
     -- empty result permanently; EJ_LOOT_DATA_RECIEVED will invalidate and ask
     -- the visible options page to rebuild once Blizzard supplies the records.
-    if #items > 0 then catalog[key][specID] = items end
+    if #items > 0 and not incomplete then catalog[key][specID] = items end
     return items
 end
 
