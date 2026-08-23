@@ -4587,29 +4587,17 @@ end
 -- Colors -- callers only reach this when ActiveBuffColor already returned nil, so a tracked
 -- buff always wins when both would otherwise apply.
 --
--- C_Spell.IsSpellUsable has never meant "off cooldown" -- historically it reports
--- affordability/knowledge/range, not cooldown state. For a normal resource-costing
--- spender this goes unnoticed: casting the ability also spends the resource, so
--- right after casting it's simultaneously on cooldown AND resource-insufficient,
--- and the second correctly masks the first. An ability that's free under some
--- condition (e.g. Devourer DH's Void Ray while Void Metamorphosis is active)
--- removes that masking -- resource-sufficiency is always true, so without an
--- explicit cooldown check it would incorrectly read "usable" for the entire
--- cooldown window. IsOnRealCooldown below closes this for every Spender entry,
--- on every bar (this function is shared by Class Resource Bar, Power Bar, and
--- Health Bar), not just the case that surfaced it.
+-- Also checks for a real cooldown, not just resource cost -- IsSpellUsable alone
+-- doesn't mean "off cooldown." Normally invisible, since casting a spell also spends
+-- its resource, so cooldown and resource-insufficiency happen at the same time. An
+-- edge case spender like Void Ray (Devourer DH, free while Void Metamorphosis is
+-- active) breaks that -- IsOnRealCooldown below catches it, for every Spender on
+-- every bar. Gated on isOnGCD too, or every spender would read "on cooldown" for the
+-- GCD after every single cast.
 --
--- GetSpellCooldown's isActive is true for BOTH the ability's own cooldown AND the
--- shared GCD; isOnGCD distinguishes them, so a GCD-only "cooldown" correctly does
--- NOT suppress the color -- otherwise every spender would read "on cooldown" for
--- the 1.5s (Haste-scaled) GCD after every single cast, which is not what "usable"
--- should mean here. Same pcall-the-boolean-branch caution as IsSpellUsable below:
--- if GetSpellCooldown's fields were ever secret in some untested content mode,
--- evaluating them truthy/falsy is what would throw, so the whole check sits
--- inside the pcall, not just the call. A failure here fails open (treated as "not
--- on a real cooldown"), falling through to the normal IsSpellUsable check below --
--- degrading to the exact pre-existing behavior rather than wrongly suppressing a
--- genuinely usable spell over an unrelated API hiccup.
+-- Both the call and the boolean check happen inside the pcall (in case the fields
+-- are ever secret) -- a failure just falls through to the normal IsSpellUsable
+-- check, same as before this existed.
 local function IsOnRealCooldown(spellID)
     local getCD = C_Spell and C_Spell.GetSpellCooldown
     if not getCD then return false end
