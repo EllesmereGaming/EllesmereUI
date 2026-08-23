@@ -4,8 +4,9 @@ local ADDON_NAME, ns = ...
 -- Season 2 source identity. Loot itself is read from Blizzard's Encounter
 -- Journal at runtime; this compact table only joins Challenge Mode / encounter
 -- IDs to the item displayed by the Voidcore confirmation prompt.
-ns.SEASON_DATA_REVISION = 1
-ns.SUPPORTED_SEASON_ID = 17
+ns.SEASON_DATA_REVISION = 2
+ns.SUPPORTED_SEASON_ID = 18
+ns.SUPPORTED_DISPLAY_SEASON_ID = 2
 
 ns.DUNGEON_SOURCES = {
     { challengeModeID = 249, instanceID = 1762, chestItemID = 279621 }, -- King's Rest
