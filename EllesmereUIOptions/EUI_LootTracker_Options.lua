@@ -10,6 +10,7 @@ local PAGE_RAIDS = "Raids"
 local PAGE_SETTINGS = "Settings"
 local ROW_H, ROW_GAP = 46, 3
 local pageRebuildQueued
+local catalogRetries = {}
 
 local function QueuePageRebuild()
     if pageRebuildQueued then return end
@@ -18,6 +19,22 @@ local function QueuePageRebuild()
         pageRebuildQueued = nil
         local activeModule = EllesmereUI.GetActiveModule and EllesmereUI:GetActiveModule()
         if activeModule == ADDON_NAME then EllesmereUI:RefreshPage(true) end
+    end)
+end
+
+local function QueueCatalogRetry(key)
+    local state = catalogRetries[key]
+    if not state then
+        state = { attempts = 0 }
+        catalogRetries[key] = state
+    end
+    if state.pending or state.attempts >= 5 then return end
+    state.pending = true
+    state.attempts = state.attempts + 1
+    C_Timer.After(0.25, function()
+        state.pending = nil
+        ns.InvalidateCatalog()
+        QueuePageRebuild()
     end)
 end
 
@@ -82,12 +99,35 @@ local function StyledButton(parent, text, width, onClick)
     return button
 end
 
-local function ShowItemTooltip(frame, item)
+local function ReplaceTooltipItemLevel(tooltip, item, targetLevel)
+    if not targetLevel or not item.itemLevel or targetLevel == item.itemLevel or not ITEM_LEVEL then return false end
+    local pattern = ITEM_LEVEL:gsub("%%d", "(%%d+)")
+    local tooltipName = tooltip:GetName()
+    if not tooltipName then return false end
+    for index = 2, tooltip:NumLines() do
+        local line = _G[tooltipName .. "TextLeft" .. index]
+        local text = line and line:GetText()
+        if text and tonumber(text:match(pattern)) == tonumber(item.itemLevel) then
+            line:SetText(EllesmereUI.Lf("Target item level: %d", targetLevel))
+            line:SetTextColor(0.05, 0.82, 0.62)
+            return true
+        end
+    end
+    return false
+end
+
+local function ShowItemTooltip(frame, item, targetLevel, showActions)
     GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
     if item.link then GameTooltip:SetHyperlink(item.link) else GameTooltip:SetItemByID(item.itemID) end
-    GameTooltip:AddLine(" ")
-    GameTooltip:AddLine(L("Left-click: change priority"), 0.75, 0.75, 0.75)
-    GameTooltip:AddLine(L("Right-click: correct Voidcore pool"), 0.75, 0.75, 0.75)
+    local levelReplaced = ReplaceTooltipItemLevel(GameTooltip, item, targetLevel)
+    if targetLevel and not levelReplaced and targetLevel ~= item.itemLevel then
+        GameTooltip:AddLine(EllesmereUI.Lf("Target item level: %d", targetLevel), 0.05, 0.82, 0.62)
+    end
+    if showActions then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine(L("Left-click: change priority"), 0.75, 0.75, 0.75)
+        GameTooltip:AddLine(L("Right-click: correct Voidcore pool"), 0.75, 0.75, 0.75)
+    end
     GameTooltip:Show()
 end
 
@@ -149,7 +189,7 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
     hitbox:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     hitbox:SetScript("OnEnter", function(self)
         frame._hover:SetColorTexture(1, 1, 1, 0.035)
-        ShowItemTooltip(self, item)
+        ShowItemTooltip(self, item, displayItemLevel, true)
     end)
     hitbox:SetScript("OnLeave", function()
         frame._hover:SetColorTexture(1, 1, 1, 0)
@@ -267,6 +307,7 @@ local function BuildCatalogPage(parent, yOffset, kind)
     local source = FindSource(kind, sourceID)
     if not source then parent:SetHeight(math.abs(y)); return math.abs(y) end
     local difficultyID = kind == "raid" and (tonumber(Profile().raidDifficulty) or 16) or nil
+    local catalogKey = kind .. ":" .. tostring(sourceID) .. ":" .. tostring(specID) .. ":" .. tostring(difficultyID or 0)
     local summary = ns.GetSourceSummary(source, specID, difficultyID)
     local info = Card(parent, y, 42)
     local title = Font(info, 12, 1, 1, 1, 1)
@@ -301,11 +342,13 @@ local function BuildCatalogPage(parent, yOffset, kind)
         slotOrder); y = y - h
     y = y - BuildSearchRow(parent, y)
     if #items == 0 then
+        QueueCatalogRetry(catalogKey)
         local empty = Font(parent, 11, 0.65, 0.65, 0.65, 1)
         empty:SetPoint("TOPLEFT", parent, "TOPLEFT", 28, y - 10)
-        empty:SetText(L("Loot data is still loading. Reopen this page in a moment."))
+        empty:SetText(L("Loot data is still loading. This page will refresh automatically."))
         y = y - 40
     else
+        catalogRetries[catalogKey] = nil
         local shown = 0
         local slotFilter = tostring(Profile().lootSlotFilter or "ALL")
         local search = (Profile().lootSearch or ""):lower()
@@ -377,6 +420,23 @@ local function BuildOverview(parent, yOffset)
                 local target = goal.minItemLevel and ("  |cff777d88(" .. goal.minItemLevel .. "+)|r") or ""
                 local done = goal.state == "archived" and ("  |cff55dd88✓ " .. L("Obtained") .. "|r") or ""
                 line:SetText((goal.itemLink or goal.itemName or goal.itemID) .. target .. done)
+                local tooltipItem = {
+                    itemID = goal.itemID,
+                    name = goal.itemName,
+                    link = goal.itemLink,
+                    icon = goal.itemIcon,
+                }
+                local targetLevel = goal.minItemLevel
+                local itemHitbox = CreateFrame("Button", nil, card)
+                itemHitbox:SetPoint("TOPLEFT", card, "TOPLEFT", 12, offset + 4)
+                itemHitbox:SetPoint("RIGHT", card, "RIGHT", -12, 0)
+                itemHitbox:SetHeight(20)
+                itemHitbox:SetFrameLevel(card:GetFrameLevel() + 2)
+                itemHitbox:EnableMouse(true)
+                itemHitbox:SetScript("OnEnter", function(self)
+                    ShowItemTooltip(self, tooltipItem, targetLevel, false)
+                end)
+                itemHitbox:SetScript("OnLeave", function() GameTooltip:Hide() end)
                 offset = offset - 22
             end
             y = y - card:GetHeight() - 6
