@@ -173,6 +173,10 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
     slot:SetText(slotText)
 
     local goal = ns.GetGoal(sourceKey, item.itemID, specID)
+    local obtained = (goal and goal.state == "archived") or ns.IsItemOwned(item.itemID, displayItemLevel)
+    local check = Font(frame, 17, 0.33, 0.87, 0.53, 1)
+    check:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 4, -4)
+    check:SetText(obtained and "✓" or "")
     local priorityText, pr, pg, pb = PriorityText(goal)
     local status = Font(frame, 10, pr, pg, pb, 1)
     status:SetPoint("RIGHT", frame, "RIGHT", -40, 0)
@@ -422,7 +426,8 @@ local function BuildOverview(parent, yOffset)
                 line:SetPoint("RIGHT", card, "RIGHT", -12, 0)
                 line:SetJustifyH("LEFT")
                 local target = goal.minItemLevel and ("  |cff777d88(" .. goal.minItemLevel .. "+)|r") or ""
-                local done = goal.state == "archived" and ("  |cff55dd88✓ " .. L("Obtained") .. "|r") or ""
+                local obtained = goal.state == "archived" or ns.IsItemOwned(goal.itemID, goal.minItemLevel)
+                local done = obtained and ("  |cff55dd88✓ " .. L("Obtained") .. "|r") or ""
                 line:SetText((goal.itemLink or goal.itemName or goal.itemID) .. target .. done)
                 local tooltipItem = {
                     itemID = goal.itemID,

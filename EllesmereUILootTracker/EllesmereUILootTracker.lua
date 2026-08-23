@@ -328,6 +328,17 @@ local function BuildInventorySnapshot()
     return snapshot
 end
 
+function ns.GetOwnedItem(itemID, minimumItemLevel)
+    local owned = inventorySnapshot[tonumber(itemID) or itemID]
+    if not owned or owned.count <= 0 then return nil end
+    if owned.maxLevel < (tonumber(minimumItemLevel) or 0) then return nil end
+    return owned
+end
+
+function ns.IsItemOwned(itemID, minimumItemLevel)
+    return ns.GetOwnedItem(itemID, minimumItemLevel) ~= nil
+end
+
 local function ReconcileInventory(snapshot)
     if not ns.GetProfile().autoArchive then return end
     for _, goal in ipairs(ns.GetGoals(nil, false)) do
