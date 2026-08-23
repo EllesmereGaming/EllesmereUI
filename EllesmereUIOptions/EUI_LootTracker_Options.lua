@@ -157,7 +157,7 @@ end
 
 local function BuildItemRow(parent, y, source, item, specID, difficultyID)
     local sourceKey = source.kind == "raid" and ns.RaidKey(source.encounterID, difficultyID) or ns.DungeonKey(source.challengeModeID)
-    local frame = Card(parent, y, ROW_H)
+    local frame = Card(parent, y, ROW_H, true)
     frame:SetFrameLevel(parent:GetFrameLevel() + 2)
     local icon = frame:CreateTexture(nil, "ARTWORK")
     icon:SetSize(34, 34)
@@ -205,22 +205,14 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
         poolState:SetColorTexture(0.38, 0.4, 0.45, 0.7)
     end
 
-    -- Put the interaction surface directly under the real scroll viewport.
-    -- Cached page wrappers can render descendants outside their effective mouse
-    -- bounds; anchoring the button to the row retains scrolling/clipping while
-    -- bypassing that otherwise mouse-dead intermediate frame.
-    local interactionParent = EllesmereUI._scrollFrame or parent
-    local hitbox = CreateFrame("Button", nil, interactionParent)
-    hitbox:SetAllPoints(frame)
-    hitbox:SetFrameLevel(interactionParent:GetFrameLevel() + 50)
-    hitbox:EnableMouse(true)
-    if hitbox.SetMouseClickEnabled then hitbox:SetMouseClickEnabled(true) end
-    if hitbox.SetMouseMotionEnabled then hitbox:SetMouseMotionEnabled(true) end
-    -- Down clicks cannot be cancelled by the movable window's drag handling.
-    hitbox:RegisterForClicks("AnyDown")
-    parent:HookScript("OnHide", function() hitbox:Hide() end)
-    parent:HookScript("OnShow", function() hitbox:Show() end)
-    local check = hitbox:CreateTexture(nil, "OVERLAY")
+    -- The card itself is the button. Using the normal parent chain keeps the
+    -- Spec Overrides frame walk acyclic, while AnyDown avoids a click being
+    -- cancelled by the movable window before the mouse button is released.
+    frame:EnableMouse(true)
+    if frame.SetMouseClickEnabled then frame:SetMouseClickEnabled(true) end
+    if frame.SetMouseMotionEnabled then frame:SetMouseMotionEnabled(true) end
+    frame:RegisterForClicks("AnyDown")
+    local check = frame:CreateTexture(nil, "OVERLAY")
     check:SetAtlas("common-icon-checkmark")
     check:SetSize(16, 16)
     check:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 4, -4)
@@ -242,17 +234,17 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
             end
         end
     end
-    hitbox:SetScript("OnEnter", function(self)
+    frame:SetScript("OnEnter", function(self)
         frame._hover:SetColorTexture(1, 1, 1, 0.035)
         ShowItemTooltip(self, item, displayItemLevel, true, targetLink)
     end)
-    hitbox:SetScript("OnLeave", function()
+    frame:SetScript("OnLeave", function()
         frame._hover:SetColorTexture(1, 1, 1, 0)
         GameTooltip:Hide()
     end)
     local hover = frame:CreateTexture(nil, "ARTWORK")
     hover:SetAllPoints(); hover:SetColorTexture(1, 1, 1, 0); frame._hover = hover
-    hitbox:SetScript("OnClick", function(_, button)
+    frame:SetScript("OnClick", function(_, button)
         frame._hover:SetColorTexture(1, 1, 1, 0.075)
         local ok, err = pcall(HandleItemClick, button)
         if not ok then
