@@ -88,7 +88,8 @@ end
 
 local function BuildItemRow(parent, y, source, item, specID, difficultyID)
     local sourceKey = source.kind == "raid" and ns.RaidKey(source.encounterID, difficultyID) or ns.DungeonKey(source.challengeModeID)
-    local frame = Card(parent, y, ROW_H, true)
+    local frame = Card(parent, y, ROW_H)
+    frame:SetFrameLevel(parent:GetFrameLevel() + 2)
     local icon = frame:CreateTexture(nil, "ARTWORK")
     icon:SetSize(34, 34)
     icon:SetPoint("LEFT", frame, "LEFT", 7, 0)
@@ -114,22 +115,35 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
     die:SetPoint("RIGHT", frame, "RIGHT", -14, 0)
     die:SetText(pool.knocked[item.itemID] and "|cff0cd29f●|r" or "○")
 
-    frame:EnableMouse(true)
-    frame:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    frame:SetScript("OnEnter", function(self)
+    -- Use a dedicated high-level hit target. The scroll child and card artwork
+    -- can otherwise win mouse hit-testing at the card's inherited frame level.
+    local hitbox = CreateFrame("Button", nil, frame)
+    hitbox:SetAllPoints(frame)
+    hitbox:SetFrameLevel(frame:GetFrameLevel() + 2)
+    hitbox:EnableMouse(true)
+    hitbox:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    hitbox:SetScript("OnEnter", function(self)
         frame._hover:SetColorTexture(1, 1, 1, 0.035)
         ShowItemTooltip(self, item)
     end)
-    frame:SetScript("OnLeave", function()
+    hitbox:SetScript("OnLeave", function()
         frame._hover:SetColorTexture(1, 1, 1, 0)
         GameTooltip:Hide()
     end)
     local hover = frame:CreateTexture(nil, "ARTWORK")
     hover:SetAllPoints(); hover:SetColorTexture(1, 1, 1, 0); frame._hover = hover
-    frame:SetScript("OnMouseUp", function(_, button)
+    hitbox:SetScript("OnMouseDown", function()
+        frame._hover:SetColorTexture(1, 1, 1, 0.075)
+    end)
+    hitbox:SetScript("OnMouseUp", function()
+        frame._hover:SetColorTexture(1, 1, 1, 0.035)
+    end)
+    hitbox:SetScript("OnClick", function(_, button)
+        local currentGoal = ns.GetGoal(sourceKey, item.itemID, specID)
+        local currentPool = ns.GetPool(sourceKey, specID)
         if button == "RightButton" then
-            ns.SetPoolItemState(sourceKey, item.itemID, not pool.knocked[item.itemID], specID, "manual")
-        elseif goal and goal.state == "archived" then
+            ns.SetPoolItemState(sourceKey, item.itemID, not currentPool.knocked[item.itemID], specID, "manual")
+        elseif currentGoal and currentGoal.state == "archived" then
             ns.ReactivateGoal(sourceKey, item.itemID, specID)
         else
             local target = source.kind == "raid"
