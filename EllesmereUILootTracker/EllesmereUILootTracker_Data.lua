@@ -12,8 +12,8 @@ ns.DUNGEON_SOURCES = {
     { challengeModeID = 249, instanceID = 1762, journalInstanceID = 1041, chestItemID = 279621, fallbackItems = {
         159136, 159137, 159234, 159243, 159288, 159300, 159301, 159304, 159312, 159313,
         159369, 159371, 159409, 159412, 159413, 159418, 159459, 159617, 159618, 159642,
-        159643, 159644, 159645, 159667, 159921, 160213, 160216, 239045, 239046, 239047,
-        239048, 239049, 239050, 239051, 273649, 278245,
+        159643, 159644, 159645, 159667, 160213, 160216, 239045, 239046, 239047,
+        239048, 239049, 239050, 239051, 273649,
     } }, -- King's Rest
     { challengeModeID = 250, instanceID = 1877, journalInstanceID = 1030, chestItemID = 279624 }, -- Temple of Sethraliss
     { challengeModeID = 399, instanceID = 2521, journalInstanceID = 1202, chestItemID = 279622 }, -- Ruby Life Pools

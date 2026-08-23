@@ -5,6 +5,16 @@ local catalog = {}
 local sourceByChest = {}
 local sourceByKey = {}
 local dungeonJournalIDs
+local VALID_EQUIP_LOCS = {
+    INVTYPE_HEAD = true, INVTYPE_NECK = true, INVTYPE_SHOULDER = true,
+    INVTYPE_CLOAK = true, INVTYPE_CHEST = true, INVTYPE_ROBE = true,
+    INVTYPE_WRIST = true, INVTYPE_HAND = true, INVTYPE_WAIST = true,
+    INVTYPE_LEGS = true, INVTYPE_FEET = true, INVTYPE_FINGER = true,
+    INVTYPE_TRINKET = true, INVTYPE_WEAPON = true, INVTYPE_SHIELD = true,
+    INVTYPE_2HWEAPON = true, INVTYPE_WEAPONMAINHAND = true,
+    INVTYPE_WEAPONOFFHAND = true, INVTYPE_HOLDABLE = true,
+    INVTYPE_RANGED = true, INVTYPE_RANGEDRIGHT = true, INVTYPE_THROWN = true,
+}
 
 local function DungeonKey(id)
     return "dungeon:" .. tostring(id)
@@ -136,11 +146,11 @@ local function BuildCatalog(source, specID, difficultyID)
             local name = info.name or C_Item.GetItemNameByID(itemID)
             local link = info.link or select(2, C_Item.GetItemInfo(itemID))
             local slot = info.slot
+            local tokenSlot = ns.RAID_TOKEN_SLOTS and ns.RAID_TOKEN_SLOTS[itemID]
             if (not slot or slot == "") and equipLoc and equipLoc ~= "" then
                 slot = _G[equipLoc] or equipLoc
             end
-            if (not slot or slot == "") and ns.RAID_TOKEN_SLOTS then
-                local tokenSlot = ns.RAID_TOKEN_SLOTS[itemID]
+            if not slot or slot == "" then
                 if tokenSlot == "TIER" then
                     slot = EllesmereUI.L("Tier Token")
                 elseif tokenSlot then
@@ -156,7 +166,8 @@ local function BuildCatalog(source, specID, difficultyID)
                 itemLevel = C_Item.GetDetailedItemLevelInfo(link or itemID)
                 if issecretvalue and issecretvalue(itemLevel) then itemLevel = nil end
             end
-            if slot and slot ~= "" then
+            local isGear = VALID_EQUIP_LOCS[equipLoc] or tokenSlot ~= nil
+            if isGear and slot and slot ~= "" then
                 items[#items + 1] = {
                     itemID = itemID,
                     name = name or ("Item " .. itemID),
@@ -165,7 +176,7 @@ local function BuildCatalog(source, specID, difficultyID)
                     slot = slot,
                     itemLevel = itemLevel,
                 }
-            else
+            elseif isGear then
                 incomplete = true
                 if C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(itemID) end
             end
@@ -192,7 +203,8 @@ local function BuildCatalog(source, specID, difficultyID)
                 local name = C_Item.GetItemNameByID(itemID)
                 local link = select(2, C_Item.GetItemInfo(itemID))
                 local slot = equipLoc and equipLoc ~= "" and (_G[equipLoc] or equipLoc)
-                if slot then
+                local isGear = VALID_EQUIP_LOCS[equipLoc]
+                if isGear and slot then
                     items[#items + 1] = {
                         itemID = itemID,
                         name = name or ("Item " .. itemID),
@@ -201,10 +213,10 @@ local function BuildCatalog(source, specID, difficultyID)
                         slot = slot,
                     }
                     present[itemID] = true
-                else
+                elseif isGear then
                     incomplete = true
                 end
-                if not name or not link or not slot then
+                if isGear and (not name or not link or not slot) then
                     incomplete = true
                     if C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(itemID) end
                 end
