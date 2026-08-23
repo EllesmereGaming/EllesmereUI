@@ -3,8 +3,15 @@ local ADDON_NAME, ns = ...
 
 local function ItemIDFromData(data)
     if not data then return end
-    if data.id then return tonumber(data.id) end
-    if data.hyperlink then return C_Item.GetItemInfoInstant(data.hyperlink) end
+    local itemID, hyperlink = data.id, data.hyperlink
+    if issecretvalue and issecretvalue(itemID) then itemID = nil end
+    if issecretvalue and issecretvalue(hyperlink) then hyperlink = nil end
+    if itemID then return tonumber(itemID) end
+    if hyperlink then
+        local resolved = C_Item.GetItemInfoInstant(hyperlink)
+        if issecretvalue and issecretvalue(resolved) then return end
+        return resolved
+    end
 end
 
 local function AddGoalLine(tooltip, data)

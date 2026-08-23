@@ -62,6 +62,7 @@ local ADDON_DB_MAP = {
     -- v6.6 split-out addons (were previously bundled under the retired
     -- EllesmereUIBasics, removed from the suite v8.7.x).
     { folder = "EllesmereUIQoL",               display = "Quality of Life",     svName = "EllesmereUIQoLDB",               suffix = "QoL"               },
+    { folder = "EllesmereUILootTracker",       display = "Loot Tracker",        svName = "EllesmereUILootTrackerDB",       suffix = "LootTracker"       },
     -- BlizzardSkin itself is excluded: it stores settings on the shared
     -- EllesmereUIDB root, not through NewDB, so it has no per-profile data.
     -- Dragon Riding is the one exception inside that addon -- it owns a real

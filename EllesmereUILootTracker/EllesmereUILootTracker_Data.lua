@@ -5,6 +5,7 @@ local ADDON_NAME, ns = ...
 -- Journal at runtime; this compact table only joins Challenge Mode / encounter
 -- IDs to the item displayed by the Voidcore confirmation prompt.
 ns.SEASON_DATA_REVISION = 1
+ns.SUPPORTED_SEASON_ID = 17
 
 ns.DUNGEON_SOURCES = {
     { challengeModeID = 249, instanceID = 1762, chestItemID = 279621 }, -- King's Rest
@@ -37,3 +38,4 @@ ns.MPLUS_TARGET_LEVELS = {
 }
 
 ns.RAID_DIFFICULTIES = { 17, 14, 15, 16 }
+ns.RAID_TARGET_LEVELS = { [17] = 279, [14] = 292, [15] = 305, [16] = 318 }
