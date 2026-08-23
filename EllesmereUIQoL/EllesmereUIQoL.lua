@@ -2805,6 +2805,53 @@ do
     end)
 
     local stateFrame = CreateFrame("Frame", "EUI_NoRightClickState", UIParent, "SecureHandlerStateTemplate")
+    local combatDriverActive = false
+
+    local function IsCapturablePet(unit)
+        return UnitExists(unit) and (UnitIsWildBattlePet(unit) or UnitIsBattlePetCompanion(unit))
+    end
+
+    -- "harm" matches any attackable unit, including neutral wild pets.
+    -- Out of combat, compute the binding directly so pets can be excluded.
+    local function ApplyOutOfCombatState()
+        local db = EllesmereUIDB
+        local enemy = db and db.disableRightClickTarget
+        if enemy and UnitExists("mouseover") and not UnitIsDeadOrGhost("mouseover")
+           and UnitCanAttack("player", "mouseover") and not IsCapturablePet("mouseover") then
+            SetOverrideBindingClick(stateFrame, true, "BUTTON2", "EUI_MouseLookBtn")
+        else
+            ClearOverrideBindings(stateFrame)
+        end
+    end
+
+    local function EnableCombatDriver()
+        if combatDriverActive then return end
+        local db = EllesmereUIDB
+        local enemy = db and db.disableRightClickTarget
+        local allyCombat = db and db.disableRightClickTargetAllyCombat
+        if not (enemy or allyCombat) then return end
+        -- Enemies match anytime; allies only match while in combat.
+        local macro = ""
+        if enemy then macro = macro .. "[@mouseover,harm,nodead]1;" end
+        if allyCombat then macro = macro .. "[@mouseover,help,nodead,combat]1;" end
+        macro = macro .. "0"
+        SecureStateDriverManager:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
+        RegisterStateDriver(stateFrame, "mov", macro)
+        stateFrame:SetAttribute("_onstate-mov", [[
+            if newstate == 1 then
+                self:SetBindingClick(1, "BUTTON2", "EUI_MouseLookBtn")
+            else
+                self:ClearBindings()
+            end
+        ]])
+        combatDriverActive = true
+    end
+
+    local function DisableCombatDriver()
+        if not combatDriverActive then return end
+        UnregisterStateDriver(stateFrame, "mov")
+        combatDriverActive = false
+    end
 
     local function ApplyRightClickTarget()
         if InCombatLockdown() then
@@ -2817,31 +2864,10 @@ do
             return
         end
         local db = EllesmereUIDB
-        local enemy = db and db.disableRightClickTarget
-        local allyCombat = db and db.disableRightClickTargetAllyCombat
-        if enemy or allyCombat then
-            -- Mouseover condition from the two independent toggles: enemies fire
-            -- everywhere, allies only while in combat ([combat]), so right-clicking vendors/questgivers still works out of combat.
-            local macro = ""
-            if enemy then macro = macro .. "[@mouseover,harm,nodead]1;" end
-            if allyCombat then macro = macro .. "[@mouseover,help,nodead,combat]1;" end
-            macro = macro .. "0"
-            SecureStateDriverManager:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
-            -- [combat] needs regen events so state re-evaluates on combat enter/exit even when the mouseover unit hasn't changed.
-            if allyCombat then
-                SecureStateDriverManager:RegisterEvent("PLAYER_REGEN_DISABLED")
-                SecureStateDriverManager:RegisterEvent("PLAYER_REGEN_ENABLED")
-            end
-            RegisterStateDriver(stateFrame, "mov", macro)
-            stateFrame:SetAttribute("_onstate-mov", [[
-                if newstate == 1 then
-                    self:SetBindingClick(1, "BUTTON2", "EUI_MouseLookBtn")
-                else
-                    self:ClearBindings()
-                end
-            ]])
+        if db and (db.disableRightClickTarget or db.disableRightClickTargetAllyCombat) then
+            ApplyOutOfCombatState()
         else
-            UnregisterStateDriver(stateFrame, "mov")
+            DisableCombatDriver()
             ClearOverrideBindings(stateFrame)
         end
     end
@@ -2850,9 +2876,23 @@ do
 
     local rcInitFrame = CreateFrame("Frame")
     rcInitFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    rcInitFrame:SetScript("OnEvent", function(self)
-        self:UnregisterEvent("PLAYER_ENTERING_WORLD")
-        ApplyRightClickTarget()
+    rrcInitFrame:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
+    rcInitFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+    rcInitFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    rcInitFrame:SetScript("OnEvent", function(self, event)
+        if event == "PLAYER_ENTERING_WORLD" then
+            self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+            ApplyRightClickTarget()
+        elseif event == "PLAYER_REGEN_DISABLED" then
+            EnableCombatDriver()
+        elseif event == "PLAYER_REGEN_ENABLED" then
+            DisableCombatDriver()
+            ApplyOutOfCombatState()
+        elseif event == "UPDATE_MOUSEOVER_UNIT" then
+            if not InCombatLockdown() then
+                ApplyOutOfCombatState()
+            end
+        end
     end)
 end
 
