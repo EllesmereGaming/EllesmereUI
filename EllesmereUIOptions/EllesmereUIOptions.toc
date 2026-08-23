@@ -26,6 +26,7 @@ EUI_CooldownManager_Options.lua
 EUI_DamageMeters_Options.lua
 EllesmereUIDataBars_Options.lua
 EUI_Friends_Options.lua
+EUI_LootTracker_Options.lua
 EUI_Minimap_Options.lua
 EUI_MythicTimer_Options.lua
 EUI_Nameplates_Options.lua
