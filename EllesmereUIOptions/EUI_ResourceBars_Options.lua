@@ -7134,7 +7134,16 @@ initFrame:SetScript("OnEvent", function(self)
             local function ToggleFrame(anchor)
                 -- Nothing to configure with no config (Advanced, no spec selected/customised). The disabled overlay already blocks this, but the open path is guarded too.
                 if not DB() then return end
-                if not thrPage then BuildFrame({topY = _advTop, botY = y}) end
+                if not thrPage then
+                    BuildFrame({topY = _advTop, botY = y})
+                    -- BuildFrame lazily assigns the popup and detail refresher after
+                    -- _thrCtx was initially stamped below. Refresh the singleton so
+                    -- option toggles and spec events can update an already-open popup.
+                    if ns._thrCtx then
+                        ns._thrCtx.page = thrPage
+                        ns._thrCtx.refreshDetail = RefreshDetail
+                    end
+                end
 				if thrPage:IsShown() then
 					-- Unlock cycle: forces a correct redraw
 					if thrPage:GetLeft() ~= nil then
