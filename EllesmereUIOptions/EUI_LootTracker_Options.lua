@@ -113,11 +113,16 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
     name:SetText(item.link or item.name or ("Item " .. item.itemID))
     local slot = Font(frame, 9, 0.55, 0.58, 0.64, 1)
     slot:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT", 9, 2)
-    local displayItemLevel = item.itemLevel
-    if not displayItemLevel then
-        displayItemLevel = source.kind == "raid"
-            and ns.GetRaidTargetLevel(source, specID, difficultyID, item.itemID)
-            or ns.GetMPlusTargetLevel(Profile().selectedKeyLevel)
+    -- Dungeon links carry the Encounter Journal's base item level, which does
+    -- not change when the selected target key changes. Display the calculated
+    -- Voidcore reward level for M+ instead; raids retain their difficulty-
+    -- specific item level from the journal (with the seasonal fallback).
+    local displayItemLevel
+    if source.kind == "dungeon" then
+        displayItemLevel = ns.GetMPlusTargetLevel(Profile().selectedKeyLevel)
+    else
+        displayItemLevel = item.itemLevel
+            or ns.GetRaidTargetLevel(source, specID, difficultyID, item.itemID)
     end
     local slotText = item.slot or ""
     if displayItemLevel then slotText = slotText .. "  |cff777d88• iLvl " .. displayItemLevel .. "|r" end
