@@ -449,6 +449,8 @@ eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
 eventFrame:RegisterEvent("SPELL_CONFIRMATION_PROMPT")
 eventFrame:RegisterEvent("BONUS_ROLL_RESULT")
+eventFrame:RegisterEvent("EJ_LOOT_DATA_RECIEVED")
+eventFrame:RegisterEvent("CHALLENGE_MODE_MAPS_UPDATE")
 eventFrame:SetScript("OnEvent", function(_, event, ...)
     if event == "ADDON_LOADED" and ... == ADDON_NAME then
         profileDB = EllesmereUI.Lite.NewDB("EllesmereUILootTrackerDB", DB_DEFAULTS)
@@ -464,6 +466,9 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" or event == "ACTIVE_TALENT_GROUP_CHANGED" then
         ns.InvalidateCatalog()
         FireChanged("spec")
+    elseif event == "EJ_LOOT_DATA_RECIEVED" or event == "CHALLENGE_MODE_MAPS_UPDATE" then
+        ns.InvalidateCatalog()
+        FireChanged("catalog")
     elseif event == "BAG_UPDATE_DELAYED" or event == "PLAYER_EQUIPMENT_CHANGED" then
         ns.QueueInventoryScan()
     end
