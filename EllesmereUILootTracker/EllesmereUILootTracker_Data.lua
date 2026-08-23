@@ -15,7 +15,9 @@ ns.DUNGEON_SOURCES = {
         159643, 159644, 159645, 159667, 160213, 160216, 239045, 239046, 239047,
         239048, 239049, 239050, 239051, 273649,
     } }, -- King's Rest
-    { challengeModeID = 250, instanceID = 1877, journalInstanceID = 1030, chestItemID = 279624 }, -- Temple of Sethraliss
+    { challengeModeID = 250, instanceID = 1877, journalInstanceID = 1030, chestItemID = 279624, fallbackItems = {
+        239037, -- C'thraxxi Binders Pauldrons (seasonal non-Azerite replacement)
+    } }, -- Temple of Sethraliss
     { challengeModeID = 399, instanceID = 2521, journalInstanceID = 1202, chestItemID = 279622 }, -- Ruby Life Pools
     { challengeModeID = 584, instanceID = 2859, journalInstanceID = 1309, chestItemID = 279619 }, -- Blinding Vale
     { challengeModeID = 585, instanceID = 2923, journalInstanceID = 1313, chestItemID = 279625 }, -- Voidscar Arena
