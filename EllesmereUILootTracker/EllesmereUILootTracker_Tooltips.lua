@@ -36,6 +36,144 @@ if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall then
     TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, AddGoalLine)
 end
 
+-------------------------------------------------------------------------------
+-- Wishlist markers on equipped and bag item icons
+-------------------------------------------------------------------------------
+local markers = setmetatable({}, { __mode = "k" })
+local observedRoots = setmetatable({}, { __mode = "k" })
+local markerRefreshQueued
+local QueueMarkerRefresh
+
+local CHARACTER_SLOTS = {
+    "CharacterHeadSlot", "CharacterNeckSlot", "CharacterShoulderSlot", "CharacterBackSlot",
+    "CharacterChestSlot", "CharacterWristSlot", "CharacterHandsSlot", "CharacterWaistSlot",
+    "CharacterLegsSlot", "CharacterFeetSlot", "CharacterFinger0Slot", "CharacterFinger1Slot",
+    "CharacterTrinket0Slot", "CharacterTrinket1Slot", "CharacterMainHandSlot",
+    "CharacterSecondaryHandSlot",
+}
+
+local function EnsureMarker(button)
+    local marker = markers[button]
+    if marker then return marker end
+    -- Item buttons can be protected. Do not add regions to one for the first
+    -- time during combat; the next inventory refresh will finish the setup.
+    if InCombatLockdown and InCombatLockdown() then return end
+
+    local bg = button:CreateTexture(nil, "OVERLAY", nil, 6)
+    bg:SetSize(15, 15)
+    bg:SetPoint("TOPRIGHT", button, "TOPRIGHT", -1, -1)
+    bg:SetColorTexture(0.025, 0.03, 0.04, 0.94)
+
+    local glyph = button:CreateFontString(nil, "OVERLAY")
+    glyph:SetPoint("CENTER", bg, "CENTER", 0, 0)
+    glyph:SetFont(STANDARD_TEXT_FONT, 10, "OUTLINE")
+    glyph:SetText("W")
+
+    marker = { bg = bg, glyph = glyph }
+    markers[button] = marker
+    return marker
+end
+
+local function SetMarker(button, itemID)
+    local marker = markers[button]
+    local goal = itemID and ns.GetAnyGoal(itemID)
+    if not goal or ns.GetProfile().showWishlistMarkers == false then
+        if marker then marker.bg:Hide(); marker.glyph:Hide() end
+        return
+    end
+    marker = marker or EnsureMarker(button)
+    if not marker then return end
+    local color = ns.PRIORITY_COLORS[goal.priority] or { 1, 1, 1 }
+    marker.glyph:SetTextColor(color[1], color[2], color[3], 1)
+    marker.bg:Show()
+    marker.glyph:Show()
+end
+
+local function BagCoordinates(button)
+    local bagID
+    if button.GetBagID then
+        local ok, value = pcall(button.GetBagID, button)
+        if ok then bagID = value end
+    end
+    if bagID == nil then
+        local parent = button:GetParent()
+        if parent and parent.GetID then bagID = parent:GetID() end
+    end
+    local slotID = button.GetID and button:GetID()
+    return tonumber(bagID), tonumber(slotID)
+end
+
+local function ScanBagButtons(root)
+    if not root then return end
+    local stack, seen = { root }, {}
+    while #stack > 0 do
+        local frame = table.remove(stack)
+        if not seen[frame] then
+            seen[frame] = true
+            if frame ~= root and frame.GetObjectType then
+                local objectType = frame:GetObjectType()
+                if objectType == "Button" or objectType == "ItemButton" then
+                    local bagID, slotID = BagCoordinates(frame)
+                    if bagID and slotID and slotID > 0 then
+                        local itemID = C_Container.GetContainerItemID(bagID, slotID)
+                        if itemID or markers[frame] then SetMarker(frame, itemID) end
+                    end
+                end
+            end
+            if frame.GetChildren then
+                local children = { frame:GetChildren() }
+                for index = 1, #children do stack[#stack + 1] = children[index] end
+            end
+        end
+    end
+end
+
+local function RefreshCharacterMarkers()
+    for _, name in ipairs(CHARACTER_SLOTS) do
+        local button = _G[name]
+        if button then SetMarker(button, GetInventoryItemID("player", button:GetID())) end
+    end
+end
+
+local function RefreshMarkersNow()
+    markerRefreshQueued = nil
+    RefreshCharacterMarkers()
+    local function ScanRoot(root)
+        if not root then return end
+        if not observedRoots[root] then
+            observedRoots[root] = true
+            root:HookScript("OnShow", QueueMarkerRefresh)
+        end
+        ScanBagButtons(root)
+    end
+    ScanRoot(_G.ContainerFrameCombinedBags)
+    for index = 1, (NUM_CONTAINER_FRAMES or 13) do
+        ScanRoot(_G["ContainerFrame" .. index])
+    end
+    ScanRoot(_G.EUI_Bags)
+    ScanRoot(_G.EUI_BagsReagent)
+    ScanRoot(_G.EUI_BankFrame)
+end
+
+QueueMarkerRefresh = function()
+    if markerRefreshQueued then return end
+    markerRefreshQueued = true
+    C_Timer.After(0, RefreshMarkersNow)
+end
+
+ns.RefreshWishlistMarkers = QueueMarkerRefresh
+ns.RegisterCallback(QueueMarkerRefresh)
+
+local markerEvents = CreateFrame("Frame")
+markerEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+markerEvents:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+markerEvents:RegisterEvent("BAG_UPDATE_DELAYED")
+markerEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
+markerEvents:RegisterEvent("PLAYER_LOOT_SPEC_UPDATED")
+markerEvents:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+markerEvents:RegisterEvent("ADDON_LOADED")
+markerEvents:SetScript("OnEvent", QueueMarkerRefresh)
+
 local function FindJournalSource(itemID)
     local journal = _G.EncounterJournal
     if not journal then return end

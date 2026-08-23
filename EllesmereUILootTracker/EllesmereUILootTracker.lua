@@ -8,6 +8,7 @@ local DB_DEFAULTS = {
     profile = {
         enabled = true,
         showItemTooltips = true,
+        showWishlistMarkers = true,
         autoArchive = true,
         showArchived = false,
         selectedKeyLevel = 10,
