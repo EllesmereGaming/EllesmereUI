@@ -307,10 +307,23 @@ local function UpdateOverlayVisuals()
 end
 ns.UpdateOverlayVisuals = UpdateOverlayVisuals
 
---- Rebuild overlays and force a visual update
-function ns.RequestBarGlowUpdate()
+-- Avoids scheduling more than one pending rebuild at a time.
+local _pendingGlowUpdate = false
+
+local function DoBarGlowUpdate()
+    _pendingGlowUpdate = false
     SetupOverlays()
     UpdateOverlayVisuals()
+end
+
+--- Rebuild overlays and force a visual update.
+--- Runs one frame later via C_Timer.After so it never executes on a
+--- tainted call stack, since reading a protected button's width/height
+--- while tainted can hand back a value later math can't be done on.
+function ns.RequestBarGlowUpdate()
+    if _pendingGlowUpdate then return end
+    _pendingGlowUpdate = true
+    C_Timer.After(0, DoBarGlowUpdate)
 end
 -- Alias for backward compatibility with options code
 ns.RequestUpdate = ns.RequestBarGlowUpdate
