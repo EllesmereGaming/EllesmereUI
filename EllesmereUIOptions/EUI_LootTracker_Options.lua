@@ -11,6 +11,8 @@ local PAGE_SETTINGS = "Settings"
 local ROW_H, ROW_GAP = 46, 3
 local pageRebuildQueued
 local catalogRetries = {}
+local CHECK_MARKUP = CreateAtlasMarkup and CreateAtlasMarkup("common-icon-checkmark", 12, 12)
+    or "|TInterface\\RaidFrame\\ReadyCheck-Ready:12:12|t"
 
 local function QueuePageRebuild()
     if pageRebuildQueued then return end
@@ -142,7 +144,7 @@ end
 
 local function BuildItemRow(parent, y, source, item, specID, difficultyID)
     local sourceKey = source.kind == "raid" and ns.RaidKey(source.encounterID, difficultyID) or ns.DungeonKey(source.challengeModeID)
-    local frame = Card(parent, y, ROW_H)
+    local frame = Card(parent, y, ROW_H, true)
     frame:SetFrameLevel(parent:GetFrameLevel() + 2)
     local icon = frame:CreateTexture(nil, "ARTWORK")
     icon:SetSize(34, 34)
@@ -181,24 +183,44 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
     status:SetJustifyH("RIGHT")
     status:SetText(priorityText)
     local pool = ns.GetPool(sourceKey, specID)
-    local die = Font(frame, 14, 0.55, 0.55, 0.55, 1)
-    die:SetPoint("RIGHT", frame, "RIGHT", -14, 0)
-    die:SetText(pool.knocked[item.itemID] and "|cff0cd29f●|r" or "○")
+    local poolState = frame:CreateTexture(nil, "ARTWORK")
+    poolState:SetSize(7, 7)
+    poolState:SetPoint("RIGHT", frame, "RIGHT", -14, 0)
+    if pool.knocked[item.itemID] then
+        poolState:SetColorTexture(0.05, 0.82, 0.62, 1)
+    else
+        poolState:SetColorTexture(0.38, 0.4, 0.45, 0.7)
+    end
 
-    -- Use a dedicated high-level hit target. The scroll child and card artwork
-    -- can otherwise win mouse hit-testing at the card's inherited frame level.
-    local hitbox = CreateFrame("Button", nil, frame)
-    hitbox:SetAllPoints(frame)
-    hitbox:SetFrameLevel(frame:GetFrameLevel() + 2)
+    -- The row itself is the button. Keeping one mouse-enabled frame avoids
+    -- decorative child regions or nested frame levels intercepting clicks.
+    local hitbox = frame
     hitbox:EnableMouse(true)
     if hitbox.SetMouseClickEnabled then hitbox:SetMouseClickEnabled(true) end
     if hitbox.SetMouseMotionEnabled then hitbox:SetMouseMotionEnabled(true) end
     hitbox:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    local check = Font(hitbox, 17, 0.33, 0.87, 0.53, 1)
+    local check = hitbox:CreateTexture(nil, "OVERLAY")
+    check:SetAtlas("common-icon-checkmark")
+    check:SetSize(16, 16)
     check:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 4, -4)
-    check:SetText(obtained and "✓" or "")
-    if check.SetMouseClickEnabled then check:SetMouseClickEnabled(false) end
-    if check.SetMouseMotionEnabled then check:SetMouseMotionEnabled(false) end
+    check:SetVertexColor(0.33, 0.87, 0.53, 1)
+    check:SetShown(obtained)
+    local function HandleItemClick(button)
+        local currentGoal = ns.GetGoal(sourceKey, item.itemID, specID)
+        local currentPool = ns.GetPool(sourceKey, specID)
+        if button == "RightButton" then
+            ns.SetPoolItemState(sourceKey, item.itemID, not currentPool.knocked[item.itemID], specID, "manual")
+        elseif button == "LeftButton" then
+            if currentGoal and currentGoal.state == "archived" then
+                ns.ReactivateGoal(sourceKey, item.itemID, specID)
+            else
+                local target = source.kind == "raid"
+                    and displayItemLevel
+                    or ns.GetMPlusTargetLevel(Profile().selectedKeyLevel)
+                ns.CycleGoal(source, item, specID, difficultyID, target)
+            end
+        end
+    end
     hitbox:SetScript("OnEnter", function(self)
         frame._hover:SetColorTexture(1, 1, 1, 0.035)
         ShowItemTooltip(self, item, displayItemLevel, true, targetLink)
@@ -212,22 +234,9 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
     hitbox:SetScript("OnMouseDown", function()
         frame._hover:SetColorTexture(1, 1, 1, 0.075)
     end)
-    hitbox:SetScript("OnMouseUp", function()
+    hitbox:SetScript("OnMouseUp", function(_, button, upInside)
         frame._hover:SetColorTexture(1, 1, 1, 0.035)
-    end)
-    hitbox:SetScript("OnClick", function(_, button)
-        local currentGoal = ns.GetGoal(sourceKey, item.itemID, specID)
-        local currentPool = ns.GetPool(sourceKey, specID)
-        if button == "RightButton" then
-            ns.SetPoolItemState(sourceKey, item.itemID, not currentPool.knocked[item.itemID], specID, "manual")
-        elseif currentGoal and currentGoal.state == "archived" then
-            ns.ReactivateGoal(sourceKey, item.itemID, specID)
-        else
-            local target = source.kind == "raid"
-                and displayItemLevel
-                or ns.GetMPlusTargetLevel(Profile().selectedKeyLevel)
-            ns.CycleGoal(source, item, specID, difficultyID, target)
-        end
+        if upInside ~= false then HandleItemClick(button) end
     end)
     return ROW_H + ROW_GAP
 end
@@ -431,7 +440,7 @@ local function BuildOverview(parent, yOffset)
                 line:SetJustifyH("LEFT")
                 local target = goal.minItemLevel and ("  |cff777d88(" .. goal.minItemLevel .. "+)|r") or ""
                 local obtained = goal.state == "archived" or ns.IsItemOwned(goal.itemID, goal.minItemLevel)
-                local done = obtained and ("  |cff55dd88✓ " .. L("Obtained") .. "|r") or ""
+                local done = obtained and ("  " .. CHECK_MARKUP .. " |cff55dd88" .. L("Obtained") .. "|r") or ""
                 line:SetText((goal.itemLink or goal.itemName or goal.itemID) .. target .. done)
                 local tooltipItem = {
                     itemID = goal.itemID,
