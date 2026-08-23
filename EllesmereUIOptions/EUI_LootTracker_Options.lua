@@ -174,9 +174,6 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
 
     local goal = ns.GetGoal(sourceKey, item.itemID, specID)
     local obtained = (goal and goal.state == "archived") or ns.IsItemOwned(item.itemID, displayItemLevel)
-    local check = Font(frame, 17, 0.33, 0.87, 0.53, 1)
-    check:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 4, -4)
-    check:SetText(obtained and "✓" or "")
     local priorityText, pr, pg, pb = PriorityText(goal)
     local status = Font(frame, 10, pr, pg, pb, 1)
     status:SetPoint("RIGHT", frame, "RIGHT", -40, 0)
@@ -194,7 +191,14 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
     hitbox:SetAllPoints(frame)
     hitbox:SetFrameLevel(frame:GetFrameLevel() + 2)
     hitbox:EnableMouse(true)
+    if hitbox.SetMouseClickEnabled then hitbox:SetMouseClickEnabled(true) end
+    if hitbox.SetMouseMotionEnabled then hitbox:SetMouseMotionEnabled(true) end
     hitbox:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    local check = Font(hitbox, 17, 0.33, 0.87, 0.53, 1)
+    check:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 4, -4)
+    check:SetText(obtained and "✓" or "")
+    if check.SetMouseClickEnabled then check:SetMouseClickEnabled(false) end
+    if check.SetMouseMotionEnabled then check:SetMouseMotionEnabled(false) end
     hitbox:SetScript("OnEnter", function(self)
         frame._hover:SetColorTexture(1, 1, 1, 0.035)
         ShowItemTooltip(self, item, displayItemLevel, true, targetLink)
