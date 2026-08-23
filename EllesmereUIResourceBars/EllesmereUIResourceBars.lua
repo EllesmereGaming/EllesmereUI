@@ -4579,6 +4579,39 @@ end
 -- Colors -- callers only reach this when ActiveBuffColor already returned nil, so a tracked
 -- buff always wins when both would otherwise apply.
 --
+-- C_Spell.IsSpellUsable has never meant "off cooldown" -- historically it reports
+-- affordability/knowledge/range, not cooldown state. For a normal resource-costing
+-- spender this goes unnoticed: casting the ability also spends the resource, so
+-- right after casting it's simultaneously on cooldown AND resource-insufficient,
+-- and the second correctly masks the first. An ability that's free under some
+-- condition (e.g. Devourer DH's Void Ray while Void Metamorphosis is active)
+-- removes that masking -- resource-sufficiency is always true, so without an
+-- explicit cooldown check it would incorrectly read "usable" for the entire
+-- cooldown window. IsOnRealCooldown below closes this for every Spender entry,
+-- on every bar (this function is shared by Class Resource Bar, Power Bar, and
+-- Health Bar), not just the case that surfaced it.
+--
+-- GetSpellCooldown's isActive is true for BOTH the ability's own cooldown AND the
+-- shared GCD; isOnGCD distinguishes them, so a GCD-only "cooldown" correctly does
+-- NOT suppress the color -- otherwise every spender would read "on cooldown" for
+-- the 1.5s (Haste-scaled) GCD after every single cast, which is not what "usable"
+-- should mean here. Same pcall-the-boolean-branch caution as IsSpellUsable below:
+-- if GetSpellCooldown's fields were ever secret in some untested content mode,
+-- evaluating them truthy/falsy is what would throw, so the whole check sits
+-- inside the pcall, not just the call. A failure here fails open (treated as "not
+-- on a real cooldown"), falling through to the normal IsSpellUsable check below --
+-- degrading to the exact pre-existing behavior rather than wrongly suppressing a
+-- genuinely usable spell over an unrelated API hiccup.
+local function IsOnRealCooldown(spellID)
+    local getCD = C_Spell and C_Spell.GetSpellCooldown
+    if not getCD then return false end
+    local ok, active = pcall(function()
+        local cd = getCD(spellID)
+        return cd and cd.isActive == true and cd.isOnGCD ~= true
+    end)
+    return ok and active or false
+end
+--
 -- C_Spell.IsSpellUsable is documented (and field-tested) as reporting the PLAYER'S OWN
 -- ability to cast a spell, not an opponent-facing combat value, so it is not expected to be
 -- a Midnight secret value the way e.g. an enemy's interrupt-protection flag is elsewhere in
@@ -4600,7 +4633,7 @@ ActiveSpenderColor = function(entry)
     if not (list and C_Spell and C_Spell.IsSpellUsable) then return nil end
     for i = 1, #list do
         local e = list[i]
-        if e.spellID then
+        if e.spellID and not IsOnRealCooldown(e.spellID) then
             local ok, usable = pcall(function()
                 return C_Spell.IsSpellUsable(e.spellID) and true or false
             end)
