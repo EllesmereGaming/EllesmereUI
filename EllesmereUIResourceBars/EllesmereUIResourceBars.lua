@@ -1276,6 +1276,7 @@ local DEFAULTS = {
             alwaysShow    = false,  -- keep the bar on screen (sitting empty) while nothing is being cast
             showIcon      = true,
             iconOnRight   = false,  -- attach the spell icon to the right of the bar instead of the left
+            showIconDivider = false,  -- draw a 1px divider at the icon/bar seam (interior seam has no border otherwise)
             width         = 220,
             height        = 20,
             anchorX       = 0,
@@ -1753,6 +1754,13 @@ local function MakePixelBorder(parent, r, g, b, a, size, textureKey, texOffset, 
             if shown then PP.ShowBorder(bf) else PP.HideBorder(bf) end
         end,
         ApplyStyle = function(self, newSz, cr, cg, cb, ca, texKey, texOff, texOffY, sX, sY, addonKey, sizeKey)
+            -- A bar repositioned by the unlock anchor system loses this frame's
+            -- SetAllPoints edge: GetPoint still reports TOPLEFT/BOTTOMRIGHT to the bar,
+            -- but the rect stops resolving (GetLeft() nil, GetWidth() 0). The strips are
+            -- anchored here, so each one falls back to WHITE8X8's natural 8px on the
+            -- dimension it takes from anchors and the border disappears until the border
+            -- SIZE changes. Re-issuing the same SetAllPoints restores it.
+            if not bf:GetLeft() then bf:SetAllPoints(parent) end
             EllesmereUI.ApplyBorderStyle(bf, newSz, cr, cg, cb, ca or 1, texKey or "solid", texOff, texOffY, sX, sY, addonKey, sizeKey)
         end,
     }
@@ -4579,17 +4587,29 @@ end
 -- Colors -- callers only reach this when ActiveBuffColor already returned nil, so a tracked
 -- buff always wins when both would otherwise apply.
 --
--- Also checks for a real cooldown, not just resource cost -- IsSpellUsable alone
--- doesn't mean "off cooldown." Normally invisible, since casting a spell also spends
--- its resource, so cooldown and resource-insufficiency happen at the same time. An
--- edge case spender like Void Ray (Devourer DH, free while Void Metamorphosis is
--- active) breaks that -- IsOnRealCooldown below catches it, for every Spender on
--- every bar. Gated on isOnGCD too, or every spender would read "on cooldown" for the
--- GCD after every single cast.
+-- C_Spell.IsSpellUsable has never meant "off cooldown" -- historically it reports
+-- affordability/knowledge/range, not cooldown state. For a normal resource-costing
+-- spender this goes unnoticed: casting the ability also spends the resource, so
+-- right after casting it's simultaneously on cooldown AND resource-insufficient,
+-- and the second correctly masks the first. An ability that's free under some
+-- condition (e.g. Devourer DH's Void Ray while Void Metamorphosis is active)
+-- removes that masking -- resource-sufficiency is always true, so without an
+-- explicit cooldown check it would incorrectly read "usable" for the entire
+-- cooldown window. IsOnRealCooldown below closes this for every Spender entry,
+-- on every bar (this function is shared by Class Resource Bar, Power Bar, and
+-- Health Bar), not just the case that surfaced it.
 --
--- Both the call and the boolean check happen inside the pcall (in case the fields
--- are ever secret) -- a failure just falls through to the normal IsSpellUsable
--- check, same as before this existed.
+-- GetSpellCooldown's isActive is true for BOTH the ability's own cooldown AND the
+-- shared GCD; isOnGCD distinguishes them, so a GCD-only "cooldown" correctly does
+-- NOT suppress the color -- otherwise every spender would read "on cooldown" for
+-- the 1.5s (Haste-scaled) GCD after every single cast, which is not what "usable"
+-- should mean here. Same pcall-the-boolean-branch caution as IsSpellUsable below:
+-- if GetSpellCooldown's fields were ever secret in some untested content mode,
+-- evaluating them truthy/falsy is what would throw, so the whole check sits
+-- inside the pcall, not just the call. A failure here fails open (treated as "not
+-- on a real cooldown"), falling through to the normal IsSpellUsable check below --
+-- degrading to the exact pre-existing behavior rather than wrongly suppressing a
+-- genuinely usable spell over an unrelated API hiccup.
 local function IsOnRealCooldown(spellID)
     local getCD = C_Spell and C_Spell.GetSpellCooldown
     if not getCD then return false end
@@ -6680,6 +6700,21 @@ BuildCastBar = function()
         castBarFrame._iconFrame = iconFrame
         castBarFrame._icon = icon
 
+        -- Optional 1px divider at the icon/bar seam (opt-in: "Show Icon Divider").
+        -- That seam is otherwise interior with no border by design (see the clip-inset
+        -- comment below). Parented to the border frame (pl+5), not castBarFrame itself
+        -- (pl+15): a texture drawn directly on castBarFrame renders at castBarFrame's
+        -- own frame level, which sits BELOW the icon and bar/clip child frames -- it
+        -- would be invisible under them regardless of draw layer, since draw layer only
+        -- orders content within the SAME frame, not across frames.
+        local iconDivider = castBarFrame._border:CreateTexture(nil, "OVERLAY", nil, 7)
+        iconDivider:Hide()
+        if iconDivider.SetSnapToPixelGrid then
+            iconDivider:SetSnapToPixelGrid(false)
+            iconDivider:SetTexelSnappingBias(0)
+        end
+        castBarFrame._iconDivider = iconDivider
+
         -- Text overlay frame (above all bar borders)
         local textFrame = CreateFrame("Frame", nil, castBarFrame)
         textFrame:SetAllPoints(bar)
@@ -6741,7 +6776,15 @@ BuildCastBar = function()
                 local ah = castBarFrame["_barAnim_h"] or h
                 castBarFrame:SetSize(aw, ah)
                 castBarFrame:ClearAllPoints()
-                castBarFrame:SetPoint(cb.unlockPos.point, UIParent, rp, px, py)
+                -- Snap the stored CENTER/CENTER position to the pixel grid, dimension-
+                -- aware (SnapXY -> SnapCenterForDim): an odd-pixel-height frame needs a
+                -- +0.5px center offset for BOTH top and bottom edges to land on whole
+                -- pixels. The unlock-mode drag path (castApply, near ERB_CastBar's MK()
+                -- registration above) already does this; this normal-build path never
+                -- did, so a raw stored position landed the center off-grid, and the
+                -- border rendered thicker on one edge and missing on the opposite one.
+                local sx, sy = SnapXY(px, py, castBarFrame, cb.unlockPos)
+                castBarFrame:SetPoint(cb.unlockPos.point, UIParent, rp, sx, sy)
             end
             SmoothBarAnimate(castBarFrame, "w", totalW, function() ApplyCastUnlockTransform() end)
             SmoothBarAnimate(castBarFrame, "h", h, function() ApplyCastUnlockTransform() end)
@@ -6781,6 +6824,31 @@ BuildCastBar = function()
         iconFrame:Show()
     else
         iconFrame:Hide()
+    end
+
+    -- Optional icon/bar seam divider (opt-in "Show Icon Divider"). Same
+    -- onePixel math as the perimeter border (SnapBorderTextures) so it reads
+    -- as the same thickness. Anchored to iconFrame's inner edge and given
+    -- only a width (both vertical anchor points already match iconFrame's
+    -- own top/bottom, so it inherits the full bar height automatically).
+    local iconDivider = castBarFrame._iconDivider
+    if hasIcon and cb.showIconDivider then
+        local des = castBarFrame:GetEffectiveScale()
+        local onePixel = des > 0 and (PP.perfect / des) or PP.mult
+        local dbs = cb.borderSize or 1
+        iconDivider:ClearAllPoints()
+        iconDivider:SetWidth(math.max(onePixel, math.floor(dbs + 0.5) * onePixel))
+        if iconOnRight then
+            iconDivider:SetPoint("TOPRIGHT", iconFrame, "TOPLEFT", 0, 0)
+            iconDivider:SetPoint("BOTTOMRIGHT", iconFrame, "BOTTOMLEFT", 0, 0)
+        else
+            iconDivider:SetPoint("TOPLEFT", iconFrame, "TOPRIGHT", 0, 0)
+            iconDivider:SetPoint("BOTTOMLEFT", iconFrame, "BOTTOMRIGHT", 0, 0)
+        end
+        iconDivider:SetColorTexture(cb.borderR or 0, cb.borderG or 0, cb.borderB or 0, cb.borderA or 1)
+        iconDivider:Show()
+    else
+        iconDivider:Hide()
     end
 
     -- Clip frame + bar: beside the icon (or full width), full height
@@ -8383,7 +8451,12 @@ BuildGCDBar = function()
             if not (anchored and gcdBarFrame:GetLeft()) then
                 local rp = g.unlockPos.relPoint or g.unlockPos.point
                 gcdBarFrame:ClearAllPoints()
-                gcdBarFrame:SetPoint(g.unlockPos.point, UIParent, rp, g.unlockPos.x or 0, g.unlockPos.y or 0)
+                -- Same dimension-aware snap as the cast bar above: the unlock-mode
+                -- drag path (gcdApply, near ERB_GCDBar's MK() registration) already
+                -- snaps; this normal-build path didn't, leaving the stored center
+                -- off-grid on odd-pixel heights.
+                local sx, sy = SnapXY(g.unlockPos.x or 0, g.unlockPos.y or 0, gcdBarFrame, g.unlockPos)
+                gcdBarFrame:SetPoint(g.unlockPos.point, UIParent, rp, sx, sy)
             end
         end
     else
@@ -9176,8 +9249,17 @@ local function OnEvent(self, event, ...)
             UpdatePrimaryBar()
             UpdateSecondaryResource()
         end
-    elseif event == "UNIT_MAXHEALTH" then
+    elseif event == "UNIT_MAXHEALTH" or event == "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" then
         UpdateHealthBar()
+        -- Two-step max-health landing (max first, value after): one next-frame
+        -- re-read settles torn numbers (canonical story: UF engine RESETTLE_EVENTS).
+        if not self._erbHpResettle then
+            self._erbHpResettle = true
+            C_Timer.After(0, function()
+                self._erbHpResettle = nil
+                UpdateHealthBar()
+            end)
+        end
         -- Stagger / Ignore Pain max derives from player max health
         if cachedSecondary and (cachedSecondary.power == "BREWMASTER_STAGGER"
            or cachedSecondary.power == "IGNOREPAIN_BAR") then
@@ -9560,6 +9642,7 @@ function ERB:OnEnable()
     local eventFrame = _erbEventFrame
     eventFrame:RegisterUnitEvent("UNIT_HEALTH", "player")
     eventFrame:RegisterUnitEvent("UNIT_MAXHEALTH", "player")
+    eventFrame:RegisterUnitEvent("UNIT_MAX_HEALTH_MODIFIERS_CHANGED", "player")
     eventFrame:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
     eventFrame:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")
     eventFrame:RegisterUnitEvent("UNIT_MAXPOWER", "player")
