@@ -119,6 +119,38 @@ EllesmereUI.ComputeCastBarTint = ComputeCastBarTint
 -- correct which comes from the TOKEN (no unit APIs -- UnitInRaid/identity
 -- reads can be SECRET for exactly these unstreamed units). Installed lazily
 -- with the first menu proxy; zero cost until a menu actually opens.
+-- Tokens that carry no group information of their own. The raidN/partyN cases
+-- below read their menu straight off the token; these three cannot, so they are
+-- resolved by ResolvePlayerMenu. They are the frames the token special-cases in
+-- SECURE_ACTIONS.togglemenu do not cover (party/boss/focus/arena do), so they
+-- fall through to UnitIsOtherPlayersPet / UnitIsOtherPlayersBattlePet and land on
+-- a pet menu for a group member whose data has not streamed -- the field report
+-- that started this: right-clicking the target frame on a party member in
+-- another zone offers Dismiss/Rename instead of Set Focus / Remove from group.
+local UNTOKENED_UNIT = {
+    target       = true,
+    targettarget = true,
+    focustarget  = true,
+}
+
+-- The correct menu for one of those, given we already know the unit is a Player.
+-- Same discipline as the GUID read below: an unstreamed unit can answer these
+-- with a SECRET and branching on a secret errors, so each read is tested before
+-- it is used and simply falls through when it cannot be trusted. PLAYER is the
+-- honest floor -- it loses Remove from group and Vote to Kick, but keeps Set
+-- Focus, Whisper, Trade and Invite, and it is never the wrong KIND of menu.
+local function ResolvePlayerMenu(unit)
+    local inRaid = UnitInRaid(unit)
+    if not (issecretvalue and issecretvalue(inRaid)) and inRaid then
+        return "RAID_PLAYER"
+    end
+    local inParty = UnitInParty(unit)
+    if not (issecretvalue and issecretvalue(inParty)) and inParty then
+        return "PARTY"
+    end
+    return "PLAYER"
+end
+
 local menuFixHooked = false
 local function InstallMenuClassifierFix()
     if menuFixHooked or type(UnitPopup_OpenMenu) ~= "function" then return end
@@ -131,7 +163,8 @@ local function InstallMenuClassifierFix()
         if type(unit) ~= "string" then return end
         local lu = unit:lower()
         local isRaidToken = lu:match("^raid[0-9]+$") ~= nil
-        if not isRaidToken and not lu:match("^party[0-9]+$") then return end
+        local isPartyToken = lu:match("^party[0-9]+$") ~= nil
+        if not (isRaidToken or isPartyToken or UNTOKENED_UNIT[lu]) then return end
         local guid = UnitGUID(unit)
         if issecretvalue and issecretvalue(guid) then return end
         if type(guid) ~= "string" or not guid:find("^Player%-") then return end
@@ -141,7 +174,10 @@ local function InstallMenuClassifierFix()
         -- fields are nil on entry -- re-passing the first open's table throws
         -- "assertion failed" at UnitPopupShared:53 (field-caught 2026-08-14;
         -- the live misfire classifies as OTHERBATTLEPET, same field capture).
-        UnitPopup_OpenMenu(isRaidToken and "RAID_PLAYER" or "PARTY", { unit = unit })
+        local correct = isRaidToken and "RAID_PLAYER"
+            or isPartyToken and "PARTY"
+            or ResolvePlayerMenu(unit)
+        UnitPopup_OpenMenu(correct, { unit = unit })
         reopening = false
     end)
 end
@@ -153,43 +189,12 @@ local menuProxies = setmetatable({}, { __mode = "k" })
 -- mouse-button STRING instead of the delegate); /click hits
 -- SecureActionButton_OnClick directly and is unaffected.
 local proxyCounter = 0
-
--- Units the compact opener has to cover, and the only ones. InstallMenuClassifierFix
--- above re-opens the correct menu whenever togglemenu misclassifies a raidN or
--- partyN token, so group frames need nothing from us. It does not match
--- target/targettarget/focustarget, and those fall through togglemenu's
--- UnitIsOtherPlayersPet / UnitIsOtherPlayersBattlePet branches, which answer true
--- for a unit whose data has not streamed -- a group member zoned elsewhere.
--- Right-clicking such a target opens the pet menu: Dismiss/Rename where Set Focus
--- and Remove from group belong.
---
--- Every other unit is already correct on togglemenu: party/boss/focus/arena hit an
--- explicit token special-case before any unit lookup runs, and player/pet/vehicle
--- resolve on its first UnitIsUnit checks.
---
--- Blizzard's own target frame carries the same bug: its menu-function is NOT
--- CompactUnitFrame_OpenMenu and misclassifies identically (verified in-game
--- 2026-08-21), so delegating the click into Blizzard's own hidden button does not
--- help either. The compact opener is the only classifier in the client that gets
--- this right, and reaching it costs the taint described below -- so no frame that
--- can avoid it should pay for it.
-local COMPACT_OPENER_UNIT = {
-    target       = true,
-    targettarget = true,
-    focustarget  = true,
-}
-
 -- Create (once) and return the hidden SecureActionButton proxy for a unit button.
 -- Use this when wiring a SPECIFIC click/key binding to the menu -- it does NOT
 -- touch the frame's own type attributes (so it won't clobber other bindings).
---
--- The three units above open through CompactUnitFrame_OpenMenu, whose chain has
--- neither OtherPlayersPet check and therefore cannot misfire. The cost is real and
--- deliberate: the secure "menu" action reaches it through
--- ExecuteAttribute("menu-function", ...), an attribute WE wrote, so our taint rides
--- into the menu build and entries carrying an interact distance (Trade, Follow,
--- Duel, Inspect -> UnitPopupSharedUtil.IsEnabled -> CheckInteractDistance) block
--- while in combat. Every other unit stays on togglemenu and stays clean.
+-- Proxies stay on togglemenu unconditionally: it is the only menu action that
+-- reads no attribute of ours, so it cannot taint the menu build. Its
+-- misclassification is corrected after the fact by InstallMenuClassifierFix.
 function EllesmereUI.GetSecureMenuProxy(frame)
     if not frame then return end
     InstallMenuClassifierFix()
@@ -203,17 +208,10 @@ function EllesmereUI.GetSecureMenuProxy(frame)
         proxy:SetAlpha(0)
         proxy:EnableMouse(false)          -- never catches real mouse; only the secure click delegate reaches it
         proxy:RegisterForClicks("AnyUp")
-        local unit = frame.GetAttribute and frame:GetAttribute("unit")
-        local useCompact = type(unit) == "string" and COMPACT_OPENER_UNIT[unit:lower()]
-            and type(CompactUnitFrame_OpenMenu) == "function"
-        local action = useCompact and "menu" or "togglemenu"
-        proxy:SetAttribute("type", action)
+        proxy:SetAttribute("type", "togglemenu")
         -- The secure resolver looks up type by BUTTON SUFFIX (RightButton -> type2);
         -- the bare "type" may not fall back, so set every button explicitly.
-        for i = 1, 5 do proxy:SetAttribute("type" .. i, action) end
-        if useCompact then
-            proxy:SetAttribute("menu-function", CompactUnitFrame_OpenMenu)
-        end
+        for i = 1, 5 do proxy:SetAttribute("type" .. i, "togglemenu") end
         proxy:SetAttribute("useparent-unit", true)
         -- Act on mouse-up regardless of the "cast on key down" CVar. Without this,
         -- SecureActionButton_OnClick's clickAction gate skips the menu action on the
