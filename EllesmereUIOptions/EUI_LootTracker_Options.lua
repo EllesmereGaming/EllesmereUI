@@ -144,7 +144,7 @@ end
 
 local function BuildItemRow(parent, y, source, item, specID, difficultyID)
     local sourceKey = source.kind == "raid" and ns.RaidKey(source.encounterID, difficultyID) or ns.DungeonKey(source.challengeModeID)
-    local frame = Card(parent, y, ROW_H, true)
+    local frame = Card(parent, y, ROW_H)
     frame:SetFrameLevel(parent:GetFrameLevel() + 2)
     local icon = frame:CreateTexture(nil, "ARTWORK")
     icon:SetSize(34, 34)
@@ -192,9 +192,12 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
         poolState:SetColorTexture(0.38, 0.4, 0.45, 0.7)
     end
 
-    -- The row itself is the button. Keeping one mouse-enabled frame avoids
-    -- decorative child regions or nested frame levels intercepting clicks.
-    local hitbox = frame
+    -- A final sibling overlay sits above the complete card hierarchy, including
+    -- its border frame. Parenting it to the page wrapper avoids child-frame
+    -- level constraints that can otherwise leave a visible row mouse-dead.
+    local hitbox = CreateFrame("Button", nil, parent)
+    hitbox:SetAllPoints(frame)
+    hitbox:SetFrameLevel(parent:GetFrameLevel() + 100)
     hitbox:EnableMouse(true)
     if hitbox.SetMouseClickEnabled then hitbox:SetMouseClickEnabled(true) end
     if hitbox.SetMouseMotionEnabled then hitbox:SetMouseMotionEnabled(true) end
@@ -234,9 +237,14 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
     hitbox:SetScript("OnMouseDown", function()
         frame._hover:SetColorTexture(1, 1, 1, 0.075)
     end)
-    hitbox:SetScript("OnMouseUp", function(_, button, upInside)
+    hitbox:SetScript("OnMouseUp", function()
         frame._hover:SetColorTexture(1, 1, 1, 0.035)
-        if upInside ~= false then HandleItemClick(button) end
+    end)
+    hitbox:SetScript("OnClick", function(_, button)
+        local ok, err = pcall(HandleItemClick, button)
+        if not ok then
+            print("|cffff5555EllesmereUI Loot Tracker click error:|r " .. tostring(err))
+        end
     end)
     return ROW_H + ROW_GAP
 end
