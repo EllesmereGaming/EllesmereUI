@@ -137,7 +137,6 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
                 or ns.GetMPlusTargetLevel(Profile().selectedKeyLevel)
             ns.CycleGoal(source, item, specID, difficultyID, target)
         end
-        EllesmereUI:RefreshPage()
     end)
     return ROW_H + ROW_GAP
 end
@@ -182,10 +181,16 @@ local function BuildSearchRow(parent, y)
     local label = Font(row, 11, 0.9, 0.9, 0.9, 1)
     label:SetPoint("LEFT", row, "LEFT", 12, 0)
     label:SetText(L("Search"))
-    local box = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
+    local box = CreateFrame("EditBox", nil, row)
     box:SetSize(260, 28)
     box:SetPoint("LEFT", row, "LEFT", 100, 0)
     box:SetAutoFocus(false)
+    box:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF", 11, "")
+    box:SetTextColor(0.92, 0.92, 0.92, 1)
+    box:SetTextInsets(8, 8, 0, 0)
+    local boxBg = box:CreateTexture(nil, "BACKGROUND")
+    boxBg:SetAllPoints(); boxBg:SetColorTexture(0.02, 0.025, 0.035, 0.9)
+    EllesmereUI.MakeBorder(box, 1, 1, 1, 0.13, EllesmereUI.PP)
     box:SetText(Profile().lootSearch or "")
     box:SetScript("OnEnterPressed", function(self)
         Profile().lootSearch = self:GetText():lower()
@@ -207,6 +212,16 @@ local function BuildCatalogPage(parent, yOffset, kind)
     local y = yOffset
     local _, h = W:SectionHeader(parent, kind == "raid" and "RAID LOOT" or "MYTHIC+ LOOT", y)
     y = y - h
+    if not ns.IsSeasonSupported() then
+        local warning = Card(parent, y, 74)
+        local text = Font(warning, 11, 1, 0.45, 0.25, 1)
+        text:SetPoint("TOPLEFT", warning, "TOPLEFT", 12, -12)
+        text:SetPoint("BOTTOMRIGHT", warning, "BOTTOMRIGHT", -12, 12)
+        text:SetWordWrap(true)
+        text:SetText(L("Loot Tracker data does not support the current season yet. Probabilities are disabled until the source mapping is updated."))
+        parent:SetHeight(120)
+        return 120
+    end
     y = SelectorRows(parent, y, kind)
     local specID = SelectedSpecID()
     local sourceID = kind == "raid" and Profile().selectedRaidEncounterID or Profile().selectedDungeonID
@@ -311,7 +326,7 @@ local function BuildOverview(parent, yOffset)
             chance:SetText(string.format("%.1f%%  •  %d %s", summary.chance * 100, summary.coreCost, L("Voidcore")))
             local pool = Font(card, 9, 0.55, 0.58, 0.64, 1)
             pool:SetPoint("TOPLEFT", name, "BOTTOMLEFT", 0, -3)
-            pool:SetText(string.format(L("%1$d desired • %2$d of %3$d remaining"), summary.desired, summary.remaining, summary.total))
+            pool:SetText(EllesmereUI.Lf("%1$d desired • %2$d of %3$d remaining", summary.desired, summary.remaining, summary.total))
             local offset = -48
             for _, goal in ipairs(grouped[sourceKey]) do
                 local color = ns.PRIORITY_COLORS[goal.priority] or { 1, 1, 1 }
@@ -371,8 +386,14 @@ initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
     if not EllesmereUI or not EllesmereUI.RegisterModule then return end
+    local refreshQueued
     ns.RegisterCallback(function()
-        if EllesmereUI._mainFrame and EllesmereUI._mainFrame:IsShown() then EllesmereUI:RefreshPage() end
+        if refreshQueued then return end
+        refreshQueued = true
+        C_Timer.After(0, function()
+            refreshQueued = nil
+            if EllesmereUI._mainFrame and EllesmereUI._mainFrame:IsShown() then EllesmereUI:RefreshPage() end
+        end)
     end)
     EllesmereUI:RegisterModule(ADDON_NAME, {
         title = "Loot Tracker",

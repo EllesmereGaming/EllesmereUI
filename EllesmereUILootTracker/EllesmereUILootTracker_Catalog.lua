@@ -179,8 +179,9 @@ end
 
 function ns.GetRaidTargetLevel(source, specID, difficultyID, itemID)
     for _, item in ipairs(BuildCatalog(source, specID, difficultyID)) do
-        if item.itemID == itemID then return item.itemLevel end
+        if item.itemID == itemID and item.itemLevel then return item.itemLevel end
     end
+    return ns.RAID_TARGET_LEVELS[difficultyID or 16]
 end
 
 -- Returns a name set from the authoritative "remaining items" block on a

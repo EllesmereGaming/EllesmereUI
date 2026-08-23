@@ -35,6 +35,7 @@ local listeners = {}
 local inventorySnapshot = {}
 local pendingRoll
 local scanQueued
+local pendingItemLoads = {}
 
 local function SeasonID()
     if C_SeasonInfo and C_SeasonInfo.GetCurrentDisplaySeasonID then
@@ -48,6 +49,11 @@ local function SeasonID()
     return 0
 end
 ns.GetSeasonID = SeasonID
+
+function ns.IsSeasonSupported()
+    local seasonID = SeasonID()
+    return seasonID == 0 or seasonID == ns.SUPPORTED_SEASON_ID
+end
 
 local function ResolveSpecID(specID)
     if specID and specID > 0 then return specID end
@@ -76,6 +82,10 @@ end
 
 function ns.GetSeasonData()
     return select(2, EnsureCharacterDB())
+end
+
+function ns.GetRollHistory()
+    return ns.GetSeasonData().rolls
 end
 
 local function SpecData(specID)
@@ -117,9 +127,15 @@ function ns.GetGoal(sourceKey, itemID, specID)
 end
 
 function ns.GetAnyGoal(itemID, specID)
+    local best
     for _, goal in pairs(SpecData(specID).goals) do
-        if goal.itemID == itemID then return goal end
+        if goal.itemID == itemID and (not best
+            or (best.state == "archived" and goal.state == "open")
+            or (best.state == goal.state and goal.priority > best.priority)) then
+            best = goal
+        end
     end
+    return best
 end
 
 function ns.AddGoal(source, item, priority, specID, difficultyID, targetLevel)
@@ -240,12 +256,22 @@ local function SafeItemLevel(link)
 end
 
 local function AddSnapshotItem(snapshot, link, count)
+    if issecretvalue and (issecretvalue(link) or issecretvalue(count)) then return end
     if not link then return end
     local itemID = C_Item.GetItemInfoInstant(link)
+    if issecretvalue and issecretvalue(itemID) then return end
     if not itemID then return end
     local entry = snapshot[itemID] or { count = 0, maxLevel = 0, link = link }
     entry.count = entry.count + (count or 1)
     local level = SafeItemLevel(link)
+    if level == 0 and not pendingItemLoads[itemID] then
+        pendingItemLoads[itemID] = true
+        local item = Item:CreateFromItemLink(link)
+        item:ContinueOnItemLoad(function()
+            pendingItemLoads[itemID] = nil
+            ns.QueueInventoryScan()
+        end)
+    end
     if level >= entry.maxLevel then entry.maxLevel, entry.link = level, link end
     snapshot[itemID] = entry
 end
@@ -255,7 +281,7 @@ local function BuildInventorySnapshot()
     for bag = 0, NUM_BAG_SLOTS do
         for slot = 1, C_Container.GetContainerNumSlots(bag) do
             local info = C_Container.GetContainerItemInfo(bag, slot)
-            if info and info.hyperlink then AddSnapshotItem(snapshot, info.hyperlink, info.stackCount) end
+            if info then AddSnapshotItem(snapshot, info.hyperlink, info.stackCount) end
         end
     end
     for slot = INVSLOT_FIRST_EQUIPPED, INVSLOT_LAST_EQUIPPED do
@@ -294,6 +320,10 @@ function ns.RescanSource(source, specID, difficultyID, onDone)
         and ns.RaidKey(source.encounterID, difficultyID)
         or ns.DungeonKey(source.challengeModeID)
     local candidates = ns.GetCatalog(source, specID, difficultyID)
+    if #candidates == 0 then
+        if onDone then onDone(false) end
+        return
+    end
     local attempts, previousCount, stable = 0, -1, 0
     local function Poll()
         attempts = attempts + 1
@@ -302,7 +332,7 @@ function ns.RescanSource(source, specID, difficultyID, onDone)
         if remainingNames then for _ in pairs(remainingNames) do count = count + 1 end end
         if count == previousCount and count > 0 then stable = stable + 1 else stable = 1 end
         previousCount = count
-        if remainingNames and stable >= 3 then
+        if remainingNames and count <= #candidates and stable >= 3 then
             local pool = ns.GetPool(sourceKey, specID)
             wipe(pool.knocked)
             for _, item in ipairs(candidates) do
@@ -356,8 +386,13 @@ local function OnSpellConfirmation(_, spellID)
 end
 
 local function OnBonusRoll(_, rewardType, rewardLink, _, rewardSpecID)
-    if rewardType ~= "item" or type(rewardLink) ~= "string" then pendingRoll = nil return end
+    if (issecretvalue and (issecretvalue(rewardType) or issecretvalue(rewardLink)))
+        or rewardType ~= "item" or type(rewardLink) ~= "string" then
+        pendingRoll = nil
+        return
+    end
     local itemID = C_Item.GetItemInfoInstant(rewardLink)
+    if issecretvalue and issecretvalue(itemID) then pendingRoll = nil return end
     local context = pendingRoll
     local source = context and ns.GetSourceByChest(context.chestItemID)
     if not itemID or not source then pendingRoll = nil return end
