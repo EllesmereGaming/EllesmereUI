@@ -97,11 +97,13 @@ local function BuildCatalog(source, specID, difficultyID)
     difficultyID = source.kind == "raid" and (difficultyID or 16) or DifficultyUtil.ID.DungeonChallenge
     local key = source.kind == "raid" and RaidKey(source.encounterID, difficultyID) or source.key
     catalog[key] = catalog[key] or {}
-    if catalog[key][specID] then return catalog[key][specID] end
+    local cached = catalog[key][specID]
+    if cached and not cached.dirty then return cached.items end
+    local previousItems = cached and cached.items
 
     local items = {}
     if not source.journalInstanceID then
-        catalog[key][specID] = items
+        catalog[key][specID] = { items = items, dirty = false }
         return items
     end
 
@@ -124,8 +126,9 @@ local function BuildCatalog(source, specID, difficultyID)
         EJ_SelectEncounter(source.journalEncounterID)
     end
 
-    local incomplete
-    for index = 1, EJ_GetNumLoot() do
+    local lootCount = EJ_GetNumLoot()
+    local incomplete = lootCount == 0
+    for index = 1, lootCount do
         local info = C_EncounterJournal.GetLootInfoByIndex(index)
         if info and info.itemID then
             local itemID = info.itemID
@@ -162,6 +165,9 @@ local function BuildCatalog(source, specID, difficultyID)
                     slot = slot,
                     itemLevel = itemLevel,
                 }
+            else
+                incomplete = true
+                if C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(itemID) end
             end
         else
             incomplete = true
@@ -177,14 +183,29 @@ local function BuildCatalog(source, specID, difficultyID)
         EJ_SelectInstance(oldInstanceID)
         if oldEncounterID then EJ_SelectEncounter(oldEncounterID) end
     end
-    table.sort(items, function(a, b)
-        if a.slot == b.slot then return (a.name or "") < (b.name or "") end
-        return (a.slot or "") < (b.slot or "")
-    end)
-    -- The Encounter Journal fills its item cache asynchronously. Never cache an
-    -- empty result permanently; EJ_LOOT_DATA_RECIEVED will invalidate and ask
-    -- the visible options page to rebuild once Blizzard supplies the records.
-    if #items > 0 and not incomplete then catalog[key][specID] = items end
+    -- Encounter Journal selection and item data settle asynchronously. Preserve
+    -- the last usable result while a refresh is incomplete, and cache partial
+    -- non-empty results so a second request during the same page build cannot
+    -- replace them with an empty list. Data events mark entries dirty again.
+    if incomplete and previousItems then
+        local present = {}
+        for _, item in ipairs(items) do present[item.itemID] = true end
+        for _, item in ipairs(previousItems) do
+            if not present[item.itemID] then items[#items + 1] = item end
+        end
+    end
+    if #items > 0 then
+        table.sort(items, function(a, b)
+            if a.slot == b.slot then return (a.name or "") < (b.name or "") end
+            return (a.slot or "") < (b.slot or "")
+        end)
+        catalog[key][specID] = { items = items, dirty = false }
+        return items
+    end
+    if cached then
+        cached.dirty = false
+        return previousItems or {}
+    end
     return items
 end
 
@@ -208,7 +229,9 @@ function ns.GetCatalog(source, specID, difficultyID)
 end
 
 function ns.InvalidateCatalog()
-    wipe(catalog)
+    for _, specs in pairs(catalog) do
+        for _, entry in pairs(specs) do entry.dirty = true end
+    end
     dungeonJournalIDs = nil
 end
 
