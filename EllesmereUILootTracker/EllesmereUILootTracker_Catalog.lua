@@ -65,7 +65,8 @@ local function ResolveSourceNames()
     local oldEncounterID = journal and journal.encounterID
     for _, source in ipairs(ns.RAID_SOURCES) do
         source.kind = "raid"
-        source.coreCost = 2
+        -- Midnight Season 2 reduced raid bonus rolls from two Voidcores to one.
+        source.coreCost = 1
         sourceByChest[source.chestItemID] = source
         local instanceName = EJ_GetInstanceInfo(source.journalInstanceID)
         source.instanceName = instanceName
