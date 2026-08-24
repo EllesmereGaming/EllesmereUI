@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Character and specialization-aware gearing wishlist with Voidcore tracking.
 ## Author: Ellesmere
-## Version: 8.9.8
+## Version: 9.0.0
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUILootTrackerDB
 ## SavedVariablesPerCharacter: EllesmereUILootTrackerCharDB

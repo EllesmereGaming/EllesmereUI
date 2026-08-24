@@ -5,6 +5,7 @@ local catalog = {}
 local sourceByChest = {}
 local sourceByKey = {}
 local dungeonJournalIDs
+local pendingItemData = {}
 local VALID_EQUIP_LOCS = {
     INVTYPE_HEAD = true, INVTYPE_NECK = true, INVTYPE_SHOULDER = true,
     INVTYPE_CLOAK = true, INVTYPE_CHEST = true, INVTYPE_ROBE = true,
@@ -15,6 +16,18 @@ local VALID_EQUIP_LOCS = {
     INVTYPE_WEAPONOFFHAND = true, INVTYPE_HOLDABLE = true,
     INVTYPE_RANGED = true, INVTYPE_RANGEDRIGHT = true, INVTYPE_THROWN = true,
 }
+
+local function RequestItemData(itemID)
+    if not itemID or pendingItemData[itemID] then return end
+    pendingItemData[itemID] = true
+    if C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(itemID) end
+end
+
+function ns.ConsumePendingCatalogItem(itemID)
+    if not itemID or not pendingItemData[itemID] then return false end
+    pendingItemData[itemID] = nil
+    return true
+end
 
 local function DungeonKey(id)
     return "dungeon:" .. tostring(id)
@@ -160,7 +173,7 @@ local function BuildCatalog(source, specID, difficultyID)
             end
             if not name or not link then
                 incomplete = true
-                if C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(itemID) end
+                RequestItemData(itemID)
             end
             local itemLevel
             if C_Item.GetDetailedItemLevelInfo then
@@ -179,7 +192,7 @@ local function BuildCatalog(source, specID, difficultyID)
                 }
             elseif isGear then
                 incomplete = true
-                if C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(itemID) end
+                RequestItemData(itemID)
             end
         else
             incomplete = true
@@ -219,7 +232,7 @@ local function BuildCatalog(source, specID, difficultyID)
                 end
                 if isGear and (not name or not link or not slot) then
                     incomplete = true
-                    if C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(itemID) end
+                    RequestItemData(itemID)
                 end
             end
         end

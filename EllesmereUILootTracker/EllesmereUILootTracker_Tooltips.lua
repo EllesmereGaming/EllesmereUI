@@ -43,6 +43,7 @@ local markers = setmetatable({}, { __mode = "k" })
 local observedRoots = setmetatable({}, { __mode = "k" })
 local markerRefreshQueued
 local QueueMarkerRefresh
+local activeGoalLookup = {}
 
 local CHARACTER_SLOTS = {
     "CharacterHeadSlot", "CharacterNeckSlot", "CharacterShoulderSlot", "CharacterBackSlot",
@@ -76,7 +77,7 @@ end
 
 local function SetMarker(button, itemID)
     local marker = markers[button]
-    local goal = itemID and ns.GetAnyGoal(itemID)
+    local goal = itemID and activeGoalLookup[itemID]
     if not goal or ns.GetProfile().showWishlistMarkers == false then
         if marker then marker.bg:Hide(); marker.glyph:Hide() end
         return
@@ -137,6 +138,7 @@ end
 
 local function RefreshMarkersNow()
     markerRefreshQueued = nil
+    activeGoalLookup = ns.GetGoalLookup()
     RefreshCharacterMarkers()
     local function ScanRoot(root)
         if not root then return end
@@ -144,7 +146,7 @@ local function RefreshMarkersNow()
             observedRoots[root] = true
             root:HookScript("OnShow", QueueMarkerRefresh)
         end
-        ScanBagButtons(root)
+        if root:IsVisible() then ScanBagButtons(root) end
     end
     ScanRoot(_G.ContainerFrameCombinedBags)
     for index = 1, (NUM_CONTAINER_FRAMES or 13) do
@@ -162,7 +164,9 @@ QueueMarkerRefresh = function()
 end
 
 ns.RefreshWishlistMarkers = QueueMarkerRefresh
-ns.RegisterCallback(QueueMarkerRefresh)
+ns.RegisterCallback(function(reason)
+    if reason == "goal" or reason == "spec" then QueueMarkerRefresh() end
+end)
 
 local markerEvents = CreateFrame("Frame")
 markerEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -172,7 +176,13 @@ markerEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
 markerEvents:RegisterEvent("PLAYER_LOOT_SPEC_UPDATED")
 markerEvents:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 markerEvents:RegisterEvent("ADDON_LOADED")
-markerEvents:SetScript("OnEvent", QueueMarkerRefresh)
+markerEvents:SetScript("OnEvent", function(_, event, addonName)
+    if event == "ADDON_LOADED"
+        and addonName ~= "Blizzard_ContainerUI"
+        and addonName ~= "Blizzard_CharacterUI"
+        and addonName ~= "EllesmereUIBags" then return end
+    QueueMarkerRefresh()
+end)
 
 local function FindJournalSource(itemID)
     local journal = _G.EncounterJournal
