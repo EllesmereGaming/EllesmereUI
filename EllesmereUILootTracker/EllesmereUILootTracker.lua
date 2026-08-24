@@ -13,6 +13,8 @@ local DB_DEFAULTS = {
         showArchived = false,
         selectedKeyLevel = 10,
         raidDifficulty = 16,
+        plannerMode = "overall",
+        plannerSlot = "HEAD",
     },
 }
 
@@ -143,6 +145,10 @@ local function FireChanged(reason)
     end
 end
 
+function ns.NotifyChanged(reason)
+    FireChanged(reason or "planner")
+end
+
 function ns.RegisterCallback(callback)
     if type(callback) == "function" then listeners[#listeners + 1] = callback end
 end
@@ -228,8 +234,21 @@ function ns.AddGoal(source, item, priority, specID, difficultyID, targetLevel)
     return goal
 end
 
+function ns.GetSpecData(specID)
+    return SpecData(specID)
+end
+
 function ns.RemoveGoal(sourceKey, itemID, specID)
-    SpecData(specID).goals[GoalKey(sourceKey, itemID)] = nil
+    local data = SpecData(specID)
+    for _, plan in pairs(data.plans or {}) do
+        for slotKey, selection in pairs(plan.slots or {}) do
+            if selection.sourceKey == sourceKey and selection.itemID == itemID then
+                plan.slots[slotKey] = nil
+                plan.updatedAt = time()
+            end
+        end
+    end
+    data.goals[GoalKey(sourceKey, itemID)] = nil
     InvalidateGoalIndex(specID)
     FireChanged("goal")
 end
