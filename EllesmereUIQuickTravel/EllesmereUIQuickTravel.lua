@@ -62,7 +62,6 @@ local ev
 
 local DB_DEFAULTS = {
     profile = {
-        enabled = false,
         toggleKey = false,
         scale = 1.05,
         hideAfterUse = true,
@@ -78,11 +77,6 @@ ns.DB_DEFAULTS = DB_DEFAULTS
 
 local function P()
     return db and db.profile
-end
-
-local function IsEnabled()
-    local p = P()
-    return p and p.enabled == true
 end
 
 local function ShowOn(key)
@@ -1277,7 +1271,6 @@ local function BuildToggleButton()
 end
 
 ShowPopup = function()
-    if not IsEnabled() then return end
     if not popup then
         if InCombatLockdown() then
             EUI.Print("|cff0cd29fEllesmereUI:|r " .. EllesmereUI.L("Quick Travel cannot open in combat."))
@@ -1310,10 +1303,6 @@ HidePopup = function()
 end
 
 TogglePopup = function()
-    if not IsEnabled() then
-        EUI.Print("|cff0cd29fEllesmereUI:|r " .. EllesmereUI.L("Enable Quick Travel in EllesmereUI options."))
-        return
-    end
     if popup and popup:IsShown() then HidePopup() else ShowPopup() end
 end
 
@@ -1322,7 +1311,7 @@ local function ApplyToggleKeybind()
     ClearOverrideBindings(toggleBtn)
     local p = P()
     local k = p and p.toggleKey
-    if IsEnabled() and k and k ~= "" and k ~= false then
+    if k and k ~= "" and k ~= false then
         SetOverrideBindingClick(toggleBtn, false, k, "EUIHearthTeleportToggle")
     end
 end
@@ -1331,7 +1320,7 @@ local _tpHooked = false
 EnsureTeleportPromptHook = function()
     if _tpHooked then return end
     local p = P()
-    if not (IsEnabled() and p and p.keystoneReminder == true) then return end
+    if not (p and p.keystoneReminder == true) then return end
     local tp = _G.EUITeleportPopup
     if not tp then return end
     _tpHooked = true
@@ -1341,42 +1330,25 @@ end
 
 SyncEvents = function()
     if not ev then return end
-    if IsEnabled() then
-        ev:RegisterEvent("PLAYER_REGEN_ENABLED")
-        local p = P()
-        if p and p.keystoneReminder == true then
-            ev:RegisterEvent("LFG_LIST_JOINED_GROUP")
-        else
-            ev:UnregisterEvent("LFG_LIST_JOINED_GROUP")
-        end
+    ev:RegisterEvent("PLAYER_REGEN_ENABLED")
+    local p = P()
+    if p and p.keystoneReminder == true then
+        ev:RegisterEvent("LFG_LIST_JOINED_GROUP")
     else
         ev:UnregisterEvent("LFG_LIST_JOINED_GROUP")
-        if not (pendingHide or pendingLayout or pendingFlyoutPopulate) then
-            ev:UnregisterEvent("PLAYER_REGEN_ENABLED")
-        end
-        if not (popup and popup:IsShown()) then
-            ev:UnregisterEvent("SPELL_UPDATE_COOLDOWN")
-            ev:UnregisterEvent("BAG_UPDATE_COOLDOWN")
-        end
     end
 end
 
 ApplyHearthTeleport = function()
-    if IsEnabled() then
-        if not popup and InCombatLockdown() then
-            pendingLayout = true
-            SyncEvents()
-            return
-        end
-        BuildToggleButton()
-        ApplyToggleKeybind()
-        EnsureTeleportPromptHook()
-        SetCombatHiderEnabled(true)
-    else
-        HidePopup()
-        if toggleBtn then ClearOverrideBindings(toggleBtn) end
-        SetCombatHiderEnabled(false)
+    if not popup and InCombatLockdown() then
+        pendingLayout = true
+        SyncEvents()
+        return
     end
+    BuildToggleButton()
+    ApplyToggleKeybind()
+    EnsureTeleportPromptHook()
+    SetCombatHiderEnabled(true)
     SyncEvents()
     if popup and popup:IsShown() and not InCombatLockdown() then BuildAll() end
 end
@@ -1390,7 +1362,7 @@ ev = CreateFrame("Frame")
 ev:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_REGEN_ENABLED" then
         if pendingHide then HidePopup() end
-        if pendingLayout and IsEnabled() and popup and rowPool then
+        if pendingLayout and popup and rowPool then
             pendingLayout = nil
             BuildAll()
         end
