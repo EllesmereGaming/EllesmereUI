@@ -13,6 +13,7 @@
 EllesmereUILootTracker_Data.lua
 EllesmereUILootTracker_Catalog.lua
 EllesmereUILootTracker.lua
+EllesmereUILootTracker_Planner.lua
 EllesmereUILootTracker_Tooltips.lua
 EllesmereUILootTracker_Locale.lua
 EllesmereUILootTracker_Options.lua

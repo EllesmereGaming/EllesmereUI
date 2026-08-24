@@ -188,6 +188,8 @@ local function BuildCatalog(source, specID, difficultyID)
                     link = link,
                     icon = info.icon or instantIcon,
                     slot = slot,
+                    equipLoc = equipLoc,
+                    isToken = tokenSlot ~= nil,
                     itemLevel = itemLevel,
                 }
             elseif isGear then
@@ -225,6 +227,7 @@ local function BuildCatalog(source, specID, difficultyID)
                         link = link,
                         icon = icon,
                         slot = slot,
+                        equipLoc = equipLoc,
                     }
                     present[itemID] = true
                 elseif isGear then

@@ -5,12 +5,30 @@ if not ns then return end
 
 local L = EllesmereUI.L
 local PAGE_OVERVIEW = "Overview"
+local PAGE_PLANNER = "Gear Planner"
 local PAGE_DUNGEONS = "Dungeons"
 local PAGE_RAIDS = "Raids"
 local PAGE_SETTINGS = "Settings"
 local ROW_H, ROW_GAP = 46, 3
 local pageRebuildQueued
 local catalogRetries = {}
+
+StaticPopupDialogs.EULT_SIMC_EXPORT = {
+    text = "SimulationCraft gear block — Ctrl+C",
+    button1 = CLOSE,
+    hasEditBox = true,
+    editBoxWidth = 420,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+    OnShow = function(self, data)
+        self.editBox:SetText(data or "")
+        self.editBox:SetFocus()
+        self.editBox:HighlightText()
+    end,
+    EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+}
 
 local function QueuePageRebuild()
     if pageRebuildQueued then return end
@@ -511,6 +529,198 @@ local function BuildOverview(parent, yOffset)
     return math.abs(y - yOffset) + 30
 end
 
+local function PlannerSlotCard(parent, y, slot, selection, selected, right, onSelect)
+    local frame = CreateFrame("Button", nil, parent)
+    if right then
+        frame:SetPoint("TOPLEFT", parent, "TOP", 4, y)
+        frame:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -20, y)
+    else
+        frame:SetPoint("TOPLEFT", parent, "TOPLEFT", 20, y)
+        frame:SetPoint("TOPRIGHT", parent, "TOP", -4, y)
+    end
+    frame:SetHeight(48)
+    frame:RegisterForClicks("AnyDown")
+    local bg = frame:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(selected and 0.025 or 0.035, selected and 0.12 or 0.04, selected and 0.105 or 0.055, 0.9)
+    EllesmereUI.MakeBorder(frame, selected and 0.05 or 1, selected and 0.82 or 1,
+        selected and 0.62 or 1, selected and 0.65 or 0.08, EllesmereUI.PP)
+    local icon = frame:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(36, 36); icon:SetPoint("LEFT", frame, "LEFT", 7, 0)
+    icon:SetTexture(selection and (selection.itemIcon or C_Item.GetItemIconByID(selection.itemID))
+        or "Interface\\PaperDoll\\UI-Backpack-EmptySlot")
+    icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    icon:SetDesaturated(not selection)
+    local slotName = Font(frame, 9, 0.55, 0.58, 0.64, 1)
+    slotName:SetPoint("TOPLEFT", icon, "TOPRIGHT", 8, -4)
+    slotName:SetText(slot.name or slot.key)
+    local itemName = Font(frame, 10, selection and 0.78 or 0.68, selection and 0.35 or 0.7,
+        selection and 1 or 0.74, 1)
+    itemName:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT", 8, 4)
+    itemName:SetPoint("RIGHT", frame, "RIGHT", -28, 0)
+    itemName:SetJustifyH("LEFT")
+    itemName:SetText(selection and selection.itemName or L("Click to choose an item"))
+    if selection then
+        local clear = Font(frame, 15, 0.65, 0.67, 0.72, 1)
+        clear:SetPoint("RIGHT", frame, "RIGHT", -9, 0); clear:SetText("×")
+    end
+    frame:SetScript("OnClick", function(_, button)
+        if button == "RightButton" and selection then onSelect(true) else onSelect(false) end
+    end)
+    frame:SetScript("OnEnter", function(self)
+        if selection then
+            local targetLink = ns.GetTargetItemLink(selection.itemID, SelectedSpecID(), selection.targetLevel,
+                selection.sourceKind, selection.difficultyID, selection.keyLevel)
+            ShowItemTooltip(self, selection, selection.targetLevel, false, targetLink)
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine(L("Right-click to clear this slot"), 0.75, 0.75, 0.75)
+            GameTooltip:Show()
+        end
+    end)
+    frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
+end
+
+local function BuildPlannerStats(parent, y, mode, specID)
+    local card = Card(parent, y, 184)
+    local planned, current = ns.GetPlannerStats(mode, specID)
+    local title = Font(card, 12, 1, 1, 1, 1)
+    title:SetPoint("TOPLEFT", card, "TOPLEFT", 12, -10); title:SetText(L("Gear statistics"))
+    local note = Font(card, 9, 0.55, 0.58, 0.64, 1)
+    note:SetPoint("TOPRIGHT", card, "TOPRIGHT", -12, -12)
+    note:SetText(L("Raidbuffed is an estimate; procs, set bonuses and effects are excluded."))
+    local headers = { L("Stat"), L("Current"), L("Planned"), L("Difference"), L("Raidbuffed est.") }
+    local x = { 12, 310, 440, 570, 700 }
+    for index, label in ipairs(headers) do
+        local text = Font(card, 9, 0.55, 0.58, 0.64, 1)
+        text:SetPoint("TOPLEFT", card, "TOPLEFT", x[index], -34); text:SetText(label)
+    end
+    local row = 0
+    for _, info in ipairs(ns.PLANNER_STAT_KEYS) do
+        local value = planned[info.key] or 0
+        local currentValue = current[info.key] or 0
+        if value ~= 0 or currentValue ~= 0 then
+            row = row + 1
+            local yy = -34 - row * 15
+            local delta = value - currentValue
+            local multiplier = (info.key == "ITEM_MOD_STAMINA_SHORT") and 1.05
+                or ((info.key == "ITEM_MOD_STRENGTH_SHORT" or info.key == "ITEM_MOD_AGILITY_SHORT"
+                    or info.key == "ITEM_MOD_INTELLECT_SHORT") and 1.03 or 1)
+            local estimatedPercent, hasDR = ns.GetPlannerDREstimate(info.key, value)
+            local statName = info.name
+            if hasDR then statName = statName .. "  |cffffb84d" .. L("DR active") .. "|r" end
+            local raidValue = math.floor(value * multiplier + 0.5)
+            if estimatedPercent then raidValue = raidValue .. "  (≈" .. string.format("%.1f%%", estimatedPercent) .. ")" end
+            local values = { statName, currentValue, value,
+                (delta > 0 and "+" or "") .. delta, raidValue }
+            for index, label in ipairs(values) do
+                local positive = index == 4 and delta > 0
+                local negative = index == 4 and delta < 0
+                local text = Font(card, 9, positive and 0.33 or (negative and 1 or 0.82),
+                    positive and 0.87 or (negative and 0.35 or 0.82), positive and 0.53 or (negative and 0.35 or 0.82), 1)
+                text:SetPoint("TOPLEFT", card, "TOPLEFT", x[index], yy); text:SetText(label)
+            end
+        end
+    end
+    if row == 0 then
+        local empty = Font(card, 10, 0.62, 0.64, 0.68, 1)
+        empty:SetPoint("CENTER", card, "CENTER", 0, -15)
+        empty:SetText(L("Choose items to calculate the planned set."))
+    end
+    return 190
+end
+
+local function BuildPlannerCandidate(parent, y, candidate, selected, onClick)
+    local source, item = candidate.source, candidate.item
+    local frame = Card(parent, y, 43, true)
+    frame:RegisterForClicks("AnyDown")
+    local icon = frame:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(32, 32); icon:SetPoint("LEFT", frame, "LEFT", 7, 0)
+    icon:SetTexture(item.icon or C_Item.GetItemIconByID(item.itemID)); icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    local name = Font(frame, 10, 0.78, 0.35, 1, 1)
+    name:SetPoint("TOPLEFT", icon, "TOPRIGHT", 8, -4); name:SetText(item.name or ("Item " .. item.itemID))
+    local sourceText = source.kind == "raid" and ((source.instanceName or "Raid") .. " • " .. source.name)
+        or source.name
+    local sub = Font(frame, 9, 0.55, 0.58, 0.64, 1)
+    sub:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT", 8, 4)
+    sub:SetText(sourceText .. (candidate.targetLevel and ("  •  iLvl " .. candidate.targetLevel) or ""))
+    local state = Font(frame, 10, selected and 0.05 or 0.55, selected and 0.82 or 0.58,
+        selected and 0.62 or 0.64, 1)
+    state:SetPoint("RIGHT", frame, "RIGHT", -12, 0); state:SetText(selected and L("Selected BiS") or L("Set as BiS"))
+    frame:SetScript("OnClick", onClick)
+    frame:SetScript("OnEnter", function(self)
+        local targetLink = ns.GetTargetItemLink(item.itemID, SelectedSpecID(), candidate.targetLevel,
+            source.kind, candidate.difficultyID, candidate.keyLevel)
+        ShowItemTooltip(self, item, candidate.targetLevel, false, targetLink)
+    end)
+    frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return 47
+end
+
+local function BuildPlanner(parent, yOffset)
+    EllesmereUI:ClearContentHeader()
+    local W, y = EllesmereUI.Widgets, yOffset
+    local _, h = W:SectionHeader(parent, "GEAR PLANNER", y); y = y - h
+    local modeValues, modeOrder = {}, {}
+    for _, mode in ipairs(ns.PLAN_MODES) do modeValues[mode], modeOrder[#modeOrder + 1] = L(ns.PLAN_MODE_NAMES[mode]), mode end
+    local specValues, specOrder = BuildSpecValues()
+    _, h = W:DualRow(parent, y,
+        { type="dropdown", text="Plan", values=modeValues, order=modeOrder,
+          getValue=function() return Profile().plannerMode or "overall" end,
+          setValue=function(v) Profile().plannerMode=v; QueuePageRebuild() end },
+        { type="dropdown", text="Loot Specialization", values=specValues, order=specOrder,
+          getValue=function() return SelectedSpecID() end,
+          setValue=function(v) Profile().selectedSpecID=tonumber(v) or v; ns.InvalidateCatalog(); QueuePageRebuild() end }); y = y - h
+    local keyValues, keyOrder = {}, {}
+    for level = 2, 10 do keyValues[level], keyOrder[#keyOrder + 1] = "+" .. level, level end
+    local raidValues, raidOrder = {}, {}
+    for _, id in ipairs(ns.RAID_DIFFICULTIES) do raidValues[id], raidOrder[#raidOrder + 1] = GetDifficultyInfo(id) or tostring(id), id end
+    _, h = W:DualRow(parent, y,
+        { type="dropdown", text="M+ Target Level", values=keyValues, order=keyOrder,
+          getValue=function() return tonumber(Profile().selectedKeyLevel) or 10 end,
+          setValue=function(v) Profile().selectedKeyLevel=tonumber(v) or 10; QueuePageRebuild() end },
+        { type="dropdown", text="Raid Difficulty", values=raidValues, order=raidOrder,
+          getValue=function() return tonumber(Profile().raidDifficulty) or 16 end,
+          setValue=function(v) Profile().raidDifficulty=tonumber(v) or 16; ns.InvalidateCatalog(); QueuePageRebuild() end }); y = y - h
+    local mode, specID = Profile().plannerMode or "overall", SelectedSpecID()
+    local difficultyID = tonumber(Profile().raidDifficulty) or 16
+    local keyLevel = tonumber(Profile().selectedKeyLevel) or 10
+    local planKey = mode == "raid" and (mode .. ":" .. difficultyID) or mode
+    ns.RefreshPlanTargets(planKey, specID, keyLevel)
+    local plan = ns.GetPlan(planKey, specID)
+    local selectedSlot = Profile().plannerSlot or "HEAD"
+    for index, slot in ipairs(ns.PLAN_SLOTS) do
+        local row = math.floor((index - 1) / 2)
+        PlannerSlotCard(parent, y - row * 54, slot, plan.slots[slot.key], selectedSlot == slot.key,
+            index % 2 == 0, function(clear)
+                if clear then ns.SetPlannedItem(planKey, slot.key, nil, specID)
+                else Profile().plannerSlot = slot.key; QueuePageRebuild() end
+            end)
+    end
+    y = y - math.ceil(#ns.PLAN_SLOTS / 2) * 54 - 4
+    y = y - BuildPlannerStats(parent, y, planKey, specID)
+    _, h = W:WideButton(parent, "Copy SimC Gear Set", y, function()
+        StaticPopup_Show("EULT_SIMC_EXPORT", nil, nil, ns.GetSimCPlan(planKey, specID))
+    end, 280); y = y - h
+    _, h = W:SectionHeader(parent, string.upper(L("Available items for %s"):format((ns.GetPlanSlot(selectedSlot) or {}).name or selectedSlot)), y); y = y - h
+    local candidates = ns.GetPlannerCandidates(mode, selectedSlot, specID, difficultyID, keyLevel)
+    if #candidates == 0 then
+        QueueCatalogRetry("planner:" .. mode .. ":" .. selectedSlot .. ":" .. specID)
+        local empty = Card(parent, y, 58)
+        local text = Font(empty, 10, 0.62, 0.64, 0.68, 1); text:SetPoint("CENTER")
+        text:SetText(L("Loot data is still loading. This page will refresh automatically.")); y = y - 64
+    else
+        for _, candidate in ipairs(candidates) do
+            local selected = plan.slots[selectedSlot]
+            local isSelected = selected and selected.sourceKey == candidate.sourceKey and selected.itemID == candidate.item.itemID
+            y = y - BuildPlannerCandidate(parent, y, candidate, isSelected, function()
+                ns.SetPlannedItem(planKey, selectedSlot, candidate, specID)
+            end)
+        end
+    end
+    parent:SetHeight(math.abs(y - yOffset) + 30)
+    return math.abs(y - yOffset) + 30
+end
+
 local function BuildSettings(parent, yOffset)
     EllesmereUI:ClearContentHeader()
     local W = EllesmereUI.Widgets
@@ -604,10 +814,11 @@ end
 local moduleConfig = {
     title = "Loot Tracker",
     description = "Plan dungeon and raid upgrades, track acquired gear, and calculate Voidcore odds.",
-    pages = { PAGE_OVERVIEW, PAGE_DUNGEONS, PAGE_RAIDS, PAGE_SETTINGS },
+    pages = { PAGE_OVERVIEW, PAGE_PLANNER, PAGE_DUNGEONS, PAGE_RAIDS, PAGE_SETTINGS },
     _euiCore = false,
     buildPage = function(pageName, parent, yOffset)
         if pageName == PAGE_OVERVIEW then return BuildOverview(parent, yOffset) end
+        if pageName == PAGE_PLANNER then return BuildPlanner(parent, yOffset) end
         if pageName == PAGE_DUNGEONS then return BuildCatalogPage(parent, yOffset, "dungeon") end
         if pageName == PAGE_RAIDS then return BuildCatalogPage(parent, yOffset, "raid") end
         return BuildSettings(parent, yOffset)
