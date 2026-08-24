@@ -4,7 +4,7 @@ local ADDON_NAME, ns = ...
 -- Season 2 source identity. Loot itself is read from Blizzard's Encounter
 -- Journal at runtime; this compact table only joins Challenge Mode / encounter
 -- IDs to the item displayed by the Voidcore confirmation prompt.
-ns.SEASON_DATA_REVISION = 4
+ns.SEASON_DATA_REVISION = 5
 ns.SUPPORTED_SEASON_ID = 18
 ns.SUPPORTED_DISPLAY_SEASON_ID = 2
 
@@ -55,6 +55,25 @@ ns.RAID_TOKEN_SLOTS = {
     [270924] = "INVTYPE_SHOULDER", [270925] = "INVTYPE_SHOULDER",
     [270926] = "INVTYPE_CHEST", [270927] = "INVTYPE_CHEST",
     [270928] = "INVTYPE_CHEST", [270929] = "INVTYPE_CHEST",
+}
+
+-- Concrete Season 2 catalyst outputs. Unlike raid tokens these are equippable
+-- class items and provide real tooltips, set bonuses and stats to the planner.
+-- Slot order: head, shoulder, chest, hands, legs.
+ns.CATALYST_ITEMS_BY_CLASS = {
+    [1]  = { 271456, 271454, 271459, 271457, 271455 },
+    [2]  = { 271465, 271463, 271468, 271466, 271464 },
+    [3]  = { 271492, 271490, 271495, 271493, 271491 },
+    [4]  = { 271510, 271508, 271513, 271511, 271509 },
+    [5]  = { 271555, 271553, 271558, 271556, 271554 },
+    [6]  = { 271474, 271472, 271477, 271475, 271473 },
+    [7]  = { 271483, 271481, 271486, 271484, 271482 },
+    [8]  = { 271564, 271562, 271567, 271565, 271563 },
+    [9]  = { 271546, 271544, 271549, 271547, 271545 },
+    [10] = { 271519, 271517, 271522, 271520, 271518 },
+    [11] = { 271528, 271526, 271531, 271529, 271527 },
+    [12] = { 271537, 271535, 271540, 271538, 271536 },
+    [13] = { 271501, 271499, 271504, 271502, 271500 },
 }
 
 -- Voidcore M+ rewards use the end-of-run Champion/Hero track for the selected

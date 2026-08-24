@@ -26,7 +26,7 @@ local function GoalKey(sourceKey, itemID) return sourceKey .. ":" .. itemID end
 function ns.GetSpecData() return data end
 function ns.GetGoal(sourceKey, itemID) return data.goals[GoalKey(sourceKey, itemID)] end
 function ns.AddGoal(source, item, priority)
-    local goal = { priority = priority }
+    local goal = { priority = priority, sourceKey = source.key, itemID = item.itemID }
     data.goals[GoalKey(source.key, item.itemID)] = goal
     return goal
 end
@@ -35,8 +35,15 @@ function ns.SetPriority(sourceKey, itemID, priority)
 end
 function ns.RemoveGoal(sourceKey, itemID) data.goals[GoalKey(sourceKey, itemID)] = nil end
 function ns.NotifyChanged() end
+function ns.RegisterSource() end
 function ns.DungeonKey(id) return "dungeon:" .. id end
 function ns.RaidKey(id, difficultyID) return "raid:" .. id .. ":" .. difficultyID end
+function ns.GetSourceKey(source, difficultyID)
+    if source.kind == "raid" then return ns.RaidKey(source.encounterID, difficultyID) end
+    if source.kind == "dungeon" then return ns.DungeonKey(source.challengeModeID) end
+    return source.key
+end
+function ns.GetProfile() return { craftedTargetLevel = 318 } end
 
 assert(loadfile("EllesmereUILootTracker/EllesmereUILootTracker_Planner.lua"))(
     "EllesmereUILootTracker", ns)
@@ -73,5 +80,17 @@ ns.SetPlannedItem("raid:16", "FINGER1", ring, 1)
 assert(data.goals["dungeon:1:3"].priority == 3, "existing goal must become Best in Slot")
 ns.SetPlannedItem("raid:16", "FINGER1", nil, 1)
 assert(data.goals["dungeon:1:3"].priority == 1, "manual goal priority must be restored")
+
+local catalyst = { kind = "catalyst", key = "catalyst", sourceID = 1, name = "Catalyst" }
+local tierItem = { itemID = 4, name = "Tier Helm", equipLoc = "INVTYPE_HEAD" }
+ns.SetPlannedItem("mplus", "HEAD", {
+    source=catalyst, item=tierItem, targetLevel=311, keyLevel=10, linkKind="dungeon",
+}, 1)
+ns.SetPlannedItem("raid:16", "HEAD", {
+    source=catalyst, item=tierItem, targetLevel=318, difficultyID=16, linkKind="catalyst",
+}, 1)
+assert(data.goals["catalyst:4"].minItemLevel == 318, "shared goal must keep the highest target")
+ns.SetPlannedItem("raid:16", "HEAD", nil, 1)
+assert(data.goals["catalyst:4"].minItemLevel == 311, "shared goal must fall back to remaining target")
 
 print("loot planner model ok")

@@ -290,8 +290,14 @@ function ns.GetSourceByKey(key)
     ResolveSourceNames()
     return sourceByKey[key]
 end
+ns.RequestCatalogItemData = RequestItemData
+
+function ns.RegisterSource(source)
+    if source and source.key then sourceByKey[source.key] = source end
+end
 
 function ns.GetCatalog(source, specID, difficultyID)
+    if source and source.getCatalog then return source.getCatalog(specID, difficultyID) end
     return BuildCatalog(source, specID, difficultyID)
 end
 
@@ -334,16 +340,16 @@ function ns.GetTargetItemLink(itemID, specID, targetLevel, sourceKind, difficult
     if sourceKind == "dungeon" then
         keyLevel = math.max(2, math.min(10, tonumber(keyLevel) or 10))
         trackBonusID = ns.MPLUS_TARGET_BONUS_IDS[keyLevel]
-    else
+    elseif sourceKind == "raid" or sourceKind == "catalyst" then
         local difficultyBonuses = ns.RAID_TARGET_BONUS_IDS[difficultyID or 16]
         trackBonusID = difficultyBonuses and difficultyBonuses[targetLevel]
     end
-    if not trackBonusID then return nil end
+    if not trackBonusID and sourceKind ~= "crafted" and sourceKind ~= "catalyst" then return nil end
 
     local bonusIDs = {}
     local levelBonusID = GetItemLevelBonusID(targetLevel - baseItemLevel)
     if levelBonusID then bonusIDs[#bonusIDs + 1] = levelBonusID end
-    bonusIDs[#bonusIDs + 1] = trackBonusID
+    if trackBonusID then bonusIDs[#bonusIDs + 1] = trackBonusID end
     bonusIDs[#bonusIDs + 1] = 1674
     if equipLoc == "INVTYPE_FINGER" or equipLoc == "INVTYPE_NECK" then
         bonusIDs[#bonusIDs + 1] = 13534

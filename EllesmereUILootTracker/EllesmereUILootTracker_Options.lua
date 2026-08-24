@@ -458,21 +458,29 @@ local function BuildOverview(parent, yOffset)
             local name = Font(card, 12, 1, 1, 1, 1)
             name:SetPoint("TOPLEFT", card, "TOPLEFT", 12, -10)
             local sourceName = source.kind == "raid" and source.instanceName
-                and (source.instanceName .. "  •  " .. source.name) or source.name
+                and (source.instanceName .. "  •  " .. source.name) or L(source.name)
             if source.kind == "raid" then
                 local difficultyName = GetDifficultyInfo(difficultyID)
                 if difficultyName then sourceName = sourceName .. "  (" .. difficultyName .. ")" end
-            else
+            elseif source.kind == "dungeon" then
                 local keyLevel = grouped[sourceKey][1].keyLevel
                 if keyLevel then sourceName = sourceName .. "  (+" .. keyLevel .. ")" end
             end
             name:SetText(sourceName)
             local chance = Font(card, 10, 0.05, 0.82, 0.62, 1)
             chance:SetPoint("TOPRIGHT", card, "TOPRIGHT", -12, -11)
-            chance:SetText(string.format("%.1f%%  •  %d %s", summary.chance * 100, summary.coreCost, L("Voidcore")))
+            if source.kind == "raid" or source.kind == "dungeon" then
+                chance:SetText(string.format("%.1f%%  •  %d %s", summary.chance * 100, summary.coreCost, L("Voidcore")))
+            else
+                chance:SetText(source.kind == "catalyst" and L("Catalyst conversion") or L("Crafting"))
+            end
             local pool = Font(card, 9, 0.55, 0.58, 0.64, 1)
             pool:SetPoint("TOPLEFT", name, "BOTTOMLEFT", 0, -3)
-            pool:SetText(EllesmereUI.Lf("%1$d desired • %2$d of %3$d remaining", summary.desired, summary.remaining, summary.total))
+            if source.kind == "raid" or source.kind == "dungeon" then
+                pool:SetText(EllesmereUI.Lf("%1$d desired • %2$d of %3$d remaining", summary.desired, summary.remaining, summary.total))
+            else
+                pool:SetText(EllesmereUI.Lf("%d selected for this plan", #grouped[sourceKey]))
+            end
             for index, goal in ipairs(grouped[sourceKey]) do
                 local priorityID = goal.priority
                 local color = ns.PRIORITY_COLORS[priorityID] or { 1, 1, 1 }
@@ -485,7 +493,7 @@ local function BuildOverview(parent, yOffset)
                 }
                 local targetLevel = goal.minItemLevel
                 local targetLink = ns.GetTargetItemLink(goal.itemID, goal.specID, targetLevel,
-                    goal.sourceKind, goal.difficultyID, goal.keyLevel)
+                    goal.linkKind or goal.sourceKind, goal.difficultyID, goal.keyLevel)
                 local itemHitbox = CreateFrame("Button", nil, card)
                 itemHitbox:SetSize(38, 38)
                 local column = (index - 1) % columns
@@ -570,7 +578,7 @@ local function PlannerSlotCard(parent, y, slot, selection, selected, right, onSe
     frame:SetScript("OnEnter", function(self)
         if selection then
             local targetLink = ns.GetTargetItemLink(selection.itemID, SelectedSpecID(), selection.targetLevel,
-                selection.sourceKind, selection.difficultyID, selection.keyLevel)
+                selection.linkKind or selection.sourceKind, selection.difficultyID, selection.keyLevel)
             ShowItemTooltip(self, selection, selection.targetLevel, false, targetLink)
             GameTooltip:AddLine(" ")
             GameTooltip:AddLine(L("Right-click to clear this slot"), 0.75, 0.75, 0.75)
@@ -639,7 +647,7 @@ local function BuildPlannerCandidate(parent, y, candidate, selected, onClick)
     local name = Font(frame, 10, 0.78, 0.35, 1, 1)
     name:SetPoint("TOPLEFT", icon, "TOPRIGHT", 8, -4); name:SetText(item.name or ("Item " .. item.itemID))
     local sourceText = source.kind == "raid" and ((source.instanceName or "Raid") .. " • " .. source.name)
-        or source.name
+        or L(source.name)
     local sub = Font(frame, 9, 0.55, 0.58, 0.64, 1)
     sub:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT", 8, 4)
     sub:SetText(sourceText .. (candidate.targetLevel and ("  •  iLvl " .. candidate.targetLevel) or ""))
@@ -649,11 +657,38 @@ local function BuildPlannerCandidate(parent, y, candidate, selected, onClick)
     frame:SetScript("OnClick", onClick)
     frame:SetScript("OnEnter", function(self)
         local targetLink = ns.GetTargetItemLink(item.itemID, SelectedSpecID(), candidate.targetLevel,
-            source.kind, candidate.difficultyID, candidate.keyLevel)
+            candidate.linkKind or source.kind, candidate.difficultyID, candidate.keyLevel)
         ShowItemTooltip(self, item, candidate.targetLevel, false, targetLink)
     end)
     frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
     return 47
+end
+
+local function BuildCraftedItemInput(parent, y)
+    local row = Card(parent, y, 52)
+    local label = Font(row, 10, 0.78, 0.8, 0.84, 1)
+    label:SetPoint("LEFT", row, "LEFT", 12, 0)
+    label:SetText(L("Add craftable by item link or ID"))
+    local box = CreateFrame("EditBox", nil, row)
+    box:SetSize(285, 28); box:SetPoint("RIGHT", row, "RIGHT", -116, 0)
+    box:SetAutoFocus(false)
+    box:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF", 10, "")
+    box:SetTextColor(0.92, 0.92, 0.92, 1); box:SetTextInsets(7, 7, 0, 0)
+    local bg = box:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(); bg:SetColorTexture(0.02, 0.025, 0.035, 0.9)
+    EllesmereUI.MakeBorder(box, 1, 1, 1, 0.13, EllesmereUI.PP)
+    local function AddItem()
+        local value = box:GetText()
+        if ns.AddCraftedItemLink(value) then
+            box:SetText(""); box:ClearFocus(); QueuePageRebuild()
+        else
+            print("|cffff5555EllesmereUI Loot Tracker:|r " .. L("This is not an equippable item link or item ID."))
+        end
+    end
+    box:SetScript("OnEnterPressed", AddItem)
+    box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    local add = StyledButton(row, L("Add"), 94, AddItem)
+    add:SetPoint("RIGHT", row, "RIGHT", -10, 0)
+    return 58
 end
 
 local function BuildPlanner(parent, yOffset)
@@ -681,11 +716,19 @@ local function BuildPlanner(parent, yOffset)
         { type="dropdown", text="Raid Difficulty", values=raidValues, order=raidOrder,
           getValue=function() return tonumber(Profile().raidDifficulty) or 16 end,
           setValue=function(v) Profile().raidDifficulty=tonumber(v) or 16; ns.InvalidateCatalog(); QueuePageRebuild() end }); y = y - h
+    local craftedValues, craftedOrder = {}, {}
+    for _, level in ipairs({ 279, 282, 285, 289, 292, 295, 298, 302, 305, 308, 311, 315, 318, 321, 324, 328, 331, 334 }) do
+        craftedValues[level], craftedOrder[#craftedOrder + 1] = "iLvl " .. level, level
+    end
+    _, h = W:Dropdown(parent, "Crafted Target Item Level", y, craftedValues,
+        function() return tonumber(Profile().craftedTargetLevel) or 318 end,
+        function(v) Profile().craftedTargetLevel=tonumber(v) or 318; QueuePageRebuild() end,
+        craftedOrder, "Crafted secondary stats are customizable and therefore only estimated."); y = y - h
     local mode, specID = Profile().plannerMode or "overall", SelectedSpecID()
     local difficultyID = tonumber(Profile().raidDifficulty) or 16
     local keyLevel = tonumber(Profile().selectedKeyLevel) or 10
     local planKey = mode == "raid" and (mode .. ":" .. difficultyID) or mode
-    ns.RefreshPlanTargets(planKey, specID, keyLevel)
+    ns.RefreshPlanTargets(planKey, specID, keyLevel, difficultyID, Profile().craftedTargetLevel)
     local plan = ns.GetPlan(planKey, specID)
     local selectedSlot = Profile().plannerSlot or "HEAD"
     for index, slot in ipairs(ns.PLAN_SLOTS) do
@@ -702,6 +745,7 @@ local function BuildPlanner(parent, yOffset)
         StaticPopup_Show("EULT_SIMC_EXPORT", nil, nil, ns.GetSimCPlan(planKey, specID))
     end, 280); y = y - h
     _, h = W:SectionHeader(parent, string.upper(L("Available items for %s"):format((ns.GetPlanSlot(selectedSlot) or {}).name or selectedSlot)), y); y = y - h
+    y = y - BuildCraftedItemInput(parent, y)
     local candidates = ns.GetPlannerCandidates(mode, selectedSlot, specID, difficultyID, keyLevel)
     if #candidates == 0 then
         QueueCatalogRetry("planner:" .. mode .. ":" .. selectedSlot .. ":" .. specID)

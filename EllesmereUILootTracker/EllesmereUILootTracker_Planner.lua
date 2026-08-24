@@ -30,6 +30,127 @@ ns.PLAN_SLOTS = {
 local slotByKey = {}
 for _, slot in ipairs(ns.PLAN_SLOTS) do slotByKey[slot.key] = slot end
 
+local catalystSource = { kind="catalyst", key="catalyst", sourceID=1, name="Catalyst Tier Set" }
+local craftedSource = { kind="crafted", key="crafted", sourceID=1, name="Crafted Gear" }
+
+local function ItemRecord(itemID, link, recipeID, recipeName)
+    itemID = tonumber(itemID)
+    if not itemID then return nil end
+    local _, _, _, equipLoc, icon, classID = C_Item.GetItemInfoInstant(itemID)
+    if not equipLoc or equipLoc == "" then return nil end
+    if Enum and Enum.ItemClass and classID ~= Enum.ItemClass.Armor
+        and classID ~= Enum.ItemClass.Weapon then return nil end
+    local name, cachedLink = C_Item.GetItemInfo(itemID)
+    if (not name or not cachedLink) and ns.RequestCatalogItemData then ns.RequestCatalogItemData(itemID) end
+    local itemLevel = C_Item.GetDetailedItemLevelInfo and C_Item.GetDetailedItemLevelInfo(link or cachedLink or itemID)
+    if issecretvalue and issecretvalue(itemLevel) then itemLevel = nil end
+    return {
+        itemID=itemID, name=name or ("Item " .. itemID), link=link or cachedLink,
+        icon=icon, equipLoc=equipLoc, slot=_G[equipLoc] or equipLoc,
+        itemLevel=tonumber(itemLevel), recipeID=recipeID, recipeName=recipeName,
+    }
+end
+
+local function CatalystCatalog(specID)
+    local classID = select(3, UnitClass("player"))
+    local items = {}
+    for _, itemID in ipairs(ns.CATALYST_ITEMS_BY_CLASS[classID] or {}) do
+        local item = ItemRecord(itemID)
+        if item then items[#items + 1] = item
+        elseif ns.RequestCatalogItemData then ns.RequestCatalogItemData(itemID) end
+    end
+    return items
+end
+
+local function CraftedStore()
+    local season = ns.GetSeasonData()
+    season.craftedItems = season.craftedItems or {}
+    return season.craftedItems
+end
+
+local function CraftedCatalog(specID)
+    local items = {}
+    local classID = select(3, UnitClass("player"))
+    for itemID, saved in pairs(CraftedStore()) do
+        local eligible = true
+        if C_Item.DoesItemContainSpec then
+            local ok, result = pcall(C_Item.DoesItemContainSpec, tonumber(itemID), classID or 0, specID)
+            if ok and result ~= nil and not (issecretvalue and issecretvalue(result)) then eligible = result end
+        end
+        if eligible then
+            local item = ItemRecord(itemID, saved.link, saved.recipeID, saved.recipeName)
+            if item then items[#items + 1] = item end
+        end
+    end
+    table.sort(items, function(a, b) return (a.name or "") < (b.name or "") end)
+    return items
+end
+
+catalystSource.getCatalog = CatalystCatalog
+craftedSource.getCatalog = CraftedCatalog
+ns.RegisterSource(catalystSource)
+ns.RegisterSource(craftedSource)
+
+local function SaveCraftedItem(itemID, link, recipeID, recipeName, allowLegacy)
+    local item = ItemRecord(itemID, link, recipeID, recipeName)
+    if not item or (not allowLegacy and item.itemID < 260000) then return false end
+    local store = CraftedStore()
+    local old = store[item.itemID]
+    store[item.itemID] = {
+        link=item.link, recipeID=recipeID, recipeName=recipeName,
+        discoveredAt=old and old.discoveredAt or time(),
+    }
+    return old == nil
+end
+
+function ns.AddCraftedItemLink(value)
+    local itemID = tonumber(value)
+    if not itemID and type(value) == "string" then itemID = C_Item.GetItemInfoInstant(value) end
+    if not itemID then return false, "invalid" end
+    if SaveCraftedItem(itemID, type(value) == "string" and value or nil, nil, nil, true) then
+        ns.NotifyChanged("crafted")
+    end
+    return ItemRecord(itemID) ~= nil
+end
+
+function ns.ScanCraftedItems()
+    if not (C_TradeSkillUI and C_TradeSkillUI.GetAllRecipeIDs) then return 0 end
+    local ok, recipeIDs = pcall(C_TradeSkillUI.GetAllRecipeIDs)
+    if not ok or type(recipeIDs) ~= "table" then return 0 end
+    local added = 0
+    for _, recipeID in ipairs(recipeIDs) do
+        local recipeInfo = C_TradeSkillUI.GetRecipeInfo and C_TradeSkillUI.GetRecipeInfo(recipeID)
+        local ids
+        if C_TradeSkillUI.GetRecipeQualityItemIDs then
+            local qualityOK, qualityIDs = pcall(C_TradeSkillUI.GetRecipeQualityItemIDs, recipeID)
+            if qualityOK and type(qualityIDs) == "table" then ids = qualityIDs end
+        end
+        -- Quality IDs are returned from lowest to highest quality. Keep one
+        -- planner entry per recipe instead of showing every quality variant.
+        local bestID = ids and ids[#ids]
+        local bestLink = bestID and select(2, C_Item.GetItemInfo(bestID))
+        if not bestID and C_TradeSkillUI.GetRecipeItemLink then
+            local linkOK, link = pcall(C_TradeSkillUI.GetRecipeItemLink, recipeID)
+            if linkOK and link then bestID, bestLink = C_Item.GetItemInfoInstant(link), link end
+        end
+        if bestID and SaveCraftedItem(bestID, bestLink, recipeID, recipeInfo and recipeInfo.name, false) then
+            added = added + 1
+        end
+    end
+    if added > 0 then ns.NotifyChanged("crafted") end
+    return added
+end
+
+local craftedScanQueued
+function ns.QueueCraftedScan(delay)
+    if craftedScanQueued then return end
+    craftedScanQueued = true
+    C_Timer.After(delay or 0.3, function()
+        craftedScanQueued = nil
+        ns.ScanCraftedItems()
+    end)
+end
+
 local function PlanRef(mode, slotKey)
     return tostring(mode) .. ":" .. tostring(slotKey)
 end
@@ -41,11 +162,28 @@ function ns.GetPlan(mode, specID)
     return data.plans[mode]
 end
 
-function ns.RefreshPlanTargets(mode, specID, keyLevel)
+local function SyncGoalFromPlans(goal, specID)
+    if not goal or not goal.plannerRefs then return end
+    local best
+    for _, savedPlan in pairs(ns.GetSpecData(specID).plans or {}) do
+        for _, selection in pairs(savedPlan.slots or {}) do
+            if selection.sourceKey == goal.sourceKey and selection.itemID == goal.itemID
+                and (not best or (selection.targetLevel or 0) > (best.targetLevel or 0)) then
+                best = selection
+            end
+        end
+    end
+    if best then
+        goal.minItemLevel, goal.linkKind = best.targetLevel, best.linkKind
+        goal.difficultyID, goal.keyLevel = best.difficultyID, best.keyLevel
+    end
+end
+
+function ns.RefreshPlanTargets(mode, specID, keyLevel, difficultyID, craftedTargetLevel)
     local plan = ns.GetPlan(mode, specID)
     local targetLevel = ns.GetMPlusTargetLevel(keyLevel)
     for _, selection in pairs(plan.slots) do
-        if selection.sourceKind == "dungeon" then
+        if selection.sourceKind == "dungeon" or selection.linkKind == "dungeon" then
             selection.keyLevel = keyLevel
             selection.targetLevel = targetLevel
             local goal = ns.GetGoal(selection.sourceKey, selection.itemID, specID)
@@ -60,7 +198,21 @@ function ns.RefreshPlanTargets(mode, specID, keyLevel)
                     end
                 end
             end
+        elseif selection.sourceKind == "catalyst" then
+            local raidLevel = ns.RAID_TARGET_LEVELS[difficultyID or 16]
+            selection.difficultyID = difficultyID
+            selection.targetLevel = mode == "overall" and math.max(raidLevel or 0, targetLevel or 0)
+                or (raidLevel or selection.targetLevel)
+            local goal = ns.GetGoal(selection.sourceKey, selection.itemID, specID)
+            if goal then goal.minItemLevel = selection.targetLevel end
+        elseif selection.sourceKind == "crafted" then
+            selection.targetLevel = tonumber(craftedTargetLevel) or selection.targetLevel
+            local goal = ns.GetGoal(selection.sourceKey, selection.itemID, specID)
+            if goal then goal.minItemLevel = selection.targetLevel end
         end
+    end
+    for _, selection in pairs(plan.slots) do
+        SyncGoalFromPlans(ns.GetGoal(selection.sourceKey, selection.itemID, specID), specID)
     end
 end
 
@@ -82,6 +234,8 @@ local function RemovePlannerRef(selection, mode, slotKey, specID)
             goal.plannerPreviousPriority = nil
             ns.SetPriority(selection.sourceKey, selection.itemID, priority, specID)
         end
+    else
+        SyncGoalFromPlans(goal, specID)
     end
 end
 
@@ -91,8 +245,8 @@ function ns.SetPlannedItem(mode, slotKey, candidate, specID)
     if old and candidate and old.sourceKey == candidate.sourceKey and old.itemID == candidate.item.itemID then
         return
     end
-    RemovePlannerRef(old, mode, slotKey, specID)
     plan.slots[slotKey] = nil
+    RemovePlannerRef(old, mode, slotKey, specID)
     if candidate then
         local source, item = candidate.source, candidate.item
         local conflicts = {}
@@ -111,12 +265,11 @@ function ns.SetPlannedItem(mode, slotKey, candidate, specID)
             if plan.slots.TRINKET1 and plan.slots.TRINKET1.itemID == item.itemID then conflicts[#conflicts + 1] = "TRINKET1" end
         end
         for _, conflictKey in ipairs(conflicts) do
-            RemovePlannerRef(plan.slots[conflictKey], mode, conflictKey, specID)
+            local conflict = plan.slots[conflictKey]
             plan.slots[conflictKey] = nil
+            RemovePlannerRef(conflict, mode, conflictKey, specID)
         end
-        local sourceKey = source.kind == "raid"
-            and ns.RaidKey(source.encounterID, candidate.difficultyID)
-            or ns.DungeonKey(source.challengeModeID)
+        local sourceKey = ns.GetSourceKey(source, candidate.difficultyID)
         local goal = ns.GetGoal(sourceKey, item.itemID, specID)
         if not goal then
             goal = ns.AddGoal(source, item, ns.PRIORITY_BIS, specID,
@@ -129,15 +282,20 @@ function ns.SetPlannedItem(mode, slotKey, candidate, specID)
         if goal then
             goal.plannerRefs = goal.plannerRefs or {}
             goal.plannerRefs[PlanRef(mode, slotKey)] = true
+            goal.linkKind = candidate.linkKind
+            goal.recipeID = item.recipeID
         end
         plan.slots[slotKey] = {
             itemID=item.itemID, itemName=item.name, itemIcon=item.icon, itemLink=item.link,
             equipLoc=item.equipLoc, sourceKey=sourceKey, sourceKind=source.kind,
             sourceName=source.name, instanceName=source.instanceName,
-            sourceID=source.kind == "raid" and source.encounterID or source.challengeModeID,
+            sourceID=source.kind == "raid" and source.encounterID
+                or (source.kind == "dungeon" and source.challengeModeID or source.sourceID),
             difficultyID=candidate.difficultyID, keyLevel=candidate.keyLevel,
-            targetLevel=candidate.targetLevel, selectedAt=time(),
+            targetLevel=candidate.targetLevel, linkKind=candidate.linkKind,
+            recipeID=item.recipeID, selectedAt=time(),
         }
+        SyncGoalFromPlans(goal, specID)
     end
     plan.updatedAt = time()
     ns.NotifyChanged("planner")
@@ -171,6 +329,32 @@ function ns.GetPlannerCandidates(mode, slotKey, specID, difficultyID, keyLevel)
     end
     if mode ~= "raid" then AddKind("dungeon") end
     if mode ~= "mplus" then AddKind("raid") end
+    local catalystLevel = mode == "mplus" and ns.GetMPlusTargetLevel(keyLevel)
+        or ns.RAID_TARGET_LEVELS[difficultyID or 16]
+    if mode == "overall" then catalystLevel = math.max(catalystLevel or 0, ns.GetMPlusTargetLevel(keyLevel) or 0) end
+    for _, special in ipairs({
+        { source=catalystSource, level=catalystLevel,
+          linkKind=mode == "mplus" and "dungeon" or "catalyst" },
+        { source=craftedSource, level=tonumber(ns.GetProfile().craftedTargetLevel) or 318,
+          linkKind="crafted" },
+    }) do
+        for _, item in ipairs(ns.GetCatalog(special.source, specID)) do
+            if item.equipLoc and slot.locs[item.equipLoc] then
+                local sourceKey = special.source.key
+                local unique = sourceKey .. ":" .. item.itemID
+                if not seen[unique] then
+                    seen[unique] = true
+                    candidates[#candidates + 1] = {
+                        source=special.source, item=item, sourceKey=sourceKey,
+                        difficultyID=special.source.kind == "catalyst" and difficultyID or nil,
+                        keyLevel=special.source.kind == "catalyst" and keyLevel or nil,
+                        targetLevel=special.level or item.itemLevel,
+                        linkKind=special.linkKind,
+                    }
+                end
+            end
+        end
+    end
     table.sort(candidates, function(a, b)
         if (a.targetLevel or 0) ~= (b.targetLevel or 0) then return (a.targetLevel or 0) > (b.targetLevel or 0) end
         return (a.item.name or "") < (b.item.name or "")
@@ -229,7 +413,7 @@ function ns.GetPlannerStats(mode, specID)
         local selection = plan.slots[slot.key]
         if selection then
             local link = ns.GetTargetItemLink(selection.itemID, specID, selection.targetLevel,
-                selection.sourceKind, selection.difficultyID, selection.keyLevel) or selection.itemLink
+                selection.linkKind or selection.sourceKind, selection.difficultyID, selection.keyLevel) or selection.itemLink
             AddLinkStats(planned, link)
         end
         AddLinkStats(current, GetInventoryItemLink("player", slot.inventorySlot))
