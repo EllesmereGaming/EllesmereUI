@@ -305,7 +305,6 @@ local ADDON_ROSTER = {
     { folder = "EllesmereUIResourceBars",      display = "Resource & Cast Bars", search_name = "EllesmereUI Resource Bars Cast Bars" },
     { folder = "EllesmereUIAuraBuffReminders", display = "AuraBuff Reminders",   search_name = "EllesmereUI AuraBuff Reminders"      },
     { folder = "EllesmereUIQoL",               display = "Quality of Life",      search_name = "EllesmereUI Quality of Life"         },
-    { folder = "EllesmereUILootTracker",       display = "Loot Tracker",         search_name = "EllesmereUI Loot Tracker Gear Wishlist Voidcore" },
     { folder = "EllesmereUIBlizzardSkin",      display = "Blizz UI Enhanced",    search_name = "EllesmereUI Blizz UI Enhanced",      syncFolder = "EllesmereUIDragonRiding", syncDisplay = "Dragon Riding" },
     { folder = "EllesmereUIFriends",           display = "Friends List",         search_name = "EllesmereUI Friends List"            },
     { folder = "EllesmereUIMythicTimer",       display = "Mythic+ Tools",        search_name = "EllesmereUI Mythic+ Tools Timer"     },
@@ -342,7 +341,6 @@ EllesmereUI.ADDON_GROUPS = {
         label   = "QoL Addons",
         members = {
             "EllesmereUIQoL",
-            "EllesmereUILootTracker",
             "EllesmereUIAuraBuffReminders",
             "EllesmereUIDataBars",
             "EllesmereUIQuickdraw",
@@ -9774,7 +9772,6 @@ function EllesmereUI:RegisterModule(folderName, config)
         EllesmereUIMythicTimer = true,
         -- v6.6 split
         EllesmereUIQoL = true,
-        EllesmereUILootTracker = true,
         EllesmereUIBlizzardSkin = true,
         EllesmereUIQuestTracker = true,
         EllesmereUIMinimap = true,
