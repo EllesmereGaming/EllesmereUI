@@ -81,7 +81,7 @@ initFrame:SetScript("OnEvent", function(self)
                       if _G.EUI_Bags then _G.EUI_Bags:SetScale(s) end
                       if _G.EUI_BagsReagent then _G.EUI_BagsReagent:SetScale(s) end
                       if _G.EUI_BagsWindow then _G.EUI_BagsWindow:SetScale(s) end
-                      if _G.EUI_Bank and _G.EUI_Bank:IsVisible() then _G.EUI_Bank:SetScale(s) end
+                      if _G.EUI_BankFrame and _G.EUI_BankFrame:IsVisible() then _G.EUI_BankFrame:SetScale(s) end
                   end },
                 { type="slider", text="Icon Zoom", min=0, max=0.20, step=0.01,
                   tooltip="Crops the border of every item icon in bags and bank. 0 shows the full icon.",
@@ -91,6 +91,26 @@ initFrame:SetScript("OnEvent", function(self)
                       if _G.EUI_Bags and _G.EUI_Bags.RefreshIconZoom then _G.EUI_Bags:RefreshIconZoom() end
                       local bank = _G.EUI_BankFrame
                       if bank and bank.RefreshIconZoom then bank:RefreshIconZoom() end
+                  end }
+            ); y = y - h
+
+            -- Bag Columns | Bank Columns (grid width of each window; the bank
+            -- keeps its own count because its frame is a different shape)
+            _, h = W:DualRow(parent, y,
+                { type="slider", text="Bag Columns", min=8, max=24, step=1,
+                  tooltip="Number of item columns in the bag window. With Auto-Size to Fit on this acts as a minimum: Auto-Size adds columns past it to fit the active tab, and never drops below it.",
+                  getValue=function() return db.profile.bagColumns or 12 end,
+                  setValue=function(v)
+                      db.profile.bagColumns = v
+                      ResetAndRefreshBagLayout()
+                  end },
+                { type="slider", text="Bank Columns", min=8, max=24, step=1,
+                  tooltip="Number of item columns in the bank window.",
+                  getValue=function() return db.profile.bankColumns or 14 end,
+                  setValue=function(v)
+                      db.profile.bankColumns = v
+                      local bank = _G.EUI_BankFrame
+                      if bank and bank.RefreshBank then bank:RefreshBank() end
                   end }
             ); y = y - h
 
