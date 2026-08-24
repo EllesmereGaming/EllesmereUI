@@ -441,6 +441,13 @@ local function BuildOverview(parent, yOffset)
             name:SetPoint("TOPLEFT", card, "TOPLEFT", 12, -10)
             local sourceName = source.kind == "raid" and source.instanceName
                 and (source.instanceName .. "  •  " .. source.name) or source.name
+            if source.kind == "raid" then
+                local difficultyName = GetDifficultyInfo(difficultyID)
+                if difficultyName then sourceName = sourceName .. "  (" .. difficultyName .. ")" end
+            else
+                local keyLevel = grouped[sourceKey][1].keyLevel
+                if keyLevel then sourceName = sourceName .. "  (+" .. keyLevel .. ")" end
+            end
             name:SetText(sourceName)
             local chance = Font(card, 10, 0.05, 0.82, 0.62, 1)
             chance:SetPoint("TOPRIGHT", card, "TOPRIGHT", -12, -11)
