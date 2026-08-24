@@ -211,7 +211,12 @@ local function BuildUpgradeCalcPage(pageName, parent, yOffset)
         { type = "toggle", text = "Show Calc Button on Character Sheet",
           tooltip = "Adds a Calc toggle button to the character sheet that opens and closes the Upgrade Calculator.",
           getValue = function() return GetAddonDB().showCalcButton or false end,
-          setValue = function(v) GetAddonDB().showCalcButton = v end },
+          setValue = function(v)
+              GetAddonDB().showCalcButton = v
+              if EllesmereUI and EllesmereUI.ApplyCharSheetCalcTab then
+                  EllesmereUI.ApplyCharSheetCalcTab()
+              end
+          end },
         { type = "toggle", text = "Open with Crest Upgrader",
           tooltip = "Automatically opens the Upgrade Calculator when the Crest Upgrade NPC window is opened.",
           getValue = function() return GetAddonDB().openWithUpgrader or false end,

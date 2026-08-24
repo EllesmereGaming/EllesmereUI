@@ -889,6 +889,27 @@ local function MakeStatBlock(blockCfg, slot, content, barCtx, opts)
         Tick()
     end
 
+    -- Lets a tooltip resync the bar text with what it just sampled.
+    function inst:ForceSample()
+        ForceTick()
+    end
+
+    -- A sample taken right when an event fires can catch the source before
+    -- it's populated. Resample once more after a short delay to catch that.
+    -- One outstanding retry at a time: event bursts (durability drops hit
+    -- many items per damage wave) would otherwise queue a timer closure each.
+    local retryPending = false
+    local function ForceTickChecked()
+        ForceTick()
+        if opts.retryDelay and not retryPending then
+            retryPending = true
+            C_Timer.After(opts.retryDelay, function()
+                retryPending = false
+                if not inst._dead then ForceTick() end
+            end)
+        end
+    end
+
     function inst:Enable()
         content:Show()
         lastVal = -1
@@ -897,10 +918,10 @@ local function MakeStatBlock(blockCfg, slot, content, barCtx, opts)
         if opts.events then
             if not self.eventFrame then
                 self.events = opts.events
-                self.eventFrame = MakeEventFrame(self, ForceTick)
+                self.eventFrame = MakeEventFrame(self, ForceTickChecked)
             end
             RegisterInstEvents(self)
-            ForceTick()
+            ForceTickChecked()
         else
             ns.RegisterHeartbeat(opts.hbPrefix .. ":" .. self.key, Tick)
         end
@@ -1181,7 +1202,9 @@ ns.BlockFactories.durability = function(blockCfg, slot, content, barCtx)
         return pct
     end
 
-    local function DurabilityTooltip()
+    local function DurabilityTooltip(inst)
+        -- Resync the bar text whenever the tooltip opens.
+        if inst then inst:ForceSample() end
         local ar, ag, ab = 1, 1, 1
         ns.Tip_Begin(content)
         ns.Tip_AddDouble("Durability", SampleDurability() .. "%",
@@ -1197,10 +1220,164 @@ ns.BlockFactories.durability = function(blockCfg, slot, content, barCtx)
         -- the block samples on those events alone -- no heartbeat, and with no
         -- other time-driven block enabled the 1s ticker never runs at all.
         events   = { "UPDATE_INVENTORY_DURABILITY", "PLAYER_ENTERING_WORLD" },
+        -- Retry each sample once, a moment later.
+        retryDelay = 2,
         sample   = SampleDurability,
         suffix   = function() return "%" end,
         tooltip  = DurabilityTooltip,
     })
+end
+
+ns.BlockFactories.combat = function(blockCfg, slot, content, barCtx)
+    local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
+    inst.key = InstKey(barCtx, blockCfg)
+    inst.events = { "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD" }
+
+    local function IsInCombat()
+        return UnitAffectingCombat("player") and 1 or 0
+    end
+
+    local function CombatLabel(value)
+        return value == 1 and L["IN_COMBAT"] or L["OUT_OF_COMBAT"]
+    end
+
+    local function CombatTooltip()
+        ns.Tip_Begin(content)
+        ns.Tip_AddDouble(L["COMBAT_STATUS"], CombatLabel(IsInCombat()), 1, 1, 1, 1, 1, 1)
+        ns.Tip_Show()
+    end
+
+    local mouseOver = false
+    local lastValue = -1
+    local fontSize = max(9, floor(CONTENT_BASE * 0.4333 + 0.5))
+
+    local function D() return blockCfg.settings or {} end
+    local function BC() return barCtx.cfg end
+
+    local frame = CreateFrame("Button", nil, content)
+    frame:SetSize(60, 20)
+    frame:EnableMouse(true)
+    frame:RegisterForClicks("AnyUp")
+
+    local text = frame:CreateFontString(nil, "OVERLAY")
+    AttachTextOffset(inst, text)
+    text:SetPoint("LEFT")
+
+    local measureFS = frame:CreateFontString(nil, "OVERLAY")
+    measureFS:Hide()
+
+    local function ApplyColors()
+        local r, g, b
+        if mouseOver then
+            r, g, b = ns.GetAccent()
+        else
+            r, g, b = BlockColorOf(blockCfg)
+        end
+        text:SetTextColor(r, g, b, 1)
+    end
+
+    function inst:Refresh()
+        local barCfg = BC()
+        local barH = barCtx.GetThickness()
+        local isSide = barCtx.IsVertical()
+        local value = lastValue
+        if value < 0 then value = IsInCombat(); lastValue = value end
+        local collapsed = D().onlyInCombat == true and value ~= 1
+
+        if not collapsed and not content:IsShown() then content:Show() end
+
+        ns.SetFont(text, fontSize, barCfg)
+        text:SetText(EllesmereUI.L(CombatLabel(value)))
+        ApplyColors()
+
+        if InCombatLockdown() then
+            MaybeRelayout(inst)
+            return
+        end
+
+        if isSide then
+            local slotW = VSlotW(inst)
+            local innerW = max(36, slotW - 8)
+            frame:SetSize(innerW, fontSize + 4)
+            frame:ClearAllPoints()
+            frame:SetPoint("CENTER", content, "CENTER", 0, 0)
+            text:ClearAllPoints()
+            text:SetPoint("CENTER", frame, "CENTER", 0, 0)
+            ns.SetWrappedText(text, innerW, "CENTER")
+            content:SetSize(slotW, max(fontSize + 12, barH))
+        else
+            local align = blockCfg.align or "CENTER"
+            ns.ResetInlineText(text, align)
+            text:ClearAllPoints()
+            text:SetPoint("LEFT", frame, "LEFT", 0, 0)
+            ns.SetFont(measureFS, fontSize, barCfg)
+            -- Fixed width from the wider label so the block never resizes on
+            -- combat edges; either label can be the wide one per locale.
+            measureFS:SetText(EllesmereUI.L(CombatLabel(0)))
+            local wOut = measureFS:GetStringWidth() or 30
+            measureFS:SetText(EllesmereUI.L(CombatLabel(1)))
+            local width = max(30, ns.SnapToPixelGrid(max(wOut, measureFS:GetStringWidth() or 30)) + 2)
+            text:SetWidth(width)
+            frame:SetSize(width, barH)
+            frame:ClearAllPoints()
+            frame:SetPoint("CENTER", content, "CENTER", 0, 0)
+            content:SetSize(width, barH)
+        end
+        if collapsed then
+            content:Hide()
+            ns.Tip_Hide(content)
+        end
+        MaybeRelayout(inst)
+    end
+
+    local function RefreshFromEvent()
+        local value = IsInCombat()
+        if value == lastValue then return end
+        lastValue = value
+        inst:Refresh()
+        if mouseOver then CombatTooltip() end
+    end
+
+    frame:SetScript("OnEnter", function()
+        mouseOver = true
+        ApplyColors()
+        CombatTooltip()
+    end)
+    frame:SetScript("OnLeave", function()
+        mouseOver = false
+        ns.Tip_Hide(content)
+        ApplyColors()
+    end)
+
+    function inst:Enable()
+        content:Show()
+        lastValue = -1
+        if not self.eventFrame then
+            self.eventFrame = MakeEventFrame(self, RefreshFromEvent)
+        end
+        RegisterInstEvents(self)
+        RefreshFromEvent()
+    end
+
+    function inst:Disable()
+        UnregisterInstEvents(self)
+        content:Hide()
+    end
+
+    function inst:GetAutoLength()
+        if D().onlyInCombat == true and lastValue ~= 1 then return 0 end
+        if not content:IsShown() then return 0 end
+        if barCtx.IsVertical() then return max(content:GetHeight() or 40, 40) end
+        return max(content:GetWidth() or 70, 40)
+    end
+
+    function inst:Destroy()
+        self._dead = true
+        UnregisterInstEvents(self)
+        content:Hide()
+    end
+
+    return inst
 end
 
 -------------------------------------------------------------------------------
@@ -2216,8 +2393,29 @@ ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
                 r = 0.5, g = 0.5, b = 0.5, rested = 0,
             }
         end
+        -- Friendship factions (Captain Tokka, Cursed Angler ranks, etc.): the
+        -- watched-faction payload returns EQUAL reaction thresholds for these,
+        -- which collapsed the range to zero and rendered a permanent 0% with a
+        -- nonsense "8,400 / 8,401" tooltip (field report 2026-08-22). The
+        -- friendship API carries the real rank window -- same handling as the
+        -- Action Bars RepBar. Checked before renown, matching that code path.
+        local isFriendship = false
+        if factionID and C_GossipInfo and C_GossipInfo.GetFriendshipReputation then
+            local fi = C_GossipInfo.GetFriendshipReputation(factionID)
+            if fi and fi.friendshipFactionID and fi.friendshipFactionID > 0 then
+                isFriendship = true
+                minV = fi.reactionThreshold or 0
+                curV = fi.standing or minV
+                if fi.nextThreshold and fi.nextThreshold > minV then
+                    maxV = fi.nextThreshold
+                else
+                    -- Maxed friendship rank: render a full bar.
+                    minV, maxV, curV = 0, 1, 1
+                end
+            end
+        end
         -- Major Factions (renown progress)
-        if factionID and C_MajorFactions and C_MajorFactions.GetMajorFactionData then
+        if not isFriendship and factionID and C_MajorFactions and C_MajorFactions.GetMajorFactionData then
             local mfd = C_MajorFactions.GetMajorFactionData(factionID)
             if mfd and type(mfd.renownLevelThreshold) == "number" and mfd.renownLevelThreshold > 0 then
                 minV = 0; maxV = mfd.renownLevelThreshold; curV = mfd.renownReputationEarned or 0

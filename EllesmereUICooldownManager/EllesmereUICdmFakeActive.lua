@@ -39,6 +39,7 @@ local C_SpellBook            = C_SpellBook
 local wipe                   = wipe
 local pcall                  = pcall
 local type                   = type
+local tonumber               = tonumber
 local RAID_CLASS_COLORS      = RAID_CLASS_COLORS
 local C_Container            = C_Container
 local GetInventoryItemCooldown = GetInventoryItemCooldown
@@ -292,6 +293,22 @@ IconTexture = function(iconFrame, o, rule)
     end
 end
 
+-- Threshold Text block for one rule's overlay countdown. Per-spell Threshold Text covers
+-- the ACTIVE STATE countdown as well as cooldown and recharge, but a USER rule's styling
+-- block is its customActiveStates entry, which carries threshold keys only when they were
+-- set from the preset/custom menu -- a threshold set on the SPELL lives in the family
+-- entry and would never reach these overlays. Fall through to the shared resolver, which
+-- reads family first then cas. Returns ss untouched when it already arms the feature, and
+-- when nobody uses it (session gate), so non-users pay nothing.
+local function ThresholdFor(frame, rule, ss)
+    if (tonumber(ss and ss.thresholdSeconds) or 0) > 0 then return ss end
+    if not (ns._cdmAnyThresholdText and ns.ResolveThresholdTextSettings) then return ss end
+    local fcT = frame and ns._ecmeFC and ns._ecmeFC[frame]
+    local bkT = fcT and fcT.barKey
+    return ns.ResolveThresholdTextSettings(frame, rule.spellID,
+        bkT and ns.GetBarSpellData and ns.GetBarSpellData(bkT), bkT)
+end
+
 -- ---------------------------------------------------------------------------
 --  Show / hide the overlay on a single icon frame.
 -- ---------------------------------------------------------------------------
@@ -349,7 +366,7 @@ ApplyToFrame = function(iconFrame, rule, win)
         -- only touches widgets it manages, and StyleOverlayCooldownText (above)
         -- already set the countdown numbers per the Duration Text state.
         if ns._cdmAnyThresholdText and ns.ApplyThresholdFormatter then
-            ns.ApplyThresholdFormatter(o.cd, ss)
+            ns.ApplyThresholdFormatter(o.cd, ThresholdFor(iconFrame, rule, ss))
         end
         -- Feed the active glow + border the underlying icon's shape / border so
         -- Shape Glow masks to the shape (it reads the shape from its glow frame's
@@ -491,7 +508,7 @@ end
                     pcall(ns.StyleOverlayCooldownText, st.cd, bd, ss, iconFrame:GetScale())
                 end
                 if ns._cdmAnyThresholdText and ns.ApplyThresholdFormatter then
-                    pcall(ns.ApplyThresholdFormatter, st.cd, ss)
+                    pcall(ns.ApplyThresholdFormatter, st.cd, ThresholdFor(iconFrame, rule, ss))
                 end
             else
                 st.cdLocked = true
@@ -622,7 +639,11 @@ end
                     pcall(ns.StyleOverlayCooldownText, cd, bd, ss, scale)
                 end
                 if ns.ApplyThresholdFormatter then
-                    pcall(ns.ApplyThresholdFormatter, cd, ss)
+                    -- Resolve INSIDE the protection: an argument expression evaluates before pcall
+                    -- is entered, and a throw in this creation window takes the whole slot down
+                    -- (its swipe with it), not just the countdown text.
+                    local okT, ttB = pcall(ThresholdFor, st.srcFrame, rule, ss)
+                    pcall(ns.ApplyThresholdFormatter, cd, okT and ttB or ss)
                 end
                 if ns.ApplyShapeToOverlay and st.srcFrame then
                     pcall(ns.ApplyShapeToOverlay, st.srcFrame, tex, cd, bd)

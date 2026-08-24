@@ -3835,97 +3835,9 @@ local function SkinCharacterSheet()
     -- Character tab is the default active view
     SetActiveTopButton(characterBtn)
 
-    -- Calc toggle tab: fake bottom tab on the right side of the character
-    -- sheet, visually identical to the Blizzard Character/Rep/Currency tabs.
-    do
-        local calcDb = EUIUpgCalc and EUIUpgCalc.GetOptsDB and EUIUpgCalc.GetOptsDB()
-        if calcDb and calcDb.showCalcButton then
-            -- Match Blizzard tab dimensions from CharacterFrameTab1
-            local refTab = _G["CharacterFrameTab1"]
-            local tabW = refTab and refTab:GetWidth() or 80
-            local tabH = refTab and refTab:GetHeight() or 32
-
-            local calcTab = CreateFrame("Button", "EUI_CharSheet_CalcTab", frame)
-            calcTab:SetSize(tabW, tabH)
-            calcTab:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -10, -30)
-            calcTab:SetFrameLevel(frame:GetFrameLevel() + 5)
-            calcTab:EnableMouse(true)
-
-            -- Dark background (matches skinned Blizzard tabs)
-            local bg = calcTab:CreateTexture(nil, "BACKGROUND")
-            bg:SetAllPoints()
-            bg:SetColorTexture(0.068, 0.056, 0.052, 1)
-
-            -- Active highlight overlay
-            local activeHL = calcTab:CreateTexture(nil, "ARTWORK", nil, -6)
-            activeHL:SetAllPoints()
-            activeHL:SetColorTexture(1, 1, 1, 0.02)
-            activeHL:SetBlendMode("ADD")
-            activeHL:Hide()
-
-            local label = calcTab:CreateFontString(nil, "OVERLAY")
-            label:SetFont(fontPath, 9, "")
-            label:SetPoint("CENTER", calcTab, "CENTER", 0, 0)
-            label:SetJustifyH("CENTER")
-            label:SetText("Upgrades")
-
-            -- Accent underline (matches Blizzard tab underline)
-            local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
-            local underline = calcTab:CreateTexture(nil, "OVERLAY", nil, 6)
-            if PP and PP.DisablePixelSnap then
-                PP.DisablePixelSnap(underline)
-                underline:SetHeight(PP.mult or 1)
-            else
-                underline:SetHeight(1)
-            end
-            underline:SetPoint("BOTTOMLEFT", calcTab, "BOTTOMLEFT", 0, 0)
-            underline:SetPoint("BOTTOMRIGHT", calcTab, "BOTTOMRIGHT", 0, 0)
-            underline:SetColorTexture(EG.r, EG.g, EG.b, 1)
-            underline:Hide()
-            if EllesmereUI.RegAccent then
-                EllesmereUI.RegAccent({ type = "solid", obj = underline, a = 1 })
-            end
-
-            local function RefreshCalcTab()
-                local fr = _G["EUIUpgCalcFrame"]
-                local isOpen = fr and fr:IsShown()
-                label:SetTextColor(1, 1, 1, isOpen and 1 or 0.5)
-                underline:SetShown(isOpen)
-                activeHL:SetShown(isOpen)
-            end
-            RefreshCalcTab()
-
-            calcTab:SetScript("OnEnter", function()
-                label:SetTextColor(1, 1, 1, 1)
-            end)
-            calcTab:SetScript("OnLeave", function()
-                RefreshCalcTab()
-            end)
-            calcTab:SetScript("OnClick", function()
-                local fr = _G["EUIUpgCalcFrame"]
-                if fr then
-                    if fr:IsShown() then fr:Hide() else fr:Show() end
-                    RefreshCalcTab()
-                end
-            end)
-
-            frame:HookScript("OnShow", RefreshCalcTab)
-            -- Hook the calc frame so the tab tracks opens/closes from any source.
-            local function HookCalcFrame()
-                local fr = _G["EUIUpgCalcFrame"]
-                if not fr or GetFFD(calcTab)._calcHooked then return end
-                GetFFD(calcTab)._calcHooked = true
-                fr:HookScript("OnShow", RefreshCalcTab)
-                fr:HookScript("OnHide", RefreshCalcTab)
-            end
-            HookCalcFrame()
-            -- Deferred: calc frame may not exist yet at skin time
-            if not _G["EUIUpgCalcFrame"] then
-                C_Timer.After(1, HookCalcFrame)
-            end
-            GetFFD(frame).calcToggleBtn = calcTab
-            GetFFD(frame).updateCalcBtnColor = RefreshCalcTab
-        end
+    -- Calc tab is created lazily by ApplyCharSheetCalcTab when showCalcButton is on.
+    if EllesmereUI.ApplyCharSheetCalcTab then
+        EllesmereUI.ApplyCharSheetCalcTab()
     end
 
     -- Left column slots (show itemlevel on right)
@@ -4775,6 +4687,111 @@ local function SkinCharacterSlot(slotName, slotID)
     end
 end
 
+-- Fake bottom tab on the character sheet, visually identical to the Blizzard
+-- Character/Rep/Currency tabs. Built on first enable only (zero cost while off).
+local function EnsureCalcTab(frame)
+    local existing = GetFFD(frame).calcToggleBtn
+    if existing then return existing end
+
+    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
+    local PP = EllesmereUI and EllesmereUI.PP
+
+    local refTab = _G["CharacterFrameTab1"]
+    local tabW = refTab and refTab:GetWidth() or 80
+    local tabH = refTab and refTab:GetHeight() or 32
+
+    local calcTab = CreateFrame("Button", "EUI_CharSheet_CalcTab", frame)
+    calcTab:SetSize(tabW, tabH)
+    calcTab:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -10, -30)
+    calcTab:SetFrameLevel(frame:GetFrameLevel() + 5)
+    calcTab:EnableMouse(true)
+
+    local bg = calcTab:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.068, 0.056, 0.052, 1)
+
+    local activeHL = calcTab:CreateTexture(nil, "ARTWORK", nil, -6)
+    activeHL:SetAllPoints()
+    activeHL:SetColorTexture(1, 1, 1, 0.02)
+    activeHL:SetBlendMode("ADD")
+    activeHL:Hide()
+
+    local label = calcTab:CreateFontString(nil, "OVERLAY")
+    label:SetFont(fontPath, 9, "")
+    label:SetPoint("CENTER", calcTab, "CENTER", 0, 0)
+    label:SetJustifyH("CENTER")
+    label:SetText("Upgrades")
+
+    local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
+    local underline = calcTab:CreateTexture(nil, "OVERLAY", nil, 6)
+    if PP and PP.DisablePixelSnap then
+        PP.DisablePixelSnap(underline)
+        underline:SetHeight(PP.mult or 1)
+    else
+        underline:SetHeight(1)
+    end
+    underline:SetPoint("BOTTOMLEFT", calcTab, "BOTTOMLEFT", 0, 0)
+    underline:SetPoint("BOTTOMRIGHT", calcTab, "BOTTOMRIGHT", 0, 0)
+    underline:SetColorTexture(EG.r, EG.g, EG.b, 1)
+    underline:Hide()
+    if EllesmereUI.RegAccent then
+        EllesmereUI.RegAccent({ type = "solid", obj = underline, a = 1 })
+    end
+
+    local function RefreshCalcTab()
+        local fr = _G["EUIUpgCalcFrame"]
+        if fr and not GetFFD(calcTab)._calcHooked then
+            GetFFD(calcTab)._calcHooked = true
+            fr:HookScript("OnShow", RefreshCalcTab)
+            fr:HookScript("OnHide", RefreshCalcTab)
+        end
+        local isOpen = fr and fr:IsShown()
+        label:SetTextColor(1, 1, 1, isOpen and 1 or 0.5)
+        underline:SetShown(isOpen)
+        activeHL:SetShown(isOpen)
+    end
+    RefreshCalcTab()
+
+    calcTab:SetScript("OnEnter", function()
+        label:SetTextColor(1, 1, 1, 1)
+    end)
+    calcTab:SetScript("OnLeave", function()
+        RefreshCalcTab()
+    end)
+    calcTab:SetScript("OnClick", function()
+        local fr = _G["EUIUpgCalcFrame"]
+        if fr then
+            if fr:IsShown() then fr:Hide() else fr:Show() end
+            RefreshCalcTab()
+        end
+    end)
+
+    frame:HookScript("OnShow", RefreshCalcTab)
+    GetFFD(frame).calcToggleBtn = calcTab
+    GetFFD(frame).updateCalcBtnColor = RefreshCalcTab
+    return calcTab
+end
+
+-- Show/hide the Upgrades calc tab from upgradeCalcOpts.showCalcButton (live toggle).
+local function ApplyCharSheetCalcTab()
+    if not CharacterFrame then return end
+    if not skinned then return end
+    if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then
+        return
+    end
+    local show = false
+    if EUIUpgCalc and EUIUpgCalc.GetOptsDB then
+        local calcDb = EUIUpgCalc.GetOptsDB()
+        show = calcDb and calcDb.showCalcButton or false
+    end
+    if show then
+        EnsureCalcTab(CharacterFrame):SetShown(true)
+    else
+        local calcTab = GetFFD(CharacterFrame).calcToggleBtn
+        if calcTab then calcTab:SetShown(false) end
+    end
+end
+
 -- Entry point: apply the themed character sheet.
 local function ApplyThemedCharacterSheet()
     if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then
@@ -4788,6 +4805,7 @@ end
 
 if EllesmereUI then
     EllesmereUI.ApplyThemedCharacterSheet = ApplyThemedCharacterSheet
+    EllesmereUI.ApplyCharSheetCalcTab = ApplyCharSheetCalcTab
 
     -- Setup at PLAYER_LOGIN to register drag hooks early
     local initFrame = CreateFrame("Frame")

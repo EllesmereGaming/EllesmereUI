@@ -6231,8 +6231,11 @@ ns.EnsureFocusCastProxy = EnsureFocusCastProxy
 -- the instance instead of refreshing it, and Blizzard checks its removed-alert triggers before
 -- the item frames adopt the new instance, so the drop edge fires while the buff is still up.
 -- Death and Decay does this on every entry into the circle, cueing a loss at the moment the
--- buff was GAINED. One frame is the whole window -- both alerts fire inside a single
--- ProcessUnitAuraEvent -- so both edges on one spell in one frame is that replacement.
+-- buff was GAINED. Both alerts for a replacement fire inside the SAME CooldownViewerMixin
+-- :OnUnitAura call -- confirmed live to be indistinguishable from a genuine same-tick
+-- drop+reproc (e.g. Prismatic Bolt consumed by a cast and reprocced by Salvo), so only the
+-- loss cue is cancelled on a pair. A real gain always plays, even on a replacement, rather
+-- than silently eating the reported case with no way to tell the two apart.
 do
     local _soundHooked = setmetatable({}, { __mode = "k" })
     -- Edges seen this frame: [spellID] = sound key, or false for "edge happened,
@@ -6280,10 +6283,11 @@ do
         -- Entries are cleared BEFORE playing so a throw inside PlaySoundFile cannot
         -- strand one and have it cancel an unrelated edge on a later flush.
         for sid, key in pairs(_pendLoss) do
-            -- Paired with a gain this frame = replacement: the buff never left, so
-            -- NEITHER cue is real. A true gain fires in its own, earlier frame.
+            -- Paired with a gain this frame = replacement: the loss cue is spurious
+            -- (the buff never really left). The gain may still be real (e.g. a proc
+            -- landing the same tick a cast consumes the old stack), so it is left for
+            -- the gain loop below instead of being cancelled here too.
             local paired = _pendGain[sid] ~= nil
-            _pendGain[sid] = nil
             _pendLoss[sid] = nil
             if not paired then PlayThrottled(key, sid, _soundThrottleLost) end
         end

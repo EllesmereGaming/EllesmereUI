@@ -517,14 +517,24 @@ ns.RegisterDMUnlock = function()
     if DB().standaloneTimer and ns.MakeSATimerUnlockElement then
         elements[#elements + 1] = ns.MakeSATimerUnlockElement(MK)
     end
+    -- Icon History is owned by the spell-history file, but participates in the
+    -- same first-class unlock system as the meter windows and combat timer.
+    local spellHistory = DB().spellHistory
+    if spellHistory and spellHistory.iconEnabled and ns.MakeIconHistoryUnlockElement then
+        elements[#elements + 1] = ns.MakeIconHistoryUnlockElement(MK)
+    end
     EUI:RegisterUnlockElements(elements, "EllesmereUIDamageMeters")
-    -- Drop registrations for window slots beyond the live count and the timer while disabled (symmetric across profile swaps)
+    -- Drop registrations for window slots beyond the live count and optional
+    -- elements while disabled (symmetric across profile swaps).
     if EUI.UnregisterUnlockElement then
         for i = #_windows + 1, MAX_WINDOWS do
             EUI:UnregisterUnlockElement("EDM_Win" .. i)
         end
         if not DB().standaloneTimer then
             EUI:UnregisterUnlockElement("EDM_CombatTimer")
+        end
+        if not (spellHistory and spellHistory.iconEnabled) then
+            EUI:UnregisterUnlockElement("EDM_IconHistory")
         end
     end
 end
@@ -814,10 +824,11 @@ local function GetDMOutline()
     return (EUI and EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("damageMeters")) or ""
 end
 
-local function SetDMFont(fs, size)
+local function SetDMFont(fs, size, flagsOverride, fontOverride)
     if not (fs and fs.SetFont) then return end
-    local font = GetDMFont()
-    local flags = GetDMOutline()
+    local font = fontOverride or GetDMFont()
+    local flags = flagsOverride
+    if flags == nil then flags = GetDMOutline() end
     if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, flags == "") end
     fs:SetFont(font, size, flags)
 end
@@ -1027,6 +1038,93 @@ end
 
 local function IsSecret(v)
     return issecretvalue ~= nil and issecretvalue(v)
+end
+
+-- Resolve a damage-meter source back to its live group unit when possible;
+-- MethodInternal's name-based surface API covers historical/off-roster sources.
+local function FindNicknameUnit(guid, isLocalPlayer)
+    if not IsSecret(isLocalPlayer) and isLocalPlayer == true then return "player" end
+
+    local cleanGuid = type(guid) == "string" and not IsSecret(guid) and guid or nil
+    if cleanGuid and UnitTokenFromGUID then
+        local unit = UnitTokenFromGUID(cleanGuid)
+        if unit and not IsSecret(unit) and UnitExists(unit)
+           and (UnitIsUnit(unit, "player") or UnitInParty(unit) or UnitInRaid(unit)) then
+            return unit
+        end
+    end
+end
+
+-- MethodInternal's surface choice is authoritative for known Method players;
+-- unhandled players keep their raw short character name.
+function ns.ResolvePlayerName(name, guid, isLocalPlayer)
+    -- Without the provider the answer is exactly the pre-nickname name; skip
+    -- the guid->unit resolution so non-users pay one nil check, nothing more.
+    if not EasyNicknameAPI then return StripRealm(name) end
+    local nameIsPlain = type(name) == "string" and not IsSecret(name) and name ~= ""
+    local unit = FindNicknameUnit(guid, isLocalPlayer)
+    local fullName = nameIsPlain and name or nil
+    local shortName = nameIsPlain and StripRealm(name) or nil
+    if unit then
+        local unitName = UnitName(unit)
+        if type(unitName) == "string" and not IsSecret(unitName) and unitName ~= "" then shortName = unitName end
+        local unitFullName = GetUnitName(unit, true)
+        if type(unitFullName) == "string" and not IsSecret(unitFullName) and unitFullName ~= "" then fullName = unitFullName end
+    end
+    local fallback = shortName or StripRealm(name)
+
+    -- MethodInternal owns the selected name for known Method players on this
+    -- surface. Character Name is authoritative even though it equals fallback.
+    if EasyNicknameAPI then
+        local ok, value, handled
+        if unit and EasyNicknameAPI.GetNicknameForUnitForSurface then
+            ok, value, handled = pcall(
+                EasyNicknameAPI.GetNicknameForUnitForSurface, unit, "damageMeters")
+        elseif fullName and EasyNicknameAPI.GetNicknameForCharacterNameForSurface then
+            ok, value, handled = pcall(
+                EasyNicknameAPI.GetNicknameForCharacterNameForSurface,
+                fullName, nil, "damageMeters")
+        end
+        if ok and handled == true then
+            if type(value) == "string" and not IsSecret(value) and value ~= "" then
+                return value
+            end
+            return fallback
+        end
+    end
+    return fallback
+end
+
+function ns.RefreshNicknameNames()
+    if ns._nicknameRefreshPending then return end
+    ns._nicknameRefreshPending = true
+    C_Timer.After(0, function()
+        ns._nicknameRefreshPending = nil
+        for _, window in ipairs(ns._windows or {}) do
+            window._stickyNameCache = nil
+            for _, bar in ipairs(window.rowPool or {}) do
+                bar._cachedSrcName = nil
+                bar._cachedDisplayName = nil
+            end
+            -- Combat already has the shared meter ticker; avoid an extra API fetch.
+            if not _inCombat and window.Refresh then window.Refresh() end
+        end
+    end)
+end
+
+-- Keep cached meter labels in sync with MethodInternal without adding work to
+-- the one-second damage-meter refresh hot path.
+do
+    local function RegisterMethodInternal()
+        if ns._dmMethodInternalSurfaceNickHooked then return end
+        if EasyNicknameAPI and EasyNicknameAPI.RegisterCallback then
+            EasyNicknameAPI.RegisterCallback(
+                "SurfaceNicknamesChanged", ns.RefreshNicknameNames, "EllesmereUIDamageMeters")
+            ns._dmMethodInternalSurfaceNickHooked = true
+        end
+    end
+
+    EventUtil.ContinueOnAddOnLoaded("MethodInternal", RegisterMethodInternal)
 end
 
 -- Is this bar the local player's? isLocalPlayer is documented NeverSecret, so
@@ -1464,7 +1562,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
         -- Reverse to oldest-first
         local reversed = {}
         for ri = #raw, 1, -1 do reversed[#reversed + 1] = raw[ri] end
-        ApplyTTHeader(StripRealm(bar._src.name) or "Unknown", EllesmereUI.L("Death Recap"))
+        ApplyTTHeader(ns.ResolvePlayerName(bar._src.name, bar._srcGUID, bar._src.isLocalPlayer), EllesmereUI.L("Death Recap"))
         local texPath, texKey = GetBreakdownBarTexturePath()
         local deathTime = reversed[#reversed] and reversed[#reversed].timestamp
         if IsSecret(deathTime) then deathTime = nil end
@@ -1588,7 +1686,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
                 if cc then b.fill:SetStatusBarColor(cc.r, cc.g, cc.b)
                 else b.fill:SetStatusBarColor(0x33/255, 0x33/255, 0x33/255) end
                 b.label:SetTextColor(1, 1, 1); b.amount:SetTextColor(1, 1, 1)
-                b.label:SetText(StripRealm(p.name))
+                b.label:SetText(ns.ResolvePlayerName(p.name))
                 b.amount:SetText(FormatBarValue(p.total, p.amountPerSecond, numFmt))
                 b.row:Show()
             else b.row:Hide() end
@@ -1619,7 +1717,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
     end
     if not srcData or not srcData.combatSpells or #srcData.combatSpells == 0 then return false end
 
-    ApplyTTHeader(StripRealm(bar._src.name) or "Unknown", L(DM_TYPE_NAMES[curDMType] or "Damage Done"))
+    ApplyTTHeader(ns.ResolvePlayerName(bar._src.name, bar._srcGUID, bar._src.isLocalPlayer), L(DM_TYPE_NAMES[curDMType] or "Damage Done"))
 
     wipe(_ttSorted)
     for _, spell in ipairs(srcData.combatSpells) do
@@ -2245,7 +2343,7 @@ local function CreateDMWindow(winIdx)
                 end
                 if not hasRecap then
                     EnsureTooltipFrame()
-                    local playerName = StripRealm(bar._src.name) or "Unknown"
+                    local playerName = ns.ResolvePlayerName(bar._src.name, bar._srcGUID, bar._src.isLocalPlayer)
                     _ttFrame._hdrText:SetText(EllesmereUI.Lf("%1$s's Death Recap", playerName))
                     local cfg2 = DB()
                     local hc = cfg2.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
@@ -2270,7 +2368,9 @@ local function CreateDMWindow(winIdx)
                and W.curDMType ~= Enum.DamageMeterType.Deaths then
                 EnsureTooltipFrame()
                 -- Show header with player name + type
-                local playerName = StripRealm(bar._src and bar._src.name) or "Unknown"
+                local playerName = W.curDMType == Enum.DamageMeterType.EnemyDamageTaken
+                    and StripRealm(bar._src and bar._src.name)
+                    or ns.ResolvePlayerName(bar._src and bar._src.name, bar._srcGUID, bar._src and bar._src.isLocalPlayer)
                 local typeName = L(DM_TYPE_NAMES[W.curDMType] or "Damage Done")
                 _ttFrame._hdrText:SetText(EllesmereUI.Lf("%1$s's %2$s Breakdown", playerName, typeName))
                 local cfg2 = DB()
@@ -3352,11 +3452,11 @@ local function CreateDMWindow(winIdx)
         -- Name: only when source name changes (guard secret values)
         local srcName = src.name
         if issecretvalue and issecretvalue(srcName) then
-            bar.label:SetText(StripRealm(srcName) or "You")
+            bar.label:SetText(ns.ResolvePlayerName(srcName, src.sourceGUID, src.isLocalPlayer) or "You")
             W._stickyNameCache = nil
         elseif srcName ~= W._stickyNameCache then
             W._stickyNameCache = srcName
-            bar.label:SetText(StripRealm(srcName) or "You")
+            bar.label:SetText(ns.ResolvePlayerName(srcName, src.sourceGUID, src.isLocalPlayer) or "You")
         end
         if isDeaths then
             local isOverall = (not W.curSessionID and W.curSession == Enum.DamageMeterSessionType.Overall)
@@ -3529,11 +3629,13 @@ local function CreateDMWindow(winIdx)
                         -- Name
                         local srcName = src.name
                         if isSecret and issecretvalue(srcName) then
-                            bar.label:SetText(StripRealm(srcName))
+                            bar.label:SetText(W.curDMType == Enum.DamageMeterType.EnemyDamageTaken
+                                and StripRealm(srcName) or ns.ResolvePlayerName(srcName, src.sourceGUID, src.isLocalPlayer))
                             bar._cachedSrcName = nil
                         elseif srcName ~= bar._cachedSrcName then
                             bar._cachedSrcName = srcName
-                            bar._cachedDisplayName = StripRealm(srcName)
+                            bar._cachedDisplayName = W.curDMType == Enum.DamageMeterType.EnemyDamageTaken
+                                and StripRealm(srcName) or ns.ResolvePlayerName(srcName, src.sourceGUID, src.isLocalPlayer)
                             bar.label:SetText(bar._cachedDisplayName)
                         end
 
@@ -3821,7 +3923,7 @@ local function CreateDMWindow(winIdx)
                     else local ar2, ag2, ab2 = GetAccentRGB(); bar.fill:SetStatusBarColor(ar2, ag2, ab2) end
                     SetDMFont(bar.label, leftFS); SetDMFont(bar.amount, rightFS)
                     bar.label:SetTextColor(1, 1, 1); bar.amount:SetTextColor(1, 1, 1)
-                    bar.label:SetText(StripRealm(p.name))
+                    bar.label:SetText(ns.ResolvePlayerName(p.name))
                     bar.amount:SetText(FormatBarValue(p.total, p.amountPerSecond, c.numberFormat or 2)); bar._spellID = nil
                 else bar.row:Hide(); bar._spellID = nil end
             end
@@ -4510,8 +4612,25 @@ end
 -- Standalone Combat Timer
 local _saTimer  -- frame reference
 local _saTimerFS -- fontstring
+local _saTimerBG -- backdrop texture
+local _saTimerBorder -- PP border child frame
 local _saTimerPreview = false
 local _saTimerLive = false  -- last live/idle state seen (drives OOC desaturation)
+
+local function GetSATimerPreviewText()
+    return DB().standaloneTimerDecimal and "11:37.0" or "11:37"
+end
+
+-- Per-user font override for the standalone timer only (standaloneTimerFont,
+-- a dropdown key: "__global"/nil = follow the Damage Meters module font).
+local function GetSATimerFontOverride()
+    local key = DB().standaloneTimerFont
+    if key and key ~= "__global" and EllesmereUI and EllesmereUI.ResolveFontName then
+        local path = EllesmereUI.ResolveFontName(key)
+        if path and path ~= "" then return path end
+    end
+    return nil
+end
 
 local function GetSATimerColor()
     local cfg = DB()
@@ -4536,23 +4655,64 @@ local function ApplySATimerStyle()
     if not _saTimer or not _saTimerFS then return end
     local cfg = DB()
     _saTimer:SetFrameStrata(cfg.standaloneTimerStrata or "HIGH")
-    SetDMFont(_saTimerFS, cfg.standaloneTimerSize or 14)
+
+    local outline = cfg.standaloneTimerOutline or "INHERIT"
+    local outlineFlags
+    if outline == "NONE" then
+        outlineFlags = ""
+    elseif outline == "THICKOUTLINE" then
+        outlineFlags = "THICKOUTLINE"
+    elseif outline == "INHERIT" then
+        outlineFlags = nil
+    else
+        outlineFlags = "OUTLINE"
+    end
+    SetDMFont(_saTimerFS, cfg.standaloneTimerSize or 26, outlineFlags, GetSATimerFontOverride())
     ApplySATimerColor()
+
+    local previousText = _saTimerFS:GetText()
+    -- Auto-size worst case must cover the decimal form, or live tenths clip.
+    _saTimerFS:SetText(cfg.standaloneTimerDecimal and "99:99.9" or "99:99")
+    local autoWidth = (_saTimerFS:GetStringWidth() or 30) + 4
+    local autoHeight = (_saTimerFS:GetStringHeight() or 14) + 4
+    _saTimerFS:SetText(previousText)
+    _saTimer:SetSize(cfg.standaloneTimerWidth and math.max(40, cfg.standaloneTimerWidth) or autoWidth,
+                     cfg.standaloneTimerHeight and math.max(20, cfg.standaloneTimerHeight) or autoHeight)
+
+    if _saTimerBG then
+        local c = cfg.standaloneTimerBackgroundColor or { r = 0, g = 0, b = 0, a = 0 }
+        _saTimerBG:SetColorTexture(c.r or 0, c.g or 0, c.b or 0, c.a or 0)
+    end
+
+    if _saTimerBorder then
+        local PP = EllesmereUI and EllesmereUI.PP
+        local c = cfg.standaloneTimerBorderColor or { r = 0, g = 0, b = 0, a = 1 }
+        local borderSize = math.max(0, math.floor((cfg.standaloneTimerBorderSize or 0) + 0.5))
+        if borderSize > 0 and PP and PP.UpdateBorder then
+            PP.UpdateBorder(_saTimerBorder, borderSize, c.r or 0, c.g or 0, c.b or 0, c.a == nil and 1 or c.a)
+            _saTimerBorder:Show()
+        else
+            _saTimerBorder:Hide()
+        end
+    end
+
     _saTimerFS:ClearAllPoints()
-    local anchor = cfg.standaloneTimerAnchor or "free"
-    local alignLeft
-    if anchor == "free" then
-        alignLeft = cfg.standaloneTimerAlignLeft
-    else
-        alignLeft = anchor == "topleft" or anchor == "bottomleft"
+    local borderSize = cfg.standaloneTimerBorderSize or 0
+    local inset = borderSize > 0 and borderSize + 3 or 0
+    _saTimerFS:SetPoint("LEFT", _saTimer, "LEFT", inset, 0)
+    _saTimerFS:SetPoint("RIGHT", _saTimer, "RIGHT", -inset, 0)
+    -- Preserve the old binary left-align preference until the user chooses
+    -- a value in the new three-way alignment control.
+    local textAlign = cfg.standaloneTimerTextAlign
+    if not textAlign then
+        local anchor = cfg.standaloneTimerAnchor or "free"
+        if anchor == "free" then
+            textAlign = cfg.standaloneTimerAlignLeft and "LEFT" or "RIGHT"
+        else
+            textAlign = (anchor == "topleft" or anchor == "bottomleft") and "LEFT" or "RIGHT"
+        end
     end
-    if alignLeft then
-        _saTimerFS:SetPoint("LEFT")
-        _saTimerFS:SetJustifyH("LEFT")
-    else
-        _saTimerFS:SetPoint("RIGHT")
-        _saTimerFS:SetJustifyH("RIGHT")
-    end
+    _saTimerFS:SetJustifyH(textAlign)
 end
 
 -- Decimal display: API duration is whole seconds, so tenths are derived from a GetTime() anchor
@@ -4698,20 +4858,17 @@ local function CreateSATimer()
         end
     end)
 
-    _saTimerFS = _saTimer:CreateFontString(nil, "OVERLAY")
-    _saTimerFS:SetPoint("RIGHT")
-    ApplySATimerStyle()
-    _saTimerFS:SetText("0:00")
+    _saTimerBG = _saTimer:CreateTexture(nil, "BACKGROUND")
+    _saTimerBG:SetAllPoints()
 
-    -- Size to text
-    _saTimer:SetScript("OnSizeChanged", nil)
-    local function ResizeToText()
-        local w = (_saTimerFS:GetStringWidth() or 30) + 4
-        local h = (_saTimerFS:GetStringHeight() or 14) + 4
-        _saTimer:SetSize(w, h)
-    end
-    _saTimerFS:SetText("99:99")
-    ResizeToText()
+    _saTimerBorder = CreateFrame("Frame", nil, _saTimer)
+    _saTimerBorder:SetAllPoints(_saTimer)
+    _saTimerBorder:SetFrameLevel(_saTimer:GetFrameLevel() + 5)
+    local PP = EllesmereUI and EllesmereUI.PP
+    if PP and PP.CreateBorder then PP.CreateBorder(_saTimerBorder, 0, 0, 0, 1, 1) end
+
+    _saTimerFS = _saTimer:CreateFontString(nil, "OVERLAY")
+    ApplySATimerStyle()
     _saTimerFS:SetText("0:00")
 
     RepositionSATimer()
@@ -4725,15 +4882,10 @@ ns.ApplySATimer = function()
     if cfg.standaloneTimer then
         if not _saTimer then CreateSATimer() end
         ApplySATimerStyle()
-        -- Resize for new font size (measure with worst-case, then restore)
         local prevText = _saTimerFS:GetText()
-        _saTimerFS:SetText("99:99")
-        local w = (_saTimerFS:GetStringWidth() or 30) + 4
-        local h = (_saTimerFS:GetStringHeight() or 14) + 4
-        _saTimer:SetSize(w, h)
         RepositionSATimer()
         if _saTimerPreview then
-            _saTimerFS:SetText("11:37")
+            _saTimerFS:SetText(GetSATimerPreviewText())
         else
             _saTimerFS:SetText(prevText or "0:00")
             UpdateSATimerText()
@@ -4752,7 +4904,7 @@ ns.ShowSATimerPreview = function()
         return
     end
     _saTimerPreview = true
-    _saTimerFS:SetText("11:37")
+    _saTimerFS:SetText(GetSATimerPreviewText())
     _saTimer:Show()
 end
 ns.HideSATimerPreview = function()
@@ -5182,6 +5334,9 @@ initFrame:SetScript("OnEvent", function(self)
             _windows[i] = CreateDMWindow(i)
             ns.ApplyWindowBorder()
         end
+        -- Spell History caches its profile table; refresh it before rebuilding
+        -- optional unlock registrations so enable state and positions agree.
+        if ns.RefreshSpellHistoryProfile then ns.RefreshSpellHistoryProfile() end
         -- Refresh unlock registrations for the new profile's window count
         ns.RegisterDMUnlock()
         -- Recreate standalone timer if enabled

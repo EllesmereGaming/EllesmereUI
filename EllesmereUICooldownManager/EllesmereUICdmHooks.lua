@@ -2901,23 +2901,27 @@ local function DecorateFrame(frame, barData)
                     -- pushes a GCD via SetCooldown, whose geometry the PERSISTENT
                     -- black colour sweeps as a visible bar (SetCooldown changes
                     -- geometry, not colour, so nothing re-hides it). Paint fully
-                    -- transparent for exactly that case. Gated on Suppress GCD; normal
-                    -- hide-active spells and transforms whose proc is on its own real
-                    -- CD keep the black swipe, and a charge proc mid-recharge is
-                    -- carved out (its swipe IS the recharge).
+                    -- transparent for exactly that case, and also for a plain
+                    -- hide-active spell whose swipe color never zeroes out
+                    -- (e.g. Prismatic Barrier), which pins fd._hideActiveOverriding
+                    -- and otherwise leaks a bare GCD once charges max out. Gated
+                    -- on Suppress GCD; a spell genuinely on its own real CD keeps
+                    -- the black swipe, and a charge proc mid-recharge is carved
+                    -- out (its swipe IS the recharge).
                     local hideActiveAlpha = barData.swipeAlpha or 0.7
                     if ((bd2 and bd2.suppressGCD) or (ss2 and ss2.suppressGCD)) and sid2
                        and C_SpellBook and C_SpellBook.FindSpellOverrideByID
                        and C_Spell and C_Spell.GetSpellCooldown then
-                        local ovrID = C_SpellBook.FindSpellOverrideByID(sid2)
-                        if ovrID and ovrID > 0 and ovrID ~= sid2 then
-                            local chargeRecharging = false
-                            do
-                                local ci = CdmChargeInfoFor(frame, sid2)
-                                chargeRecharging = (ci and (ci.maxCharges or 0) > 1 and ci.isActive == true) or false
-                            end
-                            local oc = C_Spell.GetSpellCooldown(ovrID)
-                            if not chargeRecharging and oc and not (oc.isActive and not oc.isOnGCD) then
+                        local chargeRecharging = false
+                        do
+                            local ci = CdmChargeInfoFor(frame, sid2)
+                            chargeRecharging = (ci and (ci.maxCharges or 0) > 1 and ci.isActive == true) or false
+                        end
+                        if not chargeRecharging then
+                            local ovrID = C_SpellBook.FindSpellOverrideByID(sid2)
+                            local checkID = (ovrID and ovrID > 0 and ovrID ~= sid2) and ovrID or sid2
+                            local oc = C_Spell.GetSpellCooldown(checkID)
+                            if oc and not (oc.isActive and not oc.isOnGCD) then
                                 hideActiveAlpha = 0
                             end
                         end
@@ -9149,6 +9153,8 @@ function ns.SetupViewerHooks()
                 -- becomes active/inactive. Run a full reanchor so new/removed
                 -- icons get collected and centered. Batched via C_Timer to
                 -- collapse the spam (fires many times per frame).
+                -- Use the throttled queue here, not a direct call, so bursts
+                -- of state changes can't stack up multiple full reanchors.
                 if frame.OnActiveStateChanged then
                     local _asDeferFrame = CreateFrame("Frame")
                     _asDeferFrame:Hide()
@@ -9158,7 +9164,7 @@ function ns.SetupViewerHooks()
                         if _asDeferTicks < 2 then return end
                         self:Hide()
                         _activeStateReanchorPending = false
-                        CollectAndReanchor()
+                        QueueReanchor()
                     end)
                     hooksecurefunc(frame, "OnActiveStateChanged", function()
                         ReapplyPositions()

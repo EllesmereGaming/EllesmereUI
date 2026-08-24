@@ -60,6 +60,13 @@ local function IsGearItem(itemLink)
     local _, _, _, _, _, classID = GetItemInfoInstant(itemLink)
     return classID == ITEM_CLASS_WEAPON or classID == ITEM_CLASS_ARMOR
 end
+local function GetItemLevelAtLocation(loc, itemLink)
+    if loc and loc:IsValid() and C_Item.DoesItemExist(loc) then
+        local level = C_Item.GetCurrentItemLevel(loc)
+        if level and level > 0 then return level end
+    end
+    return itemLink and C_Item.GetDetailedItemLevelInfo(itemLink) or nil
+end
 local function GetAccentRGB()
     if EUI.GetAccentColor then return EUI.GetAccentColor() end
     return 0.05, 0.82, 0.62
@@ -1709,23 +1716,10 @@ function EUI_Bank:RefreshBank()
                 for slot = 1, tab.numSlots do
                     local info = C_Container.GetContainerItemInfo(tab.bagID, slot)
                     if info then used = used + 1 end
-                    if not hasSearch or info then
+                    -- use native search filter so type keywords work too
+                    if not hasSearch or (info and not info.isFiltered) then
                         visibleSlots[#visibleSlots + 1] = { slot = slot, _cachedInfo = info }
                     end
-                end
-                -- When searching, filter by name
-                if hasSearch then
-                    local filtered = {}
-                    for _, vs in ipairs(visibleSlots) do
-                        if vs._cachedInfo then
-                            local link = C_Container.GetContainerItemLink(tab.bagID, vs.slot)
-                            local itemName = link and GetItemInfo(link)
-                            if itemName and itemName:lower():find(searchQuery, 1, true) then
-                                filtered[#filtered + 1] = vs
-                            end
-                        end
-                    end
-                    visibleSlots = filtered
                 end
                 if not hasSearch or #visibleSlots > 0 then
                     headerIdx = headerIdx + 1
@@ -1796,14 +1790,11 @@ function EUI_Bank:RefreshBank()
             end
             local visibleSlots = allSlots
             if hasSearch then
+                -- use native search filter so type keywords work too
                 local filtered = {}
                 for _, vs in ipairs(allSlots) do
-                    if vs._cachedInfo then
-                        local link = C_Container.GetContainerItemLink(tab.bagID, vs.slot)
-                        local itemName = link and GetItemInfo(link)
-                        if itemName and itemName:lower():find(searchQuery, 1, true) then
-                            filtered[#filtered + 1] = vs
-                        end
+                    if vs._cachedInfo and not vs._cachedInfo.isFiltered then
+                        filtered[#filtered + 1] = vs
                     end
                 end
                 visibleSlots = filtered
@@ -1909,16 +1900,18 @@ function EUI_Bank:RefreshBank()
             local showBindType = isGear and not info.isBound and BP().bagDisplayBindType
             local showIlvl = isGear and BP().showItemlevelInBags ~= false
             local giIlvl, giBindType
+            local loc
             if showBindType or showIlvl then
-                local _, _, _, i4, _, _, _, _, _, _, _, _, _, b14 = GetItemInfo(itemLink)
-                giIlvl, giBindType = i4, b14
+                local _, _, _, _, _, _, _, _, _, _, _, _, _, b14 = GetItemInfo(itemLink)
+                loc = ItemLocation:CreateFromBagAndSlot(bagID, slot)
+                giIlvl = showIlvl and GetItemLevelAtLocation(loc, itemLink) or nil
+                giBindType = b14
             end
 
             -- Bind Type : BoE / WuE bottom-left (gear only)
             if btn.BindTypeText then
                 if showBindType then
                     local isWuE = false
-                    local loc = ItemLocation:CreateFromBagAndSlot(bagID, slot)
                     if loc and C_Item.DoesItemExist(loc) then
                         isWuE = C_Item.IsBoundToAccountUntilEquip(loc)
                     end

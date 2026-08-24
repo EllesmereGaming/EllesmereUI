@@ -1050,7 +1050,8 @@ initFrame:SetScript("OnEvent", function(self)
         tooltip = tooltip or EllesmereUI.L(title)
         local FORMS = { { key = "mana", label = "Caster" },
                         { key = "rage", label = "Bear" },
-                        { key = "energy", label = "Cat" } }
+                        { key = "energy", label = "Cat" },
+                        { key = "moonkin", label = "Moonkin" } }
         local rows = {}
         for _, f in ipairs(FORMS) do
             local key = f.key
@@ -1859,14 +1860,16 @@ initFrame:SetScript("OnEvent", function(self)
         -- Druid "form specific" (Advanced mode only): a threshold per resource type, keyed by form
         local _playerClassFile = select(2, UnitClass("player"))
         local hasFormToggle = cfg.formCapable and cfg.singleSpec and _playerClassFile == "DRUID"
-        local FORM_LABEL = { mana = "Caster", rage = "Bear", energy = "Cat" }
+        local FORM_LABEL = { mana = "Caster", rage = "Bear", energy = "Cat", moonkin = "Moonkin" }
         local function DefaultFormEntries()
             return {
-                { formKey = "mana",   thresholdEnabled = true, thresholdPct = 30, thresholdPartialOnly = true,
+                { formKey = "mana",    thresholdEnabled = true, thresholdPct = 30, thresholdPartialOnly = true,
                   thresholdR = defR, thresholdG = defG, thresholdB = defB, thresholdA = defA },
-                { formKey = "rage",   thresholdEnabled = true, thresholdPct = 30, thresholdPartialOnly = false,
+                { formKey = "rage",    thresholdEnabled = true, thresholdPct = 30, thresholdPartialOnly = false,
                   thresholdR = defR, thresholdG = defG, thresholdB = defB, thresholdA = defA },
-                { formKey = "energy", thresholdEnabled = true, thresholdPct = 30, thresholdPartialOnly = true,
+                { formKey = "energy",  thresholdEnabled = true, thresholdPct = 30, thresholdPartialOnly = true,
+                  thresholdR = defR, thresholdG = defG, thresholdB = defB, thresholdA = defA },
+                { formKey = "moonkin", thresholdEnabled = true, thresholdPct = 30, thresholdPartialOnly = true,
                   thresholdR = defR, thresholdG = defG, thresholdB = defB, thresholdA = defA },
             }
         end

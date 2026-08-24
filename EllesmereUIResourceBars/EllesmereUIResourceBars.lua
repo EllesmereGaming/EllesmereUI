@@ -87,6 +87,7 @@ local InCombatLockdown = InCombatLockdown
 local GetShapeshiftFormID = GetShapeshiftFormID
 local IsPlayerSpell = IsPlayerSpell
 local UnitSpellHaste = UnitSpellHaste
+local GetInventoryItemID = GetInventoryItemID
 
 -------------------------------------------------------------------------------
 --  Constants
@@ -784,8 +785,12 @@ ResolveThresholdSpecEntry = function(sp)
     if not entries or #entries == 0 then return nil end
 
     -- Form-specific mode (druid power bar): pick the entry matching the current
+    -- form. Moonkin (31/35) is checked directly by form ID since it shares
+    -- Mana with Caster on GetPrimaryPowerType() and would otherwise collide
+    -- with the "mana" bucket.
     if sp.thresholdFormMode then
-        local key = FORM_THRESHOLD_KEY[GetPrimaryPowerType()]
+        local form = GetShapeshiftFormID()
+        local key = (form == 31 or form == 35) and "moonkin" or FORM_THRESHOLD_KEY[GetPrimaryPowerType()]
         if not key then return nil end
         for _, entry in ipairs(entries) do
             if entry.formKey == key then return entry end
@@ -1053,14 +1058,15 @@ end
 local _, playerClassFile = UnitClass("player")
 
 -- Druid "hide bar text per form". isClassResource: Moonkin (31/35) is exempt on
--- the class resource bar (shows Astral there); power/health keep it in "Caster".
+-- the class resource bar (shows Astral there); power/health get their own
+-- "Moonkin" bucket, separate from "Caster" (no form).
 _G._ERB_TextHiddenByForm = function(cfg, isClassResource)
     if playerClassFile ~= "DRUID" then return false end
     local df = cfg and cfg.textDisabledForms
     if not df then return false end
     local f = GetShapeshiftFormID()
     if isClassResource and (f == 31 or f == 35) then return false end
-    local key = (f == 1) and "energy" or (f == 5) and "rage" or "mana"
+    local key = (f == 1) and "energy" or (f == 5) and "rage" or (f == 31 or f == 35) and "moonkin" or "mana"
     return df[key] and true or false
 end
 -- Druid "hide whole bar per form": same buckets/isClassResource rule as above,
@@ -1071,7 +1077,7 @@ _G._ERB_BarHiddenByForm = function(cfg, isClassResource)
     if not df then return false end
     local f = GetShapeshiftFormID()
     if isClassResource and (f == 31 or f == 35) then return false end
-    local key = (f == 1) and "energy" or (f == 5) and "rage" or "mana"
+    local key = (f == 1) and "energy" or (f == 5) and "rage" or (f == 31 or f == 35) and "moonkin" or "mana"
     return df[key] and true or false
 end
 -- Static neutral defaults for custom fill colors; used only as the initial custom
@@ -3737,9 +3743,11 @@ local function BuildBars()
         if secondaryBar and secondaryBar._fillOpApplied and secondaryBar:IsShown() then
             -- Bar-type Fill Opacity active: the full-bar backdrop must retreat to
             -- the empty portion too, or it tints the translucent fill from behind
-            -- and defeats the world-show-through.
+            -- and defeats the world-show-through. Anchor to secondaryBar's own
+            -- inset inner StatusBar (_sb), not the uninset outer secondaryFrame,
+            -- or a halfPx sliver of _barBg peeks out past the fill's clipped edge.
             ns.AnchorBgToFillEdge(secondaryFrame._barBg, secondaryBar:GetStatusBarTexture(),
-                secondaryFrame, sp.pipOrientation or "HORIZONTAL")
+                secondaryBar._sb, sp.pipOrientation or "HORIZONTAL")
             secondaryFrame._barBg:Show()
         elseif (sp.fillOpacity or 100) < 100 then
             -- Pip/rune-type Fill Opacity active: a full-frame backdrop cannot hole
@@ -3747,7 +3755,14 @@ local function BuildBars()
             -- fill. Hide it; ApplyGapFills draws the gap strips in the bar-bg color
             -- and inactive pips keep their own per-pip background.
             secondaryFrame._barBg:Hide()
+        elseif isBarType then
+            -- Bar-type: anchor to secondaryBar's inset inner StatusBar (_sb) so
+            -- _barBg doesn't extend a halfPx past the fill/bg's own clipped edge.
+            secondaryFrame._barBg:SetAllPoints(secondaryBar._sb)
+            secondaryFrame._barBg:Show()
         else
+            -- Pip/rune-type: flush to secondaryFrame so this shows through the
+            -- gaps between pips (see comment above).
             secondaryFrame._barBg:SetAllPoints(secondaryFrame)
             secondaryFrame._barBg:Show()
         end
@@ -4397,12 +4412,17 @@ local function UpdateIronfurBar()
     local maxFrac = 0
     local shown = 0
 
+    -- Follow bar orientation instead of assuming horizontal.
+    local oriSb = secondaryBar._sb
+    local vert = (oriSb and oriSb.GetOrientation and oriSb:GetOrientation() == "VERTICAL") or false
+    local revFill = (vert and oriSb.GetReverseFill and oriSb:GetReverseFill()) or false
+
     for i = 1, count do
         local t = ironfurTicks[i]
         local frac = (t.duration > 0) and ((t.endTime - now) / t.duration) or 0
         if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
         if frac > maxFrac then maxFrac = frac end
-        if showHash and overlay and barW > 0 then
+        if showHash and overlay and barW > 0 and barH > 0 then
             shown = shown + 1
             local tex = ironfurTickTex[shown]
             if not tex then
@@ -4412,12 +4432,24 @@ local function UpdateIronfurBar()
                 ironfurTickTex[shown] = tex
             end
             tex:SetColorTexture(1, 1, 1, 0.9)
-            local x = frac * barW
-            if x > barW - tickW then x = barW - tickW end
-            if x < 0 then x = 0 end
             tex:ClearAllPoints()
-            tex:SetSize(tickW, barH)
-            tex:SetPoint("TOPLEFT", secondaryBar, "TOPLEFT", x, 0)
+            if vert then
+                local y = frac * barH
+                if y > barH - tickW then y = barH - tickW end
+                if y < 0 then y = 0 end
+                tex:SetSize(barW, tickW)
+                if revFill then
+                    tex:SetPoint("TOPLEFT", secondaryBar, "TOPLEFT", 0, -y)
+                else
+                    tex:SetPoint("BOTTOMLEFT", secondaryBar, "BOTTOMLEFT", 0, y)
+                end
+            else
+                local x = frac * barW
+                if x > barW - tickW then x = barW - tickW end
+                if x < 0 then x = 0 end
+                tex:SetSize(tickW, barH)
+                tex:SetPoint("TOPLEFT", secondaryBar, "TOPLEFT", x, 0)
+            end
             tex:Show()
         end
     end
@@ -4522,12 +4554,28 @@ IP.UpdateHash = function()
     local tickW = PP and (2 * PP.mult) or 2
     local frac = remain / IP.DURATION
     if frac > 1 then frac = 1 end
-    local x = frac * barW
-    if x > barW - tickW then x = barW - tickW end
-    if x < 0 then x = 0 end
+    -- Follow bar orientation instead of assuming horizontal.
+    local oriSb = secondaryBar._sb
+    local vert = (oriSb and oriSb.GetOrientation and oriSb:GetOrientation() == "VERTICAL") or false
+    local revFill = (vert and oriSb.GetReverseFill and oriSb:GetReverseFill()) or false
     IP.hashTex:ClearAllPoints()
-    IP.hashTex:SetSize(tickW, barH)
-    IP.hashTex:SetPoint("TOPLEFT", secondaryBar, "TOPLEFT", x, 0)
+    if vert then
+        local y = frac * barH
+        if y > barH - tickW then y = barH - tickW end
+        if y < 0 then y = 0 end
+        IP.hashTex:SetSize(barW, tickW)
+        if revFill then
+            IP.hashTex:SetPoint("TOPLEFT", secondaryBar, "TOPLEFT", 0, -y)
+        else
+            IP.hashTex:SetPoint("BOTTOMLEFT", secondaryBar, "BOTTOMLEFT", 0, y)
+        end
+    else
+        local x = frac * barW
+        if x > barW - tickW then x = barW - tickW end
+        if x < 0 then x = 0 end
+        IP.hashTex:SetSize(tickW, barH)
+        IP.hashTex:SetPoint("TOPLEFT", secondaryBar, "TOPLEFT", x, 0)
+    end
     IP.hashTex:Show()
 end
 
@@ -6709,6 +6757,32 @@ end
     end
 end
 
+-- Some set bonuses never register via IsPlayerSpell or a player aura.
+-- Count equipped items whose set-bonus data lists this spellID; two or
+-- more equipped means the 2pc bonus is up.
+local function IsSetBonusSpellActive(spellID)
+    if not (C_Item and C_Item.GetSetBonusesForSpecializationByItemID) then
+        return false
+    end
+    local specID = _G._ERB_ResolveSpecIDCached and _G._ERB_ResolveSpecIDCached()
+    if not specID then return false end
+    local matches = 0
+    for slot = 1, 19 do
+        local itemID = GetInventoryItemID and GetInventoryItemID("player", slot)
+        if itemID then
+            local ok, bonusSpellIDs = pcall(C_Item.GetSetBonusesForSpecializationByItemID, specID, itemID)
+            if ok and type(bonusSpellIDs) == "table" then
+                for _, id in ipairs(bonusSpellIDs) do
+                    if id == spellID then
+                        matches = matches + 1
+                        break
+                    end
+                end
+            end
+        end
+    end
+    return matches >= 2
+end
 
 -- Channel tick marks: vertical marks on the cast bar for channeled spells
 -- listed in CHANNEL_TICK_DATA. The penultimate tick (last safe chain/clip
@@ -6819,11 +6893,11 @@ ShowChannelTicks = function(spellID)
             local M = tickData.missiles
             if tickData.addMissiles then
                 for id, extra in pairs(tickData.addMissiles) do
-                    -- Talents answer IsPlayerSpell; set bonuses may only
-                    -- surface as a hidden player aura. Either counts.
+                    -- Talent, player aura, or item set bonus -- any counts.
                     if IsPlayerSpell(id)
                         or (C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID
-                            and C_UnitAuras.GetPlayerAuraBySpellID(id)) then
+                            and C_UnitAuras.GetPlayerAuraBySpellID(id))
+                        or IsSetBonusSpellActive(id) then
                         M = M + extra
                     end
                 end

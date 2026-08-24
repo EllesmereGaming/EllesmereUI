@@ -27,21 +27,43 @@ local SLOT_SIZE, SPACING = 34, 4
 -- the real item, never GetItemByID: scaling gear's bonus IDs lower its required level, but
 -- GetItemByID shows the unscaled base item's level (reads red). Prefer bag slot > link > ID; cache by link, wipe on level-up.
 local _canUseCache = {}
+local ITEM_CLASS_RECIPE = Enum.ItemClass.Recipe
 local function BagsItemUnusable(bagID, slot, itemLink, itemID)
     local item = itemLink or itemID
     if not item then return false end
     local cached = _canUseCache[item]
     if cached ~= nil then return cached end
     local unusable = false
+
+    -- Recipes also have a spell (the teach effect), so they'd hit the tooltip scan
+    -- below. Skip that: the scan can see red from the crafted item's own preview
+    -- stats, not just from the recipe's learn requirements. Use the usable check
+    -- instead, which reflects skill/known state directly.
+    local _, _, _, _, _, classID = GetItemInfoInstant(item)
+    if classID == ITEM_CLASS_RECIPE then
+        local usable = C_Item.IsUsableItem(item)
+        unusable = not usable
+        _canUseCache[item] = unusable
+        return unusable
+    end
+
     if IsEquippableItem(item) or C_Item.GetItemSpell(item) then
-        local tip
-        if bagID and slot then tip = C_TooltipInfo.GetBagItem(bagID, slot) end
-        if not tip and itemLink then tip = C_TooltipInfo.GetHyperlink(itemLink) end
-        if not tip and itemID then tip = C_TooltipInfo.GetItemByID(itemID) end
+        -- Only use a tooltip from the real bag slot or real item link; both carry
+        -- bonus IDs, which set the item's true required level. A bare itemID lacks
+        -- those and can read the wrong level requirement either way.
+        local tip, reliable
+        if bagID and slot then
+            tip = C_TooltipInfo.GetBagItem(bagID, slot)
+            reliable = true
+        elseif itemLink then
+            tip = C_TooltipInfo.GetHyperlink(itemLink)
+            reliable = true
+        end
         if tip and tip.lines then
             for _, row in ipairs(tip.lines) do
                 local lc = row.leftColor
-                if lc and lc.r == 1 and lc.g < 0.2 and lc.b < 0.2
+                -- Tolerance, not exact equality: rounding can put red just under r=1.
+                if lc and lc.r > 0.9 and lc.g < 0.2 and lc.b < 0.2
                    and row.leftText ~= ITEM_SCRAPABLE_NOT
                    and row.leftText ~= CANNOT_UNEQUIP_COMBAT
                    and row.leftText ~= ITEM_DISENCHANT_NOT_DISENCHANTABLE then
@@ -49,11 +71,16 @@ local function BagsItemUnusable(bagID, slot, itemLink, itemID)
                     break
                 end
                 local rc = row.rightColor
-                if rc and rc.r == 1 and rc.g < 0.2 and rc.b < 0.2 then
+                if rc and rc.r > 0.9 and rc.g < 0.2 and rc.b < 0.2 then
                     unusable = true
                     break
                 end
             end
+        end
+        if not reliable then
+            -- No bag slot or link yet, so don't cache a guess. A later call with
+            -- real data will compute and cache the right answer.
+            return unusable
         end
     end
     _canUseCache[item] = unusable
@@ -145,6 +172,13 @@ local function IsGearItem(itemLink)
     if not itemLink then return false end
     local _, _, _, _, _, classID = GetItemInfoInstant(itemLink)
     return classID == ITEM_CLASS_WEAPON or classID == ITEM_CLASS_ARMOR
+end
+local function GetItemLevelAtLocation(loc, itemLink)
+    if loc and loc:IsValid() and C_Item.DoesItemExist(loc) then
+        local level = C_Item.GetCurrentItemLevel(loc)
+        if level and level > 0 then return level end
+    end
+    return itemLink and C_Item.GetDetailedItemLevelInfo(itemLink) or nil
 end
 local function GetFont() return (EUI.GetFontPath and EUI.GetFontPath("bags")) or "Fonts\\FRIZQT__.TTF" end
 local function GetOutline() return (EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("bags")) or "" end
@@ -5050,17 +5084,19 @@ function EUI_Bags:RefreshInventory()
                 d.bag = bag; d.slot = slot; d.info = info; d.itemLink = itemLink
                 -- Pre-cache per-item data for RenderButton (zero API calls at render time)
                 if itemLink then
-                    local _, _, q, ilvl, _, _, _, _, _, _, _, _, _, bindType = GetItemInfo(itemLink)
+                    local _, _, q, _, _, _, _, _, _, _, _, _, _, bindType = GetItemInfo(itemLink)
+                    local loc = ItemLocation:CreateFromBagAndSlot(bag, slot)
                     -- Slot-grouping fields (_equipSlot/_classID/_subclassID) are NOT
                     -- pre-cached here: GetArmorySlotBucket fetches them lazily, only
                     -- for gear items and only while Group Armory by Slot is on, so the
                     -- feature costs nothing on the refresh path when disabled.
                     d._giQuality = q
-                    d._giIlvl = ilvl
                     d._giBindType = bindType
                     -- Track rank + cooldown: only for types that need them
                     local isGear = IsGearItem(itemLink)
                     d._isGear = isGear
+                    d._giIlvl = isGear and BP().showItemlevelInBags ~= false
+                        and GetItemLevelAtLocation(loc, itemLink) or nil
                     if isGear and GetUpgradeTrack then
                         local rankText, trackColor = GetUpgradeTrack(itemLink)
                         if rankText and rankText ~= "" then
@@ -5069,7 +5105,6 @@ function EUI_Bags:RefreshInventory()
                         end
                     end
                     -- Warbound check (warbank dim overlay) + WuE bind check (gear only, when bind-type text is enabled).
-                    local loc = ItemLocation:CreateFromBagAndSlot(bag, slot)
                     if loc and C_Item.DoesItemExist(loc) then
                         if C_Bank and C_Bank.IsItemAllowedInBankType then
                             d._isWarbound = C_Bank.IsItemAllowedInBankType(Enum.BankType.Account, loc)
@@ -6656,8 +6691,10 @@ function EUI_BagsReagent:RefreshInventory()
                 local showItemlevel = BP().showItemlevelInBags ~= false
                 if showItemlevel then
                     if itemLink then
-                        local _, _, quality, level = GetItemInfo(itemLink)
+                        local _, _, quality = GetItemInfo(itemLink)
                         if IsGearItem(itemLink) then
+                            local loc = ItemLocation:CreateFromBagAndSlot(data.bag, data.slot)
+                            local level = GetItemLevelAtLocation(loc, itemLink)
                             local fs = BP().itemlevelFontSize or 12
                             btn.ItemLevelText:SetFont(STANDARD_TEXT_FONT, fs, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
                             btn.ItemLevelText:SetText(level or "")

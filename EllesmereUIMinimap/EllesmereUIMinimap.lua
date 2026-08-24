@@ -3151,7 +3151,10 @@ local _moHooked  = {}      -- frames whose OnEnter/OnLeave we've already hooked
 local _moHideTimer = nil
 
 local function MO_OverAny()
-    if Minimap and Minimap:IsMouseOver() then return true end
+    if Minimap then
+        local mapRegion = GetFFD(Minimap).pingBlocker or GetFFD(Minimap).layoutFrame or Minimap
+        if mapRegion:IsMouseOver() then return true end
+    end
     if _portalFlyout and _portalFlyout:IsShown() then return true end
     if flyoutPanel and flyoutPanel:IsShown() then return true end
     -- The friends tooltip is interactive (whisper/invite rows), so it keeps the stack
@@ -3241,6 +3244,7 @@ local MAIL_CORNER_POINTS = { TOPLEFT = true, TOPRIGHT = true, BOTTOMLEFT = true,
 
 local function LayoutIndicatorFrames(minimap, p, circleMode)
     local flvl = minimap:GetFrameLevel() + 10
+    local mapAnchor = GetFFD(minimap).layoutFrame or minimap
 
     -- Build our custom buttons once, hide Blizzard originals
     BuildCustomIndicators(minimap)
@@ -3299,7 +3303,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
         local rowBaseX, rowBaseY = GetRowBase(rowMode, p.btnRowDistance)
         local resES = minimap:GetEffectiveScale()
         flyoutToggle:ClearAllPoints()
-        flyoutToggle:SetPoint(rowMode.point, minimap, rowMode.rel,
+        flyoutToggle:SetPoint(rowMode.point, mapAnchor, rowMode.rel,
             PP.SnapForES(rowBaseX, resES), PP.SnapForES(rowBaseY, resES))
     end
 
@@ -3311,13 +3315,14 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
         diffFrame:SetParent(minimap)
         diffFrame:SetFrameLevel(flvl + 2)
         diffFrame:ClearAllPoints()
-        diffFrame:SetPoint("TOPRIGHT", minimap, "TOPRIGHT", 2, 1)
+        diffFrame:SetPoint("TOPRIGHT", mapAnchor, "TOPRIGHT", 2, 1)
         -- Text mode overrides Show Blizzard Elements: the flag is always suppressed.
-        if p.hideRaidDifficulty or p.diffTextEnabled then
-            diffFrame:SetAlpha(0)
-        else
-            diffFrame:SetAlpha(1)
-        end
+        -- Alpha leaves the hit region live, so a suppressed flag still answers mouseover
+        -- with Blizzard's difficulty tooltip at the top-right corner.
+        local suppressed = p.hideRaidDifficulty or p.diffTextEnabled
+        diffFrame:SetAlpha(suppressed and 0 or 1)
+        diffFrame:EnableMouseMotion(not suppressed)
+        if diffFrame.Guild then diffFrame.Guild:EnableMouseMotion(not suppressed) end
     end
     if not minimap.Layout then minimap.Layout = function() end end
 
@@ -3328,7 +3333,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
             if clockBg and clockBg:IsShown() then
                 ci.tracking:SetPoint("RIGHT", clockBg, "LEFT", 0, 0)
             else
-                ci.tracking:SetPoint("TOP", minimap, "TOP", -20, -3)
+                ci.tracking:SetPoint("TOP", mapAnchor, "TOP", -20, -3)
             end
             ci.tracking:Show()
         elseif ci.tracking then
@@ -3340,14 +3345,14 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
             if clockBg and clockBg:IsShown() then
                 ci.calendar:SetPoint("LEFT", clockBg, "RIGHT", 0, 0)
             else
-                ci.calendar:SetPoint("TOP", minimap, "TOP", 20, -3)
+                ci.calendar:SetPoint("TOP", mapAnchor, "TOP", 20, -3)
             end
         end
 
         if ci.mail and ci.mail:IsShown() then
             ci.mail:ClearAllPoints()
             if mailCorner then
-                ci.mail:SetPoint(mailCorner, minimap, mailCorner, p.mailOffsetX or 0, p.mailOffsetY or 0)
+                ci.mail:SetPoint(mailCorner, mapAnchor, mailCorner, p.mailOffsetX or 0, p.mailOffsetY or 0)
             else
                 ci.mail:SetPoint("RIGHT", ci.tracking, "LEFT", 0, 0)
             end
@@ -3374,7 +3379,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
         local elY = PP.SnapForES(baseY, elES)
         local function PlaceElement(btn)
             btn:ClearAllPoints()
-            btn:SetPoint(rowMode.point, minimap, rowMode.rel, elX, elY)
+            btn:SetPoint(rowMode.point, mapAnchor, rowMode.rel, elX, elY)
             local adv = (rowMode.dirX ~= 0) and btn:GetWidth() or btn:GetHeight()
             adv = math.floor(adv / elPx + 0.001) * elPx + elGap
             elX = elX + adv * rowMode.dirX
@@ -3395,7 +3400,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
         if ci.mail and ci.mail:IsShown() then
             if mailCorner then
                 ci.mail:ClearAllPoints()
-                ci.mail:SetPoint(mailCorner, minimap, mailCorner, p.mailOffsetX or 0, p.mailOffsetY or 0)
+                ci.mail:SetPoint(mailCorner, mapAnchor, mailCorner, p.mailOffsetX or 0, p.mailOffsetY or 0)
             else
                 PlaceElement(ci.mail)
             end
@@ -3421,7 +3426,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
         local rowX = PP.SnapForES(rowBaseX, rowES)
         local rowY = PP.SnapForES(rowBaseY, rowES)
         local function PlaceRowButton(btn)
-            btn:SetPoint(rowMode.point, minimap, rowMode.rel, rowX, rowY)
+            btn:SetPoint(rowMode.point, mapAnchor, rowMode.rel, rowX, rowY)
             local adv = (rowMode.dirX ~= 0) and btn:GetWidth() or btn:GetHeight()
             adv = math.floor(adv / rowPx + 0.001) * rowPx + rowGap
             rowX = rowX + adv * rowMode.dirX
@@ -3432,7 +3437,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
         if flyoutVisible then
             PlaceRowButton(flyoutToggle)
         else
-            flyoutToggle:SetPoint(rowMode.point, minimap, rowMode.rel, rowX, rowY)
+            flyoutToggle:SetPoint(rowMode.point, mapAnchor, rowMode.rel, rowX, rowY)
         end
         local mp = EBS.db and EBS.db.profile.minimap
         local ungrouped = {}
@@ -3701,7 +3706,7 @@ local function PositionOmniumFolio(btn)
     btn:ClearAllPoints()
     -- Anchor the button's chosen corner to the minimap's same corner; X/Y nudge from there (positive X = right, positive Y = up, regardless of corner).
     local corner = mp.omniumFolioCorner or "BOTTOMLEFT"
-    btn:SetPoint(corner, Minimap, corner, mp.omniumFolioX or 0, mp.omniumFolioY or 0)
+    btn:SetPoint(corner, GetFFD(Minimap).layoutFrame or Minimap, corner, mp.omniumFolioX or 0, mp.omniumFolioY or 0)
     _omniumFolioApplying = false
 end
 
@@ -3712,7 +3717,8 @@ end
 -- (resolution/scale dependent, which is why it repros on some machines only); the
 -- expanded rect ensures "engine entered" implies "this test passes", so the exit watcher never fires early.
 function EBS._HoverStillOver(minimap)
-    if minimap:IsMouseOver(4, -4, -4, 4) then return true end
+    local hoverFrame = GetFFD(minimap).pingBlocker or GetFFD(minimap).layoutFrame or minimap
+    if hoverFrame:IsMouseOver(4, -4, -4, 4) then return true end
     local b = _G.ExpansionLandingPageMinimapButton
     if b and b:IsShown() and b:IsMouseOver(4, -4, -4, 4) then return true end
     return false
@@ -3927,7 +3933,7 @@ function EBS._PositionAddonCompartment(btn)
     -- Anchor the button's chosen corner to the minimap's same corner; X/Y nudge
     -- from there (positive X = right, positive Y = up), same as the folio.
     local corner = mp.addonCompartmentCorner or "TOPRIGHT"
-    btn:SetPoint(corner, Minimap, corner, mp.addonCompartmentX or 0, mp.addonCompartmentY or 0)
+    btn:SetPoint(corner, GetFFD(Minimap).layoutFrame or Minimap, corner, mp.addonCompartmentX or 0, mp.addonCompartmentY or 0)
     -- The cluster's alpha/mouse state does not follow the reparent, and the
     -- pre-fix sessions left it parked on a hidden frame -- re-assert both.
     btn:SetAlpha(1)
@@ -4127,18 +4133,39 @@ local function ApplyMinimap()
 
     minimap:SetScale(1.0)
     local mapSize = p.mapSize or 140
-    -- Mask file is 256x256 (WoW requires POT). The visible shape is 4:3, so the
-    -- widget uses that aspect; SetMaskTexture stretches the square file onto it.
-    minimap:SetSize(mapSize, isRectangular and (mapSize * 192 / 256) or mapSize)
+    -- Blizzard's map projection and native player arrow require a square Minimap
+    -- canvas. Rectangular mode therefore crops that square canvas with a centered
+    -- 4:3 mask; resizing the Blizzard frame itself makes the terrain slide away
+    -- from the arrow as zoom changes.
+    minimap:SetSize(mapSize, mapSize)
     local maskID = isCircle and 186178
-        or (isRectangular and "Interface\\AddOns\\EllesmereUIMinimap\\Media\\minimap_rectangular-mask.blp")
+        or (isRectangular and "Interface\\AddOns\\EllesmereUIMinimap\\Media\\minimap_rectangular-crop-mask.tga")
         or 130937
     minimap:SetMaskTexture(maskID)
+    if isRectangular then
+        local cropInset = mapSize * 32 / 256
+        minimap:SetHitRectInsets(0, 0, cropInset, cropInset)
+    else
+        minimap:SetHitRectInsets(0, 0, 0, 0)
+    end
+    if isRectangular and not GetFFD(minimap).layoutFrame then
+        local layout = CreateFrame("Frame", nil, minimap)
+        layout:SetPoint("CENTER", minimap, "CENTER")
+        layout:EnableMouse(false)
+        GetFFD(minimap).layoutFrame = layout
+    end
+    do
+        local layout = GetFFD(minimap).layoutFrame
+        if layout then
+            layout:SetSize(mapSize, isRectangular and (mapSize * 192 / 256) or mapSize)
+            layout:SetFrameLevel(minimap:GetFrameLevel())
+        end
+    end
     do
         local blocker = GetFFD(minimap).pingBlocker
         if blocker then
             blocker:ClearAllPoints()
-            blocker:SetAllPoints(minimap)
+            blocker:SetAllPoints(GetFFD(minimap).layoutFrame or minimap)
         end
     end
 
@@ -4163,7 +4190,7 @@ local function ApplyMinimap()
         -- creation made it permanent for the session, tracking how much else was loading
         -- at login rather than the actual setting. Re-setting the points forces a layout recompute; harmless no-op otherwise.
         host:ClearAllPoints()
-        host:SetAllPoints(minimap)
+        host:SetAllPoints(GetFFD(minimap).layoutFrame or minimap)
         -- Same level as the minimap keeps the border under all child buttons; Show Behind drops it under the map surface for the Shadow style.
         host:SetFrameLevel(p.borderBehind and math.max(0, minimap:GetFrameLevel() - 1) or minimap:GetFrameLevel())
         host:SetAlpha(1)
@@ -4239,22 +4266,31 @@ local function ApplyMinimap()
     -- Custom housing overlay: our own texture behind the minimap showing the housing indoor map when Blizzard hides the real content. No Blizzard frame manipulation.
     if not GetFFD(minimap).housingTex then
         local frame = CreateFrame("Frame", nil, minimap)
-        frame:SetAllPoints(minimap)
+        frame:SetAllPoints(GetFFD(minimap).layoutFrame or minimap)
         frame:SetFrameLevel(minimap:GetFrameLevel() + 1)
         local tex = frame:CreateTexture(nil, "ARTWORK")
         if isCircle then
             local inset = -mapSize * 0.10
             tex:SetPoint("TOPLEFT", frame, "TOPLEFT", inset, -inset)
             tex:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -inset, inset)
+        elseif isRectangular then
+            tex:SetSize(mapSize, mapSize)
+            tex:SetPoint("CENTER", frame, "CENTER")
         else
             tex:SetAllPoints(frame)
         end
         if isCircle or isRectangular then
             local mask = frame:CreateMaskTexture()
             mask:SetAllPoints(frame)
-            mask:SetTexture(maskID)
+            -- The housing frame already has the visible 4:3 dimensions. It uses
+            -- the full rectangular mask, while the square Blizzard canvas uses
+            -- the centered crop mask above.
+            mask:SetTexture(isRectangular
+                and "Interface\\AddOns\\EllesmereUIMinimap\\Media\\minimap_rectangular-mask.blp"
+                or maskID)
             tex:AddMaskTexture(mask)
             frame._mask = mask
+            frame._maskAttached = true
         end
         frame._isCircle = isCircle
         frame._tex = tex
@@ -4287,6 +4323,7 @@ local function ApplyMinimap()
                     frame:Hide()
                 end
             end
+            GetFFD(minimap).checkHousing = CheckHousing
             -- Check on zone transitions
             if not GetFFD(minimap).housingZoneHook then
                 GetFFD(minimap).housingZoneHook = true
@@ -4303,6 +4340,8 @@ local function ApplyMinimap()
         -- Update existing housing frame on reapply (shape/mask can change live).
         local frame = GetFFD(minimap).housingFrame
         if frame then
+            frame:ClearAllPoints()
+            frame:SetAllPoints(GetFFD(minimap).layoutFrame or minimap)
             frame:SetFrameLevel(minimap:GetFrameLevel() + 1)
             frame._isCircle = isCircle
             if frame._tex then
@@ -4311,6 +4350,9 @@ local function ApplyMinimap()
                     local inset = -mapSize * 0.10
                     frame._tex:SetPoint("TOPLEFT", frame, "TOPLEFT", inset, -inset)
                     frame._tex:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -inset, inset)
+                elseif isRectangular then
+                    frame._tex:SetSize(mapSize, mapSize)
+                    frame._tex:SetPoint("CENTER", frame, "CENTER")
                 else
                     frame._tex:SetAllPoints(frame)
                 end
@@ -4319,21 +4361,38 @@ local function ApplyMinimap()
                 if not frame._mask then
                     local mask = frame:CreateMaskTexture()
                     mask:SetAllPoints(frame)
-                    if frame._tex then frame._tex:AddMaskTexture(mask) end
                     frame._mask = mask
                 end
-                frame._mask:SetTexture(maskID)
+                if frame._tex and not frame._maskAttached then
+                    frame._tex:AddMaskTexture(frame._mask)
+                    frame._maskAttached = true
+                end
+                frame._mask:SetTexture(isRectangular
+                    and "Interface\\AddOns\\EllesmereUIMinimap\\Media\\minimap_rectangular-mask.blp"
+                    or maskID)
                 frame._mask:Show()
             elseif frame._mask then
-                if frame._tex then pcall(frame._tex.RemoveMaskTexture, frame._tex, frame._mask) end
+                if frame._tex and frame._maskAttached then
+                    pcall(frame._tex.RemoveMaskTexture, frame._tex, frame._mask)
+                    frame._maskAttached = false
+                end
                 frame._mask:Hide()
             end
         end
     end
-    -- Clamp to screen so the border never extends off-screen
+    -- Shape changes do not fire a zone event. Reuse the existing housing detector
+    -- so atlas/texture selection follows the new shape immediately.
+    if GetFFD(minimap).checkHousing then GetFFD(minimap).checkHousing() end
+    -- Clamp to the visible shape. Rectangular mode keeps a square native canvas,
+    -- so allow only its hidden top/bottom strips beyond the screen bounds.
     minimap:SetClampedToScreen(true)
-    local bInset = isCircle and (p.borderSize or 1) or 0
-    minimap:SetClampRectInsets(-bInset, bInset, bInset, -bInset)
+    if isRectangular then
+        local cropInset = mapSize * 32 / 256
+        minimap:SetClampRectInsets(0, 0, -cropInset, cropInset)
+    else
+        local bInset = isCircle and (p.borderSize or 1) or 0
+        minimap:SetClampRectInsets(-bInset, bInset, bInset, -bInset)
+    end
     -- Force the engine to re-render at the new size: nudge zoom, restore same frame.
     local curZoom = minimap:GetZoom()
     minimap:SetZoom(curZoom > 0 and 0 or 1)
@@ -4354,7 +4413,7 @@ local function ApplyMinimap()
         zoomIn:SetParent(hideZoom and EBS._hiddenFrame or minimap)
         zoomIn:SetFrameLevel(minimap:GetFrameLevel() + 10)
         zoomIn:ClearAllPoints()
-        zoomIn:SetPoint("BOTTOMRIGHT", minimap, "BOTTOMRIGHT", -2, 20)
+        zoomIn:SetPoint("BOTTOMRIGHT", GetFFD(minimap).layoutFrame or minimap, "BOTTOMRIGHT", -2, 20)
         zoomIn:EnableMouse(true)
         zoomIn:SetAlpha(1)
         -- Start in Blizzard's between-hovers state (hidden; hover handlers Show/Hide on map enter/leave) so it is not visible from /reload until hovered.
@@ -4364,7 +4423,7 @@ local function ApplyMinimap()
                 if GetFFD(self).inHook then return end
                 GetFFD(self).inHook = true
                 self:ClearAllPoints()
-                self:SetPoint("BOTTOMRIGHT", minimap, "BOTTOMRIGHT", -2, 20)
+                self:SetPoint("BOTTOMRIGHT", GetFFD(minimap).layoutFrame or minimap, "BOTTOMRIGHT", -2, 20)
                 GetFFD(self).inHook = false
             end)
             GetFFD(zoomIn).hooked = true
@@ -4374,7 +4433,7 @@ local function ApplyMinimap()
         zoomOut:SetParent(hideZoom and EBS._hiddenFrame or minimap)
         zoomOut:SetFrameLevel(minimap:GetFrameLevel() + 10)
         zoomOut:ClearAllPoints()
-        zoomOut:SetPoint("BOTTOMRIGHT", minimap, "BOTTOMRIGHT", -2, 2)
+        zoomOut:SetPoint("BOTTOMRIGHT", GetFFD(minimap).layoutFrame or minimap, "BOTTOMRIGHT", -2, 2)
         zoomOut:EnableMouse(true)
         zoomOut:SetAlpha(1)
         -- Same between-hovers start as ZoomIn above
@@ -4384,7 +4443,7 @@ local function ApplyMinimap()
                 if GetFFD(self).inHook then return end
                 GetFFD(self).inHook = true
                 self:ClearAllPoints()
-                self:SetPoint("BOTTOMRIGHT", minimap, "BOTTOMRIGHT", -2, 2)
+                self:SetPoint("BOTTOMRIGHT", GetFFD(minimap).layoutFrame or minimap, "BOTTOMRIGHT", -2, 2)
                 GetFFD(self).inHook = false
             end)
             GetFFD(zoomOut).hooked = true
@@ -4510,7 +4569,7 @@ local function ApplyMinimap()
         end
         local cpt, crel, cbx, cby = ResolveElementAnchor(p.clockPosition or "top", clockMode, isCircle)
         clockBg:ClearAllPoints()
-        clockBg:SetPoint(cpt, minimap, crel, cbx + cxOff, cby + cyOff)
+        clockBg:SetPoint(cpt, GetFFD(minimap).layoutFrame or minimap, crel, cbx + cxOff, cby + cyOff)
         -- Align the TEXT edge with the anchor so it lands where the coordinates text
         -- would: inside style pins text to the same wrapper corner the wrapper pins to
         -- the map (wrapper is wider, so centered text would drift toward the middle); edge style keeps it centered in the box.
@@ -4632,7 +4691,7 @@ local function ApplyMinimap()
         end
         local lpt, lrel, lbx, lby = ResolveElementAnchor(p.locationPosition or "bottom", locationMode, isCircle)
         locationBg:ClearAllPoints()
-        locationBg:SetPoint(lpt, minimap, lrel, lbx + lxOff, lby + lyOff)
+        locationBg:SetPoint(lpt, GetFFD(minimap).layoutFrame or minimap, lrel, lbx + lxOff, lby + lyOff)
         -- Align the TEXT edge with the anchor (see the clock block above): inside pins it to the wrapper corner matching the map anchor, edge keeps it centered.
         locationFrame:ClearAllPoints()
         if locationMode == "inside" then
@@ -4662,7 +4721,7 @@ local function ApplyMinimap()
     local cpx = p and p.coordsBelowOffsetX or 0
     local cpy = p and p.coordsBelowOffsetY or 0
     coordFrame:ClearAllPoints()
-    coordFrame:SetPoint(cpAnchor[1], minimap, cpAnchor[2], cpAnchor[3] + cpx, cpAnchor[4] + cpy)
+    coordFrame:SetPoint(cpAnchor[1], GetFFD(minimap).layoutFrame or minimap, cpAnchor[2], cpAnchor[3] + cpx, cpAnchor[4] + cpy)
     coordFrame:SetScale(p and p.coordsScale or 1.0)
     _G._EBS_CoordFrame = coordFrame
     if not coordTicker then
@@ -4814,7 +4873,7 @@ local function ApplyMinimap()
         local fAnchor = MAP_POS_ANCHORS[p.fpsPosition or "bottomLeft"] or MAP_POS_ANCHORS.bottomLeft
         -- One evenly spaced chain at natural widths; the anchored corner is the stable edge the row breathes from.
         fpsBg:ClearAllPoints()
-        fpsBg:SetPoint(fAnchor[1], minimap, fAnchor[2],
+        fpsBg:SetPoint(fAnchor[1], GetFFD(minimap).layoutFrame or minimap, fAnchor[2],
             fAnchor[3] + (p.fpsOffsetX or 0), fAnchor[4] + (p.fpsOffsetY or 0))
         fpsBg:SetScale(p.fpsScale or 1.0)
         _G._EBS_FpsBg = fpsBg
@@ -4914,7 +4973,7 @@ local function ApplyMinimap()
         ApplyMinimapFont(fs, p.diffTextSize or 12)
         local a = MAP_POS_ANCHORS[p.diffTextPosition or "topLeft"] or MAP_POS_ANCHORS.topLeft
         fs:ClearAllPoints()
-        fs:SetPoint(a[1], minimap, a[2], a[3] + (p.diffTextOffsetX or 0), a[4] + (p.diffTextOffsetY or 0))
+        fs:SetPoint(a[1], GetFFD(minimap).layoutFrame or minimap, a[2], a[3] + (p.diffTextOffsetX or 0), a[4] + (p.diffTextOffsetY or 0))
         fs:Show()
         diffTextFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
         diffTextFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
@@ -5346,6 +5405,8 @@ function EBS:OnEnable()
                 noAnchorTo = true,
                 getFrame = function() return Minimap end,
                 getSize  = function()
+                    local layout = GetFFD(Minimap).layoutFrame
+                    if layout then return layout:GetWidth(), layout:GetHeight() end
                     return Minimap:GetWidth(), Minimap:GetHeight()
                 end,
                 isHidden = function()

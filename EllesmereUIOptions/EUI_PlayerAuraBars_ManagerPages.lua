@@ -47,6 +47,16 @@ local pabSpecSel = "allspecs"
 -- Inherited-bar selection ({kind, group, id}); wins over pabSel while set.
 local pabInhSel = nil
 
+-- Exported selection setter for What's New deep links (same pattern as
+-- EllesmereUI._setUnitFrameUnit / _setMiniUnit): the sidebar selection is a
+-- session-sticky file local defaulting to the Buffs bar, so a nav targeting a
+-- debuff-side section must pre-select the right pane or the section scan
+-- silently misses.
+EllesmereUI._setPABSelection = function(kind, id)
+    pabSel = { kind = kind, id = id or "default" }
+    pabInhSel = nil
+end
+
 -- Editing-spec group buckets (labels/icons mirror the RaidFrames roster in
 -- EUI_RaidFrames_BuffManager.lua -- different addon namespace, keep the two
 -- lists in sync).
@@ -1365,10 +1375,65 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
 end
 
 -- Debuff-category bars only (default debuffs + custom debuff bars).
+local DISPEL_ICON_POS_VALUES = {
+    none        = "None",
+    topleft     = "Top Left",
+    top         = "Top",
+    topright    = "Top Right",
+    left        = "Left",
+    center      = "Center",
+    right       = "Right",
+    bottomleft  = "Bottom Left",
+    bottom      = "Bottom",
+    bottomright = "Bottom Right",
+}
+local DISPEL_ICON_POS_ORDER = { "none", "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+
 local function BuildDispelColorFields(frame, fontPath, sy, cfg, apply)
     local W = EllesmereUI.Widgets
     local PP = EllesmereUI.PanelPP
     local _, hh = 0, 0
+
+    -- Dispel-type indicator icon on each debuff bar (engine-driven, mirrors
+    -- Raid Frames' "Type Icon Position"). "none" (default) = feature off.
+    _, hh = W:SectionHeader(frame, "DEBUFF TYPE ICON", sy); sy = sy - hh
+    do
+        local function IconOn() return (cfg.dispelIconPosition or "none") ~= "none" end
+        local row
+        row, hh = W:DualRow(frame, sy,
+            { type = "dropdown", text = "Type Icon Position",
+              tooltip = "Shows the debuff's dispel type icon (Magic, Curse, Disease, Poison, Bleed) on the bar.",
+              values = DISPEL_ICON_POS_VALUES, order = DISPEL_ICON_POS_ORDER,
+              getValue = function() return cfg.dispelIconPosition or "none" end,
+              setValue = function(v)
+                  cfg.dispelIconPosition = v
+                  apply()
+                  EllesmereUI:RefreshPage()
+              end },
+            { type = "label", text = "" }
+        ); sy = sy - hh
+        local rgn = row._leftRegion
+        local _, cogShow = EllesmereUI.BuildCogPopup({
+            title = "Type Icon",
+            rows = {
+                { type = "slider", label = "Icon Size", min = 8, max = 48, step = 1,
+                  get = function() return cfg.dispelIconSize or 16 end,
+                  set = function(v) cfg.dispelIconSize = v; apply() end },
+                { type = "slider", label = "Offset X", min = -50, max = 50, step = 1,
+                  get = function() return cfg.dispelIconOffsetX or 0 end,
+                  set = function(v) cfg.dispelIconOffsetX = v; apply() end },
+                { type = "slider", label = "Offset Y", min = -50, max = 50, step = 1,
+                  get = function() return cfg.dispelIconOffsetY or 0 end,
+                  set = function(v) cfg.dispelIconOffsetY = v; apply() end },
+            },
+        })
+        local cogBtn = ns._PAMakeCogBtn(rgn, function(self)
+            if IconOn() then cogShow(self) end
+        end)
+        cogBtn:SetAlpha(IconOn() and 0.4 or 0.15)
+        cogBtn:SetScript("OnEnter", function(self) if IconOn() then self:SetAlpha(0.7) end end)
+        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(IconOn() and 0.4 or 0.15) end)
+    end
 
     _, hh = W:SectionHeader(frame, "DISPEL COLORS", sy); sy = sy - hh
 

@@ -482,6 +482,18 @@ local defaults = {
         procGlowUseClassColor = false,
         procGlowScale = 1.0,
         procGlowEnabled = false,
+        -- Assisted Highlight ring: extra pixels per side beyond the button
+        -- footprint. 0 = Blizzard's size (art sits exactly on the button).
+        -- Positive pushes the blue swirl outward so it reads apart from a proc
+        -- glow on the same edge; negative pulls it inward.
+        assistGlowOutset = 0,
+        -- How the Assisted Highlight is drawn: 1 = Blizzard's glow ring only
+        -- (default, unchanged behavior), 2 = flat tint over the whole button
+        -- instead, 3 = both. The overlay leaves the button edge free for the
+        -- proc glow, which is the point of offering it.
+        assistGlowStyle = 1,
+        assistGlowOverlayColor = { r = 0.15, g = 0.5, b = 1 },
+        assistGlowOverlayAlpha = 30,
         useBlizzardStyle = false,
         showBlizzIconBg = false,
         blizzIconBgAlpha = 1,
@@ -840,6 +852,30 @@ local function ForceCooldownPaint(btn)
 end
 ns.ForceCooldownPaint = ForceCooldownPaint
 
+-- Paint the One Button Assist button's cooldown from the SUGGESTED spell rather
+-- than from its action slot. That button draws two things from two sources: the
+-- icon is the suggestion sampled on the assist ticker, while the slot's own
+-- cooldown mirrors whatever the engine is suggesting at the instant it is read.
+-- The suggestion moves faster than the 5 Hz tick, so consecutive reads land on
+-- different abilities and the swipe flips on and off under a still icon.
+-- spellID nil means no suggestion, where RepaintAssistIcons falls the icon back
+-- to the slot's own texture, so the swipe follows it there. isActive is
+-- NeverSecret and the duration object carries the timing: no secret is read.
+-- On ns, not a local: this file's main chunk is at the 200-local cap.
+ns.PaintAssistCooldown = function(btn, spellID)
+    if not spellID then return ForceCooldownPaint(btn) end
+    local cd = btn and btn.cooldown
+    if not cd then return end
+    local info = C_Spell and C_Spell.GetSpellCooldown and C_Spell.GetSpellCooldown(spellID)
+    local durObj = info and info.isActive and C_Spell.GetSpellCooldownDuration
+        and C_Spell.GetSpellCooldownDuration(spellID)
+    if durObj then
+        cd:SetCooldownFromDurationObject(durObj)
+    else
+        cd:Clear()
+    end
+end
+
 -- Stock bar frames to disable. Each entry carries flags for how to handle it:
 --   retainEvents  = true  -> do NOT unregister events (needed for override state)
 local STOCK_BAR_DISPOSAL = {
@@ -1054,7 +1090,7 @@ do
                 for i = 1, 6 do
                     local btn = _G["OverrideActionBarButton" .. i]
                     if btn then
-                        if btn.UpdateAction then btn:UpdateAction() end
+                        -- Cooldown-only refresh; avoids passing secret cooldown values through a tainted call.
                         ForceCooldownPaint(btn)
                         local hk = btn.HotKey
                         if hk then
@@ -2984,7 +3020,14 @@ local function SetupBar(info, skipProtected)
                     -- Force visual refresh; events are centrally dispatched
                     -- (per-button registration on 96 buttons caused mass
                     -- OnEvent->UpdateAction calls per tick -- screen blink).
-                    if btn.UpdateAction then btn:UpdateAction() end
+                    -- Taint-safe refresh; avoids passing secret cooldown values through a tainted call.
+                    EAB_VTABLE.ForceButtonRefresh(btn, slot)
+                    -- Two channels ForceButtonRefresh doesn't own (same pairing
+                    -- as the bar-reveal path): checked state + equipped border.
+                    btn:SetChecked((IsCurrentAction(slot) or IsAutoRepeatAction(slot)) and true or false)
+                    if btn.Border then
+                        btn.Border:SetShown(IsEquippedAction(slot) and true or false)
+                    end
                 end
                 if bindPrefix then
                     btn.commandName = bindPrefix .. i
@@ -3114,10 +3157,15 @@ end
 -- OnUpdate poll drove Blizzard's re-stamp loop) NO event fires on suggestion
 -- changes -- the assist ticker below is the driver. Buttons are found via the
 -- spinner registry; the slot-spam event's id never matched our action attr anyway.
-function ns.RepaintAssistIcons()
+-- suggestedSpell: the ticker's single sample for this pass, so the icon and the
+-- swipe below describe the same ability. Callers without one read it themselves.
+function ns.RepaintAssistIcons(suggestedSpell)
     local found = 0
-    local nextSpell = C_AssistedCombat and C_AssistedCombat.GetNextCastSpell
-        and C_AssistedCombat.GetNextCastSpell()
+    local nextSpell = suggestedSpell
+    if nextSpell == nil then
+        nextSpell = C_AssistedCombat and C_AssistedCombat.GetNextCastSpell
+            and C_AssistedCombat.GetNextCastSpell()
+    end
     local tex = nextSpell and C_Spell and C_Spell.GetSpellTexture
         and C_Spell.GetSpellTexture(nextSpell)
     for _, info in ipairs(BAR_CONFIG) do
@@ -3145,7 +3193,9 @@ function ns.RepaintAssistIcons()
                             -- button only, so paint its swipe now (two C calls); the
                             -- next natural walk reconciles charges/desat -- never a
                             -- bar-wide invalidation (see ns._ArmAssistTicker).
-                            ns.ForceCooldownPaint(btn)
+                            -- Painted from the SAME spell whose texture just
+                            -- went on the icon, never from the slot.
+                            ns.PaintAssistCooldown(btn, nextSpell)
                         end
                     end
                 end
@@ -3167,15 +3217,18 @@ function ns._ArmAssistTicker()
         local Tick = EllesmereUI and EllesmereUI.Tick
         if not (Tick and Tick.NewAnimTicker) then return end
         t = Tick.NewAnimTicker(CreateFrame("Frame"), function()
+            -- ONE sample per tick, shared by the swipe and the icon: reading
+            -- the suggestion here and the slot's cooldown separately let the
+            -- two land on different abilities (see ns.PaintAssistCooldown).
+            local nextSpell = C_AssistedCombat and C_AssistedCombat.GetNextCastSpell
+                and C_AssistedCombat.GetNextCastSpell()
             -- Every tick, not just on suggestion change: the suggested
             -- spell's own cooldown can end/shorten while the suggestion
             -- holds steady, and nothing else repaints for that.
-            ns.RefreshAssistCooldowns()
-            local nextSpell = C_AssistedCombat and C_AssistedCombat.GetNextCastSpell
-                and C_AssistedCombat.GetNextCastSpell()
+            ns.RefreshAssistCooldowns(nextSpell)
             if nextSpell ~= ns._assistLastSuggest then
                 ns._assistLastSuggest = nextSpell
-                local n = ns.RepaintAssistIcons()
+                local n = ns.RepaintAssistIcons(nextSpell)
                 -- Suggestion moved: the shine may need to follow it too.
                 if ns.QueueAssistRescan then ns.QueueAssistRescan() end
                 -- The assist slot's cooldown mirrors the SUGGESTED spell, so a
@@ -3206,7 +3259,9 @@ end
 -- then three C calls for the one or two hosting buttons -- ~700 table
 -- reads/sec at the 0.2s ticker. Deliberately NOT a walk/memo-drop/dirty-bump:
 -- a one-button change never invalidates bar-wide (see ns._ArmAssistTicker).
-function ns.RefreshAssistCooldowns()
+-- suggestedSpell: paint from this spell rather than the slot, so the per-tick
+-- refresh cannot land on a different ability than the icon is showing.
+function ns.RefreshAssistCooldowns(suggestedSpell)
     for _, info in ipairs(BAR_CONFIG) do
         if not info.isStance and not info.isPetBar then
             local buttons = barButtons[info.key]
@@ -3219,7 +3274,7 @@ function ns.RefreshAssistCooldowns()
                         if action and HasAction(action) and C_ActionBar
                            and C_ActionBar.IsAssistedCombatAction
                            and C_ActionBar.IsAssistedCombatAction(action) then
-                            ns.ForceCooldownPaint(btn)
+                            ns.PaintAssistCooldown(btn, suggestedSpell)
                         end
                     end
                 end
@@ -3874,6 +3929,17 @@ do
             local action = btn:GetAttribute("action")
             if not action or not HasAction(action) then return end
             local fd = EFD(btn)
+            -- Assist host: its slot cooldown mirrors whatever the engine is
+            -- suggesting at the instant it is read, so a slot-fed push here can
+            -- land on a different ability than the icon the assist ticker
+            -- painted -- the same split ns.PaintAssistCooldown closes. Every
+            -- cooldown event (any cast, any bar) reaches this function, so the
+            -- ticker's fix must own this path too. The spinner read keeps the
+            -- check a raw table lookup for every other button.
+            if fd.assistSpin and C_ActionBar.IsAssistedCombatAction
+               and C_ActionBar.IsAssistedCombatAction(action) then
+                return ns.PaintAssistCooldown(btn, ns._assistLastSuggest)
+            end
             local cd = btn.cooldown
             local durObj = gDur
             local cdInfo = ci or C_ActionBar.GetActionCooldown(action)
@@ -4098,7 +4164,14 @@ do
                         local ci = C_ActionBar.GetActionCooldown(action)
                         local cdReal = (ci and ci.isActive and not ci.isOnGCD) and true or false
                         if cdReal ~= (fd.cdWasReal or false) then
-                            ForceCooldownPaint(btn)
+                            -- Assist host: swipe follows the ticker's sample,
+                            -- never the slot (see PushButtonCooldown).
+                            if fd.assistSpin and C_ActionBar.IsAssistedCombatAction
+                               and C_ActionBar.IsAssistedCombatAction(action) then
+                                ns.PaintAssistCooldown(btn, ns._assistLastSuggest)
+                            else
+                                ForceCooldownPaint(btn)
+                            end
                             fd.cdWasReal = cdReal
                         end
                         local chargeCd = btn.chargeCooldown
@@ -4173,11 +4246,8 @@ do
                 local fd = EFD(btn)
                 if fd.lastIconTex ~= tex then
                     fd.lastIconTex = tex
-                    -- UpdateAction plus an explicit icon refresh: UpdateButtonArt is nooped, so texture alone would not repaint.
-                    if btn.UpdateAction then btn:UpdateAction() end
-                    if tex and btn.icon then
-                        btn.icon:SetTexture(tex)
-                    end
+                    -- Taint-safe refresh; avoids passing secret cooldown values through a tainted call.
+                    EAB_VTABLE.ForceButtonRefresh(btn, action)
                 end
             end
         end
@@ -5130,8 +5200,19 @@ do
                                 -- usable tri-state below can legitimately flip on a
                                 -- target swap, and it is memo-gated.
                                 if event ~= "PLAYER_TARGET_CHANGED" then
-                                    if btn.UpdateAction then btn:UpdateAction() end
+                                    -- Taint-safe refresh; avoids passing secret cooldown values through a tainted call.
+                                    local infreqAction = btn:GetAttribute("action")
+                                    EAB_VTABLE.ForceButtonRefresh(btn, infreqAction)
                                     RefreshCooldownVisuals(btn)
+                                    -- Two channels ForceButtonRefresh doesn't own (same
+                                    -- pairing as the bar-reveal path): checked state +
+                                    -- equipped border, both stale after page/form flips.
+                                    if infreqAction then
+                                        btn:SetChecked((IsCurrentAction(infreqAction) or IsAutoRepeatAction(infreqAction)) and true or false)
+                                        if btn.Border then
+                                            btn.Border:SetShown(IsEquippedAction(infreqAction) and true or false)
+                                        end
+                                    end
                                 end
                                 local ufd = EFD(btn)
                                 if ufd.rangeTinted then
@@ -10455,23 +10536,150 @@ do
         return hf
     end
 
-    local function AssistHide(btn)
+    -- Ring teardown alone. Split out of AssistHide because AssistShow also
+    -- needs it on its own: with the overlay style picked, or with Blizzard
+    -- painting its own ring on a hovered button, our ring must go while the
+    -- overlay stays up.
+    ns._AssistRingHide = function(btn)
         local hf = EFD(btn).assistHL
         if not hf then return end
         if hf.Flipbook and hf.Flipbook.Anim then hf.Flipbook.Anim:Stop() end
         hf:Hide()
     end
 
+    -- Flat tint over the button -- the alternative (or companion) to the ring.
+    -- Its own child frame at btn+14, one below the ring, so it draws over the
+    -- icon and the cooldown swipe deterministically instead of racing draw-layer
+    -- sublevels against Blizzard's own button textures. A color fill plus one
+    -- mask: no animation and no driver entry, so it is strictly cheaper than the
+    -- flipbook ring. Created lazily, so nobody on the ring-only default pays
+    -- for it.
+    -- style: nil/1 = hide, 2 = overlay only, 3 = overlay under the ring.
+    ns._AssistOverlay = function(btn, style)
+        local fd = EFD(btn)
+        local ov = fd.assistOverlay
+        if not style or style == 1 then
+            if ov then ov:Hide() end
+            return
+        end
+        local p = EAB.db and EAB.db.profile
+        if not ov then
+            ov = CreateFrame("Frame", nil, btn)
+            ov.tex = ov:CreateTexture(nil, "OVERLAY")
+            ov.tex:SetAllPoints(ov)
+            -- Rounded corners: the addon's own Curved Square mask, so the tint
+            -- follows the button art instead of ending in hard 90-degree
+            -- corners. Only used when no button shape mask is in play -- that
+            -- one already defines the silhouette.
+            ov.roundMask = ov:CreateMaskTexture()
+            ov.roundMask:SetAllPoints(ov)
+            ov.roundMask:SetTexture(SHAPE_MASKS.csquare, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+            fd.assistOverlay = ov
+        end
+        -- Footprint. Alone (style 2) the tint covers exactly the button. Under
+        -- the ring (style 3) it grows or shrinks with the ring's outset so the
+        -- two end flush -- the tint never sticks out past the ring, which is
+        -- what a negative outset would otherwise produce. Change-guarded: the
+        -- rescan runs several times a second while a suggestion is up.
+        local pad = (style == 3) and ((p and p.assistGlowOutset) or 0) or 0
+        local ofd = EFD(ov)
+        if ofd.pad ~= pad then
+            ofd.pad = pad
+            ov:ClearAllPoints()
+            ov:SetPoint("TOPLEFT", btn, "TOPLEFT", -pad, pad)
+            ov:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", pad, -pad)
+        end
+        -- Re-assert: bar layout can change the button's frame level after create.
+        ov:SetFrameLevel(btn:GetFrameLevel() + 14)
+        local c = (p and p.assistGlowOverlayColor) or { r = 0.15, g = 0.5, b = 1 }
+        local a = (p and p.assistGlowOverlayAlpha) or 30
+        ov.tex:SetColorTexture(c.r or 0.15, c.g or 0.5, c.b or 1, a / 100)
+        -- Custom button shapes win over the rounded corners: a circle mask must
+        -- not end up as a rounded square. Keyed on the mask OBJECT, not a
+        -- boolean -- a shape change swaps the mask, and the stale one has to be
+        -- removed before the new one goes on. Applied to the tint texture
+        -- directly rather than via MaskFrameTextures: that walks GetRegions(),
+        -- which here would also hand the mask to our own roundMask region.
+        local want = (fd.shapeMask and fd.shapeApplied) and fd.shapeMask or ov.roundMask
+        if ofd.shapeMasked ~= want then
+            if ofd.shapeMasked then
+                pcall(ov.tex.RemoveMaskTexture, ov.tex, ofd.shapeMasked)
+            end
+            pcall(ov.tex.AddMaskTexture, ov.tex, want)
+            ofd.shapeMasked = want
+        end
+        ov:Show()
+    end
+
+    -- Full teardown of everything we paint for one button. Also un-fades
+    -- Blizzard's own ring: the overlay-only style parks it at alpha 0, and a
+    -- button that stops being the suggestion (or the CVar going off) must not
+    -- leave it invisible for whoever shows it next.
+    local function AssistHide(btn)
+        ns._AssistRingHide(btn)
+        ns._AssistOverlay(btn)
+        local bf = btn.AssistedCombatHighlightFrame
+        if bf and bf:GetAlpha() ~= 1 then bf:SetAlpha(1) end
+    end
+
+    -- Scale that makes the 45px template art cover the button plus the user's
+    -- outset on every side. The frame is anchored CENTER, so scaling grows or
+    -- shrinks it symmetrically -- a positive outset pushes the blue swirl
+    -- outside the proc glow's edge, a negative one tucks it inside. Clamped
+    -- above zero: SetScale(0) is invalid, and a large negative outset on a
+    -- small button would otherwise reach it.
+    -- Stored on ns rather than as a local: this chunk is at the 200-local
+    -- ceiling (see _procState.GetButtonSpellID).
+    ns._AssistScale = function(btn)
+        local w = btn:GetWidth() or 45
+        local p = EAB.db and EAB.db.profile
+        local outset = (p and p.assistGlowOutset) or 0
+        local s = (w + outset * 2) / 45
+        if s < 0.05 then s = 0.05 end
+        return s
+    end
+
+    -- Paint the suggestion on one button in whatever style the user picked.
+    -- Owns the "Blizzard already draws its own ring here" case too (it used to
+    -- live at the call site): the overlay is ours either way, so the two
+    -- decisions have to be made together.
     local function AssistShow(btn)
         local fd = EFD(btn)
+        local p = EAB.db and EAB.db.profile
+        local style = (p and p.assistGlowStyle) or 1
+
+        -- Tint: always ours, Blizzard never paints one.
+        ns._AssistOverlay(btn, style)
+
+        -- Blizzard may show its own ring on a hovered button (candidate
+        -- re-add). Defer to it so two identical shines never stack, but keep it
+        -- scaled to our button size + outset. With the overlay-only style we
+        -- fade it rather than Hide() it: their manager re-shows it, so a Hide
+        -- would just be undone. Alpha is re-asserted on every pass, so it
+        -- self-corrects when the style changes back.
+        local bf = btn.AssistedCombatHighlightFrame
+        if bf and bf:IsShown() then
+            ns._AssistRingHide(btn)
+            bf:SetAlpha(style == 2 and 0 or 1)
+            if fd.squared then
+                local s = ns._AssistScale(btn)
+                if bf:GetScale() ~= s then bf:SetScale(s) end
+            end
+            return
+        end
+
+        if style == 2 then
+            ns._AssistRingHide(btn)
+            return
+        end
+
         local hf = fd.assistHL
         if not hf then
             hf = AssistCreate(btn)
             if not hf then return end
             fd.assistHL = hf
         end
-        local w = btn:GetWidth() or 45
-        hf:SetScale(w / 45)
+        hf:SetScale(ns._AssistScale(btn))
         -- Re-assert: bar layout can change the button's frame level after create.
         hf:SetFrameLevel(btn:GetFrameLevel() + 15)
         hf:Show()
@@ -10528,18 +10736,9 @@ do
                                         match = GetBaseSpell(sid) == suggestedBase
                                     end
                                     if match then
-                                        local bf = btn.AssistedCombatHighlightFrame
-                                        if bf and bf:IsShown() then
-                                            AssistHide(btn)  -- Blizzard's covers it
-                                            -- Scale Blizzard's lazily-created frame to
-                                            -- our button size (change-guarded).
-                                            if EFD(btn).squared then
-                                                local s = (btn:GetWidth() or 45) / 45
-                                                if bf:GetScale() ~= s then bf:SetScale(s) end
-                                            end
-                                        else
-                                            AssistShow(btn)
-                                        end
+                                        -- AssistShow owns the style decision and
+                                        -- the defer-to-Blizzard's-own-ring case.
+                                        AssistShow(btn)
                                         newSet[btn] = true
                                     end
                                 end
@@ -15151,7 +15350,7 @@ local function SetupBlizzardMovableFrame(barKey)
         local function RefreshExtraActionButton()
             local eab1 = ExtraActionButton1
             if not eab1 then return end
-            if eab1.UpdateAction then eab1:UpdateAction() end
+            -- Cooldown-only refresh below; avoids passing secret cooldown values through a tainted call.
             local hk = eab1.HotKey
             if hk then
                 local key1 = GetBindingKey("EXTRAACTIONBUTTON1")

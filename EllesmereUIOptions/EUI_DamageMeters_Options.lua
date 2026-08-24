@@ -1454,30 +1454,68 @@ initFrame:SetScript("OnEvent", function(self)
                         return Cfg("standaloneTimerUseAccent") and 1 or 0.3
                     end },
               } })
-        -- Inline cog on Standalone Combat Timer for font size
+        -- Inline cog: focused visual controls for the standalone timer.
         if not EllesmereUI._prebuilding then
             local rgn = satRow._leftRegion
+            local satFontValues, satFontOrder = EllesmereUI.BuildFontDropdownData()
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Standalone Timer Settings",
+                minWidth = 300,
                 rows = {
+                    { type = "dropdown", label = "Font",
+                      values = satFontValues,
+                      order = satFontOrder,
+                      get = function() return Cfg("standaloneTimerFont") or "__global" end,
+                      set = function(v) Set("standaloneTimerFont", v); ApplySAT() end },
                     { type = "slider", label = "Font Size", min = 10, max = 40, step = 1,
                       get = function() return Cfg("standaloneTimerSize") or 26 end,
                       set = function(v) Set("standaloneTimerSize", v); ApplySAT() end },
+                    { type = "dropdown", label = "Font Outline",
+                      values = { INHERIT = "Default", NONE = "None", OUTLINE = "Thin", THICKOUTLINE = "Thick" },
+                      order = { "INHERIT", "NONE", "OUTLINE", "THICKOUTLINE" },
+                      get = function() return Cfg("standaloneTimerOutline") or "INHERIT" end,
+                      set = function(v) Set("standaloneTimerOutline", v); ApplySAT() end },
+                    { type = "dropdown", label = "Alignment",
+                      values = { LEFT = "Left", CENTER = "Center", RIGHT = "Right" },
+                      order = { "LEFT", "CENTER", "RIGHT" },
+                      get = function()
+                          local alignment = Cfg("standaloneTimerTextAlign")
+                          if alignment then return alignment end
+                          local anchor = Cfg("standaloneTimerAnchor") or "free"
+                          if anchor == "free" then
+                              return Cfg("standaloneTimerAlignLeft") and "LEFT" or "RIGHT"
+                          end
+                          return (anchor == "topleft" or anchor == "bottomleft") and "LEFT" or "RIGHT"
+                      end,
+                      set = function(v) Set("standaloneTimerTextAlign", v); ApplySAT() end },
                     { type = "toggle", label = "Show Decimal",
                       get = function() return Cfg("standaloneTimerDecimal") or false end,
                       set = function(v) Set("standaloneTimerDecimal", v); ApplySAT() end },
-                    { type = "toggle", label = "Align Text Left",
-                      disabled = function() return (Cfg("standaloneTimerAnchor") or "free") ~= "free" end,
-                      disabledTooltip = "Available only when Anchor to Windows is set to Free Move.",
-                      rawTooltip = true,
+                    { type = "slider", label = "Frame Width", min = 40, max = 200, step = 1,
+                      get = function() return Cfg("standaloneTimerWidth") or 70 end,
+                      set = function(v) Set("standaloneTimerWidth", v); ApplySAT() end },
+                    { type = "slider", label = "Frame Height", min = 20, max = 80, step = 1,
+                      get = function() return Cfg("standaloneTimerHeight") or 32 end,
+                      set = function(v) Set("standaloneTimerHeight", v); ApplySAT() end },
+                    { type = "colorpicker", label = "Background Color", hasAlpha = true,
                       get = function()
-                          local anchor = Cfg("standaloneTimerAnchor") or "free"
-                          if anchor ~= "free" then
-                              return anchor == "topleft" or anchor == "bottomleft"
-                          end
-                          return Cfg("standaloneTimerAlignLeft") or false
+                          local c = Cfg("standaloneTimerBackgroundColor") or { r = 0, g = 0, b = 0, a = 0 }
+                          return c.r, c.g, c.b, c.a
                       end,
-                      set = function(v) Set("standaloneTimerAlignLeft", v); ApplySAT() end },
+                      set = function(r, g, b, a)
+                          Set("standaloneTimerBackgroundColor", { r = r, g = g, b = b, a = a }); ApplySAT()
+                      end },
+                    { type = "colorpicker", label = "Border Color", hasAlpha = true,
+                      get = function()
+                          local c = Cfg("standaloneTimerBorderColor") or { r = 0, g = 0, b = 0, a = 1 }
+                          return c.r, c.g, c.b, c.a
+                      end,
+                      set = function(r, g, b, a)
+                          Set("standaloneTimerBorderColor", { r = r, g = g, b = b, a = a }); ApplySAT()
+                      end },
+                    { type = "slider", label = "Border Size", min = 0, max = 4, step = 1,
+                      get = function() return Cfg("standaloneTimerBorderSize") or 0 end,
+                      set = function(v) Set("standaloneTimerBorderSize", v); ApplySAT() end },
                     { type = "dropdown", label = "Frame Strata",
                       values = EllesmereUI.FRAME_STRATA_LABELS,
                       order = EllesmereUI.FRAME_STRATA_ORDER_BASE,
@@ -1619,6 +1657,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return SHDB().iconEnabled end,
               setValue = function(v)
                   SHDB().iconEnabled = v; RefreshSH()
+                  if ns.RegisterDMUnlock then ns.RegisterDMUnlock() end
                   EllesmereUI:RefreshPage()
               end },
             { type = "label", text = "Hold Shift+Click to Freely Move Icons" }

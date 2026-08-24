@@ -3962,3 +3962,94 @@ EllesmereUI.RegisterMigration({
         end
     end,
 })
+
+--------------------------------------------------------------------------------
+--  Power Bar's per-form threshold mode used to resolve Moonkin into the same
+--  "mana" entry as Caster (both report PT.MANA from GetPrimaryPowerType()).
+--  Now that Moonkin is checked by form ID and gets its own "moonkin" bucket,
+--  seed it as a copy of the existing "mana" entry so upgrading users see the
+--  same threshold behavior in Moonkin they had before, with a separate entry
+--  to customize going forward.
+--------------------------------------------------------------------------------
+EllesmereUI.RegisterMigration({
+    id          = "erb_power_form_mode_moonkin_bucket_v1",
+    scope       = "profile",
+    description = "Give the Power Bar's per-form threshold mode its own Moonkin entry instead of sharing Caster's.",
+    body        = function(ctx)
+        local erb = ctx.profile.addons and ctx.profile.addons.EllesmereUIResourceBars
+        local pri = erb and erb.primary
+        if not pri or not pri.thresholdFormMode then return end
+        local entries = pri.thresholdSpecs
+        if type(entries) ~= "table" or #entries == 0 then return end
+        local manaEntry
+        for _, entry in ipairs(entries) do
+            if type(entry) == "table" then
+                if entry.formKey == "moonkin" then return end  -- already migrated
+                if entry.formKey == "mana" then manaEntry = entry end
+            end
+        end
+        if not manaEntry then return end
+        local moonkinEntry = EllesmereUI.Lite.DeepCopy(manaEntry)
+        moonkinEntry.formKey = "moonkin"
+        entries[#entries + 1] = moonkinEntry
+    end,
+})
+
+-- Same split for the Health/Power "hide bar/text per form" popups: Moonkin
+-- used to share the "mana"/Caster bucket, so disabling Caster there also hid
+-- Moonkin. Seed moonkin=true wherever mana=true so that choice survives.
+-- Class Resource is skipped: it exempts Moonkin from this system entirely.
+EllesmereUI.RegisterMigration({
+    id          = "erb_moonkin_form_bucket_v1",
+    scope       = "profile",
+    description = "Preserve existing Moonkin bar/text visibility now that Moonkin has its own per-form bucket separate from Caster.",
+    body        = function(ctx)
+        local erb = ctx.profile.addons and ctx.profile.addons.EllesmereUIResourceBars
+        if not erb then return end
+        local function SeedMoonkin(sectionKey)
+            local sec = erb[sectionKey]
+            if not sec then return end
+            for _, field in ipairs({ "textDisabledForms", "barDisabledForms" }) do
+                local df = sec[field]
+                if type(df) == "table" and df.mana and df.moonkin == nil then
+                    df.moonkin = true
+                end
+            end
+        end
+        SeedMoonkin("health")
+        SeedMoonkin("primary")
+    end,
+})
+
+-- Merge Groups renders through one Blizzard flat SecureGroupHeader, whose column
+-- axis can only run perpendicular to Unit Growth -- a same-axis pair has no valid
+-- column direction, so the runtime silently substitutes one instead of honoring
+-- Group Growth. The options UI now prevents new conflicting pairs; this fixes up
+-- profiles that already saved one.
+EllesmereUI.RegisterMigration({
+    id          = "rf_merge_groups_growth_axis_v1",
+    scope       = "profile",
+    description = "For Raid Frames profiles with Merge Groups on, bump Unit Growth off Group Growth's axis (base and per-tier overrides) so the merged flat header has a valid column direction.",
+    body = function(ctx)
+        local rf = ctx.profile.addons and ctx.profile.addons.EllesmereUIRaidFrames
+        if type(rf) ~= "table" then return end
+        if not rf.mergeGroups then return end
+        local function isVert(g) return g == "UP" or g == "DOWN" end
+        local gg, ug = rf.groupGrowth or "RIGHT", rf.unitGrowth or "DOWN"
+        if isVert(gg) == isVert(ug) then
+            ug = isVert(gg) and "RIGHT" or "DOWN"
+            rf.unitGrowth = ug
+        end
+        local overrides = rf.raidSizeOverrides
+        if type(overrides) ~= "table" then return end
+        for _, ov in pairs(overrides) do
+            if type(ov) == "table" then
+                local ogg = ov.groupGrowth or gg
+                local oug = ov.unitGrowth or ug
+                if isVert(ogg) == isVert(oug) then
+                    ov.unitGrowth = isVert(ogg) and "RIGHT" or "DOWN"
+                end
+            end
+        end
+    end,
+})
