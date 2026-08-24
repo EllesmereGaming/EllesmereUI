@@ -865,6 +865,21 @@ hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", function(_, unit)
     if IsNameOnlyMode() and UnitIsPlayer(unit) then
         local nameplate = C_NamePlate.GetNamePlateForUnit(unit)
         if nameplate and nameplate.UnitFrame and nameplate.UnitFrame.name then
+            -- Name-only player plates render ONLY the name, but Blizzard's
+            -- CompactUnitFrame keeps its full ~47-event surface live behind
+            -- every one of them (incl. UNIT_AURA and UPDATE_MOUSEOVER_UNIT).
+            -- Kill it; keep the name channel plus the soft-target trio. Self-
+            -- healing: the driver's secure SetUnit re-registers everything on
+            -- the plate's next occupant, and the name-only mode toggle writes
+            -- nameplate CVars, which trigger the driver's own full re-setup.
+            local uf = nameplate.UnitFrame
+            if not uf:IsForbidden() then
+                uf:UnregisterAllEvents()
+                uf:RegisterUnitEvent("UNIT_NAME_UPDATE", unit)
+                uf:RegisterEvent("PLAYER_TARGET_CHANGED")
+                uf:RegisterEvent("PLAYER_SOFT_FRIEND_CHANGED")
+                uf:RegisterEvent("PLAYER_SOFT_ENEMY_CHANGED")
+            end
             EnsureNameUnconstrained(nameplate.UnitFrame.name)
             -- Subtitle Text: inline title + guild line, both composed onto
             -- this same FontString.

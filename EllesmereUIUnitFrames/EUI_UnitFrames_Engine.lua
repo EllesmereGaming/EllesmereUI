@@ -59,24 +59,30 @@ local CHANNEL_EVENTS = {
     health   = { "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_CONNECTION", "UNIT_FACTION",
                  "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" },
     power    = { "UNIT_POWER_UPDATE", "UNIT_MAXPOWER", "UNIT_DISPLAYPOWER", "UNIT_POWER_BAR_SHOW", "UNIT_POWER_BAR_HIDE", "UNIT_CONNECTION" },
-    -- UNIT_AURA for the same reason as the absorb channel below: the long-form
-    -- Absorb / Heal Absorb text zones render from PaintText, so a shield lost to
-    -- its timer leaves them stale. (The "Short" variants ride the Override's
+    -- UNIT_AURA deliberately absent here too: absorb VALUE changes already
+    -- ride the two absorb events below, so the long-form Absorb / Heal Absorb
+    -- text zones only go stale on the no-event timer-expiry class -- and the
+    -- armed belt's disarm edge (ns.UF_AbDisarm) recomposes text once at
+    -- exactly that moment. (The "Short" variants ride the Override's
     -- _absGate lockstep instead, which the absorb channel already covers.)
     text     = { "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_POWER_UPDATE", "UNIT_MAXPOWER", "UNIT_DISPLAYPOWER",
-                 "UNIT_NAME_UPDATE", "UNIT_LEVEL", "UNIT_CONNECTION", "UNIT_AURA",
+                 "UNIT_NAME_UPDATE", "UNIT_LEVEL", "UNIT_CONNECTION",
                  "UNIT_ABSORB_AMOUNT_CHANGED", "UNIT_HEAL_ABSORB_AMOUNT_CHANGED",
                  "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" },
     -- (UNIT_HEAL_PREDICTION deliberately absent: the absorb painter never
     -- rendered incoming heals and early-returned on it; not delivering it at
     -- all is the same behavior for less dispatch.)
-    -- UNIT_AURA: an aura-granted shield that expires on its TIMER rather than
-    -- being spent drops off without UNIT_ABSORB_AMOUNT_CHANGED, stranding the
-    -- overlay at its last width until something else repaints (field report,
-    -- VDH Infernal Strike). Raid Frames already refreshes its absorb overlay on
-    -- UNIT_AURA for this reason. Same-frame dedupe collapses this with the
-    -- health paint when both land together.
-    absorb   = { "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_AURA",
+    -- UNIT_AURA deliberately absent (Blizzard parity): the timer-expiry
+    -- shield with no event at all (VDH Infernal Strike field class) is
+    -- covered by the armed-frames belt in the main file (ns.UF_AbArm), not
+    -- by riding the chattiest event in the game. Raid Frames uses the same
+    -- belt design. UNIT_HEALTH deliberately absent too: the absorb painter
+    -- reads amounts/max/sizes but never current health -- the overlays are
+    -- clip-anchored to the health texture edge, which the client moves for
+    -- free (Blizzard's CUF needs health-driven prediction repaints only
+    -- because its bars compute widths in Lua). Max range changes still ride
+    -- UNIT_MAXHEALTH; the event-less shield clear rides the belt.
+    absorb   = { "UNIT_MAXHEALTH",
                  "UNIT_ABSORB_AMOUNT_CHANGED", "UNIT_HEAL_ABSORB_AMOUNT_CHANGED",
                  "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" },
     portrait = { "UNIT_PORTRAIT_UPDATE", "UNIT_MODEL_CHANGED", "UNIT_CONNECTION" },

@@ -1725,7 +1725,24 @@ local function CdReadyIsReady(liveSid, strict)
     end
     local cd = C_Spell.GetSpellCooldown(liveSid)
     if not cd then return true end
-    if strict then return not cd.isActive end
+    if strict then
+        -- Not ready while a REAL (non-GCD) cooldown runs. A filler GCD alone
+        -- must NOT block the edge: the old "any active cooldown" strict test
+        -- deferred the ready sound through continuous GCD spam until the
+        -- player stopped casting entirely.
+        if cd.isActive and not cd.isOnGCD then return false end
+        -- The one GCD-only state that is NOT ready: this spell's own hard cast
+        -- in flight (a cast-time spell raises its cooldown only on cast
+        -- SUCCESS). Exact identity check; a secret cast id fails toward
+        -- suppress -- the armed state survives and the next event retries.
+        if UnitCastingInfo then
+            local castSid = select(9, UnitCastingInfo("player"))
+            if castSid and ((issecretvalue and issecretvalue(castSid)) or castSid == liveSid) then
+                return false
+            end
+        end
+        return true
+    end
     return not (cd.isActive and not cd.isOnGCD)
 end
 

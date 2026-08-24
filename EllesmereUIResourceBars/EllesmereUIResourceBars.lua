@@ -4046,10 +4046,13 @@ local function UpdatePrimaryBar()
         -- ResolveBandConfig must see the RAW entry, not the enabled-gated one.
         pc.bandOn, pc.bands, pc.bandMode, pc.bandRev = ResolveBandConfig(pc.pp, e)
         pc.tsEntry = (e and (e.thresholdEnabled ~= false)) and e or nil
+        -- Primary power type is spec/form/profile state; every path that can
+        -- change it funnels through BuildBars, which bumps CfgGen.
+        pc.primary = GetPrimaryPowerType()
     end
     local pp = pc.pp
 
-    cachedPrimary = GetPrimaryPowerType()
+    cachedPrimary = pc.primary
     if not cachedPrimary then return end
     -- Park the engine-slot overlay when the primary is no longer Ebon Might.
     if ns.EMB121_Gate then ns.EMB121_Gate(cachedPrimary == "EBON_MIGHT") end
@@ -4185,25 +4188,33 @@ local function UpdatePrimaryBar()
             end
         end
         if _ppTextInstead then
-            -- Fill stays at base color.
-            if pp.gradientEnabled then
-                ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL",
-                    baseR, baseG, baseB, 1,
-                    pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
-            else
-                ApplyBarFlat(ft, baseR, baseG, baseB, 1)
+            -- Fill stays at base color; static per config generation + power
+            -- type, so reapplying it on every power tick was pure churn.
+            if primaryBar._colGen ~= ns.CfgGen or primaryBar._colPow ~= cachedPrimary then
+                primaryBar._colGen, primaryBar._colPow = ns.CfgGen, cachedPrimary
+                if pp.gradientEnabled then
+                    ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL",
+                        baseR, baseG, baseB, 1,
+                        pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
+                else
+                    ApplyBarFlat(ft, baseR, baseG, baseB, 1)
+                end
             end
         end
     elseif not pp.customColored then
-        local r, g, b
-        local pc = POWER_COLORS[cachedPrimary]
-        if pc then r, g, b = pc[1], pc[2], pc[3] else r, g, b = 1, 1, 1 end
-        if pp.gradientEnabled then
-            ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL",
-                r, g, b, 1,
-                pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
-        else
-            ApplyBarFlat(ft, r, g, b, 1)
+        -- Static per config generation + power type (same stamp as above).
+        if primaryBar._colGen ~= ns.CfgGen or primaryBar._colPow ~= cachedPrimary then
+            primaryBar._colGen, primaryBar._colPow = ns.CfgGen, cachedPrimary
+            local r, g, b
+            local pc = POWER_COLORS[cachedPrimary]
+            if pc then r, g, b = pc[1], pc[2], pc[3] else r, g, b = 1, 1, 1 end
+            if pp.gradientEnabled then
+                ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL",
+                    r, g, b, 1,
+                    pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
+            else
+                ApplyBarFlat(ft, r, g, b, 1)
+            end
         end
     end
 

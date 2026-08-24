@@ -963,6 +963,20 @@ end
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
     {
+        version = "9.0.1",
+        heroes = {
+            {
+                -- Full-width banner card (banner = true, see MakeBannerCard). Static: the speedup is automatic, nothing to open.
+                banner  = true,
+                eyebrow = "SUITE-WIDE OPTIMIZATION",
+                title   = "The 12.1 Performance Patch",
+                desc    = "CPU usage has been significantly reduced across the entire suite for 12.1, with a particular focus on Nameplates, Unit Frames and Raid Frames. Same look, same features, at a fraction of the cost.",
+            },
+        },
+        features = {},
+        fixes = {},
+    },
+    {
         version = "9.0.0",
         features = {
             {
