@@ -98,7 +98,10 @@ local function BuildPage(pageName, parent, yOffset)
 
     local kbRow
     kbRow, h = W:DualRow(parent, y,
-        { type = "label", text = "" },
+        { type = "toggle", text = "Hide After Teleporting",
+          tooltip = "Automatically hides the window after you use a teleport or hearthstone.",
+          getValue = function() local c = DB(); return not c or c.hideAfterUse ~= false end,
+          setValue = function(v) Set("hideAfterUse", v) end },
         { type = "label", text = "Toggle Quick Travel" }
     ); y = y - h
 
@@ -212,10 +215,7 @@ local function BuildPage(pageName, parent, yOffset)
               local p = _G.EUIHearthTeleportPopup
               if p then p:SetScale(v / 100) end
           end },
-        { type = "toggle", text = "Hide After Teleporting",
-          tooltip = "Automatically hides the window after you use a teleport or hearthstone.",
-          getValue = function() local c = DB(); return not c or c.hideAfterUse ~= false end,
-          setValue = function(v) Set("hideAfterUse", v) end }
+        { type = "label", text = "" }
     ); y = y - h
 
     _, h = W:Spacer(parent, y, 16); y = y - h
