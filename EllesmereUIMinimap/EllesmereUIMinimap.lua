@@ -3988,6 +3988,67 @@ function EBS._ApplyAddonCompartment()
     end
 end
 
+-- Rectangular mode moves a visible 4:3 child in unlock mode, but Blizzard's
+-- projection still lives on the square Minimap. Keep this adapter in the
+-- minimap module: broadening the shared mover contract would make every unlock
+-- element responsible for a second, hidden clamp geometry.
+function EBS._ClampMinimapCanvas(fromLayout, saveCorrection)
+    local minimap = Minimap
+    local p = EBS.db and EBS.db.profile.minimap
+    if not minimap or not p then return end
+
+    local data = GetFFD(minimap)
+    local layout = data.layoutFrame
+    local source = fromLayout and layout or minimap
+    if not source then return end
+
+    local uiScale = UIParent:GetEffectiveScale()
+    local sourceScale = source:GetEffectiveScale()
+    local canvasScale = minimap:GetEffectiveScale()
+    local cx, cy = source:GetCenter()
+    if not uiScale or uiScale == 0 or not sourceScale or not canvasScale
+       or not cx or not cy then return end
+
+    cx = cx * sourceScale / uiScale
+    cy = cy * sourceScale / uiScale
+    local uiW, uiH = UIParent:GetSize()
+    local position = p.position
+    if not fromLayout and position and position.point == "CENTER"
+       and (position.relPoint == "CENTER" or position.relPoint == nil)
+       and position.x and position.y then
+        -- SetClampedToScreen may already have shifted the live frame after a
+        -- size increase. Validate the saved intent so an invalid center does
+        -- not survive merely because Blizzard performed that visual clamp.
+        cx = uiW * 0.5 + position.x
+        cy = uiH * 0.5 + position.y
+    end
+    local canvasRatio = canvasScale / uiScale
+    local halfW = (minimap:GetWidth() or 0) * canvasRatio * 0.5
+    local halfH = (minimap:GetHeight() or 0) * canvasRatio * 0.5
+    local clampedX = math.max(halfW, math.min(uiW - halfW, cx))
+    local clampedY = math.max(halfH, math.min(uiH - halfH, cy))
+    local corrected = math.abs(clampedX - cx) > 0.01
+        or math.abs(clampedY - cy) > 0.01
+
+    if fromLayout or corrected then
+        local x = clampedX - uiW * 0.5
+        local y = clampedY - uiH * 0.5
+        minimap:ClearAllPoints()
+        minimap:SetPoint("CENTER", UIParent, "CENTER", x, y)
+        if saveCorrection and corrected then
+            p.position = { point = "CENTER", relPoint = "CENTER", x = x, y = y }
+        end
+    end
+
+    -- Unlock mode temporarily places the visible child on UIParent. Restore the
+    -- architectural relationship after consuming that proposed center.
+    if layout then
+        layout:ClearAllPoints()
+        layout:SetPoint("CENTER", minimap, "CENTER")
+    end
+    return corrected
+end
+
 local function ApplyMinimap()
     if TEMP_DISABLED.minimap then return end
     if InCombatLockdown() then QueueApplyAll(); return end
@@ -4188,9 +4249,13 @@ local function ApplyMinimap()
         -- healthy) -- which is why this presented as a border setting that would not
         -- survive a reload even though the stored value was never lost; anchoring only at
         -- creation made it permanent for the session, tracking how much else was loading
-        -- at login rather than the actual setting. Re-setting the points forces a layout recompute; harmless no-op otherwise.
+        -- at login rather than the actual setting. Give the host explicit dimensions:
+        -- SetAllPoints through the layout proxy can expose a transient invalid rect
+        -- during repeated slider updates, and ApplyBorderStyle correctly refuses to
+        -- draw against that rect until a later full rebuild.
         host:ClearAllPoints()
-        host:SetAllPoints(GetFFD(minimap).layoutFrame or minimap)
+        host:SetSize(mapSize, isRectangular and (mapSize * 192 / 256) or mapSize)
+        host:SetPoint("CENTER", GetFFD(minimap).layoutFrame or minimap, "CENTER")
         -- Same level as the minimap keeps the border under all child buttons; Show Behind drops it under the map surface for the Shadow style.
         host:SetFrameLevel(p.borderBehind and math.max(0, minimap:GetFrameLevel() - 1) or minimap:GetFrameLevel())
         host:SetAlpha(1)
@@ -4383,12 +4448,12 @@ local function ApplyMinimap()
     -- Shape changes do not fire a zone event. Reuse the existing housing detector
     -- so atlas/texture selection follows the new shape immediately.
     if GetFFD(minimap).checkHousing then GetFFD(minimap).checkHousing() end
-    -- Clamp to the visible shape. Rectangular mode keeps a square native canvas,
-    -- so allow only its hidden top/bottom strips beyond the screen bounds.
+    -- Clamp the native canvas, not the visible crop. Blizzard clips the map
+    -- render when any part of this square leaves the screen, even though the
+    -- rectangular mask hides its top and bottom strips.
     minimap:SetClampedToScreen(true)
     if isRectangular then
-        local cropInset = mapSize * 32 / 256
-        minimap:SetClampRectInsets(0, 0, -cropInset, cropInset)
+        minimap:SetClampRectInsets(0, 0, 0, 0)
     else
         local bInset = isCircle and (p.borderSize or 1) or 0
         minimap:SetClampRectInsets(-bInset, bInset, bInset, -bInset)
@@ -5032,6 +5097,13 @@ local function ApplyMinimap()
         end
     end
 
+    -- Size changes can make a previously valid saved center place part of the
+    -- square canvas offscreen. Correct it in this same apply pass so the map
+    -- texture never waits for unlock mode to repair itself.
+    if isRectangular then
+        EBS._ClampMinimapCanvas(false, true)
+    end
+
     -- Mark module as active so persistent hooks know they can fire
     GetFFD(minimap).active = true
 
@@ -5403,11 +5475,22 @@ function EBS:OnEnable()
                 order = 500,
                 noResize = true,
                 noAnchorTo = true,
-                getFrame = function() return Minimap end,
-                getSize  = function()
+                -- The mover and anchor target use the visible crop. onLiveMove
+                -- translates that child frame's proposed center back onto the
+                -- square Blizzard canvas and clamps the full canvas onscreen.
+                getFrame = function()
+                    local m = MDB()
                     local layout = GetFFD(Minimap).layoutFrame
-                    if layout then return layout:GetWidth(), layout:GetHeight() end
-                    return Minimap:GetWidth(), Minimap:GetHeight()
+                    if m and m.shape == "rectangular" and layout then
+                        return layout
+                    end
+                    return Minimap
+                end,
+                onLiveMove = function()
+                    local m = MDB()
+                    if m and m.shape == "rectangular" then
+                        EBS._ClampMinimapCanvas(true, false)
+                    end
                 end,
                 isHidden = function()
                     local m = MDB()
@@ -5416,6 +5499,12 @@ function EBS:OnEnable()
                 savePos = function(_, point, relPoint, x, y)
                     local m = MDB(); if not m then return end
                     m.position = { point = point, relPoint = relPoint, x = x, y = y }
+                    if m.shape == "rectangular" then
+                        -- Keyboard nudges may retain their logical CENTER value
+                        -- even after onLiveMove clamps the visible frame. Validate
+                        -- the committed value against the square canvas as well.
+                        EBS._ClampMinimapCanvas(false, true)
+                    end
                     if not EllesmereUI._unlockActive then
                         ApplyMinimap()
                     end

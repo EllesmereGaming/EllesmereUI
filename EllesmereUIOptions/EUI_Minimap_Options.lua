@@ -193,7 +193,21 @@ initFrame:SetScript("OnEvent", function(self)
         local shapeRow
         shapeRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Shape",
-              values = { square = "Square", rectangular = "Rectangular", circle = "Circle", textured_circle = "Textured Circle" },
+              values = {
+                  square = "Square", rectangular = "Rectangular",
+                  circle = "Circle", textured_circle = "Textured Circle",
+                  _menuOpts = {
+                      onItemHover = function(key, item)
+                          if key == "rectangular" then
+                              EllesmereUI.ShowWidgetTooltip(item,
+                                  "Rectangular mode cannot be placed flush against the top or bottom screen edge.")
+                          end
+                      end,
+                      onItemLeave = function(key)
+                          if key == "rectangular" then EllesmereUI.HideWidgetTooltip() end
+                      end,
+                  },
+              },
               order  = { "square", "rectangular", "circle", "textured_circle" },
               getValue=function() local m = MinimapDB(); return m and m.shape or "square" end,
               setValue=function(v)
