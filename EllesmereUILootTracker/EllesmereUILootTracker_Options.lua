@@ -11,8 +11,6 @@ local PAGE_SETTINGS = "Settings"
 local ROW_H, ROW_GAP = 46, 3
 local pageRebuildQueued
 local catalogRetries = {}
-local CHECK_MARKUP = CreateAtlasMarkup and CreateAtlasMarkup("common-icon-checkmark", 12, 12)
-    or "|TInterface\\RaidFrame\\ReadyCheck-Ready:12:12|t"
 
 local function QueuePageRebuild()
     if pageRebuildQueued then return end
@@ -434,26 +432,26 @@ local function BuildOverview(parent, yOffset)
         if source then
             local difficultyID = grouped[sourceKey][1].difficultyID
             local summary = ns.GetSourceSummary(source, SelectedSpecID(), difficultyID)
-            local card = Card(parent, y, 66 + #grouped[sourceKey] * 22)
+            local parentWidth = parent:GetWidth()
+            if not parentWidth or parentWidth < 500 then parentWidth = 900 end
+            local columns = math.max(6, math.floor((parentWidth - 64) / 44))
+            local rows = math.ceil(#grouped[sourceKey] / columns)
+            local card = Card(parent, y, 58 + rows * 44)
             local name = Font(card, 12, 1, 1, 1, 1)
             name:SetPoint("TOPLEFT", card, "TOPLEFT", 12, -10)
-            name:SetText(source.name)
+            local sourceName = source.kind == "raid" and source.instanceName
+                and (source.instanceName .. "  •  " .. source.name) or source.name
+            name:SetText(sourceName)
             local chance = Font(card, 10, 0.05, 0.82, 0.62, 1)
             chance:SetPoint("TOPRIGHT", card, "TOPRIGHT", -12, -11)
             chance:SetText(string.format("%.1f%%  •  %d %s", summary.chance * 100, summary.coreCost, L("Voidcore")))
             local pool = Font(card, 9, 0.55, 0.58, 0.64, 1)
             pool:SetPoint("TOPLEFT", name, "BOTTOMLEFT", 0, -3)
             pool:SetText(EllesmereUI.Lf("%1$d desired • %2$d of %3$d remaining", summary.desired, summary.remaining, summary.total))
-            local offset = -48
-            for _, goal in ipairs(grouped[sourceKey]) do
-                local color = ns.PRIORITY_COLORS[goal.priority] or { 1, 1, 1 }
-                local line = Font(card, 10, color[1], color[2], color[3], 1)
-                line:SetPoint("TOPLEFT", card, "TOPLEFT", 18, offset)
-                line:SetPoint("RIGHT", card, "RIGHT", -12, 0)
-                line:SetJustifyH("LEFT")
-                local target = goal.minItemLevel and ("  |cff777d88(" .. goal.minItemLevel .. "+)|r") or ""
+            for index, goal in ipairs(grouped[sourceKey]) do
+                local priorityID = goal.priority
+                local color = ns.PRIORITY_COLORS[priorityID] or { 1, 1, 1 }
                 local obtained = goal.state == "archived" or ns.IsItemOwned(goal.itemID, goal.minItemLevel)
-                local done = obtained and ("  " .. CHECK_MARKUP .. " |cff55dd88" .. L("Obtained") .. "|r") or ""
                 local tooltipItem = {
                     itemID = goal.itemID,
                     name = goal.itemName,
@@ -463,18 +461,41 @@ local function BuildOverview(parent, yOffset)
                 local targetLevel = goal.minItemLevel
                 local targetLink = ns.GetTargetItemLink(goal.itemID, goal.specID, targetLevel,
                     goal.sourceKind, goal.difficultyID, goal.keyLevel)
-                line:SetText(DisplayItemLink(tooltipItem, targetLink) .. target .. done)
                 local itemHitbox = CreateFrame("Button", nil, card)
-                itemHitbox:SetPoint("TOPLEFT", card, "TOPLEFT", 12, offset + 4)
-                itemHitbox:SetPoint("RIGHT", card, "RIGHT", -12, 0)
-                itemHitbox:SetHeight(20)
+                itemHitbox:SetSize(38, 38)
+                local column = (index - 1) % columns
+                local row = math.floor((index - 1) / columns)
+                itemHitbox:SetPoint("TOPLEFT", card, "TOPLEFT", 14 + column * 44, -47 - row * 44)
                 itemHitbox:SetFrameLevel(card:GetFrameLevel() + 2)
                 itemHitbox:EnableMouse(true)
+                local itemIcon = itemHitbox:CreateTexture(nil, "ARTWORK")
+                itemIcon:SetAllPoints()
+                itemIcon:SetTexture(goal.itemIcon or C_Item.GetItemIconByID(goal.itemID))
+                itemIcon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+                itemIcon:SetDesaturated(obtained)
+                itemIcon:SetAlpha(obtained and 0.55 or 1)
+                local priority = itemHitbox:CreateTexture(nil, "OVERLAY")
+                priority:SetPoint("BOTTOMLEFT", itemHitbox, "BOTTOMLEFT", 0, 0)
+                priority:SetPoint("BOTTOMRIGHT", itemHitbox, "BOTTOMRIGHT", 0, 0)
+                priority:SetHeight(3)
+                priority:SetColorTexture(color[1], color[2], color[3], 1)
+                if obtained then
+                    local check = itemHitbox:CreateTexture(nil, "OVERLAY")
+                    check:SetAtlas("common-icon-checkmark")
+                    check:SetSize(17, 17)
+                    check:SetPoint("BOTTOMRIGHT", itemHitbox, "BOTTOMRIGHT", 3, -3)
+                    check:SetVertexColor(0.33, 0.87, 0.53, 1)
+                end
                 itemHitbox:SetScript("OnEnter", function(self)
                     ShowItemTooltip(self, tooltipItem, targetLevel, false, targetLink)
+                    local priorityName = L(ns.PRIORITY_NAMES[priorityID] or "Nice to have")
+                    local state = obtained and L("Obtained") or L("Open")
+                    GameTooltip:AddLine(" ")
+                    GameTooltip:AddDoubleLine(priorityName, state,
+                        color[1], color[2], color[3], obtained and 0.33 or 0.8, obtained and 0.87 or 0.8, obtained and 0.53 or 0.8)
+                    GameTooltip:Show()
                 end)
                 itemHitbox:SetScript("OnLeave", function() GameTooltip:Hide() end)
-                offset = offset - 22
             end
             y = y - card:GetHeight() - 6
         end
@@ -523,29 +544,81 @@ local function BuildSettings(parent, yOffset)
     return math.abs(y - yOffset) + 30
 end
 
-local initFrame = CreateFrame("Frame")
-initFrame:RegisterEvent("PLAYER_LOGIN")
-initFrame:SetScript("OnEvent", function(self)
-    self:UnregisterEvent("PLAYER_LOGIN")
-    if not EllesmereUI or not EllesmereUI.RegisterModule then return end
-    ns.RegisterCallback(function()
-        QueuePageRebuild()
-    end)
-    EllesmereUI:RegisterModule(ADDON_NAME, {
-        title = "Loot Tracker",
-        description = "Plan dungeon and raid upgrades, track acquired gear, and calculate Voidcore odds.",
-        pages = { PAGE_OVERVIEW, PAGE_DUNGEONS, PAGE_RAIDS, PAGE_SETTINGS },
-        buildPage = function(pageName, parent, yOffset)
-            if pageName == PAGE_OVERVIEW then return BuildOverview(parent, yOffset) end
-            if pageName == PAGE_DUNGEONS then return BuildCatalogPage(parent, yOffset, "dungeon") end
-            if pageName == PAGE_RAIDS then return BuildCatalogPage(parent, yOffset, "raid") end
-            return BuildSettings(parent, yOffset)
-        end,
-        onReset = function()
-            local db = _G._EULT_DB and _G._EULT_DB()
-            if db and db.ResetProfile then db:ResetProfile() end
-            EllesmereUI:InvalidatePageCache()
-        end,
-    })
-end)
-if IsLoggedIn() then initFrame:GetScript("OnEvent")(initFrame) end
+local function Contains(list, value)
+    for _, entry in ipairs(list or {}) do
+        if entry == value or (type(entry) == "table" and entry.folder == value) then return true end
+    end
+    return false
+end
+
+local function InstallMenuEntry()
+    -- Register through the public roster tables exported by EllesmereUI. Keeping
+    -- every integration change inside this companion addon means suite updates
+    -- can replace EllesmereUI.lua and EllesmereUIOptions without removing us.
+    local info = {
+        folder = ADDON_NAME,
+        display = "Loot Tracker",
+        search_name = "EllesmereUI Loot Tracker Gear Wishlist Voidcore",
+    }
+    local roster = EllesmereUI.ADDON_ROSTER
+    if roster and not Contains(roster, ADDON_NAME) then roster[#roster + 1] = info end
+    if EllesmereUI._addonInfoByFolder then EllesmereUI._addonInfoByFolder[ADDON_NAME] = info end
+
+    local groups = EllesmereUI.ADDON_GROUPS
+    if groups then
+        local target
+        for _, group in ipairs(groups) do
+            if group.key == "qol" then target = group break end
+        end
+        if not target then
+            target = { key = "loottracker", label = "QoL Addons", members = {} }
+            groups[#groups + 1] = target
+        end
+        if not Contains(target.members, ADDON_NAME) then
+            local insertAt = #target.members + 1
+            for index, folder in ipairs(target.members) do
+                if folder == "EllesmereUIQoL" then insertAt = index + 1 break end
+            end
+            table.insert(target.members, insertAt, ADDON_NAME)
+        end
+    end
+
+    local profileMap = EllesmereUI._ADDON_DB_MAP
+    if profileMap and not Contains(profileMap, ADDON_NAME) then
+        profileMap[#profileMap + 1] = {
+            folder = ADDON_NAME,
+            display = "Loot Tracker",
+            svName = "EllesmereUILootTrackerDB",
+            suffix = "LootTracker",
+        }
+    end
+end
+
+local moduleConfig = {
+    title = "Loot Tracker",
+    description = "Plan dungeon and raid upgrades, track acquired gear, and calculate Voidcore odds.",
+    pages = { PAGE_OVERVIEW, PAGE_DUNGEONS, PAGE_RAIDS, PAGE_SETTINGS },
+    _euiCore = false,
+    buildPage = function(pageName, parent, yOffset)
+        if pageName == PAGE_OVERVIEW then return BuildOverview(parent, yOffset) end
+        if pageName == PAGE_DUNGEONS then return BuildCatalogPage(parent, yOffset, "dungeon") end
+        if pageName == PAGE_RAIDS then return BuildCatalogPage(parent, yOffset, "raid") end
+        return BuildSettings(parent, yOffset)
+    end,
+    onReset = function()
+        local db = _G._EULT_DB and _G._EULT_DB()
+        if db and db.ResetProfile then db:ResetProfile() end
+        EllesmereUI:InvalidatePageCache()
+    end,
+}
+
+InstallMenuEntry()
+if EllesmereUI._modules then
+    EllesmereUI._modules[ADDON_NAME] = moduleConfig
+elseif EllesmereUI.RegisterModule then
+    -- Compatibility fallback for older suite versions which did not expose the
+    -- module table yet and still accepted companion registration directly.
+    EllesmereUI:RegisterModule(ADDON_NAME, moduleConfig)
+end
+
+ns.RegisterCallback(function() QueuePageRebuild() end)

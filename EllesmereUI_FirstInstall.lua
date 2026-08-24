@@ -58,7 +58,6 @@ local GROUPS = {
         header = "QoL Addons",
         entries = {
             { label = "Quality of Life",     addon = "EllesmereUIQoL" },
-            { label = "Loot Tracker",        addon = "EllesmereUILootTracker" },
             { label = "AuraBuff Reminders",  addon = "EllesmereUIAuraBuffReminders" },
             { label = "DataBars",            addon = "EllesmereUIDataBars" },
             { label = "Quickdraw",           addon = "EllesmereUIQuickdraw" },
