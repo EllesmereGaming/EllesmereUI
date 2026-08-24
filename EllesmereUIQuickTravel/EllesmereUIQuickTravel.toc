@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Hearthstones, class and racial travel, mage teleports and portals, and Hero's Path dungeon teleports.
 ## Author: Ellesmere
-## Version: 8.9.7
+## Version: 9.1.6
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIQuickTravelDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
