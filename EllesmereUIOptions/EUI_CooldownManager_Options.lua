@@ -8998,6 +8998,9 @@ initFrame:SetScript("OnEvent", function(self)
                         if touchesCas and ns.FakeActive_Rearm then ns.FakeActive_Rearm() end
                         if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
                         if ns.QueueReanchor then ns.QueueReanchor() end
+                        -- Bar-tier writes can change an aura-tracked custom's effective
+                        -- gain/loss sound: re-diff the client-side registrations.
+                        if ns.QueueCustomAuraSoundSync then ns.QueueCustomAuraSoundSync() end
                     end
 
                     -- True when a BAR tier drives this setting -- "Apply to Bar" (this spec) or
@@ -9134,6 +9137,9 @@ initFrame:SetScript("OnEvent", function(self)
                         ns.ChainSettings(ss, ns.GetBarTierSettings(sd, barKey))
                         if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
                         if ns.QueueReanchor then ns.QueueReanchor() end
+                        -- Removing a bar-tier sound apply can change an aura-tracked
+                        -- custom's effective cue: re-diff the client-side registrations.
+                        if ns.QueueCustomAuraSoundSync then ns.QueueCustomAuraSoundSync() end
                     end
 
                     -- The scope flyout itself: a vertical list (Apply to This Spell / Apply to
@@ -10812,6 +10818,8 @@ initFrame:SetScript("OnEvent", function(self)
                                     SetOwn("buffActiveSoundKey", (v ~= "none" and v) or nil)
                                     -- Flip the 0-cost gate live so the edge hook/cast timer starts playing on the next activation.
                                     if ss.buffActiveSoundKey then ns._cdmAnyBuffSound = true end
+                                    -- Aura-tracked customs cue client-side: re-diff their registrations.
+                                    if ns.QueueCustomAuraSoundSync then ns.QueueCustomAuraSoundSync() end
                                 end,
                                 function() return ss.buffActiveSoundKey == nil end,
                                 AddSoundPreview,
@@ -10830,6 +10838,8 @@ initFrame:SetScript("OnEvent", function(self)
                                     EnsureSS()
                                     SetOwn("buffLostSoundKey", (v ~= "none" and v) or nil)
                                     if ss.buffLostSoundKey then ns._cdmAnyBuffSound = true end
+                                    -- Aura-tracked customs cue client-side: re-diff their registrations.
+                                    if ns.QueueCustomAuraSoundSync then ns.QueueCustomAuraSoundSync() end
                                 end,
                                 function() return ss.buffLostSoundKey == nil end,
                                 AddSoundPreview,
