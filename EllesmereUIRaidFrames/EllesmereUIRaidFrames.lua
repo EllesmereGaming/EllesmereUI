@@ -2954,19 +2954,27 @@ end
 -------------------------------------------------------------------------------
 -- Absorb paint coalescer (Blizzard's own CompactUnitFrame model: absorb /
 -- heal-prediction repaints are "frequent and expensive, update once per frame
--- at most"). Event branches MARK; one flush paints each dirty button once per
--- render frame -- server batches land several absorb-family events per button
--- in one frame at raid scale, and only the last paint renders. The flush
--- frame is hidden whenever the set is empty. On ns (200-local cap).
+-- at most"). Event branches MARK; the flush paints dirty buttons off a fixed
+-- per-frame budget -- server batches land several absorb-family events per
+-- button in one frame at raid scale, and only the last paint renders. A
+-- budget (not "drain everything") caps worst-case single-frame cost at raid
+-- size; any leftover keeps the frame shown so it drains over the following
+-- frames instead of spiking one of them. On ns (200-local cap).
 ns._abDirty = {}
+ns._ABSORB_FLUSH_BUDGET = 20
 ns._abFlush = CreateFrame("Frame")
 ns._abFlush:Hide()
 ns._abFlush:SetScript("OnUpdate", function(self)
+    local n = 0
     for button, unit in pairs(ns._abDirty) do
+        ns._abDirty[button] = nil
         UpdateAbsorb(button, unit)
+        n = n + 1
+        if n >= ns._ABSORB_FLUSH_BUDGET then break end
     end
-    table.wipe(ns._abDirty)
-    self:Hide()
+    if not next(ns._abDirty) then
+        self:Hide()
+    end
 end)
 function ns._MarkAbsorbDirty(button, unit)
     ns._abDirty[button] = unit
@@ -2981,6 +2989,12 @@ end
 -- stale (event-active members are skipped by the stamp compare), and the
 -- ticker cancels itself when the armed set empties. Zero event registrations,
 -- zero cost with no shields anywhere.
+-- Staleness margin needs real slack above the 0.5s ticker period: UpdateAbsorb
+-- stamps _paintAt unconditionally, including on paints the belt itself just
+-- triggered, so a margin at or below one tick period re-qualifies every armed
+-- button as stale on the very next tick and the belt never stops sweeping the
+-- whole armed set. 1.5s (three ticks) keeps this an occasional catch, not a
+-- steady-state resweep.
 ns._abArmed = ns._abArmed or {}
 function ns._AbArm(button, unit, d)
     d._absActive = true
@@ -2992,7 +3006,7 @@ function ns._AbArm(button, unit, d)
             for btn, u in pairs(ns._abArmed) do
                 any = true
                 local ab = GetFFD(btn).absorbBar
-                if not ab or (now - (ab._paintAt or 0)) > 0.45 then
+                if not ab or (now - (ab._paintAt or 0)) > 1.5 then
                     ns._MarkAbsorbDirty(btn, u)
                 end
             end
