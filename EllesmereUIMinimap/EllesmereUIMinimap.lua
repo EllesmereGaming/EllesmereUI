@@ -4096,6 +4096,15 @@ local function ApplyMinimap()
             if needsReparent and minimap:GetParent() ~= UIParent then
                 minimap:SetParent(UIParent)
             end
+            -- Saved centers use UIParent coordinates. On reload the Minimap is
+            -- still under MinimapCluster until this taint-safe deferred reparent;
+            -- applying the rectangular clamp before it would resolve the same
+            -- offsets through the cluster's coordinate context, then shift when
+            -- SetParent completes. Reuse this existing deferral and correct only
+            -- after the final parent is in place.
+            if p.shape == "rectangular" and minimap:GetParent() == UIParent then
+                EBS._ClampMinimapCanvas(false, true)
+            end
             if needsClusterHide and MinimapCluster then
                 MinimapCluster:SetAlpha(0)
                 MinimapCluster:EnableMouse(false)
@@ -5127,7 +5136,7 @@ local function ApplyMinimap()
     -- Size changes can make a previously valid saved center place part of the
     -- square canvas offscreen. Correct it in this same apply pass so the map
     -- texture never waits for unlock mode to repair itself.
-    if isRectangular then
+    if isRectangular and minimap:GetParent() == UIParent then
         EBS._ClampMinimapCanvas(false, true)
     end
 
