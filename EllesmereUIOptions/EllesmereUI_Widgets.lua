@@ -3970,7 +3970,8 @@ end
 --  BuildCogPopup -- reusable cog settings popup with consistent layout
 --  opts = { title = "Popup Title", rows = {
 --      { type="slider", label="Distance", min=-50, max=50, step=1, get=fn, set=fn },
---      { type="toggle", label="Show Health Percent", get=fn, set=fn }, } }
+--      { type="toggle", label="Show Health Percent", get=fn, set=fn },
+--      { type="checkboxdropdown", label="Pool", items=fn, get=fn, set=fn, searchable=true }, } }
 --  Returns: popupFrame, showFn(anchorBtn)
 -------------------------------------------------------------------------------
 local function BuildCogPopup(opts)
@@ -3980,7 +3981,7 @@ local function BuildCogPopup(opts)
         for _, row in ipairs(opts.rows) do
             if row.get and row.set and not row.noCapture
                and row.type ~= "button" and row.type ~= "reorder"
-               and row.type ~= "reordercheck" then
+               and row.type ~= "reordercheck" and row.type ~= "checkboxdropdown" then
                 EllesmereUI.AddCaptureAccessor(opts.captureRegion, {
                     type = row.type, text = row.label, getValue = row.get, setValue = row.set,
                     min = row.min, max = row.max, step = row.step,
@@ -4037,7 +4038,7 @@ local function BuildCogPopup(opts)
                 tmpFS:SetText(EllesmereUI.L(row.label))
                 local w = tmpFS:GetStringWidth()
                 if w > maxLblW then maxLblW = w end
-            elseif row.type == "dropdown" or row.type == "segmented" or row.type == "reordercheck" then
+            elseif row.type == "dropdown" or row.type == "segmented" or row.type == "reordercheck" or row.type == "checkboxdropdown" then
                 tmpFS:SetText(EllesmereUI.L(row.label))
                 local w = tmpFS:GetStringWidth()
                 if w > maxDDLblW then maxDDLblW = w end
@@ -4065,7 +4066,7 @@ local function BuildCogPopup(opts)
             if i > 1 then totalH = totalH + GAP end
             if row.type == "toggle" or row.type == "segmented" then
                 totalH = totalH + TOGGLE_ROW_H
-            elseif row.type == "dropdown" or row.type == "reorder" or row.type == "reordercheck" then
+            elseif row.type == "dropdown" or row.type == "reorder" or row.type == "reordercheck" or row.type == "checkboxdropdown" then
                 totalH = totalH + DROPDOWN_ROW_H
             elseif row.type == "button" then
                 totalH = totalH + ROW_H + 4
@@ -4296,6 +4297,68 @@ local function BuildCogPopup(opts)
                 end)
 
                 rowWidgets[#rowWidgets + 1] = { type = 'reordercheck', btn = ddBtn, refresh = refresh }
+                curY = curY - DROPDOWN_ROW_H
+            elseif row.type == 'checkboxdropdown' then
+                local lbl = MakeFont(pf, 11, nil, 1, 1, 1); lbl:SetAlpha(0.6)
+                lbl:SetText(EllesmereUI.L(row.label))
+                lbl:SetPoint('LEFT', pf, 'TOPLEFT', SIDE_PAD, curY - DROPDOWN_ROW_H / 2 - 1)
+
+                if row.tooltip then
+                    local hitFrame = CreateFrame("Frame", nil, pf)
+                    hitFrame:SetPoint("TOPLEFT", lbl, "TOPLEFT", -2, 2)
+                    hitFrame:SetPoint("BOTTOMRIGHT", lbl, "BOTTOMRIGHT", 2, -2)
+                    hitFrame:SetFrameLevel(pf:GetFrameLevel() + 3)
+                    hitFrame:EnableMouse(true)
+                    hitFrame:SetScript("OnEnter", function()
+                        if EllesmereUI.ShowWidgetTooltip then
+                            EllesmereUI.ShowWidgetTooltip(lbl, row.tooltip)
+                        end
+                    end)
+                    hitFrame:SetScript("OnLeave", function()
+                        if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+                    end)
+                end
+
+                local ddBtn, refresh = EllesmereUI.BuildVisOptsCBDropdown(
+                    pf, COG_DD_W, pf:GetFrameLevel() + 2,
+                    row.items,
+                    row.get,
+                    function(k, v)
+                        row.set(k, v)
+                        if pf._refresh then pf._refresh() end
+                    end,
+                    nil, row.maxVisible or 10, row.searchable)
+                local DD_SCALE = 0.9
+                ddBtn:SetScale(DD_SCALE)
+                ddBtn:ClearAllPoints()
+                ddBtn:SetPoint('RIGHT', pf, 'TOPRIGHT', -SIDE_PAD / DD_SCALE, (curY - DROPDOWN_ROW_H / 2) / DD_SCALE)
+                ddBtn:HookScript('OnClick', function(self)
+                    if self._ddMenu then
+                        self._ddMenu:SetFrameStrata(pf:GetFrameStrata())
+                        self._ddMenu:SetFrameLevel(pf:GetFrameLevel() + 30)
+                    end
+                end)
+
+                local cbDis
+                if row.disabled then
+                    cbDis = CreateFrame("Frame", nil, pf)
+                    cbDis:SetPoint("TOPLEFT", pf, "TOPLEFT", 1, curY)
+                    cbDis:SetPoint("TOPRIGHT", pf, "TOPRIGHT", -1, curY)
+                    cbDis:SetHeight(DROPDOWN_ROW_H)
+                    cbDis:SetFrameLevel(pf:GetFrameLevel() + 12)
+                    cbDis:EnableMouse(true)
+                    local disTex = SolidTex(cbDis, "OVERLAY", 0.06, 0.08, 0.10, 0.70)
+                    disTex:SetAllPoints()
+                    cbDis:SetScript("OnEnter", function(self)
+                        local tip = ResolveDisabledTip(row)
+                        if tip and EllesmereUI.ShowWidgetTooltip then EllesmereUI.ShowWidgetTooltip(self, tip) end
+                    end)
+                    cbDis:SetScript("OnLeave", function() if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end end)
+                    local initDis = type(row.disabled) == "function" and row.disabled() or row.disabled
+                    if initDis then cbDis:Show() else cbDis:Hide() end
+                end
+
+                rowWidgets[#rowWidgets + 1] = { type = 'checkboxdropdown', btn = ddBtn, refresh = refresh, disOverlay = cbDis, disCheck = row.disabled }
                 curY = curY - DROPDOWN_ROW_H
             elseif row.type == 'segmented' then
                 local lbl = MakeFont(pf, 11, nil, 1, 1, 1); lbl:SetAlpha(0.6)
@@ -4969,6 +5032,18 @@ local function BuildCogPopup(opts)
                     end
                 elseif rw.type == 'reordercheck' then
                     if rw.refresh then rw.refresh() end
+                elseif rw.type == 'checkboxdropdown' then
+                    if rw.disOverlay and rw.disCheck then
+                        local dis
+                        if type(rw.disCheck) == "function" then dis = rw.disCheck() else dis = rw.disCheck end
+                        if dis then
+                            rw.disOverlay:Show()
+                            if rw.btn and rw.btn._ddMenu then rw.btn._ddMenu:Hide() end
+                        else
+                            rw.disOverlay:Hide()
+                        end
+                    end
+                    if rw.refresh then rw.refresh() end
                 end
             end
         end
@@ -4976,7 +5051,7 @@ local function BuildCogPopup(opts)
         -- True while a dropdown menu opened from inside this popup is shown and moused over. Exposed so external close-logic (e.g. a parent menu driving this popup as a flyout with its own _clickOutside disabled) stays open when a clicked dropdown list extends below the popup's own rect.
         pf._anyDropdownHovered = function()
             for _, rw in ipairs(rowWidgets) do
-                if (rw.type == 'dropdown' or rw.type == 'reorder' or rw.type == 'reordercheck') and rw.btn and rw.btn._ddMenu
+                if (rw.type == 'dropdown' or rw.type == 'reorder' or rw.type == 'reordercheck' or rw.type == 'checkboxdropdown') and rw.btn and rw.btn._ddMenu
                    and rw.btn._ddMenu:IsShown() and rw.btn._ddMenu:IsMouseOver() then
                     return true
                 end
