@@ -102,7 +102,7 @@ local function BuildPage(pageName, parent, yOffset)
           tooltip = "Automatically hides the window after you use a teleport or hearthstone.",
           getValue = function() local c = DB(); return not c or c.hideAfterUse ~= false end,
           setValue = function(v) Set("hideAfterUse", v) end },
-        { type = "label", text = "Toggle Quick Travel" }
+        { type = "label", text = "Keybind" }
     ); y = y - h
 
     if not EllesmereUI._prebuilding then
@@ -196,7 +196,7 @@ local function BuildPage(pageName, parent, yOffset)
         RefreshLabel()
         EllesmereUI.RegisterWidgetRefresh(RefreshLabel)
         EllesmereUI.AddCaptureAccessor(rgn, {
-            type = "keybind", text = "Toggle Quick Travel",
+            type = "keybind", text = "Keybind",
             getValue = function() local c = DB(); return c and c.toggleKey end,
             setValue = function(v) Set("toggleKey", v); Apply(); RefreshLabel() end,
         })
