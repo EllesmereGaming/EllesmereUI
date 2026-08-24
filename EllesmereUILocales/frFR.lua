@@ -4587,7 +4587,6 @@ L["Apply to Group"]                                             = "Appliquer au 
 L["Apply to This Spell"]                                        = "Appliquer à ce sort"
 L["Aqir Egg Cluster"]                                           = "Amas d'œufs aqir"
 L["Are you sure you want to delete \"%s\"?"]                    = "Voulez-vous vraiment supprimer « %s » ?"
-L["Arms Warrior Sweeping Strikes Bar"]                          = "Barre Frappes tournoyantes du guerrier Armes"
 L["Assign this profile to the same specializations it was assigned to on export. Off = your current spec assignments stay as they are."] = "Assigne ce profil aux mêmes spécialisations auxquelles il était assigné lors de l'export. Désactivé = vos assignations de spé actuelles restent inchangées."
 L["Atomically Recalibrator"]                                    = true -- ⚠ objet Midnight, pas de FR officiel
 L["Atomically Regoblinator"]                                    = true -- ⚠ objet Midnight, pas de FR officiel
@@ -5600,7 +5599,6 @@ L["Spirit Link Totem\n(Cursor)"] = "Totem de lien d'esprit\n(Curseur)"
 L["Starfire"] = "Feu stellaire"
 L["Steady Shot"] = "Tir assuré"
 L["Summon Infernal\n(Cursor)"] = "Invocation d'infernal\n(Curseur)"
-L["Sweeping Strikes"] = "Attaques circulaires"
 L["Tar Trap\n(Cursor)"] = "Piège de goudron\n(Curseur)"
 L["The Hunt\n(Focus)"] = "La traque\n(Focus)"
 L["Tiger's Lust\n(Focus)"] = "Soif du tigre\n(Focus)"

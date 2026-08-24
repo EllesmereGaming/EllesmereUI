@@ -3793,8 +3793,7 @@ local CLASS_POWER_MAP = {
     SHAMAN      = { [263] = { "MAELSTROM_WEAPON", 10 } },  -- Enhancement only
     PRIEST      = { [258] = { "INSANITY_BAR", 100 } },     -- Shadow only
     HUNTER      = { [255] = { "TIP_OF_THE_SPEAR", 3 } },   -- Survival only
-    WARRIOR     = { [72]  = { "WHIRLWIND_STACKS", 4 },     -- Fury
-                    [71]  = { "SWEEPING_STRIKES", 18 } },   -- Arms (12.1 cap: 12 + 6 Broad Strokes)
+    WARRIOR     = { [72]  = { "WHIRLWIND_STACKS", 4 } },    -- Fury
     DEATHKNIGHT = { [250] = { Enum.PowerType.Runes, 6 },
                     [251] = { Enum.PowerType.Runes, 6 },
                     [252] = { Enum.PowerType.Runes, 6 } },
@@ -4123,15 +4122,6 @@ local function UpdateClassPowerOnPlate(plate)
             end
             return
         end
-    elseif classPowerType == "SWEEPING_STRIKES" then
-        cur, maxP = EllesmereUI.GetSweepingStrikes()
-        if not maxP or maxP <= 0 then
-            for i = 1, #plate._cpPips do
-                plate._cpPips[i]:Hide()
-                if plate._cpPips[i]._bg then plate._cpPips[i]._bg:Hide() end
-            end
-            return
-        end
     elseif classPowerType == "ICICLES" then
         local count = 0
         if C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID then
@@ -4436,9 +4426,6 @@ local function EnableClassPowerWatcher()
                     if EllesmereUI.HandleWhirlwindStacks then
                         EllesmereUI.HandleWhirlwindStacks(event, unit, castGUID, spellID)
                     end
-                    if EllesmereUI.HandleSweepingStrikes then
-                        EllesmereUI.HandleSweepingStrikes(event, unit, castGUID, spellID)
-                    end
                 end
                 RefreshClassPower()
             elseif event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" then
@@ -4449,18 +4436,12 @@ local function EnableClassPowerWatcher()
                     if EllesmereUI.HandleWhirlwindStacks then
                         EllesmereUI.HandleWhirlwindStacks(event)
                     end
-                    if EllesmereUI.HandleSweepingStrikes then
-                        EllesmereUI.HandleSweepingStrikes(event)
-                    end
                 end
                 RefreshClassPower()
             elseif event == "PLAYER_REGEN_ENABLED" then
                 if not _G._ERB_AceDB and EllesmereUI then
                     if EllesmereUI.HandleWhirlwindStacks then
                         EllesmereUI.HandleWhirlwindStacks(event)
-                    end
-                    if EllesmereUI.HandleSweepingStrikes then
-                        EllesmereUI.HandleSweepingStrikes(event)
                     end
                 end
                 RefreshClassPower()

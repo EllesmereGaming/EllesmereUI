@@ -169,7 +169,7 @@ initFrame:SetScript("OnEvent", function(self)
     local _previewBarFillPct = 65 -- randomized each page visit (30-80)
 
     -- Discrete pip count for the current spec: the real resource max (Fury
-    -- Whirlwind 4, Arms Sweeping Strikes 18, DK runes 6, Maelstrom Weapon
+    -- Whirlwind 4, DK runes 6, Maelstrom Weapon
     -- 5/10, ...) so the preview matches the live bar; 5 when none exists.
     local function PreviewPipCount()
         local gsr = _G._ERB_GetSecondaryResource
@@ -177,10 +177,7 @@ initFrame:SetScript("OnEvent", function(self)
         if not info or info.type == "bar" then return 5 end
         local m = info.max
         -- Talent-dependent maxes come from the live trackers
-        if info.power == "SWEEPING_STRIKES" and EllesmereUI and EllesmereUI.GetSweepingStrikes then
-            local _, realMax = EllesmereUI.GetSweepingStrikes()
-            if realMax and realMax > 0 then m = realMax end
-        elseif info.power == "WHIRLWIND_STACKS" and EllesmereUI and EllesmereUI.GetWhirlwindStacks then
+        if info.power == "WHIRLWIND_STACKS" and EllesmereUI and EllesmereUI.GetWhirlwindStacks then
             local _, realMax = EllesmereUI.GetWhirlwindStacks()
             if realMax and realMax > 0 then m = realMax end
         elseif info.power == "MAELSTROM_WEAPON" and EllesmereUI and EllesmereUI.GetMaelstromWeapon then
@@ -393,7 +390,7 @@ initFrame:SetScript("OnEvent", function(self)
                     filledCount = _pvThreshCount
                 else
                     filledCount = _previewPipCount
-                    -- _previewPipCount is randomized against a generic 5-pip preview; rescale for other counts (e.g. 18 Sweeping Strikes)
+                    -- _previewPipCount is randomized against a generic 5-pip preview; rescale for other counts
                     if numPips ~= 5 then
                         filledCount = math.max(1, math.min(numPips,
                             math.floor(_previewPipCount / 5 * numPips + 0.5)))
@@ -4597,29 +4594,6 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 IPControlTip(ipRow._leftRegion, ipBarTip)
                 IPControlTip(ipRow._rightRegion, ipHashTip)
-            end
-            local function _IsArmsWarrior()
-                if ctx.advanced then return ctx.specID == 71 end
-                local _, cf = UnitClass("player")
-                if cf ~= "WARRIOR" then return false end
-                local s = GetSpecialization()
-                local sid = s and GetSpecializationInfo(s)
-                return sid == 71
-            end
-            if _IsArmsWarrior() then
-                local ssBarTip = "Shows Sweeping Strikes charges on the resource bar; Unit Frames and the personal Nameplate show them regardless."
-                local ssRow
-                ssRow, h = W:DualRow(parent, y,
-                    { type = "toggle", text = "Arms Warrior Sweeping Strikes Bar",
-                      tooltip = ssBarTip,
-                      getValue = function() local p = DB(); return p and p.secondary.armsSweepingStrikesBar end,
-                      setValue = function(v)
-                          local p = DB(); if not p then return end
-                          p.secondary.armsSweepingStrikesBar = v; RebuildClass()
-                          EllesmereUI:RefreshPage()
-                      end },
-                    { type = "label", text = "" }
-                );  y = y - h
             end
         end
 

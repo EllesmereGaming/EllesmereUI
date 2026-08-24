@@ -9316,8 +9316,7 @@ local CLASS_POWER_TYPES = {
                     [1480] = { "SOUL_FRAGMENTS_DEVOURER", 50, "bar" } },
     SHAMAN      = { [263] = { "MAELSTROM_WEAPON", 10 } },
     HUNTER      = { [255] = { "TIP_OF_THE_SPEAR", 3 } },
-    WARRIOR     = { [72]  = { "WHIRLWIND_STACKS", 4 },
-                    [71]  = { "SWEEPING_STRIKES", 18 } },  -- 12.1 cap: 12 + 6 Broad Strokes
+    WARRIOR     = { [72]  = { "WHIRLWIND_STACKS", 4 } },
 }
 
 -- Returns true if the player's current spec has a class resource in CLASS_POWER_TYPES
@@ -9424,8 +9423,6 @@ local function CreateCustomClassPower(playerFrame, style)
         elseif powerType == "TIP_OF_THE_SPEAR" then
             maxPower = customMax
         elseif powerType == "WHIRLWIND_STACKS" then
-            maxPower = customMax
-        elseif powerType == "SWEEPING_STRIKES" then
             maxPower = customMax
         elseif powerType == "ICICLES" then
             maxPower = customMax or 5
@@ -9644,8 +9641,6 @@ local function CreateCustomClassPower(playerFrame, style)
                 cur, max = EllesmereUI.GetTipOfTheSpear()
             elseif powerType == "WHIRLWIND_STACKS" and EllesmereUI and EllesmereUI.GetWhirlwindStacks then
                 cur, max = EllesmereUI.GetWhirlwindStacks()
-            elseif powerType == "SWEEPING_STRIKES" and EllesmereUI and EllesmereUI.GetSweepingStrikes then
-                cur, max = EllesmereUI.GetSweepingStrikes()
             elseif powerType == "ICICLES" then
                 -- Frost Mage Icicles: stack count from the Icicles aura (205473).
                 local count = 0
@@ -9754,8 +9749,8 @@ local function CreateCustomClassPower(playerFrame, style)
         local auraDriven    = (powerType == "MAELSTROM_WEAPON" or powerType == "ICICLES")
         local needsOnUpdate = not auraDriven
         local needsAura     = auraDriven
-        local needsCasts    = (powerType == "TIP_OF_THE_SPEAR" or powerType == "WHIRLWIND_STACKS"
-                               or powerType == "SWEEPING_STRIKES")
+        local needsCasts    = (powerType == "TIP_OF_THE_SPEAR"
+                               or powerType == "WHIRLWIND_STACKS")
 
         if needsOnUpdate then
             -- 10 Hz poll on the shared anim ticker (see ns._cpDriverTick):
@@ -9781,7 +9776,7 @@ local function CreateCustomClassPower(playerFrame, style)
             eventFrame:RegisterEvent("PLAYER_DEAD")
             eventFrame:RegisterEvent("PLAYER_ALIVE")
         end
-        if powerType == "WHIRLWIND_STACKS" or powerType == "SWEEPING_STRIKES" then
+        if powerType == "WHIRLWIND_STACKS" then
             eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
         end
 
@@ -9796,9 +9791,6 @@ local function CreateCustomClassPower(playerFrame, style)
                         if EllesmereUI.HandleWhirlwindStacks then
                             EllesmereUI.HandleWhirlwindStacks(event, unit, castGUID, spellID)
                         end
-                        if EllesmereUI.HandleSweepingStrikes then
-                            EllesmereUI.HandleSweepingStrikes(event, unit, castGUID, spellID)
-                        end
                     end
                 end
             elseif event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" then
@@ -9809,17 +9801,11 @@ local function CreateCustomClassPower(playerFrame, style)
                     if EllesmereUI.HandleWhirlwindStacks then
                         EllesmereUI.HandleWhirlwindStacks(event)
                     end
-                    if EllesmereUI.HandleSweepingStrikes then
-                        EllesmereUI.HandleSweepingStrikes(event)
-                    end
                 end
             elseif event == "PLAYER_REGEN_ENABLED" then
                 if not _G._ERB_AceDB and EllesmereUI then
                     if EllesmereUI.HandleWhirlwindStacks then
                         EllesmereUI.HandleWhirlwindStacks(event)
-                    end
-                    if EllesmereUI.HandleSweepingStrikes then
-                        EllesmereUI.HandleSweepingStrikes(event)
                     end
                 end
             end

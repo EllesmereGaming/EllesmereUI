@@ -4297,7 +4297,6 @@ initFrame:SetScript("OnEvent", function(self)
                 { key = "MaelstromWeapon", label = "Maelstrom Weapon" },
                 { key = "TipOfTheSpear",   label = "Tip of the Spear" },
                 { key = "WhirlwindStacks", label = "Whirlwind Stacks" },
-                { key = "SweepingStrikes", label = "Sweeping Strikes" },
             }
             local resourceItems = {}
             for _, it in ipairs(items) do
