@@ -352,8 +352,14 @@ local function StyleGhost(g, isActive)
         underline:Hide()
     end
 
-    -- Separator (extended mode): the 1px divider in Blizzard's inter-tab gap.
-    local showSep = cfg.extendBgBehindTabs == true and not cfg.hideBorders
+    -- Separator: the 1px divider between adjacent tabs. Previously only
+    -- drawn in extendBgBehindTabs mode; without it, two inactive tabs
+    -- sharing the same background color visually fuse into one block
+    -- wherever Blizzard's native inter-tab gap is zero (most visibly at
+    -- the pinned/scroll-region boundary). Now always drawn (still
+    -- respecting Hide Borders) so ghosts never rely on Blizzard's real
+    -- gap for separation.
+    local showSep = not cfg.hideBorders and (cfg.tabSpacing or 1) > 0
     if showSep then
         local r, gg, b, a
         if cfg.innerBorderColorMode == "accent" and EUI.GetAccentColor then
@@ -487,6 +493,7 @@ end
 local function RefreshNow()
     PositionStrip()
     local cfg = DB()
+    local spacing = cfg.tabSpacing or 1
     local selected = SelectedWindow()
     local height = TabHeight()
     local fontPath = TabFontPath()
@@ -537,6 +544,13 @@ local function RefreshNow()
             if tab then
                 count = count + 1
                 local g = AcquireGhost(count)
+                -- Look ahead to the next docked tab (may skip missing frames).
+                local nextTab
+                for j = i + 1, #dockList do
+                    local ncf = dockList[j]
+                    local nt = ncf and _G[ncf:GetName() .. "Tab"]
+                    if nt then nextTab = nt; break end
+                end
                 local isTemp = cf.isTemporary and true or false
                 -- State tables are reused across refreshes (no alloc churn).
                 local st = g.state
@@ -574,11 +588,19 @@ local function RefreshNow()
                     g:SetPoint("TOP", band, "TOP", 0, -onePx)
                     g:SetPoint("BOTTOM", band, "BOTTOM", 0, 0)
                     g:SetPoint("LEFT", tab, "LEFT", count == 1 and leftExtend or 0, 0)
-                    g:SetPoint("RIGHT", tab, "RIGHT", 0, 0)
+                    if nextTab then
+                        g:SetPoint("RIGHT", nextTab, "LEFT", -spacing, 0)
+                    else
+                        g:SetPoint("RIGHT", tab, "RIGHT", 0, 0)
+                    end
                 else
                     -- Island tabs: bottom-aligned to the tab, our height.
                     g:SetPoint("BOTTOMLEFT", tab, "BOTTOMLEFT", count == 1 and leftExtend or 0, 0)
-                    g:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", 0, 0)
+                    if nextTab then
+                        g:SetPoint("BOTTOMRIGHT", nextTab, "BOTTOMLEFT", -spacing, 0)
+                    else
+                        g:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", 0, 0)
+                    end
                     g:SetHeight(height)
                 end
 
