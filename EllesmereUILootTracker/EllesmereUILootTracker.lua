@@ -15,6 +15,7 @@ local DB_DEFAULTS = {
         raidDifficulty = 16,
         plannerMode = "overall",
         plannerSlot = "HEAD",
+        craftedTargetLevel = 318,
     },
 }
 
@@ -206,13 +207,12 @@ end
 function ns.AddGoal(source, item, priority, specID, difficultyID, targetLevel)
     if not source or not item or not item.itemID then return end
     specID = ResolveSpecID(specID)
-    local sourceKey = source.kind == "raid"
-        and ns.RaidKey(source.encounterID, difficultyID)
-        or ns.DungeonKey(source.challengeModeID)
+    local sourceKey = ns.GetSourceKey(source, difficultyID)
     local goal = {
         sourceKey = sourceKey,
         sourceKind = source.kind,
-        sourceID = source.kind == "raid" and source.encounterID or source.challengeModeID,
+        sourceID = source.kind == "raid" and source.encounterID
+            or (source.kind == "dungeon" and source.challengeModeID or source.sourceID),
         sourceName = source.name,
         instanceName = source.instanceName,
         itemID = item.itemID,
@@ -232,6 +232,13 @@ function ns.AddGoal(source, item, priority, specID, difficultyID, targetLevel)
     FireChanged("goal")
     ns.QueueInventoryScan()
     return goal
+end
+
+function ns.GetSourceKey(source, difficultyID)
+    if not source then return nil end
+    if source.kind == "raid" then return ns.RaidKey(source.encounterID, difficultyID) end
+    if source.kind == "dungeon" then return ns.DungeonKey(source.challengeModeID) end
+    return source.key or (tostring(source.kind) .. ":" .. tostring(source.sourceID or 0))
 end
 
 function ns.GetSpecData(specID)
@@ -271,9 +278,7 @@ function ns.ReactivateGoal(sourceKey, itemID, specID)
 end
 
 function ns.CycleGoal(source, item, specID, difficultyID, targetLevel)
-    local sourceKey = source.kind == "raid"
-        and ns.RaidKey(source.encounterID, difficultyID)
-        or ns.DungeonKey(source.challengeModeID)
+    local sourceKey = ns.GetSourceKey(source, difficultyID)
     local goal = ns.GetGoal(sourceKey, item.itemID, specID)
     if not goal then return ns.AddGoal(source, item, ns.PRIORITY_NICE, specID, difficultyID, targetLevel) end
     if goal.priority == ns.PRIORITY_NICE then
@@ -306,10 +311,17 @@ end
 
 function ns.GetSourceSummary(source, specID, difficultyID)
     specID = ResolveSpecID(specID)
-    local sourceKey = source.kind == "raid"
-        and ns.RaidKey(source.encounterID, difficultyID)
-        or ns.DungeonKey(source.challengeModeID)
+    local sourceKey = ns.GetSourceKey(source, difficultyID)
     local items = ns.GetCatalog(source, specID, difficultyID)
+    if source.kind ~= "raid" and source.kind ~= "dungeon" then
+        local desired = 0
+        for _, item in ipairs(items) do
+            local goal = ns.GetGoal(sourceKey, item.itemID, specID)
+            if goal and goal.state == "open" then desired = desired + 1 end
+        end
+        return { sourceKey=sourceKey, desired=desired, remaining=#items, total=#items,
+            chance=0, confidence="not-applicable", coreCost=0 }
+    end
     local pool = ns.GetPool(sourceKey, specID)
     local desired, remaining, total = 0, 0, #items
     for _, item in ipairs(items) do
@@ -549,14 +561,19 @@ eventFrame:RegisterEvent("BONUS_ROLL_RESULT")
 eventFrame:RegisterEvent("EJ_LOOT_DATA_RECIEVED")
 eventFrame:RegisterEvent("ITEM_DATA_LOAD_RESULT")
 eventFrame:RegisterEvent("CHALLENGE_MODE_MAPS_UPDATE")
+eventFrame:RegisterEvent("TRADE_SKILL_DATA_SOURCE_CHANGED")
+eventFrame:RegisterEvent("TRADE_SKILL_LIST_UPDATE")
 eventFrame:SetScript("OnEvent", function(_, event, ...)
     if event == "ADDON_LOADED" and ... == ADDON_NAME then
         profileDB = EllesmereUI.Lite.NewDB("EllesmereUILootTrackerDB", DB_DEFAULTS)
         EnsureCharacterDB()
+    elseif event == "ADDON_LOADED" and (... == "Blizzard_Professions" or ... == "Blizzard_CraftingOrders") then
+        if ns.QueueCraftedScan then ns.QueueCraftedScan(0.5) end
     elseif event == "PLAYER_LOGIN" then
         if C_MythicPlus and C_MythicPlus.RequestMapInfo then C_MythicPlus.RequestMapInfo() end
         inventorySnapshot = BuildInventorySnapshot()
         ReconcileInventory(inventorySnapshot)
+        if ns.QueueCraftedScan then ns.QueueCraftedScan(1) end
     elseif event == "SPELL_CONFIRMATION_PROMPT" then
         OnSpellConfirmation(event, ...)
     elseif event == "BONUS_ROLL_RESULT" then
@@ -571,6 +588,8 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
         end
     elseif event == "EJ_LOOT_DATA_RECIEVED" or event == "CHALLENGE_MODE_MAPS_UPDATE" then
         QueueCatalogRefresh()
+    elseif event == "TRADE_SKILL_DATA_SOURCE_CHANGED" or event == "TRADE_SKILL_LIST_UPDATE" then
+        if ns.QueueCraftedScan then ns.QueueCraftedScan(0.2) end
     elseif event == "BAG_UPDATE_DELAYED" or event == "PLAYER_EQUIPMENT_CHANGED" then
         ns.QueueInventoryScan()
     end
