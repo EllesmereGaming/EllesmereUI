@@ -4029,10 +4029,10 @@ function EBS._ClampMinimapCanvas(fromLayout, saveCorrection)
     local clampedY = math.max(halfH, math.min(uiH - halfH, cy))
     local corrected = math.abs(clampedX - cx) > 0.01
         or math.abs(clampedY - cy) > 0.01
+    local x = clampedX - uiW * 0.5
+    local y = clampedY - uiH * 0.5
 
     if fromLayout or corrected then
-        local x = clampedX - uiW * 0.5
-        local y = clampedY - uiH * 0.5
         minimap:ClearAllPoints()
         minimap:SetPoint("CENTER", UIParent, "CENTER", x, y)
         if saveCorrection and corrected then
@@ -4040,11 +4040,18 @@ function EBS._ClampMinimapCanvas(fromLayout, saveCorrection)
         end
     end
 
-    -- Unlock mode temporarily places the visible child on UIParent. Restore the
-    -- architectural relationship after consuming that proposed center.
+    -- Keep the proxy in UIParent coordinates during unlock mode. Arrow-key
+    -- nudging reads its current point directly; restoring CENTER-to-Minimap here
+    -- would turn its valid screen position into a 0,0 relative offset and make
+    -- the next nudge jump to screen center. Normal applies restore the child
+    -- relationship outside unlock mode.
     if layout then
         layout:ClearAllPoints()
-        layout:SetPoint("CENTER", minimap, "CENTER")
+        if EllesmereUI._unlockActive then
+            layout:SetPoint("CENTER", UIParent, "CENTER", x, y)
+        else
+            layout:SetPoint("CENTER", minimap, "CENTER")
+        end
     end
     return corrected
 end
@@ -4220,6 +4227,26 @@ local function ApplyMinimap()
         if layout then
             layout:SetSize(mapSize, isRectangular and (mapSize * 192 / 256) or mapSize)
             layout:SetFrameLevel(minimap:GetFrameLevel())
+            if not isRectangular then
+                layout:ClearAllPoints()
+                layout:SetPoint("CENTER", minimap, "CENTER")
+            end
+        end
+    end
+    -- Reuse the existing unlock lifecycle instead of teaching the shared mover
+    -- about a second frame. Register only while rectangular mode is active, so
+    -- every other shape pays no callback or hook cost.
+    if EllesmereUI.RegisterUnlockModeListener and EllesmereUI.UnregisterUnlockModeListener then
+        if isRectangular and not GetFFD(minimap).rectUnlockListener then
+            GetFFD(minimap).rectUnlockListener = true
+            EllesmereUI:RegisterUnlockModeListener("EBS_RectMinimap", function(active)
+                local mp = EBS.db and EBS.db.profile.minimap
+                if not mp or mp.shape ~= "rectangular" then return end
+                EBS._ClampMinimapCanvas(active, false)
+            end)
+        elseif not isRectangular and GetFFD(minimap).rectUnlockListener then
+            GetFFD(minimap).rectUnlockListener = nil
+            EllesmereUI:UnregisterUnlockModeListener("EBS_RectMinimap")
         end
     end
     do
