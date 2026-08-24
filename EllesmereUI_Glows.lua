@@ -34,8 +34,13 @@ local GLOW_STYLES = {
       -- 5x5 grid = 25 cells, but only the first 22 are real ant frames; the last
       -- 3 are blank. Playing all 25 flashed an empty gap each loop that read as a
       -- backwards stutter. 22 matches what the Action Button Glow uses.
+      -- halo: this entry doubles as Action Button Glow's FlipBook twin on
+      -- engine-hosted buttons (see StartEngineGlow), so it also renders the
+      -- same soft outer halo StartButtonGlow adds -- without it, the
+      -- substitute was bare marching ants and visibly thinner than the real
+      -- thing shown in the options preview.
       rows = 5, columns = 5, frames = 22, duration = 0.3,
-      frameW = 48, frameH = 48, texPadding = 1.25 },
+      frameW = 48, frameH = 48, texPadding = 1.25, halo = true },
 }
 
 -------------------------------------------------------------------------------
@@ -757,6 +762,27 @@ local function StartFlipBookGlow(wrapper, szOrW, entry, cr, cg, cb, szH)
         if d.antsAg then d.antsAg:Stop() end
     end
 
+    -- Soft outer halo: matches the halo StartButtonGlow draws behind its ants,
+    -- so styles flagged halo = true (Classic WoW Glow, standing in for Action
+    -- Button Glow wherever the driver-ticked version can't run) look the same
+    -- as the real thing instead of bare marching ants.
+    if entry.halo then
+        if not d.halo then
+            local haloTex = wrapper:CreateTexture(nil, "OVERLAY", nil, 6)
+            haloTex:SetTexture(ICON_ALERT_TEX)
+            haloTex:SetTexCoord(BG_GLOW_L, BG_GLOW_R, BG_GLOW_T, BG_GLOW_B)
+            haloTex:SetBlendMode("ADD")
+            haloTex:SetPoint("CENTER")
+            d.halo = haloTex
+        end
+        d.halo:SetSize(texW * 1.3, texH * 1.3)
+        d.halo:SetDesaturated(true)
+        d.halo:SetVertexColor(cr or 1, cg or 1, cb or 1, 1)
+        d.halo:Show()
+    elseif d.halo then
+        d.halo:Hide()
+    end
+
     wrapper:SetScript("OnUpdate", nil)
 end
 
@@ -766,6 +792,7 @@ local function StopFlipBookGlow(wrapper)
         if wrapper._euiFlipData.ag then wrapper._euiFlipData.ag:Stop() end
         if wrapper._euiFlipData.ants then wrapper._euiFlipData.ants:Hide() end
         if wrapper._euiFlipData.antsAg then wrapper._euiFlipData.antsAg:Stop() end
+        if wrapper._euiFlipData.halo then wrapper._euiFlipData.halo:Hide() end
     end
 end
 
