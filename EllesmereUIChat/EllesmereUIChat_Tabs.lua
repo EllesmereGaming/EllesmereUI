@@ -594,12 +594,15 @@ local function RefreshNow()
                         g:SetPoint("RIGHT", tab, "RIGHT", 0, 0)
                     end
                 else
-                    -- Island tabs: bottom-aligned to the tab, our height.
-                    g:SetPoint("BOTTOMLEFT", tab, "BOTTOMLEFT", count == 1 and leftExtend or 0, 0)
+                    -- Island tabs: bottom-aligned to the tab, our height,
+                    -- lifted off the panel below by Bottom Spacing to Panel
+                    -- (padY).
+                    local padY = cfg.tabPadding or 0
+                    g:SetPoint("BOTTOMLEFT", tab, "BOTTOMLEFT", count == 1 and leftExtend or 0, padY)
                     if nextTab then
-                        g:SetPoint("BOTTOMRIGHT", nextTab, "BOTTOMLEFT", -spacing, 0)
+                        g:SetPoint("BOTTOMRIGHT", nextTab, "BOTTOMLEFT", -spacing, padY)
                     else
-                        g:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", 0, 0)
+                        g:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", 0, padY)
                     end
                     g:SetHeight(height)
                 end
