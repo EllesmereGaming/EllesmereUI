@@ -23,9 +23,11 @@ StaticPopupDialogs.EULT_SIMC_EXPORT = {
     hideOnEscape = true,
     preferredIndex = 3,
     OnShow = function(self, data)
-        self.editBox:SetText(data or "")
-        self.editBox:SetFocus()
-        self.editBox:HighlightText()
+        local editBox = self.EditBox or self.editBox
+        if not editBox then return end
+        editBox:SetText(data or "")
+        editBox:SetFocus()
+        editBox:HighlightText()
     end,
     EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
 }

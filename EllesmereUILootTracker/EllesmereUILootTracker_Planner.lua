@@ -395,8 +395,11 @@ function ns.GetPlannerDREstimate(statKey, plannedRating)
 end
 
 local function AddLinkStats(total, link)
-    if not link or not GetItemStats then return end
-    local stats = GetItemStats(link)
+    if not link then return end
+    local getItemStats = C_Item and C_Item.GetItemStats or GetItemStats
+    if not getItemStats then return end
+    local ok, stats = pcall(getItemStats, link)
+    if not ok then return end
     if type(stats) ~= "table" then return end
     for _, info in ipairs(STAT_KEYS) do
         local value = stats[info.key]
