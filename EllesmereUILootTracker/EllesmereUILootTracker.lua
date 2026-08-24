@@ -37,6 +37,9 @@ local inventorySnapshot = {}
 local pendingRoll
 local scanQueued
 local pendingItemLoads = {}
+local itemLevelCache = {}
+local goalIndexes = {}
+local catalogRefreshQueued
 
 local function CurrentSeasonIDs()
     local seasonID = 0
@@ -148,6 +151,14 @@ local function GoalKey(sourceKey, itemID)
     return tostring(sourceKey) .. ":item:" .. tostring(itemID)
 end
 
+local function GoalIndexKey(specID)
+    return tostring(SeasonID()) .. ":" .. tostring(ResolveSpecID(specID))
+end
+
+local function InvalidateGoalIndex(specID)
+    goalIndexes[GoalIndexKey(specID)] = nil
+end
+
 function ns.GetGoals(specID, includeArchived)
     local goals = {}
     for _, goal in pairs(SpecData(specID).goals) do
@@ -165,16 +176,25 @@ function ns.GetGoal(sourceKey, itemID, specID)
     return SpecData(specID).goals[GoalKey(sourceKey, itemID)]
 end
 
-function ns.GetAnyGoal(itemID, specID)
-    local best
+function ns.GetGoalLookup(specID)
+    local indexKey = GoalIndexKey(specID)
+    local index = goalIndexes[indexKey]
+    if index then return index end
+    index = {}
     for _, goal in pairs(SpecData(specID).goals) do
-        if goal.itemID == itemID and (not best
+        local best = index[goal.itemID]
+        if not best
             or (best.state == "archived" and goal.state == "open")
-            or (best.state == goal.state and goal.priority > best.priority)) then
-            best = goal
+            or (best.state == goal.state and goal.priority > best.priority) then
+            index[goal.itemID] = goal
         end
     end
-    return best
+    goalIndexes[indexKey] = index
+    return index
+end
+
+function ns.GetAnyGoal(itemID, specID)
+    return ns.GetGoalLookup(specID)[tonumber(itemID) or itemID]
 end
 
 function ns.AddGoal(source, item, priority, specID, difficultyID, targetLevel)
@@ -202,6 +222,7 @@ function ns.AddGoal(source, item, priority, specID, difficultyID, targetLevel)
         createdAt = time(),
     }
     SpecData(specID).goals[GoalKey(sourceKey, item.itemID)] = goal
+    InvalidateGoalIndex(specID)
     FireChanged("goal")
     ns.QueueInventoryScan()
     return goal
@@ -209,6 +230,7 @@ end
 
 function ns.RemoveGoal(sourceKey, itemID, specID)
     SpecData(specID).goals[GoalKey(sourceKey, itemID)] = nil
+    InvalidateGoalIndex(specID)
     FireChanged("goal")
 end
 
@@ -217,6 +239,7 @@ function ns.SetPriority(sourceKey, itemID, priority, specID)
     if not goal then return end
     goal.priority = priority
     goal.updatedAt = time()
+    InvalidateGoalIndex(specID)
     FireChanged("goal")
 end
 
@@ -224,6 +247,7 @@ function ns.ReactivateGoal(sourceKey, itemID, specID)
     local goal = ns.GetGoal(sourceKey, itemID, specID)
     if not goal then return end
     goal.state, goal.obtainedAt, goal.obtainedLink = "open", nil, nil
+    InvalidateGoalIndex(specID)
     FireChanged("goal")
 end
 
@@ -289,9 +313,13 @@ end
 
 local function SafeItemLevel(link)
     if not link or not C_Item.GetDetailedItemLevelInfo then return 0 end
+    local cached = itemLevelCache[link]
+    if cached then return cached end
     local level = C_Item.GetDetailedItemLevelInfo(link)
     if issecretvalue and issecretvalue(level) then return 0 end
-    return tonumber(level) or 0
+    level = tonumber(level) or 0
+    if level > 0 then itemLevelCache[link] = level end
+    return level
 end
 
 local function AddSnapshotItem(snapshot, link, count)
@@ -329,6 +357,18 @@ local function BuildInventorySnapshot()
     return snapshot
 end
 
+local function InventoryChanged(previous, current)
+    for itemID, entry in pairs(current) do
+        local old = previous[itemID]
+        if not old or old.count ~= entry.count or old.maxLevel ~= entry.maxLevel
+            or old.link ~= entry.link then return true end
+    end
+    for itemID in pairs(previous) do
+        if not current[itemID] then return true end
+    end
+    return false
+end
+
 function ns.GetOwnedItem(itemID, minimumItemLevel)
     local owned = inventorySnapshot[tonumber(itemID) or itemID]
     if not owned or owned.count <= 0 then return nil end
@@ -341,15 +381,19 @@ function ns.IsItemOwned(itemID, minimumItemLevel)
 end
 
 local function ReconcileInventory(snapshot)
-    if not ns.GetProfile().autoArchive then return end
+    if not ns.GetProfile().autoArchive then return false end
+    local changed
     for _, goal in ipairs(ns.GetGoals(nil, false)) do
         local owned = snapshot[goal.itemID]
         if owned and owned.count > 0 and owned.maxLevel >= (goal.minItemLevel or 0) then
             goal.state = "archived"
             goal.obtainedAt = time()
             goal.obtainedLink = owned.link
+            changed = true
         end
     end
+    if changed then InvalidateGoalIndex() end
+    return changed and true or false
 end
 
 function ns.QueueInventoryScan()
@@ -358,9 +402,20 @@ function ns.QueueInventoryScan()
     C_Timer.After(0.2, function()
         scanQueued = nil
         local snapshot = BuildInventorySnapshot()
-        ReconcileInventory(snapshot)
+        local changed = InventoryChanged(inventorySnapshot, snapshot)
+        local goalsChanged = ReconcileInventory(snapshot)
         inventorySnapshot = snapshot
-        FireChanged("inventory")
+        if changed or goalsChanged then FireChanged("inventory") end
+    end)
+end
+
+local function QueueCatalogRefresh()
+    if catalogRefreshQueued then return end
+    catalogRefreshQueued = true
+    C_Timer.After(0.1, function()
+        catalogRefreshQueued = nil
+        ns.InvalidateCatalog()
+        FireChanged("catalog")
     end)
 end
 
@@ -490,10 +545,13 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" or event == "ACTIVE_TALENT_GROUP_CHANGED" then
         ns.InvalidateCatalog()
         FireChanged("spec")
-    elseif event == "EJ_LOOT_DATA_RECIEVED" or event == "ITEM_DATA_LOAD_RESULT"
-        or event == "CHALLENGE_MODE_MAPS_UPDATE" then
-        ns.InvalidateCatalog()
-        FireChanged("catalog")
+    elseif event == "ITEM_DATA_LOAD_RESULT" then
+        local itemID = ...
+        if ns.ConsumePendingCatalogItem and ns.ConsumePendingCatalogItem(itemID) then
+            QueueCatalogRefresh()
+        end
+    elseif event == "EJ_LOOT_DATA_RECIEVED" or event == "CHALLENGE_MODE_MAPS_UPDATE" then
+        QueueCatalogRefresh()
     elseif event == "BAG_UPDATE_DELAYED" or event == "PLAYER_EQUIPMENT_CHANGED" then
         ns.QueueInventoryScan()
     end
