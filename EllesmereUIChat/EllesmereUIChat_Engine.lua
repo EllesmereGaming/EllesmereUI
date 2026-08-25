@@ -377,8 +377,12 @@ function ECHAT.EngineFontFamily(id, font, size, flags)
         -- CJK renders +2px: ideographs at latin point sizes read visibly
         -- smaller (dense glyphs, no ascender/descender whitespace). Not on the
         -- client's own alphabet -- see CJKHeight.
+        -- Client's own CJK alphabet uses the chosen font, not the stock
+        -- file, since most chat text renders through it. Other CJK
+        -- alphabets keep the stock file as a tofu fallback.
         for alphabet, file in pairs(CJK_FILES) do
-            members[#members + 1] = { alphabet = alphabet, file = file, height = CJKHeight(alphabet, size), flags = flags }
+            local memberFile = (alphabet == CJK_CLIENT_ALPHABET) and font or file
+            members[#members + 1] = { alphabet = alphabet, file = memberFile, height = CJKHeight(alphabet, size), flags = flags }
         end
         local ok, created = pcall(CreateFontFamily, "EUIChatFontFamily" .. id, members)
         if not ok or not created then FAMS[id] = false; return nil end
@@ -389,8 +393,9 @@ function ECHAT.EngineFontFamily(id, font, size, flags)
         fam:GetFontObjectForAlphabet("roman"):SetFont(font, size, flags)
         fam:GetFontObjectForAlphabet("russian"):SetFont(font, size, flags)
         for alphabet, file in pairs(CJK_FILES) do
+            local memberFile = (alphabet == CJK_CLIENT_ALPHABET) and font or file
             local member = fam:GetFontObjectForAlphabet(alphabet)
-            member:SetFont(file, CJKHeight(alphabet, size), flags)
+            member:SetFont(memberFile, CJKHeight(alphabet, size), flags)
             member:SetSpacing(CJK_SPACING[alphabet] or 0)
         end
     end)

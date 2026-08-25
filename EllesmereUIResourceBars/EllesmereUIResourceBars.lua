@@ -1384,6 +1384,7 @@ local totemBarFrame
 local _totemBorderOverlays = setmetatable({}, { __mode = "k" })
 local _totemHooked = false
 local _totemOrigParent
+local _totemOrigStrata
 -- Engine-entry frames are created at FILE SCOPE on purpose: CPU bills a handler's
 -- whole call tree to the addon whose execution context CREATED the entry frame
 -- (inherited taint-style from the entry point, not the file the code lives in).
@@ -2890,6 +2891,7 @@ local function ApplyResourceBarTicks(sb, maxVal, tickStr, tickCache, hashWidth, 
             t:ClearAllPoints()
             if vert then
                 local off = PP and PP.Scale(barH * frac) or (barH * frac)
+                off = math.max(0, math.min(off, PP and PP.Scale(barH - pxW) or (barH - pxW)))
                 t:SetSize(barW - vI * 2, pxW)
                 if revFill then
                     t:SetPoint("TOPLEFT", sb, "TOPLEFT", vI, -off)
@@ -2898,6 +2900,7 @@ local function ApplyResourceBarTicks(sb, maxVal, tickStr, tickCache, hashWidth, 
                 end
             else
                 local off = PP and PP.Scale(barW * frac) or (barW * frac)
+                off = math.max(0, math.min(off, PP and PP.Scale(barW - pxW) or (barW - pxW)))
                 t:SetSize(pxW, tickH)
                 t:SetPoint("TOPLEFT", sb, "TOPLEFT", off, -vI)
             end
@@ -3743,9 +3746,11 @@ local function BuildBars()
         if secondaryBar and secondaryBar._fillOpApplied and secondaryBar:IsShown() then
             -- Bar-type Fill Opacity active: the full-bar backdrop must retreat to
             -- the empty portion too, or it tints the translucent fill from behind
-            -- and defeats the world-show-through.
+            -- and defeats the world-show-through. Anchor to secondaryBar's own
+            -- inset inner StatusBar (_sb), not the uninset outer secondaryFrame,
+            -- or a halfPx sliver of _barBg peeks out past the fill's clipped edge.
             ns.AnchorBgToFillEdge(secondaryFrame._barBg, secondaryBar:GetStatusBarTexture(),
-                secondaryFrame, sp.pipOrientation or "HORIZONTAL")
+                secondaryBar._sb, sp.pipOrientation or "HORIZONTAL")
             secondaryFrame._barBg:Show()
         elseif (sp.fillOpacity or 100) < 100 then
             -- Pip/rune-type Fill Opacity active: a full-frame backdrop cannot hole
@@ -3753,7 +3758,14 @@ local function BuildBars()
             -- fill. Hide it; ApplyGapFills draws the gap strips in the bar-bg color
             -- and inactive pips keep their own per-pip background.
             secondaryFrame._barBg:Hide()
+        elseif isBarType then
+            -- Bar-type: anchor to secondaryBar's inset inner StatusBar (_sb) so
+            -- _barBg doesn't extend a halfPx past the fill/bg's own clipped edge.
+            secondaryFrame._barBg:SetAllPoints(secondaryBar._sb)
+            secondaryFrame._barBg:Show()
         else
+            -- Pip/rune-type: flush to secondaryFrame so this shows through the
+            -- gaps between pips (see comment above).
             secondaryFrame._barBg:SetAllPoints(secondaryFrame)
             secondaryFrame._barBg:Show()
         end
@@ -4037,10 +4049,13 @@ local function UpdatePrimaryBar()
         -- ResolveBandConfig must see the RAW entry, not the enabled-gated one.
         pc.bandOn, pc.bands, pc.bandMode, pc.bandRev = ResolveBandConfig(pc.pp, e)
         pc.tsEntry = (e and (e.thresholdEnabled ~= false)) and e or nil
+        -- Primary power type is spec/form/profile state; every path that can
+        -- change it funnels through BuildBars, which bumps CfgGen.
+        pc.primary = GetPrimaryPowerType()
     end
     local pp = pc.pp
 
-    cachedPrimary = GetPrimaryPowerType()
+    cachedPrimary = pc.primary
     if not cachedPrimary then return end
     -- Park the engine-slot overlay when the primary is no longer Ebon Might.
     if ns.EMB121_Gate then ns.EMB121_Gate(cachedPrimary == "EBON_MIGHT") end
@@ -4059,8 +4074,14 @@ local function UpdatePrimaryBar()
             end
             primaryBar:SetMinMaxValues(0, EBON_MIGHT_DURATION)
             primaryBar:SetValue(0)
-            primaryBar._text:Hide()
-            return
+            if ns.EMB121_TextOk and ns.EMB121_TextOk() then
+                primaryBar._text:Hide()
+                return
+            end
+            -- Engine text isn't confirmed live yet (build still queued, or its
+            -- one-shot FontString attempt failed and won't retry this session)
+            -- -- fall through and render the legacy numeric text below instead
+            -- of leaving the bar permanently blank.
         end
         local aura = C_UnitAuras.GetPlayerAuraBySpellID(EBON_MIGHT_SPELL_ID)
         -- Ebon Might is secret-flagged: under aura restriction the query returns
@@ -4069,19 +4090,21 @@ local function UpdatePrimaryBar()
         if aura and issecretvalue(aura.expirationTime) then aura = nil end
         _ebonMightExpiry = (aura and aura.expirationTime) or 0
         local remaining = (_ebonMightExpiry > 0) and max(0, _ebonMightExpiry - GetTime()) or 0
-        primaryBar:SetMinMaxValues(0, EBON_MIGHT_DURATION)
-        primaryBar:SetValue(remaining)
-        -- Color: custom > power color (same priority as standard)
-        local ft = primaryBar:GetStatusBarTexture()
-        if not pp.customColored then
-            local pc = POWER_COLORS["EBON_MIGHT"]
-            local r, g, b = 1, 1, 1
-            if pc then r, g, b = pc[1], pc[2], pc[3] end
-            if pp.gradientEnabled then
-                ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL", r, g, b, 1,
-                    pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
-            else
-                ApplyBarFlat(ft, r, g, b, 1)
+        if not ns.EMB121_Owns then
+            primaryBar:SetMinMaxValues(0, EBON_MIGHT_DURATION)
+            primaryBar:SetValue(remaining)
+            -- Color: custom > power color (same priority as standard)
+            local ft = primaryBar:GetStatusBarTexture()
+            if not pp.customColored then
+                local pc = POWER_COLORS["EBON_MIGHT"]
+                local r, g, b = 1, 1, 1
+                if pc then r, g, b = pc[1], pc[2], pc[3] end
+                if pp.gradientEnabled then
+                    ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL", r, g, b, 1,
+                        pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
+                else
+                    ApplyBarFlat(ft, r, g, b, 1)
+                end
             end
         end
         if pp.textFormat and pp.textFormat ~= "none" then
@@ -4122,6 +4145,14 @@ local function UpdatePrimaryBar()
     local pctRaw = UnitPowerPercent and UnitPowerPercent("player", cachedPrimary, true, CurveConstants and CurveConstants.ScaleTo100) or 0
     local pctTainted = issecretvalue and issecretvalue(pctRaw)
     local pct01 = (not pctTainted) and (pctRaw / 100) or 1
+
+    -- Both allocating stages below (the curve color read returns a color object,
+    -- the formatters build strings) are stamped on the value pair, since
+    -- UNIT_POWER_UPDATE and UNIT_POWER_FREQUENT both fire for one change and the
+    -- repeat re-derives the same result. A secret value cannot be compared, so it
+    -- always rebuilds and drops the stamps (the next clean event rebuilds too).
+    local vmClean = not (issecretvalue and (issecretvalue(cur) or issecretvalue(mx)))
+    if not vmClean then primaryBar._colCur = nil; primaryBar._txtCur = nil end
 
     -- Color: threshold via ColorCurve (secret-safe) for non-mana specs. The
     -- per-spec entry was resolved once per config generation above; pc.tsEntry is
@@ -4165,7 +4196,14 @@ local function UpdatePrimaryBar()
                 curve = GetBarThresholdCurve(tR, tG, tB, rvR, rvG, rvB, tPct)
             end
         end
-        if curve then
+        -- The curve object is the settings identity (rebuilt on any input change),
+        -- so (value, max, curve, target) names every input of this color.
+        if curve and not (vmClean and primaryBar._colCur == cur and primaryBar._colMx == mx
+                          and primaryBar._colCurve == curve and primaryBar._colTI == _ppTextInstead) then
+            if vmClean then
+                primaryBar._colCur, primaryBar._colMx = cur, mx
+                primaryBar._colCurve, primaryBar._colTI = curve, _ppTextInstead
+            end
             local ok, colorResult = pcall(UnitPowerPercent, "player", cachedPrimary, false, curve)
             if ok and colorResult and colorResult.GetRGBA then
                 if _ppTextInstead then
@@ -4176,25 +4214,33 @@ local function UpdatePrimaryBar()
             end
         end
         if _ppTextInstead then
-            -- Fill stays at base color.
-            if pp.gradientEnabled then
-                ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL",
-                    baseR, baseG, baseB, 1,
-                    pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
-            else
-                ApplyBarFlat(ft, baseR, baseG, baseB, 1)
+            -- Fill stays at base color; static per config generation + power
+            -- type, so reapplying it on every power tick was pure churn.
+            if primaryBar._colGen ~= ns.CfgGen or primaryBar._colPow ~= cachedPrimary then
+                primaryBar._colGen, primaryBar._colPow = ns.CfgGen, cachedPrimary
+                if pp.gradientEnabled then
+                    ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL",
+                        baseR, baseG, baseB, 1,
+                        pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
+                else
+                    ApplyBarFlat(ft, baseR, baseG, baseB, 1)
+                end
             end
         end
     elseif not pp.customColored then
-        local r, g, b
-        local pc = POWER_COLORS[cachedPrimary]
-        if pc then r, g, b = pc[1], pc[2], pc[3] else r, g, b = 1, 1, 1 end
-        if pp.gradientEnabled then
-            ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL",
-                r, g, b, 1,
-                pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
-        else
-            ApplyBarFlat(ft, r, g, b, 1)
+        -- Static per config generation + power type (same stamp as above).
+        if primaryBar._colGen ~= ns.CfgGen or primaryBar._colPow ~= cachedPrimary then
+            primaryBar._colGen, primaryBar._colPow = ns.CfgGen, cachedPrimary
+            local r, g, b
+            local pc = POWER_COLORS[cachedPrimary]
+            if pc then r, g, b = pc[1], pc[2], pc[3] else r, g, b = 1, 1, 1 end
+            if pp.gradientEnabled then
+                ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL",
+                    r, g, b, 1,
+                    pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
+            else
+                ApplyBarFlat(ft, r, g, b, 1)
+            end
         end
     end
 
@@ -4207,23 +4253,32 @@ local function UpdatePrimaryBar()
     end
 
     if pp.textFormat ~= "none" and not _G._ERB_TextHiddenByForm(pp) then
-        local fmt = pp.textFormat
-        local percentSuffix = (pp.showPercent == false) and "" or "%"
-        local percentText = format("%d", pctRaw) .. percentSuffix
-        local txt
-        if fmt == "smart" then
-            local isPercent = EllesmereUI.IsSmartPowerPercent and EllesmereUI.IsSmartPowerPercent(cachedPrimary)
-            txt = isPercent and percentText or AbbreviateNumbers(cur)
-        elseif fmt == "both" then
-            txt = AbbreviateNumbers(cur) .. " | " .. percentText
-        elseif fmt == "curpp" then
-            txt = AbbreviateNumbers(cur)
-        elseif fmt == "perpp" then
-            txt = percentText
-        else
-            txt = AbbreviateNumbers(cur)
+        -- Stamped only when the text is actually written, so a form-hidden
+        -- stretch can never leave a stale string behind for a repeated value.
+        if not (vmClean and primaryBar._txtCur == cur and primaryBar._txtMx == mx
+                and primaryBar._txtGen == ns.CfgGen and primaryBar._txtPow == cachedPrimary) then
+            if vmClean then
+                primaryBar._txtCur, primaryBar._txtMx = cur, mx
+                primaryBar._txtGen, primaryBar._txtPow = ns.CfgGen, cachedPrimary
+            end
+            local fmt = pp.textFormat
+            local percentSuffix = (pp.showPercent == false) and "" or "%"
+            local percentText = format("%d", pctRaw) .. percentSuffix
+            local txt
+            if fmt == "smart" then
+                local isPercent = EllesmereUI.IsSmartPowerPercent and EllesmereUI.IsSmartPowerPercent(cachedPrimary)
+                txt = isPercent and percentText or AbbreviateNumbers(cur)
+            elseif fmt == "both" then
+                txt = AbbreviateNumbers(cur) .. " | " .. percentText
+            elseif fmt == "curpp" then
+                txt = AbbreviateNumbers(cur)
+            elseif fmt == "perpp" then
+                txt = percentText
+            else
+                txt = AbbreviateNumbers(cur)
+            end
+            primaryBar._text:SetText(txt)
         end
-        primaryBar._text:SetText(txt)
         primaryBar._text:Show()
     else
         primaryBar._text:Hide()
@@ -4403,10 +4458,10 @@ local function UpdateIronfurBar()
     local maxFrac = 0
     local shown = 0
 
-	-- Follow bar orientation instead of assuming horizontal.
-	local oriSb = secondaryBar._sb
-	local vert = (oriSb and oriSb.GetOrientation and oriSb:GetOrientation() == "VERTICAL") or false
-	local revFill = (vert and oriSb.GetReverseFill and oriSb:GetReverseFill()) or false
+    -- Follow bar orientation instead of assuming horizontal.
+    local oriSb = secondaryBar._sb
+    local vert = (oriSb and oriSb.GetOrientation and oriSb:GetOrientation() == "VERTICAL") or false
+    local revFill = (vert and oriSb.GetReverseFill and oriSb:GetReverseFill()) or false
 
     for i = 1, count do
         local t = ironfurTicks[i]
@@ -4424,23 +4479,23 @@ local function UpdateIronfurBar()
             end
             tex:SetColorTexture(1, 1, 1, 0.9)
             tex:ClearAllPoints()
-			if vert then
-	         local y = frac * barH
-	         if y > barH - tickW then y = barH - tickW end
-	         if y < 0 then y = 0 end
-	         tex:SetSize(barW, tickW)
-	         if revFill then
-	           tex:SetPoint("TOPLEFT", secondaryBar, "TOPLEFT", 0, -y)
-	         else
-	           tex:SetPoint("BOTTOMLEFT", secondaryBar, "BOTTOMLEFT", 0, y)
-	         end
-	       else
-	         local x = frac * barW
-	         if x > barW - tickW then x = barW - tickW end
-	         if x < 0 then x = 0 end
-	         tex:SetSize(tickW, barH)
-	         tex:SetPoint("TOPLEFT", secondaryBar, "TOPLEFT", x, 0)
-	       end
+            if vert then
+                local y = frac * barH
+                if y > barH - tickW then y = barH - tickW end
+                if y < 0 then y = 0 end
+                tex:SetSize(barW, tickW)
+                if revFill then
+                    tex:SetPoint("TOPLEFT", secondaryBar, "TOPLEFT", 0, -y)
+                else
+                    tex:SetPoint("BOTTOMLEFT", secondaryBar, "BOTTOMLEFT", 0, y)
+                end
+            else
+                local x = frac * barW
+                if x > barW - tickW then x = barW - tickW end
+                if x < 0 then x = 0 end
+                tex:SetSize(tickW, barH)
+                tex:SetPoint("TOPLEFT", secondaryBar, "TOPLEFT", x, 0)
+            end
             tex:Show()
         end
     end
@@ -4546,27 +4601,27 @@ IP.UpdateHash = function()
     local frac = remain / IP.DURATION
     if frac > 1 then frac = 1 end
     -- Follow bar orientation instead of assuming horizontal.
-	local oriSb = secondaryBar._sb
-	local vert = (oriSb and oriSb.GetOrientation and oriSb:GetOrientation() == "VERTICAL") or false
-	local revFill = (vert and oriSb.GetReverseFill and oriSb:GetReverseFill()) or false
+    local oriSb = secondaryBar._sb
+    local vert = (oriSb and oriSb.GetOrientation and oriSb:GetOrientation() == "VERTICAL") or false
+    local revFill = (vert and oriSb.GetReverseFill and oriSb:GetReverseFill()) or false
     IP.hashTex:ClearAllPoints()
     if vert then
-	    local y = frac * barH
-	    if y > barH - tickW then y = barH - tickW end
-	    if y < 0 then y = 0 end
-	    IP.hashTex:SetSize(barW, tickW)
-	    if revFill then
-	        IP.hashTex:SetPoint("TOPLEFT", secondaryBar, "TOPLEFT", 0, -y)
-	    else
-	        IP.hashTex:SetPoint("BOTTOMLEFT", secondaryBar, "BOTTOMLEFT", 0, y)
-	    end
-	else
-	    local x = frac * barW
-	    if x > barW - tickW then x = barW - tickW end
-	    if x < 0 then x = 0 end
-	    IP.hashTex:SetSize(tickW, barH)
-	    IP.hashTex:SetPoint("TOPLEFT", secondaryBar, "TOPLEFT", x, 0)
-	end
+        local y = frac * barH
+        if y > barH - tickW then y = barH - tickW end
+        if y < 0 then y = 0 end
+        IP.hashTex:SetSize(barW, tickW)
+        if revFill then
+            IP.hashTex:SetPoint("TOPLEFT", secondaryBar, "TOPLEFT", 0, -y)
+        else
+            IP.hashTex:SetPoint("BOTTOMLEFT", secondaryBar, "BOTTOMLEFT", 0, y)
+        end
+    else
+        local x = frac * barW
+        if x > barW - tickW then x = barW - tickW end
+        if x < 0 then x = 0 end
+        IP.hashTex:SetSize(tickW, barH)
+        IP.hashTex:SetPoint("TOPLEFT", secondaryBar, "TOPLEFT", x, 0)
+    end
     IP.hashTex:Show()
 end
 
@@ -6494,6 +6549,9 @@ BuildCastBar = function()
         -- "Show Behind": +5 in front of the bar, level-1 behind it.
         local pl = castBarFrame:GetFrameLevel()
         castBarFrame._border:SetFrameLevel(cb.borderBehind and math.max(0, pl - 1) or (pl + 5))
+        -- Same lost-rect recovery as MakePixelBorder:ApplyStyle -- re-anchoring the bar
+        -- stops this child's rect from resolving and the border silently vanishes.
+        if not castBarFrame._border:GetLeft() then castBarFrame._border:SetAllPoints(castBarFrame) end
         EllesmereUI.ApplyBorderStyle(castBarFrame._border, bs,
             cb.borderR or 0, cb.borderG or 0, cb.borderB or 0, cb.borderA or 1,
             texKey, cb.borderTextureOffset, cb.borderTextureOffsetY,
@@ -8187,6 +8245,8 @@ BuildGCDBar = function()
         local bs = g.borderSize or 0
         local pl = gcdBarFrame:GetFrameLevel()
         gcdBarFrame._border:SetFrameLevel(g.borderBehind and math.max(0, pl - 1) or (pl + 5))
+        -- Lost-rect recovery, see the cast bar border above.
+        if not gcdBarFrame._border:GetLeft() then gcdBarFrame._border:SetAllPoints(gcdBarFrame) end
         EllesmereUI.ApplyBorderStyle(gcdBarFrame._border, bs,
             g.borderR or 0, g.borderG or 0, g.borderB or 0, g.borderA or 1,
             g.borderTexture or "solid", g.borderTextureOffset, g.borderTextureOffsetY,
@@ -8402,7 +8462,7 @@ local function LayoutTotemBar()
 
     -- Reparent and position TotemFrame every call (Blizzard's Update can reset these)
     TotemFrame:SetParent(totemBarFrame)
-    TotemFrame:SetFrameStrata("HIGH")
+    TotemFrame:SetFrameStrata(tb.frameStrata or "MEDIUM")
     -- Effective grow direction, resolved through the shared helper below so the
     -- layout and unlock mode's menu can never disagree about it.
     local _growDir = EllesmereUI.GetTotemGrowDir()
@@ -8591,11 +8651,14 @@ local function BuildTotemBar()
         if totemBarFrame then
             EllesmereUI.SetElementVisibility(totemBarFrame, false)
         end
-        -- Restore TotemFrame to original parent
+        -- Restore TotemFrame to original parent and strata
         if TotemFrame and _totemOrigParent and not InCombatLockdown() then
             TotemFrame:SetParent(_totemOrigParent)
             TotemFrame:ClearAllPoints()
             TotemFrame:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 155)
+            if _totemOrigStrata then
+                TotemFrame:SetFrameStrata(_totemOrigStrata)
+            end
         end
         return
     end
@@ -8610,9 +8673,10 @@ local function BuildTotemBar()
         if _G._ERB_RegisterUnlock then _G._ERB_RegisterUnlock() end
     end
 
-    -- Save original parent for restore on disable
+    -- Save original parent/strata for restore on disable
     if TotemFrame and not _totemOrigParent then
         _totemOrigParent = TotemFrame:GetParent()
+        _totemOrigStrata = TotemFrame:GetFrameStrata()
     end
 
     -- Position our container

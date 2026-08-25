@@ -2900,25 +2900,15 @@ local function SkinFriendsFrame()
             local joinBtn = qjf.JoinQueueButton
             if joinBtn and qjScroll then
                 SkinBottomButton(joinBtn)
-                -- Width comes from the FRAME, never from qjScroll.
-                --
-                -- QuickJoinFrame is hidden="true" in Blizzard's XML and qjScroll
-                -- is re-anchored a few lines above, so at skin time qjScroll has
-                -- not been through a layout pass and GetWidth() is 0. The old
-                -- code did floor(0 / 3) and then SetSize(0, 22) -- and a width of
-                -- 0 UNSETS the width, which leaves a frame with one anchor point
-                -- and no horizontal extent. That has no resolvable rect, so it is
-                -- never drawn, while IsShown, IsVisible and GetAlpha all still
-                -- report a perfectly healthy button (measured in game: shown,
-                -- visible, alpha 1, GetLeft() nil). That is why the report is
-                -- "there is no button to join a group" rather than a dead button,
-                -- and why it cleared as soon as this module was disabled.
-                -- ClearAllPoints had already run by then, so nothing restored it.
-                --
-                -- FriendsFrame is laid out long before this runs, and qjScroll is
-                -- inset 15 on each side of it, so (width - 30) / 3 is the same
-                -- number the old line was reaching for -- and it is the same
-                -- source LayoutFriendBtns uses for the other two bottom buttons.
+                -- Width from FriendsFrame, never qjScroll: QuickJoinFrame is
+                -- XML-hidden at skin time, so qjScroll has no layout pass and
+                -- GetWidth() is 0 -- and SetSize with width 0 UNSETS the width,
+                -- leaving an anchored frame with no resolvable rect (never
+                -- drawn, yet IsShown/IsVisible/alpha all read healthy).
+                -- qjScroll is inset 15 each side of the frame, so (w - 30) / 3
+                -- matches LayoutFriendBtns' sizing for the sibling buttons.
+                -- A failed measure leaves the button untouched: ClearAllPoints
+                -- only runs when a re-point follows.
                 local function LayoutJoinBtn()
                     local w = frame:GetWidth()
                     if not w or w <= 0 then return end
@@ -2927,12 +2917,10 @@ local function SkinFriendsFrame()
                     joinBtn:SetPoint("BOTTOMRIGHT", qjScroll, "BOTTOMRIGHT", 0, -22)
                 end
                 LayoutJoinBtn()
-                -- Re-apply on show so a pass that somehow still measured nothing
-                -- repairs itself instead of stranding the button for the session.
-                -- HookScript, not hooksecurefunc: this module taints BNet whispers
-                -- if it writes fields onto Blizzard frames, and a script hook
-                -- registers C-side. The tab watcher already hooks this same frame
-                -- the same way.
+                -- Re-apply on show so a zero-measure pass self-repairs.
+                -- HookScript, not hooksecurefunc: method hooks in this module
+                -- taint BNet whispers; script hooks register C-side (same shape
+                -- as the tab watcher's hook on this frame).
                 qjf:HookScript("OnShow", LayoutJoinBtn)
             end
         end

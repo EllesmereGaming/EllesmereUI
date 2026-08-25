@@ -297,7 +297,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if _G._ECL_ApplyOnlyWhenHidden then _G._ECL_ApplyOnlyWhenHidden() end
               end }
         );  y = y - h
-                
+
         -- Combat Only
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Combat Only",
@@ -306,6 +306,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                 local p = DB(); if not p then return end
                 p.combatOnly = v
+                if _G._ECL_ApplyCombatOnlyEvents then _G._ECL_ApplyCombatOnlyEvents() end
                 if _G._ECL_UpdateVisibility then _G._ECL_UpdateVisibility() end
               end },
             { type="label", text="" }
@@ -464,6 +465,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return GCD_DB().combatOnly or false end,
               setValue=function(v)
                 GCD_DB().combatOnly = v
+                if _G._ECL_ApplyCombatOnlyEvents then _G._ECL_ApplyCombatOnlyEvents() end
                 if _G._ECL_UpdateVisibility then _G._ECL_UpdateVisibility() end
               end }
         );  y = y - h
@@ -654,6 +656,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return Cast_DB().combatOnly or false end,
               setValue=function(v)
                 Cast_DB().combatOnly = v
+                if _G._ECL_ApplyCombatOnlyEvents then _G._ECL_ApplyCombatOnlyEvents() end
                 if _G._ECL_UpdateVisibility then _G._ECL_UpdateVisibility() end
               end }
         );  y = y - h

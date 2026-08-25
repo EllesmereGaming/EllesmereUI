@@ -1438,11 +1438,21 @@ local function AnchorHealthBg(health)
     local bg = health and health.bg
     local tex = health and health.GetStatusBarTexture and health:GetStatusBarTexture()
     if not bg or not tex then return end
-    bg:ClearAllPoints()
     local reversed = health.GetReverseFill and health:GetReverseFill()
     -- Vertical fill empties at the TOP (BOTTOM when reversed); read the axis off
     -- the bar itself so this needs no settings lookup.
     local vert = health.GetOrientation and health:GetOrientation() == "VERTICAL"
+    -- The anchors bind to the fill texture's EDGE, which the engine moves with
+    -- every SetValue -- they are live and never need re-pushing per paint
+    -- (this ran per health event). Re-anchor only when an actual input moved:
+    -- the texture OBJECT (retexture replaces it) or the axis/direction.
+    local aKey = (vert and "V" or "H") .. (reversed and "R" or "N")
+    if health._bgAnchorTex == tex and health._bgAnchorKey == aKey then
+        return
+    end
+    health._bgAnchorTex = tex
+    health._bgAnchorKey = aKey
+    bg:ClearAllPoints()
     if vert then
         if reversed then
             bg:SetPoint("TOPLEFT", tex, "BOTTOMLEFT", 0, 0)
@@ -2023,14 +2033,31 @@ do
         local element = frame.Health
         if not element or not unit or not UnitExists(unit) then return end
         if not ns.Engine.ElementOn(frame, "Health") then return end
-        local max = UnitHealthMax(unit)
-        element:SetMinMaxValues(0, max)
+        -- Bar bounds ride the max-health/identity events (Blizzard's own
+        -- contract); a pure UNIT_HEALTH value tick pushes only the value.
+        if event ~= "UNIT_HEALTH" or not element._maxSet then
+            element._maxSet = true
+            element:SetMinMaxValues(0, UnitHealthMax(unit))
+        end
         if UnitIsConnected(unit) then
             element:SetValue(UnitHealth(unit), element.smoothing)
         else
-            element:SetValue(max, element.smoothing)
+            element:SetValue(UnitHealthMax(unit), element.smoothing)
         end
-        UF_SecretSafeHealthColor(frame, event, unit)
+        -- Color inputs (class/reaction/dark/disconnect/tap) change via their
+        -- own events or identity repaints -- a pure health tick re-runs the
+        -- color chain only for modes whose color follows health/combat state
+        -- per tick (dynamic curve, threat, tap coloring). The color* flags are
+        -- never set by this engine; the dynamic modes live in PostUpdateColor
+        -- (ns.UF_DynamicHealthColor) behind the unit's healthColorMode, so that
+        -- setting is the gate that keeps a dynamic bar tracking every tick.
+        local unitKey = element._euiUnitKey
+        local unitColorMode = unitKey and db.profile[unitKey]
+        unitColorMode = unitColorMode and unitColorMode.healthColorMode
+        if event ~= "UNIT_HEALTH" or element.colorSmooth or element.colorThreat
+           or element.colorTapping or (unitColorMode and unitColorMode ~= "none") then
+            UF_SecretSafeHealthColor(frame, event, unit)
+        end
     end
     ns.Engine.SetPainter("health", PaintHealth)
 
@@ -2700,9 +2727,23 @@ do
         healabsorbshort = { "%s", "healabsorbshort" },
         group        = { "%s", "group" },
     }
+    -- Identity-only zones: their pieces read name/level, which change only on
+    -- identity edges (UNIT_NAME_UPDATE, UNIT_LEVEL, repoints, provider
+    -- callbacks) -- Blizzard paints names on UNIT_NAME_UPDATE alone. Not
+    -- listed: nametotarget (target names churn) and group (roster-driven,
+    -- repainted by the value ticks it always rode).
+    local ZONE_IDENTITY = { name = true, levelname = true, namelevel = true, level = true }
+    -- Value-class events: a static zone skips these and repaints on anything
+    -- else (identity events, ForceUpdate, UnitChanged, PEW, nil = repaint all).
+    local VALUE_EVENTS = {
+        UNIT_HEALTH = true, UNIT_MAXHEALTH = true, UNIT_MAX_HEALTH_MODIFIERS_CHANGED = true,
+        UNIT_POWER_UPDATE = true, UNIT_MAXPOWER = true, UNIT_DISPLAYPOWER = true,
+        UNIT_ABSORB_AMOUNT_CHANGED = true, UNIT_HEAL_ABSORB_AMOUNT_CHANGED = true,
+        Resettle = true, EUI_AbsorbEnd = true, EUI_AbsorbBelt = true,
+    }
 
-    --- Resolves a content key to (fmt, piecesArray) for a zone, or nil for
-    --- "none"/unknown. nametotarget builds its settings-closure separator.
+    --- Resolves a content key to (fmt, piecesArray, static) for a zone, or nil
+    --- for "none"/unknown. nametotarget builds its settings-closure separator.
     function ns.ContentToZone(content, prefix, settings)
         if content == "nametotarget" then
             return "%s%s%s%s", { P.name, ns.MakeTgtSepPiece(prefix, settings), P.tgtcol, P.tgtname }
@@ -2711,22 +2752,27 @@ do
         if not def then return nil end
         local pieces = { }
         for i = 2, #def do pieces[#pieces + 1] = P[def[i]] end
-        return def[1], pieces
+        return def[1], pieces, ZONE_IDENTITY[content] or nil
     end
 
     -- The text painter: renders every registered zone on the frame. Piece
     -- returns route through a scratch table + unpack (tables carry secrets
-    -- fine; nothing inspects them).
+    -- fine; nothing inspects them). Identity-only zones (name/level) are
+    -- skipped on value-class events: the nickname provider chain behind the
+    -- name piece was running on every health tick.
     local scratch = {}
-    local function PaintText(frame, unit)
+    local function PaintText(frame, unit, event)
         local zones = frame._euiTextZones
         if not zones then return end
+        local valueOnly = event ~= nil and VALUE_EVENTS[event]
         for i = 1, #zones do
             local z = zones[i]
-            local pieces = z.pieces
-            local n = #pieces
-            for k = 1, n do scratch[k] = pieces[k](unit) end
-            z.fs:SetFormattedText(z.fmt, unpack(scratch, 1, n))
+            if not (valueOnly and z.static) then
+                local pieces = z.pieces
+                local n = #pieces
+                for k = 1, n do scratch[k] = pieces[k](unit) end
+                z.fs:SetFormattedText(z.fmt, unpack(scratch, 1, n))
+            end
         end
     end
     ns.UF_PaintText = PaintText
@@ -2739,13 +2785,13 @@ do
     function ns.SetTextZone(frame, fs, content, prefix, settings)
         local zones = frame._euiTextZones
         if not zones then zones = {}; frame._euiTextZones = zones end
-        local fmt, pieces
-        if content then fmt, pieces = ns.ContentToZone(content, prefix, settings) end
+        local fmt, pieces, static
+        if content then fmt, pieces, static = ns.ContentToZone(content, prefix, settings) end
         for i = #zones, 1, -1 do
             if zones[i].fs == fs then table.remove(zones, i) end
         end
         if fmt then
-            zones[#zones + 1] = { fs = fs, fmt = fmt, pieces = pieces }
+            zones[#zones + 1] = { fs = fs, fmt = fmt, pieces = pieces, static = static }
         else
             fs:SetText("")
         end
@@ -3299,7 +3345,10 @@ function PortraitOverride(self, event, evtUnit)
     local hasStateChanged = changed
         or element.state ~= isAvailable
         or event == "UNIT_PORTRAIT_UPDATE"
-        or event == "UNIT_MODEL_CHANGED"
+        -- Model changes only matter to a 3D PlayerModel portrait (its SetUnit
+        -- must reload). 2D art follows UNIT_PORTRAIT_UPDATE / PORTRAITS_UPDATED,
+        -- the only portrait events Blizzard's own unit frames listen to.
+        or (event == "UNIT_MODEL_CHANGED" and isModel)
         or event == "ForceUpdate"
         -- Unit swaps (vehicle enter/exit) always repaint: the swap moment can
         -- paint before the new unit's art/model streams in, and nothing with
@@ -5048,6 +5097,48 @@ ns.UF_ApplyStripBarLayout = function(stripBar, hp, position, height, absorbLevel
     end
 end
 
+-- Armed-frames absorb belt (mirror of the Raid Frames one): covers the ONE
+-- absorb transition with no event at all -- an aura-granted shield expiring
+-- on its TIMER on an unhit, topped unit (VDH Infernal Strike field class).
+-- One shared 0.5s ticker exists only while some hosted frame is armed; each
+-- sweep repaints only stale-painted armed frames and cancels itself when the
+-- set empties. Zero event registrations, zero cost with no shields up.
+do
+    local armed = {}
+    local belt
+    function ns.UF_AbArm(frame)
+        frame._absActive = true
+        armed[frame] = true
+        if not belt and C_Timer then
+            belt = C_Timer.NewTicker(0.5, function()
+                local now = GetTime()
+                local any = false
+                for f in pairs(armed) do
+                    any = true
+                    if (now - (f._absPaintAt or 0)) > 0.45 then
+                        local hp = f.HealthPrediction
+                        local ov = hp and hp.Override
+                        if ov then ov(f, "EUI_AbsorbBelt", f._euiUnit) end
+                    end
+                end
+                if not any then belt:Cancel(); belt = nil end
+            end)
+        end
+    end
+    function ns.UF_AbDisarm(frame)
+        -- Armed -> clear is the moment a shield ended; if it ended with no
+        -- absorb event (the timer-expiry class this belt exists for), any
+        -- long-form Absorb text zone is showing the dead amount. One text
+        -- recompose here keeps those zones honest WITHOUT the text channel
+        -- riding UNIT_AURA. No-op frames early-return on their zone list.
+        if frame._absActive and ns.UF_PaintText then
+            ns.UF_PaintText(frame, frame._euiUnit, "EUI_AbsorbEnd")
+        end
+        frame._absActive = false
+        armed[frame] = nil
+    end
+end
+
 local function CreateAbsorbBar(frame, unit, settings)
     if not frame.Health then return end
 
@@ -5123,17 +5214,6 @@ local function CreateAbsorbBar(frame, unit, settings)
     forwardBar:SetFrameLevel(hpBar:GetFrameLevel() + 1)
     forwardBar:Hide()
 
-    -- Per-frame secret-safe absorb calculator; matches the nameplate
-    -- UpdateHealthValues init exactly.
-    local hpCalc
-    if CreateUnitHealPredictionCalculator then
-        hpCalc = CreateUnitHealPredictionCalculator()
-        if hpCalc.SetMaximumHealthMode then
-            hpCalc:SetMaximumHealthMode(Enum.UnitMaximumHealthMode.WithAbsorbs)
-            hpCalc:SetDamageAbsorbClampMode(Enum.UnitDamageAbsorbClampMode.MaximumHealth)
-        end
-    end
-
     -- Heal absorb bar: overlays filled-health in red, reverse-filling from the health
     -- texture edge inward. Has its OWN clip frame (not the shield's curClip) so
     -- placement is independent: overlay clips to filled health, right/left span the
@@ -5205,7 +5285,6 @@ local function CreateAbsorbBar(frame, unit, settings)
     backfillBar._topBar       = absorbTopBar
     backfillBar._healTopBar   = healAbsorbTopBar
     backfillBar._hpBar        = hpBar
-    backfillBar._hpCalculator = hpCalc
     backfillBar._curClip      = curClip
     backfillBar._healClip     = healClip
     backfillBar._missClip     = missClip
@@ -5223,15 +5302,29 @@ local function CreateAbsorbBar(frame, unit, settings)
         healAbsorbBar:Hide()
     end)
 
-    frame.HealthPrediction = {
-        damageAbsorb = backfillBar,
-        Override = function(self, event, updUnit)
+    -- Named local so profilers attribute this hot painter (it traced as the
+    -- "(anonymous) :5228" row); assigned into HealthPrediction below.
+    local UF_AbsorbOverride
+    UF_AbsorbOverride = function(self, event, updUnit)
             if self._euiUnit ~= updUnit then return end
 
             -- Incoming-heal prediction is never rendered on unit frames, so its frequent
             -- healer-cast-driven events change nothing we paint; absorb/health changes
             -- always arrive via their own events, so skipping cannot strand state.
             if event == "UNIT_HEAL_PREDICTION" then return end
+
+            -- Arm on the dedicated absorb events (plainly observable even
+            -- while values are secret). Value-only health chatter is not
+            -- delivered to this channel at all (engine list); max changes
+            -- repaint ONLY while a shield/heal-absorb is known active --
+            -- with no absorb, a range change moves nothing visible.
+            -- Repoints, ForceUpdate and the belt always paint and re-derive
+            -- the flag below. Mirror of the RF gate.
+            if event == "UNIT_ABSORB_AMOUNT_CHANGED" or event == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED" then
+                ns.UF_AbArm(self)
+            elseif event == "UNIT_MAXHEALTH" and not self._absActive then
+                return
+            end
 
             -- Drive the "Absorb Short" health-text gate(s): feed the raw absorb so the
             -- clip reveals/collapses, AND refresh the text in LOCKSTEP so it never
@@ -5242,16 +5335,16 @@ local function CreateAbsorbBar(frame, unit, settings)
             -- pet) get re-pointed with no absorb event at all (target switch, OnShow,
             -- ForceUpdate), and a dying unit drops its shield without one either -- the
             -- TAG re-evaluates on those paths and lands on "0", so a gate still held
-            -- open by the PREVIOUS unit's shield would leave a stuck "0". Health events
-            -- skip the text refresh (absorb text only changes on an absorb event, which
-            -- does its own lockstep SetText). Secret-safe: absorb only reaches SetValue
+            -- open by the PREVIOUS unit's shield would leave a stuck "0". Max-health
+            -- events skip the text refresh (absorb text only changes on an absorb event,
+            -- which does its own lockstep SetText). Secret-safe: absorb only reaches SetValue
             -- and AbbreviateNumbers, never a zero comparison. Each gate feeds its own
             -- source: shield gates use total absorbs, heal gates (g._euiHealGate) total
             -- heal absorbs, fetched lazily once.
+            local shieldAmt, healAmt
             if self._absGate then
-                local syncText = (event ~= "UNIT_HEALTH" and event ~= "UNIT_MAXHEALTH"
-                                  and event ~= "UNIT_HEAL_PREDICTION")
-                local shieldAmt, healAmt, fsZone
+                local syncText = (event ~= "UNIT_MAXHEALTH")
+                local fsZone
                 for zone, g in pairs(self._absGate) do
                     if g:IsShown() then
                         local amt
@@ -5280,7 +5373,6 @@ local function CreateAbsorbBar(frame, unit, settings)
             if not ab then return end
             local fw   = ab._forward
             local hp   = ab._hpBar
-            local calc = ab._hpCalculator
             if not hp then return end
 
             -- Heal absorb renders independently of shield absorb: shield "none" hides
@@ -5314,21 +5406,49 @@ local function CreateAbsorbBar(frame, unit, settings)
                 return
             end
 
-            local maxHealth, absorbAmt
-            if calc and UnitGetDetailedHealPrediction then
-                UnitGetDetailedHealPrediction(updUnit, nil, calc)
-                calc:SetMaximumHealthMode(Enum.UnitMaximumHealthMode.Default)
-                maxHealth = calc:GetMaximumHealth()
-                absorbAmt = calc:GetDamageAbsorbs()
+            -- Direct pair, matching PaintHealth's scale: the health bar runs raw
+            -- UnitHealthMax, and every absorb sink below is a StatusBar with a
+            -- (0, maxHealth) range that clamps oversized shields visually, so a
+            -- detailed-prediction calculator adds fetches without changing a pixel.
+            -- The gate block above may have fetched the shield total already.
+            local maxHealth = UnitHealthMax(updUnit) or 0
+            local absorbAmt = shieldAmt or (UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(updUnit)) or 0
+
+            -- Lean-flag derivation + belt stamp (mirror of Raid Frames): a
+            -- fresh PLAIN all-zero read disarms the head gate; secret reads
+            -- keep it armed (fail-open to today's always-paint in combat).
+            self._absPaintAt = GetTime()
+            local haAmtD = healAmt or (UnitGetTotalHealAbsorbs and UnitGetTotalHealAbsorbs(updUnit)) or 0
+            local isSecD = issecretvalue
+            if (isSecD and (isSecD(absorbAmt) or isSecD(haAmtD)))
+               or (absorbAmt or 0) > 0 or (haAmtD or 0) > 0 then
+                if not self._absActive then ns.UF_AbArm(self) end
             else
-                maxHealth = UnitHealthMax(updUnit) or 0
-                absorbAmt = (UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(updUnit)) or 0
+                ns.UF_AbDisarm(self)
             end
 
-            -- Keep bars sized to the health bar every update.
             local hpW, hpH = hp:GetWidth(), hp:GetHeight()
-            ab:SetWidth(hpW); ab:SetHeight(hpH)
-            if fw then fw:SetWidth(hpW); fw:SetHeight(hpH) end
+            -- Identical-state short-circuit (RF's memo, ported): chatter
+            -- events with unchanged values skip the whole paint below.
+            -- Identity/settings/belt paints bypass the skip; any secret input
+            -- fails open to painting and poisons the memo for the next plain
+            -- pass (exactly the RF contract).
+            if isSecD and (isSecD(absorbAmt) or isSecD(maxHealth) or isSecD(haAmtD)) then
+                ab._mAbs = nil
+            elseif event ~= "ForceUpdate" and event ~= "Resettle" and event ~= "EUI_AbsorbBelt"
+               and ab._mAbs == absorbAmt and ab._mHeal == haAmtD
+               and ab._mMax == maxHealth and ab._mW == hpW and ab._mH == hpH then
+                return
+            else
+                ab._mAbs, ab._mHeal, ab._mMax = absorbAmt, haAmtD, maxHealth
+                ab._mW, ab._mH = hpW, hpH
+            end
+            -- Bars track the health-bar size; size-gated (sizes never secret).
+            if ab._szW ~= hpW or ab._szH ~= hpH then
+                ab._szW = hpW; ab._szH = hpH
+                ab:SetWidth(hpW); ab:SetHeight(hpH)
+                if fw then fw:SetWidth(hpW); fw:SetHeight(hpH) end
+            end
 
             -- Strip bars (mirrors Raid Frames): independent of the overlay styles.
             if topBar then
@@ -5362,7 +5482,7 @@ local function CreateAbsorbBar(frame, unit, settings)
                     end
                     healTopBar:SetStatusBarColor(hbc.r, hbc.g, hbc.b, hbc.a or 1)
                     healTopBar:SetMinMaxValues(0, maxHealth)
-                    healTopBar:SetValue((UnitGetTotalHealAbsorbs and UnitGetTotalHealAbsorbs(updUnit)) or 0)
+                    healTopBar:SetValue(haAmtD)
                     healTopBar:Show()
                 else
                     healTopBar:Hide()
@@ -5379,11 +5499,15 @@ local function CreateAbsorbBar(frame, unit, settings)
             -- re-anchors the backfill in UpdateAbsorbBarReverseFill.
             local osMode = s and s.overshieldMode
             if osMode == nil then osMode = (s and s.showOvershield == false) and "never" or "always" end
-            local edgeKey = absorbMode .. ":" .. ((s and s.healAbsorbEdgeMode) or "overlay")
-                .. ":" .. tostring((s and s.healthVerticalFill) and true or false)
-                .. ":" .. osMode
-            if ab._lastEdgeKey ~= edgeKey then
-                ab._lastEdgeKey = edgeKey
+            -- Component compares instead of a concatenated key: same change
+            -- detection, zero string allocation on the per-event path. Fields
+            -- start nil, so the first update always anchors.
+            local healEdgeMode = (s and s.healAbsorbEdgeMode) or "overlay"
+            local vertFill = (s and s.healthVerticalFill) and true or false
+            if ab._ekAbs ~= absorbMode or ab._ekHeal ~= healEdgeMode
+               or ab._ekVert ~= vertFill or ab._ekOs ~= osMode then
+                ab._ekAbs, ab._ekHeal = absorbMode, healEdgeMode
+                ab._ekVert, ab._ekOs = vertFill, osMode
                 UpdateAbsorbBarReverseFill(self, ab._isReversed)
             end
 
@@ -5458,7 +5582,10 @@ local function CreateAbsorbBar(frame, unit, settings)
                     end
                 end
             end
-        end,
+    end
+    frame.HealthPrediction = {
+        damageAbsorb = backfillBar,
+        Override = UF_AbsorbOverride,
     }
 
     -- The anchors above are the horizontal layout; hand the cluster to the shared
@@ -5486,10 +5613,14 @@ function ns.UpdatePowerBorder(power, settings)
         -- Nothing to render and nothing to hide: stay lazy.
         if not ((isDet or isAttached) and size > 0) then return end
         border = CreateFrame("Frame", nil, power)
-        PP.Point(border, "TOPLEFT", power, "TOPLEFT", 0, 0)
-        PP.Point(border, "BOTTOMRIGHT", power, "BOTTOMRIGHT", 0, 0)
         power._pbBorder = border
     end
+    -- Re-anchored every pass: a pass that lands while the power bar is zero-height
+    -- (Power Bar Height 0 before a Spec Override raises it) leaves the anchors set but
+    -- no resolved rect, and nothing recomputes it; re-setting both points restores it.
+    border:ClearAllPoints()
+    PP.Point(border, "TOPLEFT", power, "TOPLEFT", 0, 0)
+    PP.Point(border, "BOTTOMRIGHT", power, "BOTTOMRIGHT", 0, 0)
     local c = settings.powerBorderColor or { r = 0, g = 0, b = 0 }
     local alpha = settings.powerBorderAlpha or 1
     -- Attached bars are always Solid; their unused edges are hidden below so only
@@ -9667,8 +9798,13 @@ local function CreateCustomClassPower(playerFrame, style)
         end
 
         eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-        eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-
+        -- PLAYER_SPECIALIZATION_CHANGED is deliberately NOT registered here. It is owned
+        -- by cpSpecWatcher (see InitializeFrames), which lives OUTSIDE the container,
+        -- filters unit == "player", and rebuilds after tearing down. A copy of that
+        -- handler on this driver could only ever destroy WITHOUT rebuilding (the
+        -- teardown unregisters the driver mid-dispatch), and -- lacking the unit filter
+        -- -- would fire on any GROUP MEMBER's spec event, silently killing the bar until
+        -- the next /reload.
         if needsAura then
             eventFrame:RegisterUnitEvent("UNIT_AURA", "player")
         end
@@ -9682,14 +9818,7 @@ local function CreateCustomClassPower(playerFrame, style)
         end
 
         eventFrame:SetScript("OnEvent", function(_, event, ...)
-            if event == "PLAYER_SPECIALIZATION_CHANGED" then
-                DestroyCustomClassPower()
-                frames._classPowerBar = nil
-                -- Don't call ReloadFrames here: the profile system handles the full
-                -- rebuild via RefreshAllAddons -> _EUF_ReloadFrames. Width/height
-                -- matches re-apply after CDM clears _specProfileSwitching in ProcessSpecChange.
-                return
-            elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+            if event == "UNIT_SPELLCAST_SUCCEEDED" then
                 if not _G._ERB_AceDB and EllesmereUI then
                     local unit, castGUID, spellID = ...
                     if unit == "player" then
@@ -15561,13 +15690,36 @@ do
     local RACIAL_DISPEL_TYPES = {
         bleed = { Dwarf = true },  -- Stoneform
     }
+    -- The token is equally blind to talent dispels: a shaman's poison removal is
+    -- Poison Cleansing Totem, so Poison never passes for them. Raid Frames applies
+    -- the same rule to its group-wide dispel slots (EUI_RaidFrames_AuraContainers.lua).
+    -- Cached: IsPlayerSpell can lag both addon load and the trait event that
+    -- announces a change; the shaman watcher in EUI_UnitFrames_AuraContainers.lua
+    -- calls UF_RefreshPoisonTotem on trait and spellbook events and reloads the
+    -- dispel slots when it reports a flip.
+    local POISON_CLEANSING_TOTEM = 383013
+    local _, ufPlayerClass = UnitClass("player")
+    local poisonTotemKnown = ufPlayerClass == "SHAMAN"
+        and IsPlayerSpell(POISON_CLEANSING_TOTEM) or false
+    function ns.UF_RefreshPoisonTotem()
+        local known = ufPlayerClass == "SHAMAN"
+            and IsPlayerSpell(POISON_CLEANSING_TOTEM) or false
+        if known == poisonTotemKnown then return false end
+        poisonTotemKnown = known
+        return true
+    end
     -- Shared with the 12.1 container slots (EUI_UnitFrames_AuraContainers.lua),
     -- which apply the same rule by choosing which slot style stays visible.
-    function ns.UF_RacialClearsDispel(typeKey)
+    function ns.UF_TokenBlindDispel(typeKey)
         local races = RACIAL_DISPEL_TYPES[typeKey]
-        if not races then return false end
-        local _, raceToken = UnitRace("player")
-        return raceToken ~= nil and races[raceToken] == true
+        if races then
+            local _, raceToken = UnitRace("player")
+            return raceToken ~= nil and races[raceToken] == true
+        end
+        if typeKey == "poison" then
+            return poisonTotemKnown
+        end
+        return false
     end
 
     local function RebuildCurve()

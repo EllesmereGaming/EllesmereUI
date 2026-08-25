@@ -95,6 +95,11 @@ local smoothedSpeed   = 0
 local SPEED_EMA_ALPHA = 0.25
 local evtFrame        -- event frame (created on first enable)
 local _spellEventsRegistered = false
+-- True only while actually airborne skyriding: PLAYER_IS_GLIDING_CHANGED edges
+-- plus a fresh read at every visibility evaluation. Gates the speed poll -- the
+-- OnUpdate is armed only while gliding, while the landing decay is still
+-- draining, or while a pip/cooldown section is mid-animation.
+local _gliding = false
 
 -- Returns true when the module should be hard-disabled (M+ or raid instance).
 -- No frames shown, no events processed, no OnUpdate.
@@ -114,6 +119,9 @@ local function GetSkyridingSpeed()
     local isGliding, _, forwardSpeed = C_PlayerInfo.GetGlidingInfo()
     if not isGliding then
         smoothedSpeed = smoothedSpeed * (1 - SPEED_EMA_ALPHA)
+        -- Floor the landing decay to exactly 0 so the final empty-bar state
+        -- paints once and the tick can then disarm (TickWanted reads > 0).
+        if smoothedSpeed < 0.01 then smoothedSpeed = 0 end
         return false, smoothedSpeed
     end
     smoothedSpeed = smoothedSpeed + SPEED_EMA_ALPHA * ((forwardSpeed or 0) - smoothedSpeed)
@@ -128,6 +136,24 @@ local function UpdateVisibility() end
 local function OnUpdate() end
 local function ApplyPos() end
 local function RegisterUnlockElements() end
+
+-- Arm the per-frame body only while it has live work: airborne (speed poll),
+-- landing decay still draining, or a pip/cooldown fill mid-animation. Grounded
+-- with full charges and a settled bar = no OnUpdate and no API reads at all.
+-- Unlock Mode force-arms so the HUD stays editable off-mount.
+local function TickWanted()
+    return _gliding or skyridingDirty or secondWindDirty or whirlingDirty
+        or smoothedSpeed > 0
+end
+local function SyncTick()
+    if not rootFrame then return end
+    if rootFrame:IsShown() and (TickWanted()
+            or (EllesmereUI and EllesmereUI._unlockActive)) then
+        rootFrame:SetScript("OnUpdate", OnUpdate)
+    else
+        rootFrame:SetScript("OnUpdate", nil)
+    end
+end
 
 -- Register/unregister high-frequency spell events based on HUD visibility.
 -- These fire for ALL spells globally, so we only listen when actively showing.
@@ -173,7 +199,11 @@ function UpdateVisibility()
     local visible = onSky and not hideCombat
     rootFrame:SetShown(visible)
     if visible then
-        rootFrame:SetScript("OnUpdate", OnUpdate)
+        -- Seed the airborne flag from a fresh read (covers /reload mid-flight
+        -- and any edge missed while hidden), then arm only if there is work.
+        local isGliding = C_PlayerInfo.GetGlidingInfo()
+        _gliding = isGliding == true
+        SyncTick()
         RegisterSpellEvents()
     else
         rootFrame:SetScript("OnUpdate", nil)
@@ -236,6 +266,9 @@ function OnUpdate(self, dt)
 
     local p = db.profile
 
+    -- Speed poll only while airborne or while the landing decay drains; the
+    -- decay floors to exactly 0 so the final empty-bar state paints once.
+    if _gliding or smoothedSpeed > 0 then
     local _, curSpeed = GetSkyridingSpeed()
     local speedPct = curSpeed / BASE_RUN_SPEED * 100
     local frac = (p.maxSpeed > 0) and (speedPct / p.maxSpeed) or 0
@@ -250,6 +283,7 @@ function OnUpdate(self, dt)
         speedBar:SetStatusBarColor(c.r, c.g, c.b, c.a)
         lastSpeedApplied = frac
     end
+    end -- speed-poll gate
 
     if skyridingDirty then
         local info = C_Spell.GetSpellCharges(SPELL.SKYWARD_ASCENT)
@@ -309,6 +343,10 @@ function OnUpdate(self, dt)
             whirlingDirty = false
         end
     end
+
+    -- Self-disarm once every section settled and we are grounded; every dirty
+    -- writer and the gliding edge re-arm through SyncTick.
+    if not TickWanted() then SyncTick() end
 end
 
 -------------------------------------------------------------------------------
@@ -605,6 +643,8 @@ function Redraw()
     lastSkyCur, lastSkyProgress = -1, -1
     lastSwCur,  lastSwProgress  = -1, -1
     lastCdStart, lastCdDur      = -1, -1
+    -- Settings applied: the repaint above rides the tick, so arm it if shown.
+    SyncTick()
 end
 
 -------------------------------------------------------------------------------
@@ -767,15 +807,23 @@ initFrame:SetScript("OnEvent", function(self)
     evtFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     evtFrame:RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED")
     evtFrame:RegisterEvent("PLAYER_CAN_GLIDE_CHANGED")
+    evtFrame:RegisterEvent("PLAYER_IS_GLIDING_CHANGED")
     evtFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
     evtFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
     evtFrame:SetScript("OnEvent", function(_, event)
         if event == "SPELL_UPDATE_CHARGES" then
             skyridingDirty = true
             secondWindDirty = true
+            SyncTick()
             return
         elseif event == "SPELL_UPDATE_COOLDOWN" then
             whirlingDirty = true
+            SyncTick()
+            return
+        elseif event == "PLAYER_IS_GLIDING_CHANGED" then
+            local isGliding = C_PlayerInfo.GetGlidingInfo()
+            _gliding = isGliding == true
+            SyncTick()
             return
         elseif event == "PLAYER_ENTERING_WORLD" then
             skyridingDirty = true
@@ -802,15 +850,23 @@ ns.edrRebuild = function()
             evtFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
             evtFrame:RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED")
             evtFrame:RegisterEvent("PLAYER_CAN_GLIDE_CHANGED")
+            evtFrame:RegisterEvent("PLAYER_IS_GLIDING_CHANGED")
             evtFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
             evtFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
             evtFrame:SetScript("OnEvent", function(_, event)
                 if event == "SPELL_UPDATE_CHARGES" then
                     skyridingDirty = true
                     secondWindDirty = true
+                    SyncTick()
                     return
                 elseif event == "SPELL_UPDATE_COOLDOWN" then
                     whirlingDirty = true
+                    SyncTick()
+                    return
+                elseif event == "PLAYER_IS_GLIDING_CHANGED" then
+                    local isGliding = C_PlayerInfo.GetGlidingInfo()
+                    _gliding = isGliding == true
+                    SyncTick()
                     return
                 elseif event == "PLAYER_ENTERING_WORLD" then
                     skyridingDirty = true

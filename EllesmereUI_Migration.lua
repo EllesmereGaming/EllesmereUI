@@ -4020,3 +4020,36 @@ EllesmereUI.RegisterMigration({
         SeedMoonkin("primary")
     end,
 })
+
+-- Merge Groups renders through one Blizzard flat SecureGroupHeader, whose column
+-- axis can only run perpendicular to Unit Growth -- a same-axis pair has no valid
+-- column direction, so the runtime silently substitutes one instead of honoring
+-- Group Growth. The options UI now prevents new conflicting pairs; this fixes up
+-- profiles that already saved one.
+EllesmereUI.RegisterMigration({
+    id          = "rf_merge_groups_growth_axis_v1",
+    scope       = "profile",
+    description = "For Raid Frames profiles with Merge Groups on, bump Unit Growth off Group Growth's axis (base and per-tier overrides) so the merged flat header has a valid column direction.",
+    body = function(ctx)
+        local rf = ctx.profile.addons and ctx.profile.addons.EllesmereUIRaidFrames
+        if type(rf) ~= "table" then return end
+        if not rf.mergeGroups then return end
+        local function isVert(g) return g == "UP" or g == "DOWN" end
+        local gg, ug = rf.groupGrowth or "RIGHT", rf.unitGrowth or "DOWN"
+        if isVert(gg) == isVert(ug) then
+            ug = isVert(gg) and "RIGHT" or "DOWN"
+            rf.unitGrowth = ug
+        end
+        local overrides = rf.raidSizeOverrides
+        if type(overrides) ~= "table" then return end
+        for _, ov in pairs(overrides) do
+            if type(ov) == "table" then
+                local ogg = ov.groupGrowth or gg
+                local oug = ov.unitGrowth or ug
+                if isVert(ogg) == isVert(oug) then
+                    ov.unitGrowth = isVert(ogg) and "RIGHT" or "DOWN"
+                end
+            end
+        end
+    end,
+})

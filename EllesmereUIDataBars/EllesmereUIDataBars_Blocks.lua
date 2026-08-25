@@ -889,6 +889,27 @@ local function MakeStatBlock(blockCfg, slot, content, barCtx, opts)
         Tick()
     end
 
+    -- Lets a tooltip resync the bar text with what it just sampled.
+    function inst:ForceSample()
+        ForceTick()
+    end
+
+    -- A sample taken right when an event fires can catch the source before
+    -- it's populated. Resample once more after a short delay to catch that.
+    -- One outstanding retry at a time: event bursts (durability drops hit
+    -- many items per damage wave) would otherwise queue a timer closure each.
+    local retryPending = false
+    local function ForceTickChecked()
+        ForceTick()
+        if opts.retryDelay and not retryPending then
+            retryPending = true
+            C_Timer.After(opts.retryDelay, function()
+                retryPending = false
+                if not inst._dead then ForceTick() end
+            end)
+        end
+    end
+
     function inst:Enable()
         content:Show()
         lastVal = -1
@@ -897,10 +918,10 @@ local function MakeStatBlock(blockCfg, slot, content, barCtx, opts)
         if opts.events then
             if not self.eventFrame then
                 self.events = opts.events
-                self.eventFrame = MakeEventFrame(self, ForceTick)
+                self.eventFrame = MakeEventFrame(self, ForceTickChecked)
             end
             RegisterInstEvents(self)
-            ForceTick()
+            ForceTickChecked()
         else
             ns.RegisterHeartbeat(opts.hbPrefix .. ":" .. self.key, Tick)
         end
@@ -1181,7 +1202,9 @@ ns.BlockFactories.durability = function(blockCfg, slot, content, barCtx)
         return pct
     end
 
-    local function DurabilityTooltip()
+    local function DurabilityTooltip(inst)
+        -- Resync the bar text whenever the tooltip opens.
+        if inst then inst:ForceSample() end
         local ar, ag, ab = 1, 1, 1
         ns.Tip_Begin(content)
         ns.Tip_AddDouble("Durability", SampleDurability() .. "%",
@@ -1197,6 +1220,8 @@ ns.BlockFactories.durability = function(blockCfg, slot, content, barCtx)
         -- the block samples on those events alone -- no heartbeat, and with no
         -- other time-driven block enabled the 1s ticker never runs at all.
         events   = { "UPDATE_INVENTORY_DURABILITY", "PLAYER_ENTERING_WORLD" },
+        -- Retry each sample once, a moment later.
+        retryDelay = 2,
         sample   = SampleDurability,
         suffix   = function() return "%" end,
         tooltip  = DurabilityTooltip,
@@ -1286,8 +1311,12 @@ ns.BlockFactories.combat = function(blockCfg, slot, content, barCtx)
             text:ClearAllPoints()
             text:SetPoint("LEFT", frame, "LEFT", 0, 0)
             ns.SetFont(measureFS, fontSize, barCfg)
+            -- Fixed width from the wider label so the block never resizes on
+            -- combat edges; either label can be the wide one per locale.
             measureFS:SetText(EllesmereUI.L(CombatLabel(0)))
-            local width = max(30, ns.SnapToPixelGrid(measureFS:GetStringWidth() or 30) + 2)
+            local wOut = measureFS:GetStringWidth() or 30
+            measureFS:SetText(EllesmereUI.L(CombatLabel(1)))
+            local width = max(30, ns.SnapToPixelGrid(max(wOut, measureFS:GetStringWidth() or 30)) + 2)
             text:SetWidth(width)
             frame:SetSize(width, barH)
             frame:ClearAllPoints()

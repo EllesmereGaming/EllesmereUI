@@ -977,6 +977,13 @@ ns.MakeIconHistoryUnlockElement = function(MK)
         order = 657,
         noResize = true,
         noAnchorTarget = true,
+        -- Self-positioning: the container resizes with the LIVE icon count
+        -- (casts, fade-outs), and the unlock system's resize re-apply would pin
+        -- the stored CENTER of the MAX footprint on every resize -- turning the
+        -- fixed newest-icon anchor into centered growth. noInitHook delegates
+        -- both the login apply and every resize re-apply to applyPos below
+        -- (PositionIconContainer's newest-icon-TOPLEFT compensation).
+        noInitHook = true,
         getFrame = function() return _iconContainer end,
         getSize = function()
             local _, _, _, width, height = UnlockGeometry()

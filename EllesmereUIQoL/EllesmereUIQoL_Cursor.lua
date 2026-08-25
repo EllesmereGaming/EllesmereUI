@@ -563,8 +563,9 @@ UpdateVisibility = function()
     if shouldShow and p.instanceOnly then
         shouldShow = InRealInstancedContent()
     end
-    -- "Combat Only": only show while the player is in combat. Driven by the
-    -- PLAYER_REGEN_DISABLED / PLAYER_REGEN_ENABLED registrations in OnEnable.
+    -- "Combat Only": only show while the player is in combat. The combat-edge
+    -- events driving this are registered only while a toggle is on
+    -- (ApplyCombatOnlyEvents).
     if shouldShow and p.combatOnly then
         shouldShow = InCombatLockdown() and true or false
     end
@@ -649,7 +650,7 @@ UpdateVisibility = function()
         end
     end
 
-    -- GCD circle instance-only / combat-only check
+    -- Cast circle instance-only / combat-only check
     if castRoot then
         local c = Cast_DB()
         if c.enabled then
@@ -1180,6 +1181,27 @@ _G._ECL_ApplyCastPosition = function()
     end
 end
 
+-- Combat-edge events exist only while some Combat Only toggle is on: the
+-- cursor circle is default-enabled, so unconditional PLAYER_REGEN_*
+-- registrations would run the visibility pass on every combat edge for every
+-- user. Re-evaluated from OnEnable and the three options setters; Lite's
+-- UnregisterEvent is nil-safe, the _combatEventsOn latch skips no-op flips.
+local function ApplyCombatOnlyEvents()
+    local p = ECL.db and ECL.db.profile
+    local want = (p and (p.combatOnly
+        or (p.gcd and p.gcd.combatOnly)
+        or (p.castCircle and p.castCircle.combatOnly))) and true or false
+    if want == ECL._combatEventsOn then return end
+    ECL._combatEventsOn = want
+    if want then
+        ECL:RegisterEvent("PLAYER_REGEN_DISABLED", UpdateVisibility)
+        ECL:RegisterEvent("PLAYER_REGEN_ENABLED", UpdateVisibility)
+    else
+        ECL:UnregisterEvent("PLAYER_REGEN_DISABLED")
+        ECL:UnregisterEvent("PLAYER_REGEN_ENABLED")
+    end
+end
+
 -------------------------------------------------------------------------------
 --  Initialization
 -------------------------------------------------------------------------------
@@ -1266,6 +1288,7 @@ function ECL:OnInitialize()
     _G._ECL_AceDB = self.db
     _G._ECL_Apply = Apply
     _G._ECL_UpdateVisibility = UpdateVisibility
+    _G._ECL_ApplyCombatOnlyEvents = ApplyCombatOnlyEvents
     if EllesmereUI and EllesmereUI.RegisterVisibilityUpdater then
         EllesmereUI.RegisterVisibilityUpdater(UpdateVisibility)
     end
@@ -1327,6 +1350,6 @@ function ECL:OnEnable()
 
     self:RegisterEvent("PLAYER_ENTERING_WORLD", UpdateVisibility)
     self:RegisterEvent("ZONE_CHANGED_NEW_AREA", UpdateVisibility)
-    self:RegisterEvent("PLAYER_REGEN_DISABLED", UpdateVisibility)
-    self:RegisterEvent("PLAYER_REGEN_ENABLED", UpdateVisibility)
+    -- Combat-edge events only while a Combat Only toggle needs them.
+    ApplyCombatOnlyEvents()
 end

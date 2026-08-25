@@ -962,12 +962,13 @@ function EABR.UnitBenefits(u, benefit)
     if class == nil or isSecret(class) then return false end
     if not classSet[class] then return false end
     -- Role refinement for members with no spec data: some class+benefit
-    -- pairs are decided by the assigned role alone -- Intellect only serves
-    -- the HEALER spec of Paladin/Monk (and never a Druid tank); Attack
-    -- Power never serves the healer spec of these hybrids. Ambiguous combos
+    -- pairs are decided by the role alone -- Intellect only serves the
+    -- HEALER spec of Paladin/Monk (and never a Druid tank); Attack Power
+    -- never serves the healer spec of these hybrids. Ambiguous combos
     -- (e.g. a DAMAGER Druid: Balance wants int, Feral wants AP) and
     -- unassigned ("NONE") or secret roles fall through to the class answer.
-    local role = UnitGroupRolesAssigned(u)
+    -- Effective role: the player's spec wins over a stale assigned role.
+    local role = EllesmereUI.UnitEffectiveRole(u)
     if role ~= nil and not isSecret(role) then
         if benefit == "intellect" then
             if (class == "PALADIN" or class == "MONK") and (role == "DAMAGER" or role == "TANK") then
@@ -3485,8 +3486,12 @@ local specialsActive = EABR.SectionShows(co.specialsWhereToShow, inInstance)
     ---------------------------------------------------------------------------
     --  Healthstone in bags (group; "Where to Show" governs visibility). Bag
     --  state and class scans are combat-safe; secret class tokens skip units.
+    --  In combat only the warlock is reminded: a non-warlock can't be handed
+    --  a stone mid-fight, so for everyone else it is noise until the fight
+    --  ends (the list rebuilds on both combat transitions).
     ---------------------------------------------------------------------------
-    if (IsInGroup() or IsInRaid()) and EABR.ConsumableShows(co, "healthstone", inInstance) then
+    if (IsInGroup() or IsInRaid()) and EABR.ConsumableShows(co, "healthstone", inInstance)
+       and not (InCombat() and GetPlayerClass() ~= "WARLOCK") then
         if co and co.enabled and co.enabled.healthstone ~= false then
             -- Only remind if a Warlock is in the group
             local hasWarlock = false
@@ -3606,13 +3611,7 @@ local function Refresh()
 
     CacheInstanceInfo()
 
-    -- MEMORY PROBES (temporary -- remove after diagnosis)
-    local _memProbe = _G._EABR_MemProbe
-    local _m0, _m1, _m2, _m3, _m4, _m5, _m6, _m7
-    if _memProbe then collectgarbage("stop"); _m0 = collectgarbage("count") end
-
     BuildPlayerAuraCache()
-    if _memProbe then _m1 = collectgarbage("count") end
 
     local playerClass = GetPlayerClass()
     local inCombat = InCombat()
@@ -3641,7 +3640,6 @@ local function Refresh()
     if remindersOn then
         CollectRaidBuffs(missing, playerClass, inInstance, inCombat)
     end
-    if _memProbe then _m2 = collectgarbage("count") end
 
     ---------------------------------------------------------------------------
     --  2) Auras: OOC normally; in restricted contexts only reminders whose
@@ -3650,7 +3648,6 @@ local function Refresh()
     if remindersOn then
         CollectAuras(missing, playerClass, specID, inInstance, restricted)
     end
-    if _memProbe then _m3 = collectgarbage("count") end
 
     ---------------------------------------------------------------------------
     --  3) Consumables: OOC (non-PvP) normally; in restricted contexts the
@@ -3659,14 +3656,13 @@ local function Refresh()
     if remindersOn and not inPvP then
         CollectConsumables(missing, playerClass, specID, inInstance, inKeystone, inCombat)
     end
-    if _memProbe then _m4 = collectgarbage("count") end
 
     ---------------------------------------------------------------------------
     --  4) Pet Reminders (combat-safe: UnitExists/UnitIsDead unrestricted); suppressed for petless specs, Grimoire of Sacrifice, etc.
     ---------------------------------------------------------------------------
     if remindersOn and PET_CLASSES[playerClass] then
         local co = db.profile.consumables
-        if co and co.enabled and co.enabled.pet ~= false then
+        if co and co.enabled and co.enabled.pet ~= false and EABR.SectionShows(co.specialsWhereToShow, inInstance) then
             local suppress = false
             local petIcon = 132161
             local petLabel = "Pet"
@@ -3742,7 +3738,6 @@ local function Refresh()
     end
 
     -- Talent reminders handled by EllesmereUIABR_TalentReminders.lua
-    if _memProbe then _m5 = collectgarbage("count") end
 
     -- Per-section sound alerts: fire once as each reminder newly appears.
     EABR.HandleAppearSounds(missing)
@@ -3899,26 +3894,6 @@ local function Refresh()
     else
         EABR.ParkProviderCastButton()
         EllesmereUI.SetElementVisibility(iconAnchor, false)
-    end
-
-
-    -- MEMORY PROBE REPORT (temporary)
-    if _memProbe then
-        _m6 = collectgarbage("count")
-        collectgarbage("restart")
-        _memProbe.n = (_memProbe.n or 0) + 1
-        _memProbe.auraCache  = (_memProbe.auraCache  or 0) + (_m1 - _m0)
-        _memProbe.raidBuffs  = (_memProbe.raidBuffs  or 0) + (_m2 - _m1)
-        _memProbe.auras      = (_memProbe.auras      or 0) + (_m3 - _m2)
-        _memProbe.consumables= (_memProbe.consumables or 0) + (_m4 - _m3)
-        _memProbe.talents    = (_memProbe.talents    or 0) + (_m5 - _m4)
-        _memProbe.display    = (_memProbe.display    or 0) + (_m6 - _m5)
-        _memProbe.total      = (_memProbe.total      or 0) + (_m6 - _m0)
-        if _memProbe.n >= 20 then
-            _memProbe.n = 0; _memProbe.auraCache = 0; _memProbe.raidBuffs = 0
-            _memProbe.auras = 0; _memProbe.consumables = 0; _memProbe.talents = 0
-            _memProbe.display = 0; _memProbe.total = 0
-        end
     end
 
     UpdateDurationTicker()

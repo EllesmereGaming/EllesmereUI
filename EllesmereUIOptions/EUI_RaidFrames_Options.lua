@@ -546,6 +546,23 @@ initFrame:SetScript("OnEvent", function(self)
     }
     local allGrowthOrder        = { "DOWN", "UP", "RIGHT", "LEFT" }
 
+    -- ns._RFGrowthIsVertical is the runtime module's single source of truth for
+    -- this check (EllesmereUIRaidFrames.lua); reuse it here rather than a second copy.
+    local GrowthIsVertical = ns._RFGrowthIsVertical
+
+    -- Merge Groups renders through Blizzard's flat SecureGroupHeader, whose column
+    -- axis (columnAnchorPoint) is always perpendicular to Unit Growth -- a same-axis
+    -- Group Growth has no valid column direction, so the runtime silently substitutes
+    -- an unrelated one instead of honoring it. Bump the OTHER axis to a perpendicular
+    -- value instead of letting an unrenderable pair through, mirroring the Spell
+    -- Name/Spell Target side-conflict rule used elsewhere in these options.
+    local function KeepGrowthPerpendicular(newVal, getOther, setOther)
+        local other = getOther()
+        if GrowthIsVertical(newVal) == GrowthIsVertical(other) then
+            setOther(GrowthIsVertical(newVal) and "RIGHT" or "DOWN")
+        end
+    end
+
     -- Every preview mode dropdown across tabs; all refresh when one changes.
     local pvModeDropdowns = {}
 
@@ -2478,11 +2495,8 @@ initFrame:SetScript("OnEvent", function(self)
         end  -- close do (indicators eyeball)
 
         local RI_STYLES = ns.ROLE_ICON_STYLES
-        local playerRole = UnitGroupRolesAssigned("player")
-        if playerRole == "NONE" then
-            local specIdx = GetSpecialization()
-            if specIdx then playerRole = GetSpecializationRole(specIdx) end
-        end
+        -- Effective role: the player's spec wins over a stale assigned role
+        local playerRole = EllesmereUI.UnitEffectiveRole("player")
         local roleStyleValues = {
             none          = "None",
             modern        = "Modern",
@@ -4501,10 +4515,17 @@ initFrame:SetScript("OnEvent", function(self)
                                       return ov and ov[tier] and ov[tier].groupGrowth or db.profile.groupGrowth or "RIGHT"
                                   end,
                                   set=function(v)
-                                      -- Every growth combination is allowed (see the
-                                      -- main LAYOUT dropdowns): same-axis = one
-                                      -- continuous line per tier.
-                                      EnsureTierOv().groupGrowth = v
+                                      -- Separated groups allow every combination (see
+                                      -- the main LAYOUT dropdowns); merged needs this
+                                      -- tier's effective Unit Growth kept perpendicular.
+                                      local ov = EnsureTierOv()
+                                      ov.groupGrowth = v
+                                      if SVal("mergeGroups", false) then
+                                          local ovs = db.profile.raidSizeOverrides
+                                          KeepGrowthPerpendicular(v,
+                                              function() return (ovs and ovs[tier] and ovs[tier].unitGrowth) or db.profile.unitGrowth or "DOWN" end,
+                                              function(nv) ov.unitGrowth = nv end)
+                                      end
                                       TierGrowthChanged()
                                   end },
                                 { type="dropdown", label="Unit Growth",
@@ -4516,6 +4537,12 @@ initFrame:SetScript("OnEvent", function(self)
                                   set=function(v)
                                       local ov = EnsureTierOv()
                                       ov.unitGrowth = v
+                                      if SVal("mergeGroups", false) then
+                                          local ovs = db.profile.raidSizeOverrides
+                                          KeepGrowthPerpendicular(v,
+                                              function() return (ovs and ovs[tier] and ovs[tier].groupGrowth) or db.profile.groupGrowth or "RIGHT" end,
+                                              function(nv) ov.groupGrowth = nv end)
+                                      end
                                       TierGrowthChanged()
                                   end },
                                 { type="slider", label="X Offset", min=-1000, max=1000, step=1,
@@ -4819,20 +4846,54 @@ initFrame:SetScript("OnEvent", function(self)
         -------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "LAYOUT", y); y = y - h
 
-        -- Group Growth | Unit Growth both list all 4 directions, every combination
-        -- allowed. Same-axis (e.g. Up + Up) lays the groups end-to-end into one
-        -- continuous line -- the layout math derives the group stride from the
-        -- unit-growth bounding box, so all 16 combinations are geometrically
-        -- valid (the old perpendicular-only gate was a UI-side assumption; the
-        -- runtime never needed it, and users were hand-editing SavedVariables
-        -- to get single-line layouts).
+        -- Group Growth | Unit Growth: separated groups (Merge Groups off) support all
+        -- 16 combinations, but merged mode's single Blizzard flat header can only make
+        -- its column direction perpendicular to Unit Growth, so a same-axis pair there
+        -- gets silently reinterpreted (see the colAnchor comment in EllesmereUIRaidFrames.lua)
+        -- -- KeepGrowthPerpendicular bumps the other axis instead. A base edit can also
+        -- leave a per-tier override same-axis (an override that only set one axis
+        -- inherits the other from base), so fix those up too.
+        local function FixTierOverridesPerpendicular()
+            local overrides = db.profile.raidSizeOverrides
+            if type(overrides) ~= "table" then return end
+            for _, ov in pairs(overrides) do
+                if type(ov) == "table" then
+                    KeepGrowthPerpendicular(ov.groupGrowth or SVal("groupGrowth", "RIGHT"),
+                        function() return ov.unitGrowth or SVal("unitGrowth", "DOWN") end,
+                        function(nv) ov.unitGrowth = nv end)
+                end
+            end
+        end
+
         _, h = W:DualRow(parent, y,
             { type="dropdown", text="Group Growth", values=growthValues, order=allGrowthOrder,
               getValue=function() return SVal("groupGrowth", "RIGHT") end,
-              setValue=function(v) SSet("groupGrowth", v) end },
+              setValue=function(v)
+                  db.profile.groupGrowth = v
+                  if SVal("mergeGroups", false) then
+                      KeepGrowthPerpendicular(v,
+                          function() return SVal("unitGrowth", "DOWN") end,
+                          function(nv) db.profile.unitGrowth = nv end)
+                      FixTierOverridesPerpendicular()
+                      EllesmereUI:RefreshPage() -- the sibling dropdown may have just changed
+                  end
+                  if ns._BumpAbsorbGen then ns._BumpAbsorbGen() end
+                  ReloadAndUpdate()
+              end },
             { type="dropdown", text="Unit Growth", values=growthValues, order=allGrowthOrder,
               getValue=function() return SVal("unitGrowth", "DOWN") end,
-              setValue=function(v) SSet("unitGrowth", v) end });  y = y - h
+              setValue=function(v)
+                  db.profile.unitGrowth = v
+                  if SVal("mergeGroups", false) then
+                      KeepGrowthPerpendicular(v,
+                          function() return SVal("groupGrowth", "RIGHT") end,
+                          function(nv) db.profile.groupGrowth = nv end)
+                      FixTierOverridesPerpendicular()
+                      EllesmereUI:RefreshPage() -- the sibling dropdown may have just changed
+                  end
+                  if ns._BumpAbsorbGen then ns._BumpAbsorbGen() end
+                  ReloadAndUpdate()
+              end });  y = y - h
 
         -- Row 4: Sort By (custom dropdown with drag-to-reorder roles) | Self Position
         local sortRow
@@ -4877,7 +4938,22 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function() end },
                 { type="toggle", text="Merge Groups",
                   getValue=function() return SVal("mergeGroups", false) end,
-                  setValue=function(v) SSet("mergeGroups", v); EllesmereUI:RefreshPage() end });  y = y - h
+                  setValue=function(v)
+                      -- Fix up an already-saved same-axis Group/Unit Growth pair so the
+                      -- SAVED profile and the dropdowns stay honest about what's rendering
+                      -- (the runtime's own read-time backstop, ns._RFEffectiveGrowth, already
+                      -- makes the first merged render correct either way). Covers both the
+                      -- base pair and every per-tier override, same as the per-tier cog
+                      -- dropdowns do while merge is already on.
+                      if v then
+                          KeepGrowthPerpendicular(SVal("groupGrowth", "RIGHT"),
+                              function() return SVal("unitGrowth", "DOWN") end,
+                              function(nv) db.profile.unitGrowth = nv end)
+                          FixTierOverridesPerpendicular()
+                      end
+                      SSet("mergeGroups", v)
+                      EllesmereUI:RefreshPage()
+                  end });  y = y - h
 
             -- Left dropdown becomes a checkbox dropdown for groups 1-8.
             if not EllesmereUI._prebuilding then

@@ -4694,7 +4694,7 @@ local function EnsureCalcTab(frame)
     if existing then return existing end
 
     local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
-    local PP = EllesmereUI and (EllesmereUI.PanelPP or EllesmereUI.PP)
+    local PP = EllesmereUI and EllesmereUI.PP
 
     local refTab = _G["CharacterFrameTab1"]
     local tabW = refTab and refTab:GetWidth() or 80

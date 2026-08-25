@@ -482,6 +482,18 @@ local defaults = {
         procGlowUseClassColor = false,
         procGlowScale = 1.0,
         procGlowEnabled = false,
+        -- Assisted Highlight ring: extra pixels per side beyond the button
+        -- footprint. 0 = Blizzard's size (art sits exactly on the button).
+        -- Positive pushes the blue swirl outward so it reads apart from a proc
+        -- glow on the same edge; negative pulls it inward.
+        assistGlowOutset = 0,
+        -- How the Assisted Highlight is drawn: 1 = Blizzard's glow ring only
+        -- (default, unchanged behavior), 2 = flat tint over the whole button
+        -- instead, 3 = both. The overlay leaves the button edge free for the
+        -- proc glow, which is the point of offering it.
+        assistGlowStyle = 1,
+        assistGlowOverlayColor = { r = 0.15, g = 0.5, b = 1 },
+        assistGlowOverlayAlpha = 30,
         useBlizzardStyle = false,
         showBlizzIconBg = false,
         blizzIconBgAlpha = 1,
@@ -685,7 +697,29 @@ end
 local _dragState = { visible = false, strataCache = {} }
 
 -- Grid show/hide state (show empty slots during spell drag)
-local _gridState = { shown = false, visPending = false, spellsPending = false }
+local _gridState = { shown = false, visPending = false, spellsPending = false,
+    want = nil, settlePending = false, showFns = {}, hideFns = {} }
+
+-- Grid edges arrive in pairs from scripted cursor use: every
+-- PickupContainerItem fires ACTIONBAR_SHOWGRID and every place fires
+-- ACTIONBAR_HIDEGRID, hundreds of pairs per frame during a bag sort, and
+-- applying each edge re-walked every bar and flipped mouseover bars between
+-- alpha 1 and 0 (the visible blinking). Settle instead: a pair that nets back
+-- to the applied state (_gridState.shown, owned by the appliers) costs
+-- nothing, a real drag still surfaces the grid 50ms later. Appliers register
+-- into showFns/hideFns at their own definition sites.
+function ns.EABQueueGrid(show)
+    _gridState.want = show
+    if _gridState.settlePending then return end
+    _gridState.settlePending = true
+    C_Timer_After(0.05, function()
+        _gridState.settlePending = false
+        local want = _gridState.want
+        if want == _gridState.shown then return end
+        local list = want and _gridState.showFns or _gridState.hideFns
+        for i = 1, #list do list[i]() end
+    end)
+end
 local _quickKeybindState = { open = false, closePending = false, art = {}, FinishClose = nil }
 local EAB_UpdateQuickKeybindButtons -- forward-declared for early event hooks
 
@@ -3010,6 +3044,12 @@ local function SetupBar(info, skipProtected)
                     -- OnEvent->UpdateAction calls per tick -- screen blink).
                     -- Taint-safe refresh; avoids passing secret cooldown values through a tainted call.
                     EAB_VTABLE.ForceButtonRefresh(btn, slot)
+                    -- Two channels ForceButtonRefresh doesn't own (same pairing
+                    -- as the bar-reveal path): checked state + equipped border.
+                    btn:SetChecked((IsCurrentAction(slot) or IsAutoRepeatAction(slot)) and true or false)
+                    if btn.Border then
+                        btn.Border:SetShown(IsEquippedAction(slot) and true or false)
+                    end
                 end
                 if bindPrefix then
                     btn.commandName = bindPrefix .. i
@@ -5183,8 +5223,18 @@ do
                                 -- target swap, and it is memo-gated.
                                 if event ~= "PLAYER_TARGET_CHANGED" then
                                     -- Taint-safe refresh; avoids passing secret cooldown values through a tainted call.
-                                    EAB_VTABLE.ForceButtonRefresh(btn, btn:GetAttribute("action"))
+                                    local infreqAction = btn:GetAttribute("action")
+                                    EAB_VTABLE.ForceButtonRefresh(btn, infreqAction)
                                     RefreshCooldownVisuals(btn)
+                                    -- Two channels ForceButtonRefresh doesn't own (same
+                                    -- pairing as the bar-reveal path): checked state +
+                                    -- equipped border, both stale after page/form flips.
+                                    if infreqAction then
+                                        btn:SetChecked((IsCurrentAction(infreqAction) or IsAutoRepeatAction(infreqAction)) and true or false)
+                                        if btn.Border then
+                                            btn.Border:SetShown(IsEquippedAction(infreqAction) and true or false)
+                                        end
+                                    end
                                 end
                                 local ufd = EFD(btn)
                                 if ufd.rangeTinted then
@@ -10508,23 +10558,150 @@ do
         return hf
     end
 
-    local function AssistHide(btn)
+    -- Ring teardown alone. Split out of AssistHide because AssistShow also
+    -- needs it on its own: with the overlay style picked, or with Blizzard
+    -- painting its own ring on a hovered button, our ring must go while the
+    -- overlay stays up.
+    ns._AssistRingHide = function(btn)
         local hf = EFD(btn).assistHL
         if not hf then return end
         if hf.Flipbook and hf.Flipbook.Anim then hf.Flipbook.Anim:Stop() end
         hf:Hide()
     end
 
+    -- Flat tint over the button -- the alternative (or companion) to the ring.
+    -- Its own child frame at btn+14, one below the ring, so it draws over the
+    -- icon and the cooldown swipe deterministically instead of racing draw-layer
+    -- sublevels against Blizzard's own button textures. A color fill plus one
+    -- mask: no animation and no driver entry, so it is strictly cheaper than the
+    -- flipbook ring. Created lazily, so nobody on the ring-only default pays
+    -- for it.
+    -- style: nil/1 = hide, 2 = overlay only, 3 = overlay under the ring.
+    ns._AssistOverlay = function(btn, style)
+        local fd = EFD(btn)
+        local ov = fd.assistOverlay
+        if not style or style == 1 then
+            if ov then ov:Hide() end
+            return
+        end
+        local p = EAB.db and EAB.db.profile
+        if not ov then
+            ov = CreateFrame("Frame", nil, btn)
+            ov.tex = ov:CreateTexture(nil, "OVERLAY")
+            ov.tex:SetAllPoints(ov)
+            -- Rounded corners: the addon's own Curved Square mask, so the tint
+            -- follows the button art instead of ending in hard 90-degree
+            -- corners. Only used when no button shape mask is in play -- that
+            -- one already defines the silhouette.
+            ov.roundMask = ov:CreateMaskTexture()
+            ov.roundMask:SetAllPoints(ov)
+            ov.roundMask:SetTexture(SHAPE_MASKS.csquare, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+            fd.assistOverlay = ov
+        end
+        -- Footprint. Alone (style 2) the tint covers exactly the button. Under
+        -- the ring (style 3) it grows or shrinks with the ring's outset so the
+        -- two end flush -- the tint never sticks out past the ring, which is
+        -- what a negative outset would otherwise produce. Change-guarded: the
+        -- rescan runs several times a second while a suggestion is up.
+        local pad = (style == 3) and ((p and p.assistGlowOutset) or 0) or 0
+        local ofd = EFD(ov)
+        if ofd.pad ~= pad then
+            ofd.pad = pad
+            ov:ClearAllPoints()
+            ov:SetPoint("TOPLEFT", btn, "TOPLEFT", -pad, pad)
+            ov:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", pad, -pad)
+        end
+        -- Re-assert: bar layout can change the button's frame level after create.
+        ov:SetFrameLevel(btn:GetFrameLevel() + 14)
+        local c = (p and p.assistGlowOverlayColor) or { r = 0.15, g = 0.5, b = 1 }
+        local a = (p and p.assistGlowOverlayAlpha) or 30
+        ov.tex:SetColorTexture(c.r or 0.15, c.g or 0.5, c.b or 1, a / 100)
+        -- Custom button shapes win over the rounded corners: a circle mask must
+        -- not end up as a rounded square. Keyed on the mask OBJECT, not a
+        -- boolean -- a shape change swaps the mask, and the stale one has to be
+        -- removed before the new one goes on. Applied to the tint texture
+        -- directly rather than via MaskFrameTextures: that walks GetRegions(),
+        -- which here would also hand the mask to our own roundMask region.
+        local want = (fd.shapeMask and fd.shapeApplied) and fd.shapeMask or ov.roundMask
+        if ofd.shapeMasked ~= want then
+            if ofd.shapeMasked then
+                pcall(ov.tex.RemoveMaskTexture, ov.tex, ofd.shapeMasked)
+            end
+            pcall(ov.tex.AddMaskTexture, ov.tex, want)
+            ofd.shapeMasked = want
+        end
+        ov:Show()
+    end
+
+    -- Full teardown of everything we paint for one button. Also un-fades
+    -- Blizzard's own ring: the overlay-only style parks it at alpha 0, and a
+    -- button that stops being the suggestion (or the CVar going off) must not
+    -- leave it invisible for whoever shows it next.
+    local function AssistHide(btn)
+        ns._AssistRingHide(btn)
+        ns._AssistOverlay(btn)
+        local bf = btn.AssistedCombatHighlightFrame
+        if bf and bf:GetAlpha() ~= 1 then bf:SetAlpha(1) end
+    end
+
+    -- Scale that makes the 45px template art cover the button plus the user's
+    -- outset on every side. The frame is anchored CENTER, so scaling grows or
+    -- shrinks it symmetrically -- a positive outset pushes the blue swirl
+    -- outside the proc glow's edge, a negative one tucks it inside. Clamped
+    -- above zero: SetScale(0) is invalid, and a large negative outset on a
+    -- small button would otherwise reach it.
+    -- Stored on ns rather than as a local: this chunk is at the 200-local
+    -- ceiling (see _procState.GetButtonSpellID).
+    ns._AssistScale = function(btn)
+        local w = btn:GetWidth() or 45
+        local p = EAB.db and EAB.db.profile
+        local outset = (p and p.assistGlowOutset) or 0
+        local s = (w + outset * 2) / 45
+        if s < 0.05 then s = 0.05 end
+        return s
+    end
+
+    -- Paint the suggestion on one button in whatever style the user picked.
+    -- Owns the "Blizzard already draws its own ring here" case too (it used to
+    -- live at the call site): the overlay is ours either way, so the two
+    -- decisions have to be made together.
     local function AssistShow(btn)
         local fd = EFD(btn)
+        local p = EAB.db and EAB.db.profile
+        local style = (p and p.assistGlowStyle) or 1
+
+        -- Tint: always ours, Blizzard never paints one.
+        ns._AssistOverlay(btn, style)
+
+        -- Blizzard may show its own ring on a hovered button (candidate
+        -- re-add). Defer to it so two identical shines never stack, but keep it
+        -- scaled to our button size + outset. With the overlay-only style we
+        -- fade it rather than Hide() it: their manager re-shows it, so a Hide
+        -- would just be undone. Alpha is re-asserted on every pass, so it
+        -- self-corrects when the style changes back.
+        local bf = btn.AssistedCombatHighlightFrame
+        if bf and bf:IsShown() then
+            ns._AssistRingHide(btn)
+            bf:SetAlpha(style == 2 and 0 or 1)
+            if fd.squared then
+                local s = ns._AssistScale(btn)
+                if bf:GetScale() ~= s then bf:SetScale(s) end
+            end
+            return
+        end
+
+        if style == 2 then
+            ns._AssistRingHide(btn)
+            return
+        end
+
         local hf = fd.assistHL
         if not hf then
             hf = AssistCreate(btn)
             if not hf then return end
             fd.assistHL = hf
         end
-        local w = btn:GetWidth() or 45
-        hf:SetScale(w / 45)
+        hf:SetScale(ns._AssistScale(btn))
         -- Re-assert: bar layout can change the button's frame level after create.
         hf:SetFrameLevel(btn:GetFrameLevel() + 15)
         hf:Show()
@@ -10581,18 +10758,9 @@ do
                                         match = GetBaseSpell(sid) == suggestedBase
                                     end
                                     if match then
-                                        local bf = btn.AssistedCombatHighlightFrame
-                                        if bf and bf:IsShown() then
-                                            AssistHide(btn)  -- Blizzard's covers it
-                                            -- Scale Blizzard's lazily-created frame to
-                                            -- our button size (change-guarded).
-                                            if EFD(btn).squared then
-                                                local s = (btn:GetWidth() or 45) / 45
-                                                if bf:GetScale() ~= s then bf:SetScale(s) end
-                                            end
-                                        else
-                                            AssistShow(btn)
-                                        end
+                                        -- AssistShow owns the style decision and
+                                        -- the defer-to-Blizzard's-own-ring case.
+                                        AssistShow(btn)
                                         newSet[btn] = true
                                     end
                                 end
@@ -11651,13 +11819,11 @@ end
 --  Grid Show/Hide (show empty slots during spell drag)
 -------------------------------------------------------------------------------
 
+-- Reached only on a real off -> on edge: ns.EABQueueGrid settles the event
+-- storm a bag sort produces (its old 0.1s throttle here could not, because
+-- every HIDEGRID in the storm reset _gridState.shown and re-armed it).
 local function OnGridChange()
     if InCombatLockdown() then return end
-    -- Throttle: bag addons fire ACTIONBAR_SHOWGRID hundreds of times
-    -- per sort pass via PickupContainerItem, causing "script ran too long".
-    local now = GetTime()
-    if _gridState.shown and _gridState._lastTime and (now - _gridState._lastTime) < 0.1 then return end
-    _gridState._lastTime = now
     _gridState.shown = true
 
     -- Propagate showgrid to the controller so the secure environment
@@ -13177,60 +13343,70 @@ function EAB:FinishSetup()
     end
 
     EAB._abcEvents = ns.TakeShell()
-    EAB._abcEvents:SetScript("OnEvent", function(_, event, arg1)
-        if event == "ACTIONBAR_SHOWGRID" then
-            -- Cancel any pending restore (swap case: drop + immediate pickup)
-            _gridRestorePending = false
-            if not InCombatLockdown() then
-                for btn in pairs(_controllerButtons) do
-                    SetShowGridInsecure(btn, true, SHOWGRID.GAME_EVENT)
-                end
-                -- Temporarily surface bars hidden by conditional visibility
-                -- (combat-only, target-only, etc.) so the user can place spells.
-                for _, info in ipairs(BAR_CONFIG) do
-                    if not info.isStance and not info.isPetBar then
-                        local s = EAB.db.profile.bars[info.key]
-                        local frame = barFrames[info.key]
-                        if s and frame and not s.alwaysHidden then
-                            local vis = s.barVisibility or "always"
-                            local hasCondition = vis ~= "always" and vis ~= "never"
-                                or s.visHideNoTarget or s.visHideNoEnemy
-                                or s.visHideMounted or s.visOnlyMounted or s.visOnlyInstances
-                            if hasCondition then
-                                _gridSurfacedBars[info.key] = true
-                                RegisterAttributeDriver(frame, "state-visibility", "show")
-                                -- Keep the cache in sync with the stomp (same
-                                -- class as the QuickKeybind surface fix): a
-                                -- stale cache holding the real string makes
-                                -- every later refresh compare equal and skip
-                                -- re-registering, leaving the bar stuck on
-                                -- "show" until a settings toggle or /reload.
-                                frame._eabLastVisStr = "show"
-                                frame:Show()
-                            end
-                            -- Mouseover bars: force alpha to 1 during drag
-                            if s.mouseoverEnabled then
-                                _gridSurfacedBars[info.key] = true
-                                StopFade(frame)
-                                frame:SetAlpha(1)
-                            end
+
+    -- Controller-side grid appliers, run from the settle in ns.EABQueueGrid.
+    _gridState.showFns[#_gridState.showFns + 1] = function()
+        -- Cancel any pending restore (swap case: drop + immediate pickup)
+        _gridRestorePending = false
+        if not InCombatLockdown() then
+            for btn in pairs(_controllerButtons) do
+                SetShowGridInsecure(btn, true, SHOWGRID.GAME_EVENT)
+            end
+            -- Temporarily surface bars hidden by conditional visibility
+            -- (combat-only, target-only, etc.) so the user can place spells.
+            for _, info in ipairs(BAR_CONFIG) do
+                if not info.isStance and not info.isPetBar then
+                    local s = EAB.db.profile.bars[info.key]
+                    local frame = barFrames[info.key]
+                    if s and frame and not s.alwaysHidden then
+                        local vis = s.barVisibility or "always"
+                        local hasCondition = vis ~= "always" and vis ~= "never"
+                            or s.visHideNoTarget or s.visHideNoEnemy
+                            or s.visHideMounted or s.visOnlyMounted or s.visOnlyInstances
+                        if hasCondition then
+                            _gridSurfacedBars[info.key] = true
+                            RegisterAttributeDriver(frame, "state-visibility", "show")
+                            -- Keep the cache in sync with the stomp (same
+                            -- class as the QuickKeybind surface fix): a
+                            -- stale cache holding the real string makes
+                            -- every later refresh compare equal and skip
+                            -- re-registering, leaving the bar stuck on
+                            -- "show" until a settings toggle or /reload.
+                            frame._eabLastVisStr = "show"
+                            frame:Show()
+                        end
+                        -- Mouseover bars: force alpha to 1 during drag
+                        if s.mouseoverEnabled then
+                            _gridSurfacedBars[info.key] = true
+                            StopFade(frame)
+                            frame:SetAlpha(1)
                         end
                     end
                 end
             end
-        elseif event == "ACTIONBAR_HIDEGRID" or event == "PET_BAR_HIDEGRID" then
-            if not InCombatLockdown() then
-                for btn in pairs(_controllerButtons) do
-                    SetShowGridInsecure(btn, false, SHOWGRID.GAME_EVENT)
-                end
-                -- Defer restore: spell swaps fire HIDEGRID then SHOWGRID
-                -- in rapid succession. Deferring lets the next SHOWGRID
-                -- cancel the restore so bars stay visible.
-                if next(_gridSurfacedBars) then
-                    _gridRestorePending = true
-                    C_Timer_After(0, RestoreGridSurfacedBars)
-                end
+        end
+    end
+
+    _gridState.hideFns[#_gridState.hideFns + 1] = function()
+        if not InCombatLockdown() then
+            for btn in pairs(_controllerButtons) do
+                SetShowGridInsecure(btn, false, SHOWGRID.GAME_EVENT)
             end
+            -- Defer restore: spell swaps fire HIDEGRID then SHOWGRID
+            -- in rapid succession. Deferring lets the next SHOWGRID
+            -- cancel the restore so bars stay visible.
+            if next(_gridSurfacedBars) then
+                _gridRestorePending = true
+                C_Timer_After(0, RestoreGridSurfacedBars)
+            end
+        end
+    end
+
+    EAB._abcEvents:SetScript("OnEvent", function(_, event, arg1)
+        if event == "ACTIONBAR_SHOWGRID" then
+            ns.EABQueueGrid(true)
+        elseif event == "ACTIONBAR_HIDEGRID" or event == "PET_BAR_HIDEGRID" then
+            ns.EABQueueGrid(false)
         elseif event == "CVAR_UPDATE" then
             -- Name-filtered: CVAR_UPDATE fires for every cvar, dozens of times
             -- at login. Only the lock matters to the drag wrapper.
@@ -13366,9 +13542,10 @@ function EAB:FinishSetup()
         self:ApplyFonts()
     end)
 
-    self:RegisterEvent("ACTIONBAR_SHOWGRID", OnGridChange)
+    _gridState.showFns[#_gridState.showFns + 1] = OnGridChange
+    self:RegisterEvent("ACTIONBAR_SHOWGRID", function() ns.EABQueueGrid(true) end)
     -- Pet actions fire their own grid events when dragging pet spells
-    self:RegisterEvent("PET_BAR_SHOWGRID", OnGridChange)
+    self:RegisterEvent("PET_BAR_SHOWGRID", function() ns.EABQueueGrid(true) end)
 
     -- Re-apply useOnKeyDown when the "Press and Hold Casting" CVar changes.
     self:RegisterEvent("CVAR_UPDATE", function(_, cvarName)
@@ -13470,9 +13647,11 @@ function EAB:FinishSetup()
         if cursorType then
             if DRAG_TYPES[cursorType] then
                 SetDragVisible(true)
-                if not _gridState.shown then
-                    OnGridChange()
-                end
+                -- Through the queue, never straight into OnGridChange: a
+                -- direct call flips _gridState.shown, and this drag's own
+                -- ACTIONBAR_SHOWGRID would then settle as a no-op and skip
+                -- the controller-side applier.
+                ns.EABQueueGrid(true)
                 -- Force mouseover bars visible during real cursor drags
                 _gridState._mouseoverForced = true
                 for _, info in ipairs(BAR_CONFIG) do
@@ -13515,17 +13694,11 @@ function EAB:FinishSetup()
         else
             SetDragVisible(false)
             EAB._RestoreDragNeverBars()
-            if _gridState.shown then
-                _gridState.shown = false
-                C_Timer_After(0, function()
-                    -- Drag force-showed grids: the stamps no longer reflect
-                    -- button state, so every bar must re-assert.
-                    if ns._asbStamp then wipe(ns._asbStamp) end
-                    for _, info in ipairs(BAR_CONFIG) do
-                        self:ApplyAlwaysShowButtons(info.key)
-                    end
-                end)
-            end
+            -- Fallback for a cursor cleared without a HIDEGRID; the queue
+            -- dedupes when both arrive. OnGridHide owns the state flip and
+            -- the re-assert, so this must not clear _gridState.shown itself
+            -- (that would make the settle skip the hide appliers).
+            if _gridState.shown then ns.EABQueueGrid(false) end
         end
     end)
 
@@ -13788,6 +13961,9 @@ function EAB:FinishSetup()
         -- causing the button to be hidden as empty.
         C_Timer.After(0, function()
             if InCombatLockdown() then return end
+            -- The grid show force-showed buttons, so the stamps no longer
+            -- reflect button state and every bar must re-assert.
+            if ns._asbStamp then wipe(ns._asbStamp) end
             for _, info2 in ipairs(BAR_CONFIG) do
                 self:ApplyAlwaysShowButtons(info2.key)
             end
@@ -13811,8 +13987,9 @@ function EAB:FinishSetup()
         -- Re-hide Never bars surfaced by Show All During Drag.
         EAB._RestoreDragNeverBars()
     end
-    self:RegisterEvent("ACTIONBAR_HIDEGRID", OnGridHide)
-    self:RegisterEvent("PET_BAR_HIDEGRID", OnGridHide)
+    _gridState.hideFns[#_gridState.hideFns + 1] = OnGridHide
+    self:RegisterEvent("ACTIONBAR_HIDEGRID", function() ns.EABQueueGrid(false) end)
+    self:RegisterEvent("PET_BAR_HIDEGRID", function() ns.EABQueueGrid(false) end)
 
     -- Spell updates: refresh button icons and visibility
     -- Also re-layout the stance bar since GetNumShapeshiftForms() may have changed

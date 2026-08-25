@@ -1457,10 +1457,16 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline cog: focused visual controls for the standalone timer.
         if not EllesmereUI._prebuilding then
             local rgn = satRow._leftRegion
+            local satFontValues, satFontOrder = EllesmereUI.BuildFontDropdownData()
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Standalone Timer Settings",
                 minWidth = 300,
                 rows = {
+                    { type = "dropdown", label = "Font",
+                      values = satFontValues,
+                      order = satFontOrder,
+                      get = function() return Cfg("standaloneTimerFont") or "__global" end,
+                      set = function(v) Set("standaloneTimerFont", v); ApplySAT() end },
                     { type = "slider", label = "Font Size", min = 10, max = 40, step = 1,
                       get = function() return Cfg("standaloneTimerSize") or 26 end,
                       set = function(v) Set("standaloneTimerSize", v); ApplySAT() end },
