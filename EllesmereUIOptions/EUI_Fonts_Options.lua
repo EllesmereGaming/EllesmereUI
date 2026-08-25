@@ -33,6 +33,11 @@ local _ftExpanded = {}
 -- new value is already live in the DB.
 local function FontReload()
     EllesmereUI.InvalidateFontCache()
+    if EllesmereUI._ModuleNS then
+        for _, mns in pairs(EllesmereUI._ModuleNS) do
+            if mns.RefreshAllSettings then mns.RefreshAllSettings() end
+        end
+    end
     EllesmereUI:ShowConfirmPopup({
         title       = "Reload Required",
         message     = "Font changed. A UI reload is needed to apply the new font.",
