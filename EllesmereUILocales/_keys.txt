@@ -25,6 +25,7 @@
 %1$s's Death Recap
 %d / %d Items
 %d Items
+%d bonus rolls used
 %d junk item(s) could not be sold.
 %s is also assigned to:
 (Applies on Window Close)

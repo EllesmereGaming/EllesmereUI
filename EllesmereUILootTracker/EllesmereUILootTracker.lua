@@ -323,9 +323,22 @@ function ns.GetSourceSummary(source, specID, difficultyID)
             if goal and goal.state == "open" then desired = desired + 1 end
         end
         return { sourceKey=sourceKey, desired=desired, remaining=#items, total=#items,
-            chance=0, confidence="not-applicable", coreCost=0 }
+            chance=0, confidence="not-applicable", coreCost=0, rollsUsed=0 }
     end
     local pool = ns.GetPool(sourceKey, specID)
+    local rollsUsed = tonumber(pool.rollsUsed)
+    if not rollsUsed then
+        -- Migrate existing characters from the bounded detail history. New
+        -- rolls increment the pool counter directly, so it remains accurate
+        -- even after old history entries are pruned.
+        rollsUsed = 0
+        for _, roll in ipairs(ns.GetRollHistory()) do
+            if roll.sourceKey == sourceKey and tonumber(roll.specID) == tonumber(specID) then
+                rollsUsed = rollsUsed + 1
+            end
+        end
+        pool.rollsUsed = rollsUsed
+    end
     local desired, remaining, total = 0, 0, #items
     for _, item in ipairs(items) do
         if not pool.knocked[item.itemID] then
@@ -342,6 +355,7 @@ function ns.GetSourceSummary(source, specID, difficultyID)
         chance = remaining > 0 and desired / remaining or 0,
         confidence = pool.confidence,
         coreCost = source.coreCost,
+        rollsUsed = rollsUsed,
     }
 end
 
@@ -539,9 +553,13 @@ local function OnBonusRoll(_, rewardType, rewardLink, _, rewardSpecID)
     local difficultyID = source.kind == "raid" and (context.difficultyID or 16) or nil
     local sourceKey = source.kind == "raid" and ns.RaidKey(source.encounterID, difficultyID) or ns.DungeonKey(source.challengeModeID)
     ns.SetPoolItemState(sourceKey, itemID, true, specID, "tracked")
+    local rolledAt = time()
+    local pool = ns.GetPool(sourceKey, specID)
+    pool.rollsUsed = (tonumber(pool.rollsUsed) or 0) + 1
+    pool.lastRollAt = rolledAt
     local rolls = ns.GetSeasonData().rolls
     rolls[#rolls + 1] = {
-        time = time(), itemID = itemID, itemLink = rewardLink, specID = specID,
+        time = rolledAt, itemID = itemID, itemLink = rewardLink, specID = specID,
         sourceKey = sourceKey, chestItemID = context.chestItemID,
         itemContext = context.itemContext, keyLevel = context.keyLevel,
         difficultyID = difficultyID, currencyID = context.currencyID,
