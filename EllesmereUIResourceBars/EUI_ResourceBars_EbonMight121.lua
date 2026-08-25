@@ -203,6 +203,17 @@ local function EnsureBuilt()
     end, "erb:emb121-shell")
 end
 
+-- True once the engine overlay's countdown text is confirmed live: false
+-- while the (async, one-shot) build is still queued, and false if the build
+-- ran but its FontString creation hit the pcall guard in Build() (armored
+-- because an uncaught error there kills the whole slot). Callers use this to
+-- fall back to the legacy numeric text instead of leaving the bar
+-- permanently blank for the rest of the session (S.built never gets a second
+-- attempt once set -- only a /reload resets it).
+function ns.EMB121_TextOk()
+    return S.built and not S.fsErr
+end
+
 -- Called from UpdatePrimaryBar whenever the primary power type resolves:
 -- parks the overlay the moment the bar stops being Ebon Might (spec swap).
 function ns.EMB121_Gate(isEbon)

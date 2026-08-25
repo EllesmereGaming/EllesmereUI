@@ -585,8 +585,17 @@ EllesmereUI._ELEMENT_SETTINGS_MAP = {
     -- Dragon Riding HUD (Blizz UI Enhanced > Dragon Riding page)
     ["EDR_Cluster"]        = { module = "EllesmereUIBlizzardSkin",    page = "Dragon Riding",     sectionName = "GENERAL",           highlightText = "Enable Dragon Riding Bar" },
 
+    -- Fixed-position tooltip anchor (Blizz UI Enhanced > Tooltips, Menus & Popups)
+    ["EUI_TooltipAnchor"]  = { module = "EllesmereUIBlizzardSkin",    page = "Tooltips, Menus & Popups", sectionName = "BLIZZARD TOOLTIP", highlightText = "Anchor to Cursor" },
+
     -- Minimap
     ["EBS_Minimap"]        = { module = "EllesmereUIMinimap",         page = "Minimap",           sectionName = "DISPLAY",           highlightText = "Size" },
+
+    -- Damage Meters: windows use dynamic "EDM_Win<i>" keys and resolve to the shared
+    -- "EDM_Win" entry via the cog lookup's prefix fallback (top of the tab, like CDM_).
+    ["EDM_Win"]            = { module = "EllesmereUIDamageMeters",    page = "Damage Meters" },
+    ["EDM_CombatTimer"]    = { module = "EllesmereUIDamageMeters",    page = "Damage Meters",     sectionName = "STANDALONE COMBAT TIMER", highlightText = "Standalone Combat Timer" },
+    ["EDM_IconHistory"]    = { module = "EllesmereUIDamageMeters",    page = "Spell History",     sectionName = "ICON HISTORY",      highlightText = "Enable Icon History" },
 
     -- Raid + Party Frames (separate registered pages/tabs)
     ["RF_RaidFrames"]      = { module = "EllesmereUIRaidFrames",      page = "Raid",              sectionName = "FRAME SIZES",       highlightText = "20 Man Frame Width" },
@@ -9253,6 +9262,8 @@ local function CreateMover(barKey)
                 settingsMapping = EllesmereUI._ELEMENT_SETTINGS_MAP["CDM_"]
             elseif barKey:sub(1, 4) == "TBB_" or barKey:sub(1, 5) == "TBBG_" then
                 settingsMapping = EllesmereUI._ELEMENT_SETTINGS_MAP["TBB_"]
+            elseif barKey:sub(1, 7) == "EDM_Win" then
+                settingsMapping = EllesmereUI._ELEMENT_SETTINGS_MAP["EDM_Win"]
             end
         end
         -- Queue Status is a Blizzard-owned element with no EUI settings page; its

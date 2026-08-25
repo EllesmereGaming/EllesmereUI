@@ -4074,8 +4074,14 @@ local function UpdatePrimaryBar()
             end
             primaryBar:SetMinMaxValues(0, EBON_MIGHT_DURATION)
             primaryBar:SetValue(0)
-            primaryBar._text:Hide()
-            return
+            if ns.EMB121_TextOk and ns.EMB121_TextOk() then
+                primaryBar._text:Hide()
+                return
+            end
+            -- Engine text isn't confirmed live yet (build still queued, or its
+            -- one-shot FontString attempt failed and won't retry this session)
+            -- -- fall through and render the legacy numeric text below instead
+            -- of leaving the bar permanently blank.
         end
         local aura = C_UnitAuras.GetPlayerAuraBySpellID(EBON_MIGHT_SPELL_ID)
         -- Ebon Might is secret-flagged: under aura restriction the query returns
@@ -4084,19 +4090,21 @@ local function UpdatePrimaryBar()
         if aura and issecretvalue(aura.expirationTime) then aura = nil end
         _ebonMightExpiry = (aura and aura.expirationTime) or 0
         local remaining = (_ebonMightExpiry > 0) and max(0, _ebonMightExpiry - GetTime()) or 0
-        primaryBar:SetMinMaxValues(0, EBON_MIGHT_DURATION)
-        primaryBar:SetValue(remaining)
-        -- Color: custom > power color (same priority as standard)
-        local ft = primaryBar:GetStatusBarTexture()
-        if not pp.customColored then
-            local pc = POWER_COLORS["EBON_MIGHT"]
-            local r, g, b = 1, 1, 1
-            if pc then r, g, b = pc[1], pc[2], pc[3] end
-            if pp.gradientEnabled then
-                ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL", r, g, b, 1,
-                    pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
-            else
-                ApplyBarFlat(ft, r, g, b, 1)
+        if not ns.EMB121_Owns then
+            primaryBar:SetMinMaxValues(0, EBON_MIGHT_DURATION)
+            primaryBar:SetValue(remaining)
+            -- Color: custom > power color (same priority as standard)
+            local ft = primaryBar:GetStatusBarTexture()
+            if not pp.customColored then
+                local pc = POWER_COLORS["EBON_MIGHT"]
+                local r, g, b = 1, 1, 1
+                if pc then r, g, b = pc[1], pc[2], pc[3] end
+                if pp.gradientEnabled then
+                    ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL", r, g, b, 1,
+                        pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
+                else
+                    ApplyBarFlat(ft, r, g, b, 1)
+                end
             end
         end
         if pp.textFormat and pp.textFormat ~= "none" then

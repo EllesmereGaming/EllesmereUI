@@ -6267,6 +6267,22 @@ function ns.XF_Apply()
             d.classToken = classToken
             b:SetAttribute("unit", unit)
             ns._xfUnitToButton[unit] = b
+            -- Fail-open backstop for a mid-raid reconnect: the roster can still be
+            -- streaming, so UnitName(unit) may be nil at this first paint and the
+            -- slot commits a blank name (field report: blank until /reload even
+            -- though UNIT_NAME_UPDATE and the roster re-apply are both wired).
+            -- Re-arms until the name resolves, bounded, and only repaints while
+            -- this slot still holds the same unit. No-op when the name is cached.
+            if not UnitName(unit) then
+                local tries = 0
+                local function RetryName()
+                    if b:GetAttribute("unit") ~= unit then return end
+                    if UnitName(unit) then UpdateButton(b); return end
+                    tries = tries + 1
+                    if tries < 5 then C_Timer.After(2, RetryName) end
+                end
+                C_Timer.After(2, RetryName)
+            end
             for _, ev in ipairs(XF.EVENTS) do
                 t:RegisterUnitEvent(ev, unit)
             end

@@ -2047,9 +2047,15 @@ do
         -- Color inputs (class/reaction/dark/disconnect/tap) change via their
         -- own events or identity repaints -- a pure health tick re-runs the
         -- color chain only for modes whose color follows health/combat state
-        -- per tick (dynamic curve, threat, tap coloring).
-        if event ~= "UNIT_HEALTH" or element.colorSmooth
-           or element.colorThreat or element.colorTapping then
+        -- per tick (dynamic curve, threat, tap coloring). The color* flags are
+        -- never set by this engine; the dynamic modes live in PostUpdateColor
+        -- (ns.UF_DynamicHealthColor) behind the unit's healthColorMode, so that
+        -- setting is the gate that keeps a dynamic bar tracking every tick.
+        local unitKey = element._euiUnitKey
+        local unitColorMode = unitKey and db.profile[unitKey]
+        unitColorMode = unitColorMode and unitColorMode.healthColorMode
+        if event ~= "UNIT_HEALTH" or element.colorSmooth or element.colorThreat
+           or element.colorTapping or (unitColorMode and unitColorMode ~= "none") then
             UF_SecretSafeHealthColor(frame, event, unit)
         end
     end

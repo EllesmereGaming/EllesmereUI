@@ -6433,3 +6433,8 @@ L["Movement alert bar and cursor ring art"] = "Arte da barra de alerta de movime
 
 -- == Quickdraw Options / action captions =======================================
 L["interface panel"] = "painel de interface"
+
+-- == Raid Frames / Manager Pages, tooltip modifier mode ========================
+L["Shown on Modifier"] = "Mostrado no Modificador"
+L["This option requires Tooltips to be set to Shown on Modifier"] = "Esta opção requer que as Dicas estejam definidas como Mostrado no Modificador"
+L["Select a modifier key here, or tooltips will always be shown"] = "Selecione uma tecla modificadora aqui, ou as dicas serão sempre exibidas"
