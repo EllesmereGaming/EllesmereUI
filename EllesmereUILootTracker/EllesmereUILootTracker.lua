@@ -219,6 +219,7 @@ function ns.AddGoal(source, item, priority, specID, difficultyID, targetLevel)
         itemName = item.name,
         itemLink = item.link,
         itemIcon = item.icon,
+        itemLevel = item.itemLevel,
         priority = priority or ns.PRIORITY_NICE,
         specID = specID,
         difficultyID = source.kind == "raid" and (difficultyID or 16) or nil,
