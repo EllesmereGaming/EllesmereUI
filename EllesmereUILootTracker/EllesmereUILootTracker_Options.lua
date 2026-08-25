@@ -423,6 +423,95 @@ local function BuildCatalogPage(parent, yOffset, kind)
     return math.abs(y - yOffset) + 30
 end
 
+local function BuildFarmPriority(parent, y, specID)
+    local W = EllesmereUI.Widgets
+    local _, h = W:SectionHeader(parent, "DUNGEON FARM PRIORITY", y); y = y - h
+    local grouped = {}
+    for _, goal in ipairs(ns.GetGoals(specID, false)) do
+        if goal.sourceKind == "dungeon" and goal.state == "open" then
+            local entry = grouped[goal.sourceKey]
+            if not entry then
+                entry = { source=ns.GetSourceByKey(goal.sourceKey), goals={}, score=0, bis=0 }
+                grouped[goal.sourceKey] = entry
+            end
+            entry.goals[#entry.goals + 1] = goal
+            entry.score = entry.score + (goal.priority == ns.PRIORITY_BIS and 100
+                or (goal.priority == ns.PRIORITY_NEED and 25 or 5))
+            if goal.priority == ns.PRIORITY_BIS then entry.bis = entry.bis + 1 end
+        end
+    end
+    local entries = {}
+    for _, entry in pairs(grouped) do if entry.source then entries[#entries + 1] = entry end end
+    table.sort(entries, function(a, b)
+        if a.score ~= b.score then return a.score > b.score end
+        if #a.goals ~= #b.goals then return #a.goals > #b.goals end
+        return (a.source.name or "") < (b.source.name or "")
+    end)
+    if #entries == 0 then
+        local empty = Card(parent, y, 58)
+        local text = Font(empty, 10, 0.62, 0.64, 0.68, 1)
+        text:SetPoint("CENTER"); text:SetText(L("No open dungeon wishlist items."))
+        return y - 64
+    end
+    for rank, entry in ipairs(entries) do
+        table.sort(entry.goals, function(a, b) return a.priority > b.priority end)
+        local row = Card(parent, y, 56)
+        local rankText = Font(row, 14, rank == 1 and 0.05 or 0.45, rank == 1 and 0.82 or 0.48,
+            rank == 1 and 0.62 or 0.54, 1)
+        rankText:SetPoint("LEFT", row, "LEFT", 12, 0); rankText:SetText("#" .. rank)
+        local dungeonIcon = row:CreateTexture(nil, "ARTWORK")
+        dungeonIcon:SetSize(32, 32); dungeonIcon:SetPoint("LEFT", row, "LEFT", 45, 0)
+        dungeonIcon:SetTexture(entry.source.texture or "Interface\\Icons\\INV_Misc_Map_01")
+        dungeonIcon:SetTexCoord(0.12, 0.88, 0.12, 0.88)
+        local name = Font(row, 11, 0.92, 0.94, 0.97, 1)
+        name:SetPoint("TOPLEFT", row, "TOPLEFT", 87, -10)
+        name:SetPoint("RIGHT", row, "RIGHT", -430, 0); name:SetWordWrap(false); name:SetText(entry.source.name)
+        local summary = ns.GetSourceSummary(entry.source, specID)
+        local detail = Font(row, 9, 0.55, 0.58, 0.64, 1)
+        detail:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 87, 10)
+        detail:SetText(EllesmereUI.Lf("%1$d upgrades • %2$d BiS • %3$s next roll",
+            #entry.goals, entry.bis, string.format("%.1f%%", summary.chance * 100)))
+        if rank == 1 then
+            local nextBadge = Font(row, 8, 0.05, 0.82, 0.62, 1)
+            nextBadge:SetPoint("LEFT", name, "RIGHT", 10, 0); nextBadge:SetText(L("NEXT"))
+        end
+        local function OpenDungeon()
+            Profile().selectedDungeonID = entry.source.challengeModeID
+            EllesmereUI:SelectPage(PAGE_DUNGEONS)
+        end
+        local openButton = CreateFrame("Button", nil, row)
+        openButton:SetAllPoints(); openButton:RegisterForClicks("AnyDown")
+        openButton:SetFrameLevel(row:GetFrameLevel() + 1)
+        openButton:SetScript("OnClick", OpenDungeon)
+        local iconX = -12
+        for index = math.min(#entry.goals, 10), 1, -1 do
+            local goal = entry.goals[index]
+            local button = CreateFrame("Button", nil, row)
+            button:SetSize(34, 34); button:SetPoint("RIGHT", row, "RIGHT", iconX, 0)
+            button:SetFrameLevel(row:GetFrameLevel() + 2)
+            local texture = button:CreateTexture(nil, "ARTWORK")
+            texture:SetAllPoints(); texture:SetTexture(goal.itemIcon or C_Item.GetItemIconByID(goal.itemID))
+            texture:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+            local color = ns.PRIORITY_COLORS[goal.priority] or { 1, 1, 1 }
+            local strip = button:CreateTexture(nil, "OVERLAY")
+            strip:SetPoint("BOTTOMLEFT"); strip:SetPoint("BOTTOMRIGHT"); strip:SetHeight(3)
+            strip:SetColorTexture(color[1], color[2], color[3], 1)
+            button:SetScript("OnEnter", function(self)
+                local item = { itemID=goal.itemID, name=goal.itemName, link=goal.itemLink,
+                    icon=goal.itemIcon, itemLevel=goal.itemLevel }
+                local targetLink = ns.GetTargetItemLink(goal.itemID, goal.specID, goal.minItemLevel,
+                    goal.linkKind or goal.sourceKind, goal.difficultyID, goal.keyLevel)
+                ShowItemTooltip(self, item, goal.minItemLevel, false, targetLink)
+            end)
+            button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            button:SetScript("OnClick", OpenDungeon)
+            iconX = iconX - 39
+        end
+        y = y - 62
+    end
+    return y
+end
+
 local function BuildOverview(parent, yOffset)
     EllesmereUI:ClearContentHeader()
     local W = EllesmereUI.Widgets
@@ -433,6 +522,8 @@ local function BuildOverview(parent, yOffset)
         function() return SelectedSpecID() end,
         function(v) Profile().selectedSpecID=tonumber(v) or v; QueuePageRebuild() end,
         specOrder); y = y - h
+    y = BuildFarmPriority(parent, y, SelectedSpecID())
+    _, h = W:SectionHeader(parent, "SOURCE DETAILS", y); y = y - h
     local goals = ns.GetGoals(SelectedSpecID(), Profile().showArchived)
     local grouped, keys = {}, {}
     for _, goal in ipairs(goals) do
@@ -746,6 +837,38 @@ local function BuildSettings(parent, yOffset)
         function() return Profile().showArchived end,
         function(v) Profile().showArchived=v; QueuePageRebuild() end,
         "Shows completed goals in the gearing overview."); y = y - h
+    _, h = W:SectionHeader(parent, "LOOT ALERTS", y); y = y - h
+    _, h = W:Toggle(parent, "Wishlist Loot Popup", y,
+        function() return Profile().lootWhisperPopup ~= false end,
+        function(v) Profile().lootWhisperPopup=v end,
+        "Shows a trade whisper popup when another group member loots an open wishlist item."); y = y - h
+    local whisper = Card(parent, y, 82)
+    local whisperLabel = Font(whisper, 10, 0.85, 0.87, 0.9, 1)
+    whisperLabel:SetPoint("TOPLEFT", whisper, "TOPLEFT", 12, -10)
+    whisperLabel:SetText(L("Whisper Template"))
+    local whisperHint = Font(whisper, 8, 0.5, 0.53, 0.58, 1)
+    whisperHint:SetPoint("BOTTOMLEFT", whisper, "BOTTOMLEFT", 12, 8)
+    whisperHint:SetText(L("Available placeholders: {player}, {item}"))
+    local whisperBox = CreateFrame("EditBox", nil, whisper)
+    whisperBox:SetPoint("TOPLEFT", whisper, "TOPLEFT", 145, -8)
+    whisperBox:SetPoint("TOPRIGHT", whisper, "TOPRIGHT", -108, -8)
+    whisperBox:SetHeight(28); whisperBox:SetAutoFocus(false)
+    whisperBox:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF", 9, "")
+    whisperBox:SetTextColor(0.9, 0.92, 0.95, 1); whisperBox:SetTextInsets(7, 7, 0, 0)
+    whisperBox:SetText(Profile().whisperTemplate or "")
+    local whisperBG = whisperBox:CreateTexture(nil, "BACKGROUND")
+    whisperBG:SetAllPoints(); whisperBG:SetColorTexture(0.01, 0.014, 0.02, 0.96)
+    EllesmereUI.MakeBorder(whisperBox, 1, 1, 1, 0.13, EllesmereUI.PP)
+    local function SaveWhisper()
+        local value = whisperBox:GetText()
+        if value ~= "" then Profile().whisperTemplate = value end
+        whisperBox:ClearFocus()
+    end
+    whisperBox:SetScript("OnEnterPressed", SaveWhisper)
+    whisperBox:SetScript("OnEscapePressed", function(self) self:SetText(Profile().whisperTemplate or ""); self:ClearFocus() end)
+    local saveWhisper = StyledButton(whisper, L("Save"), 84, SaveWhisper)
+    saveWhisper:SetPoint("TOPRIGHT", whisper, "TOPRIGHT", -12, -8)
+    y = y - 88
     _, h = W:SectionHeader(parent, "VOIDCORE POOLS", y); y = y - h
     _, h = W:WideButton(parent, "Rescan Voidcore Pools", y, function()
         print("|cff0cd29fEllesmereUI Loot Tracker|r: " .. L("Scanning Voidcore pools..."))
