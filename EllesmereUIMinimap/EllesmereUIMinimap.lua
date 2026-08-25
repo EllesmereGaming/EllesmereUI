@@ -126,7 +126,7 @@ local defaults = {
             hideRaidDifficulty   = false,
             hideCraftingOrder    = false,
             friendsMaxRows       = 0,   -- 0 = no cap; else cap per section, show "...and N more"
-            hideExtraBtns        = { greatVault = false, portals = false, friendsOnline = false, groupButton = false },
+            hideExtraBtns        = { greatVault = false, lootTracker = false, portals = false, friendsOnline = false, groupButton = false },
             mouseoverExtraBtns   = false,  -- extra buttons only show on minimap mouseover
             greatVaultExtraInfo  = true,
             -- Addon compartment: Blizzard's button lives in MinimapCluster,
@@ -1450,6 +1450,7 @@ end
 
 -- Great Vault button: top of the ungrouped stack above the flyout toggle; a single "whole" atlas scaled to fit.
 local _greatVaultBtn = nil
+local _lootTrackerBtn = nil
 local GREAT_VAULT_WHOLE_ATLAS = "greatVault-whole-normal"
 
 local function RegisterVaultEscClose()
@@ -1745,6 +1746,70 @@ local function CreateGreatVaultBtn(parent)
 
     btn._indicatorKey = "_greatVault"
 
+    return btn
+end
+
+local function SizeLootTrackerBtn(btn, showBg)
+    local btnSz = GetInteractableBtnSize()
+    btn:SetSize(btnSz, btnSz)
+    if btn._bg then btn._bg:SetShown(showBg ~= false) end
+    local inset = 4
+    local avail = btnSz - inset * 2
+    btn._icon:SetSize(avail, avail)
+    btn._icon:ClearAllPoints()
+    btn._icon:SetPoint("CENTER", btn, "CENTER", 0, 0)
+end
+
+local function CreateLootTrackerBtn(parent)
+    -- The companion is optional. Do not leave a dead minimap control behind
+    -- when it is disabled or not installed.
+    if not _G.EllesmereUILootTracker then return nil end
+    local btn = CreateFrame("Button", nil, parent)
+    btn:SetSize(GetInteractableBtnSize(), GetInteractableBtnSize())
+    btn:SetFrameLevel(parent:GetFrameLevel() + 10)
+    btn:EnableMouse(true)
+
+    local bg = CreateFrame("Frame", nil, btn, "BackdropTemplate")
+    bg:SetBackdrop({ bgFile = "Interface\\ChatFrame\\ChatFrameBackground" })
+    bg:SetBackdropColor(0, 0, 0, 0.8)
+    bg:SetAllPoints(btn)
+    bg:SetFrameLevel(btn:GetFrameLevel() - 1)
+    btn._bg = bg
+
+    local icon = btn:CreateTexture(nil, "ARTWORK")
+    icon:SetTexture("Interface\\Icons\\INV_Misc_TreasureChest04b")
+    icon:SetTexCoord(6/64, 58/64, 6/64, 58/64)
+    btn._icon = icon
+    SizeLootTrackerBtn(btn)
+
+    btn:SetScript("OnEnter", function(self)
+        self._icon:SetVertexColor(1, 1, 1, 1)
+        if EllesmereUI.ShowWidgetTooltip then
+            EllesmereUI.ShowWidgetTooltip(self, "Loot Tracker", {
+                anchor = EBS._Grow.TT(), scale = GetCustomTooltipScale(),
+            })
+        end
+    end)
+    btn:SetScript("OnLeave", function(self)
+        self._icon:SetVertexColor(0.85, 0.85, 0.85, 1)
+        if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+    end)
+    btn:SetScript("OnMouseDown", function(self)
+        self._icon:SetVertexColor(0.7, 0.7, 0.7, 1)
+    end)
+    btn:SetScript("OnMouseUp", function(self)
+        local value = self:IsMouseOver() and 1 or 0.85
+        self._icon:SetVertexColor(value, value, value, 1)
+    end)
+    btn:SetScript("OnClick", function(self)
+        if GetFFD(self).freeMoveJustDragged then return end
+        if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip(true) end
+        local tracker = _G.EllesmereUILootTracker
+        if tracker and tracker.Open then tracker.Open("Overview") end
+    end)
+
+    icon:SetVertexColor(0.85, 0.85, 0.85, 1)
+    btn._indicatorKey = "_lootTracker"
     return btn
 end
 
@@ -3107,8 +3172,9 @@ local function BuildCustomIndicators(minimap)
         HideFriendsTooltip()
     end)
 
-    -- Great Vault + M+ Portal buttons: built once, anchored in LayoutIndicatorFrames.
+    -- Great Vault, Loot Tracker and M+ Portal buttons: built once, anchored in LayoutIndicatorFrames.
     _greatVaultBtn = CreateGreatVaultBtn(minimap)
+    _lootTrackerBtn = CreateLootTrackerBtn(minimap)
     _portalBtn = CreatePortalBtn(minimap)
 end
 
@@ -3149,7 +3215,7 @@ local function SyncIndicatorVisibility()
 end
 
 -------------------------------------------------------------------------------
---  Mouseover Extra Buttons: Great Vault/Portals/Friends/Group Button show only while
+--  Mouseover Extra Buttons: Great Vault/Loot Tracker/Portals/Friends/Group Button show only while
 --  the mouse is over the minimap or one of them (either flyout open keeps them shown
 --  until it closes). Event-driven off OnEnter/OnLeave, with a small deferred hide so
 --  crossing tiny inter-frame gaps doesn't flicker.
@@ -3220,6 +3286,7 @@ local function MO_Refresh(p)
     local heb = (p and p.hideExtraBtns) or {}
     if p and p.mouseoverExtraBtns then
         if _greatVaultBtn and not heb.greatVault then _moButtons[#_moButtons + 1] = _greatVaultBtn end
+        if _lootTrackerBtn and not heb.lootTracker then _moButtons[#_moButtons + 1] = _lootTrackerBtn end
         if _customIndicators.friends and not heb.friendsOnline then _moButtons[#_moButtons + 1] = _customIndicators.friends end
         if _portalBtn and not heb.portals then _moButtons[#_moButtons + 1] = _portalBtn end
         if flyoutToggle and not heb.groupButton then _moButtons[#_moButtons + 1] = flyoutToggle end
@@ -3239,6 +3306,7 @@ local function MO_Refresh(p)
         MO_CancelHide()
         -- Restore full alpha (harmless on buttons hidden by hideExtraBtns).
         if _greatVaultBtn then _greatVaultBtn:SetAlpha(1) end
+        if _lootTrackerBtn then _lootTrackerBtn:SetAlpha(1) end
         if _customIndicators.friends then _customIndicators.friends:SetAlpha(1) end
         if _portalBtn then _portalBtn:SetAlpha(1) end
         if flyoutToggle then flyoutToggle:SetAlpha(1) end
@@ -3535,7 +3603,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
 
         local heb = p.hideExtraBtns or {}
 
-        -- Extra buttons: Great Vault, Friends Online, M+ Portals. Visibility from
+        -- Extra buttons: Great Vault, Loot Tracker, Friends Online, M+ Portals. Visibility from
         -- hideExtraBtns; row order from extraBtnOrder (drag-to-reorder in options; nil = fallback list below).
         local function PlaceExtraButton(key)
             if key == "greatVault" then
@@ -3549,6 +3617,19 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
                         _greatVaultBtn:ClearAllPoints()
                         PlaceRowButton(_greatVaultBtn)
                         _greatVaultBtn:Show()
+                    end
+                end
+            elseif key == "lootTracker" then
+                if _lootTrackerBtn then
+                    if heb.lootTracker then
+                        _lootTrackerBtn:Hide()
+                    else
+                        SizeLootTrackerBtn(_lootTrackerBtn, showBg)
+                        _lootTrackerBtn:SetParent(minimap)
+                        _lootTrackerBtn:SetFrameLevel(minimap:GetFrameLevel() + 11)
+                        _lootTrackerBtn:ClearAllPoints()
+                        PlaceRowButton(_lootTrackerBtn)
+                        _lootTrackerBtn:Show()
                     end
                 end
             elseif key == "friendsOnline" then
@@ -3587,7 +3668,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
             end
         end
         -- Safety net: place anything a stale saved order is missing
-        for _, key in ipairs({ "greatVault", "friendsOnline", "portals" }) do
+        for _, key in ipairs({ "greatVault", "lootTracker", "friendsOnline", "portals" }) do
             if not placedExtra[key] then placedExtra[key] = true; PlaceExtraButton(key) end
         end
 
@@ -3607,6 +3688,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
     if ci.crafting then fmTargets[#fmTargets + 1] = ci.crafting end
     if flyoutToggle then fmTargets[#fmTargets + 1] = flyoutToggle end
     if _greatVaultBtn and not heb.greatVault then fmTargets[#fmTargets + 1] = _greatVaultBtn end
+    if _lootTrackerBtn and not heb.lootTracker then fmTargets[#fmTargets + 1] = _lootTrackerBtn end
     if _portalBtn and not heb.portals then fmTargets[#fmTargets + 1] = _portalBtn end
     if ci.friends and not heb.friendsOnline then fmTargets[#fmTargets + 1] = ci.friends end
     -- Include ungrouped addon buttons
