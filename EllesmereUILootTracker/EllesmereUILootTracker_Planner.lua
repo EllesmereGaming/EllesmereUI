@@ -42,10 +42,11 @@ local function ItemRecord(itemID, link, recipeID, recipeName)
         and classID ~= Enum.ItemClass.Weapon then return nil end
     local name, cachedLink = C_Item.GetItemInfo(itemID)
     if (not name or not cachedLink) and ns.RequestCatalogItemData then ns.RequestCatalogItemData(itemID) end
-    local itemLevel = C_Item.GetDetailedItemLevelInfo and C_Item.GetDetailedItemLevelInfo(link or cachedLink or itemID)
+    local resolvedLink = link or cachedLink or ("item:" .. itemID)
+    local itemLevel = C_Item.GetDetailedItemLevelInfo and C_Item.GetDetailedItemLevelInfo(resolvedLink)
     if issecretvalue and issecretvalue(itemLevel) then itemLevel = nil end
     return {
-        itemID=itemID, name=name or ("Item " .. itemID), link=link or cachedLink,
+        itemID=itemID, name=name or ("Item " .. itemID), link=resolvedLink,
         icon=icon, equipLoc=equipLoc, slot=_G[equipLoc] or equipLoc,
         itemLevel=tonumber(itemLevel), recipeID=recipeID, recipeName=recipeName,
     }
