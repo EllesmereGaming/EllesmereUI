@@ -260,6 +260,10 @@ function ns.SetPlannedItem(mode, slotKey, candidate, specID)
     local plan = ns.GetPlan(mode, specID)
     local old = plan.slots[slotKey]
     if old and candidate and old.sourceKey == candidate.sourceKey and old.itemID == candidate.item.itemID then
+        if old.sourceKind == "dungeon" or old.sourceKind == "raid" then
+            old.catalyst = ns.ToggleGoalCatalyst(old.sourceKey, old.itemID, specID)
+            plan.updatedAt = time()
+        end
         return
     end
     plan.slots[slotKey] = nil
@@ -312,6 +316,7 @@ function ns.SetPlannedItem(mode, slotKey, candidate, specID)
             difficultyID=candidate.difficultyID, keyLevel=candidate.keyLevel,
             targetLevel=candidate.targetLevel, linkKind=candidate.linkKind,
             recipeID=item.recipeID, selectedAt=time(),
+            catalyst=goal and goal.catalyst or nil,
         }
         SyncGoalFromPlans(goal, specID)
     end

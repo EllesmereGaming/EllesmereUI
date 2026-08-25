@@ -30,6 +30,7 @@ local function AddGoalLine(tooltip, data)
     local state = goal.state == "archived" and EllesmereUI.L("Obtained") or EllesmereUI.L("Open")
     local color = ns.PRIORITY_COLORS[goal.priority] or { 1, 1, 1 }
     tooltip:AddLine(EllesmereUI.Lf("EllesmereUI Loot Tracker: %1$s (%2$s)", priority, state), color[1], color[2], color[3])
+    if goal.catalyst then tooltip:AddLine(EllesmereUI.L("Catalyst planned"), 1, 0.7, 0.28) end
 end
 
 if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall then
@@ -85,6 +86,7 @@ local function SetMarker(button, itemID)
     marker = marker or EnsureMarker(button)
     if not marker then return end
     local color = ns.PRIORITY_COLORS[goal.priority] or { 1, 1, 1 }
+    marker.glyph:SetText(goal.catalyst and "C" or "W")
     marker.glyph:SetTextColor(color[1], color[2], color[3], 1)
     marker.bg:Show()
     marker.glyph:Show()

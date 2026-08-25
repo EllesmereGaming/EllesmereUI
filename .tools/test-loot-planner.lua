@@ -45,6 +45,11 @@ end
 function ns.SetPriority(sourceKey, itemID, priority)
     data.goals[GoalKey(sourceKey, itemID)].priority = priority
 end
+function ns.ToggleGoalCatalyst(sourceKey, itemID)
+    local goal = data.goals[GoalKey(sourceKey, itemID)]
+    goal.catalyst = not goal.catalyst or nil
+    return goal.catalyst == true
+end
 function ns.RemoveGoal(sourceKey, itemID) data.goals[GoalKey(sourceKey, itemID)] = nil end
 function ns.NotifyChanged() end
 function ns.RegisterSource(source) registeredSources[source.kind] = source end
@@ -74,17 +79,25 @@ ns.SetPlannedItem("overall", "OFFHAND", {
     targetLevel = 311,
     keyLevel = 10,
 }, 1)
-ns.SetPlannedItem("overall", "MAINHAND", {
+local twoHandCandidate = {
     source = source,
+    sourceKey = "dungeon:1",
     item = { itemID = 2, name = "Two-Hand", equipLoc = "INVTYPE_2HWEAPON" },
     targetLevel = 311,
     keyLevel = 10,
-}, 1)
+}
+ns.SetPlannedItem("overall", "MAINHAND", twoHandCandidate, 1)
 
 local plan = ns.GetPlan("overall", 1)
 assert(plan.slots.MAINHAND and not plan.slots.OFFHAND, "two-hand selection must clear off-hand")
 assert(not data.goals["dungeon:1:1"], "orphaned planner-only goal must be removed")
 assert(data.goals["dungeon:1:2"].priority == 3, "planner selection must be Best in Slot")
+ns.SetPlannedItem("overall", "MAINHAND", twoHandCandidate, 1)
+assert(plan.slots.MAINHAND.catalyst and data.goals["dungeon:1:2"].catalyst,
+    "clicking a selected dungeon item must mark it for Catalyst")
+ns.SetPlannedItem("overall", "MAINHAND", twoHandCandidate, 1)
+assert(not plan.slots.MAINHAND.catalyst and not data.goals["dungeon:1:2"].catalyst,
+    "clicking it again must clear the Catalyst plan")
 local export = ns.GetSimCPlan("overall", 1)
 assert(export:find("main_hand=two_hand,id=2,ilevel=311", 1, true), "SimC gear export is incomplete")
 

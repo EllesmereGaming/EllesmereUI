@@ -184,7 +184,7 @@ local function ShowItemTooltip(frame, item, targetLevel, showActions, targetLink
     end
     if showActions then
         GameTooltip:AddLine(" ")
-        GameTooltip:AddLine(L("Left-click: change priority"), 0.75, 0.75, 0.75)
+        GameTooltip:AddLine(L("Left-click: change priority / Catalyst"), 0.75, 0.75, 0.75)
         GameTooltip:AddLine(L("Right-click: correct Voidcore pool"), 0.75, 0.75, 0.75)
     end
     GameTooltip:Show()
@@ -206,8 +206,20 @@ end
 local function PriorityText(goal)
     if not goal then return L("Not marked"), 0.55, 0.55, 0.55 end
     local color = ns.PRIORITY_COLORS[goal.priority] or { 1, 1, 1 }
-    local suffix = goal.state == "archived" and ("  |cff55dd88" .. L("Obtained") .. "|r") or ""
+    local suffix = goal.catalyst and ("  |cffffb347" .. L("Catalyst") .. "|r") or ""
+    if goal.state == "archived" then suffix = suffix .. "  |cff55dd88" .. L("Obtained") .. "|r" end
     return L(ns.PRIORITY_NAMES[goal.priority]) .. suffix, color[1], color[2], color[3]
+end
+
+local function AddCatalystBadge(parent, anchor, shown)
+    if not shown then return end
+    local bg = parent:CreateTexture(nil, "OVERLAY")
+    bg:SetSize(14, 14); bg:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", 3, 3)
+    bg:SetColorTexture(0.12, 0.07, 0.02, 0.96)
+    local glyph = parent:CreateFontString(nil, "OVERLAY")
+    glyph:SetFont(STANDARD_TEXT_FONT, 9, "OUTLINE")
+    glyph:SetPoint("CENTER", bg, "CENTER", 0, 0)
+    glyph:SetText("C"); glyph:SetTextColor(1, 0.7, 0.28, 1)
 end
 
 local function BuildItemRow(parent, y, source, item, specID, difficultyID)
@@ -243,6 +255,7 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
     slot:SetText(slotText)
 
     local goal = ns.GetGoal(sourceKey, item.itemID, specID)
+    AddCatalystBadge(frame, icon, goal and goal.catalyst)
     local obtained = (goal and goal.state == "archived") or ns.IsItemOwned(item.itemID, displayItemLevel)
     local priorityText, pr, pg, pb = PriorityText(goal)
     local status = Font(frame, 10, pr, pg, pb, 1)
@@ -292,6 +305,11 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
     frame:SetScript("OnEnter", function(self)
         frame._hover:SetColorTexture(1, 1, 1, 0.035)
         ShowItemTooltip(self, item, displayItemLevel, true, targetLink)
+        if goal and goal.catalyst then
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine(L("Catalyst planned"), 1, 0.7, 0.28)
+            GameTooltip:Show()
+        end
     end)
     frame:SetScript("OnLeave", function()
         frame._hover:SetColorTexture(1, 1, 1, 0)
@@ -566,6 +584,7 @@ local function BuildBonusRollPriority(parent, y, specID)
             local texture = button:CreateTexture(nil, "ARTWORK")
             texture:SetAllPoints(); texture:SetTexture(goal.itemIcon or C_Item.GetItemIconByID(goal.itemID))
             texture:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+            AddCatalystBadge(button, texture, goal.catalyst)
             local color = ns.PRIORITY_COLORS[goal.priority] or { 1, 1, 1 }
             local strip = button:CreateTexture(nil, "OVERLAY")
             strip:SetPoint("BOTTOMLEFT"); strip:SetPoint("BOTTOMRIGHT"); strip:SetHeight(3)
@@ -576,6 +595,9 @@ local function BuildBonusRollPriority(parent, y, specID)
                 local targetLink = ns.GetTargetItemLink(goal.itemID, goal.specID, goal.minItemLevel,
                     goal.linkKind or goal.sourceKind, goal.difficultyID, goal.keyLevel)
                 ShowItemTooltip(self, item, goal.minItemLevel, false, targetLink)
+                if goal.catalyst then
+                    GameTooltip:AddLine(" "); GameTooltip:AddLine(L("Catalyst planned"), 1, 0.7, 0.28); GameTooltip:Show()
+                end
             end)
             button:SetScript("OnLeave", function() GameTooltip:Hide() end)
             button:SetScript("OnClick", OpenSource)
@@ -694,6 +716,7 @@ local function BuildFarmPriority(parent, y, specID)
             local texture = button:CreateTexture(nil, "ARTWORK")
             texture:SetAllPoints(); texture:SetTexture(goal.itemIcon or C_Item.GetItemIconByID(goal.itemID))
             texture:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+            AddCatalystBadge(button, texture, goal.catalyst)
             local color = ns.PRIORITY_COLORS[goal.priority] or { 1, 1, 1 }
             local strip = button:CreateTexture(nil, "OVERLAY")
             strip:SetPoint("BOTTOMLEFT"); strip:SetPoint("BOTTOMRIGHT"); strip:SetHeight(3)
@@ -704,6 +727,9 @@ local function BuildFarmPriority(parent, y, specID)
                 local targetLink = ns.GetTargetItemLink(goal.itemID, goal.specID, goal.minItemLevel,
                     goal.linkKind or goal.sourceKind, goal.difficultyID, goal.keyLevel)
                 ShowItemTooltip(self, item, goal.minItemLevel, false, targetLink)
+                if goal.catalyst then
+                    GameTooltip:AddLine(" "); GameTooltip:AddLine(L("Catalyst planned"), 1, 0.7, 0.28); GameTooltip:Show()
+                end
             end)
             button:SetScript("OnLeave", function() GameTooltip:Hide() end)
             button:SetScript("OnClick", OpenDungeon)
@@ -805,6 +831,7 @@ local function BuildOverview(parent, yOffset)
                 itemIcon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
                 itemIcon:SetDesaturated(obtained)
                 itemIcon:SetAlpha(obtained and 0.55 or 1)
+                AddCatalystBadge(itemHitbox, itemIcon, goal.catalyst)
                 local priority = itemHitbox:CreateTexture(nil, "OVERLAY")
                 priority:SetPoint("BOTTOMLEFT", itemHitbox, "BOTTOMLEFT", 0, 0)
                 priority:SetPoint("BOTTOMRIGHT", itemHitbox, "BOTTOMRIGHT", 0, 0)
@@ -825,6 +852,7 @@ local function BuildOverview(parent, yOffset)
                     GameTooltip:AddLine(" ")
                     GameTooltip:AddDoubleLine(priorityName, state,
                         color[1], color[2], color[3], obtained and 0.33 or 0.8, obtained and 0.87 or 0.8, obtained and 0.53 or 0.8)
+                    if goal.catalyst then GameTooltip:AddLine(L("Catalyst planned"), 1, 0.7, 0.28) end
                     GameTooltip:Show()
                 end)
                 itemHitbox:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -858,6 +886,7 @@ local function PlannerSlotCard(parent, y, slot, selection, selected, right, onSe
         or "Interface\\PaperDoll\\UI-Backpack-EmptySlot")
     icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     icon:SetDesaturated(not selection)
+    AddCatalystBadge(frame, icon, selection and selection.catalyst)
     local slotName = Font(frame, 9, 0.55, 0.58, 0.64, 1)
     slotName:SetPoint("TOPLEFT", icon, "TOPRIGHT", 8, -4)
     slotName:SetText(slot.name or slot.key)
@@ -870,13 +899,22 @@ local function PlannerSlotCard(parent, y, slot, selection, selected, right, onSe
     if selectedName and selection.targetLevel then
         selectedName = selectedName .. "  |cff777d88• iLvl " .. selection.targetLevel .. "|r"
     end
+    if selectedName and selection.catalyst then
+        selectedName = selectedName .. "  |cffffb347" .. L("Catalyst") .. "|r"
+    end
     itemName:SetText(selectedName or L("Click to choose an item"))
     if selection then
         local clear = Font(frame, 15, 0.65, 0.67, 0.72, 1)
         clear:SetPoint("RIGHT", frame, "RIGHT", -9, 0); clear:SetText("×")
     end
     frame:SetScript("OnClick", function(_, button)
-        if button == "RightButton" and selection then onSelect(true) else onSelect(false) end
+        if button == "RightButton" and selection then
+            onSelect(true)
+        elseif selection and selected and (selection.sourceKind == "dungeon" or selection.sourceKind == "raid") then
+            onSelect(false, true)
+        else
+            onSelect(false)
+        end
     end)
     frame:SetScript("OnEnter", function(self)
         if selection then
@@ -886,6 +924,9 @@ local function PlannerSlotCard(parent, y, slot, selection, selected, right, onSe
                 selection.sourceKind == "crafted")
             GameTooltip:AddLine(" ")
             GameTooltip:AddLine(L("Right-click to clear this slot"), 0.75, 0.75, 0.75)
+            if selection.sourceKind == "dungeon" or selection.sourceKind == "raid" then
+                GameTooltip:AddLine(L("Left-click again to toggle Catalyst"), 1, 0.7, 0.28)
+            end
             GameTooltip:Show()
         end
     end)
@@ -894,11 +935,14 @@ end
 
 local function BuildPlannerCandidate(parent, y, candidate, selected, onClick)
     local source, item = candidate.source, candidate.item
+    local selectedGoal = selected and ns.GetGoal(candidate.sourceKey, item.itemID, SelectedSpecID())
+    local catalyst = selectedGoal and selectedGoal.catalyst
     local frame = Card(parent, y, 43, true)
     frame:RegisterForClicks("AnyDown")
     local icon = frame:CreateTexture(nil, "ARTWORK")
     icon:SetSize(32, 32); icon:SetPoint("LEFT", frame, "LEFT", 7, 0)
     icon:SetTexture(item.icon or C_Item.GetItemIconByID(item.itemID)); icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    AddCatalystBadge(frame, icon, catalyst)
     local name = Font(frame, 10, 0.78, 0.35, 1, 1)
     name:SetPoint("TOPLEFT", icon, "TOPRIGHT", 8, -4); name:SetText(item.name or ("Item " .. item.itemID))
     local sourceText = source.kind == "raid" and ((source.instanceName or "Raid") .. " • " .. source.name)
@@ -908,12 +952,18 @@ local function BuildPlannerCandidate(parent, y, candidate, selected, onClick)
     sub:SetText(sourceText .. (candidate.targetLevel and ("  •  iLvl " .. candidate.targetLevel) or ""))
     local state = Font(frame, 10, selected and 0.05 or 0.55, selected and 0.82 or 0.58,
         selected and 0.62 or 0.64, 1)
-    state:SetPoint("RIGHT", frame, "RIGHT", -12, 0); state:SetText(selected and L("Selected BiS") or L("Set as BiS"))
+    state:SetPoint("RIGHT", frame, "RIGHT", -12, 0)
+    state:SetText(selected and (L("Selected BiS") .. (catalyst and ("  |cffffb347" .. L("Catalyst") .. "|r") or "")) or L("Set as BiS"))
     frame:SetScript("OnClick", onClick)
     frame:SetScript("OnEnter", function(self)
         local targetLink = ns.GetTargetItemLink(item.itemID, SelectedSpecID(), candidate.targetLevel,
             candidate.linkKind or source.kind, candidate.difficultyID, candidate.keyLevel)
         ShowItemTooltip(self, item, candidate.targetLevel, false, targetLink, source.kind == "crafted")
+        if selected and (source.kind == "dungeon" or source.kind == "raid") then
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine(L("Click selected item again to toggle Catalyst"), 1, 0.7, 0.28)
+            GameTooltip:Show()
+        end
     end)
     frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
     return 47
@@ -989,8 +1039,9 @@ local function BuildPlanner(parent, yOffset)
     for index, slot in ipairs(ns.PLAN_SLOTS) do
         local row = math.floor((index - 1) / 2)
         PlannerSlotCard(parent, y - row * 54, slot, plan.slots[slot.key], selectedSlot == slot.key,
-            index % 2 == 0, function(clear)
+            index % 2 == 0, function(clear, toggleCatalyst)
                 if clear then ns.SetPlannedItem(planKey, slot.key, nil, specID)
+                elseif toggleCatalyst then ns.ToggleGoalCatalyst(plan.slots[slot.key].sourceKey, plan.slots[slot.key].itemID, specID)
                 else Profile().plannerSlot = slot.key; QueuePageRebuild() end
             end)
     end

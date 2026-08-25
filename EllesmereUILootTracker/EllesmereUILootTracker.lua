@@ -194,7 +194,9 @@ function ns.GetGoalLookup(specID)
         local best = index[goal.itemID]
         if not best
             or (best.state == "archived" and goal.state == "open")
-            or (best.state == goal.state and goal.priority > best.priority) then
+            or (best.state == goal.state and goal.priority > best.priority)
+            or (best.state == goal.state and goal.priority == best.priority
+                and goal.catalyst and not best.catalyst) then
             index[goal.itemID] = goal
         end
     end
@@ -272,6 +274,28 @@ function ns.SetPriority(sourceKey, itemID, priority, specID)
     FireChanged("goal")
 end
 
+function ns.SetGoalCatalyst(sourceKey, itemID, enabled, specID)
+    local goal = ns.GetGoal(sourceKey, itemID, specID)
+    if not goal or (goal.sourceKind ~= "dungeon" and goal.sourceKind ~= "raid") then return false end
+    goal.catalyst = enabled and true or nil
+    goal.updatedAt = time()
+    for _, plan in pairs(SpecData(specID).plans or {}) do
+        for _, selection in pairs(plan.slots or {}) do
+            if selection.sourceKey == sourceKey and selection.itemID == itemID then
+                selection.catalyst = goal.catalyst
+            end
+        end
+    end
+    InvalidateGoalIndex(specID)
+    FireChanged("goal")
+    return goal.catalyst == true
+end
+
+function ns.ToggleGoalCatalyst(sourceKey, itemID, specID)
+    local goal = ns.GetGoal(sourceKey, itemID, specID)
+    return ns.SetGoalCatalyst(sourceKey, itemID, not (goal and goal.catalyst), specID)
+end
+
 function ns.ReactivateGoal(sourceKey, itemID, specID)
     local goal = ns.GetGoal(sourceKey, itemID, specID)
     if not goal then return end
@@ -288,6 +312,8 @@ function ns.CycleGoal(source, item, specID, difficultyID, targetLevel)
         ns.SetPriority(sourceKey, item.itemID, ns.PRIORITY_NEED, specID)
     elseif goal.priority == ns.PRIORITY_NEED then
         ns.SetPriority(sourceKey, item.itemID, ns.PRIORITY_BIS, specID)
+    elseif not goal.catalyst and (source.kind == "dungeon" or source.kind == "raid") then
+        ns.SetGoalCatalyst(sourceKey, item.itemID, true, specID)
     else
         ns.RemoveGoal(sourceKey, item.itemID, specID)
     end
