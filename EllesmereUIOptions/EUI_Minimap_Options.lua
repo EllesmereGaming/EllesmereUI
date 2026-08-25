@@ -572,7 +572,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return "__placeholder" end,
               setValue = function() end },
             { type="toggle", text="Mouseover Extra Buttons",
-              tooltip="When enabled, the extra buttons (Great Vault, M+ Portals, Friends Online, Group Button) and any ungrouped minimap buttons only show while the mouse is over the minimap. The M+ Portals flyout keeps them shown until it closes.",
+              tooltip="When enabled, the extra buttons (Great Vault, Loot Tracker, M+ Portals, Friends Online, Group Button) and any ungrouped minimap buttons only show while the mouse is over the minimap. The M+ Portals flyout keeps them shown until it closes.",
               getValue = function() local m = MinimapDB(); return m and m.mouseoverExtraBtns or false end,
               setValue = function(v) local m = MinimapDB(); if m then m.mouseoverExtraBtns = v; RefreshMinimap() end end }
         );  y = y - h
@@ -587,10 +587,11 @@ initFrame:SetScript("OnEvent", function(self)
             -- extraBtnOrder; the Group Button anchors the row and is checkbox-only.
             local EXTRA_BTN_LABELS = {
                 greatVault    = "Great Vault",
+                lootTracker   = "Loot Tracker",
                 friendsOnline = "Friends Online",
                 portals       = "M+ Portals",
             }
-            local EXTRA_BTN_DEFAULT_ORDER = { "greatVault", "friendsOnline", "portals" }
+            local EXTRA_BTN_DEFAULT_ORDER = { "greatVault", "lootTracker", "friendsOnline", "portals" }
             local function GetExtraBtnItems()
                 local m = MinimapDB()
                 local order = m and m.extraBtnOrder

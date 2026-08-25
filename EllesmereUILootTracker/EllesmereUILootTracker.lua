@@ -619,9 +619,19 @@ end)
 _G.EllesmereUILootTracker = ns
 _G._EULT_DB = function() return profileDB end
 
+function ns.Open(pageName)
+    if InCombatLockdown and InCombatLockdown() then return end
+    EllesmereUI:ShowModule(ADDON_NAME)
+    if pageName then
+        -- The first panel open is split across frames by EllesmereUI to avoid
+        -- the script watchdog. Select the requested page after that deferred
+        -- module activation has completed.
+        C_Timer.After(0.05, function() EllesmereUI:SelectPage(pageName) end)
+    end
+end
+
 SLASH_EULT1 = "/eult"
 SLASH_EULT2 = "/loottracker"
 SlashCmdList.EULT = function()
-    if InCombatLockdown and InCombatLockdown() then return end
-    EllesmereUI:ShowModule(ADDON_NAME)
+    ns.Open()
 end
