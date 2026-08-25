@@ -483,10 +483,49 @@ local function BuildFarmPriority(parent, y, specID)
         local rankText = Font(row, 14, rank == 1 and 0.05 or 0.45, rank == 1 and 0.82 or 0.48,
             rank == 1 and 0.62 or 0.54, 1)
         rankText:SetPoint("LEFT", row, "LEFT", 12, 0); rankText:SetText("#" .. rank)
-        local dungeonIcon = row:CreateTexture(nil, "ARTWORK")
-        dungeonIcon:SetSize(32, 32); dungeonIcon:SetPoint("LEFT", row, "LEFT", 45, 0)
+        local teleportButton = CreateFrame("Button", nil, row, "SecureActionButtonTemplate")
+        teleportButton:SetSize(32, 32); teleportButton:SetPoint("LEFT", row, "LEFT", 45, 0)
+        teleportButton:RegisterForClicks("AnyUp")
+        teleportButton:SetFrameLevel(row:GetFrameLevel() + 2)
+        local dungeonIcon = teleportButton:CreateTexture(nil, "ARTWORK")
+        dungeonIcon:SetAllPoints()
         dungeonIcon:SetTexture(entry.source.texture or "Interface\\Icons\\INV_Misc_Map_01")
         dungeonIcon:SetTexCoord(0.12, 0.88, 0.12, 0.88)
+        local teleportSpellID = entry.source.teleportSpellID
+        local function TeleportKnown()
+            if not teleportSpellID then return false end
+            if C_SpellBook and C_SpellBook.IsSpellInSpellBook then
+                return C_SpellBook.IsSpellInSpellBook(teleportSpellID)
+            end
+            return IsSpellKnown and IsSpellKnown(teleportSpellID)
+        end
+        local function ConfigureTeleport()
+            if not teleportSpellID then return end
+            if InCombatLockdown() then
+                teleportButton:RegisterEvent("PLAYER_REGEN_ENABLED")
+                return
+            end
+            teleportButton:UnregisterEvent("PLAYER_REGEN_ENABLED")
+            teleportButton:SetAttribute("type", "spell")
+            teleportButton:SetAttribute("spell", teleportSpellID)
+        end
+        teleportButton:SetScript("OnEvent", ConfigureTeleport)
+        teleportButton:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            if TeleportKnown() and GameTooltip.SetSpellByID then
+                GameTooltip:SetSpellByID(teleportSpellID)
+                GameTooltip:AddLine(" ")
+                GameTooltip:AddLine(L("Click to teleport"), 0.05, 0.82, 0.62)
+                if InCombatLockdown() then GameTooltip:AddLine(ERR_NOT_IN_COMBAT, 1, 0.2, 0.2) end
+            else
+                GameTooltip:SetText(entry.source.name, 1, 1, 1)
+                GameTooltip:AddLine(L("Dungeon teleport not unlocked."), 0.8, 0.3, 0.3)
+            end
+            GameTooltip:Show()
+        end)
+        teleportButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        dungeonIcon:SetDesaturated(not TeleportKnown())
+        ConfigureTeleport()
         local name = Font(row, 11, 0.92, 0.94, 0.97, 1)
         name:SetPoint("TOPLEFT", row, "TOPLEFT", 87, -10)
         name:SetPoint("RIGHT", row, "RIGHT", -430, 0); name:SetWordWrap(false); name:SetText(entry.source.name)
