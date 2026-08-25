@@ -207,16 +207,15 @@ end
 ApplySubtitleFont()
 
 local _ffFile, _ffSize
-local function ApplyFriendlyFontOverride()
+local function ApplyFriendlyFontOverride(force)
     SaveOriginalFonts()
     local font = GetFont()
     local size = GetFriendlyNameSize()
-    -- Blizzard never rewrites the shared font OBJECTS (its plate setup only
-    -- SetFontObjects the name strings onto them), so once they carry our
-    -- file + size they keep it: an unchanged pair means nothing to restore
-    -- or re-apply. Every SetFont on these objects relayouts every plate
-    -- name, so this stamp is what keeps plate-add bursts free.
-    if fontOverrideApplied and font == _ffFile and size == _ffSize then return end
+    -- Blizzard normally doesn't rewrite the shared font OBJECTS on a plain
+    -- plate add, so an unchanged pair is usually a no-op -- EXCEPT
+    -- UpdateNamePlateOptions can reset them out from under us, which is why
+    -- that call site passes force=true to bypass this cache entirely.
+    if not force and fontOverrideApplied and font == _ffFile and size == _ffSize then return end
     -- Restore to known-good originals first so we read the correct height
     -- even if Blizzard reset the font objects after a CVar change.
     if fontOverrideApplied then
@@ -229,12 +228,10 @@ local function ApplyFriendlyFontOverride()
         fontOverrideApplied = false
     end
     if SystemFont_NamePlate and SystemFont_NamePlate.SetFont then
-        local _, _, flags = SystemFont_NamePlate:GetFont()
-        SystemFont_NamePlate:SetFont(font, size, flags or GetNPOutline())
+        SystemFont_NamePlate:SetFont(font, size, GetNPOutline())
     end
     if SystemFont_NamePlate_Outlined and SystemFont_NamePlate_Outlined.SetFont then
-        local _, _, flags = SystemFont_NamePlate_Outlined:GetFont()
-        SystemFont_NamePlate_Outlined:SetFont(font, size, flags or GetNPOutline())
+        SystemFont_NamePlate_Outlined:SetFont(font, size, GetNPOutline())
     end
     _ffFile, _ffSize = font, size
     fontOverrideApplied = true
@@ -352,7 +349,7 @@ local function ScheduleNameSizeReapply()
     C_Timer.After(0, function()
         _nameSizeReapplyPending = false
         if not IsNameOnlyMode() then return end
-        ApplyFriendlyFontOverride()
+        ApplyFriendlyFontOverride(true)
         -- Blizzard's own ApplyFrameOptions pass re-anchors the name (that is
         -- what fires this), so re-collapse it here rather than from a
         -- SetPoint hook, which would re-enter UpdateAnchors mid-pass. Rides
