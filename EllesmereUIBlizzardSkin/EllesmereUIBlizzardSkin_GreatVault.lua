@@ -451,7 +451,8 @@ local function RefreshTypeFrameState(frame, theme)
     if not frame then return end
     if frame.Name then
         local c = STYLE.colors.typeName
-        frame.Name:SetTextColor(c.r, c.g, c.b, 1)
+        -- nil size keeps Blizzard's native size
+        ApplyFont(frame.Name, nil, c.r, c.g, c.b, 1)
 
         local d = GetFFD(frame)
         if not d.nameRaised then
