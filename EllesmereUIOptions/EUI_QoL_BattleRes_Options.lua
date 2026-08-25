@@ -683,15 +683,22 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
         -- Show Sated / Show Ready: independent toggles. Sated gates the real lockout
         -- countdown, Ready gates the label shown once that lockout is gone -- either,
         -- both or neither can be on.
+        -- Toggle controls don't self-trigger a refresh pass (unlike sliders/
+        -- dropdowns), so without the explicit RefreshPage() the Ready row below
+        -- stays stale (not greyed/ungreyed) until something else repaints the page.
         row, h = W:DualRow(parent, y,
-            { type="toggle", text="Show Sated",
+            { type="toggle", text="Show Icon when Sated",
               tooltip="Show the Sated/Exhaustion lockout countdown on the icon.",
               getValue=function() return BL_Cfg("showSated") ~= false end,
-              setValue=function(v) BL_Set("showSated", v); BL_Refresh() end },
-            { type="toggle", text="Show Ready",
+              setValue=function(v)
+                  BL_Set("showSated", v); BL_Refresh(); EllesmereUI:RefreshPage()
+              end },
+            { type="toggle", text="Show Icon with Ready Text",
               tooltip="Once the lockout expires, show a Ready label on the icon in place of the countdown. The visibility rule above still applies.",
               getValue=function() return BL_Cfg("showReady") == true end,
-              setValue=function(v) BL_Set("showReady", v); BL_Refresh() end })
+              setValue=function(v)
+                  BL_Set("showReady", v); BL_Refresh(); EllesmereUI:RefreshPage()
+              end })
         y = y - h
 
         -- Ready appearance: offset cog, colour swatch and size slider on one row,
@@ -701,7 +708,7 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
         row, h = W:DualRow(parent, y,
             { type="slider", text="Ready",
               disabled=readyOff,
-              disabledTooltip="Show Ready",
+              disabledTooltip="Show Icon with Ready Text",
               min=8, max=30, step=1, isPercent=false,
               getValue=function() return BL_Cfg("readySize") or 12 end,
               setValue=function(v) BL_Set("readySize", v); BL_Refresh() end },
@@ -733,7 +740,7 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
             readyColorBlock:SetFrameLevel(swatch:GetFrameLevel() + 10)
             readyColorBlock:EnableMouse(true)
             readyColorBlock:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("Show Ready"))
+                EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("Show Icon with Ready Text"))
             end)
             readyColorBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             EllesmereUI.RegisterWidgetRefresh(function()
@@ -744,7 +751,7 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
             -- itself as the "control region" lands it in the empty gap instead of
             -- stacking both on the slider's left edge.
             _attachOffsetCog(swatch, "Ready Position", "readyOffsetX", "readyOffsetY",
-                readyOff, "Show Ready")
+                readyOff, "Show Icon with Ready Text")
         end
     end
     end   -- close Bloodlust hidden-while-Never gate

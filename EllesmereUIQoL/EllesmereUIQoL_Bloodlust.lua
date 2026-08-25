@@ -138,7 +138,7 @@ local function RP_color()
 end
 
 local frame, iconTex, borderTex, durationFS, countFS, cooldownFrame
-local readyOverlay, readyFS  -- ready label on its own frame, above the cooldown widget
+local textOverlay, readyFS  -- shared text layer: every fontstring lives above the border/swipes
 local buffOverlay, buffTex, buffCooldown, buffDurationFS  -- the 40s active-lust overlay (sits on top of the debuff icon)
 local _satedActive = false
 local _readyShown = false       -- ready label currently rendered (idempotence for the 0.5s poll)
@@ -269,14 +269,13 @@ local function ApplyShape()
     -- Ready label: same font family as the countdown it replaces, but its own
     -- size, colour and offset. Dropped back to hidden so the next poll re-renders
     -- it with the new style instead of leaving a stale string on screen.
-    if readyOverlay and readyFS then
-        readyOverlay:SetAllPoints(frame)
+    if readyFS then
         readyFS:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, RP("readySize") or 12, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
         readyFS:ClearAllPoints()
-        readyFS:SetPoint("CENTER", readyOverlay, "CENTER",
+        readyFS:SetPoint("CENTER", frame, "CENTER",
             RP("readyOffsetX") or 0, RP("readyOffsetY") or 0)
         readyFS:SetTextColor(RP_color())
-        readyOverlay:Hide()
+        readyFS:Hide()
         _readyShown = false
     end
 
@@ -312,12 +311,12 @@ local function ApplyShape()
         if PP then
             if not PP.GetBorders(frame) then PP.CreateBorder(frame, 0, 0, 0, 1, 1, "OVERLAY", 2) end
             -- PP.CreateBorder parents its container to frame+1, the SAME level
-            -- cooldownFrame sits at -- a level TIE that the border only wins by
-            -- creation order. readyOverlay/buffOverlay sit explicitly higher still
-            -- (frame+3/+5), so raise the border above all three every pass instead
-            -- of relying on an implicit tie-break that a future overlay could flip.
+            -- cooldownFrame sits at -- a level TIE the border only won by creation
+            -- order. Pin it to the stack position documented at textOverlay's
+            -- creation (frame+7, one below the text layer) instead of an implicit
+            -- tie-break that a future overlay could flip.
             local brd = PP.GetBorders(frame)
-            if brd and buffOverlay then brd:SetFrameLevel(buffOverlay:GetFrameLevel() + 1) end
+            if brd then brd:SetFrameLevel(frame:GetFrameLevel() + 7) end
             if bs > 0 then
                 local r, g, b, a = _resolveBorderColor()
                 PP.UpdateBorder(frame, bs, r, g, b, a)
@@ -572,16 +571,16 @@ local function _showReadyState()
     -- Clear(), never SetCooldown(0, 0): a zero-duration cooldown makes the widget
     -- hide itself, and the leftover swipe has to go either way.
     if cooldownFrame then cooldownFrame:Clear() end
-    if readyOverlay then
-        if readyFS then readyFS:SetText(EllesmereUI.L("Ready")) end
-        readyOverlay:Show()
+    if readyFS then
+        readyFS:SetText(EllesmereUI.L("Ready"))
+        readyFS:Show()
     end
     _readyShown = true
 end
 
 local function _hideReadyState()
     if not _readyShown then return end
-    if readyOverlay then readyOverlay:Hide() end
+    if readyFS then readyFS:Hide() end
     _readyShown = false
 end
 
@@ -890,25 +889,26 @@ local function CreateBloodlustFrame()
     cooldownFrame:SetHideCountdownNumbers(true)  -- we render our own duration text
     cooldownFrame:SetFrameLevel(frame:GetFrameLevel() + 1)
 
-    durationFS = cooldownFrame:CreateFontString(nil, "OVERLAY")
+    -- Shared text layer: EVERY fontstring below (duration/count/ready/buff-timer)
+    -- lives here, above the icon border ApplyShape pins to frame+7, so text reads
+    -- over the border and every cooldown swipe in every state -- not just
+    -- whichever one happened to be on screen when a given text was last tuned.
+    textOverlay = CreateFrame("Frame", nil, frame)
+    textOverlay:SetAllPoints(frame)
+    textOverlay:SetFrameLevel(frame:GetFrameLevel() + 8)
+
+    durationFS = textOverlay:CreateFontString(nil, "OVERLAY")
     durationFS:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, 14, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     durationFS:SetText("")
 
-    -- Ready label on its OWN overlay, mirroring the buff overlay below: it is
-    -- shown precisely when no cooldown runs, so its lifetime must not hang off the
-    -- cooldown widget, and sitting above that widget keeps a swipe off the text.
-    readyOverlay = CreateFrame("Frame", nil, frame)
-    readyOverlay:SetAllPoints(frame)
-    readyOverlay:SetFrameLevel(cooldownFrame:GetFrameLevel() + 2)
-    readyOverlay:Hide()
-
-    readyFS = readyOverlay:CreateFontString(nil, "OVERLAY")
     -- SetFont FIRST: SetText on a fontstring that has no font yet errors out, and
     -- this runs before ApplyShape ever styles it.
+    readyFS = textOverlay:CreateFontString(nil, "OVERLAY")
     readyFS:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, 12, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     readyFS:SetText("")
+    readyFS:Hide()
 
-    countFS = cooldownFrame:CreateFontString(nil, "OVERLAY")
+    countFS = textOverlay:CreateFontString(nil, "OVERLAY")
     countFS:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, 12, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     countFS:SetText("")
 
@@ -929,7 +929,7 @@ local function CreateBloodlustFrame()
     buffCooldown:SetHideCountdownNumbers(true)
     buffCooldown:SetFrameLevel(buffOverlay:GetFrameLevel() + 1)
 
-    buffDurationFS = buffCooldown:CreateFontString(nil, "OVERLAY")
+    buffDurationFS = textOverlay:CreateFontString(nil, "OVERLAY")
     buffDurationFS:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, 12, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     buffDurationFS:SetText("")
 
