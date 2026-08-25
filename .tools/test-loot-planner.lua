@@ -1,6 +1,16 @@
 EUI_CLIENT_BLOCKED = false
 time = os.time
-C_Item = {}
+C_Item = {
+    GetItemInfoInstant = function(itemID)
+        return tonumber(itemID), nil, nil, "INVTYPE_WRIST", 134400, 4
+    end,
+    GetItemInfo = function(itemID)
+        return "Crafted Test Item", nil
+    end,
+    GetDetailedItemLevelInfo = function() return 88 end,
+}
+Enum = { ItemClass = { Weapon = 2, Armor = 4 } }
+UnitClass = function() return "Warrior", "WARRIOR", 1 end
 
 for index, name in ipairs({
     "HEADSLOT", "NECKSLOT", "SHOULDERSLOT", "BACKSLOT", "CHESTSLOT", "WRISTSLOT",
@@ -20,6 +30,8 @@ for index, name in ipairs({
 end
 
 local data = { goals = {} }
+local season = { craftedItems = { [237834] = { link = "237834" } } }
+local registeredSources = {}
 local ns = { PRIORITY_BIS = 3 }
 local function GoalKey(sourceKey, itemID) return sourceKey .. ":" .. itemID end
 
@@ -35,7 +47,8 @@ function ns.SetPriority(sourceKey, itemID, priority)
 end
 function ns.RemoveGoal(sourceKey, itemID) data.goals[GoalKey(sourceKey, itemID)] = nil end
 function ns.NotifyChanged() end
-function ns.RegisterSource() end
+function ns.RegisterSource(source) registeredSources[source.kind] = source end
+function ns.GetSeasonData() return season end
 function ns.DungeonKey(id) return "dungeon:" .. id end
 function ns.RaidKey(id, difficultyID) return "raid:" .. id .. ":" .. difficultyID end
 function ns.GetSourceKey(source, difficultyID)
@@ -47,6 +60,12 @@ function ns.GetProfile() return { craftedTargetLevel = 318 } end
 
 assert(loadfile("EllesmereUILootTracker/EllesmereUILootTracker_Planner.lua"))(
     "EllesmereUILootTracker", ns)
+
+local craftedCatalog = registeredSources.crafted.getCatalog(71)
+assert(craftedCatalog[1] and craftedCatalog[1].link == "item:237834",
+    "numeric crafted links must be normalized for tooltips")
+assert(season.craftedItems[237834].link == "item:237834",
+    "legacy crafted links must be migrated in saved data")
 
 local source = { kind = "dungeon", challengeModeID = 1, key = "dungeon:1", name = "Test" }
 ns.SetPlannedItem("overall", "OFFHAND", {
