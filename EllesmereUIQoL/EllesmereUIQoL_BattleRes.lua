@@ -64,6 +64,15 @@ local defaults = {
             enabled    = true,
             visibility = "NEVER",  -- MPLUS_AND_RAID | MPLUS | RAID | NEVER
             pos        = nil,      -- { centerX, centerY } stored after first move
+            -- Show Sated / Show Ready: independent toggles. Own keys, never proxied to
+            -- battleRes (which has no ready state). Sated on / Ready off = the
+            -- pre-existing behaviour (countdown only, hidden once it expires).
+            showSated    = true,
+            showReady    = false,
+            readySize    = 12,
+            readyColor   = { r = 1, g = 1, b = 1 },
+            readyOffsetX = 0,
+            readyOffsetY = 0,
         },
     },
 }
