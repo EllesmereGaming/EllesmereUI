@@ -9,21 +9,21 @@ ns.SUPPORTED_SEASON_ID = 18
 ns.SUPPORTED_DISPLAY_SEASON_ID = 2
 
 ns.DUNGEON_SOURCES = {
-    { challengeModeID = 249, instanceID = 1762, journalInstanceID = 1041, chestItemID = 279621, fallbackItems = {
+    { challengeModeID = 249, instanceID = 1762, journalInstanceID = 1041, chestItemID = 279621, teleportSpellID = 1286831, fallbackItems = {
         159136, 159137, 159234, 159243, 159288, 159300, 159301, 159304, 159312, 159313,
         159369, 159371, 159409, 159412, 159413, 159418, 159459, 159617, 159618, 159642,
         159643, 159644, 159645, 159667, 160213, 160216, 239045, 239046, 239047,
         239048, 239049, 239050, 239051, 273649,
     } }, -- King's Rest
-    { challengeModeID = 250, instanceID = 1877, journalInstanceID = 1030, chestItemID = 279624, fallbackItems = {
+    { challengeModeID = 250, instanceID = 1877, journalInstanceID = 1030, chestItemID = 279624, teleportSpellID = 1286828, fallbackItems = {
         239037, -- C'thraxxi Binders Pauldrons (seasonal non-Azerite replacement)
     } }, -- Temple of Sethraliss
-    { challengeModeID = 399, instanceID = 2521, journalInstanceID = 1202, chestItemID = 279622 }, -- Ruby Life Pools
-    { challengeModeID = 584, instanceID = 2859, journalInstanceID = 1309, chestItemID = 279619 }, -- Blinding Vale
-    { challengeModeID = 585, instanceID = 2923, journalInstanceID = 1313, chestItemID = 279625 }, -- Voidscar Arena
-    { challengeModeID = 586, instanceID = 2825, journalInstanceID = 1311, chestItemID = 279620 }, -- Nalorakk's Den
-    { challengeModeID = 587, instanceID = 2813, journalInstanceID = 1304, chestItemID = 279623 }, -- Murder Row
-    { challengeModeID = 588, instanceID = 2993, journalInstanceID = 1322, chestItemID = 279618 }, -- Altar of Fangs
+    { challengeModeID = 399, instanceID = 2521, journalInstanceID = 1202, chestItemID = 279622, teleportSpellID = 393256 }, -- Ruby Life Pools
+    { challengeModeID = 584, instanceID = 2859, journalInstanceID = 1309, chestItemID = 279619, teleportSpellID = 1286801 }, -- Blinding Vale
+    { challengeModeID = 585, instanceID = 2923, journalInstanceID = 1313, chestItemID = 279625, teleportSpellID = 1286804 }, -- Voidscar Arena
+    { challengeModeID = 586, instanceID = 2825, journalInstanceID = 1311, chestItemID = 279620, teleportSpellID = 1286807 }, -- Nalorakk's Den
+    { challengeModeID = 587, instanceID = 2813, journalInstanceID = 1304, chestItemID = 279623, teleportSpellID = 1286809 }, -- Murder Row
+    { challengeModeID = 588, instanceID = 2993, journalInstanceID = 1322, chestItemID = 279618, teleportSpellID = 1286812 }, -- Altar of Fangs
 }
 
 ns.RAID_SOURCES = {
