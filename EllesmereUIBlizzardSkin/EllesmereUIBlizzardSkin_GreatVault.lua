@@ -28,7 +28,6 @@ local STYLE = {
         inset = 3,
         activityCard = 4,
         concessionCard = 6,
-        icon = 2,
     },
     sizes = {
         itemName = 10,
@@ -85,7 +84,6 @@ local function BuildThemeContext()
     return {
         accent = { r = r, g = g, b = b },
         borderAPI = EllesmereUI.PP or EllesmereUI.PanelPP,
-        fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT,
         reskin = EllesmereUI.RESKIN or DEFAULT_RESKIN,
     }
 end
@@ -100,7 +98,7 @@ end
 
 local function SetBorderColor(frame, theme, color, alpha)
     local pp = theme and theme.borderAPI
-    if pp and pp.SetBorderColor and frame and frame._ppBorders and color then
+    if pp and pp.SetBorderColor and frame and color then
         pp.SetBorderColor(frame, color.r or 1, color.g or 1, color.b or 1, alpha or color.a or 1)
     end
 end
@@ -128,11 +126,10 @@ local function SuppressTexture(texture)
     end
 end
 
-local function ApplyFont(fontString, theme, size, r, g, b, a, flags)
+local function ApplyFont(fontString, size, r, g, b, a)
     if not fontString then return end
 
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fontString, true) end
-    fontString:SetFont((theme and theme.fontPath) or STANDARD_TEXT_FONT, size, flags or "")
+    EllesmereUI.ApplyTextFont(fontString, "blizzardSkin", size)
     fontString:SetTextColor(r or 1, g or 1, b or 1, a or 1)
 end
 
@@ -263,13 +260,32 @@ local function EnsureLockIcon(frame, anchorFrame)
     return lock
 end
 
+local function ValidLink(link)
+    if type(link) == "string" and link ~= "" then
+        return link
+    end
+    return nil
+end
+
 local function ResolveWeeklyRewardItemLink(activityFrame, itemFrame)
+    -- reward lands on displayedItem*, not itemLink/itemDBID
     if itemFrame then
-        if itemFrame.itemLink then
-            return itemFrame.itemLink
+        local link = ValidLink(itemFrame.displayedItemLink)
+        if link then
+            return link
         end
-        if itemFrame.itemHyperlink then
-            return itemFrame.itemHyperlink
+        if itemFrame.displayedItemDBID and C_WeeklyRewards and C_WeeklyRewards.GetItemHyperlink then
+            local ok, itemLink = pcall(C_WeeklyRewards.GetItemHyperlink, itemFrame.displayedItemDBID)
+            if ok then
+                link = ValidLink(itemLink)
+                if link then
+                    return link
+                end
+            end
+        end
+        link = ValidLink(itemFrame.itemLink) or ValidLink(itemFrame.itemHyperlink)
+        if link then
+            return link
         end
         if itemFrame.itemDBID and C_WeeklyRewards and C_WeeklyRewards.GetItemHyperlink then
             local itemLink = C_WeeklyRewards.GetItemHyperlink(itemFrame.itemDBID)
@@ -280,17 +296,27 @@ local function ResolveWeeklyRewardItemLink(activityFrame, itemFrame)
     end
 
     local info = activityFrame and activityFrame.info
-    local rewards = info and info.rewards
-    if type(rewards) ~= "table" then
+    if not info then
         return nil
     end
 
-    for _, reward in ipairs(rewards) do
-        if reward and reward.itemDBID and C_WeeklyRewards and C_WeeklyRewards.GetItemHyperlink then
-            local itemLink = C_WeeklyRewards.GetItemHyperlink(reward.itemDBID)
-            if itemLink then
-                return itemLink
+    local rewards = info.rewards
+    if type(rewards) == "table" then
+        for _, reward in ipairs(rewards) do
+            if reward and reward.itemDBID and C_WeeklyRewards and C_WeeklyRewards.GetItemHyperlink then
+                local ok, itemLink = pcall(C_WeeklyRewards.GetItemHyperlink, reward.itemDBID)
+                if ok and ValidLink(itemLink) then
+                    return itemLink
+                end
             end
+        end
+    end
+
+    -- returns "" not nil when there's no preview
+    if info.id and C_WeeklyRewards and C_WeeklyRewards.GetExampleRewardItemHyperlinks then
+        local ok, itemLink = pcall(C_WeeklyRewards.GetExampleRewardItemHyperlinks, info.id)
+        if ok and ValidLink(itemLink) then
+            return itemLink
         end
     end
 
@@ -302,13 +328,10 @@ local function ResolveItemBorderColor(itemLink)
         return STYLE.colors.itemDefaultBorder
     end
 
-    local quality
-    if C_Item and C_Item.GetItemQualityByID then
+    -- GetItemInfo reads the link -  GetItemQualityByID only the base item
+    local _, _, quality = GetItemInfo(itemLink)
+    if not quality and C_Item and C_Item.GetItemQualityByID then
         quality = C_Item.GetItemQualityByID(itemLink)
-    end
-    if not quality then
-        local _, _, itemQuality = GetItemInfo(itemLink)
-        quality = itemQuality
     end
 
     if quality then
@@ -330,35 +353,48 @@ local function EnsureIconChrome(itemFrame, theme, borderColor)
     if not itemFrame or not itemFrame.Icon then return end
 
     local icon = itemFrame.Icon
-    local pad = STYLE.paddings.icon
     local pp = theme.borderAPI
     local d = GetFFD(itemFrame)
+
+    if not d.iconBg then
+        d.iconBg = itemFrame._euiIconBg
+    end
 
     if not d.iconBg then
         local bg = itemFrame:CreateTexture(nil, "BACKGROUND", nil, -6)
         bg._euiOwned = true
         d.iconBg = bg
+        itemFrame._euiIconBg = bg
     end
 
+    -- flush: inset left a grey ring reading as a second border
     d.iconBg:ClearAllPoints()
-    d.iconBg:SetPoint("TOPLEFT", icon, "TOPLEFT", -pad, pad)
-    d.iconBg:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", pad, -pad)
+    d.iconBg:SetAllPoints(icon)
     ApplyColorTexture(d.iconBg, STYLE.colors.itemSlotBackground)
+
+    -- also on the frame: FFD is weak and these frames are pooled
+    if not d.iconBorder then
+        d.iconBorder = itemFrame._euiIconBorderHost
+    end
 
     if not d.iconBorder then
         local borderHost = CreateFrame("Frame", nil, itemFrame)
         d.iconBorder = borderHost
+        itemFrame._euiIconBorderHost = borderHost
 
         if pp and pp.CreateBorder then
-            pp.CreateBorder(borderHost, 1, 1, 1, 1, 2, "OVERLAY", 7)
+            pp.CreateBorder(borderHost, 1, 1, 1, 1, 1, "OVERLAY", 7)
         end
     end
 
+    -- flush: inset left a gap showing the card background
     local borderHost = d.iconBorder
     borderHost:ClearAllPoints()
-    borderHost:SetPoint("TOPLEFT", icon, "TOPLEFT", -pad, pad)
-    borderHost:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", pad, -pad)
+    borderHost:SetAllPoints(icon)
     borderHost:SetFrameLevel(itemFrame:GetFrameLevel() + 1)
+    if pp and pp.SetBorderSize then
+        pp.SetBorderSize(borderHost, 1)
+    end
     SetBorderColor(borderHost, theme, borderColor or STYLE.colors.itemDefaultBorder, 1)
 
     return borderHost
@@ -453,7 +489,8 @@ local function RefreshTypeFrameState(frame, theme)
     if not frame then return end
     if frame.Name then
         local c = STYLE.colors.typeName
-        frame.Name:SetTextColor(c.r, c.g, c.b, 1)
+        -- nil size keeps Blizzard's native size
+        ApplyFont(frame.Name, nil, c.r, c.g, c.b, 1)
 
         local d = GetFFD(frame)
         if not d.nameRaised then
@@ -479,8 +516,19 @@ local function RefreshActivityItemState(itemFrame, activityFrame, theme)
     local borderColor = ResolveItemBorderColor(itemLink)
     EnsureIconChrome(itemFrame, theme, borderColor)
 
+    -- reward swaps after Refresh, so recolor from the item frame
+    local d = GetFFD(itemFrame)
+    if not d.displayHooked and itemFrame.SetDisplayedItem then
+        d.displayHooked = true
+        hooksecurefunc(itemFrame, "SetDisplayedItem", function(self)
+            local parent = self:GetParent()
+            local link = ResolveWeeklyRewardItemLink(parent, self)
+            EnsureIconChrome(self, BuildThemeContext(), ResolveItemBorderColor(link))
+        end)
+    end
+
     if itemFrame.Name then
-        ApplyFont(itemFrame.Name, theme, STYLE.sizes.itemName, 1, 1, 1, STYLE.alpha.itemName)
+        ApplyFont(itemFrame.Name, STYLE.sizes.itemName, 1, 1, 1, STYLE.alpha.itemName)
     end
 end
 
@@ -536,11 +584,8 @@ local function RefreshSelectableCardState(theme, skinFrame, glow, state)
 
     if not skinFrame then return end
 
-    if state.isSelected then
-        SetBorderColor(skinFrame, theme, theme.accent, STYLE.alpha.selectedBorder)
-    else
-        SetBorderColor(skinFrame, theme, state.borderColor or STYLE.colors.white, state.borderAlpha)
-    end
+    -- keep the faint edge from EnsureInsetBackdrop; rarity lives on the icon
+    SetBorderColor(skinFrame, theme, STYLE.colors.white, theme.reskin.BRD_ALPHA)
 end
 
 local function RefreshActivityVisualState(frame, selectedActivity, theme)
@@ -648,7 +693,7 @@ local function RefreshActivityVisualState(frame, selectedActivity, theme)
 
     if frame.Threshold then
         local thresholdAlpha = activityState.isComplete and STYLE.alpha.thresholdUnlocked or STYLE.alpha.thresholdLocked
-        ApplyFont(frame.Threshold, theme, STYLE.sizes.threshold, 1, 1, 1, thresholdAlpha)
+        ApplyFont(frame.Threshold, STYLE.sizes.threshold, 1, 1, 1, thresholdAlpha)
     end
 
     if frame.Progress then
@@ -657,7 +702,7 @@ local function RefreshActivityVisualState(frame, selectedActivity, theme)
             -- we already modified it on a prior pass so it stays current.
             local rawText = frame.Progress:GetText() or ""
             local diffText = rawText:match("^%d+%s*%((.+)%)$") or rawText
-            ApplyFont(frame.Progress, theme, STYLE.sizes.progress, complete.r, complete.g, complete.b, 1)
+            ApplyFont(frame.Progress, STYLE.sizes.progress, complete.r, complete.g, complete.b, 1)
 
             local info = frame.info
             local ilvl
@@ -674,7 +719,6 @@ local function RefreshActivityVisualState(frame, selectedActivity, theme)
             local progressColor = activityState.progressColor
             ApplyFont(
                 frame.Progress,
-                theme,
                 STYLE.sizes.progress,
                 progressColor.r,
                 progressColor.g,
@@ -726,10 +770,10 @@ local function RefreshConcessionVisualState(frame, selectedActivity, theme)
 
     if frame.RewardsFrame then
         if frame.RewardsFrame.Label then
-            ApplyFont(frame.RewardsFrame.Label, theme, STYLE.sizes.itemName, 1, 1, 1, STYLE.alpha.rewardsLabel)
+            ApplyFont(frame.RewardsFrame.Label, STYLE.sizes.itemName, 1, 1, 1, STYLE.alpha.rewardsLabel)
         end
         if frame.RewardsFrame.Text then
-            ApplyFont(frame.RewardsFrame.Text, theme, STYLE.sizes.itemName, theme.accent.r, theme.accent.g, theme.accent.b, 1)
+            ApplyFont(frame.RewardsFrame.Text, STYLE.sizes.itemName, theme.accent.r, theme.accent.g, theme.accent.b, 1)
         end
     end
 end
@@ -742,10 +786,10 @@ local function RefreshOverlayState(overlay, theme)
     if overlay.NineSlice then overlay.NineSlice:SetAlpha(0) end
 
     if overlay.Title then
-        ApplyFont(overlay.Title, theme, STYLE.sizes.overlayTitle, theme.accent.r, theme.accent.g, theme.accent.b, 1)
+        ApplyFont(overlay.Title, STYLE.sizes.overlayTitle, theme.accent.r, theme.accent.g, theme.accent.b, 1)
     end
     if overlay.Text then
-        ApplyFont(overlay.Text, theme, STYLE.sizes.overlayText, 1, 1, 1, STYLE.alpha.overlayText)
+        ApplyFont(overlay.Text, STYLE.sizes.overlayText, 1, 1, 1, STYLE.alpha.overlayText)
     end
 end
 
@@ -758,7 +802,7 @@ local function RefreshWarningDialogState(frame, theme)
         frame.WarningIcon:SetDesaturated(true)
     end
     if frame.Description then
-        ApplyFont(frame.Description, theme, STYLE.sizes.warningText, 1, 1, 1, STYLE.alpha.warningText)
+        ApplyFont(frame.Description, STYLE.sizes.warningText, 1, 1, 1, STYLE.alpha.warningText)
     end
     -- Any standard buttons on the dialog get the engine treatment too
     -- (depth-capped, no-op when there are none).
@@ -840,7 +884,7 @@ RefreshGreatVaultFrame = function(frame)
                     hf.Text:ClearAllPoints()
                     hf.Text:SetPoint(point, rel, relPoint, x, (y or 0) + 30)
                 end
-                hf.Text:SetFont(theme.fontPath, STYLE.sizes.headerTitle, "")
+                EllesmereUI.ApplyTextFont(hf.Text, "blizzardSkin", STYLE.sizes.headerTitle)
             end
 
             if hf.HeaderDivider then
@@ -918,6 +962,15 @@ local function HookGreatVault()
             ScheduleGreatVaultRefresh(self)
         end)
     end
+
+    -- links are uncached on first pass; recolor as they arrive
+    local itemInfoFrame = CreateFrame("Frame")
+    itemInfoFrame:RegisterEvent("GET_ITEM_INFO_RECEIVED")
+    itemInfoFrame:SetScript("OnEvent", function()
+        if frame:IsShown() then
+            ScheduleGreatVaultRefresh(frame)
+        end
+    end)
 end
 
 do

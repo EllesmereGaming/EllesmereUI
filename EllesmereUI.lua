@@ -4276,6 +4276,23 @@ function EllesmereUI.ApplyIconTextFont(fs, fontPath, size, moduleKey)
     fs:SetFont(fontPath, size, flag)
 end
 
+-- fonts a string from the user's global/module font settings
+function EllesmereUI.ApplyTextFont(fs, moduleKey, size)
+    if not (fs and fs.SetFont) then return end
+
+    local font = EllesmereUI.GetFontPath(moduleKey)
+    if not size then
+        local _, cur = fs:GetFont()
+        size = cur or 12
+    end
+    local flag = EllesmereUI.GetFontOutlineFlag(moduleKey)
+
+    -- prime the shadow FontObject before SetFont (see PrimeFontShadow).
+    local useShadow = flag == "" and EllesmereUI.GetFontUseShadow(moduleKey)
+    EllesmereUI.PrimeFontShadow(fs, useShadow)
+    fs:SetFont(font, size, flag)
+end
+
 -- Build font dropdown values/order ("EUI Global Font" first) for W:DualRow configs.
 function EllesmereUI.BuildFontDropdownData()
     -- Glyph-restricted locales: bundled Latin fonts cannot render the script (and resolve to the

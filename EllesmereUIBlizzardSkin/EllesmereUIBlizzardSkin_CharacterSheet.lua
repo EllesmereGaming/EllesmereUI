@@ -16,6 +16,10 @@ local function GetFFD(frame)
     return d
 end
 
+local function ApplyFont(fs, size)
+    EllesmereUI.ApplyTextFont(fs, "blizzardSkin", size)
+end
+
 -- Same reading as the Chat sidebar icon and the DataBars block: the LOWEST
 -- percent across equipped slots 1-18 (the weakest item), floored.
 local function GetDurabilityPercent()
@@ -751,7 +755,6 @@ local function SkinCharacterSheet()
         end)
     end
 
-    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
     local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.51, g = 0.784, b = 1 }
 
     do
@@ -763,13 +766,13 @@ local function SkinCharacterSheet()
             GetFFD(frame).durabilityOverlay = durOverlay
 
             local durabilityModelLabel = durOverlay:CreateFontString(nil, "OVERLAY")
-            durabilityModelLabel:SetFont(fontPath, 12, "")
+            ApplyFont(durabilityModelLabel, 12)
             durabilityModelLabel:SetPoint("TOP", modelScene, "TOP", 0, -8)
             GetFFD(frame).durabilityModelLabel = durabilityModelLabel
         end
         if not GetFFD(frame).durabilityFooterLabel then
             local durabilityFooterLabel = frame:CreateFontString(nil, "OVERLAY")
-            durabilityFooterLabel:SetFont(fontPath, 12, "")
+            ApplyFont(durabilityFooterLabel, 12)
             GetFFD(frame).durabilityFooterLabel = durabilityFooterLabel
         end
     end
@@ -818,7 +821,7 @@ local function SkinCharacterSheet()
 
             if not GetFFD(tab).label then
                 local label = tab:CreateFontString(nil, "OVERLAY")
-                label:SetFont(fontPath, 9, "")
+                ApplyFont(label, 9)
                 label:SetPoint("CENTER", tab, "CENTER", 0, 0)
                 label:SetJustifyH("CENTER")
                 label:SetText(labelText)
@@ -1301,7 +1304,7 @@ local function SkinCharacterSheet()
 
     -- M+ Score display (single inline FontString above itemlevel), colored via |cff...|r escapes based on score brackets.
     local mythicRatingLabel = statsPanel:CreateFontString(nil, "OVERLAY")
-    mythicRatingLabel:SetFont(fontPath, 12, "")
+    ApplyFont(mythicRatingLabel, 12)
     -- Positioned below iLvlText once that FontString exists (see below).
     mythicRatingLabel:SetTextColor(0.8, 0.8, 0.8, 1)
     mythicRatingLabel:SetText(L("M+ Score:"))
@@ -1335,14 +1338,14 @@ local function SkinCharacterSheet()
 
     -- Itemlevel display: sits just below the 3 tab buttons, inside the panel.
     local iLvlText = statsPanel:CreateFontString(nil, "OVERLAY")
-    iLvlText:SetFont(fontPath, 18, "")
+    ApplyFont(iLvlText, 18)
     iLvlText:SetPoint("TOP", statsPanel, "TOP", 0, -(25 + 3))  -- buttonHeight(25) + 3 gap
     iLvlText:SetTextColor(0.6, 0.2, 1, 1)
     GetFFD(frame).iLvlText = iLvlText  -- Store for tab visibility control
 
     -- PvP Item Level: sits directly below the iLvl text when enabled.
     local pvpIlvlText = statsPanel:CreateFontString(nil, "OVERLAY")
-    pvpIlvlText:SetFont(fontPath, 12, "")
+    ApplyFont(pvpIlvlText, 12)
     pvpIlvlText:SetTextColor(0.8, 0.8, 0.8, 1)
     pvpIlvlText:SetPoint("TOP", iLvlText, "BOTTOM", 0, -4)
     pvpIlvlText:Hide()
@@ -1352,7 +1355,7 @@ local function SkinCharacterSheet()
     mythicRatingLabel:SetPoint("TOP", pvpIlvlText, "BOTTOM", 0, -4)
 
     local durabilityHeaderLabel = statsPanel:CreateFontString(nil, "OVERLAY")
-    durabilityHeaderLabel:SetFont(fontPath, 12, "")
+    ApplyFont(durabilityHeaderLabel, 12)
     durabilityHeaderLabel:Hide()
     GetFFD(frame).durabilityHeaderLabel = durabilityHeaderLabel
 
@@ -2263,7 +2266,7 @@ local function SkinCharacterSheet()
         titleContainer:RegisterForClicks("LeftButtonUp")
 
         local sectionTitle = titleContainer:CreateFontString(nil, "OVERLAY")
-        sectionTitle:SetFont(fontPath, 11, "")
+        ApplyFont(sectionTitle, 11)
         sectionTitle:SetTextColor(section.color.r, section.color.g, section.color.b, 1)
         sectionTitle:SetPoint("CENTER", titleContainer, "CENTER", 0, 0)
         sectionTitle:SetText(L(section.title))
@@ -2332,13 +2335,13 @@ local function SkinCharacterSheet()
         for statIdx, stat in ipairs(section.stats) do
             if ShouldShowStat(stat.showWhen) and ShouldShowCrest(stat) then
                 local label = sectionContainer:CreateFontString(nil, "OVERLAY")
-                label:SetFont(fontPath, 10, "")
+                ApplyFont(label, 10)
                 label:SetTextColor(0.7, 0.7, 0.7, 0.8)
                 label:SetPoint("TOPLEFT", sectionContainer, "TOPLEFT", 0, statYOffset)
                 label:SetText(L(stat.name))
 
                 local value = sectionContainer:CreateFontString(nil, "OVERLAY")
-                value:SetFont(fontPath, 10, "")
+                ApplyFont(value, 10)
                 value:SetTextColor(section.color.r, section.color.g, section.color.b, 1)
                 value:SetPoint("TOPRIGHT", sectionContainer, "TOPRIGHT", 0, statYOffset)
                 value:SetJustifyH("RIGHT")
@@ -2907,7 +2910,7 @@ local function SkinCharacterSheet()
         btn:SetPoint("TOPLEFT", frame, "TOPLEFT", startX, startY)
 
         local text = btn:CreateFontString(nil, "OVERLAY")
-        text:SetFont(fontPath, 10, "")
+        ApplyFont(text, 10)
         -- Anchor TOP (not CENTER) so the text sits flush with the top of the panel
         -- section instead of floating ~12px down inside a tall button.
         text:SetPoint("TOP", btn, "TOP", 0, 0)
@@ -2961,11 +2964,11 @@ local function SkinCharacterSheet()
     searchBg:SetAllPoints()
 
     titlesSearchBox:SetTextColor(1, 1, 1, 1)
-    titlesSearchBox:SetFont(fontPath, 10, "")
+    ApplyFont(titlesSearchBox, 10)
     titlesSearchBox:SetTextInsets(4, 4, 0, 0)
 
     local hintText = titlesSearchBox:CreateFontString(nil, "OVERLAY")
-    hintText:SetFont(fontPath, 10, "")
+    ApplyFont(hintText, 10)
     hintText:SetText(L("Search titles..."))
     hintText:SetTextColor(0.6, 0.6, 0.6, 0.7)
     hintText:SetPoint("LEFT", titlesSearchBox, "LEFT", 4, 0)
@@ -2973,7 +2976,7 @@ local function SkinCharacterSheet()
     -- Clear "x" (visible only when the search box has text). Invisible click
     -- target sits on top of the glyph so it can be clicked to clear.
     local clearX = titlesSearchBox:CreateFontString(nil, "OVERLAY")
-    clearX:SetFont(fontPath, 11, "")
+    ApplyFont(clearX, 11)
     clearX:SetText("x")
     clearX:SetTextColor(0.7, 0.7, 0.7, 1)
     clearX:SetPoint("RIGHT", titlesSearchBox, "RIGHT", -4, 0)
@@ -3059,7 +3062,7 @@ local function SkinCharacterSheet()
         btn._hover:Hide()
 
         btn._text = btn:CreateFontString(nil, "OVERLAY")
-        btn._text:SetFont(fontPath, 11, "")
+        ApplyFont(btn._text, 11)
         btn._text:SetTextColor(1, 1, 1, 1)
         btn._text:SetPoint("LEFT", btn, "LEFT", 10, 0)
 
@@ -3261,7 +3264,7 @@ local function SkinCharacterSheet()
     setsHeaderFrame:SetPoint("TOPRIGHT", equipScrollChild, "TOPRIGHT", -5, -30)
 
     local setsHeaderText = setsHeaderFrame:CreateFontString(nil, "OVERLAY")
-    setsHeaderText:SetFont(fontPath, 11, "")
+    ApplyFont(setsHeaderText, 11)
     setsHeaderText:SetText(L("Gear Sets"))
     setsHeaderText:SetTextColor(0.047, 0.824, 0.616, 1)
     setsHeaderText:SetPoint("CENTER", setsHeaderFrame, "CENTER", 0, 0)
@@ -3296,7 +3299,7 @@ local function SkinCharacterSheet()
     local function MakeTextLink(parent, label, onClick)
         local btn = CreateFrame("Button", nil, parent)
         local fs = btn:CreateFontString(nil, "OVERLAY")
-        fs:SetFont(fontPath, 10, "")
+        ApplyFont(fs, 10)
         fs:SetText(label)
         fs:SetTextColor(1, 1, 1, 0.7)
         fs:SetPoint("CENTER", btn, "CENTER", 0, 0)
@@ -3488,7 +3491,7 @@ local function SkinCharacterSheet()
             tile._hover:Hide()
 
             tile._text = tile:CreateFontString(nil, "OVERLAY")
-            tile._text:SetFont(fontPath, 10, "")
+            ApplyFont(tile._text, 10)
             tile._text:SetPoint("LEFT", tile, "LEFT", 10, 0)
 
             tile._specIcon = tile:CreateTexture(nil, "OVERLAY")
@@ -3570,7 +3573,7 @@ local function SkinCharacterSheet()
             local delTxt = del:CreateFontString(nil, "OVERLAY")
             -- 12pt "x" nudged up 1px; larger sizes overflow the 14x14 button and
             -- render as a giant X.
-            delTxt:SetFont(fontPath, 12, "")
+            ApplyFont(delTxt, 12)
             delTxt:SetText("x")
             delTxt:SetTextColor(1, 1, 1, 0.8)
             delTxt:SetPoint("CENTER", del, "CENTER", 0, 1)
@@ -3854,7 +3857,6 @@ local function SkinCharacterSheet()
         "CharacterTrinket0Slot", "CharacterTrinket1Slot"
     }
 
-    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
 
     local globalSocketContainer = CreateFrame("Frame", "EUI_CharSheet_SocketContainer", frame)
     globalSocketContainer:SetFrameLevel(100)
@@ -3919,7 +3921,7 @@ local function SkinCharacterSheet()
         if slot and not GetFFD(slot).itemLevelLabel and not skipLabels then
             local itemLevelSize = EllesmereUIDB and EllesmereUIDB.charSheetItemLevelSize or 11
             local label = textOverlayFrame:CreateFontString(nil, "OVERLAY")
-            label:SetFont(fontPath, itemLevelSize, "")
+            ApplyFont(label, itemLevelSize)
             label:SetTextColor(1, 1, 1, 0.8)
             label:SetJustifyH("CENTER")
 
@@ -3941,7 +3943,7 @@ local function SkinCharacterSheet()
         if slot and not GetFFD(slot).enchantLabel and not skipLabels then
             local enchantSize = EllesmereUIDB and EllesmereUIDB.charSheetEnchantSize or 9
             local enchantLabel = textOverlayFrame:CreateFontString(nil, "OVERLAY")
-            enchantLabel:SetFont(fontPath, enchantSize, "")
+            ApplyFont(enchantLabel, enchantSize)
             enchantLabel:SetTextColor(1, 1, 1, 0.8)
 
             -- Below the itemlevel, justified toward the icon so a width-capped
@@ -3986,7 +3988,7 @@ local function SkinCharacterSheet()
         if slot and not GetFFD(slot).upgradeTrackLabel and GetFFD(slot).itemLevelLabel then
             local upgradeTrackSize = EllesmereUIDB and EllesmereUIDB.charSheetUpgradeTrackSize or 11
             local upgradeTrackLabel = textOverlayFrame:CreateFontString(nil, "OVERLAY")
-            upgradeTrackLabel:SetFont(fontPath, upgradeTrackSize, "")
+            ApplyFont(upgradeTrackLabel, upgradeTrackSize)
             upgradeTrackLabel:SetTextColor(1, 1, 1, 0.6)
             upgradeTrackLabel:SetJustifyH("CENTER")
 
@@ -4500,8 +4502,7 @@ local function SkinCharacterSheet()
                 GetFFD(slot).enchantLabel:SetText(labelText)
                 local enchFontSize = (EllesmereUIDB and EllesmereUIDB.charSheetEnchantSize) or 9
                 if useName then
-                    -- Names always render OUTLINE, SLUG for legibility over the model.
-                    GetFFD(slot).enchantLabel:SetFont(fontPath, enchFontSize, "OUTLINE, SLUG")
+                    ApplyFont(GetFFD(slot).enchantLabel, enchFontSize)
                     -- Item-level color, blended 50% toward white so the name reads
                     -- softer than the ilvl number.
                     GetFFD(slot).enchantLabel:SetTextColor(
@@ -4521,10 +4522,9 @@ local function SkinCharacterSheet()
                     GetFFD(slot).enchantLabel:SetWordWrap(false)
                     GetFFD(slot).enchantLabel:SetWidth(maxW or 0)
                 else
-                    -- Icon mode: no outline (the label's creation default), white
-                    -- tint so a prior name-mode color never bleeds onto the atlas
-                    -- icons, and clear the width cap.
-                    GetFFD(slot).enchantLabel:SetFont(fontPath, enchFontSize, "")
+                    -- icon mode: white tint so a prior name color never bleeds onto
+                    -- the atlas icons, and clear the width cap.
+                    ApplyFont(GetFFD(slot).enchantLabel, enchFontSize)
                     GetFFD(slot).enchantLabel:SetTextColor(1, 1, 1, 0.8)
                     GetFFD(slot).enchantLabel:SetWidth(0)
                 end
@@ -4693,7 +4693,6 @@ local function EnsureCalcTab(frame)
     local existing = GetFFD(frame).calcToggleBtn
     if existing then return existing end
 
-    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
     local PP = EllesmereUI and EllesmereUI.PP
 
     local refTab = _G["CharacterFrameTab1"]
@@ -4717,7 +4716,7 @@ local function EnsureCalcTab(frame)
     activeHL:Hide()
 
     local label = calcTab:CreateFontString(nil, "OVERLAY")
-    label:SetFont(fontPath, 9, "")
+    ApplyFont(label, 9)
     label:SetPoint("CENTER", calcTab, "CENTER", 0, 0)
     label:SetJustifyH("CENTER")
     label:SetText("Upgrades")
@@ -4985,7 +4984,7 @@ if EllesmereUI then
     end)
 end
 
--- Apply the char-sheet label size / outline / shadow settings.
+-- gear-label sizes; outline follows the module/global font choice.
 function EllesmereUI._applyCharSheetTextSizes()
     if not CharacterFrame then return end
 
@@ -4993,43 +4992,19 @@ function EllesmereUI._applyCharSheetTextSizes()
     local upgradeTrackSize = EllesmereUIDB and EllesmereUIDB.charSheetUpgradeTrackSize or 11
     local enchantSize = EllesmereUIDB and EllesmereUIDB.charSheetEnchantSize or 9
 
-    local itemLevelShadow = EllesmereUIDB and EllesmereUIDB.charSheetItemLevelShadow or false
-    local itemLevelOutline = EllesmereUIDB and EllesmereUIDB.charSheetItemLevelOutline or false
-    local upgradeTrackShadow = EllesmereUIDB and EllesmereUIDB.charSheetUpgradeTrackShadow or false
-    local upgradeTrackOutline = EllesmereUIDB and EllesmereUIDB.charSheetUpgradeTrackOutline or false
-    local enchantShadow = EllesmereUIDB and EllesmereUIDB.charSheetEnchantShadow or false
-    local enchantOutline = EllesmereUIDB and EllesmereUIDB.charSheetEnchantOutline or false
-
-    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
-
     local itemSlots = EUI_GEAR_SLOTS
 
     for _, slotName in ipairs(itemSlots) do
         local slot = _G[slotName]
         if slot then
             if GetFFD(slot).itemLevelLabel then
-                local flags = ""
-                if itemLevelOutline then
-                    flags = "OUTLINE, SLUG"
-                end
-                if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(GetFFD(slot).itemLevelLabel, itemLevelShadow) end
-                GetFFD(slot).itemLevelLabel:SetFont(fontPath, itemLevelSize, flags)
+                ApplyFont(GetFFD(slot).itemLevelLabel, itemLevelSize)
             end
             if GetFFD(slot).upgradeTrackLabel then
-                local flags = ""
-                if upgradeTrackOutline then
-                    flags = "OUTLINE, SLUG"
-                end
-                if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(GetFFD(slot).upgradeTrackLabel, upgradeTrackShadow) end
-                GetFFD(slot).upgradeTrackLabel:SetFont(fontPath, upgradeTrackSize, flags)
+                ApplyFont(GetFFD(slot).upgradeTrackLabel, upgradeTrackSize)
             end
             if GetFFD(slot).enchantLabel then
-                local flags = ""
-                if enchantOutline then
-                    flags = "OUTLINE, SLUG"
-                end
-                if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(GetFFD(slot).enchantLabel, enchantShadow) end
-                GetFFD(slot).enchantLabel:SetFont(fontPath, enchantSize, flags)
+                ApplyFont(GetFFD(slot).enchantLabel, enchantSize)
             end
         end
     end
