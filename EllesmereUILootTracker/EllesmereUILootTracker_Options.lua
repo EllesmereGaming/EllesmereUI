@@ -587,7 +587,15 @@ local function BuildOverview(parent, yOffset)
             local chance = Font(card, 10, 0.05, 0.82, 0.62, 1)
             chance:SetPoint("TOPRIGHT", card, "TOPRIGHT", -12, -11)
             if source.kind == "raid" or source.kind == "dungeon" then
-                chance:SetText(string.format("%.1f%%  •  %d %s", summary.chance * 100, summary.coreCost, L("Voidcore")))
+                local rollText
+                if summary.rollsUsed == 0 then
+                    rollText = L("No bonus rolls used")
+                elseif summary.rollsUsed == 1 then
+                    rollText = L("1 bonus roll used")
+                else
+                    rollText = EllesmereUI.Lf("%d bonus rolls used", summary.rollsUsed)
+                end
+                chance:SetText(string.format("%.1f%%  •  %s", summary.chance * 100, rollText))
             else
                 chance:SetText(source.kind == "catalyst" and L("Catalyst conversion") or L("Crafting"))
             end
