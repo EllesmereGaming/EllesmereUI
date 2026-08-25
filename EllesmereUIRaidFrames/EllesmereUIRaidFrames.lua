@@ -2981,7 +2981,7 @@ ns._abFlush:SetScript("OnUpdate", function(self)
             break
         end
     end
-    if not hitBudget then
+    if not (hitBudget and next(dirty)) then
         self:Hide()
     end
 end)
