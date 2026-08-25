@@ -166,6 +166,7 @@ local function ApplyShape()
     local size = p.iconSize or 40
     local fw, fh = size, size
     if shape == "cropped" then fh = math.floor(size * 0.80 + 0.5) end
+    if PP and PP.Snap then fw, fh = PP.Snap(fw), PP.Snap(fh) end
     frame:SetSize(fw, fh)
     iconTex:ClearAllPoints()
     iconTex:SetAllPoints(frame)
@@ -334,7 +335,10 @@ local function ApplyText()
     local h = textFS:GetStringHeight() or 0
     if w < 1 then w = (p.textSize or 14) * 4 end
     if h < 1 then h = p.textSize or 14 end
-    frame:SetSize(math.ceil(w) + 4, math.ceil(h) + 2)
+    local tw, th = math.ceil(w) + 4, math.ceil(h) + 2
+    local PPt = EllesmereUI and EllesmereUI.PP
+    if PPt and PPt.Snap then tw, th = PPt.Snap(tw), PPt.Snap(th) end
+    frame:SetSize(tw, th)
 end
 
 -------------------------------------------------------------------------------
@@ -344,13 +348,16 @@ local function ApplyPosition()
     if not frame then return end
     local p = P()
     if not p then return end
-    local pos = p.pos
     frame:ClearAllPoints()
-    if pos and pos.centerX and pos.centerY then
-        frame:SetPoint("CENTER", UIParent, "CENTER", pos.centerX, pos.centerY)
-    else
-        frame:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
+    local pos = p.pos
+    local cx = (pos and pos.centerX) or 0
+    local cy = (pos and pos.centerY) or 200
+    local PPp = EllesmereUI and EllesmereUI.PP
+    if PPp and PPp.SnapCenterForDim then
+        cx = PPp.SnapCenterForDim(cx, frame:GetWidth())
+        cy = PPp.SnapCenterForDim(cy, frame:GetHeight())
     end
+    frame:SetPoint("CENTER", UIParent, "CENTER", cx, cy)
 end
 
 local function SavePosition()
@@ -360,6 +367,11 @@ local function SavePosition()
     local fw, fh = frame:GetSize()
     local cx = left + fw / 2 - UIParent:GetWidth() / 2
     local cy = bottom + fh / 2 - UIParent:GetHeight() / 2
+    local PPp = EllesmereUI and EllesmereUI.PP
+    if PPp and PPp.SnapCenterForDim then
+        cx = PPp.SnapCenterForDim(cx, fw)
+        cy = PPp.SnapCenterForDim(cy, fh)
+    end
     local p = P(); if p then p.pos = { centerX = cx, centerY = cy } end
 end
 

@@ -244,6 +244,7 @@ local function ApplyShape()
     local size = EP("iconSize") or 40
     local fw, fh = size, size
     if shape == "cropped" then fh = math.floor(size * 0.80 + 0.5) end
+    if PP and PP.Snap then fw, fh = PP.Snap(fw), PP.Snap(fh) end
     frame:SetSize(fw, fh)
     iconTex:ClearAllPoints()
     iconTex:SetAllPoints(frame)
@@ -393,12 +394,18 @@ local function ApplyPosition()
     local p = P()
     if not p then return end
     frame:ClearAllPoints()
+    local cx, cy
     if p.pos and p.pos.centerX and p.pos.centerY then
-        frame:SetPoint("CENTER", UIParent, "CENTER", p.pos.centerX, p.pos.centerY)
+        cx, cy = p.pos.centerX, p.pos.centerY
     else
-        local cx, cy = _defaultLeftOfBrezCenter()
-        frame:SetPoint("CENTER", UIParent, "CENTER", cx, cy)
+        cx, cy = _defaultLeftOfBrezCenter()
     end
+    local PPp = EllesmereUI and EllesmereUI.PP
+    if PPp and PPp.SnapCenterForDim then
+        cx = PPp.SnapCenterForDim(cx, frame:GetWidth())
+        cy = PPp.SnapCenterForDim(cy, frame:GetHeight())
+    end
+    frame:SetPoint("CENTER", UIParent, "CENTER", cx, cy)
 end
 
 local function SavePosition()
@@ -408,6 +415,11 @@ local function SavePosition()
     local fw, fh = frame:GetSize()
     local cx = left + fw / 2 - UIParent:GetWidth() / 2
     local cy = bottom + fh / 2 - UIParent:GetHeight() / 2
+    local PPp = EllesmereUI and EllesmereUI.PP
+    if PPp and PPp.SnapCenterForDim then
+        cx = PPp.SnapCenterForDim(cx, fw)
+        cy = PPp.SnapCenterForDim(cy, fh)
+    end
     local p = P(); if p then p.pos = { centerX = cx, centerY = cy } end
 end
 
