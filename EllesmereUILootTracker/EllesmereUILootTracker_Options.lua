@@ -136,6 +136,11 @@ local function ReplaceTooltipItemLevel(tooltip, item, targetLevel)
     return false
 end
 
+local function ValidTooltipItemLink(link)
+    return type(link) == "string"
+        and (link:find("|Hitem:", 1, true) ~= nil or link:match("^item:%d+") ~= nil)
+end
+
 local function ShowItemTooltip(frame, item, targetLevel, showActions, targetLink)
     GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
     GameTooltip:ClearLines()
@@ -146,7 +151,10 @@ local function ShowItemTooltip(frame, item, targetLevel, showActions, targetLink
     -- all, and planner selections persist it as itemLink rather than link.
     -- A minimal item hyperlink is understood by GameTooltip and is more
     -- reliable here than SetItemByID across client versions.
-    local tooltipLink = targetLink or item.link or item.itemLink
+    local tooltipLink
+    if ValidTooltipItemLink(targetLink) then tooltipLink = targetLink
+    elseif ValidTooltipItemLink(item.link) then tooltipLink = item.link
+    elseif ValidTooltipItemLink(item.itemLink) then tooltipLink = item.itemLink end
     if not tooltipLink and item.itemID then
         local _, cachedLink = C_Item.GetItemInfo(item.itemID)
         tooltipLink = cachedLink or ("item:" .. item.itemID)

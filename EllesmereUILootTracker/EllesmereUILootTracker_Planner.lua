@@ -33,6 +33,11 @@ for _, slot in ipairs(ns.PLAN_SLOTS) do slotByKey[slot.key] = slot end
 local catalystSource = { kind="catalyst", key="catalyst", sourceID=1, name="Catalyst Tier Set" }
 local craftedSource = { kind="crafted", key="crafted", sourceID=1, name="Crafted Gear" }
 
+local function ValidItemLink(link)
+    return type(link) == "string"
+        and (link:find("|Hitem:", 1, true) ~= nil or link:match("^item:%d+") ~= nil)
+end
+
 local function ItemRecord(itemID, link, recipeID, recipeName)
     itemID = tonumber(itemID)
     if not itemID then return nil end
@@ -42,7 +47,7 @@ local function ItemRecord(itemID, link, recipeID, recipeName)
         and classID ~= Enum.ItemClass.Weapon then return nil end
     local name, cachedLink = C_Item.GetItemInfo(itemID)
     if (not name or not cachedLink) and ns.RequestCatalogItemData then ns.RequestCatalogItemData(itemID) end
-    local resolvedLink = link or cachedLink or ("item:" .. itemID)
+    local resolvedLink = (ValidItemLink(link) and link) or cachedLink or ("item:" .. itemID)
     local itemLevel = C_Item.GetDetailedItemLevelInfo and C_Item.GetDetailedItemLevelInfo(resolvedLink)
     if issecretvalue and issecretvalue(itemLevel) then itemLevel = nil end
     return {
@@ -80,7 +85,13 @@ local function CraftedCatalog(specID)
         end
         if eligible then
             local item = ItemRecord(itemID, saved.link, saved.recipeID, saved.recipeName)
-            if item then items[#items + 1] = item end
+            if item then
+                -- Older manual-ID entries stored the edit-box text ("237834")
+                -- as if it were a hyperlink. Repair them while the catalog is
+                -- read so future sessions no longer need the fallback.
+                if saved.link ~= item.link then saved.link = item.link end
+                items[#items + 1] = item
+            end
         end
     end
     table.sort(items, function(a, b) return (a.name or "") < (b.name or "") end)
