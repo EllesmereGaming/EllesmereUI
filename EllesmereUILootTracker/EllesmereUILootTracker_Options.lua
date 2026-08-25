@@ -447,6 +447,132 @@ local function BuildCatalogPage(parent, yOffset, kind)
     return math.abs(y - yOffset) + 30
 end
 
+local function BonusRollCountText(count)
+    count = tonumber(count) or 0
+    if count == 0 then return L("No bonus rolls used") end
+    if count == 1 then return L("1 bonus roll used") end
+    return EllesmereUI.Lf("%d bonus rolls used", count)
+end
+
+local function BuildBonusRollPriority(parent, y, specID)
+    local W = EllesmereUI.Widgets
+    local _, h = W:SectionHeader(parent, "BONUS ROLL PRIORITY", y); y = y - h
+    local grouped = {}
+    for _, goal in ipairs(ns.GetGoals(specID, false)) do
+        if goal.state == "open" and (goal.sourceKind == "dungeon" or goal.sourceKind == "raid") then
+            local pool = ns.GetPool(goal.sourceKey, specID)
+            if not pool.knocked[goal.itemID] then
+                local entry = grouped[goal.sourceKey]
+                if not entry then
+                    entry = {
+                        source=ns.GetSourceByKey(goal.sourceKey), goals={}, weightedValue=0,
+                        difficultyID=goal.difficultyID,
+                    }
+                    grouped[goal.sourceKey] = entry
+                end
+                entry.goals[#entry.goals + 1] = goal
+                entry.weightedValue = entry.weightedValue + (goal.priority == ns.PRIORITY_BIS and 100
+                    or (goal.priority == ns.PRIORITY_NEED and 25 or 5))
+            end
+        end
+    end
+    local entries = {}
+    for _, entry in pairs(grouped) do
+        if entry.source then
+            entry.summary = ns.GetSourceSummary(entry.source, specID, entry.difficultyID)
+            if entry.summary.remaining > 0 and entry.summary.desired > 0 then
+                entry.score = entry.weightedValue / entry.summary.remaining
+                entries[#entries + 1] = entry
+            end
+        end
+    end
+    table.sort(entries, function(a, b)
+        if a.score ~= b.score then return a.score > b.score end
+        if a.summary.chance ~= b.summary.chance then return a.summary.chance > b.summary.chance end
+        return (a.source.name or "") < (b.source.name or "")
+    end)
+    if #entries == 0 then
+        local empty = Card(parent, y, 58)
+        local text = Font(empty, 10, 0.62, 0.64, 0.68, 1)
+        text:SetPoint("CENTER"); text:SetText(L("No open bonus-roll wishlist items."))
+        return y - 64
+    end
+    for rank, entry in ipairs(entries) do
+        table.sort(entry.goals, function(a, b) return a.priority > b.priority end)
+        local row = Card(parent, y, 56)
+        local rankText = Font(row, 14, rank == 1 and 0.05 or 0.45, rank == 1 and 0.82 or 0.48,
+            rank == 1 and 0.62 or 0.54, 1)
+        rankText:SetPoint("LEFT", row, "LEFT", 12, 0); rankText:SetText("#" .. rank)
+        local sourceIcon = row:CreateTexture(nil, "ARTWORK")
+        sourceIcon:SetSize(32, 32); sourceIcon:SetPoint("LEFT", row, "LEFT", 45, 0)
+        sourceIcon:SetTexture(entry.source.texture or "Interface\\Icons\\INV_Misc_Dice_02")
+        sourceIcon:SetTexCoord(0.12, 0.88, 0.12, 0.88)
+        local name = Font(row, 11, 0.92, 0.94, 0.97, 1)
+        name:SetPoint("TOPLEFT", row, "TOPLEFT", 87, -10)
+        name:SetPoint("RIGHT", row, "RIGHT", -430, 0); name:SetWordWrap(false)
+        local sourceName = entry.source.name
+        if entry.source.kind == "raid" then
+            sourceName = ((entry.source.instanceName and (entry.source.instanceName .. "  •  ")) or "") .. sourceName
+            local difficultyName = GetDifficultyInfo(entry.difficultyID)
+            if difficultyName then sourceName = sourceName .. "  (" .. difficultyName .. ")" end
+        end
+        name:SetText(sourceName)
+        local detail = Font(row, 9, 0.55, 0.58, 0.64, 1)
+        detail:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 87, 10)
+        local chanceText = string.format("%.1f%%", entry.summary.chance * 100)
+        if entry.summary.confidence ~= "verified" then
+            chanceText = chanceText .. " " .. L("estimated")
+        end
+        detail:SetText(EllesmereUI.Lf("%1$s next roll • %2$d of %3$d in pool • %4$s",
+            chanceText, entry.summary.remaining,
+            entry.summary.total, BonusRollCountText(entry.summary.rollsUsed)))
+        if rank == 1 then
+            local nextBadge = Font(row, 8, 0.05, 0.82, 0.62, 1)
+            nextBadge:SetPoint("LEFT", name, "RIGHT", 10, 0); nextBadge:SetText(L("NEXT ROLL"))
+        end
+        local function OpenSource()
+            if entry.source.kind == "raid" then
+                Profile().selectedRaidEncounterID = entry.source.encounterID
+                Profile().raidDifficulty = entry.difficultyID or Profile().raidDifficulty
+                EllesmereUI:SelectPage(PAGE_RAIDS)
+            else
+                Profile().selectedDungeonID = entry.source.challengeModeID
+                EllesmereUI:SelectPage(PAGE_DUNGEONS)
+            end
+        end
+        local openButton = CreateFrame("Button", nil, row)
+        openButton:SetAllPoints(); openButton:RegisterForClicks("AnyDown")
+        openButton:SetFrameLevel(row:GetFrameLevel() + 1)
+        openButton:SetScript("OnClick", OpenSource)
+        local iconX = -12
+        for index = math.min(#entry.goals, 10), 1, -1 do
+            local goal = entry.goals[index]
+            local button = CreateFrame("Button", nil, row)
+            button:SetSize(34, 34); button:SetPoint("RIGHT", row, "RIGHT", iconX, 0)
+            button:SetFrameLevel(row:GetFrameLevel() + 2)
+            local texture = button:CreateTexture(nil, "ARTWORK")
+            texture:SetAllPoints(); texture:SetTexture(goal.itemIcon or C_Item.GetItemIconByID(goal.itemID))
+            texture:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+            local color = ns.PRIORITY_COLORS[goal.priority] or { 1, 1, 1 }
+            local strip = button:CreateTexture(nil, "OVERLAY")
+            strip:SetPoint("BOTTOMLEFT"); strip:SetPoint("BOTTOMRIGHT"); strip:SetHeight(3)
+            strip:SetColorTexture(color[1], color[2], color[3], 1)
+            button:SetScript("OnEnter", function(self)
+                local item = { itemID=goal.itemID, name=goal.itemName, link=goal.itemLink,
+                    icon=goal.itemIcon, itemLevel=goal.itemLevel }
+                local targetLink = ns.GetTargetItemLink(goal.itemID, goal.specID, goal.minItemLevel,
+                    goal.linkKind or goal.sourceKind, goal.difficultyID, goal.keyLevel)
+                ShowItemTooltip(self, item, goal.minItemLevel, false, targetLink)
+            end)
+            button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            button:SetScript("OnClick", OpenSource)
+            iconX = iconX - 39
+        end
+        y = y - 62
+    end
+    return y
+end
+
 local function BuildFarmPriority(parent, y, specID)
     local W = EllesmereUI.Widgets
     local _, h = W:SectionHeader(parent, "DUNGEON FARM PRIORITY", y); y = y - h
@@ -585,6 +711,7 @@ local function BuildOverview(parent, yOffset)
         function() return SelectedSpecID() end,
         function(v) Profile().selectedSpecID=tonumber(v) or v; QueuePageRebuild() end,
         specOrder); y = y - h
+    y = BuildBonusRollPriority(parent, y, SelectedSpecID())
     y = BuildFarmPriority(parent, y, SelectedSpecID())
     _, h = W:SectionHeader(parent, "SOURCE DETAILS", y); y = y - h
     local goals = ns.GetGoals(SelectedSpecID(), Profile().showArchived)
@@ -626,15 +753,8 @@ local function BuildOverview(parent, yOffset)
             local chance = Font(card, 10, 0.05, 0.82, 0.62, 1)
             chance:SetPoint("TOPRIGHT", card, "TOPRIGHT", -12, -11)
             if source.kind == "raid" or source.kind == "dungeon" then
-                local rollText
-                if summary.rollsUsed == 0 then
-                    rollText = L("No bonus rolls used")
-                elseif summary.rollsUsed == 1 then
-                    rollText = L("1 bonus roll used")
-                else
-                    rollText = EllesmereUI.Lf("%d bonus rolls used", summary.rollsUsed)
-                end
-                chance:SetText(string.format("%.1f%%  •  %s", summary.chance * 100, rollText))
+                chance:SetText(string.format("%.1f%%  •  %s", summary.chance * 100,
+                    BonusRollCountText(summary.rollsUsed)))
             else
                 chance:SetText(source.kind == "catalyst" and L("Catalyst conversion") or L("Crafting"))
             end
