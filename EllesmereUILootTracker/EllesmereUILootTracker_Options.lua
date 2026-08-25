@@ -141,7 +141,7 @@ local function ValidTooltipItemLink(link)
         and (link:find("|Hitem:", 1, true) ~= nil or link:match("^item:%d+") ~= nil)
 end
 
-local function ShowItemTooltip(frame, item, targetLevel, showActions, targetLink)
+local function ShowItemTooltip(frame, item, targetLevel, showActions, targetLink, craftedPreview)
     GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
     GameTooltip:ClearLines()
 
@@ -171,11 +171,16 @@ local function ShowItemTooltip(frame, item, targetLevel, showActions, targetLink
             C_Item.RequestLoadItemDataByID(item.itemID)
         end
     end
-    if not targetLink then
+    if not targetLink or not surfaced then
         local levelReplaced = ReplaceTooltipItemLevel(GameTooltip, item, targetLevel)
         if targetLevel and not levelReplaced and targetLevel ~= item.itemLevel then
             GameTooltip:AddLine(EllesmereUI.Lf("Target item level: %d", targetLevel), 0.05, 0.82, 0.62)
         end
+    end
+    if craftedPreview then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine(L("Crafted preview at the selected target item level."), 0.05, 0.82, 0.62)
+        GameTooltip:AddLine(L("Secondary stats depend on the selected missives."), 0.65, 0.68, 0.74)
     end
     if showActions then
         GameTooltip:AddLine(" ")
@@ -785,9 +790,8 @@ local function BuildOverview(parent, yOffset)
                     itemLevel = goal.itemLevel,
                 }
                 local targetLevel = goal.minItemLevel
-                local targetLink = goal.sourceKind ~= "crafted"
-                    and ns.GetTargetItemLink(goal.itemID, goal.specID, targetLevel,
-                        goal.linkKind or goal.sourceKind, goal.difficultyID, goal.keyLevel)
+                local targetLink = ns.GetTargetItemLink(goal.itemID, goal.specID, targetLevel,
+                    goal.linkKind or goal.sourceKind, goal.difficultyID, goal.keyLevel)
                 local itemHitbox = CreateFrame("Button", nil, card)
                 itemHitbox:SetSize(38, 38)
                 local column = (index - 1) % columns
@@ -814,7 +818,8 @@ local function BuildOverview(parent, yOffset)
                     check:SetVertexColor(0.33, 0.87, 0.53, 1)
                 end
                 itemHitbox:SetScript("OnEnter", function(self)
-                    ShowItemTooltip(self, tooltipItem, targetLevel, false, targetLink)
+                    ShowItemTooltip(self, tooltipItem, targetLevel, false, targetLink,
+                        goal.sourceKind == "crafted")
                     local priorityName = L(ns.PRIORITY_NAMES[priorityID] or "Nice to have")
                     local state = obtained and L("Obtained") or L("Open")
                     GameTooltip:AddLine(" ")
@@ -875,10 +880,10 @@ local function PlannerSlotCard(parent, y, slot, selection, selected, right, onSe
     end)
     frame:SetScript("OnEnter", function(self)
         if selection then
-            local targetLink = selection.sourceKind ~= "crafted"
-                and ns.GetTargetItemLink(selection.itemID, SelectedSpecID(), selection.targetLevel,
-                    selection.linkKind or selection.sourceKind, selection.difficultyID, selection.keyLevel)
-            ShowItemTooltip(self, selection, selection.targetLevel, false, targetLink)
+            local targetLink = ns.GetTargetItemLink(selection.itemID, SelectedSpecID(), selection.targetLevel,
+                selection.linkKind or selection.sourceKind, selection.difficultyID, selection.keyLevel)
+            ShowItemTooltip(self, selection, selection.targetLevel, false, targetLink,
+                selection.sourceKind == "crafted")
             GameTooltip:AddLine(" ")
             GameTooltip:AddLine(L("Right-click to clear this slot"), 0.75, 0.75, 0.75)
             GameTooltip:Show()
@@ -906,10 +911,9 @@ local function BuildPlannerCandidate(parent, y, candidate, selected, onClick)
     state:SetPoint("RIGHT", frame, "RIGHT", -12, 0); state:SetText(selected and L("Selected BiS") or L("Set as BiS"))
     frame:SetScript("OnClick", onClick)
     frame:SetScript("OnEnter", function(self)
-        local targetLink = source.kind ~= "crafted"
-            and ns.GetTargetItemLink(item.itemID, SelectedSpecID(), candidate.targetLevel,
-                candidate.linkKind or source.kind, candidate.difficultyID, candidate.keyLevel)
-        ShowItemTooltip(self, item, candidate.targetLevel, false, targetLink)
+        local targetLink = ns.GetTargetItemLink(item.itemID, SelectedSpecID(), candidate.targetLevel,
+            candidate.linkKind or source.kind, candidate.difficultyID, candidate.keyLevel)
+        ShowItemTooltip(self, item, candidate.targetLevel, false, targetLink, source.kind == "crafted")
     end)
     frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
     return 47
