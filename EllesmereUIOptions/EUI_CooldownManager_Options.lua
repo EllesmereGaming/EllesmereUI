@@ -2679,6 +2679,25 @@ initFrame:SetScript("OnEvent", function(self)
                     if info and info.spellID and info.spellID > 0 and info.spellID ~= sp.spellID then
                         barCfg.baseSpellID = info.spellID
                     end
+                    -- Roll the Bones only: its tracked slot cycles through several
+                    -- mutually exclusive outcome buffs (whichever roll is currently
+                    -- up), told apart live via linkedSpellIDs rather than a
+                    -- hardcoded outcome list (names/ids shift across reworks --
+                    -- e.g. Midnight's). Without this, the bar only ever matched
+                    -- whichever single outcome happened to be active at add time
+                    -- (field report: name froze on that outcome and the bar
+                    -- eventually lost its binding and disappeared once a
+                    -- different outcome rolled). Capturing the live family here
+                    -- lets CfgWantsSID recognize every outcome from the start.
+                    if info and type(info.linkedSpellIDs) == "table" and #info.linkedSpellIDs >= 2
+                       and sp.name and sp.name:find("Roll the Bones", 1, true) then
+                        local ids = {}
+                        for i = 1, #info.linkedSpellIDs do
+                            local lid = info.linkedSpellIDs[i]
+                            if type(lid) == "number" and lid > 0 then ids[#ids + 1] = lid end
+                        end
+                        if #ids >= 2 then barCfg.spellIDs = ids end
+                    end
                 end
                 Refresh()
                 ns.BuildTrackedBuffBars()
