@@ -138,7 +138,31 @@ end
 
 local function ShowItemTooltip(frame, item, targetLevel, showActions, targetLink)
     GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
-    if targetLink or item.link then GameTooltip:SetHyperlink(targetLink or item.link) else GameTooltip:SetItemByID(item.itemID) end
+    GameTooltip:ClearLines()
+
+    -- Crafted entries intentionally do not use a synthetic upgrade link: such
+    -- links make their base recipe item level look like the finished item
+    -- level. Older learned/manual entries may, however, have no cached link at
+    -- all, and planner selections persist it as itemLink rather than link.
+    -- A minimal item hyperlink is understood by GameTooltip and is more
+    -- reliable here than SetItemByID across client versions.
+    local tooltipLink = targetLink or item.link or item.itemLink
+    if not tooltipLink and item.itemID then
+        local _, cachedLink = C_Item.GetItemInfo(item.itemID)
+        tooltipLink = cachedLink or ("item:" .. item.itemID)
+    end
+    local surfaced = false
+    if tooltipLink and GameTooltip.SetHyperlink then
+        surfaced = pcall(GameTooltip.SetHyperlink, GameTooltip, tooltipLink)
+    end
+    if not surfaced or GameTooltip:NumLines() == 0 then
+        GameTooltip:ClearLines()
+        GameTooltip:AddLine(item.name or item.itemName or ("Item " .. tostring(item.itemID)), 1, 1, 1)
+        GameTooltip:AddLine(L("Loot data is still loading. This page will refresh automatically."), 0.55, 0.58, 0.64)
+        if item.itemID and C_Item.RequestLoadItemDataByID then
+            C_Item.RequestLoadItemDataByID(item.itemID)
+        end
+    end
     if not targetLink then
         local levelReplaced = ReplaceTooltipItemLevel(GameTooltip, item, targetLevel)
         if targetLevel and not levelReplaced and targetLevel ~= item.itemLevel then
