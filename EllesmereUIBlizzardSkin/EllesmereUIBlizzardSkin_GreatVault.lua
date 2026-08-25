@@ -85,7 +85,6 @@ local function BuildThemeContext()
     return {
         accent = { r = r, g = g, b = b },
         borderAPI = EllesmereUI.PP or EllesmereUI.PanelPP,
-        fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT,
         reskin = EllesmereUI.RESKIN or DEFAULT_RESKIN,
     }
 end
@@ -128,11 +127,10 @@ local function SuppressTexture(texture)
     end
 end
 
-local function ApplyFont(fontString, theme, size, r, g, b, a, flags)
+local function ApplyFont(fontString, size, r, g, b, a)
     if not fontString then return end
 
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fontString, true) end
-    fontString:SetFont((theme and theme.fontPath) or STANDARD_TEXT_FONT, size, flags or "")
+    EllesmereUI.ApplyTextFont(fontString, "blizzardSkin", size)
     fontString:SetTextColor(r or 1, g or 1, b or 1, a or 1)
 end
 
@@ -480,7 +478,7 @@ local function RefreshActivityItemState(itemFrame, activityFrame, theme)
     EnsureIconChrome(itemFrame, theme, borderColor)
 
     if itemFrame.Name then
-        ApplyFont(itemFrame.Name, theme, STYLE.sizes.itemName, 1, 1, 1, STYLE.alpha.itemName)
+        ApplyFont(itemFrame.Name, STYLE.sizes.itemName, 1, 1, 1, STYLE.alpha.itemName)
     end
 end
 
@@ -648,7 +646,7 @@ local function RefreshActivityVisualState(frame, selectedActivity, theme)
 
     if frame.Threshold then
         local thresholdAlpha = activityState.isComplete and STYLE.alpha.thresholdUnlocked or STYLE.alpha.thresholdLocked
-        ApplyFont(frame.Threshold, theme, STYLE.sizes.threshold, 1, 1, 1, thresholdAlpha)
+        ApplyFont(frame.Threshold, STYLE.sizes.threshold, 1, 1, 1, thresholdAlpha)
     end
 
     if frame.Progress then
@@ -657,7 +655,7 @@ local function RefreshActivityVisualState(frame, selectedActivity, theme)
             -- we already modified it on a prior pass so it stays current.
             local rawText = frame.Progress:GetText() or ""
             local diffText = rawText:match("^%d+%s*%((.+)%)$") or rawText
-            ApplyFont(frame.Progress, theme, STYLE.sizes.progress, complete.r, complete.g, complete.b, 1)
+            ApplyFont(frame.Progress, STYLE.sizes.progress, complete.r, complete.g, complete.b, 1)
 
             local info = frame.info
             local ilvl
@@ -674,7 +672,6 @@ local function RefreshActivityVisualState(frame, selectedActivity, theme)
             local progressColor = activityState.progressColor
             ApplyFont(
                 frame.Progress,
-                theme,
                 STYLE.sizes.progress,
                 progressColor.r,
                 progressColor.g,
@@ -726,10 +723,10 @@ local function RefreshConcessionVisualState(frame, selectedActivity, theme)
 
     if frame.RewardsFrame then
         if frame.RewardsFrame.Label then
-            ApplyFont(frame.RewardsFrame.Label, theme, STYLE.sizes.itemName, 1, 1, 1, STYLE.alpha.rewardsLabel)
+            ApplyFont(frame.RewardsFrame.Label, STYLE.sizes.itemName, 1, 1, 1, STYLE.alpha.rewardsLabel)
         end
         if frame.RewardsFrame.Text then
-            ApplyFont(frame.RewardsFrame.Text, theme, STYLE.sizes.itemName, theme.accent.r, theme.accent.g, theme.accent.b, 1)
+            ApplyFont(frame.RewardsFrame.Text, STYLE.sizes.itemName, theme.accent.r, theme.accent.g, theme.accent.b, 1)
         end
     end
 end
@@ -742,10 +739,10 @@ local function RefreshOverlayState(overlay, theme)
     if overlay.NineSlice then overlay.NineSlice:SetAlpha(0) end
 
     if overlay.Title then
-        ApplyFont(overlay.Title, theme, STYLE.sizes.overlayTitle, theme.accent.r, theme.accent.g, theme.accent.b, 1)
+        ApplyFont(overlay.Title, STYLE.sizes.overlayTitle, theme.accent.r, theme.accent.g, theme.accent.b, 1)
     end
     if overlay.Text then
-        ApplyFont(overlay.Text, theme, STYLE.sizes.overlayText, 1, 1, 1, STYLE.alpha.overlayText)
+        ApplyFont(overlay.Text, STYLE.sizes.overlayText, 1, 1, 1, STYLE.alpha.overlayText)
     end
 end
 
@@ -758,7 +755,7 @@ local function RefreshWarningDialogState(frame, theme)
         frame.WarningIcon:SetDesaturated(true)
     end
     if frame.Description then
-        ApplyFont(frame.Description, theme, STYLE.sizes.warningText, 1, 1, 1, STYLE.alpha.warningText)
+        ApplyFont(frame.Description, STYLE.sizes.warningText, 1, 1, 1, STYLE.alpha.warningText)
     end
     -- Any standard buttons on the dialog get the engine treatment too
     -- (depth-capped, no-op when there are none).
@@ -840,7 +837,7 @@ RefreshGreatVaultFrame = function(frame)
                     hf.Text:ClearAllPoints()
                     hf.Text:SetPoint(point, rel, relPoint, x, (y or 0) + 30)
                 end
-                hf.Text:SetFont(theme.fontPath, STYLE.sizes.headerTitle, "")
+                EllesmereUI.ApplyTextFont(hf.Text, "blizzardSkin", STYLE.sizes.headerTitle)
             end
 
             if hf.HeaderDivider then
