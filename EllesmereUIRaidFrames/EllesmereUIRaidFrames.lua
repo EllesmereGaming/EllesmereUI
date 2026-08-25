@@ -2965,19 +2965,30 @@ ns._ABSORB_FLUSH_BUDGET = 20
 ns._abFlush = CreateFrame("Frame")
 ns._abFlush:Hide()
 ns._abFlush:SetScript("OnUpdate", function(self)
-    local n = 0
-    for button, unit in pairs(ns._abDirty) do
-        ns._abDirty[button] = nil
-        UpdateAbsorb(button, unit)
+    local dirty = ns._abDirty
+    local budget = ns._ABSORB_FLUSH_BUDGET
+    local n, hitBudget = 0, false
+    for button in pairs(dirty) do
+        dirty[button] = nil
+        -- Re-read the button's CURRENT unit instead of trusting a token captured
+        -- at mark time: a roster reassignment mid-drain would otherwise repaint
+        -- the button with a stale occupant's absorb data.
+        local unit = button:GetAttribute("unit")
+        if unit then UpdateAbsorb(button, unit) end
         n = n + 1
-        if n >= ns._ABSORB_FLUSH_BUDGET then break end
+        if n >= budget then
+            hitBudget = true
+            break
+        end
     end
-    if not next(ns._abDirty) then
+    if not hitBudget then
         self:Hide()
     end
 end)
+-- unit is accepted for caller convenience but not stored -- the flush re-reads
+-- the button's current unit itself (see above).
 function ns._MarkAbsorbDirty(button, unit)
-    ns._abDirty[button] = unit
+    ns._abDirty[button] = true
     ns._abFlush:Show()
 end
 
@@ -2989,24 +3000,26 @@ end
 -- stale (event-active members are skipped by the stamp compare), and the
 -- ticker cancels itself when the armed set empties. Zero event registrations,
 -- zero cost with no shields anywhere.
--- Staleness margin needs real slack above the 0.5s ticker period: UpdateAbsorb
+-- Staleness margin needs real slack above the ticker period: UpdateAbsorb
 -- stamps _paintAt unconditionally, including on paints the belt itself just
 -- triggered, so a margin at or below one tick period re-qualifies every armed
 -- button as stale on the very next tick and the belt never stops sweeping the
--- whole armed set. 1.5s (three ticks) keeps this an occasional catch, not a
--- steady-state resweep.
+-- whole armed set. Margin is derived from the period (three ticks) rather than
+-- a second independent literal, so the two can't drift back out of sync.
 ns._abArmed = ns._abArmed or {}
+ns._ABSORB_BELT_PERIOD = 0.5
+ns._ABSORB_BELT_MARGIN = ns._ABSORB_BELT_PERIOD * 3
 function ns._AbArm(button, unit, d)
     d._absActive = true
     ns._abArmed[button] = unit
     if not ns._abBelt and C_Timer then
-        ns._abBelt = C_Timer.NewTicker(0.5, function()
+        ns._abBelt = C_Timer.NewTicker(ns._ABSORB_BELT_PERIOD, function()
             local now = GetTime()
             local any = false
             for btn, u in pairs(ns._abArmed) do
                 any = true
                 local ab = GetFFD(btn).absorbBar
-                if not ab or (now - (ab._paintAt or 0)) > 1.5 then
+                if not ab or (now - (ab._paintAt or 0)) > ns._ABSORB_BELT_MARGIN then
                     ns._MarkAbsorbDirty(btn, u)
                 end
             end
