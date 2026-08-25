@@ -93,13 +93,4 @@ assert(data.goals["catalyst:4"].minItemLevel == 318, "shared goal must keep the 
 ns.SetPlannedItem("raid:16", "HEAD", nil, 1)
 assert(data.goals["catalyst:4"].minItemLevel == 311, "shared goal must fall back to remaining target")
 
-C_Item.GetItemStats = function(link)
-    return { ITEM_MOD_STRENGTH_SHORT = link == "planned" and 100 or 10 }
-end
-function ns.GetTargetItemLink() return "planned" end
-function GetInventoryItemLink() return "current" end
-local plannedStats, currentStats = ns.GetPlannerStats("overall", 1)
-assert(plannedStats.ITEM_MOD_STRENGTH_SHORT == 100, "planned item stats must be aggregated")
-assert(currentStats.ITEM_MOD_STRENGTH_SHORT == 160, "equipped item stats must be aggregated")
-
 print("loot planner model ok")

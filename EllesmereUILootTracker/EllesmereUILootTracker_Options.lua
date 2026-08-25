@@ -492,10 +492,12 @@ local function BuildOverview(parent, yOffset)
                     name = goal.itemName,
                     link = goal.itemLink,
                     icon = goal.itemIcon,
+                    itemLevel = goal.itemLevel,
                 }
                 local targetLevel = goal.minItemLevel
-                local targetLink = ns.GetTargetItemLink(goal.itemID, goal.specID, targetLevel,
-                    goal.linkKind or goal.sourceKind, goal.difficultyID, goal.keyLevel)
+                local targetLink = goal.sourceKind ~= "crafted"
+                    and ns.GetTargetItemLink(goal.itemID, goal.specID, targetLevel,
+                        goal.linkKind or goal.sourceKind, goal.difficultyID, goal.keyLevel)
                 local itemHitbox = CreateFrame("Button", nil, card)
                 itemHitbox:SetSize(38, 38)
                 local column = (index - 1) % columns
@@ -569,7 +571,11 @@ local function PlannerSlotCard(parent, y, slot, selection, selected, right, onSe
     itemName:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT", 8, 4)
     itemName:SetPoint("RIGHT", frame, "RIGHT", -28, 0)
     itemName:SetJustifyH("LEFT")
-    itemName:SetText(selection and selection.itemName or L("Click to choose an item"))
+    local selectedName = selection and selection.itemName
+    if selectedName and selection.targetLevel then
+        selectedName = selectedName .. "  |cff777d88• iLvl " .. selection.targetLevel .. "|r"
+    end
+    itemName:SetText(selectedName or L("Click to choose an item"))
     if selection then
         local clear = Font(frame, 15, 0.65, 0.67, 0.72, 1)
         clear:SetPoint("RIGHT", frame, "RIGHT", -9, 0); clear:SetText("×")
@@ -579,8 +585,9 @@ local function PlannerSlotCard(parent, y, slot, selection, selected, right, onSe
     end)
     frame:SetScript("OnEnter", function(self)
         if selection then
-            local targetLink = ns.GetTargetItemLink(selection.itemID, SelectedSpecID(), selection.targetLevel,
-                selection.linkKind or selection.sourceKind, selection.difficultyID, selection.keyLevel)
+            local targetLink = selection.sourceKind ~= "crafted"
+                and ns.GetTargetItemLink(selection.itemID, SelectedSpecID(), selection.targetLevel,
+                    selection.linkKind or selection.sourceKind, selection.difficultyID, selection.keyLevel)
             ShowItemTooltip(self, selection, selection.targetLevel, false, targetLink)
             GameTooltip:AddLine(" ")
             GameTooltip:AddLine(L("Right-click to clear this slot"), 0.75, 0.75, 0.75)
@@ -588,55 +595,6 @@ local function PlannerSlotCard(parent, y, slot, selection, selected, right, onSe
         end
     end)
     frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
-end
-
-local function BuildPlannerStats(parent, y, mode, specID)
-    local card = Card(parent, y, 184)
-    local planned, current = ns.GetPlannerStats(mode, specID)
-    local title = Font(card, 12, 1, 1, 1, 1)
-    title:SetPoint("TOPLEFT", card, "TOPLEFT", 12, -10); title:SetText(L("Gear statistics"))
-    local note = Font(card, 9, 0.55, 0.58, 0.64, 1)
-    note:SetPoint("TOPRIGHT", card, "TOPRIGHT", -12, -12)
-    note:SetText(L("Raidbuffed is an estimate; procs, set bonuses and effects are excluded."))
-    local headers = { L("Stat"), L("Current"), L("Planned"), L("Difference"), L("Raidbuffed est.") }
-    local x = { 12, 310, 440, 570, 700 }
-    for index, label in ipairs(headers) do
-        local text = Font(card, 9, 0.55, 0.58, 0.64, 1)
-        text:SetPoint("TOPLEFT", card, "TOPLEFT", x[index], -34); text:SetText(label)
-    end
-    local row = 0
-    for _, info in ipairs(ns.PLANNER_STAT_KEYS) do
-        local value = planned[info.key] or 0
-        local currentValue = current[info.key] or 0
-        if value ~= 0 or currentValue ~= 0 then
-            row = row + 1
-            local yy = -34 - row * 15
-            local delta = value - currentValue
-            local multiplier = (info.key == "ITEM_MOD_STAMINA_SHORT") and 1.05
-                or ((info.key == "ITEM_MOD_STRENGTH_SHORT" or info.key == "ITEM_MOD_AGILITY_SHORT"
-                    or info.key == "ITEM_MOD_INTELLECT_SHORT") and 1.03 or 1)
-            local estimatedPercent, hasDR = ns.GetPlannerDREstimate(info.key, value)
-            local statName = info.name
-            if hasDR then statName = statName .. "  |cffffb84d" .. L("DR active") .. "|r" end
-            local raidValue = math.floor(value * multiplier + 0.5)
-            if estimatedPercent then raidValue = raidValue .. "  (≈" .. string.format("%.1f%%", estimatedPercent) .. ")" end
-            local values = { statName, currentValue, value,
-                (delta > 0 and "+" or "") .. delta, raidValue }
-            for index, label in ipairs(values) do
-                local positive = index == 4 and delta > 0
-                local negative = index == 4 and delta < 0
-                local text = Font(card, 9, positive and 0.33 or (negative and 1 or 0.82),
-                    positive and 0.87 or (negative and 0.35 or 0.82), positive and 0.53 or (negative and 0.35 or 0.82), 1)
-                text:SetPoint("TOPLEFT", card, "TOPLEFT", x[index], yy); text:SetText(label)
-            end
-        end
-    end
-    if row == 0 then
-        local empty = Font(card, 10, 0.62, 0.64, 0.68, 1)
-        empty:SetPoint("CENTER", card, "CENTER", 0, -15)
-        empty:SetText(L("Choose items to calculate the planned set."))
-    end
-    return 190
 end
 
 local function BuildPlannerCandidate(parent, y, candidate, selected, onClick)
@@ -658,8 +616,9 @@ local function BuildPlannerCandidate(parent, y, candidate, selected, onClick)
     state:SetPoint("RIGHT", frame, "RIGHT", -12, 0); state:SetText(selected and L("Selected BiS") or L("Set as BiS"))
     frame:SetScript("OnClick", onClick)
     frame:SetScript("OnEnter", function(self)
-        local targetLink = ns.GetTargetItemLink(item.itemID, SelectedSpecID(), candidate.targetLevel,
-            candidate.linkKind or source.kind, candidate.difficultyID, candidate.keyLevel)
+        local targetLink = source.kind ~= "crafted"
+            and ns.GetTargetItemLink(item.itemID, SelectedSpecID(), candidate.targetLevel,
+                candidate.linkKind or source.kind, candidate.difficultyID, candidate.keyLevel)
         ShowItemTooltip(self, item, candidate.targetLevel, false, targetLink)
     end)
     frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -742,7 +701,6 @@ local function BuildPlanner(parent, yOffset)
             end)
     end
     y = y - math.ceil(#ns.PLAN_SLOTS / 2) * 54 - 4
-    y = y - BuildPlannerStats(parent, y, planKey, specID)
     _, h = W:WideButton(parent, "Copy SimC Gear Set", y, function()
         StaticPopup_Show("EULT_SIMC_EXPORT", nil, nil, ns.GetSimCPlan(planKey, specID))
     end, 280); y = y - h

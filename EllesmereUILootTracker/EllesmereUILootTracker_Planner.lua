@@ -176,6 +176,7 @@ local function SyncGoalFromPlans(goal, specID)
     if best then
         goal.minItemLevel, goal.linkKind = best.targetLevel, best.linkKind
         goal.difficultyID, goal.keyLevel = best.difficultyID, best.keyLevel
+        goal.itemLevel = best.itemLevel or goal.itemLevel
     end
 end
 
@@ -183,6 +184,10 @@ function ns.RefreshPlanTargets(mode, specID, keyLevel, difficultyID, craftedTarg
     local plan = ns.GetPlan(mode, specID)
     local targetLevel = ns.GetMPlusTargetLevel(keyLevel)
     for _, selection in pairs(plan.slots) do
+        if not selection.itemLevel and selection.itemLink and C_Item.GetDetailedItemLevelInfo then
+            local level = C_Item.GetDetailedItemLevelInfo(selection.itemLink)
+            if not (issecretvalue and issecretvalue(level)) then selection.itemLevel = tonumber(level) end
+        end
         if selection.sourceKind == "dungeon" or selection.linkKind == "dungeon" then
             selection.keyLevel = keyLevel
             selection.targetLevel = targetLevel
@@ -287,6 +292,7 @@ function ns.SetPlannedItem(mode, slotKey, candidate, specID)
         end
         plan.slots[slotKey] = {
             itemID=item.itemID, itemName=item.name, itemIcon=item.icon, itemLink=item.link,
+            itemLevel=item.itemLevel,
             equipLoc=item.equipLoc, sourceKey=sourceKey, sourceKind=source.kind,
             sourceName=source.name, instanceName=source.instanceName,
             sourceID=source.kind == "raid" and source.encounterID
@@ -362,69 +368,6 @@ function ns.GetPlannerCandidates(mode, slotKey, specID, difficultyID, keyLevel)
     return candidates
 end
 
-local STAT_KEYS = {
-    { key="ITEM_MOD_STRENGTH_SHORT", name=SPELL_STAT1_NAME or "Strength" },
-    { key="ITEM_MOD_AGILITY_SHORT", name=SPELL_STAT2_NAME or "Agility" },
-    { key="ITEM_MOD_INTELLECT_SHORT", name=SPELL_STAT4_NAME or "Intellect" },
-    { key="ITEM_MOD_STAMINA_SHORT", name=SPELL_STAT3_NAME or "Stamina" },
-    { key="ITEM_MOD_CRIT_RATING_SHORT", name=STAT_CRITICAL_STRIKE or "Critical Strike" },
-    { key="ITEM_MOD_HASTE_RATING_SHORT", name=STAT_HASTE or "Haste" },
-    { key="ITEM_MOD_MASTERY_RATING_SHORT", name=STAT_MASTERY or "Mastery" },
-    { key="ITEM_MOD_VERSATILITY", name=STAT_VERSATILITY or "Versatility" },
-    { key="ITEM_MOD_ARMOR_SHORT", name=ARMOR or "Armor" },
-}
-ns.PLANNER_STAT_KEYS = STAT_KEYS
-
-local RATING_INDEX = {
-    ITEM_MOD_CRIT_RATING_SHORT = CR_CRIT_MELEE,
-    ITEM_MOD_HASTE_RATING_SHORT = CR_HASTE_MELEE,
-    ITEM_MOD_MASTERY_RATING_SHORT = CR_MASTERY,
-    ITEM_MOD_VERSATILITY = CR_VERSATILITY_DAMAGE_DONE,
-}
-
-function ns.GetPlannerDREstimate(statKey, plannedRating)
-    local ratingIndex = RATING_INDEX[statKey]
-    if not ratingIndex or not GetCombatRating or not GetCombatRatingBonus then return nil end
-    local ratingValue, percentValue = GetCombatRating(ratingIndex), GetCombatRatingBonus(ratingIndex)
-    if issecretvalue and (issecretvalue(ratingValue) or issecretvalue(percentValue)) then return nil end
-    local currentRating = tonumber(ratingValue) or 0
-    local currentPercent = tonumber(percentValue) or 0
-    if currentRating <= 0 or currentPercent <= 0 then return nil end
-    local estimated = (tonumber(plannedRating) or 0) * currentPercent / currentRating
-    return estimated, estimated >= 30
-end
-
-local function AddLinkStats(total, link)
-    if not link then return end
-    local getItemStats = C_Item and C_Item.GetItemStats or GetItemStats
-    if not getItemStats then return end
-    local ok, stats = pcall(getItemStats, link)
-    if not ok then return end
-    if type(stats) ~= "table" then return end
-    for _, info in ipairs(STAT_KEYS) do
-        local value = stats[info.key]
-        if not (issecretvalue and issecretvalue(value)) then
-            total[info.key] = (total[info.key] or 0) + (tonumber(value) or 0)
-        end
-    end
-end
-
-function ns.GetPlannerStats(mode, specID)
-    local planned, current = {}, {}
-    local plan = ns.GetPlan(mode, specID)
-    for _, slot in ipairs(ns.PLAN_SLOTS) do
-        local selection = plan.slots[slot.key]
-        if selection then
-            local link = ns.GetTargetItemLink(selection.itemID, specID, selection.targetLevel,
-                selection.linkKind or selection.sourceKind, selection.difficultyID, selection.keyLevel) or selection.itemLink
-            AddLinkStats(planned, link)
-        end
-        AddLinkStats(current, GetInventoryItemLink("player", slot.inventorySlot))
-    end
-    return planned, current
-end
-
-
 local SIMC_SLOT_NAMES = {
     HEAD="head", NECK="neck", SHOULDER="shoulder", BACK="back", CHEST="chest",
     WRIST="wrist", HANDS="hands", WAIST="waist", LEGS="legs", FEET="feet",
@@ -441,6 +384,9 @@ function ns.GetSimCPlan(mode, specID)
     for _, slot in ipairs(ns.PLAN_SLOTS) do
         local selection = plan.slots[slot.key]
         if selection then
+            if selection.sourceKind == "crafted" then
+                lines[#lines + 1] = "# Crafted item: configure missives, embellishment and sockets manually."
+            end
             local name = (selection.itemName or ("item_" .. selection.itemID)):lower()
                 :gsub("[^%w]+", "_"):gsub("^_+", ""):gsub("_+$", "")
             lines[#lines + 1] = string.format("%s=%s,id=%d,ilevel=%d",
