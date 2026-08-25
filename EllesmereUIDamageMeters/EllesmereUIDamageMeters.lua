@@ -1040,93 +1040,6 @@ local function IsSecret(v)
     return issecretvalue ~= nil and issecretvalue(v)
 end
 
--- Resolve a damage-meter source back to its live group unit when possible;
--- MethodInternal's name-based surface API covers historical/off-roster sources.
-local function FindNicknameUnit(guid, isLocalPlayer)
-    if not IsSecret(isLocalPlayer) and isLocalPlayer == true then return "player" end
-
-    local cleanGuid = type(guid) == "string" and not IsSecret(guid) and guid or nil
-    if cleanGuid and UnitTokenFromGUID then
-        local unit = UnitTokenFromGUID(cleanGuid)
-        if unit and not IsSecret(unit) and UnitExists(unit)
-           and (UnitIsUnit(unit, "player") or UnitInParty(unit) or UnitInRaid(unit)) then
-            return unit
-        end
-    end
-end
-
--- MethodInternal's surface choice is authoritative for known Method players;
--- unhandled players keep their raw short character name.
-function ns.ResolvePlayerName(name, guid, isLocalPlayer)
-    -- Without the provider the answer is exactly the pre-nickname name; skip
-    -- the guid->unit resolution so non-users pay one nil check, nothing more.
-    if not EasyNicknameAPI then return StripRealm(name) end
-    local nameIsPlain = type(name) == "string" and not IsSecret(name) and name ~= ""
-    local unit = FindNicknameUnit(guid, isLocalPlayer)
-    local fullName = nameIsPlain and name or nil
-    local shortName = nameIsPlain and StripRealm(name) or nil
-    if unit then
-        local unitName = UnitName(unit)
-        if type(unitName) == "string" and not IsSecret(unitName) and unitName ~= "" then shortName = unitName end
-        local unitFullName = GetUnitName(unit, true)
-        if type(unitFullName) == "string" and not IsSecret(unitFullName) and unitFullName ~= "" then fullName = unitFullName end
-    end
-    local fallback = shortName or StripRealm(name)
-
-    -- MethodInternal owns the selected name for known Method players on this
-    -- surface. Character Name is authoritative even though it equals fallback.
-    if EasyNicknameAPI then
-        local ok, value, handled
-        if unit and EasyNicknameAPI.GetNicknameForUnitForSurface then
-            ok, value, handled = pcall(
-                EasyNicknameAPI.GetNicknameForUnitForSurface, unit, "damageMeters")
-        elseif fullName and EasyNicknameAPI.GetNicknameForCharacterNameForSurface then
-            ok, value, handled = pcall(
-                EasyNicknameAPI.GetNicknameForCharacterNameForSurface,
-                fullName, nil, "damageMeters")
-        end
-        if ok and handled == true then
-            if type(value) == "string" and not IsSecret(value) and value ~= "" then
-                return value
-            end
-            return fallback
-        end
-    end
-    return fallback
-end
-
-function ns.RefreshNicknameNames()
-    if ns._nicknameRefreshPending then return end
-    ns._nicknameRefreshPending = true
-    C_Timer.After(0, function()
-        ns._nicknameRefreshPending = nil
-        for _, window in ipairs(ns._windows or {}) do
-            window._stickyNameCache = nil
-            for _, bar in ipairs(window.rowPool or {}) do
-                bar._cachedSrcName = nil
-                bar._cachedDisplayName = nil
-            end
-            -- Combat already has the shared meter ticker; avoid an extra API fetch.
-            if not _inCombat and window.Refresh then window.Refresh() end
-        end
-    end)
-end
-
--- Keep cached meter labels in sync with MethodInternal without adding work to
--- the one-second damage-meter refresh hot path.
-do
-    local function RegisterMethodInternal()
-        if ns._dmMethodInternalSurfaceNickHooked then return end
-        if EasyNicknameAPI and EasyNicknameAPI.RegisterCallback then
-            EasyNicknameAPI.RegisterCallback(
-                "SurfaceNicknamesChanged", ns.RefreshNicknameNames, "EllesmereUIDamageMeters")
-            ns._dmMethodInternalSurfaceNickHooked = true
-        end
-    end
-
-    EventUtil.ContinueOnAddOnLoaded("MethodInternal", RegisterMethodInternal)
-end
-
 -- Is this bar the local player's? isLocalPlayer is documented NeverSecret, so
 -- the read is legal mid-combat -- but a doc being wrong must degrade to "not
 -- own" (the row stays blocked, today's behavior), never to a thrown compare.
@@ -1562,7 +1475,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
         -- Reverse to oldest-first
         local reversed = {}
         for ri = #raw, 1, -1 do reversed[#reversed + 1] = raw[ri] end
-        ApplyTTHeader(ns.ResolvePlayerName(bar._src.name, bar._srcGUID, bar._src.isLocalPlayer), EllesmereUI.L("Death Recap"))
+        ApplyTTHeader(StripRealm(bar._src.name), EllesmereUI.L("Death Recap"))
         local texPath, texKey = GetBreakdownBarTexturePath()
         local deathTime = reversed[#reversed] and reversed[#reversed].timestamp
         if IsSecret(deathTime) then deathTime = nil end
@@ -1686,7 +1599,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
                 if cc then b.fill:SetStatusBarColor(cc.r, cc.g, cc.b)
                 else b.fill:SetStatusBarColor(0x33/255, 0x33/255, 0x33/255) end
                 b.label:SetTextColor(1, 1, 1); b.amount:SetTextColor(1, 1, 1)
-                b.label:SetText(ns.ResolvePlayerName(p.name))
+                b.label:SetText(StripRealm(p.name))
                 b.amount:SetText(FormatBarValue(p.total, p.amountPerSecond, numFmt))
                 b.row:Show()
             else b.row:Hide() end
@@ -1717,7 +1630,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
     end
     if not srcData or not srcData.combatSpells or #srcData.combatSpells == 0 then return false end
 
-    ApplyTTHeader(ns.ResolvePlayerName(bar._src.name, bar._srcGUID, bar._src.isLocalPlayer), L(DM_TYPE_NAMES[curDMType] or "Damage Done"))
+    ApplyTTHeader(StripRealm(bar._src.name), L(DM_TYPE_NAMES[curDMType] or "Damage Done"))
 
     wipe(_ttSorted)
     for _, spell in ipairs(srcData.combatSpells) do
@@ -2343,7 +2256,7 @@ local function CreateDMWindow(winIdx)
                 end
                 if not hasRecap then
                     EnsureTooltipFrame()
-                    local playerName = ns.ResolvePlayerName(bar._src.name, bar._srcGUID, bar._src.isLocalPlayer)
+                    local playerName = StripRealm(bar._src.name)
                     _ttFrame._hdrText:SetText(EllesmereUI.Lf("%1$s's Death Recap", playerName))
                     local cfg2 = DB()
                     local hc = cfg2.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
@@ -2368,9 +2281,7 @@ local function CreateDMWindow(winIdx)
                and W.curDMType ~= Enum.DamageMeterType.Deaths then
                 EnsureTooltipFrame()
                 -- Show header with player name + type
-                local playerName = W.curDMType == Enum.DamageMeterType.EnemyDamageTaken
-                    and StripRealm(bar._src and bar._src.name)
-                    or ns.ResolvePlayerName(bar._src and bar._src.name, bar._srcGUID, bar._src and bar._src.isLocalPlayer)
+                local playerName = StripRealm(bar._src and bar._src.name)
                 local typeName = L(DM_TYPE_NAMES[W.curDMType] or "Damage Done")
                 _ttFrame._hdrText:SetText(EllesmereUI.Lf("%1$s's %2$s Breakdown", playerName, typeName))
                 local cfg2 = DB()
@@ -3452,11 +3363,11 @@ local function CreateDMWindow(winIdx)
         -- Name: only when source name changes (guard secret values)
         local srcName = src.name
         if issecretvalue and issecretvalue(srcName) then
-            bar.label:SetText(ns.ResolvePlayerName(srcName, src.sourceGUID, src.isLocalPlayer) or "You")
+            bar.label:SetText(StripRealm(srcName))
             W._stickyNameCache = nil
         elseif srcName ~= W._stickyNameCache then
             W._stickyNameCache = srcName
-            bar.label:SetText(ns.ResolvePlayerName(srcName, src.sourceGUID, src.isLocalPlayer) or "You")
+            bar.label:SetText(StripRealm(srcName))
         end
         if isDeaths then
             local isOverall = (not W.curSessionID and W.curSession == Enum.DamageMeterSessionType.Overall)
@@ -3629,13 +3540,11 @@ local function CreateDMWindow(winIdx)
                         -- Name
                         local srcName = src.name
                         if isSecret and issecretvalue(srcName) then
-                            bar.label:SetText(W.curDMType == Enum.DamageMeterType.EnemyDamageTaken
-                                and StripRealm(srcName) or ns.ResolvePlayerName(srcName, src.sourceGUID, src.isLocalPlayer))
+                            bar.label:SetText(StripRealm(srcName))
                             bar._cachedSrcName = nil
                         elseif srcName ~= bar._cachedSrcName then
                             bar._cachedSrcName = srcName
-                            bar._cachedDisplayName = W.curDMType == Enum.DamageMeterType.EnemyDamageTaken
-                                and StripRealm(srcName) or ns.ResolvePlayerName(srcName, src.sourceGUID, src.isLocalPlayer)
+                            bar._cachedDisplayName = StripRealm(srcName)
                             bar.label:SetText(bar._cachedDisplayName)
                         end
 
@@ -3923,7 +3832,7 @@ local function CreateDMWindow(winIdx)
                     else local ar2, ag2, ab2 = GetAccentRGB(); bar.fill:SetStatusBarColor(ar2, ag2, ab2) end
                     SetDMFont(bar.label, leftFS); SetDMFont(bar.amount, rightFS)
                     bar.label:SetTextColor(1, 1, 1); bar.amount:SetTextColor(1, 1, 1)
-                    bar.label:SetText(ns.ResolvePlayerName(p.name))
+                    bar.label:SetText(StripRealm(p.name))
                     bar.amount:SetText(FormatBarValue(p.total, p.amountPerSecond, c.numberFormat or 2)); bar._spellID = nil
                 else bar.row:Hide(); bar._spellID = nil end
             end

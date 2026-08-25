@@ -1384,6 +1384,7 @@ local totemBarFrame
 local _totemBorderOverlays = setmetatable({}, { __mode = "k" })
 local _totemHooked = false
 local _totemOrigParent
+local _totemOrigStrata
 -- Engine-entry frames are created at FILE SCOPE on purpose: CPU bills a handler's
 -- whole call tree to the addon whose execution context CREATED the entry frame
 -- (inherited taint-style from the entry point, not the file the code lives in).
@@ -2890,6 +2891,7 @@ local function ApplyResourceBarTicks(sb, maxVal, tickStr, tickCache, hashWidth, 
             t:ClearAllPoints()
             if vert then
                 local off = PP and PP.Scale(barH * frac) or (barH * frac)
+                off = math.max(0, math.min(off, PP and PP.Scale(barH - pxW) or (barH - pxW)))
                 t:SetSize(barW - vI * 2, pxW)
                 if revFill then
                     t:SetPoint("TOPLEFT", sb, "TOPLEFT", vI, -off)
@@ -2898,6 +2900,7 @@ local function ApplyResourceBarTicks(sb, maxVal, tickStr, tickCache, hashWidth, 
                 end
             else
                 local off = PP and PP.Scale(barW * frac) or (barW * frac)
+                off = math.max(0, math.min(off, PP and PP.Scale(barW - pxW) or (barW - pxW)))
                 t:SetSize(pxW, tickH)
                 t:SetPoint("TOPLEFT", sb, "TOPLEFT", off, -vI)
             end
@@ -4135,6 +4138,14 @@ local function UpdatePrimaryBar()
     local pctTainted = issecretvalue and issecretvalue(pctRaw)
     local pct01 = (not pctTainted) and (pctRaw / 100) or 1
 
+    -- Both allocating stages below (the curve color read returns a color object,
+    -- the formatters build strings) are stamped on the value pair, since
+    -- UNIT_POWER_UPDATE and UNIT_POWER_FREQUENT both fire for one change and the
+    -- repeat re-derives the same result. A secret value cannot be compared, so it
+    -- always rebuilds and drops the stamps (the next clean event rebuilds too).
+    local vmClean = not (issecretvalue and (issecretvalue(cur) or issecretvalue(mx)))
+    if not vmClean then primaryBar._colCur = nil; primaryBar._txtCur = nil end
+
     -- Color: threshold via ColorCurve (secret-safe) for non-mana specs. The
     -- per-spec entry was resolved once per config generation above; pc.tsEntry is
     -- already nil when thresholds are disabled.
@@ -4177,7 +4188,14 @@ local function UpdatePrimaryBar()
                 curve = GetBarThresholdCurve(tR, tG, tB, rvR, rvG, rvB, tPct)
             end
         end
-        if curve then
+        -- The curve object is the settings identity (rebuilt on any input change),
+        -- so (value, max, curve, target) names every input of this color.
+        if curve and not (vmClean and primaryBar._colCur == cur and primaryBar._colMx == mx
+                          and primaryBar._colCurve == curve and primaryBar._colTI == _ppTextInstead) then
+            if vmClean then
+                primaryBar._colCur, primaryBar._colMx = cur, mx
+                primaryBar._colCurve, primaryBar._colTI = curve, _ppTextInstead
+            end
             local ok, colorResult = pcall(UnitPowerPercent, "player", cachedPrimary, false, curve)
             if ok and colorResult and colorResult.GetRGBA then
                 if _ppTextInstead then
@@ -4227,23 +4245,32 @@ local function UpdatePrimaryBar()
     end
 
     if pp.textFormat ~= "none" and not _G._ERB_TextHiddenByForm(pp) then
-        local fmt = pp.textFormat
-        local percentSuffix = (pp.showPercent == false) and "" or "%"
-        local percentText = format("%d", pctRaw) .. percentSuffix
-        local txt
-        if fmt == "smart" then
-            local isPercent = EllesmereUI.IsSmartPowerPercent and EllesmereUI.IsSmartPowerPercent(cachedPrimary)
-            txt = isPercent and percentText or AbbreviateNumbers(cur)
-        elseif fmt == "both" then
-            txt = AbbreviateNumbers(cur) .. " | " .. percentText
-        elseif fmt == "curpp" then
-            txt = AbbreviateNumbers(cur)
-        elseif fmt == "perpp" then
-            txt = percentText
-        else
-            txt = AbbreviateNumbers(cur)
+        -- Stamped only when the text is actually written, so a form-hidden
+        -- stretch can never leave a stale string behind for a repeated value.
+        if not (vmClean and primaryBar._txtCur == cur and primaryBar._txtMx == mx
+                and primaryBar._txtGen == ns.CfgGen and primaryBar._txtPow == cachedPrimary) then
+            if vmClean then
+                primaryBar._txtCur, primaryBar._txtMx = cur, mx
+                primaryBar._txtGen, primaryBar._txtPow = ns.CfgGen, cachedPrimary
+            end
+            local fmt = pp.textFormat
+            local percentSuffix = (pp.showPercent == false) and "" or "%"
+            local percentText = format("%d", pctRaw) .. percentSuffix
+            local txt
+            if fmt == "smart" then
+                local isPercent = EllesmereUI.IsSmartPowerPercent and EllesmereUI.IsSmartPowerPercent(cachedPrimary)
+                txt = isPercent and percentText or AbbreviateNumbers(cur)
+            elseif fmt == "both" then
+                txt = AbbreviateNumbers(cur) .. " | " .. percentText
+            elseif fmt == "curpp" then
+                txt = AbbreviateNumbers(cur)
+            elseif fmt == "perpp" then
+                txt = percentText
+            else
+                txt = AbbreviateNumbers(cur)
+            end
+            primaryBar._text:SetText(txt)
         end
-        primaryBar._text:SetText(txt)
         primaryBar._text:Show()
     else
         primaryBar._text:Hide()
@@ -6514,6 +6541,9 @@ BuildCastBar = function()
         -- "Show Behind": +5 in front of the bar, level-1 behind it.
         local pl = castBarFrame:GetFrameLevel()
         castBarFrame._border:SetFrameLevel(cb.borderBehind and math.max(0, pl - 1) or (pl + 5))
+        -- Same lost-rect recovery as MakePixelBorder:ApplyStyle -- re-anchoring the bar
+        -- stops this child's rect from resolving and the border silently vanishes.
+        if not castBarFrame._border:GetLeft() then castBarFrame._border:SetAllPoints(castBarFrame) end
         EllesmereUI.ApplyBorderStyle(castBarFrame._border, bs,
             cb.borderR or 0, cb.borderG or 0, cb.borderB or 0, cb.borderA or 1,
             texKey, cb.borderTextureOffset, cb.borderTextureOffsetY,
@@ -8207,6 +8237,8 @@ BuildGCDBar = function()
         local bs = g.borderSize or 0
         local pl = gcdBarFrame:GetFrameLevel()
         gcdBarFrame._border:SetFrameLevel(g.borderBehind and math.max(0, pl - 1) or (pl + 5))
+        -- Lost-rect recovery, see the cast bar border above.
+        if not gcdBarFrame._border:GetLeft() then gcdBarFrame._border:SetAllPoints(gcdBarFrame) end
         EllesmereUI.ApplyBorderStyle(gcdBarFrame._border, bs,
             g.borderR or 0, g.borderG or 0, g.borderB or 0, g.borderA or 1,
             g.borderTexture or "solid", g.borderTextureOffset, g.borderTextureOffsetY,
@@ -8422,7 +8454,7 @@ local function LayoutTotemBar()
 
     -- Reparent and position TotemFrame every call (Blizzard's Update can reset these)
     TotemFrame:SetParent(totemBarFrame)
-    TotemFrame:SetFrameStrata("HIGH")
+    TotemFrame:SetFrameStrata(tb.frameStrata or "MEDIUM")
     -- Effective grow direction, resolved through the shared helper below so the
     -- layout and unlock mode's menu can never disagree about it.
     local _growDir = EllesmereUI.GetTotemGrowDir()
@@ -8611,11 +8643,14 @@ local function BuildTotemBar()
         if totemBarFrame then
             EllesmereUI.SetElementVisibility(totemBarFrame, false)
         end
-        -- Restore TotemFrame to original parent
+        -- Restore TotemFrame to original parent and strata
         if TotemFrame and _totemOrigParent and not InCombatLockdown() then
             TotemFrame:SetParent(_totemOrigParent)
             TotemFrame:ClearAllPoints()
             TotemFrame:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 155)
+            if _totemOrigStrata then
+                TotemFrame:SetFrameStrata(_totemOrigStrata)
+            end
         end
         return
     end
@@ -8630,9 +8665,10 @@ local function BuildTotemBar()
         if _G._ERB_RegisterUnlock then _G._ERB_RegisterUnlock() end
     end
 
-    -- Save original parent for restore on disable
+    -- Save original parent/strata for restore on disable
     if TotemFrame and not _totemOrigParent then
         _totemOrigParent = TotemFrame:GetParent()
+        _totemOrigStrata = TotemFrame:GetFrameStrata()
     end
 
     -- Position our container

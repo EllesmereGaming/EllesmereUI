@@ -206,8 +206,17 @@ local function ApplySubtitleFont()
 end
 ApplySubtitleFont()
 
+local _ffFile, _ffSize
 local function ApplyFriendlyFontOverride()
     SaveOriginalFonts()
+    local font = GetFont()
+    local size = GetFriendlyNameSize()
+    -- Blizzard never rewrites the shared font OBJECTS (its plate setup only
+    -- SetFontObjects the name strings onto them), so once they carry our
+    -- file + size they keep it: an unchanged pair means nothing to restore
+    -- or re-apply. Every SetFont on these objects relayouts every plate
+    -- name, so this stamp is what keeps plate-add bursts free.
+    if fontOverrideApplied and font == _ffFile and size == _ffSize then return end
     -- Restore to known-good originals first so we read the correct height
     -- even if Blizzard reset the font objects after a CVar change.
     if fontOverrideApplied then
@@ -219,8 +228,6 @@ local function ApplyFriendlyFontOverride()
         end
         fontOverrideApplied = false
     end
-    local font = GetFont()
-    local size = GetFriendlyNameSize()
     if SystemFont_NamePlate and SystemFont_NamePlate.SetFont then
         local _, _, flags = SystemFont_NamePlate:GetFont()
         SystemFont_NamePlate:SetFont(font, size, flags or GetNPOutline())
@@ -229,6 +236,7 @@ local function ApplyFriendlyFontOverride()
         local _, _, flags = SystemFont_NamePlate_Outlined:GetFont()
         SystemFont_NamePlate_Outlined:SetFont(font, size, flags or GetNPOutline())
     end
+    _ffFile, _ffSize = font, size
     fontOverrideApplied = true
 end
 

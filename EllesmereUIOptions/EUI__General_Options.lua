@@ -963,6 +963,59 @@ end
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
     {
+        version = "9.0.2",
+        heroes = {},
+        features = {
+            {
+                -- Static card: the work is automatic, nothing to open.
+                module = "General",
+                title  = "Performance Patch Follow-Up",
+                desc   = "Further CPU and memory reductions in combat, continuing the 12.1 Performance Patch: Cooldown Manager, Movement Alerts, Resource Bars, Raid Frames, Nameplates and Unit Frames all do less work per frame, and raids with many shields pace more smoothly",
+            },
+            {
+                module = "Raid Frames",
+                title  = "Shown on Modifier Tooltips",
+                desc   = "New Shown on Modifier tooltip mode in the Debuff Manager: show debuff tooltips only while holding a chosen modifier key",
+                nav    = { module = "EllesmereUIRaidFrames", page = "Debuff Manager", section = "DISPLAY", highlight = "Tooltips" },
+            },
+            {
+                module = "Unit Frames",
+                title  = "Boss Tracked Auras MINE Tag",
+                desc   = "Boss Tracked Auras now show your own casts by default, with a per-spell MINE tag to allow any caster, matching nameplates",
+                -- The tag lives inside the Tracked Auras popup behind the boss page's
+                -- filter cog: land the page, then open the popup directly.
+                onClick = function()
+                    EllesmereUI:NavigateToElementSettings("EllesmereUIUnitFrames", "Boss Frames")
+                    local uf = EllesmereUI._ModuleNS and EllesmereUI._ModuleNS["EllesmereUIUnitFrames"]
+                    if uf and uf.UFOpt_ShowTrackedAuras then uf.UFOpt_ShowTrackedAuras("boss") end
+                end,
+            },
+            {
+                module = "Quality of Life",
+                title  = "Target Distance Frame Strata",
+                desc   = "Choose which frame strata the Target Distance text sits on",
+                nav    = { module = "EllesmereUIQoL", page = "QoL", section = "EXTRAS", highlight = "Target Distance Text" },
+            },
+        },
+        fixes = {
+            { module = "Action Bars", text = "Dragging a pet ability now reveals conditionally hidden and mouseover bars the same way a spell drag does." },
+            { module = "AuraBuff Reminders", text = "Pet reminders now follow the class-specials Where to Show setting, so turning off Delves or any other zone hides them there too." },
+            { module = "Bags", text = "Sorting no longer stutters or makes mouseover action bars flicker, and partial stacks merge in fewer passes." },
+            { module = "Cooldown Manager", text = "The Shift Elements If No Bars Extra Y Offset and Additional Bar Offset sliders now work in screen pixels, so 1 means 1 pixel at any resolution or UI scale, and the unlock mover tooltip shows the same pixel values." },
+            { module = "General", text = "The Macro Factory's Set Focus macro Ping Focus option now pings On My Way on non-English clients." },
+            { module = "Nameplates", text = "The options preview now follows the Nameplates Module Outline override instead of always showing the global outline." },
+            { module = "Quickdraw", text = "The Pings preset now sends the intended ping type on non-English clients." },
+            { module = "Raid Frames", text = "Offline and dead members no longer flip back to their class color after a roster update or opening the options." },
+            { module = "Raid Frames", text = "Dark Mode and custom health backgrounds no longer lose their color after joining a group or changing groups." },
+            { module = "Raid Frames", text = "Single-target heals cast on a party member no longer show on the wrong frame after a roster change." },
+            { module = "Resource Bars", text = "The Totem Bar now respects its Frame Strata setting instead of always sitting above other UI." },
+            { module = "Resource Bars", text = "Hash lines set at the maximum value now sit flush with the bar edge instead of drawing past it." },
+            { module = "Resource Bars", text = "Cast bar and GCD bar borders no longer vanish after the bar is re-anchored." },
+            { module = "Unit Frames", text = "The power bar border no longer disappears until a reload after the bar passes through zero height." },
+            { module = "Localization", text = "Traditional Chinese and Brazilian Portuguese gained the 9.0.0 option labels and tooltips (Assisted Highlight, Debuff Type Icon, Combat Status, combat-only circles, outline overrides, Moonkin)." },
+        },
+    },
+    {
         version = "9.0.1",
         heroes = {
             {

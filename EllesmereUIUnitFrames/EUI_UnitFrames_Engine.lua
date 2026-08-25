@@ -397,6 +397,15 @@ local function Bump()
     return paintGen
 end
 
+-- Identity edges are never eaten by a same-frame value paint: painters may
+-- skip identity-only work (the text painter's name/level zones) on value
+-- events, so an identity event landing after a value paint in the same
+-- hardware frame must still reach the painter (RepaintAll wipes the stamps
+-- for the same reason).
+local IDENTITY_EVENTS = {
+    UNIT_NAME_UPDATE = true, UNIT_LEVEL = true, UNIT_CONNECTION = true, UNIT_FACTION = true,
+}
+
 local function Paint(frame, channel, event)
     local fn = painters[channel]
     if not fn then return end
@@ -404,7 +413,7 @@ local function Paint(frame, channel, event)
     local stamps = frame._euiPaintStamps
     if not stamps then stamps = {}; frame._euiPaintStamps = stamps end
     -- Castbar events are never deduped: each event name is a distinct edge.
-    if channel ~= "castbar" then
+    if channel ~= "castbar" and not IDENTITY_EVENTS[event] then
         local key = stamps[channel]
         if key == gen then return end
         stamps[channel] = gen

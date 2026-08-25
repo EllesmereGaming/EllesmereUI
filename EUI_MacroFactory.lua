@@ -275,7 +275,9 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                     lines[#lines + 1] = "/tm [@focus] ~" .. mark
                 end
                 if db.ping then
-                    lines[#lines + 1] = "/ping [@focus] onmyway"
+                    -- Numeric alias (3 = On My Way): the word forms resolve through
+                    -- localized PING_TYPE_* globals and only match on English clients.
+                    lines[#lines + 1] = "/ping [@focus] 3"
                 end
                 if db.announce then
                     -- %f is the built-in chat substitution for the focus unit's

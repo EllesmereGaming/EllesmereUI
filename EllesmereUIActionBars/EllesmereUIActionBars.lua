@@ -697,7 +697,29 @@ end
 local _dragState = { visible = false, strataCache = {} }
 
 -- Grid show/hide state (show empty slots during spell drag)
-local _gridState = { shown = false, visPending = false, spellsPending = false }
+local _gridState = { shown = false, visPending = false, spellsPending = false,
+    want = nil, settlePending = false, showFns = {}, hideFns = {} }
+
+-- Grid edges arrive in pairs from scripted cursor use: every
+-- PickupContainerItem fires ACTIONBAR_SHOWGRID and every place fires
+-- ACTIONBAR_HIDEGRID, hundreds of pairs per frame during a bag sort, and
+-- applying each edge re-walked every bar and flipped mouseover bars between
+-- alpha 1 and 0 (the visible blinking). Settle instead: a pair that nets back
+-- to the applied state (_gridState.shown, owned by the appliers) costs
+-- nothing, a real drag still surfaces the grid 50ms later. Appliers register
+-- into showFns/hideFns at their own definition sites.
+function ns.EABQueueGrid(show)
+    _gridState.want = show
+    if _gridState.settlePending then return end
+    _gridState.settlePending = true
+    C_Timer_After(0.05, function()
+        _gridState.settlePending = false
+        local want = _gridState.want
+        if want == _gridState.shown then return end
+        local list = want and _gridState.showFns or _gridState.hideFns
+        for i = 1, #list do list[i]() end
+    end)
+end
 local _quickKeybindState = { open = false, closePending = false, art = {}, FinishClose = nil }
 local EAB_UpdateQuickKeybindButtons -- forward-declared for early event hooks
 
@@ -11797,13 +11819,11 @@ end
 --  Grid Show/Hide (show empty slots during spell drag)
 -------------------------------------------------------------------------------
 
+-- Reached only on a real off -> on edge: ns.EABQueueGrid settles the event
+-- storm a bag sort produces (its old 0.1s throttle here could not, because
+-- every HIDEGRID in the storm reset _gridState.shown and re-armed it).
 local function OnGridChange()
     if InCombatLockdown() then return end
-    -- Throttle: bag addons fire ACTIONBAR_SHOWGRID hundreds of times
-    -- per sort pass via PickupContainerItem, causing "script ran too long".
-    local now = GetTime()
-    if _gridState.shown and _gridState._lastTime and (now - _gridState._lastTime) < 0.1 then return end
-    _gridState._lastTime = now
     _gridState.shown = true
 
     -- Propagate showgrid to the controller so the secure environment
@@ -13323,60 +13343,70 @@ function EAB:FinishSetup()
     end
 
     EAB._abcEvents = ns.TakeShell()
-    EAB._abcEvents:SetScript("OnEvent", function(_, event, arg1)
-        if event == "ACTIONBAR_SHOWGRID" then
-            -- Cancel any pending restore (swap case: drop + immediate pickup)
-            _gridRestorePending = false
-            if not InCombatLockdown() then
-                for btn in pairs(_controllerButtons) do
-                    SetShowGridInsecure(btn, true, SHOWGRID.GAME_EVENT)
-                end
-                -- Temporarily surface bars hidden by conditional visibility
-                -- (combat-only, target-only, etc.) so the user can place spells.
-                for _, info in ipairs(BAR_CONFIG) do
-                    if not info.isStance and not info.isPetBar then
-                        local s = EAB.db.profile.bars[info.key]
-                        local frame = barFrames[info.key]
-                        if s and frame and not s.alwaysHidden then
-                            local vis = s.barVisibility or "always"
-                            local hasCondition = vis ~= "always" and vis ~= "never"
-                                or s.visHideNoTarget or s.visHideNoEnemy
-                                or s.visHideMounted or s.visOnlyMounted or s.visOnlyInstances
-                            if hasCondition then
-                                _gridSurfacedBars[info.key] = true
-                                RegisterAttributeDriver(frame, "state-visibility", "show")
-                                -- Keep the cache in sync with the stomp (same
-                                -- class as the QuickKeybind surface fix): a
-                                -- stale cache holding the real string makes
-                                -- every later refresh compare equal and skip
-                                -- re-registering, leaving the bar stuck on
-                                -- "show" until a settings toggle or /reload.
-                                frame._eabLastVisStr = "show"
-                                frame:Show()
-                            end
-                            -- Mouseover bars: force alpha to 1 during drag
-                            if s.mouseoverEnabled then
-                                _gridSurfacedBars[info.key] = true
-                                StopFade(frame)
-                                frame:SetAlpha(1)
-                            end
+
+    -- Controller-side grid appliers, run from the settle in ns.EABQueueGrid.
+    _gridState.showFns[#_gridState.showFns + 1] = function()
+        -- Cancel any pending restore (swap case: drop + immediate pickup)
+        _gridRestorePending = false
+        if not InCombatLockdown() then
+            for btn in pairs(_controllerButtons) do
+                SetShowGridInsecure(btn, true, SHOWGRID.GAME_EVENT)
+            end
+            -- Temporarily surface bars hidden by conditional visibility
+            -- (combat-only, target-only, etc.) so the user can place spells.
+            for _, info in ipairs(BAR_CONFIG) do
+                if not info.isStance and not info.isPetBar then
+                    local s = EAB.db.profile.bars[info.key]
+                    local frame = barFrames[info.key]
+                    if s and frame and not s.alwaysHidden then
+                        local vis = s.barVisibility or "always"
+                        local hasCondition = vis ~= "always" and vis ~= "never"
+                            or s.visHideNoTarget or s.visHideNoEnemy
+                            or s.visHideMounted or s.visOnlyMounted or s.visOnlyInstances
+                        if hasCondition then
+                            _gridSurfacedBars[info.key] = true
+                            RegisterAttributeDriver(frame, "state-visibility", "show")
+                            -- Keep the cache in sync with the stomp (same
+                            -- class as the QuickKeybind surface fix): a
+                            -- stale cache holding the real string makes
+                            -- every later refresh compare equal and skip
+                            -- re-registering, leaving the bar stuck on
+                            -- "show" until a settings toggle or /reload.
+                            frame._eabLastVisStr = "show"
+                            frame:Show()
+                        end
+                        -- Mouseover bars: force alpha to 1 during drag
+                        if s.mouseoverEnabled then
+                            _gridSurfacedBars[info.key] = true
+                            StopFade(frame)
+                            frame:SetAlpha(1)
                         end
                     end
                 end
             end
-        elseif event == "ACTIONBAR_HIDEGRID" or event == "PET_BAR_HIDEGRID" then
-            if not InCombatLockdown() then
-                for btn in pairs(_controllerButtons) do
-                    SetShowGridInsecure(btn, false, SHOWGRID.GAME_EVENT)
-                end
-                -- Defer restore: spell swaps fire HIDEGRID then SHOWGRID
-                -- in rapid succession. Deferring lets the next SHOWGRID
-                -- cancel the restore so bars stay visible.
-                if next(_gridSurfacedBars) then
-                    _gridRestorePending = true
-                    C_Timer_After(0, RestoreGridSurfacedBars)
-                end
+        end
+    end
+
+    _gridState.hideFns[#_gridState.hideFns + 1] = function()
+        if not InCombatLockdown() then
+            for btn in pairs(_controllerButtons) do
+                SetShowGridInsecure(btn, false, SHOWGRID.GAME_EVENT)
             end
+            -- Defer restore: spell swaps fire HIDEGRID then SHOWGRID
+            -- in rapid succession. Deferring lets the next SHOWGRID
+            -- cancel the restore so bars stay visible.
+            if next(_gridSurfacedBars) then
+                _gridRestorePending = true
+                C_Timer_After(0, RestoreGridSurfacedBars)
+            end
+        end
+    end
+
+    EAB._abcEvents:SetScript("OnEvent", function(_, event, arg1)
+        if event == "ACTIONBAR_SHOWGRID" then
+            ns.EABQueueGrid(true)
+        elseif event == "ACTIONBAR_HIDEGRID" or event == "PET_BAR_HIDEGRID" then
+            ns.EABQueueGrid(false)
         elseif event == "CVAR_UPDATE" then
             -- Name-filtered: CVAR_UPDATE fires for every cvar, dozens of times
             -- at login. Only the lock matters to the drag wrapper.
@@ -13512,9 +13542,10 @@ function EAB:FinishSetup()
         self:ApplyFonts()
     end)
 
-    self:RegisterEvent("ACTIONBAR_SHOWGRID", OnGridChange)
+    _gridState.showFns[#_gridState.showFns + 1] = OnGridChange
+    self:RegisterEvent("ACTIONBAR_SHOWGRID", function() ns.EABQueueGrid(true) end)
     -- Pet actions fire their own grid events when dragging pet spells
-    self:RegisterEvent("PET_BAR_SHOWGRID", OnGridChange)
+    self:RegisterEvent("PET_BAR_SHOWGRID", function() ns.EABQueueGrid(true) end)
 
     -- Re-apply useOnKeyDown when the "Press and Hold Casting" CVar changes.
     self:RegisterEvent("CVAR_UPDATE", function(_, cvarName)
@@ -13616,9 +13647,11 @@ function EAB:FinishSetup()
         if cursorType then
             if DRAG_TYPES[cursorType] then
                 SetDragVisible(true)
-                if not _gridState.shown then
-                    OnGridChange()
-                end
+                -- Through the queue, never straight into OnGridChange: a
+                -- direct call flips _gridState.shown, and this drag's own
+                -- ACTIONBAR_SHOWGRID would then settle as a no-op and skip
+                -- the controller-side applier.
+                ns.EABQueueGrid(true)
                 -- Force mouseover bars visible during real cursor drags
                 _gridState._mouseoverForced = true
                 for _, info in ipairs(BAR_CONFIG) do
@@ -13661,17 +13694,11 @@ function EAB:FinishSetup()
         else
             SetDragVisible(false)
             EAB._RestoreDragNeverBars()
-            if _gridState.shown then
-                _gridState.shown = false
-                C_Timer_After(0, function()
-                    -- Drag force-showed grids: the stamps no longer reflect
-                    -- button state, so every bar must re-assert.
-                    if ns._asbStamp then wipe(ns._asbStamp) end
-                    for _, info in ipairs(BAR_CONFIG) do
-                        self:ApplyAlwaysShowButtons(info.key)
-                    end
-                end)
-            end
+            -- Fallback for a cursor cleared without a HIDEGRID; the queue
+            -- dedupes when both arrive. OnGridHide owns the state flip and
+            -- the re-assert, so this must not clear _gridState.shown itself
+            -- (that would make the settle skip the hide appliers).
+            if _gridState.shown then ns.EABQueueGrid(false) end
         end
     end)
 
@@ -13934,6 +13961,9 @@ function EAB:FinishSetup()
         -- causing the button to be hidden as empty.
         C_Timer.After(0, function()
             if InCombatLockdown() then return end
+            -- The grid show force-showed buttons, so the stamps no longer
+            -- reflect button state and every bar must re-assert.
+            if ns._asbStamp then wipe(ns._asbStamp) end
             for _, info2 in ipairs(BAR_CONFIG) do
                 self:ApplyAlwaysShowButtons(info2.key)
             end
@@ -13957,8 +13987,9 @@ function EAB:FinishSetup()
         -- Re-hide Never bars surfaced by Show All During Drag.
         EAB._RestoreDragNeverBars()
     end
-    self:RegisterEvent("ACTIONBAR_HIDEGRID", OnGridHide)
-    self:RegisterEvent("PET_BAR_HIDEGRID", OnGridHide)
+    _gridState.hideFns[#_gridState.hideFns + 1] = OnGridHide
+    self:RegisterEvent("ACTIONBAR_HIDEGRID", function() ns.EABQueueGrid(false) end)
+    self:RegisterEvent("PET_BAR_HIDEGRID", function() ns.EABQueueGrid(false) end)
 
     -- Spell updates: refresh button icons and visibility
     -- Also re-layout the stance bar since GetNumShapeshiftForms() may have changed

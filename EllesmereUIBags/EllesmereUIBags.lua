@@ -317,23 +317,46 @@ local function SetItemPanelOpen(key, open)
     return true
 end
 
--- Pre-cache sort fields onto item data tables to avoid API calls in comparator
-local function PreCacheSortFields(items)
-    for _, d in ipairs(items) do
-        if d.itemLink and not d._sortCached then
-            local name, _, quality, ilvl, _, itemType = GetItemInfo(d.itemLink)
-            d._sortName = name or ""
-            d._sortQuality = quality or 0
-            d._sortIlvl = ilvl or 0
-            d._sortType = itemType or ""
-            if GetUpgradeTrack and _trackRank then
-                local _, color = GetUpgradeTrack(d.itemLink)
-                d._sortTrackRank = color and _trackRank[color] or 0
-            else
-                d._sortTrackRank = 0
+-- Pre-cache sort fields onto item data tables to avoid API calls in comparator.
+-- The per-table _sortCached flag only covers repeats within one pass: every
+-- physical-sort retry builds fresh item tables, so it re-ran GetItemInfo and
+-- GetItemUpgradeInfo for every item on every pass. All five fields are pure
+-- functions of the item link, so memo them on the link instead. Incomplete
+-- item data (nil name) is never stored and still resolves on a later pass.
+-- _sortGear stays per item: it follows the category, not the link.
+local PreCacheSortFields
+do
+    local cache = {}
+    local cacheCount = 0
+    PreCacheSortFields = function(items)
+        for _, d in ipairs(items) do
+            if d.itemLink and not d._sortCached then
+                local c = cache[d.itemLink]
+                if not c then
+                    local name, _, quality, ilvl, _, itemType = GetItemInfo(d.itemLink)
+                    local rank = 0
+                    if GetUpgradeTrack and _trackRank then
+                        local _, color = GetUpgradeTrack(d.itemLink)
+                        rank = color and _trackRank[color] or 0
+                    end
+                    c = { name = name or "", quality = quality or 0, ilvl = ilvl or 0,
+                          itemType = itemType or "", rank = rank, complete = name ~= nil }
+                    if c.complete then
+                        -- Links are per-item-instance, so the table would grow
+                        -- with every distinct item seen in a session.
+                        if cacheCount >= 4000 then wipe(cache); cacheCount = 0 end
+                        cache[d.itemLink] = c
+                        cacheCount = cacheCount + 1
+                    end
+                end
+                d._sortName = c.name
+                d._sortQuality = c.quality
+                d._sortIlvl = c.ilvl
+                d._sortType = c.itemType
+                d._sortTrackRank = c.rank
+                d._sortGear = d.categoryIndex and IsGearCategory(d.categoryIndex) or false
+                if c.complete then d._sortCached = true end
             end
-            d._sortGear = d.categoryIndex and IsGearCategory(d.categoryIndex) or false
-            if name then d._sortCached = true end
         end
     end
 end
@@ -944,6 +967,13 @@ local function CreateHeader()
     end)
 
     local sortLocked = false
+    -- One reusable BAG_UPDATE listener per role. Both phases are strictly
+    -- sequential, and a fresh CreateFrame per round leaked frames per click
+    -- (frames are never collected). The run token keeps a second sort from
+    -- inheriting the first one's callbacks: EndDragDrop can unlock the button
+    -- mid-run, and a stale callback clearing the live chain's OnEvent would
+    -- strand it with refreshEnabled false (bags frozen until reload).
+    local consolidateFrame, retryFrame
     local function LockSort()
         sortLocked = true
         sort:EnableMouse(false)
@@ -978,6 +1008,13 @@ local function CreateHeader()
         --  Phase 1: consolidate partial stacks (smallest onto largest of the same itemID; the engine performs the combine).
         -----------------------------------------------------------------------
         local function ConsolidateStacks(onDone)
+            -- Max stack size is a static per-itemID fact, but it was re-read
+            -- through GetItemInfo for every occupied slot on every pass (up to
+            -- 30 passes over six bags). Memo it for the run instead; the
+            -- ItemLocation + DoesItemExist guard it used to sit behind is
+            -- redundant, GetContainerItemInfo just returned the item.
+            local maxStackByID = {}
+            local function ByCount(a, b) return a.count < b.count end
             local function DoOnePass()
                 local stacks = {}  -- itemID -> { {bag,slot,count}, ... }
                 for bag = 0, 5 do
@@ -985,10 +1022,13 @@ local function CreateHeader()
                     for slot = 1, numSlots do
                         local info = C_Container.GetContainerItemInfo(bag, slot)
                         if info and info.itemID and info.stackCount then
-                            local maxStack = info.stackCount
-                            local loc = ItemLocation:CreateFromBagAndSlot(bag, slot)
-                            if C_Item.DoesItemExist(loc) then
-                                maxStack = select(8, C_Item.GetItemInfo(info.itemID)) or 1
+                            local maxStack = maxStackByID[info.itemID]
+                            if not maxStack then
+                                maxStack = select(8, C_Item.GetItemInfo(info.itemID))
+                                -- Uncached item data: don't memo the fallback,
+                                -- a later pass can still resolve it.
+                                if maxStack then maxStackByID[info.itemID] = maxStack
+                                else maxStack = 1 end
                             end
                             if maxStack > 1 and info.stackCount < maxStack then
                                 if not stacks[info.itemID] then stacks[info.itemID] = {} end
@@ -999,24 +1039,20 @@ local function CreateHeader()
                         end
                     end
                 end
-                -- One smallest->largest pair per itemID per pass; distinct itemIDs occupy distinct slots
-                -- so all merges fire same-frame, then wait one BAG_UPDATE and repeat -- converges in max-partials-per-item rounds, not one per merge.
+                -- Emptiest partial merges into fullest, second-emptiest into
+                -- second-fullest, and so on: every slot is touched at most
+                -- once, so all pairs of this pass still fire same-frame -- but
+                -- an item with 2n partial stacks now converges in log rounds
+                -- instead of n BAG_UPDATE round trips. Overflow waits for a
+                -- later pass, same as before.
                 local merged = false
                 for _, partials in pairs(stacks) do
-                    if #partials >= 2 then
-                        -- Emptiest partial merges into fullest via one scan (no sort); overflow waits for a later pass.
-                        local target = partials[1]
-                        for i = 2, #partials do
-                            if partials[i].count > target.count then target = partials[i] end
-                        end
-                        local source
-                        for i = 1, #partials do
-                            local pr = partials[i]
-                            if pr ~= target and (not source or pr.count < source.count) then
-                                source = pr
-                            end
-                        end
-                        if source then
+                    local n = #partials
+                    if n >= 2 then
+                        table.sort(partials, ByCount)
+                        local lo, hi = 1, n
+                        while lo < hi do
+                            local source, target = partials[lo], partials[hi]
                             local srcLoc = ItemLocation:CreateFromBagAndSlot(source.bag, source.slot)
                             local dstLoc = ItemLocation:CreateFromBagAndSlot(target.bag, target.slot)
                             if not C_Item.IsLocked(srcLoc) and not C_Item.IsLocked(dstLoc) then
@@ -1025,6 +1061,8 @@ local function CreateHeader()
                                 ClearCursor()
                                 merged = true
                             end
+                            lo = lo + 1
+                            hi = hi - 1
                         end
                     end
                 end
@@ -1037,12 +1075,16 @@ local function CreateHeader()
             end
 
             local consolidateRetry = 0
-            local consolidateFrame = CreateFrame("Frame")
+            if not consolidateFrame then consolidateFrame = CreateFrame("Frame") end
+            local runToken = {}
+            consolidateFrame._runToken = runToken
             consolidateFrame:RegisterEvent("BAG_UPDATE")
             consolidateFrame:SetScript("OnEvent", function(self)
+                if self._runToken ~= runToken then return end
                 self:UnregisterAllEvents()
                 consolidateRetry = consolidateRetry + 1
                 C_Timer.After(0.15, function()
+                    if consolidateFrame._runToken ~= runToken then return end
                     if consolidateRetry < 30 and DoOnePass() then
                         self:RegisterEvent("BAG_UPDATE")
                     else
@@ -1177,12 +1219,16 @@ local function CreateHeader()
             if not moved then onDone(); return end
 
             local retryCount = 0
-            local retryFrame = CreateFrame("Frame")
+            if not retryFrame then retryFrame = CreateFrame("Frame") end
+            local runToken = {}
+            retryFrame._runToken = runToken
             retryFrame:RegisterEvent("BAG_UPDATE")
             retryFrame:SetScript("OnEvent", function(self)
+                if self._runToken ~= runToken then return end
                 self:UnregisterAllEvents()
                 retryCount = retryCount + 1
                 C_Timer.After(0.15, function()
+                    if retryFrame._runToken ~= runToken then return end
                     local moved = ComputeAndExecute(bagMin, bagMax)
                     if moved and retryCount < 15 then
                         self:RegisterEvent("BAG_UPDATE")

@@ -352,10 +352,16 @@ local function BuildDebuffStyle(s, sizeOverride)
         stackColor = s.debuffStacksTextColor,
         stackOffX = s.debuffStacksOffsetX,
         stackOffY = s.debuffStacksOffsetY,
-        -- 4-state tooltip mode: true/nil=hidden, false=shown, "combat"=hidden in
-        -- combat, "cursor"=shown at cursor. Raw key already in DebuffStyleFP.
+        -- 5-state tooltip mode: true/nil=hidden, false=shown, "combat"=hidden in
+        -- combat, "cursor"=shown at cursor, "modifier"=shown only while the Use
+        -- Modifier cog's key is held. Style-side, "modifier" renders as plain
+        -- Shown; the gating is the DM file's tooltip eater -- a secure unit
+        -- sub-button over the debuff band that takes the hover and hides while
+        -- the key is held (button-surface writes are refused while auras are
+        -- secret, so nothing here can gate at runtime). Raw key already in DebuffStyleFP.
         noTooltips = not (s.debuffHideTooltips == false
-            or s.debuffHideTooltips == "combat" or s.debuffHideTooltips == "cursor"),
+            or s.debuffHideTooltips == "combat" or s.debuffHideTooltips == "cursor"
+            or s.debuffHideTooltips == "modifier"),
         tooltipCombatHide = s.debuffHideTooltips == "combat",
         tooltipAnchor = (s.debuffHideTooltips == "cursor") and "cursor" or nil,
         -- Base DM Effects (per-filter blocks); tile styles override this
@@ -418,8 +424,24 @@ local function ResolveFlowAnchor(pos, corner, grow, wrap)
     return corner, corner, grow, wrap
 end
 
+-- The debuff row's pin: the flow's start point on the health frame plus the
+-- cell geometry the row is laid out with. AnchorDebuffContainer pins the
+-- container here (same math below); the Debuff Manager's tooltip-modifier
+-- eaters pin to the same point with a settings-derived maximum footprint, so
+-- their rect never derives from the container's content-driven (secret) size.
+function ns.RFC_DebuffPin(s)
+    local pos = s.debuffPosition or "bottomright"
+    local corner = CORNERS[pos] or "BOTTOMRIGHT"
+    local grow = s.debuffGrowDirection or "LEFT"
+    local point = ResolveFlowAnchor(pos, corner, grow, s.debuffWrapDirection or "UP")
+    return point, corner, s.debuffOffsetX or 0, s.debuffOffsetY or 0,
+        s.debuffSize or 18, s.debuffSpacing or 1, s.debuffPerRow or 5,
+        (grow == "UP" or grow == "DOWN")
+end
+
 local function AnchorDebuffContainer(container, health, s)
     health = ns.RF_AnchorHost and ns.RF_AnchorHost(health, s) or health   -- Uniform Icon Anchoring
+    -- Pin math mirrored by ns.RFC_DebuffPin above; keep the two in step.
     local pos = s.debuffPosition or "bottomright"
     local corner = CORNERS[pos] or "BOTTOMRIGHT"
     local grow = s.debuffGrowDirection or "LEFT"
@@ -3363,6 +3385,9 @@ function ns.RFC_ReloadAll()
                     AnchorDebuffContainer(container, d.rfcHealth, s)
                     ApplyDebuffConfig(container, d, s)
                 end
+                -- "Shown on Modifier" motion eaters (frames we own; the DM
+                -- file builds/flips them -- see its tooltip-modifier section).
+                if ns.DM_TipModEnsure then ns.DM_TipModEnsure(button, d, s) end
                 if flags.dispLocCfg then
                     local c2 = d.rfcDispLoc
                     if c2 then

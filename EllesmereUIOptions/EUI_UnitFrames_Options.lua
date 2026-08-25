@@ -51,6 +51,11 @@ function ns.UFOpt_ShowTrackedAuras(unitKey)
         title = TRACKED_TITLES[unitKey] or "Tracked Auras",
         includeGet = function() return TrackedList(unitKey, "debuffInclude") end,
         excludeGet = function() return TrackedList(unitKey, "debuffExclude") end,
+        -- Boss includes default to Only My Casts (nameplate parity); the MINE
+        -- tag on each row opts an entry out to any caster (sibling map).
+        includeMine = (unitKey == "boss") and {
+            anyGet = function() return TrackedList(unitKey, "debuffIncludeAnyCaster") end,
+        } or nil,
         includePrompt = "Enter the spell ID to always show on this frame.",
         excludePrompt = "Enter the spell ID to exclude from this frame.",
         onChanged = Changed,
@@ -70,6 +75,7 @@ function ns.UFOpt_ShowTrackedAuras(unitKey)
                 end
                 dst.debuffInclude = Clone(src.debuffInclude)
                 dst.debuffExclude = Clone(src.debuffExclude)
+                dst.debuffIncludeAnyCaster = Clone(src.debuffIncludeAnyCaster)
                 Changed()
             end,
         },
