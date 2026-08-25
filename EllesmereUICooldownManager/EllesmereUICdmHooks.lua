@@ -1285,7 +1285,8 @@ function ns.RebuildSpellRouteMap()
                             local ss = ns.ResolveVariantValue(settings, targetSID)
                             local buffSID = ss and rawget(ss, "replacementBuffSpellID")
                             local buffCdID = ss and rawget(ss, "replacementBuffCooldownID")
-                            if type(buffSID) == "number" and buffSID > 0 then
+                            local customAura = ss and rawget(ss, "replacementBuffCustom")
+                            if type(buffSID) == "number" and buffSID > 0 and not customAura then
                                 local route = {
                                     barKey = bd.key,
                                     targetSpellID = targetSID,

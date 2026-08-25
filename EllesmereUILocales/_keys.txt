@@ -666,7 +666,6 @@ Target
 Target Unit
 Targeting:
 Targets
-That Spell ID is not in Blizzard's tracked-buff catalog.
 The pasted string could not be read completely. Please paste it again.
 The scriptProfile CVar is enabled.
 The single stack threshold is off while Multiple Thresholds is on.

@@ -6755,7 +6755,7 @@ initFrame:SetScript("OnEvent", function(self)
     --  builds a single global popup; each call re-binds the Add handler to the given bar.
     --  withDuration adds the duration field (custom/preset buffs); onAdded(sid) runs after spellDuration/customSpellID storage.
     ---------------------------------------------------------------------------
-    local function ShowCustomSpellIDPopup(barKey, withDuration, onAdded, hideChargeWarn)
+    local function ShowCustomSpellIDPopup(barKey, withDuration, onAdded, hideChargeWarn, selectionOnly)
         local popupName = "EUI_CDM_SpellIDPopup"
         local popup = _G[popupName]
         if not popup then
@@ -6917,6 +6917,14 @@ initFrame:SetScript("OnEvent", function(self)
             local spellName = C_Spell.GetSpellName(sid)
             if not spellName then
                 SetStatus("Unknown spell ID")
+                return
+            end
+            -- Replacement pickers only need a validated identity. Do not tag
+            -- the buff as a custom spell on the cooldown bar or reject it
+            -- because the same id happens to be one of that bar's cooldowns.
+            if selectionOnly then
+                popup._dimmer:Hide()
+                if onAdded then onAdded(sid) end
                 return
             end
             local dur
@@ -7777,19 +7785,20 @@ initFrame:SetScript("OnEvent", function(self)
                                 break
                             end
                         end
-                        if not match then
-                            EllesmereUI.Print("|cff0cd29fEllesmereUI CDM:|r "
-                                .. EllesmereUI.L("That Spell ID is not in Blizzard's tracked-buff catalog."))
-                            return
+                        if match then
+                            local collisionID = match.cdID and ns.IsCollidedBuffSid
+                                and ns.IsCollidedBuffSid(match.spellID) and match.cdID or nil
+                            onPicked(match.spellID, collisionID, false)
+                        else
+                            -- AuraKit can drive a real aura overlay even when
+                            -- Blizzard has no tracked-buff viewer entry for it.
+                            onPicked(sid, nil, true)
                         end
-                        local collisionID = match.cdID and ns.IsCollidedBuffSid
-                            and ns.IsCollidedBuffSid(match.spellID) and match.cdID or nil
-                        onPicked(match.spellID, collisionID)
                     else
                         ns.AddBuffToCDUtilBar(targetBarKey, sid)
                         AfterAdd()
                     end
-                end, true)
+                end, true, onPicked and true or nil)
             end)
             mH = mH + ITEM_H
         end
@@ -12026,8 +12035,9 @@ initFrame:SetScript("OnEvent", function(self)
                     -- "Sync All Bar Buttons"; cdm_spell_settings_tiers_v1 migrated it.)
 
                     -- Cooldown-to-buff replacement. The mapping belongs to the
-                    -- cooldown's per-spec settings entry; the live renderer swaps
-                    -- in Blizzard's real buff frame only while that aura is active.
+                    -- cooldown's per-spec settings entry. Catalog buffs route
+                    -- Blizzard's real frame; custom IDs use a restriction-safe
+                    -- AuraKit overlay while the aura is active.
                     if not isBuffBar and not isHostedBuff
                        and type(spellID) == "number" and spellID > 0 then
                         local replacementSID = rawget(ss, "replacementBuffSpellID")
@@ -12056,9 +12066,10 @@ initFrame:SetScript("OnEvent", function(self)
                         end)
                         replaceRow:SetScript("OnClick", function()
                             menu:Hide()
-                            ShowBuffToCDPicker(replaceRow, barKey, nil, function(buffSID, buffCdID)
+                            ShowBuffToCDPicker(replaceRow, barKey, nil, function(buffSID, buffCdID, isCustom)
                                 if ns.SetCooldownBuffReplacement then
-                                    ns.SetCooldownBuffReplacement(barKey, spellID, buffSID, buffCdID)
+                                    ns.SetCooldownBuffReplacement(
+                                        barKey, spellID, buffSID, buffCdID, isCustom)
                                 end
                                 RefreshCDPreview()
                             end)
