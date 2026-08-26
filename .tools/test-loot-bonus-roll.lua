@@ -143,6 +143,20 @@ assert(not EULTBonusRollTestFrame:IsShown() and EULTBonusRollReminder:IsShown(),
 styledButtons.Show.click()
 assert(EULTBonusRollTestFrame:IsShown(), "debug test reminder did not restore the simulated frame")
 
+profile.bonusRollPromptMode = "cancel"
+local cancelTestStarted = ns.RunBonusRollDebugTest()
+assert(cancelTestStarted and ns.lastBonusRollDebug.reason == "test_cancelled",
+    "cancel debug test did not cancel its delayed simulated frame")
+assert(not EULTBonusRollTestFrame:IsShown() and not EULTBonusRollReminder:IsShown(),
+    "cancel debug test left a dialog or minimized reminder visible")
+
+BonusRollFrame.shown = true
+cancelled = nil
+eventHandler(nil, "SPELL_CONFIRMATION_PROMPT", 42)
+assert(cancelled == 42 and not BonusRollFrame:IsShown(),
+    "real cancel path did not send cancellation and suppress its frame")
+profile.bonusRollPromptMode = "minimize"
+
 source = raid
 policy = "auto"
 prompt.difficultyID = nil

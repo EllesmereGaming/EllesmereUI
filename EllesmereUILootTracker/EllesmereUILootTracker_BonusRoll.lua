@@ -279,8 +279,10 @@ function ns.RunBonusRollDebugTest()
         difficultyID = difficultyID,
         expiresAt = GetTime() + 10,
     }
+    local configuredMode = ns.GetProfile().bonusRollPromptMode
+    local cancelTest = configuredMode == "cancel"
     ns.lastBonusRollDebug = {
-        time = GetTime(), configuredMode = ns.GetProfile().bonusRollPromptMode,
+        time = GetTime(), configuredMode = configuredMode,
         reason = "test_waiting", sourceKind = source.kind,
         sourceID = source.kind == "raid" and source.encounterID or source.challengeModeID,
         sourceName = source.name, specID = specID, policy = ns.BONUS_ROLL_NEVER,
@@ -289,6 +291,16 @@ function ns.RunBonusRollDebugTest()
     local attempts = 0
     local function Attempt()
         attempts = attempts + 1
+        if cancelTest and frame:IsShown() then
+            frame:Hide()
+            ClearReminder()
+            ns.lastBonusRollDebug.reason = "test_cancelled"
+            ns.lastBonusRollDebug.handled = true
+            ns.lastBonusRollDebug.attempt = attempts
+            print("|cff0cd29fEllesmereUI Loot Tracker|r: "
+                .. EllesmereUI.L("Bonus Roll Skip test passed: dialog cancelled."))
+            return
+        end
         if MinimizePrompt(context) then
             ns.lastBonusRollDebug.reason = "test_minimized"
             ns.lastBonusRollDebug.handled = true
@@ -303,14 +315,23 @@ function ns.RunBonusRollDebugTest()
     return true, source.name
 end
 
-function ns.TryHandleBonusRollPrompt(spellID)
+function ns.TryHandleBonusRollPrompt(spellID, cancelAlreadySent)
     local mode, context = ns.GetBonusRollPromptDecision(spellID)
     if not mode then return false end
     if mode == "cancel" then
-        if not CancelSpellConfirmationPrompt then return false end
-        local handled = pcall(CancelSpellConfirmationPrompt, spellID)
-        if ns.lastBonusRollDebug then ns.lastBonusRollDebug.handled = handled end
-        return handled
+        local cancelSent = cancelAlreadySent
+        if not cancelSent and CancelSpellConfirmationPrompt then
+            cancelSent = pcall(CancelSpellConfirmationPrompt, spellID)
+        end
+        local frame = _G.BonusRollFrame
+        if frame and frame.Hide and frame:IsShown() then frame:Hide() end
+        if ns.lastBonusRollDebug then
+            ns.lastBonusRollDebug.handled = true
+            ns.lastBonusRollDebug.cancelSent = not not cancelSent
+        end
+        -- Keep watching briefly: Blizzard may construct/show the frame after a
+        -- successful cancellation call. The API itself is sent only once.
+        return true, true, cancelSent
     end
     local handled = MinimizePrompt(context)
     if ns.lastBonusRollDebug then
@@ -328,10 +349,13 @@ local function SchedulePromptHandling(spellID)
     StopPromptAttempts()
     local token = promptAttemptToken
     local attempts = 0
+    local cancelSent = false
     local function Attempt()
         if token ~= promptAttemptToken then return end
         attempts = attempts + 1
-        if ns.TryHandleBonusRollPrompt(spellID) then
+        local handled, keepWatching, sent = ns.TryHandleBonusRollPrompt(spellID, cancelSent)
+        cancelSent = cancelSent or sent
+        if handled and not keepWatching then
             if ns.lastBonusRollDebug then ns.lastBonusRollDebug.attempt = attempts end
             return
         end
