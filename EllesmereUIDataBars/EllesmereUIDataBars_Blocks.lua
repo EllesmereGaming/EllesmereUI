@@ -3235,6 +3235,9 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
                     -- its name read is stale; SPELLS_CHANGED fires once the swap applied
                     -- (same signal CDM keys its talent-swap rebuilds off) and re-reads the settled name.
                     "TRAIT_CONFIG_UPDATED", "SPELLS_CHANGED",
+                    -- Fires if combat starts before a loadout swap commits; without this the
+                    -- pointer written below stays on the never-applied loadout forever.
+                    "CONFIG_COMMIT_FAILED",
                     "PLAYER_ENTERING_WORLD",
                     -- Refresh runs in combat too (our frames only); regen is a cheap catch-up for anything a combat path missed.
                     "PLAYER_REGEN_ENABLED" }
@@ -3265,6 +3268,11 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
     local specCache, numSpecs = {}, 0
     local currentSpecIdx, currentLootSpecID = nil, 0
     local mouseOver = false
+
+    -- Optimistic loadout swap awaiting commit -- the pointer below is written
+    -- immediately (see HookLoadoutPointer), before the server confirms the
+    -- swap actually applied. If combat cancels the commit, revert it here.
+    local pendingSwapSpecId, pendingSwapConfigID, pendingSwapPrevConfigID
 
     -- Per-instance popup pools (lazy). Two spec blocks never fight over the same popup frames.
     local specPool, lootPool, loadoutPool
@@ -3520,6 +3528,16 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
         return popup
     end
 
+    local function BeginLoadoutSwap(specId, configID)
+        pendingSwapSpecId = specId
+        pendingSwapConfigID = configID
+        pendingSwapPrevConfigID = C_ClassTalents.GetLastSelectedSavedConfigID
+            and C_ClassTalents.GetLastSelectedSavedConfigID(specId)
+        C_ClassTalents.LoadConfig(configID, true)
+        C_ClassTalents.UpdateLastSelectedSavedConfigID(specId, configID)
+        inst:Refresh()
+    end
+
     -- Forward-declared: the loot toggle arms it for in-combat dismissal and it is built (as a frame) below the popups.
     local hoverWatch
 
@@ -3551,9 +3569,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
         end
         if #entries == 0 then return end
         local pop = BuildPopup(subnavPool, specButton, nil, entries, function(e)
-            C_ClassTalents.LoadConfig(e.configID, true)
-            C_ClassTalents.UpdateLastSelectedSavedConfigID(specId, e.configID)
-            inst:Refresh()
+            BeginLoadoutSwap(specId, e.configID)
         end, true)
         -- Flyout anchoring: flush against the spec popup's edge, with its
         -- FIRST entry level with the row the cursor is on, so a straight
@@ -3673,9 +3689,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
         -- Row clicks stay gated (LoadConfig is blocked); the list is viewable.
         local inCombat = InCombatLockdown()
         BuildPopup(loadoutPool, specButton, L["CHANGE_LOADOUT"], entries, function(e)
-            C_ClassTalents.LoadConfig(e.configID, true)
-            C_ClassTalents.UpdateLastSelectedSavedConfigID(specId, e.configID)
-            inst:Refresh()
+            BeginLoadoutSwap(specId, e.configID)
         end, inCombat)
         if inCombat and hoverWatch then
             hoverWatch._watchPool = loadoutPool
@@ -3883,7 +3897,12 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
         end
     end)
 
-    inst.eventFrame = MakeEventFrame(inst, function(self)
+    inst.eventFrame = MakeEventFrame(inst, function(self, event, configID)
+        if event == "CONFIG_COMMIT_FAILED" and pendingSwapConfigID
+                and configID == pendingSwapConfigID then
+            C_ClassTalents.UpdateLastSelectedSavedConfigID(pendingSwapSpecId, pendingSwapPrevConfigID)
+            pendingSwapConfigID = nil
+        end
         self:Refresh()
     end)
 
