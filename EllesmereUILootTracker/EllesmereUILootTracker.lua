@@ -16,6 +16,7 @@ local DB_DEFAULTS = {
         plannerMode = "overall",
         plannerSlot = "HEAD",
         craftedTargetLevel = 318,
+        minimapButtonSetup = false,
         lootWhisperPopup = true,
         whisperTemplate = "Hi {player}, do you need {item}? If not, would you be willing to trade it?",
     },
