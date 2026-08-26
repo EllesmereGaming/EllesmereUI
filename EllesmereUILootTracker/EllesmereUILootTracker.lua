@@ -583,24 +583,81 @@ function ns.RescanVoidcorePools(onDone)
     Next()
 end
 
-local function OnSpellConfirmation(_, spellID)
+local function IsSecret(value)
+    return issecretvalue and issecretvalue(value)
+end
+
+local function SafeNumber(value)
+    if IsSecret(value) then return nil end
+    return tonumber(value)
+end
+
+local function FindSpellConfirmationPrompt(spellID)
     local prompts = GetSpellConfirmationPromptsInfo and GetSpellConfirmationPromptsInfo()
-    if not prompts then return end
+    if type(prompts) ~= "table" then return end
     for _, prompt in ipairs(prompts) do
-        if prompt.spellID == spellID and ns.GetSourceByChest(prompt.displayItemID) then
-            local source = ns.GetSourceByChest(prompt.displayItemID)
-            local difficultyID = source.kind == "raid" and (GetBonusRollEncounterJournalLinkDifficulty and GetBonusRollEncounterJournalLinkDifficulty()) or nil
-            pendingRoll = {
-                currencyID = prompt.currencyID,
-                chestItemID = prompt.displayItemID,
-                itemContext = prompt.itemContext,
-                keyLevel = prompt.treasureContextLevel,
-                difficultyID = difficultyID,
-                specID = ResolveSpecID(),
-            }
-            return
-        end
+        if not IsSecret(prompt.spellID) and prompt.spellID == spellID then return prompt end
     end
+end
+
+local function OnSpellConfirmation(_, spellID, _, _, duration, currencyID, _, difficultyID,
+    displayItemID, itemContext, treasureContextLevel)
+    if IsSecret(spellID) then return end
+
+    -- The table API is richer, but on some clients it is already empty by the
+    -- time our event handler runs. Preserve the direct event fields as a
+    -- fallback so BONUS_ROLL_RESULT can still be assigned to its source.
+    local prompt = FindSpellConfirmationPrompt(spellID) or {
+        spellID = spellID,
+        duration = duration,
+        currencyID = currencyID,
+        difficultyID = difficultyID,
+        displayItemID = displayItemID,
+        itemContext = itemContext,
+        treasureContextLevel = treasureContextLevel,
+    }
+    local source = ns.ResolveBonusRollPromptSource and ns.ResolveBonusRollPromptSource(prompt)
+        or (not IsSecret(prompt.displayItemID) and ns.GetSourceByChest(prompt.displayItemID))
+    if not source then
+        ns.lastBonusRollTrackingDebug = { time = GetTime(), state = "prompt_unknown_source", spellID = spellID }
+        return
+    end
+
+    difficultyID = source.kind == "raid" and SafeNumber(prompt.difficultyID) or nil
+    if difficultyID and difficultyID <= 0 then difficultyID = nil end
+    if source.kind == "raid" and not difficultyID and GetBonusRollEncounterJournalLinkDifficulty then
+        difficultyID = SafeNumber(GetBonusRollEncounterJournalLinkDifficulty())
+    end
+    difficultyID = source.kind == "raid" and (difficultyID or ns.GetProfile().raidDifficulty or 16) or nil
+    local sourceKey = ns.GetSourceKey(source, difficultyID)
+    pendingRoll = {
+        source = source,
+        sourceKey = sourceKey,
+        currencyID = not IsSecret(prompt.currencyID) and (prompt.currencyID or prompt.currencyTypesID) or nil,
+        chestItemID = not IsSecret(prompt.displayItemID) and prompt.displayItemID or nil,
+        itemContext = not IsSecret(prompt.itemContext) and prompt.itemContext or nil,
+        keyLevel = SafeNumber(prompt.treasureContextLevel),
+        difficultyID = difficultyID,
+        specID = ResolveSpecID(),
+        capturedAt = GetTime(),
+    }
+    ns.lastBonusRollTrackingDebug = {
+        time = GetTime(), state = "prompt_captured", spellID = spellID,
+        sourceKey = sourceKey, specID = pendingRoll.specID,
+    }
+end
+
+local function ArchiveRolledGoal(sourceKey, itemID, rewardLink, specID)
+    if not ns.GetProfile().autoArchive then return false end
+    local goal = ns.GetGoal(sourceKey, itemID, specID)
+    if not goal or goal.state ~= "open" then return false end
+    local itemLevel = SafeItemLevel(rewardLink)
+    if itemLevel <= 0 or itemLevel < (tonumber(goal.minItemLevel) or 0) then return false end
+    goal.state = "archived"
+    goal.obtainedAt = time()
+    goal.obtainedLink = rewardLink
+    InvalidateGoalIndex(specID)
+    return true
 end
 
 local function OnBonusRoll(_, rewardType, rewardLink, _, rewardSpecID)
@@ -612,11 +669,18 @@ local function OnBonusRoll(_, rewardType, rewardLink, _, rewardSpecID)
     local itemID = C_Item.GetItemInfoInstant(rewardLink)
     if issecretvalue and issecretvalue(itemID) then pendingRoll = nil return end
     local context = pendingRoll
-    local source = context and ns.GetSourceByChest(context.chestItemID)
-    if not itemID or not source then pendingRoll = nil return end
+    local source = context and (context.source or (context.chestItemID and ns.GetSourceByChest(context.chestItemID)))
+    if not itemID or not source then
+        ns.lastBonusRollTrackingDebug = {
+            time = GetTime(), state = context and "result_unknown_source" or "result_without_prompt",
+            itemID = itemID,
+        }
+        pendingRoll = nil
+        return
+    end
     local specID = ResolveSpecID(rewardSpecID or context.specID)
     local difficultyID = source.kind == "raid" and (context.difficultyID or 16) or nil
-    local sourceKey = source.kind == "raid" and ns.RaidKey(source.encounterID, difficultyID) or ns.DungeonKey(source.challengeModeID)
+    local sourceKey = context.sourceKey or ns.GetSourceKey(source, difficultyID)
     ns.SetPoolItemState(sourceKey, itemID, true, specID, "tracked")
     local rolledAt = time()
     local pool = ns.GetPool(sourceKey, specID)
@@ -630,9 +694,32 @@ local function OnBonusRoll(_, rewardType, rewardLink, _, rewardSpecID)
         difficultyID = difficultyID, currencyID = context.currencyID,
     }
     while #rolls > 100 do table.remove(rolls, 1) end
+    local goalArchived = ArchiveRolledGoal(sourceKey, itemID, rewardLink, specID)
+    ns.lastBonusRollTrackingDebug = {
+        time = GetTime(), state = "result_tracked", itemID = itemID,
+        sourceKey = sourceKey, specID = specID, goalArchived = goalArchived,
+    }
     pendingRoll = nil
+    if goalArchived then FireChanged("inventory") end
     ns.QueueInventoryScan()
     C_Timer.After(0.8, function() ns.RescanSource(source, specID, difficultyID) end)
+end
+
+local function OnSpellConfirmationTimeout()
+    local context = pendingRoll
+    if not context then return end
+    context.timedOutAt = GetTime()
+    -- Blizzard closes the confirmation prompt before delivering the reward in
+    -- some builds. Keep its source briefly instead of discarding the only link
+    -- between BONUS_ROLL_RESULT and the correct knockout pool.
+    C_Timer.After(15, function()
+        if pendingRoll == context then
+            pendingRoll = nil
+            ns.lastBonusRollTrackingDebug = {
+                time = GetTime(), state = "prompt_expired", sourceKey = context.sourceKey,
+            }
+        end
+    end)
 end
 
 local eventFrame = CreateFrame("Frame")
@@ -670,7 +757,7 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
     elseif event == "BONUS_ROLL_RESULT" then
         OnBonusRoll(event, ...)
     elseif event == "SPELL_CONFIRMATION_TIMEOUT" then
-        pendingRoll = nil
+        OnSpellConfirmationTimeout()
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" or event == "ACTIVE_TALENT_GROUP_CHANGED" then
         ns.InvalidateCatalog()
         FireChanged("spec")
