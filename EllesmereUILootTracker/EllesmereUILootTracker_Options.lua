@@ -62,9 +62,23 @@ local function Profile()
 end
 
 local function SelectedSpecID()
-    local value = tonumber(Profile().selectedSpecID)
-    if value and value > 0 then return value end
-    return ns.ResolveSpecID()
+    local state = ns.GetCharacterUIState()
+    local value = tonumber(state.selectedSpecID)
+    if not value then
+        -- Migrate the old profile-wide selection only when it belongs to the
+        -- current class. Foreign class IDs are discarded automatically.
+        value = tonumber(Profile().selectedSpecID)
+    end
+    value = ns.NormalizePlayerSpecID(value)
+    state.selectedSpecID = value
+    return value
+end
+
+local function SetSelectedSpecID(value)
+    local specID = ns.NormalizePlayerSpecID(value)
+    ns.GetCharacterUIState().selectedSpecID = specID
+    ns.InvalidateCatalog()
+    QueuePageRebuild()
 end
 
 local function BuildSpecValues()
@@ -335,7 +349,7 @@ local function SelectorRows(parent, y, kind)
     local _, h = W:DualRow(parent, y,
         { type="dropdown", text="Loot Specialization", values=specValues, order=specOrder,
           getValue=function() return SelectedSpecID() end,
-          setValue=function(v) Profile().selectedSpecID=tonumber(v) or v; ns.InvalidateCatalog(); QueuePageRebuild() end },
+          setValue=SetSelectedSpecID },
         { type="dropdown", text=kind == "raid" and "Raid Boss" or "Dungeon", values=sourceValues, order=sourceOrder,
           getValue=function() return Profile()[sourceField] or firstSource end,
           setValue=function(v) Profile()[sourceField]=tonumber(v) or v; QueuePageRebuild() end })
@@ -770,7 +784,7 @@ local function BuildOverview(parent, yOffset)
     local specValues, specOrder = BuildSpecValues()
     _, h = W:Dropdown(parent, "Loot Specialization", y, specValues,
         function() return SelectedSpecID() end,
-        function(v) Profile().selectedSpecID=tonumber(v) or v; QueuePageRebuild() end,
+        SetSelectedSpecID,
         specOrder); y = y - h
     y = BuildBonusRollPriority(parent, y, SelectedSpecID())
     y = BuildFarmPriority(parent, y, SelectedSpecID())
@@ -1031,7 +1045,7 @@ local function BuildPlanner(parent, yOffset)
           setValue=function(v) Profile().plannerMode=v; QueuePageRebuild() end },
         { type="dropdown", text="Loot Specialization", values=specValues, order=specOrder,
           getValue=function() return SelectedSpecID() end,
-          setValue=function(v) Profile().selectedSpecID=tonumber(v) or v; ns.InvalidateCatalog(); QueuePageRebuild() end }); y = y - h
+          setValue=SetSelectedSpecID }); y = y - h
     local keyValues, keyOrder = {}, {}
     for level = 2, 10 do keyValues[level], keyOrder[#keyOrder + 1] = "+" .. level, level end
     local raidValues, raidOrder = {}, {}
