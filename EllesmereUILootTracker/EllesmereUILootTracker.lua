@@ -128,6 +128,12 @@ function ns.GetProfile()
     return profileDB and profileDB.profile or DB_DEFAULTS.profile
 end
 
+function ns.GetCharacterUIState()
+    local db = EnsureCharacterDB()
+    db.ui = db.ui or {}
+    return db.ui
+end
+
 function ns.GetSeasonData()
     return select(2, EnsureCharacterDB())
 end

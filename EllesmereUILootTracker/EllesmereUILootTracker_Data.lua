@@ -7,6 +7,31 @@ ns.SEASON_DATA_REVISION = 5
 ns.SUPPORTED_SEASON_ID = 18
 ns.SUPPORTED_DISPLAY_SEASON_ID = 2
 
+function ns.IsPlayerSpecID(specID)
+    specID = tonumber(specID)
+    if not specID then return false end
+    for index = 1, GetNumSpecializations() do
+        local availableSpecID = GetSpecializationInfo(index)
+        if availableSpecID == specID then return true end
+    end
+    return false
+end
+
+function ns.NormalizePlayerSpecID(specID)
+    specID = tonumber(specID)
+    if ns.IsPlayerSpecID(specID) then return specID end
+
+    local lootSpecID = GetLootSpecialization and GetLootSpecialization() or 0
+    if ns.IsPlayerSpecID(lootSpecID) then return lootSpecID end
+
+    local activeIndex = C_SpecializationInfo and C_SpecializationInfo.GetSpecialization
+        and C_SpecializationInfo.GetSpecialization()
+    local activeSpecID = activeIndex and C_SpecializationInfo.GetSpecializationInfo(activeIndex)
+    if ns.IsPlayerSpecID(activeSpecID) then return activeSpecID end
+
+    return GetSpecializationInfo(1) or 0
+end
+
 ns.DUNGEON_SOURCES = {
     { challengeModeID = 249, instanceID = 1762, journalInstanceID = 1041, chestItemID = 279621, teleportSpellID = 1286831, fallbackItems = {
         159136, 159137, 159234, 159243, 159288, 159300, 159301, 159304, 159312, 159313,
