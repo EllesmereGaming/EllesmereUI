@@ -4144,9 +4144,14 @@ local function UpdateButton(button)
         -- content stack mid-fight. Only run the transition when hidePower actually changes, and
         -- defer it to combat end if combat is up; flushed from PLAYER_REGEN_ENABLED alongside
         -- the existing _rosterDirtyInCombat/_sizeTierDirtyInCombat deferrals. nil (fresh occupant,
-        -- see the OnAttributeChanged reset) always applies immediately, never inheriting a stale layout.
+        -- see the OnAttributeChanged reset) applies immediately so a first paint never inherits
+        -- a stale layout -- EXCEPT when the health bar is already protected in combat: aura
+        -- containers born in the secure environment anchor to it, and a mid-pull header
+        -- reassignment (new occupant on a built button) would then write SetHeight under lockdown
+        -- and be blocked. A first paint after a mid-combat reload has nothing anchored yet, so
+        -- IsProtected is false there and it still applies.
         if d._appliedHidePower ~= hidePower then
-            if inCombat and d._appliedHidePower ~= nil then
+            if inCombat and (d._appliedHidePower ~= nil or (d.health and d.health:IsProtected())) then
                 d._powerDirtyInCombat = true
                 ns._powerDirtyInCombat = true
             else
@@ -8317,6 +8322,11 @@ local function OnEvent(self, event, arg1, ...)
             if ns._partyFramesVisible then
                 ns._LayoutPartyFrames()
             end
+        end
+        -- Party container geometry deferred by a combat-time _ERF_RefreshAll.
+        if ns._partyGeomDirtyInCombat then
+            ns._partyGeomDirtyInCombat = nil
+            if ns._ApplyPartyContainerGeometry then ns._ApplyPartyContainerGeometry() end
         end
         -- Flush any power show/hide transitions deferred during combat (see UpdateButton);
         -- only the buttons actually marked dirty get a repaint.
@@ -15104,6 +15114,33 @@ function ERF:OnEnable()
         drain()
     end)
 
+    -- Party container size + saved position. The container is implicitly
+    -- protected (the secure party header is parented to it), so under combat
+    -- lockdown the write is deferred to the PLAYER_REGEN_ENABLED flush instead
+    -- of tripping ADDON_ACTION_BLOCKED: _ERF_RefreshAll is a public entry point
+    -- (profiles, spec overrides, third-party installers) and not every caller
+    -- is out of combat.
+    function ns._ApplyPartyContainerGeometry()
+        local c = ns._partyContainerFrame
+        if not c or not ns.db then return end
+        if InCombatLockdown() then ns._partyGeomDirtyInCombat = true; return end
+        local s = ns.db.profile
+        local w = s.partyFrameWidth or s.frameWidth or 125
+        local h = s.partyFrameHeight or s.frameHeight or 60
+        local sp = s.cellSpacing or 2
+        c:SetSize(w, h * 5 + sp * 4)
+        local pos = s.partyUnlockPos
+        -- Skip the saved-pos SetPoint when element-anchored with resolved
+        -- geometry: the unlock anchor system owns the position.
+        local anchored = EllesmereUI.IsUnlockAnchored
+            and EllesmereUI.IsUnlockAnchored("RF_PartyFrames")
+            and c:GetLeft()
+        if pos and not anchored then
+            c:ClearAllPoints()
+            c:SetPoint(pos.point, UIParent, pos.relPoint, pos.x, pos.y)
+        end
+    end
+
     -- Profile-swap refresh: EllesmereUI.RefreshAllAddons calls this on a profile
     -- change so raid + party frames re-read the (now-swapped) profile live,
     -- instead of staying stale until /reload. Mirrors the reload sequence above.
@@ -15126,24 +15163,8 @@ function ERF:OnEnable()
         if ns.ApplyFrameStrata then ns.ApplyFrameStrata() end
         -- Raid frames: restyle + relayout + reposition from the new profile.
         if ns.ReloadFrames then ns.ReloadFrames() end
-        -- Party container size + position, then the party buttons.
-        if ns._partyContainerFrame then
-            local s = ns.db.profile
-            local w = s.partyFrameWidth or s.frameWidth or 125
-            local h = s.partyFrameHeight or s.frameHeight or 60
-            local sp = s.cellSpacing or 2
-            ns._partyContainerFrame:SetSize(w, h * 5 + sp * 4)
-            local pos = s.partyUnlockPos
-            -- Skip the saved-pos SetPoint when element-anchored with resolved
-            -- geometry: the unlock anchor system owns the position.
-            local anchored = EllesmereUI.IsUnlockAnchored
-                and EllesmereUI.IsUnlockAnchored("RF_PartyFrames")
-                and ns._partyContainerFrame:GetLeft()
-            if pos and not anchored then
-                ns._partyContainerFrame:ClearAllPoints()
-                ns._partyContainerFrame:SetPoint(pos.point, UIParent, pos.relPoint, pos.x, pos.y)
-            end
-        end
+        -- Party container size + position (combat-deferred inside), then the party buttons.
+        ns._ApplyPartyContainerGeometry()
         if ns.ReloadPartyFrames then ns.ReloadPartyFrames() end
         -- Re-sync per-unit UNIT_POWER_UPDATE registration to the new profile's
         -- power role filters, so units that GAIN power across the swap get live

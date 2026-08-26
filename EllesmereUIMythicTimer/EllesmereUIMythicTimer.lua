@@ -215,6 +215,27 @@ local DB_DEFAULTS = {
             timerSize        = 10,
             timerX           = 0,
             timerY           = 0,
+            -- Interrupt awareness and visibility. Cast Colors (kick-ready
+            -- tint + uninterruptible wash) always applies, no off switch;
+            -- the rest is opt-in and off by default: important-cast
+            -- tint/glow, out-of-interrupt-range fade, raid target marker.
+            interruptReady    = { r = 0.92, g = 0.35, b = 0.20 },
+            uninterruptible   = { r = 0.45, g = 0.45, b = 0.45 },
+            importantEnabled  = false,
+            importantColor    = { r = 1, g = 0.2, b = 0.2 },
+            importantGlow     = false,
+            importantGlowStyle = 1,
+            importantGlowColor = { r = 1, g = 0.2, b = 0.2 },
+            importantGlowLines = 8,
+            importantGlowThickness = 2,
+            importantGlowSpeed = 4,
+            oorEnabled       = false,
+            oorAlpha         = 0.45,
+            showRaidMarker   = false,
+            raidMarkerSize   = 14,
+            -- Where to Show: positive filter -- a key is present (true) only
+            -- when selected; nothing selected = the bars show everywhere.
+            whereToShow      = {},
         },
         -- Target/Focus standalone cast bars (Mythic+ Tools tab): unlock-mode
         -- placeable cast bars carrying the nameplate interrupt color/effects

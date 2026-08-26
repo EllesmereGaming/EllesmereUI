@@ -910,6 +910,19 @@ local function MakeStatBlock(blockCfg, slot, content, barCtx, opts)
         end
     end
 
+    -- Same-frame event bursts (a damage wave fires the durability AND alert
+    -- events per slot) collapse to ONE sample after the frame settles.
+    local flushPending = false
+    local function FlushEventSample()
+        flushPending = false
+        if not inst._dead then ForceTickChecked() end
+    end
+    local function OnEventSample()
+        if flushPending then return end
+        flushPending = true
+        C_Timer.After(0, FlushEventSample)
+    end
+
     function inst:Enable()
         content:Show()
         lastVal = -1
@@ -918,7 +931,7 @@ local function MakeStatBlock(blockCfg, slot, content, barCtx, opts)
         if opts.events then
             if not self.eventFrame then
                 self.events = opts.events
-                self.eventFrame = MakeEventFrame(self, ForceTickChecked)
+                self.eventFrame = MakeEventFrame(self, OnEventSample)
             end
             RegisterInstEvents(self)
             ForceTickChecked()
@@ -1219,7 +1232,8 @@ ns.BlockFactories.durability = function(blockCfg, slot, content, barCtx)
         -- Durability only moves on damage/repair edges the game announces, so
         -- the block samples on those events alone -- no heartbeat, and with no
         -- other time-driven block enabled the 1s ticker never runs at all.
-        events   = { "UPDATE_INVENTORY_DURABILITY", "PLAYER_ENTERING_WORLD" },
+        -- Self-repair items recalculate alerts without the durability event.
+        events   = { "UPDATE_INVENTORY_DURABILITY", "UPDATE_INVENTORY_ALERTS", "PLAYER_ENTERING_WORLD" },
         -- Retry each sample once, a moment later.
         retryDelay = 2,
         sample   = SampleDurability,
@@ -3235,6 +3249,8 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
                     -- its name read is stale; SPELLS_CHANGED fires once the swap applied
                     -- (same signal CDM keys its talent-swap rebuilds off) and re-reads the settled name.
                     "TRAIT_CONFIG_UPDATED", "SPELLS_CHANGED",
+                    -- Combat cancelling a loadout swap started from this block.
+                    "CONFIG_COMMIT_FAILED",
                     "PLAYER_ENTERING_WORLD",
                     -- Refresh runs in combat too (our frames only); regen is a cheap catch-up for anything a combat path missed.
                     "PLAYER_REGEN_ENABLED" }
@@ -3265,6 +3281,23 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
     local specCache, numSpecs = {}, 0
     local currentSpecIdx, currentLootSpecID = nil, 0
     local mouseOver = false
+
+    -- Loadout swap, Blizzard's sequence: the last-selected pointer is written
+    -- only once the swap is real -- immediately when no commit is needed,
+    -- else on the TRAIT_CONFIG_UPDATED that lands the commit. Nothing is
+    -- written up front, so a commit cancelled by combat leaves the pointer
+    -- on the loadout still applied.
+    local pendingSwapSpecId, pendingSwapConfigID
+    local function BeginLoadoutSwap(specId, configID)
+        local result = C_ClassTalents.LoadConfig(configID, true)
+        local R = Enum.LoadConfigResult
+        if result == R.NoChangesNecessary then
+            C_ClassTalents.UpdateLastSelectedSavedConfigID(specId, configID)
+        elseif result ~= R.Error then
+            pendingSwapSpecId, pendingSwapConfigID = specId, configID
+        end
+        inst:Refresh()
+    end
 
     -- Per-instance popup pools (lazy). Two spec blocks never fight over the same popup frames.
     local specPool, lootPool, loadoutPool
@@ -3551,9 +3584,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
         end
         if #entries == 0 then return end
         local pop = BuildPopup(subnavPool, specButton, nil, entries, function(e)
-            C_ClassTalents.LoadConfig(e.configID, true)
-            C_ClassTalents.UpdateLastSelectedSavedConfigID(specId, e.configID)
-            inst:Refresh()
+            BeginLoadoutSwap(specId, e.configID)
         end, true)
         -- Flyout anchoring: flush against the spec popup's edge, with its
         -- FIRST entry level with the row the cursor is on, so a straight
@@ -3673,9 +3704,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
         -- Row clicks stay gated (LoadConfig is blocked); the list is viewable.
         local inCombat = InCombatLockdown()
         BuildPopup(loadoutPool, specButton, L["CHANGE_LOADOUT"], entries, function(e)
-            C_ClassTalents.LoadConfig(e.configID, true)
-            C_ClassTalents.UpdateLastSelectedSavedConfigID(specId, e.configID)
-            inst:Refresh()
+            BeginLoadoutSwap(specId, e.configID)
         end, inCombat)
         if inCombat and hoverWatch then
             hoverWatch._watchPool = loadoutPool
@@ -3883,7 +3912,17 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
         end
     end)
 
-    inst.eventFrame = MakeEventFrame(inst, function(self)
+    inst.eventFrame = MakeEventFrame(inst, function(self, event)
+        if pendingSwapConfigID then
+            if event == "TRAIT_CONFIG_UPDATED" then
+                -- Commit landed: write the pointer now (the write hook refreshes).
+                local specId, configID = pendingSwapSpecId, pendingSwapConfigID
+                pendingSwapSpecId, pendingSwapConfigID = nil, nil
+                C_ClassTalents.UpdateLastSelectedSavedConfigID(specId, configID)
+            elseif event == "CONFIG_COMMIT_FAILED" then
+                pendingSwapSpecId, pendingSwapConfigID = nil, nil
+            end
+        end
         self:Refresh()
     end)
 
