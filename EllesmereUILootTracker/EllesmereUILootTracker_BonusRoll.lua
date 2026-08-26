@@ -33,6 +33,30 @@ local function PromptDifficulty(source, prompt)
     return difficultyID
 end
 
+local function PromptKey(spellID, prompt, source, difficultyID)
+    local displayItemID = prompt and prompt.displayItemID
+    if IsSecret(displayItemID) then displayItemID = nil end
+    local sourceKey = ns.GetSourceKey(source, difficultyID)
+    return table.concat({ tostring(spellID or 0), tostring(displayItemID or 0), tostring(sourceKey or "unknown") }, ":")
+end
+
+local function DismissedPromptStore()
+    local state = ns.GetCharacterUIState()
+    state.dismissedBonusRollPrompts = state.dismissedBonusRollPrompts or {}
+    return state.dismissedBonusRollPrompts
+end
+
+local function MarkPromptDismissed(context)
+    if not context or context.isTest or not context.promptKey then return end
+    local remaining = context.expiresAt and math.max(0, context.expiresAt - GetTime()) or 0
+    DismissedPromptStore()[context.promptKey] = time() + math.max(300, remaining + 5)
+end
+
+local function ClearDismissedPrompts()
+    local store = DismissedPromptStore()
+    for key in pairs(store) do store[key] = nil end
+end
+
 local function ResolvePromptSource(prompt)
     local displayItemID = prompt and prompt.displayItemID
     if not IsSecret(displayItemID) then
@@ -96,6 +120,23 @@ function ns.GetBonusRollPromptDecision(spellID)
     local difficultyID = PromptDifficulty(source, prompt)
     if source.kind == "raid" and not difficultyID then debug.reason = "unknown_raid_difficulty"; return end
     debug.difficultyID = difficultyID
+    local duration = prompt.duration
+    if IsSecret(duration) then duration = nil end
+    duration = tonumber(duration)
+    local expiresAt = duration and (GetTime() + duration) or nil
+    local promptKey = PromptKey(spellID, prompt, source, difficultyID)
+    debug.promptKey = promptKey
+    local dismissedStore = DismissedPromptStore()
+    local dismissedUntil = dismissedStore[promptKey]
+    if dismissedUntil and dismissedUntil > time() then
+        debug.reason = "dismissed_prompt"
+        return "cancel", {
+            spellID = spellID, source = source, difficultyID = difficultyID,
+            expiresAt = expiresAt, promptKey = promptKey, dismissed = true,
+        }
+    elseif dismissedUntil then
+        dismissedStore[promptKey] = nil
+    end
     local specID = ns.ResolveSpecID()
     local policy = ns.GetBonusRollPolicy(source, specID, difficultyID)
     debug.specID = specID
@@ -113,15 +154,13 @@ function ns.GetBonusRollPromptDecision(spellID)
         end
     end
 
-    local duration = prompt.duration
-    if IsSecret(duration) then duration = nil end
-    duration = tonumber(duration)
     debug.reason = mode
     return mode, {
         spellID = spellID,
         source = source,
         difficultyID = difficultyID,
-        expiresAt = duration and (GetTime() + duration) or nil,
+        expiresAt = expiresAt,
+        promptKey = promptKey,
     }
 end
 
@@ -147,6 +186,10 @@ local function CancelPendingPrompt()
         if context.frame then context.frame:Hide() end
         return
     end
+    MarkPromptDismissed(context)
+    if StopPromptAttempts then StopPromptAttempts() end
+    local frame = _G.BonusRollFrame
+    if frame and frame.Hide and frame:IsShown() then frame:Hide() end
     if context and CancelSpellConfirmationPrompt then
         pcall(CancelSpellConfirmationPrompt, context.spellID)
     end
@@ -318,6 +361,7 @@ function ns.TryHandleBonusRollPrompt(spellID, cancelAlreadySent)
     local mode, context = ns.GetBonusRollPromptDecision(spellID)
     if not mode then return false end
     if mode == "cancel" then
+        MarkPromptDismissed(context)
         local cancelSent = cancelAlreadySent
         if not cancelSent and CancelSpellConfirmationPrompt then
             cancelSent = pcall(CancelSpellConfirmationPrompt, spellID)
@@ -391,6 +435,9 @@ eventFrame:SetScript("OnEvent", function(_, event, spellID)
     else
         StopPromptAttempts()
         ClearReminder()
+        if event == "SPELL_CONFIRMATION_TIMEOUT" or event == "BONUS_ROLL_RESULT" then
+            ClearDismissedPrompts()
+        end
     end
 end)
 

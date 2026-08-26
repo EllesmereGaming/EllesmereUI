@@ -7,6 +7,7 @@ local cancelled
 local eventHandler
 local styledButtons = {}
 local bonusRollStartHook
+local characterUIState = {}
 
 local function Noop() end
 local function Region()
@@ -26,6 +27,7 @@ UIParent = {}
 SlashCmdList = {}
 C_Timer = { After = function(_, callback) callback() end }
 function GetTime() return 100 end
+function time() return 1000 end
 function GetInstanceInfo() return nil, nil, nil, nil, nil, nil, nil, 0 end
 function GetSpellConfirmationPromptsInfo() return { prompt } end
 function CancelSpellConfirmationPrompt(spellID) cancelled = spellID end
@@ -53,6 +55,7 @@ function CreateFrame(_, name)
 end
 
 local dungeon = { kind = "dungeon", challengeModeID = 7, instanceID = 70, name = "Test Dungeon" }
+local dungeon2 = { kind = "dungeon", challengeModeID = 9, instanceID = 90, name = "New Dungeon" }
 local raid = { kind = "raid", encounterID = 8, name = "Test Boss" }
 local source = dungeon
 local ns = {
@@ -60,9 +63,13 @@ local ns = {
     BONUS_ROLL_ALWAYS = "always",
     BONUS_ROLL_NEVER = "never",
     GetProfile = function() return profile end,
+    GetCharacterUIState = function() return characterUIState end,
     IsSeasonSupported = function() return true end,
-    GetSourceByChest = function(itemID) return itemID == 99 and source or nil end,
-    GetSources = function(kind) return kind == "dungeon" and { dungeon } or { raid } end,
+    GetSourceByChest = function(itemID)
+        if itemID == 99 then return source end
+        if itemID == 101 then return dungeon2 end
+    end,
+    GetSources = function(kind) return kind == "dungeon" and { dungeon, dungeon2 } or { raid } end,
     ResolveSpecID = function() return 70 end,
     GetBonusRollPolicy = function() return policy end,
     GetSourceKey = function(value, difficultyID)
@@ -82,6 +89,7 @@ local mode = ns.GetBonusRollPromptDecision(42)
 assert(mode == "cancel", "empty Auto source should follow the configured prompt mode")
 eventHandler(nil, "SPELL_CONFIRMATION_PROMPT", 42)
 assert(cancelled == 42, "cancel mode must use Blizzard's cancellation API")
+eventHandler(nil, "SPELL_CONFIRMATION_TIMEOUT")
 
 cancelled = nil
 goals = { { sourceKey = "dungeon:7", itemID = 123, state = "open" } }
@@ -122,6 +130,23 @@ BonusRollFrame.shown = true
 assert(bonusRollStartHook, "Blizzard bonus-roll start hook was not installed")
 bonusRollStartHook(42)
 assert(not BonusRollFrame:IsShown(), "late Blizzard frame show was not minimized by the start hook")
+assert(EULTBonusRollReminder:IsShown(), "late minimized prompt did not show its reminder")
+styledButtons.Cancel.click()
+assert(not EULTBonusRollReminder:IsShown(), "dismissing a minimized prompt left its reminder visible")
+assert(next(characterUIState.dismissedBonusRollPrompts or {}),
+    "dismissed prompt was not persisted in per-character data")
+eventHandler(nil, "PLAYER_ENTERING_WORLD")
+BonusRollFrame.shown = true
+bonusRollStartHook(42)
+assert(not BonusRollFrame:IsShown() and not EULTBonusRollReminder:IsShown(),
+    "a dismissed prompt resurfaced after changing instances")
+assert(ns.lastBonusRollDebug.reason == "dismissed_prompt",
+    "resurfaced prompt was not recognized as the dismissed source prompt")
+prompt.displayItemID = 101
+assert(ns.GetBonusRollPromptDecision(42) == "minimize",
+    "dismissing one source must not suppress a new source prompt")
+prompt.displayItemID = 99
+eventHandler(nil, "BONUS_ROLL_RESULT")
 
 prompt.displayItemID = 100
 C_ChallengeMode = { GetActiveChallengeMapID = function() return 7 end }
