@@ -896,8 +896,14 @@ end
 -- slots are bare buttons whose extraInit builds custom regions directly. Effects:
 -- healthcolor tints the health-fill overlay, bgcolor tints the bar background,
 -- border draws the full style set around the unit button (sweep renders fully lit,
--- no ticker under secrecy). framealpha and missing/allPresent/anyMissing show-when
--- are NOT reproducible -- and the obvious workaround is FORBIDDEN BY THE ENGINE:
+-- no ticker under secrecy), framedim darkens the whole unit button behind a black
+-- overlay. framedim (labelled Frame Dim) CANNOT use the literal
+-- unitButton:SetAlpha its key was named for:
+-- the unit button is a PARENT of the slot, so fading it needs presence in Lua. The
+-- overlay is a child of the slot instead, so the engine's own secret-driven SetShown
+-- drives it for free -- visually a dim rather than a fade (nothing shows through).
+-- missing/allPresent/anyMissing show-when stay NOT reproducible for every effect
+-- kind -- and the obvious workaround is FORBIDDEN BY THE ENGINE:
 -- OnShow/OnHide hooks on slot buttons (visibility-edge counting) make the engine's
 -- own secret-driven SetShown throw "Cannot be called with secrets due to existing
 -- script handlers", failing the whole container build under secrecy (field,
@@ -907,6 +913,9 @@ end
 
 local BM_FRAMELVL = { behindBorders = 7, behindText = 11, medium = 13, high = 14, highest = 15 }
 local BM_FRAMELVL_TEXT = 18
+-- Frame Dim's overlay: above the text carrier (+18), so it covers every
+-- region EUI draws on the unit button.
+local BM_FRAMELVL_DIM = 20
 
 local function BmScaleFor(d)
     if d._isParty then return ns._partyBmScale or 1 end
@@ -1036,10 +1045,8 @@ local function BmSignature(inds, specKey, mode)
     local parts = { specKey or "?" }
     for i = 1, #inds do
         local ind = inds[i]
-        -- Truthy enabled on purpose (matches legacy lookup gate). framealpha
-        -- indicators are deliberately treated as disabled -- fading needs per-aura
-        -- presence, secret in combat; options carry the removal notice.
-        if ind.enabled and ind.type ~= "framealpha" then
+        -- Truthy enabled on purpose (matches legacy lookup gate).
+        if ind.enabled then
             local cmode = BmChainMode(ind) -- group<->slots transition is structural
             local ownTag = ""
             if cmode == "g" then
@@ -1459,6 +1466,17 @@ local function BmApplyEffect(button, dd, style)
                 (ind.borderOpacity or 100) / 100, w, h)
             dd.borderHost:Show()
         end
+    elseif ind.type == "framedim" then
+        -- ind.alpha is the RESULTING BRIGHTNESS the option has always meant (0.4 =
+        -- "frame at 40%"), so stored configs keep their intent: paint the overlay at
+        -- the complement. Level re-asserted here like the border host -- our frame,
+        -- legal on every restyle, unlike a call on the engine slot button.
+        if dd.dimTex and dd.dimHost then
+            local r, g, b = BmColor(ind.dimColor, 0, 0, 0)
+            dd.dimTex:SetColorTexture(r, g, b, 1 - (ind.alpha or 0.4))
+            dd.dimHost:SetFrameLevel((dd.bmDimBase or dd.dimHost:GetFrameLevel()) + BM_FRAMELVL_DIM)
+            dd.dimHost:Show()
+        end
     end
 end
 
@@ -1568,6 +1586,18 @@ local function BmEffectInit(button, dd, style, ind, health)
             -- its rect for the dashed-style animated ants (border host is unmeasurable
             -- outside this window).
             dd.bmFxHost = unitButton
+        end
+    elseif ind.type == "framedim" then
+        local unitButton = button:GetParent() and button:GetParent():GetParent()
+        if unitButton then
+            -- The overlay sits above everything
+            button:SetFrameLevel(unitButton:GetFrameLevel())
+            dd.bmDimBase = unitButton:GetFrameLevel()
+            dd.dimHost = CreateFrame("Frame", nil, button)
+            dd.dimHost:SetAllPoints(unitButton)
+            dd.dimHost:SetFrameLevel(dd.bmDimBase + BM_FRAMELVL_DIM)
+            dd.dimTex = dd.dimHost:CreateTexture(nil, "OVERLAY", nil, 7)
+            dd.dimTex:SetAllPoints(dd.dimHost)
         end
     end
     BmApplyEffect(button, dd, style)
@@ -1700,7 +1730,7 @@ local function BuildBmSlots(inds, d, health, iscale, styleBase)
     end
     for i = 1, #inds do
         local ind = inds[i]
-        if ind.enabled and ind.type ~= "framealpha" then
+        if ind.enabled then
             local spells = {}
             for k = 1, #(ind.spells or {}) do
                 local sid = ind.spells[k]
@@ -1754,7 +1784,8 @@ local function BuildBmSlots(inds, d, health, iscale, styleBase)
                     slots[#slots + 1] = entry
                     meta[#meta + 1] = mm
                 end
-            elseif kind == "healthcolor" or kind == "bgcolor" or kind == "border" then -- effect slots
+            elseif kind == "healthcolor" or kind == "bgcolor" or kind == "border"
+                or kind == "framedim" then -- effect slots
                 -- showWhen is deliberately IGNORED here: only "When Any Present"
                 -- is reproducible on 12.1 (see the header note -- the counting
                 -- workaround is engine-forbidden), and the pre-heal behavior of

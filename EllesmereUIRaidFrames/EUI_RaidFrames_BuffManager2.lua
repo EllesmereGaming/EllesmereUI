@@ -147,9 +147,10 @@ local function IsDefaultBucket(specKey, list)
     return true
 end
 
--- Frame Alpha has no 12.1 renderer (fading needs per-aura presence, secret in
--- combat) so those indicators drop; Frame Border migrates (containers render).
-local IMPORT_SKIP_TYPES = { framealpha = true }
+-- No retired types right now. The old "framealpha" indicators this used to
+-- drop are deleted outright by the bm_framealpha_purge_v1 migration, which
+-- runs at ADDON_LOADED -- before any import -- so none reach here.
+local IMPORT_SKIP_TYPES = {}
 
 -- Legacy indicator -> v2: same shape, empty filter assignments, spells kept
 -- as direct spells. Own-only is per-INDICATOR in v2, so the legacy per-spell
