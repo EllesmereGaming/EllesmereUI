@@ -24,11 +24,37 @@ local function Button(parent, text, width, onClick)
     return button
 end
 
+local function PlainItemText(alert)
+    local name = alert.itemName
+    if (not name or name == "") and type(alert.itemLink) == "string" then
+        name = alert.itemLink:match("|h%[([^%]]+)%]|h") or alert.itemLink:match("%[([^%]]+)%]")
+    end
+    if not name or name == "" then name = tostring(alert.itemID or "item") end
+    return "[" .. name .. "]"
+end
+
+local function SanitizeChatText(text)
+    -- SendChatMessage rejects hyperlink/color escape sequences supplied by addons.
+    -- The popup may still display the real item link; whispers use safe plain text.
+    text = tostring(text or "")
+    text = text:gsub("|H.-|h(.-)|h", "%1")
+        :gsub("|T.-|t", "")
+        :gsub("|A.-|a", "")
+        :gsub("|c%x%x%x%x%x%x%x%x", "")
+        :gsub("|r", "")
+        :gsub("|", "")
+        :gsub("%c", " ")
+    return (text:gsub("%s+", " "):match("^%s*(.-)%s*$"))
+end
+
 local function ExpandTemplate(template, alert)
     template = template or ""
     template = template:gsub("{player}", function() return alert.player or "" end)
-    return template:gsub("{item}", function() return alert.itemLink or alert.itemName or "" end)
+    template = template:gsub("{item}", function() return PlainItemText(alert) end)
+    return SanitizeChatText(template)
 end
+
+ns.BuildLootWhisper = ExpandTemplate
 
 local function ShowNext()
     active = table.remove(queue, 1)

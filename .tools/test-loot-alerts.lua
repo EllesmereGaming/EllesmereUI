@@ -34,6 +34,18 @@ function ns.GetGoals() return { { itemID=123, state="open", minItemLevel=300, pr
 assert(loadfile("EllesmereUILootTracker/EllesmereUILootTracker_LootAlerts.lua"))(
     "EllesmereUILootTracker", ns)
 
+local whisper = ns.BuildLootWhisper(
+    "Hi {player}, do you need {item}? |cffff0000Thanks|r\n", {
+        player = "Other",
+        itemID = 123,
+        itemName = "Test Item",
+        itemLink = "|cffa335ee|Hitem:123|h[Test Item]|h|r",
+    })
+assert(whisper == "Hi Other, do you need [Test Item]? Thanks",
+    "trade whispers must contain a plain item name and no chat escape codes")
+assert(not whisper:find("|", 1, true) and not whisper:find("\n", 1, true),
+    "trade whispers must be safe for SendChatMessage")
+
 local alert
 ns.QueueLootAlert = function(value) alert = value end
 eventFrame.callback(eventFrame, "CHAT_MSG_LOOT",
