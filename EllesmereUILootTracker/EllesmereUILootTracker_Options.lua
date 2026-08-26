@@ -421,8 +421,28 @@ local function BuildCatalogPage(parent, yOffset, kind)
     title:SetPoint("LEFT", info, "LEFT", 12, 0)
     local difficultyName = kind == "raid" and GetDifficultyInfo(difficultyID)
     title:SetText(difficultyName and (source.name .. "  |cff777d88• " .. difficultyName .. "|r") or source.name)
+    local policy = ns.GetBonusRollPolicy(source, specID, difficultyID)
+    local policyLabels = {
+        [ns.BONUS_ROLL_AUTO] = L("Bonus Roll: Auto (Wishlist)"),
+        [ns.BONUS_ROLL_ALWAYS] = L("Bonus Roll: Yes"),
+        [ns.BONUS_ROLL_NEVER] = L("Bonus Roll: Skip"),
+    }
+    local policyButton = StyledButton(info, policyLabels[policy], 160, function()
+        ns.CycleBonusRollPolicy(source, specID, difficultyID)
+        QueuePageRebuild()
+    end)
+    policyButton:SetPoint("RIGHT", info, "RIGHT", -10, 0)
+    policyButton:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(L("Bonus Roll Source"), 1, 1, 1)
+        GameTooltip:AddLine(L("Click to cycle: Auto (Wishlist), Bonus Roll, or Skip."), 0.75, 0.75, 0.75, true)
+        GameTooltip:Show()
+    end)
+    policyButton:HookScript("OnLeave", function(self)
+        if GameTooltip:GetOwner() == self then GameTooltip:Hide() end
+    end)
     local chance = Font(info, 11, 0.05, 0.82, 0.62, 1)
-    chance:SetPoint("RIGHT", info, "RIGHT", -12, 0)
+    chance:SetPoint("RIGHT", policyButton, "LEFT", -10, 0)
     local confidence = summary.confidence == "verified" and "" or (" " .. L("estimated"))
     chance:SetText(string.format("%d/%d  •  %.1f%%%s  •  %d %s", summary.desired, summary.remaining,
         summary.chance * 100, confidence, summary.coreCost, L("Voidcore")))
@@ -510,9 +530,12 @@ local function BuildBonusRollPriority(parent, y, specID)
     local entries = {}
     for _, entry in pairs(grouped) do
         if entry.source then
+            entry.policy = ns.GetBonusRollPolicy(entry.source, specID, entry.difficultyID)
             entry.summary = ns.GetSourceSummary(entry.source, specID, entry.difficultyID)
-            if entry.summary.remaining > 0 and entry.summary.desired > 0 then
-                entry.score = entry.weightedValue / entry.summary.remaining
+            if entry.policy ~= ns.BONUS_ROLL_NEVER
+                and entry.summary.remaining > 0 and entry.summary.desired > 0 then
+                entry.score = (entry.policy == ns.BONUS_ROLL_ALWAYS and 100000 or 0)
+                    + entry.weightedValue / entry.summary.remaining
                 entries[#entries + 1] = entry
             end
         end
@@ -1124,10 +1147,16 @@ local function BuildSettings(parent, yOffset)
     saveWhisper:SetPoint("TOPRIGHT", whisper, "TOPRIGHT", -12, -8)
     y = y - 88
     _, h = W:SectionHeader(parent, "VOIDCORE POOLS", y); y = y - h
-    _, h = W:Toggle(parent, EllesmereUI.L("Skip Empty Bonus Rolls"), y,
-        function() return Profile().autoDismissEmptyBonusRoll == true end,
-        function(v) Profile().autoDismissEmptyBonusRoll=v end,
-        EllesmereUI.L("Automatically cancels a recognized Voidcore prompt when this loot source has no available open wishlist item. Unknown sources and raid difficulties are never dismissed.")); y = y - h
+    local promptModes = {
+        show = EllesmereUI.L("Show Blizzard frame"),
+        minimize = EllesmereUI.L("Minimize when skipped"),
+        cancel = EllesmereUI.L("Cancel when skipped"),
+    }
+    _, h = W:Dropdown(parent, EllesmereUI.L("Bonus Roll Prompt"), y, promptModes,
+        function() return Profile().bonusRollPromptMode or "show" end,
+        function(v) Profile().bonusRollPromptMode=tostring(v) end,
+        { "show", "minimize", "cancel" },
+        EllesmereUI.L("Source rules decide whether a prompt is skipped. Auto falls back to available open wishlist items.")); y = y - h
     _, h = W:WideButton(parent, "Rescan Voidcore Pools", y, function()
         print("|cff0cd29fEllesmereUI Loot Tracker|r: " .. L("Scanning Voidcore pools..."))
         ns.RescanVoidcorePools(function()
