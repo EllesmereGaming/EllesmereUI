@@ -364,7 +364,7 @@ ns.GetCanonicalSpellIDForFrame = GetCanonicalSpellIDForFrame
 -- EnumerateCDMViewerSpells: walks the CD/util viewer pools, returns canonical
 -- spell entries in viewer-then-layoutIndex render order. Shared source of
 -- truth for picker AND migration -- the same spells the route map sees.
-local function EnumerateCDMViewerSpells(includeBuffViewer)
+local function EnumerateCDMViewerSpells(includeBuffViewer, includeLinkedMemberIdentity)
     local viewers
     if includeBuffViewer then
         viewers = { "BuffIconCooldownViewer" }
@@ -384,13 +384,15 @@ local function EnumerateCDMViewerSpells(includeBuffViewer)
                 if frame:IsShown() or frame.cooldownInfo then
                     local sid = GetCanonicalSpellIDForFrame(frame)
                     local linkedMemberSID
-                    local frameInfo = frame.cooldownInfo
-                    if not frameInfo and type(frame.GetCooldownInfo) == "function" then
-                        local ok, info = pcall(frame.GetCooldownInfo, frame)
-                        if ok then frameInfo = info end
+                    if includeLinkedMemberIdentity then
+                        local frameInfo = frame.cooldownInfo
+                        if not frameInfo and type(frame.GetCooldownInfo) == "function" then
+                            local ok, info = pcall(frame.GetCooldownInfo, frame)
+                            if ok then frameInfo = info end
+                        end
+                        local linkedMember = frameInfo and frameInfo.linkedSpellID
+                        if _IsUsableSID(linkedMember) then linkedMemberSID = linkedMember end
                     end
-                    local linkedMember = frameInfo and frameInfo.linkedSpellID
-                    if _IsUsableSID(linkedMember) then linkedMemberSID = linkedMember end
                     -- Dedup identity: BUFF viewer can have two cooldownIDs share
                     -- one spellID (e.g. Diabolist: Demonic Art vs Diabolic
                     -- Ritual), so key on cooldownID there (sid-dedup would
@@ -402,14 +404,17 @@ local function EnumerateCDMViewerSpells(includeBuffViewer)
                         and ("c" .. cd) or sid
                     if _IsUsableSID(sid) and dkey ~= nil and not seen[dkey] then
                         seen[dkey] = true
-                        entries[#entries + 1] = {
+                        local entry = {
                             sid          = sid,
                             cdID         = frame.cooldownID,
                             viewerName   = vName,
                             viewerOrder  = viewerOrder,
                             layoutIndex  = frame.layoutIndex or 0,
-                            linkedMemberSID = linkedMemberSID,
                         }
+                        if linkedMemberSID then
+                            entry.linkedMemberSID = linkedMemberSID
+                        end
+                        entries[#entries + 1] = entry
                     end
                 end
             end
@@ -1104,8 +1109,9 @@ function ns.CollectDefaultBuffTrackEntries()
     -- RebuildSpellRouteMap and ns.GetCDMSpellsForBar already use to answer
     -- "is this the same buff" everywhere else in this file.
     local diverted = {}
-    local hiddenExact = {}
+    local hiddenExact
     local divertedCd = {}  -- cooldownID-level diversions (collided-buff slots)
+    local GetLinkedBuffOptions = ns.GetCustomAuraLinkedBuffOptions
     local p = ECME and ECME.db and ECME.db.profile
     if p and p.cdmBars and p.cdmBars.bars then
         for _, otherBd in ipairs(p.cdmBars.bars) do
@@ -1115,10 +1121,14 @@ function ns.CollectDefaultBuffTrackEntries()
                     if otherSd and otherSd.assignedSpells then
                         for _, sid in ipairs(otherSd.assignedSpells) do
                             if type(sid) == "number" and sid > 0 then
-                                local separate = ns.CustomAuraKeepsLinkedBuffSeparate
-                                    and ns.CustomAuraKeepsLinkedBuffSeparate(otherSd, sid)
-                                if ns.CustomAuraHidesNativeDuplicates
-                                   and ns.CustomAuraHidesNativeDuplicates(otherSd, sid) then
+                                local separate, hideNative = false, false
+                                if otherSd.customSpellIDs
+                                   and otherSd.customSpellIDs[sid]
+                                   and GetLinkedBuffOptions then
+                                    separate, hideNative = GetLinkedBuffOptions(otherSd, sid)
+                                end
+                                if hideNative then
+                                    hiddenExact = hiddenExact or {}
                                     hiddenExact[sid] = true
                                 end
                                 if not separate then
@@ -1145,7 +1155,8 @@ function ns.CollectDefaultBuffTrackEntries()
     if ns.PruneEquipmentBuffRows then ns.PruneEquipmentBuffRows() end
     local out = {}
     local seen = {}
-    local entries = ns.EnumerateCDMViewerSpells and ns.EnumerateCDMViewerSpells(true) or {}
+    local entries = ns.EnumerateCDMViewerSpells
+        and ns.EnumerateCDMViewerSpells(true, hiddenExact ~= nil) or {}
     for _, e in ipairs(entries) do
         -- Dedup on the stable (cooldownID-derived) key, not e.sid: two viewer
         -- slots can share a spellID but are distinct cooldownIDs; keying on
@@ -1168,14 +1179,17 @@ function ns.CollectDefaultBuffTrackEntries()
         -- the active family member separately in linkedSpellID; check it plus
         -- the raw resolved identity so an opted-out child cannot survive under
         -- its linked controller in the default Buffs catalog.
-        local displayedIdentity
-        if eqInfo and ns.ResolveInfoSpellID then
-            local ok, sid = pcall(ns.ResolveInfoSpellID, eqInfo)
-            if ok and _IsUsableSID(sid) then displayedIdentity = sid end
+        local hiddenEntry = false
+        if hiddenExact then
+            local displayedIdentity
+            if eqInfo and ns.ResolveInfoSpellID then
+                local ok, sid = pcall(ns.ResolveInfoSpellID, eqInfo)
+                if ok and _IsUsableSID(sid) then displayedIdentity = sid end
+            end
+            hiddenEntry = hiddenExact[e.sid] == true
+                or hiddenExact[displayedIdentity] == true
+                or hiddenExact[e.linkedMemberSID] == true
         end
-        local hiddenEntry = hiddenExact[e.sid] == true
-            or hiddenExact[displayedIdentity] == true
-            or hiddenExact[e.linkedMemberSID] == true
         if e.sid and not (eqInfo and eqInfo.equipSlot and eqInfo.category ~= eqTracked)
            and not hiddenEntry
            and not ResolveVariantValue(diverted, e.sid)

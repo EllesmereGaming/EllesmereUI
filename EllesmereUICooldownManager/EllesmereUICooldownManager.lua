@@ -948,34 +948,19 @@ function ns.GetSpellSettingsStore(barKeyOrBd, create)
     return st
 end
 
--- Per-custom-aura opt-in: keep Blizzard's linked tracked-buff controller on
--- the normal Buffs bar while this exact aura continues through EUI's custom
--- aura tracker. The setting is an OWN per-spell value (never inherited from a
--- bar tier) and is false when absent, preserving existing routing by default.
-function ns.CustomAuraKeepsLinkedBuffSeparate(sd, spellID)
+-- Read both OWN per-custom-aura linked-buff options together so routing and
+-- catalog rebuilds touch the settings store only once per relevant spell.
+-- Missing values remain false, preserving existing behavior by default.
+function ns.GetCustomAuraLinkedBuffOptions(sd, spellID)
     if type(spellID) ~= "number" or spellID <= 0
        or not (sd and sd.customSpellIDs and sd.customSpellIDs[spellID]) then
-        return false
+        return false, false
     end
     local store = ns.GetSpellSettingsStore("buffs")
     local settings = store and store[spellID]
-    return type(settings) == "table"
-        and rawget(settings, "separateLinkedBuff") == true
-end
-
--- Independent per-custom-aura opt-in: AuraKit remains the sole renderer of
--- this exact aura on its assigned bar, while native CDM entries for the same
--- canonical/live identity are omitted from every EUI buff bar. Keeping this
--- separate from linked-controller routing lets users enable either behavior.
-function ns.CustomAuraHidesNativeDuplicates(sd, spellID)
-    if type(spellID) ~= "number" or spellID <= 0
-       or not (sd and sd.customSpellIDs and sd.customSpellIDs[spellID]) then
-        return false
-    end
-    local store = ns.GetSpellSettingsStore("buffs")
-    local settings = store and store[spellID]
-    return type(settings) == "table"
-        and rawget(settings, "hideCustomAuraElsewhere") == true
+    if type(settings) ~= "table" then return false, false end
+    return rawget(settings, "separateLinkedBuff") == true,
+        rawget(settings, "hideCustomAuraElsewhere") == true
 end
 
 -- Chain child.__index -> parent (or clear the link when parent is nil), so every read of a
@@ -10220,4 +10205,3 @@ SlashCmdList.ECME = function(msg)
         EllesmereUI:ShowModule("EllesmereUICooldownManager")
     end
 end
-
