@@ -6,6 +6,7 @@ local policy = "auto"
 local cancelled
 local eventHandler
 local styledButtons = {}
+local bonusRollStartHook
 
 local function Noop() end
 local function Region()
@@ -27,6 +28,10 @@ function GetTime() return 100 end
 function GetInstanceInfo() return nil, nil, nil, nil, nil, nil, nil, 0 end
 function GetSpellConfirmationPromptsInfo() return { prompt } end
 function CancelSpellConfirmationPrompt(spellID) cancelled = spellID end
+function BonusRollFrame_StartBonusRoll() end
+function hooksecurefunc(name, callback)
+    if name == "BonusRollFrame_StartBonusRoll" then bonusRollStartHook = callback end
+end
 function CreateFrame(_, name)
     local frame = {
         shown = true,
@@ -108,6 +113,11 @@ assert(not BonusRollFrame:IsShown() and EULTBonusRollReminder:IsShown(), "minimi
 assert(styledButtons.Show and styledButtons.Cancel, "reminder recovery controls are missing")
 styledButtons.Show.click()
 assert(BonusRollFrame:IsShown() and not EULTBonusRollReminder:IsShown(), "Show did not restore Blizzard's frame")
+
+BonusRollFrame.shown = true
+assert(bonusRollStartHook, "Blizzard bonus-roll start hook was not installed")
+bonusRollStartHook(42)
+assert(not BonusRollFrame:IsShown(), "late Blizzard frame show was not minimized by the start hook")
 
 prompt.displayItemID = 100
 C_ChallengeMode = { GetActiveChallengeMapID = function() return 7 end }
