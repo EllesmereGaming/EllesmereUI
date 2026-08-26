@@ -157,6 +157,8 @@ end
 local function ShowItemTooltip(frame, item, targetLevel, showActions, targetLink, craftedPreview)
     GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
     GameTooltip:ClearLines()
+    local tooltipSpecID = SelectedSpecID()
+    if ns.SetGoalTooltipSpec then ns.SetGoalTooltipSpec(GameTooltip, tooltipSpecID) end
 
     -- Crafted entries intentionally do not use a synthetic upgrade link: such
     -- links make their base recipe item level look like the finished item
@@ -200,6 +202,10 @@ local function ShowItemTooltip(frame, item, targetLevel, showActions, targetLink
         GameTooltip:AddLine(L("Left-click: change priority / Catalyst"), 0.75, 0.75, 0.75)
         GameTooltip:AddLine(L("Right-click: correct Voidcore pool"), 0.75, 0.75, 0.75)
     end
+    if ns.AddGoalStatusToTooltip then
+        ns.AddGoalStatusToTooltip(GameTooltip, item.itemID, tooltipSpecID)
+    end
+    if ns.ClearGoalTooltipSpec then ns.ClearGoalTooltipSpec(GameTooltip) end
     GameTooltip:Show()
 end
 
@@ -233,6 +239,19 @@ local function AddCatalystBadge(parent, anchor, shown)
     glyph:SetFont(STANDARD_TEXT_FONT, 9, "OUTLINE")
     glyph:SetPoint("CENTER", bg, "CENTER", 0, 0)
     glyph:SetText("C"); glyph:SetTextColor(1, 0.7, 0.28, 1)
+end
+
+local function AddPlanScopeBadge(parent, anchor, goal)
+    local label, count = ns.GetGoalPlanScopeLabel(goal, true)
+    if count == 0 then return end
+    local width = math.min(36, math.max(14, #label * 5 + 5))
+    local bg = parent:CreateTexture(nil, "OVERLAY")
+    bg:SetSize(width, 12); bg:SetPoint("TOPLEFT", anchor, "TOPLEFT", -2, 2)
+    bg:SetColorTexture(0.02, 0.08, 0.11, 0.96)
+    local text = parent:CreateFontString(nil, "OVERLAY")
+    text:SetFont(STANDARD_TEXT_FONT, 7, "OUTLINE")
+    text:SetPoint("CENTER", bg, "CENTER", 0, 0)
+    text:SetText(label); text:SetTextColor(0.35, 0.8, 1, 1)
 end
 
 local function BuildItemRow(parent, y, source, item, specID, difficultyID)
@@ -621,6 +640,7 @@ local function BuildBonusRollPriority(parent, y, specID)
             texture:SetAllPoints(); texture:SetTexture(goal.itemIcon or C_Item.GetItemIconByID(goal.itemID))
             texture:SetTexCoord(0.07, 0.93, 0.07, 0.93)
             AddCatalystBadge(button, texture, goal.catalyst)
+            AddPlanScopeBadge(button, texture, goal)
             local color = ns.PRIORITY_COLORS[goal.priority] or { 1, 1, 1 }
             local strip = button:CreateTexture(nil, "OVERLAY")
             strip:SetPoint("BOTTOMLEFT"); strip:SetPoint("BOTTOMRIGHT"); strip:SetHeight(3)
@@ -753,6 +773,7 @@ local function BuildFarmPriority(parent, y, specID)
             texture:SetAllPoints(); texture:SetTexture(goal.itemIcon or C_Item.GetItemIconByID(goal.itemID))
             texture:SetTexCoord(0.07, 0.93, 0.07, 0.93)
             AddCatalystBadge(button, texture, goal.catalyst)
+            AddPlanScopeBadge(button, texture, goal)
             local color = ns.PRIORITY_COLORS[goal.priority] or { 1, 1, 1 }
             local strip = button:CreateTexture(nil, "OVERLAY")
             strip:SetPoint("BOTTOMLEFT"); strip:SetPoint("BOTTOMRIGHT"); strip:SetHeight(3)
@@ -868,6 +889,7 @@ local function BuildOverview(parent, yOffset)
                 itemIcon:SetDesaturated(obtained)
                 itemIcon:SetAlpha(obtained and 0.55 or 1)
                 AddCatalystBadge(itemHitbox, itemIcon, goal.catalyst)
+                AddPlanScopeBadge(itemHitbox, itemIcon, goal)
                 local priority = itemHitbox:CreateTexture(nil, "OVERLAY")
                 priority:SetPoint("BOTTOMLEFT", itemHitbox, "BOTTOMLEFT", 0, 0)
                 priority:SetPoint("BOTTOMRIGHT", itemHitbox, "BOTTOMRIGHT", 0, 0)
