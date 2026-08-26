@@ -77,6 +77,7 @@ local ns = {
         return "dungeon:" .. value.challengeModeID
     end,
     GetPool = function() return pool end,
+    IsPoolItemKnocked = function(_, itemID) return pool.knocked[itemID] end,
     GetGoals = function() return goals end,
 }
 

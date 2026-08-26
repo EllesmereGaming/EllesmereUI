@@ -371,10 +371,20 @@ end
 
 function ns.SetPoolItemState(sourceKey, itemID, knocked, specID, confidence)
     local pool = ns.GetPool(sourceKey, specID)
+    itemID = tonumber(itemID) or itemID
     pool.knocked[itemID] = knocked and time() or nil
+    -- Clean up keys written as strings by older versions/imported data.
+    if type(itemID) == "number" then pool.knocked[tostring(itemID)] = nil end
     pool.updatedAt = time()
     if confidence then pool.confidence = confidence end
     FireChanged("pool")
+end
+
+function ns.IsPoolItemKnocked(sourceKey, itemID, specID)
+    local pool = ns.GetPool(sourceKey, specID)
+    local numericID = tonumber(itemID)
+    return pool.knocked[itemID] or (numericID and pool.knocked[numericID])
+        or (numericID and pool.knocked[tostring(numericID)])
 end
 
 function ns.GetSourceSummary(source, specID, difficultyID)
@@ -406,7 +416,7 @@ function ns.GetSourceSummary(source, specID, difficultyID)
     end
     local desired, remaining, total = 0, 0, #items
     for _, item in ipairs(items) do
-        if not pool.knocked[item.itemID] then
+        if not ns.IsPoolItemKnocked(sourceKey, item.itemID, specID) then
             remaining = remaining + 1
             local goal = ns.GetGoal(sourceKey, item.itemID, specID)
             if goal and goal.state == "open" then desired = desired + 1 end

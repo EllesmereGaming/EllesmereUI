@@ -86,10 +86,9 @@ ns.ResolveBonusRollPromptSource = ResolvePromptSource
 function ns.HasOpenBonusRollGoal(source, specID, difficultyID)
     local sourceKey = ns.GetSourceKey(source, difficultyID)
     if not sourceKey then return false end
-    local pool = ns.GetPool(sourceKey, specID)
     for _, goal in ipairs(ns.GetGoals(specID, false)) do
         if goal.sourceKey == sourceKey and goal.state == "open"
-            and not (pool.knocked and pool.knocked[goal.itemID]) then
+            and not ns.IsPoolItemKnocked(sourceKey, goal.itemID, specID) then
             return true
         end
     end
