@@ -1148,7 +1148,7 @@ local function BuildSettings(parent, yOffset)
     y = y - 88
     _, h = W:SectionHeader(parent, "VOIDCORE POOLS", y); y = y - h
     local promptModes = {
-        show = EllesmereUI.L("Show Blizzard frame"),
+        show = EllesmereUI.L("Minimize explicit skips only"),
         minimize = EllesmereUI.L("Minimize when skipped"),
         cancel = EllesmereUI.L("Cancel when skipped"),
     }
@@ -1156,7 +1156,7 @@ local function BuildSettings(parent, yOffset)
         function() return Profile().bonusRollPromptMode or "show" end,
         function(v) Profile().bonusRollPromptMode=tostring(v) end,
         { "show", "minimize", "cancel" },
-        EllesmereUI.L("Source rules decide whether a prompt is skipped. Auto falls back to available open wishlist items.")); y = y - h
+        EllesmereUI.L("Explicit Skip sources are always minimized. This setting controls Auto sources and whether skipped prompts are minimized or cancelled.")); y = y - h
     _, h = W:WideButton(parent, "Rescan Voidcore Pools", y, function()
         print("|cff0cd29fEllesmereUI Loot Tracker|r: " .. L("Scanning Voidcore pools..."))
         ns.RescanVoidcorePools(function()
