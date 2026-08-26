@@ -1,4 +1,3 @@
-if EUI_CLIENT_BLOCKED then return end
 local ADDON_NAME, ns = ...
 if not ns then return end
 

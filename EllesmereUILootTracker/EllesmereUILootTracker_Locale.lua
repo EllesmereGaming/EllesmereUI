@@ -1,4 +1,3 @@
-if EUI_CLIENT_BLOCKED then return end
 if not (EllesmereUI and EllesmereUI.RegisterLocale) then return end
 
 local L = EllesmereUI.RegisterLocale("deDE")
