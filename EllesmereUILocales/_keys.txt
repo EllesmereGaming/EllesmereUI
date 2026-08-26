@@ -309,6 +309,7 @@ Equipment Slot
 Everything
 Exclude This Spell
 Experience
+Explicit Skip sources are always minimized. This setting controls Auto sources and whether skipped prompts are minimized or cancelled.
 Export
 Export All Data with Profile
 Export CDM Spells
@@ -440,6 +441,7 @@ Main Bags (%d / %d)
 Match Scale
 Maximum of 5 thresholds.
 Maximum width the text can fill before it truncates, as a percentage of the bar.
+Minimize explicit skips only
 Minimize when skipped
 Missing Buffs?
 Missing Spells?
@@ -617,7 +619,6 @@ Shift+Scroll to see more
 Show
 Show 'Not Needed' Reminder
 Show All Debuffs
-Show Blizzard frame
 Show Charges
 Show Hash Lines
 Show Tooltip
@@ -639,7 +640,6 @@ Snap to: All Elements
 Snap to: Auto
 Snap to: None
 Snap to: Select Element
-Source rules decide whether a prompt is skipped. Auto falls back to available open wishlist items.
 Spacing
 Spec
 Spec Bindings

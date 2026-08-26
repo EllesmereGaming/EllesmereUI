@@ -31,6 +31,32 @@ local function PromptDifficulty(source, prompt)
     return difficultyID
 end
 
+local function ResolvePromptSource(prompt)
+    local displayItemID = prompt and prompt.displayItemID
+    if not IsSecret(displayItemID) then
+        local source = ns.GetSourceByChest(displayItemID)
+        if source then return source end
+    end
+
+    -- The displayed cache item is not guaranteed to be available on the first
+    -- prompt frame. The active challenge map is a stable fallback after a run.
+    local mapID = C_ChallengeMode and C_ChallengeMode.GetActiveChallengeMapID
+        and C_ChallengeMode.GetActiveChallengeMapID()
+    if IsSecret(mapID) then mapID = nil end
+    mapID = tonumber(mapID)
+    local instanceID = GetInstanceInfo and select(8, GetInstanceInfo())
+    if IsSecret(instanceID) then instanceID = nil end
+    instanceID = tonumber(instanceID)
+    if ns.GetSources then
+        for _, source in ipairs(ns.GetSources("dungeon") or {}) do
+            if source.challengeModeID == mapID then return source end
+            if instanceID and instanceID > 0 and source.instanceID == instanceID then return source end
+        end
+    end
+end
+
+ns.ResolveBonusRollPromptSource = ResolvePromptSource
+
 function ns.HasOpenBonusRollGoal(source, specID, difficultyID)
     local sourceKey = ns.GetSourceKey(source, difficultyID)
     if not sourceKey then return false end
@@ -47,12 +73,11 @@ end
 function ns.GetBonusRollPromptDecision(spellID)
     local profile = ns.GetProfile()
     local mode = profile and profile.bonusRollPromptMode or "show"
-    if mode ~= "minimize" and mode ~= "cancel" then return end
     if not ns.IsSeasonSupported() or IsSecret(spellID) then return end
 
     local prompt = FindPrompt(spellID)
-    if not prompt or IsSecret(prompt.displayItemID) then return end
-    local source = ns.GetSourceByChest(prompt.displayItemID)
+    if not prompt then return end
+    local source = ResolvePromptSource(prompt)
     if not source or (source.kind ~= "dungeon" and source.kind ~= "raid") then return end
 
     local difficultyID = PromptDifficulty(source, prompt)
@@ -60,7 +85,14 @@ function ns.GetBonusRollPromptDecision(spellID)
     local specID = ns.ResolveSpecID()
     local policy = ns.GetBonusRollPolicy(source, specID, difficultyID)
     if policy == ns.BONUS_ROLL_ALWAYS then return end
-    if policy ~= ns.BONUS_ROLL_NEVER and ns.HasOpenBonusRollGoal(source, specID, difficultyID) then return end
+    if policy == ns.BONUS_ROLL_NEVER then
+        -- Explicit per-source Skip works without requiring a second setting.
+        -- Minimize keeps a recovery path unless cancellation was requested.
+        mode = mode == "cancel" and "cancel" or "minimize"
+    else
+        if mode ~= "minimize" and mode ~= "cancel" then return end
+        if ns.HasOpenBonusRollGoal(source, specID, difficultyID) then return end
+    end
 
     local duration = prompt.duration
     if IsSecret(duration) then duration = nil end

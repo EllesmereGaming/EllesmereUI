@@ -24,6 +24,7 @@ EllesmereUI = {
 UIParent = {}
 C_Timer = { After = function(_, callback) callback() end }
 function GetTime() return 100 end
+function GetInstanceInfo() return nil, nil, nil, nil, nil, nil, nil, 0 end
 function GetSpellConfirmationPromptsInfo() return { prompt } end
 function CancelSpellConfirmationPrompt(spellID) cancelled = spellID end
 function CreateFrame(_, name)
@@ -44,7 +45,7 @@ function CreateFrame(_, name)
     return frame
 end
 
-local dungeon = { kind = "dungeon", challengeModeID = 7, name = "Test Dungeon" }
+local dungeon = { kind = "dungeon", challengeModeID = 7, instanceID = 70, name = "Test Dungeon" }
 local raid = { kind = "raid", encounterID = 8, name = "Test Boss" }
 local source = dungeon
 local ns = {
@@ -54,6 +55,7 @@ local ns = {
     GetProfile = function() return profile end,
     IsSeasonSupported = function() return true end,
     GetSourceByChest = function(itemID) return itemID == 99 and source or nil end,
+    GetSources = function(kind) return kind == "dungeon" and { dungeon } or { raid } end,
     ResolveSpecID = function() return 70 end,
     GetBonusRollPolicy = function() return policy end,
     GetSourceKey = function(value, difficultyID)
@@ -89,7 +91,11 @@ pool.knocked[123] = true
 assert(ns.GetBonusRollPromptDecision(42) == "cancel", "knocked-out wishlist item is not an available target")
 
 profile.bonusRollPromptMode = "show"
-assert(not ns.GetBonusRollPromptDecision(42), "show mode must never suppress Blizzard's frame")
+policy = "auto"
+assert(not ns.GetBonusRollPromptDecision(42), "show mode must preserve Auto prompts")
+policy = "never"
+assert(ns.GetBonusRollPromptDecision(42) == "minimize",
+    "explicit Skip must minimize even when Auto prompts use Blizzard's frame")
 profile.bonusRollPromptMode = "minimize"
 assert(ns.GetBonusRollPromptDecision(42) == "minimize", "minimize mode decision is incorrect")
 source = dungeon
@@ -102,6 +108,17 @@ assert(not BonusRollFrame:IsShown() and EULTBonusRollReminder:IsShown(), "minimi
 assert(styledButtons.Show and styledButtons.Cancel, "reminder recovery controls are missing")
 styledButtons.Show.click()
 assert(BonusRollFrame:IsShown() and not EULTBonusRollReminder:IsShown(), "Show did not restore Blizzard's frame")
+
+prompt.displayItemID = 100
+C_ChallengeMode = { GetActiveChallengeMapID = function() return 7 end }
+assert(ns.ResolveBonusRollPromptSource(prompt) == dungeon,
+    "active challenge map must recover a dungeon when the cache item is unknown")
+C_ChallengeMode = nil
+function GetInstanceInfo() return nil, nil, nil, nil, nil, nil, nil, 70 end
+assert(ns.ResolveBonusRollPromptSource(prompt) == dungeon,
+    "instance ID must recover a dungeon after the active challenge map resets")
+function GetInstanceInfo() return nil, nil, nil, nil, nil, nil, nil, 0 end
+prompt.displayItemID = 99
 
 source = raid
 policy = "auto"
