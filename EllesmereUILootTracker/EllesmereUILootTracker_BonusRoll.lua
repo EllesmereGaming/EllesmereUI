@@ -4,6 +4,7 @@ if not (EllesmereUI and ns) then return end
 
 local reminder
 local pendingReminder
+local promptAttemptToken = 0
 
 local function IsSecret(value)
     return issecretvalue and issecretvalue(value)
@@ -73,30 +74,48 @@ end
 function ns.GetBonusRollPromptDecision(spellID)
     local profile = ns.GetProfile()
     local mode = profile and profile.bonusRollPromptMode or "show"
-    if not ns.IsSeasonSupported() or IsSecret(spellID) then return end
+    local debug = { time = GetTime(), configuredMode = mode, reason = "evaluating" }
+    ns.lastBonusRollDebug = debug
+    if not ns.IsSeasonSupported() then debug.reason = "unsupported_season"; return end
+    if IsSecret(spellID) then debug.reason = "secret_spell"; return end
+    debug.spellID = spellID
 
     local prompt = FindPrompt(spellID)
-    if not prompt then return end
+    if not prompt then debug.reason = "prompt_not_ready"; return end
+    if not IsSecret(prompt.displayItemID) then debug.displayItemID = prompt.displayItemID end
     local source = ResolvePromptSource(prompt)
-    if not source or (source.kind ~= "dungeon" and source.kind ~= "raid") then return end
+    if not source or (source.kind ~= "dungeon" and source.kind ~= "raid") then
+        debug.reason = "unknown_source"
+        return
+    end
+    debug.sourceKind = source.kind
+    debug.sourceID = source.kind == "raid" and source.encounterID or source.challengeModeID
+    debug.sourceName = source.name
 
     local difficultyID = PromptDifficulty(source, prompt)
-    if source.kind == "raid" and not difficultyID then return end
+    if source.kind == "raid" and not difficultyID then debug.reason = "unknown_raid_difficulty"; return end
+    debug.difficultyID = difficultyID
     local specID = ns.ResolveSpecID()
     local policy = ns.GetBonusRollPolicy(source, specID, difficultyID)
-    if policy == ns.BONUS_ROLL_ALWAYS then return end
+    debug.specID = specID
+    debug.policy = policy
+    if policy == ns.BONUS_ROLL_ALWAYS then debug.reason = "explicit_always"; return end
     if policy == ns.BONUS_ROLL_NEVER then
         -- Explicit per-source Skip works without requiring a second setting.
         -- Minimize keeps a recovery path unless cancellation was requested.
         mode = mode == "cancel" and "cancel" or "minimize"
     else
-        if mode ~= "minimize" and mode ~= "cancel" then return end
-        if ns.HasOpenBonusRollGoal(source, specID, difficultyID) then return end
+        if mode ~= "minimize" and mode ~= "cancel" then debug.reason = "auto_show_mode"; return end
+        if ns.HasOpenBonusRollGoal(source, specID, difficultyID) then
+            debug.reason = "auto_wishlist_goal"
+            return
+        end
     end
 
     local duration = prompt.duration
     if IsSecret(duration) then duration = nil end
     duration = tonumber(duration)
+    debug.reason = mode
     return mode, {
         spellID = spellID,
         source = source,
@@ -193,23 +212,67 @@ function ns.TryHandleBonusRollPrompt(spellID)
     if not mode then return false end
     if mode == "cancel" then
         if not CancelSpellConfirmationPrompt then return false end
-        return pcall(CancelSpellConfirmationPrompt, spellID)
+        local handled = pcall(CancelSpellConfirmationPrompt, spellID)
+        if ns.lastBonusRollDebug then ns.lastBonusRollDebug.handled = handled end
+        return handled
     end
-    return MinimizePrompt(context)
+    local handled = MinimizePrompt(context)
+    if ns.lastBonusRollDebug then
+        ns.lastBonusRollDebug.handled = handled
+        if not handled then ns.lastBonusRollDebug.reason = "frame_not_shown" end
+    end
+    return handled
+end
+
+local function StopPromptAttempts()
+    promptAttemptToken = promptAttemptToken + 1
+end
+
+local function SchedulePromptHandling(spellID)
+    StopPromptAttempts()
+    local token = promptAttemptToken
+    local attempts = 0
+    local function Attempt()
+        if token ~= promptAttemptToken then return end
+        attempts = attempts + 1
+        if ns.TryHandleBonusRollPrompt(spellID) then
+            if ns.lastBonusRollDebug then ns.lastBonusRollDebug.attempt = attempts end
+            return
+        end
+        if ns.lastBonusRollDebug then ns.lastBonusRollDebug.attempt = attempts end
+        -- Blizzard and UI-skin handlers can show BonusRollFrame after the event
+        -- callback. Retry briefly instead of depending on frame-handler order.
+        if attempts < 20 then C_Timer.After(0.1, Attempt) end
+    end
+    C_Timer.After(0, Attempt)
+end
+
+local startHooked
+local function HookBonusRollStart()
+    if startHooked or type(_G.BonusRollFrame_StartBonusRoll) ~= "function"
+        or not hooksecurefunc then return end
+    startHooked = true
+    hooksecurefunc("BonusRollFrame_StartBonusRoll", function(spellID)
+        SchedulePromptHandling(spellID)
+    end)
 end
 
 local eventFrame = CreateFrame("Frame")
+eventFrame:RegisterEvent("ADDON_LOADED")
 eventFrame:RegisterEvent("SPELL_CONFIRMATION_PROMPT")
 eventFrame:RegisterEvent("SPELL_CONFIRMATION_TIMEOUT")
 eventFrame:RegisterEvent("BONUS_ROLL_RESULT")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:SetScript("OnEvent", function(_, event, spellID)
-    if event == "SPELL_CONFIRMATION_PROMPT" then
+    if event == "ADDON_LOADED" then
+        HookBonusRollStart()
+    elseif event == "SPELL_CONFIRMATION_PROMPT" then
         ClearReminder()
-        -- Blizzard owns the underlying prompt. We only collapse its frame after
-        -- it has been built, and keep a way back to the still-active prompt.
-        C_Timer.After(0, function() ns.TryHandleBonusRollPrompt(spellID) end)
+        SchedulePromptHandling(spellID)
     else
+        StopPromptAttempts()
         ClearReminder()
     end
 end)
+
+HookBonusRollStart()
