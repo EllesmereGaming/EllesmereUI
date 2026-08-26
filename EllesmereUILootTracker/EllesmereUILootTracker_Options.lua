@@ -1,4 +1,3 @@
-if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 local ADDON_NAME = "EllesmereUILootTracker"
 local ns = EllesmereUI._ModuleNS[ADDON_NAME]
 if not ns then return end

@@ -1,4 +1,3 @@
-if EUI_CLIENT_BLOCKED then return end
 local _, ns = ...
 if not (EllesmereUI and ns) then return end
 

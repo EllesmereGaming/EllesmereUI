@@ -1,5 +1,7 @@
-if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 local ADDON_NAME, ns = ...
+
+local hookedTooltips = setmetatable({}, { __mode = "k" })
+local tooltipGoalItems = setmetatable({}, { __mode = "k" })
 
 local function ItemIDFromData(data)
     if not data then return end
@@ -18,14 +20,14 @@ local function AddGoalLine(tooltip, data)
     if not ns.GetProfile().showItemTooltips then return end
     local itemID = ItemIDFromData(data)
     if not itemID then return end
-    if not tooltip._eultClearHook then
-        tooltip._eultClearHook = true
-        tooltip:HookScript("OnTooltipCleared", function(self) self._eultGoalItemID = nil end)
+    if not hookedTooltips[tooltip] then
+        hookedTooltips[tooltip] = true
+        tooltip:HookScript("OnTooltipCleared", function(self) tooltipGoalItems[self] = nil end)
     end
-    if tooltip._eultGoalItemID == itemID then return end
+    if tooltipGoalItems[tooltip] == itemID then return end
     local goal = ns.GetAnyGoal(itemID)
     if not goal then return end
-    tooltip._eultGoalItemID = itemID
+    tooltipGoalItems[tooltip] = itemID
     local priority = EllesmereUI.L(ns.PRIORITY_NAMES[goal.priority] or "Nice to have")
     local state = goal.state == "archived" and EllesmereUI.L("Obtained") or EllesmereUI.L("Open")
     local color = ns.PRIORITY_COLORS[goal.priority] or { 1, 1, 1 }
