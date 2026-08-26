@@ -192,6 +192,52 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+-- Buff Manager "Frame Alpha" (key "framealpha") was creatable in v8.0-v8.7 and
+-- disabled in v8.8, when 12.1 secrecy left it with no renderer: existing ones
+-- stayed in the profile but drew nothing, behind a "Removed in 12.1" notice.
+-- The effect returns after v9.0.5 as "Frame Dim" (key "framedim") -- a dim overlay
+-- on an aura slot rather than the unit-button SetAlpha it was named for.
+--
+-- The two keys are deliberately NOT aliased. Reviving indicators we told users
+-- were removed, silently, under a renderer that darkens instead of fading, is
+-- not the same setting coming back -- so the dead entries are deleted and Frame
+-- Dim starts clean. Nothing is lost that has worked since v8.8. Leaving them
+-- would be worse either way: aliased they reactivate unannounced, unaliased
+-- they linger as tiles labelled with a raw type string that render nothing.
+--
+-- Runs at ADDON_LOADED, ahead of the v1 -> v2 import, so no framealpha entry
+-- survives into a v2 store either.
+EllesmereUI.RegisterMigration({
+    id          = "bm_framealpha_purge_v1",
+    scope       = "profile",
+    description = "Delete dead Buff Manager Frame Alpha indicators (no renderer since v8.8; superseded by Frame Dim)",
+    body        = function(ctx)
+        local rf = ctx.profile.addons and ctx.profile.addons.EllesmereUIRaidFrames
+        if type(rf) ~= "table" then return end
+        -- Backwards so removal can't skip a neighbouring entry.
+        local function purge(list)
+            if type(list) ~= "table" then return end
+            for i = #list, 1, -1 do
+                local ind = list[i]
+                if type(ind) == "table" and ind.type == "framealpha" then
+                    table.remove(list, i)
+                end
+            end
+        end
+        if type(rf.bmIndicators) == "table" then
+            for _, specList in pairs(rf.bmIndicators) do purge(specList) end
+        end
+        -- v2 stores never received them (the import skipped the type), but a
+        -- store built between that change and this migration could carry one.
+        local bm2 = rf.bm2
+        if type(bm2) == "table" and type(bm2.specs) == "table" then
+            for _, specData in pairs(bm2.specs) do
+                if type(specData) == "table" then purge(specData.inds) end
+            end
+        end
+    end,
+})
+
 -- The Friendly/Enemy toggles now gate every reaction binding (frame + hover
 -- spells, items, hover macros) and "both off" means disabled; an UNSET pair
 -- now reads as friendly-only. Legacy semantics were: frame spells/items and
