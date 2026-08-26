@@ -37,7 +37,15 @@ local function QueuePageRebuild()
     C_Timer.After(0, function()
         pageRebuildQueued = nil
         local activeModule = EllesmereUI.GetActiveModule and EllesmereUI:GetActiveModule()
-        if activeModule == ADDON_NAME then EllesmereUI:RefreshPage(true) end
+        if activeModule == ADDON_NAME then
+            -- Loot state is shared by Overview, Planner and the source pages.
+            -- Refreshing only the visible page leaves the other cached wrappers
+            -- showing stale pool/goal data when the user changes tabs.
+            if EllesmereUI.InvalidateModulePageCache then
+                EllesmereUI:InvalidateModulePageCache(ADDON_NAME)
+            end
+            EllesmereUI:RefreshPage(true)
+        end
     end)
 end
 
@@ -299,7 +307,7 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
     local poolState = frame:CreateTexture(nil, "ARTWORK")
     poolState:SetSize(7, 7)
     poolState:SetPoint("RIGHT", frame, "RIGHT", -14, 0)
-    if pool.knocked[item.itemID] then
+    if ns.IsPoolItemKnocked(sourceKey, item.itemID, specID) then
         poolState:SetColorTexture(0.05, 0.82, 0.62, 1)
     else
         poolState:SetColorTexture(0.38, 0.4, 0.45, 0.7)
@@ -322,7 +330,8 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
         local currentGoal = ns.GetGoal(sourceKey, item.itemID, specID)
         local currentPool = ns.GetPool(sourceKey, specID)
         if button == "RightButton" then
-            ns.SetPoolItemState(sourceKey, item.itemID, not currentPool.knocked[item.itemID], specID, "manual")
+            ns.SetPoolItemState(sourceKey, item.itemID,
+                not ns.IsPoolItemKnocked(sourceKey, item.itemID, specID), specID, "manual")
         elseif button == "LeftButton" then
             if currentGoal and currentGoal.state == "archived" then
                 ns.ReactivateGoal(sourceKey, item.itemID, specID)
@@ -543,8 +552,7 @@ local function BuildBonusRollPriority(parent, y, specID)
     local grouped = {}
     for _, goal in ipairs(ns.GetGoals(specID, false)) do
         if goal.state == "open" and (goal.sourceKind == "dungeon" or goal.sourceKind == "raid") then
-            local pool = ns.GetPool(goal.sourceKey, specID)
-            if not pool.knocked[goal.itemID] then
+            if not ns.IsPoolItemKnocked(goal.sourceKey, goal.itemID, specID) then
                 local entry = grouped[goal.sourceKey]
                 if not entry then
                     entry = {
