@@ -21,6 +21,7 @@ L["Loot data is still loading. Reopen this page in a moment."] = "Beutedaten wer
 L["Loot data is still loading. This page will refresh automatically."] = "Beutedaten werden noch geladen. Diese Seite wird automatisch aktualisiert."
 L["Loot Specialization"] = "Beutespezialisierung"
 L["Loot Tracker"] = "Loot Tracker"
+L["Left-click to open the Loot Tracker"] = "Linksklick, um den Loot Tracker zu öffnen"
 L["Loot Tracker data does not support the current season yet. Probabilities are disabled until the source mapping is updated."] = "Die Loot-Tracker-Daten unterstützen die aktuelle Saison noch nicht. Wahrscheinlichkeiten bleiben deaktiviert, bis die Quellenzuordnung aktualisiert wurde."
 L["Mark items on the Dungeons or Raids page to build your gearing plan."] = "Markiere Gegenstände auf der Dungeon- oder Schlachtzugseite, um deinen Ausrüstungsplan zu erstellen."
 L["MYTHIC+ LOOT"] = "MYTHISCH+-BEUTE"
