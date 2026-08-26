@@ -1401,8 +1401,12 @@ local function SkinCharacterSheet()
                 durEvents:SetScript("OnEvent", function() UpdateDurabilityDisplay() end)
             end
             durEvents:RegisterEvent("UPDATE_INVENTORY_DURABILITY")
+            -- Self-repair items recalculate alerts without firing the durability
+            -- event (Blizzard's DurabilityFrame itself rides the alert event).
+            durEvents:RegisterEvent("UPDATE_INVENTORY_ALERTS")
         elseif durEvents then
             durEvents:UnregisterEvent("UPDATE_INVENTORY_DURABILITY")
+            durEvents:UnregisterEvent("UPDATE_INVENTORY_ALERTS")
         end
     end
 
@@ -4694,7 +4698,7 @@ local function EnsureCalcTab(frame)
     if existing then return existing end
 
     local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
-    local PP = EllesmereUI and (EllesmereUI.PanelPP or EllesmereUI.PP)
+    local PP = EllesmereUI and EllesmereUI.PP
 
     local refTab = _G["CharacterFrameTab1"]
     local tabW = refTab and refTab:GetWidth() or 80

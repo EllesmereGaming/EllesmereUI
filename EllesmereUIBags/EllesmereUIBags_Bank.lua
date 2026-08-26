@@ -1716,23 +1716,10 @@ function EUI_Bank:RefreshBank()
                 for slot = 1, tab.numSlots do
                     local info = C_Container.GetContainerItemInfo(tab.bagID, slot)
                     if info then used = used + 1 end
-                    if not hasSearch or info then
+                    -- use native search filter so type keywords work too
+                    if not hasSearch or (info and not info.isFiltered) then
                         visibleSlots[#visibleSlots + 1] = { slot = slot, _cachedInfo = info }
                     end
-                end
-                -- When searching, filter by name
-                if hasSearch then
-                    local filtered = {}
-                    for _, vs in ipairs(visibleSlots) do
-                        if vs._cachedInfo then
-                            local link = C_Container.GetContainerItemLink(tab.bagID, vs.slot)
-                            local itemName = link and GetItemInfo(link)
-                            if itemName and itemName:lower():find(searchQuery, 1, true) then
-                                filtered[#filtered + 1] = vs
-                            end
-                        end
-                    end
-                    visibleSlots = filtered
                 end
                 if not hasSearch or #visibleSlots > 0 then
                     headerIdx = headerIdx + 1
@@ -1803,14 +1790,11 @@ function EUI_Bank:RefreshBank()
             end
             local visibleSlots = allSlots
             if hasSearch then
+                -- use native search filter so type keywords work too
                 local filtered = {}
                 for _, vs in ipairs(allSlots) do
-                    if vs._cachedInfo then
-                        local link = C_Container.GetContainerItemLink(tab.bagID, vs.slot)
-                        local itemName = link and GetItemInfo(link)
-                        if itemName and itemName:lower():find(searchQuery, 1, true) then
-                            filtered[#filtered + 1] = vs
-                        end
+                    if vs._cachedInfo and not vs._cachedInfo.isFiltered then
+                        filtered[#filtered + 1] = vs
                     end
                 end
                 visibleSlots = filtered

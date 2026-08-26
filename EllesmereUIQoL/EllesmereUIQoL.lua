@@ -224,12 +224,19 @@ qolFrame:SetScript("OnEvent", function(self)
             return (MerchantFrame and MerchantFrame:IsShown()) and true or false
         end
         -- Same reasoning as MerchantOpen: opening while the mailbox is up compounds
-        -- the strand-a-slot race with mail's own item delivery. Pause while shown; resume once it closes.
+        -- the strand-a-slot race with mail's own item delivery. Interaction state,
+        -- not frame visibility: third-party mail/bank UIs hide the stock frames,
+        -- but the server-tracked interaction is true at the mailbox/banker
+        -- regardless of what draws the window.
         local function MailOpen()
-            return (MailFrame and MailFrame:IsShown()) and true or false
+            return (C_PlayerInteractionManager and C_PlayerInteractionManager.IsInteractingWithNpcOfType
+                and C_PlayerInteractionManager.IsInteractingWithNpcOfType(Enum.PlayerInteractionType.MailInfo)) and true or false
         end
         local function BankOpen()
-            return (BankFrame and BankFrame:IsShown()) and true or false
+            if not (C_PlayerInteractionManager and C_PlayerInteractionManager.IsInteractingWithNpcOfType) then return false end
+            -- Both bank types: character banker and the warband (account) bank.
+            return (C_PlayerInteractionManager.IsInteractingWithNpcOfType(Enum.PlayerInteractionType.Banker)
+                or C_PlayerInteractionManager.IsInteractingWithNpcOfType(Enum.PlayerInteractionType.AccountBanker)) and true or false
         end
         -- "Exclude Warbound Containers": checks the item's own bind type
         -- instead of asking the bank if it would accept a deposit right now --
@@ -1617,6 +1624,10 @@ qolFrame:SetScript("OnEvent", function(self)
 
         local resetAnnounceFrame = CreateFrame("Frame")
         resetAnnounceFrame:SetScript("OnEvent", function(self, event, msg)
+            -- CHAT_MSG_SYSTEM fires for every system message all session (this frame
+            -- stays registered while the toggle is on, not just around /reset), and some
+            -- carry secret text in protected content. Bail before touching msg at all.
+            if issecretvalue and issecretvalue(msg) then return end
             if not (EllesmereUIDB and EllesmereUIDB.instanceResetAnnounce) then return end
 
             -- Instance group only: LE_PARTY_CATEGORY_INSTANCE covers party/raid; IsInGroup() is the older-API fallback.
@@ -2743,12 +2754,22 @@ do
         end
     end
 
+    -- Durability + alert events land together per damaged slot; one check
+    -- after the frame settles (the check itself returns in combat, so a flush
+    -- landing after PLAYER_REGEN_DISABLED cannot re-show the warning).
+    local durCheckPending = false
+    local function FlushDurabilityCheck()
+        durCheckPending = false
+        CheckDurabilityAndShow()
+    end
     repairWarnFrame:SetScript("OnEvent", function(_, event)
         if event == "PLAYER_REGEN_DISABLED" then
             if durWarnOverlay then durWarnOverlay:Hide() end
             return
         end
-        CheckDurabilityAndShow()
+        if durCheckPending then return end
+        durCheckPending = true
+        C_Timer.After(0, FlushDurabilityCheck)
     end)
 
     -- Events registered only while enabled; toggle re-syncs live, and one immediate check on enable surfaces an already-low item.
@@ -2761,6 +2782,8 @@ do
             repairWarnFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
             repairWarnFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
             repairWarnFrame:RegisterEvent("UPDATE_INVENTORY_DURABILITY")
+            -- Self-repair items recalculate alerts without the durability event.
+            repairWarnFrame:RegisterEvent("UPDATE_INVENTORY_ALERTS")
             CheckDurabilityAndShow()
         end
     end
@@ -2806,6 +2829,69 @@ do
 
     local stateFrame = CreateFrame("Frame", "EUI_NoRightClickState", UIParent, "SecureHandlerStateTemplate")
 
+    -- The binding is the OR of two states with separate writers:
+    --   "mov" -- the secure state driver (engine-evaluated), BOTH arms [combat]:
+    --            out of combat the driver's cached value sits at 0 and never
+    --            re-pushes, so it can't stomp the Lua lane below.
+    --   "rc"  -- Lua-pushed OOC enemy arm. [harm] matches capturable wild pets
+    --            (no macro token excludes them), so the OOC verdict is computed
+    --            in Lua where UnitIsWildBattlePet can veto -- the pet-capture
+    --            right-click fix. In combat this lane is suspended; pets are
+    --            not capturable there.
+    -- Each snippet's clear defers to the other state, so the writers compose.
+    -- "combatclear" zeroes rc from a SECURE snippet at combat entry: Lua cannot
+    -- SetAttribute on this protected frame in lockdown, and a stale rc=1
+    -- (pulled while hovering an enemy) would otherwise pin the bind on allies
+    -- for the whole fight.
+    local ONSTATE_MOV = [[
+        if newstate == 1 then
+            self:SetBindingClick(1, "BUTTON2", "EUI_MouseLookBtn")
+        elseif (self:GetAttribute("state-rc") or 0) ~= 1 then
+            self:ClearBindings()
+        end
+    ]]
+    local ONSTATE_RC = [[
+        if newstate == 1 then
+            self:SetBindingClick(1, "BUTTON2", "EUI_MouseLookBtn")
+        elseif (self:GetAttribute("state-mov") or 0) ~= 1 then
+            self:ClearBindings()
+        end
+    ]]
+    local ONSTATE_COMBATCLEAR = [[
+        if newstate == 1 then
+            self:SetAttribute("state-rc", 0)
+        end
+    ]]
+
+    -- OOC enemy-arm verdict, edge-memoed: one attribute push per verdict CHANGE,
+    -- not per hover. All reads are clean out of combat.
+    local rcLast
+    local function PushRCState()
+        local match = (UnitExists("mouseover")
+            and not UnitIsDeadOrGhost("mouseover")
+            and UnitCanAttack("player", "mouseover")
+            and not UnitIsWildBattlePet("mouseover")
+            and not UnitIsBattlePetCompanion("mouseover")) and 1 or 0
+        if match == rcLast then return end
+        rcLast = match
+        stateFrame:SetAttribute("state-rc", match)
+    end
+
+    -- Registered only while the enemy toggle is on (feature-off users pay
+    -- nothing); the mouseover event additionally drops during combat.
+    local rcHoverFrame = CreateFrame("Frame")
+    rcHoverFrame:SetScript("OnEvent", function(self, event)
+        if event == "UPDATE_MOUSEOVER_UNIT" then
+            PushRCState()
+        elseif event == "PLAYER_REGEN_DISABLED" then
+            self:UnregisterEvent("UPDATE_MOUSEOVER_UNIT")
+            rcLast = nil
+        elseif event == "PLAYER_REGEN_ENABLED" then
+            self:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
+            PushRCState()
+        end
+    end)
+
     local function ApplyRightClickTarget()
         if InCombatLockdown() then
             local deferFrame = CreateFrame("Frame")
@@ -2820,28 +2906,49 @@ do
         local enemy = db and db.disableRightClickTarget
         local allyCombat = db and db.disableRightClickTargetAllyCombat
         if enemy or allyCombat then
-            -- Mouseover condition from the two independent toggles: enemies fire
-            -- everywhere, allies only while in combat ([combat]), so right-clicking vendors/questgivers still works out of combat.
+            -- Capturable pets exist only in the outdoor world, so the Lua rc
+            -- lane (and its mouseover listener) runs ONLY there. In instanced
+            -- content the driver owns the enemy arm unconditionally -- pure
+            -- engine evaluation, zero Lua per hover, and the OOC-between-pulls
+            -- suppression still works. Re-applied on PLAYER_ENTERING_WORLD so
+            -- the mode follows zone transitions.
+            local inInstance = IsInInstance()
+            local ruleLaneOn = enemy and not inInstance
             local macro = ""
-            if enemy then macro = macro .. "[@mouseover,harm,nodead]1;" end
+            if enemy then
+                macro = macro .. (inInstance and "[@mouseover,harm,nodead]1;"
+                    or "[@mouseover,harm,nodead,combat]1;")
+            end
             if allyCombat then macro = macro .. "[@mouseover,help,nodead,combat]1;" end
             macro = macro .. "0"
             SecureStateDriverManager:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
-            -- [combat] needs regen events so state re-evaluates on combat enter/exit even when the mouseover unit hasn't changed.
-            if allyCombat then
-                SecureStateDriverManager:RegisterEvent("PLAYER_REGEN_DISABLED")
-                SecureStateDriverManager:RegisterEvent("PLAYER_REGEN_ENABLED")
-            end
+            -- [combat] arms re-evaluate on combat edges even when the mouseover
+            -- unit hasn't changed.
+            SecureStateDriverManager:RegisterEvent("PLAYER_REGEN_DISABLED")
+            SecureStateDriverManager:RegisterEvent("PLAYER_REGEN_ENABLED")
+            -- Handlers before drivers so the initial evaluation lands on them.
+            stateFrame:SetAttribute("_onstate-mov", ONSTATE_MOV)
+            stateFrame:SetAttribute("_onstate-rc", ONSTATE_RC)
+            stateFrame:SetAttribute("_onstate-combatclear", ONSTATE_COMBATCLEAR)
             RegisterStateDriver(stateFrame, "mov", macro)
-            stateFrame:SetAttribute("_onstate-mov", [[
-                if newstate == 1 then
-                    self:SetBindingClick(1, "BUTTON2", "EUI_MouseLookBtn")
-                else
-                    self:ClearBindings()
-                end
-            ]])
+            RegisterStateDriver(stateFrame, "combatclear", "[combat]1;0")
+            if ruleLaneOn then
+                rcHoverFrame:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
+                rcHoverFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+                rcHoverFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+                rcLast = nil
+                PushRCState()
+            else
+                rcHoverFrame:UnregisterAllEvents()
+                rcLast = nil
+                stateFrame:SetAttribute("state-rc", 0)
+            end
         else
             UnregisterStateDriver(stateFrame, "mov")
+            UnregisterStateDriver(stateFrame, "combatclear")
+            rcHoverFrame:UnregisterAllEvents()
+            rcLast = nil
+            stateFrame:SetAttribute("state-rc", 0)
             ClearOverrideBindings(stateFrame)
         end
     end
@@ -2849,9 +2956,11 @@ do
     EllesmereUI._applyRightClickTarget = ApplyRightClickTarget
 
     local rcInitFrame = CreateFrame("Frame")
+    -- Persistent (not one-shot): the instanced-vs-outdoor mode split above is
+    -- re-derived on every zone transition. Feature off = one cheap idempotent
+    -- call per loading screen.
     rcInitFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    rcInitFrame:SetScript("OnEvent", function(self)
-        self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+    rcInitFrame:SetScript("OnEvent", function()
         ApplyRightClickTarget()
     end)
 end
@@ -4046,11 +4155,15 @@ do
             outline = (outline == "") and "OUTLINE" or (outline .. ", OUTLINE")
         end
         local size = (EllesmereUIDB and EllesmereUIDB.targetDistanceTextSize) or DEFAULT_TEXT_SIZE
+        -- HIGH = the pre-setting strata, so existing installs keep their look; the
+        -- setting is the opt-in to sit lower (e.g. under the bank window).
+        local strata = (EllesmereUIDB and EllesmereUIDB.targetDistanceStrata) or "HIGH"
         local align = GetAlign()
         distFrame._text:SetFont(fontPath, size, outline)
         distFrame._text:SetJustifyH(align)
         distFrame._text:ClearAllPoints()
         distFrame._text:SetPoint(align, distFrame, align, 0, 0)
+        distFrame:SetFrameStrata(strata)
         distFrame:SetSize(size * 5, size + 10)
 
         -- Unlock Mode owns anchors while dragging, or when Anchor-to is linked.
@@ -4072,7 +4185,6 @@ do
         if distFrame then return end
         distFrame = CreateFrame("Frame", nil, UIParent)
         distFrame:SetSize(100, 28)
-        distFrame:SetFrameStrata("HIGH")
         distFrame:SetFrameLevel(55)
         distFrame:EnableMouse(false)
         distFrame:SetMouseClickEnabled(false)

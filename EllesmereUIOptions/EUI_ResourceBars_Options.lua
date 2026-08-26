@@ -975,7 +975,8 @@ initFrame:SetScript("OnEvent", function(self)
         tooltip = tooltip or EllesmereUI.L(title)
         local FORMS = { { key = "mana", label = "Caster" },
                         { key = "rage", label = "Bear" },
-                        { key = "energy", label = "Cat" } }
+                        { key = "energy", label = "Cat" },
+                        { key = "moonkin", label = "Moonkin" } }
         local rows = {}
         for _, f in ipairs(FORMS) do
             local key = f.key

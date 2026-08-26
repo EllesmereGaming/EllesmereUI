@@ -846,6 +846,17 @@ local _tbbRebuildPending = false
 local _tbbAssignDirty = true
 local _tbbAssignedFor
 
+-- Group reflow gate: ReflowGroup's inputs are the visible member sequence plus the
+-- group's grow direction and spacing. Bar frames dirty this from their OnShow/OnHide,
+-- the group setting writers, rebuilds and wakes dirty it directly, and the tick
+-- reflows only while it is set instead of re-walking every bar every 16 ms.
+local _tbbReflowDirty = true
+local function _MarkTBBReflowDirty() _tbbReflowDirty = true end
+
+-- Smooth-fill switch memo for the tick: GetTBBSmoothSettings walks the profile store,
+-- and its result can only change with the active profile name or the live spec-profile bucket, both re-read per tick without a call.
+local _tickSm, _tickSmProf, _tickSmSp
+
 -- TBB idle sleeper: UpdateTrackedBuffBarTimers counts consecutive dead ticks (no
 -- active/fallback aura, self-timed window, running cooldown, or placeholder preview);
 -- after ~2s it parks the tick frame (OnUpdate stops) and this frame listens for the
@@ -869,6 +880,7 @@ function _tbbWake.Wake()
     _tbbWake:RegisterUnitEvent("UNIT_AURA", "player")
     _tbbWake._idleTicks = 0
     _tbbAssignDirty = true
+    _tbbReflowDirty = true
     if _tbbWake._enabled and tbbTickFrame then tbbTickFrame:Show() end
 end
 -- UNIT_AURA fires steadily in group content and every false wake buys ~0.5s of full
@@ -1036,11 +1048,12 @@ function ns.TBBSetGroupGrow(gid, v)
     local gkey = ns.TBBGroupGlobalKey and ns.TBBGroupGlobalKey(gid)
     if gkey then
         local e = ns.TBBGlobalGroup(gkey)
-        if e then e.grow = v end
+        if e then e.grow = v; _tbbReflowDirty = true end
         return
     end
     TBBGroupStore(t, gid, true).grow = v
     if gid == 1 then t.groupGrowDirection = v end
+    _tbbReflowDirty = true
 end
 
 function ns.TBBGroupSpacing(gid)
@@ -1052,17 +1065,19 @@ function ns.TBBSetGroupSpacing(gid, v)
     local gkey = ns.TBBGroupGlobalKey and ns.TBBGroupGlobalKey(gid)
     if gkey then
         local e = ns.TBBGlobalGroup(gkey)
-        if e then e.spacing = v end
+        if e then e.spacing = v; _tbbReflowDirty = true end
         return
     end
     TBBGroupStore(t, gid, true).spacing = v
     if gid == 1 then t.groupSpacing = v end
+    _tbbReflowDirty = true
 end
 
 -- Clear a group's stored settings when its id is (re)claimed for a brand-new group, so a dissolved group's leftovers do not leak into it.
 function ns.TBBResetGroupSettings(gid)
     local t = ns.GetTrackedBuffBars()
     if t.groups then t.groups[_gidKeys[gid]] = nil end
+    _tbbReflowDirty = true
 end
 
 -- Optional user-given group name (Group Settings input). Empty/absent = nil, callers fall back to the default "Group N" label.
@@ -1351,6 +1366,7 @@ do
                     t.groupGrowDirection = entry.grow
                     t.groupSpacing = entry.spacing
                 end
+                _tbbReflowDirty = true
                 if entry.pos then
                     local posDB = ns.GetTBBPositions()
                     for j, c in ipairs(t.bars or {}) do
@@ -1494,6 +1510,7 @@ do
                                 tbb.groupGrowDirection = entry.grow
                                 tbb.groupSpacing = entry.spacing
                             end
+                            _tbbReflowDirty = true
                             if entry.pos then
                                 if not prof.tbbPositions then prof.tbbPositions = {} end
                                 local kn = tonumber(k)
@@ -1909,6 +1926,7 @@ local function ReflowVisibleGroupedTBBars(tbb, bars)
     -- Never fight edit-preview (placeholder) or unlock-mode dragging: there BuildTrackedBuffBars and the unlock system own bar positions.
     if ns._tbbPlaceholderMode or EllesmereUI._unlockActive then return end
     -- Reflow each present group once; the done-set is reused across ticks so this pass allocates nothing.
+    _tbbReflowDirty = false
     wipe(_tbbReflowDone)
     for _, cfg in ipairs(bars) do
         local gid = ns.TBBBarGroupID(cfg)
@@ -1968,6 +1986,9 @@ local function CreateTrackedBuffBarFrame(parent, idx)
     -- displays (MEDIUM, low levels). Internal level order: strips +6 < glow +7 < text +8.
     wrapFrame:SetFrameStrata("MEDIUM")
     wrapFrame:SetFrameLevel(100)
+    -- Visibility is a group reflow input: every Show/Hide edge, whichever path drives it, dirties the reflow.
+    wrapFrame:SetScript("OnShow", _MarkTBBReflowDirty)
+    wrapFrame:SetScript("OnHide", _MarkTBBReflowDirty)
 
     local bar = CreateFrame("StatusBar", "ECME_TBB" .. idx, wrapFrame)
     if bar.EnableMouseClicks then bar:EnableMouseClicks(false) end
@@ -3839,6 +3860,7 @@ end
 local SATED_DEBUFFS = { 57723, 57724, 80354, 95809, 160455, 264689, 390435 }
 local _lustExpiry   = 0
 local _satedPresent = false
+local _satedSince                 -- GetTime() of the rise this listener armed on (nil = unknown age)
 local _lustZoneGuard = 0          -- suppress rising edges until this time (set on zone-in)
 local _lustListenerActive = false -- baseline _satedPresent only on (re)enable, not every rebuild
 local _lustListener
@@ -3864,9 +3886,14 @@ local function _ensureLustListener(enable)
                     -- briefly. An already-carried Sated debuff (zoning out of a dungeon) must
                     -- never read as a fresh cast and pop a phantom 40s bar in the open world.
                     _satedPresent = _playerHasSated()
+                    _satedSince = nil
                     _lustZoneGuard = GetTime() + 1.5
                     return
                 end
+                -- Sated lasts 10 minutes and nothing lifts it early, so a rise this
+                -- listener armed on pins the debuff for the next 590s: skip the
+                -- (allocating) aura probe until it can possibly have dropped.
+                if _satedPresent and _satedSince and GetTime() < _satedSince + 590 then return end
                 local present = _playerHasSated()
                 -- Arm ONLY on a genuine incremental application: not a full
                 -- aura refresh (zone/login resends every aura), and not inside
@@ -3882,11 +3909,13 @@ local function _ensureLustListener(enable)
                 if present and not _satedPresent and not isFull
                     and GetTime() >= _lustZoneGuard then
                     _lustExpiry = GetTime() + 40  -- rising edge: lust just went out
+                    _satedSince = GetTime()
                     _tbbWake.Wake()  -- lust can come from other players: no local cast/aura edge is guaranteed
                     -- Drive Custom Auras (icon) lust displays sharing this edge.
                     if ns.SignalLustCast then ns.SignalLustCast() end
                 end
                 _satedPresent = present
+                if not present then _satedSince = nil end
             end)
         end
         -- Baseline ONLY on the OFF->ON transition. Re-baselining on every BuildTrackedBuffBars
@@ -3894,6 +3923,7 @@ local function _ensureLustListener(enable)
         -- could set _satedPresent=false and make the debuff's return look like a cast.
         if not _lustListenerActive then
             _satedPresent = _playerHasSated()
+            _satedSince = nil
             _lustListener:RegisterUnitEvent("UNIT_AURA", "player")
             _lustListener:RegisterEvent("PLAYER_ENTERING_WORLD")
             _lustListenerActive = true
@@ -4986,17 +5016,25 @@ end
 -------------------------------------------------------------------------------
 function ns.UpdateTrackedBuffBarTimers()
     if not ECME or not ECME.db then return end
-    local MS, MD = ns._MemSnap, ns._MemDelta
-    if MS then MS("TBBTick") end
     local tbb = ns.GetTrackedBuffBars()
     local bars = tbb.bars
-    if not bars then if MD then MD("TBBTick") end return end
+    if not bars then return end
 
     -- Liveness for the idle sleeper: set by any branch below that is actually animating or tracking something this tick.
     local tickLive = false
 
     -- Profile-wide smooth-fill switches, resolved once per tick for every fill site (absent buffs key = enabled; absent cooldowns key = OFF).
-    local sm = ns.GetTBBSmoothSettings and ns.GetTBBSmoothSettings()
+    local sm
+    do
+        local pn = EllesmereUIDB and EllesmereUIDB.activeProfile
+        local sp = ns._cachedSpecProfiles
+        if _tickSm and pn == _tickSmProf and sp == _tickSmSp then
+            sm = _tickSm
+        else
+            sm = ns.GetTBBSmoothSettings and ns.GetTBBSmoothSettings()
+            _tickSm, _tickSmProf, _tickSmSp = sm, pn, sp
+        end
+    end
     if sm then
         _smoothBuffs = sm.buffs ~= false
         _smoothCooldowns = sm.cooldowns == true
@@ -5512,7 +5550,7 @@ function ns.UpdateTrackedBuffBarTimers()
     end
 
     -- Re-pack visible grouped Tracking Bars after the active/inactive pass so hidden buffs do not reserve a slot in the group.
-    ReflowVisibleGroupedTBBars(tbb, bars)
+    if _tbbReflowDirty then ReflowVisibleGroupedTBBars(tbb, bars) end
 
     -- Deferred name fill: retry each tick when BuildTrackedBuffBars could not resolve the spell name (spell data not loaded yet).
     for i, cfg in ipairs(bars) do
@@ -5572,7 +5610,6 @@ function ns.UpdateTrackedBuffBarTimers()
         _tbbWake._idleTicks = n
         if n >= 30 then _tbbWake.Sleep() end
     end
-    if ns._MemDelta then ns._MemDelta("TBBTick") end
 end
 
 -------------------------------------------------------------------------------
@@ -5583,6 +5620,7 @@ function ns.BuildTrackedBuffBars()
     if not ECME or not ECME.db then return end
     -- No InCombatLockdown guard needed: TBB frames are ours (UIParent), not secure Blizzard frames, so positioning in combat is safe.
     _tbbRebuildPending = false
+    _tbbReflowDirty = true
 
     -- Per-spec unlock-link views: the global anchor/match stores must hold THIS spec's TBB entries before any anchored-state below is read.
     ns.SyncTBBUnlockLinks()

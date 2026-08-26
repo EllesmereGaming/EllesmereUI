@@ -889,6 +889,40 @@ local function MakeStatBlock(blockCfg, slot, content, barCtx, opts)
         Tick()
     end
 
+    -- Lets a tooltip resync the bar text with what it just sampled.
+    function inst:ForceSample()
+        ForceTick()
+    end
+
+    -- A sample taken right when an event fires can catch the source before
+    -- it's populated. Resample once more after a short delay to catch that.
+    -- One outstanding retry at a time: event bursts (durability drops hit
+    -- many items per damage wave) would otherwise queue a timer closure each.
+    local retryPending = false
+    local function ForceTickChecked()
+        ForceTick()
+        if opts.retryDelay and not retryPending then
+            retryPending = true
+            C_Timer.After(opts.retryDelay, function()
+                retryPending = false
+                if not inst._dead then ForceTick() end
+            end)
+        end
+    end
+
+    -- Same-frame event bursts (a damage wave fires the durability AND alert
+    -- events per slot) collapse to ONE sample after the frame settles.
+    local flushPending = false
+    local function FlushEventSample()
+        flushPending = false
+        if not inst._dead then ForceTickChecked() end
+    end
+    local function OnEventSample()
+        if flushPending then return end
+        flushPending = true
+        C_Timer.After(0, FlushEventSample)
+    end
+
     function inst:Enable()
         content:Show()
         lastVal = -1
@@ -897,10 +931,10 @@ local function MakeStatBlock(blockCfg, slot, content, barCtx, opts)
         if opts.events then
             if not self.eventFrame then
                 self.events = opts.events
-                self.eventFrame = MakeEventFrame(self, ForceTick)
+                self.eventFrame = MakeEventFrame(self, OnEventSample)
             end
             RegisterInstEvents(self)
-            ForceTick()
+            ForceTickChecked()
         else
             ns.RegisterHeartbeat(opts.hbPrefix .. ":" .. self.key, Tick)
         end
@@ -1181,7 +1215,9 @@ ns.BlockFactories.durability = function(blockCfg, slot, content, barCtx)
         return pct
     end
 
-    local function DurabilityTooltip()
+    local function DurabilityTooltip(inst)
+        -- Resync the bar text whenever the tooltip opens.
+        if inst then inst:ForceSample() end
         local ar, ag, ab = 1, 1, 1
         ns.Tip_Begin(content)
         ns.Tip_AddDouble("Durability", SampleDurability() .. "%",
@@ -1196,7 +1232,10 @@ ns.BlockFactories.durability = function(blockCfg, slot, content, barCtx)
         -- Durability only moves on damage/repair edges the game announces, so
         -- the block samples on those events alone -- no heartbeat, and with no
         -- other time-driven block enabled the 1s ticker never runs at all.
-        events   = { "UPDATE_INVENTORY_DURABILITY", "PLAYER_ENTERING_WORLD" },
+        -- Self-repair items recalculate alerts without the durability event.
+        events   = { "UPDATE_INVENTORY_DURABILITY", "UPDATE_INVENTORY_ALERTS", "PLAYER_ENTERING_WORLD" },
+        -- Retry each sample once, a moment later.
+        retryDelay = 2,
         sample   = SampleDurability,
         suffix   = function() return "%" end,
         tooltip  = DurabilityTooltip,
@@ -1286,8 +1325,12 @@ ns.BlockFactories.combat = function(blockCfg, slot, content, barCtx)
             text:ClearAllPoints()
             text:SetPoint("LEFT", frame, "LEFT", 0, 0)
             ns.SetFont(measureFS, fontSize, barCfg)
+            -- Fixed width from the wider label so the block never resizes on
+            -- combat edges; either label can be the wide one per locale.
             measureFS:SetText(EllesmereUI.L(CombatLabel(0)))
-            local width = max(30, ns.SnapToPixelGrid(measureFS:GetStringWidth() or 30) + 2)
+            local wOut = measureFS:GetStringWidth() or 30
+            measureFS:SetText(EllesmereUI.L(CombatLabel(1)))
+            local width = max(30, ns.SnapToPixelGrid(max(wOut, measureFS:GetStringWidth() or 30)) + 2)
             text:SetWidth(width)
             frame:SetSize(width, barH)
             frame:ClearAllPoints()
@@ -2364,8 +2407,29 @@ ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
                 r = 0.5, g = 0.5, b = 0.5, rested = 0,
             }
         end
+        -- Friendship factions (Captain Tokka, Cursed Angler ranks, etc.): the
+        -- watched-faction payload returns EQUAL reaction thresholds for these,
+        -- which collapsed the range to zero and rendered a permanent 0% with a
+        -- nonsense "8,400 / 8,401" tooltip (field report 2026-08-22). The
+        -- friendship API carries the real rank window -- same handling as the
+        -- Action Bars RepBar. Checked before renown, matching that code path.
+        local isFriendship = false
+        if factionID and C_GossipInfo and C_GossipInfo.GetFriendshipReputation then
+            local fi = C_GossipInfo.GetFriendshipReputation(factionID)
+            if fi and fi.friendshipFactionID and fi.friendshipFactionID > 0 then
+                isFriendship = true
+                minV = fi.reactionThreshold or 0
+                curV = fi.standing or minV
+                if fi.nextThreshold and fi.nextThreshold > minV then
+                    maxV = fi.nextThreshold
+                else
+                    -- Maxed friendship rank: render a full bar.
+                    minV, maxV, curV = 0, 1, 1
+                end
+            end
+        end
         -- Major Factions (renown progress)
-        if factionID and C_MajorFactions and C_MajorFactions.GetMajorFactionData then
+        if not isFriendship and factionID and C_MajorFactions and C_MajorFactions.GetMajorFactionData then
             local mfd = C_MajorFactions.GetMajorFactionData(factionID)
             if mfd and type(mfd.renownLevelThreshold) == "number" and mfd.renownLevelThreshold > 0 then
                 minV = 0; maxV = mfd.renownLevelThreshold; curV = mfd.renownReputationEarned or 0
@@ -3185,6 +3249,8 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
                     -- its name read is stale; SPELLS_CHANGED fires once the swap applied
                     -- (same signal CDM keys its talent-swap rebuilds off) and re-reads the settled name.
                     "TRAIT_CONFIG_UPDATED", "SPELLS_CHANGED",
+                    -- Combat cancelling a loadout swap started from this block.
+                    "CONFIG_COMMIT_FAILED",
                     "PLAYER_ENTERING_WORLD",
                     -- Refresh runs in combat too (our frames only); regen is a cheap catch-up for anything a combat path missed.
                     "PLAYER_REGEN_ENABLED" }
@@ -3215,6 +3281,23 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
     local specCache, numSpecs = {}, 0
     local currentSpecIdx, currentLootSpecID = nil, 0
     local mouseOver = false
+
+    -- Loadout swap, Blizzard's sequence: the last-selected pointer is written
+    -- only once the swap is real -- immediately when no commit is needed,
+    -- else on the TRAIT_CONFIG_UPDATED that lands the commit. Nothing is
+    -- written up front, so a commit cancelled by combat leaves the pointer
+    -- on the loadout still applied.
+    local pendingSwapSpecId, pendingSwapConfigID
+    local function BeginLoadoutSwap(specId, configID)
+        local result = C_ClassTalents.LoadConfig(configID, true)
+        local R = Enum.LoadConfigResult
+        if result == R.NoChangesNecessary then
+            C_ClassTalents.UpdateLastSelectedSavedConfigID(specId, configID)
+        elseif result ~= R.Error then
+            pendingSwapSpecId, pendingSwapConfigID = specId, configID
+        end
+        inst:Refresh()
+    end
 
     -- Per-instance popup pools (lazy). Two spec blocks never fight over the same popup frames.
     local specPool, lootPool, loadoutPool
@@ -3501,9 +3584,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
         end
         if #entries == 0 then return end
         local pop = BuildPopup(subnavPool, specButton, nil, entries, function(e)
-            C_ClassTalents.LoadConfig(e.configID, true)
-            C_ClassTalents.UpdateLastSelectedSavedConfigID(specId, e.configID)
-            inst:Refresh()
+            BeginLoadoutSwap(specId, e.configID)
         end, true)
         -- Flyout anchoring: flush against the spec popup's edge, with its
         -- FIRST entry level with the row the cursor is on, so a straight
@@ -3623,9 +3704,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
         -- Row clicks stay gated (LoadConfig is blocked); the list is viewable.
         local inCombat = InCombatLockdown()
         BuildPopup(loadoutPool, specButton, L["CHANGE_LOADOUT"], entries, function(e)
-            C_ClassTalents.LoadConfig(e.configID, true)
-            C_ClassTalents.UpdateLastSelectedSavedConfigID(specId, e.configID)
-            inst:Refresh()
+            BeginLoadoutSwap(specId, e.configID)
         end, inCombat)
         if inCombat and hoverWatch then
             hoverWatch._watchPool = loadoutPool
@@ -3833,7 +3912,17 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
         end
     end)
 
-    inst.eventFrame = MakeEventFrame(inst, function(self)
+    inst.eventFrame = MakeEventFrame(inst, function(self, event)
+        if pendingSwapConfigID then
+            if event == "TRAIT_CONFIG_UPDATED" then
+                -- Commit landed: write the pointer now (the write hook refreshes).
+                local specId, configID = pendingSwapSpecId, pendingSwapConfigID
+                pendingSwapSpecId, pendingSwapConfigID = nil, nil
+                C_ClassTalents.UpdateLastSelectedSavedConfigID(specId, configID)
+            elseif event == "CONFIG_COMMIT_FAILED" then
+                pendingSwapSpecId, pendingSwapConfigID = nil, nil
+            end
+        end
         self:Refresh()
     end)
 

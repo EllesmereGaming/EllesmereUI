@@ -2597,9 +2597,17 @@ initFrame:SetScript("OnEvent", function(self)
         local function MakeSpellItem(sp)
             -- Every spell here came from BuffBarCooldownViewer enumeration, so it's by definition tracked -- no popup needed.
             local usedOnBar = ns.SpellUsedOnAnyOtherTBB and ns.SpellUsedOnAnyOtherTBB(sp.spellID, nil)
-            local isSelected = not barCfg.popularKey and not barCfg.spellIDs
+            -- A family bar (Roll the Bones) is selected by its base id OR any member,
+            -- since the row resolves to the active outcome while one is up.
+            local isSelected = not barCfg.popularKey
                              and barCfg.trackType ~= "cooldown"
                              and barCfg.spellID and barCfg.spellID > 0 and barCfg.spellID == sp.spellID
+            if not isSelected and barCfg.spellIDs and not barCfg.popularKey
+               and barCfg.trackType ~= "cooldown" then
+                for _, sid in ipairs(barCfg.spellIDs) do
+                    if sid == sp.spellID then isSelected = true; break end
+                end
+            end
             local item = CreateFrame("Button", nil, inner)
             item:SetHeight(ITEM_H)
             item:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
@@ -2676,8 +2684,33 @@ initFrame:SetScript("OnEvent", function(self)
                 barCfg.baseSpellID = nil
                 if sp.cdID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
                     local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(sp.cdID)
-                    if info and info.spellID and info.spellID > 0 and info.spellID ~= sp.spellID then
-                        barCfg.baseSpellID = info.spellID
+                    local RTB_BASE_SPELL_ID = 1214909
+                    local isSec = issecretvalue
+                    local baseSID = info and info.spellID
+                    if baseSID and (isSec and isSec(baseSID)) then baseSID = nil end
+                    if baseSID and baseSID > 0 and baseSID ~= sp.spellID then
+                        barCfg.baseSpellID = baseSID
+                    end
+                    -- Roll the Bones: ONE tracked-bar slot cycles through mutually
+                    -- exclusive outcome buffs, listed only in the raw linkedSpellIDs.
+                    -- The row resolves to whichever outcome is up at pick time, so a
+                    -- single id matches nothing else after a re-roll: store the whole
+                    -- family as the want-set and key the config on the stable base.
+                    if baseSID == RTB_BASE_SPELL_ID and type(info.linkedSpellIDs) == "table" then
+                        local ids = {}
+                        for i = 1, #info.linkedSpellIDs do
+                            local lid = info.linkedSpellIDs[i]
+                            if type(lid) == "number" and not (isSec and isSec(lid)) and lid > 0 then
+                                ids[#ids + 1] = lid
+                            end
+                        end
+                        if #ids >= 2 then
+                            barCfg.spellIDs    = ids
+                            barCfg.spellID     = baseSID
+                            barCfg.baseSpellID = nil
+                            local nm = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(baseSID)
+                            if nm and nm ~= "" then barCfg.name = nm end
+                        end
                     end
                 end
                 Refresh()
@@ -4611,7 +4644,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Shift Offset",
                     rows = {
-                        { type = "slider", label = "Extra Y Offset", min = -50, max = 50, step = 1,
+                        { type = "slider", pixel = true, label = "Extra Y Offset", min = -50, max = 50, step = 1,
                           get = function()
                               local e = GlobalEntry()
                               return (e and e.shiftNoBarExtraY) or 0
@@ -19017,11 +19050,11 @@ initFrame:SetScript("OnEvent", function(self)
                 Refresh()
             end
             _, h = W:DualRow(parent, y,
-                { type = "slider", text = "Offset X", min = -500, max = 500, step = 1, trackWidth = 120,
+                { type = "slider", pixel = true, text = "Offset X", min = -500, max = 500, step = 1, trackWidth = 120,
                   tooltip = "Extra horizontal shift stacked on top of this bar's normal position. Unlock mode shows the base position; the offset re-applies when you exit.",
                   getValue = function() local b = BD(); return (b and b.addOffsetX) or 0 end,
                   setValue = function(v) SetAddOffset("addOffsetX", v) end },
-                { type = "slider", text = "Offset Y", min = -500, max = 500, step = 1, trackWidth = 120,
+                { type = "slider", pixel = true, text = "Offset Y", min = -500, max = 500, step = 1, trackWidth = 120,
                   tooltip = "Extra vertical shift stacked on top of this bar's normal position. Unlock mode shows the base position; the offset re-applies when you exit.",
                   getValue = function() local b = BD(); return (b and b.addOffsetY) or 0 end,
                   setValue = function(v) SetAddOffset("addOffsetY", v) end }

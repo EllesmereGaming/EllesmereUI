@@ -963,6 +963,200 @@ end
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
     {
+        version = "9.0.6",
+        heroes = {
+            {
+                module = "Mythic+ Tools",
+                title  = "Targeted Spell Bars Interrupt Awareness",
+                desc   = "Kick-ready and uninterruptible cast colors on every bar, plus an optional Important Cast tint and glow. Also new and off by default: a fade when the caster is out of interrupt range, and raid target markers beside the spell name.",
+                nav    = { module = "EllesmereUIMythicTimer", page = "Targeted Spell Bars", section = "INTERRUPT AND VISIBILITY", highlight = "Cast Colors" },
+            },
+        },
+        features = {
+            {
+                module = "Mythic+ Tools",
+                title  = "Targeted Spell Bars Where to Show",
+                desc   = "Limit the bars to selected content types and combat states; nothing selected shows them everywhere",
+                nav    = { module = "EllesmereUIMythicTimer", page = "Targeted Spell Bars", section = "TARGETED SPELL BARS", highlight = "Where to Show" },
+            },
+        },
+        fixes = {
+            { module = "AuraBuff Reminders", text = "Clicking a Paladin Rite reminder now casts the rite and applies it to your weapon in one click." },
+            { module = "Blizz UI Enhanced", text = "Great Vault reward icons now show their item rarity border." },
+            { module = "Cooldown Manager", text = "A Roll the Bones tracking bar now follows every re-roll instead of freezing on one outcome and disappearing." },
+            { module = "DataBars", text = "The spec block no longer shows a talent loadout that failed to apply because combat interrupted the swap." },
+            { module = "General", text = "Durability displays (Character Sheet, Chat sidebar, DataBars, repair warning) now update after using a repair item, not only after a vendor repair." },
+            { module = "Raid Frames", text = "Fixed a niche blocked-action error at login when another addon refreshes the raid frames during combat." },
+            { module = "Raid Frames", text = "Fixed a blocked-action error when a raid member moves onto a different frame during combat." },
+            { module = "Unit & Raid Frames", text = "View Houses now works from the right-click menu of a group member who is in another zone (e.g. the host of a housewarming)." },
+            { module = "Unit Frames", text = "The pet frame's class-colored name no longer shows the wrong color at login until the option is toggled." },
+        },
+    },
+    {
+        version = "9.0.5",
+        mini = true,
+        fixes = {
+            { module = "Nameplates", text = "Friendly Name Size in Name Only mode now survives a reload." },
+            { module = "Nameplates", text = "Raid markers on friendly player nameplates now update as soon as they are applied." },
+            { module = "Resource Bars", text = "The Ebon Might bar no longer loses its countdown text for the rest of the session when its display overlay fails to build." },
+            { module = "Damage Meters", text = "The unlock mode Element Options link now opens the right settings for the meter windows, Combat Timer and Icon History." },
+            { module = "Blizz UI Enhanced", text = "The tooltip anchor's unlock mode Element Options link now opens the Tooltips settings." },
+            { module = "Unit Frames", text = "Dynamic, Classic and Class Reactive health colors now follow health changes again instead of freezing." },
+            { module = "Raid Frames", text = "Extra Frames no longer show a blank name after reconnecting mid-raid." },
+            { module = "General", text = "The Macro Factory's Health / Recuperate macro now uses the 12.1 Concentrated Silvermoon Health Potions." },
+            { module = "Unit & Raid Frames", text = "Avenging Wrath is now included in the offensive cooldowns buff preset." },
+        },
+    },
+    {
+        version = "9.0.2",
+        heroes = {},
+        features = {
+            {
+                -- Static card: the work is automatic, nothing to open.
+                module = "General",
+                title  = "Performance Patch Follow-Up",
+                desc   = "Further CPU and memory reductions in combat, continuing the 12.1 Performance Patch: Cooldown Manager, Movement Alerts, Resource Bars, Raid Frames, Nameplates and Unit Frames all do less work per frame, and raids with many shields pace more smoothly",
+            },
+            {
+                module = "Raid Frames",
+                title  = "Shown on Modifier Tooltips",
+                desc   = "New Shown on Modifier tooltip mode in the Debuff Manager: show debuff tooltips only while holding a chosen modifier key",
+                nav    = { module = "EllesmereUIRaidFrames", page = "Debuff Manager", section = "DISPLAY", highlight = "Tooltips" },
+            },
+            {
+                module = "Unit Frames",
+                title  = "Boss Tracked Auras MINE Tag",
+                desc   = "Boss Tracked Auras now show your own casts by default, with a per-spell MINE tag to allow any caster, matching nameplates",
+                -- The tag lives inside the Tracked Auras popup behind the boss page's
+                -- filter cog: land the page, then open the popup directly.
+                onClick = function()
+                    EllesmereUI:NavigateToElementSettings("EllesmereUIUnitFrames", "Boss Frames")
+                    local uf = EllesmereUI._ModuleNS and EllesmereUI._ModuleNS["EllesmereUIUnitFrames"]
+                    if uf and uf.UFOpt_ShowTrackedAuras then uf.UFOpt_ShowTrackedAuras("boss") end
+                end,
+            },
+            {
+                module = "Quality of Life",
+                title  = "Target Distance Frame Strata",
+                desc   = "Choose which frame strata the Target Distance text sits on",
+                nav    = { module = "EllesmereUIQoL", page = "QoL", section = "EXTRAS", highlight = "Target Distance Text" },
+            },
+        },
+        fixes = {
+            { module = "Action Bars", text = "Dragging a pet ability now reveals conditionally hidden and mouseover bars the same way a spell drag does." },
+            { module = "AuraBuff Reminders", text = "Pet reminders now follow the class-specials Where to Show setting, so turning off Delves or any other zone hides them there too." },
+            { module = "Bags", text = "Sorting no longer stutters or makes mouseover action bars flicker, and partial stacks merge in fewer passes." },
+            { module = "Cooldown Manager", text = "The Shift Elements If No Bars Extra Y Offset and Additional Bar Offset sliders now work in screen pixels, so 1 means 1 pixel at any resolution or UI scale, and the unlock mover tooltip shows the same pixel values." },
+            { module = "General", text = "The Macro Factory's Set Focus macro Ping Focus option now pings On My Way on non-English clients." },
+            { module = "Nameplates", text = "The options preview now follows the Nameplates Module Outline override instead of always showing the global outline." },
+            { module = "Quickdraw", text = "The Pings preset now sends the intended ping type on non-English clients." },
+            { module = "Raid Frames", text = "Offline and dead members no longer flip back to their class color after a roster update or opening the options." },
+            { module = "Raid Frames", text = "Dark Mode and custom health backgrounds no longer lose their color after joining a group or changing groups." },
+            { module = "Raid Frames", text = "Single-target heals cast on a party member no longer show on the wrong frame after a roster change." },
+            { module = "Resource Bars", text = "The Totem Bar now respects its Frame Strata setting instead of always sitting above other UI." },
+            { module = "Resource Bars", text = "Hash lines set at the maximum value now sit flush with the bar edge instead of drawing past it." },
+            { module = "Resource Bars", text = "Cast bar and GCD bar borders no longer vanish after the bar is re-anchored." },
+            { module = "Unit Frames", text = "The power bar border no longer disappears until a reload after the bar passes through zero height." },
+            { module = "Localization", text = "Traditional Chinese and Brazilian Portuguese gained the 9.0.0 option labels and tooltips (Assisted Highlight, Debuff Type Icon, Combat Status, combat-only circles, outline overrides, Moonkin)." },
+        },
+    },
+    {
+        version = "9.0.1",
+        heroes = {
+            {
+                -- Full-width banner card (banner = true, see MakeBannerCard). Static: the speedup is automatic, nothing to open.
+                banner  = true,
+                eyebrow = "SUITE-WIDE OPTIMIZATION",
+                title   = "The 12.1 Performance Patch",
+                desc    = "CPU usage has been significantly reduced across the entire suite for 12.1, with a particular focus on Nameplates, Unit Frames and Raid Frames. Same look, same features, at a fraction of the cost.",
+            },
+        },
+        features = {},
+        fixes = {},
+    },
+    {
+        version = "9.0.0",
+        features = {
+            {
+                module = "Action Bars",
+                title  = "Assisted Highlight Controls",
+                desc   = "Resize the ring with an outset, or swap it for a tinted overlay",
+                nav    = { module = "EllesmereUIActionBars", page = "Bar Animations", section = "CUSTOM PROC GLOW", highlight = "Assisted Highlight Outset" },
+            },
+            {
+                module = "DataBars",
+                title  = "Combat Status Block",
+                -- Toggle lives in the block's own settings popup: page-only nav.
+                desc   = "Shows In Combat or Out of Combat, with an option to only appear in combat",
+                nav    = { module = "EllesmereUIDataBars", page = "DataBars" },
+            },
+            {
+                module = "Damage Meters",
+                title  = "Standalone Timer Styling",
+                desc   = "Font, outline, alignment, size, background and border controls",
+                nav    = { module = "EllesmereUIDamageMeters", page = "Damage Meters", section = "STANDALONE COMBAT TIMER", highlight = "Standalone Combat Timer" },
+            },
+            {
+                module = "Quality of Life",
+                title  = "Combat Only Circles",
+                desc   = "Cursor, GCD and cast circles can each show only in combat",
+                nav    = { module = "EllesmereUIQoL", page = "Cursor", section = "CURSOR", highlight = "Combat Only" },
+            },
+            {
+                module = "Unit Frames",
+                title  = "Debuff Type Icons",
+                desc   = "Debuff bars on Player Aura Bars can show a dispel type icon with position, size and offset",
+                nav    = { module = "EllesmereUIUnitFrames", page = "Player Aura Bars", section = "DEBUFF TYPE ICON", highlight = "Type Icon Position",
+                           preSelect = function()
+                               if EllesmereUI._setPABSelection then EllesmereUI._setPABSelection("debuff", "default") end
+                           end },
+            },
+        },
+        fixes = {
+            { module = "Action Bars", text = "Fixed an error storm on action bar buttons when cooldowns updated during protected combat." },
+            { module = "Action Bars", text = "The One Button Assist button's cooldown swipe no longer flickers to other abilities' cooldowns while chain-casting." },
+            { module = "AuraBuff Reminders", text = "Blistering Scales and Source of Magic reminders no longer get stuck showing for the rest of a Mythic+ dungeon after the first pull." },
+            { module = "AuraBuff Reminders", text = "Devourer Demon Hunters are now counted for Arcane Intellect instead of attack power buffs." },
+            { module = "AuraBuff Reminders", text = "The Shadowform reminder no longer pops up in combat while a Voidweaver priest is in Voidform." },
+            { module = "AuraBuff Reminders", text = "Reminders no longer stay hidden after a boss resets before you entered combat." },
+            { module = "AuraBuff Reminders", text = "Clicking your own raid buff reminder now casts without needing a target selected." },
+            { module = "AuraBuff Reminders", text = "The Healthstone reminder no longer shows during combat unless you are the warlock." },
+            { module = "Bags", text = "Learnable recipes are no longer tinted red, and level-scaled gear now tints correctly for your level." },
+            { module = "Bags", text = "Bank tab views now match item type and slot keywords in search, like the rest of the bank." },
+            { module = "Bags", text = "Item levels in bags, bank and the gear flyout no longer show stale or base values after item upgrades." },
+            { module = "Blizz UI Enhanced", text = "Holding the tooltip Peek Modifier over action buttons no longer causes blocked-action errors." },
+            { module = "Chat", text = "The chat font option now applies to Korean and Chinese clients' own-language text instead of being locked to the stock font." },
+            { module = "Cooldown Manager", text = "Fixed stuttering and a script-ran-too-long error during heavy combat when many cooldowns changed state at once." },
+            { module = "Cooldown Manager", text = "Buff gain sounds now play when a proc lands the same moment the previous one is consumed." },
+            { module = "Cooldown Manager", text = "Suppress GCD no longer lets the GCD sweep reappear on Hide Active State spells once their charges finish recharging." },
+            { module = "Cooldown Manager", text = "Applying Threshold Text to a whole bar now also reaches buffs hosted on that bar." },
+            { module = "Damage Meters", text = "Icon History now has its own Unlock Mode box sized to the full configured icon strip, instead of only loose Shift-drag placement." },
+            { module = "DataBars", text = "The durability display no longer sticks at 100% until hovered." },
+            { module = "DataBars", text = "The XP/Rep bar now shows correct progress for friendship reputations like Captain Tokka instead of 0%." },
+            { module = "Friends List", text = "The Quick Join tab's Join Queue button no longer disappears." },
+            { module = "General", text = "The Macro Factory's Wind Shear macro now shows its proper icon." },
+            { module = "Minimap", text = "The rectangular minimap now keeps the player arrow and pings correctly positioned; it can no longer sit flush against the top or bottom screen edge." },
+            { module = "Minimap", text = "The hidden difficulty flag no longer shows a ghost tooltip below the mail icon when Difficulty as Text is on." },
+            { module = "Nameplates", text = "Target and hover border effects no longer stick to the wrong mob when nameplates get reassigned in packs." },
+            { module = "Quality of Life", text = "Disable Right Click no longer blocks capturing wild battle pets." },
+            { module = "Quality of Life", text = "Fixed chat errors triggered by protected system messages while Instance Reset Announce was enabled." },
+            { module = "Quality of Life", text = "Auto-Open Containers now pauses at the mailbox and bank when using third-party mail or bank addons, not just the default windows." },
+            { module = "Quality of Life", text = "Raid Tools marker buttons now work for players with the press-on-keyup input setting." },
+            { module = "Quality of Life", text = "The Upgrade Calculator now opens docked beside the character sheet and follows it; drag it away to unpin for that open. Its character sheet button toggle also applies without a reload." },
+            { module = "Raid Frames", text = "Merge Groups now renders correctly with every Group/Unit Growth combination, and the frames line up with the mover box." },
+            { module = "Raid Frames", text = "The Poison dispel indicator now lights up for shamans using Poison Cleansing Totem when Only Dispellable is enabled, on raid frames and the unit frame dispel overlay." },
+            { module = "Raid Frames", text = "Raid and party frames no longer flicker their power bar and layout at the start of a pull." },
+            { module = "Raid Frames", text = "Your own role icon, role sorting, and tank nameplate coloring now follow your actual spec instead of a stale role left over from listing a group." },
+            { module = "Resource Bars", text = "Moonkin Form is now its own entry in the per-form bar/text visibility and threshold options, separate from Caster." },
+            { module = "Resource Bars", text = "Fixed a stray sliver of background color at the corner of bar-style class resources with border thickness 0." },
+            { module = "Resource Bars", text = "Ironfur and Ignore Pain hash marks now follow the bar when it is set to vertical." },
+            { module = "Resource Bars", text = "The cast bar's Arcane Missiles tick count now includes the extra missile from the tier set 2-piece." },
+            { module = "Unit Frames", text = "The class resource bar no longer disappears when a group member changes spec." },
+            { module = "Unit Frames", text = "Cast bars no longer lose their left border when the spell icon is disabled." },
+            { module = "Localization", text = "Korean, Brazilian Portuguese and Traditional Chinese gained the Fonts and Textures page strings and the newest option labels." },
+        },
+    },
+    {
         version = "8.9.8",
         mini = true,
         fixes = {

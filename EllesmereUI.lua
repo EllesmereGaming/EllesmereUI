@@ -4415,6 +4415,23 @@ function EllesmereUI.GetClassColorForRestrictedUnit(unit, secretClassToken)
     return true, r, g, b
 end
 
+-- Group role with the local player's spec as the authority. The role picked
+-- when listing a premade group sticks server-side through spec swaps (list a
+-- key as tank, swap to dps: UnitGroupRolesAssigned still answers TANK for the
+-- life of the group, surviving /reload and a manual role set), so for the
+-- player the spec-derived role wins whenever spec data is readable. Other
+-- units have no readable spec, so they keep the assigned role; call sites
+-- keep their own secret guards on that value (the player's spec role is
+-- never secret).
+function EllesmereUI.UnitEffectiveRole(unit)
+    if UnitIsUnit(unit, "player") then
+        local spec = GetSpecialization and GetSpecialization()
+        local role = spec and GetSpecializationRole and GetSpecializationRole(spec)
+        if role then return role end
+    end
+    return UnitGroupRolesAssigned(unit)
+end
+
 -- Get power color (cached, darken baked in). Returns nil for unknown keys.
 function EllesmereUI.GetPowerColor(powerKey)
     if EllesmereUI._colorCacheDirty then EllesmereUI._RebuildColorCache() end
@@ -11271,7 +11288,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "8.9.8"
+EllesmereUI.VERSION = "9.0.6"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end

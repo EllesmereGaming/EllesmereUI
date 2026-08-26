@@ -87,6 +87,7 @@ local InCombatLockdown = InCombatLockdown
 local GetShapeshiftFormID = GetShapeshiftFormID
 local IsPlayerSpell = IsPlayerSpell
 local UnitSpellHaste = UnitSpellHaste
+local GetInventoryItemID = GetInventoryItemID
 
 -------------------------------------------------------------------------------
 --  Constants
@@ -784,8 +785,12 @@ ResolveThresholdSpecEntry = function(sp)
     if not entries or #entries == 0 then return nil end
 
     -- Form-specific mode (druid power bar): pick the entry matching the current
+    -- form. Moonkin (31/35) is checked directly by form ID since it shares
+    -- Mana with Caster on GetPrimaryPowerType() and would otherwise collide
+    -- with the "mana" bucket.
     if sp.thresholdFormMode then
-        local key = FORM_THRESHOLD_KEY[GetPrimaryPowerType()]
+        local form = GetShapeshiftFormID()
+        local key = (form == 31 or form == 35) and "moonkin" or FORM_THRESHOLD_KEY[GetPrimaryPowerType()]
         if not key then return nil end
         for _, entry in ipairs(entries) do
             if entry.formKey == key then return entry end
@@ -1053,14 +1058,15 @@ end
 local _, playerClassFile = UnitClass("player")
 
 -- Druid "hide bar text per form". isClassResource: Moonkin (31/35) is exempt on
--- the class resource bar (shows Astral there); power/health keep it in "Caster".
+-- the class resource bar (shows Astral there); power/health get their own
+-- "Moonkin" bucket, separate from "Caster" (no form).
 _G._ERB_TextHiddenByForm = function(cfg, isClassResource)
     if playerClassFile ~= "DRUID" then return false end
     local df = cfg and cfg.textDisabledForms
     if not df then return false end
     local f = GetShapeshiftFormID()
     if isClassResource and (f == 31 or f == 35) then return false end
-    local key = (f == 1) and "energy" or (f == 5) and "rage" or "mana"
+    local key = (f == 1) and "energy" or (f == 5) and "rage" or (f == 31 or f == 35) and "moonkin" or "mana"
     return df[key] and true or false
 end
 -- Druid "hide whole bar per form": same buckets/isClassResource rule as above,
@@ -1071,7 +1077,7 @@ _G._ERB_BarHiddenByForm = function(cfg, isClassResource)
     if not df then return false end
     local f = GetShapeshiftFormID()
     if isClassResource and (f == 31 or f == 35) then return false end
-    local key = (f == 1) and "energy" or (f == 5) and "rage" or "mana"
+    local key = (f == 1) and "energy" or (f == 5) and "rage" or (f == 31 or f == 35) and "moonkin" or "mana"
     return df[key] and true or false
 end
 -- Static neutral defaults for custom fill colors; used only as the initial custom
@@ -1380,6 +1386,7 @@ local totemBarFrame
 local _totemBorderOverlays = setmetatable({}, { __mode = "k" })
 local _totemHooked = false
 local _totemOrigParent
+local _totemOrigStrata
 -- Engine-entry frames are created at FILE SCOPE on purpose: CPU bills a handler's
 -- whole call tree to the addon whose execution context CREATED the entry frame
 -- (inherited taint-style from the entry point, not the file the code lives in).
@@ -2886,6 +2893,7 @@ local function ApplyResourceBarTicks(sb, maxVal, tickStr, tickCache, hashWidth, 
             t:ClearAllPoints()
             if vert then
                 local off = PP and PP.Scale(barH * frac) or (barH * frac)
+                off = math.max(0, math.min(off, PP and PP.Scale(barH - pxW) or (barH - pxW)))
                 t:SetSize(barW - vI * 2, pxW)
                 if revFill then
                     t:SetPoint("TOPLEFT", sb, "TOPLEFT", vI, -off)
@@ -2894,6 +2902,7 @@ local function ApplyResourceBarTicks(sb, maxVal, tickStr, tickCache, hashWidth, 
                 end
             else
                 local off = PP and PP.Scale(barW * frac) or (barW * frac)
+                off = math.max(0, math.min(off, PP and PP.Scale(barW - pxW) or (barW - pxW)))
                 t:SetSize(pxW, tickH)
                 t:SetPoint("TOPLEFT", sb, "TOPLEFT", off, -vI)
             end
@@ -3739,9 +3748,11 @@ local function BuildBars()
         if secondaryBar and secondaryBar._fillOpApplied and secondaryBar:IsShown() then
             -- Bar-type Fill Opacity active: the full-bar backdrop must retreat to
             -- the empty portion too, or it tints the translucent fill from behind
-            -- and defeats the world-show-through.
+            -- and defeats the world-show-through. Anchor to secondaryBar's own
+            -- inset inner StatusBar (_sb), not the uninset outer secondaryFrame,
+            -- or a halfPx sliver of _barBg peeks out past the fill's clipped edge.
             ns.AnchorBgToFillEdge(secondaryFrame._barBg, secondaryBar:GetStatusBarTexture(),
-                secondaryFrame, sp.pipOrientation or "HORIZONTAL")
+                secondaryBar._sb, sp.pipOrientation or "HORIZONTAL")
             secondaryFrame._barBg:Show()
         elseif (sp.fillOpacity or 100) < 100 then
             -- Pip/rune-type Fill Opacity active: a full-frame backdrop cannot hole
@@ -3749,7 +3760,14 @@ local function BuildBars()
             -- fill. Hide it; ApplyGapFills draws the gap strips in the bar-bg color
             -- and inactive pips keep their own per-pip background.
             secondaryFrame._barBg:Hide()
+        elseif isBarType then
+            -- Bar-type: anchor to secondaryBar's inset inner StatusBar (_sb) so
+            -- _barBg doesn't extend a halfPx past the fill/bg's own clipped edge.
+            secondaryFrame._barBg:SetAllPoints(secondaryBar._sb)
+            secondaryFrame._barBg:Show()
         else
+            -- Pip/rune-type: flush to secondaryFrame so this shows through the
+            -- gaps between pips (see comment above).
             secondaryFrame._barBg:SetAllPoints(secondaryFrame)
             secondaryFrame._barBg:Show()
         end
@@ -3899,7 +3917,12 @@ end
 -- UpdatePrimaryBar -- which also need them -- are both defined earlier in the
 -- file. Forward-declared here so both can call them; same idiom already used
 -- above for ResolveThresholdSpecEntry.
-local ActiveBuffColor, ActiveSpenderColor
+-- ActiveBuffColor/ActiveSpenderColor: namespaced under ns. rather than a
+-- top-level local forward-declaration -- this file's main chunk is at Lua
+-- 5.1's 200-local-variable hard limit, and ns.-fields don't need forward
+-- declaration at all (always accessible via the table). Functionally
+-- identical either way; every call site updated to ns.ActiveBuffColor/
+-- ns.ActiveSpenderColor accordingly.
 
 -- AbbreviateNumbers is a Blizzard API function (FrameXML global, promoted to a
 -- proper API in Patch 12.0.0) that does raw numeric comparison and arithmetic on
@@ -3915,7 +3938,10 @@ local ActiveBuffColor, ActiveSpenderColor
 -- failure fallback is only reached once the value is already confirmed non-secret
 -- above, so it's safe there -- tostring() on a genuinely secret value is not
 -- guaranteed safe either, hence the separate, earlier check.
-local function SafeAbbreviateNumbers(value)
+-- Namespaced under ns. rather than declared as its own top-level local: this
+-- file's main chunk is at Lua 5.1's 200-local-variable hard limit -- see the
+-- identical note on ns.IsOnRealCooldown above. Functionally identical either way.
+ns.SafeAbbreviateNumbers = function(value)
     if issecretvalue and issecretvalue(value) then
         -- Can't safely compare/divide a secret value (which is what
         -- AbbreviateNumbers does internally), but format("%s", ...) renders a
@@ -3995,9 +4021,9 @@ local function UpdateHealthBar()
     -- plan is to hide the option from the UI for Health Bar specifically, not
     -- to fork the render logic per bar. Both return plain, non-secret colors,
     -- so unlike the threshold/band path below they never need the ColorCurve.
-    local _bfr, _bfg, _bfb, _bfa = ActiveBuffColor(_hpBuffEntry)
+    local _bfr, _bfg, _bfb, _bfa = ns.ActiveBuffColor(_hpBuffEntry)
     if not _bfr then
-        _bfr, _bfg, _bfb, _bfa = ActiveSpenderColor(_hpBuffEntry)
+        _bfr, _bfg, _bfb, _bfa = ns.ActiveSpenderColor(_hpBuffEntry)
     end
     local _buffActive = _bfr ~= nil
 
@@ -4129,7 +4155,7 @@ local function UpdateHealthBar()
     if hp.textFormat ~= "none" and not _G._ERB_TextHiddenByForm(hp) then
         local fmt = hp.textFormat
         local pctStr = format("%d", pctRaw)
-        local curStr = SafeAbbreviateNumbers(cur)
+        local curStr = ns.SafeAbbreviateNumbers(cur)
         local txt
         if fmt == "both" then
             txt = curStr .. " | " .. pctStr .. "%"
@@ -4173,10 +4199,13 @@ local function UpdatePrimaryBar()
         -- equivalent (_buffEntry) was never gated on Threshold in the first place;
         -- Power Bar's was, incorrectly, until this fix.
         pc.rawEntry = e
+        -- Primary power type is spec/form/profile state; every path that can
+        -- change it funnels through BuildBars, which bumps CfgGen.
+        pc.primary = GetPrimaryPowerType()
     end
     local pp = pc.pp
 
-    cachedPrimary = GetPrimaryPowerType()
+    cachedPrimary = pc.primary
     if not cachedPrimary then return end
     -- Park the engine-slot overlay when the primary is no longer Ebon Might.
     if ns.EMB121_Gate then ns.EMB121_Gate(cachedPrimary == "EBON_MIGHT") end
@@ -4195,8 +4224,14 @@ local function UpdatePrimaryBar()
             end
             primaryBar:SetMinMaxValues(0, EBON_MIGHT_DURATION)
             primaryBar:SetValue(0)
-            primaryBar._text:Hide()
-            return
+            if ns.EMB121_TextOk and ns.EMB121_TextOk() then
+                primaryBar._text:Hide()
+                return
+            end
+            -- Engine text isn't confirmed live yet (build still queued, or its
+            -- one-shot FontString attempt failed and won't retry this session)
+            -- -- fall through and render the legacy numeric text below instead
+            -- of leaving the bar permanently blank.
         end
         local aura = C_UnitAuras.GetPlayerAuraBySpellID(EBON_MIGHT_SPELL_ID)
         -- Ebon Might is secret-flagged: under aura restriction the query returns
@@ -4205,19 +4240,21 @@ local function UpdatePrimaryBar()
         if aura and issecretvalue(aura.expirationTime) then aura = nil end
         _ebonMightExpiry = (aura and aura.expirationTime) or 0
         local remaining = (_ebonMightExpiry > 0) and max(0, _ebonMightExpiry - GetTime()) or 0
-        primaryBar:SetMinMaxValues(0, EBON_MIGHT_DURATION)
-        primaryBar:SetValue(remaining)
-        -- Color: custom > power color (same priority as standard)
-        local ft = primaryBar:GetStatusBarTexture()
-        if not pp.customColored then
-            local pc = POWER_COLORS["EBON_MIGHT"]
-            local r, g, b = 1, 1, 1
-            if pc then r, g, b = pc[1], pc[2], pc[3] end
-            if pp.gradientEnabled then
-                ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL", r, g, b, 1,
-                    pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
-            else
-                ApplyBarFlat(ft, r, g, b, 1)
+        if not ns.EMB121_Owns then
+            primaryBar:SetMinMaxValues(0, EBON_MIGHT_DURATION)
+            primaryBar:SetValue(remaining)
+            -- Color: custom > power color (same priority as standard)
+            local ft = primaryBar:GetStatusBarTexture()
+            if not pp.customColored then
+                local pc = POWER_COLORS["EBON_MIGHT"]
+                local r, g, b = 1, 1, 1
+                if pc then r, g, b = pc[1], pc[2], pc[3] end
+                if pp.gradientEnabled then
+                    ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL", r, g, b, 1,
+                        pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
+                else
+                    ApplyBarFlat(ft, r, g, b, 1)
+                end
             end
         end
         if pp.textFormat and pp.textFormat ~= "none" then
@@ -4259,6 +4296,14 @@ local function UpdatePrimaryBar()
     local pctTainted = issecretvalue and issecretvalue(pctRaw)
     local pct01 = (not pctTainted) and (pctRaw / 100) or 1
 
+    -- Both allocating stages below (the curve color read returns a color object,
+    -- the formatters build strings) are stamped on the value pair, since
+    -- UNIT_POWER_UPDATE and UNIT_POWER_FREQUENT both fire for one change and the
+    -- repeat re-derives the same result. A secret value cannot be compared, so it
+    -- always rebuilds and drops the stamps (the next clean event rebuilds too).
+    local vmClean = not (issecretvalue and (issecretvalue(cur) or issecretvalue(mx)))
+    if not vmClean then primaryBar._colCur = nil; primaryBar._txtCur = nil end
+
     -- Color: threshold via ColorCurve (secret-safe) for non-mana specs. The
     -- per-spec entry was resolved once per config generation above; pc.tsEntry is
     -- already nil when thresholds are disabled.
@@ -4288,13 +4333,20 @@ local function UpdatePrimaryBar()
     -- Both return plain, non-secret colors, so unlike the threshold/band
     -- path below they never need the ColorCurve -- applied directly via
     -- SetVertexColor instead.
-    local _bfr, _bfg, _bfb, _bfa = ActiveBuffColor(pc.rawEntry)
+    local _bfr, _bfg, _bfb, _bfa = ns.ActiveBuffColor(pc.rawEntry)
     if not _bfr then
-        _bfr, _bfg, _bfb, _bfa = ActiveSpenderColor(pc.rawEntry)
+        _bfr, _bfg, _bfb, _bfa = ns.ActiveSpenderColor(pc.rawEntry)
     end
     local _buffActive = _bfr ~= nil
 
     if _buffActive then
+        -- Invalidate the config-gen/power-type cache below (both the curve branch's
+        -- own text-instead fill-reset, and the final default branch): neither of
+        -- those track buff state, only ns.CfgGen/cachedPrimary. Without this, a
+        -- buff ending would leave the fill permanently stuck on the buff's color --
+        -- the cache would see CfgGen/cachedPrimary unchanged (only buff state
+        -- changed) and wrongly skip the repaint that should revert it.
+        primaryBar._colGen, primaryBar._colPow = nil, nil
         if _ppTextInstead then
             if primaryBar._text then primaryBar._text:SetTextColor(_bfr, _bfg, _bfb, _bfa or 1) end
             if pp.gradientEnabled then
@@ -4345,7 +4397,14 @@ local function UpdatePrimaryBar()
                 curve = GetBarThresholdCurve(tR, tG, tB, rvR, rvG, rvB, tPct)
             end
         end
-        if curve then
+        -- The curve object is the settings identity (rebuilt on any input change),
+        -- so (value, max, curve, target) names every input of this color.
+        if curve and not (vmClean and primaryBar._colCur == cur and primaryBar._colMx == mx
+                          and primaryBar._colCurve == curve and primaryBar._colTI == _ppTextInstead) then
+            if vmClean then
+                primaryBar._colCur, primaryBar._colMx = cur, mx
+                primaryBar._colCurve, primaryBar._colTI = curve, _ppTextInstead
+            end
             local ok, colorResult = pcall(UnitPowerPercent, "player", cachedPrimary, false, curve)
             if ok and colorResult and colorResult.GetRGBA then
                 if _ppTextInstead then
@@ -4375,13 +4434,17 @@ local function UpdatePrimaryBar()
             end
         end
         if _ppTextInstead then
-            -- Fill stays at base color.
-            if pp.gradientEnabled then
-                ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL",
-                    baseR, baseG, baseB, 1,
-                    pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
-            else
-                ApplyBarFlat(ft, baseR, baseG, baseB, 1)
+            -- Fill stays at base color; static per config generation + power
+            -- type, so reapplying it on every power tick was pure churn.
+            if primaryBar._colGen ~= ns.CfgGen or primaryBar._colPow ~= cachedPrimary then
+                primaryBar._colGen, primaryBar._colPow = ns.CfgGen, cachedPrimary
+                if pp.gradientEnabled then
+                    ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL",
+                        baseR, baseG, baseB, 1,
+                        pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
+                else
+                    ApplyBarFlat(ft, baseR, baseG, baseB, 1)
+                end
             end
         end
     else
@@ -4393,12 +4456,22 @@ local function UpdatePrimaryBar()
         -- customColored bar with Threshold/Band both off had no fallback
         -- branch at all once a buff/spender released control, leaving the
         -- fill permanently stuck on whatever color it last showed.
-        if pp.gradientEnabled then
-            ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL",
-                baseR, baseG, baseB, 1,
-                pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
-        else
-            ApplyBarFlat(ft, baseR, baseG, baseB, 1)
+        --
+        -- Static per config generation + power type (same stamp as the
+        -- text-instead case above): reapplying this on every power tick when
+        -- nothing relevant changed was pure churn. Safe to gate on CfgGen/
+        -- cachedPrimary alone, without also checking buff/spender state,
+        -- because the buff-active branch above invalidates this same stamp
+        -- whenever it runs -- see the comment there.
+        if primaryBar._colGen ~= ns.CfgGen or primaryBar._colPow ~= cachedPrimary then
+            primaryBar._colGen, primaryBar._colPow = ns.CfgGen, cachedPrimary
+            if pp.gradientEnabled then
+                ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL",
+                    baseR, baseG, baseB, 1,
+                    pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
+            else
+                ApplyBarFlat(ft, baseR, baseG, baseB, 1)
+            end
         end
     end
 
@@ -4411,23 +4484,32 @@ local function UpdatePrimaryBar()
     end
 
     if pp.textFormat ~= "none" and not _G._ERB_TextHiddenByForm(pp) then
-        local fmt = pp.textFormat
-        local percentSuffix = (pp.showPercent == false) and "" or "%"
-        local percentText = format("%d", pctRaw) .. percentSuffix
-        local txt
-        if fmt == "smart" then
-            local isPercent = EllesmereUI.IsSmartPowerPercent and EllesmereUI.IsSmartPowerPercent(cachedPrimary)
-            txt = isPercent and percentText or SafeAbbreviateNumbers(cur)
-        elseif fmt == "both" then
-            txt = SafeAbbreviateNumbers(cur) .. " | " .. percentText
-        elseif fmt == "curpp" then
-            txt = SafeAbbreviateNumbers(cur)
-        elseif fmt == "perpp" then
-            txt = percentText
-        else
-            txt = SafeAbbreviateNumbers(cur)
+        -- Stamped only when the text is actually written, so a form-hidden
+        -- stretch can never leave a stale string behind for a repeated value.
+        if not (vmClean and primaryBar._txtCur == cur and primaryBar._txtMx == mx
+                and primaryBar._txtGen == ns.CfgGen and primaryBar._txtPow == cachedPrimary) then
+            if vmClean then
+                primaryBar._txtCur, primaryBar._txtMx = cur, mx
+                primaryBar._txtGen, primaryBar._txtPow = ns.CfgGen, cachedPrimary
+            end
+            local fmt = pp.textFormat
+            local percentSuffix = (pp.showPercent == false) and "" or "%"
+            local percentText = format("%d", pctRaw) .. percentSuffix
+            local txt
+            if fmt == "smart" then
+                local isPercent = EllesmereUI.IsSmartPowerPercent and EllesmereUI.IsSmartPowerPercent(cachedPrimary)
+                txt = isPercent and percentText or ns.SafeAbbreviateNumbers(cur)
+            elseif fmt == "both" then
+                txt = ns.SafeAbbreviateNumbers(cur) .. " | " .. percentText
+            elseif fmt == "curpp" then
+                txt = ns.SafeAbbreviateNumbers(cur)
+            elseif fmt == "perpp" then
+                txt = percentText
+            else
+                txt = ns.SafeAbbreviateNumbers(cur)
+            end
+            primaryBar._text:SetText(txt)
         end
-        primaryBar._text:SetText(txt)
         primaryBar._text:Show()
     else
         primaryBar._text:Hide()
@@ -4562,7 +4644,7 @@ local function PlayerHasBuff(spellID)
 end
 
 -- Buff coloring for the class-resource bar
-ActiveBuffColor = function(entry)
+ns.ActiveBuffColor = function(entry)
     if not entry or not entry.buffColorEnabled then return nil end
     local list = entry.buffColors
     if not list then return nil end
@@ -4598,7 +4680,12 @@ end
 -- Both the call and the boolean check happen inside the pcall (in case the fields
 -- are ever secret) -- a failure just falls through to the normal IsSpellUsable
 -- check, same as before this existed.
-local function IsOnRealCooldown(spellID)
+-- Namespaced under ns. rather than declared as its own top-level local: this
+-- file's main chunk is at Lua 5.1's 200-local-variable hard limit (confirmed
+-- directly -- luac refuses to compile with a plain "local function" here).
+-- Attaching to the existing ns table avoids consuming a new local slot;
+-- functionally identical either way.
+ns.IsOnRealCooldown = function(spellID)
     local getCD = C_Spell and C_Spell.GetSpellCooldown
     if not getCD then return false end
     local ok, active = pcall(function()
@@ -4623,13 +4710,13 @@ end
 -- override target itself has no cost data for (confirmed via GetSpellPowerCost returning
 -- empty on the override target while behaving correctly on the base ID). Querying the
 -- override target's spellID directly returns a static, meaningless result.
-ActiveSpenderColor = function(entry)
+ns.ActiveSpenderColor = function(entry)
     if not entry or not entry.spenderColorEnabled then return nil end
     local list = entry.spenderColors
     if not (list and C_Spell and C_Spell.IsSpellUsable) then return nil end
     for i = 1, #list do
         local e = list[i]
-        if e.spellID and not IsOnRealCooldown(e.spellID) then
+        if e.spellID and not ns.IsOnRealCooldown(e.spellID) then
             local ok, usable = pcall(function()
                 return C_Spell.IsSpellUsable(e.spellID) and true or false
             end)
@@ -4679,12 +4766,17 @@ local function UpdateIronfurBar()
     local maxFrac = 0
     local shown = 0
 
+    -- Follow bar orientation instead of assuming horizontal.
+    local oriSb = secondaryBar._sb
+    local vert = (oriSb and oriSb.GetOrientation and oriSb:GetOrientation() == "VERTICAL") or false
+    local revFill = (vert and oriSb.GetReverseFill and oriSb:GetReverseFill()) or false
+
     for i = 1, count do
         local t = ironfurTicks[i]
         local frac = (t.duration > 0) and ((t.endTime - now) / t.duration) or 0
         if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
         if frac > maxFrac then maxFrac = frac end
-        if showHash and overlay and barW > 0 then
+        if showHash and overlay and barW > 0 and barH > 0 then
             shown = shown + 1
             local tex = ironfurTickTex[shown]
             if not tex then
@@ -4694,12 +4786,24 @@ local function UpdateIronfurBar()
                 ironfurTickTex[shown] = tex
             end
             tex:SetColorTexture(1, 1, 1, 0.9)
-            local x = frac * barW
-            if x > barW - tickW then x = barW - tickW end
-            if x < 0 then x = 0 end
             tex:ClearAllPoints()
-            tex:SetSize(tickW, barH)
-            tex:SetPoint("TOPLEFT", secondaryBar, "TOPLEFT", x, 0)
+            if vert then
+                local y = frac * barH
+                if y > barH - tickW then y = barH - tickW end
+                if y < 0 then y = 0 end
+                tex:SetSize(barW, tickW)
+                if revFill then
+                    tex:SetPoint("TOPLEFT", secondaryBar, "TOPLEFT", 0, -y)
+                else
+                    tex:SetPoint("BOTTOMLEFT", secondaryBar, "BOTTOMLEFT", 0, y)
+                end
+            else
+                local x = frac * barW
+                if x > barW - tickW then x = barW - tickW end
+                if x < 0 then x = 0 end
+                tex:SetSize(tickW, barH)
+                tex:SetPoint("TOPLEFT", secondaryBar, "TOPLEFT", x, 0)
+            end
             tex:Show()
         end
     end
@@ -4727,9 +4831,9 @@ local function UpdateIronfurBar()
     -- Buff coloring wins: a tracked buff on this entry overrides the base color and
     -- suppresses the stack-count threshold/bands below. Spenders is checked only when no
     -- buff is active, so it can never override Buff Colors.
-    local _bfr, _bfg, _bfb, _bfa = ActiveBuffColor(tsEntry)
+    local _bfr, _bfg, _bfb, _bfa = ns.ActiveBuffColor(tsEntry)
     if not _bfr then
-        _bfr, _bfg, _bfb, _bfa = ActiveSpenderColor(tsEntry)
+        _bfr, _bfg, _bfb, _bfa = ns.ActiveSpenderColor(tsEntry)
     end
     local _buffActive = _bfr ~= nil
     if _buffActive and not _tiWanted then r, g, b, a = _bfr or r, _bfg or g, _bfb or b, _bfa or a end
@@ -4808,12 +4912,28 @@ IP.UpdateHash = function()
     local tickW = PP and (2 * PP.mult) or 2
     local frac = remain / IP.DURATION
     if frac > 1 then frac = 1 end
-    local x = frac * barW
-    if x > barW - tickW then x = barW - tickW end
-    if x < 0 then x = 0 end
+    -- Follow bar orientation instead of assuming horizontal.
+    local oriSb = secondaryBar._sb
+    local vert = (oriSb and oriSb.GetOrientation and oriSb:GetOrientation() == "VERTICAL") or false
+    local revFill = (vert and oriSb.GetReverseFill and oriSb:GetReverseFill()) or false
     IP.hashTex:ClearAllPoints()
-    IP.hashTex:SetSize(tickW, barH)
-    IP.hashTex:SetPoint("TOPLEFT", secondaryBar, "TOPLEFT", x, 0)
+    if vert then
+        local y = frac * barH
+        if y > barH - tickW then y = barH - tickW end
+        if y < 0 then y = 0 end
+        IP.hashTex:SetSize(barW, tickW)
+        if revFill then
+            IP.hashTex:SetPoint("TOPLEFT", secondaryBar, "TOPLEFT", 0, -y)
+        else
+            IP.hashTex:SetPoint("BOTTOMLEFT", secondaryBar, "BOTTOMLEFT", 0, y)
+        end
+    else
+        local x = frac * barW
+        if x > barW - tickW then x = barW - tickW end
+        if x < 0 then x = 0 end
+        IP.hashTex:SetSize(tickW, barH)
+        IP.hashTex:SetPoint("TOPLEFT", secondaryBar, "TOPLEFT", x, 0)
+    end
     IP.hashTex:Show()
 end
 
@@ -5108,9 +5228,9 @@ local function UpdateSecondaryResource()
     -- pair -- every branch below (runes, bar-type/stagger, points/pip, secret pip overlay,
     -- final text coloring) already keys off _buffActive/_bfr and doesn't care which of the
     -- two sources produced the color.
-    local _bfr, _bfg, _bfb, _bfa = ActiveBuffColor(_buffEntry)
+    local _bfr, _bfg, _bfb, _bfa = ns.ActiveBuffColor(_buffEntry)
     if not _bfr then
-        _bfr, _bfg, _bfb, _bfa = ActiveSpenderColor(_buffEntry)
+        _bfr, _bfg, _bfb, _bfa = ns.ActiveSpenderColor(_buffEntry)
     end
     local _buffActive = _bfr ~= nil
     if _buffActive then
@@ -6792,6 +6912,9 @@ BuildCastBar = function()
         -- "Show Behind": +5 in front of the bar, level-1 behind it.
         local pl = castBarFrame:GetFrameLevel()
         castBarFrame._border:SetFrameLevel(cb.borderBehind and math.max(0, pl - 1) or (pl + 5))
+        -- Same lost-rect recovery as MakePixelBorder:ApplyStyle -- re-anchoring the bar
+        -- stops this child's rect from resolving and the border silently vanishes.
+        if not castBarFrame._border:GetLeft() then castBarFrame._border:SetAllPoints(castBarFrame) end
         EllesmereUI.ApplyBorderStyle(castBarFrame._border, bs,
             cb.borderR or 0, cb.borderG or 0, cb.borderB or 0, cb.borderA or 1,
             texKey, cb.borderTextureOffset, cb.borderTextureOffsetY,
@@ -7046,6 +7169,32 @@ end
     end
 end
 
+-- Some set bonuses never register via IsPlayerSpell or a player aura.
+-- Count equipped items whose set-bonus data lists this spellID; two or
+-- more equipped means the 2pc bonus is up.
+local function IsSetBonusSpellActive(spellID)
+    if not (C_Item and C_Item.GetSetBonusesForSpecializationByItemID) then
+        return false
+    end
+    local specID = _G._ERB_ResolveSpecIDCached and _G._ERB_ResolveSpecIDCached()
+    if not specID then return false end
+    local matches = 0
+    for slot = 1, 19 do
+        local itemID = GetInventoryItemID and GetInventoryItemID("player", slot)
+        if itemID then
+            local ok, bonusSpellIDs = pcall(C_Item.GetSetBonusesForSpecializationByItemID, specID, itemID)
+            if ok and type(bonusSpellIDs) == "table" then
+                for _, id in ipairs(bonusSpellIDs) do
+                    if id == spellID then
+                        matches = matches + 1
+                        break
+                    end
+                end
+            end
+        end
+    end
+    return matches >= 2
+end
 
 -- Channel tick marks: vertical marks on the cast bar for channeled spells
 -- listed in CHANNEL_TICK_DATA. The penultimate tick (last safe chain/clip
@@ -7156,11 +7305,11 @@ ShowChannelTicks = function(spellID)
             local M = tickData.missiles
             if tickData.addMissiles then
                 for id, extra in pairs(tickData.addMissiles) do
-                    -- Talents answer IsPlayerSpell; set bonuses may only
-                    -- surface as a hidden player aura. Either counts.
+                    -- Talent, player aura, or item set bonus -- any counts.
                     if IsPlayerSpell(id)
                         or (C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID
-                            and C_UnitAuras.GetPlayerAuraBySpellID(id)) then
+                            and C_UnitAuras.GetPlayerAuraBySpellID(id))
+                        or IsSetBonusSpellActive(id) then
                         M = M + extra
                     end
                 end
@@ -8459,6 +8608,8 @@ BuildGCDBar = function()
         local bs = g.borderSize or 0
         local pl = gcdBarFrame:GetFrameLevel()
         gcdBarFrame._border:SetFrameLevel(g.borderBehind and math.max(0, pl - 1) or (pl + 5))
+        -- Lost-rect recovery, see the cast bar border above.
+        if not gcdBarFrame._border:GetLeft() then gcdBarFrame._border:SetAllPoints(gcdBarFrame) end
         EllesmereUI.ApplyBorderStyle(gcdBarFrame._border, bs,
             g.borderR or 0, g.borderG or 0, g.borderB or 0, g.borderA or 1,
             g.borderTexture or "solid", g.borderTextureOffset, g.borderTextureOffsetY,
@@ -8674,7 +8825,7 @@ local function LayoutTotemBar()
 
     -- Reparent and position TotemFrame every call (Blizzard's Update can reset these)
     TotemFrame:SetParent(totemBarFrame)
-    TotemFrame:SetFrameStrata("HIGH")
+    TotemFrame:SetFrameStrata(tb.frameStrata or "MEDIUM")
     -- Effective grow direction, resolved through the shared helper below so the
     -- layout and unlock mode's menu can never disagree about it.
     local _growDir = EllesmereUI.GetTotemGrowDir()
@@ -8863,11 +9014,14 @@ local function BuildTotemBar()
         if totemBarFrame then
             EllesmereUI.SetElementVisibility(totemBarFrame, false)
         end
-        -- Restore TotemFrame to original parent
+        -- Restore TotemFrame to original parent and strata
         if TotemFrame and _totemOrigParent and not InCombatLockdown() then
             TotemFrame:SetParent(_totemOrigParent)
             TotemFrame:ClearAllPoints()
             TotemFrame:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 155)
+            if _totemOrigStrata then
+                TotemFrame:SetFrameStrata(_totemOrigStrata)
+            end
         end
         return
     end
@@ -8882,9 +9036,10 @@ local function BuildTotemBar()
         if _G._ERB_RegisterUnlock then _G._ERB_RegisterUnlock() end
     end
 
-    -- Save original parent for restore on disable
+    -- Save original parent/strata for restore on disable
     if TotemFrame and not _totemOrigParent then
         _totemOrigParent = TotemFrame:GetParent()
+        _totemOrigStrata = TotemFrame:GetFrameStrata()
     end
 
     -- Position our container

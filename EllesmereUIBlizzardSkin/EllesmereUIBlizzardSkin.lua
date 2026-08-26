@@ -2894,11 +2894,14 @@ do
     -- every frame under the cursor and walk up parents. Nameplates' clickable
     -- frame has an OnEnter that builds nothing (its tip comes from the engine's
     -- mouseover unit on a real hover), so fall back to driving the unit tooltip directly when one is up.
-    -- Skip forbidden frames entirely; touching them taints secure code.
+    -- Skip forbidden frames entirely; any access (even GetScript/GetParent) hard-errors.
     local function IsFrameForbidden(frame)
         return frame and frame.IsForbidden and frame:IsForbidden()
     end
-    -- Skip protected frames too; their OnEnter can call protected functions.
+    -- Skip protected frames; firing their secure OnEnter from insecure code is
+    -- ADDON_ACTION_BLOCKED (not pcall-catchable). Nothing is lost: their tips are
+    -- built by the secure hover path and revealed via the parked lane, and unit
+    -- buttons still land a tip through the mouseover fallback below.
     local function IsFrameProtected(frame)
         return frame and frame.IsProtected and frame:IsProtected()
     end

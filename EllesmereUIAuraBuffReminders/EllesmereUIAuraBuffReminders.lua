@@ -511,6 +511,20 @@ local function GetStanceState(stanceSpellID)
     return false, false
 end
 
+-- Same idea, but checks a list of spellIDs instead of one fixed form index.
+local function IsAnyShapeshiftFormActive(spellIDs)
+    local numForms = GetNumShapeshiftForms()
+    for i = 1, numForms do
+        local _, isActive, _, spellID = GetShapeshiftFormInfo(i)
+        if isActive then
+            for _, id in ipairs(spellIDs) do
+                if spellID == id then return true end
+            end
+        end
+    end
+    return false
+end
+
 -- 12.1: aura restrictions apply in M+/raids even OOC, and index scans HARD-ERROR there (not just secret results). Every
 -- OOC-only scan checks AuraKit.AurasRestricted() inline (no helper local -- this chunk sits at the Lua 5.1 200-local cap).
 
@@ -835,6 +849,7 @@ local BUFF_BENEFICIARIES = {
     intellect = {
         MAGE = true, WARLOCK = true, PRIEST = true, DRUID = true,
         SHAMAN = true, MONK = true, EVOKER = true, PALADIN = true,
+        DEMONHUNTER = true, -- Devourer (1480) is Intellect; Havoc/Vengeance are not
     },
     attackPower = {
         WARRIOR = true, ROGUE = true, HUNTER = true, DEATHKNIGHT = true,
@@ -887,13 +902,14 @@ EABR.SPEC_BENEFITS = {
         [262]=true, [264]=true,                   -- Shaman: Elemental, Restoration
         [270]=true,                               -- Monk: Mistweaver
         [65]=true,                                -- Paladin: Holy
+        [1480]=true,                               -- Demon Hunter: Devourer (Intellect, not Agility)
     },
     attackPower = {
         [71]=true, [72]=true, [73]=true,          -- Warrior
         [259]=true, [260]=true, [261]=true,       -- Rogue
         [253]=true, [254]=true, [255]=true,       -- Hunter
         [250]=true, [251]=true, [252]=true,       -- Death Knight
-        [577]=true, [581]=true, [1480]=true,      -- Demon Hunter (incl. Devourer)
+        [577]=true, [581]=true,                   -- Demon Hunter: Havoc, Vengeance
         [103]=true, [104]=true,                   -- Druid: Feral, Guardian
         [66]=true, [70]=true,                     -- Paladin: Protection, Retribution
         [268]=true, [269]=true,                   -- Monk: Brewmaster, Windwalker
@@ -946,12 +962,13 @@ function EABR.UnitBenefits(u, benefit)
     if class == nil or isSecret(class) then return false end
     if not classSet[class] then return false end
     -- Role refinement for members with no spec data: some class+benefit
-    -- pairs are decided by the assigned role alone -- Intellect only serves
-    -- the HEALER spec of Paladin/Monk (and never a Druid tank); Attack
-    -- Power never serves the healer spec of these hybrids. Ambiguous combos
+    -- pairs are decided by the role alone -- Intellect only serves the
+    -- HEALER spec of Paladin/Monk (and never a Druid tank); Attack Power
+    -- never serves the healer spec of these hybrids. Ambiguous combos
     -- (e.g. a DAMAGER Druid: Balance wants int, Feral wants AP) and
     -- unassigned ("NONE") or secret roles fall through to the class answer.
-    local role = UnitGroupRolesAssigned(u)
+    -- Effective role: the player's spec wins over a stale assigned role.
+    local role = EllesmereUI.UnitEffectiveRole(u)
     if role ~= nil and not isSecret(role) then
         if benefit == "intellect" then
             if (class == "PALADIN" or class == "MONK") and (role == "DAMAGER" or role == "TANK") then
@@ -1025,9 +1042,10 @@ local AURAS = {
       check="player", specs={72}, combatOk=false, isStance=true },
     { key="def_stance",  class="WARRIOR", name="Defensive Stance",  castSpell=386208, buffIDs={386208},
       check="player", specs={73}, combatOk=false, isStance=true },
-    -- Shadowform OOC only (Void Form 194249 also satisfies); shapeshiftIndex=1 is the PvP fallback where the aura API is restricted.
+    -- Shadowform OOC only (Void Form 194249 also satisfies); formSpellIDs lists every form that counts as active,
+    -- for the combat/PvP fallback where the aura API is restricted.
     { key="shadowform", class="PRIEST",  name="Shadowform",        castSpell=232698, buffIDs={232698, 194249},
-      check="player", specs={258}, combatOk=false, shapeshiftIndex=1 },
+      check="player", specs={258}, combatOk=false, formSpellIDs={232698, 194249, 185916} },
     -- Paladin Aura: only Devotion satisfies in dungeons/raids, any aura elsewhere; noPvP because Devotion Aura is ContextuallySecret in PvP even OOC.
     -- nameFallback: with a second Paladin's aura also active, the source is
     -- ambiguous and GetPlayerAuraBySpellID(465) can come back nil (fully
@@ -2833,7 +2851,7 @@ do
         elseif mode == "item" then
             SetIconItem(btn, m.itemID, m.texture, m.label)
         elseif mode == "macro" then
-            SetIconMacro(btn, m.macro, m.texture, nil)
+            SetIconMacro(btn, m.macro, m.texture or (m.spellID and Tex(m.spellID)), m.spellID)
             btn._tooltipItem = m.tooltipItem
         else -- "texture"
             SetIconTexture(btn, m.texture, m.label)
@@ -3077,7 +3095,7 @@ do
                 -- false flashes.
                 local canCheck = true
                 if inCombat then
-                    if aura.isStance or aura.shapeshiftIndex then
+                    if aura.isStance or aura.formSpellIDs then
                         canCheck = true
                     elseif aura.buffIDs and aura.buffIDs[1] then
                         for _, id in ipairs(aura.buffIDs) do
@@ -3114,11 +3132,10 @@ do
                         -- Use instance-specific buff list if available and in instance
                         local checkIDs = (inInstance and aura.instanceBuffIDs) or aura.buffIDs
                         -- When aura reads are restricted (PvP, combat, M+),
-                        -- fall back to the shapeshift form index for
-                        -- form-based auras (e.g. Shadowform) whose buff IDs
-                        -- are not readable.
-                        if aura.shapeshiftIndex and (inCombat or InPvPInstance()) then
-                            isMissing = (GetShapeshiftForm() ~= aura.shapeshiftIndex)
+                        -- fall back to scanning the shapeshift form bar for
+                        -- form-based auras whose buff IDs aren't readable.
+                        if aura.formSpellIDs and (inCombat or InPvPInstance()) then
+                            isMissing = not IsAnyShapeshiftFormActive(aura.formSpellIDs)
                         else
                             local hasIt = PlayerHasAuraByID(checkIDs, "aura")
                             -- Some auras (e.g. Devotion Aura) go fully secret
@@ -3263,7 +3280,10 @@ local specialsActive = EABR.SectionShows(co.specialsWhereToShow, inInstance)
                         end
                         if show then
                             local e = AcquireEntry()
-                            e.mode = "spell"; e.spellID = rite.castSpell
+                            local spellName = _G._EABR_SpellName(rite.castSpell, rite.name)
+                            e.mode = "macro"
+                            e.spellID = rite.castSpell
+                            e.macro = "/cast " .. spellName .. "\n/use 16"
                             e.label = ShortLabel(_G._EABR_SpellName(rite.castSpell, rite.name))
                             e.cat = "consumable"; e.data = rite
                             e.dismissKey = "consumable:" .. rite.key
@@ -3469,8 +3489,12 @@ local specialsActive = EABR.SectionShows(co.specialsWhereToShow, inInstance)
     ---------------------------------------------------------------------------
     --  Healthstone in bags (group; "Where to Show" governs visibility). Bag
     --  state and class scans are combat-safe; secret class tokens skip units.
+    --  In combat only the warlock is reminded: a non-warlock can't be handed
+    --  a stone mid-fight, so for everyone else it is noise until the fight
+    --  ends (the list rebuilds on both combat transitions).
     ---------------------------------------------------------------------------
-    if (IsInGroup() or IsInRaid()) and EABR.ConsumableShows(co, "healthstone", inInstance) then
+    if (IsInGroup() or IsInRaid()) and EABR.ConsumableShows(co, "healthstone", inInstance)
+       and not (InCombat() and GetPlayerClass() ~= "WARLOCK") then
         if co and co.enabled and co.enabled.healthstone ~= false then
             -- Only remind if a Warlock is in the group
             local hasWarlock = false
@@ -3590,13 +3614,7 @@ local function Refresh()
 
     CacheInstanceInfo()
 
-    -- MEMORY PROBES (temporary -- remove after diagnosis)
-    local _memProbe = _G._EABR_MemProbe
-    local _m0, _m1, _m2, _m3, _m4, _m5, _m6, _m7
-    if _memProbe then collectgarbage("stop"); _m0 = collectgarbage("count") end
-
     BuildPlayerAuraCache()
-    if _memProbe then _m1 = collectgarbage("count") end
 
     local playerClass = GetPlayerClass()
     local inCombat = InCombat()
@@ -3625,7 +3643,6 @@ local function Refresh()
     if remindersOn then
         CollectRaidBuffs(missing, playerClass, inInstance, inCombat)
     end
-    if _memProbe then _m2 = collectgarbage("count") end
 
     ---------------------------------------------------------------------------
     --  2) Auras: OOC normally; in restricted contexts only reminders whose
@@ -3634,7 +3651,6 @@ local function Refresh()
     if remindersOn then
         CollectAuras(missing, playerClass, specID, inInstance, restricted)
     end
-    if _memProbe then _m3 = collectgarbage("count") end
 
     ---------------------------------------------------------------------------
     --  3) Consumables: OOC (non-PvP) normally; in restricted contexts the
@@ -3643,14 +3659,13 @@ local function Refresh()
     if remindersOn and not inPvP then
         CollectConsumables(missing, playerClass, specID, inInstance, inKeystone, inCombat)
     end
-    if _memProbe then _m4 = collectgarbage("count") end
 
     ---------------------------------------------------------------------------
     --  4) Pet Reminders (combat-safe: UnitExists/UnitIsDead unrestricted); suppressed for petless specs, Grimoire of Sacrifice, etc.
     ---------------------------------------------------------------------------
     if remindersOn and PET_CLASSES[playerClass] then
         local co = db.profile.consumables
-        if co and co.enabled and co.enabled.pet ~= false then
+        if co and co.enabled and co.enabled.pet ~= false and EABR.SectionShows(co.specialsWhereToShow, inInstance) then
             local suppress = false
             local petIcon = 132161
             local petLabel = "Pet"
@@ -3726,7 +3741,6 @@ local function Refresh()
     end
 
     -- Talent reminders handled by EllesmereUIABR_TalentReminders.lua
-    if _memProbe then _m5 = collectgarbage("count") end
 
     -- Per-section sound alerts: fire once as each reminder newly appears.
     EABR.HandleAppearSounds(missing)
@@ -3883,26 +3897,6 @@ local function Refresh()
     else
         EABR.ParkProviderCastButton()
         EllesmereUI.SetElementVisibility(iconAnchor, false)
-    end
-
-
-    -- MEMORY PROBE REPORT (temporary)
-    if _memProbe then
-        _m6 = collectgarbage("count")
-        collectgarbage("restart")
-        _memProbe.n = (_memProbe.n or 0) + 1
-        _memProbe.auraCache  = (_memProbe.auraCache  or 0) + (_m1 - _m0)
-        _memProbe.raidBuffs  = (_memProbe.raidBuffs  or 0) + (_m2 - _m1)
-        _memProbe.auras      = (_memProbe.auras      or 0) + (_m3 - _m2)
-        _memProbe.consumables= (_memProbe.consumables or 0) + (_m4 - _m3)
-        _memProbe.talents    = (_memProbe.talents    or 0) + (_m5 - _m4)
-        _memProbe.display    = (_memProbe.display    or 0) + (_m6 - _m5)
-        _memProbe.total      = (_memProbe.total      or 0) + (_m6 - _m0)
-        if _memProbe.n >= 20 then
-            _memProbe.n = 0; _memProbe.auraCache = 0; _memProbe.raidBuffs = 0
-            _memProbe.auras = 0; _memProbe.consumables = 0; _memProbe.talents = 0
-            _memProbe.display = 0; _memProbe.total = 0
-        end
     end
 
     UpdateDurationTicker()
@@ -4760,18 +4754,21 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
         -- set our combat flag, so HideAllIcons guards on InCombatLockdown itself.
         HideAllIcons()
         HideCursorIcons()
-        _eabrInCombat = true
         -- Re-snapshots only if ENCOUNTER_START didn't just do it (fires ms before REGEN_DISABLED, producing a cleaner snapshot since the aura API is fully available pre-lockdown).
+        -- Must snapshot before marking combat, or the group-buff lookup treats itself as restricted and reports nothing found.
         if not _encounterSnapshotTime or (GetTime() - _encounterSnapshotTime) > 1 then
             SnapshotPlayerAuras()
             if _isEvokerOwnOnRaid then SnapshotOwnOnRaidBuffs() end
         end
+        _eabrInCombat = true
         _encounterSnapshotTime = nil
         RequestRefresh()
         return
     end
 
-    if e == "PLAYER_REGEN_ENABLED" then
+    -- A fast encounter reset can end without a player combat transition, so
+    -- clear ENCOUNTER_START's synthetic flag when lockdown is already gone.
+    if e == "PLAYER_REGEN_ENABLED" or (e == "ENCOUNTER_END" and not InCombatLockdown()) then
         _eabrInCombat = false
         -- Restore broad UNIT_AURA for OOC group buff tracking
         if _needGroupAura then _setBroad(true) end
@@ -4924,6 +4921,7 @@ do
 end
 
 mainFrame:RegisterEvent("ENCOUNTER_START")
+mainFrame:RegisterEvent("ENCOUNTER_END")
 mainFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 mainFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 mainFrame:RegisterEvent("PLAYER_ENTERING_WORLD")

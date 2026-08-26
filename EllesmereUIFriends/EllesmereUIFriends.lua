@@ -2900,11 +2900,28 @@ local function SkinFriendsFrame()
             local joinBtn = qjf.JoinQueueButton
             if joinBtn and qjScroll then
                 SkinBottomButton(joinBtn)
-                joinBtn:ClearAllPoints()
-                local totalW3 = qjScroll:GetWidth()
-                local btnW = math.floor(totalW3 / 3)
-                joinBtn:SetSize(btnW, 22)
-                joinBtn:SetPoint("BOTTOMRIGHT", qjScroll, "BOTTOMRIGHT", 0, -22)
+                -- Width from FriendsFrame, never qjScroll: QuickJoinFrame is
+                -- XML-hidden at skin time, so qjScroll has no layout pass and
+                -- GetWidth() is 0 -- and SetSize with width 0 UNSETS the width,
+                -- leaving an anchored frame with no resolvable rect (never
+                -- drawn, yet IsShown/IsVisible/alpha all read healthy).
+                -- qjScroll is inset 15 each side of the frame, so (w - 30) / 3
+                -- matches LayoutFriendBtns' sizing for the sibling buttons.
+                -- A failed measure leaves the button untouched: ClearAllPoints
+                -- only runs when a re-point follows.
+                local function LayoutJoinBtn()
+                    local w = frame:GetWidth()
+                    if not w or w <= 0 then return end
+                    joinBtn:ClearAllPoints()
+                    joinBtn:SetSize(math.max(1, math.floor((w - 30) / 3)), 22)
+                    joinBtn:SetPoint("BOTTOMRIGHT", qjScroll, "BOTTOMRIGHT", 0, -22)
+                end
+                LayoutJoinBtn()
+                -- Re-apply on show so a zero-measure pass self-repairs.
+                -- HookScript, not hooksecurefunc: method hooks in this module
+                -- taint BNet whispers; script hooks register C-side (same shape
+                -- as the tab watcher's hook on this frame).
+                qjf:HookScript("OnShow", LayoutJoinBtn)
             end
         end
     end

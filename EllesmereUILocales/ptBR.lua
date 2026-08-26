@@ -1690,7 +1690,6 @@ L["Sidebar"] = "Barra Lateral"
 -- == Damage Meters ============================================================
 L["Above Hovered Row"] = "Acima da linha em foco"
 L["Actions"] = "Ações"
-L["Align Text Left"] = "Alinhar texto à esquerda"
 L["Always Show Player"] = "Sempre mostrar jogador"
 L["Always use K/M/B instead of localized units."] = "Sempre usar K/M/B em vez de unidades localizadas."
 L["Anchor to Windows"] = "Ancorar às janelas"
@@ -1699,7 +1698,6 @@ L["Arcade"] = true
 L["Auto Current on Combat"] = "Trocar para Atual automaticamente em combate"
 L["Auto Swap Current/Overall"] = "Alternar Atual/Geral automaticamente"
 L["Auto switch your window to overall at the end of an M+ run, and current at the start"] = "Alterna sua janela automaticamente para Geral ao fim de uma M+, e para Atual no início"
-L["Available only when Anchor to Windows is set to Free Move."] = "Disponível apenas quando \"Ancorar às janelas\" está definido como Movimento Livre."
 L["Avoidable Damage Taken"] = "Dano recebido evitável"
 L["BAR HISTORY"] = "HISTÓRICO DE BARRAS"
 L["Bar History"] = "Histórico de barras"
@@ -4964,7 +4962,7 @@ L["Automatically Skip If Possible"] = "Pular Automaticamente Se Possível"
 -- Right-click targeting suppression
 L["Disable Right Click"] = "Desativar Clique Direito"
 L["Allies In Combat"] = "Aliados em Combate"
-L["Suppresses right click targeting. Enemies applies everywhere. Allies In Combat only suppresses friendly targets while you are in combat, so you can still right click vendors and NPCs out of combat."] = "Suprime a seleção de alvo por clique direito. Inimigos se aplica em todos os lugares. Aliados em Combate só suprime alvos amigáveis enquanto você está em combate, para que ainda possa clicar com o botão direito em vendedores e NPCs fora de combate."
+L["Suppresses right click targeting. Enemies applies everywhere. Allies In Combat only suppresses friendly targets while you are in combat, so you can still right click vendors and NPCs out of combat.\n\nNote: while this is active, holding Left+Right click to move forward won't work if your cursor is over a suppressed nameplate/unit, since this feature has to take over the right mouse button entirely to block targeting."] = "Suprime a seleção de alvo por clique direito. Inimigos se aplica em todos os lugares. Aliados em Combate só suprime alvos amigáveis enquanto você está em combate, para que ainda possa clicar com o botão direito em vendedores e NPCs fora de combate.\n\nNota: enquanto isso estiver ativo, segurar clique Esquerdo+Direito para mover para frente não funcionará se o cursor estiver sobre uma placa de nome/unidade suprimida, já que este recurso precisa assumir o botão direito do mouse por completo para bloquear a seleção de alvo."
 
 -- Signup / Group Finder
 L["GROUP FINDER"] = "BUSCADOR DE GRUPO"
@@ -6370,3 +6368,73 @@ L["Typeface for the M+ timer clock. Every other Mythic+ text uses the module fon
 L["Typeface for the quest tracker. This module-local pick wins over the module font override above."] = "Tipo de fonte para o rastreador de objetivo. Esta escolha local do módulo tem prioridade sobre a substituição de fonte do módulo acima."
 L["Used by the movement alert's Bar display mode."] = "Usada pelo modo de exibição Barra do alerta de movimento."
 L["Which enemy buffs show on nameplates. Important shows the buffs Blizzard flags for enemy nameplates plus anything dispellable; Only Dispellable shows just the buffs that can be dispelled, purged or soothed. With a Dispel Glow style set, every dispellable buff shown glows."] = "Quais buffs inimigos aparecem nas placas de nome. Importante mostra os buffs que a Blizzard sinaliza para placas de nome inimigas, além de qualquer buff dissipável; Apenas Dissipável mostra somente os buffs que podem ser dissipados, exilados ou acalmados. Com um estilo de Brilho de Dissipação definido, todo buff dissipável exibido brilha."
+
+-- == Assisted Highlight (Action Bars) =========================================
+L["Assisted Highlight"] = "Destaque Assistido"
+L["Assisted Highlight Outset"] = "Deslocamento Externo do Destaque Assistido"
+L["Button Overlay"] = "Sobreposição do Botão"
+L["Button Overlay Color"] = "Cor da Sobreposição do Botão"
+L["Glow Ring"] = "Anel de Brilho"
+L["How Blizzard's next-spell suggestion is drawn on the button. Button Overlay replaces the blue ring with a flat tint, leaving the button edge free for the proc glow."] = "Como a sugestão de próximo feitiço da Blizzard é desenhada no botão. Sobreposição do Botão substitui o anel azul por uma tonalidade sólida, deixando a borda do botão livre para o brilho de proc."
+L["Moves the blue Assisted Highlight ring outward (or inward at negative values) so it no longer overlaps the proc glow on the same button. With Ring + Overlay the tint resizes along with it, so the two stay flush."] = "Move o anel azul do Destaque Assistido para fora (ou para dentro em valores negativos) para que ele não sobreponha mais o brilho de proc no mesmo botão. Com Anel + Sobreposição, a tonalidade é redimensionada junto, mantendo os dois alinhados."
+L["Opacity of the Button Overlay tint."] = "Opacidade da tonalidade da Sobreposição do Botão."
+L["Ring + Overlay"] = "Anel + Sobreposição"
+L["This option requires Blizzard's Assisted Highlight to be enabled"] = "Esta opção requer que o Destaque Assistido da Blizzard esteja ativado"
+L["This option requires a style that draws the glow ring"] = "Esta opção requer um estilo que desenhe o anel de brilho"
+L["This option requires the Button Overlay style"] = "Esta opção requer o estilo Sobreposição do Botão"
+
+-- == Fonts Options / Text Size sliders ========================================
+L["Dragonriding Speed Text Size"] = "Tamanho do Texto de Velocidade da Pilotagem Aérea"
+L["Movement Alert Text Size"] = "Tamanho do Texto de Alerta de Movimento"
+L["Spell History Text Size"] = "Tamanho do Texto do Histórico de Feitiços"
+
+-- == Fonts Options / per-module Outline style override ========================
+L["Outline style override for all Action Bars text. EUI Global Outline follows the global Outline Mode setting above."] = "Substituição de estilo de contorno para todo o texto de Barras de ação. O Contorno Global da EUI segue a configuração global de Modo de Contorno acima."
+L["Outline style override for all AuraBuff Reminders text. EUI Global Outline follows the global Outline Mode setting above."] = "Substituição de estilo de contorno para todo o texto de Lembretes de auras. O Contorno Global da EUI segue a configuração global de Modo de Contorno acima."
+L["Outline style override for all Bags text. EUI Global Outline follows the global Outline Mode setting above."] = "Substituição de estilo de contorno para todo o texto de Bolsas. O Contorno Global da EUI segue a configuração global de Modo de Contorno acima."
+L["Outline style override for all Blizz UI Enhanced text. EUI Global Outline follows the global Outline Mode setting above."] = "Substituição de estilo de contorno para todo o texto de Interface Blizz aprimorada. O Contorno Global da EUI segue a configuração global de Modo de Contorno acima."
+L["Outline style override for all Chat text. EUI Global Outline follows the global Outline Mode setting above."] = "Substituição de estilo de contorno para todo o texto de Bate-Papo. O Contorno Global da EUI segue a configuração global de Modo de Contorno acima."
+L["Outline style override for all Cooldown Manager text. EUI Global Outline follows the global Outline Mode setting above."] = "Substituição de estilo de contorno para todo o texto de Gerenciador de Recarga. O Contorno Global da EUI segue a configuração global de Modo de Contorno acima."
+L["Outline style override for all Damage Meters text. EUI Global Outline follows the global Outline Mode setting above."] = "Substituição de estilo de contorno para todo o texto de Medidor de dano. O Contorno Global da EUI segue a configuração global de Modo de Contorno acima."
+L["Outline style override for all DataBars text. EUI Global Outline follows the global Outline Mode setting above."] = "Substituição de estilo de contorno para todo o texto de Barras de Dados. O Contorno Global da EUI segue a configuração global de Modo de Contorno acima."
+L["Outline style override for all Friends List text. EUI Global Outline follows the global Outline Mode setting above."] = "Substituição de estilo de contorno para todo o texto de Lista de amigos. O Contorno Global da EUI segue a configuração global de Modo de Contorno acima."
+L["Outline style override for all Minimap text. EUI Global Outline follows the global Outline Mode setting above."] = "Substituição de estilo de contorno para todo o texto de Minimapa. O Contorno Global da EUI segue a configuração global de Modo de Contorno acima."
+L["Outline style override for all Mythic+ Tools text. EUI Global Outline follows the global Outline Mode setting above."] = "Substituição de estilo de contorno para todo o texto de Ferramentas Mítica+. O Contorno Global da EUI segue a configuração global de Modo de Contorno acima."
+L["Outline style override for all Nameplates text. EUI Global Outline follows the global Outline Mode setting above."] = "Substituição de estilo de contorno para todo o texto de Placas de nome. O Contorno Global da EUI segue a configuração global de Modo de Contorno acima."
+L["Outline style override for all Quality of Life text. EUI Global Outline follows the global Outline Mode setting above."] = "Substituição de estilo de contorno para todo o texto de Qualidade de vida. O Contorno Global da EUI segue a configuração global de Modo de Contorno acima."
+L["Outline style override for all Quest Tracker text. EUI Global Outline follows the global Outline Mode setting above."] = "Substituição de estilo de contorno para todo o texto de Rastreador de Objetivo. O Contorno Global da EUI segue a configuração global de Modo de Contorno acima."
+L["Outline style override for all Quickdraw text. EUI Global Outline follows the global Outline Mode setting above."] = "Substituição de estilo de contorno para todo o texto de Lançamento Rápido. O Contorno Global da EUI segue a configuração global de Modo de Contorno acima."
+L["Outline style override for all Resource & Cast Bars text. EUI Global Outline follows the global Outline Mode setting above."] = "Substituição de estilo de contorno para todo o texto de Barras de recurso e lançamento. O Contorno Global da EUI segue a configuração global de Modo de Contorno acima."
+L["Outline style override for all Unit Frames text. EUI Global Outline follows the global Outline Mode setting above."] = "Substituição de estilo de contorno para todo o texto de Quadros de unidade. O Contorno Global da EUI segue a configuração global de Modo de Contorno acima."
+
+-- == DataBars / Combat Status block ============================================
+L["Combat Status"] = "Status de Combate"
+L["Show Only In Combat"] = "Mostrar Apenas em Combate"
+L["Shows the combat status text only while your character is in combat."] = "Mostra o texto de status de combate apenas enquanto seu personagem está em combate."
+
+-- == Resource Bars / Druid form threshold ======================================
+L["Moonkin"] = "Luniscante"
+
+-- == QoL Cursor / GCD / Cast Bar circles =======================================
+L["Only shows the GCD circle while you are in combat."] = "Só exibe o círculo de GCD enquanto você está em combate."
+L["Only shows the cast bar circle while you are in combat."] = "Só exibe o círculo da barra de conjuração enquanto você está em combate."
+L["Only shows the cursor circle while you are in combat."] = "Só exibe o círculo do cursor enquanto você está em combate."
+
+-- == Player Aura Bars Manager / Dispel Type Icon ===============================
+L["DEBUFF TYPE ICON"] = "ÍCONE DE TIPO DE DEBUFF"
+L["Shows the debuff's dispel type icon (Magic, Curse, Disease, Poison, Bleed) on the bar."] = "Mostra o ícone do tipo de dissipação do debuff (Magia, Maldição, Doença, Veneno, Sangramento) na barra."
+L["Type Icon"] = "Ícone de Tipo"
+
+-- == Raid Frames / Click Cast ==================================================
+L["    Unit Types"] = "    Tipos de Unidade"
+
+-- == Options / Textures card descriptions ======================================
+L["Movement alert bar and cursor ring art"] = "Arte da barra de alerta de movimento e do anel do cursor"
+
+-- == Quickdraw Options / action captions =======================================
+L["interface panel"] = "painel de interface"
+
+-- == Raid Frames / Manager Pages, tooltip modifier mode ========================
+L["Shown on Modifier"] = "Mostrado no Modificador"
+L["This option requires Tooltips to be set to Shown on Modifier"] = "Esta opção requer que as Dicas estejam definidas como Mostrado no Modificador"
+L["Select a modifier key here, or tooltips will always be shown"] = "Selecione uma tecla modificadora aqui, ou as dicas serão sempre exibidas"

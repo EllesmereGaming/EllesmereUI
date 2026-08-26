@@ -5773,6 +5773,73 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
+        -- Assisted Highlight. Blizzard's ring sits on the same button edge as
+        -- the proc glow and has no size control of its own, so we offer two
+        -- ways to tell them apart: push the ring clear with an outset, or drop
+        -- the ring for a flat tint that leaves the edge to the proc glow.
+        -- Values mirror p.assistGlowStyle: 1 = ring, 2 = overlay, 3 = both.
+        local function AssistOff()
+            return not (GetCVarBool and GetCVarBool("assistedCombatHighlight"))
+        end
+        local assistRow
+        assistRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Assisted Highlight",
+              values={ [1]="Glow Ring", [2]="Button Overlay", [3]="Ring + Overlay" },
+              order={ 1, 2, 3 },
+              tooltip="How Blizzard's next-spell suggestion is drawn on the button. Button Overlay replaces the blue ring with a flat tint, leaving the button edge free for the proc glow.",
+              disabled=AssistOff,
+              disabledTooltip="This option requires Blizzard's Assisted Highlight to be enabled",
+              rawTooltip=true,
+              getValue=function() return p.assistGlowStyle or 1 end,
+              setValue=function(v)
+                  p.assistGlowStyle = v
+                  if ns.UpdateAssistHighlights then ns.UpdateAssistHighlights() end
+                  -- Deferred like the proc-glow dropdown above: a synchronous
+                  -- rebuild tears the dropdown down inside its own click handler.
+                  C_Timer.After(0, function() EllesmereUI:RefreshPage() end)
+              end },
+            { type="slider", text="Overlay Opacity", min=0, max=100, step=1,
+              tooltip="Opacity of the Button Overlay tint.",
+              disabled=function() return AssistOff() or (p.assistGlowStyle or 1) == 1 end,
+              disabledTooltip="This option requires the Button Overlay style",
+              rawTooltip=true,
+              getValue=function() return p.assistGlowOverlayAlpha or 30 end,
+              setValue=function(v)
+                  p.assistGlowOverlayAlpha = v
+                  if ns.UpdateAssistHighlights then ns.UpdateAssistHighlights() end
+              end });  y = y - h
+
+        -- Inline swatch: overlay tint color, next to the opacity slider it belongs to.
+        if not EllesmereUI._prebuilding then
+            EllesmereUI.BuildInlineSwatches(assistRow._rightRegion, {
+                { tooltip = "Button Overlay Color", hasAlpha = false,
+                  getValue = function()
+                      local c = p.assistGlowOverlayColor or { r = 0.15, g = 0.5, b = 1 }
+                      return c.r, c.g, c.b
+                  end,
+                  setValue = function(r, g, b)
+                      p.assistGlowOverlayColor = { r = r, g = g, b = b }
+                      if ns.UpdateAssistHighlights then ns.UpdateAssistHighlights() end
+                  end },
+            }, {
+                disabled = function() return AssistOff() or (p.assistGlowStyle or 1) == 1 end,
+                disabledTooltip = "This option requires the Button Overlay style",
+            })
+        end
+
+        _, h = W:DualRow(parent, y,
+            { type="slider", text="Assisted Highlight Outset", min=-10, max=30, step=1,
+              tooltip="Moves the blue Assisted Highlight ring outward (or inward at negative values) so it no longer overlaps the proc glow on the same button. With Ring + Overlay the tint resizes along with it, so the two stay flush.",
+              disabled=function() return AssistOff() or (p.assistGlowStyle or 1) == 2 end,
+              disabledTooltip="This option requires a style that draws the glow ring",
+              rawTooltip=true,
+              getValue=function() return p.assistGlowOutset or 0 end,
+              setValue=function(v)
+                  p.assistGlowOutset = v
+                  if ns.UpdateAssistHighlights then ns.UpdateAssistHighlights() end
+              end },
+            { type="spacer" });  y = y - h
+
         return math.abs(y)
     end
 

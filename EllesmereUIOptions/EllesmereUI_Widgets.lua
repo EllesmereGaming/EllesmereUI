@@ -6625,6 +6625,9 @@ end  -- end deferred init
 --     showAll = { label, get, set }        (optional header toggle)
 --     copyFrom = { label, choices = { {key=,label=}, ... }, apply(key) }
 --                                          (optional header copy row)
+--     includeMine = { anyGet }             (optional: INCLUDED rows carry a MINE tag;
+--                                          entries default to your own casts, anyGet()
+--                                          returns the sibling any-caster opt-out map)
 -- }
 -- showAll and copyFrom are mutually exclusive header bands; with neither the list section shifts up and gains the height.
 local _trackedAurasDimmer
@@ -6851,7 +6854,12 @@ function EllesmereUI.ShowTrackedAurasPopup(opts)
     vdiv:SetColorTexture(1, 1, 1, 0.08)
 
     local COL_W = 228
-    local function MakeSpellColumn(x, titleText, promptText, listFn, otherFn)
+    -- withMine: the caller's includeMine descriptor (INCLUDED column only) --
+    -- entries default to Only My Casts and the sibling map holds any-caster opt-outs.
+    local function MakeSpellColumn(x, titleText, promptText, listFn, otherFn, withMine)
+        local function AnyMap()
+            return withMine and withMine.anyGet and withMine.anyGet()
+        end
         -- Section label (options-page section style: small gray caps).
         local colTitle = panel:CreateFontString(nil, "OVERLAY")
         colTitle:SetFont(fontPath, 11, "")
@@ -6931,13 +6939,43 @@ function EllesmereUI.ShowTrackedAurasPopup(opts)
                     row.name = row:CreateFontString(nil, "OVERLAY")
                     row.name:SetFont(fontPath, 13, "")
                     row.name:SetPoint("LEFT", row.icon, "RIGHT", 6, 0)
-                    row.name:SetPoint("RIGHT", row, "RIGHT", -24, 0)
+                    row.name:SetPoint("RIGHT", row, "RIGHT", withMine and -52 or -24, 0)
                     row.name:SetJustifyH("LEFT")
                     row.name:SetWordWrap(false)
                     row.x = CreateFrame("Button", nil, row)
                     row.x:SetSize(14, 14)
                     row.x:SetPoint("RIGHT", row, "RIGHT", -4, 0)
                     row.x:SetFrameLevel(row:GetFrameLevel() + 2)
+                    if withMine then
+                        -- Only My Casts tag (DEFAULT ON): accent when restricted
+                        -- to your casts, gray when opted out to any caster.
+                        row.mine = CreateFrame("Button", nil, row)
+                        row.mine:SetSize(30, 16)
+                        row.mine:SetPoint("RIGHT", row.x, "LEFT", -2, 0)
+                        row.mine:SetFrameLevel(row:GetFrameLevel() + 2)
+                        row.mine.txt = row.mine:CreateFontString(nil, "OVERLAY")
+                        row.mine.txt:SetFont(fontPath, 11, "")
+                        row.mine.txt:SetPoint("CENTER")
+                        row.mine.txt:SetText(EllesmereUI.L("MINE"))
+                        row.mine:SetScript("OnClick", function()
+                            local am = AnyMap()
+                            if not am then return end
+                            if am[row._id] then am[row._id] = nil
+                            else am[row._id] = true end
+                            if opts.onChanged then opts.onChanged() end
+                            RefreshList()
+                        end)
+                        row.mine:SetScript("OnEnter", function(self)
+                            local am = AnyMap()
+                            EllesmereUI.ShowWidgetTooltip(self,
+                                (am and am[row._id])
+                                and EllesmereUI.L("Showing this aura from any caster; click for your casts only.")
+                                or EllesmereUI.L("Showing this aura from your casts only; click for any caster."))
+                        end)
+                        row.mine:SetScript("OnLeave", function()
+                            EllesmereUI.HideWidgetTooltip()
+                        end)
+                    end
                     row.x.tex = row.x:CreateTexture(nil, "OVERLAY")
                     row.x.tex:SetAllPoints()
                     row.x.tex:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png")
@@ -6971,6 +7009,16 @@ function EllesmereUI.ShowTrackedAurasPopup(opts)
                 row.icon:SetDesaturated(not entry.on)
                 row.icon:SetAlpha(entry.on and 1 or 0.45)
                 row.name:SetAlpha(entry.on and 0.9 or 0.45)
+                if row.mine then
+                    local am = AnyMap()
+                    if am and am[row._id] then
+                        -- Opted out to any caster: dim gray tag.
+                        row.mine.txt:SetTextColor(0.6, 0.6, 0.6, entry.on and 0.4 or 0.25)
+                    else
+                        -- Default: restricted to your own casts.
+                        row.mine.txt:SetTextColor(EG.r, EG.g, EG.b, entry.on and 1 or 0.45)
+                    end
+                end
                 row:SetScript("OnClick", function()
                     local l2 = listFn()
                     if l2 then
@@ -6982,6 +7030,10 @@ function EllesmereUI.ShowTrackedAurasPopup(opts)
                 row.x:SetScript("OnClick", function()
                     local l2 = listFn()
                     if l2 then l2[row._id] = nil end
+                    if withMine then
+                        local am = AnyMap()
+                        if am then am[row._id] = nil end
+                    end
                     if opts.onChanged then opts.onChanged() end
                     RefreshList()
                 end)
@@ -7015,7 +7067,8 @@ function EllesmereUI.ShowTrackedAurasPopup(opts)
     local refreshInc = MakeSpellColumn(24, "INCLUDED DEBUFFS",
         EllesmereUI.L(opts.includePrompt or "Enter the spell ID to always show."),
         opts.includeGet,
-        opts.excludeGet)
+        opts.excludeGet,
+        opts.includeMine)
     local refreshEx = MakeSpellColumn(268, "EXCLUDED DEBUFFS",
         EllesmereUI.L(opts.excludePrompt or "Enter the spell ID to exclude."),
         opts.excludeGet,

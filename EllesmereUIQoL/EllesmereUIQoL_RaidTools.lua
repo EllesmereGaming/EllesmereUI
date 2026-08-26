@@ -518,8 +518,12 @@ local function MakeMarkerButton(parent, index, kind)
     local b = CreateFrame("Button", nil, parent, "SecureActionButtonTemplate")
     b:SetSize(MARKER_SZ, MARKER_SZ)
     -- One phase only: the "!" prefix toggles the marker, so firing on both the
-    -- down and the up would set it and immediately clear it again.
+    -- down and the up would set it and immediately clear it again. useOnKeyDown
+    -- is pinned because left unset it follows the ActionButtonUseKeyDown CVar,
+    -- and at 0 the secure handler acts on the up phase we never register --
+    -- every marker button goes dead.
     b:RegisterForClicks("AnyDown")
+    b:SetAttribute("useOnKeyDown", true)
 
     local icon = b:CreateTexture(nil, "ARTWORK")
     icon:SetAllPoints()

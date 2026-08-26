@@ -349,14 +349,32 @@ local function BuildChain(base, isBuff, s, unit)
     -- excludes (which deliberately hide the actives from every OTHER
     -- group, see ApplyGroupConfig) never blank this one.
     if not isBuff and unit ~= "player" and s.debuffInclude then
-        local m
+        -- Boss frames: includes default to Only My Casts (nameplate parity);
+        -- s.debuffIncludeAnyCaster is the sibling OPT-OUT map (id -> true =
+        -- any caster). Caster scope lives in the filter STRING, so the two
+        -- scopes are two links: "incmine" carries the PLAYER token. Target and
+        -- focus keep the single any-caster link.
+        local isBoss = unit:match("^boss") ~= nil
+        local anym = isBoss and s.debuffIncludeAnyCaster or nil
+        local m, mm
         for id, v in pairs(s.debuffInclude) do
-            if v then m = m or {}; m[id] = true end
+            if v then
+                if not isBoss or (anym and anym[id]) then
+                    m = m or {}; m[id] = true
+                else
+                    mm = mm or {}; mm[id] = true
+                end
+            end
         end
         if m then
             chain[#chain + 1] = { key = "inc|" .. CandFP({ includeSpellIDs = m }),
                 tokens = { base },
                 cand = { includeSpellIDs = m, excludeSpellIDs = {} } }
+        end
+        if mm then
+            chain[#chain + 1] = { key = "incmine|" .. CandFP({ includeSpellIDs = mm }),
+                tokens = { base, "PLAYER" },
+                cand = { includeSpellIDs = mm, excludeSpellIDs = {} } }
         end
     end
     return chain
@@ -848,9 +866,15 @@ local function DeclareElementGroup(container, declared, styleKey, base, key, tok
     local eff = EffKey(key, own)
     local ftokens = tokens
     if own then
+        -- A link that already carries the caster token (the boss "incmine"
+        -- include link) must not get it twice.
+        local hasPlayer = false
         ftokens = {}
-        for t = 1, #tokens do ftokens[t] = tokens[t] end
-        ftokens[#ftokens + 1] = "PLAYER"
+        for t = 1, #tokens do
+            ftokens[t] = tokens[t]
+            if tokens[t] == "PLAYER" then hasPlayer = true end
+        end
+        if not hasPlayer then ftokens[#ftokens + 1] = "PLAYER" end
     end
     AK.AddGroupToContainer(container, {
         key = eff, filter = ftokens, maxFrameCount = 0, style = styleKey,
@@ -1382,8 +1406,10 @@ local function CfgFP(unit, base, s, frame)
         CastbarBelowFrame(unit, frame),
         -- Tracked Auras lists: ApplyGroupConfig reads both (the shared
         -- excludes), and TRI-STATE flips don't move the chain sig -- an
-        -- entry's enable checkbox must re-drive this pass.
-        TriListFP(s.debuffExclude), TriListFP(s.debuffInclude))
+        -- entry's enable checkbox must re-drive this pass. The boss any-caster
+        -- opt-out map moves an include between the two scope links.
+        TriListFP(s.debuffExclude), TriListFP(s.debuffInclude),
+        TriListFP(s.debuffIncludeAnyCaster))
 end
 
 ------------------------------------------------------------------------------
@@ -1405,15 +1431,16 @@ local DISPEL_SLOTS = {
 }
 local DISPEL_TYPE_TOKENS = { magic = "Magic", curse = "Curse", disease = "Disease", poison = "Poison", bleed = "Bleed" }
 
--- A dispel type only the player's RACE can clear (bleeds, via Stoneform) is
--- rejected by RAID_PLAYER_DISPELLABLE, which knows class and spec dispels
--- only. Handled here by keeping the PLAIN slot lit for such a type rather than
--- giving the by-me twin a filter that would match it: two slots declaring one
--- filter string share a single engine parse batch (see AK.Filter) and both are
--- not guaranteed to receive the aura. The rule itself lives with the legacy
--- overlay in EllesmereUIUnitFrames.lua, which needs the same answer.
-local function RacialCoversDispelSlot(slotKey)
-    return ns.UF_RacialClearsDispel ~= nil and ns.UF_RacialClearsDispel(slotKey)
+-- A dispel type RAID_PLAYER_DISPELLABLE can never match (bleeds via the dwarf
+-- racial, poison on a shaman via Poison Cleansing Totem -- the token knows class
+-- and spec dispels only) is handled here by keeping the PLAIN slot lit for such
+-- a type rather than giving the by-me twin a filter that would match it: two
+-- slots declaring one filter string share a single engine parse batch (see
+-- AK.Filter) and both are not guaranteed to receive the aura. The rule itself
+-- lives with the legacy overlay in EllesmereUIUnitFrames.lua, which needs the
+-- same answer.
+local function TokenBlindDispelSlot(slotKey)
+    return ns.UF_TokenBlindDispel ~= nil and ns.UF_TokenBlindDispel(slotKey)
 end
 local GRADIENT_TEXTURE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-tb.tga"
 local GRADIENT_SHARP_TEXTURE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-sharp.tga"
@@ -1486,10 +1513,10 @@ local function BuildDispelStyles(frame)
     local op = p.dispelOverlayOpacity or 100
     for i = 1, #DISPEL_SLOTS do
         local slot = DISPEL_SLOTS[i]
-        -- A type only the player's RACE can clear keeps using the PLAIN slot in
-        -- "by me" mode: the engine token can never match it, so its by-me twin
-        -- stays dark and would swallow the setting entirely.
-        local racial = RacialCoversDispelSlot(slot.key)
+        -- A type the engine token can never match keeps using the PLAIN slot in
+        -- "by me" mode: its by-me twin stays dark and would swallow the setting
+        -- entirely.
+        local tokenBlind = TokenBlindDispelSlot(slot.key)
         local col = p[slot.colorKey]
         local color = { r = col and col.r or slot.fallback[1], g = col and col.g or slot.fallback[2], b = col and col.b or slot.fallback[3] }
         AK.styles[DispelStyleKey(slot.key)] = {
@@ -1497,7 +1524,7 @@ local function BuildDispelStyles(frame)
             noRegions = true,
             mode = mode,
             color = color,
-            opacity = (byMe and not racial) and 0 or op,
+            opacity = (byMe and not tokenBlind) and 0 or op,
             level = slot.level,
             healthFrame = frame.Health,
             applyExtra = ApplyDispelSlotStyle,
@@ -1507,7 +1534,7 @@ local function BuildDispelStyles(frame)
             noRegions = true,
             mode = mode,
             color = color,
-            opacity = (byMe and not racial) and op or 0,
+            opacity = (byMe and not tokenBlind) and op or 0,
             level = slot.level,
             healthFrame = frame.Health,
             applyExtra = ApplyDispelSlotStyle,
@@ -1575,7 +1602,10 @@ local function CreateDispelSlots(frame, entry)
 end
 
 local function DispelFP(p)
+    -- The poison capability is a talent (Poison Cleansing Totem), so it rides
+    -- the fingerprint; race can't change mid-session.
     return FP(p.dispelOverlay, p.dispelOverlayOpacity, p.dispelOverlayByMe == true,
+        TokenBlindDispelSlot("poison") and 1 or 0,
         CK(p.dispelColorMagic), CK(p.dispelColorCurse),
         CK(p.dispelColorDisease), CK(p.dispelColorPoison), CK(p.dispelColorBleed))
 end
@@ -1603,6 +1633,26 @@ function ns.UF_ReloadPlayerDispelSlots()
     local entry = registry.player
     if entry and entry.frame and not entry.building then
         ReloadDispelSlots(entry.frame, entry)
+    end
+end
+
+-- The poison capability behind UF_TokenBlindDispel is a talent (Poison
+-- Cleansing Totem). Talent edits fire no spec event, and IsPlayerSpell can lag
+-- the trait event itself (the spellbook grant lands with SPELLS_CHANGED), so
+-- shamans re-check on both; the reload runs only when the cached capability
+-- actually flips. No combat gate: the restyle routes through AK.RestyleSoon,
+-- whose worker defers secrecy-denied writes to the restriction-lift re-queue.
+do
+    local _, class = UnitClass("player")
+    if class == "SHAMAN" then
+        local ev = CreateFrame("Frame")
+        ev:RegisterEvent("TRAIT_CONFIG_UPDATED")
+        ev:RegisterEvent("SPELLS_CHANGED")
+        ev:SetScript("OnEvent", function()
+            if ns.UF_RefreshPoisonTotem and ns.UF_RefreshPoisonTotem() then
+                ns.UF_ReloadPlayerDispelSlots()
+            end
+        end)
     end
 end
 

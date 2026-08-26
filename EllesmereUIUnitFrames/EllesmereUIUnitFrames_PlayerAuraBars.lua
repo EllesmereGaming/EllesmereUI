@@ -652,6 +652,23 @@ local DISPEL_SLOTS = {
     { token = "Bleed",   colorKey = "dispelColorBleed",   fallback = { 0.75, 0.15, 0.15 } },
 }
 
+-- Dispel-type indicator icon: preview-only atlas/point maps. The LIVE icon is
+-- engine-rendered (AK's one-hot dispel-texture channel, style.dispelTypeIcon);
+-- these exist so the options preview can paint the same art from the fake
+-- entries' plain dispel tokens.
+local PV_DISPEL_ICON_ATLAS = {
+    Magic   = "RaidFrame-Icon-DebuffMagic",
+    Curse   = "RaidFrame-Icon-DebuffCurse",
+    Disease = "RaidFrame-Icon-DebuffDisease",
+    Poison  = "RaidFrame-Icon-DebuffPoison",
+    Bleed   = "RaidFrame-Icon-DebuffBleed",
+}
+local PV_DISPEL_ICON_POINTS = {
+    topleft = "TOPLEFT", top = "TOP", topright = "TOPRIGHT",
+    left = "LEFT", center = "CENTER", right = "RIGHT",
+    bottomleft = "BOTTOMLEFT", bottom = "BOTTOM", bottomright = "BOTTOMRIGHT",
+}
+
 -- Same shape as RaidFrames' ns.RFC_DispelBorderColorMap: a customDispelColorMap
 -- (dispelName -> Color) for AK's engine-driven border, plus a fingerprint so a
 -- palette edit re-registers the border options (style.dispelColorFP).
@@ -963,6 +980,20 @@ local function BuildStyle(isBuff, cfg)
         style.dispelBorderPx = borderSize
         style.dispelColorMap = dcMap
         style.dispelColorFP = dcFP
+
+        -- Dispel-type indicator icon (AK's one-hot engine channel; default off).
+        -- Independent of borderSize: the icon renders with or without a ring.
+        local dip = cfg.dispelIconPosition
+        if dip and dip ~= "none" then
+            style.dispelTypeIcon = {
+                pos = dip,
+                -- Scaled like iconSize (button-geometry class); offsets stay raw
+                -- like durationX (fine-tune class).
+                size = PP.Scale(cfg.dispelIconSize or 16),
+                offX = cfg.dispelIconOffsetX or 0,
+                offY = cfg.dispelIconOffsetY or 0,
+            }
+        end
 
         -- Icon Effects Per-Filter: debuffs only (buffs never get style.fxList, so
         -- PAB_ApplyDmFx's gate in PAB_ApplyExtraText stays a cheap no-op).
@@ -4445,6 +4476,9 @@ local function ApplyPreviewScale(cfg, comp)
     out.durationTextSize = (cfg.durationTextSize or 11) * comp
     out.durationOffsetX = (cfg.durationOffsetX or 0) * comp
     out.durationOffsetY = (cfg.durationOffsetY or 0) * comp
+    out.dispelIconSize = (cfg.dispelIconSize or 16) * comp
+    out.dispelIconOffsetX = (cfg.dispelIconOffsetX or 0) * comp
+    out.dispelIconOffsetY = (cfg.dispelIconOffsetY or 0) * comp
     out.stackTextSize = (cfg.stackTextSize or 11) * comp
     out.stackOffsetX = (cfg.stackOffsetX or 0) * comp
     out.stackOffsetY = (cfg.stackOffsetY or 0) * comp
@@ -5049,6 +5083,28 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
                 if PP and PP.HideBorder then PP.HideBorder(btn.border) else btn.border:Hide() end
                 if PP and PP.HideMaskedShapeBorder then PP:HideMaskedShapeBorder(btn.border)
                 elseif btn.border._shapeBorderTex then btn.border._shapeBorderTex:Hide() end
+            end
+
+            -- Dispel-type indicator icon (style.dispelTypeIcon): the live bar's
+            -- engine channel picks the art per aura; here the fake entry's own
+            -- dispel token does. Drawn above the border on the button itself.
+            local ti = style.dispelTypeIcon
+            if ti and dispel and PV_DISPEL_ICON_ATLAS[dispel] then
+                if not btn.typeIcon then
+                    btn.typeIcon = btn:CreateTexture(nil, "OVERLAY", nil, 3)
+                end
+                btn.typeIcon:SetAtlas(PV_DISPEL_ICON_ATLAS[dispel])
+                -- Geometry from the (panel-scaled) cfg, like iconSize above --
+                -- style carries the live PP.Scale'd size, wrong units here.
+                local tiSz = cfg.dispelIconSize or 16
+                btn.typeIcon:SetSize(tiSz, tiSz)
+                btn.typeIcon:ClearAllPoints()
+                local tiPt = PV_DISPEL_ICON_POINTS[ti.pos] or "CENTER"
+                btn.typeIcon:SetPoint(tiPt, btn, tiPt,
+                    cfg.dispelIconOffsetX or 0, cfg.dispelIconOffsetY or 0)
+                btn.typeIcon:Show()
+            elseif btn.typeIcon then
+                btn.typeIcon:Hide()
             end
 
             local cdMaskKey = shapeActive and style.iconShape or nil

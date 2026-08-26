@@ -1344,8 +1344,14 @@ local _hooksInstalled = false
 local function InstallHooks()
     if _hooksInstalled or not PVEFrame then return end
     _hooksInstalled = true
-    hooksecurefunc(PVEFrame, "Show", RefreshAll)
-    if PVEFrame_ShowFrame then hooksecurefunc("PVEFrame_ShowFrame", function() RefreshAll(); UpdateTabVisuals() end) end
+    -- Deferred so this runs on its own tick, after the click that opened the
+    -- frame has finished, instead of inside that same execution chain.
+    hooksecurefunc(PVEFrame, "Show", function() C_Timer.After(0, RefreshAll) end)
+    if PVEFrame_ShowFrame then
+        hooksecurefunc("PVEFrame_ShowFrame", function()
+            C_Timer.After(0, function() RefreshAll(); UpdateTabVisuals() end)
+        end)
+    end
     if PVEFrame_TabOnClick then hooksecurefunc("PVEFrame_TabOnClick", function() RefreshAll(); UpdateTabVisuals() end) end
     if GroupFinderFrame_SelectGroupButton then
         hooksecurefunc("GroupFinderFrame_SelectGroupButton", function(index)
