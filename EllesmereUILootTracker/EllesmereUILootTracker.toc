@@ -17,5 +17,6 @@ EllesmereUILootTracker_Planner.lua
 EllesmereUILootTracker_Tooltips.lua
 EllesmereUILootTracker_Locale.lua
 EllesmereUILootTracker_Minimap.lua
+EllesmereUILootTracker_BonusRoll.lua
 EllesmereUILootTracker_LootAlerts.lua
 EllesmereUILootTracker_Options.lua

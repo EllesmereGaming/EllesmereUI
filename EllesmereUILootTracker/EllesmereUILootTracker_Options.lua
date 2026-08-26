@@ -1124,6 +1124,10 @@ local function BuildSettings(parent, yOffset)
     saveWhisper:SetPoint("TOPRIGHT", whisper, "TOPRIGHT", -12, -8)
     y = y - 88
     _, h = W:SectionHeader(parent, "VOIDCORE POOLS", y); y = y - h
+    _, h = W:Toggle(parent, EllesmereUI.L("Skip Empty Bonus Rolls"), y,
+        function() return Profile().autoDismissEmptyBonusRoll == true end,
+        function(v) Profile().autoDismissEmptyBonusRoll=v end,
+        EllesmereUI.L("Automatically cancels a recognized Voidcore prompt when this loot source has no available open wishlist item. Unknown sources and raid difficulties are never dismissed.")); y = y - h
     _, h = W:WideButton(parent, "Rescan Voidcore Pools", y, function()
         print("|cff0cd29fEllesmereUI Loot Tracker|r: " .. L("Scanning Voidcore pools..."))
         ns.RescanVoidcorePools(function()
