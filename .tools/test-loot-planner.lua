@@ -92,6 +92,8 @@ local plan = ns.GetPlan("overall", 1)
 assert(plan.slots.MAINHAND and not plan.slots.OFFHAND, "two-hand selection must clear off-hand")
 assert(not data.goals["dungeon:1:1"], "orphaned planner-only goal must be removed")
 assert(data.goals["dungeon:1:2"].priority == 3, "planner selection must be Best in Slot")
+assert(ns.GetGoalPlanScopeLabel(data.goals["dungeon:1:2"], true) == "O",
+    "overall planner selection must expose its BiS scope")
 ns.SetPlannedItem("overall", "MAINHAND", twoHandCandidate, 1)
 assert(plan.slots.MAINHAND.catalyst and data.goals["dungeon:1:2"].catalyst,
     "clicking a selected dungeon item must mark it for Catalyst")
@@ -110,6 +112,8 @@ local ring = {
 }
 ns.SetPlannedItem("raid:16", "FINGER1", ring, 1)
 assert(data.goals["dungeon:1:3"].priority == 3, "existing goal must become Best in Slot")
+assert(ns.GetGoalPlanScopeLabel(data.goals["dungeon:1:3"], true) == "R",
+    "difficulty-qualified raid plans must expose the Raid BiS scope")
 ns.SetPlannedItem("raid:16", "FINGER1", nil, 1)
 assert(data.goals["dungeon:1:3"].priority == 1, "manual goal priority must be restored")
 
@@ -122,7 +126,11 @@ ns.SetPlannedItem("raid:16", "HEAD", {
     source=catalyst, item=tierItem, targetLevel=318, difficultyID=16, linkKind="catalyst",
 }, 1)
 assert(data.goals["catalyst:4"].minItemLevel == 318, "shared goal must keep the highest target")
+assert(ns.GetGoalPlanScopeLabel(data.goals["catalyst:4"], true) == "M+/R",
+    "items shared by plans must expose every BiS scope in a stable order")
 ns.SetPlannedItem("raid:16", "HEAD", nil, 1)
 assert(data.goals["catalyst:4"].minItemLevel == 311, "shared goal must fall back to remaining target")
+assert(ns.GetGoalPlanScopeLabel(data.goals["catalyst:4"], true) == "M+",
+    "removing a plan reference must update the derived BiS scope")
 
 print("loot planner model ok")

@@ -2,6 +2,7 @@ local ADDON_NAME, ns = ...
 
 local hookedTooltips = setmetatable({}, { __mode = "k" })
 local tooltipGoalItems = setmetatable({}, { __mode = "k" })
+local tooltipSpecIDs = setmetatable({}, { __mode = "k" })
 
 local function ItemIDFromData(data)
     if not data then return end
@@ -16,23 +17,49 @@ local function ItemIDFromData(data)
     end
 end
 
-local function AddGoalLine(tooltip, data)
+local function AddGoalStatus(tooltip, itemID, specID)
     if not ns.GetProfile().showItemTooltips then return end
-    local itemID = ItemIDFromData(data)
     if not itemID then return end
     if not hookedTooltips[tooltip] then
         hookedTooltips[tooltip] = true
         tooltip:HookScript("OnTooltipCleared", function(self) tooltipGoalItems[self] = nil end)
+        tooltip:HookScript("OnHide", function(self)
+            tooltipGoalItems[self] = nil
+            tooltipSpecIDs[self] = nil
+        end)
     end
-    if tooltipGoalItems[tooltip] == itemID then return end
-    local goal = ns.GetAnyGoal(itemID)
+    local lookupKey = tostring(itemID) .. ":" .. tostring(specID or "active")
+    if tooltipGoalItems[tooltip] == lookupKey then return end
+    local goal = ns.GetAnyGoal(itemID, specID)
     if not goal then return end
-    tooltipGoalItems[tooltip] = itemID
+    tooltipGoalItems[tooltip] = lookupKey
     local priority = EllesmereUI.L(ns.PRIORITY_NAMES[goal.priority] or "Nice to have")
     local state = goal.state == "archived" and EllesmereUI.L("Obtained") or EllesmereUI.L("Open")
     local color = ns.PRIORITY_COLORS[goal.priority] or { 1, 1, 1 }
     tooltip:AddLine(EllesmereUI.Lf("EllesmereUI Loot Tracker: %1$s (%2$s)", priority, state), color[1], color[2], color[3])
+    if goal.priority == ns.PRIORITY_BIS then
+        local scopes, count = ns.GetGoalPlanScopeLabel(goal)
+        if count == 0 then scopes = EllesmereUI.L("Unassigned") end
+        tooltip:AddLine(EllesmereUI.Lf(count > 1 and "BiS plans: %s" or "BiS plan: %s", scopes),
+            0.35, 0.75, 1)
+    end
     if goal.catalyst then tooltip:AddLine(EllesmereUI.L("Catalyst planned"), 1, 0.7, 0.28) end
+end
+
+function ns.SetGoalTooltipSpec(tooltip, specID)
+    tooltipSpecIDs[tooltip] = specID
+end
+
+function ns.ClearGoalTooltipSpec(tooltip)
+    tooltipSpecIDs[tooltip] = nil
+end
+
+function ns.AddGoalStatusToTooltip(tooltip, itemID, specID)
+    AddGoalStatus(tooltip, tonumber(itemID), specID)
+end
+
+local function AddGoalLine(tooltip, data)
+    AddGoalStatus(tooltip, ItemIDFromData(data), tooltipSpecIDs[tooltip])
 end
 
 if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall then

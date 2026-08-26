@@ -166,6 +166,30 @@ local function PlanRef(mode, slotKey)
     return tostring(mode) .. ":" .. tostring(slotKey)
 end
 
+local PLAN_SCOPE_ORDER = { "overall", "mplus", "raid" }
+
+function ns.GetGoalPlanScopes(goal)
+    local present, scopes = {}, {}
+    for ref in pairs((goal and goal.plannerRefs) or {}) do
+        local mode = ref:match("^([^:]+):")
+        if mode == "overall" or mode == "mplus" or mode == "raid" then present[mode] = true end
+    end
+    for _, mode in ipairs(PLAN_SCOPE_ORDER) do
+        if present[mode] then scopes[#scopes + 1] = mode end
+    end
+    return scopes
+end
+
+function ns.GetGoalPlanScopeLabel(goal, short)
+    local labels = {}
+    local shortNames = { overall = "O", mplus = "M+", raid = "R" }
+    for _, mode in ipairs(ns.GetGoalPlanScopes(goal)) do
+        labels[#labels + 1] = short and shortNames[mode]
+            or EllesmereUI.L(ns.PLAN_MODE_NAMES[mode])
+    end
+    return table.concat(labels, short and "/" or " / "), #labels
+end
+
 function ns.GetPlan(mode, specID)
     local data = ns.GetSpecData(specID)
     data.plans = data.plans or {}
