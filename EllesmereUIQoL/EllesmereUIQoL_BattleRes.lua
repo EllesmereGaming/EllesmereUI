@@ -85,6 +85,15 @@ end
 
 local frame, iconTex, borderTex, durationFS, countFS, cooldownFrame, textFS
 
+-- Options-page live preview: forces the icon on screen for as long as the
+-- owning page is. No stand-in data needed here (unlike the Bloodlust
+-- tracker) -- PollCharges already reads the player's real Battle Rez charges
+-- everywhere, so forcing visibility alone is enough to preview the real state.
+local _previewOwner
+local function _previewActive()
+    return _previewOwner ~= nil and _previewOwner:IsVisible() and true or false
+end
+
 local function IsTextMode()
     local p = P()
     return (p and p.displayMode) == "text"
@@ -403,6 +412,9 @@ local function ShouldShow()
     if not p or not p.enabled then return false end
     local v = p.visibility or "MPLUS_AND_RAID"
     if v == "NEVER" then return false end
+    -- Options preview: forced on screen while the page is up, skipping the instance
+    -- and M+/raid gates below -- the point is to configure it from anywhere.
+    if _previewActive() then return true end
 
     -- Hard gate: must be in a party or raid instance. Prevents any stuck state from
     -- showing the icon in town/open world. Unlock mode relies on the overlay mover for
@@ -504,6 +516,12 @@ local function UpdateVisibility()
     end
 end
 _G._EUI_BattleRes_UpdateVisibility = UpdateVisibility
+
+-- The options page hands us its frame on build; _previewActive() takes it from there.
+function _G._EUI_BattleRes_SetPreviewOwner(f)
+    _previewOwner = f
+    UpdateVisibility()
+end
 
 -------------------------------------------------------------------------------
 --  Frame creation

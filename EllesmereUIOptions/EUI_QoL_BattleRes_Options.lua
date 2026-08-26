@@ -244,6 +244,21 @@ _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
 
     _, h = W:SectionHeader(parent, "BATTLE RES", y); y = y - h
 
+    -- Live preview: forces the icon on screen for as long as this page is (mirrors
+    -- the Bloodlust Tracker section below). PollCharges reads real charge data
+    -- regardless, so this alone is enough to preview it from anywhere.
+    if not EllesmereUI._prebuilding and _G._EUI_BattleRes_SetPreviewOwner then
+        _G._EUI_BattleRes_SetPreviewOwner(parent)
+        if not parent._brPreviewHooked then
+            parent._brPreviewHooked = true
+            parent:HookScript("OnHide", function()
+                if _G._EUI_BattleRes_UpdateVisibility then
+                    _G._EUI_BattleRes_UpdateVisibility()
+                end
+            end)
+        end
+    end
+
     row, h = W:DualRow(parent, y,
         { type="dropdown", text="Enable BattleRes Icon",
           values=VIS_VALUES, order=VIS_ORDER,
