@@ -23,6 +23,7 @@ EllesmereUI = {
     RB_COLOURS = {},
 }
 UIParent = {}
+SlashCmdList = {}
 C_Timer = { After = function(_, callback) callback() end }
 function GetTime() return 100 end
 function GetInstanceInfo() return nil, nil, nil, nil, nil, nil, nil, 0 end
@@ -37,6 +38,7 @@ function CreateFrame(_, name)
         shown = true,
         RegisterEvent = Noop,
         SetSize = Noop, SetPoint = Noop, SetFrameStrata = Noop, SetClampedToScreen = Noop,
+        SetBackdrop = Noop, SetBackdropColor = Noop,
         CreateTexture = Region, CreateFontString = Region,
         Hide = function(self) self.shown = false end,
         Show = function(self) self.shown = true end,
@@ -73,6 +75,8 @@ local ns = {
 
 local chunk = assert(loadfile("EllesmereUILootTracker/EllesmereUILootTracker_BonusRoll.lua"))
 chunk("EllesmereUILootTracker", ns)
+assert(SLASH_EULTBONUSTEST1 == "/eulttestbonus" and type(SlashCmdList.EULTBONUSTEST) == "function",
+    "bonus-roll debug slash command was not registered")
 
 local mode = ns.GetBonusRollPromptDecision(42)
 assert(mode == "cancel", "empty Auto source should follow the configured prompt mode")
@@ -129,6 +133,15 @@ assert(ns.ResolveBonusRollPromptSource(prompt) == dungeon,
     "instance ID must recover a dungeon after the active challenge map resets")
 function GetInstanceInfo() return nil, nil, nil, nil, nil, nil, nil, 0 end
 prompt.displayItemID = 99
+
+local testStarted, testSource = ns.RunBonusRollDebugTest()
+assert(testStarted and testSource == dungeon.name, "debug test did not use an explicit Skip source")
+assert(ns.lastBonusRollDebug.reason == "test_minimized" and ns.lastBonusRollDebug.handled,
+    "debug test did not minimize its delayed simulated frame")
+assert(not EULTBonusRollTestFrame:IsShown() and EULTBonusRollReminder:IsShown(),
+    "debug test did not replace its simulated frame with the reminder")
+styledButtons.Show.click()
+assert(EULTBonusRollTestFrame:IsShown(), "debug test reminder did not restore the simulated frame")
 
 source = raid
 policy = "auto"

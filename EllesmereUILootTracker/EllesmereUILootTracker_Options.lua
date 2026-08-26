@@ -1157,6 +1157,16 @@ local function BuildSettings(parent, yOffset)
         function(v) Profile().bonusRollPromptMode=tostring(v) end,
         { "show", "minimize", "cancel" },
         EllesmereUI.L("Explicit Skip sources are always minimized. This setting controls Auto sources and whether skipped prompts are minimized or cancelled.")); y = y - h
+    _, h = W:WideButton(parent, "Test Bonus Roll Skip", y, function()
+        local ok, detail = ns.RunBonusRollDebugTest()
+        if ok then
+            print("|cff0cd29fEllesmereUI Loot Tracker|r: " .. EllesmereUI.Lf("Testing delayed Skip for %s.", detail or "?"))
+        elseif detail == "no_skip_source" then
+            print("|cff0cd29fEllesmereUI Loot Tracker|r: " .. L("Mark at least one dungeon or raid boss as Bonus Roll: Skip first."))
+        else
+            print("|cff0cd29fEllesmereUI Loot Tracker|r: " .. L("Bonus Roll test is unavailable during combat."))
+        end
+    end, 360); y = y - h
     _, h = W:WideButton(parent, "Rescan Voidcore Pools", y, function()
         print("|cff0cd29fEllesmereUI Loot Tracker|r: " .. L("Scanning Voidcore pools..."))
         ns.RescanVoidcorePools(function()

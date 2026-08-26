@@ -5,6 +5,8 @@ if not (EllesmereUI and ns) then return end
 local reminder
 local pendingReminder
 local promptAttemptToken = 0
+local testFrame
+local StopPromptAttempts
 
 local function IsSecret(value)
     return issecretvalue and issecretvalue(value)
@@ -132,8 +134,9 @@ end
 local function RestoreBlizzardPrompt()
     local context = pendingReminder
     ClearReminder()
-    if not context or not FindPrompt(context.spellID) then return end
-    local frame = _G.BonusRollFrame
+    if not context then return end
+    if not context.isTest and not FindPrompt(context.spellID) then return end
+    local frame = context.frame or _G.BonusRollFrame
     if not frame then return end
     if ShowUIPanel then ShowUIPanel(frame) else frame:Show() end
 end
@@ -141,6 +144,10 @@ end
 local function CancelPendingPrompt()
     local context = pendingReminder
     ClearReminder()
+    if context and context.isTest then
+        if context.frame then context.frame:Hide() end
+        return
+    end
     if context and CancelSpellConfirmationPrompt then
         pcall(CancelSpellConfirmationPrompt, context.spellID)
     end
@@ -185,7 +192,10 @@ local function CreateReminder()
         if self.elapsed < 0.2 then return end
         self.elapsed = 0
         local context = pendingReminder
-        if not context or not FindPrompt(context.spellID) then ClearReminder(); return end
+        if not context or (not context.isTest and not FindPrompt(context.spellID)) then
+            ClearReminder()
+            return
+        end
         local seconds = context.expiresAt and math.max(0, math.ceil(context.expiresAt - GetTime()))
         self.detail:SetText(seconds and (EllesmereUI.L("Bonus roll minimized") .. "  •  " .. seconds .. "s")
             or EllesmereUI.L("Bonus roll minimized"))
@@ -196,7 +206,7 @@ local function CreateReminder()
 end
 
 local function MinimizePrompt(context)
-    local frame = _G.BonusRollFrame
+    local frame = context.frame or _G.BonusRollFrame
     if not frame or not frame.Hide or not frame:IsShown() then return false end
     frame:Hide()
     pendingReminder = context
@@ -205,6 +215,92 @@ local function MinimizePrompt(context)
     bar.detail:SetText(EllesmereUI.L("Bonus roll minimized"))
     bar:Show()
     return true
+end
+
+local function FindExplicitSkipSource()
+    local specID = ns.ResolveSpecID()
+    for _, source in ipairs(ns.GetSources("dungeon") or {}) do
+        if ns.GetBonusRollPolicy(source, specID) == ns.BONUS_ROLL_NEVER then
+            return source, specID
+        end
+    end
+    local difficultyID = tonumber(ns.GetProfile().raidDifficulty) or 16
+    for _, source in ipairs(ns.GetSources("raid") or {}) do
+        if ns.GetBonusRollPolicy(source, specID, difficultyID) == ns.BONUS_ROLL_NEVER then
+            return source, specID, difficultyID
+        end
+    end
+end
+
+local function CreateTestFrame()
+    if testFrame then return testFrame end
+    local frame = CreateFrame("Frame", "EULTBonusRollTestFrame", UIParent, "BackdropTemplate")
+    frame:SetSize(330, 120)
+    frame:SetPoint("CENTER", UIParent, "CENTER", 0, 225)
+    frame:SetFrameStrata("DIALOG")
+    frame:SetClampedToScreen(true)
+    frame:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
+    frame:SetBackdropColor(0.035, 0.04, 0.055, 0.98)
+    if EllesmereUI.MakeBorder then EllesmereUI.MakeBorder(frame, 1, 0.85, 0.68, 0.15, EllesmereUI.PP) end
+    local title = frame:CreateFontString(nil, "OVERLAY")
+    title:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF", 12, "")
+    title:SetPoint("TOP", frame, "TOP", 0, -20)
+    title:SetText(EllesmereUI.L("Simulated Blizzard Bonus Roll"))
+    frame.title = title
+    local detail = frame:CreateFontString(nil, "OVERLAY")
+    detail:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF", 10, "")
+    detail:SetPoint("CENTER", frame, "CENTER", 0, 2)
+    frame.detail = detail
+    local close = CreateFrame("Button", nil, frame)
+    close:SetSize(100, 28)
+    close:SetPoint("BOTTOM", frame, "BOTTOM", 0, 12)
+    EllesmereUI.MakeStyledButton(close, EllesmereUI.L("Close test"), 10, EllesmereUI.RB_COLOURS,
+        function() frame:Hide() end)
+    frame:Hide()
+    testFrame = frame
+    return frame
+end
+
+function ns.RunBonusRollDebugTest()
+    if InCombatLockdown and InCombatLockdown() then return false, "combat" end
+    local source, specID, difficultyID = FindExplicitSkipSource()
+    if not source then return false, "no_skip_source" end
+
+    StopPromptAttempts()
+    ClearReminder()
+    local frame = CreateTestFrame()
+    frame.detail:SetText(source.name or EllesmereUI.L("Bonus Roll"))
+    frame:Hide()
+    local context = {
+        isTest = true,
+        frame = frame,
+        spellID = 0,
+        source = source,
+        difficultyID = difficultyID,
+        expiresAt = GetTime() + 10,
+    }
+    ns.lastBonusRollDebug = {
+        time = GetTime(), configuredMode = ns.GetProfile().bonusRollPromptMode,
+        reason = "test_waiting", sourceKind = source.kind,
+        sourceID = source.kind == "raid" and source.encounterID or source.challengeModeID,
+        sourceName = source.name, specID = specID, policy = ns.BONUS_ROLL_NEVER,
+    }
+
+    local attempts = 0
+    local function Attempt()
+        attempts = attempts + 1
+        if MinimizePrompt(context) then
+            ns.lastBonusRollDebug.reason = "test_minimized"
+            ns.lastBonusRollDebug.handled = true
+            ns.lastBonusRollDebug.attempt = attempts
+            return
+        end
+        if attempts < 20 then C_Timer.After(0.1, Attempt) end
+    end
+    -- Deliberately show after the first checks to reproduce Blizzard's timing.
+    C_Timer.After(0.35, function() frame:Show() end)
+    C_Timer.After(0, Attempt)
+    return true, source.name
 end
 
 function ns.TryHandleBonusRollPrompt(spellID)
@@ -224,7 +320,7 @@ function ns.TryHandleBonusRollPrompt(spellID)
     return handled
 end
 
-local function StopPromptAttempts()
+StopPromptAttempts = function()
     promptAttemptToken = promptAttemptToken + 1
 end
 
@@ -276,3 +372,18 @@ eventFrame:SetScript("OnEvent", function(_, event, spellID)
 end)
 
 HookBonusRollStart()
+
+SLASH_EULTBONUSTEST1 = "/eulttestbonus"
+SlashCmdList.EULTBONUSTEST = function()
+    local ok, detail = ns.RunBonusRollDebugTest()
+    if ok then
+        print("|cff0cd29fEllesmereUI Loot Tracker|r: "
+            .. EllesmereUI.Lf("Testing delayed Skip for %s.", detail or "?"))
+    elseif detail == "no_skip_source" then
+        print("|cff0cd29fEllesmereUI Loot Tracker|r: "
+            .. EllesmereUI.L("Mark at least one dungeon or raid boss as Bonus Roll: Skip first."))
+    else
+        print("|cff0cd29fEllesmereUI Loot Tracker|r: "
+            .. EllesmereUI.L("Bonus Roll test is unavailable during combat."))
+    end
+end
