@@ -175,6 +175,7 @@ spells = {
         [431381] = { class = "PALADIN", disabled = true },
         [156322] = { class = "PALADIN", alts = { 461432 }, disabled = true },
         [432502] = { class = "PALADIN", disabled = true },
+        [432496] = { class = "PALADIN", disabled = true },
         [469703] = { class = "PALADIN", disabled = true },
         [194384] = { class = "PRIEST" },
         [77489] = { class = "PRIEST", disabled = true },
@@ -223,7 +224,8 @@ spells = {
         [1244893] = { class = "PALADIN", disabled = true },
         [431381] = { class = "PALADIN" },
         [156322] = { class = "PALADIN", alts = { 461432 } },
-        [432502] = { class = "PALADIN" },
+        [432502] = { class = "PALADIN" },   -- Sacred Weapon
+        [432496] = { class = "PALADIN" },   -- Holy Bulwark
         [469703] = { class = "PALADIN" },
         [194384] = { class = "PRIEST", disabled = true },
         [77489] = { class = "PRIEST" },
