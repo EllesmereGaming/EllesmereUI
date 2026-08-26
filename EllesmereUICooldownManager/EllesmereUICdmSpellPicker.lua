@@ -383,6 +383,14 @@ local function EnumerateCDMViewerSpells(includeBuffViewer)
             for frame in viewer.itemFramePool:EnumerateActive() do
                 if frame:IsShown() or frame.cooldownInfo then
                     local sid = GetCanonicalSpellIDForFrame(frame)
+                    local linkedMemberSID
+                    local frameInfo = frame.cooldownInfo
+                    if not frameInfo and type(frame.GetCooldownInfo) == "function" then
+                        local ok, info = pcall(frame.GetCooldownInfo, frame)
+                        if ok then frameInfo = info end
+                    end
+                    local linkedMember = frameInfo and frameInfo.linkedSpellID
+                    if _IsUsableSID(linkedMember) then linkedMemberSID = linkedMember end
                     -- Dedup identity: BUFF viewer can have two cooldownIDs share
                     -- one spellID (e.g. Diabolist: Demonic Art vs Diabolic
                     -- Ritual), so key on cooldownID there (sid-dedup would
@@ -400,6 +408,7 @@ local function EnumerateCDMViewerSpells(includeBuffViewer)
                             viewerName   = vName,
                             viewerOrder  = viewerOrder,
                             layoutIndex  = frame.layoutIndex or 0,
+                            linkedMemberSID = linkedMemberSID,
                         }
                     end
                 end
@@ -1095,6 +1104,7 @@ function ns.CollectDefaultBuffTrackEntries()
     -- RebuildSpellRouteMap and ns.GetCDMSpellsForBar already use to answer
     -- "is this the same buff" everywhere else in this file.
     local diverted = {}
+    local hiddenExact = {}
     local divertedCd = {}  -- cooldownID-level diversions (collided-buff slots)
     local p = ECME and ECME.db and ECME.db.profile
     if p and p.cdmBars and p.cdmBars.bars then
@@ -1105,7 +1115,15 @@ function ns.CollectDefaultBuffTrackEntries()
                     if otherSd and otherSd.assignedSpells then
                         for _, sid in ipairs(otherSd.assignedSpells) do
                             if type(sid) == "number" and sid > 0 then
-                                StoreVariantValue(diverted, sid, true, false)
+                                local separate = ns.CustomAuraKeepsLinkedBuffSeparate
+                                    and ns.CustomAuraKeepsLinkedBuffSeparate(otherSd, sid)
+                                if ns.CustomAuraHidesNativeDuplicates
+                                   and ns.CustomAuraHidesNativeDuplicates(otherSd, sid) then
+                                    hiddenExact[sid] = true
+                                end
+                                if not separate then
+                                    StoreVariantValue(diverted, sid, true, false)
+                                end
                             end
                         end
                     end
@@ -1146,7 +1164,20 @@ function ns.CollectDefaultBuffTrackEntries()
             and C_CooldownViewer.GetCooldownViewerCooldownInfo(e.cdID)
         local eqTracked = Enum and Enum.CooldownViewerCategory
             and Enum.CooldownViewerCategory.EquipSlotTracked or 8
+        -- The exact child can retain its controller as e.sid. Blizzard records
+        -- the active family member separately in linkedSpellID; check it plus
+        -- the raw resolved identity so an opted-out child cannot survive under
+        -- its linked controller in the default Buffs catalog.
+        local displayedIdentity
+        if eqInfo and ns.ResolveInfoSpellID then
+            local ok, sid = pcall(ns.ResolveInfoSpellID, eqInfo)
+            if ok and _IsUsableSID(sid) then displayedIdentity = sid end
+        end
+        local hiddenEntry = hiddenExact[e.sid] == true
+            or hiddenExact[displayedIdentity] == true
+            or hiddenExact[e.linkedMemberSID] == true
         if e.sid and not (eqInfo and eqInfo.equipSlot and eqInfo.category ~= eqTracked)
+           and not hiddenEntry
            and not ResolveVariantValue(diverted, e.sid)
            and not (e.cdID and divertedCd[e.cdID])
            and key and not seen[key] then

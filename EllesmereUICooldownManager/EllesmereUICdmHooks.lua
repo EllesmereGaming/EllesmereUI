@@ -692,6 +692,12 @@ local _cdidRouteMap = {}
 
 local _divertedSpellsBuff = {}
 local _divertedSpellsCD   = {}
+-- Exact custom-aura identities whose native buff-viewer entry must stay out
+-- of every EUI bar. AuraKit owns these entries; linked Blizzard controllers
+-- remain eligible because their canonical/live identity is different.
+-- Kept on ns because this file is at Lua 5.1's top-level local limit.
+ns._hiddenNativeCustomAura = {}
+ns._hasHiddenNativeCustomAura = nil
 -- cooldownID-level buff diversions: a collided buff (two viewer slots sharing one
 -- canonical spellID) is tracked on a custom bar by cooldownID (cd-claim marker in
 -- assignedSpells, ns.CdClaimMarker); checked BEFORE the sid map, so it outranks a pair claim.
@@ -875,6 +881,8 @@ function ns.RebuildSpellRouteMap()
     wipe(_cdidRouteMap)
     wipe(_divertedSpellsBuff)
     wipe(_divertedSpellsCD)
+    wipe(ns._hiddenNativeCustomAura)
+    ns._hasHiddenNativeCustomAura = nil
     wipe(_divertedDirectBuff)
     wipe(_divertedDirectCD)
     wipe(_divertedVarBaseBuff)
@@ -895,6 +903,8 @@ function ns.RebuildSpellRouteMap()
     if not SVV then return end
 
     local IsBuffFamily = ns.IsBarBuffFamily
+    local KeepsLinkedBuffSeparate = ns.CustomAuraKeepsLinkedBuffSeparate
+    local HidesNativeDuplicates = ns.CustomAuraHidesNativeDuplicates
 
     -- Record an exact assignment plus its base when the assigned id is a variant
     -- form; same overwrite semantics as the direct sets (later pass wins).
@@ -928,7 +938,19 @@ function ns.RebuildSpellRouteMap()
         local targetMap = IsBuffFamily and IsBuffFamily(bd) and _divertedSpellsBuff or _divertedSpellsCD
         for _, sid in ipairs(sd.assignedSpells) do
             if type(sid) == "number" and sid > 0 then
-                if not skipPositiveSet or not skipPositiveSet[sid] then
+                -- An isolated custom aura is still rendered by AuraKit, but it
+                -- must not claim the native CDM controller that lists this aura
+                -- in linkedSpellIDs. Only the buff-family route skips it.
+                local separate = targetMap == _divertedSpellsBuff
+                    and KeepsLinkedBuffSeparate
+                    and KeepsLinkedBuffSeparate(sd, sid)
+                if targetMap == _divertedSpellsBuff
+                   and HidesNativeDuplicates
+                   and HidesNativeDuplicates(sd, sid) then
+                    ns._hiddenNativeCustomAura[sid] = true
+                    ns._hasHiddenNativeCustomAura = true
+                end
+                if not separate and (not skipPositiveSet or not skipPositiveSet[sid]) then
                     StoreDirect(targetMap, sid, bd.key)
                 end
             else
@@ -953,7 +975,15 @@ function ns.RebuildSpellRouteMap()
             if sd and sd.assignedSpells then
                 for _, sid in ipairs(sd.assignedSpells) do
                     if type(sid) == "number" and sid > 0 then
-                        StoreDirect(_divertedSpellsBuff, sid, bd.key)
+                        if HidesNativeDuplicates
+                           and HidesNativeDuplicates(sd, sid) then
+                            ns._hiddenNativeCustomAura[sid] = true
+                            ns._hasHiddenNativeCustomAura = true
+                        end
+                        if not (KeepsLinkedBuffSeparate
+                           and KeepsLinkedBuffSeparate(sd, sid)) then
+                            StoreDirect(_divertedSpellsBuff, sid, bd.key)
+                        end
                     end
                 end
             end
@@ -3926,6 +3956,68 @@ end
 local function CategorizeFrame(frame, viewerBarKey)
     local displaySID, baseSID = ResolveFrameSpellID(frame)
     if not displaySID or displaySID <= 0 then return nil, nil, nil end
+
+    -- AuraKit exclusively renders opted-in custom auras. An exact child entry
+    -- can retain its linked controller as the canonical identity while
+    -- ResolveInfoSpellID reports the currently displayed member. Match every
+    -- available clean identity channel: requiring only the canonical ID can
+    -- leave the child frame visible on another Buffs bar.
+    local nativeSID, currentDisplaySID, auraSID, linkedMemberSID
+    if ns._hasHiddenNativeCustomAura then
+        nativeSID = ns.GetCanonicalSpellIDForFrame
+            and ns.GetCanonicalSpellIDForFrame(frame)
+        -- Blizzard's authoritative ACTIVE member of a linked buff family is
+        -- the singular cooldownInfo.linkedSpellID (maintained on aura add/remove
+        -- edges). The plural linkedSpellIDs table only describes the family and
+        -- cannot say which member this frame is currently rendering. A linked
+        -- controller can remain the canonical identity while this field changes
+        -- to the active member, making it the decisive exact-identity channel.
+        local frameInfo = frame.cooldownInfo
+        if not frameInfo and type(frame.GetCooldownInfo) == "function" then
+            local ok, info = pcall(frame.GetCooldownInfo, frame)
+            if ok then frameInfo = info end
+        end
+        local linkedMember = frameInfo and frameInfo.linkedSpellID
+        if CdidIDReadable(linkedMember) then linkedMemberSID = linkedMember end
+        -- ResolveFrameSpellID memoizes by cooldownID, but a buff controller can
+        -- change its displayed child without changing cooldownID. Probe the raw
+        -- record again only for users who enabled this feature so a pre-proc
+        -- cached parent cannot bypass the exact-aura exclusion.
+        local cdID = frame.cooldownID
+        local getInfo = C_CooldownViewer
+            and C_CooldownViewer.GetCooldownViewerCooldownInfo
+        if cdID and getInfo then
+            local info = getInfo(cdID)
+            if info then
+                local ok, sid = pcall(ResolveInfoSpellID, info)
+                if ok and CdidIDReadable(sid) then currentDisplaySID = sid end
+            end
+        end
+        -- Buff frames can expose the exact aura through GetAuraSpellID even
+        -- when GetSpellID (the canonical helper's first choice) remains the
+        -- controller. Secret reads fail closed through CdidIDReadable.
+        local getAura = frame.GetAuraSpellID
+        if type(getAura) == "function" then
+            local ok, sid = pcall(getAura, frame)
+            if ok and CdidIDReadable(sid) then auraSID = sid end
+        end
+    end
+    if viewerBarKey == "buffs"
+       and ((CdidIDReadable(nativeSID)
+                and ns._hiddenNativeCustomAura[nativeSID])
+            or (CdidIDReadable(linkedMemberSID)
+                and ns._hiddenNativeCustomAura[linkedMemberSID])
+            or (CdidIDReadable(displaySID)
+                and ns._hiddenNativeCustomAura[displaySID])
+            or (CdidIDReadable(currentDisplaySID)
+                and ns._hiddenNativeCustomAura[currentDisplaySID])
+            or (CdidIDReadable(auraSID)
+                and ns._hiddenNativeCustomAura[auraSID])) then
+        -- This is a Blizzard pool frame, so never Hide it; alpha is restored
+        -- by the ordinary claimed-buff path as soon as the option is disabled.
+        frame:SetAlpha(0)
+        return nil, nil, nil
+    end
 
     -- Lazy route resolution: ResolveCDIDToBar handles cache lookup,
     -- diversion-set match, and viewer-default fallback (defaultBar =

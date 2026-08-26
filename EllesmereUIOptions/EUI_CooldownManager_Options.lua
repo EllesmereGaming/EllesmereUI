@@ -8356,7 +8356,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         local menuW = 210
         local ITEM_H = 26
-        local MAX_H = 400  -- tall enough for the fullest per-spell menus (buff branch: actions + 10 settings incl. Threshold Text + dividers); this menu has no scroll, so anything over MAX_H gets clipped
+        local MAX_H = 400  -- tall enough for the fullest per-spell menus (buff branch: actions + 11 settings incl. Threshold Text + dividers); this menu has no scroll, so anything over MAX_H gets clipped
 
         local menu = CreateFrame("Frame", nil, UIParent)
         menu:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -9706,10 +9706,12 @@ initFrame:SetScript("OnEvent", function(self)
                             -- a caption that grows while the flyout is open still fits.
                             local function RefitSub()
                                 local labels = {}
+                                local fitPad = 40
                                 for _, e in ipairs(flyoutEntries) do
                                     if e.label then labels[#labels + 1] = e.label end
+                                    if e.hasSwitch then fitPad = 56 end
                                 end
-                                local fitW = FitMenuWidth(labels, subW)
+                                local fitW = FitMenuWidth(labels, subW, fitPad)
                                 if fitW == subW then return end
                                 subW = fitW
                                 sub:SetWidth(subW)
@@ -9793,6 +9795,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 local isChargeToggle = item.charge ~= nil
                                 local isActiveBorder = item.activeBorder == true
                                 local isFnToggle = item.toggleGet ~= nil
+                                local isSwitchToggle = isFnToggle and item.showToggle == true
                                 local isSelected
                                 if isChargeToggle then
                                     isSelected = (ss[item.charge] == true)
@@ -9804,7 +9807,7 @@ initFrame:SetScript("OnEvent", function(self)
                                     isSelected = (curVal == item.val)
                                         or (curVal == nil and item.val == nil)
                                 end
-                                if isSelected then
+                                if isSelected and not isSwitchToggle then
                                     local acR, acG, acB = EllesmereUI.GetAccentColor()
                                     sLbl:SetTextColor(acR, acG, acB, 1)
                                 else
@@ -9859,8 +9862,24 @@ initFrame:SetScript("OnEvent", function(self)
                                     if canApply and itemIsBarApplied() then sArrow:Show() else sArrow:Hide() end
                                 end
                                 updateArrow()
+                                local switchToggle
+                                if isSwitchToggle and item.toggleSet then
+                                    switchToggle = EllesmereUI.BuildToggleControl(
+                                        si, si:GetFrameLevel() + 1,
+                                        item.toggleGet,
+                                        function(v)
+                                            item.toggleSet(v)
+                                            isSelected = item.toggleGet() and true or false
+                                            UpdateLabelColor()
+                                        end,
+                                        { sizeRatio = 0.65 })
+                                    switchToggle:SetPoint("RIGHT", si, "RIGHT", -8, 0)
+                                    sLbl:SetPoint("RIGHT", switchToggle, "LEFT", -8, 0)
+                                end
                                 si:SetScript("OnEnter", function()
-                                    if not isSelected then sLbl:SetTextColor(1, 1, 1, 1) end
+                                    if isSwitchToggle or not isSelected then
+                                        sLbl:SetTextColor(1, 1, 1, 1)
+                                    end
                                     sHl:SetColorTexture(1, 1, 1, hlA); sHl:SetAlpha(1)
                                     -- Optional hover tooltip (item.tooltip): shows the
                                     -- full text for labels wider than the flyout.
@@ -9915,13 +9934,19 @@ initFrame:SetScript("OnEvent", function(self)
                                     end
                                 end)
                                 si:SetScript("OnLeave", function()
-                                    if not isSelected then sLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA) end
+                                    if isSwitchToggle or not isSelected then
+                                        sLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                                    end
                                     -- Keep the overlay on for a selected single-select
                                     -- (persistent highlight); clear it for everything else.
                                     sHl:SetAlpha((not (isChargeToggle or isActiveBorder or isFnToggle) and isSelected) and 1 or 0)
                                     if item.tooltip then EllesmereUI.HideWidgetTooltip() end
                                 end)
                                 si:SetScript("OnClick", function()
+                                    if isSwitchToggle and switchToggle then
+                                        switchToggle:Click()
+                                        return
+                                    end
                                     -- The value the bar applies is unclickable -- it's the submenu/arrow
                                     -- row. Manage it through the scope flyout (Exclude/Include/Apply to Bar), not by re-selecting.
                                     if itemIsBarApplied() then return end
@@ -10049,6 +10074,7 @@ initFrame:SetScript("OnEvent", function(self)
                                     frame = si, label = sLbl, name = item.label,
                                     itemVal = item.val,
                                     isToggle = isChargeToggle or isActiveBorder or isFnToggle,
+                                    hasSwitch = isSwitchToggle,
                                     -- Live selected-state predicate, mirroring the render-time isSelected
                                     -- assignment above. Reads effective (chained) values, so it reflects a bar-tier apply, not just the spell's own entry.
                                     computeSelected = function()
@@ -10062,7 +10088,7 @@ initFrame:SetScript("OnEvent", function(self)
                                     -- In-place selection update for the keep-open click path (also keeps the item's OnLeave and the strip's toggle state in sync).
                                     setSelected = function(sel)
                                         isSelected = sel
-                                        if sel then
+                                        if sel and not isSwitchToggle then
                                             local acR2, acG2, acB2 = EllesmereUI.GetAccentColor()
                                             sLbl:SetTextColor(acR2, acG2, acB2, 1)
                                         else
@@ -11948,6 +11974,47 @@ initFrame:SetScript("OnEvent", function(self)
 
                     end  -- not isCustomInjected
                     end  -- isBuffBar per-icon rows
+
+                    -- User-added auras normally participate in native CDM routing too. Keep
+                    -- linked-controller routing and exact-aura suppression as independent,
+                    -- own per-aura toggles; both remain disabled when absent.
+                    if isBuffBar and type(spellID) == "number" and spellID > 0
+                       and sd.customSpellIDs and sd.customSpellIDs[spellID] then
+                        local separateItems = {
+                            {
+                                label = EllesmereUI.L("Show Only This Buff Here"),
+                                showToggle = true,
+                                toggleGet = function()
+                                    return rawget(ss, "separateLinkedBuff") == true
+                                end,
+                                toggleSet = function(v)
+                                    EnsureSS()
+                                    rawset(ss, "separateLinkedBuff", v and true or nil)
+                                    if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
+                                    ns._cdmBuffOrderDirty = true
+                                    if ns.QueueReanchor then ns.QueueReanchor() end
+                                end,
+                            },
+                            {
+                                label = EllesmereUI.L("Hide This Buff Elsewhere"),
+                                showToggle = true,
+                                toggleGet = function()
+                                    return rawget(ss, "hideCustomAuraElsewhere") == true
+                                end,
+                                toggleSet = function(v)
+                                    EnsureSS()
+                                    rawset(ss, "hideCustomAuraElsewhere", v and true or nil)
+                                    if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
+                                    ns._cdmBuffOrderDirty = true
+                                    if ns.QueueReanchor then ns.QueueReanchor() end
+                                end,
+                            },
+                        }
+                        MakeSubnavRow(EllesmereUI.L("Separate Linked Buff"), separateItems,
+                            function() return nil end,
+                            function() end,
+                            function() return true end)
+                    end
 
                     -- (The per-setting "Apply to Bar / (All Specs)" strip superseded
                     -- "Sync All Bar Buttons"; cdm_spell_settings_tiers_v1 migrated it.)
