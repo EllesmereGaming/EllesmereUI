@@ -14,7 +14,7 @@ local pageRebuildQueued
 local catalogRetries = {}
 
 StaticPopupDialogs.EULT_SIMC_EXPORT = {
-    text = "SimulationCraft gear block — Ctrl+C",
+    text = "SimulationCraft gear block - Ctrl+C",
     button1 = CLOSE,
     hasEditBox = true,
     editBoxWidth = 420,
@@ -251,7 +251,7 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
         source.kind, difficultyID, Profile().selectedKeyLevel)
     name:SetText(DisplayItemLink(item, targetLink))
     local slotText = item.slot or ""
-    if displayItemLevel then slotText = slotText .. "  |cff777d88• iLvl " .. displayItemLevel .. "|r" end
+    if displayItemLevel then slotText = slotText .. "  |cff777d88- iLvl " .. displayItemLevel .. "|r" end
     slot:SetText(slotText)
 
     local goal = ns.GetGoal(sourceKey, item.itemID, specID)
@@ -420,7 +420,7 @@ local function BuildCatalogPage(parent, yOffset, kind)
     local title = Font(info, 12, 1, 1, 1, 1)
     title:SetPoint("LEFT", info, "LEFT", 12, 0)
     local difficultyName = kind == "raid" and GetDifficultyInfo(difficultyID)
-    title:SetText(difficultyName and (source.name .. "  |cff777d88• " .. difficultyName .. "|r") or source.name)
+    title:SetText(difficultyName and (source.name .. "  |cff777d88- " .. difficultyName .. "|r") or source.name)
     local policy = ns.GetBonusRollPolicy(source, specID, difficultyID)
     local policyLabels = {
         [ns.BONUS_ROLL_AUTO] = L("Bonus Roll: Auto (Wishlist)"),
@@ -444,7 +444,7 @@ local function BuildCatalogPage(parent, yOffset, kind)
     local chance = Font(info, 11, 0.05, 0.82, 0.62, 1)
     chance:SetPoint("RIGHT", policyButton, "LEFT", -10, 0)
     local confidence = summary.confidence == "verified" and "" or (" " .. L("estimated"))
-    chance:SetText(string.format("%d/%d  •  %.1f%%%s  •  %d %s", summary.desired, summary.remaining,
+    chance:SetText(string.format("%d/%d  -  %.1f%%%s  -  %d %s", summary.desired, summary.remaining,
         summary.chance * 100, confidence, summary.coreCost, L("Voidcore")))
     y = y - 48
     local items = ns.GetCatalog(source, specID, difficultyID)
@@ -566,7 +566,7 @@ local function BuildBonusRollPriority(parent, y, specID)
         name:SetPoint("RIGHT", row, "RIGHT", -430, 0); name:SetWordWrap(false)
         local sourceName = entry.source.name
         if entry.source.kind == "raid" then
-            sourceName = ((entry.source.instanceName and (entry.source.instanceName .. "  •  ")) or "") .. sourceName
+            sourceName = ((entry.source.instanceName and (entry.source.instanceName .. "  -  ")) or "") .. sourceName
             local difficultyName = GetDifficultyInfo(entry.difficultyID)
             if difficultyName then sourceName = sourceName .. "  (" .. difficultyName .. ")" end
         end
@@ -577,7 +577,7 @@ local function BuildBonusRollPriority(parent, y, specID)
         if entry.summary.confidence ~= "verified" then
             chanceText = chanceText .. " " .. L("estimated")
         end
-        detail:SetText(EllesmereUI.Lf("%1$s next roll • %2$d of %3$d in pool • %4$s",
+        detail:SetText(EllesmereUI.Lf("%1$s next roll - %2$d of %3$d in pool - %4$s",
             chanceText, entry.summary.remaining,
             entry.summary.total, BonusRollCountText(entry.summary.rollsUsed)))
         if rank == 1 then
@@ -716,7 +716,7 @@ local function BuildFarmPriority(parent, y, specID)
         local summary = ns.GetSourceSummary(entry.source, specID)
         local detail = Font(row, 9, 0.55, 0.58, 0.64, 1)
         detail:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 87, 10)
-        detail:SetText(EllesmereUI.Lf("%1$d upgrades • %2$d BiS • %3$s next roll",
+        detail:SetText(EllesmereUI.Lf("%1$d upgrades - %2$d BiS - %3$s next roll",
             #entry.goals, entry.bis, string.format("%.1f%%", summary.chance * 100)))
         if rank == 1 then
             local nextBadge = Font(row, 8, 0.05, 0.82, 0.62, 1)
@@ -803,7 +803,7 @@ local function BuildOverview(parent, yOffset)
             local name = Font(card, 12, 1, 1, 1, 1)
             name:SetPoint("TOPLEFT", card, "TOPLEFT", 12, -10)
             local sourceName = source.kind == "raid" and source.instanceName
-                and (source.instanceName .. "  •  " .. source.name) or L(source.name)
+                and (source.instanceName .. "  -  " .. source.name) or L(source.name)
             if source.kind == "raid" then
                 local difficultyName = GetDifficultyInfo(difficultyID)
                 if difficultyName then sourceName = sourceName .. "  (" .. difficultyName .. ")" end
@@ -815,7 +815,7 @@ local function BuildOverview(parent, yOffset)
             local chance = Font(card, 10, 0.05, 0.82, 0.62, 1)
             chance:SetPoint("TOPRIGHT", card, "TOPRIGHT", -12, -11)
             if source.kind == "raid" or source.kind == "dungeon" then
-                chance:SetText(string.format("%.1f%%  •  %s", summary.chance * 100,
+                chance:SetText(string.format("%.1f%%  -  %s", summary.chance * 100,
                     BonusRollCountText(summary.rollsUsed)))
             else
                 chance:SetText(source.kind == "catalyst" and L("Catalyst conversion") or L("Crafting"))
@@ -823,7 +823,7 @@ local function BuildOverview(parent, yOffset)
             local pool = Font(card, 9, 0.55, 0.58, 0.64, 1)
             pool:SetPoint("TOPLEFT", name, "BOTTOMLEFT", 0, -3)
             if source.kind == "raid" or source.kind == "dungeon" then
-                pool:SetText(EllesmereUI.Lf("%1$d desired • %2$d of %3$d remaining", summary.desired, summary.remaining, summary.total))
+                pool:SetText(EllesmereUI.Lf("%1$d desired - %2$d of %3$d remaining", summary.desired, summary.remaining, summary.total))
             else
                 pool:SetText(EllesmereUI.Lf("%d selected for this plan", #grouped[sourceKey]))
             end
@@ -920,7 +920,7 @@ local function PlannerSlotCard(parent, y, slot, selection, selected, right, onSe
     itemName:SetJustifyH("LEFT")
     local selectedName = selection and selection.itemName
     if selectedName and selection.targetLevel then
-        selectedName = selectedName .. "  |cff777d88• iLvl " .. selection.targetLevel .. "|r"
+        selectedName = selectedName .. "  |cff777d88- iLvl " .. selection.targetLevel .. "|r"
     end
     if selectedName and selection.catalyst then
         selectedName = selectedName .. "  |cffffb347" .. L("Catalyst") .. "|r"
@@ -928,7 +928,7 @@ local function PlannerSlotCard(parent, y, slot, selection, selected, right, onSe
     itemName:SetText(selectedName or L("Click to choose an item"))
     if selection then
         local clear = Font(frame, 15, 0.65, 0.67, 0.72, 1)
-        clear:SetPoint("RIGHT", frame, "RIGHT", -9, 0); clear:SetText("×")
+        clear:SetPoint("RIGHT", frame, "RIGHT", -9, 0); clear:SetText("x")
     end
     frame:SetScript("OnClick", function(_, button)
         if button == "RightButton" and selection then
@@ -968,11 +968,11 @@ local function BuildPlannerCandidate(parent, y, candidate, selected, onClick)
     AddCatalystBadge(frame, icon, catalyst)
     local name = Font(frame, 10, 0.78, 0.35, 1, 1)
     name:SetPoint("TOPLEFT", icon, "TOPRIGHT", 8, -4); name:SetText(item.name or ("Item " .. item.itemID))
-    local sourceText = source.kind == "raid" and ((source.instanceName or "Raid") .. " • " .. source.name)
+    local sourceText = source.kind == "raid" and ((source.instanceName or "Raid") .. " - " .. source.name)
         or L(source.name)
     local sub = Font(frame, 9, 0.55, 0.58, 0.64, 1)
     sub:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT", 8, 4)
-    sub:SetText(sourceText .. (candidate.targetLevel and ("  •  iLvl " .. candidate.targetLevel) or ""))
+    sub:SetText(sourceText .. (candidate.targetLevel and ("  -  iLvl " .. candidate.targetLevel) or ""))
     local state = Font(frame, 10, selected and 0.05 or 0.55, selected and 0.82 or 0.58,
         selected and 0.62 or 0.64, 1)
     state:SetPoint("RIGHT", frame, "RIGHT", -12, 0)

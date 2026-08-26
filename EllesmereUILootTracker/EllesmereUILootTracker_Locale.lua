@@ -3,7 +3,7 @@ if not (EllesmereUI and EllesmereUI.RegisterLocale) then return end
 
 local L = EllesmereUI.RegisterLocale("deDE")
 
-L["%1$d desired • %2$d of %3$d remaining"] = "%1$d gewünscht • %2$d von %3$d verbleibend"
+L["%1$d desired - %2$d of %3$d remaining"] = "%1$d gewünscht - %2$d von %3$d verbleibend"
 L["All Slots"] = "Alle Plätze"
 L["A goal is completed only by this Voidcore reward item level or higher."] = "Ein Ziel wird nur durch diese oder eine höhere Voidcore-Belohnungsgegenstandsstufe abgeschlossen."
 L["Automatically Archive Items"] = "Gegenstände automatisch archivieren"
@@ -92,7 +92,7 @@ L["Crafted secondary stats are customizable and therefore only estimated."] = "S
 L["Crafting"] = "Herstellung"
 L["This is not an equippable item link or item ID."] = "Das ist kein ausrüstbarer Itemlink und keine gültige Item-ID."
 L["%d selected for this plan"] = "%d für diesen Plan ausgewählt"
-L["%1$d upgrades • %2$d BiS • %3$s next roll"] = "%1$d Upgrades • %2$d BiS • %3$s nächste Rolle"
+L["%1$d upgrades - %2$d BiS - %3$s next roll"] = "%1$d Upgrades - %2$d BiS - %3$s nächste Rolle"
 L["Available placeholders: {player}, {item}"] = "Verfügbare Platzhalter: {player}, {item}"
 L["Dismiss"] = "Schließen"
 L["DUNGEON FARM PRIORITY"] = "DUNGEON-FARMPRIORITÄT"
@@ -115,7 +115,7 @@ L["Dungeon teleport not unlocked."] = "Dungeon-Teleport noch nicht freigeschalte
 L["BONUS ROLL PRIORITY"] = "BONUS-ROLL-PRIORITÄT"
 L["No open bonus-roll wishlist items."] = "Keine offenen Bonus-Roll-Gegenstände auf der Wunschliste."
 L["NEXT ROLL"] = "NÄCHSTER ROLL"
-L["%1$s next roll • %2$d of %3$d in pool • %4$s"] = "%1$s nächster Roll • %2$d von %3$d im Pool • %4$s"
+L["%1$s next roll - %2$d of %3$d in pool - %4$s"] = "%1$s nächster Roll - %2$d von %3$d im Pool - %4$s"
 L["Crafted preview at the selected target item level."] = "Crafting-Vorschau auf der gewählten Zielgegenstandsstufe."
 L["Secondary stats depend on the selected missives."] = "Sekundärwerte hängen von den gewählten Schreiben ab."
 L["Catalyst"] = "Katalysator"
