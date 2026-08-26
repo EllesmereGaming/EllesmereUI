@@ -197,7 +197,7 @@ local function CreateReminder()
             return
         end
         local seconds = context.expiresAt and math.max(0, math.ceil(context.expiresAt - GetTime()))
-        self.detail:SetText(seconds and (EllesmereUI.L("Bonus roll minimized") .. "  •  " .. seconds .. "s")
+        self.detail:SetText(seconds and (EllesmereUI.L("Bonus roll minimized") .. "  -  " .. seconds .. "s")
             or EllesmereUI.L("Bonus roll minimized"))
     end)
     frame:Hide()
