@@ -4068,6 +4068,39 @@ local function UpdateHealthBar()
     end
 end
 
+-- The power bar's normal fill / text colors, factored out so the buff-color
+-- override has something to restore to when the buff drops. Both mirror what
+-- BuildBars paints at build time (custom > power-type color). On ns rather
+-- than top-level locals: this file is AT the 200-local cap (see CLAUDE notes).
+function ns.PaintPowerBase(ft, pp, powerType)
+    if not ft then return end
+    local r, g, b
+    if pp.customColored then
+        r, g, b = pp.fillR, pp.fillG, pp.fillB
+    else
+        local col = POWER_COLORS[powerType]
+        if col then r, g, b = col[1], col[2], col[3] else r, g, b = 1, 1, 1 end
+    end
+    if pp.gradientEnabled then
+        ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL", r, g, b, 1,
+            pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
+    else
+        ApplyBarFlat(ft, r, g, b, 1)
+    end
+end
+
+function ns.PaintPowerTextBase(pp, powerType)
+    if not (primaryBar and primaryBar._text) then return end
+    if pp.textCustomColored == false then
+        local tpc = POWER_COLORS[powerType]
+        if tpc then primaryBar._text:SetTextColor(tpc[1], tpc[2], tpc[3], 1)
+        else primaryBar._text:SetTextColor(1, 1, 1, 1) end
+    else
+        primaryBar._text:SetTextColor(pp.textFillR or 1, pp.textFillG or 1,
+            pp.textFillB or 1, pp.textFillA or 1)
+    end
+end
+
 local function UpdatePrimaryBar()
     if not primaryBar or not primaryBar:IsShown() then return end
     -- Config resolution cache: ResolvePowerCfg/ResolveThresholdSpecEntry/
@@ -4085,6 +4118,9 @@ local function UpdatePrimaryBar()
         -- ResolveBandConfig must see the RAW entry, not the enabled-gated one.
         pc.bandOn, pc.bands, pc.bandMode, pc.bandRev = ResolveBandConfig(pc.pp, e)
         pc.tsEntry = (e and (e.thresholdEnabled ~= false)) and e or nil
+        -- RAW entry kept for buff coloring: buff colors are independent of
+        -- threshold coloring, so they must survive the enabled-gated nil above.
+        pc.buffEntry = e
         -- Primary power type is spec/form/profile state; every path that can
         -- change it funnels through BuildBars, which bumps CfgGen.
         pc.primary = GetPrimaryPowerType()
@@ -4198,7 +4234,43 @@ local function UpdatePrimaryBar()
     local _ppBandOn, _ppBands, _ppBandMode, _ppBandRev = pc.bandOn, pc.bands, pc.bandMode, pc.bandRev
     local ft = primaryBar:GetStatusBarTexture()
     local _ppTextInstead = _ppTsEntry and _ppTsEntry.thresholdTextInstead and pp.textFormat ~= "none"
-    if (_ppTsEntry or _ppBandOn) and ft and UnitPowerPercent then
+
+    -- Buff coloring: while a tracked buff is up the bar takes its color, winning
+    -- over threshold/multi-band (same precedence as the class-resource bar). Read
+    -- off the RAW entry so it works with threshold coloring switched off, and use
+    -- a separate text-instead flag so the threshold path's behavior is untouched.
+    local _ppBuffEntry = pc.buffEntry
+    local _bfr, _bfg, _bfb, _bfa = ns.ActiveBuffColor(_ppBuffEntry)
+    local _ppBuffActive = _bfr ~= nil
+    local _ppBuffTextInstead = _ppBuffEntry and _ppBuffEntry.thresholdTextInstead
+        and pp.textFormat ~= "none"
+    -- The base-color paths below are stamped per config generation, so a buff
+    -- dropping would leave the bar stuck in the buff color. Invalidate the stamp
+    -- on each transition and restore the base explicitly.
+    if _ppBuffActive ~= (primaryBar._buffOn or false) then
+        primaryBar._buffOn = _ppBuffActive
+        primaryBar._colGen = nil
+        if not _ppBuffActive then
+            ns.PaintPowerBase(ft, pp, cachedPrimary)
+            if _ppBuffTextInstead then ns.PaintPowerTextBase(pp, cachedPrimary) end
+        end
+    end
+
+    if _ppBuffActive and ft then
+        -- Re-asserted on EVERY update, deliberately not stamped on ns.CfgGen or on
+        -- the color values: BuildBars repaints the fill to the base color, and it
+        -- runs from a dozen events, so any stamp of ours goes stale the moment one
+        -- fires and the buff color never comes back. ApplyBarFlat/ApplyBarGradient
+        -- already change-gate on the TEXTURE (ft._lf*/_lg*), which tracks what was
+        -- actually painted last and so self-heals after an external repaint.
+        if _ppBuffTextInstead then
+            -- Text-instead keeps the fill at base and colors the count text
+            -- instead (painted after the text is built, at the end of this call).
+            ns.PaintPowerBase(ft, pp, cachedPrimary)
+        else
+            ApplyBarFlat(ft, _bfr, _bfg, _bfb, _bfa or 1)
+        end
+    elseif (_ppTsEntry or _ppBandOn) and ft and UnitPowerPercent then
         local curve
         local baseR, baseG, baseB
         if pp.customColored then
@@ -4267,16 +4339,7 @@ local function UpdatePrimaryBar()
         -- Static per config generation + power type (same stamp as above).
         if primaryBar._colGen ~= ns.CfgGen or primaryBar._colPow ~= cachedPrimary then
             primaryBar._colGen, primaryBar._colPow = ns.CfgGen, cachedPrimary
-            local r, g, b
-            local pc = POWER_COLORS[cachedPrimary]
-            if pc then r, g, b = pc[1], pc[2], pc[3] else r, g, b = 1, 1, 1 end
-            if pp.gradientEnabled then
-                ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL",
-                    r, g, b, 1,
-                    pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
-            else
-                ApplyBarFlat(ft, r, g, b, 1)
-            end
+            ns.PaintPowerBase(ft, pp, cachedPrimary)
         end
     end
 
@@ -4318,6 +4381,12 @@ local function UpdatePrimaryBar()
         primaryBar._text:Show()
     else
         primaryBar._text:Hide()
+    end
+
+    -- Buff color under "recolor text instead": painted last so it wins over the
+    -- build-time text color and the threshold curve's own SetTextColor.
+    if _ppBuffActive and _ppBuffTextInstead and primaryBar._text then
+        primaryBar._text:SetTextColor(_bfr, _bfg, _bfb, _bfa or 1)
     end
 end
 
@@ -4449,8 +4518,10 @@ local function PlayerHasBuff(spellID)
     return false
 end
 
--- Buff coloring for the class-resource bar
-local function ActiveBuffColor(entry)
+-- Buff coloring for the class-resource and power bars. On ns, not a top-level
+-- local: this file sits AT the Lua 5.1 200-local ceiling, and it must be
+-- reachable from UpdatePrimaryBar far above its definition.
+function ns.ActiveBuffColor(entry)
     if not entry or not entry.buffColorEnabled then return nil end
     local list = entry.buffColors
     if not list then return nil end
@@ -4463,11 +4534,23 @@ local function ActiveBuffColor(entry)
     return nil
 end
 -- True when the current spec's resolved threshold entry tracks any buff (drives
--- the aura poll / refresh so the bar recolors as buffs come and go).
-local function SecondaryTracksBuff(sp)
-    if not sp then return false end
-    local e = ResolveThresholdSpecEntry(sp)
+-- the aura poll / refresh so the bar recolors as buffs come and go). Takes any
+-- bar's config table -- the class resource and the power bar both use it.
+local function BarTracksBuff(bar)
+    if not bar then return false end
+    local e = ResolveThresholdSpecEntry(bar)
     return (e and e.buffColorEnabled and e.buffColors and #e.buffColors > 0) and true or false
+end
+
+-- Cached per config generation, like ns.STB does for the class resource.
+function ns.PrimaryTracksBuff()
+    local ptb = ns.PTB
+    if not ptb or ptb.gen ~= ns.CfgGen then
+        if not ptb then ptb = {}; ns.PTB = ptb end
+        ptb.gen = ns.CfgGen
+        ptb.v = BarTracksBuff(_G._ERB_ResolvePowerCfg()) and true or false
+    end
+    return ptb.v
 end
 
 -- Per-frame render for the Guardian Ironfur bar: prune expired ticks, position
@@ -4559,7 +4642,7 @@ local function UpdateIronfurBar()
     local _tiWanted = (tsEntry and tsEntry.thresholdTextInstead and sp.showText) and true or false
     -- Buff coloring wins: a tracked buff on this entry overrides the base color and
     -- suppresses the stack-count threshold/bands below.
-    local _bfr, _bfg, _bfb, _bfa = ActiveBuffColor(tsEntry)
+    local _bfr, _bfg, _bfb, _bfa = ns.ActiveBuffColor(tsEntry)
     local _buffActive = _bfr ~= nil
     if _buffActive and not _tiWanted then r, g, b, a = _bfr or r, _bfg or g, _bfb or b, _bfa or a end
     -- Ironfur colors by active stack count, NOT the bar's duration fraction, so
@@ -4869,7 +4952,7 @@ local function UpdateSecondaryResource()
             if not stb or stb.gen ~= ns.CfgGen then
                 if not stb then stb = {}; ns.STB = stb end
                 stb.gen = ns.CfgGen
-                stb.v = SecondaryTracksBuff(_G._ERB_ResolveSecondaryCfg()) and true or false
+                stb.v = BarTracksBuff(_G._ERB_ResolveSecondaryCfg()) and true or false
             end
             if not stb.v then
                 local st = ns.SecSt
@@ -4963,7 +5046,7 @@ local function UpdateSecondaryResource()
     -- A tracked buff overrides the fill (buff wins over threshold). With "recolor
     -- text instead" on, the buff colors the count TEXT (done at the end of this
     -- function) and fill/pips stay at their base color.
-    local _bfr, _bfg, _bfb, _bfa = ActiveBuffColor(_buffEntry)
+    local _bfr, _bfg, _bfb, _bfa = ns.ActiveBuffColor(_buffEntry)
     local _buffActive = _bfr ~= nil
     if _buffActive then
         if not _spTextInstead then
@@ -6295,14 +6378,22 @@ end, 1 / 30)
 -- skip every other fire. All paths funnel into UpdateSecondaryResource, whose
 -- value early-out makes an unchanged poll nearly free.
 ns.PollTick = EllesmereUI.Tick.NewAnimTicker(CreateFrame("Frame"), function()    local cs = cachedSecondary
-    if not cs then return end
-    local pwr, typ = cs.power, cs.type
-    if _essenceNextTick and pwr == PT.ESSENCE then
+    local pwr, typ = cs and cs.power, cs and cs.type
+    if cs and _essenceNextTick and pwr == PT.ESSENCE then
         UpdateSecondaryResource()
         return true
     end
     ns._pollFlip = not ns._pollFlip
     if ns._pollFlip then return true end
+    -- Power-bar buff coloring: a secret proc fires no UNIT_AURA, so the color
+    -- only changes when we look. Independent of the class resource -- the power
+    -- bar can track a buff with no class resource on screen at all.
+    local keep = false
+    if ns.PrimaryTracksBuff() then
+        UpdatePrimaryBar()
+        keep = true
+    end
+    if not cs then return keep end
     if typ == "runes" or typ == "custom" or typ == "bar" or cs.frac then
         -- cs.frac (Destruction shard fragments): sub-unit movement, including
         -- out-of-combat decay, has no reliable event. The fragment-aware value
@@ -6314,12 +6405,13 @@ ns.PollTick = EllesmereUI.Tick.NewAnimTicker(CreateFrame("Frame"), function()   
     if not stb or stb.gen ~= ns.CfgGen then
         if not stb then stb = {}; ns.STB = stb end
         stb.gen = ns.CfgGen
-        stb.v = SecondaryTracksBuff(_G._ERB_ResolveSecondaryCfg()) and true or false
+        stb.v = BarTracksBuff(_G._ERB_ResolveSecondaryCfg()) and true or false
     end
     if stb.v then
         UpdateSecondaryResource()
         return true
     end
+    return keep
 end, 0.05)
 
 
@@ -6345,11 +6437,14 @@ function ns.ArmTick()
             if not stb or stb.gen ~= ns.CfgGen then
                 if not stb then stb = {}; ns.STB = stb end
                 stb.gen = ns.CfgGen
-                stb.v = SecondaryTracksBuff(_G._ERB_ResolveSecondaryCfg()) and true or false
+                stb.v = BarTracksBuff(_G._ERB_ResolveSecondaryCfg()) and true or false
             end
             if stb.v then ns.PollTick.Start() end
         end
     end
+    -- Outside the class-resource block on purpose: the power bar tracks buffs
+    -- whether or not this spec has a class resource.
+    if ns.PrimaryTracksBuff() then ns.PollTick.Start() end
     if cachedPrimary == "EBON_MIGHT" and not ns.EMB121_Owns
        and _ebonMightExpiry > GetTime() then
         ns.EMTick.Start()
@@ -9261,11 +9356,11 @@ local function OnEvent(self, event, ...)
     elseif event == "UNIT_AURA" then
         local unit = ...
         if unit == "player" then
-            if cachedPrimary == "EBON_MIGHT" then UpdatePrimaryBar() end
+            if cachedPrimary == "EBON_MIGHT" or ns.PrimaryTracksBuff() then UpdatePrimaryBar() end
             if cachedSecondary then
                 -- Refresh on aura change for custom resources and for buff coloring
                 -- (any resource type -- a tracked buff gain/loss recolors the bar).
-                if cachedSecondary.type == "custom" or SecondaryTracksBuff(_G._ERB_ResolveSecondaryCfg()) then
+                if cachedSecondary.type == "custom" or BarTracksBuff(_G._ERB_ResolveSecondaryCfg()) then
                     UpdateSecondaryResource()
                 end
             end
