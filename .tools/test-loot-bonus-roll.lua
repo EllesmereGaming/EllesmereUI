@@ -1,29 +1,61 @@
-local profile = { autoDismissEmptyBonusRoll = true }
+local profile = { bonusRollPromptMode = "cancel" }
 local goals = {}
 local pool = { knocked = {} }
-local prompt = { spellID = 42, displayItemID = 99 }
+local prompt = { spellID = 42, displayItemID = 99, duration = 20 }
+local policy = "auto"
 local cancelled
 local eventHandler
+local styledButtons = {}
 
-EllesmereUI = {}
-C_Timer = { After = function(_, callback) callback() end }
-function GetSpellConfirmationPromptsInfo() return { prompt } end
-function CancelSpellConfirmationPrompt(spellID) cancelled = spellID end
-function CreateFrame()
-    return {
-        RegisterEvent = function(_, event) assert(event == "SPELL_CONFIRMATION_PROMPT") end,
-        SetScript = function(_, _, callback) eventHandler = callback end,
-    }
+local function Noop() end
+local function Region()
+    return setmetatable({}, { __index = function() return Noop end })
 end
 
-local dungeon = { kind = "dungeon", challengeModeID = 7 }
-local raid = { kind = "raid", encounterID = 8 }
+EllesmereUI = {
+    L = function(value) return value end,
+    MakeBorder = Noop,
+    MakeStyledButton = function(button, label, _, _, callback)
+        button.click = callback
+        styledButtons[label] = button
+    end,
+    RB_COLOURS = {},
+}
+UIParent = {}
+C_Timer = { After = function(_, callback) callback() end }
+function GetTime() return 100 end
+function GetSpellConfirmationPromptsInfo() return { prompt } end
+function CancelSpellConfirmationPrompt(spellID) cancelled = spellID end
+function CreateFrame(_, name)
+    local frame = {
+        shown = true,
+        RegisterEvent = Noop,
+        SetSize = Noop, SetPoint = Noop, SetFrameStrata = Noop, SetClampedToScreen = Noop,
+        CreateTexture = Region, CreateFontString = Region,
+        Hide = function(self) self.shown = false end,
+        Show = function(self) self.shown = true end,
+        IsShown = function(self) return self.shown end,
+        SetScript = function(self, script, callback)
+            if script == "OnEvent" then eventHandler = callback end
+            self[script] = callback
+        end,
+    }
+    if name then _G[name] = frame end
+    return frame
+end
+
+local dungeon = { kind = "dungeon", challengeModeID = 7, name = "Test Dungeon" }
+local raid = { kind = "raid", encounterID = 8, name = "Test Boss" }
 local source = dungeon
 local ns = {
+    BONUS_ROLL_AUTO = "auto",
+    BONUS_ROLL_ALWAYS = "always",
+    BONUS_ROLL_NEVER = "never",
     GetProfile = function() return profile end,
     IsSeasonSupported = function() return true end,
     GetSourceByChest = function(itemID) return itemID == 99 and source or nil end,
     ResolveSpecID = function() return 70 end,
+    GetBonusRollPolicy = function() return policy end,
     GetSourceKey = function(value, difficultyID)
         if value.kind == "raid" then return "raid:" .. value.encounterID .. ":" .. difficultyID end
         return "dungeon:" .. value.challengeModeID
@@ -35,32 +67,53 @@ local ns = {
 local chunk = assert(loadfile("EllesmereUILootTracker/EllesmereUILootTracker_BonusRoll.lua"))
 chunk("EllesmereUILootTracker", ns)
 
-assert(ns.ShouldAutoDismissBonusRollPrompt(42), "empty recognized source should be dismissed")
+local mode = ns.GetBonusRollPromptDecision(42)
+assert(mode == "cancel", "empty Auto source should follow the configured prompt mode")
 eventHandler(nil, "SPELL_CONFIRMATION_PROMPT", 42)
-assert(cancelled == 42, "dismissal must use Blizzard's cancellation API")
+assert(cancelled == 42, "cancel mode must use Blizzard's cancellation API")
 
 cancelled = nil
 goals = { { sourceKey = "dungeon:7", itemID = 123, state = "open" } }
-assert(not ns.ShouldAutoDismissBonusRollPrompt(42), "open wishlist goal must preserve the prompt")
-assert(not ns.TryAutoDismissBonusRoll(42) and not cancelled, "wanted prompt was cancelled")
+assert(not ns.GetBonusRollPromptDecision(42), "Auto must preserve a prompt with an open wishlist goal")
+assert(not ns.TryHandleBonusRollPrompt(42) and not cancelled, "wanted prompt was cancelled")
 
+policy = "never"
+assert(ns.GetBonusRollPromptDecision(42) == "cancel", "Skip must override an open wishlist goal")
+policy = "always"
+goals = {}
+assert(not ns.GetBonusRollPromptDecision(42), "Bonus Roll must preserve the prompt without wishlist goals")
+
+policy = "auto"
+goals = { { sourceKey = "dungeon:7", itemID = 123, state = "open" } }
 pool.knocked[123] = true
-assert(ns.ShouldAutoDismissBonusRollPrompt(42), "knocked-out wishlist item is not an available roll target")
+assert(ns.GetBonusRollPromptDecision(42) == "cancel", "knocked-out wishlist item is not an available target")
 
-profile.autoDismissEmptyBonusRoll = false
-assert(not ns.ShouldAutoDismissBonusRollPrompt(42), "disabled option must never dismiss")
-profile.autoDismissEmptyBonusRoll = true
+profile.bonusRollPromptMode = "show"
+assert(not ns.GetBonusRollPromptDecision(42), "show mode must never suppress Blizzard's frame")
+profile.bonusRollPromptMode = "minimize"
+assert(ns.GetBonusRollPromptDecision(42) == "minimize", "minimize mode decision is incorrect")
+source = dungeon
+policy = "never"
+goals = {}
+pool.knocked = {}
+BonusRollFrame = CreateFrame("Frame", "BonusRollFrame")
+assert(ns.TryHandleBonusRollPrompt(42), "minimize mode did not handle the prompt")
+assert(not BonusRollFrame:IsShown() and EULTBonusRollReminder:IsShown(), "minimize mode did not swap frames")
+assert(styledButtons.Show and styledButtons.Cancel, "reminder recovery controls are missing")
+styledButtons.Show.click()
+assert(BonusRollFrame:IsShown() and not EULTBonusRollReminder:IsShown(), "Show did not restore Blizzard's frame")
 
 source = raid
+policy = "auto"
 prompt.difficultyID = nil
 GetBonusRollEncounterJournalLinkDifficulty = nil
-assert(not ns.ShouldAutoDismissBonusRollPrompt(42), "unknown raid difficulty must be preserved")
+assert(not ns.GetBonusRollPromptDecision(42), "unknown raid difficulty must be preserved")
 prompt.difficultyID = 16
 goals = {}
 pool.knocked = {}
-assert(ns.ShouldAutoDismissBonusRollPrompt(42), "known empty raid source should be dismissed")
+assert(ns.GetBonusRollPromptDecision(42) == "minimize", "known empty raid source should be minimized")
 
 prompt.displayItemID = 100
-assert(not ns.ShouldAutoDismissBonusRollPrompt(42), "unknown source must be preserved")
+assert(not ns.GetBonusRollPromptDecision(42), "unknown source must be preserved")
 
-print("loot bonus roll dismissal ok")
+print("loot bonus roll policy ok")

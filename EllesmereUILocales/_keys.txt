@@ -139,6 +139,9 @@ Bank (%1$d / %2$d)
 Bar %d
 Blacklisted spells never display.
 BoE
+Bonus Roll
+Bonus Roll Prompt
+Bonus roll minimized
 Border Style is only configurable when the Power Bar is detached. Attached Power Bars always use Solid.
 Border is only available when the Power Bar is shown.
 Boundaries are resource counts
@@ -151,6 +154,7 @@ CDM Bar - %s
 CDM Buttons can have all their glow and active\nstates changed on a per icon (or synced to the bar)\nbasis. Click on a button to show that button's settings.
 Calendar
 Cancel
+Cancel when skipped
 Cast Timer Settings
 Catalyst planned
 Categories
@@ -436,6 +440,7 @@ Main Bags (%d / %d)
 Match Scale
 Maximum of 5 thresholds.
 Maximum width the text can fill before it truncates, as a percentage of the bar.
+Minimize when skipped
 Missing Buffs?
 Missing Spells?
 Missing Spells? Add as
@@ -609,8 +614,10 @@ Shift + Scroll to permanently zoom a panel. Ctrl + Scroll for a temporary zoom.
 Shift + right click to hide video guide icons
 Shift+Right Click to temporarily hide overlay
 Shift+Scroll to see more
+Show
 Show 'Not Needed' Reminder
 Show All Debuffs
+Show Blizzard frame
 Show Charges
 Show Hash Lines
 Show Tooltip
@@ -632,6 +639,7 @@ Snap to: All Elements
 Snap to: Auto
 Snap to: None
 Snap to: Select Element
+Source rules decide whether a prompt is skipped. Auto falls back to available open wishlist items.
 Spacing
 Spec
 Spec Bindings

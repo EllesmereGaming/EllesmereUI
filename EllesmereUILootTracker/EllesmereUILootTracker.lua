@@ -17,7 +17,7 @@ local DB_DEFAULTS = {
         plannerSlot = "HEAD",
         craftedTargetLevel = 318,
         minimapButtonSetup = false,
-        autoDismissEmptyBonusRoll = false,
+        bonusRollPromptMode = "show",
         lootWhisperPopup = true,
         whisperTemplate = "Hi {player}, do you need {item}? If not, would you be willing to trade it?",
     },
@@ -250,6 +250,38 @@ end
 
 function ns.GetSpecData(specID)
     return SpecData(specID)
+end
+
+ns.BONUS_ROLL_AUTO = "auto"
+ns.BONUS_ROLL_ALWAYS = "always"
+ns.BONUS_ROLL_NEVER = "never"
+
+function ns.GetBonusRollPolicy(source, specID, difficultyID)
+    if not source then return ns.BONUS_ROLL_AUTO end
+    local sourceKey = ns.GetSourceKey(source, difficultyID)
+    local policies = SpecData(specID).bonusRollPolicies
+    return (policies and policies[sourceKey]) or ns.BONUS_ROLL_AUTO
+end
+
+function ns.SetBonusRollPolicy(source, policy, specID, difficultyID)
+    if not source then return end
+    if policy ~= ns.BONUS_ROLL_ALWAYS and policy ~= ns.BONUS_ROLL_NEVER then
+        policy = ns.BONUS_ROLL_AUTO
+    end
+    local data = SpecData(specID)
+    data.bonusRollPolicies = data.bonusRollPolicies or {}
+    local sourceKey = ns.GetSourceKey(source, difficultyID)
+    data.bonusRollPolicies[sourceKey] = policy ~= ns.BONUS_ROLL_AUTO and policy or nil
+    FireChanged("bonusRollPolicy")
+    return policy
+end
+
+function ns.CycleBonusRollPolicy(source, specID, difficultyID)
+    local policy = ns.GetBonusRollPolicy(source, specID, difficultyID)
+    if policy == ns.BONUS_ROLL_AUTO then policy = ns.BONUS_ROLL_ALWAYS
+    elseif policy == ns.BONUS_ROLL_ALWAYS then policy = ns.BONUS_ROLL_NEVER
+    else policy = ns.BONUS_ROLL_AUTO end
+    return ns.SetBonusRollPolicy(source, policy, specID, difficultyID)
 end
 
 function ns.RemoveGoal(sourceKey, itemID, specID)
@@ -607,6 +639,7 @@ eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
 eventFrame:RegisterEvent("SPELL_CONFIRMATION_PROMPT")
 eventFrame:RegisterEvent("BONUS_ROLL_RESULT")
+eventFrame:RegisterEvent("SPELL_CONFIRMATION_TIMEOUT")
 eventFrame:RegisterEvent("EJ_LOOT_DATA_RECIEVED")
 eventFrame:RegisterEvent("ITEM_DATA_LOAD_RESULT")
 eventFrame:RegisterEvent("CHALLENGE_MODE_MAPS_UPDATE")
@@ -615,6 +648,10 @@ eventFrame:RegisterEvent("TRADE_SKILL_LIST_UPDATE")
 eventFrame:SetScript("OnEvent", function(_, event, ...)
     if event == "ADDON_LOADED" and ... == ADDON_NAME then
         profileDB = EllesmereUI.Lite.NewDB("EllesmereUILootTrackerDB", DB_DEFAULTS)
+        if profileDB.profile.autoDismissEmptyBonusRoll then
+            profileDB.profile.autoDismissEmptyBonusRoll = nil
+            profileDB.profile.bonusRollPromptMode = "minimize"
+        end
         EnsureCharacterDB()
     elseif event == "ADDON_LOADED" and (... == "Blizzard_Professions" or ... == "Blizzard_CraftingOrders") then
         if ns.QueueCraftedScan then ns.QueueCraftedScan(0.5) end
@@ -627,6 +664,8 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
         OnSpellConfirmation(event, ...)
     elseif event == "BONUS_ROLL_RESULT" then
         OnBonusRoll(event, ...)
+    elseif event == "SPELL_CONFIRMATION_TIMEOUT" then
+        pendingRoll = nil
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" or event == "ACTIVE_TALENT_GROUP_CHANGED" then
         ns.InvalidateCatalog()
         FireChanged("spec")
