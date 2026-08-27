@@ -7277,13 +7277,20 @@ function NameplateFrame:UpdateName()
             if instanceType == "arena" then
                 for i = 1, 3 do
                     local aUnit = "arena" .. i
-                    if UnitIsUnit(unit, aUnit) or (name and name == UnitName(aUnit)) then
+                    local isMatch = UnitIsUnit(unit, aUnit)
+                    if not isMatch then
+                        local ok, match = pcall(function() return name and name == UnitName(aUnit) end)
+                        isMatch = ok and match
+                    end
+                    
+                    if isMatch then
+                        local safeName = UnitName(aUnit) or "Unknown"
                         if p.arenaNumberNames == "full" then
                             name = tostring(i)
                         elseif p.arenaNumberNames == "prefix" then
-                            name = tostring(i) .. " " .. name
+                            name = tostring(i) .. " " .. safeName
                         elseif p.arenaNumberNames == "postfix" then
-                            name = name .. " " .. tostring(i)
+                            name = safeName .. " " .. tostring(i)
                         end
                         break
                     end
