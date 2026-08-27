@@ -16,6 +16,7 @@ local DB_DEFAULTS = {
         plannerSlot = "HEAD",
         craftedTargetLevel = 318,
         minimapButtonSetup = false,
+        minimapIntegrationVersion = nil,
         bonusRollPromptMode = "show",
         lootWhisperPopup = true,
         whisperTemplate = "Hi {player}, do you need {item}? If not, would you be willing to trade it?",
@@ -380,6 +381,50 @@ function ns.SetPoolItemState(sourceKey, itemID, knocked, specID, confidence)
     FireChanged("pool")
 end
 
+-- Record a bonus roll that Blizzard did not report to BONUS_ROLL_RESULT (for
+-- example after a reload or when reconstructing an older Voidcore pool). This
+-- deliberately keeps plain SetPoolItemState available for authoritative
+-- pool-only corrections while the normal loot-page right click represents the
+-- more common user intent: "this item was my roll".
+function ns.SetManualBonusRollState(sourceKey, itemID, rolled, specID, difficultyID)
+    specID = ResolveSpecID(specID)
+    itemID = tonumber(itemID) or itemID
+    local pool = ns.GetPool(sourceKey, specID)
+    local rolls = ns.GetRollHistory()
+    local manualIndex
+    for index = #rolls, 1, -1 do
+        local entry = rolls[index]
+        if entry.manual and entry.sourceKey == sourceKey
+            and tonumber(entry.itemID) == tonumber(itemID)
+            and tonumber(entry.specID) == tonumber(specID) then
+            manualIndex = index
+            break
+        end
+    end
+
+    if rolled then
+        ns.SetPoolItemState(sourceKey, itemID, true, specID, "manual")
+        if not manualIndex then
+            local rolledAt = time()
+            rolls[#rolls + 1] = {
+                time = rolledAt, itemID = itemID, specID = specID,
+                sourceKey = sourceKey, difficultyID = difficultyID,
+                manual = true,
+            }
+            while #rolls > 100 do table.remove(rolls, 1) end
+            pool.rollsUsed = (tonumber(pool.rollsUsed) or 0) + 1
+            pool.lastRollAt = rolledAt
+        end
+    else
+        ns.SetPoolItemState(sourceKey, itemID, false, specID, "manual")
+        if manualIndex then
+            table.remove(rolls, manualIndex)
+            pool.rollsUsed = math.max(0, (tonumber(pool.rollsUsed) or 0) - 1)
+        end
+    end
+    FireChanged("roll")
+end
+
 function ns.IsPoolItemKnocked(sourceKey, itemID, specID)
     local pool = ns.GetPool(sourceKey, specID)
     local numericID = tonumber(itemID)
@@ -739,6 +784,7 @@ eventFrame:RegisterEvent("BAG_UPDATE_DELAYED")
 eventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
+eventFrame:RegisterEvent("PLAYER_LOOT_SPEC_UPDATED")
 eventFrame:RegisterEvent("SPELL_CONFIRMATION_PROMPT")
 eventFrame:RegisterEvent("BONUS_ROLL_RESULT")
 eventFrame:RegisterEvent("SPELL_CONFIRMATION_TIMEOUT")
@@ -768,9 +814,11 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
         OnBonusRoll(event, ...)
     elseif event == "SPELL_CONFIRMATION_TIMEOUT" then
         OnSpellConfirmationTimeout()
-    elseif event == "PLAYER_SPECIALIZATION_CHANGED" or event == "ACTIVE_TALENT_GROUP_CHANGED" then
+    elseif event == "PLAYER_SPECIALIZATION_CHANGED" or event == "ACTIVE_TALENT_GROUP_CHANGED"
+        or event == "PLAYER_LOOT_SPEC_UPDATED" then
         ns.InvalidateCatalog()
         FireChanged("spec")
+        ns.QueueInventoryScan()
     elseif event == "ITEM_DATA_LOAD_RESULT" then
         local itemID = ...
         if ns.ConsumePendingCatalogItem and ns.ConsumePendingCatalogItem(itemID) then

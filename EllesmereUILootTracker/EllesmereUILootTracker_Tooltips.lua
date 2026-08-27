@@ -71,9 +71,11 @@ end
 -------------------------------------------------------------------------------
 local markers = setmetatable({}, { __mode = "k" })
 local observedRoots = setmetatable({}, { __mode = "k" })
+local observedBagButtons = setmetatable({}, { __mode = "k" })
 local markerRefreshQueued
 local QueueMarkerRefresh
 local activeGoalLookup = {}
+local nextBagDiscoveryAt = 0
 
 local CHARACTER_SLOTS = {
     "CharacterHeadSlot", "CharacterNeckSlot", "CharacterShoulderSlot", "CharacterBackSlot",
@@ -135,7 +137,7 @@ local function BagCoordinates(button)
     return tonumber(bagID), tonumber(slotID)
 end
 
-local function ScanBagButtons(root)
+local function DiscoverBagButtons(root)
     if not root then return end
     local stack, seen = { root }, {}
     while #stack > 0 do
@@ -147,6 +149,7 @@ local function ScanBagButtons(root)
                 if objectType == "Button" or objectType == "ItemButton" then
                     local bagID, slotID = BagCoordinates(frame)
                     if bagID and slotID and slotID > 0 then
+                        observedBagButtons[frame] = true
                         local itemID = C_Container.GetContainerItemID(bagID, slotID)
                         if itemID or markers[frame] then SetMarker(frame, itemID) end
                     end
@@ -156,6 +159,17 @@ local function ScanBagButtons(root)
                 local children = { frame:GetChildren() }
                 for index = 1, #children do stack[#stack + 1] = children[index] end
             end
+        end
+    end
+end
+
+local function RefreshObservedBagButtons()
+    for button in pairs(observedBagButtons) do
+        local bagID, slotID = BagCoordinates(button)
+        if bagID and slotID and slotID > 0 then
+            SetMarker(button, C_Container.GetContainerItemID(bagID, slotID))
+        elseif markers[button] then
+            SetMarker(button, nil)
         end
     end
 end
@@ -171,13 +185,24 @@ local function RefreshMarkersNow()
     markerRefreshQueued = nil
     activeGoalLookup = ns.GetGoalLookup()
     RefreshCharacterMarkers()
+    local now = GetTime and GetTime() or 0
+    local periodicDiscovery = now >= nextBagDiscoveryAt
+    if periodicDiscovery then nextBagDiscoveryAt = now + 10 end
     local function ScanRoot(root)
         if not root then return end
         if not observedRoots[root] then
             observedRoots[root] = true
-            root:HookScript("OnShow", QueueMarkerRefresh)
+            root:HookScript("OnShow", function(self)
+                DiscoverBagButtons(self)
+                QueueMarkerRefresh()
+            end)
+            DiscoverBagButtons(root)
+        elseif periodicDiscovery and root:IsVisible() then
+            -- Bag addons can grow pooled button trees without showing the root
+            -- again. Rediscover at a low frequency, while normal bag updates
+            -- use the cached weak button set below.
+            DiscoverBagButtons(root)
         end
-        if root:IsVisible() then ScanBagButtons(root) end
     end
     ScanRoot(_G.ContainerFrameCombinedBags)
     for index = 1, (NUM_CONTAINER_FRAMES or 13) do
@@ -186,6 +211,7 @@ local function RefreshMarkersNow()
     ScanRoot(_G.EUI_Bags)
     ScanRoot(_G.EUI_BagsReagent)
     ScanRoot(_G.EUI_BankFrame)
+    RefreshObservedBagButtons()
 end
 
 QueueMarkerRefresh = function()

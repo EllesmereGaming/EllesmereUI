@@ -6,6 +6,8 @@ local pendingReminder
 local promptAttemptToken = 0
 local testFrame
 local StopPromptAttempts
+local dismissedPromptKeysBySpell = {}
+local lastDismissedSpellID
 
 local function IsSecret(value)
     return issecretvalue and issecretvalue(value)
@@ -50,11 +52,18 @@ local function MarkPromptDismissed(context)
     if not context or context.isTest or not context.promptKey then return end
     local remaining = context.expiresAt and math.max(0, context.expiresAt - GetTime()) or 0
     DismissedPromptStore()[context.promptKey] = time() + math.max(300, remaining + 5)
+    dismissedPromptKeysBySpell[context.spellID] = context.promptKey
+    lastDismissedSpellID = context.spellID
 end
 
-local function ClearDismissedPrompts()
+local function ClearDismissedPrompt(spellID)
+    spellID = spellID or lastDismissedSpellID
+    local key = dismissedPromptKeysBySpell[spellID]
+    if not key then return end
     local store = DismissedPromptStore()
-    for key in pairs(store) do store[key] = nil end
+    store[key] = nil
+    dismissedPromptKeysBySpell[spellID] = nil
+    if lastDismissedSpellID == spellID then lastDismissedSpellID = nil end
 end
 
 local function ResolvePromptSource(prompt)
@@ -434,9 +443,10 @@ eventFrame:SetScript("OnEvent", function(_, event, spellID)
     else
         StopPromptAttempts()
         ClearReminder()
-        if event == "SPELL_CONFIRMATION_TIMEOUT" or event == "BONUS_ROLL_RESULT" then
-            ClearDismissedPrompts()
-        end
+        -- A timeout ends only the matching prompt. Clearing the whole persisted
+        -- store allowed an unrelated, already dismissed prompt to reappear on
+        -- the next zone/login transition.
+        if event == "SPELL_CONFIRMATION_TIMEOUT" then ClearDismissedPrompt(spellID) end
     end
 end)
 
