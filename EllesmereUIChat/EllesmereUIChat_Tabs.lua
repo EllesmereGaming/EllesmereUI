@@ -588,7 +588,7 @@ local function RefreshNow()
         local tabRight = lastRightTab:GetRight()
         if bgRight and tabRight then
             local delta = bgRight - tabRight
-            if delta > 0 and delta < 60 then rightExtend = delta end
+            if delta > 0 then rightExtend = delta end
         end
     end
 
