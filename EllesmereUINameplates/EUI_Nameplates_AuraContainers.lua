@@ -1739,7 +1739,15 @@ function QueueBundleBuild() -- forward-declared local (pool growth + login build
             NPF_EnsureRecords(nb)
             pool[#pool + 1] = nb
             built = built + 1
-            ServiceWaiting()
+            -- Queued rather than called inline: ServiceWaiting attaches a real plate
+            -- (NPC_AttachPlate populates its aura containers from scratch), and
+            -- bundling that cost into this same non-resumable atom is what blew past
+            -- the client watchdog after reconnecting mid-pull in an M+ (root-caused
+            -- 2026-08-27: every enemy nameplate is waiting simultaneously the instant
+            -- the pool starts producing bundles, none of the normal caches are warm,
+            -- and retrying re-runs the identical combined cost from scratch every
+            -- time). Its own job gets its own watchdog-protected budget/retry slot.
+            AK.QueueBuildJob(ServiceWaiting, "np:service")
             if built == POOL_SIZE then ns.NPC_ReloadAll() end
         end, "np:cc+pool")
     end
