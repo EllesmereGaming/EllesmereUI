@@ -11,6 +11,7 @@ if EllesmereUI.Glows then return end  -- already loaded by another addon
 
 local floor = math.floor
 local min   = math.min
+local max   = math.max
 local ceil  = math.ceil
 local sin   = math.sin
 
@@ -36,6 +37,26 @@ local GLOW_STYLES = {
       -- backwards stutter. 22 matches what the Action Button Glow uses.
       rows = 5, columns = 5, frames = 22, duration = 0.3,
       frameW = 48, frameH = 48, texPadding = 1.25 },
+    -- Blizzard's own nameplate important-cast highlight. Unlike every style above
+    -- it is BAR art, not button art, so it belongs only on elongated frames --
+    -- see the barAtlas engine below.
+    -- Blizzard's own outsets from Blizzard_NamePlateCastingBar.lua, in the pixels
+    -- they are written in. Do NOT convert these to ratios of the frame: that was
+    -- tried on the theory that the art's baked border has to land at a fixed
+    -- fraction of texture width, and it is wrong. Blizzard applies these offsets
+    -- UNSCALED to a bar whose width IS scaled by horizontalScale, so no such
+    -- alignment exists to preserve -- the offsets are simply how much glow room the
+    -- art wants. As ratios the frame came out short and the side border sat on the
+    -- bar; doubled, it left a gap. In pixels it sits right.
+    --
+    -- Glow Size in the options remains the per-user trim, since it widens the frame
+    -- these hang off.
+    { name = "Blizzard Important Cast", barAtlas = "ui-hud-nameplates-importantcast",
+      outL = 26, outR = 25, outY = 3, pulse = 0.4 },
+    -- Built from primitives rather than art, so there is nothing to stretch: see
+    -- the edge-glow engine below. Correct at any aspect ratio by construction.
+    { name = "Soft Bloom",   edgeGlow = true, rings = 8, outline = 1, pulse = 0.5 },
+    { name = "Pulse Border", edgeGlow = true, rings = 1, outline = 2, pulse = 0.45 },
 }
 
 -------------------------------------------------------------------------------
@@ -760,6 +781,183 @@ local function StartFlipBookGlow(wrapper, szOrW, entry, cr, cg, cb, szH)
     wrapper:SetScript("OnUpdate", nil)
 end
 
+-------------------------------------------------------------------------------
+--  Bar-atlas glow
+--
+--  Every other engine here draws art authored for a square action button, which
+--  is why they smear when scaled onto a cast bar. This one draws art authored FOR
+--  a bar: Blizzard's own ImportantCastIndicator. It is meant to stretch along its
+--  length, so it needs no slicing, and the halo baked into its ends is why the
+--  outset is far wider than it is tall.
+--
+--  The outsets are Blizzard's own pixel values; the style entry records why they
+--  must stay pixels rather than become ratios of the frame.
+--
+--  The pulse mirrors their ImportantCastFlashAnim: alpha 0->1 then 1->0, looping,
+--  though quicker than their one second per half. C-side, so it animates
+--  identically under the restricted contexts where driver-ticked engines freeze.
+-------------------------------------------------------------------------------
+local function StartBarGlow(wrapper, entry, cr, cg, cb)
+    -- Blizzard art, so it can move between builds. Bail cleanly rather than
+    -- leaving an invisible texture playing an animation nobody can see.
+    if C_Texture and C_Texture.GetAtlasInfo and not C_Texture.GetAtlasInfo(entry.barAtlas) then
+        return
+    end
+    local d = wrapper._euiBarGlow
+    if not d then
+        local tex = wrapper:CreateTexture(nil, "OVERLAY", nil, 7)
+        local ag = tex:CreateAnimationGroup()
+        ag:SetLooping("REPEAT")
+        local up = ag:CreateAnimation("Alpha")
+        up:SetOrder(1); up:SetFromAlpha(0); up:SetToAlpha(1)
+        local down = ag:CreateAnimation("Alpha")
+        down:SetOrder(2); down:SetFromAlpha(1); down:SetToAlpha(0)
+        d = { tex = tex, ag = ag, up = up, down = down }
+        wrapper._euiBarGlow = d
+    end
+
+    -- Set every call, not at creation: the duration belongs to the STYLE, and one
+    -- wrapper outlives any single style choice.
+    local half = entry.pulse or 1
+    d.up:SetDuration(half)
+    d.down:SetDuration(half)
+
+    local outL = entry.outL or 26
+    local outR = entry.outR or 25
+    local outY = entry.outY or 3
+    d.tex:ClearAllPoints()
+    d.tex:SetPoint("TOPLEFT", wrapper, "TOPLEFT", -outL, outY)
+    d.tex:SetPoint("BOTTOMRIGHT", wrapper, "BOTTOMRIGHT", outR, -outY)
+    d.tex:SetAtlas(entry.barAtlas)
+    if cr then
+        d.tex:SetDesaturated(true)
+        d.tex:SetVertexColor(cr, cg, cb)
+    else
+        d.tex:SetDesaturated(false)
+        d.tex:SetVertexColor(1, 1, 1)
+    end
+    d.tex:Show()
+    if d.ag:IsPlaying() then d.ag:Stop() end
+    d.ag:Play()
+end
+
+-------------------------------------------------------------------------------
+--  Edge glow (EUI's own)
+--
+--  Every art-based engine here has the same flaw on a cast bar: a sprite authored
+--  for a square button, scaled onto a long frame, smears its corners and thins its
+--  side borders. This one uses no art. It draws NESTED RECTANGLE OUTLINES, each one
+--  pixel further out than the last and dimmer, so a stack of them reads as a glow
+--  that fades outward. Every ring is a closed rectangle built from four strips
+--  sized per edge, so it is correct at any aspect ratio and has no corner case:
+--  the sides run between the two horizontal strips, covering each corner exactly
+--  once rather than double-exposing it.
+--
+--  Rings rather than gradient bands on purpose. Bands fading outward from each edge
+--  have to decide what to do where two of them meet, and any answer leaves the
+--  corners either lit as a block or notched out -- visible as boxy shadows at the
+--  four corners. Concentric outlines have no seam to get wrong.
+--
+--  All rings sit on one host frame and the pulse animates THAT frame's alpha, so a
+--  single C-side AnimationGroup drives everything in lockstep -- no per-texture
+--  groups to drift, and nothing that freezes under restriction.
+-------------------------------------------------------------------------------
+local EDGE_RING_MAX = 12
+
+local function StartEdgeGlow(wrapper, entry, cr, cg, cb)
+    cr = cr or 1; cg = cg or 1; cb = cb or 1
+    local th    = max(1, entry.outline or 1)
+    local rings = max(1, min(entry.rings or 1, EDGE_RING_MAX))
+
+    local d = wrapper._euiEdgeGlow
+    if not d then
+        local host = CreateFrame("Frame", nil, wrapper)
+        host:SetAllPoints(wrapper)
+        local ag = host:CreateAnimationGroup()
+        ag:SetLooping("REPEAT")
+        local up = ag:CreateAnimation("Alpha")
+        up:SetOrder(1); up:SetFromAlpha(0.35); up:SetToAlpha(1)
+        local down = ag:CreateAnimation("Alpha")
+        down:SetOrder(2); down:SetFromAlpha(1); down:SetToAlpha(0.35)
+        d = { host = host, ag = ag, up = up, down = down, ring = {} }
+        wrapper._euiEdgeGlow = d
+    end
+
+    d.up:SetDuration(entry.pulse or 0.5)
+    d.down:SetDuration(entry.pulse or 0.5)
+
+    for i = 1, EDGE_RING_MAX do
+        local r = d.ring[i]
+        if i <= rings then
+            if not r then
+                r = {}
+                for k = 1, 4 do
+                    r[k] = d.host:CreateTexture(nil, "OVERLAY", nil, 7)
+                    r[k]:SetColorTexture(1, 1, 1, 1)
+                end
+                d.ring[i] = r
+            end
+
+            local off = (i - 1) * th
+            -- Squared falloff: linear reads as a flat slab with a hard outer step,
+            -- squared lands most of the brightness on the innermost ring and trails
+            -- off, which is what actually looks like a glow.
+            local a = 1 - (i - 1) / rings
+            a = a * a
+
+            r[1]:ClearAllPoints()
+            r[1]:SetPoint("TOPLEFT",  d.host, "TOPLEFT",  -off,  off)
+            r[1]:SetPoint("TOPRIGHT", d.host, "TOPRIGHT",  off,  off)
+            r[1]:SetHeight(th)
+
+            r[2]:ClearAllPoints()
+            r[2]:SetPoint("BOTTOMLEFT",  d.host, "BOTTOMLEFT",  -off, -off)
+            r[2]:SetPoint("BOTTOMRIGHT", d.host, "BOTTOMRIGHT",  off, -off)
+            r[2]:SetHeight(th)
+
+            -- Sides run BETWEEN the two horizontal strips rather than the full
+            -- height, so the corners are covered exactly once. Overlapping them
+            -- would double the alpha on four pixels of every ring, which is the
+            -- corner artifact this design exists to avoid.
+            r[3]:ClearAllPoints()
+            r[3]:SetPoint("TOPLEFT",    r[1], "BOTTOMLEFT", 0, 0)
+            r[3]:SetPoint("BOTTOMLEFT", r[2], "TOPLEFT",    0, 0)
+            r[3]:SetWidth(th)
+
+            r[4]:ClearAllPoints()
+            r[4]:SetPoint("TOPRIGHT",    r[1], "BOTTOMRIGHT", 0, 0)
+            r[4]:SetPoint("BOTTOMRIGHT", r[2], "TOPRIGHT",    0, 0)
+            r[4]:SetWidth(th)
+
+            for k = 1, 4 do
+                r[k]:SetVertexColor(cr, cg, cb, a)
+                r[k]:Show()
+            end
+        elseif r then
+            for k = 1, 4 do r[k]:Hide() end
+        end
+    end
+
+    d.host:SetAlpha(1)
+    d.host:Show()
+    if d.ag:IsPlaying() then d.ag:Stop() end
+    d.ag:Play()
+end
+
+local function StopEdgeGlow(wrapper)
+    local d = wrapper._euiEdgeGlow
+    if not d then return end
+    if d.ag then d.ag:Stop() end
+    d.host:Hide()
+end
+
+local function StopBarGlow(wrapper)
+    local d = wrapper._euiBarGlow
+    if not d then return end
+    if d.ag then d.ag:Stop() end
+    d.tex:Hide()
+end
+
 local function StopFlipBookGlow(wrapper)
     if wrapper._euiFlipData then
         wrapper._euiFlipData.tex:Hide()
@@ -788,6 +986,8 @@ local function StopAllGlows(wrapper)
     StopProceduralAnts(wrapper)
     StopButtonGlow(wrapper)
     StopAutoCastShine(wrapper)
+    StopBarGlow(wrapper)
+    StopEdgeGlow(wrapper)
     StopShapeGlow(wrapper)
     StopFlipBookGlow(wrapper)
     StopAnimatedAnts(wrapper)
@@ -841,6 +1041,12 @@ local function StartGlow(wrapper, styleIdx, szOrW, cr, cg, cb, opts, szH)
 
     elseif entry.shapeGlow then
         StartShapeGlow(wrapper, w, cr, cg, cb, 1.20, opts)
+
+    elseif entry.barAtlas then
+        StartBarGlow(wrapper, entry, cr, cg, cb)
+
+    elseif entry.edgeGlow then
+        StartEdgeGlow(wrapper, entry, cr, cg, cb)
 
     else
         -- FlipBook mode (GCD, Modern WoW Glow, Classic WoW Glow, etc.)

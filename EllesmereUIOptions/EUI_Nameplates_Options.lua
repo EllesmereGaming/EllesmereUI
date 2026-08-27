@@ -198,6 +198,7 @@ initFrame:SetScript("OnEvent", function(self)
     local showClassificationPreview = false
     local showTargetGlowPreview = false
     local showAbsorbPreview = false
+    local showImportantGlowPreview = false
 
     -- Transient flags: force-show indicators during slider drag
     local _sliderDragShowRaidMarker = false
@@ -651,6 +652,14 @@ initFrame:SetScript("OnEvent", function(self)
         castParts.targetFS:SetWordWrap(false)
         castParts.targetFS:SetMaxLines(1)
         castParts.targetFS:SetText(UnitName("player") or EllesmereUI.L("Spell Target"))
+
+        -- Important Cast Glow host. The preview is otherwise a plain replica with no
+        -- added effects, but this one earns its place: the glow frames the cast bar
+        -- AND its icon, so no swatch beside the dropdown can show it honestly.
+        castParts.glow = CreateFrame("Frame", nil, cast)
+        castParts.glow:SetFrameLevel(cast:GetFrameLevel() + 6)
+        castParts.glow:EnableMouse(false)
+        castParts.glow:Hide()
 
         -- Class power pips (cosmetic preview queries live class/spec resource count); packed into a single table to stay under Lua's 60-upvalue limit.
         local CP = {
@@ -1187,6 +1196,81 @@ initFrame:SetScript("OnEvent", function(self)
             castParts.spark:SetHeight(castH)
             -- Show Spark (Cast Color cog): default on; explicit false hides it.
             castParts.spark:SetShown(DBVal("castBarSparkEnabled") ~= false)
+
+            -- Important Cast Glow, anchored exactly as the real one is: the union of
+            -- the cast bar and its icon, with the vertical edges following whichever
+            -- of the two is taller. Kept in step with UpdateImportantCastGlow.
+            do
+                local Glows = EllesmereUI.Glows
+                local g = castParts.glow
+                if g and Glows and Glows.StartGlow then
+                    Glows.StopAllGlows(g)
+                    local on = DBVal("importantCastGlow")
+                    if on == nil then on = defaults.importantCastGlow end
+                    -- On request only: a glow left running on the preview reads as part
+                    -- of the nameplate rather than as the effect being chosen.
+                    if not (on and showImportantGlowPreview) then
+                        g:Hide()
+                    else
+                        local styles = ns.IMPORTANT_GLOW_STYLES
+                        local st = DBVal("importantCastGlowStyle") or defaults.importantCastGlowStyle or 1
+                        if type(st) ~= "number" or st < 1 or st > #styles then st = 1 end
+
+                        local icon = castParts.iconFrame
+                        local pW, pH = cast:GetWidth(), castH
+                        if pW < 5 then pW = 100 end
+                        -- Pixel Glow's dashes are drawn inward from the wrapper edge, so
+                        -- the overlay stands off by their thickness (see the same edge
+                        -- calculation in UpdateImportantCastGlow).
+                        -- Same standoff maths as UpdateImportantCastGlow; keep in step.
+                        local gPad = (DBVal("importantCastGlowPad") or defaults.importantCastGlowPad or 0) / 100
+                        local gBarH = pH
+                        local gEdge = (st == 1)
+                            and (DBVal("importantCastGlowThickness") or defaults.importantCastGlowThickness or 2)
+                            or 0
+                        local gEdgeX = gEdge + gBarH * gPad
+                        local gEdgeY = gEdge + gBarH * gPad * 0.33
+                        g:ClearAllPoints()
+                        if showIcon and icon then
+                            local iW, iH = icon:GetWidth() or 0, icon:GetHeight() or 0
+                            local tall = (iH > pH) and icon or cast
+                            g:SetPoint("TOP", tall, "TOP", 0, gEdgeY)
+                            g:SetPoint("BOTTOM", tall, "BOTTOM", 0, -gEdgeY)
+                            if onRight then
+                                g:SetPoint("LEFT", cast, "LEFT", -gEdgeX, 0)
+                                g:SetPoint("RIGHT", icon, "RIGHT", gEdgeX, 0)
+                            else
+                                g:SetPoint("LEFT", icon, "LEFT", -gEdgeX, 0)
+                                g:SetPoint("RIGHT", cast, "RIGHT", gEdgeX, 0)
+                            end
+                            if iW > 0 then pW = pW + iW end
+                            if iH > pH then pH = iH end
+                        else
+                            g:SetPoint("TOPLEFT", cast, "TOPLEFT", -gEdgeX, gEdgeY)
+                            g:SetPoint("BOTTOMRIGHT", cast, "BOTTOMRIGHT", gEdgeX, -gEdgeY)
+                        end
+                        pW = pW + gEdgeX * 2
+                        pH = pH + gEdgeY * 2
+                        g:Show()
+
+                        local gc = (DB() and DB().importantCastGlowColor) or defaults.importantCastGlowColor
+                        local gOpts
+                        if st == 1 then
+                            local bgc = (DB() and DB().importantCastGlowBackgroundColor)
+                                or defaults.importantCastGlowBackgroundColor or { r = 0, g = 0, b = 0 }
+                            gOpts = {
+                                N      = DBVal("importantCastGlowLines") or defaults.importantCastGlowLines,
+                                th     = DBVal("importantCastGlowThickness") or defaults.importantCastGlowThickness,
+                                period = DBVal("importantCastGlowSpeed") or defaults.importantCastGlowSpeed,
+                                bg     = DBVal("importantCastGlowBackground") == true
+                                         and { r = bgc.r or 0, g = bgc.g or 0, b = bgc.b or 0 } or nil,
+                            }
+                        end
+                        Glows.StartGlow(g, ns.IMPORTANT_TO_SHARED_GLOW[st] or 1,
+                            pW, gc.r, gc.g, gc.b, gOpts, pH)
+                    end
+                end
+            end
 
             -- Name font + color + position (font size set per-slot below)
             local nameYOff = DBVal("nameYOffset") or defaults.nameYOffset
@@ -7221,21 +7305,17 @@ initFrame:SetScript("OnEvent", function(self)
                 if on == nil then on = defaults.importantCastGlow end
                 return not on
             end
-            -- Assigned once the preview frame exists, below. Forward-declared because
-            -- the dropdown, swatch and cog handlers are all built before that point
-            -- and every one of them re-renders the preview.
-            local RefreshImpCastPreview = function() end
-
             local function impCastAntsOff()
                 if impCastOff() then return true end
                 local raw = DB().importantCastGlowStyle or defaults.importantCastGlowStyle
                 return type(raw) ~= "number" or raw ~= 1
             end
 
-            -- Same list, same indices as the Pandemic Glow dropdown above.
+            -- Pandemic Glow's list plus the Blizzard bar style, which only makes
+            -- sense on a cast bar (see IMPORTANT_GLOW_STYLES in the module).
             local impGlowValues = { [0] = "None" }
             local impGlowOrder = { 0 }
-            for i, entry in ipairs(ns.PANDEMIC_GLOW_STYLES) do
+            for i, entry in ipairs(ns.IMPORTANT_GLOW_STYLES) do
                 impGlowValues[i] = entry.name
                 impGlowOrder[#impGlowOrder + 1] = i
             end
@@ -7248,7 +7328,7 @@ initFrame:SetScript("OnEvent", function(self)
                     if impCastOff() then return 0 end
                     local raw = DB().importantCastGlowStyle or defaults.importantCastGlowStyle or 1
                     if type(raw) ~= "number" then return 1 end
-                    if raw < 1 or raw > #ns.PANDEMIC_GLOW_STYLES then return 1 end
+                    if raw < 1 or raw > #ns.IMPORTANT_GLOW_STYLES then return 1 end
                     return raw
                   end,
                   setValue=function(v)
@@ -7259,7 +7339,7 @@ initFrame:SetScript("OnEvent", function(self)
                         DB().importantCastGlowStyle = v
                     end
                     RefreshAllPlates()
-                    RefreshImpCastPreview()
+                    UpdatePreview()
                     C_Timer.After(0, function() EllesmereUI:RefreshPage() end)
                   end,
                   tooltip="Show a glow on the cast bar when the enemy is casting a spell Blizzard marks as important." },
@@ -7285,7 +7365,7 @@ initFrame:SetScript("OnEvent", function(self)
                         function(r, g, b)
                             DB().importantCastGlowColor = { r = r, g = g, b = b }
                             RefreshAllPlates()
-                            RefreshImpCastPreview()
+                            UpdatePreview()
                         end, nil, 20)
                     PP.Point(swatch, "RIGHT", ctrl, "LEFT", -12, 0)
                     leftRgn._lastInline = swatch
@@ -7303,27 +7383,39 @@ initFrame:SetScript("OnEvent", function(self)
             -- Cog popup for Pixel Glow settings.
             if not EllesmereUI._prebuilding then
                 local _, ShowImpCastGlowPopup = EllesmereUI.BuildCogPopup({
-                    title = "Pixel Glow Settings",
+                    title = "Important Cast Glow Settings",
                     rows = {
+                        -- Applies to every style; the rest of this popup is Pixel Glow's.
+                        { type = "slider", label = "Glow Size", min = -50, max = 100, step = 5,
+                          get = function() return DB().importantCastGlowPad or defaults.importantCastGlowPad or 0 end,
+                          set = function(v) DB().importantCastGlowPad = v; RefreshAllPlates(); UpdatePreview() end },
                         { type = "slider", label = "Lines", min = 2, max = 16, step = 1,
+                          disabled = function() return impCastAntsOff() end,
+                          disabledTooltip = "Pixel Glow only",
                           get = function() return DB().importantCastGlowLines or defaults.importantCastGlowLines or 8 end,
-                          set = function(v) DB().importantCastGlowLines = v; RefreshAllPlates(); RefreshImpCastPreview() end },
-                        { type = "slider", label = "Thickness", min = 1, max = 4, step = 1,
+                          set = function(v) DB().importantCastGlowLines = v; RefreshAllPlates(); UpdatePreview() end },
+                        { type = "slider", label = "Thickness",
+                          disabled = function() return impCastAntsOff() end,
+                          disabledTooltip = "Pixel Glow only", min = 1, max = 4, step = 1,
                           get = function() return DB().importantCastGlowThickness or defaults.importantCastGlowThickness or 2 end,
-                          set = function(v) DB().importantCastGlowThickness = v; RefreshAllPlates(); RefreshImpCastPreview() end },
-                        { type = "slider", label = "Speed", min = 1, max = 8, step = 1,
+                          set = function(v) DB().importantCastGlowThickness = v; RefreshAllPlates(); UpdatePreview() end },
+                        { type = "slider", label = "Speed",
+                          disabled = function() return impCastAntsOff() end,
+                          disabledTooltip = "Pixel Glow only", min = 1, max = 8, step = 1,
                           get = function() local s = DB().importantCastGlowSpeed or defaults.importantCastGlowSpeed or 4; return 9 - s end,
-                          set = function(v) DB().importantCastGlowSpeed = 9 - v; RefreshAllPlates(); RefreshImpCastPreview() end },
+                          set = function(v) DB().importantCastGlowSpeed = 9 - v; RefreshAllPlates(); UpdatePreview() end },
                         { type = "toggle", label = "Background",
+                          disabled = function() return impCastAntsOff() end,
+                          disabledTooltip = "Pixel Glow only",
                           get = function() return DB().importantCastGlowBackground == true end,
-                          set = function(v) DB().importantCastGlowBackground = v and true or nil; RefreshAllPlates(); RefreshImpCastPreview() end },
+                          set = function(v) DB().importantCastGlowBackground = v and true or nil; RefreshAllPlates(); UpdatePreview() end },
                         { type = "colorpicker", label = "Background Color",
                           get = function()
                               local c = DB().importantCastGlowBackgroundColor or defaults.importantCastGlowBackgroundColor or { r = 0, g = 0, b = 0 }
                               return c.r or 0, c.g or 0, c.b or 0
                           end,
-                          set = function(r, g, b) DB().importantCastGlowBackgroundColor = { r = r, g = g, b = b }; RefreshAllPlates(); RefreshImpCastPreview() end,
-                          disabled = function() return DB().importantCastGlowBackground ~= true end,
+                          set = function(r, g, b) DB().importantCastGlowBackgroundColor = { r = r, g = g, b = b }; RefreshAllPlates(); UpdatePreview() end,
+                          disabled = function() return impCastAntsOff() or DB().importantCastGlowBackground ~= true end,
                           disabledTooltip = "Pixel Glow Background" },
                     },
                 })
@@ -7345,7 +7437,7 @@ initFrame:SetScript("OnEvent", function(self)
                 cogBtn:SetScript("OnClick", function(self) ShowImpCastGlowPopup(self) end)
                 cogBtn:SetScript("OnEnter", function(self)
                     self:SetAlpha(1)
-                    EllesmereUI.ShowWidgetTooltip(self, "Pixel Glow Settings")
+                    EllesmereUI.ShowWidgetTooltip(self, "Important Cast Glow Settings")
                 end)
                 cogBtn:SetScript("OnLeave", function(self)
                     self:SetAlpha(0.4)
@@ -7353,67 +7445,51 @@ initFrame:SetScript("OnEvent", function(self)
                 end)
                 -- Disable cog when not using pixel glow
                 EllesmereUI.RegisterWidgetRefresh(function()
-                    local off = impCastAntsOff()
+                    local off = impCastOff()
                     cogBtn:SetAlpha(off and 0.15 or 0.4)
                     cogBtn:EnableMouse(not off)
                 end)
-                cogBtn:SetAlpha(impCastAntsOff() and 0.15 or 0.4)
-                cogBtn:EnableMouse(not impCastAntsOff())
+                cogBtn:SetAlpha(impCastOff() and 0.15 or 0.4)
+                cogBtn:EnableMouse(not impCastOff())
 
-                -- Glow preview. The Pandemic Glow row hosts its preview in the row's
-                -- right half; here that half is a real setting, so the preview joins
-                -- the inline chain instead and sits to the left of the cog.
-                local IMP_PREVIEW_SIZE = 26
-                local previewFrame = CreateFrame("Frame", nil, leftRgn)
-                PP.Size(previewFrame, IMP_PREVIEW_SIZE, IMP_PREVIEW_SIZE)
-                -- -12 rather than the chain's usual -6: the widest FlipBook styles
-                -- draw roughly 8px past the icon edge on each side.
-                PP.Point(previewFrame, "RIGHT", cogBtn, "LEFT", -12, 0)
-                previewFrame:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-
-                local previewTex = previewFrame:CreateTexture(nil, "ARTWORK")
-                previewTex:SetAllPoints()
-                previewTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-                PP.CreateBorder(previewFrame, 0, 0, 0, 1, 1, "OVERLAY", 7)
-
-                -- Leftmost inline item on this half; the row label is bounded against
-                -- it (region._lastInline, see EllesmereUI_Widgets.lua).
-                leftRgn._lastInline = previewFrame
-
-                -- Renders through the SAME dispatcher, style list and stored options
-                -- the nameplate itself uses, so the preview cannot drift from the real
-                -- cast bar. Assigns the forward-declared local from the top of the block.
-                RefreshImpCastPreview = function()
-                    ns.StopAllGlows(previewFrame)
-                    previewTex:SetTexture(displayCastIcons[_previewCastIconIdx or 1])
-
+                -- Eye: play the chosen glow on the nameplate preview on demand. Anchored
+                -- to the cog explicitly, not to _lastInline, which still points at the
+                -- colour swatch the cog sits beside.
+                local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+                local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
+                local eyeBtn = CreateFrame("Button", nil, leftRgn)
+                eyeBtn:SetSize(26, 26)
+                PP.Point(eyeBtn, "RIGHT", cogBtn, "LEFT", -6, 0)
+                -- Leftmost inline item now, so the row label is bounded against it.
+                leftRgn._lastInline = eyeBtn
+                eyeBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
+                local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+                eyeTex:SetAllPoints()
+                if eyeTex.SetSnapToPixelGrid then eyeTex:SetSnapToPixelGrid(false); eyeTex:SetTexelSnappingBias(0) end
+                local function RefreshImpEye()
+                    eyeTex:SetTexture(showImportantGlowPreview and EYE_INVISIBLE or EYE_VISIBLE)
                     local off = impCastOff()
-                    previewFrame:SetAlpha(off and 0.3 or 1)
-                    if off then return end
-
-                    local styles = ns.PANDEMIC_GLOW_STYLES
-                    local style = DB().importantCastGlowStyle or defaults.importantCastGlowStyle or 1
-                    if type(style) ~= "number" or style < 1 or style > #styles then style = 1 end
-
-                    local c = DB().importantCastGlowColor or defaults.importantCastGlowColor
-                    local opts
-                    if style == 1 then
-                        local bgc = DB().importantCastGlowBackgroundColor
-                            or defaults.importantCastGlowBackgroundColor or { r = 0, g = 0, b = 0 }
-                        opts = {
-                            N      = DB().importantCastGlowLines or defaults.importantCastGlowLines,
-                            th     = DB().importantCastGlowThickness or defaults.importantCastGlowThickness,
-                            period = DB().importantCastGlowSpeed or defaults.importantCastGlowSpeed,
-                            bg     = DB().importantCastGlowBackground == true
-                                     and { r = bgc.r or 0, g = bgc.g or 0, b = bgc.b or 0 } or nil,
-                        }
-                    end
-                    ns.StartGlow(previewFrame, ns.NP_TO_SHARED_GLOW[style] or 1,
-                        IMP_PREVIEW_SIZE, c.r, c.g, c.b, opts, IMP_PREVIEW_SIZE)
+                    eyeBtn:SetAlpha(off and 0.15 or 0.4)
+                    eyeBtn:EnableMouse(not off)
                 end
-
-                EllesmereUI.RegisterWidgetRefresh(RefreshImpCastPreview)
-                RefreshImpCastPreview()
+                eyeBtn:SetScript("OnClick", function()
+                    showImportantGlowPreview = not showImportantGlowPreview
+                    RefreshImpEye()
+                    UpdatePreview()
+                end)
+                eyeBtn:SetScript("OnEnter", function(self)
+                    if impCastOff() then return end
+                    self:SetAlpha(0.7)
+                    EllesmereUI.ShowWidgetTooltip(self, showImportantGlowPreview
+                        and "Hide the glow on the preview"
+                        or  "Show the glow on the preview")
+                end)
+                eyeBtn:SetScript("OnLeave", function(self)
+                    self:SetAlpha(impCastOff() and 0.15 or 0.4)
+                    EllesmereUI.HideWidgetTooltip()
+                end)
+                EllesmereUI.RegisterWidgetRefresh(RefreshImpEye)
+                RefreshImpEye()
             end
         end
 
