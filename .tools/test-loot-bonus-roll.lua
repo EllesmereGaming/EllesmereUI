@@ -116,6 +116,24 @@ assert(ns.GetBonusRollPromptDecision(42) == "minimize",
     "explicit Skip must minimize even when Auto prompts use Blizzard's frame")
 profile.bonusRollPromptMode = "minimize"
 assert(ns.GetBonusRollPromptDecision(42) == "minimize", "minimize mode decision is incorrect")
+
+goals = { { sourceKey = "dungeon:7", itemID = 123, state = "open" } }
+pool.knocked = {}
+policy = "auto"
+profile.bonusRollPromptMode = "explicit_minimize"
+assert(ns.GetBonusRollPromptDecision(42) == "minimize",
+    "explicit minimize must ignore wishlist and planner goals")
+assert(ns.lastBonusRollDebug.reason == "auto_not_explicit",
+    "explicit minimize did not report its policy reason")
+policy = "always"
+assert(not ns.GetBonusRollPromptDecision(42),
+    "explicit Bonus Roll: Yes must preserve the prompt in explicit mode")
+policy = "auto"
+profile.bonusRollPromptMode = "explicit_cancel"
+assert(ns.GetBonusRollPromptDecision(42) == "cancel",
+    "explicit cancel must suppress unmarked Auto sources")
+
+profile.bonusRollPromptMode = "minimize"
 source = dungeon
 policy = "never"
 goals = {}
@@ -143,6 +161,12 @@ assert(not BonusRollFrame:IsShown() and not EULTBonusRollReminder:IsShown(),
     "a dismissed prompt resurfaced after changing instances")
 assert(ns.lastBonusRollDebug.reason == "dismissed_prompt",
     "resurfaced prompt was not recognized as the dismissed source prompt")
+policy = "always"
+assert(not ns.GetBonusRollPromptDecision(42),
+    "Bonus Roll: Yes must immediately override an earlier dismissal")
+assert(not next(characterUIState.dismissedBonusRollPrompts or {}),
+    "explicit opt-in did not clear the stale dismissed-prompt entry")
+policy = "never"
 prompt.displayItemID = 101
 assert(ns.GetBonusRollPromptDecision(42) == "minimize",
     "dismissing one source must not suppress a new source prompt")
