@@ -4740,8 +4740,7 @@ do
 
     -- Improved Whirlwind grants stacks only when the swing connects, but
     -- UNIT_SPELLCAST_SUCCEEDED fires on a whiff too: gate the award on an attackable
-    -- living enemy inside the strike radius. Whirlwind is a ~8 yd self-AoE; the index-2
-    -- probe (~11 yd) is slightly generous and resolves on hostile nameplates; Thunder
+    -- living enemy inside the strike radius. Whirlwind is a ~8 yd self-AoE; Thunder
     -- Clap/Blast reach farther with Crackling Thunder. Resolved synchronously at cast
     -- time so a combat-ending kill still counts; with no hostile target it relies on
     -- enemy nameplates showing. InReach is block-scoped (no upvalues) so
@@ -4749,6 +4748,28 @@ do
     local function InReach(u, wide)
         if not (UnitExists(u) and UnitCanAttack("player", u) and not UnitIsDead(u)) then
             return false
+        end
+        -- Hitbox-scaled melee probe FIRST: CheckInteractDistance is centre-to-centre and
+        -- ignores combat reach, so on large-model bosses (Twin Fangs in The Venomous
+        -- Abyss is the clearest case) the player stands in melee while the unit centre
+        -- sits well past the ~9.9 yd index-2 bottoms out at. The probe then reads false
+        -- on every generator cast and the bar is pinned at 0 for the whole fight.
+        -- IsSpellInRange on a melee ability is hitbox-scaled (~5 yd + combat reach) and
+        -- answers true there -- the same gauge the Sweeping Strikes tracker below uses.
+        -- UNION of both probes, not a replacement: unlike that gauge this is a
+        -- GENERATOR, so a false probe costs the entire bar rather than one charge.
+        -- Over-count is the safe direction here, and the interact probe still covers the
+        -- 8-11 yd band where the swing connects but melee reach does not.
+        local isr = C_Spell and C_Spell.IsSpellInRange
+        if isr then
+            -- Resolve the live override id (Bloodthirst -> Bloodbath under Reckless
+            -- Abandon; a talent-replaced base id returns nil).
+            local bt = (C_SpellBook and C_SpellBook.FindSpellOverrideByID
+                and C_SpellBook.FindSpellOverrideByID(23881)) or 23881
+            local r = isr(bt, u)
+            if not (issecretvalue and issecretvalue(r)) and r == true then
+                return true
+            end
         end
         return CheckInteractDistance(u, 2) or (wide and CheckInteractDistance(u, 1)) or false
     end
