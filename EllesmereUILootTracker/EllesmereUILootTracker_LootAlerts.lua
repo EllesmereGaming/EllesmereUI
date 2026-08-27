@@ -4,6 +4,20 @@ if not ns then return end
 local L = EllesmereUI.L
 local queue, active, popup = {}, nil, nil
 local recent = {}
+local recentCount, lastRecentPrune = 0, 0
+
+local function PruneRecent(now)
+    if recentCount < 100 and now - lastRecentPrune < 60 then return end
+    recentCount = 0
+    for key, seenAt in pairs(recent) do
+        if now - seenAt > 60 then
+            recent[key] = nil
+        else
+            recentCount = recentCount + 1
+        end
+    end
+    lastRecentPrune = now
+end
 
 local function Font(parent, size, r, g, b, a)
     return EllesmereUI.MakeFont(parent, size, nil, r or 1, g or 1, b or 1, a or 1)
@@ -185,8 +199,10 @@ local function OnChatLoot(message, sender, ...)
     local lineID = select(9, ...)
     local key = tostring(lineID or "") .. ":" .. player .. ":" .. itemID
     local now = GetTime()
+    PruneRecent(now)
     if recent[key] and now - recent[key] < 30 then return end
     recent[key] = now
+    recentCount = recentCount + 1
     ns.QueueLootAlert({
         player=player, itemID=itemID, itemLink=itemLink,
         itemName=C_Item.GetItemNameByID(itemID), icon=C_Item.GetItemIconByID(itemID),

@@ -328,10 +328,13 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
     check:SetShown(obtained)
     local function HandleItemClick(button)
         local currentGoal = ns.GetGoal(sourceKey, item.itemID, specID)
-        local currentPool = ns.GetPool(sourceKey, specID)
         if button == "RightButton" then
-            ns.SetPoolItemState(sourceKey, item.itemID,
-                not ns.IsPoolItemKnocked(sourceKey, item.itemID, specID), specID, "manual")
+            local knocked = ns.IsPoolItemKnocked(sourceKey, item.itemID, specID)
+            if IsShiftKeyDown and IsShiftKeyDown() then
+                ns.SetPoolItemState(sourceKey, item.itemID, not knocked, specID, "manual")
+            else
+                ns.SetManualBonusRollState(sourceKey, item.itemID, not knocked, specID, difficultyID)
+            end
         elseif button == "LeftButton" then
             if currentGoal and currentGoal.state == "archived" then
                 ns.ReactivateGoal(sourceKey, item.itemID, specID)
@@ -1222,7 +1225,7 @@ local function BuildSettings(parent, yOffset)
     text:SetPoint("TOPLEFT", note, "TOPLEFT", 12, -12)
     text:SetPoint("BOTTOMRIGHT", note, "BOTTOMRIGHT", -12, 12)
     text:SetJustifyH("LEFT"); text:SetJustifyV("TOP"); text:SetWordWrap(true)
-    text:SetText(L("Right-click an item in a loot page to manually correct whether it has already been removed from its Voidcore pool. Only Voidcore rewards change this pool automatically; normal loot can still complete a wishlist goal."))
+    text:SetText(L("Right-click an item in a loot page to record or undo a missed bonus roll. Shift-right-click changes only the Voidcore pool. Normal loot can still complete a wishlist goal without changing the pool."))
     y = y - 90
     parent:SetHeight(math.abs(y - yOffset) + 30)
     return math.abs(y - yOffset) + 30

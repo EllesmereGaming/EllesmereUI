@@ -4,6 +4,7 @@ local eventFrame
 local openedPage
 local rebuilds = 0
 local trackerProfile = { minimapButtonSetup = false }
+local suiteVersion = "9.0.7"
 
 local function Noop() end
 local function Region()
@@ -18,6 +19,7 @@ GameTooltip = {
     Hide = function(self) self.owner = nil end,
 }
 C_Timer = { After = function(_, callback) callback() end }
+C_AddOns = { GetAddOnMetadata = function() return suiteVersion end }
 EllesmereUI = { L = function(key) return key end }
 
 function CreateFrame(_, name)
@@ -50,6 +52,8 @@ assert(button and button.icon, "named minimap button was not created")
 assert(_G._EMM_DB.profile.minimap.ungroupedButtons.EllesmereUILootTrackerMinimapButton == 3,
     "button must default to the direct minimap row")
 assert(trackerProfile.minimapButtonSetup, "one-time minimap setup was not persisted")
+assert(trackerProfile.minimapIntegrationVersion == suiteVersion,
+    "suite version used for integration repair was not persisted")
 assert(rebuilds > 0, "EllesmereUI minimap was not asked to collect the new button")
 
 scripts.OnClick()
@@ -59,5 +63,10 @@ _G._EMM_DB.profile.minimap.ungroupedButtons.EllesmereUILootTrackerMinimapButton 
 events(eventFrame, "ADDON_LOADED", "EllesmereUIMinimap")
 assert(_G._EMM_DB.profile.minimap.ungroupedButtons.EllesmereUILootTrackerMinimapButton == nil,
     "later user grouping choices must not be overwritten")
+
+suiteVersion = "9.0.8"
+events(eventFrame, "ADDON_LOADED", "EllesmereUIMinimap")
+assert(_G._EMM_DB.profile.minimap.ungroupedButtons.EllesmereUILootTrackerMinimapButton == 3,
+    "a suite update must repair a lost direct minimap registration")
 
 print("loot minimap integration ok")

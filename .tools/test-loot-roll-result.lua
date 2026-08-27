@@ -36,6 +36,7 @@ C_Item = {
 }
 
 local source = { kind = "dungeon", challengeModeID = 7, chestItemID = 99, name = "Test Dungeon" }
+local catalogInvalidations = 0
 local ns = {
     SUPPORTED_SEASON_ID = 18,
     SUPPORTED_DISPLAY_SEASON_ID = 2,
@@ -46,6 +47,7 @@ local ns = {
     GetSourceByChest = function(itemID) return itemID == 99 and source or nil end,
     GetCatalog = function() return {} end,
     ReadRemainingNames = function() return nil end,
+    InvalidateCatalog = function() catalogInvalidations = catalogInvalidations + 1 end,
 }
 
 function GetSpellConfirmationPromptsInfo()
@@ -82,5 +84,21 @@ assert(pool.rollsUsed == 1, "roll counter was not incremented")
 assert(#ns.GetRollHistory() == 1, "roll history entry was not written")
 assert(specData.goals[sourceKey .. ":item:123"].state == "archived", "wishlist goal was not archived")
 assert(ns.lastBonusRollTrackingDebug.state == "result_tracked", "tracking debug did not report success")
+
+ns.SetManualBonusRollState(sourceKey, 124, true, 70)
+assert(pool.knocked[124], "manual historical roll must remove its item from the pool")
+assert(pool.rollsUsed == 2, "manual historical roll must increment the roll counter")
+assert(#ns.GetRollHistory() == 2 and ns.GetRollHistory()[2].manual,
+    "manual historical roll must be distinguishable in history")
+ns.SetManualBonusRollState(sourceKey, 124, false, 70)
+assert(not pool.knocked[124], "undoing a manual roll must restore the pool item")
+assert(pool.rollsUsed == 1 and #ns.GetRollHistory() == 1,
+    "undoing a manual roll must restore history and count")
+
+local specChanged
+ns.RegisterCallback(function(reason) if reason == "spec" then specChanged = true end end)
+eventHandler(nil, "PLAYER_LOOT_SPEC_UPDATED")
+assert(catalogInvalidations == 1 and specChanged,
+    "loot-specialization changes must invalidate and refresh core tracker state")
 
 print("loot bonus roll result tracking ok")

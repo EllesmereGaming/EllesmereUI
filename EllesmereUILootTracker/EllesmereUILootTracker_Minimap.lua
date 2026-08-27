@@ -5,6 +5,12 @@ local BUTTON_NAME = "EllesmereUILootTrackerMinimapButton"
 local ICON = "Interface\\Icons\\INV_Misc_TreasureChest04b"
 local refreshQueued
 
+local function SuiteVersion()
+    local getter = C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata
+    local version = getter and getter("EllesmereUI", "Version")
+    return tostring(version or "unknown")
+end
+
 local function CreateMinimapButton()
     local existing = _G[BUTTON_NAME]
     if existing then return existing end
@@ -55,10 +61,13 @@ local function DefaultToDirectButton()
     local trackerProfile = ns.GetProfile and ns.GetProfile()
     local minimapDB = _G._EMM_DB
     local minimapProfile = minimapDB and minimapDB.profile and minimapDB.profile.minimap
-    if not trackerProfile or not minimapProfile or trackerProfile.minimapButtonSetup then return end
+    if not trackerProfile or not minimapProfile then return end
 
     minimapProfile.ungroupedButtons = minimapProfile.ungroupedButtons or {}
-    if minimapProfile.ungroupedButtons[BUTTON_NAME] == nil then
+    local suiteVersion = SuiteVersion()
+    local needsVersionRepair = trackerProfile.minimapIntegrationVersion ~= suiteVersion
+    if minimapProfile.ungroupedButtons[BUTTON_NAME] == nil
+        and (not trackerProfile.minimapButtonSetup or needsVersionRepair) then
         local maxOrder = 0
         for _, order in pairs(minimapProfile.ungroupedButtons) do
             if type(order) == "number" and order > maxOrder then maxOrder = order end
@@ -66,6 +75,7 @@ local function DefaultToDirectButton()
         minimapProfile.ungroupedButtons[BUTTON_NAME] = maxOrder + 1
     end
     trackerProfile.minimapButtonSetup = true
+    trackerProfile.minimapIntegrationVersion = suiteVersion
 end
 
 local function RefreshMinimapIntegration()
