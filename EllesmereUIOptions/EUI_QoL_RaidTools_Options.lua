@@ -54,10 +54,24 @@ initFrame:SetScript("OnEvent", function(self)
         return (Cfg("mode") or "never") == "never"
     end
 
-    -- The runtime owns the normalize (unknown values read as "one").
+    -- The runtime owns the normalize (unknown values retain One Window).
     local function ShowAsVal()
         if ns.ShowAs then return ns.ShowAs() end
         return Cfg("showAs") or "one"
+    end
+
+    local function LegacyDisabled()
+        return Disabled() or ShowAsVal() == "compact"
+    end
+    local function RoleCheckDisabled()
+        return Disabled() or ShowAsVal() == "markers"
+    end
+    local function FullPanelButtonDisabled()
+        local mode = ShowAsVal()
+        return Disabled() or mode == "compact" or mode == "markers"
+    end
+    local function PullDisabled()
+        return Disabled() or ShowAsVal() == "markers"
     end
 
     -- Pull durations live in a fixed 3-slot array; each slider owns one slot.
@@ -240,35 +254,32 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        -- Row 2: collapsed-when-shown default | window composition. One rule
-        -- for every show, keybind included -- a user who wants the keybind to
-        -- toggle the full windows simply turns this off.
+        -- Row 2: collapsed-when-shown default | window composition.
         _, h = W:DualRow(parent, y,
             { type = "toggle", text = "Default to Collapsed When Shown",
-              tooltip = "Shows start as a small icon, and the keybind switches between the icon and the full windows. Turn off to show full windows and make the keybind hide and show them.",
-              disabled = Disabled,
+              tooltip = "Full-window modes only. Shows start as a small icon, and the keybind switches between the icon and the full windows.",
+              disabled = LegacyDisabled,
               getValue = function() return Cfg("collapsedIcon") ~= false end,
               setValue = function(v)
                   Set("collapsedIcon", v)
                   Refresh()
               end },
             { type = "dropdown", text = "Show as",
-              tooltip = "One Window combines everything into a single element; the Only choices show just that part.",
+              tooltip = "Compact Band puts markers, ready check and pull timer in one resizable row. The other choices keep the original window layouts.",
               disabled = Disabled,
-              values = { one = "One Window", two = "Two Windows",
-                         group = "Only Group & Pull", markers = "Only Markers" },
-              order = { "one", "two", "group", "markers" },
+              values = { compact = "Compact Band", one = "One Window",
+                         two = "Two Windows", group = "Only Group & Pull",
+                         markers = "Only Markers" },
+              order = { "compact", "one", "two", "group", "markers" },
               getValue = function() return ShowAsVal() end,
               setValue = function(v)
                   Set("showAs", v)
                   Refresh()
-                  EllesmereUI:RefreshPage()  -- the scale sliders follow
+                  EllesmereUI:RefreshPage()
               end }
         );  y = y - h
 
-        -- Row 3: one scale for the whole feature -- both shells and the
-        -- collapsed icon wear it, whichever windows the Show as choice puts
-        -- on screen | which way the windows extend from the collapsed icon.
+        -- Row 3: one scale for every layout | legacy menu grow direction.
         _, h = W:DualRow(parent, y,
             { type = "slider", text = "Window Scale", min = 0.5, max = 2.0, step = 0.05,
               disabled = Disabled,
@@ -278,8 +289,8 @@ initFrame:SetScript("OnEvent", function(self)
                   Refresh()
               end },
             { type = "dropdown", text = "Menu Grow Direction",
-              tooltip = "Which way the windows extend from the collapsed icon when they open.",
-              disabled = Disabled,
+              tooltip = "Full-window modes only. Which way the windows extend from the collapsed icon when they open.",
+              disabled = LegacyDisabled,
               values = { downright = "Down Right", upright = "Up Right",
                          downleft = "Down Left", upleft = "Up Left" },
               order = { "downright", "upright", "downleft", "upleft" },
@@ -297,9 +308,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- leaves -- the survivors re-flow across the rows.
         _, h = W:SectionHeader(parent, "GROUP BUTTONS", y);  y = y - h
 
-        local function ButtonToggle(key, text, tooltip)
+        local function ButtonToggle(key, text, tooltip, disabled)
             return { type = "toggle", text = text, tooltip = tooltip,
-                     disabled = Disabled,
+                     disabled = disabled or Disabled,
                      getValue = function() return Cfg(key) ~= false end,
                      setValue = function(v)
                          Set(key, v)
@@ -309,13 +320,16 @@ initFrame:SetScript("OnEvent", function(self)
 
         _, h = W:DualRow(parent, y,
             ButtonToggle("showRoleCheck", "Show Role Check",
-                "Shows the Role Check button. Turn it off and the remaining buttons close the gap."),
+                "Shows the Role Check button in window layouts and enables Right Click: Role Check on Compact Band.",
+                RoleCheckDisabled),
             ButtonToggle("showConvert", "Show Convert to Raid",
-                "Shows the Convert to Raid button, which reads Convert to Party while you are in a raid.")
+                "Shows the Convert to Raid button, which reads Convert to Party while you are in a raid.",
+                FullPanelButtonDisabled)
         );  y = y - h
         _, h = W:DualRow(parent, y,
             ButtonToggle("showDisband", "Show Disband",
-                "Shows the Disband button. It always asks before disbanding, but hiding it puts it out of misclick range for good."),
+                "Shows the Disband button. It always asks before disbanding, but hiding it puts it out of misclick range for good.",
+                FullPanelButtonDisabled),
             { type = "spacer" }
         );  y = y - h
 
@@ -323,11 +337,11 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:SectionHeader(parent, "PULL TIMER", y);  y = y - h
 
         local PULL_LABELS = { "First Timer", "Second Timer", "Third Timer" }
-        local PULL_TIP = "Countdown length of this pull button, in seconds. Set it to 0 to hide the button; with all three at 0 the whole pull row disappears, Stop included."
+        local PULL_TIP = "Countdown length in seconds. Compact Band uses First with Ctrl + Left Click, Second with Shift + Left Click, Third with Left Click, and Right Click stops the timer. Set a timer to 0 to disable that shortcut."
         local function PullSlider(i)
             return { type="slider", text=PULL_LABELS[i], min=0, max=60, step=1,
                      tooltip=PULL_TIP,
-                     disabled=Disabled,
+                     disabled=PullDisabled,
                      getValue=function() return PullGet(i) end,
                      setValue=function(v) PullSet(i, v) end }
         end

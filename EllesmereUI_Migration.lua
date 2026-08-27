@@ -4053,3 +4053,25 @@ EllesmereUI.RegisterMigration({
         end
     end,
 })
+
+-- The Important Cast Glow menu used to offer exactly two engines under an ad-hoc
+-- numbering: 1 = Pixel Glow, 4 = Auto-Cast Shine. It now offers the whole
+-- PANDEMIC_GLOW_STYLES list, where 3 is Auto-Cast Shine and 4 is GCD -- so a saved
+-- 4 would silently become a different glow. Re-point it.
+--
+-- 4 is the only value that can be stale: 1 means Pixel Glow in both numberings and
+-- nothing else was reachable from the old menu. Runs per profile and the flag rides
+-- on the profile data, so a profile IMPORTED from an older build is fixed up on the
+-- pass after it lands rather than staying wrong forever.
+EllesmereUI.RegisterMigration({
+    id          = "np_important_cast_glow_style_reindex_v1",
+    scope       = "profile",
+    description = "Re-point the saved Important Cast Glow style from the old two-entry numbering (4 = Auto-Cast Shine) onto the PANDEMIC_GLOW_STYLES index (3).",
+    body = function(ctx)
+        local np = ctx.profile.addons and ctx.profile.addons.EllesmereUINameplates
+        if type(np) ~= "table" then return end
+        if np.importantCastGlowStyle == 4 then
+            np.importantCastGlowStyle = 3
+        end
+    end,
+})

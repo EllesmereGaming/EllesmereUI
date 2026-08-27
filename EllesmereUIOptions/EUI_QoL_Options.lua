@@ -2104,6 +2104,18 @@ initFrame:SetScript("OnEvent", function(self)
                         EllesmereUIDB.targetDistanceTextSize = v
                         if EllesmereUI._applyTargetDistanceFrame then EllesmereUI._applyTargetDistanceFrame() end
                       end },
+                    { type="dropdown", label="Frame Strata",
+                      tooltip="Controls the order that overlapping elements display in. Set higher to show above other elements.",
+                      values = EllesmereUI.FRAME_STRATA_LABELS,
+                      order = EllesmereUI.FRAME_STRATA_ORDER_BASE,
+                      get=function()
+                        return (EllesmereUIDB and EllesmereUIDB.targetDistanceStrata) or "HIGH"
+                      end,
+                      set=function(v)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.targetDistanceStrata = v
+                        if EllesmereUI._applyTargetDistanceFrame then EllesmereUI._applyTargetDistanceFrame() end
+                      end },
                 },
                 footer = { unlockKey = "EUI_TargetDistance" },
             })

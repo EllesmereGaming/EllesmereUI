@@ -112,9 +112,14 @@ local function SetFont(fs, size)
     fs:SetFont(font, size, flags)
 end
 
+-- Snapped through PP.Scale so accumulated row offsets (stride * index) don't drift off the pixel
+-- grid from float dust -- without this, a spacing of 1 can round to 0px on some rows and 2px on others.
 local function PhysicalPixels(val)
     local PP = EUI and EUI.PP
-    return (val or 0) * ((PP and PP.mult) or 1)
+    local mult = (PP and PP.mult) or 1
+    local value = (val or 0) * mult
+    if PP and PP.Scale then return PP.Scale(value) end
+    return value
 end
 
 local function GetBarTexturePath()
@@ -478,7 +483,7 @@ local ANIM_SLIDE_PX = 6
 local function IconStripGeometry(count)
     local sh = DB()
     local iconSz = PhysicalPixels(sh.iconSize or 24)
-    local gap = PhysicalPixels(sh.iconSpacing or 1)
+    local gap = sh.iconSpacing or 1
     local dir = sh.growDirection or "LEFT"
     count = max(1, count or sh.iconCount or 5)
     local span = count * iconSz + (count - 1) * gap
@@ -800,7 +805,7 @@ BuildIconStrip = function()
     end
 
     local iconSz = PhysicalPixels(sh.iconSize or 24)
-    local gap = PhysicalPixels(sh.iconSpacing or 1)
+    local gap = sh.iconSpacing or 1
     local dir = sh.growDirection or "LEFT"
     local iconZoom = sh.iconZoom or 0.08
 
@@ -1270,7 +1275,7 @@ local function BuildBarWindow()
     local hdrH = hideTop and 0 or 22
     local maxBars = sh.maxBars or 5
     local barH = PhysicalPixels(sh.shBarHeight or 18)
-    local barSp = PhysicalPixels(dmCfg.barSpacing or 2)
+    local barSp = dmCfg.barSpacing or 2
     local autoH = hdrH + maxBars * (barH + barSp)
     _barWin:SetSize(sh.barWidth or 300, autoH)
     _barWin._locked = sh.barLocked or false
@@ -1298,7 +1303,7 @@ RefreshBarWindow = function()
     local dmCfg = ns.EDM.DB()
     local sh = DB()
     local barH = PhysicalPixels(sh.shBarHeight or 18)
-    local barSp = PhysicalPixels(dmCfg.barSpacing or 2)
+    local barSp = dmCfg.barSpacing or 2
     local stride = barH + barSp
     local texPath = GetBarTexturePath()
     local fontSize = sh.textSize or 11
