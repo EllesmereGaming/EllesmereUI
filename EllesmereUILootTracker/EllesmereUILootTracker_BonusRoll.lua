@@ -108,6 +108,12 @@ function ns.GetBonusRollPromptDecision(spellID)
     local profile = ns.GetProfile()
     local mode = profile and profile.bonusRollPromptMode or "show"
     local debug = { time = GetTime(), configuredMode = mode, reason = "evaluating" }
+    local explicitOnly = mode == "explicit_minimize" or mode == "explicit_cancel"
+    if mode == "explicit_minimize" then
+        mode = "minimize"
+    elseif mode == "explicit_cancel" then
+        mode = "cancel"
+    end
     ns.lastBonusRollDebug = debug
     if not ns.IsSeasonSupported() then debug.reason = "unsupported_season"; return end
     if IsSecret(spellID) then debug.reason = "secret_spell"; return end
@@ -135,6 +141,17 @@ function ns.GetBonusRollPromptDecision(spellID)
     local promptKey = PromptKey(spellID, prompt, source, difficultyID)
     debug.promptKey = promptKey
     local dismissedStore = DismissedPromptStore()
+    local specID = ns.ResolveSpecID()
+    local policy = ns.GetBonusRollPolicy(source, specID, difficultyID)
+    debug.specID = specID
+    debug.policy = policy
+    if policy == ns.BONUS_ROLL_ALWAYS then
+        -- A deliberate opt-in must win immediately even if this prompt/source
+        -- was dismissed under a previous policy moments earlier.
+        dismissedStore[promptKey] = nil
+        debug.reason = "explicit_always"
+        return
+    end
     local dismissedUntil = dismissedStore[promptKey]
     if dismissedUntil and dismissedUntil > time() then
         debug.reason = "dismissed_prompt"
@@ -145,24 +162,24 @@ function ns.GetBonusRollPromptDecision(spellID)
     elseif dismissedUntil then
         dismissedStore[promptKey] = nil
     end
-    local specID = ns.ResolveSpecID()
-    local policy = ns.GetBonusRollPolicy(source, specID, difficultyID)
-    debug.specID = specID
-    debug.policy = policy
-    if policy == ns.BONUS_ROLL_ALWAYS then debug.reason = "explicit_always"; return end
     if policy == ns.BONUS_ROLL_NEVER then
         -- Explicit per-source Skip works without requiring a second setting.
         -- Minimize keeps a recovery path unless cancellation was requested.
         mode = mode == "cancel" and "cancel" or "minimize"
     else
         if mode ~= "minimize" and mode ~= "cancel" then debug.reason = "auto_show_mode"; return end
-        if ns.HasOpenBonusRollGoal(source, specID, difficultyID) then
+        if explicitOnly then
+            -- Planner and wishlist goals do not opt a source into explicit
+            -- mode. Only Bonus Roll: Yes reaches the early return above.
+            debug.reason = "auto_not_explicit"
+        elseif ns.HasOpenBonusRollGoal(source, specID, difficultyID) then
             debug.reason = "auto_wishlist_goal"
             return
         end
     end
 
-    debug.reason = mode
+    if debug.reason == "evaluating" then debug.reason = mode end
+    debug.action = mode
     return mode, {
         spellID = spellID,
         source = source,
@@ -280,6 +297,19 @@ local function FindExplicitSkipSource()
             return source, specID, difficultyID
         end
     end
+    local mode = ns.GetProfile().bonusRollPromptMode
+    if mode ~= "explicit_minimize" and mode ~= "explicit_cancel" then return end
+    -- In explicit-only mode every Auto source is also a valid skip-test target.
+    for _, source in ipairs(ns.GetSources("dungeon") or {}) do
+        if ns.GetBonusRollPolicy(source, specID) ~= ns.BONUS_ROLL_ALWAYS then
+            return source, specID
+        end
+    end
+    for _, source in ipairs(ns.GetSources("raid") or {}) do
+        if ns.GetBonusRollPolicy(source, specID, difficultyID) ~= ns.BONUS_ROLL_ALWAYS then
+            return source, specID, difficultyID
+        end
+    end
 end
 
 local function CreateTestFrame()
@@ -330,7 +360,7 @@ function ns.RunBonusRollDebugTest()
         expiresAt = GetTime() + 10,
     }
     local configuredMode = ns.GetProfile().bonusRollPromptMode
-    local cancelTest = configuredMode == "cancel"
+    local cancelTest = configuredMode == "cancel" or configuredMode == "explicit_cancel"
     ns.lastBonusRollDebug = {
         time = GetTime(), configuredMode = configuredMode,
         reason = "test_waiting", sourceKind = source.kind,

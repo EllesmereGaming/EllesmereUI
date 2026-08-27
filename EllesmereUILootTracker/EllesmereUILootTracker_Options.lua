@@ -571,11 +571,15 @@ local function BuildBonusRollPriority(parent, y, specID)
         end
     end
     local entries = {}
+    local promptMode = Profile().bonusRollPromptMode
+    local explicitOnly = promptMode == "explicit_minimize" or promptMode == "explicit_cancel"
     for _, entry in pairs(grouped) do
         if entry.source then
             entry.policy = ns.GetBonusRollPolicy(entry.source, specID, entry.difficultyID)
             entry.summary = ns.GetSourceSummary(entry.source, specID, entry.difficultyID)
-            if entry.policy ~= ns.BONUS_ROLL_NEVER
+            local policyEligible = (explicitOnly and entry.policy == ns.BONUS_ROLL_ALWAYS)
+                or (not explicitOnly and entry.policy ~= ns.BONUS_ROLL_NEVER)
+            if policyEligible
                 and entry.summary.remaining > 0 and entry.summary.desired > 0 then
                 entry.score = (entry.policy == ns.BONUS_ROLL_ALWAYS and 100000 or 0)
                     + entry.weightedValue / entry.summary.remaining
@@ -1197,12 +1201,14 @@ local function BuildSettings(parent, yOffset)
         show = EllesmereUI.L("Minimize explicit skips only"),
         minimize = EllesmereUI.L("Minimize when skipped"),
         cancel = EllesmereUI.L("Cancel when skipped"),
+        explicit_minimize = EllesmereUI.L("Minimize unless explicitly selected"),
+        explicit_cancel = EllesmereUI.L("Cancel unless explicitly selected"),
     }
     _, h = W:Dropdown(parent, EllesmereUI.L("Bonus Roll Prompt"), y, promptModes,
         function() return Profile().bonusRollPromptMode or "show" end,
         function(v) Profile().bonusRollPromptMode=tostring(v) end,
-        { "show", "minimize", "cancel" },
-        EllesmereUI.L("Explicit Skip sources are always minimized. This setting controls Auto sources and whether skipped prompts are minimized or cancelled.")); y = y - h
+        { "show", "minimize", "cancel", "explicit_minimize", "explicit_cancel" },
+        EllesmereUI.L("Explicit-only modes ignore wishlist and planner goals: only sources marked Bonus Roll: Yes show Blizzard's prompt. Unknown sources are always preserved.")); y = y - h
     _, h = W:WideButton(parent, "Test Bonus Roll Skip", y, function()
         local ok, detail = ns.RunBonusRollDebugTest()
         if ok then
