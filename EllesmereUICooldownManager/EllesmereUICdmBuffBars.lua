@@ -1636,9 +1636,7 @@ local TBB_STYLE_KEYS = {
     -- Visibility rides along because the onlyInCombat toggle it replaced already did: a new
     -- bar inheriting a neighbour's style, or one joining a group, kept that gate before.
     "barVisibility", "visibilityModes",
-    "visOnlyInstances", "visHideHousing", "visOnlyHousing",
-    "visHideMounted", "visOnlyMounted", "visHideDragonriding",
-    "visHideNoTarget", "visHideNoEnemy",
+    -- The option lanes themselves are appended from the shared list below.
     "showTimer", "timerPosition", "timerSize", "timerX", "timerY",
     "timerTextR", "timerTextG", "timerTextB", "timerTextA",
     "timerDecimals", "timerDecimalThreshold",
@@ -1654,6 +1652,13 @@ local TBB_STYLE_KEYS = {
     "pandemicGlow", "pandemicGlowStyle", "pandemicGlowColor",
     "pandemicGlowLines", "pandemicGlowThickness", "pandemicGlowSpeed",
 }
+-- Appended rather than spelled out: a lane added to the shared list is copied with the
+-- rest of the style instead of silently staying behind on the source bar.
+if EllesmereUI.VIS_OPT_KEYS then
+    for i = 1, #EllesmereUI.VIS_OPT_KEYS do
+        TBB_STYLE_KEYS[#TBB_STYLE_KEYS + 1] = EllesmereUI.VIS_OPT_KEYS[i]
+    end
+end
 ns.TBB_STYLE_KEYS = TBB_STYLE_KEYS
 
 -- Copy src's visual style onto dst, key-exact (including nil) so both bars resolve defaults
@@ -5000,10 +5005,10 @@ local function TBBUsesVisCondition(cfg)
     if vis and vis ~= "always" then return true end
     local vm = cfg.visibilityModes
     if type(vm) == "table" and next(vm) then return true end
-    local items = EllesmereUI.VIS_OPT_ITEMS
-    if items then
-        for i = 1, #items do
-            if cfg[items[i].key] then return true end
+    local keys = EllesmereUI.VIS_OPT_KEYS
+    if keys then
+        for i = 1, #keys do
+            if cfg[keys[i]] then return true end
         end
     end
     return false

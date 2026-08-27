@@ -74,7 +74,7 @@ initFrame:SetScript("OnEvent", function(self)
         clock = 150, fps = 70, ms = 70, gold = 150, xprep = 140, spec = 130,
         profession = 120, travel = 40, micromenu = 340, currency = 90, spacer = 40,
         durability = 70, combat = 105, profession2 = 120, greatvault = 100,
-        location = 140, coords = 70,
+        location = 140, coords = 70, crests = 160, ilvl = 70,
     }
 
     ---------------------------------------------------------------------------
@@ -1701,7 +1701,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Visibility | Visibility Options (renaming lives in the selector's
         -- inline edit; "Never" visibility fully disables the bar's work).
         local visRow
-        visRow, h = EllesmereUI.BuildVisibilityModeRow(W, parent, y,
+        visRow, h = EllesmereUI.BuildVisibilityRow(W, parent, y,
             { getStore = function() return ns.GetBar(barId) end,
               legacyKey = "visibility",
               caps = ns.EDB_VIS_CAPS,
@@ -1710,34 +1710,18 @@ initFrame:SetScript("OnEvent", function(self)
                   -- rebuilds), so run the full apply, not just the vis pass.
                   ns.ApplyBar(barId)
                   ns.UpdateAllBarVisibility()
-              end },
-            { type = "dropdown", text = "Visibility Options",
-              values = { __placeholder = "..." }, order = { "__placeholder" },
-              getValue = function() return "__placeholder" end,
-              setValue = function() end });  y = y - h
-        do
-            local rightRgn = visRow._rightRegion
-            if rightRgn._control then rightRgn._control:Hide() end
-            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                rightRgn, 210, rightRgn:GetFrameLevel() + 2,
-                EllesmereUI.VIS_OPT_ITEMS,
-                function(k)
-                    local c = ns.GetBar(barId)
-                    if c and c[k] then return true end
-                    return false
-                end,
-                function(k, v)
-                    local c = ns.GetBar(barId)
-                    if not c then return end
-                    c[k] = v
-                    ns.UpdateAllBarVisibility()
-                    EllesmereUI:RefreshPage()
-                end)
-            PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
-            rightRgn._control = cbDD
-            rightRgn._lastInline = nil
-            EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
-        end
+              end,
+              onOptionChanged = function() ns.UpdateAllBarVisibility() end },
+            -- Hide Border moved up from the section's old trailing half-row into the slot
+            -- the Visibility Options dropdown left behind, so neither row is half empty.
+            { type = "toggle", text = "Hide Border",
+              tooltip = "Hide the 1-pixel outline around the bar.",
+              getValue = function() return cfg.hideBorder == true end,
+              setValue = function(v)
+                  cfg.hideBorder = v and true or false
+                  ns.ApplyTheme(barId)
+                  RefreshPreviewTheme()
+              end });  y = y - h
         -- Inline cog on the Visibility dropdown: Bar Strata. Lives here rather
         -- than as a row of its own because it answers the same question the
         -- visibility controls do -- when and where this bar shows up -- and it
@@ -1911,14 +1895,6 @@ initFrame:SetScript("OnEvent", function(self)
                   cfg.hoverHighlight = v and true or false
                   Apply()
               end }
-        local showBorderCfg = { type = "toggle", text = "Hide Border",
-              tooltip = "Hide the 1-pixel outline around the bar.",
-              getValue = function() return cfg.hideBorder == true end,
-              setValue = function(v)
-                  cfg.hideBorder = v and true or false
-                  ns.ApplyTheme(barId)
-                  RefreshPreviewTheme()
-              end }
         -- Bar Opacity drives BOTH styles: the Modern flat color's alpha or
         -- the EllesmereUI shell's backdrop dim, whichever is active.
         local opacityRow
@@ -2065,9 +2041,6 @@ initFrame:SetScript("OnEvent", function(self)
               end });  y = y - h
 
         _, h = W:DualRow(parent, y, scaleCfg, hoverBlocksCfg);  y = y - h
-        -- Odd last slot: blank right label per the DualRow rules (a nil right
-        -- config would stretch the toggle across the full row).
-        _, h = W:DualRow(parent, y, showBorderCfg, { type = "label", text = "" });  y = y - h
 
         -- Bar deletion lives in the selector dropdown's inline delete -- no
         -- body row. Visibility moved to the top of the section; rename =
@@ -2375,12 +2348,61 @@ initFrame:SetScript("OnEvent", function(self)
                     end,
                     refreshAlpha = function() return b.useCoinColor and 1 or 0.3 end }
             end
+            -- Crests block: 4th "Crest Colors" swatch on Text Color -- each
+            -- amount tinted with its own tier color. Unlike Gold's coin mode
+            -- this is the nothing-stored DEFAULT, resolved by ns.CrestColorMode
+            -- rather than a forced write, so Custom has to SEED b.color on its
+            -- first click to take the selection (same shape as the Icon Color
+            -- row's Custom/Default pair below).
+            if b.type == "crests" then
+                local sw = colorCfg.swatches
+                local origCustomClick = sw[1].onClick
+                sw[1].onClick = function(self)
+                    if ns.CrestColorMode(b) or b.useClassColor or b.useAccentColor then
+                        b.useCrestColor = nil
+                        b.useClassColor = nil
+                        b.useAccentColor = nil
+                        if b.color == nil then b.color = { r = 1, g = 1, b = 1 } end
+                        ApplyBlockColor(); EllesmereUI:RefreshPage()
+                        return
+                    end
+                    origCustomClick(self)
+                end
+                sw[1].refreshAlpha = function()
+                    if ns.CrestColorMode(b) or b.useClassColor or b.useAccentColor then
+                        return 0.3
+                    end
+                    return 1
+                end
+                for i = 2, 3 do
+                    local origClick = sw[i].onClick
+                    sw[i].onClick = function(...)
+                        b.useCrestColor = nil
+                        return origClick(...)
+                    end
+                end
+                sw[4] = { tooltip = "Crest Colors", hasAlpha = false,
+                    -- Myth gold: the top crest, and the most recognizable of
+                    -- the five as a single preview swatch.
+                    getValue = function() return 1, 0.82, 0 end,
+                    setValue = function() end,
+                    onClick = function()
+                        b.useCrestColor = true
+                        b.useClassColor = nil
+                        b.useAccentColor = nil
+                        ApplyBlockColor(); EllesmereUI:RefreshPage()
+                    end,
+                    refreshAlpha = function() return ns.CrestColorMode(b) and 1 or 0.3 end }
+            end
             -- Optional 4th state-driven swatch on Text Color. Durability gets
             -- the same red->green gradient its icon's Dynamic mode uses; the
             -- location blocks get the zone's PvP ruleset color. NOT the
             -- default in any case: nothing-stored stays custom/white.
             local DYNAMIC_TEXT_BLOCKS = {
                 durability = "Dynamic", location = "Reactive", coords = "Reactive",
+                -- Item level: the crest color of the upgrade track the gear
+                -- sits in (Adventurer green through Myth gold).
+                ilvl = "Band",
             }
             if DYNAMIC_TEXT_BLOCKS[b.type] then
                 local sw = colorCfg.swatches
@@ -2489,10 +2511,14 @@ initFrame:SetScript("OnEvent", function(self)
             -- Icon Color (icon-bearing blocks only): the same three swatches
             -- as Text Color plus a "Default" swatch. Nothing stored resolves
             -- to the block's themed default (ns.BlockIconDefault).
+            -- Deliberately absent: crests. Its icons are inline |T|t escapes
+            -- inside one FontString, which cannot be vertex-tinted (see the
+            -- note by ICON_DEFAULTS in the blocks file).
             local ICON_COLOR_BLOCKS = {
                 durability = true, gold = true, travel = true, spec = true,
                 profession = true, profession2 = true, currency = true,
                 greatvault = true, audio = true, location = true, coords = true,
+                ilvl = true,
             }
             if ICON_COLOR_BLOCKS[b.type] then
                 local function IconFlagsOff()
@@ -2664,6 +2690,21 @@ initFrame:SetScript("OnEvent", function(self)
                           s.showIcon = v and true or false
                           Apply()
                       end }
+                end
+                if b.type == "ilvl" then
+                    -- The icon is one of four prefix modes, so the choice
+                    -- rides the Icon Color row rather than a toggle.
+                    iconRowRight = { type = "dropdown", text = "Prefix",
+                      tooltip = "What sits in front of the number. Icon shows the character icon; the color swatches on the left tint it.",
+                      values = { none = "None", short = "ILVL",
+                                 long = "Item Level", icon = "Icon" },
+                      order = { "none", "short", "long", "icon" },
+                      getValue = function()
+                          local p = s.prefix
+                          if p == nil then p = "short" end
+                          return p
+                      end,
+                      setValue = function(v) s.prefix = v; Apply() end }
                 end
                 if b.type == "gold" then
                     iconRowRight = { type = "toggle", text = "Show Silver and Copper",
@@ -3001,10 +3042,75 @@ initFrame:SetScript("OnEvent", function(self)
                     MkToggle("Show Icon", "showIcon", "Shows the currency icon next to the amount."),
                     MkToggleOn("Show Description", "showDescription", "Shows the currency's description text in the tooltip. Turn off for a compact tooltip with just the name and the amount."),
                 }
+            elseif b.type == "crests" then
+                typeRows = {
+                    -- Placeholder: the checklist dropdown swaps into this slot
+                    -- after the row loop (crestListRow capture), same idiom as
+                    -- the gold tooltip checklist.
+                    { type = "dropdown", text = "Crests Shown",
+                      tooltip = "Which of the season's crests this block shows.",
+                      values = { __placeholder = "..." }, order = { "__placeholder" },
+                      getValue = function() return "__placeholder" end,
+                      setValue = function() end },
+                    { type = "dropdown", text = "Separator",
+                      tooltip = "What sits between the crest amounts.",
+                      values = { slash = "Slash", line = "Line",
+                                 dash = "Dash", space = "Space" },
+                      order = { "slash", "line", "dash", "space" },
+                      getValue = function()
+                          local v = s.separator
+                          if v == nil then v = "slash" end
+                          return v
+                      end,
+                      setValue = function(v) s.separator = v; Apply() end },
+                    MkToggleOn("Show Icons", "showIcons", "Shows each crest's icon in front of its amount."),
+                    -- Not an addition but a SWAP: the leading number stops
+                    -- being the spendable amount and becomes the season total.
+                    -- The tooltip always shows both, so it stays the reference.
+                    MkToggle("Show Season Progress", "showSeasonProgress", "Replaces the spendable amount with the crests you have earned this season, out of the season cap. The tooltip lists both numbers side by side."),
+                    MkToggle("Hide Empty Crests", "hideEmpty", "Drops crests you own none of, keeping the block short early in a season. They stay listed in the tooltip."),
+                    { type = "dropdown", text = "Order",
+                      tooltip = "Which end of the crest ladder comes first.",
+                      values = { asc = "Lowest First", desc = "Highest First" },
+                      order = { "asc", "desc" },
+                      getValue = function()
+                          if s.reverse == true then return "desc" end
+                          return "asc"
+                      end,
+                      setValue = function(v)
+                          s.reverse = (v == "desc")
+                          Apply()
+                      end },
+                }
+            elseif b.type == "ilvl" then
+                -- Prefix rides the Icon Color row's right slot above.
+                typeRows = {
+                    { type = "dropdown", text = "Item Level",
+                      tooltip = "Equipped counts your worn gear. Total also counts upgrades sitting in your bags.",
+                      values = { equipped = "Equipped", total = "Total", both = "Both" },
+                      order = { "equipped", "total", "both" },
+                      getValue = function()
+                          local v = s.value
+                          if v == nil then v = "equipped" end
+                          return v
+                      end,
+                      setValue = function(v) s.value = v; Apply() end },
+                    { type = "dropdown", text = "Decimals",
+                      tooltip = "How many decimal places the number carries.",
+                      values = { [0] = "None", [1] = "One", [2] = "Two" },
+                      order = { 0, 1, 2 },
+                      getValue = function()
+                          local p = s.precision
+                          if p == nil then p = 0 end
+                          return p
+                      end,
+                      setValue = function(v) s.precision = v; Apply() end },
+                }
             end
 
             local msIconRow
             local goldTipRow
+            local crestListRow
             for k = 1, #typeRows, 2 do
                 local rightCfg = typeRows[k + 1]
                 if not rightCfg then rightCfg = { type = "label", text = "" } end
@@ -3014,6 +3120,9 @@ initFrame:SetScript("OnEvent", function(self)
                 if b.type == "ms" and k == 1 then msIconRow = row end
                 -- Gold: Show Tooltip Data rides the Coin Icons row's right slot.
                 if b.type == "gold" and k == 3 then goldTipRow = row end
+                -- Crests: the Crests Shown checklist heads the type rows, so
+                -- its placeholder is this row's LEFT slot.
+                if b.type == "crests" and k == 1 then crestListRow = row end
                 -- Deep-link target for an unconfigured currency block: clicking
                 -- its "Select a currency" placeholder on the live bar lands on
                 -- the picker itself, not just the section (ns.OpenBlockSettings).
@@ -3170,6 +3279,48 @@ initFrame:SetScript("OnEvent", function(self)
                     PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
                     rightRgn._control = cbDD
                     rightRgn._lastInline = nil
+                    if cbDDRefresh then EllesmereUI.RegisterWidgetRefresh(cbDDRefresh) end
+                end
+            end
+
+            if b.type == "crests" and crestListRow then
+                -- Crests Shown: ONE checklist dropdown for the season's crest
+                -- tiers (same placeholder-swap idiom as Menu Elements below).
+                -- Labels come from the live currency names so they follow the
+                -- client's locale; the tier keys (t1..t5) are what gets stored,
+                -- so a season's id swap keeps the selection. All default ON.
+                -- Function form: the list re-evaluates on every menu open, so a
+                -- crest whose name had not landed yet at page-build time is not
+                -- stuck showing its id.
+                local function CrestElements()
+                    local out = {}
+                    for i = 1, #ns.CRESTS do
+                        local c = ns.CRESTS[i]
+                        local name
+                        if C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo then
+                            local info = C_CurrencyInfo.GetCurrencyInfo(c.id)
+                            if info then name = info.name end
+                        end
+                        out[i] = { key = c.key, label = name or ("#" .. c.id) }
+                    end
+                    return out
+                end
+                if not EllesmereUI._prebuilding then
+                    local leftRgn = crestListRow._leftRegion
+                    if leftRgn._control then leftRgn._control:Hide() end
+                    local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                        leftRgn, 210, leftRgn:GetFrameLevel() + 2,
+                        CrestElements,
+                        function(k)
+                            return s[k] ~= false
+                        end,
+                        function(k, v)
+                            if v then s[k] = true else s[k] = false end
+                            Apply()
+                        end)
+                    PP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
+                    leftRgn._control = cbDD
+                    leftRgn._lastInline = nil
                     if cbDDRefresh then EllesmereUI.RegisterWidgetRefresh(cbDDRefresh) end
                 end
             end
@@ -3353,8 +3504,10 @@ initFrame:SetScript("OnEvent", function(self)
             cfg.hideBorder = nil
             cfg.visibility = "always"
             cfg.visibilityModes = nil
-            for _, item in ipairs(EllesmereUI.VIS_OPT_ITEMS) do
-                cfg[item.key] = nil
+            -- VIS_OPT_KEYS, not VIS_OPT_ITEMS: the counter-lane keys have no row in the
+            -- legacy item list, and a reset that skipped them would leave a bar hidden.
+            for _, k in ipairs(EllesmereUI.VIS_OPT_KEYS) do
+                cfg[k] = nil
             end
             cfg.savedPos = nil
             ns.ApplyBar(cfg.id)

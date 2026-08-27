@@ -677,6 +677,13 @@ ns.PANDEMIC_GLOW_STYLES = PANDEMIC_GLOW_STYLES
 -- never raw index: this list omits "Custom Shape Glow", so the same index differs per side.
 if EllesmereUI then EllesmereUI.NameplatePandemicGlowStyles = PANDEMIC_GLOW_STYLES end
 
+-- PANDEMIC_GLOW_STYLES index -> shared EllesmereUI.Glows.STYLES index. The NP
+-- list omits Shape Glow (shared index 4), so every flipbook entry sits one lower
+-- here. Lives beside the list it translates FROM on purpose: a second copy is how
+-- the two drift the first time a style is inserted into either one. On ns, not
+-- a file local: this chunk sits at the Lua 5.1 200-local cap.
+ns.NP_TO_SHARED_GLOW = { 1, 2, 3, 5, 6, 7 }
+
 local function GetPandemicGlowStyle()
     local raw = p and p.pandemicGlowStyle
     if raw == nil then return defaults.pandemicGlowStyle end
@@ -1485,12 +1492,16 @@ local StartButtonGlow     = _G_Glows.StartButtonGlow
 local StopButtonGlow      = _G_Glows.StopButtonGlow
 local StartAutoCastShine  = _G_Glows.StartAutoCastShine
 local StopAutoCastShine   = _G_Glows.StopAutoCastShine
+local StartGlow           = _G_Glows.StartGlow
+local StopAllGlows        = _G_Glows.StopAllGlows
 ns.StartProceduralAnts = StartProceduralAnts
 ns.StopProceduralAnts  = StopProceduralAnts
 ns.StartButtonGlow     = StartButtonGlow
 ns.StopButtonGlow      = StopButtonGlow
 ns.StartAutoCastShine  = StartAutoCastShine
 ns.StopAutoCastShine   = StopAutoCastShine
+ns.StartGlow           = StartGlow
+ns.StopAllGlows        = StopAllGlows
 
 -------------------------------------------------------------------------------
 --  Dispellable buff glow: highlights enemy buffs the player can purge/soothe
@@ -7263,12 +7274,14 @@ function NameplateFrame:UpdateImportantCastGlow(spellID)
     if not Glows then return end
 
     local style = cfg.importantCastGlowStyle or defaults.importantCastGlowStyle or 1
-    if style ~= 1 and style ~= 4 then style = 1 end
+    if type(style) ~= "number" or style < 1 or style > #PANDEMIC_GLOW_STYLES then style = 1 end
     local c = cfg.importantCastGlowColor or defaults.importantCastGlowColor or { r = 1, g = 0.2, b = 0.2 }
     local bgColor = cfg.importantCastGlowBackgroundColor or defaults.importantCastGlowBackgroundColor or { r = 0, g = 0, b = 0 }
     local bgOn = cfg.importantCastGlowBackground == true
+    -- Lines/thickness/speed and the background are Pixel Glow's own knobs; every
+    -- other style ignores them, so they stay nil and out of the cache key below.
     local impN, impTh, impPeriod
-    if style ~= 4 then
+    if style == 1 then
         impN = cfg.importantCastGlowLines or defaults.importantCastGlowLines or 8
         impTh = cfg.importantCastGlowThickness or defaults.importantCastGlowThickness or 2
         impPeriod = cfg.importantCastGlowSpeed or defaults.importantCastGlowSpeed or 4
@@ -7285,15 +7298,15 @@ function NameplateFrame:UpdateImportantCastGlow(spellID)
         local pW, pH = self.cast:GetWidth(), self.cast:GetHeight()
         if pW < 5 then pW = 100 end
         if pH < 5 then pH = 14 end
-        if style == 4 then
-            (StartAutoCastShine or Glows.StartAutoCastShine)(self._importantCastOverlay, pW, c.r, c.g, c.b, 1.0, pH)
-        else
-            local lineLen = math.floor((pW + pH) * (2 / impN - 0.1))
-            lineLen = math.min(lineLen, math.min(pW, pH))
-            if lineLen < 1 then lineLen = 1 end
-            (StartProceduralAnts or Glows.StartProceduralAnts)(self._importantCastOverlay, impN, impTh, impPeriod, lineLen, c.r, c.g, c.b, pW, pH,
-                bgOn and (bgColor.r or 0) or nil, bgColor.g or 0, bgColor.b or 0)
-        end
+        -- StartGlow owns the per-style engine pick. Its Pixel Glow path reproduces
+        -- the old direct call exactly: same lineLen formula, and an unset bg alpha
+        -- resolves to 1 there, which is what omitting the argument used to do.
+        local Start = StartGlow or Glows.StartGlow
+        Start(self._importantCastOverlay, ns.NP_TO_SHARED_GLOW[style] or 1, pW, c.r, c.g, c.b,
+            style == 1 and {
+                N = impN, th = impTh, period = impPeriod,
+                bg = bgOn and { r = bgColor.r or 0, g = bgColor.g or 0, b = bgColor.b or 0 } or nil,
+            } or nil, pH)
         self._importantGlowActive = true
         self._importantGlowStyle = style
         self._importantGlowR, self._importantGlowG, self._importantGlowB = c.r, c.g, c.b

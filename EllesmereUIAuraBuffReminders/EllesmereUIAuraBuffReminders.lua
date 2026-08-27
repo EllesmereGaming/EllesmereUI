@@ -2851,7 +2851,7 @@ do
         elseif mode == "item" then
             SetIconItem(btn, m.itemID, m.texture, m.label)
         elseif mode == "macro" then
-            SetIconMacro(btn, m.macro, m.texture, nil)
+            SetIconMacro(btn, m.macro, m.texture or (m.spellID and Tex(m.spellID)), m.spellID)
             btn._tooltipItem = m.tooltipItem
         else -- "texture"
             SetIconTexture(btn, m.texture, m.label)
@@ -3280,7 +3280,10 @@ local specialsActive = EABR.SectionShows(co.specialsWhereToShow, inInstance)
                         end
                         if show then
                             local e = AcquireEntry()
-                            e.mode = "spell"; e.spellID = rite.castSpell
+                            local spellName = _G._EABR_SpellName(rite.castSpell, rite.name)
+                            e.mode = "macro"
+                            e.spellID = rite.castSpell
+                            e.macro = "/cast " .. spellName .. "\n/use 16"
                             e.label = ShortLabel(_G._EABR_SpellName(rite.castSpell, rite.name))
                             e.cat = "consumable"; e.data = rite
                             e.dismissKey = "consumable:" .. rite.key

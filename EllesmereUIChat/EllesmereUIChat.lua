@@ -4394,6 +4394,7 @@ local function SkinChatFrame(cf)
                 HideSidebarIconTooltip(self)
             end)
 
+            local lastDurText
             local function UpdateDurability()
                 local lowest = 100
                 for slot = 1, 18 do
@@ -4403,13 +4404,30 @@ local function SkinChatFrame(cf)
                         if pct < lowest then lowest = pct end
                     end
                 end
-                durabilityPct:SetText(math.floor(lowest) .. "%")
+                local txt = math.floor(lowest) .. "%"
+                if txt ~= lastDurText then
+                    lastDurText = txt
+                    durabilityPct:SetText(txt)
+                end
             end
 
+            -- Durability + alert events land together per damaged slot; one
+            -- recount after the frame settles. Self-repair items fire only the
+            -- alert event.
+            local durPending = false
+            local function FlushDurability()
+                durPending = false
+                UpdateDurability()
+            end
             local durEvents = CreateFrame("Frame")
             durEvents:RegisterEvent("UPDATE_INVENTORY_DURABILITY")
+            durEvents:RegisterEvent("UPDATE_INVENTORY_ALERTS")
             durEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
-            durEvents:SetScript("OnEvent", UpdateDurability)
+            durEvents:SetScript("OnEvent", function()
+                if durPending then return end
+                durPending = true
+                C_Timer.After(0, FlushDurability)
+            end)
 
             CFD(cf).durabilityPct = durabilityPct
             anchor = durabilityPct

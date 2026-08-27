@@ -45,17 +45,26 @@ function ns.UFOpt_ShowTrackedAuras(unitKey)
     local function Changed()
         if ns.ReloadFrames then ns.ReloadFrames() end
         if ns.UpdatePreview then ns.UpdatePreview() end
+        -- Non-force: the Debuff Filter dropdown's empty warning (Only Tracked
+        -- Auras with its list emptied) re-reads live, without rebuilding the
+        -- page under the popup.
+        if EllesmereUI.RefreshPage then EllesmereUI:RefreshPage() end
     end
     EllesmereUI.ShowTrackedAurasPopup({
         eyebrow = "UNIT FRAME AURA FILTERS",
         title = TRACKED_TITLES[unitKey] or "Tracked Auras",
+        subtitle = "Included debuffs show in addition to your Debuff Filter selection (unless it is set to Only Tracked Auras).",
         includeGet = function() return TrackedList(unitKey, "debuffInclude") end,
         excludeGet = function() return TrackedList(unitKey, "debuffExclude") end,
-        -- Boss includes default to Only My Casts (nameplate parity); the MINE
-        -- tag on each row opts an entry out to any caster (sibling map).
+        -- Caster scope per entry (the MINE tag on each row). Boss includes default
+        -- to Only My Casts (nameplate parity) with an any-caster OPT-OUT map;
+        -- target/focus includes default to any caster with a MINE OPT-IN map.
+        -- Engine: AppendIncludeLinks in EUI_UnitFrames_AuraContainers.lua.
         includeMine = (unitKey == "boss") and {
             anyGet = function() return TrackedList(unitKey, "debuffIncludeAnyCaster") end,
-        } or nil,
+        } or {
+            mineGet = function() return TrackedList(unitKey, "debuffIncludeMine") end,
+        },
         includePrompt = "Enter the spell ID to always show on this frame.",
         excludePrompt = "Enter the spell ID to exclude from this frame.",
         onChanged = Changed,
@@ -75,11 +84,96 @@ function ns.UFOpt_ShowTrackedAuras(unitKey)
                 end
                 dst.debuffInclude = Clone(src.debuffInclude)
                 dst.debuffExclude = Clone(src.debuffExclude)
-                dst.debuffIncludeAnyCaster = Clone(src.debuffIncludeAnyCaster)
+                -- The caster-scope maps have opposite polarity per unit kind (boss:
+                -- any-caster opt-out; target/focus: MINE opt-in). Same kind copies
+                -- them as-is; across kinds the set is inverted so every copied
+                -- entry keeps the scope it showed with.
+                local srcBoss, dstBoss = srcKey == "boss", unitKey == "boss"
+                if srcBoss == dstBoss then
+                    dst.debuffIncludeAnyCaster = Clone(src.debuffIncludeAnyCaster)
+                    dst.debuffIncludeMine = Clone(src.debuffIncludeMine)
+                else
+                    local srcMap = srcBoss and src.debuffIncludeAnyCaster or src.debuffIncludeMine
+                    local inv = {}
+                    for id in pairs(src.debuffInclude or {}) do
+                        if not (srcMap and srcMap[id]) then inv[id] = true end
+                    end
+                    if dstBoss then
+                        dst.debuffIncludeAnyCaster = inv
+                        dst.debuffIncludeMine = nil
+                    else
+                        dst.debuffIncludeMine = inv
+                        dst.debuffIncludeAnyCaster = nil
+                    end
+                end
                 Changed()
             end,
         },
     })
+end
+
+-- Target/focus/boss Debuff Filter: ONE single-select mode, an engine VIEW over
+-- the legacy keys (ns.UF_DebuffFilterMode in EUI_UnitFrames_AuraContainers.lua;
+-- nothing is rewritten on update, the first pick writes s.debuffFilterMode --
+-- the only key this dropdown ever writes). "Edit Tracked Auras" is an action
+-- row above a divider; Tracked Auras are additional tracking in every mode,
+-- and Only Tracked Auras is the one mode that can render nothing (its tooltip
+-- points at the action row, AttachDebuffModeWarn carries the empty warning).
+local DEBUFF_MODE_ORDER = {
+    "__editTracked", "---",
+    "all", "tracked", "own", "important", "importantOwn", "importantOrOwn",
+}
+local DEBUFF_MODE_TIPS = {
+    all            = "Shows every debuff on this frame.",
+    tracked        = "Shows only this frame's Tracked Auras; add them with Edit Tracked Auras at the top of this menu.",
+    own            = "Shows only the debuffs you apply.",
+    important      = "Shows only debuffs Blizzard flags as important.",
+    importantOwn   = "Shows only the debuffs you apply that Blizzard also flags as important.",
+    importantOrOwn = "Shows the debuffs you apply plus important debuffs from anyone.",
+}
+local function DebuffModeDropdownCfg(text, unitKey, getS, onChanged, extra)
+    local values = {
+        __editTracked  = { text = "Edit Tracked Auras", action = function() ns.UFOpt_ShowTrackedAuras(unitKey) end },
+        all            = "Show All",
+        tracked        = "Only Tracked Auras",
+        own            = "Own Only",
+        important      = "Important Only",
+        importantOwn   = "Important and Own",
+        importantOrOwn = "Important or Own",
+        _menuOpts = {
+            onItemHover = function(key, item)
+                local tip = DEBUFF_MODE_TIPS[key]
+                if tip and item then EllesmereUI.ShowWidgetTooltip(item, tip) end
+            end,
+            onItemLeave = function() EllesmereUI.HideWidgetTooltip() end,
+        },
+    }
+    local cfg = {
+        type = "dropdown", text = text, values = values, order = DEBUFF_MODE_ORDER,
+        getValue = function() return ns.UF_DebuffFilterMode(getS()) end,
+        setValue = function(v)
+            getS().debuffFilterMode = v
+            onChanged()
+        end,
+    }
+    if extra then
+        for k, val in pairs(extra) do cfg[k] = val end
+    end
+    return cfg
+end
+-- The standard red empty-selection warning on the mode dropdown built by a
+-- DualRow slot (rgn._control): shown while Only Tracked Auras has no active
+-- entry and the column is not already dimmed by its Display = None.
+local function AttachDebuffModeWarn(rgn, getS, offFn)
+    local dd = rgn and rgn._control
+    if not dd then return end
+    EllesmereUI.AttachEmptyFilterWarn(rgn, dd,
+        EllesmereUI.L("You are displaying NO debuffs at all."),
+        function()
+            if offFn() then return true end
+            local s = getS()
+            return ns.UF_DebuffFilterMode(s) ~= "tracked" or ns.UF_DebuffHasIncludes(s)
+        end)
 end
 
 local initFrame = CreateFrame("Frame")
@@ -4470,7 +4564,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
         local visRow
-        visRow, h = EllesmereUI.BuildVisibilityModeRow(W, parent, y,
+        visRow, h = EllesmereUI.BuildVisibilityRow(W, parent, y,
             { getStore = function() return UNIT_DB_MAP[selectedUnit]() end,
               legacyKey = "barVisibility",
               caps = { partyIncludesRaid = false, luaDragonriding = true },
@@ -4490,11 +4584,22 @@ initFrame:SetScript("OnEvent", function(self)
                   -- Un-hiding a frame whose EUI frame isn't spawned this session
                   -- (source was Blizzard/Hidden at login) needs a /reload.
                   if (s.barVisibility or "always") ~= "never" then PromptReloadIfUnspawned({ selectedUnit }) end
+              end,
+              onOptionChanged = function()
+                  if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
               end },
-            { type="dropdown", text="Visibility Options",
-              values={ __placeholder = "..." }, order={ "__placeholder" },
-              getValue=function() return "__placeholder" end,
-              setValue=function() end });  y = y - h
+            -- Show Nicknames moved up from the section's old trailing half-row into the
+            -- slot the Visibility Options dropdown left behind, so neither row is half
+            -- empty. ONE global toggle for all main frames (default OFF, not per-unit,
+            -- hence db.profile). Gates ns.ResolveUnitNickname: off = raw names, on =
+            -- provider nicknames.
+            { type="toggle", text="Show Nicknames",
+              tooltip="Show player nicknames from supported addons instead of character names on your main frames.",
+              getValue=function() return db.profile.showNicknames or false end,
+              setValue=function(v)
+                  db.profile.showNicknames = v
+                  if ns.RefreshAllUnitNames then ns.RefreshAllUnitNames() end
+              end });  y = y - h
 
         -- Inline cog on Visibility: ONE popup hosting Frame Source (EllesmereUI /
         -- Blizzard Default) plus Out of Combat fade. Hiding stays on the Visibility
@@ -4532,8 +4637,9 @@ initFrame:SetScript("OnEvent", function(self)
         if not EllesmereUI._prebuilding then
             local srcNow = ns.GetUnitFrameSource(selectedUnit)
             if srcNow ~= "eui" then
-                local rightRgn = visRow._rightRegion
-                if rightRgn._control then rightRgn._control:Hide() end
+                -- The right slot used to hold this unit's Visibility Options and was hidden
+                -- here because it is meaningless for a Blizzard frame. It now holds the
+                -- profile-wide Show Nicknames toggle, which stays live for every source.
                 if srcNow == "blizzard" then
                     -- Visibility modes only drive the EUI frame: block the dropdown
                     -- (the cog stays live to switch back).
@@ -4556,35 +4662,16 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        -- Replace the dummy right dropdown with our checkbox dropdown
-        if not EllesmereUI._prebuilding then
-            local rightRgn = visRow._rightRegion
-            if rightRgn._control then rightRgn._control:Hide() end
-            local visItems = EllesmereUI.VIS_OPT_ITEMS
-            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                rightRgn, 210, rightRgn:GetFrameLevel() + 2,
-                visItems,
-                function(k) return UNIT_DB_MAP[selectedUnit]()[k] or false end,
-                function(k, v)
-                    UNIT_DB_MAP[selectedUnit]()[k] = v
-                    if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
-                    EllesmereUI:RefreshPage()
-                end)
-            PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
-            rightRgn._control = cbDD
-            rightRgn._lastInline = nil
-            RegisterWidgetRefresh(cbDDRefresh)
-        end
-
-        -- Sync icon on Visibility (left): set-aware for correct multi-selection
-        -- compare/copy; runs each target's scalar side effects (enabledFrames) + boolean-trio derivation.
+        -- ONE sync icon now that both halves share a control: set-aware for correct
+        -- multi-selection compare/copy, and VisFullCopy carries the option booleans too;
+        -- runs each target's scalar side effects (enabledFrames) + boolean-trio derivation.
         if not EllesmereUI._prebuilding then
             local rgn = visRow._leftRegion
             local function CopyVisToUnit(key)
                 local src = UNIT_DB_MAP[selectedUnit]()
                 local dst = UNIT_DB_MAP[key]()
                 if dst == src then return end
-                EllesmereUI.VisCopySelection(dst, src, "barVisibility", nil, function(t, mode)
+                EllesmereUI.VisFullCopy(dst, src, "barVisibility", nil, function(t, mode)
                     t.barVisibility = mode
                     db.profile.enabledFrames[key] = (mode ~= "never")
                 end)
@@ -4596,7 +4683,7 @@ initFrame:SetScript("OnEvent", function(self)
                 isSynced = function()
                     local src = UNIT_DB_MAP[selectedUnit]()
                     for _, key in ipairs(GROUP_UNIT_ORDER) do
-                        if not EllesmereUI.VisSelectionEquals(src, "barVisibility", UNIT_DB_MAP[key](), "barVisibility") then return false end
+                        if not EllesmereUI.VisFullEquals(src, "barVisibility", UNIT_DB_MAP[key](), "barVisibility") then return false end
                     end
                     return true
                 end,
@@ -4622,56 +4709,6 @@ initFrame:SetScript("OnEvent", function(self)
                         ReloadAndUpdate(); EllesmereUI:RefreshPage(true)
                         local v = UNIT_DB_MAP[selectedUnit]().barVisibility or "always"
                         if v ~= "never" then PromptReloadIfUnspawned(checkedKeys) end
-                    end,
-                },
-            })
-        end
-
-        -- Sync icon on Visibility Options (right)
-        if not EllesmereUI._prebuilding then
-            local rgn = visRow._rightRegion
-            EllesmereUI.BuildSyncIcon({
-                region  = rgn,
-                tooltip = "Apply Visibility Options to all Frames",
-                isSynced = function()
-                    local src = UNIT_DB_MAP[selectedUnit]()
-                    for _, item in ipairs(EllesmereUI.VIS_OPT_ITEMS) do
-                        local k = item.key
-                        local cur = src[k] or false
-                        for _, key in ipairs(GROUP_UNIT_ORDER) do
-                            if (UNIT_DB_MAP[key]()[k] or false) ~= cur then return false end
-                        end
-                    end
-                    return true
-                end,
-                onClick = function()
-                    local src = UNIT_DB_MAP[selectedUnit]()
-                    for _, item in ipairs(EllesmereUI.VIS_OPT_ITEMS) do
-                        local k = item.key
-                        local v = src[k] or false
-                        for _, key in ipairs(GROUP_UNIT_ORDER) do
-                            UNIT_DB_MAP[key]()[k] = v
-                        end
-                    end
-                    if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
-                    EllesmereUI:RefreshPage()
-                end,
-                flashTargets = function() return { rgn } end,
-                multiApply = {
-                    elementKeys   = GROUP_UNIT_ORDER,
-                    elementLabels = SHORT_LABELS,
-                    getCurrentKey = function() return selectedUnit end,
-                    onApply       = function(checkedKeys)
-                        local src = UNIT_DB_MAP[selectedUnit]()
-                        for _, item in ipairs(EllesmereUI.VIS_OPT_ITEMS) do
-                            local k = item.key
-                            local v = src[k] or false
-                            for _, key in ipairs(checkedKeys) do
-                                UNIT_DB_MAP[key]()[k] = v
-                            end
-                        end
-                        if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
-                        EllesmereUI:RefreshPage()
                     end,
                 },
             })
@@ -5309,18 +5346,6 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             UpdateHBSwatchVis()
         end
-
-        -- Show Nicknames: ONE global toggle for all main frames (default OFF, not
-        -- per-frame). Gates ns.ResolveUnitNickname: off = raw names, on = provider nicknames.
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Show Nicknames",
-              tooltip="Show player nicknames from supported addons instead of character names on your main frames.",
-              getValue=function() return db.profile.showNicknames or false end,
-              setValue=function(v)
-                  db.profile.showNicknames = v
-                  if ns.RefreshAllUnitNames then ns.RefreshAllUnitNames() end
-              end },
-            { type="label", text="" });  y = y - h
 
         _, h = W:Spacer(parent, y, 20); y = y - h
 
@@ -10699,54 +10724,51 @@ initFrame:SetScript("OnEvent", function(self)
         end
         end
 
-        -- Per-unit aura filters (NOT synced). Labels track the selected section. Each
-        -- is a multi-select checkbox dropdown; checked classifications OR together at
-        -- runtime. "Own Only" reuses the legacy onlyPlayerDebuffs key for compat.
-        -- HIDDEN only when BOTH displays are None (either dropdown's DependentSetValue
-        -- rebuilds on its None flip); with one side shown, the off side just grays out.
+        -- Per-unit aura filters (NOT synced). Labels track the selected section.
+        -- Buff Filter (and the player frame's Debuff Filter) are multi-select
+        -- checkbox dropdowns swapped into the DualRow slots below; the
+        -- target/focus Debuff Filter is a native single-select mode dropdown
+        -- (DebuffModeDropdownCfg). HIDDEN only when BOTH displays are None
+        -- (either dropdown's DependentSetValue rebuilds on its None flip); with
+        -- one side shown, the off side just grays out.
         if not (BuffDisabled() and DebuffDisabled()) then
         do
-            local buffFilterItems, debuffFilterItems, BUFF_FILTER_KEYS, DEBUFF_FILTER_KEYS
-            local BUFF_NEG_SKEYS, DEBUFF_NEG_SKEYS
+            local buffFilterItems, BUFF_FILTER_KEYS, BUFF_NEG_SKEYS
                 -- Two-lane rows: Show narrows the frame to checked classes (legacy
                 -- behavior, nothing checked = show everything); Hide removes a class
-                -- from whatever shows (s.buffNegClasses/s.debuffNegClasses, engine
-                -- ClassNegated). Non-player buff vocabulary is just these three
-                -- now (the engine gates every other class off for these units; stale keys from retired checkboxes stay inert).
+                -- from whatever shows (s.buffNegClasses, engine ClassNegated).
+                -- Non-player buff vocabulary is just these three (the engine gates
+                -- every other class off for these units; stale keys from retired
+                -- checkboxes stay inert).
                 buffFilterItems = {
                     { isHeader = true, label = "Show", rightLabel = "Hide" },
                     { key = "stealable",         label = "Stealable",          dual = true, tooltip = "Buffs you can spellsteal or purge" },
                     { key = "bigDefensive",      label = "Big Defensive",      dual = true, tooltip = "Major defensive cooldowns" },
                     { key = "dispellable",       label = "Dispellable",        dual = true, tooltip = "Auras with a dispel type you can dispel" },
                 }
-                -- Non-player debuff vocabulary is just Own Only + Important now (engine
-                -- gates every other class for these units; stale retired-checkbox keys stay inert); per-spell control goes through Tracked Auras.
-                debuffFilterItems = {
-                    { isHeader = true, label = "Show", rightLabel = "Hide" },
-                    { key = "ownOnly",           label = "Own Only",           tooltip = "Shows only the Debuffs you apply" },
-                    { key = "priorityAura",      label = "Important",          dual = true, tooltip = "Debuffs Blizzard flags as important" },
-                }
-                if selectedUnit == "target" or selectedUnit == "focus" then
-                    table.insert(debuffFilterItems, 1, {
-                        isTopAction = true, label = "Edit Tracked Auras",
-                        onClick = function() ns.UFOpt_ShowTrackedAuras(selectedUnit) end,
-                    })
-                end
                 BUFF_FILTER_KEYS   = { ownOnly = "onlyPlayerBuffs",   raidFrames = "buffRaid",   raidInCombat = "buffRaidInCombat",   dispellable = "buffDispellable",   crowdControl = "buffCrowdControl",   bigDefensive = "buffBigDefensive",   externalDefensive = "buffExternalDefensive",   cancelable = "buffCancelable", stealable = "buffStealable" }
-                DEBUFF_FILTER_KEYS = { ownOnly = "onlyPlayerDebuffs", raidFrames = "debuffRaid", raidInCombat = "debuffRaidInCombat", dispellable = "debuffDispellable", crowdControl = "debuffCrowdControl", bigDefensive = "debuffBigDefensive", externalDefensive = "debuffExternalDefensive", bossAura = "debuffBossAura", roleAura = "debuffRoleAura", priorityAura = "debuffPriorityAura", nonplayer = "debuffNonPlayer" }
-                -- Hide-lane storage skeys (per-class entries in s.buffNegClasses /
-                -- s.debuffNegClasses); only dual rows appear here.
+                -- Hide-lane storage skeys (per-class entries in s.buffNegClasses);
+                -- only dual rows appear here.
                 BUFF_NEG_SKEYS   = { stealable = "Stealable", bigDefensive = "BigDefensive", dispellable = "Dispellable" }
-                DEBUFF_NEG_SKEYS = { priorityAura = "PriorityAura" }
             local unitLabel = UNIT_LABELS_SUP[selectedUnit] or "Player"
+            -- Right slot: the player frame swaps its checkbox dropdown in below;
+            -- target/focus get the mode dropdown here (disabled, with the
+            -- requirement tooltip, while Debuff Display is None).
+            local debuffSlot
+            if selectedUnit == "player" then
+                debuffSlot = { type="dropdown", text=unitLabel.." Debuff Filter",
+                  values={ __placeholder="..." }, order={ "__placeholder" },
+                  getValue=function() return "__placeholder" end, setValue=function() end }
+            else
+                debuffSlot = DebuffModeDropdownCfg(unitLabel.." Debuff Filter", selectedUnit, SDB, ReloadAndUpdate,
+                  { disabled=DebuffDisabled, disabledTooltip="Debuffs", requireState="displayed" })
+            end
             local filterRow
             filterRow, h = W:DualRow(parent, y,
                 { type="dropdown", text=unitLabel.." Buff Filter",
                   values={ __placeholder="..." }, order={ "__placeholder" },
                   getValue=function() return "__placeholder" end, setValue=function() end },
-                { type="dropdown", text=unitLabel.." Debuff Filter",
-                  values={ __placeholder="..." }, order={ "__placeholder" },
-                  getValue=function() return "__placeholder" end, setValue=function() end });  y = y - h
+                debuffSlot);  y = y - h
             -- Gray out + block a CB-dropdown when its column's Display is "none".
             local function ApplyFilterDisabled(cbDD, label, isOff)
                 local function refresh()
@@ -10959,17 +10981,17 @@ initFrame:SetScript("OnEvent", function(self)
                 RegisterWidgetRefresh(cbRefresh)
                 ApplyFilterDisabled(cbDD, rgn._label, BuffDisabled)
             end
-            -- Right slot: Debuff Filter. Player frame runs the Player Aura Bars debuff
-            -- Filters model verbatim (sync with BuildAssignedDebuffsFields): pinned All
-            -- Debuffs above a divider, then shared class vocabulary (ns.PAB_ClassItems).
+            -- Right slot (player frame): the Player Aura Bars debuff Filters model
+            -- verbatim (sync with BuildAssignedDebuffsFields): pinned All Debuffs
+            -- above a divider, then shared class vocabulary (ns.PAB_ClassItems).
             -- Checked classes SUBTRACT while All Debuffs is on, ADD with it off; class
             -- rows view the SAME legacy per-class keys (s.debuff<SKey>) the old dropdown
-            -- wrote. Other units keep the class-checkbox model.
-            if not EllesmereUI._prebuilding then
+            -- wrote. Target/focus built their mode dropdown in the DualRow above.
+            if selectedUnit == "player" and not EllesmereUI._prebuilding then
                 local rgn = filterRow._rightRegion
                 if rgn._control then rgn._control:Hide() end
                 local cbDD, cbRefresh
-                if selectedUnit == "player" then
+                do
                     local ps = UNIT_DB_MAP[selectedUnit]()
                     local ALL_KEY = "__allDebuffs"
                     local function AllOn() return ps.debuffShowAll ~= false end
@@ -11059,40 +11081,16 @@ initFrame:SetScript("OnEvent", function(self)
                     warnClosed = EllesmereUI.AttachEmptyFilterWarn(rgn, cbDD,
                         EllesmereUI.L("You are displaying NO debuffs at all."),
                         function() return DebuffDisabled() or AllOn() or AnyShowClass() end)
-                else
-                    cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                        rgn, 210, rgn:GetFrameLevel() + 2, debuffFilterItems,
-                        function(k, neg)
-                            if neg then
-                                local m = SDB().debuffNegClasses
-                                local sk = DEBUFF_NEG_SKEYS[k]
-                                return m ~= nil and sk ~= nil and m[sk] == true
-                            end
-                            return SValSupported(DEBUFF_FILTER_KEYS[k], false)
-                        end,
-                        function(k, v, neg)
-                            local db = SDB()
-                            local sk = DEBUFF_NEG_SKEYS[k]
-                            if neg then
-                                if not sk then return end
-                                db.debuffNegClasses = db.debuffNegClasses or {}
-                                db.debuffNegClasses[sk] = v and true or nil
-                                if not next(db.debuffNegClasses) then db.debuffNegClasses = nil end
-                                if v then db[DEBUFF_FILTER_KEYS[k]] = nil end
-                                ReloadAndUpdate(); UpdatePreview()
-                                return
-                            end
-                            if v and sk and db.debuffNegClasses then
-                                db.debuffNegClasses[sk] = nil
-                                if not next(db.debuffNegClasses) then db.debuffNegClasses = nil end
-                            end
-                            SSetSupported(DEBUFF_FILTER_KEYS[k], v)
-                        end)
                 end
                 PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
                 rgn._control = cbDD; rgn._lastInline = nil
                 RegisterWidgetRefresh(cbRefresh)
                 ApplyFilterDisabled(cbDD, rgn._label, DebuffDisabled)
+            end
+            -- Target/focus: Only Tracked Auras with an empty list renders
+            -- nothing, so the mode dropdown carries the standard empty warning.
+            if selectedUnit ~= "player" and not EllesmereUI._prebuilding then
+                AttachDebuffModeWarn(filterRow._rightRegion, SDB, DebuffDisabled)
             end
         end
         end   -- close filter row hidden-while-both-None gate
@@ -14756,27 +14754,13 @@ initFrame:SetScript("OnEvent", function(self)
             end
             end   -- close buff sizing row hidden-while-None gate
 
-            -- Per-unit DEBUFF filter for boss frames (NOT synced). Boss BUFFS are
-            -- never filtered (always show every HELPFUL aura). Multi-select checkbox
-            -- dropdown; checked classifications OR together at runtime. "Own Only"
-            -- reuses the legacy onlyPlayerDebuffs key so existing boss settings carry over.
+            -- Per-unit aura filters for boss frames (NOT synced; boss1-5 share the
+            -- one "boss" settings table). Debuff Filter = the single-select mode
+            -- dropdown (DebuffModeDropdownCfg; per-spell control through Tracked
+            -- Auras), Buff Filter = the two-lane checkbox dropdown.
             do
                 local PP = EllesmereUI.PanelPP
-                local filterItems, DEBUFF_FILTER_KEYS, buffFilterItems, BUFF_FILTER_KEYS
-                local BOSS_BUFF_NEG_SKEYS, BOSS_DEBUFF_NEG_SKEYS
-                    -- Non-player debuff vocabulary is just Own Only +
-                    -- Important now (see the Main Frames list); per-spell
-                    -- control goes through Tracked Auras (boss1-5 share
-                    -- the one "boss" settings table = one list set).
-                    -- Two-lane rows (Show/Hide) mirror the Main Frames dropdowns.
-                    filterItems = {
-                        { isTopAction = true, label = "Edit Tracked Auras",
-                          onClick = function() ns.UFOpt_ShowTrackedAuras("boss") end },
-                        { isHeader = true, label = "Show", rightLabel = "Hide" },
-                        { key = "ownOnly",           label = "Own Only",           tooltip = "Shows only the Debuffs you apply" },
-                        { key = "priorityAura",      label = "Important",          dual = true, tooltip = "Debuffs Blizzard flags as important" },
-                    }
-                    DEBUFF_FILTER_KEYS = { ownOnly = "onlyPlayerDebuffs", raidFrames = "debuffRaid", raidInCombat = "debuffRaidInCombat", dispellable = "debuffDispellable", crowdControl = "debuffCrowdControl", bigDefensive = "debuffBigDefensive", externalDefensive = "debuffExternalDefensive", bossAura = "debuffBossAura", roleAura = "debuffRoleAura", priorityAura = "debuffPriorityAura" }
+                local buffFilterItems, BUFF_FILTER_KEYS, BOSS_BUFF_NEG_SKEYS
                     -- Non-player buff vocabulary is just these three (see
                     -- the Main Frames list).
                     buffFilterItems = {
@@ -14787,7 +14771,6 @@ initFrame:SetScript("OnEvent", function(self)
                     }
                     BUFF_FILTER_KEYS = { ownOnly = "onlyPlayerBuffs", raidFrames = "buffRaid", raidInCombat = "buffRaidInCombat", dispellable = "buffDispellable", crowdControl = "buffCrowdControl", bigDefensive = "buffBigDefensive", externalDefensive = "buffExternalDefensive", cancelable = "buffCancelable", stealable = "buffStealable" }
                     BOSS_BUFF_NEG_SKEYS   = { stealable = "Stealable", bigDefensive = "BigDefensive", dispellable = "Dispellable" }
-                    BOSS_DEBUFF_NEG_SKEYS = { priorityAura = "PriorityAura" }
                 -- Debuff Size | Debuff Text Size: mirrors the buff pair above. Debuff
                 -- Text Size gates on "Show Duration" inside its Duration & Stack cog
                 -- (also holds Duration X/Y + Stack size/position/X/Y). HIDDEN while the
@@ -14966,12 +14949,16 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                 end
                 AddBossAuraBorderSettings()
-                -- Boss Debuff Filter in slot 1. The right slot is the Boss Buff Filter.
+                -- Boss Debuff Filter in slot 1: the native mode dropdown, disabled
+                -- with the requirement tooltip while no debuffs show at all (Simple
+                -- Debuff Display None + Debuffs Location None). The right slot is the
+                -- Boss Buff Filter.
                 local filterRow
                 local filterOff = function()
                     local p = db.profile.boss
                     return ns.GetBossSimpleDebuffMode(p) == "none" and (p.debuffAnchor or "bottomleft") == "none"
                 end
+                local function BossS() return db.profile.boss end
                 local buffFilterOff
                 local bossFilterRightSlot = { type="label", text="" }
                     buffFilterOff = function()
@@ -14983,70 +14970,13 @@ initFrame:SetScript("OnEvent", function(self)
                       values={ __placeholder="..." }, order={ "__placeholder" },
                       getValue=function() return "__placeholder" end, setValue=function() end }
                 filterRow, hh = Ww:DualRow(pp, yy,
-                    { type="dropdown", text="Boss Debuff Filter",
-                      disabled=filterOff, disabledTooltip="Debuffs", requireState="displayed",
-                      values={ __placeholder="..." }, order={ "__placeholder" },
-                      getValue=function() return "__placeholder" end, setValue=function() end },
+                    DebuffModeDropdownCfg("Boss Debuff Filter", "boss", BossS, ReloadAndUpdate,
+                      { disabled=filterOff, disabledTooltip="Debuffs", requireState="displayed" }),
                     bossFilterRightSlot);  yy = yy - hh
                 if not EllesmereUI._prebuilding then
-                    local rgn = filterRow._leftRegion
-                    if rgn._control then rgn._control:Hide() end
-                    local cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                        rgn, 210, rgn:GetFrameLevel() + 2, filterItems,
-                        function(k, neg)
-                            if neg then
-                                local m = db.profile.boss.debuffNegClasses
-                                local sk = BOSS_DEBUFF_NEG_SKEYS[k]
-                                return m ~= nil and sk ~= nil and m[sk] == true
-                            end
-                            return db.profile.boss[DEBUFF_FILTER_KEYS[k]] or false
-                        end,
-                        function(k, v, neg)
-                            local bt = db.profile.boss
-                            local sk = BOSS_DEBUFF_NEG_SKEYS[k]
-                            if neg then
-                                if not sk then return end
-                                bt.debuffNegClasses = bt.debuffNegClasses or {}
-                                bt.debuffNegClasses[sk] = v and true or nil
-                                if not next(bt.debuffNegClasses) then bt.debuffNegClasses = nil end
-                                if v then bt[DEBUFF_FILTER_KEYS[k]] = nil end
-                                ReloadAndUpdate()
-                                return
-                            end
-                            if v and sk and bt.debuffNegClasses then
-                                bt.debuffNegClasses[sk] = nil
-                                if not next(bt.debuffNegClasses) then bt.debuffNegClasses = nil end
-                            end
-                            bt[DEBUFF_FILTER_KEYS[k]] = v
-                            ReloadAndUpdate()
-                        end)
-                    PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
-                    rgn._control = cbDD; rgn._lastInline = nil
-                    EllesmereUI.RegisterWidgetRefresh(cbRefresh)
-                    -- Disable the filter when no debuffs are shown at all (Simple
-                    -- Debuff Display None + Debuffs Location None): nothing to
-                    -- filter. A block frame intercepts mouse and shows the
-                    -- requirement tooltip while the dropdown is greyed.
-                    local filterBlock = CreateFrame("Frame", nil, cbDD)
-                    filterBlock:SetAllPoints()
-                    filterBlock:SetFrameLevel(cbDD:GetFrameLevel() + 10)
-                    filterBlock:EnableMouse(true)
-                    filterBlock:SetScript("OnEnter", function()
-                        EllesmereUI.ShowWidgetTooltip(cbDD, EllesmereUI.DisabledTooltip("Debuffs", "displayed"))
-                    end)
-                    filterBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                    local function UpdateFilterDisabled()
-                        local off = filterOff()
-                        if off then
-                            cbDD:SetAlpha(0.3); filterBlock:Show()
-                        else
-                            cbDD:SetAlpha(1); filterBlock:Hide()
-                        end
-                    end
-                    UpdateFilterDisabled()
-                    EllesmereUI.RegisterWidgetRefresh(UpdateFilterDisabled)
+                    AttachDebuffModeWarn(filterRow._leftRegion, BossS, filterOff)
                 end
-                -- Right slot: Boss Buff Filter (mirror of the debuff dropdown).
+                -- Right slot: Boss Buff Filter (two-lane checkbox dropdown).
                 if not EllesmereUI._prebuilding then
                     local rgn = filterRow._rightRegion
                     if rgn._control then rgn._control:Hide() end

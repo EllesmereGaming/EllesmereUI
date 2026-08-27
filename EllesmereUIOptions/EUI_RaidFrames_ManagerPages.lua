@@ -1510,7 +1510,7 @@ local function BuildBaseDetailDM(frame, fontPath)
         -- Persistent red bubble above the cog while Shown on Modifier is
         -- selected with no key picked (the standard empty-selection warning);
         -- the hover tooltip above keeps the explanation.
-        EllesmereUI.AttachEmptyFilterWarn(leftRgn, tipModBtn, "Select a Modifier",
+        EllesmereUI.AttachEmptyFilterWarn(leftRgn, tipModBtn, L("Select a Modifier"),
             function()
                 return tipOff() or (p.debuffTooltipModifier or "none") ~= "none"
             end)

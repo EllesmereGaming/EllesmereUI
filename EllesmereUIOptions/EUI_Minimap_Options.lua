@@ -89,37 +89,24 @@ initFrame:SetScript("OnEvent", function(self)
     --  Visibility row builder (reused across all pages)
     ---------------------------------------------------------------------------
     local PP = EllesmereUI.PP
-    local function BuildVisibilityRow(W, parent, y, getCfg, refreshFn)
-        local visRow, visH = EllesmereUI.BuildVisibilityModeRow(W, parent, y,
+    -- One control for both halves (see EllesmereUI.BuildVisibilityRow): the mode axes
+    -- and the option axes are Show/Hide lanes of the same list now. Storage is
+    -- unchanged, so nothing else in this module had to move. The right DualRow slot
+    -- the old Visibility Options dropdown occupied is free.
+    local function BuildVisibilityRow(W, parent, y, getCfg, refreshFn, rightCfg)
+        local visRow, visH = EllesmereUI.BuildVisibilityRow(W, parent, y,
             { getStore = getCfg, legacyKey = "visibility",
               caps = { partyIncludesRaid = false, luaDragonriding = true },
               onChanged = function()
                   if refreshFn then refreshFn() end
                   if _G._EBS_UpdateVisibility then _G._EBS_UpdateVisibility() end
-              end },
-            { type="dropdown", text="Visibility Options",
-              values={ __placeholder = "..." }, order={ "__placeholder" },
-              getValue=function() return "__placeholder" end,
-              setValue=function() end })
-        if not EllesmereUI._prebuilding then
-            local rightRgn = visRow._rightRegion
-            if rightRgn._control then rightRgn._control:Hide() end
-            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                rightRgn, 210, rightRgn:GetFrameLevel() + 2,
-                EllesmereUI.VIS_OPT_ITEMS,
-                function(k) local c = getCfg(); return c and c[k] or false end,
-                function(k, v)
-                    local c = getCfg(); if not c then return end
-                    c[k] = v
-                    if _G._EBS_UpdateVisibility then _G._EBS_UpdateVisibility() end
-                    EllesmereUI:RefreshPage()
-                end)
-            PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
-            rightRgn._control = cbDD
-            rightRgn._lastInline = nil
-            EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
-        end
-        return visH
+              end,
+              -- Option axes only need the dispatcher pass; the page rebuild is
+              -- deferred to menu close by the row itself.
+              onOptionChanged = function()
+                  if _G._EBS_UpdateVisibility then _G._EBS_UpdateVisibility() end
+              end }, rightCfg)
+        return visH, visRow
     end
 
     ---------------------------------------------------------------------------
@@ -139,6 +126,21 @@ initFrame:SetScript("OnEvent", function(self)
 
         _, h = W:SectionHeader(parent, SECTION_MINIMAP, y);  y = y - h
 
+        -- Row 1: Visibility | Shape
+        local visRow
+        h, visRow = BuildVisibilityRow(W, parent, y, MinimapDB, RefreshMinimap,
+            { type="dropdown", text="Shape",
+              values = { square = "Square", rectangular = "Rectangular", circle = "Circle", textured_circle = "Textured Circle" },
+              order  = { "square", "rectangular", "circle", "textured_circle" },
+              getValue=function() local m = MinimapDB(); return m and m.shape or "square" end,
+              setValue=function(v)
+                local m = MinimapDB(); if not m then return end
+                m.shape = v
+                RefreshMinimap()
+                EllesmereUI:RefreshPage()
+              end });  y = y - h
+
+        -- Row 2: Size | Interactable Button Size
         _, h = W:DualRow(parent, y,
             { type="slider", text="Size", min=100, max=600, step=1,
               getValue=function() local m = MinimapDB(); return m and m.mapSize or 140 end,
@@ -187,62 +189,7 @@ initFrame:SetScript("OnEvent", function(self)
               end })
         y = y - h
 
-        h = BuildVisibilityRow(W, parent, y, MinimapDB, RefreshMinimap);  y = y - h
-
-        -- Shape | Button Backgrounds
-        local shapeRow
-        shapeRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Shape",
-              values = { square = "Square", rectangular = "Rectangular", circle = "Circle", textured_circle = "Textured Circle" },
-              order  = { "square", "rectangular", "circle", "textured_circle" },
-              getValue=function() local m = MinimapDB(); return m and m.shape or "square" end,
-              setValue=function(v)
-                local m = MinimapDB(); if not m then return end
-                m.shape = v
-                RefreshMinimap()
-                EllesmereUI:RefreshPage()
-              end },
-            { type="toggle", text="Button Backgrounds",
-              tooltip="Show black backgrounds behind minimap indicator buttons (tracking, calendar, mail, crafting, addon buttons, flyout toggle).",
-              getValue=function() local m = MinimapDB(); return m and m.btnBackgrounds ~= false end,
-              setValue=function(v)
-                local m = MinimapDB(); if not m then return end
-                m.btnBackgrounds = v
-                FullRebuildMinimap()
-              end }
-        );  y = y - h
-
-        -- Inline cog on Shape for the Rotate Minimap toggle. Off (default) keeps
-        -- the rotateMinimap CVar at 0; on sets it to 1 (enforced in ApplyMinimap).
-        if not EllesmereUI._prebuilding then
-            local rgn = shapeRow._leftRegion
-            local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Shape Settings",
-                rows = {
-                    { type = "toggle", label = "Rotate Minimap",
-                      get = function() local m = MinimapDB(); return m and m.rotateMinimap or false end,
-                      set = function(v)
-                          local m = MinimapDB(); if not m then return end
-                          m.rotateMinimap = v
-                          RefreshMinimap()
-                      end },
-                },
-            })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
-        end
-
-        -- Border Style (+ offset cog) | Border Size (+ class/custom swatches)
+        -- Row 3: Border Style (+ offset cog) | Border Size (+ class/custom swatches)
         local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
         local borderRow
         borderRow, h = W:DualRow(parent, y,
@@ -470,27 +417,23 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateState()
         end
 
-        -- Free Move Buttons | (empty)
+        -- Reset Zoom (+ seconds) | Rotate Minimap. Off (default) keeps the
+        -- rotateMinimap CVar at 0; on sets it to 1 (enforced in ApplyMinimap).
         local fmRow
         fmRow, h = W:DualRow(parent, y,
-            { type="toggle", text="Free Move Buttons",
-              tooltip="When enabled, Shift+Click any minimap button (mail, calendar, tracking, addon buttons) to drag it to a custom position.",
-              getValue=function() local m = MinimapDB(); return m and m.freeMoveBtns end,
-              setValue=function(v)
-                local m = MinimapDB(); if not m then return end
-                m.freeMoveBtns = v
-                if not v then
-                    m.btnPositions = {}
-                end
-                RefreshMinimap()
-                EllesmereUI:RefreshPage()
-              end },
             { type="slider", text="Reset Zoom", min=0, max=15, step=1,
               tooltip="Automatically zoom back out to maximum distance after this many seconds of no manual zoom change. 0 disables the reset.",
               getValue=function() local m = MinimapDB(); return m and m.zoomResetSeconds or 0 end,
               setValue=function(v)
                 local m = MinimapDB(); if not m then return end
                 m.zoomResetSeconds = v
+                RefreshMinimap()
+              end },
+            { type="toggle", text="Rotate Minimap",
+              getValue=function() local m = MinimapDB(); return m and m.rotateMinimap or false end,
+              setValue=function(v)
+                local m = MinimapDB(); if not m then return end
+                m.rotateMinimap = v
                 RefreshMinimap()
               end }
         );  y = y - h
@@ -499,7 +442,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Meters' Refresh Rate suffix). Prebuild-guarded like the Nameplates
         -- "(Percent)" suffix: the hidden search-index pass has no use for it.
         if not EllesmereUI._prebuilding then
-            local rgn = fmRow._rightRegion
+            local rgn = fmRow._leftRegion
             local suffix = rgn:CreateFontString(nil, "OVERLAY")
             suffix:SetFont(EllesmereUI.EXPRESSWAY, 11, "")
             suffix:SetTextColor(1, 1, 1, 0.35)
@@ -517,34 +460,6 @@ initFrame:SetScript("OnEvent", function(self)
                 suffix:SetPoint("LEFT", rgn, "LEFT", 150, 0)
             end
             suffix:SetText(EllesmereUI.L("(seconds)"))
-        end
-
-        -- "Reset" label next to the Free Move toggle (only visible when enabled)
-        if not EllesmereUI._prebuilding then
-            local rgn = fmRow._leftRegion
-            local resetFS = rgn:CreateFontString(nil, "OVERLAY")
-            resetFS:SetFont(EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 12, "")
-            resetFS:SetTextColor(1, 1, 1, 0.8)
-            resetFS:SetText(EllesmereUI.L("Reset"))
-            resetFS:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
-            local hitBtn = CreateFrame("Button", nil, rgn)
-            hitBtn:SetAllPoints(resetFS)
-            hitBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            hitBtn:SetScript("OnEnter", function() resetFS:SetTextColor(1, 0.3, 0.3, 1) end)
-            hitBtn:SetScript("OnLeave", function() resetFS:SetTextColor(1, 1, 1, 0.8) end)
-            hitBtn:SetScript("OnClick", function()
-                local m = MinimapDB(); if not m then return end
-                m.btnPositions = {}
-                RefreshMinimap()
-            end)
-            local function UpdateResetVis()
-                local m = MinimapDB()
-                local on = m and m.freeMoveBtns
-                resetFS:SetShown(on)
-                hitBtn:SetShown(on)
-            end
-            UpdateResetVis()
-            EllesmereUI.RegisterWidgetRefresh(UpdateResetVis)
         end
 
         y = y - 10
@@ -781,7 +696,7 @@ initFrame:SetScript("OnEvent", function(self)
             local m = MinimapDB(); return (m and m.elementRowPosition) or "tlDown"
         end
 
-        -- Button Row Position (+ spacing cog) | (empty)
+        -- Button Row Position (+ spacing cog) | Free Move Buttons (+ cog: Button Backgrounds; "Reset" link)
         local btnRowRow
         btnRowRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Button Row Position",
@@ -797,7 +712,18 @@ initFrame:SetScript("OnEvent", function(self)
                 m.btnRowPosition = v
                 RefreshMinimap()
               end },
-            { type="label", text="" }
+            { type="toggle", text="Free Move Buttons",
+              tooltip="When enabled, Shift+Click any minimap button (mail, calendar, tracking, addon buttons) to drag it to a custom position.",
+              getValue=function() local m = MinimapDB(); return m and m.freeMoveBtns end,
+              setValue=function(v)
+                local m = MinimapDB(); if not m then return end
+                m.freeMoveBtns = v
+                if not v then
+                    m.btnPositions = {}
+                end
+                RefreshMinimap()
+                EllesmereUI:RefreshPage()
+              end }
         );  y = y - h
         -- Inline cog on Button Row Position for icon spacing
         if not EllesmereUI._prebuilding then
@@ -842,6 +768,61 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
             cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
             cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
+        end
+
+        -- Inline cog on Free Move Buttons: Button Backgrounds. Then the "Reset"
+        -- link (only visible while free move is on) to the cog's left.
+        if not EllesmereUI._prebuilding then
+            local rgn = btnRowRow._rightRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Button Settings",
+                rows = {
+                    { type = "toggle", label = "Button Backgrounds",
+                      tooltip = "Show black backgrounds behind minimap indicator buttons (tracking, calendar, mail, crafting, addon buttons, flyout toggle).",
+                      get = function() local m = MinimapDB(); return m and m.btnBackgrounds ~= false end,
+                      set = function(v)
+                          local m = MinimapDB(); if not m then return end
+                          m.btnBackgrounds = v
+                          FullRebuildMinimap()
+                      end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints()
+            cogTex:SetTexture(EllesmereUI.COGS_ICON)
+            cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
+
+            local resetFS = rgn:CreateFontString(nil, "OVERLAY")
+            resetFS:SetFont(EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 12, "")
+            resetFS:SetTextColor(1, 1, 1, 0.8)
+            resetFS:SetText(EllesmereUI.L("Reset"))
+            resetFS:SetPoint("RIGHT", cogBtn, "LEFT", -8, 0)
+            local hitBtn = CreateFrame("Button", nil, rgn)
+            hitBtn:SetAllPoints(resetFS)
+            hitBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            hitBtn:SetScript("OnEnter", function() resetFS:SetTextColor(1, 0.3, 0.3, 1) end)
+            hitBtn:SetScript("OnLeave", function() resetFS:SetTextColor(1, 1, 1, 0.8) end)
+            hitBtn:SetScript("OnClick", function()
+                local m = MinimapDB(); if not m then return end
+                m.btnPositions = {}
+                RefreshMinimap()
+            end)
+            local function UpdateResetVis()
+                local m = MinimapDB()
+                local on = m and m.freeMoveBtns
+                resetFS:SetShown(on)
+                hitBtn:SetShown(on)
+            end
+            UpdateResetVis()
+            EllesmereUI.RegisterWidgetRefresh(UpdateResetVis)
         end
 
         y = y - 10

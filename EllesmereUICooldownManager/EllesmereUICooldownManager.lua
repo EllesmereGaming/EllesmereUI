@@ -7095,6 +7095,12 @@ local _stableMode = false
 
 local function FormatKeybindKey(key)
     if not key or key == "" then return nil end
+    -- Gamepad binds resolve to glyph markup (no atlas name matches a substitution
+    -- below); keyboard binds keep the raw tokens the substitutions are written against.
+    local resolved = GetBindingText(key, 1)
+    if resolved and resolved:find("|A:", 1, true) then
+        key = resolved
+    end
     key = key:gsub("SHIFT%-", "S")
     key = key:gsub("CTRL%-",  "C")
     key = key:gsub("ALT%-",   "A")
@@ -8463,6 +8469,28 @@ local function _IsUsableSID(id)
     return id > 0 and id == math.floor(id)
 end
 
+-- Reads the ALREADY-BUILT display table, never the provider getters: those run
+-- CheckBuildDisplayData, which rebuilds Blizzard's shared tables (and writes the
+-- active layout) on OUR stack whenever the provider is dirty -- the HUD viewer
+-- drops its OnDataChanged rebuild while hidden, so a post-match read used to
+-- taint the viewer until reload. A dirty provider returns nil (not the previous
+-- build): callers treat nil as "not ready" and fall back to keep-all/live-pool.
+function ns.CDMGetProviderDisplayData(provider)
+    if type(provider) ~= "table" or type(provider.GetDisplayData) ~= "function" then
+        return nil, nil
+    end
+    if type(provider.IsDirty) == "function" then
+        local okD, dirty = pcall(provider.IsDirty, provider)
+        if not okD or dirty then return nil, nil end
+    end
+    local ok, displayData = pcall(provider.GetDisplayData, provider)
+    if not ok or type(displayData) ~= "table" then return nil, nil end
+    local ordered = displayData.orderedCooldownIDs
+    local infoByID = displayData.cooldownInfoByID
+    if type(ordered) ~= "table" or type(infoByID) ~= "table" then return nil, nil end
+    return ordered, infoByID
+end
+
 -- Active BLIZZARD CDM layout id (the user's "preset"), not to be confused with
 -- ns.GetActiveLayoutName (EUI's own account-wide spell-layout system). Used to
 -- scope the automatic-reseed session gate by layout as well as spec: a spell
@@ -8533,9 +8561,9 @@ function ns.CDMEntryHiddenOrRemoved(cdID, mergedInfo, rawInfo, liveSetLookup)
     if mergedInfo == nil then
         local provider = CooldownViewerSettings and CooldownViewerSettings.GetDataProvider
                           and CooldownViewerSettings:GetDataProvider()
-        if provider and provider.GetCooldownInfoForID then
-            local ok, info = pcall(provider.GetCooldownInfoForID, provider, cdID)
-            if ok then mergedInfo = info end
+        if provider then
+            local _, infoByID = ns.CDMGetProviderDisplayData(provider)
+            if infoByID then mergedInfo = infoByID[cdID] end
         end
     end
 
@@ -8636,10 +8664,10 @@ local function BuildBuffFamilyPresentSet()
     if not settings or type(settings.GetDataProvider) ~= "function" then return nil end
     local okP, provider = pcall(settings.GetDataProvider, settings)
     if not okP or type(provider) ~= "table" then return nil end
-    if type(provider.GetOrderedCooldownIDs) ~= "function"
-       or type(provider.GetCooldownInfoForID) ~= "function" then return nil end
-    local okO, ordered = pcall(provider.GetOrderedCooldownIDs, provider)
-    if not okO or type(ordered) ~= "table" then return nil end
+    -- Read the already-built display table, never the getters that would
+    -- build it (see ns.CDMGetProviderDisplayData).
+    local ordered, infoByID = ns.CDMGetProviderDisplayData(provider)
+    if not ordered then return nil end
     local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
     if not gci then return nil end
     local evc = Enum and Enum.CooldownViewerCategory
@@ -8663,8 +8691,8 @@ local function BuildBuffFamilyPresentSet()
 
     local present, sawEntry = {}, false
     for _, cdID in ipairs(ordered) do
-        local okI, mergedInfo = pcall(provider.GetCooldownInfoForID, provider, cdID)
-        local category = okI and type(mergedInfo) == "table" and mergedInfo.category
+        local mergedInfo = _IsUsableSID(cdID) and infoByID[cdID]
+        local category = type(mergedInfo) == "table" and mergedInfo.category
         if category ~= nil and wantCats[category] then
             sawEntry = true
             local rawInfo = gci(cdID)
@@ -10179,8 +10207,6 @@ end)
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
--- DEBUG: /cdmwatchbuffs to trace everything touching the buff bar
-
 SLASH_ECME1 = "/ecme"
 SLASH_ECME2 = "/cdmeffects"
 SLASH_ECME3 = "/ecdm"

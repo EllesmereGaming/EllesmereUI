@@ -289,9 +289,9 @@ function NPB.GroupGlow(idx)
     return magic == true, "magic"
 end
 
--- PANDEMIC_GLOW_STYLES index -> shared EllesmereUI.Glows.STYLES index (the
--- NP list has no Shape Glow, so the flipbook entries sit one lower there).
-local NP_TO_SHARED_GLOW = { 1, 2, 3, 5, 6, 7 }
+-- PANDEMIC_GLOW_STYLES index -> shared EllesmereUI.Glows.STYLES index. Defined
+-- beside PANDEMIC_GLOW_STYLES in EllesmereUINameplates.lua (loaded before us).
+local NP_TO_SHARED_GLOW = ns.NP_TO_SHARED_GLOW
 
 local function ApplyNPBuffExtra(button, d, style)
     ApplyNPText(button, d, style)
