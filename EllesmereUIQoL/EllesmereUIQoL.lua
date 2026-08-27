@@ -259,7 +259,19 @@ qolFrame:SetScript("OnEvent", function(self)
             -- re-checks once the data lands) so a warbound container is never
             -- opened just because its bind type was not known yet.
             if not bindType then return true end
-            return WARBOUND_BIND_TYPES[bindType] == true
+            if WARBOUND_BIND_TYPES[bindType] == true then return true end
+            -- Warbound Until Equipped containers report bindType == OnEquip, same as
+            -- an ordinary BoE item (no dedicated GetItemInfo enum value -- see
+            -- EUI_Bags.SetBindTypeText's "WuE items report bindType == OnEquip"), so
+            -- ToBnetAccountUntilEquipped above never actually matches one. The item's
+            -- own bound-until-equip flag is the only reliable signal.
+            if bindType == Enum.ItemBind.OnEquip and ItemLocation and C_Item.IsBoundToAccountUntilEquip then
+                local loc = ItemLocation:CreateFromBagAndSlot(bag, slot)
+                if loc and C_Item.DoesItemExist(loc) then
+                    return C_Item.IsBoundToAccountUntilEquip(loc) == true
+                end
+            end
+            return false
         end
         local SLOTS_PER_FRAME = 3  -- check 3 slots per OnUpdate tick
 

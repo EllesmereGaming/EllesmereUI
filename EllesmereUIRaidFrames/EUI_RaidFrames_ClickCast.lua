@@ -1264,6 +1264,22 @@ local function NeutralizeDefaultClicks(frame, bindings)
     if not b2 then frame:SetAttribute("type2", "none") end
 end
 
+-- Active-binding list shared across one synchronous registration burst (the
+-- CompactUnitFrame hook firing per frame inside one Blizzard rebuild, the
+-- init/regen queue drains, the all-frames sweep). GetActiveBindings walks and
+-- merges the whole binding set, so recomputing it per frame dominated those
+-- bursts. A burst never spans a render frame (GetTime stamp), and
+-- CC_ApplyBindings -- where every settings write ends -- refreshes it in place.
+local burst = {}
+burst.Get = function()
+    local now = GetTime()
+    if burst.at ~= now then
+        burst.at = now
+        burst.list = GetActiveBindings()
+    end
+    return burst.list
+end
+
 local function DoRegisterFrame(frame)
     if not frame or not frame.RegisterForClicks then return end
     if not header then return end
@@ -1311,7 +1327,7 @@ local function DoRegisterFrame(frame)
         ]])
     end
 
-    local bindings = GetActiveBindings()
+    local bindings = burst.Get()
     for i, b in ipairs(bindings) do
         if IsFrameBinding(b) and b.key then
             local parsed = ParseKeyString(b.key)
@@ -1336,7 +1352,7 @@ local function DoUnregisterFrame(frame)
     if not registeredFrames[frame] then return end
     registeredFrames[frame] = nil
 
-    local bindings = GetActiveBindings()
+    local bindings = burst.Get()
     for i, b in ipairs(bindings) do
         if IsFrameBinding(b) and b.key then
             local parsed = ParseKeyString(b.key)
@@ -1597,6 +1613,9 @@ function ns.CC_ApplyBindings()
     NormalizeSavedBindingKeys()
 
     local bindings = GetActiveBindings()
+    -- Fresh list becomes the burst list: any registration later this frame
+    -- reads the post-write set.
+    burst.at, burst.list = GetTime(), bindings
 
     local frameBindings = {}
     local hoverBindings = {}
@@ -1911,6 +1930,21 @@ function RegisterBlizzardFrames()
         hooksecurefunc("CompactUnitFrame_SetUpFrame", function(frame)
             if not frame then return end
             if frame.IsForbidden and frame:IsForbidden() then return end
+            -- Frames the raid module parked under its hidden parent (the whole
+            -- CompactRaidFrameContainer, the raid-style party members) can never
+            -- be clicked, yet Blizzard re-runs SetUpFrame on every one of them
+            -- for every roster change -- a full binding pass per hidden frame
+            -- per roster event, all wasted. Skip them; a frame that later leaves
+            -- the hidden parent registers on its next SetUpFrame.
+            local hiddenParent = ns._blizzHiddenParent
+            if hiddenParent then
+                local p, depth = frame:GetParent(), 0
+                while p and depth < 6 do
+                    if p == hiddenParent then return end
+                    p = p:GetParent()
+                    depth = depth + 1
+                end
+            end
             local ok, name = pcall(frame.GetName, frame)
             if ok and name and not name:match("^NamePlate") then
                 externalFrames[frame] = true

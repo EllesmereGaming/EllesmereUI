@@ -562,18 +562,18 @@ function ns.EnumerateCDMSettingsCatalog(wantSet)
     if not settings or type(settings.GetDataProvider) ~= "function" then return nil end
     local okP, provider = pcall(settings.GetDataProvider, settings)
     if not okP or type(provider) ~= "table" then return nil end
-    if type(provider.GetOrderedCooldownIDs) ~= "function"
-       or type(provider.GetCooldownInfoForID) ~= "function" then return nil end
-    local okO, ordered = pcall(provider.GetOrderedCooldownIDs, provider)
-    if not okO or type(ordered) ~= "table" then return nil end
+    -- Read the already-built display table, never the getters that would
+    -- build it (see ns.CDMGetProviderDisplayData, EllesmereUICooldownManager.lua).
+    local ordered, infoByID = ns.CDMGetProviderDisplayData(provider)
+    if not ordered then return nil end
     local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
     if not gci then return nil end
 
     local result = {}
     for _, cdID in ipairs(ordered) do
-        local okI, pInfo = pcall(provider.GetCooldownInfoForID, provider, cdID)
+        local pInfo = _IsUsableSID(cdID) and infoByID[cdID]
         local category
-        if okI and type(pInfo) == "table" then category = pInfo.category end
+        if type(pInfo) == "table" then category = pInfo.category end
         if category ~= nil and wantSet[category] then
             -- Same shape the migration and spell caches use. Prefer override
             -- only when the player actually has it -- CDM info can report a

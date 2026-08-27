@@ -3960,6 +3960,7 @@ end
 local _trinketFrames = {}
 ns._trinketFrames = _trinketFrames
 local _trinketItemCache = { [13] = nil, [14] = nil }
+local _trinketEventFrame = CreateFrame("Frame")
 
 local function GetOrCreateTrinketFrame(slotID)
     local f = _trinketFrames[slotID]
@@ -4059,9 +4060,21 @@ local function UpdateTrinketFrame(slotID)
     local itemID = GetInventoryItemID("player", slotID)
     _trinketItemCache[slotID] = itemID
     if not itemID then
+        f._slotScanPending = nil
         f:Hide()
         return
     end
+    -- Item data not in the client cache yet (cold cache at login): GetItemSpell
+    -- reads nil for an on-use item, which the passive test below would take as
+    -- conclusive and nothing would ever re-scan. Keep the previous state,
+    -- request the load and let ITEM_DATA_LOAD_RESULT re-run the scan.
+    if C_Item.IsItemDataCachedByID and not C_Item.IsItemDataCachedByID(itemID) then
+        f._slotScanPending = true
+        C_Item.RequestLoadItemDataByID(itemID)
+        _trinketEventFrame:RegisterEvent("ITEM_DATA_LOAD_RESULT")
+        return
+    end
+    f._slotScanPending = nil
     local icon = C_Item.GetItemIconByID(itemID)
     if icon and f._tex then f._tex:SetTexture(icon) end
     local _, spellID = C_Item.GetItemSpell(itemID)
@@ -4105,14 +4118,40 @@ local function UpdateTrinketFrame(slotID)
     if spellID and spellID > 0 then
         local locale = GetLocale()
         if locale == "enUS" or locale == "enGB" then
+            -- The "Use: ... (X Min Cooldown)" line is the use spell's
+            -- DESCRIPTION, loaded separately from the item data: on a cold
+            -- spell cache the tooltip omits the line entirely and the scan
+            -- would read an on-use trinket as passive. Blizzard's signal is an
+            -- empty description until SPELL_TEXT_UPDATE fires for the spell
+            -- (nil when the spell record itself is not loaded yet).
+            local desc = C_Spell.GetSpellDescription(spellID)
+            local descLoaded = desc ~= nil and desc ~= ""
+            if not descLoaded then
+                f._slotScanPending = true
+                if C_Spell.RequestLoadSpellData then C_Spell.RequestLoadSpellData(spellID) end
+                _trinketEventFrame:RegisterEvent("SPELL_TEXT_UPDATE")
+                _trinketEventFrame:RegisterEvent("SPELL_DATA_LOAD_RESULT")
+                return
+            end
             local tipData = C_TooltipInfo and C_TooltipInfo.GetItemByID(itemID)
             if tipData and tipData.lines then
-                scanConclusive = true
+                -- Conclusive only once the tooltip actually carries the Use
+                -- line (GetItemSpell only reports on-use spells, so the line
+                -- always arrives once the spell text is in); until then the
+                -- text is still loading and SPELL_TEXT_UPDATE re-runs us.
+                local usePrefix = ITEM_SPELL_TRIGGER_ONUSE
                 for _, tipLine in ipairs(tipData.lines) do
                     local lt = tipLine.leftText
+                    if lt and usePrefix and lt:sub(1, #usePrefix) == usePrefix then
+                        scanConclusive = true
+                    end
                     if lt and lt:find("Cooldown%)") then
                         local cdStr = lt:match("%((.+Cooldown)%)")
                         if cdStr then
+                            -- Tooltip data carries raw grammar tokens
+                            -- ("2 |4Min:Min; Cooldown"); reduce to the
+                            -- singular so the unit parse sees "2 Min".
+                            cdStr = cdStr:gsub("|4(%a+):[^;]*;", "%1")
                             local totalSec = 0
                             for num, unit in cdStr:gmatch("(%d+)%s*(%a+)") do
                                 local n = tonumber(num)
@@ -4127,6 +4166,12 @@ local function UpdateTrinketFrame(slotID)
                             if totalSec >= 10 then isRealOnUse = true end
                         end
                     end
+                end
+                if not scanConclusive then
+                    f._slotScanPending = true
+                    if C_Spell.RequestLoadSpellData then C_Spell.RequestLoadSpellData(spellID) end
+                    _trinketEventFrame:RegisterEvent("SPELL_TEXT_UPDATE")
+                    _trinketEventFrame:RegisterEvent("SPELL_DATA_LOAD_RESULT")
                 end
             end
         else
@@ -4188,7 +4233,6 @@ local function UpdateTrinketCooldown(slotID)
 end
 ns.UpdateTrinketCooldown = UpdateTrinketCooldown
 
-local _trinketEventFrame = CreateFrame("Frame")
 _trinketEventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 _trinketEventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
 _trinketEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -4199,8 +4243,38 @@ local function SlotScanIncomplete(f)
     return (f._trinketSpellID and not f._trinketIsOnUse) or f._slotScanPending
 end
 
-_trinketEventFrame:SetScript("OnEvent", function(_, event, arg1)
-    if event == "PLAYER_EQUIPMENT_CHANGED" then
+_trinketEventFrame:SetScript("OnEvent", function(_, event, arg1, arg2)
+    if event == "ITEM_DATA_LOAD_RESULT" or event == "SPELL_DATA_LOAD_RESULT"
+       or event == "SPELL_TEXT_UPDATE" then
+        -- Registered only while a slot scan waits on the item or use-spell
+        -- data; a failed load just drops the pending flag (previous state
+        -- stands). Item loads match on the cached item id, spell loads and
+        -- description arrivals on the frame's use spell.
+        local byItem = event == "ITEM_DATA_LOAD_RESULT"
+        local ok = arg2
+        if event == "SPELL_TEXT_UPDATE" then ok = true end
+        local pending = false
+        for slot, f in pairs(_trinketFrames) do
+            if f._slotScanPending then
+                local key
+                if byItem then key = _trinketItemCache[slot] else key = f._trinketSpellID end
+                if key == arg1 then
+                    if ok then
+                        UpdateTrinketFrame(slot)
+                    else
+                        f._slotScanPending = nil
+                    end
+                    if ns.QueueReanchor then ns.QueueReanchor() end
+                end
+            end
+            if f._slotScanPending then pending = true end
+        end
+        if not pending then
+            _trinketEventFrame:UnregisterEvent("ITEM_DATA_LOAD_RESULT")
+            _trinketEventFrame:UnregisterEvent("SPELL_DATA_LOAD_RESULT")
+            _trinketEventFrame:UnregisterEvent("SPELL_TEXT_UPDATE")
+        end
+    elseif event == "PLAYER_EQUIPMENT_CHANGED" then
         if arg1 == 13 or arg1 == 14 or _trinketFrames[arg1] then
             UpdateTrinketFrame(arg1)
             if ns.QueueReanchor then ns.QueueReanchor() end
@@ -10283,6 +10357,14 @@ do
         local actionType, id, subType = GetActionInfo(slot)
         if actionType == "spell" then
             return id
+        elseif actionType == "item" then
+            -- On-use trinkets/potions/healthstones placed directly on the
+            -- action bar: hand back the itemID as a second return. Bar icons
+            -- for these track by NEGATIVE identity (-itemID for item presets,
+            -- -invSlot for "whatever's equipped in slot X" -- see
+            -- ns.INV_SLOT_NAMES / the <= -100 item-preset branch above), not a
+            -- resolved spellID, so the caller builds the matching keys itself.
+            return nil, id
         elseif actionType == "macro" then
             if subType == "spell" then
                 return id
@@ -10309,10 +10391,27 @@ do
     local function OnPress(btn, bindCmd)
         if not btn or not _anyPressMirror then return end
         local slot = btn.action or (btn.GetAttribute and btn:GetAttribute("action"))
-        local sid = SlotSpellID(slot)
-        if not sid then return end
+        local sid, itemID = SlotSpellID(slot)
+        if not sid and not itemID then return end
 
-        local pressedSet = SpellIdSet(sid)
+        local pressedSet = sid and SpellIdSet(sid) or {}
+        if itemID then
+            -- Item-preset icons (potions, healthstones, custom item ids) key
+            -- off -itemID; equipment-slot icons (trinkets -13/-14, or any
+            -- user-added slot) key off -invSlot for whatever's equipped there.
+            -- Match both, plus the item's own on-use spell for the rarer case
+            -- of it being tracked as a plain Custom Spell entry instead.
+            pressedSet[-itemID] = true
+            for invSlot in pairs(ns.INV_SLOT_NAMES) do
+                if GetInventoryItemID("player", invSlot) == itemID then
+                    pressedSet[-invSlot] = true
+                end
+            end
+            local _, useSpellID = C_Item.GetItemSpell(itemID)
+            if useSpellID then
+                for k in pairs(SpellIdSet(useSpellID)) do pressedSet[k] = true end
+            end
+        end
         local overlays
         if cdmBarIcons then
             for barKey, list in pairs(cdmBarIcons) do

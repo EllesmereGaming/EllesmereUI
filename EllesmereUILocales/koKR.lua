@@ -7012,6 +7012,13 @@ L["Disabling both disables this binding."] = "둘 다 해제하면 이 단축키
 L["Friendly"] = "아군"
 L["Enemy"] = "적군"
 
+--이름표
+L["Hide Border"] = "테두리 숨기기"
+L["This option requires Blizzard's Assisted Highlight to be enabled"] = "이 옵션을 사용하려면 블리자드의 '보조 강조 효과'를 활성화해야 합니다"
+L["Assisted Highlight"] = "보조 강조 효과"
+L["Assisted Highlight Outset"] = "보조 강조 효과 돌출"
+L["This option requires a style that draws the glow ring"] = "이 옵션을 사용하려면 빛나는 고리를 그리는 스타일이 필요합니다"
+
 --유닛 프레임 
 L["Hide these instead of showing them"] = "표시하는 대신 숨기기"
 L["Buffs you can spellsteal or purge"] = "마법 훔치기 또는 해제 가능한 강화 효과"
@@ -7219,6 +7226,21 @@ L["Outline style override for all Nameplates text. EUI Global Outline follows th
 L["Outline style override for all Bags text. EUI Global Outline follows the global Outline Mode setting above."] = "모든 가방 텍스트의 외곽선 스타일을 강제로 설정합니다. EUI 전체 외곽선은 위의 전체 외곽선 모드 설정을 따릅니다."
 L["Outline style override for all Quickdraw text. EUI Global Outline follows the global Outline Mode setting above."] = "모든 퀵드로우 텍스트의 외곽선 스타일을 강제로 설정합니다. EUI 전체 외곽선은 위의 전체 외곽선 모드 설정을 따릅니다."
 L["Outline style override for all Resource & Cast Bars text. EUI Global Outline follows the global Outline Mode setting above."] = "모든 자원 및 시전 바 텍스트의 외곽선 스타일을 강제로 설정합니다. EUI 전체 외곽선은 위의 전체 외곽선 모드 설정을 따릅니다."
+
+-- UI 모양 변경 - 쐐기돌 도구 
+L["INTERRUPT AND VISIBILITY"] = "차단 및 가시성"
+L["Cast Colors"] = "시전 바 색상"
+L["Fade Out of Interrupt Range"] = "차단 사거리 벗어남 시 흐려짐"
+L["Show Raid Target Marker"] = "공격대 징표 표시"
+L["Range Fade Settings"] = "사거리 흐려짐 설정"
+L["Raid Target Marker"] = "공격대 징표"
+L["Important Cast Glow Settings"] = "중요 시전 반짝임 설정"
+
+-- UI 모양 변경 - 쐐기돌 도구 - 툴팁
+L["Fade a bar when the enemy is beyond your active interrupt spell's range. Has no effect for specs without an interrupt."] = "적이 현재 활성화된 차단 주문의 사거리를 벗어나면 주문 바를 흐리게 표시합니다. 차단기가 없는 전문화에는 효과가 없습니다."
+L["Show the enemy's raid target marker to the left of the spell name."] = "주문 이름 왼쪽에 적의 공격대 징표를 표시합니다."
+L["Glow the bar when the enemy casts a spell Blizzard flags as important."] = "적이 블리자드에서 '중요'로 지정한 주문을 시전할 때 시전 바를 반짝이게 합니다."
+L["Limit the bars to the selected content and combat states; nothing selected shows them everywhere."] = "선택한 콘텐츠 및 전투 상태에서만 주문 바를 표시합니다. 아무것도 선택하지 않으면 모든 지역에서 표시됩니다."
 
 -- == Chat prints (채팅창 print 출력 - 소스 엘키(L/Lf) 삽입 대기) ==================
 -- 원본이 print() 에 영문 리터럴을 직접 쓰는 곳들. 엔진 자동번역 밖이라 소스에서

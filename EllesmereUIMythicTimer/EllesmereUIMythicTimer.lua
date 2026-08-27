@@ -151,6 +151,7 @@ local DB_DEFAULTS = {
         showCompletedMilliseconds = true,
         objectiveCompareMode = "NONE",
         objectiveCompareDeltaOnly = false,
+        objectiveCompareStrict = false,
         showUpcomingSplitTargets = false,
         frameWidth        = 260,
         barWidth          = 210,
@@ -201,6 +202,8 @@ local DB_DEFAULTS = {
             bgColor          = { r = 0, g = 0, b = 0, a = 0.45 },
             borderSize       = 1,
             showIcon         = true,
+            iconOnRight      = false,  -- attach the spell icon to the right of the bar instead of the left
+            showIconDivider  = false,  -- draw a 1px divider at the icon/bar seam
             showSpellName    = true,
             nameSize         = 10,
             nameX            = 0,
@@ -506,10 +509,13 @@ local function GetReferenceObjectiveTime(run, objectiveIndex, mode)
     local store = EnsureProfileStore("bestObjectiveSplits")
     if not store then return nil end
 
-    -- Try exact scope first, then fall back to broader scopes.
-    -- LEVEL_AFFIX -> LEVEL -> DUNGEON
+    -- Try exact scope first, then fall back to broader scopes
+    -- (LEVEL_AFFIX -> LEVEL -> DUNGEON); strict mode = exact scope only, so a
+    -- new key level shows no comparison instead of the dungeon-wide best.
     local tryOrder
-    if mode == COMPARE_LEVEL_AFFIX then
+    if db.profile.objectiveCompareStrict == true then
+        tryOrder = { mode }
+    elseif mode == COMPARE_LEVEL_AFFIX then
         tryOrder = { COMPARE_LEVEL_AFFIX, COMPARE_LEVEL, COMPARE_DUNGEON }
     elseif mode == COMPARE_LEVEL then
         tryOrder = { COMPARE_LEVEL, COMPARE_DUNGEON }

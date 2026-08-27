@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Hold a keybind to open a menu of actions; point or scroll to choose, release to fire.
 ## Author: Ellesmere
-## Version: 9.0.6
+## Version: 9.0.7
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIQuickdrawDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga

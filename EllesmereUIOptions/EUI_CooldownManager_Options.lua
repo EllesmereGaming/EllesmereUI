@@ -5515,53 +5515,30 @@ initFrame:SetScript("OnEvent", function(self)
         local displayHeader
         displayHeader, h = W:SectionHeader(parent, "Display", y);  y = y - h
 
-        -- Visibility (mode dropdown) | Visibility Options (checkbox dropdown, CDM-Bars-style
-        -- plus the TBB-only Hide When Inactive cap; Only In Combat lives in the Visibility
-        -- mode dropdown itself now, In Combat).
-        local tbbVisRow, tbbVisH = EllesmereUI.BuildVisibilityModeRow(W, parent, y,
+        -- Visibility: one control, the shared axis list plus the TBB-only Hide When
+        -- Inactive row (single-lane, so it rides in as an extraItem). No mouseover for
+        -- CDM-family bars; "Only In Combat" is the In Combat axis.
+        local _, tbbVisH = EllesmereUI.BuildVisibilityRow(W, parent, y,
             { getStore = SelectedTBB, legacyKey = "barVisibility",
               caps = { partyIncludesRaid = false, noMouseover = true, luaDragonriding = true },
-              onChanged = function() RefreshTBB() end },
-            { type="dropdown", text="Visibility Options",
-              values={ __placeholder = "..." }, order={ "__placeholder" },
-              getValue=function() return "__placeholder" end,
-              setValue=function() end });  y = y - tbbVisH
-
-        -- Replace the dummy right dropdown with the checkbox dropdown (same technique CDM
-        -- Bars uses -- BuildVisibilityModeRow only knows how to build a plain dropdown slot).
-        if not EllesmereUI._prebuilding then
-            local rightRgn = tbbVisRow._rightRegion
-            if rightRgn._control then rightRgn._control:Hide() end
-            -- The shared list (skyriding included) plus the TBB-only Hide When Inactive cap.
-            local tbbVisItems = {}
-            for _, item in ipairs(EllesmereUI.VIS_OPT_ITEMS) do
-                tbbVisItems[#tbbVisItems + 1] = item
-            end
-            tbbVisItems[#tbbVisItems + 1] = { key = "hideWhenInactive", label = "Hide When Inactive",
-                tooltip = "Only show this bar while the tracked buff/cooldown is active. Unchecked keeps an empty bar on screen at all times." }
-            local tbbCbDD, tbbCbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                rightRgn, 210, rightRgn:GetFrameLevel() + 2,
-                tbbVisItems,
-                function(k)
-                    local bd = SelectedTBB(); if not bd then return false end
-                    -- hideWhenInactive predates this dropdown and is nil-means-on everywhere
-                    -- it is read, so it cannot go through the plain truthiness path.
-                    if k == "hideWhenInactive" then return bd.hideWhenInactive ~= false end
-                    return bd[k] or false
-                end,
-                function(k, v)
-                    local bd = SelectedTBB(); if not bd then return end
-                    bd[k] = v; RefreshTBB()
-                end)
-            PP.Point(tbbCbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
-            rightRgn._control = tbbCbDD
-            rightRgn._lastInline = nil
-            EllesmereUI.RegisterWidgetRefresh(tbbCbDDRefresh)
-        end
-
-        -- Show Icon | Opacity
-        local iconRow
-        iconRow, h = W:DualRow(parent, y,
+              onChanged = function() RefreshTBB() end,
+              onOptionChanged = function() RefreshTBB() end,
+              extraItems = {
+                  { key = "hideWhenInactive", label = "Hide When Inactive",
+                    tooltip = "Only show this bar while the tracked buff/cooldown is active. Unchecked keeps an empty bar on screen at all times.",
+                    -- nil means ON everywhere this is read, so it cannot go through a
+                    -- plain truthiness path.
+                    get = function()
+                        local bd = SelectedTBB()
+                        return bd and bd.hideWhenInactive ~= false
+                    end,
+                    -- No refresh here: the row fires onOptionChanged after every write.
+                    set = function(v)
+                        local bd = SelectedTBB(); if not bd then return end
+                        bd.hideWhenInactive = v
+                    end },
+              } },
+            -- Show Icon moved up into the slot the Visibility Options dropdown left behind.
             { type = "dropdown", text = "Show Icon",
               values = { none = "None", left = "Left (Top)", right = "Right (Bottom)" },
               order = { "none", "left", "right" },
@@ -5569,7 +5546,11 @@ initFrame:SetScript("OnEvent", function(self)
               setValue = function(v)
                   local bd = SelectedTBB(); if not bd then return end
                   bd.iconDisplay = v; RefreshTBB()
-              end },
+              end });  y = y - tbbVisH
+
+        -- Opacity | Background Color (moved up from its old trailing half-row below)
+        local iconRow
+        iconRow, h = W:DualRow(parent, y,
             { type = "slider", text = "Opacity",
               min = 0, max = 100, step = 1,
               getValue = function()
@@ -5579,7 +5560,19 @@ initFrame:SetScript("OnEvent", function(self)
               setValue = function(v)
                   local bd = SelectedTBB(); if not bd then return end
                   bd.opacity = v / 100; RefreshTBB()
-              end }
+              end },
+            { type = "multiSwatch", text = "Background Color",
+              swatches = {
+                  { tooltip = "Background Color", hasAlpha = true,
+                    getValue = function()
+                        local bd = SelectedTBB()
+                        return (bd and bd.bgR or 0), (bd and bd.bgG or 0), (bd and bd.bgB or 0), (bd and bd.bgA or 0.4)
+                    end,
+                    setValue = function(r, g, b, a)
+                        local bd = SelectedTBB(); if not bd then return end
+                        bd.bgR, bd.bgG, bd.bgB, bd.bgA = r, g, b, a; RefreshTBB()
+                    end },
+              } }
         );  y = y - h
 
         -- Fill Color (dropdown: auto/custom + gradient mode + 2 inline swatches) | Show Spark
@@ -5808,24 +5801,6 @@ initFrame:SetScript("OnEvent", function(self)
                 UpdateCogVis()
             end
         end
-
-        -- Background Color | empty
-        local borderRow
-        borderRow, h = W:DualRow(parent, y,
-            { type = "multiSwatch", text = "Background Color",
-              swatches = {
-                  { tooltip = "Background Color", hasAlpha = true,
-                    getValue = function()
-                        local bd = SelectedTBB()
-                        return (bd and bd.bgR or 0), (bd and bd.bgG or 0), (bd and bd.bgB or 0), (bd and bd.bgA or 0.4)
-                    end,
-                    setValue = function(r, g, b, a)
-                        local bd = SelectedTBB(); if not bd then return end
-                        bd.bgR, bd.bgG, bd.bgB, bd.bgA = r, g, b, a; RefreshTBB()
-                    end },
-              } },
-            { type = "label", text = "" }
-        );  y = y - h
 
         -----------------------------------------------------------------------
         --  EXTRAS
@@ -16448,40 +16423,52 @@ initFrame:SetScript("OnEvent", function(self)
         if not isFocusKick then
         _, h = W:SectionHeader(parent, "BAR LAYOUT", y);  y = y - h
 
-        -- Row 1: (Sync) Visibility | Visibility Options (checkbox dropdown). Mouseover stays
-        -- structurally absent for CDM bars (noMouseover), matching the old VIS_VALUES_CDM list.
-        local visRow, visH = EllesmereUI.BuildVisibilityModeRow(W, parent, y,
+        -- Row 1: (Sync) Visibility. Mouseover stays structurally absent for CDM bars
+        -- (noMouseover), matching the old VIS_VALUES_CDM list.
+        local visRow, visH = EllesmereUI.BuildVisibilityRow(W, parent, y,
             { getStore = BD, legacyKey = "barVisibility",
               caps = { partyIncludesRaid = false, noMouseover = true, luaDragonriding = true },
               onChanged = function()
                   ns.CDMApplyVisibility()
+              end,
+              onOptionChanged = function()
+                  ns.CDMApplyVisibility()
               end },
-            { type="dropdown", text="Visibility Options",
-              values={ __placeholder = "..." }, order={ "__placeholder" },
-              getValue=function() return "__placeholder" end,
-              setValue=function() end });  y = y - visH
+            -- Number of Rows moved up into the slot the Visibility Options dropdown
+            -- left behind; its Row Icons cog moved with it.
+            { type="slider", text="Number of Rows",
+              min=1, max=6, step=1,
+              getValue=function() return BD().numRows or 1 end,
+              setValue=function(v)
+                  local bd = BD()
+                  bd.numRows = v
+                  if v ~= 2 then
+                      bd.topRowCount = nil; bd.customTopRowEnabled = nil
+                      bd.bottomRowCount = nil; bd.customBottomRowEnabled = nil
+                      bd.topRowSizeOffset = nil; bd.customTopRowSizeEnabled = nil
+                      bd.bottomRowSizeOffset = nil; bd.customBottomRowSizeEnabled = nil
+                      if bd.rowGrowDirection then
+                          -- The row growth pin rides on the 2-row custom split (the
+                          -- only layout whose row count changes at runtime). Clear it
+                          -- with the rest of the split settings and re-store the
+                          -- position in plain edge format from the bar's current spot.
+                          bd.rowGrowDirection = nil
+                          if ns.RecaptureBarAnchor then ns.RecaptureBarAnchor(bd.key) end
+                      end
+                  end
+                  -- numRows change invalidates cached match dims (rows is one
+                  -- of the inputs to the matched-axis dim calculation).
+                  bd._matchIconPhys = nil
+                  bd._matchExtraPixels = nil
+                  bd._matchStride = nil
+                  bd._matchExtraPixelsH = nil
+                  bd._matchStrideH = nil
+                  ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
+                  EllesmereUI:RefreshPage()
+              end });  y = y - visH
 
-        -- Replace the dummy right dropdown with our checkbox dropdown
-        if not EllesmereUI._prebuilding then
-            local rightRgn = visRow._rightRegion
-            if rightRgn._control then rightRgn._control:Hide() end
-            local visItems = EllesmereUI.VIS_OPT_ITEMS
-            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                rightRgn, 210, rightRgn:GetFrameLevel() + 2,
-                visItems,
-                function(k) return BD()[k] or false end,
-                function(k, v)
-                    BD()[k] = v
-                    ns.CDMApplyVisibility()
-                    EllesmereUI:RefreshPage()
-                end)
-            PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
-            rightRgn._control = cbDD
-            rightRgn._lastInline = nil
-            EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
-        end
-
-        -- Sync icon on Visibility (left) -- set-aware so multi-selections compare and copy correctly (uniform caps across CDM bars).
+        -- ONE sync icon now that both halves share a control: VisFullCopy / VisFullEquals
+        -- carry the mode selection and every option boolean together.
         if not EllesmereUI._prebuilding then
             local rgn = visRow._leftRegion
             EllesmereUI.BuildSyncIcon({
@@ -16491,43 +16478,15 @@ initFrame:SetScript("OnEvent", function(self)
                     local src = BD()
                     local synced = true
                     ForEachSyncBar(function(b)
-                        if not EllesmereUI.VisSelectionEquals(src, "barVisibility", b, "barVisibility") then synced = false end
+                        if not EllesmereUI.VisFullEquals(src, "barVisibility", b, "barVisibility") then synced = false end
                     end)
                     return synced
                 end,
                 onClick = function()
                     local src = BD()
                     ForEachSyncBar(function(b)
-                        if b ~= src then EllesmereUI.VisCopySelection(b, src, "barVisibility") end
+                        if b ~= src then EllesmereUI.VisFullCopy(b, src, "barVisibility") end
                     end)
-                    ns.CDMApplyVisibility(); EllesmereUI:RefreshPage()
-                end,
-            })
-        end
-
-        -- Sync icon on Visibility Options (right)
-        if not EllesmereUI._prebuilding then
-            local rgn = visRow._rightRegion
-            EllesmereUI.BuildSyncIcon({
-                region  = rgn,
-                tooltip = "Apply Visibility Options to all Bars",
-                isSynced = function()
-                    local bd = BD()
-                    local synced = true
-                    for _, item in ipairs(EllesmereUI.VIS_OPT_ITEMS) do
-                        local k = item.key
-                        local cur = bd[k] or false
-                        ForEachSyncBar(function(b) if (b[k] or false) ~= cur then synced = false end end)
-                    end
-                    return synced
-                end,
-                onClick = function()
-                    local bd = BD()
-                    for _, item in ipairs(EllesmereUI.VIS_OPT_ITEMS) do
-                        local k = item.key
-                        local v = bd[k] or false
-                        ForEachSyncBar(function(b) b[k] = v end)
-                    end
                     ns.CDMApplyVisibility(); EllesmereUI:RefreshPage()
                 end,
             })
@@ -16547,6 +16506,22 @@ initFrame:SetScript("OnEvent", function(self)
             y = y - cursorH
         end
 
+        -- Bar Opacity is offered for cooldown/utility/buff bars only (excl. focuskick);
+        -- other bar types leave the slot blank, as before.
+        local isCDOrUtilityRow3 = (barData.barType == "cooldowns" or barData.barType == "utility" or barData.barType == "buffs") and not isFocusKick
+        local row3Right
+        if isCDOrUtilityRow3 then
+            row3Right = { type="slider", text="Bar Opacity",
+                min=0, max=100, step=1,
+                getValue=function() return math.floor((BD().barOpacity or 1) * 100 + 0.5) end,
+                setValue=function(v)
+                    BD().barOpacity = v / 100
+                    if ns.ApplyBarOpacity then ns.ApplyBarOpacity(BD().key) end
+                    UpdateCDMPreview()
+                end }
+        else
+            row3Right = { type="label", text="" }
+        end
         local opacityRow
         opacityRow, h = W:DualRow(parent, y,
             { type="toggle", text="Bar Background",
@@ -16556,23 +16531,7 @@ initFrame:SetScript("OnEvent", function(self)
                   ns.BuildAllCDMBars(); Refresh()
                   UpdateCDMPreview(); EllesmereUI:RefreshPage()
               end },
-            { type="toggle", text="Vertical Orientation",
-              getValue=function() return BD().verticalOrientation end,
-              setValue=function(v)
-                  local bd = BD()
-                  bd.verticalOrientation = v
-                  bd.growDirection = v and "DOWN" or "RIGHT"
-                  -- Orientation flip invalidates the row growth direction too (UP/DOWN are
-                  -- horizontal-bar values, LEFT/RIGHT vertical).
-                  bd.rowGrowDirection = nil
-                  -- Orientation flip swaps the meaning of width-axis vs height-axis, so width/height match caches no longer apply.
-                  bd._matchIconPhys = nil
-                  bd._matchExtraPixels = nil
-                  bd._matchStride = nil
-                  bd._matchExtraPixelsH = nil
-                  bd._matchStrideH = nil
-                  ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
-              end });  y = y - h
+            row3Right);  y = y - h
 
         -- Inline color swatch on Bar Background (left)
         if not EllesmereUI._prebuilding then
@@ -16606,58 +16565,10 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        -- Row 3: Number of Rows | Bar Opacity (cd/utility/buff, excl. focuskick)
-        local isCDOrUtilityRow3 = (barData.barType == "cooldowns" or barData.barType == "utility" or barData.barType == "buffs") and not isFocusKick
-        local row3Right
-        if isCDOrUtilityRow3 then
-            row3Right = { type="slider", text="Bar Opacity",
-                min=0, max=100, step=1,
-                getValue=function() return math.floor((BD().barOpacity or 1) * 100 + 0.5) end,
-                setValue=function(v)
-                    BD().barOpacity = v / 100
-                    if ns.ApplyBarOpacity then ns.ApplyBarOpacity(BD().key) end
-                    UpdateCDMPreview()
-                end }
-        else
-            row3Right = { type="label", text="" }
-        end
-        local numRowsRow
-        numRowsRow, h = W:DualRow(parent, y,
-            { type="slider", text="Number of Rows",
-              min=1, max=6, step=1,
-              getValue=function() return BD().numRows or 1 end,
-              setValue=function(v)
-                  local bd = BD()
-                  bd.numRows = v
-                  if v ~= 2 then
-                      bd.topRowCount = nil; bd.customTopRowEnabled = nil
-                      bd.bottomRowCount = nil; bd.customBottomRowEnabled = nil
-                      bd.topRowSizeOffset = nil; bd.customTopRowSizeEnabled = nil
-                      bd.bottomRowSizeOffset = nil; bd.customBottomRowSizeEnabled = nil
-                      if bd.rowGrowDirection then
-                          -- The row growth pin rides on the 2-row custom split (the
-                          -- only layout whose row count changes at runtime). Clear it
-                          -- with the rest of the split settings and re-store the
-                          -- position in plain edge format from the bar's current spot.
-                          bd.rowGrowDirection = nil
-                          if ns.RecaptureBarAnchor then ns.RecaptureBarAnchor(bd.key) end
-                      end
-                  end
-                  -- numRows change invalidates cached match dims (rows is one
-                  -- of the inputs to the matched-axis dim calculation).
-                  bd._matchIconPhys = nil
-                  bd._matchExtraPixels = nil
-                  bd._matchStride = nil
-                  bd._matchExtraPixelsH = nil
-                  bd._matchStrideH = nil
-                  ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
-                  EllesmereUI:RefreshPage()
-              end },
-            row3Right);  y = y - h
-
-        -- Inline cog on Number of Rows: Row Icons settings (only relevant when numRows == 2)
+        -- Inline cog on Number of Rows (now in the Visibility row's right slot):
+        -- Row Icons settings (only relevant when numRows == 2)
         if not EllesmereUI._prebuilding then
-            local leftRgn = numRowsRow._leftRegion
+            local leftRgn = visRow._rightRegion
             local ctrl = leftRgn._control
             local function customTopOff()
                 local bd = BD()
@@ -16832,9 +16743,10 @@ initFrame:SetScript("OnEvent", function(self)
             MakeCogBtn(leftRgn, topRowCogShow, ctrl, EllesmereUI.COGS_ICON)
         end
 
-        -- Inline cog on Bar Opacity: fade the bar to a chosen alpha while out of combat. Off by default.
+        -- Inline cog on Bar Opacity (now in the Bar Background row): fade the bar to a
+        -- chosen alpha while out of combat. Off by default.
         if isCDOrUtilityRow3 then
-            local rgn = numRowsRow._rightRegion
+            local rgn = opacityRow._rightRegion
             local ctrl = rgn and rgn._control
             local _, oocCogShow = EllesmereUI.BuildCogPopup({
                 title = "Out of Combat Alpha",
@@ -16979,6 +16891,29 @@ initFrame:SetScript("OnEvent", function(self)
                   end });  y = y - h
         end
 
+        -- Vertical Orientation shares a row with Keep Buffs in Same Place on buff bars
+        -- (both apply there), and stands alone -- last row of the section -- otherwise.
+        -- Moved down here, after Max Icons/Overflow To; shown for every non-focuskick bar
+        -- regardless of overflow capability, same as before the move (this section's outer
+        -- gate is `not isFocusKick`, not isOverflowBar).
+        local vertOrientCfg = { type="toggle", text="Vertical Orientation",
+            getValue=function() return BD().verticalOrientation end,
+            setValue=function(v)
+                local bd = BD()
+                bd.verticalOrientation = v
+                bd.growDirection = v and "DOWN" or "RIGHT"
+                -- Orientation flip invalidates the row growth direction too (UP/DOWN are
+                -- horizontal-bar values, LEFT/RIGHT vertical).
+                bd.rowGrowDirection = nil
+                -- Orientation flip swaps the meaning of width-axis vs height-axis, so width/height match caches no longer apply.
+                bd._matchIconPhys = nil
+                bd._matchExtraPixels = nil
+                bd._matchStride = nil
+                bd._matchExtraPixelsH = nil
+                bd._matchStrideH = nil
+                ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
+            end }
+
         if ns.IsBarBuffFamily(barData) then
             local prof = ns.ECME and ns.ECME.db and ns.ECME.db.profile
             -- (Hide Buffs When Inactive toggle removed: always forced ON.)
@@ -17002,7 +16937,9 @@ initFrame:SetScript("OnEvent", function(self)
                       ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
                       EllesmereUI:RefreshPage()
                   end },
-                { type="label", text="" }); y = y - h
+                vertOrientCfg); y = y - h
+        else
+            _, h = W:DualRow(parent, y, vertOrientCfg, { type="label", text="" });  y = y - h
         end
 
         end -- not isFocusKick (Bar Layout section)

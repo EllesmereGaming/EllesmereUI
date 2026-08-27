@@ -498,6 +498,12 @@ local defaults = {
         raidMarkerPosition = "center",  -- "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom"
         raidMarkerOffsetX  = 0,
         raidMarkerOffsetY  = 0,
+        -- Ping marker: the mark a group member's ping puts on the pinged unit's frame (Blizzard art, 30 = native size)
+        showPingMarker     = true,
+        pingMarkerSize     = 30,
+        pingMarkerPosition = "center",
+        pingMarkerOffsetX  = 0,
+        pingMarkerOffsetY  = 0,
         showReadyCheck   = true,
         showSummonPending = true,
         showIncomingRez  = true,
@@ -3865,32 +3871,53 @@ local function StyleButton(button)
         if u and UnitExists(u) then
             -- Repaint + remap the instant the header (re)assigns this button, so a late assignment
             -- landing after the roster-timer rebuild can never leave it blank or route live events
-            -- to a stale button. Fires only for buttons whose unit changed, so bounded.
+            -- to a stale button.
             local d = GetFFD(self)
-            -- Identity caches (class token, power type) drop on EVERY assignment,
-            -- re-confirm included: the header re-sets the same token when a
-            -- different person lands on this button, and those derive again on
-            -- the next tick for one cheap read each.
-            d._clsTok = nil
-            d._pwType = nil
-            -- Fires even on a same-unit re-confirm (see the private-aura note above), so only drop
-            -- the power-hide cache on a genuine occupant change -- else it forces an unconditional
-            -- Show/Hide/SetHeight repaint, reintroducing the pop the deferred-power fix removed.
-            if d._lastUnit ~= u then
-                d._lastUnit = u
-                d._appliedHidePower = nil
-            end
             -- Extra Frames duplicates never enter the real routing maps (one button per unit);
-            -- XF_Apply owns ns._xfUnitToButton. The repaint/range/private-aura work below is 1:1.
+            -- XF_Apply owns ns._xfUnitToButton. The repaint/range work below is 1:1.
             if d._isExtra then
                 -- map owned by XF_Apply
             elseif d._isParty then ns._partyUnitToButton[u] = self
             else unitToButton[u] = self end
+            -- The secure header re-sets EVERY child's unit on EVERY re-process (each
+            -- roster/name event, each sort attribute change), so most fires are a
+            -- same-occupant re-confirm: same token AND same person as the last full
+            -- paint. Nothing on the button changed -- its own unit events kept it
+            -- current -- so only the routing write above and the container's
+            -- assist gate run; the roster timer refreshes roster-derived state
+            -- (leader/role/power layout) for unchanged occupants. A secret guid
+            -- (never memoized) or a cleared/unstyled button takes the full path.
+            local guid = UnitGUID(u)
+            if issecretvalue(guid) then guid = nil end
+            if guid and d._lastGuid == guid and d._lastUnit == u then
+                if ns.RFC_OnUnitAssigned then ns.RFC_OnUnitAssigned(self, d, u) end
+                return
+            end
+            -- Identity caches (class token, power type) drop on a real assignment:
+            -- a different person can land on this button under the same token, and
+            -- those derive again on the next tick for one cheap read each.
+            d._clsTok = nil
+            d._pwType = nil
+            -- Drop the power-hide cache only on a token change -- else it forces an
+            -- unconditional Show/Hide/SetHeight repaint, reintroducing the pop the
+            -- deferred-power fix removed.
+            if d._lastUnit ~= u then
+                d._lastUnit = u
+                d._appliedHidePower = nil
+            end
+            d._lastGuid = d.styled and guid or nil
+            -- A ping marker belongs to the previous occupant; its pin-removed edge
+            -- can no longer reach this button once the person moved.
+            if d.pingFrame then d.pingFrame:Hide() end
             -- Containers first: the legacy refresh below still has restriction-era failure modes,
             -- and an error there must not starve the container of its unit assignment.
             if ns.RFC_OnUnitAssigned then ns.RFC_OnUnitAssigned(self, d, u) end
             if ns._RefreshAssignedButton then ns._RefreshAssignedButton(self, u) end
             if ns._UpdateButtonRange then ns._UpdateButtonRange(u, self) end
+        else
+            -- Cleared (button hidden by the header) or not yet resolvable: forget the
+            -- painted occupant so the next assignment always takes the full path.
+            GetFFD(self)._lastGuid = nil
         end
     end)
 
@@ -3951,6 +3978,175 @@ ns._StyleButtonSecure = function(button)
     elseif ClickCastFrames then
         ClickCastFrames[button] = true
     end
+end
+
+-------------------------------------------------------------------------------
+--  Unit ping marker (parity with the default raid frames): when a group member
+--  is pinged, the marker Blizzard draws on its compact frame appears on that
+--  member's button here.
+--
+--  There is no direct channel: the pin events (UNIT_PING_PIN_ADDED / _REMOVED)
+--  are restricted (addon RegisterEvent = forbidden, like the combat log) and
+--  their only consumer template is forbidden to instantiate from addon code.
+--  What IS reachable: the ping icon frame Blizzard already built on each of
+--  its own compact frames is an ordinary object, and the raid module keeps
+--  those frames alive -- the container is parked off-screen but the manager
+--  still runs every roster layout through it (SetUpFrame fires per compact
+--  frame per roster event). Blizzard's handler resolves the pinned GUID to a
+--  frame and applies the showPingsOnRaidFrames CVar gate before it calls
+--  ShowPing / ClearPing on that icon, so a secure post-hook on those two
+--  methods hands us the texture kit and the owning compact frame's unit
+--  token; the token maps to our button(s) and the same atlases go on our own
+--  overlay. Hooks are installed per icon from a CompactUnitFrame_SetUpFrame
+--  post-hook (once per icon object; nameplate compact frames are skipped for
+--  good). Parity is total: same trigger, same CVar, same art. Zero work
+--  between pings; overlays are built on first use.
+--
+--  Blizzard's own icon never clears when the pinged person moves to another
+--  compact frame before the pin expires (the removed edge no longer matches
+--  that frame), so a mirror needs two belts: our unit hook hides the overlay
+--  on an occupant change, and a shown overlay expires on its own after the
+--  longest a pin can live.
+-------------------------------------------------------------------------------
+ns._pingHooked  = setmetatable({}, { __mode = "k" })  -- Blizzard icon -> true (hooked) / false (never)
+ns._pingLitBtn  = setmetatable({}, { __mode = "k" })  -- Blizzard icon -> our button it lit
+ns._pingLitXf   = setmetatable({}, { __mode = "k" })  -- Blizzard icon -> Extra Frames duplicate it lit
+ns.PING_EXPIRE  = 20
+
+-- Position + size from the (party/extra-aware) settings: the same 9-point
+-- anchor set as the raid marker, and the size as a factor of Blizzard's native
+-- 30 so both atlases keep their proportions. Re-run by every reload path that
+-- re-anchors the other indicators.
+ns._RFAnchorPing = function(d)
+    local pf = d.pingFrame
+    if not pf then return end
+    local s = d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
+    local size = PixelSnap(s.pingMarkerSize or 30)
+    pf:SetSize(size, size)
+    pf._factor = size / 30
+    local host = ns.RF_AnchorHost(d.health, s)
+    local pos = s.pingMarkerPosition or "center"
+    local ox = s.pingMarkerOffsetX or 0
+    local oy = s.pingMarkerOffsetY or 0
+    pf:ClearAllPoints()
+    if pos == "topleft" then
+        pf:SetPoint("TOPLEFT", host, "TOPLEFT", 2 + ox, -2 + oy)
+    elseif pos == "top" then
+        pf:SetPoint("TOP", host, "TOP", ox, -2 + oy)
+    elseif pos == "topright" then
+        pf:SetPoint("TOPRIGHT", host, "TOPRIGHT", -2 + ox, -2 + oy)
+    elseif pos == "left" then
+        pf:SetPoint("LEFT", host, "LEFT", 2 + ox, oy)
+    elseif pos == "right" then
+        pf:SetPoint("RIGHT", host, "RIGHT", -2 + ox, oy)
+    elseif pos == "bottomleft" then
+        pf:SetPoint("BOTTOMLEFT", host, "BOTTOMLEFT", 2 + ox, 2 + oy)
+    elseif pos == "bottom" then
+        pf:SetPoint("BOTTOM", host, "BOTTOM", ox, 2 + oy)
+    elseif pos == "bottomright" then
+        pf:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", -2 + ox, 2 + oy)
+    else
+        pf:SetPoint("CENTER", host, "CENTER", ox, oy)
+    end
+end
+
+ns._RFPingOverlay = function(button, d)
+    local pf = d.pingFrame
+    if pf then return pf end
+    pf = CreateFrame("Frame", nil, button)
+    pf:SetFrameLevel(button:GetFrameLevel() + ns.LVL_MARKER + 1)
+    pf:EnableMouse(false)
+    pf.bg = pf:CreateTexture(nil, "BACKGROUND")
+    pf.bg:SetPoint("CENTER")
+    pf.icon = pf:CreateTexture(nil, "ARTWORK")
+    pf.icon:SetPoint("CENTER")
+    pf:Hide()
+    d.pingFrame = pf
+    ns._RFAnchorPing(d)
+    return pf
+end
+
+ns._RFPingHide = function(button)
+    if not button then return end
+    local d = GetFFD(button)
+    if d.pingFrame then d.pingFrame:Hide() end
+end
+
+-- Atlas at native size, then scaled by the configured factor (each texture
+-- keeps its own native proportions). On ns (200-local cap).
+ns._SetPingAtlas = function(tex, atlas, factor)
+    tex:SetAtlas(atlas, true)
+    if factor ~= 1 then
+        local w, h = tex:GetSize()
+        tex:SetSize(w * factor, h * factor)
+    end
+end
+
+ns._RFPingLight = function(button, kit)
+    local d = GetFFD(button)
+    local s = d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
+    if s.showPingMarker == false then return end
+    local pf = ns._RFPingOverlay(button, d)
+    local factor = pf._factor or 1
+    ns._SetPingAtlas(pf.bg, "Ping_Frame_BG_" .. kit, factor)
+    ns._SetPingAtlas(pf.icon, "Ping_Frame_" .. kit, factor)
+    pf:Show()
+    -- Expiry belt: a pin has a finite engine lifetime; if its removed edge can
+    -- no longer reach this button (see header), the overlay still goes away.
+    local stamp = (d._pingStamp or 0) + 1
+    d._pingStamp = stamp
+    C_Timer.After(ns.PING_EXPIRE, function()
+        if d._pingStamp == stamp and d.pingFrame then d.pingFrame:Hide() end
+    end)
+end
+
+ns._OnCufShowPing = function(icon, kit)
+    if issecretvalue(kit) or type(kit) ~= "string" then return end
+    local owner = icon:GetParent()
+    local unit = owner and owner.unit
+    if type(unit) ~= "string" then return end
+    local btn = unitToButton[unit] or ns._partyUnitToButton[unit]
+    local xf = ns._xfUnitToButton[unit]
+    -- The icon re-lit for a different occupant: release what it lit before.
+    local prevB, prevX = ns._pingLitBtn[icon], ns._pingLitXf[icon]
+    if prevB and prevB ~= btn then ns._RFPingHide(prevB) end
+    if prevX and prevX ~= xf then ns._RFPingHide(prevX) end
+    if btn then ns._RFPingLight(btn, kit) end
+    if xf then ns._RFPingLight(xf, kit) end
+    ns._pingLitBtn[icon], ns._pingLitXf[icon] = btn, xf
+end
+
+ns._OnCufClearPing = function(icon)
+    local b, x = ns._pingLitBtn[icon], ns._pingLitXf[icon]
+    if not b and not x then return end
+    ns._pingLitBtn[icon], ns._pingLitXf[icon] = nil, nil
+    ns._RFPingHide(b)
+    ns._RFPingHide(x)
+end
+
+ns._HookCufPingIcon = function(cuf)
+    local icon = cuf and cuf.pingIconFrame
+    if not icon then return end
+    local state = ns._pingHooked[icon]
+    if state ~= nil then return end
+    -- Nameplate compact frames carry the same child; never ours to mirror.
+    local okN, name = pcall(cuf.GetName, cuf)
+    if okN and type(name) == "string" and name:find("^NamePlate") then
+        ns._pingHooked[icon] = false
+        return
+    end
+    local okF, forbidden = pcall(icon.IsForbidden, icon)
+    if not okF or forbidden then
+        ns._pingHooked[icon] = false
+        return
+    end
+    ns._pingHooked[icon] = true
+    hooksecurefunc(icon, "ShowPing", ns._OnCufShowPing)
+    hooksecurefunc(icon, "ClearPing", ns._OnCufClearPing)
+end
+
+if type(CompactUnitFrame_SetUpFrame) == "function" then
+    hooksecurefunc("CompactUnitFrame_SetUpFrame", ns._HookCufPingIcon)
 end
 
 -------------------------------------------------------------------------------
@@ -4117,6 +4313,19 @@ local function UpdateButton(button)
     ns._ApplyHealthBg(d, health, s, unit, connected, deadOrGhost)
 
     -- Power (filtered by role + hide if unit has no power)
+    ns._PaintPower(button, d, s, unit)
+
+    -- Absorb
+    UpdateAbsorb(button, unit)
+
+    ns._PaintButtonTail(button, d, s, unit)
+end
+
+-- Power bar layout + value: role-gated show/hide, health-height reflow, then the
+-- value/color push. Split out of UpdateButton so the roster-state refresh
+-- (ns._RefreshRosterState) can re-evaluate the role gate without a full paint.
+-- On ns (200-local cap).
+ns._PaintPower = function(button, d, s, unit)
     local power = d.power
     if power then
         local role = ns._ResolvePowerRole(unit)
@@ -4201,9 +4410,42 @@ local function UpdateButton(button)
             end
         end
     end
+end
 
-    -- Absorb
-    UpdateAbsorb(button, unit)
+-- Roster-derived state only, for a button whose OCCUPANT did not change across a
+-- roster event: leader/assist flag, assigned role (icon + role-gated power layout).
+-- Everything else on the button is driven by its own unit events and was current
+-- before the roster event, so the full paint (name resolution, absorb, texts,
+-- marker, threat) is skipped. On ns (200-local cap).
+ns._RefreshRosterState = function(button, d, s, unit)
+    if not d.styled then return end
+    ns._UpdateRoleIcon(d, s, unit)
+    ns._UpdateLeaderIcon(d, s, unit)
+    ns._PaintPower(button, d, s, unit)
+end
+
+-- One button's share of the coalesced roster pass (both roster timers). A paint
+-- stamped at or after the cycle's arm time came from the assignment hook (the
+-- occupant changed) or a full pass inside the cycle: nothing left to do. A stable
+-- occupant (same guid as the hook's last full paint) gets the roster-state refresh.
+-- Anything else -- no painted occupant on record, secret guid -- takes the full
+-- paint, exactly the old pass. On ns (200-local cap).
+ns._RosterPassPaint = function(button, unit)
+    local d = GetFFD(button)
+    local armAt = ns._rosterArmAt
+    if armAt and d._fpAt and d._fpAt >= armAt and d._fpUnit == unit then return end
+    local guid = d._lastGuid and UnitGUID(unit)
+    if guid and not issecretvalue(guid) and d._lastGuid == guid and d._lastUnit == unit then
+        local s = d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
+        ns._RefreshRosterState(button, d, s, unit)
+    else
+        UpdateButton(button)
+    end
+end
+
+-- Second half of the full paint (after power + absorb). On ns (200-local cap).
+ns._PaintButtonTail = function(button, d, s, unit)
+    local EllesmereUI = ns.EllesmereUI  -- upvalue read, not a global read (see taint note at top)
 
     -- Name (visibility owned by AnchorNameText, which hides it when the Top Name Bar is enabled)
     if d.nameText then
@@ -4303,30 +4545,11 @@ local function UpdateButton(button)
         end
     end
 
-    -- Status text (DEAD / OFFLINE / AFK -- always shown, own position/size/color)
-    if d.statusText then
-        local stc = s.statusTextColor or { r = 1, g = 1, b = 1 }
-        if s.statusTextPosition == "none" then
-            d.statusText:Hide()
-        elseif s.showIncomingRez and ns._RFRezShown(unit) then
-            -- Being resurrected: hide status text so the incoming-rez icon (same spot) isn't covered.
-            d.statusText:Hide()
-        elseif not UnitIsConnected(unit) then
-            d.statusText:SetText(EllesmereUI.L("OFFLINE"))
-            d.statusText:SetTextColor(stc.r, stc.g, stc.b)
-            d.statusText:Show()
-        elseif UnitIsDeadOrGhost(unit) then
-            d.statusText:SetText(EllesmereUI.L("DEAD"))
-            d.statusText:SetTextColor(stc.r, stc.g, stc.b)
-            d.statusText:Show()
-        elseif s.statusShowAFK and UnitIsAFK and not issecretvalue(UnitIsAFK(unit)) and UnitIsAFK(unit) then
-            d.statusText:SetText(EllesmereUI.L("AFK"))
-            d.statusText:SetTextColor(stc.r, stc.g, stc.b)
-            d.statusText:Show()
-        else
-            d.statusText:Hide()
-        end
-    end
+    -- Status text (DEAD / OFFLINE / AFK). The SAME stamped painter as the
+    -- UNIT_HEALTH path: the stamp records what is on screen, so a full paint
+    -- that shows DEAD on a freshly assigned corpse leaves a stamp the later
+    -- resurrect tick can see as a transition.
+    ns._PaintStatusText(d, s, unit, UnitIsConnected(unit), UnitIsDeadOrGhost(unit))
 
     -- Role icon
     ns._UpdateRoleIcon(d, s, unit)
@@ -4772,6 +4995,50 @@ ns.UpdateCombatEventRegistration = function()
 end
 
 -- Lightweight health-only update for UNIT_HEALTH / UNIT_MAXHEALTH. Skips power/name/role/leader/marker/target/threat -- each has its own event path.
+-- Status text (DEAD / OFFLINE / AFK), the ONE painter for both the full paint and
+-- the UNIT_HEALTH path. State + color stamped: text/color/visibility re-apply
+-- only on a real transition (0 hidden, 1 offline, 2 dead, 3 AFK); the stamp is
+-- the on-screen state, so it stays valid across occupants and across the two
+-- paths. The rez check runs only for dead units: a live unit can never carry an
+-- incoming resurrection (the offer latch also requires dead), so the C probe is
+-- skipped for the alive majority -- the same shape as Blizzard's
+-- CompactUnitFrame, which never probes rez from its UNIT_HEALTH path. On ns
+-- (200-local cap).
+ns._PaintStatusText = function(d, s, unit, connected, deadOrGhost)
+    local statusText = d.statusText
+    if not statusText then return end
+    local stc = s.statusTextColor or { r = 1, g = 1, b = 1 }
+    local st
+    if s.statusTextPosition == "none" then
+        st = 0
+    elseif deadOrGhost and s.showIncomingRez and ns._RFRezShown(unit) then
+        -- Being resurrected: hide the status text so the incoming-rez icon isn't covered.
+        st = 0
+    elseif not connected then
+        st = 1
+    elseif deadOrGhost then
+        st = 2
+    else
+        local afk
+        if s.statusShowAFK and UnitIsAFK then
+            afk = UnitIsAFK(unit)
+            if issecretvalue(afk) then afk = nil end
+        end
+        st = afk and 3 or 0
+    end
+    if d._stSt ~= st or d._stR ~= stc.r or d._stG ~= stc.g or d._stB ~= stc.b then
+        d._stSt, d._stR, d._stG, d._stB = st, stc.r, stc.g, stc.b
+        if st == 0 then
+            statusText:Hide()
+        else
+            local L = ns.EllesmereUI.L
+            statusText:SetText(st == 1 and L("OFFLINE") or st == 2 and L("DEAD") or L("AFK"))
+            statusText:SetTextColor(stc.r, stc.g, stc.b)
+            statusText:Show()
+        end
+    end
+end
+
 ns._UpdateButtonHealth = function(button, unit)
     -- Dispatchers pass the event's unit token; rare callers omit it.
     unit = unit or button:GetAttribute("unit")
@@ -4928,45 +5195,7 @@ ns._UpdateButtonHealth = function(button, unit)
     end
 
     -- Status text (dead/ghost state changes with health)
-    if d.statusText then
-        -- State + color stamped: text/color/visibility re-apply only on a
-        -- real transition (0 hidden, 1 offline, 2 dead, 3 AFK). The rez
-        -- check runs per tick but only for dead units: a live unit can never
-        -- carry an incoming resurrection (the offer latch also requires
-        -- dead), so the C probe is skipped for the alive majority -- the
-        -- same shape as Blizzard's CompactUnitFrame, which never probes rez
-        -- from its UNIT_HEALTH path.
-        local stc = s.statusTextColor or { r = 1, g = 1, b = 1 }
-        local st
-        if s.statusTextPosition == "none" then
-            st = 0
-        elseif deadOrGhost and s.showIncomingRez and ns._RFRezShown(unit) then
-            -- Being resurrected: hide the status text so the incoming-rez icon isn't covered.
-            st = 0
-        elseif not connected then
-            st = 1
-        elseif deadOrGhost then
-            st = 2
-        else
-            local afk
-            if s.statusShowAFK and UnitIsAFK then
-                afk = UnitIsAFK(unit)
-                if issecretvalue(afk) then afk = nil end
-            end
-            st = afk and 3 or 0
-        end
-        if d._stSt ~= st or d._stR ~= stc.r or d._stG ~= stc.g or d._stB ~= stc.b then
-            d._stSt, d._stR, d._stG, d._stB = st, stc.r, stc.g, stc.b
-            if st == 0 then
-                d.statusText:Hide()
-            else
-                d.statusText:SetText(st == 1 and EllesmereUI.L("OFFLINE")
-                    or st == 2 and EllesmereUI.L("DEAD") or EllesmereUI.L("AFK"))
-                d.statusText:SetTextColor(stc.r, stc.g, stc.b)
-                d.statusText:Show()
-            end
-        end
-    end
+    ns._PaintStatusText(d, s, unit, connected, deadOrGhost)
 
     -- Background + dead/offline tint. This path owns death/resurrect transitions
     -- arriving via UNIT_HEALTH, so it runs per tick (state-stamped inside).
@@ -6084,6 +6313,7 @@ XF.Layout = function()
             d.combatIcon:SetSize(cciSz, cciSz)
             if d.AnchorCombatIcon then d.AnchorCombatIcon() end
         end
+        if d.pingFrame then ns._RFAnchorPing(d) end
     end
 end
 
@@ -7394,6 +7624,9 @@ local function ReloadFrames(skipButtons)
             if d.AnchorCombatIcon then d.AnchorCombatIcon() end
         end
 
+        -- Ping marker size + position (overlay exists only after a first ping)
+        if d.pingFrame then ns._RFAnchorPing(d) end
+
         -- Border
         if d.UpdateBorder then d.UpdateBorder() end
     end
@@ -8429,13 +8662,14 @@ local function OnEvent(self, event, arg1, ...)
             -- one next-frame pass reading the storm's FINAL state (same NewTimer(0)
             -- shape as the OOC branch). Paint work is unprotected, so this is combat-safe.
             if not ns._crPaintTimer and (framesVisible or ns._partyFramesVisible) then
+                ns._rosterArmAt = GetTime()
                 ns._crPaintTimer = C_Timer.NewTimer(0, function()
                     ns._crPaintTimer = nil
                     if framesVisible then
                         for _, btn in ipairs(allButtons) do
                             local u = btn:GetAttribute("unit")
                             if u and btn:IsVisible() then
-                                UpdateButton(btn)
+                                ns._RosterPassPaint(btn, u)
                                 ns._UpdateButtonRange(u, btn)
                             end
                         end
@@ -8444,7 +8678,7 @@ local function OnEvent(self, event, arg1, ...)
                         for _, btn in ipairs(ns._partyAllButtons) do
                             local u = btn:GetAttribute("unit")
                             if u and btn:IsVisible() then
-                                UpdateButton(btn)
+                                ns._RosterPassPaint(btn, u)
                                 ns._UpdateButtonRange(u, btn)
                             end
                         end
@@ -8455,6 +8689,10 @@ local function OnEvent(self, event, arg1, ...)
         end
         if ns._rosterUpdateTimer then
             ns._rosterUpdateTimer:Cancel()
+        else
+            -- First event of this cycle: paints stamped at or after this instant
+            -- came from the assignment hook (or a full pass) inside the cycle.
+            ns._rosterArmAt = GetTime()
         end
         ns._rosterUpdateTimer = C_Timer.NewTimer(0, function()
             ns._rosterUpdateTimer = nil
@@ -8483,11 +8721,13 @@ local function OnEvent(self, event, arg1, ...)
                 else
                     -- Already visible, same tier: light refresh only. Aura
                     -- full-rescans are intentionally skipped (hook + UNIT_AURA
-                    -- keep them current); UpdateButton keeps leader/role/health.
+                    -- keep them current); the per-button pass repaints only what
+                    -- the roster can change (see ns._RosterPassPaint).
                     RebuildUnitMap()
                     if ns.UpdatePowerEventRegistration then ns.UpdatePowerEventRegistration() end
                     for _, btn in ipairs(allButtons) do
-                        if btn:IsVisible() and btn:GetAttribute("unit") then UpdateButton(btn) end
+                        local u = btn:GetAttribute("unit")
+                        if u and btn:IsVisible() then ns._RosterPassPaint(btn, u) end
                     end
                     LayoutGroups()
                 end
@@ -8681,17 +8921,27 @@ local function OnEvent(self, event, arg1, ...)
             if event == "UNIT_CONNECTION" then ns._UpdateButtonRange(arg1, btn) end
         end
     elseif event == "PARTY_MEMBER_ENABLE" or event == "PARTY_MEMBER_DISABLE" then
-        -- Only status text / health color changes (online/offline)
-        if not previewActive then
-            for _, btn in ipairs(allButtons) do
-                local u = btn:GetAttribute("unit")
-                if u and btn:IsVisible() then UpdateButton(btn) end
+        -- Only status text / health color changes (online/offline). The payload
+        -- names the unit: repaint its button(s) alone. The full sweeps remain the
+        -- fallback for a unit no button maps yet (token shape we do not route).
+        local btn = arg1 and (unitToButton[arg1] or ns._partyUnitToButton[arg1])
+        if btn then
+            local pv = GetFFD(btn)._isParty and ns._partyPvActive or previewActive
+            if not pv and btn:IsVisible() then UpdateButton(btn) end
+            local xf = ns._xfUnitToButton[arg1]
+            if xf and not previewActive and xf:IsVisible() then UpdateButton(xf) end
+        else
+            if not previewActive then
+                for _, b in ipairs(allButtons) do
+                    local u = b:GetAttribute("unit")
+                    if u and b:IsVisible() then UpdateButton(b) end
+                end
             end
-        end
-        if not ns._partyPvActive then
-            for _, btn in ipairs(ns._partyAllButtons) do
-                local u = btn:GetAttribute("unit")
-                if u and btn:IsVisible() then UpdateButton(btn) end
+            if not ns._partyPvActive then
+                for _, b in ipairs(ns._partyAllButtons) do
+                    local u = b:GetAttribute("unit")
+                    if u and b:IsVisible() then UpdateButton(b) end
+                end
             end
         end
     elseif event == "RAID_TARGET_UPDATE" then
@@ -8936,6 +9186,7 @@ do
             "roleIconBehindBorder",
             "showRoleForTank", "showRoleForHealer", "showRoleForDPS",
             "showRaidMarker", "raidMarkerSize", "raidMarkerPosition", "raidMarkerOffsetX", "raidMarkerOffsetY",
+            "showPingMarker", "pingMarkerSize", "pingMarkerPosition", "pingMarkerOffsetX", "pingMarkerOffsetY",
             "showReadyCheck", "showSummonPending", "showIncomingRez",
             "readyCheckSize", "readyCheckPosition", "readyCheckOffsetX", "readyCheckOffsetY",
             "statusTextPosition", "statusTextOffsetX", "statusTextOffsetY", "statusTextSize", "statusTextColor",
@@ -9081,7 +9332,7 @@ for _, k in ipairs({
     "nameSize", "healthTextSize", "healAbsorbTextSize", "statusTextSize",
     "debuffStacksTextSize", "debuffDurTextSize", "defDurTextSize",
     -- Icon sizes
-    "roleIconSize", "leaderIconSize", "raidMarkerSize", "combatIndicatorSize",
+    "roleIconSize", "leaderIconSize", "raidMarkerSize", "combatIndicatorSize", "pingMarkerSize",
     "debuffSize", "defSize", "dispellableDebuffSize",
     -- Offsets
     "nameOffsetX", "nameOffsetY",
@@ -9866,6 +10117,9 @@ ns.ReloadPartyFrames = function(skipButtons)
             d.combatIcon:SetSize(cciSz, cciSz)
             if d.AnchorCombatIcon then d.AnchorCombatIcon() end
         end
+
+        -- Ping marker
+        if d.pingFrame then ns._RFAnchorPing(d) end
 
         -- Border
         if d.UpdateBorder then d.UpdateBorder() end

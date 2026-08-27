@@ -197,6 +197,14 @@ local function BuildBar()
     holder.icon:SetAllPoints(holder.iconFrame)
     holder.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
+    -- Icon/bar seam divider (opt-in). Rides its own frame above holder.sb:
+    -- a texture on holder itself would draw under the StatusBar child.
+    holder.overlayFrame = CreateFrame("Frame", nil, holder)
+    holder.overlayFrame:SetAllPoints(holder)
+    holder.overlayFrame:SetFrameLevel(holder:GetFrameLevel() + 5)
+    holder.iconDivider = holder.overlayFrame:CreateTexture(nil, "OVERLAY", nil, 7)
+    holder.iconDivider:Hide()
+
     holder.sb = CreateFrame("StatusBar", nil, holder)
     -- Placeholder fill: a StatusBar has NO texture object until one is set, and
     -- the fill-edge rider below (the uninterruptible overlay) would index nil
@@ -288,8 +296,27 @@ local function StyleBar(holder, cfg)
     else holder.bg:SetColorTexture(0, 0, 0, 0.45) end
 
     local showIcon = cfg.showIcon ~= false
+    -- Hidden icon stays on the left so the bar keeps its full-width anchors.
+    local iconOnRight = showIcon and cfg.iconOnRight
+    holder.iconFrame:ClearAllPoints()
+    if iconOnRight then
+        holder.iconFrame:SetPoint("TOPRIGHT", holder, "TOPRIGHT", 0, 0)
+        holder.iconFrame:SetPoint("BOTTOMRIGHT", holder, "BOTTOMRIGHT", 0, 0)
+    else
+        holder.iconFrame:SetPoint("TOPLEFT", holder, "TOPLEFT", 0, 0)
+        holder.iconFrame:SetPoint("BOTTOMLEFT", holder, "BOTTOMLEFT", 0, 0)
+    end
     holder.iconFrame:SetWidth(showIcon and h or 0.001)
     holder.iconFrame:SetShown(showIcon)
+
+    holder.sb:ClearAllPoints()
+    if iconOnRight then
+        holder.sb:SetPoint("TOPLEFT", holder, "TOPLEFT", 0, 0)
+        holder.sb:SetPoint("BOTTOMRIGHT", holder.iconFrame, "BOTTOMLEFT", 0, 0)
+    else
+        holder.sb:SetPoint("TOPLEFT", holder.iconFrame, "TOPRIGHT", 0, 0)
+        holder.sb:SetPoint("BOTTOMRIGHT", holder, "BOTTOMRIGHT", 0, 0)
+    end
 
     local texPath = EllesmereUI.ResolveTexturePath
         and EllesmereUI.ResolveTexturePath(ns.barTextures, cfg.texture or "none", "Interface\\Buttons\\WHITE8x8")
@@ -322,6 +349,27 @@ local function StyleBar(holder, cfg)
         elseif holder._tsbBorder and pp.HideBorder then
             pp.HideBorder(holder)
         end
+    end
+
+    -- Optional icon/bar seam divider (opt-in "Show Icon Divider"), matching
+    -- the border color so it reads as part of the same frame.
+    if showIcon and cfg.showIconDivider then
+        local des = holder:GetEffectiveScale()
+        local onePixel = (pp and des > 0) and (pp.perfect / des) or ((pp and pp.mult) or 1)
+        local dbs = bsz > 0 and bsz or 1
+        holder.iconDivider:ClearAllPoints()
+        holder.iconDivider:SetWidth(math.max(onePixel, math.floor(dbs + 0.5) * onePixel))
+        if iconOnRight then
+            holder.iconDivider:SetPoint("TOPRIGHT", holder.iconFrame, "TOPLEFT", 0, 0)
+            holder.iconDivider:SetPoint("BOTTOMRIGHT", holder.iconFrame, "BOTTOMLEFT", 0, 0)
+        else
+            holder.iconDivider:SetPoint("TOPLEFT", holder.iconFrame, "TOPRIGHT", 0, 0)
+            holder.iconDivider:SetPoint("BOTTOMLEFT", holder.iconFrame, "BOTTOMRIGHT", 0, 0)
+        end
+        holder.iconDivider:SetColorTexture(0, 0, 0, 1)
+        holder.iconDivider:Show()
+    else
+        holder.iconDivider:Hide()
     end
 
     SetFSFont(holder.name, cfg.nameSize or 10)

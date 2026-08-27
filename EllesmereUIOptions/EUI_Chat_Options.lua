@@ -53,34 +53,23 @@ initFrame:SetScript("OnEvent", function(self)
         -- -- DISPLAY -----------------------------------------------------------
         _, h = W:SectionHeader(parent, "DISPLAY", y); y = y - h
 
-        -- Row 1: Visibility | Visibility Options (checklist; no mouseover
-        -- for chat frames, matching the old filtered dropdown)
-        local visRow
-        visRow, h = EllesmereUI.BuildVisibilityModeRow(W, parent, y,
+        -- Row 1: Visibility (one control; no mouseover for chat frames) | Lock Main Chat Size
+        _, h = EllesmereUI.BuildVisibilityRow(W, parent, y,
             { getStore = DB, legacyKey = "visibility",
               caps = { partyIncludesRaid = false, noMouseover = true, luaDragonriding = true },
               onChanged = function()
                   if ECHAT.ResetIdleTimer then ECHAT.ResetIdleTimer() end
                   if ECHAT.ApplyIdleFadeHoverMotion then ECHAT.ApplyIdleFadeHoverMotion() end
                   RefreshAll()
-              end },
-            { type="dropdown", text="Visibility Options",
-              values={ __placeholder = "..." }, order={ "__placeholder" },
-              getValue=function() return "__placeholder" end,
-              setValue=function() end })
-        if not EllesmereUI._prebuilding then
-            local rightRgn = visRow._rightRegion
-            if rightRgn._control then rightRgn._control:Hide() end
-            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                rightRgn, 210, rightRgn:GetFrameLevel() + 2,
-                EllesmereUI.VIS_OPT_ITEMS,
-                function(k) return Cfg(k) or false end,
-                function(k, v) Set(k, v); RefreshAll() end)
-            PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
-            rightRgn._control = cbDD
-            rightRgn._lastInline = nil
-            EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
-        end
+              end,
+              onOptionChanged = RefreshAll },
+            { type="toggle", text="Lock Main Chat Size",
+              tooltip="Hides the resize handle on the main chat frame, preventing accidental resizing.",
+              getValue=function() return Cfg("lockChatSize") or false end,
+              setValue=function(v)
+                  Set("lockChatSize", v)
+                  if ECHAT.ApplyLockChatSize then ECHAT.ApplyLockChatSize() end
+              end })
         y = y - h
 
         -- Row 2: Background Opacity (+ inline color swatch) | Background
@@ -1442,7 +1431,34 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
-        -- Row 2: Hide Borders (+ inline inner-border swatches) | Lock Main Chat Size
+        -- Sound dropdown: shallow-copy the runtime tables so _menuOpts
+        -- (preview icon) doesn't pollute the shared tables.
+        local whisperSoundValues = {}
+        local whisperSoundPaths = ECHAT.WHISPER_SOUND_PATHS or {}
+        local whisperSoundNames = ECHAT.WHISPER_SOUND_NAMES or { none = "None" }
+        local whisperSoundOrder = ECHAT.WHISPER_SOUND_ORDER or { "none" }
+        for k, v in pairs(whisperSoundNames) do whisperSoundValues[k] = v end
+        whisperSoundValues._menuOpts = {
+            itemHeight = 26,
+            maxTextWidthPct = 0.8,
+            searchable = true,
+            iconAtlas = function(key)
+                if key == "none" then return nil end
+                if not whisperSoundPaths[key] then return nil end
+                return "common-icon-sound"
+            end,
+            iconPressedAtlas = function(key)
+                if key == "none" then return nil end
+                return "common-icon-sound-pressed"
+            end,
+            iconOnClick = function(key)
+                local path = whisperSoundPaths[key]
+                if path then PlaySoundFile(path, "Master") end
+            end,
+            iconTooltip = function() return "Preview Sound" end,
+        }
+
+        -- Row 2: Hide Borders (+ inline inner-border swatches) | Whisper Sound
         local extrasBorderRow
         extrasBorderRow, h = W:DualRow(parent, y,
             { type="toggle", text="Hide Borders",
@@ -1452,13 +1468,10 @@ initFrame:SetScript("OnEvent", function(self)
                   if ECHAT.ApplyBorders then ECHAT.ApplyBorders() end
                   EllesmereUI:RefreshPage()
               end },
-            { type="toggle", text="Lock Main Chat Size",
-              tooltip="Hides the resize handle on the main chat frame, preventing accidental resizing.",
-              getValue=function() return Cfg("lockChatSize") or false end,
-              setValue=function(v)
-                  Set("lockChatSize", v)
-                  if ECHAT.ApplyLockChatSize then ECHAT.ApplyLockChatSize() end
-              end })
+            { type="dropdown", text="Whisper Sound",
+              values=whisperSoundValues, order=whisperSoundOrder,
+              getValue=function() return Cfg("whisperSoundKey") or "none" end,
+              setValue=function(v) Set("whisperSoundKey", v) end })
         if not EllesmereUI._prebuilding then
             local rgn = extrasBorderRow._leftRegion
             local ctrl = rgn._control
@@ -1522,34 +1535,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
-        -- Sound dropdown: shallow-copy the runtime tables so _menuOpts
-        -- (preview icon) doesn't pollute the shared tables.
-        local whisperSoundValues = {}
-        local whisperSoundPaths = ECHAT.WHISPER_SOUND_PATHS or {}
-        local whisperSoundNames = ECHAT.WHISPER_SOUND_NAMES or { none = "None" }
-        local whisperSoundOrder = ECHAT.WHISPER_SOUND_ORDER or { "none" }
-        for k, v in pairs(whisperSoundNames) do whisperSoundValues[k] = v end
-        whisperSoundValues._menuOpts = {
-            itemHeight = 26,
-            maxTextWidthPct = 0.8,
-            searchable = true,
-            iconAtlas = function(key)
-                if key == "none" then return nil end
-                if not whisperSoundPaths[key] then return nil end
-                return "common-icon-sound"
-            end,
-            iconPressedAtlas = function(key)
-                if key == "none" then return nil end
-                return "common-icon-sound-pressed"
-            end,
-            iconOnClick = function(key)
-                local path = whisperSoundPaths[key]
-                if path then PlaySoundFile(path, "Master") end
-            end,
-            iconTooltip = function() return "Preview Sound" end,
-        }
-
-        -- Row 3: Whisper Sound | Timestamps
+        -- Row 3: Timestamp All Messages | Timestamps
         do
             local tsValues = {
                 ["__blizzard"]  = { text = "Use Blizzard Setting" },
@@ -1567,10 +1553,16 @@ initFrame:SetScript("OnEvent", function(self)
                 "%H:%M ", "%H:%M:%S ",
             }
             _, h = W:DualRow(parent, y,
-                { type="dropdown", text="Whisper Sound",
-                  values=whisperSoundValues, order=whisperSoundOrder,
-                  getValue=function() return Cfg("whisperSoundKey") or "none" end,
-                  setValue=function(v) Set("whisperSoundKey", v) end },
+                { type="toggle", text="Timestamp All Messages",
+                  tooltip="Adds timestamps to system messages, loot, achievements, and addon messages, not just player chat.",
+                  disabled=function() return (Cfg("timestampFormat") or "%I:%M ") == "none" end,
+                  disabledTooltip="Set a Timestamps format first",
+                  getValue=function() return Cfg("timestampAll") == true end,
+                  setValue=function(v)
+                      Set("timestampAll", v)
+                      if ECHAT.ApplyTimestampCVar then ECHAT.ApplyTimestampCVar() end
+                      if ECHAT.EngineQueueRebuildAll then ECHAT.EngineQueueRebuildAll() end
+                  end },
                 { type="dropdown", text="Timestamps",
                   values=tsValues, order=tsOrder,
                   getValue=function() return Cfg("timestampFormat") or "%I:%M " end,
@@ -1600,21 +1592,6 @@ initFrame:SetScript("OnEvent", function(self)
                   if ECHAT.ApplyClassColorNames then ECHAT.ApplyClassColorNames(v) end
                   if ECHAT.EngineQueueRebuildAll then ECHAT.EngineQueueRebuildAll() end
               end })
-        y = y - h
-
-        -- Row 5: Timestamp All Messages | (blank)
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Timestamp All Messages",
-              tooltip="Adds timestamps to system messages, loot, achievements, and addon messages, not just player chat.",
-              disabled=function() return (Cfg("timestampFormat") or "%I:%M ") == "none" end,
-              disabledTooltip="Set a Timestamps format first",
-              getValue=function() return Cfg("timestampAll") == true end,
-              setValue=function(v)
-                  Set("timestampAll", v)
-                  if ECHAT.ApplyTimestampCVar then ECHAT.ApplyTimestampCVar() end
-                  if ECHAT.EngineQueueRebuildAll then ECHAT.EngineQueueRebuildAll() end
-              end },
-            { type="label", text="" })
         y = y - h
 
         end -- isChat
