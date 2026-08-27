@@ -374,8 +374,19 @@ function ns.SetPoolItemState(sourceKey, itemID, knocked, specID, confidence)
     local pool = ns.GetPool(sourceKey, specID)
     itemID = tonumber(itemID) or itemID
     pool.knocked[itemID] = knocked and time() or nil
+    pool.poolOnly = pool.poolOnly or {}
+    if confidence == "manual-pool" then
+        pool.poolOnly[itemID] = knocked and true or nil
+        confidence = "manual"
+    else
+        pool.poolOnly[itemID] = nil
+    end
     -- Clean up keys written as strings by older versions/imported data.
-    if type(itemID) == "number" then pool.knocked[tostring(itemID)] = nil end
+    if type(itemID) == "number" then
+        pool.knocked[tostring(itemID)] = nil
+        pool.poolOnly[tostring(itemID)] = nil
+    end
+    if not next(pool.poolOnly) then pool.poolOnly = nil end
     pool.updatedAt = time()
     if confidence then pool.confidence = confidence end
     FireChanged("pool")
@@ -432,6 +443,20 @@ function ns.IsPoolItemKnocked(sourceKey, itemID, specID)
         or (numericID and pool.knocked[tostring(numericID)])
 end
 
+local function CountKnockedPoolItems(pool)
+    local unique, count = {}, 0
+    for itemID in pairs(pool and pool.knocked or {}) do
+        local key = tonumber(itemID) or itemID
+        local poolOnly = pool.poolOnly
+            and (pool.poolOnly[key] or pool.poolOnly[tostring(key)])
+        if not poolOnly and not unique[key] then
+            unique[key] = true
+            count = count + 1
+        end
+    end
+    return count
+end
+
 function ns.GetSourceSummary(source, specID, difficultyID)
     specID = ResolveSpecID(specID)
     local sourceKey = ns.GetSourceKey(source, difficultyID)
@@ -458,6 +483,19 @@ function ns.GetSourceSummary(source, specID, difficultyID)
             end
         end
         pool.rollsUsed = rollsUsed
+    end
+    -- A verified/tracked knockout pool is authoritative historical evidence:
+    -- each removed item represents at least one completed Voidcore roll. This
+    -- repairs older/missed result events where the pool was synchronized but
+    -- the separate counter was never advanced. Pool-only manual corrections
+    -- intentionally keep their explicit counter semantics.
+    if pool.confidence == "verified" or pool.confidence == "tracked"
+        or pool.confidence == "manual" then
+        local inferredRolls = CountKnockedPoolItems(pool)
+        if inferredRolls > rollsUsed then
+            rollsUsed = inferredRolls
+            pool.rollsUsed = rollsUsed
+        end
     end
     local desired, remaining, total = 0, 0, #items
     for _, item in ipairs(items) do
@@ -715,15 +753,55 @@ local function ArchiveRolledGoal(sourceKey, itemID, rewardLink, specID)
     return true
 end
 
-local function OnBonusRoll(_, rewardType, rewardLink, _, rewardSpecID)
+local function RecordBonusRollUse(context, rewardSpecID)
+    if not context then return end
+    if context.rollCounted then
+        return context.rollSpecID, context.difficultyID, context.sourceKey, context.rollEntry
+    end
+    local source = context.source or (context.chestItemID and ns.GetSourceByChest(context.chestItemID))
+    if not source then return end
+    local safeRewardSpecID = not IsSecret(rewardSpecID) and rewardSpecID or nil
+    local specID = ResolveSpecID(safeRewardSpecID or context.specID)
+    local difficultyID = source.kind == "raid" and (context.difficultyID or 16) or nil
+    local sourceKey = context.sourceKey or ns.GetSourceKey(source, difficultyID)
+    local rolledAt = time()
+    local pool = ns.GetPool(sourceKey, specID)
+    pool.rollsUsed = (tonumber(pool.rollsUsed) or 0) + 1
+    pool.lastRollAt = rolledAt
+    local entry = {
+        time = rolledAt, specID = specID, sourceKey = sourceKey,
+        chestItemID = context.chestItemID, itemContext = context.itemContext,
+        keyLevel = context.keyLevel, difficultyID = difficultyID,
+        currencyID = context.currencyID,
+    }
+    local rolls = ns.GetSeasonData().rolls
+    rolls[#rolls + 1] = entry
+    while #rolls > 100 do table.remove(rolls, 1) end
+    context.rollCounted = true
+    context.rollSpecID = specID
+    context.rollEntry = entry
+    context.sourceKey = sourceKey
+    FireChanged("roll")
+    return specID, difficultyID, sourceKey, entry
+end
+
+local function OnBonusRoll(_, rewardType, rewardLink, _, rewardSpecID, _, _, _, isSecondaryResult)
+    local context = pendingRoll
+    local specID, difficultyID, sourceKey, rollEntry = RecordBonusRollUse(context, rewardSpecID)
     if (issecretvalue and (issecretvalue(rewardType) or issecretvalue(rewardLink)))
         or rewardType ~= "item" or type(rewardLink) ~= "string" then
-        pendingRoll = nil
+        -- BONUS_ROLL_RESULT may fire more than once for a roll. Do not discard
+        -- the source context when a currency/secondary payload arrives before
+        -- the actual item result.
+        ns.lastBonusRollTrackingDebug = {
+            time = GetTime(), state = "result_ignored", rewardType = rewardType,
+            isSecondaryResult = not IsSecret(isSecondaryResult) and isSecondaryResult or nil,
+            sourceKey = pendingRoll and pendingRoll.sourceKey or nil,
+        }
         return
     end
     local itemID = C_Item.GetItemInfoInstant(rewardLink)
-    if issecretvalue and issecretvalue(itemID) then pendingRoll = nil return end
-    local context = pendingRoll
+    if issecretvalue and issecretvalue(itemID) then return end
     local source = context and (context.source or (context.chestItemID and ns.GetSourceByChest(context.chestItemID)))
     if not itemID or not source then
         ns.lastBonusRollTrackingDebug = {
@@ -733,22 +811,15 @@ local function OnBonusRoll(_, rewardType, rewardLink, _, rewardSpecID)
         pendingRoll = nil
         return
     end
-    local specID = ResolveSpecID(rewardSpecID or context.specID)
-    local difficultyID = source.kind == "raid" and (context.difficultyID or 16) or nil
-    local sourceKey = context.sourceKey or ns.GetSourceKey(source, difficultyID)
+    if not specID then
+        specID, difficultyID, sourceKey, rollEntry = RecordBonusRollUse(context, rewardSpecID)
+    end
+    if not specID or not sourceKey then pendingRoll = nil return end
     ns.SetPoolItemState(sourceKey, itemID, true, specID, "tracked")
-    local rolledAt = time()
-    local pool = ns.GetPool(sourceKey, specID)
-    pool.rollsUsed = (tonumber(pool.rollsUsed) or 0) + 1
-    pool.lastRollAt = rolledAt
-    local rolls = ns.GetSeasonData().rolls
-    rolls[#rolls + 1] = {
-        time = rolledAt, itemID = itemID, itemLink = rewardLink, specID = specID,
-        sourceKey = sourceKey, chestItemID = context.chestItemID,
-        itemContext = context.itemContext, keyLevel = context.keyLevel,
-        difficultyID = difficultyID, currencyID = context.currencyID,
-    }
-    while #rolls > 100 do table.remove(rolls, 1) end
+    if rollEntry then
+        rollEntry.itemID = itemID
+        rollEntry.itemLink = rewardLink
+    end
     local goalArchived = ArchiveRolledGoal(sourceKey, itemID, rewardLink, specID)
     ns.lastBonusRollTrackingDebug = {
         time = GetTime(), state = "result_tracked", itemID = itemID,

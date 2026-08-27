@@ -76,14 +76,42 @@ assert(ns.lastBonusRollTrackingDebug.state == "prompt_captured", "prompt source 
 -- Blizzard may time out/close the confirmation frame before it reports the
 -- item. The context must survive this event long enough to attribute it.
 eventHandler(nil, "SPELL_CONFIRMATION_TIMEOUT")
+local pool = ns.GetPool(sourceKey, 70)
+eventHandler(nil, "BONUS_ROLL_RESULT", "currency", 3149, 1, 70, nil, nil, nil, false)
+assert(ns.lastBonusRollTrackingDebug.state == "result_ignored",
+    "non-item result was not reported as ignored")
+assert(pool.rollsUsed == 1 and #ns.GetRollHistory() == 1,
+    "first result payload must record the consumed roll")
+assert(not ns.GetRollHistory()[1].itemID,
+    "non-item payload must not fabricate an item reward")
 eventHandler(nil, "BONUS_ROLL_RESULT", "item", "|Hitem:123::::::::|h[Test Item]|h", 1, 70)
 
-local pool = ns.GetPool(sourceKey, 70)
 assert(pool.knocked[123], "rolled item was not removed from the knockout pool")
-assert(pool.rollsUsed == 1, "roll counter was not incremented")
-assert(#ns.GetRollHistory() == 1, "roll history entry was not written")
+assert(pool.rollsUsed == 1, "multi-payload roll was counted more than once")
+assert(#ns.GetRollHistory() == 1 and ns.GetRollHistory()[1].itemID == 123,
+    "item payload did not complete the existing roll-history entry")
 assert(specData.goals[sourceKey .. ":item:123"].state == "archived", "wishlist goal was not archived")
 assert(ns.lastBonusRollTrackingDebug.state == "result_tracked", "tracking debug did not report success")
+
+pool.rollsUsed = 0
+pool.confidence = "verified"
+assert(ns.GetSourceSummary(source, 70).rollsUsed == 1,
+    "verified knockout state must repair a missing historical roll count")
+
+pool.rollsUsed = 0
+pool.confidence = "manual"
+assert(ns.GetSourceSummary(source, 70).rollsUsed == 1,
+    "legacy manual knockout state must repair its missing roll count")
+
+ns.SetPoolItemState(sourceKey, 125, true, 70, "manual-pool")
+pool.rollsUsed = 0
+pool.knocked[123] = nil
+assert(ns.GetSourceSummary(source, 70).rollsUsed == 0,
+    "explicit pool-only correction must not be inferred as a used roll")
+ns.SetPoolItemState(sourceKey, 125, false, 70, "manual-pool")
+pool.knocked[123] = 1000
+pool.confidence = "verified"
+pool.rollsUsed = 1
 
 ns.SetManualBonusRollState(sourceKey, 124, true, 70)
 assert(pool.knocked[124], "manual historical roll must remove its item from the pool")
