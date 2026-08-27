@@ -1830,6 +1830,7 @@ function ns.SetCooldownBuffReplacement(barKey, targetSpellID, buffSpellID, buffC
     -- A tracked buff may own only one cooldown slot. CooldownID distinguishes
     -- collided Blizzard catalog entries that share a canonical spell ID.
     if buffSpellID then
+        local emptyKeys
         for key, other in pairs(store) do
             if type(other) == "table" and key ~= targetSpellID then
                 local otherSID = rawget(other, "replacementBuffSpellID")
@@ -1842,8 +1843,15 @@ function ns.SetCooldownBuffReplacement(barKey, targetSpellID, buffSpellID, buffC
                     other.replacementBuffSpellID = nil
                     other.replacementBuffCooldownID = nil
                     other.replacementBuffCustom = nil
+                    if next(other) == nil then
+                        emptyKeys = emptyKeys or {}
+                        emptyKeys[#emptyKeys + 1] = key
+                    end
                 end
             end
+        end
+        if emptyKeys then
+            for _, key in ipairs(emptyKeys) do store[key] = nil end
         end
     end
 
@@ -1852,6 +1860,7 @@ function ns.SetCooldownBuffReplacement(barKey, targetSpellID, buffSpellID, buffC
     ss.replacementBuffSpellID = buffSpellID
     ss.replacementBuffCooldownID = buffSpellID and buffCooldownID or nil
     ss.replacementBuffCustom = buffSpellID and isCustom and true or nil
+    if next(ss) == nil then store[targetSpellID] = nil end
     if buffSpellID then ns._cdmAnyBuffReplacement = true end
     ns._cdmResGen = (ns._cdmResGen or 0) + 1
     ns._spellOrderDirty = true
