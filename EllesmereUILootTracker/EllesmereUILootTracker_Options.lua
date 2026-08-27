@@ -331,7 +331,7 @@ local function BuildItemRow(parent, y, source, item, specID, difficultyID)
         if button == "RightButton" then
             local knocked = ns.IsPoolItemKnocked(sourceKey, item.itemID, specID)
             if IsShiftKeyDown and IsShiftKeyDown() then
-                ns.SetPoolItemState(sourceKey, item.itemID, not knocked, specID, "manual")
+                ns.SetPoolItemState(sourceKey, item.itemID, not knocked, specID, "manual-pool")
             else
                 ns.SetManualBonusRollState(sourceKey, item.itemID, not knocked, specID, difficultyID)
             end
