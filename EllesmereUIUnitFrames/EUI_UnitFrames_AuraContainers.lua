@@ -349,14 +349,32 @@ local function BuildChain(base, isBuff, s, unit)
     -- excludes (which deliberately hide the actives from every OTHER
     -- group, see ApplyGroupConfig) never blank this one.
     if not isBuff and unit ~= "player" and s.debuffInclude then
-        local m
+        -- Boss frames: includes default to Only My Casts (nameplate parity);
+        -- s.debuffIncludeAnyCaster is the sibling OPT-OUT map (id -> true =
+        -- any caster). Caster scope lives in the filter STRING, so the two
+        -- scopes are two links: "incmine" carries the PLAYER token. Target and
+        -- focus keep the single any-caster link.
+        local isBoss = unit:match("^boss") ~= nil
+        local anym = isBoss and s.debuffIncludeAnyCaster or nil
+        local m, mm
         for id, v in pairs(s.debuffInclude) do
-            if v then m = m or {}; m[id] = true end
+            if v then
+                if not isBoss or (anym and anym[id]) then
+                    m = m or {}; m[id] = true
+                else
+                    mm = mm or {}; mm[id] = true
+                end
+            end
         end
         if m then
             chain[#chain + 1] = { key = "inc|" .. CandFP({ includeSpellIDs = m }),
                 tokens = { base },
                 cand = { includeSpellIDs = m, excludeSpellIDs = {} } }
+        end
+        if mm then
+            chain[#chain + 1] = { key = "incmine|" .. CandFP({ includeSpellIDs = mm }),
+                tokens = { base, "PLAYER" },
+                cand = { includeSpellIDs = mm, excludeSpellIDs = {} } }
         end
     end
     return chain
@@ -848,9 +866,15 @@ local function DeclareElementGroup(container, declared, styleKey, base, key, tok
     local eff = EffKey(key, own)
     local ftokens = tokens
     if own then
+        -- A link that already carries the caster token (the boss "incmine"
+        -- include link) must not get it twice.
+        local hasPlayer = false
         ftokens = {}
-        for t = 1, #tokens do ftokens[t] = tokens[t] end
-        ftokens[#ftokens + 1] = "PLAYER"
+        for t = 1, #tokens do
+            ftokens[t] = tokens[t]
+            if tokens[t] == "PLAYER" then hasPlayer = true end
+        end
+        if not hasPlayer then ftokens[#ftokens + 1] = "PLAYER" end
     end
     AK.AddGroupToContainer(container, {
         key = eff, filter = ftokens, maxFrameCount = 0, style = styleKey,
@@ -1382,8 +1406,10 @@ local function CfgFP(unit, base, s, frame)
         CastbarBelowFrame(unit, frame),
         -- Tracked Auras lists: ApplyGroupConfig reads both (the shared
         -- excludes), and TRI-STATE flips don't move the chain sig -- an
-        -- entry's enable checkbox must re-drive this pass.
-        TriListFP(s.debuffExclude), TriListFP(s.debuffInclude))
+        -- entry's enable checkbox must re-drive this pass. The boss any-caster
+        -- opt-out map moves an include between the two scope links.
+        TriListFP(s.debuffExclude), TriListFP(s.debuffInclude),
+        TriListFP(s.debuffIncludeAnyCaster))
 end
 
 ------------------------------------------------------------------------------

@@ -1057,10 +1057,9 @@ local function SetClickAttr(frame, parsed, actionType, spellOrMacro, macrotext, 
     -- protected items); route through the secure proxy instead. TRANSPORT: the
     -- "click" action itself crashes on a Blizzard typo (SecureTemplates.lua:564,
     -- aspect check on the mouse-button string) -- use a "/click <proxy>" macro.
-    if actionType == "togglemenu" and EllesmereUI.GetSecureMenuProxy then
-        local proxy = EllesmereUI.GetSecureMenuProxy(frame)
+    if actionType == "togglemenu" and EllesmereUI.GetSecureMenuMacro then
         SetGatedType(frame, typeAttr, "macro", oocOnly)
-        frame:SetAttribute(prefix .. "macrotext" .. suffix, "/click " .. proxy:GetName())
+        frame:SetAttribute(prefix .. "macrotext" .. suffix, EllesmereUI.GetSecureMenuMacro(frame))
         return
     end
     -- 12.0.7+ also gates raw "target" on unit buttons, EXCEPT plain unmodified
@@ -1100,10 +1099,9 @@ local function SetKeyAttr(frame, idx, actionType, spellOrMacro, macrotext, oocOn
     local typeAttr = "type-" .. suffix
     -- Route a "menu" keybind through the secure proxy (see SetClickAttr for
     -- why this uses the /click macro transport instead of the click action).
-    if actionType == "togglemenu" and EllesmereUI.GetSecureMenuProxy then
-        local proxy = EllesmereUI.GetSecureMenuProxy(frame)
+    if actionType == "togglemenu" and EllesmereUI.GetSecureMenuMacro then
         SetGatedType(frame, typeAttr, "macro", oocOnly)
-        frame:SetAttribute("macrotext-" .. suffix, "/click " .. proxy:GetName())
+        frame:SetAttribute("macrotext-" .. suffix, EllesmereUI.GetSecureMenuMacro(frame))
         return
     end
     -- A "target" keybind is never plain left-click, so it always hits the 12.0.7
@@ -1378,6 +1376,113 @@ local function DoUnregisterFrame(frame)
             pcall(header.UnwrapScript, header, frame, "OnLeave")
         end
     end
+end
+
+-------------------------------------------------------------------------------
+--  Tooltip-modifier eaters (Debuff Manager "Shown on Modifier"): secure unit
+--  sub-buttons laid over a unit button's debuff band. Wrapped by THIS header
+--  regardless of the enabled state (the peek needs the hover tracking even
+--  with click-casting off) with the standard enter/leave bodies plus:
+--   * an enter-time unit sync -- the engine's mouseover reads the frame's own
+--     "unit" attribute, useparent-unit only serves the Lua action path; and
+--   * the peek: if the tooltip modifier is already held on entry, the eater
+--     hides itself so the hover falls through to the aura button beneath.
+--  The "eui_tipmod" state driver on this header flips only the HOVERED eater
+--  on a modifier edge (one macro-conditional check per press, nothing else)
+--  and re-shows the peeked eater on release. wrappedFrames is set here first,
+--  so DoRegisterFrame (click attributes when enabled) never wraps them twice.
+-------------------------------------------------------------------------------
+local tipEaters = setmetatable({}, { __mode = "k" })
+local pendingTipSync = false
+local pendingTipKey = nil
+
+local TIP_ENTER_BODY = [[
+    local p = self:GetParent()
+    if p then self:SetAttribute("unit", p:GetAttribute("unit")) end
+    eui_hoverframe = self
+    control:RunFor(self, control:GetAttribute("eui_setup_onenter"))
+    if not eui_hoveractive then
+        control:RunAttribute("eui_hover_set")
+        eui_hoveractive = true
+    end
+    local k = control:GetAttribute("eui_tipmod_key")
+    if k and not eui_tippeeked
+       and ((k == "shift" and IsShiftKeyDown())
+         or (k == "control" and IsControlKeyDown())
+         or (k == "alt" and IsAltKeyDown())) then
+        eui_tippeeked = self
+        self:Hide()
+    end
+]]
+local TIP_LEAVE_BODY = [[
+    if eui_hoverframe == self then eui_hoverframe = nil end
+    control:RunFor(self, control:GetAttribute("eui_setup_onleave"))
+]]
+
+local function WrapTipEater(frame)
+    if wrappedFrames[frame] then return end
+    wrappedFrames[frame] = true
+    header:WrapScript(frame, "OnEnter", TIP_ENTER_BODY)
+    header:WrapScript(frame, "OnLeave", TIP_LEAVE_BODY)
+end
+
+-- Runs before every registration sweep (init, enable, regen) so an eater is
+-- always wrapped with ITS bodies before DoRegisterFrame could reach it.
+local function SyncTipEaters()
+    if not (ccInitialized and header) then return end
+    for frame in pairs(tipEaters) do WrapTipEater(frame) end
+end
+
+function ns.CC_RegisterTipEater(frame)
+    tipEaters[frame] = true
+    if InCombatLockdown() then
+        pendingTipSync = true
+    else
+        SyncTipEaters()
+    end
+    -- Click attributes follow the enabled state like any owned unit button
+    -- (self-queues to regen in combat; the sync above runs first there).
+    ns.CC_RegisterFrame(frame)
+end
+
+-- A parked eater must never be re-shown by the peek: drop the header's
+-- references to it. Out-of-combat only (Execute), like parking itself.
+function ns.CC_ReleaseTipEater(frame)
+    if not (tipEaters[frame] and ccInitialized and header) then return end
+    header:SetFrameRef("eui_tipclear", frame)
+    header:Execute([[
+        local f = self:GetFrameRef("eui_tipclear")
+        if eui_tippeeked == f then eui_tippeeked = nil end
+        if eui_hoverframe == f then eui_hoverframe = nil end
+    ]])
+end
+
+-- The tooltip modifier ("shift" / "control" / "alt"), nil to disarm. Header
+-- writes, so out-of-combat only; before init the key parks until CC_Init.
+function ns.CC_SetTipModKey(key)
+    if not (ccInitialized and header) then pendingTipKey = key or false; return end
+    UnregisterStateDriver(header, "eui_tipmod")
+    header:SetAttribute("eui_tipmod_key", key)
+    if not key then
+        header:Execute([[
+            if eui_tippeeked then eui_tippeeked:Show(); eui_tippeeked = nil end
+        ]])
+        return
+    end
+    header:SetAttribute("_onstate-eui_tipmod", [[
+        if newstate == "held" then
+            local f = eui_hoverframe
+            if f and not eui_tippeeked and f:GetAttribute("eui_tipeater") then
+                eui_tippeeked = f
+                f:Hide()
+            end
+        elseif eui_tippeeked then
+            eui_tippeeked:Show()
+            eui_tippeeked = nil
+        end
+    ]])
+    local cond = (key == "control") and "ctrl" or key
+    RegisterStateDriver(header, "eui_tipmod", "[mod:" .. cond .. "] held; shown")
 end
 
 function ns.CC_RegisterFrame(frame)
@@ -1831,6 +1936,7 @@ function ns.CC_SetEnabled(enabled)
         -- replaces the global table (RemoveFrameFromClickCast no-ops once it has).
         for frame in pairs(ownedFrames) do RemoveFrameFromClickCast(frame) end
         SetupClickCastFramesHook()
+        SyncTipEaters()
         for frame in pairs(ownedFrames) do
             if not registeredFrames[frame] then DoRegisterFrame(frame) end
         end
@@ -1850,6 +1956,9 @@ function ns.CC_SetEnabled(enabled)
         local list = {}
         for frame in pairs(registeredFrames) do list[#list + 1] = frame end
         for _, frame in ipairs(list) do DoUnregisterFrame(frame) end
+        -- The unregister above dropped the eaters' wraps with everyone else's;
+        -- the peek needs them back even with click-casting off.
+        SyncTipEaters()
     end
 end
 
@@ -1885,6 +1994,8 @@ end
 local function OnCCEvent(self, event)
     if event == "PLAYER_REGEN_ENABLED" then
         local cc = GetClickCastDB()
+        -- Eater wraps first: DoRegisterFrame below must find them already wrapped.
+        if pendingTipSync then pendingTipSync = false; SyncTipEaters() end
         -- Apply a deferred enable/disable sweep that was requested during combat.
         if pendingSetEnabled ~= nil then
             local v = pendingSetEnabled
@@ -1969,6 +2080,15 @@ function ns.CC_Init()
     ccEventFrame:SetScript("OnEvent", OnCCEvent)
 
     ccInitialized = true
+
+    -- Tooltip-modifier eaters: wrapped whatever the enabled state (before the
+    -- registration sweep below), and a key parked before init applies now.
+    SyncTipEaters()
+    if pendingTipKey ~= nil then
+        local k = pendingTipKey
+        pendingTipKey = nil
+        ns.CC_SetTipModKey(k or nil)
+    end
 
     -- Only touches frames when enabled: a fresh/default install registers
     -- nothing, so clicks stay Blizzard-default. Enabling later runs the same

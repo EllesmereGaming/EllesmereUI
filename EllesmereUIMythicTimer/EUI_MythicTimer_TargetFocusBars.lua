@@ -200,15 +200,29 @@ local function BuildBar(which)
     SetFSFont(bar.timer, 11)
 
     -- 10Hz cast timer text (engine-slept between fires; self-stops when the
-    -- cast ends). Remaining time from the duration object only.
+    -- cast ends). Remaining time from the duration object only. bar.durKind
+    -- (set by ArmFill, which already knows which getter applies) picks the
+    -- one matching API instead of probing all three every tick; falls back to
+    -- the full chain on a transient miss or before any kind is cached.
     bar._timerTick = function(force)
         if not bar.isCasting and not force then return end
         local cfg = BarCfg(bar.which)
         if not cfg or cfg.showTimer == false then return true end
         if UnitCastingDuration then
-            local durObj = UnitCastingDuration(bar.unit)
-                or (UnitEmpoweredChannelDuration and UnitEmpoweredChannelDuration(bar.unit, true))
-                or (UnitChannelDuration and UnitChannelDuration(bar.unit))
+            local durObj
+            local kind = bar.durKind
+            if kind == "cast" then
+                durObj = UnitCastingDuration(bar.unit)
+            elseif kind == "empowered" then
+                durObj = UnitEmpoweredChannelDuration and UnitEmpoweredChannelDuration(bar.unit, true)
+            elseif kind == "channel" then
+                durObj = UnitChannelDuration and UnitChannelDuration(bar.unit)
+            end
+            if not durObj then
+                durObj = UnitCastingDuration(bar.unit)
+                    or (UnitEmpoweredChannelDuration and UnitEmpoweredChannelDuration(bar.unit, true))
+                    or (UnitChannelDuration and UnitChannelDuration(bar.unit))
+            end
             if durObj then
                 bar.timer:SetFormattedText("%.1f", durObj:GetRemainingDuration())
             else
@@ -599,12 +613,14 @@ local function ArmFill(bar, isChannel)
             local dirn = isEmp and Enum.StatusBarTimerDirection.ElapsedTime
                 or Enum.StatusBarTimerDirection.RemainingTime
             sb:SetTimerDuration(dur, nil, dirn)
+            bar.durKind = isEmp and "empowered" or "channel"
         end
     else
         dur = UnitCastingDuration(bar.unit)
         if dur then
             sb:SetReverseFill(false)
             sb:SetTimerDuration(dur, nil, Enum.StatusBarTimerDirection.ElapsedTime)
+            bar.durKind = "cast"
         end
     end
     return dur ~= nil, isEmp

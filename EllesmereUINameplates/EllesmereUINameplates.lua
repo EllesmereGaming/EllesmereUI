@@ -677,6 +677,13 @@ ns.PANDEMIC_GLOW_STYLES = PANDEMIC_GLOW_STYLES
 -- never raw index: this list omits "Custom Shape Glow", so the same index differs per side.
 if EllesmereUI then EllesmereUI.NameplatePandemicGlowStyles = PANDEMIC_GLOW_STYLES end
 
+-- PANDEMIC_GLOW_STYLES index -> shared EllesmereUI.Glows.STYLES index. The NP
+-- list omits Shape Glow (shared index 4), so every flipbook entry sits one lower
+-- here. Lives beside the list it translates FROM on purpose: a second copy is how
+-- the two drift the first time a style is inserted into either one.
+local NP_TO_SHARED_GLOW = { 1, 2, 3, 5, 6, 7 }
+ns.NP_TO_SHARED_GLOW = NP_TO_SHARED_GLOW
+
 local function GetPandemicGlowStyle()
     local raw = p and p.pandemicGlowStyle
     if raw == nil then return defaults.pandemicGlowStyle end
@@ -1485,12 +1492,16 @@ local StartButtonGlow     = _G_Glows.StartButtonGlow
 local StopButtonGlow      = _G_Glows.StopButtonGlow
 local StartAutoCastShine  = _G_Glows.StartAutoCastShine
 local StopAutoCastShine   = _G_Glows.StopAutoCastShine
+local StartGlow           = _G_Glows.StartGlow
+local StopAllGlows        = _G_Glows.StopAllGlows
 ns.StartProceduralAnts = StartProceduralAnts
 ns.StopProceduralAnts  = StopProceduralAnts
 ns.StartButtonGlow     = StartButtonGlow
 ns.StopButtonGlow      = StopButtonGlow
 ns.StartAutoCastShine  = StartAutoCastShine
 ns.StopAutoCastShine   = StopAutoCastShine
+ns.StartGlow           = StartGlow
+ns.StopAllGlows        = StopAllGlows
 
 -------------------------------------------------------------------------------
 --  Dispellable buff glow: highlights enemy buffs the player can purge/soothe
@@ -5221,7 +5232,23 @@ local function HideBlizzardFrame(nameplate, unit)
         end
     end
     -- All visual children are reparented offscreen so layout recalculations cannot shift
-    -- bounds. Only silence castBar events (we render our own).
+    -- bounds.
+    -- Kill the CompactUnitFrame's ENTIRE event surface (raid-frames-style
+    -- takeover): Blizzard registers ~27 unit events (incl. UNIT_AURA) plus
+    -- ~20 globals (incl. UPDATE_MOUSEOVER_UNIT) per plate, and its dirty
+    -- flags arm a real OnUpdate on this alpha-0 frame -- none of which our
+    -- rendering uses, all of which was running under every plate all combat
+    -- long. Self-healing: our restore runs only on NAME_PLATE_UNIT_REMOVED,
+    -- and the driver's next secure CompactUnitFrame_SetUnit re-registers
+    -- everything on reacquisition. The soft-target trio comes back below:
+    -- the kept-alive SoftTargetFrame icon is driven by exactly those events
+    -- (the OnEvent script itself stays -- Blizzard set it, and
+    -- UnregisterAllEvents clears registrations only).
+    uf:UnregisterAllEvents()
+    uf:RegisterEvent("PLAYER_TARGET_CHANGED")
+    uf:RegisterEvent("PLAYER_SOFT_FRIEND_CHANGED")
+    uf:RegisterEvent("PLAYER_SOFT_ENEMY_CHANGED")
+    -- The castBar is its own frame with its own registrations (we render our own).
     if uf.castBar then
         uf.castBar:UnregisterAllEvents()
     end
@@ -5969,6 +5996,7 @@ function NameplateFrame:SetUnit(unit, nameplate)
     end
     HideBlizzardFrame(nameplate, unit)
     self:RegisterUnitEvent("UNIT_HEALTH", unit)
+    self:RegisterUnitEvent("UNIT_MAXHEALTH", unit)
     self:RegisterUnitEvent("UNIT_ABSORB_AMOUNT_CHANGED", unit)
     self:RegisterUnitEvent("UNIT_NAME_UPDATE", unit)
     self:RegisterUnitEvent("UNIT_THREAT_LIST_UPDATE", unit)
@@ -6134,6 +6162,7 @@ function NameplateFrame:ClearUnit()
     self.unit = nil
     self.nameplate = nil
     self._absorbHidden = nil
+    self._maxHPValid = nil
     self._lastHCr, self._lastHCg, self._lastHCb = nil, nil, nil
     self._mirrorPending = nil
     -- Health-text value memo (UpdateHealthValues): a recycled plate must
@@ -6224,6 +6253,11 @@ function NameplateFrame:UpdateHealthValues()
             end
             self.unit = actualUnit
             unit = actualUnit
+            -- New occupant: its absorb state is unknown. Nil the lean-gate flag
+            -- so this pass takes the full absorb path and re-seeds it; the
+            -- cached max belongs to the old unit, drop it too.
+            self._absorbHidden = nil
+            self._maxHPValid = nil
             -- Only refresh auras for the lockout when one was actually active
             -- (zero cost when the Cast Lockout feature is off / no lockout).
             if self._castLockout then
@@ -6247,6 +6281,32 @@ function NameplateFrame:UpdateHealthValues()
     end
 
     local curHealth, maxHealth, absorbAmt, maxWithAbsorbs
+
+    -- LEAN PATH: the last full pass proved this unit carries no absorb, and no
+    -- UNIT_ABSORB_AMOUNT_CHANGED edge has fired since (that handler arms
+    -- _absorbEdge; ClearUnit and both token-swap sites nil _absorbHidden so a
+    -- new occupant always takes the full pass). The gate reads only OUR OWN
+    -- booleans -- never unit state -- so combat secrecy cannot poison it.
+    -- Shieldless units, the vast majority of health events, pay two unit reads
+    -- and two bar pushes here instead of the calculator fetch + absorb branch.
+    if self._absorbHidden and not self._absorbEdge then
+        curHealth = UnitHealth(unit)
+        -- Bar bounds ride UNIT_MAXHEALTH: the cached max (possibly secret --
+        -- stored but never compared; _maxHPValid is OUR plain flag) pushes
+        -- once on change/seed/absorb-teardown instead of every paint. The
+        -- steady-state health paint is one read + one SetValue, matching
+        -- Blizzard's own per-event bar cost.
+        if not self._maxHPValid then
+            maxHealth = UnitHealthMax(unit)
+            self._maxHP = maxHealth
+            self._maxHPValid = true
+            self.health:SetMinMaxValues(0, maxHealth)
+        else
+            maxHealth = self._maxHP
+        end
+        self.health:SetValue(curHealth)
+    else
+    self._absorbEdge = nil
 
     if self.hpCalculator and self.hpCalculator.GetMaximumHealth and UnitGetDetailedHealPrediction then
         UnitGetDetailedHealPrediction(unit, nil, self.hpCalculator)
@@ -6303,6 +6363,9 @@ function NameplateFrame:UpdateHealthValues()
         local absorbValue = absorbAmt or 0
         if absorbValue <= 0 then
             self._absorbHidden = true
+            -- Entering the lean path: the bar bounds may still be an absorb-
+            -- extended max from the secret branch -- force one clean re-push.
+            self._maxHPValid = nil
             self.absorb:Hide()
             if self.absorbForward then self.absorbForward:Hide() end
             if self.absorbOverflow then self.absorbOverflow:Hide(); self.absorbOverflow:SetWidth(0) end
@@ -6348,6 +6411,7 @@ function NameplateFrame:UpdateHealthValues()
             end
         end
     end
+    end -- lean-gate else (full absorb path)
 
     -- Hash line positioning (target only). PERF: uses cached _isTarget, not UnitIsUnit per tick.
     local hlEnabled = (p and p.hashLineEnabled)
@@ -6368,8 +6432,14 @@ function NameplateFrame:UpdateHealthValues()
             self.hashLine:SetColorTexture(hlc.r, hlc.g, hlc.b, 0.8)
         end
         self.hashLine:Show()
+        self._hashHidden = nil
     else
-        self.hashLine:Hide()
+        -- Own-flag gate: non-target plates were paying a Hide() every paint.
+        -- nil flag (fresh/recycled plate, unknown widget state) hides once.
+        if not self._hashHidden then
+            self.hashLine:Hide()
+            self._hashHidden = true
+        end
     end
 
     -- PERF: text content only -- font/position/color live in ApplyHealthTextAppearance. Runs
@@ -6399,11 +6469,19 @@ function NameplateFrame:UpdateHealthValues()
         local anyNum = ca._anyNum
         if anyNum == nil then
             anyNum = false
+            local anyNoSign = false
             for si = 1, ca._count do
-                local el = ca[si].element
-                if el == "healthNumber" or IsComboHealthText(el) then anyNum = true break end
+                local entry = ca[si]
+                local el = entry.element
+                -- Stamp the combo classification once per appearance build:
+                -- the write loop below runs per paint and must not pay a
+                -- classification call per slot per paint.
+                entry.combo = IsComboHealthText(el) or false
+                if el == "healthNumber" or entry.combo then anyNum = true end
+                if el == "healthPercentNoSign" then anyNoSign = true end
             end
             ca._anyNum = anyNum
+            ca._anyNoSign = anyNoSign
         end
         local hpKey
         if not anyNum then
@@ -6428,12 +6506,13 @@ function NameplateFrame:UpdateHealthValues()
             if anyDec then pctTextDec = "0.0%"; pctNoSignTextDec = "0.0" end
         elseif pctVal ~= nil then
             pctText = string.format("%d%%", pctVal)
-            pctNoSignText = string.format("%d", pctVal)
+            -- No-sign variant only when a slot actually renders it.
+            if ca._anyNoSign then pctNoSignText = string.format("%d", pctVal) end
             numText = AbbreviateNumbers(curHealth)
             -- Decimal variants computed only when at least one slot opts in.
             if anyDec then
                 pctTextDec = string.format("%.1f%%", pctVal)
-                pctNoSignTextDec = string.format("%.1f", pctVal)
+                if ca._anyNoSign then pctNoSignTextDec = string.format("%.1f", pctVal) end
             end
         else
             pctText = ""
@@ -6451,7 +6530,7 @@ function NameplateFrame:UpdateHealthValues()
                 fs:SetText(entry.pctDecimal and pctNoSignTextDec or pctNoSignText)
             elseif el == "healthNumber" then
                 fs:SetText(numText)
-            elseif IsComboHealthText(el) then
+            elseif entry.combo then
                 SetCombinedHealthText(fs, el, entry.pctDecimal and pctTextDec or pctText, numText)
             end
         end
@@ -6690,6 +6769,11 @@ function NameplateFrame:UpdateName()
         if actualUnit and actualUnit ~= unit then
             self.unit = actualUnit
             unit = actualUnit
+            -- Occupant changed: nil the absorb lean-gate flag so the next health
+            -- paint takes the full absorb path for the new unit; the cached max
+            -- belongs to the old unit, drop it too.
+            self._absorbHidden = nil
+            self._maxHPValid = nil
         end
     end
     -- Standalone level renders on its own FontString and can share the plate with a
@@ -7190,12 +7274,14 @@ function NameplateFrame:UpdateImportantCastGlow(spellID)
     if not Glows then return end
 
     local style = cfg.importantCastGlowStyle or defaults.importantCastGlowStyle or 1
-    if style ~= 1 and style ~= 4 then style = 1 end
+    if type(style) ~= "number" or style < 1 or style > #PANDEMIC_GLOW_STYLES then style = 1 end
     local c = cfg.importantCastGlowColor or defaults.importantCastGlowColor or { r = 1, g = 0.2, b = 0.2 }
     local bgColor = cfg.importantCastGlowBackgroundColor or defaults.importantCastGlowBackgroundColor or { r = 0, g = 0, b = 0 }
     local bgOn = cfg.importantCastGlowBackground == true
+    -- Lines/thickness/speed and the background are Pixel Glow's own knobs; every
+    -- other style ignores them, so they stay nil and out of the cache key below.
     local impN, impTh, impPeriod
-    if style ~= 4 then
+    if style == 1 then
         impN = cfg.importantCastGlowLines or defaults.importantCastGlowLines or 8
         impTh = cfg.importantCastGlowThickness or defaults.importantCastGlowThickness or 2
         impPeriod = cfg.importantCastGlowSpeed or defaults.importantCastGlowSpeed or 4
@@ -7212,15 +7298,15 @@ function NameplateFrame:UpdateImportantCastGlow(spellID)
         local pW, pH = self.cast:GetWidth(), self.cast:GetHeight()
         if pW < 5 then pW = 100 end
         if pH < 5 then pH = 14 end
-        if style == 4 then
-            (StartAutoCastShine or Glows.StartAutoCastShine)(self._importantCastOverlay, pW, c.r, c.g, c.b, 1.0, pH)
-        else
-            local lineLen = math.floor((pW + pH) * (2 / impN - 0.1))
-            lineLen = math.min(lineLen, math.min(pW, pH))
-            if lineLen < 1 then lineLen = 1 end
-            (StartProceduralAnts or Glows.StartProceduralAnts)(self._importantCastOverlay, impN, impTh, impPeriod, lineLen, c.r, c.g, c.b, pW, pH,
-                bgOn and (bgColor.r or 0) or nil, bgColor.g or 0, bgColor.b or 0)
-        end
+        -- StartGlow owns the per-style engine pick. Its Pixel Glow path reproduces
+        -- the old direct call exactly: same lineLen formula, and an unset bg alpha
+        -- resolves to 1 there, which is what omitting the argument used to do.
+        local Start = StartGlow or Glows.StartGlow
+        Start(self._importantCastOverlay, NP_TO_SHARED_GLOW[style] or 1, pW, c.r, c.g, c.b,
+            style == 1 and {
+                N = impN, th = impTh, period = impPeriod,
+                bg = bgOn and { r = bgColor.r or 0, g = bgColor.g or 0, b = bgColor.b or 0 } or nil,
+            } or nil, pH)
         self._importantGlowActive = true
         self._importantGlowStyle = style
         self._importantGlowR, self._importantGlowG, self._importantGlowB = c.r, c.g, c.b
@@ -7885,7 +7971,17 @@ function NameplateFrame:UNIT_HEALTH()
     end
     self:UpdateHealthValues()
 end
+-- Max health changed: drop the cached max so the next paint re-derives it and
+-- re-pushes the bar bounds (per-paint SetMinMaxValues is gone from the lean
+-- path; bounds ride this event, exactly like Blizzard's CompactUnitFrame).
+function NameplateFrame:UNIT_MAXHEALTH()
+    self._maxHPValid = nil
+    self:UpdateHealthValues()
+end
 function NameplateFrame:UNIT_ABSORB_AMOUNT_CHANGED()
+    -- The dedicated absorb edge: force the next paint onto the full absorb
+    -- path so the lean-gate flag re-derives from a fresh read.
+    self._absorbEdge = true
     self:UpdateHealthValues()
 end
 function NameplateFrame:UNIT_NAME_UPDATE()

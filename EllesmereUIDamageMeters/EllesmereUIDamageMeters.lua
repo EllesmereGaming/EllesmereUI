@@ -944,11 +944,15 @@ local function ApplyBarTexture(fill, texPath, texKey)
     end
 end
 
--- Physical pixel spacing: convert user values to physical pixels (user setting = physical pixel count)
+-- Physical pixel spacing: convert user values to physical pixels (user setting = physical pixel count).
+-- Snapped through PP.Scale so accumulated row offsets (stride * index) don't drift off the pixel
+-- grid from float dust -- without this, a spacing of 1 can round to 0px on some rows and 2px on others.
 local function PhysicalPixels(userValue)
     local PP = EUI and EUI.PP
     local mult = (PP and PP.mult) or 1
-    return (userValue or 0) * mult
+    local value = (userValue or 0) * mult
+    if PP and PP.Scale then return PP.Scale(value) end
+    return value
 end
 
 -- Number formatting
@@ -1038,93 +1042,6 @@ end
 
 local function IsSecret(v)
     return issecretvalue ~= nil and issecretvalue(v)
-end
-
--- Resolve a damage-meter source back to its live group unit when possible;
--- MethodInternal's name-based surface API covers historical/off-roster sources.
-local function FindNicknameUnit(guid, isLocalPlayer)
-    if not IsSecret(isLocalPlayer) and isLocalPlayer == true then return "player" end
-
-    local cleanGuid = type(guid) == "string" and not IsSecret(guid) and guid or nil
-    if cleanGuid and UnitTokenFromGUID then
-        local unit = UnitTokenFromGUID(cleanGuid)
-        if unit and not IsSecret(unit) and UnitExists(unit)
-           and (UnitIsUnit(unit, "player") or UnitInParty(unit) or UnitInRaid(unit)) then
-            return unit
-        end
-    end
-end
-
--- MethodInternal's surface choice is authoritative for known Method players;
--- unhandled players keep their raw short character name.
-function ns.ResolvePlayerName(name, guid, isLocalPlayer)
-    -- Without the provider the answer is exactly the pre-nickname name; skip
-    -- the guid->unit resolution so non-users pay one nil check, nothing more.
-    if not EasyNicknameAPI then return StripRealm(name) end
-    local nameIsPlain = type(name) == "string" and not IsSecret(name) and name ~= ""
-    local unit = FindNicknameUnit(guid, isLocalPlayer)
-    local fullName = nameIsPlain and name or nil
-    local shortName = nameIsPlain and StripRealm(name) or nil
-    if unit then
-        local unitName = UnitName(unit)
-        if type(unitName) == "string" and not IsSecret(unitName) and unitName ~= "" then shortName = unitName end
-        local unitFullName = GetUnitName(unit, true)
-        if type(unitFullName) == "string" and not IsSecret(unitFullName) and unitFullName ~= "" then fullName = unitFullName end
-    end
-    local fallback = shortName or StripRealm(name)
-
-    -- MethodInternal owns the selected name for known Method players on this
-    -- surface. Character Name is authoritative even though it equals fallback.
-    if EasyNicknameAPI then
-        local ok, value, handled
-        if unit and EasyNicknameAPI.GetNicknameForUnitForSurface then
-            ok, value, handled = pcall(
-                EasyNicknameAPI.GetNicknameForUnitForSurface, unit, "damageMeters")
-        elseif fullName and EasyNicknameAPI.GetNicknameForCharacterNameForSurface then
-            ok, value, handled = pcall(
-                EasyNicknameAPI.GetNicknameForCharacterNameForSurface,
-                fullName, nil, "damageMeters")
-        end
-        if ok and handled == true then
-            if type(value) == "string" and not IsSecret(value) and value ~= "" then
-                return value
-            end
-            return fallback
-        end
-    end
-    return fallback
-end
-
-function ns.RefreshNicknameNames()
-    if ns._nicknameRefreshPending then return end
-    ns._nicknameRefreshPending = true
-    C_Timer.After(0, function()
-        ns._nicknameRefreshPending = nil
-        for _, window in ipairs(ns._windows or {}) do
-            window._stickyNameCache = nil
-            for _, bar in ipairs(window.rowPool or {}) do
-                bar._cachedSrcName = nil
-                bar._cachedDisplayName = nil
-            end
-            -- Combat already has the shared meter ticker; avoid an extra API fetch.
-            if not _inCombat and window.Refresh then window.Refresh() end
-        end
-    end)
-end
-
--- Keep cached meter labels in sync with MethodInternal without adding work to
--- the one-second damage-meter refresh hot path.
-do
-    local function RegisterMethodInternal()
-        if ns._dmMethodInternalSurfaceNickHooked then return end
-        if EasyNicknameAPI and EasyNicknameAPI.RegisterCallback then
-            EasyNicknameAPI.RegisterCallback(
-                "SurfaceNicknamesChanged", ns.RefreshNicknameNames, "EllesmereUIDamageMeters")
-            ns._dmMethodInternalSurfaceNickHooked = true
-        end
-    end
-
-    EventUtil.ContinueOnAddOnLoaded("MethodInternal", RegisterMethodInternal)
 end
 
 -- Is this bar the local player's? isLocalPlayer is documented NeverSecret, so
@@ -1404,6 +1321,19 @@ local _activeRow = nil
 
 local TT_HDR_H = 20
 
+-- Same conversion as PhysicalPixels(), but snapped against the tooltip frame's own
+-- effective scale. The hover tooltip has its own user-configurable hoverTooltipScale
+-- (SetScale), independent of the addon-wide UI scale that PP.mult is derived from --
+-- using the global PhysicalPixels() here rounds bar spacing to the wrong pixel grid
+-- whenever hoverTooltipScale isn't 100%.
+local function TTPhysicalPixels(userValue)
+    local PP = EUI and EUI.PP
+    if not PP or not PP.perfect or not PP.SnapForES or not _ttFrame then return PhysicalPixels(userValue) end
+    local es = _ttFrame:GetEffectiveScale()
+    local onePixel = PP.perfect / es
+    return PP.SnapForES((userValue or 0) * onePixel, es)
+end
+
 local function BlizzardSkinBordersAvailable()
     return C_AddOns and C_AddOns.IsAddOnLoaded
         and C_AddOns.IsAddOnLoaded("EllesmereUIBlizzardSkin")
@@ -1473,7 +1403,7 @@ end
 local function EnsureTTBar(i)
     if _ttBars[i] then return _ttBars[i] end
     EnsureTooltipFrame()
-    local ttSp = PhysicalPixels(1)
+    local ttSp = TTPhysicalPixels(1)
     local b = {}
     b.row = CreateFrame("Frame", nil, _ttFrame)
     b.row:SetHeight(TT_BAR_H)
@@ -1512,7 +1442,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
     if not C_DamageMeter then return false end
 
     -- Reposition tooltip bars with physical-pixel spacing (only when spacing changes)
-    local ttSp = PhysicalPixels(1)
+    local ttSp = TTPhysicalPixels(1)
     local ttStride = TT_BAR_H + ttSp
     if ttSp ~= _ttLastSp then
         _ttLastSp = ttSp
@@ -1562,7 +1492,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
         -- Reverse to oldest-first
         local reversed = {}
         for ri = #raw, 1, -1 do reversed[#reversed + 1] = raw[ri] end
-        ApplyTTHeader(ns.ResolvePlayerName(bar._src.name, bar._srcGUID, bar._src.isLocalPlayer), EllesmereUI.L("Death Recap"))
+        ApplyTTHeader(StripRealm(bar._src.name), EllesmereUI.L("Death Recap"))
         local texPath, texKey = GetBreakdownBarTexturePath()
         local deathTime = reversed[#reversed] and reversed[#reversed].timestamp
         if IsSecret(deathTime) then deathTime = nil end
@@ -1686,7 +1616,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
                 if cc then b.fill:SetStatusBarColor(cc.r, cc.g, cc.b)
                 else b.fill:SetStatusBarColor(0x33/255, 0x33/255, 0x33/255) end
                 b.label:SetTextColor(1, 1, 1); b.amount:SetTextColor(1, 1, 1)
-                b.label:SetText(ns.ResolvePlayerName(p.name))
+                b.label:SetText(StripRealm(p.name))
                 b.amount:SetText(FormatBarValue(p.total, p.amountPerSecond, numFmt))
                 b.row:Show()
             else b.row:Hide() end
@@ -1717,7 +1647,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
     end
     if not srcData or not srcData.combatSpells or #srcData.combatSpells == 0 then return false end
 
-    ApplyTTHeader(ns.ResolvePlayerName(bar._src.name, bar._srcGUID, bar._src.isLocalPlayer), L(DM_TYPE_NAMES[curDMType] or "Damage Done"))
+    ApplyTTHeader(StripRealm(bar._src.name), L(DM_TYPE_NAMES[curDMType] or "Damage Done"))
 
     wipe(_ttSorted)
     for _, spell in ipairs(srcData.combatSpells) do
@@ -1788,7 +1718,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
             -- Lazy-create tooltip target elements
             if not _ttFrame._tgtDivider then
                 _ttFrame._tgtDivider = _ttFrame:CreateTexture(nil, "ARTWORK")
-                _ttFrame._tgtDivider:SetHeight(PhysicalPixels(1)); _ttFrame._tgtDivider:SetColorTexture(1, 1, 1, 0.15)
+                _ttFrame._tgtDivider:SetHeight(TTPhysicalPixels(1)); _ttFrame._tgtDivider:SetColorTexture(1, 1, 1, 0.15)
                 _ttFrame._tgtLabel = _ttFrame:CreateFontString(nil, "OVERLAY")
                 SetDMFont(_ttFrame._tgtLabel, 9); _ttFrame._tgtLabel:SetTextColor(0.6, 0.6, 0.6, 1)
                 _ttFrame._tgtLabel:SetText(EllesmereUI.L("Targets"))
@@ -2343,7 +2273,7 @@ local function CreateDMWindow(winIdx)
                 end
                 if not hasRecap then
                     EnsureTooltipFrame()
-                    local playerName = ns.ResolvePlayerName(bar._src.name, bar._srcGUID, bar._src.isLocalPlayer)
+                    local playerName = StripRealm(bar._src.name)
                     _ttFrame._hdrText:SetText(EllesmereUI.Lf("%1$s's Death Recap", playerName))
                     local cfg2 = DB()
                     local hc = cfg2.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
@@ -2368,9 +2298,7 @@ local function CreateDMWindow(winIdx)
                and W.curDMType ~= Enum.DamageMeterType.Deaths then
                 EnsureTooltipFrame()
                 -- Show header with player name + type
-                local playerName = W.curDMType == Enum.DamageMeterType.EnemyDamageTaken
-                    and StripRealm(bar._src and bar._src.name)
-                    or ns.ResolvePlayerName(bar._src and bar._src.name, bar._srcGUID, bar._src and bar._src.isLocalPlayer)
+                local playerName = StripRealm(bar._src and bar._src.name)
                 local typeName = L(DM_TYPE_NAMES[W.curDMType] or "Damage Done")
                 _ttFrame._hdrText:SetText(EllesmereUI.Lf("%1$s's %2$s Breakdown", playerName, typeName))
                 local cfg2 = DB()
@@ -3047,7 +2975,7 @@ local function CreateDMWindow(winIdx)
     local _scrollRefreshPending = false
     viewport:EnableMouseWheel(true)
     viewport:SetScript("OnMouseWheel", function(_, delta)
-        local c = DB(); local step = (PhysicalPixels(c.barHeight or 18) + PhysicalPixels(c.barSpacing)) * 2
+        local c = DB(); local step = (PhysicalPixels(c.barHeight or 18) + (c.barSpacing or 2)) * 2
         local cur = viewport:GetVerticalScroll() or 0
         local newVal = math.max(0, math.min(_scrollMax, cur - delta * step))
         viewport:SetVerticalScroll(newVal)
@@ -3093,7 +3021,7 @@ local function CreateDMWindow(winIdx)
     local _srcScrollMax = 0
     W.srcViewport:EnableMouseWheel(true)
     W.srcViewport:SetScript("OnMouseWheel", function(_, delta)
-        local c = DB(); local step = (PhysicalPixels(c.barHeight or 18) + PhysicalPixels(c.barSpacing)) * 2
+        local c = DB(); local step = (PhysicalPixels(c.barHeight or 18) + (c.barSpacing or 2)) * 2
         local cur = W.srcViewport:GetVerticalScroll() or 0
         W.srcViewport:SetVerticalScroll(math.max(0, math.min(_srcScrollMax, cur - delta * step)))
     end)
@@ -3325,7 +3253,7 @@ local function CreateDMWindow(winIdx)
 
     local function RecalcViewport(dataCount)
         if not viewport or not content then return end
-        local c = DB(); local barH = PhysicalPixels(c.barHeight or 18); local barSp = PhysicalPixels(c.barSpacing)
+        local c = DB(); local barH = PhysicalPixels(c.barHeight or 18); local barSp = c.barSpacing or 2
         local totalH = dataCount * (barH + barSp)
         content:SetHeight(math.max(10, totalH))
         local viewH = viewport:GetHeight(); if viewH < 1 then viewH = 1 end
@@ -3351,7 +3279,7 @@ local function CreateDMWindow(winIdx)
         local playerIdx
         for i, src in ipairs(sources) do if src.isLocalPlayer then playerIdx = i; break end end
         if not playerIdx then W.stickyPlayer.row:Hide(); W.stickySep:Hide(); ResetScrollAnchors(); W.stickyAtTop = false; return end
-        local barH = PhysicalPixels(c.barHeight or 18); local barSp = PhysicalPixels(c.barSpacing); local stride = barH + barSp
+        local barH = PhysicalPixels(c.barHeight or 18); local barSp = c.barSpacing or 2; local stride = barH + barSp
         local scrollVal = viewport:GetVerticalScroll() or 0
         local fullViewH = frame:GetHeight() - GetHeaderH()
         if fullViewH < 1 then fullViewH = 1 end
@@ -3452,11 +3380,11 @@ local function CreateDMWindow(winIdx)
         -- Name: only when source name changes (guard secret values)
         local srcName = src.name
         if issecretvalue and issecretvalue(srcName) then
-            bar.label:SetText(ns.ResolvePlayerName(srcName, src.sourceGUID, src.isLocalPlayer) or "You")
+            bar.label:SetText(StripRealm(srcName))
             W._stickyNameCache = nil
         elseif srcName ~= W._stickyNameCache then
             W._stickyNameCache = srcName
-            bar.label:SetText(ns.ResolvePlayerName(srcName, src.sourceGUID, src.isLocalPlayer) or "You")
+            bar.label:SetText(StripRealm(srcName))
         end
         if isDeaths then
             local isOverall = (not W.curSessionID and W.curSession == Enum.DamageMeterSessionType.Overall)
@@ -3481,7 +3409,7 @@ local function CreateDMWindow(winIdx)
         if session and session.combatSources then
 
             local sources = session.combatSources
-            local c = DB(); local barH = PhysicalPixels(c.barHeight or 18); local barSp = PhysicalPixels(c.barSpacing); local stride = barH + barSp
+            local c = DB(); local barH = PhysicalPixels(c.barHeight or 18); local barSp = c.barSpacing or 2; local stride = barH + barSp
             local leftFS = c.leftFontSize or c.fontSize or 11; local rightFS = c.rightFontSize or c.fontSize or 11
             local fontSize = leftFS -- compat for cacheKey
             local showIcon = (c.iconStyle or "spec") ~= "none"
@@ -3629,13 +3557,11 @@ local function CreateDMWindow(winIdx)
                         -- Name
                         local srcName = src.name
                         if isSecret and issecretvalue(srcName) then
-                            bar.label:SetText(W.curDMType == Enum.DamageMeterType.EnemyDamageTaken
-                                and StripRealm(srcName) or ns.ResolvePlayerName(srcName, src.sourceGUID, src.isLocalPlayer))
+                            bar.label:SetText(StripRealm(srcName))
                             bar._cachedSrcName = nil
                         elseif srcName ~= bar._cachedSrcName then
                             bar._cachedSrcName = srcName
-                            bar._cachedDisplayName = W.curDMType == Enum.DamageMeterType.EnemyDamageTaken
-                                and StripRealm(srcName) or ns.ResolvePlayerName(srcName, src.sourceGUID, src.isLocalPlayer)
+                            bar._cachedDisplayName = StripRealm(srcName)
                             bar.label:SetText(bar._cachedDisplayName)
                         end
 
@@ -3786,7 +3712,7 @@ local function CreateDMWindow(winIdx)
             local reversed = {}
             for ri = #events, 1, -1 do reversed[#reversed + 1] = events[ri] end
             local c = DB(); local barH = PhysicalPixels(c.barHeight or 18)
-            local barSp = PhysicalPixels(c.barSpacing); local stride = barH + barSp
+            local barSp = c.barSpacing or 2; local stride = barH + barSp
             local leftFS = c.leftFontSize or c.fontSize or 11; local rightFS = c.rightFontSize or c.fontSize or 11
             local texPath, texKey = GetBarTexturePath()
             local deathTime = reversed[#reversed] and reversed[#reversed].timestamp
@@ -3899,7 +3825,7 @@ local function CreateDMWindow(winIdx)
                 if W.spellPool then for i = 1, BAR_POOL_SIZE do W.spellPool[i].row:Hide() end end
                 return
             end
-            local barSp = PhysicalPixels(c.barSpacing); local stride = barH + barSp
+            local barSp = c.barSpacing or 2; local stride = barH + barSp
             local leftFS = c.leftFontSize or c.fontSize or 11; local rightFS = c.rightFontSize or c.fontSize or 11
             local texPath, texKey = GetBarTexturePath()
             local maxAmt = players[1].total
@@ -3923,7 +3849,7 @@ local function CreateDMWindow(winIdx)
                     else local ar2, ag2, ab2 = GetAccentRGB(); bar.fill:SetStatusBarColor(ar2, ag2, ab2) end
                     SetDMFont(bar.label, leftFS); SetDMFont(bar.amount, rightFS)
                     bar.label:SetTextColor(1, 1, 1); bar.amount:SetTextColor(1, 1, 1)
-                    bar.label:SetText(ns.ResolvePlayerName(p.name))
+                    bar.label:SetText(StripRealm(p.name))
                     bar.amount:SetText(FormatBarValue(p.total, p.amountPerSecond, c.numberFormat or 2)); bar._spellID = nil
                 else bar.row:Hide(); bar._spellID = nil end
             end
@@ -3951,7 +3877,7 @@ local function CreateDMWindow(winIdx)
             return
         end
         local spells = srcData.combatSpells; local c = DB(); local barH = PhysicalPixels(c.barHeight or 18)
-        local barSp = PhysicalPixels(c.barSpacing); local stride = barH + barSp; local leftFS = c.leftFontSize or c.fontSize or 11; local rightFS = c.rightFontSize or c.fontSize or 11; local texPath, texKey = GetBarTexturePath()
+        local barSp = c.barSpacing or 2; local stride = barH + barSp; local leftFS = c.leftFontSize or c.fontSize or 11; local rightFS = c.rightFontSize or c.fontSize or 11; local texPath, texKey = GetBarTexturePath()
         local sorted = {}
         for _, spell in ipairs(spells) do local ok, amt = pcall(function() return spell.totalAmount end); sorted[#sorted + 1] = { spell = spell, amount = (ok and amt) or 0 } end
         -- API returns combatSpells pre-sorted; no table.sort needed

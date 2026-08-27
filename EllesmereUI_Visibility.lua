@@ -622,3 +622,44 @@ function EUI.VisCopySelection(dst, src, legacyKey, dstCaps, applyScalarFn)
     end
     dst.visibilityModes = nil
 end
+
+-- The unified Visibility row puts the mode selection and the option booleans behind
+-- ONE control, so its sync icon copies and compares both halves at once. These two
+-- wrap the existing mode-only pair; callers that still build the legacy two-dropdown
+-- layout keep using VisCopySelection / VisSelectionEquals with their own option loop.
+function EUI.VisFullCopy(dst, src, legacyKey, dstCaps, applyScalarFn)
+    if not dst or not src then return end
+    EUI.VisCopySelection(dst, src, legacyKey, dstCaps, applyScalarFn)
+    local keys = EUI.VIS_OPT_KEYS
+    if not keys then return end
+    for i = 1, #keys do
+        local k = keys[i]
+        dst[k] = src[k] or nil
+    end
+end
+
+-- True when the store has ANY visibility option lane set. Callers gate work on this:
+-- event passes that would otherwise be skipped, hover keep-shown, drag surfacing. A
+-- hand-written subset here is exactly how a newly added lane silently stops working, so
+-- this always walks VIS_OPT_KEYS rather than naming fields.
+function EUI.VisHasAnyOption(store)
+    if not store then return false end
+    local keys = EUI.VIS_OPT_KEYS
+    if not keys then return false end
+    for i = 1, #keys do
+        if store[keys[i]] then return true end
+    end
+    return false
+end
+
+function EUI.VisFullEquals(a, aKey, b, bKey)
+    if not a or not b then return false end
+    if not EUI.VisSelectionEquals(a, aKey, b, bKey) then return false end
+    local keys = EUI.VIS_OPT_KEYS
+    if not keys then return true end
+    for i = 1, #keys do
+        local k = keys[i]
+        if (a[k] or false) ~= (b[k] or false) then return false end
+    end
+    return true
+end

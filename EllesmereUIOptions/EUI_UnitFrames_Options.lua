@@ -51,6 +51,11 @@ function ns.UFOpt_ShowTrackedAuras(unitKey)
         title = TRACKED_TITLES[unitKey] or "Tracked Auras",
         includeGet = function() return TrackedList(unitKey, "debuffInclude") end,
         excludeGet = function() return TrackedList(unitKey, "debuffExclude") end,
+        -- Boss includes default to Only My Casts (nameplate parity); the MINE
+        -- tag on each row opts an entry out to any caster (sibling map).
+        includeMine = (unitKey == "boss") and {
+            anyGet = function() return TrackedList(unitKey, "debuffIncludeAnyCaster") end,
+        } or nil,
         includePrompt = "Enter the spell ID to always show on this frame.",
         excludePrompt = "Enter the spell ID to exclude from this frame.",
         onChanged = Changed,
@@ -70,6 +75,7 @@ function ns.UFOpt_ShowTrackedAuras(unitKey)
                 end
                 dst.debuffInclude = Clone(src.debuffInclude)
                 dst.debuffExclude = Clone(src.debuffExclude)
+                dst.debuffIncludeAnyCaster = Clone(src.debuffIncludeAnyCaster)
                 Changed()
             end,
         },
@@ -4464,7 +4470,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
         local visRow
-        visRow, h = EllesmereUI.BuildVisibilityModeRow(W, parent, y,
+        visRow, h = EllesmereUI.BuildVisibilityRow(W, parent, y,
             { getStore = function() return UNIT_DB_MAP[selectedUnit]() end,
               legacyKey = "barVisibility",
               caps = { partyIncludesRaid = false, luaDragonriding = true },
@@ -4484,11 +4490,22 @@ initFrame:SetScript("OnEvent", function(self)
                   -- Un-hiding a frame whose EUI frame isn't spawned this session
                   -- (source was Blizzard/Hidden at login) needs a /reload.
                   if (s.barVisibility or "always") ~= "never" then PromptReloadIfUnspawned({ selectedUnit }) end
+              end,
+              onOptionChanged = function()
+                  if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
               end },
-            { type="dropdown", text="Visibility Options",
-              values={ __placeholder = "..." }, order={ "__placeholder" },
-              getValue=function() return "__placeholder" end,
-              setValue=function() end });  y = y - h
+            -- Show Nicknames moved up from the section's old trailing half-row into the
+            -- slot the Visibility Options dropdown left behind, so neither row is half
+            -- empty. ONE global toggle for all main frames (default OFF, not per-unit,
+            -- hence db.profile). Gates ns.ResolveUnitNickname: off = raw names, on =
+            -- provider nicknames.
+            { type="toggle", text="Show Nicknames",
+              tooltip="Show player nicknames from supported addons instead of character names on your main frames.",
+              getValue=function() return db.profile.showNicknames or false end,
+              setValue=function(v)
+                  db.profile.showNicknames = v
+                  if ns.RefreshAllUnitNames then ns.RefreshAllUnitNames() end
+              end });  y = y - h
 
         -- Inline cog on Visibility: ONE popup hosting Frame Source (EllesmereUI /
         -- Blizzard Default) plus Out of Combat fade. Hiding stays on the Visibility
@@ -4526,8 +4543,9 @@ initFrame:SetScript("OnEvent", function(self)
         if not EllesmereUI._prebuilding then
             local srcNow = ns.GetUnitFrameSource(selectedUnit)
             if srcNow ~= "eui" then
-                local rightRgn = visRow._rightRegion
-                if rightRgn._control then rightRgn._control:Hide() end
+                -- The right slot used to hold this unit's Visibility Options and was hidden
+                -- here because it is meaningless for a Blizzard frame. It now holds the
+                -- profile-wide Show Nicknames toggle, which stays live for every source.
                 if srcNow == "blizzard" then
                     -- Visibility modes only drive the EUI frame: block the dropdown
                     -- (the cog stays live to switch back).
@@ -4550,35 +4568,16 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        -- Replace the dummy right dropdown with our checkbox dropdown
-        if not EllesmereUI._prebuilding then
-            local rightRgn = visRow._rightRegion
-            if rightRgn._control then rightRgn._control:Hide() end
-            local visItems = EllesmereUI.VIS_OPT_ITEMS
-            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                rightRgn, 210, rightRgn:GetFrameLevel() + 2,
-                visItems,
-                function(k) return UNIT_DB_MAP[selectedUnit]()[k] or false end,
-                function(k, v)
-                    UNIT_DB_MAP[selectedUnit]()[k] = v
-                    if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
-                    EllesmereUI:RefreshPage()
-                end)
-            PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
-            rightRgn._control = cbDD
-            rightRgn._lastInline = nil
-            RegisterWidgetRefresh(cbDDRefresh)
-        end
-
-        -- Sync icon on Visibility (left): set-aware for correct multi-selection
-        -- compare/copy; runs each target's scalar side effects (enabledFrames) + boolean-trio derivation.
+        -- ONE sync icon now that both halves share a control: set-aware for correct
+        -- multi-selection compare/copy, and VisFullCopy carries the option booleans too;
+        -- runs each target's scalar side effects (enabledFrames) + boolean-trio derivation.
         if not EllesmereUI._prebuilding then
             local rgn = visRow._leftRegion
             local function CopyVisToUnit(key)
                 local src = UNIT_DB_MAP[selectedUnit]()
                 local dst = UNIT_DB_MAP[key]()
                 if dst == src then return end
-                EllesmereUI.VisCopySelection(dst, src, "barVisibility", nil, function(t, mode)
+                EllesmereUI.VisFullCopy(dst, src, "barVisibility", nil, function(t, mode)
                     t.barVisibility = mode
                     db.profile.enabledFrames[key] = (mode ~= "never")
                 end)
@@ -4590,7 +4589,7 @@ initFrame:SetScript("OnEvent", function(self)
                 isSynced = function()
                     local src = UNIT_DB_MAP[selectedUnit]()
                     for _, key in ipairs(GROUP_UNIT_ORDER) do
-                        if not EllesmereUI.VisSelectionEquals(src, "barVisibility", UNIT_DB_MAP[key](), "barVisibility") then return false end
+                        if not EllesmereUI.VisFullEquals(src, "barVisibility", UNIT_DB_MAP[key](), "barVisibility") then return false end
                     end
                     return true
                 end,
@@ -4616,56 +4615,6 @@ initFrame:SetScript("OnEvent", function(self)
                         ReloadAndUpdate(); EllesmereUI:RefreshPage(true)
                         local v = UNIT_DB_MAP[selectedUnit]().barVisibility or "always"
                         if v ~= "never" then PromptReloadIfUnspawned(checkedKeys) end
-                    end,
-                },
-            })
-        end
-
-        -- Sync icon on Visibility Options (right)
-        if not EllesmereUI._prebuilding then
-            local rgn = visRow._rightRegion
-            EllesmereUI.BuildSyncIcon({
-                region  = rgn,
-                tooltip = "Apply Visibility Options to all Frames",
-                isSynced = function()
-                    local src = UNIT_DB_MAP[selectedUnit]()
-                    for _, item in ipairs(EllesmereUI.VIS_OPT_ITEMS) do
-                        local k = item.key
-                        local cur = src[k] or false
-                        for _, key in ipairs(GROUP_UNIT_ORDER) do
-                            if (UNIT_DB_MAP[key]()[k] or false) ~= cur then return false end
-                        end
-                    end
-                    return true
-                end,
-                onClick = function()
-                    local src = UNIT_DB_MAP[selectedUnit]()
-                    for _, item in ipairs(EllesmereUI.VIS_OPT_ITEMS) do
-                        local k = item.key
-                        local v = src[k] or false
-                        for _, key in ipairs(GROUP_UNIT_ORDER) do
-                            UNIT_DB_MAP[key]()[k] = v
-                        end
-                    end
-                    if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
-                    EllesmereUI:RefreshPage()
-                end,
-                flashTargets = function() return { rgn } end,
-                multiApply = {
-                    elementKeys   = GROUP_UNIT_ORDER,
-                    elementLabels = SHORT_LABELS,
-                    getCurrentKey = function() return selectedUnit end,
-                    onApply       = function(checkedKeys)
-                        local src = UNIT_DB_MAP[selectedUnit]()
-                        for _, item in ipairs(EllesmereUI.VIS_OPT_ITEMS) do
-                            local k = item.key
-                            local v = src[k] or false
-                            for _, key in ipairs(checkedKeys) do
-                                UNIT_DB_MAP[key]()[k] = v
-                            end
-                        end
-                        if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
-                        EllesmereUI:RefreshPage()
                     end,
                 },
             })
@@ -5303,18 +5252,6 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             UpdateHBSwatchVis()
         end
-
-        -- Show Nicknames: ONE global toggle for all main frames (default OFF, not
-        -- per-frame). Gates ns.ResolveUnitNickname: off = raw names, on = provider nicknames.
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Show Nicknames",
-              tooltip="Show player nicknames from supported addons instead of character names on your main frames.",
-              getValue=function() return db.profile.showNicknames or false end,
-              setValue=function(v)
-                  db.profile.showNicknames = v
-                  if ns.RefreshAllUnitNames then ns.RefreshAllUnitNames() end
-              end },
-            { type="label", text="" });  y = y - h
 
         _, h = W:Spacer(parent, y, 20); y = y - h
 

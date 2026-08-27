@@ -101,7 +101,10 @@ local _overlays  = setmetatable({}, { __mode = "k" })  -- iconFrame -> overlay d
 
 -- Cooldown-state effects (continuous, cooldown-driven; presets only).
 local _cdStateRules = {}                                -- subset: cas.cdStateEffect set
-local _cdStateTicker
+-- Same-frame coalescer for edge-driven cd-state evaluation. The engine owns
+-- the edges (widget push = cooldown started, OnCooldownDone = cooldown ended),
+-- so there is NO poll ticker: evaluation runs only when an edge fires.
+local _cdEvalQueued = false
 local _hasUserRules = false                             -- any profile (user) rule armed
 
 -- CD-ready sound "armed" state, keyed by ability so it survives the rule-object
@@ -114,7 +117,7 @@ local GetOverlay, ResolveSwipeColor, IconTexture, ApplyToFrame, ApplyRule, Raise
 local EnsureTicker, OpenWindow, CloseWindow, CloseAll, CastWindow
 local OpenFromAura, EvalCustom, InitialStamp, OnEvent, UpdateListeners
 local ResolveCastSpells
-local PresetOnCD, ApplyCdState, RestoreAllCdState, EnsureCdStateTicker, EvalCdStateNow
+local PresetOnCD, ApplyCdState, RestoreAllCdState, EvalCdStateNow, QueueCdStateEval
 
 -- ---------------------------------------------------------------------------
 --  Icon identity: slot key <-> equipped item key
@@ -934,6 +937,9 @@ OnEvent = function(self, event, unit, _, spellID)
         -- refresh unconditionally. It is a wipe plus one lookup per slot on an
         -- event that fires only when gear actually changes.
         RefreshSlotItemKeys()
+        -- Gear changed: one re-evaluation so a swapped-in mid-cooldown item
+        -- paints its cd-state (trinket slots re-arm below, which also evals).
+        QueueCdStateEval()
         -- Re-arm stays TRINKET-ONLY on purpose. A trinket swap re-points a slot's
         -- settings to a different item, so the slot must pick up the newly-equipped
         -- trinket's rule (or none). Re-arming on every gear change would tear down and
@@ -942,6 +948,10 @@ OnEvent = function(self, event, unit, _, spellID)
         if unit == 13 or unit == 14 then
             ns.FakeActive_Rearm()
         end
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        -- Combat end: cooldown reads were secret-dropped during combat, so any
+        -- fail-open cd-state paint corrects on this first plain re-read.
+        QueueCdStateEval()
     end
 end
 
@@ -955,6 +965,10 @@ UpdateListeners = function()
         else _events:UnregisterEvent("UNIT_AURA") end
         if _needCast then _events:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
         else _events:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED") end
+        -- Combat end re-syncs cd-state once: cooldown reads secret-drop during
+        -- combat, so the first plain read corrects anything painted fail-open.
+        if #_cdStateRules > 0 then _events:RegisterEvent("PLAYER_REGEN_ENABLED")
+        else _events:UnregisterEvent("PLAYER_REGEN_ENABLED") end
         -- Trinket swaps only matter when the player actually uses custom states.
         if _hasUserRules then _events:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
         else _events:UnregisterEvent("PLAYER_EQUIPMENT_CHANGED") end
@@ -1234,9 +1248,61 @@ local function IsInjectedFrame(f)
 end
 ns.CdmIsInjectedFrame = IsInjectedFrame
 
--- One full evaluation pass. Driven by the ticker (continuous) AND called
--- synchronously at the end of a re-arm, so a settings change does not leave the
--- icon shown for a tick before the next poll re-hides it.
+-- Same-frame coalesced evaluation: every engine edge funnels here. Zero cost
+-- while no cd-state rules exist.
+QueueCdStateEval = function()
+    if _cdEvalQueued or #_cdStateRules == 0 then return end
+    _cdEvalQueued = true
+    C_Timer.After(0, function()
+        _cdEvalQueued = false
+        EvalCdStateNow()
+    end)
+end
+
+-- NOTE: pushes NEVER arm anything directly. The drain is push-through by
+-- design (fresh duration objects land on frames constantly, including
+-- zero-duration pushes onto READY frames when cooldown chatter waves arm it),
+-- so a push proves nothing about cooldown state -- arming happens only in the
+-- evaluation's read branch, on a cooldown actually observed running. A
+-- push-side arm here fired ready sounds whenever ANY charge spell spent a
+-- charge (the chatter pushed onto unrelated ready frames).
+
+-- Install the engine-edge hooks on a rule-matched preset frame, once per frame
+-- object (pool reuse keeps hooks valid: handlers resolve the frame's CURRENT
+-- spell at fire time). The widget carries ONLY real cooldowns -- the drain
+-- pushes with ignoreGCD -- so OnCooldownDone is the true ready edge with no
+-- GCD confusion, and it fires under combat secrecy (the engine animates
+-- durations Lua cannot read) and at alpha 0 (cd-state hides never Hide()).
+local function WireCdStateFrame(f)
+    if f._cdsWired then return end
+    local cd = f.cd or f.Cooldown
+    if not cd then return end
+    f._cdsWired = true
+    cd:HookScript("OnCooldownDone", function()
+        QueueCdStateEval()
+    end)
+    if cd.SetCooldownFromDurationObject then
+        hooksecurefunc(cd, "SetCooldownFromDurationObject", function()
+            QueueCdStateEval()
+        end)
+    end
+    if cd.SetCooldown then
+        hooksecurefunc(cd, "SetCooldown", function()
+            QueueCdStateEval()
+        end)
+    end
+    -- Early clears (encounter resets, drain falling edges) are ready edges.
+    if cd.Clear then
+        hooksecurefunc(cd, "Clear", function()
+            QueueCdStateEval()
+        end)
+    end
+end
+
+-- One full evaluation pass. Edge-driven (widget push / OnCooldownDone / Clear /
+-- regen / gear, all through QueueCdStateEval) AND called synchronously at the
+-- end of a re-arm, so a settings change does not leave the icon shown for a
+-- frame before the next edge re-hides it.
 EvalCdStateNow = function()
     local icons = ns.cdmBarIcons
     local FCt = ns._ecmeFC
@@ -1268,6 +1334,7 @@ EvalCdStateNow = function()
                     if fc and KeyMatches(sid, fc.spellID)
                        and (not rule.user or IsInjectedFrame(f)) then
                         hasIcon = true
+                        WireCdStateFrame(f)
                         if eff then ApplyCdState(f, fc, cas, eff, onCD, ready) end
                     end
                 end
@@ -1289,21 +1356,6 @@ EvalCdStateNow = function()
             end
         end
     end
-end
-
-EnsureCdStateTicker = function()
-    if not _cdStateTicker then
-        _cdStateTicker = CreateFrame("Frame")
-        _cdStateTicker:Hide()
-        _cdStateTicker._acc = 0
-        _cdStateTicker:SetScript("OnUpdate", function(self, elapsed)
-            self._acc = self._acc + elapsed
-            if self._acc < 0.12 then return end
-            self._acc = 0
-            EvalCdStateNow()
-        end)
-    end
-    _cdStateTicker:Show()
 end
 
 local function MapCast(rule)
@@ -1511,10 +1563,9 @@ function ns.FakeActive_Rearm()
     _armed = #_rules > 0
     UpdateListeners()
     if #_cdStateRules > 0 then
-        EnsureCdStateTicker()
-        EvalCdStateNow()  -- apply now so the rebuild doesn't flash the icon visible
-    elseif _cdStateTicker then
-        _cdStateTicker:Hide()
+        -- Apply + wire the engine-edge hooks now so the rebuild doesn't flash
+        -- the icon visible; from here every transition is edge-driven.
+        EvalCdStateNow()
     end
 
     if not _armed then return end
