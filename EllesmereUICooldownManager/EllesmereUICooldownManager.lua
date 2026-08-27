@@ -10152,7 +10152,7 @@ local function _rotShow(icon)
     end
 end
 
-local function UpdateRotationHighlights()
+local function UpdateRotationHighlightsNow()
     if not _rotCVarOn() then
         for icon in pairs(ns._rotationGlowedIcons) do
             _rotHide(icon)
@@ -10162,6 +10162,8 @@ local function UpdateRotationHighlights()
     end
 
     local suggestedSpell = C_AssistedCombat and C_AssistedCombat.GetNextCastSpell and C_AssistedCombat.GetNextCastSpell()
+    if type(suggestedSpell) ~= "number"
+        or (issecretvalue and issecretvalue(suggestedSpell)) then suggestedSpell = nil end
 
     local newSet = {}
     if suggestedSpell then
@@ -10170,16 +10172,23 @@ local function UpdateRotationHighlights()
         -- directions so "icon=base, suggested=override" and "icon=override, suggested=base" both match. Strictly a superset of exact-id match, so anything that highlighted before still does.
         local GetBaseSpell = C_Spell and C_Spell.GetBaseSpell
         local suggestedBase = (GetBaseSpell and GetBaseSpell(suggestedSpell)) or suggestedSpell
+        if type(suggestedBase) ~= "number"
+            or (issecretvalue and issecretvalue(suggestedBase)) then suggestedBase = suggestedSpell end
         for _, icons in pairs(cdmBarIcons) do
             for _, icon in ipairs(icons) do
                 local ifc = _ecmeFC[icon]
                 local sid = ifc and ifc.spellID
+                if type(sid) ~= "number" or (issecretvalue and issecretvalue(sid)) then sid = nil end
                 if sid and icon:IsShown() then
                     -- Direct/base match first (cheap); only resolve the icon's own base if those
                     -- miss, to keep the common path light. sid > 0: item/trinket icons store -itemID/-13/-14, which must not be fed to GetBaseSpell.
                     local match = (sid == suggestedSpell) or (sid == suggestedBase)
                     if not match and GetBaseSpell and sid > 0 then
-                        match = GetBaseSpell(sid) == suggestedBase
+                        local sidBase = GetBaseSpell(sid)
+                        if type(sidBase) == "number"
+                            and not (issecretvalue and issecretvalue(sidBase)) then
+                            match = sidBase == suggestedBase
+                        end
                     end
                     if match then
                         _rotShow(icon)
@@ -10195,15 +10204,22 @@ local function UpdateRotationHighlights()
     end
     ns._rotationGlowedIcons = newSet
 end
-ns.UpdateRotationHighlights = UpdateRotationHighlights
 
--- One-frame defer after a bar rebuild: icon frames may have just been recycled or re-shown, so we want to re-run the match after the layout settles (dirty-frame pattern).
+-- Coalesce Blizzard's overlapping assisted-combat callbacks and bar rebuilds
+-- into one pass on the next frame. A suggestion change normally fires both an
+-- EventRegistry callback and UpdateAllAssistedHighlightFramesForSpell; running
+-- the full icon scan for each notification needlessly doubles the hot path.
 local _rotDirty = CreateFrame("Frame")
 _rotDirty:Hide()
 _rotDirty:SetScript("OnUpdate", function(self)
     self:Hide()
-    UpdateRotationHighlights()
+    UpdateRotationHighlightsNow()
 end)
+
+local function QueueRotationHighlightUpdate()
+    _rotDirty:Show()
+end
+ns.UpdateRotationHighlights = QueueRotationHighlightUpdate
 
 local function _rotSyncCombat()
     local inCombat = InCombatLockdown() or UnitAffectingCombat("player")
@@ -10230,26 +10246,26 @@ function ns.InstallRotationHook()
 
     if EventRegistry and EventRegistry.RegisterCallback then
         EventRegistry:RegisterCallback("AssistedCombatManager.OnAssistedHighlightSpellChange", function()
-            UpdateRotationHighlights()
+            QueueRotationHighlightUpdate()
         end, "ECME_CDM_RotationHelper")
         -- Clear highlights if the user flips Blizzard's CVar off at runtime.
         EventRegistry:RegisterCallback("AssistedCombatManager.OnSetUseAssistedHighlight", function()
-            UpdateRotationHighlights()
+            QueueRotationHighlightUpdate()
         end, "ECME_CDM_RotationHelper_CVar")
     end
 
     if AssistedCombatManager and AssistedCombatManager.UpdateAllAssistedHighlightFramesForSpell then
         hooksecurefunc(AssistedCombatManager, "UpdateAllAssistedHighlightFramesForSpell", function()
-            UpdateRotationHighlights()
+            QueueRotationHighlightUpdate()
         end)
     end
 
     -- Re-run after bar rebuilds so the shine follows icon recycling.
     if ns.CollectAndReanchor then
-        hooksecurefunc(ns, "CollectAndReanchor", function() _rotDirty:Show() end)
+        hooksecurefunc(ns, "CollectAndReanchor", QueueRotationHighlightUpdate)
     end
 
-    UpdateRotationHighlights()
+    QueueRotationHighlightUpdate()
 end
 end
 
