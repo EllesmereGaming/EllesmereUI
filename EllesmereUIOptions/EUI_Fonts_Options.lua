@@ -903,31 +903,14 @@ local function TileMinimap(parent, y, W, tile)
                 if _G._EMM_ApplyMinimap then _G._EMM_ApplyMinimap() end
             end }
     end
-    -- Scale rows apply exactly like the module's own cogs: SetScale on the
-    -- text block's host frame, no full minimap reapply.
-    local function scale(label, key, def, frameName)
-        return { type = "slider", text = label, min = 0.5, max = 2.0, step = 0.01,
-            getValue = function()
-                local p = db()
-                return (p and p[key]) or def
-            end,
-            setValue = function(v)
-                local p = db(); if not p then return end
-                p[key] = v
-                local f = _G[frameName]
-                if f and f.SetScale then f:SetScale(v) end
-            end }
-    end
     _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display),
         size("FPS Text Size", "fpsTextSize", 8, 30, 12));  y = y - h
     _, h = W:DualRow(parent, y,
-        size("Difficulty Text Size", "diffTextSize", 8, 24, 12),
-        scale("Clock Scale", "clockScale", 1.15, "_EBS_ClockBg"));  y = y - h
+        size("Difficulty Text Size", "diffTextSize", 8, 30, 12),
+        size("Clock Text Size", "clockSize", 8, 30, 12));  y = y - h
     _, h = W:DualRow(parent, y,
-        scale("Zone Text Scale", "locationScale", 1.15, "_EBS_LocationBg"),
-        scale("Coordinates Scale", "coordsScale", 1.0, "_EBS_CoordFrame"));  y = y - h
-    _, h = W:DualRow(parent, y,
-        scale("FPS/MS Scale", "fpsScale", 1.0, "_EBS_FpsBg"), BLANK());  y = y - h
+        size("Zone Text Size", "locationSize", 8, 30, 12),
+        size("Coordinates Text Size", "coordsSize", 8, 30, 12));  y = y - h
     return y
 end
 
