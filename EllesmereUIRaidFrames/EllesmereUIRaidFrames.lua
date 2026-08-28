@@ -13565,7 +13565,7 @@ local function ApplyPreviewData(f, index)
     -- Mark dead/offline preview frames so the animated-preview ticker skips them
     -- (their health bar is emptied and health text hidden -- never animated).
     f._pvHideHealthText = (isDead or isOffline) or nil
-    local isAfk     = indVis and indicator == "afk"
+    local isAfk     = indVis and indicator == "afk" and s.statusShowAFK
 
     -- Health text
     if f._healthText then
