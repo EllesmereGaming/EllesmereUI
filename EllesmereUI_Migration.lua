@@ -4231,27 +4231,45 @@ EllesmereUI.RegisterMigration({
 -- host frame to an absolute font size (px), matching the difficulty-text control.
 -- Seed the new *Size keys from the old scales times the font size each scale used
 -- to multiply (clock/zone 10, coords 11), so every UI keeps its current on-screen
--- size, then drop the legacy keys. Self-gates on the new key being unset.
+-- size. SetScale also multiplied the frame's anchor offsets, so a saved X/Y Offset
+-- was rendered in scaled space -- fold the scale into the raw offset too. (The base
+-- map-edge inset scaled as well; that residual is left -- ~1px at the old default,
+-- larger only for extreme scales.) Then drop the legacy keys; the nil-out doubles
+-- as the re-run guard (an inherited flag re-hits this with the scales already gone).
 EllesmereUI.RegisterMigration({
     id          = "minimap_text_scale_to_font_size_v1",
     scope       = "profile",
-    description = "Convert minimap clock/zone/coords/FPS text sizing from a scale multiplier to an absolute font size.",
+    description = "Convert minimap clock/zone/coords/FPS text sizing from a scale multiplier to an absolute font size, carrying the scale into the element's X/Y offset.",
     body = function(ctx)
         local mm = ctx.profile.addons and ctx.profile.addons.EllesmereUIMinimap
             and ctx.profile.addons.EllesmereUIMinimap.minimap
         if type(mm) ~= "table" then return end
         local function px(n) return math.max(8, math.min(30, math.floor(n + 0.5))) end
-        if mm.clockSize == nil and type(mm.clockScale) == "number" then
-            mm.clockSize = px(10 * mm.clockScale)
+        local function scaleOff(key, s)
+            local v = mm[key]
+            if type(v) == "number" and v ~= 0 then
+                mm[key] = math.max(-500, math.min(500, math.floor(v * s + 0.5)))
+            end
         end
-        if mm.locationSize == nil and type(mm.locationScale) == "number" then
-            mm.locationSize = px(10 * mm.locationScale)
+        if type(mm.clockScale) == "number" then
+            if mm.clockSize == nil then mm.clockSize = px(10 * mm.clockScale) end
+            scaleOff("clockOffsetX", mm.clockScale)
+            scaleOff("clockOffsetY", mm.clockScale)
         end
-        if mm.coordsSize == nil and type(mm.coordsScale) == "number" then
-            mm.coordsSize = px(11 * mm.coordsScale)
+        if type(mm.locationScale) == "number" then
+            if mm.locationSize == nil then mm.locationSize = px(10 * mm.locationScale) end
+            scaleOff("locationOffsetX", mm.locationScale)
+            scaleOff("locationOffsetY", mm.locationScale)
+        end
+        if type(mm.coordsScale) == "number" then
+            if mm.coordsSize == nil then mm.coordsSize = px(11 * mm.coordsScale) end
+            scaleOff("coordsBelowOffsetX", mm.coordsScale)
+            scaleOff("coordsBelowOffsetY", mm.coordsScale)
         end
         if type(mm.fpsScale) == "number" then
             mm.fpsTextSize = px((mm.fpsTextSize or 12) * mm.fpsScale)
+            scaleOff("fpsOffsetX", mm.fpsScale)
+            scaleOff("fpsOffsetY", mm.fpsScale)
         end
         mm.clockScale, mm.locationScale, mm.coordsScale, mm.fpsScale = nil, nil, nil, nil
     end,
