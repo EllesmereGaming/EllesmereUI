@@ -3243,6 +3243,16 @@ function ns.RefreshNameplateYOffset()
     for _, plate in pairs(ns.plates) do
         plate.health:ClearAllPoints()
         plate.health:SetPoint("CENTER", plate, "CENTER", 0, yOff)
+        -- The stacking-bounds frame is anchored with the same offset at build
+        -- time, so it has to move too or live edits leave stacking computing
+        -- against the old position. It is parented to the base nameplate.
+        if plate._stackBounds then
+            local np = plate._stackBounds:GetParent()
+            if np then
+                plate._stackBounds:ClearAllPoints()
+                plate._stackBounds:SetPoint("CENTER", np, "CENTER", 0, yOff)
+            end
+        end
     end
 end
 
