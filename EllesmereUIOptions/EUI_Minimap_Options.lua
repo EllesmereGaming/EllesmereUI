@@ -1239,7 +1239,7 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshMinimap()
               end }
         );  y = y - h
-        -- Inline cog on Clock Position for scale + X/Y offset
+        -- Inline cog on Clock Position for text size + X/Y offset
         if not EllesmereUI._prebuilding then
             local rgn = clockRow._rightRegion
             local function clockOff()
@@ -1251,13 +1251,12 @@ initFrame:SetScript("OnEvent", function(self)
                 disabledTooltip = "Clock Style",
                 title = "Clock Size and Position",
                 rows = {
-                    { type = "slider", label = "Scale", min = 0.5, max = 2.0, step = 0.01,
-                      get = function() local m = MinimapDB(); return m and m.clockScale or 1.15 end,
+                    { type = "slider", label = "Text Size", min = 8, max = 30, step = 1,
+                      get = function() local m = MinimapDB(); return m and m.clockSize or 12 end,
                       set = function(v)
                           local m = MinimapDB(); if not m then return end
-                          m.clockScale = v
-                          local bg = _G._EBS_ClockBg
-                          if bg then bg:SetScale(v) end
+                          m.clockSize = v
+                          RefreshMinimap()
                       end },
                     { type = "slider", label = "X Offset", min = -500, max = 500, step = 1,
                       get = function() local m = MinimapDB(); return m and m.clockOffsetX or 0 end,
@@ -1339,7 +1338,7 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
         end
-        -- Inline cog on Zone Position for scale + X/Y offset
+        -- Inline cog on Zone Position for text size + X/Y offset
         if not EllesmereUI._prebuilding then
             local rgn = zoneRow._rightRegion
             local function locOff()
@@ -1351,13 +1350,12 @@ initFrame:SetScript("OnEvent", function(self)
                 disabledTooltip = "Zone Text Style",
                 title = "Zone Text Size and Position",
                 rows = {
-                    { type = "slider", label = "Scale", min = 0.5, max = 2.0, step = 0.01,
-                      get = function() local m = MinimapDB(); return m and m.locationScale or 1.15 end,
+                    { type = "slider", label = "Text Size", min = 8, max = 30, step = 1,
+                      get = function() local m = MinimapDB(); return m and m.locationSize or 12 end,
                       set = function(v)
                           local m = MinimapDB(); if not m then return end
-                          m.locationScale = v
-                          local bg = _G._EBS_LocationBg
-                          if bg then bg:SetScale(v) end
+                          m.locationSize = v
+                          RefreshMinimap()
                       end },
                     { type = "slider", label = "X Offset", min = -500, max = 500, step = 1,
                       get = function() local m = MinimapDB(); return m and m.locationOffsetX or 0 end,
@@ -1431,7 +1429,7 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
         end
-        -- Inline cog on Coordinates Position for X/Y offset
+        -- Inline cog on Coordinates Position for text size + X/Y offset
         if not EllesmereUI._prebuilding then
             local rgn = coordsRow._rightRegion
             local function coordsOff() return CoordsMode() == "never" end
@@ -1441,13 +1439,12 @@ initFrame:SetScript("OnEvent", function(self)
                 disabledTooltip = "Show Coordinates",
                 title = "Coordinates Size and Position",
                 rows = {
-                    { type = "slider", label = "Scale", min = 0.5, max = 2.0, step = 0.01,
-                      get = function() local m = MinimapDB(); return m and m.coordsScale or 1.0 end,
+                    { type = "slider", label = "Text Size", min = 8, max = 30, step = 1,
+                      get = function() local m = MinimapDB(); return m and m.coordsSize or 12 end,
                       set = function(v)
                           local m = MinimapDB(); if not m then return end
-                          m.coordsScale = v
-                          local cf = _G._EBS_CoordFrame
-                          if cf then cf:SetScale(v) end
+                          m.coordsSize = v
+                          RefreshMinimap()
                       end },
                     { type = "slider", label = "X Offset", min = -500, max = 500, step = 1,
                       get = function() local m = MinimapDB(); return m and m.coordsBelowOffsetX or 0 end,
@@ -1467,7 +1464,7 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        -- Show FPS/MS (+ swatch + cog, mirrors QoL Show FPS Counter) | FPS/MS Position (+ offset cog)
+        -- Show FPS/MS (+ swatch + cog, mirrors QoL Show FPS Counter) | FPS/MS Position (+ size/offset cog)
         local function FpsOff()
             local m = MinimapDB(); return not (m and m.showFPS)
         end
@@ -1492,7 +1489,7 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshMinimap()
               end }
         );  y = y - h
-        -- Inline cog on Show FPS/MS (text size + which MS readouts show).
+        -- Inline cog on Show FPS/MS (which MS readouts show, update interval).
         -- The description-colour swatches live on the Accented Text row at
         -- the bottom of this section.
         if not EllesmereUI._prebuilding then
@@ -1504,13 +1501,6 @@ initFrame:SetScript("OnEvent", function(self)
                 disabledTooltip = "Show FPS/MS",
                 title = "FPS/MS Settings",
                 rows = {
-                    { type="slider", label="Text Size", min=8, max=30, step=1,
-                      get=function() local m = MinimapDB(); return m and m.fpsTextSize or 12 end,
-                      set=function(v)
-                          local m = MinimapDB(); if not m then return end
-                          m.fpsTextSize = v
-                          RefreshMinimap()
-                      end },
                     { type="toggle", label="Show Local MS",
                       get=function()
                           local m = MinimapDB()
@@ -1540,7 +1530,7 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
         end
-        -- Inline offset cog on FPS/MS Position
+        -- Inline size + offset cog on FPS/MS Position
         if not EllesmereUI._prebuilding then
             local rgn = fpsRow._rightRegion
             EllesmereUI.BuildInlineCog(rgn, {
@@ -1549,13 +1539,12 @@ initFrame:SetScript("OnEvent", function(self)
                 disabledTooltip = "Show FPS/MS",
                 title = "FPS/MS Size and Position",
                 rows = {
-                    { type = "slider", label = "Scale", min = 0.5, max = 2.0, step = 0.01,
-                      get = function() local m = MinimapDB(); return m and m.fpsScale or 1.0 end,
+                    { type = "slider", label = "Text Size", min = 8, max = 30, step = 1,
+                      get = function() local m = MinimapDB(); return m and m.fpsTextSize or 12 end,
                       set = function(v)
                           local m = MinimapDB(); if not m then return end
-                          m.fpsScale = v
-                          local fb = _G._EBS_FpsBg
-                          if fb then fb:SetScale(v) end
+                          m.fpsTextSize = v
+                          RefreshMinimap()
                       end },
                     { type = "slider", label = "X Offset", min = -500, max = 500, step = 1,
                       get = function() local m = MinimapDB(); return m and m.fpsOffsetX or 0 end,
@@ -1651,7 +1640,7 @@ initFrame:SetScript("OnEvent", function(self)
                 disabledTooltip = "Show Instance Difficulty as Text",
                 title = "Difficulty Text Size and Position",
                 rows = {
-                    { type = "slider", label = "Text Size", min = 8, max = 24, step = 1,
+                    { type = "slider", label = "Text Size", min = 8, max = 30, step = 1,
                       get = function() local m = MinimapDB(); return m and m.diffTextSize or 12 end,
                       set = function(v)
                           local m = MinimapDB(); if not m then return end
