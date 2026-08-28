@@ -683,7 +683,6 @@ local function ApplyMinimap()
         end
         if not clockFrame then
             I.SetClockFrame(clockBg:CreateFontString(nil, "OVERLAY"))
-            ApplyMinimapFont(clockFrame, 10)
             clockFrame:SetPoint("CENTER", clockBg, "CENTER", 0, 0)
             clockFrame:SetTextColor(1, 1, 1, 0.9)
         end
@@ -707,9 +706,7 @@ local function ApplyMinimap()
         else
             clockFrame:SetPoint("CENTER", clockBg, "CENTER", 0, 0)
         end
-        local cs = p.clockScale or 1.15
-        clockBg:SetScale(cs)
-        _G._EBS_ClockBg = clockBg
+        ApplyMinimapFont(clockFrame, p.clockSize or 12)
         clockBg:Show()
         clockFrame:Show()
         if not clockTicker then
@@ -808,7 +805,6 @@ local function ApplyMinimap()
         end
         if not locationFrame then
             I.SetLocationFrame(locationBg:CreateFontString(nil, "OVERLAY"))
-            ApplyMinimapFont(locationFrame, 10)
             locationFrame:SetPoint("CENTER", locationBg, "CENTER", 0, 0)
             locationFrame:SetTextColor(1, 1, 1, 0.9)
         end
@@ -860,9 +856,7 @@ local function ApplyMinimap()
             locationFrame:SetPoint("RIGHT", slot, "RIGHT", lxOff, lyOff)
             locationFrame:SetWordWrap(false)
         end
-        local ls = p.locationScale or 1.15
-        locationBg:SetScale(ls)
-        _G._EBS_LocationBg = locationBg
+        ApplyMinimapFont(locationFrame, p.locationSize or 12)
         locationBg:Show()
         locationFrame:Show()
         UpdateLocation()
@@ -874,7 +868,6 @@ local function ApplyMinimap()
     -- Coordinates -- mode (never/hover/always) + anchor position around the map
     if not coordFrame then
         I.SetCoordFrame(minimap:CreateFontString(nil, "OVERLAY"))
-        ApplyMinimapFont(coordFrame, 11)
         coordFrame:SetTextColor(1, 1, 1, 0.9)
     end
     local coordsMode, coordsPos = GetCoordsModePos(p)
@@ -885,8 +878,7 @@ local function ApplyMinimap()
     cpy = cpy + (p and p.coordsBelowOffsetY or 0)
     coordFrame:ClearAllPoints()
     coordFrame:SetPoint(cpAnchor[1], GetFFD(minimap).layoutFrame or minimap, cpAnchor[2], cpx, cpy)
-    coordFrame:SetScale(p and p.coordsScale or 1.0)
-    _G._EBS_CoordFrame = coordFrame
+    ApplyMinimapFont(coordFrame, (p and p.coordsSize) or 12)
     if not coordTicker then
         I.SetCoordTicker(CreateFrame("Frame"))  -- kept for Show/Hide API
         coordTicker._ticker = nil
@@ -935,7 +927,8 @@ local function ApplyMinimap()
             -- One FontString per SEGMENT ("58 FPS"): number+suffix rasterize in a single
             -- pass, so spacing can never wobble sub-pixel like two separately snapped
             -- strings. Suffix colour rides an inline escape (Accented Text); SetFormattedText keeps formatting C-side with no template rebuilds.
-            local fsFps, fsWorld, fsLocal = MakeFS(12), MakeFS(12), MakeFS(12)
+            local initSz = p.fpsTextSize or 12
+            local fsFps, fsWorld, fsLocal = MakeFS(initSz), MakeFS(initSz), MakeFS(initSz)
             fpsBg._fsAll = { fsFps, fsWorld, fsLocal }
             local divWorld = MakeDivider()
             local divLocal = MakeDivider()
@@ -989,7 +982,7 @@ local function ApplyMinimap()
                     divLocal:Hide(); fsLocal:Hide()
                 end
 
-                self:SetSize(totalW + 4, 20)
+                self:SetSize(totalW + 4, ((mp and mp.fpsTextSize) or 12) + 8)
             end
 
             local elapsed = 0
@@ -1041,8 +1034,6 @@ local function ApplyMinimap()
         fpsBg:ClearAllPoints()
         fpsBg:SetPoint(fAnchor[1], GetFFD(minimap).layoutFrame or minimap, fAnchor[2],
             fx + (p.fpsOffsetX or 0), fy + (p.fpsOffsetY or 0))
-        fpsBg:SetScale(p.fpsScale or 1.0)
-        _G._EBS_FpsBg = fpsBg
         -- Mouse only while a hover tooltip is assigned, so it never blocks map clicks
         -- (WoW Forever reads a saved "vault" as none).
         fpsBg:EnableMouse((p.fpsHoverTooltip or "none") ~= "none"

@@ -20,6 +20,8 @@ local coordFrame
 I.coordFrameSetters[#I.coordFrameSetters + 1] = function(v) coordFrame = v end
 local clockFrame
 I.clockFrameSetters[#I.clockFrameSetters + 1] = function(v) clockFrame = v end
+local clockBg
+I.clockBgSetters[#I.clockBgSetters + 1] = function(v) clockBg = v end
 local locationFrame
 I.locationFrameSetters[#I.locationFrameSetters + 1] = function(v) locationFrame = v end
 local locationBg
@@ -71,6 +73,10 @@ local function UpdateClock()
         else
             clockFrame:SetFormattedText("%d:%02d %s", h, m, ampm)
         end
+    end
+    if clockBg then
+        local sz = (EBS.db and EBS.db.profile.minimap.clockSize) or 12
+        clockBg:SetSize((clockFrame:GetStringWidth() or 0) + 16, sz + 6)
     end
 end
 
@@ -213,7 +219,7 @@ local function UpdateLocation()
     locationFrame:SetText(text)
     if locationBg then
         local tw = locationFrame:GetStringWidth() or 0
-        locationBg:SetSize(tw + 20, 18)
+        locationBg:SetSize(tw + 20, ((mp and mp.locationSize) or 12) + 6)
     end
 end
 
