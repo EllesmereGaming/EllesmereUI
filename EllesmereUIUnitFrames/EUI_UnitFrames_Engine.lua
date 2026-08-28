@@ -86,7 +86,6 @@ local CHANNEL_EVENTS = {
                  "UNIT_ABSORB_AMOUNT_CHANGED", "UNIT_HEAL_ABSORB_AMOUNT_CHANGED",
                  "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" },
     portrait = { "UNIT_PORTRAIT_UPDATE", "UNIT_MODEL_CHANGED", "UNIT_CONNECTION" },
-    auras    = { "UNIT_AURA" },
 }
 
 -- Events consumed by the castbar channel; routed raw (event identity matters
@@ -397,6 +396,15 @@ local function Bump()
     return paintGen
 end
 
+-- Identity edges are never eaten by a same-frame value paint: painters may
+-- skip identity-only work (the text painter's name/level zones) on value
+-- events, so an identity event landing after a value paint in the same
+-- hardware frame must still reach the painter (RepaintAll wipes the stamps
+-- for the same reason).
+local IDENTITY_EVENTS = {
+    UNIT_NAME_UPDATE = true, UNIT_LEVEL = true, UNIT_CONNECTION = true, UNIT_FACTION = true,
+}
+
 local function Paint(frame, channel, event)
     local fn = painters[channel]
     if not fn then return end
@@ -404,7 +412,7 @@ local function Paint(frame, channel, event)
     local stamps = frame._euiPaintStamps
     if not stamps then stamps = {}; frame._euiPaintStamps = stamps end
     -- Castbar events are never deduped: each event name is a distinct edge.
-    if channel ~= "castbar" then
+    if channel ~= "castbar" and not IDENTITY_EVENTS[event] then
         local key = stamps[channel]
         if key == gen then return end
         stamps[channel] = gen
@@ -455,10 +463,10 @@ local function TrackerOnEvent(self, event, unitToken, ...)
     if not chans then return end
     for i = 1, #chans do
         local ch = chans[i]
-        if ch == "castbar" or ch == "auras" then
-            -- Raw routes: event identity and payload both matter (cast edges;
-            -- aura delta lists), and consecutive same-frame events each carry
-            -- distinct data -- never deduped.
+        if ch == "castbar" then
+            -- Raw route: event identity and payload both matter (cast edges),
+            -- and consecutive same-frame events each carry distinct data --
+            -- never deduped.
             local fn = painters[ch]
             if fn then fn(frame, frame._euiUnit, event, unitToken, ...) end
         else
@@ -531,7 +539,7 @@ end
 --  Eventless units: targettarget/focustarget. One shared ticker, 0.5s (the
 --  cadence users already know), alive only while at least one of the two
 --  frames is shown. Value channels repaint every tick; identity channels
---  (portrait, auras, full text) only when the GUID actually changed --
+--  (portrait, full text) only when the GUID actually changed --
 --  compared through a secret-safe equality that treats an unreadable GUID as
 --  "changed" so restricted content fails open to a repaint, never to staleness.
 -------------------------------------------------------------------------------
@@ -649,14 +657,14 @@ Engine.EvalActiveUnit = EvalActiveUnit
 
 -------------------------------------------------------------------------------
 --  Element compatibility surface: the settings code toggles rendering per
---  element (portrait off, castbar off, buffs off...) through the same three
---  methods it always called. "Disabled" = the matching painter skips it; the
---  widgets and their fields stay untouched.
+--  element (portrait off, castbar off...) through the same three methods it
+--  always called. "Disabled" = the matching painter skips it; the widgets and
+--  their fields stay untouched.
 -------------------------------------------------------------------------------
 local ELEMENT_CHANNEL = {
     Health = "health", Power = "power", Castbar = "castbar",
     Portrait = "portrait", HealthPrediction = "absorb",
-    Buffs = "auras", Debuffs = "auras", RaidTargetIndicator = "raidicon",
+    RaidTargetIndicator = "raidicon",
 }
 
 --- True when a painter would render this element right now.
@@ -674,7 +682,7 @@ local function Frame_EnableElement(self, elementName)
     if off then off[elementName] = nil end
     -- Match the old enable semantics: an immediate refresh of that element.
     local channel = ELEMENT_CHANNEL[elementName]
-    if channel == "castbar" or channel == "auras" then
+    if channel == "castbar" then
         local fn = painters[channel]
         if fn then fn(self, self._euiUnit, "ForceUpdate") end
     elseif channel then

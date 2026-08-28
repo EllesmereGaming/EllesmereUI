@@ -2109,7 +2109,7 @@ initFrame:SetScript("OnEvent", function(self)
                       values = EllesmereUI.FRAME_STRATA_LABELS,
                       order = EllesmereUI.FRAME_STRATA_ORDER_BASE,
                       get=function()
-                        return (EllesmereUIDB and EllesmereUIDB.targetDistanceStrata) or "MEDIUM"
+                        return (EllesmereUIDB and EllesmereUIDB.targetDistanceStrata) or "HIGH"
                       end,
                       set=function(v)
                         if not EllesmereUIDB then EllesmereUIDB = {} end

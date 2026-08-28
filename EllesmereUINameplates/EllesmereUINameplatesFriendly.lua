@@ -206,8 +206,21 @@ local function ApplySubtitleFont()
 end
 ApplySubtitleFont()
 
-local function ApplyFriendlyFontOverride()
+local _ffFile, _ffSize
+local function ApplyFriendlyFontOverride(force)
     SaveOriginalFonts()
+    local font = GetFont()
+    local size = GetFriendlyNameSize()
+    -- Blizzard never rewrites the shared font OBJECTS (its plate setup only
+    -- SetFontObjects the name strings onto them), so once they carry our
+    -- file + size they keep it: an unchanged pair means nothing to restore
+    -- or re-apply. Every SetFont on these objects relayouts every plate
+    -- name, so this stamp is what keeps plate-add bursts free.
+    -- `force` bypasses the stamp: on RESTRICTED friendly-player plates
+    -- (instanced content) the per-string SetTextHeight re-stamp is denied,
+    -- and this relayout is the only lever that clears Blizzard's per-instance
+    -- height, so the deferred re-apply forces it there (once per burst).
+    if not force and fontOverrideApplied and font == _ffFile and size == _ffSize then return end
     -- Restore to known-good originals first so we read the correct height
     -- even if Blizzard reset the font objects after a CVar change.
     if fontOverrideApplied then
@@ -219,8 +232,6 @@ local function ApplyFriendlyFontOverride()
         end
         fontOverrideApplied = false
     end
-    local font = GetFont()
-    local size = GetFriendlyNameSize()
     if SystemFont_NamePlate and SystemFont_NamePlate.SetFont then
         local _, _, flags = SystemFont_NamePlate:GetFont()
         SystemFont_NamePlate:SetFont(font, size, flags or GetNPOutline())
@@ -229,6 +240,7 @@ local function ApplyFriendlyFontOverride()
         local _, _, flags = SystemFont_NamePlate_Outlined:GetFont()
         SystemFont_NamePlate_Outlined:SetFont(font, size, flags or GetNPOutline())
     end
+    _ffFile, _ffSize = font, size
     fontOverrideApplied = true
 end
 
@@ -303,13 +315,30 @@ local function _OnNameWidthChanged(self)
     _nameFixGuard = false
 end
 
+-- Blizzard's ApplyFrameOptions stamps a PER-INSTANCE height on the name
+-- FontString (name:SetTextHeight(healthBarFontHeight)), which beats the shared
+-- SystemFont_NamePlate size, so the font-object override alone is lost on every
+-- plate setup. Re-assert the configured height per FontString, and again whenever
+-- Blizzard re-stamps it. Guarded because our own write re-enters the hook.
+local _nameHeightGuard = false
+local function ApplyNameTextHeight(nameFS)
+    if _nameHeightGuard then return end
+    if not (nameFS and nameFS.SetTextHeight) then return end
+    if not IsNameOnlyMode() then return end
+    _nameHeightGuard = true
+    pcall(nameFS.SetTextHeight, nameFS, GetFriendlyNameSize())
+    _nameHeightGuard = false
+end
+
 local function EnsureNameUnconstrained(nameFS)
     if not nameFS then return end
     FixNameSizing(nameFS)
+    ApplyNameTextHeight(nameFS)
     if hookedNameFonts[nameFS] then return end
     hookedNameFonts[nameFS] = true
     hooksecurefunc(nameFS, "SetWidth", _OnNameWidthChanged)
     if nameFS.SetSize then hooksecurefunc(nameFS, "SetSize", _OnNameWidthChanged) end
+    if nameFS.SetTextHeight then hooksecurefunc(nameFS, "SetTextHeight", ApplyNameTextHeight) end
 end
 
 local function ApplyFontToNameplate(nameplate)
@@ -323,6 +352,9 @@ ns.ApplyFontToNameplate = ApplyFontToNameplate
 function ns.RefreshFriendlyNameSize()
     if IsNameOnlyMode() then
         ApplyFriendlyFontOverride()
+        -- Blizzard's per-instance name height overrides the font object, so the
+        -- visible plates need the new size stamped on directly.
+        if ReanchorAllPlayerNames then ReanchorAllPlayerNames() end
         -- The guild line hangs half a name-height below the plate centre, so
         -- a new name size moves it (ns lookup: defined later in this file).
         if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
@@ -338,13 +370,17 @@ end
 -- Touches font objects only -- no CVar writes -- so it can never feed back into
 -- UpdateNamePlateOptions.
 local _nameSizeReapplyPending = false
-local function ScheduleNameSizeReapply()
+local _nameSizeReapplyForce = false
+local function ScheduleNameSizeReapply(force)
+    if force then _nameSizeReapplyForce = true end
     if _nameSizeReapplyPending or not IsNameOnlyMode() then return end
     _nameSizeReapplyPending = true
     C_Timer.After(0, function()
         _nameSizeReapplyPending = false
+        local forced = _nameSizeReapplyForce
+        _nameSizeReapplyForce = false
         if not IsNameOnlyMode() then return end
-        ApplyFriendlyFontOverride()
+        ApplyFriendlyFontOverride(forced)
         -- Blizzard's own ApplyFrameOptions pass re-anchors the name (that is
         -- what fires this), so re-collapse it here rather than from a
         -- SetPoint hook, which would re-enter UpdateAnchors mid-pass. Rides
@@ -712,7 +748,10 @@ function ReanchorAllPlayerNames()
     for unit, nameplate in pairs(pending) do
         if UnitIsPlayer(unit) and not UnitCanAttack("player", unit) and not UnitIsUnit(unit, "player") then
             local uf = nameplate.UnitFrame
-            if uf and uf.name then FixNameSizing(uf.name) end
+            if uf and uf.name then
+                FixNameSizing(uf.name)
+                ApplyNameTextHeight(uf.name)
+            end
         end
     end
 end
@@ -836,8 +875,9 @@ hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", function(_, unit)
 
     -- Re-assert the name-only font size for this newly added / camera-revealed
     -- plate -- Blizzard's per-plate setup resets the shared font object to default.
-    -- No-op outside name-only mode.
-    ScheduleNameSizeReapply()
+    -- No-op outside name-only mode. Forced in instanced content: friendly-player
+    -- plates are restricted there and the per-string re-stamp cannot take.
+    ScheduleNameSizeReapply(IsInInstance())
 
     -- Health-bar mode: full UF suppression for players (and NPCs if enabled)
     if IsFriendlyEnabled() then
@@ -879,6 +919,10 @@ hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", function(_, unit)
                 uf:RegisterEvent("PLAYER_TARGET_CHANGED")
                 uf:RegisterEvent("PLAYER_SOFT_FRIEND_CHANGED")
                 uf:RegisterEvent("PLAYER_SOFT_ENEMY_CHANGED")
+                -- Blizzard's RaidTargetFrame is the marker display on this path and
+                -- its OnUnitSet drives it from this event alone; without it the marker
+                -- froze until the plate was re-acquired.
+                uf:RegisterEvent("RAID_TARGET_UPDATE")
             end
             EnsureNameUnconstrained(nameplate.UnitFrame.name)
             -- Subtitle Text: inline title + guild line, both composed onto
@@ -1822,7 +1866,7 @@ end
 -- Font objects only -- safe, debounced, no CVar feedback.
 if NamePlateDriverFrame and NamePlateDriverFrame.UpdateNamePlateOptions then
     hooksecurefunc(NamePlateDriverFrame, "UpdateNamePlateOptions", function()
-        ScheduleNameSizeReapply()
+        ScheduleNameSizeReapply(IsInInstance())
     end)
 end
 
