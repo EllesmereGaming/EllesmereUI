@@ -13489,10 +13489,25 @@ local function RegisterUFUnlockElements()
                 label = UNIT_LABELS[key] or key,
                 group = "Unit Frames",
                 order = orderBase + order,
+                isExplicitlyDisabled = function(k)
+                    if k == "classPower" then
+                        local p = db.profile.player
+                        return ns.GetUnitFrameSource("player") ~= "eui"
+                            or not p.showClassPowerBar
+                            or p.classPowerStyle == "none"
+                            or p.lockClassPowerToFrame
+                    end
+                    return ns.GetUnitFrameSource(k) ~= "eui"
+                end,
                 getFrame = function(k)
                     if k == "boss" then return frames["boss1"] end
                     if k == "classPower" then return frames._classPowerBar end
                     return frames[k]
+                end,
+                isNeverVisible = function(k)
+                    if k == "boss" or k == "classPower" then return false end
+                    local s = GetSettingsForUnit(k)
+                    return s and s.barVisibility == "never" or false
                 end,
                 getSize = function(k)
                     if k == "classPower" then
@@ -13722,6 +13737,13 @@ local function RegisterUFUnlockElements()
                 group = "Unit Frames",
                 order = orderBase + order,
                 getFrame = function() return GetCBFrame() end,
+                isExplicitlyDisabled = function()
+                    if ns.GetUnitFrameSource(unitKey) ~= "eui" then return true end
+                    local s = GetCBSettings()
+                    if not s then return true end
+                    if unitKey == "player" then return not s.showPlayerCastbar end
+                    return s.showCastbar == false
+                end,
                 isHidden = function()
                     -- Live show/hide: mirror the per-unit cast bar enable setting
                     -- (player defaults off; target/focus default on). The mover is

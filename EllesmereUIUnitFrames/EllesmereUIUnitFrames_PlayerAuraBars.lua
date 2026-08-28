@@ -2423,6 +2423,12 @@ function RegisterPABUnlock()
             -- Enable toggle: a disabled default bar keeps no mover (custom-bar
             -- parity). Master-disabled and Use Blizzard Buffs stand the
             -- defaults down entirely, mover included.
+            isExplicitlyDisabled = function()
+                local s = PAB()
+                if not s or s.enabled ~= true or s.useBlizzardBuffs == true then return true end
+                local cfg = isBuff and DefaultBuffsCfg(s) or DefaultDebuffsCfg(s)
+                return cfg.enabled == false
+            end,
             isHidden = function()
                 local s = PAB()
                 if not s or s.enabled ~= true or s.useBlizzardBuffs == true then return true end
@@ -3680,6 +3686,12 @@ local function RegisterPABCustomUnlock()
             order = order,
             noResize = true,
             noAnchorTarget = true,
+            isExplicitlyDisabled = function()
+                local s = PAB()
+                if not s or s.enabled ~= true then return true end
+                local b = isBuff and ns.PAB_GetCustomBuffBar(barId) or ns.PAB_GetCustomDebuffBar(barId)
+                return not b or b.enabled == false
+            end,
             isHidden = function()
                 local b, bk
                 if isBuff then b, bk = ns.PAB_GetCustomBuffBar(barId)
@@ -5710,4 +5722,3 @@ function ns.PAB_ArmRecovery()
     -- early-returns for profiles without buckets).
     initFrame:RegisterUnitEvent("PLAYER_SPECIALIZATION_CHANGED", "player")
 end
-

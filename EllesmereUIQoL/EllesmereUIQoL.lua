@@ -2528,6 +2528,9 @@ do
                 -- Dragged by the Secondary Stats element while attached. Read
                 -- live, so detaching restores the mover without re-registering.
                 isHidden = IsAttached,
+                isExplicitlyDisabled = function()
+                    return not EllesmereUI.QoLExtrasGet("showFPS")
+                end,
                 getFrame = function()
                     if not fpsFrame then CreateFPSCounter() end
                     return fpsFrame
@@ -2571,6 +2574,9 @@ do
                 label = "Secondary Stats",
                 group = "General",
                 order = 710,
+                isExplicitlyDisabled = function()
+                    return not EllesmereUI.QoLExtrasGet("showSecondaryStats")
+                end,
                 getFrame = function()
                     local f = EllesmereUI._getSecondaryStatsFrame and EllesmereUI._getSecondaryStatsFrame()
                     return f
@@ -3800,6 +3806,9 @@ do
                 group    = "Quality of Life",
                 order    = 720,
                 noResize = true,
+                isExplicitlyDisabled = function()
+                    return not (EllesmereUIDB and EllesmereUIDB.announceGroupDeaths)
+                end,
                 isHidden = function()
                     return not (EllesmereUIDB and EllesmereUIDB.announceGroupDeaths)
                 end,
@@ -4026,6 +4035,9 @@ do
                 group    = "Quality of Life",
                 order    = 721,
                 noResize = true,
+                isExplicitlyDisabled = function()
+                    return not (EllesmereUIDB and EllesmereUIDB.combatAlertEnabled)
+                end,
                 isHidden = function()
                     return not (EllesmereUIDB and EllesmereUIDB.combatAlertEnabled)
                 end,
@@ -4313,6 +4325,9 @@ do
                 group    = "Quality of Life",
                 order    = 722,
                 noResize = true,
+                isExplicitlyDisabled = function()
+                    return not IsEnabled()
+                end,
                 isHidden = function()
                     return not IsEnabled()
                 end,

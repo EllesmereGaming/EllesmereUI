@@ -12266,6 +12266,14 @@ local function RegisterWithUnlockMode()
             label = info.label,
             group = "Action Bars",
             order = orderBase + idx,
+            isExplicitlyDisabled = function()
+                local s = EAB.db.profile.bars[info.key]
+                return s and s.enabled == false or false
+            end,
+            isNeverVisible = function()
+                local s = EAB.db.profile.bars[info.key]
+                return s and (s.alwaysHidden or s.barVisibility == "never") or false
+            end,
             isHidden = function()
                 local s = EAB.db.profile.bars[info.key]
                 if not s then return false end
@@ -12494,6 +12502,14 @@ local function RegisterWithUnlockMode()
                 group = "Action Bars",
                 order = blizzOrder,
                 noResize = true,
+                isExplicitlyDisabled = function()
+                    local s = EAB.db.profile.bars[bk]
+                    return s and s.enabled == false or false
+                end,
+                isNeverVisible = function()
+                    local s = EAB.db.profile.bars[bk]
+                    return s and (s.alwaysHidden or s.barVisibility == "never") or false
+                end,
                 getFrame = function() return blizzMovableHolders[bk] end,
                 getSize = function()
                     local ov = BLIZZ_MOVABLE_OVERLAY[bk]
@@ -15061,6 +15077,14 @@ local function RegisterDataBarsWithUnlockMode()
                 label = info.label,
                 group = "Action Bars",
                 order = orderBase + idx,
+                isExplicitlyDisabled = function()
+                    local s = EAB.db.profile.bars[bk]
+                    return s and s.enabled == false or false
+                end,
+                isNeverVisible = function()
+                    local s = EAB.db.profile.bars[bk]
+                    return s and (s.alwaysHidden or s.barVisibility == "never") or false
+                end,
                 getFrame = function() return dataBarFrames[bk] end,
                 getSize = function()
                     -- Return stored DB values so cog menu shows what the
@@ -16031,6 +16055,14 @@ local function RegisterExtraBarsWithUnlockMode()
                 noResize = true,
                 noAnchorTo = isBlizzOwned,
                 noAnchorTarget = isBlizzOwned,
+                isExplicitlyDisabled = function()
+                    local s = EAB.db.profile.bars[bk]
+                    return s and s.enabled == false or false
+                end,
+                isNeverVisible = function()
+                    local s = EAB.db.profile.bars[bk]
+                    return s and (s.alwaysHidden or s.barVisibility == "never") or false
+                end,
                 isHidden = function()
                     local s = EAB.db.profile.bars[bk]
                     if not s then return false end

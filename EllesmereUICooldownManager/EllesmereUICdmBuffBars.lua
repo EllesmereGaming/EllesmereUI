@@ -5922,6 +5922,14 @@ function ns.RegisterTBBUnlockElements()
                 -- driven by its own CDM sliders/dynamic content, so it should never be a sizing reference.
                 allowMatchSource  = true,
                 noSizeMatchTarget = true,
+                isExplicitlyDisabled = function()
+                    local p = ECME and ECME.db and ECME.db.profile
+                    if not (p and p.cdmBars and p.cdmBars.enabled) then return true end
+                    if p.cdmBars.useBlizzardBuffBars then return true end
+                    local t = ns.GetTrackedBuffBars()
+                    local c = t and t.bars and t.bars[idx]
+                    return not c or c.enabled == false
+                end,
                 isHidden = function()
                     local t = ns.GetTrackedBuffBars()
                     local b = t and t.bars
@@ -6080,6 +6088,11 @@ function ns.RegisterTBBUnlockElements()
                 noResize = true,
                 allowMatchSource  = true,
                 noSizeMatchTarget = true,
+                isExplicitlyDisabled = function()
+                    local p = ECME and ECME.db and ECME.db.profile
+                    return not (p and p.cdmBars and p.cdmBars.enabled)
+                        or p.cdmBars.useBlizzardBuffBars
+                end,
                 isHidden = function()
                     local gid = ns.TBBLocalGidForGlobal(gk)
                     return not gid or not ns.TBBGroupAnchorIndex(gid)

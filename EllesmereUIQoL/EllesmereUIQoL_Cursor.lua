@@ -1012,6 +1012,10 @@ local function RegisterUnlockElements()
             label = "GCD Circle",
             group = "Cursor Lite",
             order = 500,
+            isExplicitlyDisabled = function()
+                local cfg = GCD_DB()
+                return not cfg.enabled or cfg.attached ~= false
+            end,
             getFrame = function() return gcdRoot end,
             getSize = function()
                 local g2 = GCD_DB()
@@ -1068,6 +1072,10 @@ local function RegisterUnlockElements()
             label = "Cast Bar Circle",
             group = "Cursor Lite",
             order = 501,
+            isExplicitlyDisabled = function()
+                local cfg = Cast_DB()
+                return not cfg.enabled or cfg.attached ~= false
+            end,
             getFrame = function() return castRoot end,
             getSize = function()
                 local c2 = Cast_DB()

@@ -3994,6 +3994,10 @@ local function RegisterUnlockElements()
             noAnchorTarget = true,  -- icon count changes dynamically with auras
             -- Icon size is driven solely by the Scale slider. No drag-resize: row width is count-dependent, so restoring a stored width under a different count would corrupt the persisted scale (matches External Defensives).
             noResize = true,
+            isExplicitlyDisabled = function()
+                local display = db and db.profile and db.profile.display
+                return display and display.remindersEnabled == false or false
+            end,
             getFrame = function() return iconAnchor end,
             getSize = function()
                 local p = db.profile.display

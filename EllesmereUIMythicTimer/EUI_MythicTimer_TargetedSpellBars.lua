@@ -1244,6 +1244,10 @@ local function RegisterUnlock()
             -- the sliders write (per-bar size; the container relayouts).
             noResize = true,
             allowMatchSource = true,
+            isExplicitlyDisabled = function()
+                local cfg = Cfg()
+                return not (cfg and cfg.enabled == true)
+            end,
             isHidden = function()
                 local cfg = Cfg()
                 return not (cfg and cfg.enabled == true)

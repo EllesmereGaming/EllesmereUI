@@ -2190,7 +2190,9 @@ local function RegisterUnlockElements()
         elements[#elements + 1] = MK({
             key = "ERB_Health", label = "Health Bar", group = "Resource Bars", order = 500,
             getFrame = function() return healthBar end,
+            isExplicitlyDisabled = function() local s = S(); return not s.enabled or IsSpecDisabled(s) end,
             isHidden = function() local s = S(); return not s.enabled or IsSpecDisabled(s) end,
+            isNeverVisible = function() return SS().visibility == "never" end,
             -- Reported through the ON-SCREEN axes, not the stored ones: a vertical
             -- bar renders through OrientedSize, so stored width is what the player
             -- sees as height; handing the mover the raw stored pair would make it
@@ -2233,7 +2235,9 @@ local function RegisterUnlockElements()
         elements[#elements + 1] = MK({
             key = "ERB_Power", label = "Power Bar", group = "Resource Bars", order = 501,
             getFrame = function() return primaryBar end,
+            isExplicitlyDisabled = function() local s = S(); return s.enabled == false or IsSpecDisabled(s) end,
             isHidden = function() local s = S(); return s.enabled == false or IsSpecDisabled(s) end,
+            isNeverVisible = function() return SS().visibility == "never" end,
             -- On-screen axes, as with the health bar above.
             getSize  = function()
                 local s, g = SS(), ERB.db.profile.general
@@ -2299,7 +2303,9 @@ local function RegisterUnlockElements()
                 end
                 Rebuild()
             end,
+            isExplicitlyDisabled = function() local s = S(); return s.enabled == false or IsSpecDisabled(s) end,
             isHidden = function() local s = S(); return s.enabled == false or IsSpecDisabled(s) end,
+            isNeverVisible = function() return SS().visibility == "never" end,
             isAnchored = function() local s = S(); return s.anchorTo and s.anchorTo ~= "none" end,
             keepMoverWhenAnchored = true,
             onLiveMove = LiveMove,
@@ -2343,6 +2349,7 @@ local function RegisterUnlockElements()
         elements[#elements + 1] = MK({
             key = "ERB_CastBar", label = "Cast Bar", group = "Resource Bars", order = 504,
             noAnchorTarget = true,
+            isExplicitlyDisabled = function() return S().enabled == false end,
             getFrame = function() return castBarFrame end,
             getSize  = function()
                 local cb = S()
@@ -2396,6 +2403,7 @@ local function RegisterUnlockElements()
         elements[#elements + 1] = MK({
             key = "ERB_GCDBar", label = "GCD Bar", group = "Resource Bars", order = 506,
             noAnchorTarget = true,
+            isExplicitlyDisabled = function() return S().enabled == false end,
             getFrame = function() return gcdBarFrame end,
             getSize  = function()
                 local g = S()
@@ -2458,6 +2466,11 @@ local function RegisterUnlockElements()
             key = "ERB_TotemBar", label = "Totem Bar", group = "Resource Bars", order = 505,
             noResize = true,
             noAnchorTarget = true,
+            isExplicitlyDisabled = function()
+                local tb = S()
+                local _, classFile = UnitClass("player")
+                return not (tb.enabledClasses and classFile and tb.enabledClasses[classFile])
+            end,
             getFrame = function() return totemBarFrame end,
             getSize  = function()
                 local tb = S()

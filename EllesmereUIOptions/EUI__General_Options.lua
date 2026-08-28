@@ -3587,7 +3587,15 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUI:InvalidatePageCache()
                   EllesmereUI:RefreshPage(true)
               end },
-            { type="label", text="" });  y = y - h
+            { type="toggle", text="Hide Disabled Unlock Elements",
+              tooltip="Hide elements in Unlock Mode when their feature is disabled or their saved Visibility setting is Never. Combat, group, mouseover, and other situationally hidden elements remain available.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.unlockHideDisabled == true
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.unlockHideDisabled = v and true or nil
+              end });  y = y - h
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
@@ -7509,6 +7517,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.unlockAnchors = nil
                 EllesmereUIDB.unlockWidthMatch = nil
                 EllesmereUIDB.unlockHeightMatch = nil
+                EllesmereUIDB.unlockHideDisabled = nil
                 -- QoL Features are NOT reset here; they have their own module reset
             end
             if EllesmereUI._applyRightClickTarget then

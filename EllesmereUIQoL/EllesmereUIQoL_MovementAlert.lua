@@ -2209,6 +2209,10 @@ loader:SetScript("OnEvent", function(self, event, ...)
                     order = order,
                     -- isHiddenKey: profile key name, or a predicate function
                     -- (the movement tracker's enable state is per-class).
+                    isExplicitlyDisabled = function()
+                        if type(isHiddenKey) == "function" then return not isHiddenKey() end
+                        return not MA()[isHiddenKey]
+                    end,
                     isHidden = function()
                         if type(isHiddenKey) == "function" then return not isHiddenKey() end
                         return not MA()[isHiddenKey]

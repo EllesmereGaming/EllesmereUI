@@ -5719,6 +5719,10 @@ initFrame:SetScript("OnEvent", function(self)
                 onLiveMove = function()
                     if ns._KeepMainChatSizeCorner then ns._KeepMainChatSizeCorner() end
                 end,
+                isNeverVisible = function()
+                    local cfg = ECHAT.DB()
+                    return cfg and cfg.visibility == "never" or false
+                end,
                 savePos = function(_, point, relPoint, x, y)
                     local cfg = ECHAT.DB()
                     if not cfg then return end

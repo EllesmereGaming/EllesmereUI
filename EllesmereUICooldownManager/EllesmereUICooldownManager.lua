@@ -9032,9 +9032,19 @@ RegisterCDMUnlockElements = function()
                 linkedKeys = linked,
                 noAnchorTarget = isDynamic,
                 noResize = isDynamic,
+                isExplicitlyDisabled = function()
+                    local p = ECME.db and ECME.db.profile
+                    if p and p.cdmBars and p.cdmBars.enabled == false then return true end
+                    local bd2 = barDataByKey[key]
+                    return not bd2 or bd2.enabled == false
+                end,
                 isHidden = function()
                     -- If this bar key is no longer in the current profile's barDataByKey, it is a stale registration from a previous profile and should not get a mover.
                     return not barDataByKey[key]
+                end,
+                isNeverVisible = function()
+                    local bd2 = barDataByKey[key]
+                    return bd2 and bd2.barVisibility == "never" or false
                 end,
                 getFrame = function() return cdmBarFrames[key] end,
                 getSize = function()

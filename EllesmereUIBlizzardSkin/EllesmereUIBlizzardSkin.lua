@@ -2356,6 +2356,9 @@ do
                 isHidden = function()
                     return not WantFixed()
                 end,
+                isNeverVisible = function()
+                    return EllesmereUIDB and EllesmereUIDB.tooltipShowMode == "never" or false
+                end,
                 getFrame = function()
                     -- MUST stay side-effect-free: unlock mode calls getFrame from its drag
                     -- machinery (OnUpdate/OnDragStop), so parking from saved here would snap a live drag back on release. Boot/applyPos/loadPos do parking + seeding.

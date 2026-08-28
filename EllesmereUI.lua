@@ -5656,6 +5656,8 @@ EllesmereUI._rowCounters     = rowCounters
 --    setWidth   (function(key, w))  set element width and rebuild
 --    setHeight  (function(key, h))  set element height and rebuild
 --    isHidden   (function(key)) -> bool  true if element is disabled/hidden
+--    isExplicitlyDisabled (function(key)) -> bool  saved config makes the element unavailable
+--    isNeverVisible (function(key)) -> bool  saved Visibility is exactly Never
 --    isAnchored (function(key)) -> bool  true if anchored to another element
 --    onLiveMove (function(key))  called after every mover-driven placement of
 --               the frame: drag start, each drag frame, drag stop, arrow/cog
@@ -5678,6 +5680,8 @@ function EllesmereUI.MakeUnlockElement(opts)
         setWidth      = opts.setWidth,
         setHeight     = opts.setHeight,
         isHidden      = opts.isHidden,
+        isExplicitlyDisabled = opts.isExplicitlyDisabled,
+        isNeverVisible = opts.isNeverVisible,
         isAnchored    = opts.isAnchored,
         onLiveMove    = opts.onLiveMove,
         linkedKeys    = opts.linkedKeys,

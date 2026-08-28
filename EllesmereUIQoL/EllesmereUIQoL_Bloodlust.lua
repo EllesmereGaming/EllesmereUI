@@ -792,6 +792,14 @@ local function RegisterUnlock()
             group = "Quality of Life",
             order = 601,
             noAnchorTarget = true,  -- icon size changes; nothing should anchor to it
+            isExplicitlyDisabled = function()
+                local p = P()
+                return not p or not p.enabled
+            end,
+            isNeverVisible = function()
+                local p = P()
+                return p and p.visibility == "NEVER" or false
+            end,
             isHidden = function()
                 local p = P()
                 return not p or not p.enabled or (p.visibility == "NEVER")

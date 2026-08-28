@@ -463,6 +463,10 @@ ns.RegisterDMUnlock = function()
                 local wdb = idx and WinDB(idx)
                 return wdb and wdb.width or 375, wdb and wdb.height or 150
             end,
+            isNeverVisible = function()
+                local cfg = DB()
+                return cfg and cfg.visibility == "never" or false
+            end,
             setWidth = function(key, newW)
                 local w, idx = winOf(key)
                 if not w or not w.frame then return end
@@ -4873,6 +4877,7 @@ ns.MakeSATimerUnlockElement = function(MK)
             if _saTimer then return _saTimer:GetWidth(), _saTimer:GetHeight() end
             return 60, 20
         end,
+        isExplicitlyDisabled = function() return not DB().standaloneTimer end,
         isHidden = function() return not DB().standaloneTimer end,
         savePos = function(_, point, relPoint, x, y)
             local cfg = DB()

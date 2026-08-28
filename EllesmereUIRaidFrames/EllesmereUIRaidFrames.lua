@@ -10263,6 +10263,10 @@ local function RegisterWithUnlockMode()
                 local hm = ns._HMSet and ns._HMSet()
                 return not hm or (hm.mode or "none") == "none"
             end,
+            isExplicitlyDisabled = function()
+                local hm = ns._HMSet and ns._HMSet()
+                return not hm or (hm.mode or "none") == "none"
+            end,
             getFrame = function()
                 return ns._hmContainer or (ns._HMEnsureContainer and ns._HMEnsureContainer())
             end,

@@ -692,6 +692,9 @@ function RegisterUnlockElements()
             label = "Dragon Riding",
             group = "Dragon Riding",
             order = 700,
+            isExplicitlyDisabled = function()
+                return db and db.profile and db.profile.enabled == false or false
+            end,
             getFrame = function() return rootFrame end,
             getSize  = function()
                 local p = db.profile

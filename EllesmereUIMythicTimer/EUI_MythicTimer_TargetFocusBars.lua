@@ -980,6 +980,10 @@ local function MakeBarUnlockElement(which, label, order)
         -- so a match survives reloads exactly like a slider value.
         noResize = true,
         allowMatchSource = true,
+        isExplicitlyDisabled = function()
+            local cfg = BarCfg(which)
+            return not (cfg and cfg.enabled == true)
+        end,
         isHidden = function()
             local cfg = BarCfg(which)
             return not (cfg and cfg.enabled == true)

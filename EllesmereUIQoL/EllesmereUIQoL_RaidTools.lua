@@ -1810,6 +1810,9 @@ local function RegisterUnlock()
             group    = "Raid Tools",
             order    = 540 + i,
             noResize = true,
+            isExplicitlyDisabled = function()
+                return Mode() == "never"
+            end,
             getFrame = function()
                 if Mode() == "never" then return nil end
                 -- Nothing to move while the assist gate has the whole feature
