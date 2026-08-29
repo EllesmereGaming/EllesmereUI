@@ -6606,3 +6606,7 @@ L["World Marker: Skull"] = "Marcador de Mundo: Caveira"
 L["World Marker: Square"] = "Marcador de Mundo: Quadrado"
 L["World Marker: Star"] = "Marcador de Mundo: Estrela"
 L["World Marker: Triangle"] = "Marcador de Mundo: Triângulo"
+
+-- == Data Bars / Gold ===========================================================
+L["Abbreviate Amount"] = "Abreviar Quantidade"
+L["Shows large amounts using K/M suffixes (284,208g becomes 284.2Kg) instead of the full grouped number. The tooltip always shows the exact amount."] = "Mostra grandes quantidades usando sufixos K/M (284.208 vira 284,2K) em vez do número completo agrupado. A dica sempre mostra a quantia exata."

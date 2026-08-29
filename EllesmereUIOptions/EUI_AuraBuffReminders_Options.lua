@@ -1714,7 +1714,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Show Without Item in Bags | Ready Check Mana Warning (eye | cog | swatch inline)
         row, h = W:DualRow(parent, y,
             { type="toggle", text="Show Without Item in Bags",
-              tooltip="When on, flask/food/weapon reminders still show (dimmed) when you have no matching item in your bags, as a prompt to restock.\nWhen off, they are hidden entirely if you don't carry the item.",
+              tooltip="When on, augment rune/flask/food/weapon reminders still show (dimmed) when you have no matching item in your bags, as a prompt to restock.\nWhen off, they are hidden entirely if you don't carry the item.",
               getValue=function() local c = CDB(); return not c or c.showWithoutItem ~= false end,
               setValue=function(v) local c = CDB(); if c then c.showWithoutItem = v; RefreshAll() end end },
             { type="toggle", text="Ready Check Mana Warning",

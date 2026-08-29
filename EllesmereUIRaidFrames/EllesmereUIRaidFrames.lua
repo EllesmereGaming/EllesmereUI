@@ -4750,18 +4750,15 @@ local function UpdateReadyCheck(button, unit)
     if s.showReadyCheck and readyCheckActive then
         local status = GetReadyCheckStatus(unit)
         if status == "ready" then
-            tex:SetTexCoord(0, 1, 0, 1)
-            tex:SetTexture("Interface\\RaidFrame\\ReadyCheck-Ready")
+            tex:SetAtlas("UI-LFG-ReadyMark-Raid")
             tex:Show()
             return
         elseif status == "notready" then
-            tex:SetTexCoord(0, 1, 0, 1)
-            tex:SetTexture("Interface\\RaidFrame\\ReadyCheck-NotReady")
+            tex:SetAtlas("UI-LFG-DeclineMark-Raid")
             tex:Show()
             return
         elseif status == "waiting" then
-            tex:SetTexCoord(0, 1, 0, 1)
-            tex:SetTexture("Interface\\RaidFrame\\ReadyCheck-Waiting")
+            tex:SetAtlas("UI-LFG-PendingMark-Raid")
             tex:Show()
             return
         end
@@ -4788,8 +4785,7 @@ local function UpdateReadyCheck(button, unit)
     -- Incoming resurrection (cast in flight, or the latched unaccepted-offer window
     -- -- see ns._RFRezShown). Shows a body is already being picked up.
     if s.showIncomingRez and unit and ns._RFRezShown(unit) then
-        tex:SetTexCoord(0, 1, 0, 1)
-        tex:SetTexture("Interface\\RaidFrame\\Raid-Icon-Rez")
+        tex:SetAtlas("RaidFrame-Icon-Rez")
         tex:Show()
         return
     end
@@ -8463,10 +8459,11 @@ end  -- range fading section (do-block keeps its locals out of the 200-cap)
 
 -------------------------------------------------------------------------------
 --  Ghost aura safety net
---  Throttled 1s ticker clears stale debuff/BM/dispel indicators when a unit
---  goes invisible (loadscreen, out of render range) or disconnects. Without
---  this, indicators painted before the unit ghosted persist indefinitely
---  because UNIT_AURA stops firing for invisible/DC'd units.
+--  Throttled 1s ticker: UNIT_AURA stops firing for invisible/DC'd units and the
+--  render-visibility edge has no event, so a unit that ghosts (loadscreen, out
+--  of render range, disconnect) keeps whatever its containers last parsed. On
+--  regain the containers are re-parsed in place (the same UpdateAllAuras lever
+--  the assist gate uses on its own false->true edge).
 -------------------------------------------------------------------------------
 local ghostTicker = nil
 
@@ -8476,10 +8473,30 @@ local function GhostAuraCheck()
         if not UnitIsVisible(unit) or not UnitIsConnected(unit) then
             if not d.ghostCleared then
                 d.ghostCleared = true
+                -- Binding at ghost time: a reassignment inside the window already
+                -- re-parsed the containers (RFC_OnUnitAssigned), so the regain pass
+                -- skips a button whose binding moved.
+                d.ghostUnit = d.rfcUnit
             end
         else
             if d.ghostCleared then
                 d.ghostCleared = false
+                -- unitToButton only ever gains entries, so unit/btn can be a stale
+                -- pairing: re-parse only containers still bound to this unit.
+                if d.rfcUnit == unit and d.ghostUnit == unit then
+                    if d.rfcDebuffs then d.rfcDebuffs:UpdateAllAuras() end
+                    if d.rfcDispLoc then d.rfcDispLoc:UpdateAllAuras() end
+                    if d.rfcDispel then d.rfcDispel:UpdateAllAuras() end
+                    if d.rfcBm then d.rfcBm:UpdateAllAuras() end
+                    if d.rfcBmChain then
+                        for _, cc in pairs(d.rfcBmChain) do cc:UpdateAllAuras() end
+                    end
+                    if d.rfcBmSimple then d.rfcBmSimple:UpdateAllAuras() end
+                    if d.dmTiles then
+                        for _, c in pairs(d.dmTiles) do c:UpdateAllAuras() end
+                    end
+                end
+                d.ghostUnit = nil
             end
         end
     end
@@ -13237,8 +13254,7 @@ local function ApplyPreviewData(f, index)
             if olMode == "fill" then
                 local fillTex = f._health:GetStatusBarTexture()
                 if fillTex then
-                    olTex:SetPoint("TOPLEFT", f._health, "TOPLEFT", 0, 0)
-                    olTex:SetPoint("BOTTOMRIGHT", fillTex, "BOTTOMRIGHT", 0, 0)
+                    olTex:SetAllPoints(fillTex)
                 else
                     olTex:SetAllPoints(f._health)
                 end
@@ -13459,15 +13475,13 @@ local function ApplyPreviewData(f, index)
             else -- center
                 f._readyCheck:SetPoint("CENTER", rcHost, "CENTER", ox, oy)
             end
+
             if indicator == "rc_ready" then
-                f._readyCheck:SetTexture("Interface\\RaidFrame\\ReadyCheck-Ready")
-                f._readyCheck:SetTexCoord(0, 1, 0, 1)
+                f._readyCheck:SetAtlas("UI-LFG-ReadyMark-Raid")
             elseif indicator == "rc_notready" then
-                f._readyCheck:SetTexture("Interface\\RaidFrame\\ReadyCheck-NotReady")
-                f._readyCheck:SetTexCoord(0, 1, 0, 1)
+                f._readyCheck:SetAtlas("UI-LFG-DeclineMark-Raid")
             elseif indicator == "rc_pending" then
-                f._readyCheck:SetTexture("Interface\\RaidFrame\\ReadyCheck-Waiting")
-                f._readyCheck:SetTexCoord(0, 1, 0, 1)
+                f._readyCheck:SetAtlas("UI-LFG-PendingMark-Raid")
             elseif indicator == "summon_pending" then
                 f._readyCheck:SetAtlas("RaidFrame-Icon-SummonPending")
             elseif indicator == "summon_accepted" then
@@ -13475,8 +13489,7 @@ local function ApplyPreviewData(f, index)
             elseif indicator == "summon_declined" then
                 f._readyCheck:SetAtlas("RaidFrame-Icon-SummonDeclined")
             elseif indicator == "rez" then
-                f._readyCheck:SetTexture("Interface\\RaidFrame\\Raid-Icon-Rez")
-                f._readyCheck:SetTexCoord(0, 1, 0, 1)
+                f._readyCheck:SetAtlas("RaidFrame-Icon-Rez")
             elseif indicator == "other_phase" then
                 f._readyCheck:SetAtlas("RaidFrame-Icon-Phasing")
             elseif indicator == "other_party" then
@@ -13718,7 +13731,10 @@ local function ApplyPreviewData(f, index)
         else
             f._statusText:SetPoint("CENTER", stHost, "CENTER", stOX, stOY)
         end
-        if isRezCorpse then
+        if stPos == "none" then
+            -- Status text display is turned off
+            f._statusText:Hide()
+        elseif isRezCorpse then
             -- Being resurrected: the rez icon takes this spot, so no DEAD text.
             f._statusText:Hide()
         elseif isDead then
@@ -13731,6 +13747,7 @@ local function ApplyPreviewData(f, index)
             f._statusText:SetText(EllesmereUI.L("AFK"))
             f._statusText:Show()
         else
+            -- No status to show
             f._statusText:Hide()
         end
     end

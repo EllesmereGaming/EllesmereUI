@@ -639,11 +639,12 @@ local function ApplyRFDispelSlot(button, dd, style)
     else -- "fill"
         tex:Show()
         local fillTex = health.GetStatusBarTexture and health:GetStatusBarTexture()
-        tex:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
+        -- Both corners come off the fill texture: a TOPLEFT-of-bar pair only tracks a
+        -- left-to-right bar, so a vertical fill spanned the whole frame like "full".
         if fillTex then
-            tex:SetPoint("BOTTOMRIGHT", fillTex, "BOTTOMRIGHT", 0, 0)
+            tex:SetAllPoints(fillTex)
         else
-            tex:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
+            tex:SetAllPoints(health)
         end
         tex:SetColorTexture(r, g, b, alpha)
         tex:SetVertexColor(1, 1, 1, 1)

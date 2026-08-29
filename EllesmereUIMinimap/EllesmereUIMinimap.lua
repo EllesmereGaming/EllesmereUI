@@ -5048,6 +5048,12 @@ local _mmDriverStr
 
 -- Compile the profile's selection into macro-conditional grammar for the secure driver, or nil when it cannot be expressed as one.
 local function MinimapDriverString(p, vm)
+    -- Any match: Lua-only lanes (instances, housing, skyriding mount) are resolved at
+    -- build time (caller runs out of combat only); a later zone/mount edge re-runs the
+    -- dispatcher and re-registers the string.
+    if p.visibilityMatch == "any" and EllesmereUI.BuildAnyMatchTail then
+        return (EllesmereUI.BuildAnyMatchTail(p, "visibility", vm))
+    end
     if vm then
         return EllesmereUI.BuildVisibilityDriverString
             and EllesmereUI.BuildVisibilityDriverString("", vm)

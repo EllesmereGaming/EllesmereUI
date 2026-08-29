@@ -4938,7 +4938,8 @@ local function GetOrCreateCustomBuffFrame(barKey, sid)
             if ns.QueueCustomBuffUpdate then C_Timer.After(0, ns.QueueCustomBuffUpdate) end
             if ns.QueueReanchor then C_Timer.After(0, ns.QueueReanchor) end
         end)
-        local spInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(sid)
+        local iconSID = ns.LustPresetIconSpellID and ns.LustPresetIconSpellID(sid) or sid
+        local spInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(iconSID)
         if spInfo and spInfo.iconID and f._tex then f._tex:SetTexture(spInfo.iconID) end
         _presetFrames[fkey] = f
         _injectedCustomBuffFrames[f] = true
@@ -8849,7 +8850,9 @@ local function UpdateCustomBuffBars()
                                     cd:HookScript("OnCooldownDone", function()
                                         C_Timer.After(0, QueueCustomBuffUpdate)
                                     end)
-                                    local spInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(sid)
+                                    local iconSID = ns.LustPresetIconSpellID
+                                        and ns.LustPresetIconSpellID(sid) or sid
+                                    local spInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(iconSID)
                                     if spInfo and spInfo.iconID and f._tex then f._tex:SetTexture(spInfo.iconID) end
                                 end
                                 if isActive and timer then
@@ -10284,6 +10287,26 @@ do
         return false
     end
 
+    -- Reverse lookup: the primary itemID of the item preset that owns a given
+    -- alt/current-tier itemID (e.g. Concentrated Health Potion 271884 ->
+    -- 241304). Bar icons for these presets always key off the fixed primary
+    -- id (see silvermoon_health's itemID/altItemIDs split), but a press can
+    -- report any owned tier's itemID, so OnPress needs to resolve it back.
+    local _presetPrimaryByAltID
+    local function PresetPrimaryItemID(itemID)
+        if not _presetPrimaryByAltID then
+            _presetPrimaryByAltID = {}
+            for _, pr in ipairs(ns.CDM_ITEM_PRESETS or {}) do
+                if pr.altItemIDs then
+                    for _, alt in ipairs(pr.altItemIDs) do
+                        _presetPrimaryByAltID[alt] = pr.itemID
+                    end
+                end
+            end
+        end
+        return _presetPrimaryByAltID[itemID]
+    end
+
     local function IconSpellID(icon)
         local fc = _ecmeFC and _ecmeFC[icon]
         local sid = fc and fc.spellID
@@ -10402,6 +10425,8 @@ do
             -- Match both, plus the item's own on-use spell for the rarer case
             -- of it being tracked as a plain Custom Spell entry instead.
             pressedSet[-itemID] = true
+            local primaryItemID = PresetPrimaryItemID(itemID)
+            if primaryItemID then pressedSet[-primaryItemID] = true end
             for invSlot in pairs(ns.INV_SLOT_NAMES) do
                 if GetInventoryItemID("player", invSlot) == itemID then
                     pressedSet[-invSlot] = true

@@ -11411,8 +11411,11 @@ function InitializeFrames()
     end
 
     -- Hook Blizzard class power bar so form/spec changes can't steal it back. Hooks
-    -- SetParent to re-assert our parent, Show/Hide to keep it visible. Only active
-    -- while classPowerStyle == "blizzard".
+    -- SetParent to re-assert our parent, Show/Hide to keep it visible, and
+    -- ClearAllPoints to catch anchors getting stripped without a reparent (seen
+    -- during in-engine cutscenes/UI transitions -- parent and IsShown() stay
+    -- correct, but GetNumPoints() drops to 0 and the frame renders nowhere).
+    -- Only active while classPowerStyle == "blizzard".
     local _blizzCPHooked = false
     local _blizzCPActive = false  -- true while we own the bar
 
@@ -11420,7 +11423,7 @@ function InitializeFrames()
         if _blizzCPHooked then return end
         _blizzCPHooked = true
         local _cpSetParentGuard = false
-        -- Both hooks defer their re-assert work: they can fire inside Blizzard's
+        -- All hooks defer their re-assert work: they can fire inside Blizzard's
         -- secure Edit Mode layout pass (same taint mechanism as the DisableBlizzard
         -- override above), and wait for the manager to close before re-asserting.
         local _cpReassertQueued = false
@@ -11434,7 +11437,7 @@ function InitializeFrames()
                 return
             end
             local wanted = _cpExpectedParent or frames.player or UIParent
-            if self:GetParent() ~= wanted then
+            if self:GetParent() ~= wanted or (self:GetNumPoints() or 0) == 0 then
                 _cpSetParentGuard = true
                 PositionClassPowerBar(self)
                 -- Blizzard may have re-stolen during PositionClassPowerBar.
@@ -11457,6 +11460,15 @@ function InitializeFrames()
         end)
         hooksecurefunc(cpFrame, "Hide", function(self)
             if not _blizzCPActive or _cpReassertQueued then return end
+            _cpReassertQueued = true
+            C_Timer.After(0, function() ReassertClassPower(self) end)
+        end)
+        -- Re-assert anchors when something strips them without a reparent (the
+        -- cutscene case above). Guarded by _cpSetParentGuard the same way as
+        -- SetParent so our own PositionClassPowerBar's internal ClearAllPoints
+        -- doesn't recurse back into itself.
+        hooksecurefunc(cpFrame, "ClearAllPoints", function(self)
+            if not _blizzCPActive or _cpSetParentGuard or _cpReassertQueued then return end
             _cpReassertQueued = true
             C_Timer.After(0, function() ReassertClassPower(self) end)
         end)
@@ -12309,10 +12321,21 @@ function InitializeFrames()
                     or vis == "in_combat" or vis == "out_of_combat") then
                     drvSet = { [vis] = true }
                 end
+                -- Tail built once and reused by the mini frame below (both compilers only
+                -- PREPEND their prefix).
+                local visTail
+                if s.visibilityMatch == "any" and EllesmereUI.BuildAnyMatchTail then
+                    local tail, _, liveAxes = EllesmereUI.BuildAnyMatchTail(s, "barVisibility", drvSet)
+                    -- Gated on liveAxes: with no soft-target edge here, target/enemy axes
+                    -- resolve in Lua, and a driver compiled from those alone would be a
+                    -- frozen constant. Zero live axes keeps the frame on the live ext/alpha path.
+                    if liveAxes > 0 then visTail = tail end
+                elseif drvSet and EllesmereUI.BuildVisibilityDriverString then
+                    visTail = EllesmereUI.BuildVisibilityDriverString("", drvSet)
+                end
                 local wantDriver
-                if drvSet and EllesmereUI.BuildVisibilityDriverString then
-                    wantDriver = EllesmereUI.BuildVisibilityDriverString(
-                        "[@" .. unitKey .. ",noexists] hide; ", drvSet)
+                if visTail then
+                    wantDriver = "[@" .. unitKey .. ",noexists] hide; " .. visTail
                 end
                 if frame._euiVisDriver ~= wantDriver and not isLocked then
                     if wantDriver then
@@ -12488,9 +12511,8 @@ function InitializeFrames()
                 -- condition-hidden mini absorbs no clicks either.
                 if mini then
                     local miniWant
-                    if (not miniAlways) and drvSet and EllesmereUI.BuildVisibilityDriverString then
-                        miniWant = EllesmereUI.BuildVisibilityDriverString(
-                            "[@" .. ns.UF_MINI_OF[unitKey] .. ",noexists] hide; ", drvSet)
+                    if (not miniAlways) and visTail then
+                        miniWant = "[@" .. ns.UF_MINI_OF[unitKey] .. ",noexists] hide; " .. visTail
                     end
                     if mini._euiVisDriver ~= miniWant and not isLocked then
                         if miniWant then

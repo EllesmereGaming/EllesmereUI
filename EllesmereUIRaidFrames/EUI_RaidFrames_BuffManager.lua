@@ -3,7 +3,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EUI_RaidFrames_BuffManager.lua
 --  Indicator-centric buff manager: icon/square/bar/healthcolor/border/framealpha
 --  indicators take whitelisted healer spells + position/size/color/growth (max
---  20/spec). Event-driven UNIT_AURA, prebuilt spell->indicator hash, no per-frame allocs (wipe + reuse).
+--  20/spec). Rendered by the aura containers (EUI_RaidFrames_AuraContainers.lua)
+--  from the indicator config; no per-frame allocs (wipe + reuse).
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 
@@ -144,8 +145,7 @@ local FRAMELVL_BASE = {
 local FRAMELVL_TEXT = 18  -- fixed count/duration text-carrier offset (icon/square)
 
 -------------------------------------------------------------------------------
---  Healer spell database. secret=true: identified via filter fingerprinting,
---  not spellId reading. hide=true: alt spell ID for the same aura, UI-skipped.
+--  Healer spell database. hide=true: alt spell ID for the same aura, UI-skipped.
 -------------------------------------------------------------------------------
 local HEALER_SPECS = {
     {
@@ -160,7 +160,7 @@ local HEALER_SPECS = {
             { id = 155777, name = "Germination" },
             { id = 48438,  name = "Wild Growth" },
             { id = 439530, name = "Symbiotic Blooms" },
-            { id = 102342, name = "Ironbark", secret = true, sig = "1:1:1:0" },
+            { id = 102342, name = "Ironbark" },
         },
     },
     {
@@ -173,8 +173,8 @@ local HEALER_SPECS = {
             { id = 194384,  name = "Atonement" },
             { id = 1253593, name = "Void Shield" },
             { id = 41635,   name = "Prayer of Mending" },
-            { id = 33206,   name = "Pain Suppression", secret = true, sig = "1:1:1:0" },
-            { id = 10060,   name = "Power Infusion", secret = true, sig = "1:0:0:1" },
+            { id = 33206,   name = "Pain Suppression" },
+            { id = 10060,   name = "Power Infusion" },
         },
     },
     {
@@ -186,8 +186,8 @@ local HEALER_SPECS = {
             { id = 139,   name = "Renew" },
             { id = 77489, name = "Echo of Light" },
             { id = 41635, name = "Prayer of Mending" },
-            { id = 47788, name = "Guardian Spirit", secret = true, sig = "1:1:1:0" },
-            { id = 10060, name = "Power Infusion", secret = true, sig = "1:0:0:1" },
+            { id = 47788, name = "Guardian Spirit" },
+            { id = 10060, name = "Power Infusion" },
         },
     },
     {
@@ -200,8 +200,8 @@ local HEALER_SPECS = {
             { id = 124682, name = "Enveloping Mist" },
             { id = 115175, name = "Soothing Mist" },
             { id = 450769, name = "Aspect of Harmony" },
-            { id = 116849, name = "Life Cocoon", secret = true, sig = "1:1:1:0" },
-            { id = 443113, name = "Strength of the Black Ox", secret = true, sig = "0:1:0:1" },
+            { id = 116849, name = "Life Cocoon" },
+            { id = 443113, name = "Strength of the Black Ox" },
         },
     },
     {
@@ -229,11 +229,11 @@ local HEALER_SPECS = {
             { id = 53563,   name = "Beacon of Light" },
             { id = 1244893, name = "Beacon of the Savior" },
             { id = 200025,  name = "Beacon of Virtue" },
-            { id = 1022,    name = "Blessing of Protection", secret = true, sig = "1:1:1:1" },
-            { id = 432502,  name = "Holy Armaments", secret = true, sig = "0:1:0:0" },
-            { id = 6940,    name = "Blessing of Sacrifice", secret = true, sig = "1:1:1:0" },
-            { id = 1044,    name = "Blessing of Freedom", secret = true, sig = "1:0:0:1" },
-            { id = 431381,  name = "Dawnlight", secret = true, sig = "0:1:0:0" },
+            { id = 1022,    name = "Blessing of Protection" },
+            { id = 432502,  name = "Holy Armaments" },
+            { id = 6940,    name = "Blessing of Sacrifice" },
+            { id = 1044,    name = "Blessing of Freedom" },
+            { id = 431381,  name = "Dawnlight" },
         },
     },
     {
@@ -249,8 +249,8 @@ local HEALER_SPECS = {
             { id = 376788, name = "Echo Dream Breath" },
             { id = 363502, name = "Dream Flight" },
             { id = 373267, name = "Lifebind" },
-            { id = 357170, name = "Time Dilation", secret = true, sig = "1:1:1:0" },
-            { id = 363534, name = "Rewind", secret = true, sig = "1:1:0:0" },
+            { id = 357170, name = "Time Dilation" },
+            { id = 363534, name = "Rewind" },
         },
     },
     {
@@ -266,7 +266,13 @@ local HEALER_SPECS = {
             { id = 410686, name = "Symbiotic Bloom" },
             { id = 395152, name = "Ebon Might" },
             { id = 369459, name = "Source of Magic" },
-            { id = 361022, name = "Sense Power", secret = true, sig = "0:1:0:0" },
+            { id = 361021, name = "Sense Power" },
+            -- 361021 is the caster's own permanent toggle buff; 361022 is the
+            -- effect that lands on whichever ally triggers Sense Power's
+            -- "powerful ability" detection. Distinct spell IDs, same client
+            -- display name -- kept as separate entries so both are
+            -- selectable (see SPELL_NAME_BY_ID for how the UI tells them apart).
+            { id = 361022, name = "Sense Power (Ally)" },
         },
     },
 }
@@ -283,27 +289,21 @@ end
 
 -- Non-healer specs that can cast a tracked buff borrow a healer spec's
 -- indicator placements but show only their own spells: Ele/Enh -> Resto
--- (Earth Shield); Prot/Ret -> Holy (Freedom, so BM_IdentifySecretAura also
--- resolves Freedom on every Paladin spec via the resolved spec). Keyed by
--- spec ID; spells = the primary spell IDs indicators reference.
+-- (Earth Shield); Prot/Ret -> Holy (Freedom). Keyed by spec ID; spells = the
+-- primary spell IDs indicators reference.
 local BORROW_SPECS = {
     [262] = { source = "SHAMAN_RESTORATION", spells = { [974] = true } },  -- Elemental
     [263] = { source = "SHAMAN_RESTORATION", spells = { [974] = true } },  -- Enhancement
-    -- sigs: fingerprints can differ from the source spec since the
-    -- RAID_PLAYER_DISPELLABLE probe reflects the PLAYER's dispel kit: Freedom
-    -- reads 1:0:0:1 on Holy (magic dispel), 1:0:0:0 on Prot/Ret (none).
-    [66]  = { source = "PALADIN_HOLY", spells = { [1044] = true },
-              sigs = { ["1:0:0:0"] = 1044 } }, -- Protection
-    [70]  = { source = "PALADIN_HOLY", spells = { [1044] = true },
-              sigs = { ["1:0:0:0"] = 1044 } }, -- Retribution
+    [66]  = { source = "PALADIN_HOLY", spells = { [1044] = true } },       -- Protection
+    [70]  = { source = "PALADIN_HOLY", spells = { [1044] = true } },       -- Retribution
 }
 
 -- Resolve the player's CURRENT spec to a BM spec key. MUST match by spec ID,
 -- never name: GetSpecializationInfo() returns the stable non-localized ID first,
--- the LOCALIZED name second, so name-matching silently kills every indicator,
--- the simple grid and secret tracking on non-English clients. nil = not tracked.
+-- the LOCALIZED name second, so name-matching silently kills every indicator
+-- and the simple grid on non-English clients. nil = not tracked.
 -- LEGACY/simple-grid resolver ONLY: the borrow hop below is load-bearing for the
--- simple grid and secret-aura identify, but the v2 indicator system must NEVER
+-- simple grid, but the v2 indicator system must NEVER
 -- route through it -- v2's active bucket resolves borrow-free via BM2_SpecKey /
 -- BM_SpecKeyForSpecID (maintainer ruling 2026-08-13: Ret/Prot/Ele/Enh edit and
 -- render the shared All Non Healers/Aug bucket, not the borrowed healer's).
@@ -362,6 +362,11 @@ local SPELL_NAME_BY_ID = setmetatable({}, {
         return C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)
     end,
 })
+-- Shared with EllesmereUIOptions/EUI_RaidFrames_ManagerPages.lua (same ns):
+-- the Filter Editor and its dropdowns build spell row labels off this too, so
+-- curated names (e.g. distinguishing two client-side-identical spell names)
+-- apply there as well, not just in this file's own dropdowns.
+ns.SPELL_NAME_BY_ID = SPELL_NAME_BY_ID
 
 local SPEC_DD_VALUES = {}
 local SPEC_DD_ORDER = {}
@@ -423,8 +428,6 @@ ns.BM_INH_OFFSETS = {
     tanks = 3000000, dps = 3000000, healers = 3000000,
 }
 
-local trackedSpellIDs   = {}   -- set of all tracked spell IDs (including secret)
-
 -- Simple Setup: the active spec's FULL whitelist (every non-hidden spell) regardless of indicators; its own set so the grid and custom indicators never share tracking state.
 local simpleTrackedSpellIDs = {}
 
@@ -434,76 +437,11 @@ local PRIMARY_BY_ALT = {
     [395296] = 395152,  -- Ebon Might (caster self-buff)
 }
 
--------------------------------------------------------------------------------
---  Secret aura fingerprinting: where spellId is secret, 4 filter checks build a
---  "1:1:0:0" signature; a match against a known secret spell identifies the aura.
--------------------------------------------------------------------------------
-local C_UnitAuras_IsAuraFilteredOutByInstanceID = C_UnitAuras.IsAuraFilteredOutByInstanceID
-
-local function AuraPassesFilter(unit, instanceID, filter)
-    return not C_UnitAuras_IsAuraFilteredOutByInstanceID(unit, instanceID, filter)
-end
-
-local function MakeSignature(unit, instanceID)
-    local r   = AuraPassesFilter(unit, instanceID, "PLAYER|HELPFUL|RAID")
-    local ric = AuraPassesFilter(unit, instanceID, "PLAYER|HELPFUL|RAID_IN_COMBAT")
-    -- Early out: if neither RAID nor RIC passes, not a tracked healer buff
-    if not r and not ric then return nil end
-    local ext  = AuraPassesFilter(unit, instanceID, "PLAYER|HELPFUL|EXTERNAL_DEFENSIVE")
-    local disp = AuraPassesFilter(unit, instanceID, "PLAYER|HELPFUL|RAID_PLAYER_DISPELLABLE")
-    return (r and "1" or "0") .. ":" .. (ric and "1" or "0") .. ":"
-        .. (ext and "1" or "0") .. ":" .. (disp and "1" or "0")
-end
-
--- Cached four-filter signature per aura INSTANCE: spec tables map FIXED
--- per-spell values (state-independent), and most cross-player buffs in a
--- 25-man are secret, so re-deriving per rescan is waste. false = probed,
--- not a healer buff (cached too, the common case). Invalidation: unit
--- reassignment/full updates wipe; removed instance IDs prune.
-local function CachedSignature(sigCache, unit, instanceID)
-    local sig = sigCache and sigCache[instanceID]
-    if sig == nil then
-        sig = MakeSignature(unit, instanceID) or false
-        if sigCache then sigCache[instanceID] = sig end
-    end
-    return sig or nil
-end
-
--- Per-spec signature -> spellID lookup (built lazily)
-local specSignatures = {}  -- [specKey] = { ["1:1:1:0"] = spellID }
-
 -- Active spec only: checking every spec of the class causes cross-spec bleed
--- (Disc seeing Holy indicators) and cross-class collisions. Declared BEFORE
--- GetSpecSignatures so its borrow merge captures these as upvalues, not nil globals.
+-- (Disc seeing Holy indicators) and cross-class collisions.
 local activeSpecKey_BM = nil
--- Borrow config for the active spec (Enh/Ele -> Resto, Prot/Ret -> Holy): limits tracking to the borrowed spells and merges the borrow's signature variants.
+-- Borrow config for the active spec (Enh/Ele -> Resto, Prot/Ret -> Holy): limits tracking to the borrowed spells.
 local activeBorrow_BM = nil
-
-local function GetSpecSignatures(specKey)
-    if specSignatures[specKey] then return specSignatures[specKey] end
-    local sigs = {}
-    local spec = SPEC_BY_KEY[specKey]
-    if spec then
-        for _, spell in ipairs(spec.spells) do
-            if spell.secret and spell.sig then
-                -- Collisions within a spec are possible (Verdant Embrace and Lifebind share 0:1:0:0 in Preservation); first registered wins.
-                if not sigs[spell.sig] then
-                    sigs[spell.sig] = spell.id
-                end
-            end
-        end
-    end
-    -- Borrow specs can fingerprint differently than the source (dispellable probe
-    -- tracks the player's own kit); merge variants in. Safe lazily: specSignatures
-    -- wipes per RebuildLookup (login/spec change).
-    if activeBorrow_BM and activeBorrow_BM.source == specKey and activeBorrow_BM.sigs then
-        for sig, sid in pairs(activeBorrow_BM.sigs) do
-            if not sigs[sig] then sigs[sig] = sid end
-        end
-    end
-    specSignatures[specKey] = sigs
-    return sigs
-end
 
 local function DetectActiveSpecKey()
     -- By spec ID (locale-independent); nil for non-tracked specs clears tracking.
@@ -516,36 +454,6 @@ local function DetectActiveSpecKey()
 end
 
 DetectActiveSpecKey()
-
--- Spec-scoped identify: matches a secret spellID for the active spec with NO
--- indicator-config gate, so other modules (e.g. defensives) can recognize a
--- player-cast secret aura regardless of BM setup. PLAYER filters + active-spec
--- lookup guarantee it's never another player's aura or a cross-class collision.
-function ns.BM_IdentifySecretAura(unit, instanceID, sigCache)
-    if not activeSpecKey_BM then return nil end
-    local sig = CachedSignature(sigCache, unit, instanceID)
-    if not sig then return nil end
-    return GetSpecSignatures(activeSpecKey_BM)[sig]
-end
-
--- Fallback icon textures for secret auras (icon field is also secret)
-local SECRET_SPELL_ICONS = {
-    [102342] = 572025,   -- Ironbark
-    [33206]  = 135936,   -- Pain Suppression
-    [10060]  = 135939,   -- Power Infusion
-    [47788]  = 237542,   -- Guardian Spirit
-    [116849] = 636288,   -- Life Cocoon
-    [443113] = 615340,   -- Strength of the Black Ox
-    [1022]   = 135964,   -- Blessing of Protection
-    [432502] = 5927636,  -- Holy Armaments (bulwark icon)
-    [6940]   = 135966,   -- Blessing of Sacrifice
-    [1044]   = 135968,   -- Blessing of Freedom
-    [431381] = 5927633,  -- Dawnlight
-    [357170] = 4630500,  -- Time Dilation
-    [363534] = 4630498,  -- Rewind
-    [361022] = 132160,   -- Sense Power
-
-}
 
 -------------------------------------------------------------------------------
 --  Default indicator factory
@@ -692,7 +600,7 @@ local DEFAULT_INDICATORS = {
     },
     EVOKER_AUGMENTATION = {
         { pos = "TOPLEFT",  spells = { 410089, 360827, 369459 } },             -- Prescience, Blistering Scales, Source of Magic
-        { pos = "TOPRIGHT", spells = { 413984, 410263, 410686, 395152, 361022 } }, -- Shifting Sands, Infernos Blessing, Symbiotic Bloom, Ebon Might, Sense Power
+        { pos = "TOPRIGHT", spells = { 413984, 410263, 410686, 395152, 361021 } }, -- Shifting Sands, Infernos Blessing, Symbiotic Bloom, Ebon Might, Sense Power
     },
 }
 
@@ -764,8 +672,7 @@ end
 ns.BM_ClassFallbackSpecKey = ClassFallbackSpecKey
 
 -- Spec key the SIMPLE grid tracks: the resolved spec, or with Show Own on All
--- Specs the class's first tracked spec. Fingerprints stay gated on the REAL
--- resolved spec, so fallback specs match only non-secret spells (deliberate).
+-- Specs the class's first tracked spec.
 local function SimpleSpecKey()
     if activeSpecKey_BM then return activeSpecKey_BM end
     if not SimpleShowOwnAllSpecs() then return nil end
@@ -784,11 +691,11 @@ local function CountSpecIndicators(db, specKey)
 end
 
 -------------------------------------------------------------------------------
---  Reverse lookup: spellID -> list of indicator configs
---  Rebuilt whenever indicators change. Used by the UNIT_AURA scanner.
+--  Lookup rebuild: per-spec defaults, the active spec + borrow config, the
+--  Simple Setup whitelist and the indicator id counter. Rebuilt whenever
+--  indicators change (login, spec change, editor writes).
 -------------------------------------------------------------------------------
 local function RebuildLookup(db)
-    wipe(trackedSpellIDs)
     if not db or not db.profile then return end
 
     -- Ensure defaults are populated for all specs (triggers on first load)
@@ -796,40 +703,7 @@ local function RebuildLookup(db)
         GetSpecIndicators(db, spec.key)
     end
 
-    -- Active spec only. With none resolved, only Show-Own-on-All-Specs indicators
-    -- load, from the class fallback (non-secret spells only there -- identify
-    -- stays gated on activeSpecKey_BM).
     DetectActiveSpecKey()
-    local loadKey = activeSpecKey_BM
-    local flaggedOnly = false
-    if not loadKey then
-        loadKey = ClassFallbackSpecKey()
-        flaggedOnly = true
-    end
-    if loadKey then
-        local specData = db.profile.bmIndicators[loadKey]
-        if specData and type(specData) == "table" then
-            for _, ind in ipairs(specData) do
-                if ind.enabled and ind.spells
-                   and (not flaggedOnly or ind.showOwnAllSpecs) then
-                    for _, sid in ipairs(ind.spells) do
-                        -- Borrow specs track only castable spells (others stay inert); Show Own on All Specs opts out.
-                        if (not activeBorrow_BM) or ind.showOwnAllSpecs
-                           or activeBorrow_BM.spells[sid] then
-                            trackedSpellIDs[sid] = true
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    -- Track alternate aura IDs whose primary is tracked, so the incremental scanner's early-out sees them (they resolve to the primary in the scan).
-    for alt, primary in pairs(PRIMARY_BY_ALT) do
-        if trackedSpellIDs[primary] then
-            trackedSpellIDs[alt] = true
-        end
-    end
 
     -- Simple Setup whitelist: every non-hidden spell of the active spec (hidden =
     -- alt IDs resolved via PRIMARY_BY_ALT), regardless of indicators. Borrow specs
@@ -865,12 +739,6 @@ local function RebuildLookup(db)
                 end
             end
         end
-    end
-
-    -- Pre-build signature table for the player's active spec only
-    wipe(specSignatures)
-    if activeSpecKey_BM then
-        GetSpecSignatures(activeSpecKey_BM)
     end
 end
 
@@ -1304,8 +1172,7 @@ local previewSpellIcons = {}
 local function GetSpellIcon(spellID)
     if previewSpellIcons[spellID] then return previewSpellIcons[spellID] end
     local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
-    -- Secret auras (e.g. Sense Power) often lack a resolvable spell-info icon; fall back to the known fingerprint icon before the generic question mark.
-    local icon = (info and info.iconID) or SECRET_SPELL_ICONS[spellID] or 136243
+    local icon = (info and info.iconID) or 136243
     previewSpellIcons[spellID] = icon
     return icon
 end
@@ -3293,7 +3160,11 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         popup._fltDD = fltDD
 
                         local function SpellEntry(id)
-                            local name = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)
+                            -- Curated name first (distinguishes variants the client
+                            -- API can't, e.g. two spell IDs both named "Sense Power"
+                            -- by Blizzard); SPELL_NAME_BY_ID already falls back to
+                            -- the live API internally when no curated name exists.
+                            local name = SPELL_NAME_BY_ID[id]
                             return { key = id, label = (name or ("Spell " .. tostring(id))),
                                 icon = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id) }
                         end

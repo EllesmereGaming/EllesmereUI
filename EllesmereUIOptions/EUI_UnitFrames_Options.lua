@@ -3318,8 +3318,7 @@ initFrame:SetScript("OnEvent", function(self)
                             or "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-tb.tga")
                         dispelOverlayPreview:SetVertexColor(c.r, c.g, c.b, alpha)
                     else
-                        dispelOverlayPreview:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
-                        dispelOverlayPreview:SetPoint("BOTTOMRIGHT", healthFill, "BOTTOMRIGHT", 0, 0)
+                        dispelOverlayPreview:SetAllPoints(healthFill)
                         dispelOverlayPreview:SetColorTexture(c.r, c.g, c.b, alpha)
                     end
                     dispelOverlayPreview:Show()
@@ -4297,7 +4296,10 @@ initFrame:SetScript("OnEvent", function(self)
         -- copied) and copying one alone desyncs them. Underscore keys are runtime
         -- memos (e.g. _preHiddenBarVisibility), not settings.
         if type(key) ~= "string" then return false end
-        if key == "barVisibility" or key:sub(1, 1) == "_" then return false end
+        -- visibilityMatch only modifies barVisibility's selection, so it has to stay
+        -- with the frame for the same reason: copying the modifier to a frame that kept
+        -- its own mode changes how that mode reads.
+        if key == "barVisibility" or key == "visibilityMatch" or key:sub(1, 1) == "_" then return false end
         local sup = UNIT_SUPPORTS[key]
         if sup then
             for _, u in ipairs(groupUnits) do

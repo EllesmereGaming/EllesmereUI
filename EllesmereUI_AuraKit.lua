@@ -1485,7 +1485,13 @@ end
 local burstFrame = CreateFrame("Frame")
 burstFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 burstFrame:SetScript("OnEvent", function()
-    loginStamp = GetTime()
+    -- A reconnect mid-pull lands here before InCombatLockdown reflects the fight;
+    -- the turbo drain would run straight into the lower in-combat watchdog, so the
+    -- window opens only out of combat (the regen wake above snaps the backlog in
+    -- at turbo once the pull ends).
+    local fighting = UnitAffectingCombat("player")
+    if issecretvalue and issecretvalue(fighting) then fighting = false end
+    if not fighting then loginStamp = GetTime() end
     buildWorker:Show() -- in case jobs were queued behind the screen
 end)
 

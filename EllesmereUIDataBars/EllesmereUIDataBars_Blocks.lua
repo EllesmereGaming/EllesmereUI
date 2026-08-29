@@ -2005,13 +2005,15 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
 
         local money = GetMoney()
         local ci = dg.coinIcons == true
+        local ab = dg.abbreviate == true
+        local fe = dg.forceEnglishUnits == true
         if isSide then
             local slotW = VSlotW(inst)
             local innerW = max(30, slotW - 8)
             -- One token per coin, one coin per line. Coin Colored tints the suffix letters
             -- (nothing to tint once Coin Icons is on, so the two compose); hovering drops it so the accent wash reads.
             local lines = ns.MoneyTokens(money, dg.showSmall == true, ci,
-                blockCfg.useCoinColor == true and not mouseOver)
+                blockCfg.useCoinColor == true and not mouseOver, ab, fe)
             local startSize = min(fontSize, max(10, floor(CONTENT_BASE * 0.52 + 0.5)))
             local goldFontSize = startSize
             ns.SetFont(goldText, goldFontSize, barCfg)
@@ -2022,11 +2024,11 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
             else r, g, b = BlockColorOf(blockCfg) end
             goldText:SetTextColor(r, g, b, 1)
         elseif mouseOver then
-            goldText:SetText(ns.FormatMoneyPlain(money, dg.showSmall == true, ci))
+            goldText:SetText(ns.FormatMoneyPlain(money, dg.showSmall == true, ci, ab, fe))
             local r, g, b = ns.GetAccent()
             goldText:SetTextColor(r, g, b, 1)
         else
-            goldText:SetText(ns.FormatMoney(money, blockCfg.useCoinColor == true, dg.showSmall == true, ci))
+            goldText:SetText(ns.FormatMoney(money, blockCfg.useCoinColor == true, dg.showSmall == true, ci, ab, fe))
             if blockCfg.useCoinColor then
                 goldText:SetTextColor(1, 1, 1, 1)
             else
@@ -2093,8 +2095,8 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
         else
             local slotW = HBudget(inst, 100)
             -- Fit against BOTH money formats so font/icon size and frame width stay identical hovered or not; otherwise it resizes on mouseover.
-            local plainText = ns.FormatMoneyPlain(money, dg.showSmall == true, ci)
-            local fancyText = ns.FormatMoney(money, blockCfg.useCoinColor == true, dg.showSmall == true, ci)
+            local plainText = ns.FormatMoneyPlain(money, dg.showSmall == true, ci, ab, fe)
+            local fancyText = ns.FormatMoney(money, blockCfg.useCoinColor == true, dg.showSmall == true, ci, ab, fe)
             local moneyText
             if mouseOver then moneyText = plainText else moneyText = fancyText end
             local bagTextValue = ""
@@ -3968,14 +3970,24 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
         end
     end)
 
-    inst.eventFrame = MakeEventFrame(inst, function(self, event)
+    inst.eventFrame = MakeEventFrame(inst, function(self, event, eventConfigID)
         if pendingSwapConfigID then
             if event == "TRAIT_CONFIG_UPDATED" then
-                -- Commit landed: write the pointer now (the write hook refreshes).
-                local specId, configID = pendingSwapSpecId, pendingSwapConfigID
-                pendingSwapSpecId, pendingSwapConfigID = nil, nil
-                C_ClassTalents.UpdateLastSelectedSavedConfigID(specId, configID)
+                -- The commit-landing event carries the ACTIVE combat config's id,
+                -- never the loadout's. Updates for any other config (loadout
+                -- saves/syncs, hero-talent data -- instance background churn) are
+                -- not the commit; the pointer is written from the remembered
+                -- loadout id once the active config reports the landing.
+                local active = C_ClassTalents.GetActiveConfigID
+                    and C_ClassTalents.GetActiveConfigID()
+                if active and eventConfigID == active then
+                    local specId, configID = pendingSwapSpecId, pendingSwapConfigID
+                    pendingSwapSpecId, pendingSwapConfigID = nil, nil
+                    C_ClassTalents.UpdateLastSelectedSavedConfigID(specId, configID)
+                end
             elseif event == "CONFIG_COMMIT_FAILED" then
+                -- Payload deliberately not consulted: a failed commit while we are
+                -- pending is ours, whichever id it names.
                 pendingSwapSpecId, pendingSwapConfigID = nil, nil
             end
         end

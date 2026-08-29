@@ -371,6 +371,22 @@ local function ClassEnabled(class, isBuff, cfg)
     return cfg.classFilters and cfg.classFilters[class.skey] == true
 end
 
+-- Curated FAMILIES (a primary plus its `alts`: rank/talent ids for one buff, and
+-- multi-state buffs like Aspect of Harmony whose aura swaps spell ID as it advances)
+-- expand at RESOLUTION, as the Raid Frames Buff Manager does in BmIncludeMap. Not at
+-- write time: the Filter Editor and both spell dropdowns collapse a family into ONE
+-- same-named row, so only one member is ever reachable to add, and saved filters hold
+-- that member alone. `blocked` is the owning filter's spell map, where an explicit
+-- `false` wins. Show lane and hide lane both expand, or a hide filter carrying one id
+-- of a family would leak the rest.
+local function ExpandFamily(set, id, blocked)
+    local fam = ns.PAB_SPELL_FAMILY and ns.PAB_SPELL_FAMILY[id]
+    if not fam then return end
+    for i = 1, #fam do
+        if not (blocked and blocked[fam[i]] == false) then set[fam[i]] = true end
+    end
+end
+
 -- BuildChain contract: includeCatchAll (default true) appends "every remaining aura
 -- of this polarity" after the per-class groups; callers pass false wherever the UI
 -- promises the Base Filters dropdown restricts what is shown (Custom Debuff Bars with
@@ -404,6 +420,7 @@ local function BuffBarChain(cfg)
                     if on then
                         ex = ex or {}
                         ex[id] = true
+                        ExpandFamily(ex, id, f.spells)
                     end
                 end
             end
@@ -1791,7 +1808,9 @@ local lastSize = { buffs = nil, debuffs = nil } -- {w=,h=} last-applied grid siz
 local buffsSlotSig -- signature of the default Buffs bar's last-applied resolved spell list (ns.PAB_ResolveSpells), mirrors customBuffSig[barId] for the per-bar slots model
 local RegisterPABUnlock -- forward-declared; defined after CreateBars, called from it
 local SyncCancelCVar -- forward-declared; defined after RestyleBars, called from CreateBars/RestyleBars/ReloadCustomBuffBarImpl
-local vehicleHidden = false -- vehicle suppression state (assigned in the recovery section at file bottom); ApplyDefaultBarShown yields to it
+local vehicleHidden = false -- vehicle ride state (assigned in the recovery section at file bottom); feeds pabSuppressed below
+local pabSuppressed = false -- vehicle ride OR degraded-filter window: SetParentShownSafe dims the parents instead of hiding them (see ApplyVehicleHidden)
+local ClearDegraded -- forward-declared; defined in the recovery section at file bottom, called from PAB_SetEnabled
 -- Last label the Buffs mover was registered under, so ApplyLiveConfig can
 -- re-register on a name change without doing it on every slider drag.
 local lastUnlockBuffLabel
@@ -1858,33 +1877,39 @@ end
 -- No call at all when the state already matches; in combat the visual verdict
 -- lands through alpha (never protected) and the real Show/Hide is replayed at
 -- regen via `recompute`, which re-derives the verdict at that time.
+-- Suppression (pabSuppressed) rides on alpha OUT of combat too, never on the
+-- shown state: it lifts on transitions that routinely land mid-combat, and a
+-- real Hide taken while suppressed cannot be undone until the next regen edge.
+-- Field report (Kings' Rest, Entomb): the tomb is a vehicle and being inside it
+-- drops the player's combat, so the ride's hide replayed for real at that regen
+-- and the exit's show was blocked -- the bars stayed gone for the whole boss
+-- pulled afterwards.
 local function SetParentShownSafe(key, parent, want, recompute)
     want = want and true or false
+    local locked = InCombatLockdown()
     local shown = parent:IsShown()
     if issecretvalue and issecretvalue(shown) then shown = nil end
-    if not InCombatLockdown() then
-        if parent:GetAlpha() ~= 1 then parent:SetAlpha(1) end
-        if shown ~= want then parent:SetShown(want) end
+    local alpha = (pabSuppressed or (locked and not want)) and 0 or 1
+    if parent:GetAlpha() ~= alpha then parent:SetAlpha(alpha) end
+    if shown == want then return end
+    if locked then
+        QueuePABRegenApply("shown:" .. key, recompute)
         return
     end
-    if shown == want then
-        if want and parent:GetAlpha() ~= 1 then parent:SetAlpha(1) end
-        return
-    end
-    parent:SetAlpha(want and 1 or 0)
-    QueuePABRegenApply("shown:" .. key, recompute)
+    parent:SetShown(want)
 end
 
 -- Default-bar enable toggle (cfg.enabled, nil = enabled): the parent hides
--- exactly like a disabled custom bar's. Vehicle suppression owns the parents
--- during a ride, so it wins while active.
+-- exactly like a disabled custom bar's. Vehicle suppression still wins while
+-- active -- SetParentShownSafe keeps it on alpha, so this pass carries the
+-- enable verdict without un-suppressing anything (a bar built mid-ride used to
+-- come up at full alpha here).
 local function ApplyDefaultBarShown(isBuff)
     local s = PAB()
     if not s then return end
     local parent
     if isBuff then parent = buffsParent else parent = debuffsParent end
     if not parent then return end
-    if vehicleHidden then return end
     local cfg = isBuff and DefaultBuffsCfg(s) or DefaultDebuffsCfg(s)
     -- Master enable + Use Blizzard Buffs both stand the defaults down (the
     -- recovery lane can reach this while disabled-awaiting-reload).
@@ -2974,6 +2999,16 @@ function ns.PAB_SetSpellState(filterId, spellID, state)
         end
     end
     Write(spellID)
+    -- Members of a curated family follow the clicked row, deletes included: the editor
+    -- shows one row per NAME, so a member under a different name has a row of its own
+    -- but is still the same buff, and would otherwise linger as a tracked id with no
+    -- row left to clear it from. Only ids the filter already holds are rewritten.
+    local fam = ns.PAB_SPELL_FAMILY and ns.PAB_SPELL_FAMILY[spellID]
+    if fam then
+        for i = 1, #fam do
+            if fam[i] ~= spellID and f.spells[fam[i]] ~= nil then Write(fam[i]) end
+        end
+    end
     local name = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)
     if name then
         for id in pairs(f.spells) do
@@ -3002,6 +3037,8 @@ function ns.PAB_ResolveSpells(cfg)
         for i = 1, #spells do
             set[spells[i]] = true
             direct[spells[i]] = true
+            ExpandFamily(direct, spells[i])
+            ExpandFamily(set, spells[i])
         end
     end
     -- Under the broad modes (All Buffs / Has Duration) the hide-lane filters leave via
@@ -3015,20 +3052,30 @@ function ns.PAB_ResolveSpells(cfg)
             local f = ns.PAB_GetFilter(filterId)
             if f then
                 for id, on in pairs(f.spells) do
-                    if on then set[id] = true end
+                    if on then
+                        set[id] = true
+                        ExpandFamily(set, id, f.spells)
+                    end
                 end
             end
         end
     end
     local negFilters = addMode and cfg.negFilters or nil
     if negFilters then
+        local hide = {}
         for filterId in pairs(negFilters) do
             local f = ns.PAB_GetFilter(filterId)
             if f then
                 for id, on in pairs(f.spells) do
-                    if on and not (direct and direct[id]) then set[id] = nil end
+                    if on then
+                        hide[id] = true
+                        ExpandFamily(hide, id, f.spells)
+                    end
                 end
             end
+        end
+        for id in pairs(hide) do
+            if not (direct and direct[id]) then set[id] = nil end
         end
     end
     local out = {}
@@ -3222,6 +3269,16 @@ do
         BM2_FILTER_SEED[#BM2_FILTER_SEED + 1] =
             { name = def.name, enabled = enabled, disabled = disabled }
     end
+    -- Every member of a curated family (primary + its alternates) maps to the whole
+    -- member list, so PAB_ResolveSpells can expand from whichever id the user has.
+    -- Families are disjoint, so one carried by two preset filters rewrites an equal entry.
+    local fams = {}
+    for primary, alts in pairs(PRESET_ALTS) do
+        local fam = { primary }
+        for i = 1, #alts do fam[#fam + 1] = alts[i] end
+        for i = 1, #fam do fams[fam[i]] = fam end
+    end
+    ns.PAB_SPELL_FAMILY = fams
 end
 ns.PAB_SPELL_CLASS_HINTS = SPELL_CLASS_HINTS
 
@@ -4599,6 +4656,7 @@ local function BuildMixedRealSpells(cfg)
                         if on then
                             negSet = negSet or {}
                             negSet[id] = true
+                            ExpandFamily(negSet, id, nf.spells)
                         end
                     end
                 end
@@ -4710,6 +4768,7 @@ local function BuildPreviewSlots(isBuff, cfg, list, listLen, count)
                             if on then
                                 subSet = subSet or {}
                                 subSet[id] = true
+                                ExpandFamily(subSet, id, f.spells)
                             end
                         end
                     end
@@ -5394,6 +5453,9 @@ function ns.PAB_SetEnabled(v)
     if not s then return end
     s.enabled = v and true or nil
     if v then
+        -- A stand-down latched before the module went off has no lane to lift
+        -- it while disabled, and the rebuild below would come up dimmed.
+        ClearDegraded()
         CreateBars()
         return
     end
@@ -5477,12 +5539,14 @@ end
 -- start+end UNIT_FACTION burst collapses to one re-drive.
 -- Vehicle suppression: assistability stays down for the WHOLE ride, so the
 -- exit re-drive alone still left the ride itself showing the full buff set.
--- Match the raid frames' gate by hiding the bar parents outright -- the
+-- Match the raid frames' gate by standing the bar parents down -- the
 -- vehicle has its own UI -- and restoring on exit, where the recovery
--- re-drive repaints from clean filter state. Hidden containers fully
--- unregister their engine events, so a suppressed ride costs nothing.
--- vehicleHidden is forward-declared at the top of the state section (the
--- enable-toggle applier yields to it).
+-- re-drive repaints from clean filter state. The stand-down is alpha, not a
+-- Hide (SetParentShownSafe): the exit routinely lands inside lockdown, where
+-- a Show is blocked. A suppressed ride therefore costs what ordinary play
+-- costs -- the containers stay registered behind alpha 0.
+-- vehicleHidden and pabSuppressed are forward-declared at the top of the state
+-- section (every parent-visibility pass reads the latter).
 -- Bare apply, no state guard: the recovery lane re-asserts the CURRENT
 -- state after its reload paths (which Show() the parents as a side effect).
 -- Restoring (hidden = false) honors each bar's OWN enable toggle -- a
@@ -5509,18 +5573,23 @@ local function ApplyVehicleHidden(hidden)
     -- window (cinematic / faction flip) hide the same parents -- degraded
     -- filter output must never render, exactly like the RF assist gate.
     hidden = hidden or pabDegraded
+    -- The suppression itself lands on alpha inside SetParentShownSafe; `want`
+    -- below stays the durable render verdict, so a bar disabled mid-ride still
+    -- hides for real and a reload that runs during the ride cannot un-suppress
+    -- the parents behind our back.
+    pabSuppressed = hidden
     local s = PAB()
     -- Regen replay re-derives from the LIVE vehicle state, not the argument.
     local function recompute() ApplyVehicleHidden(vehicleHidden) end
     -- Master enable + Use Blizzard Buffs both stand the defaults down: a
     -- vehicle exit during the disabled "Later" window must not re-show them.
     if buffsParent then
-        SetParentShownSafe("vehicle-buffs", buffsParent, not hidden and (not s
+        SetParentShownSafe("vehicle-buffs", buffsParent, (not s
             or (s.enabled == true and DefaultBuffsCfg(s).enabled ~= false
                 and s.useBlizzardBuffs ~= true)), recompute)
     end
     if debuffsParent then
-        SetParentShownSafe("vehicle-debuffs", debuffsParent, not hidden and (not s
+        SetParentShownSafe("vehicle-debuffs", debuffsParent, (not s
             or (s.enabled == true and DefaultDebuffsCfg(s).enabled ~= false
                 and s.useBlizzardBuffs ~= true)), recompute)
     end
@@ -5532,18 +5601,37 @@ local function ApplyVehicleHidden(hidden)
     for barId, parent in pairs(customBuffParents) do
         local bar, bk = ns.PAB_GetCustomBuffBar(barId)
         SetParentShownSafe("vehicle-cb-" .. barId, parent,
-            not hidden and bar ~= nil and ns.PAB_BarActive(bar, bk), recompute)
+            bar ~= nil and ns.PAB_BarActive(bar, bk), recompute)
     end
     for barId, parent in pairs(customDebuffParents) do
         local bar, bk = ns.PAB_GetCustomDebuffBar(barId)
         SetParentShownSafe("vehicle-cd-" .. barId, parent,
-            not hidden and bar ~= nil and ns.PAB_BarActive(bar, bk), recompute)
+            bar ~= nil and ns.PAB_BarActive(bar, bk), recompute)
     end
 end
 local function SetVehicleHidden(hidden)
     if vehicleHidden == hidden then return end
     vehicleHidden = hidden
+    -- Lifting: the containers kept parsing behind alpha 0 (dimmed, not hidden,
+    -- so their engine events stayed live) and the spell-ID filters are still
+    -- degraded through the exit transition -- un-dimming on the raw event edge
+    -- would paint the full-set parse. Hand the stand-down to the degraded lane
+    -- instead: the same event arms it, and it un-dims and forces the clean
+    -- re-parse in one execution. Both callers reach the lane immediately, and
+    -- every lane exit clears the latch (ClearDegraded below).
+    if not hidden then pabDegraded = true end
     ApplyVehicleHidden(hidden)
+end
+
+-- The latch is only ever meaningful while the recovery lane is live: every
+-- early exit down there hands it back, or a stand-down set on a transition
+-- outlives the thing that caused it and every later bar comes up dimmed.
+-- Forward-declared at the top of the state section (the enable path clears a
+-- latch that was set while the module was off, where no lane runs at all).
+function ClearDegraded()
+    if not pabDegraded then return end
+    pabDegraded = false
+    ApplyVehicleHidden(vehicleHidden)
 end
 
 local cineFixPending = false
@@ -5553,20 +5641,24 @@ local function ReapplyAllAfterCinematic()
     -- Buffs the default containers never exist, but custom bars still need
     -- the filter-degradation repair.
     if not (buffsContainer or debuffsContainer
-        or next(customBuffContainers) or next(customDebuffContainers)) then return end
+        or next(customBuffContainers) or next(customDebuffContainers)) then
+        ClearDegraded()
+        return
+    end
     cineFixPending = true
     C_Timer.After(0, function()
         cineFixPending = false
         -- Master-disabled (awaiting reload): nothing to repair, and the
         -- re-drives below must not touch parked frames.
         local sM = PAB()
-        if not sM or sM.enabled ~= true then return end
-        -- Suppressed ride: a re-drive is pointless (the parents are hidden;
-        -- the exit edge re-drives for real) AND actively harmful -- the
-        -- reload paths Show() the parents, silently undoing the vehicle
-        -- suppression (field: bars reappeared with degraded content moments
-        -- after boarding, because UNIT_FACTION fires on the same transition
-        -- and funnels here). Re-assert the hide and stop.
+        if not sM or sM.enabled ~= true then
+            ClearDegraded()
+            return
+        end
+        -- Suppressed ride: a re-drive is pointless -- the bars are dimmed and
+        -- the exit edge re-drives for real. UNIT_FACTION fires on the boarding
+        -- transition and funnels straight here, so this is the common path.
+        -- Re-assert and stop.
         if vehicleHidden then
             ApplyVehicleHidden(true)
             return
@@ -5575,27 +5667,24 @@ local function ReapplyAllAfterCinematic()
         -- while the player is STILL non-assistable re-bakes the degraded
         -- full-set parse, and if that was the last UNIT_FACTION edge nothing
         -- ever repairs it (field: full buff set stuck after cinematics).
-        -- Degraded at this tick: hide the parents and wait. No event marks
-        -- "assistability restored" when the restore lags the event, so a
-        -- settle watcher exists ONLY while degraded; it self-cancels on the
-        -- first clean probe (or gives up watching after 15s -- the hide
-        -- stays, and any later trigger edge re-arms it).
+        -- Degraded at this tick: stand the parents down and wait. No event
+        -- marks "assistability restored" when the restore lags the event, so a
+        -- settle watcher exists ONLY while degraded and self-cancels on the
+        -- first clean probe. It deliberately never gives up: the stand-down is
+        -- alpha-only now, so nothing else re-shows the bars, and a watcher that
+        -- stopped early would leave them invisible for the rest of the session.
+        -- Two C calls per quarter-second, and only while degraded.
         if not PabAssistProbe() then
             if not pabDegraded then
                 pabDegraded = true
                 ApplyVehicleHidden(vehicleHidden)
             end
             if not pabSettleTicker then
-                local ticks = 0
                 pabSettleTicker = C_Timer.NewTicker(0.25, function()
-                    ticks = ticks + 1
                     if PabAssistProbe() then
                         pabSettleTicker:Cancel()
                         pabSettleTicker = nil
                         ReapplyAllAfterCinematic()
-                    elseif ticks >= 60 then
-                        pabSettleTicker:Cancel()
-                        pabSettleTicker = nil
                     end
                 end)
             end
@@ -5603,9 +5692,8 @@ local function ReapplyAllAfterCinematic()
         end
         if pabSettleTicker then pabSettleTicker:Cancel(); pabSettleTicker = nil end
         if pabDegraded then
-            -- Verified regain: un-hide first so the re-drives below act on
-            -- shown parents (their Show also retakes engine-side, the same
-            -- free re-parse the vehicle exit always had).
+            -- Verified regain: un-dim here and force the re-parse below in the
+            -- same execution, so no frame paints the stand-down's stale content.
             pabDegraded = false
             ApplyVehicleHidden(vehicleHidden)
         end

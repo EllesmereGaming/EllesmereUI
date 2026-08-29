@@ -3954,7 +3954,8 @@ function ns.BMP_ShowFilterEditor()
                 local onFilter = (f.spells and f.spells[id] ~= nil)
                     or (f.custom and f.custom[id])
                 if not onFilter then
-                    local nm = C_Spell.GetSpellName and C_Spell.GetSpellName(id)
+                    local nm = (ns.SPELL_NAME_BY_ID and ns.SPELL_NAME_BY_ID[id])
+                        or (C_Spell.GetSpellName and C_Spell.GetSpellName(id))
                     out[#out + 1] = {
                         key = id, label = nm or tostring(id), noCheck = true,
                         icon = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id),
@@ -4031,7 +4032,8 @@ function ns.BMP_ShowFilterEditor()
     end
     -- Alphabetical by spell name (id tiebreak for identical names).
     local function NameOf(id)
-        return (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)) or tostring(id)
+        return (ns.SPELL_NAME_BY_ID and ns.SPELL_NAME_BY_ID[id])
+            or (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)) or tostring(id)
     end
     local function ByName(a, b)
         local na, nb = NameOf(a), NameOf(b)
@@ -4069,7 +4071,8 @@ function ns.BMP_ShowFilterEditor()
         local tex = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id)
         if tex then ico:SetTexture(tex) end
         ico:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        local name = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)
+        local name = (ns.SPELL_NAME_BY_ID and ns.SPELL_NAME_BY_ID[id])
+            or (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id))
         local lr, lg2, lb2 = 1, 1, 1
         if classColor then lr, lg2, lb2 = classColor.r, classColor.g, classColor.b end
         local lbl = EllesmereUI.MakeFont(srow, 13, nil, lr, lg2, lb2)
@@ -4289,7 +4292,8 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
         -- (adding them as extras would be redundant); direct picks always show under
         -- Selected so they can be unchecked.
         local function SpellEntry(id)
-            local name = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)
+            local name = (ns.SPELL_NAME_BY_ID and ns.SPELL_NAME_BY_ID[id])
+                or (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id))
             return { key = id, label = (name or ("Spell " .. tostring(id))),
                 icon = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id) }
         end
@@ -4420,7 +4424,8 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
                 local present, seen, out = {}, {}, {}
                 for i = 1, #resolved do present[resolved[i]] = true end
                 local function Add(id)
-                    local nm = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)
+                    local nm = (ns.SPELL_NAME_BY_ID and ns.SPELL_NAME_BY_ID[id])
+                        or (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id))
                     out[#out + 1] = { key = id, label = nm or ("Spell " .. tostring(id)) }
                 end
                 local so = ind.spellOrder

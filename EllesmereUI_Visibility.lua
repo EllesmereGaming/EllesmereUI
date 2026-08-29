@@ -4,6 +4,12 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Shared visibility dispatcher. Each module (Minimap, Friends, QuestTracker,
 --  Cursor) registers its own update function here; this file owns the event
 --  frame, combat state, mouseover polling, and the global bridge names.
+--
+--  store.visibilityMatch: nil / "all" = every constrained axis must pass (the
+--  original and still default behavior), "any" = at least one must. A plain store
+--  scalar rather than a key inside visibilityModes, because an Any selection can
+--  consist of option lanes alone, and those are stored without a mode set to hang
+--  it on.
 -------------------------------------------------------------------------------
 local EUI = _G.EllesmereUI or {}
 _G.EllesmereUI = EUI
@@ -420,38 +426,58 @@ function EUI.SetVisibilitySelection(store, legacyKey, selection, applyScalarFn)
     _moGen = _moGen + 1
 end
 
--- Pure axis evaluation. state = { inCombat, inRaid, inParty } with inParty
--- meaning party-exclusive-of-raid (the disjoint pair, as CDM computes it).
--- caps.partyIncludesRaid, when a caller opts in, would widen the in_party item to also
--- match raids; no current caller sets it -- In Party and In Raid Group are disjoint
--- everywhere, so unchecking In Raid Group actually excludes raid.
-function EUI.EvalVisibilityModes(selection, state, caps)
+-- Per-axis verdicts for the three mode axes: (constrained, passed). state = { inCombat,
+-- inRaid, inParty }, inParty = party-exclusive-of-raid; caps.partyIncludesRaid widens
+-- in_party to raids (no caller sets it). An empty or fully-checked axis is never counted.
+-- stopAt "fail" returns at the first failing axis, "any" at the first passing one; the
+-- undercounted `constrained` is safe because both callers stop reading it there.
+function EUI.TallyVisibilityModeAxes(selection, state, caps, stopAt)
     local incRaid = caps and caps.partyIncludesRaid
+    local constrained, passed = 0, 0
 
     -- Combat axis
     local c1, c2 = selection.in_combat, selection.out_of_combat
-    if c1 and not c2 and not state.inCombat then return false end
-    if c2 and not c1 and state.inCombat then return false end
+    if c1 and not c2 then
+        constrained = constrained + 1
+        if state.inCombat then passed = passed + 1 end
+    elseif c2 and not c1 then
+        constrained = constrained + 1
+        if not state.inCombat then passed = passed + 1 end
+    end
 
-    -- Group axis
+    if stopAt == "fail" and passed < constrained then return constrained, passed end
+    if stopAt == "any" and passed > 0 then return constrained, passed end
+
+    -- Group axis (the three items are ONE axis, OR'd together)
     local g1, g2, g3 = selection.in_raid, selection.in_party, selection.solo
     if (g1 or g2 or g3) and not (g1 and g2 and g3) then
+        constrained = constrained + 1
         local pass = false
         if g1 and state.inRaid then pass = true end
         if not pass and g2 and (state.inParty or (incRaid and state.inRaid)) then pass = true end
         if not pass and g3 and not state.inRaid and not state.inParty then pass = true end
-        if not pass then return false end
+        if pass then passed = passed + 1 end
     end
+
+    if stopAt == "fail" and passed < constrained then return constrained, passed end
+    if stopAt == "any" and passed > 0 then return constrained, passed end
 
     -- Dragonriding axis
     local d1, d2 = selection.show_dragonriding, selection.show_not_dragonriding
     if (d1 or d2) and not (d1 and d2) then
+        constrained = constrained + 1
         local dr = EUI.IsAirborneSkyriding()
-        if d1 and not dr then return false end
-        if d2 and dr then return false end
+        if (d1 and dr) or (d2 and not dr) then passed = passed + 1 end
     end
 
-    return true
+    return constrained, passed
+end
+
+-- Default "all" match: every constrained axis has to pass. Public entry point (other
+-- files evaluate mode sets with it).
+function EUI.EvalVisibilityModes(selection, state, caps)
+    local constrained, passed = EUI.TallyVisibilityModeAxes(selection, state, caps, "fail")
+    return constrained == passed
 end
 
 -- Module-facing dispatcher. Returns a value when the multi-select engine
@@ -466,9 +492,60 @@ end
 --               a failing set returns plain false, hover included)
 local _dispatchState = {}  -- reused; filled per call when no state is passed
 
+local function FillDispatchState()
+    local inRaid = IsInRaid()
+    _dispatchState.inCombat = _inCombat
+    _dispatchState.inRaid = inRaid
+    _dispatchState.inParty = IsInGroup() and not inRaid
+    return _dispatchState
+end
+
+-- Any match: every constrained axis is a disjunct; mode axes and option lanes tally
+-- TOGETHER (CheckVisibilityOptions steps aside for such a store). _anySel is a reused
+-- scalar view so a single stored mode costs no allocation per dispatcher event.
+local _anySel, _anySelKey = {}, nil
+
+local function EvalAnyMatch(store, legacyKey, vm, state, caps)
+    local sel = vm
+    if not sel then
+        if _anySelKey then _anySel[_anySelKey] = nil end
+        _anySelKey = store[legacyKey] or "always"
+        _anySel[_anySelKey] = true
+        sel = _anySel
+    end
+    -- Never stays terminal: an exclusive scalar is not an axis, so no other lane can
+    -- out-vote it.
+    if sel.never then return false end
+    state = state or FillDispatchState()
+    local constrained, passed = EUI.TallyVisibilityModeAxes(sel, state, caps, "any")
+    -- One passing disjunct settles it; the option probes (instance, housing, the druid
+    -- form walk) only run when no mode axis passed.
+    if passed == 0 and EUI.TallyVisibilityOptionAxes then
+        local optC, optP = EUI.TallyVisibilityOptionAxes(store)
+        constrained, passed = constrained + optC, passed + optP
+    end
+    -- Nothing constrained at all reads as Always, exactly as it does under All.
+    local pass = (constrained == 0) or (passed > 0)
+    if sel.mouseover then
+        return pass and "mouseover" or false
+    end
+    return pass
+end
+
 function EUI.EvalVisibilityExtended(store, legacyKey, state, caps)
     if not store then return nil end
     local vm = ActiveModes(store, legacyKey)
+    -- Any owns the whole verdict (option lanes included, even with no mode set). The one
+    -- case handed back is a legacy ORPHAN scalar: the caller's chain resolves the mode
+    -- and the option lanes stop applying; the Visibility row locks Match Mode while an
+    -- orphan is stored so that state is unreachable from the UI.
+    if store.visibilityMatch == "any" then
+        local scalar = store[legacyKey]
+        if vm or scalar == nil or VIS_CONDITION_KEYS[scalar]
+            or scalar == "never" or scalar == "always" or scalar == "mouseover" then
+            return EvalAnyMatch(store, legacyKey, vm, state, caps)
+        end
+    end
     if not vm then
         local scalar = store[legacyKey]
         if scalar == "show_dragonriding" then
@@ -478,13 +555,7 @@ function EUI.EvalVisibilityExtended(store, legacyKey, state, caps)
         end
         return nil
     end
-    if not state then
-        local inRaid = IsInRaid()
-        _dispatchState.inCombat = _inCombat
-        _dispatchState.inRaid = inRaid
-        _dispatchState.inParty = IsInGroup() and not inRaid
-        state = _dispatchState
-    end
+    state = state or FillDispatchState()
     local pass = EUI.EvalVisibilityModes(vm, state, caps)
     if vm.mouseover then
         return pass and "mouseover" or false
@@ -498,6 +569,11 @@ end
 -- additionally requires its condition axes to pass right now.
 function EUI.VisWantsMouseover(store, legacyKey, state, caps)
     if not store then return false end
+    -- Under Any the hover gate arms only while the disjunction (option lanes included)
+    -- passes, so the verdict comes from the one evaluator that sees both halves.
+    if store.visibilityMatch == "any" then
+        return EUI.EvalVisibilityExtended(store, legacyKey, state, caps) == "mouseover"
+    end
     local vm = ActiveModes(store, legacyKey)
     if vm then
         if not vm.mouseover then return false end
@@ -510,6 +586,7 @@ end
 -- two stores (multi set vs multi set, else scalar vs scalar).
 function EUI.VisSelectionEquals(a, aKey, b, bKey)
     if not a or not b then return false end
+    if (a.visibilityMatch == "any") ~= (b.visibilityMatch == "any") then return false end
     local ma = ActiveModes(a, aKey)
     local mb = ActiveModes(b, bKey)
     if ma or mb then
@@ -590,6 +667,180 @@ function EUI.BuildVisibilityDriverString(prefix, vm)
     return prefix .. "[" .. conj:sub(1, -2) .. "] show; hide"
 end
 
+-- Any-match tail: one bracket group per constrained axis (adjacent groups OR in macro
+-- grammar). `opts` = the option lanes the driver can express (Lua-only ones are the
+-- caller's); `wrap` = tokens every bracket must carry (Pet Bar); `extraConstrained` =
+-- axes decided outside this string, so a Lua-only-constrained selection compiles to hide.
+function EUI.BuildVisibilityDriverStringAny(prefix, vm, opts, extraConstrained, wrap)
+    vm, opts, wrap = vm or {}, opts or {}, wrap or ""
+    local lead = (wrap ~= "") and (wrap .. ",") or ""
+    local out, axes = "", 0
+    local emitted = {}
+    local function emit(tok)
+        if emitted[tok] then return end
+        emitted[tok] = true
+        out = out .. "[" .. lead .. tok .. "] show; "
+    end
+
+    -- Combat axis
+    local c1, c2 = vm.in_combat, vm.out_of_combat
+    if c1 and not c2 then
+        axes = axes + 1; emit("combat")
+    elseif c2 and not c1 then
+        axes = axes + 1; emit("nocombat")
+    end
+
+    -- Group axis: three items, ONE axis, already OR'd among themselves.
+    local g1, g2, g3 = vm.in_raid, vm.in_party, vm.solo
+    if (g1 or g2 or g3) and not (g1 and g2 and g3) then
+        axes = axes + 1
+        if g1 then emit("group:raid") end
+        -- [group:party] alone is TRUE inside a raid; nogroup:raid narrows the party
+        -- disjunct to a real party, same as the all-match tail does.
+        if g2 then emit("group:party,nogroup:raid") end
+        if g3 then emit("nogroup") end
+    end
+
+    -- Option axes with a macro conditional of their own.
+    if opts.visOnlyMounted and not opts.visHideMounted then
+        axes = axes + 1; emit("mounted")
+    elseif opts.visHideMounted and not opts.visOnlyMounted then
+        axes = axes + 1; emit("nomounted")
+    end
+    if opts.visHideNoTarget and not opts.visHideWithTarget then
+        axes = axes + 1; emit("exists")
+    elseif opts.visHideWithTarget and not opts.visHideNoTarget then
+        axes = axes + 1; emit("noexists")
+    end
+    if opts.visHideNoEnemy and not opts.visHideWithEnemy then
+        axes = axes + 1; emit("harm")
+    elseif opts.visHideWithEnemy and not opts.visHideNoEnemy then
+        axes = axes + 1; emit("noharm")
+    end
+
+    -- Dragonriding axis. NOT(advflyable AND flying) has no single bracket form, so the
+    -- negative lane becomes the TAIL: once no other disjunct matched, hide while
+    -- airborne, show otherwise (first matching clause wins).
+    local d1, d2 = vm.show_dragonriding, vm.show_not_dragonriding
+    local dragonTail = false
+    if d1 and not d2 then
+        axes = axes + 1; emit("advflyable,flying")
+    elseif d2 and not d1 then
+        axes = axes + 1; dragonTail = true
+    end
+
+    local wrappedShow = (wrap ~= "") and ("[" .. wrap .. "] show; hide") or "show"
+    if axes == 0 then
+        -- Nothing this string can decide: either nothing is constrained anywhere
+        -- (Always), or the only constrained axes are Lua-only ones that all failed.
+        if (extraConstrained or 0) > 0 then return prefix .. "hide", 0 end
+        return prefix .. wrappedShow, 0
+    end
+    if dragonTail then
+        return prefix .. out .. "[" .. lead .. "advflyable,flying] hide; " .. wrappedShow, axes
+    end
+    return prefix .. out .. "hide", axes
+end
+
+-- Two macro tokens disagree with their Lua probe: [exists] counts a soft target and
+-- [mounted] cannot see druid travel/flight forms. Under Any a veto would silence the
+-- other axes, so the fix is per axis: a token that would wrongly PASS has its disjunct
+-- dropped, one that would wrongly FAIL shows outright. Each probe runs only when its
+-- own lanes are set (the mount one walks the druid form auras).
+local function AnyDriverLaneFixups(store, edges)
+    local drop, forceShow = nil, false
+
+    local wantsTarget = (edges and edges.softTarget)
+        and (store.visHideNoTarget or store.visHideWithTarget)
+    if wantsTarget then
+        local softOnly = not UnitExists("target")
+            and (UnitExists("softinteract") or UnitExists("softenemy") or UnitExists("softfriend"))
+        if softOnly then
+            -- Show lane: [exists] would show on the soft target the probe does not count.
+            if store.visHideNoTarget and not store.visHideWithTarget then
+                drop = { visHideNoTarget = true }
+            -- Hide lane: [noexists] stays false, but "no target" is true to the probe.
+            elseif store.visHideWithTarget and not store.visHideNoTarget then
+                forceShow = true
+            end
+        end
+    end
+
+    if store.visOnlyMounted or store.visHideMounted then
+        local formOnly = not (IsMounted and IsMounted())
+            and EUI.IsPlayerMountedLike and EUI.IsPlayerMountedLike()
+        if formOnly then
+            -- Show lane: [mounted] misses the form the probe counts as mounted.
+            if store.visOnlyMounted and not store.visHideMounted then
+                forceShow = true
+            -- Hide lane: [nomounted] would show while the probe says mounted.
+            elseif store.visHideMounted and not store.visOnlyMounted then
+                drop = drop or {}
+                drop.visHideMounted = true
+            end
+        end
+    end
+
+    return drop, forceShow
+end
+
+-- Store -> Any-match driver tail, shared by Action Bars, Unit Frames and the Minimap.
+-- Returns tail, constrained (a LOWER BOUND: the early-outs stop counting once settled)
+-- and liveAxes (axes that are LIVE macro terms in `tail`; 0 for a constant). A
+-- driver-registering caller gates on liveAxes: constrained can be positive purely from
+-- Lua-resolved axes, which a driver could never keep honest.
+function EUI.BuildAnyMatchTail(store, legacyKey, vm, wrap, edges)
+    wrap = wrap or ""
+    local wrappedShow = (wrap ~= "") and ("[" .. wrap .. "] show; hide") or "show"
+    -- Never is an exclusive scalar, not an axis, so nothing can out-vote it.
+    if (store[legacyKey] or "always") == "never" then return "hide", 1, 0 end
+
+    local luaC, luaP = 0, 0
+    if EUI.TallyVisibilityOptionAxes then
+        luaC, luaP = EUI.TallyVisibilityOptionAxes(store, "luaOnly", edges)
+    end
+    -- Settled before the fixups run: their probes are the expensive ones.
+    if luaP > 0 then return wrappedShow, luaC, 0 end
+
+    local drop, forceShow = AnyDriverLaneFixups(store, edges)
+    -- A driver axis whose token cannot see what the probe sees; it is not in luaC.
+    if forceShow then return wrappedShow, luaC + 1, 0 end
+
+    local modes = vm
+    if not modes then
+        -- A single stored mode is one constrained axis, the shape a set would have.
+        modes = {}
+        local scalar = store[legacyKey]
+        if VIS_CONDITION_KEYS[scalar] then modes[scalar] = true end
+    end
+    -- The compiler sees only the lanes THIS consumer compiles: Lua-resolved axes are
+    -- already in luaC, dropped ones still count as constrained but cannot be disjuncts.
+    local axisList = EUI.VIS_OPT_AXES
+    local needsFilter = drop ~= nil
+    if not needsFilter and axisList then
+        for i = 1, #axisList do
+            if EUI.VisAxisIsLuaOnly(axisList[i], edges) then needsFilter = true; break end
+        end
+    end
+    local opts, dropped = store, 0
+    if needsFilter then
+        opts = {}
+        for i = 1, #axisList do
+            local ax = axisList[i]
+            if not EUI.VisAxisIsLuaOnly(ax, edges) then
+                if drop and (drop[ax.show] or drop[ax.hide]) then
+                    dropped = dropped + 1
+                else
+                    opts[ax.show] = store[ax.show]
+                    opts[ax.hide] = store[ax.hide]
+                end
+            end
+        end
+    end
+    local tail, axes = EUI.BuildVisibilityDriverStringAny("", modes, opts, luaC + dropped, wrap)
+    return tail, axes + luaC + dropped, axes
+end
+
 -- Set-aware copy for the sync icons. dstCaps.noGroupModes strips group-axis
 -- items the target cannot express (Pet Bar); the stripped selection
 -- re-normalizes through the setter (a now-single selection collapses to the
@@ -597,6 +848,8 @@ end
 -- module's scalar side effects, same contract as SetVisibilitySelection.
 function EUI.VisCopySelection(dst, src, legacyKey, dstCaps, applyScalarFn)
     if not dst or not src then return end
+    -- The match travels with every copy, mode-only ones included.
+    dst.visibilityMatch = (src.visibilityMatch == "any") and "any" or nil
     local ms = ActiveModes(src, legacyKey)
     if ms then
         local sel = {}

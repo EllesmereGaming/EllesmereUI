@@ -512,6 +512,19 @@ local function PlayerBuffChain(s)
         pbImportEnsured = true
         if ns.PAB_ImportBM2Filters then ns.PAB_ImportBM2Filters() end
     end
+    -- Curated spell families (a primary plus its alts: rank/talent ids and
+    -- multi-state buffs whose aura swaps spell ID as it advances) expand at
+    -- resolution, exactly as PAB_ResolveSpells does for this same shared filter
+    -- registry, so the player frame and Player Aura Bars agree on what a filter
+    -- tracks. An explicit false in the owning filter wins.
+    local function ExpandBuffFamily(set, id, blocked)
+        local fam = ns.PAB_SPELL_FAMILY and ns.PAB_SPELL_FAMILY[id]
+        if not fam then return end
+        for i = 1, #fam do
+            local m = fam[i]
+            if not (blocked and blocked[m] == false) then set[m] = true end
+        end
+    end
     local chain = {}
     local dur = s.buffHasDuration == true
     -- All Buffs and Has Duration are mutually exclusive broad-content modes (the
@@ -537,6 +550,7 @@ local function PlayerBuffChain(s)
                         if on then
                             ex = ex or {}
                             ex[id] = true
+                            ExpandBuffFamily(ex, id, f.spells)
                         end
                     end
                 end
@@ -562,6 +576,7 @@ local function PlayerBuffChain(s)
                 inc[id] = true
                 n = (n or 0) + 1
             end
+            ExpandBuffFamily(inc, id)
         end
     end
     if not broad and s.buffFilters then
@@ -575,6 +590,7 @@ local function PlayerBuffChain(s)
                             inc[id] = true
                             n = (n or 0) + 1
                         end
+                        ExpandBuffFamily(inc, id, f.spells)
                     end
                 end
             end
@@ -586,15 +602,27 @@ local function PlayerBuffChain(s)
         local direct
         if s.buffSpells then
             direct = {}
-            for i = 1, #s.buffSpells do direct[s.buffSpells[i]] = true end
+            for i = 1, #s.buffSpells do
+                direct[s.buffSpells[i]] = true
+                ExpandBuffFamily(direct, s.buffSpells[i])
+            end
         end
+        -- Hidden filters expand as families too, or one hidden id of a family
+        -- would leak its siblings; direct Extra Spells still win.
+        local hide = {}
         for filterId in pairs(s.buffNegFilters) do
             local f = ns.PAB_GetFilter and ns.PAB_GetFilter(filterId)
             if f and f.spells then
                 for id, on in pairs(f.spells) do
-                    if on and not (direct and direct[id]) then inc[id] = nil end
+                    if on then
+                        hide[id] = true
+                        ExpandBuffFamily(hide, id, f.spells)
+                    end
                 end
             end
+        end
+        for id in pairs(hide) do
+            if not (direct and direct[id]) then inc[id] = nil end
         end
         if next(inc) == nil then inc = nil end
     end
@@ -1520,11 +1548,12 @@ local function ApplyDispelSlotStyle(button, d, style)
         tex:SetVertexColor(c.r, c.g, c.b, alpha)
     elseif style.mode == "fill" then
         local fillTex = health.GetStatusBarTexture and health:GetStatusBarTexture()
-        tex:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
+        -- Both corners come off the fill texture so the overlay follows vertical and
+        -- reverse fills; anchoring TOPLEFT to the bar only tracks left-to-right.
         if fillTex then
-            tex:SetPoint("BOTTOMRIGHT", fillTex, "BOTTOMRIGHT", 0, 0)
+            tex:SetAllPoints(fillTex)
         else
-            tex:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
+            tex:SetAllPoints(health)
         end
         tex:SetColorTexture(c.r, c.g, c.b, alpha)
         tex:SetVertexColor(1, 1, 1, 1)

@@ -327,6 +327,7 @@ function EAB.VisibilityCompat.Copy(dst, src, dstNoGroupModes)
             EAB.VisibilityCompat.ApplyMode)
     else
         dst.visibilityModes = nil
+        dst.visibilityMatch = src.visibilityMatch or nil
     end
 end
 
@@ -8830,6 +8831,11 @@ function EAB.BuildVisibilityStringMulti(hidePrefix, vm)
     return EllesmereUI.BuildVisibilityDriverString(hidePrefix, vm)
 end
 
+-- Edges this addon watches, for the shared Any tail builder: the target/enemy axes may
+-- compile to live macro tokens because the soft-target machinery (PLAYER_SOFT_* events
+-- + the 0.1s poll) rebuilds the driver when they drift. EAB field: 200-local cap.
+EAB.VIS_EDGES = { softTarget = true }
+
 local function BuildVisibilityString(info, s, visOverride)
     local key = info.key
     local vis = visOverride or s.barVisibility or "always"
@@ -8839,18 +8845,21 @@ local function BuildVisibilityString(info, s, visOverride)
     end
 
     -- Visibility-option hide clauses expressed as macro conditionals; run
-    -- inside the secure state driver so they work in combat without taint.
+    -- inside the secure state driver so they work in combat without taint. Under Any
+    -- they are disjuncts, compiled by the Any tail below, never a gate.
     local visOptHide = ""
-    if s.visHideMounted then visOptHide = visOptHide .. "[mounted] hide; " end
-    -- Inverse of the above. [nomounted] cannot see druid travel/flight forms
-    -- (they are shapeshifts), so a druid in a mount-like form reads unmounted
-    -- here and the bar hides -- accepted asymmetry: the secure clause is what
-    -- keeps this working in combat, and Lua cannot un-hide past the driver.
-    if s.visOnlyMounted then visOptHide = visOptHide .. "[nomounted] hide; " end
-    if s.visHideNoTarget then visOptHide = visOptHide .. "[noexists] hide; " end
-    if s.visHideWithTarget then visOptHide = visOptHide .. "[exists] hide; " end
-    if s.visHideNoEnemy then visOptHide = visOptHide .. "[noharm] hide; " end
-    if s.visHideWithEnemy then visOptHide = visOptHide .. "[harm] hide; " end
+    if s.visibilityMatch ~= "any" then
+        if s.visHideMounted then visOptHide = visOptHide .. "[mounted] hide; " end
+        -- Inverse of the above. [nomounted] cannot see druid travel/flight forms
+        -- (they are shapeshifts), so a druid in a mount-like form reads unmounted
+        -- here and the bar hides -- accepted asymmetry: the secure clause is what
+        -- keeps this working in combat, and Lua cannot un-hide past the driver.
+        if s.visOnlyMounted then visOptHide = visOptHide .. "[nomounted] hide; " end
+        if s.visHideNoTarget then visOptHide = visOptHide .. "[noexists] hide; " end
+        if s.visHideWithTarget then visOptHide = visOptHide .. "[exists] hide; " end
+        if s.visHideNoEnemy then visOptHide = visOptHide .. "[noharm] hide; " end
+        if s.visHideWithEnemy then visOptHide = visOptHide .. "[harm] hide; " end
+    end
 
     -- Authoritative multi-select set. Explicit overrides (toggle keybind,
     -- QuickKeybind, grid drag) substitute the whole mode term as for single
@@ -8858,6 +8867,24 @@ local function BuildVisibilityString(info, s, visOverride)
     local vm
     if not visOverride and EllesmereUI.GetActiveVisibilityModes then
         vm = EllesmereUI.GetActiveVisibilityModes(s, "barVisibility")
+    end
+
+    -- Any match: the shared builder compiles the whole tail; Lua-only lanes (instances,
+    -- housing, skyriding mount) are resolved at build time, so their verdict is only as
+    -- fresh as the last driver rebuild. Explicit overrides keep the legacy path.
+    if not visOverride and s.visibilityMatch == "any" and EllesmereUI.BuildAnyMatchTail then
+        local anyPrefix, anyWrap
+        if info.isPetBar then
+            anyPrefix = "[petbattle] hide; "
+            anyWrap = "novehicleui,pet,nooverridebar,nopossessbar"
+        elseif key == "MainBar" then
+            anyPrefix = "[petbattle] hide; "
+        elseif info.isStance then
+            anyPrefix = "[vehicleui][petbattle] hide; "
+        else
+            anyPrefix = "[vehicleui][petbattle][overridebar] hide; "
+        end
+        return anyPrefix .. EllesmereUI.BuildAnyMatchTail(s, "barVisibility", vm, anyWrap, EAB.VIS_EDGES)
     end
 
     -- Pet bar has unique logic: it only shows when a pet is active and
@@ -9288,7 +9315,11 @@ function EAB:_RefreshSoftTargetGate()
     for _, info in ipairs(ALL_BARS) do
         local s = self.db.profile.bars[info.key]
         if s then
-            if s.visHideNoTarget then anySoft = true end
+            -- Under Any the counter lane carries the soft-target correction too, so it
+            -- arms the same machinery; under All it never did and still does not.
+            if s.visHideNoTarget or (s.visHideWithTarget and s.visibilityMatch == "any") then
+                anySoft = true
+            end
             -- Driven off the shared key list rather than a hand-written subset: an
             -- option missing here silently skips the whole UpdateHousingVisibility pass
             -- for that bar. Deliberately over-inclusive (it also matches the
@@ -9727,6 +9758,9 @@ function EAB:UpdateHousingVisibility()
         -- forms are also handled here to cover cases [mounted] does not match.
         local function ShouldHideNonMacro(s)
             if not s then return false end
+            -- Under Any the lanes are disjuncts folded into the driver string; a literal
+            -- "hide" here would veto the whole disjunction on one failing lane.
+            if s.visibilityMatch == "any" then return false end
             if s.visHideNoTarget then
                 -- [noexists] in the state driver covers the basic has-target
                 -- check even in combat. Out of combat also hide when a soft
@@ -9737,16 +9771,14 @@ function EAB:UpdateHousingVisibility()
             end
             if s.visHideMounted then
                 -- Regular mounts are handled entirely by the secure "[mounted] hide"
-                -- clause, which self-updates even in combat, so the bar reappears the
-                -- instant the player is dazed off a mount. Clobbering the driver with a
-                -- literal "hide" here would freeze it hidden until combat ends: this
-                -- handler bails during InCombatLockdown and
-                -- PLAYER_MOUNT_DISPLAY_CHANGED can't re-evaluate a dead constant
-                -- string. Only shapeshift travel/flight forms need this non-secure
-                -- fallback, since [mounted] doesn't match them.
+                -- clause, which self-updates even in combat. Druid travel/flight forms
+                -- don't match [mounted] and fall back to this non-secure clobber, and a
+                -- bare "hide" is a dead constant once written (the shift-out edge lands
+                -- in combat, where this handler bails), so the marker lets the write
+                -- site bake a combat escape hatch into the string instead.
                 if not (IsMounted and IsMounted())
                     and EllesmereUI and EllesmereUI.IsPlayerMountedLike and EllesmereUI.IsPlayerMountedLike() then
-                    return true
+                    return "combathide"
                 end
             end
             -- Every other Lua-only option (both instance lanes, both housing lanes, both
@@ -9754,10 +9786,12 @@ function EAB:UpdateHousingVisibility()
             -- there is live here too instead of silently going stale on the next zone or
             -- mount edge. skipMountAxis keeps the driver's [mounted]/[nomounted] clauses
             -- authoritative, leaving the narrower shapeshift check above as the only
-            -- mount handling on this path.
-            if EllesmereUI and EllesmereUI.CheckVisibilityOptionsNonMacro
-                and EllesmereUI.CheckVisibilityOptionsNonMacro(s, true) then
-                return true
+            -- mount handling on this path. The skyriding-mount lanes can flip into
+            -- combat like the form case, so the evaluator flags them "mountaxis".
+            if EllesmereUI and EllesmereUI.CheckVisibilityOptionsNonMacro then
+                local nonMacro = EllesmereUI.CheckVisibilityOptionsNonMacro(s, true)
+                if nonMacro == "mountaxis" then return "combathide" end
+                if nonMacro then return true end
             end
             return false
         end
@@ -9796,10 +9830,20 @@ function EAB:UpdateHousingVisibility()
                         end
                     elseif shouldHide then
                         if isSecure then
-                            if frame._eabLastVisStr ~= "hide" then
+                            -- "combathide" (druid mount-like form, skyriding-mount lanes): a
+                            -- lane that can flip INTO combat must not be a dead constant, so
+                            -- hide out of combat and fall back to the real driver in combat
+                            -- (mode, prefixes and any [mounted] clause keep working there).
+                            -- Never / always-hidden bars keep the plain hide.
+                            local hideStr = "hide"
+                            if shouldHide == "combathide" and not s.alwaysHidden
+                                and (s.barVisibility or "always") ~= "never" then
+                                hideStr = "[nocombat] hide; " .. BuildVisibilityString(info, s)
+                            end
+                            if frame._eabLastVisStr ~= hideStr then
 
-                                frame._eabLastVisStr = "hide"
-                                RegisterAttributeDriver(frame, "state-visibility", "hide")
+                                frame._eabLastVisStr = hideStr
+                                RegisterAttributeDriver(frame, "state-visibility", hideStr)
                             end
                         elseif info.blizzOwnedVisibility then
                             local bf = _G[info.frameName]
@@ -13846,10 +13890,13 @@ function EAB:FinishSetup()
         local softOnly = (hasSoftInteract or hasSoftEnemy or hasSoftFriend) and not hasHardTarget
         for _, info in ipairs(ALL_BARS) do
             local s = self.db.profile.bars[info.key]
-            if s and s.visHideNoTarget and not (self._visOverride and self._visOverride[info.key]) then
+            if s and (s.visHideNoTarget or (s.visHideWithTarget and s.visibilityMatch == "any"))
+                    and not (self._visOverride and self._visOverride[info.key]) then
                 local frame = barFrames[info.key]
                 if frame then
-                    if softOnly then
+                    -- Under Any a literal "hide" would veto the whole disjunction on this
+                    -- one lane; the rebuild below lets the shared builder drop just it.
+                    if softOnly and s.visHideNoTarget and s.visibilityMatch ~= "any" then
                         if frame._eabLastVisStr ~= "hide" then
                             frame._eabLastVisStr = "hide"
                             RegisterAttributeDriver(frame, "state-visibility", "hide")
@@ -13930,7 +13977,8 @@ function EAB:FinishSetup()
         regenFrame:SetScript("OnEvent", function()
             for _, info in ipairs(ALL_BARS) do
                 local s = self.db.profile.bars[info.key]
-                if s and s.visHideNoTarget and not (self._visOverride and self._visOverride[info.key]) then
+                if s and (s.visHideNoTarget or (s.visHideWithTarget and s.visibilityMatch == "any"))
+                    and not (self._visOverride and self._visOverride[info.key]) then
                     local frame = barFrames[info.key]
                     if frame then
                         local newStr = BuildVisibilityString(info, s)

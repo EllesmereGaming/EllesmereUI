@@ -2899,7 +2899,20 @@ initFrame:SetScript("OnEvent", function(self)
                       values = { __placeholder = "..." }, order = { "__placeholder" },
                       getValue = function() return "__placeholder" end,
                       setValue = function() end },
+                    MkToggle("Abbreviate Amount", "abbreviate",
+                        "Shows large amounts using K/M suffixes (284,208g becomes 284.2Kg) instead of the full grouped number. The tooltip always shows the exact amount."),
                 }
+                -- Force English Units: CJK clients only (zhCN/zhTW/koKR group
+                -- numbers by 万/亿 instead of K/M); every other locale already
+                -- gets K/M, so the toggle would be a no-op there. Mirrors the
+                -- Damage Meters options row (EUI_DamageMeters_Options.lua).
+                do
+                    local clientLocale = GetLocale()
+                    if clientLocale == "zhCN" or clientLocale == "zhTW" or clientLocale == "koKR" then
+                        typeRows[#typeRows + 1] = MkToggle("Force English Units (K/M/B)", "forceEnglishUnits",
+                            "Always use K/M/B instead of localized units.")
+                    end
+                end
             elseif b.type == "xprep" then
                 typeRows = {
                     { type = "dropdown", text = "Mode",
@@ -3504,6 +3517,7 @@ initFrame:SetScript("OnEvent", function(self)
             cfg.hideBorder = nil
             cfg.visibility = "always"
             cfg.visibilityModes = nil
+            cfg.visibilityMatch = nil
             -- VIS_OPT_KEYS, not VIS_OPT_ITEMS: the counter-lane keys have no row in the
             -- legacy item list, and a reset that skipped them would leave a bar hidden.
             for _, k in ipairs(EllesmereUI.VIS_OPT_KEYS) do

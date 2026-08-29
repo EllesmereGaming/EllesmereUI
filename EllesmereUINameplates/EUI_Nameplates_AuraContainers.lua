@@ -1729,16 +1729,27 @@ function QueueBundleBuild() -- forward-declared local (pool growth + login build
             local _, bs = ns.GetAuraSlots()
             if bs and bs ~= "none" then AddBundleBuffs(nb) end
         end, "np:buffs")
+        -- Two stages under one label: the bundle build and the plate attach must
+        -- not share a watchdog attempt (a reconnect mid-pull retried the combined
+        -- cost to its third strike). "again" front-requeues, so the attach still
+        -- follows its own bundle before any newer work.
+        local pooled = false
         AK.QueueBuildJob(function()
             if not nb then return end -- bundle lost to a hard error upstream
-            local _, _, cs = ns.GetAuraSlots()
-            if cs and cs ~= "none" then AddBundleCC(nb) end
-            -- NPF record groups apply at BUILD: growth bundles (pre-warm,
-            -- attach growth) never see the one-shot reload or a config-FP
-            -- flip, and without this their np group renders unfiltered.
-            NPF_EnsureRecords(nb)
-            pool[#pool + 1] = nb
-            built = built + 1
+            if not pooled then
+                local _, _, cs = ns.GetAuraSlots()
+                if cs and cs ~= "none" then AddBundleCC(nb) end
+                -- NPF record groups apply at BUILD: growth bundles (pre-warm,
+                -- attach growth) never see the one-shot reload or a config-FP
+                -- flip, and without this their np group renders unfiltered.
+                NPF_EnsureRecords(nb)
+                -- Mark before the insert: a watchdog between the two loses one
+                -- bundle (growth rebuilds it) rather than pooling it twice.
+                pooled = true
+                pool[#pool + 1] = nb
+                built = built + 1
+                return "again"
+            end
             ServiceWaiting()
             if built == POOL_SIZE then ns.NPC_ReloadAll() end
         end, "np:cc+pool")
