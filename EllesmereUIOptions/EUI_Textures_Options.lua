@@ -134,6 +134,10 @@ local function NoteRow(parent, y, text)
     return y - ROW_H
 end
 
+-- Lf with a placeholder rather than a ".." chain: L() is an exact lookup, so
+-- "Enable " .. display .. " ..." can never be keyed and the note would stay
+-- English on every localized client. The card header tooltip below already
+-- does it this way ("Enable %1$s to edit these settings.").
 local function DisabledTile(parent, y, W, tile)
     return NoteRow(parent, y, EllesmereUI.Lf("Enable %1$s to edit its texture settings.", EllesmereUI.L(tile.display)))
 end
