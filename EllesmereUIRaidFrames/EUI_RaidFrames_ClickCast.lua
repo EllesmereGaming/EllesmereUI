@@ -15,6 +15,8 @@ local tinsert      = table.insert
 local tremove      = table.remove
 local wipe         = wipe
 local format       = string.format
+local lower        = string.lower
+local find         = string.find
 local tostring     = tostring
 local type         = type
 local floor        = math.floor
@@ -189,6 +191,7 @@ local function GetClickCastDB()
             enabled    = false,
             allFrames  = true,
             downClick  = true,
+            rezItem    = nil,
             specs      = {},
             globals    = {
                 { key = "BUTTON1",  type = "target",   enabled = true },
@@ -627,7 +630,8 @@ end
 local function BuildRezLines(binding, guard)
     local _, pClass = UnitClass("player")
     local kit = REZ_BY_CLASS[pClass]
-    if not kit then return nil end
+    local cc = GetClickCastDB()
+    local rezItem = cc and tonumber(cc.rezItem)
     local bank = Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player
     local function Known(sid)
         if not sid then return nil end
@@ -636,12 +640,19 @@ local function BuildRezLines(binding, guard)
         end
         return C_Spell.GetSpellName and C_Spell.GetSpellName(sid)
     end
-    local battleName = Known(kit.battle)
-    local groupName  = Known(kit.group)
-    local singleName = Known(kit.single)
+    local battleName = Known(kit and kit.battle)
+    local groupName  = Known(kit and kit.group)
+    local singleName = Known(kit and kit.single)
     local lines = {}
     if battleName and not binding.oocOnly then
         lines[#lines + 1] = "/cast [@mouseover,help,dead,combat" .. guard .. "] " .. battleName
+    elseif not binding.oocOnly then
+        -- No natural battle rez for this character: use the configured item
+        -- instead. Missing or unusable items are harmless /use no-ops,
+        -- allowing the binding's normal action below to remain the fallback.
+        if rezItem then
+            lines[#lines + 1] = "/use [@mouseover,help,dead,combat" .. guard .. "] item:" .. rezItem
+        end
     end
     if groupName then
         lines[#lines + 1] = "/cast [@mouseover,help,dead,nocombat" .. guard .. "] " .. groupName
@@ -3660,6 +3671,221 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             function() return cc.allFrames and "all" or "rf" end,
             function(v) ns.CC_SetAllFrames(v == "all") end)
         PP.Point(ddCtrl, "RIGHT", row, "RIGHT", -SIDE_PAD, 0)
+        centerY = centerY - ROW_H
+    end
+
+    do
+        local row = MakeRow(centerY)
+        local rezLabel = RowLabel(row, "Combat Rez Item")
+        rezLabel:SetScript("OnEnter", function(self)
+            EllesmereUI.ShowWidgetTooltip(self,
+                EllesmereUI.L("Dynamic Rez uses this item for a combat resurrection when no natural battle-rez spell is available."))
+        end)
+        rezLabel:SetScript("OnLeave", function()
+            EllesmereUI.HideWidgetTooltip()
+        end)
+        local input = CreateFrame("EditBox", nil, row)
+        input:SetSize(165, 30)
+        input:SetAutoFocus(false)
+        input:SetMaxLetters(80)
+        input:SetTextInsets(8, 8, 0, 0)
+        input:SetFont(EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 11, "")
+        input:SetJustifyH("LEFT")
+        input:SetTextColor(1, 1, 1, 0.9)
+        EllesmereUI.SolidTex(input, "BACKGROUND", 0, 0, 0, 0.5):SetAllPoints()
+        local inputBorder = EllesmereUI.MakeBorder(input, 1, 1, 1, 0.2, PP)
+        PP.Point(input, "RIGHT", row, "RIGHT", -SIDE_PAD, 0)
+
+        local itemIcon = row:CreateTexture(nil, "ARTWORK")
+        itemIcon:SetSize(24, 24)
+        itemIcon:SetPoint("RIGHT", input, "LEFT", -6, 0)
+        itemIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+        local itemIconHit = CreateFrame("Button", nil, row)
+        itemIconHit:SetSize(24, 24)
+        itemIconHit:SetPoint("CENTER", itemIcon, "CENTER")
+        itemIconHit:SetFrameLevel(row:GetFrameLevel() + 3)
+        itemIconHit:SetScript("OnEnter", function(self)
+            local id = tonumber(cc.rezItem)
+            if id and GameTooltip then
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetItemByID(id)
+                GameTooltip:Show()
+            end
+        end)
+        itemIconHit:SetScript("OnLeave", function()
+            if GameTooltip then GameTooltip:Hide() end
+        end)
+
+        local function RefreshItemIcon()
+            local id = tonumber(cc.rezItem)
+            local texture
+            if id and C_Item and C_Item.GetItemIconByID then
+                texture = C_Item.GetItemIconByID(id)
+            elseif id and C_Item and C_Item.GetItemInfoInstant then
+                local _, _, _, _, icon = C_Item.GetItemInfoInstant(id)
+                texture = icon
+            end
+            itemIcon:SetTexture(texture or 134400)
+            itemIcon:SetShown(id ~= nil)
+            itemIconHit:SetShown(id ~= nil)
+        end
+
+        local popup = CreateFrame("Frame", nil, input)
+        popup:SetPoint("TOPLEFT", input, "BOTTOMLEFT", 0, -2)
+        popup:SetSize(165, 1)
+        popup:SetFrameLevel(input:GetFrameLevel() + 10)
+        local popupBg = popup:CreateTexture(nil, "BACKGROUND")
+        popupBg:SetAllPoints()
+        popupBg:SetColorTexture(0.06, 0.06, 0.06, 0.98)
+        popup.buttons = {}
+        local matches = {}
+        local matchIndex = 0
+
+        local function ItemLabel(id, name)
+            local quality
+            if C_Item and C_Item.GetItemQualityByID then
+                quality = C_Item.GetItemQualityByID(id)
+            elseif C_Item and C_Item.GetItemInfo then
+                local _, _, itemQuality = C_Item.GetItemInfo(id)
+                quality = itemQuality
+            end
+            local suffix = quality and (" (Quality " .. quality .. ")") or ""
+            return (name or ("Item " .. id)) .. suffix .. " [" .. id .. "]"
+        end
+
+        local function CurrentLabel()
+            local id = tonumber(cc.rezItem)
+            if not id then return "None" end
+            local name = C_Item and C_Item.GetItemInfo and C_Item.GetItemInfo(id)
+            return ItemLabel(id, name)
+        end
+        local function SelectItem(id)
+            cc.rezItem = tonumber(id)
+            input:SetText(CurrentLabel())
+            input:SetCursorPosition(0)
+            RefreshItemIcon()
+            input:ClearFocus()
+            popup:Hide()
+            ns.CC_ApplyBindings()
+        end
+        local function RefreshMatches()
+            matches = {}
+            matchIndex = 0
+            for _, button in ipairs(popup.buttons) do button:Hide() end
+            local query = lower(input:GetText() or "")
+            if query == "" or query == lower(CurrentLabel()) then
+                popup:SetHeight(1)
+                popup:Hide()
+                return
+            end
+            local seen = {}
+            for _, item in ipairs(ns.CC_GetEquippedItems()) do
+                local id = tonumber(item.itemID)
+                local name = item.name or (id and ("Item " .. id))
+                if id and name and not seen[id]
+                   and (find(lower(name), query, 1, true) or find(tostring(id), query, 1, true)) then
+                    seen[id] = true
+                    matches[#matches + 1] = { id = id, name = name }
+                    if #matches >= 8 then break end
+                end
+            end
+            if #matches == 0 then
+                popup:SetHeight(1)
+                popup:Hide()
+                return
+            end
+            for i, item in ipairs(matches) do
+                local button = popup.buttons[i]
+                if not button then
+                    button = CreateFrame("Button", nil, popup)
+                    button:SetHeight(24)
+                    local label = EllesmereUI.MakeFont(button, 12, nil, 1, 1, 1, 0.9)
+                    label:SetPoint("LEFT", button, "LEFT", 8, 0)
+                    label:SetPoint("RIGHT", button, "RIGHT", -8, 0)
+                    label:SetJustifyH("LEFT")
+                    button.label = label
+                    popup.buttons[i] = button
+                end
+                button:SetPoint("TOPLEFT", popup, "TOPLEFT", 0, -(i - 1) * 24)
+                button:SetPoint("TOPRIGHT", popup, "TOPRIGHT", 0, -(i - 1) * 24)
+                button.label:SetText(ItemLabel(item.id, item.name))
+                button.label:SetTextColor(1, 1, 1, 0.9)
+                button:SetScript("OnClick", function() SelectItem(item.id) end)
+                button:Show()
+            end
+            popup:SetHeight(#matches * 24)
+            popup:Show()
+        end
+        input:SetText(CurrentLabel())
+        input:SetCursorPosition(0)
+        RefreshItemIcon()
+        input:SetScript("OnTextChanged", RefreshMatches)
+        input:SetScript("OnKeyDown", function(self, key)
+            -- Do not let search text leak through to WoW's movement and
+            -- action bindings while the field has focus.
+            self:SetPropagateKeyboardInput(false)
+            if key == "DOWN" or key == "UP" then
+                if #matches == 0 then return end
+                if key == "DOWN" then
+                    matchIndex = matchIndex % #matches + 1
+                else
+                    matchIndex = (matchIndex - 2) % #matches + 1
+                end
+                for i, button in ipairs(popup.buttons) do
+                    if i <= #matches then
+                        local active = i == matchIndex
+                        button.label:SetTextColor(active and accentColor.r or 1,
+                            active and accentColor.g or 1,
+                            active and accentColor.b or 1, 0.9)
+                    end
+                end
+            end
+        end)
+        input:SetScript("OnEditFocusGained", function(self)
+            inputBorder:SetColor(accentColor.r, accentColor.g, accentColor.b, 0.8)
+            self:HighlightText()
+        end)
+        input:SetScript("OnEscapePressed", function(self)
+            self:SetText(CurrentLabel())
+            self:SetCursorPosition(0)
+            self:ClearFocus()
+            popup:Hide()
+        end)
+        input:SetScript("OnEnterPressed", function(self)
+            if matches[matchIndex] then
+                SelectItem(matches[matchIndex].id)
+                return
+            end
+            local text = self:GetText() or ""
+            local itemID = tonumber(text:match("^%s*(%d+)%s*$"))
+            if itemID and itemID > 0 then
+                -- An ID is valid configuration even when the item is not in
+                -- the bags yet; /use will become effective when it appears.
+                SelectItem(itemID)
+                return
+            elseif text == "" then
+                cc.rezItem = nil
+                ns.CC_ApplyBindings()
+                self:SetText(CurrentLabel())
+                self:SetCursorPosition(0)
+                RefreshItemIcon()
+            end
+            self:ClearFocus()
+            popup:Hide()
+        end)
+        -- Keep the popup alive through the focus transition caused by clicking
+        -- a result; SelectItem hides it after the click completes.
+        input:SetScript("OnEditFocusLost", function(self)
+            inputBorder:SetColor(1, 1, 1, 0.2)
+        end)
+        input:SetScript("OnEnter", function(self)
+            EllesmereUI.ShowWidgetTooltip(self, CurrentLabel())
+        end)
+        input:SetScript("OnLeave", function()
+            EllesmereUI.HideWidgetTooltip()
+        end)
+        input._ttText = EllesmereUI.L("Type an item name or ID to search your bags. Smart Rez uses this item when no natural battle rez is available.")
         centerY = centerY - ROW_H
     end
 
