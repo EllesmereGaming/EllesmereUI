@@ -1509,13 +1509,63 @@ end
             status:HookScript("OnShow", function() SkinQueueStatus() end)
         end
 
+        -- The "Confirm your role" popup shown to the whole party when ANYONE queues
+        -- (leader or otherwise) and roles aren't already locked in. LFG_PROPOSAL_SHOW
+        -- only fires for the later group-found step, so this frame is hooked directly.
+        -- Only the outer chrome is stripped; the role icons live on separate child
+        -- buttons (RoleButtonTank/Healer/DPS), never direct regions of this frame.
+        local function SkinRoleCheckPopup()
+            local popup = _G.LFDRoleCheckPopup
+            if not popup or not IsQueueReskinOn() then return end
+            for i = 1, _select("#", popup:GetRegions()) do
+                local r = _select(i, popup:GetRegions())
+                if r and r:IsObjectType("Texture") and not GetFFD(r).owned then
+                    r:SetTexture(nil)
+                    if r.SetAtlas then r:SetAtlas("") end
+                end
+            end
+            if popup.BG then popup.BG:SetAlpha(0) end
+            if popup.NineSlice then popup.NineSlice:SetAlpha(0) end
+            if popup.Border then popup.Border:SetAlpha(0) end
+            if not GetFFD(popup).bg then
+                local RS = EllesmereUI.RESKIN
+                GetFFD(popup).bg = popup:CreateTexture(nil, "BACKGROUND", nil, -8)
+                GetFFD(popup).bg:SetAllPoints()
+                GetFFD(popup).bg:SetColorTexture(RS.BG_R, RS.BG_G, RS.BG_B, RS.QT_ALPHA)
+                GetFFD(GetFFD(popup).bg).owned = true
+                if not _PP then _PP = EllesmereUI and EllesmereUI.PP end
+                if _PP and _PP.CreateBorder then
+                    _PP.CreateBorder(popup, 1, 1, 1, RS.BRD_ALPHA, 1, "OVERLAY", 7)
+                end
+            end
+        end
+
+        -- Not gated behind any LFG event: unlike the proposal/status popups above,
+        -- this frame is part of the always-loaded base UI and can show independently
+        -- of any Dungeon Finder UI ever being opened locally, so it is hooked directly.
+        local _roleCheckHooked = false
+        local function HookRoleCheckOnShow()
+            if _roleCheckHooked then return end
+            local popup = _G.LFDRoleCheckPopup
+            if not popup then return end
+            _roleCheckHooked = true
+            popup:HookScript("OnShow", function() SkinRoleCheckPopup() end)
+        end
+        HookRoleCheckOnShow()
+
         local lfgFrame = CreateFrame("Frame")
         lfgFrame:RegisterEvent("LFG_PROPOSAL_SHOW")
         lfgFrame:RegisterEvent("LFG_PROPOSAL_FAILED")
         lfgFrame:RegisterEvent("LFG_PROPOSAL_SUCCEEDED")
+        -- Fallback retry only: HookRoleCheckOnShow already ran once at load. If
+        -- LFDRoleCheckPopup somehow didn't exist yet at that point, this catches it
+        -- the first time a role check actually happens, before the popup shows.
+        lfgFrame:RegisterEvent("LFG_ROLE_CHECK_SHOW")
         lfgFrame:SetScript("OnEvent", function(_, event)
             if not EllesmereUIDB then return end
-            if event == "LFG_PROPOSAL_SHOW" then
+            if event == "LFG_ROLE_CHECK_SHOW" then
+                HookRoleCheckOnShow()
+            elseif event == "LFG_PROPOSAL_SHOW" then
                 local reskinOn = IsQueueReskinOn()
                 if reskinOn then
                     SkinQueuePopup()

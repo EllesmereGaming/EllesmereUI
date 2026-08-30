@@ -147,7 +147,6 @@ local function BuildDock()
     -- then closes it itself.
     d.houses.HandlesGlobalMouseEvent = function() return true end
     d.houses:SetScript("OnClick", function()
-        print("|cff00ff00EUI houses|r click", tostring(reopenContext and reopenContext.unit)) -- EUIDEBUG
         local menu = d.menu
         d:Hide()
         if menu then
@@ -349,7 +348,7 @@ end
 
 -- Request the list for the menu's player.
 function OpenHousesFor(contextData)
-    if not contextData then print("|cff00ff00EUI houses|r no context") return end -- EUIDEBUG
+    if not contextData then return end
     local f = listFrame
     if not f then
         f = BuildList()
@@ -362,8 +361,6 @@ function OpenHousesFor(contextData)
         or (unit and UnitName(unit)) or contextData.name or UNKNOWN
     local guid = (unit and UnitGUID(unit))
         or (UnitPopupSharedUtil and UnitPopupSharedUtil.GetGUID and UnitPopupSharedUtil.GetGUID(contextData))
-    print("|cff00ff00EUI houses|r open", tostring(unit), tostring(guid), tostring(name), -- EUIDEBUG
-        "secret=" .. tostring(issecretvalue and (issecretvalue(guid) or issecretvalue(name))))
     if issecretvalue and (issecretvalue(guid) or issecretvalue(name)) then return end
     if not guid then return end
 

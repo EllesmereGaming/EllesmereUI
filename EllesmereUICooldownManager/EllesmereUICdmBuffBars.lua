@@ -1635,10 +1635,8 @@ local TBB_STYLE_KEYS = {
     "opacity", "hideWhenInactive", "onlyInCombat",
     -- Visibility rides along because the onlyInCombat toggle it replaced already did: a new
     -- bar inheriting a neighbour's style, or one joining a group, kept that gate before.
-    "barVisibility", "visibilityModes",
-    "visOnlyInstances", "visHideHousing", "visOnlyHousing",
-    "visHideMounted", "visOnlyMounted", "visHideDragonriding",
-    "visHideNoTarget", "visHideNoEnemy",
+    "barVisibility", "visibilityModes", "visibilityMatch",
+    -- The option lanes themselves are appended from the shared list below.
     "showTimer", "timerPosition", "timerSize", "timerX", "timerY",
     "timerTextR", "timerTextG", "timerTextB", "timerTextA",
     "timerDecimals", "timerDecimalThreshold",
@@ -1654,6 +1652,13 @@ local TBB_STYLE_KEYS = {
     "pandemicGlow", "pandemicGlowStyle", "pandemicGlowColor",
     "pandemicGlowLines", "pandemicGlowThickness", "pandemicGlowSpeed",
 }
+-- Appended rather than spelled out: a lane added to the shared list is copied with the
+-- rest of the style instead of silently staying behind on the source bar.
+if EllesmereUI.VIS_OPT_KEYS then
+    for i = 1, #EllesmereUI.VIS_OPT_KEYS do
+        TBB_STYLE_KEYS[#TBB_STYLE_KEYS + 1] = EllesmereUI.VIS_OPT_KEYS[i]
+    end
+end
 ns.TBB_STYLE_KEYS = TBB_STYLE_KEYS
 
 -- Copy src's visual style onto dst, key-exact (including nil) so both bars resolve defaults
@@ -3890,8 +3895,16 @@ local function _ensureLustListener(enable)
                     _lustZoneGuard = GetTime() + 1.5
                     return
                 end
-                -- Sated lasts 10 minutes and nothing lifts it early, so a rise this
-                -- listener armed on pins the debuff for the next 590s: skip the
+                if event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" then
+                    -- Death strips the lockout debuff, so the 590s pin below has to be
+                    -- released here: a wipe followed by a fresh lust would otherwise be
+                    -- swallowed for the rest of the window the pin was stamped for.
+                    _satedPresent = _playerHasSated()
+                    _satedSince = nil
+                    return
+                end
+                -- Nothing but death lifts the lockout early (handled above), so a rise
+                -- this listener armed on pins the debuff for the next 590s: skip the
                 -- (allocating) aura probe until it can possibly have dropped.
                 if _satedPresent and _satedSince and GetTime() < _satedSince + 590 then return end
                 local present = _playerHasSated()
@@ -3926,6 +3939,8 @@ local function _ensureLustListener(enable)
             _satedSince = nil
             _lustListener:RegisterUnitEvent("UNIT_AURA", "player")
             _lustListener:RegisterEvent("PLAYER_ENTERING_WORLD")
+            _lustListener:RegisterEvent("PLAYER_DEAD")
+            _lustListener:RegisterEvent("PLAYER_ALIVE")
             _lustListenerActive = true
         end
     elseif _lustListener and _lustListenerActive then
@@ -5000,10 +5015,10 @@ local function TBBUsesVisCondition(cfg)
     if vis and vis ~= "always" then return true end
     local vm = cfg.visibilityModes
     if type(vm) == "table" and next(vm) then return true end
-    local items = EllesmereUI.VIS_OPT_ITEMS
-    if items then
-        for i = 1, #items do
-            if cfg[items[i].key] then return true end
+    local keys = EllesmereUI.VIS_OPT_KEYS
+    if keys then
+        for i = 1, #keys do
+            if cfg[keys[i]] then return true end
         end
     end
     return false
@@ -5725,6 +5740,16 @@ function ns.BuildTrackedBuffBars()
             local namePos2 = cfg.namePosition or ((cfg.showName ~= false) and "left" or "none")
             if namePos2 ~= "none" and bar._nameText then
                 local displayName = cfg.name
+                -- Preset bars take the live label the same way the icon does above:
+                -- the copy saved at pick time can name the other faction's lust.
+                if cfg.popularKey then
+                    for _, pe in ipairs(TBB_POPULAR_BUFFS) do
+                        if pe.key == cfg.popularKey then
+                            displayName = pe.name or displayName
+                            break
+                        end
+                    end
+                end
                 if (not displayName or displayName == "") and cfg.spellID and cfg.spellID > 0 then
                     local spInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(cfg.spellID)
                     displayName = spInfo and spInfo.name

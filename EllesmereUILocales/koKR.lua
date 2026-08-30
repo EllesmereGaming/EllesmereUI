@@ -736,7 +736,7 @@ L["UNIT FRAMES"] = "유닛 프레임"
 -- add ActionBars (행동 단축바)
 L["BAR INTERACTIONS"] = "막대 상호작용"
 L["EXPERIENCE BAR"] = "경험치 바"
-L["HOUSE FAVOR BAR"] = "주택 호감도 바"
+L["HOUSE FAVOR BAR"] = "집 경험치 바"
 L["ICON EFFECTS"] = "아이콘 효과"
 L["ICONS"] = "아이콘"
 L["XP"] = "경험치"
@@ -1638,8 +1638,8 @@ L["The pasted string could not be read completely. Please paste it again."] = "�
 L["This can't change which spells the user tracks in Blizzard's CDM.\nIt's recommended to also share your Blizzard CDM layout for any spec you choose here."] = "블리자드 CDM 에서 추적하는 주문 목록 자체는 바꿀 수 없습니다.\n여기서 고른 전문화는 블리자드 CDM 배치도 함께 공유하는 것을 권장합니다."
 L["[ Import string captured (%1$s characters) ]"] = "[ 가져오기 문자열 캡처됨 (%1$s 자) ]"
 L["no key set"] = "지정 안 됨"
-L["House Favor"] = "주택 호감도"
-L["House Level"] = "주택 레벨"
+L["House Favor"] = "집 경험치"
+L["House Level"] = "집 레벨"
 L["Favor"] = "호감도"
 L["MINI PATCH"] = "마이너 패치"
 L["FIRST TIME SETUP"] = "최초 설정"
@@ -1993,7 +1993,7 @@ L["Custom proc glow may cause a slight loss in performance efficiency. Do you wa
 -- add ActionBars Format (행동 단축바 포맷)
 L["Mouse Button %d"] = "마우스 단추 %d"
 L["Bag Bar"] = "가방 바"
-L["House Favor Bar"] = "주택 호감도 바"
+L["House Favor Bar"] = "집 경험치 바"
 L["Mouse clicks pass through the bar. Disable to allow the mouseover tooltip."] = "마우스 클릭이 바를 통과합니다. 마우스오버 툴팁을 쓰려면 끄세요."
 -- 2026-07-27 업뎃분 (행동 단축바: 원버튼 도우미)
 L["One Button Assist Icon"] = "원버튼 도우미 아이콘"
@@ -7011,6 +7011,34 @@ L["    Unit Types"] = "대상 종류"
 L["Disabling both disables this binding."] = "둘 다 해제하면 이 단축키도 비활성화됩니다."
 L["Friendly"] = "아군"
 L["Enemy"] = "적군"
+L["Ping Marker"] = "신호 표시기"
+L["Ping Marker Size"] = "신호 표시기 크기"
+
+--공격대 /파티 - 툴팁
+L["Shows the ping mark on a member's frame when someone pings them (needs Blizzard's Show Pings on Raid Frames setting on)."] = "누군가 파티원을 지정해 신호를 보내면 해당 파티원 프레임에 신호 표시를 나타냅니다 (블리자드 설정의 '공격대 프레임에 신호 표시' 기능이 켜져 있어야 합니다)."
+
+--행동단축바
+L["Skyriding (Airborne)"] = "하늘 경주 (비행 중)"
+L["Skyriding Mount"] = "하늘 경주 탈것"
+L["Mounted"] = "탈것 탑승 중"
+L["Enemy Target"] = "적 대상"
+
+--행동단축바 - 툴팁
+L["While you are inside a house or plot."] = "집이나 개인 영지 내부에 있을 때 적용됩니다."
+L["A target you can attack."] = "공격 가능한 대상입니다."
+L["Hide while this condition is true"] = "이 조건이 참일 때 숨기기"
+L["Reveal on hover only. Combines with the conditions below: hover-reveals while they all pass, stays hidden while any fails."] = "마우스를 올렸을 때만 표시합니다. 아래 조건들과 결합되어 작동합니다. 조건을 '모두 만족'하면 마우스 오버 시 표시되고, 하나라도 만족하지 못하면 숨겨진 상태를 유지합니다."
+L["Only while AIRBORNE on a glide-capable mount or flight form. For the mount itself, ground included, use Skyriding Mount."] = "활공 가능한 탈것이나 비행 형태를 타고 '공중에 떠 있는' 동안에만 적용됩니다. 지상을 포함하여 탈것 자체를 조건으로 지정하려면 '하늘 경주 탈것'을 사용하세요."
+L["While on a glide-capable mount, ground included, where Blizzard shows its vigor HUD. Skyriding (Airborne) additionally requires you to be flying."] = "블리자드 기본 UI에 기력 바가 표시되는 활공 가능한 탈것에 탑승한 상태(지상 포함)에 적용됩니다. '하늘 경주 (비행 중)' 조건은 여기에 추가로 실제 비행 중이어야 합니다."
+L["Dungeons, raids, scenarios, arenas and battlegrounds. Garrisons do not count."] = "던전, 공격대, 시나리오, 투기장 및 전장입니다. 주둔지는 포함되지 않습니다."
+L["Druid travel, aquatic and flight forms count as mounted."] = "드루이드의 여행, 바다, 비행 형태도 탈것 탑승 상태로 간주합니다."
+
+--이름표
+L["Hide Border"] = "테두리 숨기기"
+L["This option requires Blizzard's Assisted Highlight to be enabled"] = "이 옵션을 사용하려면 블리자드의 '보조 강조 효과'를 활성화해야 합니다"
+L["Assisted Highlight"] = "보조 강조 효과"
+L["Assisted Highlight Outset"] = "보조 강조 효과 돌출"
+L["This option requires a style that draws the glow ring"] = "이 옵션을 사용하려면 빛나는 고리를 그리는 스타일이 필요합니다"
 
 --유닛 프레임 
 L["Hide these instead of showing them"] = "표시하는 대신 숨기기"
@@ -7023,6 +7051,18 @@ L["Copy Included/Excluded Spells From:"] = "포함/제외된 주문 복사 대�
 L["Debuffs Blizzard flags as important"] = "블리자드가 중요하다고 지정한 약화 효과"
 L["Fill Color Settings"] = "채우기 색상 설정"
 L["Dynamic Color"] = "동적 색상"
+L["Only Tracked Auras"] = "추적된 오라만"
+L["Important Only"] = "중요 디버프만"
+L["Important and Own"] = "중요 및 자신의 디버프"
+L["Important or Own"] = "중요 또는 자신의 디버프"
+
+-- 유닛 프레임 - 툴팁
+L["Shows only this frame's Tracked Auras; add them with Edit Tracked Auras at the top of this menu."] = "이 프레임의 추적된 오라만 표시합니다. 이 메뉴 상단의 '추적된 오라 편집'을 통해 추가할 수 있습니다."
+L["Shows every debuff on this frame."] = "이 프레임에 모든 디버프를 표시합니다."
+L["Shows only the debuffs you apply."] = "자신이 부여한 디버프만 표시합니다."
+L["Shows only debuffs Blizzard flags as important."] = "블리자드가 중요하게 지정한 디버프만 표시합니다."
+L["Shows only the debuffs you apply that Blizzard also flags as important."] = "블리자드가 중요하게 지정한 디버프 중 자신이 부여한 디버프만 표시합니다."
+L["Shows the debuffs you apply plus important debuffs from anyone."] = "자신이 부여한 디버프와 다른 사람이 부여한 중요 디버프를 함께 표시합니다."
 
 -- 전체 설정 - 글꼴 
 L["Fonts"] = "글꼴"
@@ -7058,7 +7098,7 @@ L["Module Outline"] = "모듈 외곽선"
 L["XP Bar Text Size"] = "경험치 바 텍스트 크기"
 L["Reputation Bar Text Size"] = "평판 바 텍스트 크기"
 L["Keybind, Macro, Charges & Cooldown Text (per bar)"] = "단축키, 매크로, 충전 횟수 및 재사용 대기시간 텍스트 (바별)"
-L["House Favor Bar Text Size"] = "가문 호감도 바 텍스트 크기"
+L["House Favor Bar Text Size"] = "집 경험치 바 텍스트 크기"
 L["Friendly Name Size (Name Only)"] = "아군 이름 크기 (이름만 표시)"
 L["Cast Name Size"] = "시전바 주문 이름 크기"
 L["Friendly Name Size (Bar Mode)"] = "아군 이름 크기 (바 모드)"
@@ -7160,7 +7200,7 @@ L["Per-bar background textures"] = "개별 바 배경 텍스처"
 -- 전체 설정 - 택스처 - 옵션
 L["XP Bar Texture"] = "경험치 바 텍스처"
 L["Reputation Bar Texture"] = "평판 바 텍스처"
-L["House Favor Bar Texture"] = "가문 호감도 바 텍스처"
+L["House Favor Bar Texture"] = "집 경험치 바 텍스처"
 L["Bar & Button Border Styles"] = "바 및 버튼 테두리 스타일"
 L["Player Bar Texture"] = "플레이어 바 텍스처"
 L["Focus Bar Texture"] = "주시 대상 바 텍스처"
@@ -7219,6 +7259,24 @@ L["Outline style override for all Nameplates text. EUI Global Outline follows th
 L["Outline style override for all Bags text. EUI Global Outline follows the global Outline Mode setting above."] = "모든 가방 텍스트의 외곽선 스타일을 강제로 설정합니다. EUI 전체 외곽선은 위의 전체 외곽선 모드 설정을 따릅니다."
 L["Outline style override for all Quickdraw text. EUI Global Outline follows the global Outline Mode setting above."] = "모든 퀵드로우 텍스트의 외곽선 스타일을 강제로 설정합니다. EUI 전체 외곽선은 위의 전체 외곽선 모드 설정을 따릅니다."
 L["Outline style override for all Resource & Cast Bars text. EUI Global Outline follows the global Outline Mode setting above."] = "모든 자원 및 시전 바 텍스트의 외곽선 스타일을 강제로 설정합니다. EUI 전체 외곽선은 위의 전체 외곽선 모드 설정을 따릅니다."
+
+-- 편의 기능 - 데이터 바 
+L["Combat Status"] = "전투 상태"
+
+-- UI 모양 변경 - 쐐기돌 도구 
+L["INTERRUPT AND VISIBILITY"] = "차단 및 가시성"
+L["Cast Colors"] = "시전 바 색상"
+L["Fade Out of Interrupt Range"] = "차단 사거리 벗어남 시 흐려짐"
+L["Show Raid Target Marker"] = "공격대 징표 표시"
+L["Range Fade Settings"] = "사거리 흐려짐 설정"
+L["Raid Target Marker"] = "공격대 징표"
+L["Important Cast Glow Settings"] = "중요 시전 반짝임 설정"
+
+-- UI 모양 변경 - 쐐기돌 도구 - 툴팁
+L["Fade a bar when the enemy is beyond your active interrupt spell's range. Has no effect for specs without an interrupt."] = "적이 현재 활성화된 차단 주문의 사거리를 벗어나면 주문 바를 흐리게 표시합니다. 차단기가 없는 전문화에는 효과가 없습니다."
+L["Show the enemy's raid target marker to the left of the spell name."] = "주문 이름 왼쪽에 적의 공격대 징표를 표시합니다."
+L["Glow the bar when the enemy casts a spell Blizzard flags as important."] = "적이 블리자드에서 '중요'로 지정한 주문을 시전할 때 시전 바를 반짝이게 합니다."
+L["Limit the bars to the selected content and combat states; nothing selected shows them everywhere."] = "선택한 콘텐츠 및 전투 상태에서만 주문 바를 표시합니다. 아무것도 선택하지 않으면 모든 지역에서 표시됩니다."
 
 -- == Chat prints (채팅창 print 출력 - 소스 엘키(L/Lf) 삽입 대기) ==================
 -- 원본이 print() 에 영문 리터럴을 직접 쓰는 곳들. 엔진 자동번역 밖이라 소스에서

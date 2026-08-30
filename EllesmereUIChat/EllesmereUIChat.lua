@@ -974,6 +974,58 @@ function ECHAT.PositionChatPanelsNow()
     -- The owned tab strip is anchored to the panel and follows for free.
 end
 
+-- Panel hosting. Blizzard's house editor is a full-screen UI panel: it hides
+-- UIParent and FCF_SetFullScreenFrame reparents the chat frames onto itself so
+-- chat stays readable while decorating. That helper only moves widgets whose
+-- parent is still UIParent, and our panel frames are UIParent children by design
+-- (see the bg creation note), so they stay behind on the hidden UIParent and the
+-- entire visible chat -- background, our message frames, tabs, sidebar -- goes
+-- with them. Follow the chat frames onto whichever host Blizzard picked, and
+-- back to UIParent when the editor closes. Every frame moved here is ours.
+local _panelHost = UIParent
+local function PanelHost()
+    return FCF_GetCurrentFullScreenFrame and FCF_GetCurrentFullScreenFrame() or UIParent
+end
+
+local function ReseatPanel(f, host)
+    if not f then return end
+    local p = f:GetParent()
+    if p ~= host and (p == UIParent or p == _panelHost) then
+        FrameUtil.SetParentMaintainRenderLayering(f, host)
+    end
+end
+
+function ECHAT.ApplyPanelHost()
+    local host = PanelHost()
+    for i = 1, 20 do
+        local cf = _G["ChatFrame" .. i]
+        if cf then
+            local d = CFD(cf)
+            ReseatPanel(d.bg, host)
+            ReseatPanel(d.sidebar, host)
+            -- Moves only while it is seated on the chat panel; on the sidebar
+            -- seat it is a child of a frame this pass already moved.
+            ReseatPanel(d.scrollBtn, host)
+        end
+    end
+    ReseatPanel(ns._chatTabStrip, host)
+    ReseatPanel(ns._chatBgExt, host)
+    ReseatPanel(ns._chatPanelBorder, host)
+    ReseatPanel(ns._sidebarSeparateBorder, host)
+    ReseatPanel(ns._chatHoverOverlay, host)
+    _panelHost = host
+end
+
+-- The on-demand popups are built the first time they are used and can be built
+-- on either side of an editor session, so they seat themselves on show instead
+-- of riding the pass above.
+function ECHAT.HostPopup(f)
+    local host = PanelHost()
+    if f:GetParent() ~= host then
+        FrameUtil.SetParentMaintainRenderLayering(f, host)
+    end
+end
+
 -- The main window ships with clamp-rect insets that extend its clamp box
 -- ~25-60px past every edge (phantom room reserved for the stock tab strip
 -- and edit box). Our panel draws its own tabs and input INSIDE the window,
@@ -2699,7 +2751,10 @@ end
 function ECHAT.TogglePortalFlyout(anchorBtn)
     if InCombatLockdown() then return end
     local flyout = CreatePortalFlyout()
-    if flyout:IsShown() then
+    -- Visibility, not the shown flag: leaving the house editor hides our host
+    -- out from under a flyout that is still flagged shown, and a stale flag
+    -- would eat the next click.
+    if flyout:IsVisible() then
         flyout:Hide()
     else
         -- Absolute screen position: a protected frame cannot anchor to a
@@ -2716,6 +2771,7 @@ function ECHAT.TogglePortalFlyout(anchorBtn)
             local bRight = anchorBtn:GetRight() * bs
             flyout:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", (bRight + 4) / fs, (bTop + 4) / fs)
         end
+        ECHAT.HostPopup(flyout)
         flyout:Show()
     end
 end
@@ -2941,7 +2997,9 @@ local function GetMouseChannels(f)
     local click
     if f.IsMouseClickEnabled then click = f:IsMouseClickEnabled()
     else click = f:IsMouseEnabled() end
+    if issecretvalue and issecretvalue(click) then click = false end
     local motion = f.IsMouseMotionEnabled and f:IsMouseMotionEnabled()
+    if issecretvalue and issecretvalue(motion) then motion = false end
     return click and true or false, motion and true or false
 end
 -- Forward declaration: the write helpers below arm it when a lockdown-
@@ -3647,6 +3705,7 @@ local function ShowCopyPopup(text)
     local popup = copyDimmer._popup
     popup._textBox:SetText(text)
     popup._editBox._readOnlyText = text
+    ECHAT.HostPopup(copyDimmer)
     copyDimmer:Show()
     C_Timer.After(0.05, function()
         popup._editBox:SetFocus()
@@ -3769,6 +3828,8 @@ local function ShowUrlPopup(url)
     local cx, cy = GetCursorPosition()
     local scale = UIParent:GetEffectiveScale()
     urlPopup:SetPoint("BOTTOM", UIParent, "BOTTOMLEFT", cx / scale, cy / scale + 10)
+    ECHAT.HostPopup(urlBackdrop)
+    ECHAT.HostPopup(urlPopup)
     urlBackdrop:SetAlpha(0); urlBackdrop:Show(); urlBackdrop._fadeIn:Play()
     urlPopup:SetAlpha(0); urlPopup:Show(); urlPopup._fadeIn:Play()
     urlPopup._eb:SetFocus(); urlPopup._eb:HighlightText()
@@ -5062,6 +5123,9 @@ initFrame:SetScript("OnEvent", function(self)
             -- A frame integrated while the panel is fully hidden must join
             -- the passthrough set.
             RequestPassthroughSweep()
+            -- A window created while the house editor is open is born on the
+            -- hidden UIParent; seat it with the rest of the panel.
+            ECHAT.ApplyPanelHost()
         end)
     end
     ECHAT.QueueFullPass = QueueFullPass
@@ -5107,6 +5171,19 @@ initFrame:SetScript("OnEvent", function(self)
                 C_Timer.After(0, QueueEditModeTabStyle)
             end)
         end
+    end
+
+    -- House editor open/close: reseat the panel onto Blizzard's full-screen host
+    -- (see ApplyPanelHost). Our own event frame, deferred a tick so the reseat
+    -- runs after HouseEditorFrame's show/hide has set the full-screen frame --
+    -- never an EventRegistry callback or a hook, both of which would run our
+    -- body inside Blizzard's own execution.
+    if C_HouseEditor and C_HouseEditor.IsHouseEditorActive then
+        local houseEditorFrame = CreateFrame("Frame")
+        houseEditorFrame:RegisterEvent("HOUSE_EDITOR_MODE_CHANGED")
+        houseEditorFrame:SetScript("OnEvent", function()
+            C_Timer.After(0, ECHAT.ApplyPanelHost)
+        end)
     end
     -- Tab close is covered by the state watcher above. NEVER hook FCF_Close:
     -- "top-level user action" is the wrong test -- it is also reached from
@@ -5563,6 +5640,9 @@ initFrame:SetScript("OnEvent", function(self)
         ECHAT.ApplyBackground()
         ECHAT.ApplyFonts()
         if ECHAT.RefreshVisibility then ECHAT.RefreshVisibility() end
+        -- The passes above can build panel chrome (borders, the tab-band
+        -- extension) that did not exist when the house editor opened.
+        ECHAT.ApplyPanelHost()
     end
 
     ---------------------------------------------------------------------------

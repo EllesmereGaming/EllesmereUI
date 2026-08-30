@@ -11288,7 +11288,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.0.6"
+EllesmereUI.VERSION = "9.0.8"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -12656,6 +12656,20 @@ EllesmereUI.VIS_OPT_ITEMS = {
       tooltip = "This bar will only show if you have an enemy targeted" },
 }
 
+-- Every visibility-option DB field, including the four counter-lane keys that have
+-- no row in the legacy VIS_OPT_ITEMS list above (they exist only as Hide/Show lanes
+-- in the unified Visibility row, EllesmereUI.VIS_ROW_ITEMS). Sync copies and equality
+-- checks iterate THIS list so a lane set through the unified row is never dropped by
+-- a module still building the legacy pair of dropdowns.
+EllesmereUI.VIS_OPT_KEYS = {
+    "visOnlyInstances", "visHideInstances",
+    "visHideHousing", "visOnlyHousing",
+    "visHideMounted", "visOnlyMounted",
+    "visHideDragonriding", "visOnlySkyriding",
+    "visHideNoTarget", "visHideWithTarget",
+    "visHideNoEnemy", "visHideWithEnemy",
+}
+
 -- Cache player class once at load time (never changes).
 local _, _playerClass = UnitClass("player")
 
@@ -12669,6 +12683,20 @@ local DRUID_MOUNT_FORM_SPELLS = {
     165962, -- Flight Form (variant)
     210053, -- Mount Form (variant)
 }
+
+-- Instanced-content probe shared by the Instances axis' veto chain and its per-axis
+-- "any" match verdict. A garrison reports a difficulty but is not instanced content
+-- for this axis, which is why the difficulty test alone is not enough.
+function EllesmereUI.IsInInstancedContent()
+    local _, iType, diffID = GetInstanceInfo()
+    diffID = tonumber(diffID) or 0
+    if diffID <= 0 then return false end
+    if C_Garrison and C_Garrison.IsOnGarrisonMap and C_Garrison.IsOnGarrisonMap() then
+        return false
+    end
+    return iType == "party" or iType == "raid" or iType == "scenario"
+        or iType == "arena" or iType == "pvp"
+end
 
 -- Runtime check: returns true if the element should be HIDDEN by visibility options.
 -- `opts` is the settings table containing the vis option booleans.
@@ -12718,22 +12746,23 @@ end
 
 -- Non-macro visibility subset: the options that CAN'T be expressed in a secure [macro] condition
 -- and must be evaluated in Lua. Used by secure action bar frames that delegate the macro-expressible options (target/combat/group) to their state-visibility driver and only need Lua handling for these three.
-function EllesmereUI.CheckVisibilityOptionsNonMacro(opts)
+-- skipMountAxis: the caller's secure state driver already carries [mounted]/[nomounted]
+-- clauses that self-update inside combat. Evaluating the mount axis here too would let
+-- Lua clobber the driver with a literal "hide" that cannot re-evaluate until combat ends
+-- (see BuildVisibilityString in EllesmereUIActionBars.lua). Such callers pass true and
+-- keep their own narrower mount check for the shapeshift forms [mounted] cannot see.
+function EllesmereUI.CheckVisibilityOptionsNonMacro(opts, skipMountAxis)
     if not opts then return false end
 
-    -- Only Show in Instances
-    if opts.visOnlyInstances then
-        local _, iType, diffID = GetInstanceInfo()
-        diffID = tonumber(diffID) or 0
-        local inInstance = false
-        if diffID > 0 then
-            if C_Garrison and C_Garrison.IsOnGarrisonMap and C_Garrison.IsOnGarrisonMap() then
-                inInstance = false
-            elseif iType == "party" or iType == "raid" or iType == "scenario" or iType == "arena" or iType == "pvp" then
-                inInstance = true
-            end
-        end
-        if not inInstance then return true end
+    -- Any match: the lanes are disjuncts, not vetoes; EvalVisibilityExtended (or the
+    -- secure driver build path) owns the combined verdict.
+    if opts.visibilityMatch == "any" then return false end
+
+    -- Instances axis: Only Show in Instances / Hide in Instances share one probe.
+    if opts.visOnlyInstances or opts.visHideInstances then
+        local inInstance = EllesmereUI.IsInInstancedContent()
+        if opts.visOnlyInstances and not inInstance then return true end
+        if opts.visHideInstances and inInstance then return true end
     end
 
     -- Hide in Housing
@@ -12750,20 +12779,32 @@ function EllesmereUI.CheckVisibilityOptionsNonMacro(opts)
         end
     end
 
-    -- Hide when Mounted (includes druid travel/flight/aquatic forms)
-    if opts.visHideMounted then
-        if EllesmereUI.IsPlayerMountedLike and EllesmereUI.IsPlayerMountedLike() then return true end
+    if not skipMountAxis then
+        -- Hide when Mounted (includes druid travel/flight/aquatic forms)
+        if opts.visHideMounted then
+            if EllesmereUI.IsPlayerMountedLike and EllesmereUI.IsPlayerMountedLike() then return true end
+        end
+
+        -- Only Show when Mounted (inverse; druid mount-like forms count as mounted
+        -- here too -- secure action bars carry a [nomounted] clause instead, which
+        -- cannot see forms, see BuildVisibilityString)
+        if opts.visOnlyMounted then
+            if not (EllesmereUI.IsPlayerMountedLike and EllesmereUI.IsPlayerMountedLike()) then return true end
+        end
     end
 
-    -- Only Show when Mounted (inverse; druid mount-like forms count as mounted
-    -- here too -- secure action bars carry a [nomounted] clause instead, which
-    -- cannot see forms, see BuildVisibilityString)
-    if opts.visOnlyMounted then
-        if not (EllesmereUI.IsPlayerMountedLike and EllesmereUI.IsPlayerMountedLike()) then return true end
-    end
-
+    -- Skyriding-mount axis (glide capability, ground included -- NOT the airborne
+    -- show_dragonriding / show_not_dragonriding mode pair, which additionally
+    -- requires IsFlying; see EllesmereUI.IsAirborneSkyriding). No secure macro token
+    -- expresses "ground included", so this stays Lua-only for every caller; it returns
+    -- the truthy marker "mountaxis" so a secure-driver caller can bake a combat escape
+    -- hatch into what it writes (a bare "hide" cannot re-evaluate once combat starts).
     if opts.visHideDragonriding then
-        if EllesmereUI.IsPlayerSkyriding and EllesmereUI.IsPlayerSkyriding() then return true end
+        if EllesmereUI.IsPlayerSkyriding and EllesmereUI.IsPlayerSkyriding() then return "mountaxis" end
+    end
+
+    if opts.visOnlySkyriding then
+        if not (EllesmereUI.IsPlayerSkyriding and EllesmereUI.IsPlayerSkyriding()) then return "mountaxis" end
     end
 
     return false
@@ -12772,20 +12813,92 @@ end
 function EllesmereUI.CheckVisibilityOptions(opts)
     if not opts then return false end
 
+    -- Any match: the lanes are disjuncts, not vetoes; EvalVisibilityExtended (or the
+    -- secure driver build path) owns the combined verdict.
+    if opts.visibilityMatch == "any" then return false end
+
     -- Instances / housing / mounted (shared with secure-frame fast path).
     if EllesmereUI.CheckVisibilityOptionsNonMacro(opts) then return true end
 
-    -- Hide without Target
+    -- Target axis
     if opts.visHideNoTarget then
         if not UnitExists("target") then return true end
     end
+    if opts.visHideWithTarget then
+        if UnitExists("target") then return true end
+    end
 
-    -- Hide without Enemy Target
+    -- Enemy-target axis
     if opts.visHideNoEnemy then
         if not (UnitExists("target") and UnitCanAttack("player", "target")) then return true end
     end
+    if opts.visHideWithEnemy then
+        if UnitExists("target") and UnitCanAttack("player", "target") then return true end
+    end
 
     return false
+end
+
+-- Option-lane axes: one axis per condition (Show lane, Hide lane, probe() = holds now),
+-- read by the "any" match for per-axis verdicts; the "all" veto chain above is untouched.
+-- luaOnly = no macro conditional exists, so the secure driver resolves the axis in Lua.
+EllesmereUI.VIS_OPT_AXES = {
+    { show = "visOnlyInstances", hide = "visHideInstances", luaOnly = true,
+      probe = function() return EllesmereUI.IsInInstancedContent() end },
+    { show = "visOnlyHousing", hide = "visHideHousing", luaOnly = true,
+      probe = function()
+          return (C_Housing and C_Housing.IsInsideHouseOrPlot
+              and C_Housing.IsInsideHouseOrPlot()) and true or false
+      end },
+    { show = "visOnlyMounted", hide = "visHideMounted",
+      probe = function() return EllesmereUI.IsPlayerMountedLike() end },
+    { show = "visOnlySkyriding", hide = "visHideDragonriding", luaOnly = true,
+      probe = function() return EllesmereUI.IsPlayerSkyriding() end },
+    -- needsEdge: [exists]/[harm] re-evaluate on soft-target changes that
+    -- UnitExists("target") ignores; a consumer without those edges resolves the axis in Lua.
+    { show = "visHideNoTarget", hide = "visHideWithTarget", needsEdge = "softTarget",
+      probe = function() return UnitExists("target") and true or false end },
+    { show = "visHideNoEnemy", hide = "visHideWithEnemy", needsEdge = "softTarget",
+      probe = function()
+          return (UnitExists("target") and UnitCanAttack("player", "target")) and true or false
+      end },
+}
+
+-- Whether this axis has to be resolved in Lua for a consumer with these edges.
+-- `edges` is the set of event edges the consumer actually watches, e.g.
+-- { softTarget = true } for Action Bars, which owns that machinery.
+function EllesmereUI.VisAxisIsLuaOnly(ax, edges)
+    if ax.luaOnly then return true end
+    return ax.needsEdge ~= nil and not (edges and edges[ax.needsEdge])
+end
+
+-- Per-axis tally for the "any" match. filter: nil counts every axis, "luaOnly" only
+-- the ones this consumer must resolve in Lua, "driver" only the ones it can compile.
+-- Returns how many axes are constrained and how many of those currently match.
+function EllesmereUI.TallyVisibilityOptionAxes(opts, filter, edges)
+    local constrained, passed = 0, 0
+    if not opts then return constrained, passed end
+    local axes = EllesmereUI.VIS_OPT_AXES
+    for i = 1, #axes do
+        local ax = axes[i]
+        local luaOnly = EllesmereUI.VisAxisIsLuaOnly(ax, edges)
+        local skip = (filter == "luaOnly" and not luaOnly)
+                  or (filter == "driver" and luaOnly)
+        if not skip then
+            local wantShow, wantHide = opts[ax.show], opts[ax.hide]
+            -- Both lanes at once is the contradiction the row already prevents on
+            -- click; count it as unconstrained rather than as an axis that can never
+            -- match, so a hand-edited store cannot lock an Any selection to hidden.
+            if wantShow and not wantHide then
+                constrained = constrained + 1
+                if ax.probe() then passed = passed + 1 end
+            elseif wantHide and not wantShow then
+                constrained = constrained + 1
+                if not ax.probe() then passed = passed + 1 end
+            end
+        end
+    end
+    return constrained, passed
 end
 
 -- Runtime check: returns true if the element should be SHOWN based on the visibility mode

@@ -963,6 +963,145 @@ end
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
     {
+        version = "9.0.8",
+        heroes = {},
+        features = {
+            {
+                module = "DataBars",
+                title  = "Gold Abbreviate Amount",
+                desc   = "Show large gold balances as 284.2Kg instead of the full number; the tooltip keeps the exact amount",
+                -- Block settings only exist once the block is on a bar: page-only nav, same as the Crests and Item Level entries.
+                nav    = { module = "EllesmereUIDataBars", page = "DataBars" },
+            },
+            {
+                module = "General",
+                title  = "Visibility Match Mode",
+                desc   = "Choose whether an element needs every checked condition (Match All) or just one of them (Match Any) to show",
+                -- The Match Mode rows live inside every module's Visibility checklist; land on the Main Bar row like the Unified Visibility card.
+                nav    = { module = "EllesmereUIActionBars", page = "Bar Display", section = "VISIBILITY", highlight = "Visibility",
+                           preSelect = function() if EllesmereUI._setActionBarKey then EllesmereUI._setActionBarKey("MainBar") end end },
+            },
+        },
+        fixes = {
+            { module = "Action Bars", text = "Bars hidden by a Druid travel or flight form, or by the Skyriding Mount condition, no longer stay hidden for the whole fight when combat starts before you dismount." },
+            { module = "Aura Buff Reminders", text = "The Augment Rune reminder now shows dimmed with a red 0 when you have no runes, following Show Without Item in Bags like flask, food and weapon enchants." },
+            { module = "Blizz UI Enhanced", text = "The dungeon role-check popup is now skinned when another party member queues, not only when you queue yourself." },
+            { module = "Chat", text = "Chat is visible again inside the housing House Editor." },
+            { module = "Chat", text = "Fixed a repeating error during raid combat from the chat fade-out click passthrough." },
+            { module = "Cooldown Manager", text = "The Bloodlust/Heroism preset bar and icon arm again after a death, so the second lust after a wipe shows its 40s window." },
+            { module = "Cooldown Manager", text = "The Bloodlust/Heroism preset shows the correct faction name and icon (Horde no longer sees Heroism), including on a profile shared between a Horde and an Alliance character." },
+            { module = "Cooldown Manager", text = "Mirror Key Presses now lights up potion icons when you press the current-tier potion (Concentrated Health, Light's Potential, Recklessness, Liquid Luster, Lightfused Mana, Invisibility)." },
+            { module = "Cooldown Manager", text = "Turning off Hide in Housing on the Cooldowns, Utility and Buffs bars now stays off after a reload." },
+            { module = "DataBars", text = "The spec block no longer shows a loadout that a combat-interrupted swap never applied." },
+            { module = "General", text = "The Visibility checklist now switches off Never when you check a Show or Hide condition, and Always no longer shows as checked alongside a Show condition." },
+            { module = "Nameplates", text = "Fixed a 'script ran too long' error when reconnecting mid-pull in a Mythic+." },
+            { module = "QoL", text = "Unlock Mode no longer shows an FPS Counter mover while Show FPS Counter is off, and toggling the counter during Unlock Mode adds or removes the mover immediately." },
+            { module = "Quickdraw", text = "Palette entries no longer show as question marks on the first open of a session." },
+            { module = "Raid Frames", text = "Buff Manager and debuff icons no longer stay stuck on an expired aura after a group member comes back into view or from a loading screen." },
+            { module = "Raid Frames", text = "Sense Power can now be tracked in the Augmentation Evoker Buff Manager, and its two same-named spells are told apart in the pickers." },
+            { module = "Raid Frames", text = "The options preview no longer shows status text when Status Text is set to None." },
+            { module = "Raid Frames", text = "Ready check and resurrection icons now use Blizzard's sharper modern artwork." },
+            { module = "Unit & Raid Frames", text = "The dispel Fill Overlay now follows the health fill on vertical and reverse-fill bars instead of covering the whole bar." },
+            { module = "Unit Frames", text = "The Blizzard-style class resource bar no longer disappears after in-game cutscenes." },
+            { module = "Unit Frames", text = "Player Aura Bars come back right after a vehicle ride that ends in combat (Kings' Rest Entomb) and no longer stay hidden until combat drops." },
+            { module = "Unit Frames", text = "Player Aura Bars filters now track every state of multi-state buffs such as Aspect of Harmony instead of only the first." },
+            { module = "Localization", text = "Simplified Chinese, Korean and Brazilian Portuguese gained the latest option strings (the Fonts and Textures hubs, Ping Marker, Arcane Soul Helper, Crests and Item Level blocks, Debuff Filter modes, Compact Band, unified Visibility checklist, house-visit menu and marker entries)." },
+        },
+    },
+    {
+        version = "9.0.7",
+        heroes = {
+            {
+                module = "Unit Frames",
+                title  = "Debuff Filter Modes",
+                desc   = "Target, Focus and Boss Debuff Filter is now a single choice: Show All, Only Tracked Auras, Own Only, Important Only, Important and Own, or the new Important or Own. Tracked Auras always show on top of the chosen filter; your current setup is carried over.",
+                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames", section = "BUFFS AND DEBUFFS", highlight = "Debuff Filter",
+                           preSelect = function() EllesmereUI._setUnitFrameUnit("target"); EllesmereUI._pendingUnitSelect = "target" end },
+            },
+            {
+                module = "Raid Frames",
+                title  = "Ping Markers",
+                desc   = "When someone pings a group member, the ping mark now appears on their raid or party frame just like the default frames. Position, size and offset live under Indicators; it follows Blizzard's Show Pings on Raid Frames setting.",
+                -- The row sits inside the Indicators less-common collapse; expand it for the session so the deep-link can reach the row.
+                nav    = { module = "EllesmereUIRaidFrames", page = "Frames", section = "INDICATORS", highlight = "Ping Marker",
+                           preSelect = function()
+                               local sess = EllesmereUI._lessCommonExpanded
+                               if not sess then sess = {}; EllesmereUI._lessCommonExpanded = sess end
+                               sess.rfIndicators = true
+                           end },
+            },
+            {
+                module = "Resource Bars",
+                title  = "Arcane Soul Helper",
+                desc   = "An opt-in countdown for Sunfury Arcane Mages that shows when Arcane Soul opens and how many Barrages fit inside it. Lives with the class bars under Class, Power and Health Bars.",
+                -- Section is built for Mages only; other classes land on the page without a pulse.
+                nav    = { module = "EllesmereUIResourceBars", page = "Class, Power and Health Bars", section = "ARCANE SOUL (SUNFURY)", highlight = "Arcane Soul Helper" },
+            },
+            {
+                module = "General",
+                title  = "Unified Visibility Controls",
+                desc   = "Every module's Visibility and Visibility Options are now one Show/Hide checklist, with new Hide in Instances, Skyriding Mount, Hide with Target and Hide with Enemy Target conditions. Your existing choices carry over unchanged.",
+                nav    = { module = "EllesmereUIActionBars", page = "Bar Display", section = "VISIBILITY", highlight = "Visibility",
+                           preSelect = function() if EllesmereUI._setActionBarKey then EllesmereUI._setActionBarKey("MainBar") end end },
+            },
+        },
+        features = {
+            {
+                module = "DataBars",
+                title  = "Crests Block",
+                desc   = "The season's five Mistcrests in one readout with tier colors, optional icons, season progress and a full tooltip",
+                -- Block settings only exist once the block is on a bar: page-only nav, same as the Combat Status block entry.
+                nav    = { module = "EllesmereUIDataBars", page = "DataBars" },
+            },
+            {
+                module = "DataBars",
+                title  = "Item Level Block",
+                desc   = "Equipped or total item level with an optional prefix, decimals and an upgrade-track color band",
+                nav    = { module = "EllesmereUIDataBars", page = "DataBars" },
+            },
+            {
+                module = "Mythic+ Tools",
+                title  = "Targeted Spell Bars Icon Options",
+                desc   = "The spell icon can sit on the right side of the bar, with an optional divider at the icon seam",
+                nav    = { module = "EllesmereUIMythicTimer", page = "Targeted Spell Bars", section = "TARGETED SPELL BARS", highlight = "Show Icon" },
+            },
+            {
+                module = "Mythic+ Tools",
+                title  = "Strict Split Compare",
+                desc   = "A Split Compare cog option that compares boss splits only against runs at the same key level, so a new key level starts without a reference instead of using your dungeon best",
+                nav    = { module = "EllesmereUIMythicTimer", page = "Mythic+ Timer", section = "BOSS OBJECTIVES", highlight = "Split Compare" },
+            },
+            {
+                module = "Nameplates",
+                title  = "Important Cast Glow Styles",
+                desc   = "All six glow styles (Pixel, Action Button, Auto-Cast Shine, GCD, Modern WoW, Classic WoW) with a live preview",
+                nav    = { module = "EllesmereUINameplates", page = "Display", section = "CAST COLORS AND EFFECTS", highlight = "Important Cast Glow" },
+            },
+            {
+                module = "QoL",
+                title  = "Raid Tools Compact Band",
+                desc   = "One resizable row with the eight raid markers, clear, Ready Check and pull timers, movable in Unlock Mode",
+                nav    = { module = "EllesmereUIQoL", page = "Raid Tools", section = "GENERAL", highlight = "Show as" },
+            },
+        },
+        fixes = {
+            { module = "Action Bars & Cooldown Manager", text = "Gamepad keybinds now show the controller's button glyphs instead of raw names like PADDUP." },
+            { module = "Action Bars", text = "Show All on Mouseover now only triggers when hovering a bar that is itself set to Mouseover, as its tooltip says." },
+            { module = "Cooldown Manager", text = "Fixed the Cooldown Manager disappearing until a reload after leaving a battleground or arena." },
+            { module = "Cooldown Manager", text = "Mirror Key Presses now flashes trinket, potion and healthstone icons when their action bar button is pressed." },
+            { module = "Cooldown Manager", text = "A trinket added via the trinket slot preset no longer stays hidden on some logins until it is re-equipped." },
+            { module = "Damage Meters", text = "Bar and icon spacing now show at the intended size on UI scales other than pixel-perfect, so a spacing of 1 no longer collapses to no gap." },
+            { module = "DataBars", text = "The Currency block tooltip now shows season progress for capped currencies like crests instead of comparing your wallet total to the seasonal cap." },
+            { module = "QoL", text = "Auto Open Containers' Exclude Warbound Containers now also holds back Warbound Until Equipped caches instead of opening them." },
+            { module = "Quest Tracker", text = "Fixed an error during scenario objectives (e.g. Curse Surges) that could freeze the objective tracker until a reload." },
+            { module = "Raid Frames", text = "Raid joins, leaves and group shuffles now repaint only the frames that changed instead of every frame several times, cutting the CPU spike while a raid forms." },
+            { module = "Raid Frames", text = "A member who joined or was moved while dead no longer keeps showing DEAD after being resurrected." },
+            { module = "Unit & Raid Frames", text = "Removed stray debug messages that appeared in chat when using the house-visit menu." },
+            { module = "Unit Frames", text = "Target and Focus Tracked Auras entries gained the MINE tag boss frames already had, so a tracked debuff can be limited to your own casts." },
+            { module = "Localization", text = "Korean, Traditional Chinese and Brazilian Portuguese gained the latest option strings (Targeted Spell Bars interrupt awareness, Raid Frames Shown on Modifier, the house-visit menu and Quickdraw marker entries)." },
+        },
+    },
+    {
         version = "9.0.6",
         heroes = {
             {

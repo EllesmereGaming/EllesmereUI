@@ -375,13 +375,13 @@ end
 -- (special-case "timespiral"); warlock pets are excluded (no usable detection).
 local BUFF_BAR_PRESETS = {
     {
-        -- Faction label: Horde = Bloodlust (2825), Alliance = Heroism (32182).
+        -- Horde order; ns.RefreshLustPresetFaction flips it for Alliance below.
+        -- BOTH ids are listed so the "already on this bar" tests recognise a lust
+        -- icon added by the other faction on a shared profile.
         key      = "bloodlust",
-        name     = (UnitFactionGroup("player") == "Horde") and "Bloodlust" or "Heroism",
-        icon     = (UnitFactionGroup("player") == "Horde")
-                       and "Interface\\Icons\\spell_nature_bloodlust"
-                       or  "Interface\\Icons\\ability_shaman_heroism",
-        spellIDs = { (UnitFactionGroup("player") == "Horde") and 2825 or 32182 },
+        name     = "Bloodlust",
+        icon     = "Interface\\Icons\\spell_nature_bloodlust",
+        spellIDs = { 2825, 32182 },
         duration = 40,
         tbbOnly  = true,  -- not a cooldown-usable preset (kept out of the CD/utility picker)
         customAuraToo = true,  -- but allowed on Custom Auras (icon) bars; debuff-driven 40s window
@@ -420,6 +420,43 @@ local BUFF_BAR_PRESETS = {
     },
 }
 ns.BUFF_BAR_PRESETS = BUFF_BAR_PRESETS
+
+-- Horde casts Bloodlust (2825), Alliance casts Heroism (32182). UnitFactionGroup
+-- can read nil this early in a client session, and a wrong read baked into the
+-- table would stick for the whole session (a Horde player got the Heroism name,
+-- icon and id in the picker), so OnEnable calls this again once the player loads.
+function ns.RefreshLustPresetFaction()
+    local alliance = UnitFactionGroup("player") == "Alliance"
+    local name = alliance and "Heroism" or "Bloodlust"
+    local icon = alliance and "Interface\\Icons\\ability_shaman_heroism"
+                          or  "Interface\\Icons\\spell_nature_bloodlust"
+    ns._lustPresetSpellID = alliance and 32182 or 2825
+    for _, p in ipairs(BUFF_BAR_PRESETS) do
+        if p.key == "bloodlust" then
+            p.name, p.icon = name, icon
+            -- This character's id leads: everything that stores a preset takes
+            -- spellIDs[1], while the membership tests read the whole list.
+            p.spellIDs[1] = ns._lustPresetSpellID
+            p.spellIDs[2] = alliance and 2825 or 32182
+            break
+        end
+    end
+    -- The Tracking Bar list copies name/icon by value at load (spellIDs is the
+    -- same table), and is built after this file, so it is absent on the first call.
+    for _, e in ipairs(ns.TBB_POPULAR_BUFFS or {}) do
+        if e.key == "bloodlust" then e.name, e.icon = name, icon; break end
+    end
+end
+ns.RefreshLustPresetFaction()
+
+-- A profile shared between a Horde and an Alliance character keeps whichever lust
+-- id was stored first, so icon art resolves through here instead of off that id.
+function ns.LustPresetIconSpellID(sid)
+    if ns.IsLustPresetSpell and ns.IsLustPresetSpell(sid) then
+        return ns._lustPresetSpellID or sid
+    end
+    return sid
+end
 
 -- Item presets for CD/utility bars (potions that track cooldowns). displayOrder is a
 -- dynamic-display priority list, newest tier first: the icon resolves to the FIRST id
@@ -7095,6 +7132,12 @@ local _stableMode = false
 
 local function FormatKeybindKey(key)
     if not key or key == "" then return nil end
+    -- Gamepad binds resolve to glyph markup (no atlas name matches a substitution
+    -- below); keyboard binds keep the raw tokens the substitutions are written against.
+    local resolved = GetBindingText(key, 1)
+    if resolved and resolved:find("|A:", 1, true) then
+        key = resolved
+    end
     key = key:gsub("SHIFT%-", "S")
     key = key:gsub("CTRL%-",  "C")
     key = key:gsub("ALT%-",   "A")
@@ -8463,6 +8506,28 @@ local function _IsUsableSID(id)
     return id > 0 and id == math.floor(id)
 end
 
+-- Reads the ALREADY-BUILT display table, never the provider getters: those run
+-- CheckBuildDisplayData, which rebuilds Blizzard's shared tables (and writes the
+-- active layout) on OUR stack whenever the provider is dirty -- the HUD viewer
+-- drops its OnDataChanged rebuild while hidden, so a post-match read used to
+-- taint the viewer until reload. A dirty provider returns nil (not the previous
+-- build): callers treat nil as "not ready" and fall back to keep-all/live-pool.
+function ns.CDMGetProviderDisplayData(provider)
+    if type(provider) ~= "table" or type(provider.GetDisplayData) ~= "function" then
+        return nil, nil
+    end
+    if type(provider.IsDirty) == "function" then
+        local okD, dirty = pcall(provider.IsDirty, provider)
+        if not okD or dirty then return nil, nil end
+    end
+    local ok, displayData = pcall(provider.GetDisplayData, provider)
+    if not ok or type(displayData) ~= "table" then return nil, nil end
+    local ordered = displayData.orderedCooldownIDs
+    local infoByID = displayData.cooldownInfoByID
+    if type(ordered) ~= "table" or type(infoByID) ~= "table" then return nil, nil end
+    return ordered, infoByID
+end
+
 -- Active BLIZZARD CDM layout id (the user's "preset"), not to be confused with
 -- ns.GetActiveLayoutName (EUI's own account-wide spell-layout system). Used to
 -- scope the automatic-reseed session gate by layout as well as spec: a spell
@@ -8533,9 +8598,9 @@ function ns.CDMEntryHiddenOrRemoved(cdID, mergedInfo, rawInfo, liveSetLookup)
     if mergedInfo == nil then
         local provider = CooldownViewerSettings and CooldownViewerSettings.GetDataProvider
                           and CooldownViewerSettings:GetDataProvider()
-        if provider and provider.GetCooldownInfoForID then
-            local ok, info = pcall(provider.GetCooldownInfoForID, provider, cdID)
-            if ok then mergedInfo = info end
+        if provider then
+            local _, infoByID = ns.CDMGetProviderDisplayData(provider)
+            if infoByID then mergedInfo = infoByID[cdID] end
         end
     end
 
@@ -8636,10 +8701,10 @@ local function BuildBuffFamilyPresentSet()
     if not settings or type(settings.GetDataProvider) ~= "function" then return nil end
     local okP, provider = pcall(settings.GetDataProvider, settings)
     if not okP or type(provider) ~= "table" then return nil end
-    if type(provider.GetOrderedCooldownIDs) ~= "function"
-       or type(provider.GetCooldownInfoForID) ~= "function" then return nil end
-    local okO, ordered = pcall(provider.GetOrderedCooldownIDs, provider)
-    if not okO or type(ordered) ~= "table" then return nil end
+    -- Read the already-built display table, never the getters that would
+    -- build it (see ns.CDMGetProviderDisplayData).
+    local ordered, infoByID = ns.CDMGetProviderDisplayData(provider)
+    if not ordered then return nil end
     local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
     if not gci then return nil end
     local evc = Enum and Enum.CooldownViewerCategory
@@ -8663,8 +8728,8 @@ local function BuildBuffFamilyPresentSet()
 
     local present, sawEntry = {}, false
     for _, cdID in ipairs(ordered) do
-        local okI, mergedInfo = pcall(provider.GetCooldownInfoForID, provider, cdID)
-        local category = okI and type(mergedInfo) == "table" and mergedInfo.category
+        local mergedInfo = _IsUsableSID(cdID) and infoByID[cdID]
+        local category = type(mergedInfo) == "table" and mergedInfo.category
         if category ~= nil and wantCats[category] then
             sawEntry = true
             local rawInfo = gci(cdID)
@@ -9325,6 +9390,7 @@ function ECME:OnEnable()
     ns._playerRace = _playerRace
     ns._playerClass = _playerClass
     ns._myRacialsSet = _myRacialsSet
+    ns.RefreshLustPresetFaction()
 
     -- Build cached racial spell list for this character (used for render-time substitution)
     table.wipe(_myRacials)
@@ -10179,8 +10245,6 @@ end)
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
--- DEBUG: /cdmwatchbuffs to trace everything touching the buff bar
-
 SLASH_ECME1 = "/ecme"
 SLASH_ECME2 = "/cdmeffects"
 SLASH_ECME3 = "/ecdm"

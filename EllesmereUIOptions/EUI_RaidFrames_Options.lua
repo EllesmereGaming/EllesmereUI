@@ -3038,6 +3038,70 @@ initFrame:SetScript("OnEvent", function(self)
                 cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
             end
         end
+
+        -- Ping Marker | Ping Marker Size (+ offset cog). The mark a group member's ping
+        -- puts on the pinged unit's frame, Blizzard's own art. Also needs Blizzard's
+        -- "Show Pings on Raid Frames" setting on (same gate as the default frames).
+        local pingPositionValues = {
+            none        = "None",
+            topleft     = "Top Left",
+            top         = "Top",
+            topright    = "Top Right",
+            left        = "Left",
+            center      = "Center",
+            right       = "Right",
+            bottomleft  = "Bottom Left",
+            bottom      = "Bottom",
+            bottomright = "Bottom Right",
+        }
+        local pingPositionOrder = { "none", "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+        local pingRow
+        pingRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Ping Marker", values=pingPositionValues, order=pingPositionOrder,
+              tooltip="Shows the ping mark on a member's frame when someone pings them (needs Blizzard's Show Pings on Raid Frames setting on).",
+              getValue=function()
+                  if not SVal("showPingMarker", true) then return "none" end
+                  return SVal("pingMarkerPosition", "center")
+              end,
+              setValue=function(v)
+                  if v == "none" then
+                      SSet("showPingMarker", false)
+                  else
+                      SWrite("showPingMarker", true)
+                      SSet("pingMarkerPosition", v)
+                  end
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="slider", text="Ping Marker Size", min=10, max=60, step=1,
+              disabled=function() return not SVal("showPingMarker", true) end,
+              disabledTooltip="Ping Marker",
+              getValue=function() return SVal("pingMarkerSize", 30) end,
+              setValue=function(v) SSet("pingMarkerSize", v) end });  y = y - h
+        if not EllesmereUI._prebuilding then
+            local rgn = pingRow._leftRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Ping Marker Offset",
+                rows = {
+                    { type="slider", label="Offset X", min=-50, max=50, step=1,
+                      get=function() return SVal("pingMarkerOffsetX", 0) end,
+                      set=function(v) SSet("pingMarkerOffsetX", v) end },
+                    { type="slider", label="Offset Y", min=-50, max=50, step=1,
+                      get=function() return SVal("pingMarkerOffsetY", 0) end,
+                      set=function(v) SSet("pingMarkerOffsetY", v) end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
+            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+        end
         end   -- close the less-common-indicators collapse wrapper
         -- While expanded the shared link re-renders here in its "Hide ..." form; no-op while collapsed or in party ctx.
         if not _partyCtx then

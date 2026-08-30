@@ -7270,41 +7270,58 @@ initFrame:SetScript("OnEvent", function(self)
                 p.primary.visibilityModes = nil
             end
         end
+        -- One control for all three bars: the scalar, the multi-select set and the option
+        -- booleans all fan out to health/primary/secondary; reads come from secondary,
+        -- the representative.
         local visRow
-        visRow, h = EllesmereUI.BuildVisibilityModeRow(W, parent, y,
+        visRow, h = EllesmereUI.BuildVisibilityRow(W, parent, y,
             { getStore = function() local p = DB(); return p and p.secondary end,
               legacyKey = "visibility",
               caps = { partyIncludesRaid = false, luaDragonriding = true },
               applyScalarFn = ApplyVisScalarAll,
+              getOption = function(k)
+                  local p = DB(); if not p then return false end
+                  return p.secondary[k] or false
+              end,
+              setOption = function(k, v)
+                  local p = DB(); if not p then return end
+                  p.secondary[k] = v
+                  p.health[k] = v
+                  p.primary[k] = v
+              end,
               onChanged = function()
                   MirrorVisModes()
                   Refresh()
-              end },
-            { type = "dropdown", text = "Visibility Options",
+              end,
+              onOptionChanged = function() Refresh() end },
+            -- Smooth Bars: placeholder slot, swapped for the checkbox dropdown below.
+            { type = "dropdown", text = "Smooth Bars",
               values = { __placeholder = "..." }, order = { "__placeholder" },
               getValue = function() return "__placeholder" end,
               setValue = function() end }
         );  y = y - h
 
-        -- Swap the dummy right dropdown for the checkbox dropdown
+        -- Smooth Bars checkbox dropdown. Each item enables native StatusBar interpolation
+        -- on its bar; off = a plain SetValue with zero added cost. Defaults all off.
         if not EllesmereUI._prebuilding then
             local rightRgn = visRow._rightRegion
             if rightRgn._control then rightRgn._control:Hide() end
-            local visItems = EllesmereUI.VIS_OPT_ITEMS
+            local smoothItems = {
+                { key = "secondary", label = "Class Resource Bar" },
+                { key = "primary",   label = "Power Bar" },
+                { key = "health",    label = "Health Bar" },
+            }
             local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
                 rightRgn, 210, rightRgn:GetFrameLevel() + 2,
-                visItems,
+                smoothItems,
                 function(k)
                     local p = DB(); if not p then return false end
-                    return p.secondary[k] or false
+                    return (p[k] and p[k].smoothBars) or false
                 end,
                 function(k, v)
                     local p = DB(); if not p then return end
-                    p.secondary[k] = v
-                    p.health[k] = v
-                    p.primary[k] = v
-                    Refresh()
-                    EllesmereUI:RefreshPage()
+                    if p[k] then p[k].smoothBars = v end
+                    if _G._ERB_ApplySmoothing then _G._ERB_ApplySmoothing() end
                 end)
             PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
             rightRgn._control = cbDD
@@ -7682,10 +7699,7 @@ initFrame:SetScript("OnEvent", function(self)
                   RebuildPower()
                   EllesmereUI:RefreshPage()
               end },
-            { type = "dropdown", text = "Smooth Bars",
-              values = { __placeholder = "..." }, order = { "__placeholder" },
-              getValue = function() return "__placeholder" end,
-              setValue = function() end }
+            { type = "label", text = "" }
         );  y = y - h
         -- Inline reposition cog on "Shift Elements if No Power": Extra Y Offset
         if not EllesmereUI._prebuilding then
@@ -7709,33 +7723,6 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
             MakeCogBtn(rgn, cogShow, nil, EllesmereUI.DIRECTIONS_ICON)
-        end
-
-        -- Replace the dummy "Smooth Bars" right dropdown with a checkbox dropdown. Each item enables native StatusBar interpolation on its bar; off = a plain SetValue with zero added cost. Defaults all off.
-        if not EllesmereUI._prebuilding then
-            local rightRgn = shiftPowRow._rightRegion
-            if rightRgn._control then rightRgn._control:Hide() end
-            local smoothItems = {
-                { key = "secondary", label = "Class Resource Bar" },
-                { key = "primary",   label = "Power Bar" },
-                { key = "health",    label = "Health Bar" },
-            }
-            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                rightRgn, 210, rightRgn:GetFrameLevel() + 2,
-                smoothItems,
-                function(k)
-                    local p = DB(); if not p then return false end
-                    return (p[k] and p[k].smoothBars) or false
-                end,
-                function(k, v)
-                    local p = DB(); if not p then return end
-                    if p[k] then p[k].smoothBars = v end
-                    if _G._ERB_ApplySmoothing then _G._ERB_ApplySmoothing() end
-                end)
-            PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
-            rightRgn._control = cbDD
-            rightRgn._lastInline = nil
-            EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
         end
 
         _, h = W:Spacer(parent, y, 16);  y = y - h
@@ -7861,6 +7848,205 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         _, h = W:Spacer(parent, y, 16);  y = y - h
+
+        -- ARCANE SOUL (SUNFURY)
+        -- Mage-only: the section is absent entirely for every other class rather
+        -- than built and disabled, since nothing in it can ever apply to them.
+        -- The spec/hero-tree gate itself lives in the module (it changes at
+        -- runtime); this only decides whether the controls exist at all.
+        if select(2, UnitClass("player")) == "MAGE" then
+            -- Straight to the module: this display is not part of the bar build,
+            -- so a full ApplyAll would rebuild every bar to retint one string.
+            local function RefreshAS()
+                if ns.AS_Apply then ns.AS_Apply() end
+            end
+            local asOff = function() local p = DB(); return p and not p.arcaneSoul.enabled end
+            local AS_TIP = "Arcane Soul Helper"
+
+            _, h = W:SectionHeader(parent, "ARCANE SOUL (SUNFURY)", y);  y = y - h
+
+            -- Row: Enable Arcane Soul Helper (+ position cog) | Show Threshold
+            local asEnableRow
+            asEnableRow, h = W:DualRow(parent, y,
+                { type = "toggle", text = "Enable Arcane Soul Helper",
+                  tooltip = "Shows a countdown to the Arcane Soul window over the last seconds of Arcane Surge, then the time left inside it. Sunfury Arcane Mages only.",
+                  getValue = function() local p = DB(); return p and p.arcaneSoul.enabled end,
+                  setValue = function(v)
+                      local p = DB(); if not p then return end
+                      p.arcaneSoul.enabled = v; RefreshAS(); EllesmereUI:RefreshPage()
+                  end },
+                { type = "slider", text = "Show Threshold", min = 1, max = 15, step = 1,
+                  tooltip = "Seconds of Arcane Surge left when the countdown appears. Always in seconds, including in GCD mode.",
+                  disabled = asOff, disabledTooltip = AS_TIP,
+                  getValue = function() local p = DB(); return p and p.arcaneSoul.threshold or 5 end,
+                  setValue = function(v) local p = DB(); if not p then return end; p.arcaneSoul.threshold = v; RefreshAS() end }
+            );  y = y - h
+
+            -- Inline position cog (X/Y + unlock) on Enable, as on the GCD Bar page
+            if not EllesmereUI._prebuilding then
+                local rgn = asEnableRow._leftRegion
+                local _, cogShow = EllesmereUI.BuildCogPopup({
+                    title = "Arcane Soul Position",
+                    rows = {
+                        { type = "slider", label = "X Offset", min = -600, max = 600, step = 1,
+                          get = function()
+                              local p = DB(); if not p then return 0 end
+                              local a = p.arcaneSoul
+                              return (a.unlockPos and a.unlockPos.x) or 0
+                          end,
+                          set = function(v)
+                              local p = DB(); if not p then return end
+                              local a = p.arcaneSoul
+                              -- No separate offset pair for this display: the cog edits
+                              -- the same saved position the mover writes, seeding it
+                              -- from the default the renderer falls back to.
+                              a.unlockPos = a.unlockPos or { point = "CENTER", relPoint = "CENTER", x = 0, y = -150 }
+                              a.unlockPos.x = v
+                              RefreshAS()
+                          end },
+                        { type = "slider", label = "Y Offset", min = -600, max = 600, step = 1,
+                          get = function()
+                              local p = DB(); if not p then return -150 end
+                              local a = p.arcaneSoul
+                              return (a.unlockPos and a.unlockPos.y) or -150
+                          end,
+                          set = function(v)
+                              local p = DB(); if not p then return end
+                              local a = p.arcaneSoul
+                              a.unlockPos = a.unlockPos or { point = "CENTER", relPoint = "CENTER", x = 0, y = -150 }
+                              a.unlockPos.y = v
+                              RefreshAS()
+                          end },
+                    },
+                    footer = { unlockKey = "EUI_ArcaneSoul" },
+                })
+                local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.DIRECTIONS_ICON)
+                local cogDis = CreateFrame("Frame", nil, rgn)
+                cogDis:SetAllPoints(cogBtn)
+                cogDis:SetFrameLevel(cogBtn:GetFrameLevel() + 5)
+                cogDis:EnableMouse(true)
+                cogDis:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip(AS_TIP))
+                end)
+                cogDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local function UpdateAsCogDis()
+                    local p = DB()
+                    if p and not p.arcaneSoul.enabled then cogDis:Show() else cogDis:Hide() end
+                end
+                cogBtn:HookScript("OnShow", UpdateAsCogDis)
+                EllesmereUI.RegisterWidgetRefresh(UpdateAsCogDis)
+                UpdateAsCogDis()
+            end
+
+            -- Row: Countdown Format | Text Size
+            local asFormatValues = {
+                ["seconds"]    = { text = "Seconds" },
+                ["gcd"]        = { text = "GCD Count" },
+                ["secondsGcd"] = { text = "Seconds + GCD in Soul" },
+            }
+            local asFormatOrder = { "seconds", "gcd", "secondsGcd" }
+            -- The LAST warning only exists where the Soul window counts Barrages.
+            local function AsSoulCountsGcd()
+                local p = DB()
+                local m = p and p.arcaneSoul.countMode
+                return m == "gcd" or m == "secondsGcd"
+            end
+            _, h = W:DualRow(parent, y,
+                { type = "dropdown", text = "Countdown Format",
+                  tooltip = "Seconds counts the time down in tenths. GCD Count counts whole global cooldowns instead, so inside Arcane Soul it reads as the number of Arcane Barrages that still fit, ending on a coloured LAST. Seconds + GCD in Soul mixes the two: tenths counting down to the window, Barrage count once it opens.",
+                  disabled = asOff, disabledTooltip = AS_TIP,
+                  values = asFormatValues, order = asFormatOrder,
+                  getValue = function() local p = DB(); return p and p.arcaneSoul.countMode or "seconds" end,
+                  setValue = function(v) local p = DB(); if not p then return end; p.arcaneSoul.countMode = v; RefreshAS() end },
+                { type = "slider", text = "Text Size", min = 10, max = 48, step = 1,
+                  disabled = asOff, disabledTooltip = AS_TIP,
+                  getValue = function() local p = DB(); return p and p.arcaneSoul.textSize or 24 end,
+                  setValue = function(v)
+                      local p = DB(); if not p then return end
+                      p.arcaneSoul.textSize = v; RefreshAS()
+                      if EllesmereUI.NotifyElementResized then
+                          EllesmereUI.NotifyElementResized("EUI_ArcaneSoul")
+                      end
+                  end }
+            );  y = y - h
+
+            -- Row: Font | Font Outline (mirrors the Battle Res text controls)
+            do
+                local asFontValues, asFontOrder = EllesmereUI.BuildFontDropdownData()
+                local asOutlineValues = {
+                    ["__global"] = { text = "EUI Global Default" },
+                    ["none"]     = { text = "Drop Shadow" },
+                    ["outline"]  = { text = "Outline" },
+                    ["thick"]    = { text = "Thick Outline" },
+                }
+                local asOutlineOrder = { "__global", "none", "outline", "thick" }
+                _, h = W:DualRow(parent, y,
+                    { type = "dropdown", text = "Font",
+                      disabled = asOff, disabledTooltip = AS_TIP,
+                      values = asFontValues, order = asFontOrder,
+                      getValue = function() local p = DB(); return p and p.arcaneSoul.font or "__global" end,
+                      setValue = function(v) local p = DB(); if not p then return end; p.arcaneSoul.font = v; RefreshAS() end },
+                    { type = "dropdown", text = "Font Outline",
+                      disabled = asOff, disabledTooltip = AS_TIP,
+                      values = asOutlineValues, order = asOutlineOrder,
+                      getValue = function() local p = DB(); return p and p.arcaneSoul.outlineMode or "__global" end,
+                      setValue = function(v) local p = DB(); if not p then return end; p.arcaneSoul.outlineMode = v; RefreshAS() end }
+                );  y = y - h
+            end
+
+            -- Row: Colors (pre-Soul / in-Soul / final GCD)
+            _, h = W:DualRow(parent, y,
+                { type = "multiSwatch", text = "Colors",
+                  disabled = asOff, disabledTooltip = AS_TIP,
+                  swatches = {
+                    { tooltip = "Countdown to Soul", hasAlpha = false,
+                      getValue = function()
+                          local p = DB(); if not p then return 1, 1, 1 end
+                          local a = p.arcaneSoul
+                          return a.preR or 0.64, a.preG or 0.21, a.preB or 0.93
+                      end,
+                      setValue = function(r, g, b)
+                          local p = DB(); if not p then return end
+                          local a = p.arcaneSoul
+                          a.preR, a.preG, a.preB = r, g, b
+                          RefreshAS()
+                      end },
+                    { tooltip = "Inside Soul", hasAlpha = false,
+                      getValue = function()
+                          local p = DB(); if not p then return 1, 1, 1 end
+                          local a = p.arcaneSoul
+                          return a.soulR or 0.64, a.soulG or 0.21, a.soulB or 0.93
+                      end,
+                      setValue = function(r, g, b)
+                          local p = DB(); if not p then return end
+                          local a = p.arcaneSoul
+                          a.soulR, a.soulG, a.soulB = r, g, b
+                          RefreshAS()
+                      end },
+                    -- Only ever rendered in GCD Count mode (the LAST warning).
+                    { tooltip = "Last Barrage", hasAlpha = false,
+                      disabled = function()
+                          local p = DB()
+                          return not p or not p.arcaneSoul.enabled or not AsSoulCountsGcd()
+                      end,
+                      disabledTooltip = "This option requires Countdown Format to count GCDs inside Arcane Soul",
+                      getValue = function()
+                          local p = DB(); if not p then return 1, 1, 1 end
+                          local a = p.arcaneSoul
+                          return a.lastR or 1.0, a.lastG or 0.25, a.lastB or 0.25
+                      end,
+                      setValue = function(r, g, b)
+                          local p = DB(); if not p then return end
+                          local a = p.arcaneSoul
+                          a.lastR, a.lastG, a.lastB = r, g, b
+                          RefreshAS()
+                      end },
+                  } },
+                { type = "label", text = "" }
+            );  y = y - h
+
+            _, h = W:Spacer(parent, y, 16);  y = y - h
+        end
 
         -- Wire up click mappings for preview hit overlays (never from a hidden pre-build: the shared live table would end up pointing at off-screen rows).
         if not EllesmereUI._prebuilding then

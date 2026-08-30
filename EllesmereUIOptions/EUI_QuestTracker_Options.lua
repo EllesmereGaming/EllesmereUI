@@ -110,44 +110,35 @@ initFrame:SetScript("OnEvent", function(self)
         -- -- DISPLAY ---------------------------------------------------------
         _, h = W:SectionHeader(parent, "DISPLAY", y); y = y - h
 
-        -- Row 1: Visibility | Visibility Options
-        local visRow
-        visRow, h = EllesmereUI.BuildVisibilityModeRow(W, parent, y,
+        -- Row 1: Visibility | Hide When In Raid. The raid-hide dropdown moved up from
+        -- the Background Opacity row into the slot the old Visibility Options dropdown
+        -- left behind: it answers the same question the Visibility control does.
+        _, h = EllesmereUI.BuildVisibilityRow(W, parent, y,
             { getStore = DB, legacyKey = "visibility",
               caps = { partyIncludesRaid = false, luaDragonriding = true },
-              onChanged = function() RefreshAll() end },
-            { type="dropdown", text="Visibility Options",
-              values={ __placeholder = "..." }, order={ "__placeholder" },
-              getValue=function() return "__placeholder" end,
-              setValue=function() end })
-        if not EllesmereUI._prebuilding then
-            local rightRgn = visRow._rightRegion
-            if rightRgn._control then rightRgn._control:Hide() end
-            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                rightRgn, 210, rightRgn:GetFrameLevel() + 2,
-                EllesmereUI.VIS_OPT_ITEMS,
-                function(k) return Cfg(k) or false end,
-                function(k, v) Set(k, v); RefreshAll() end)
-            PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
-            rightRgn._control = cbDD
-            rightRgn._lastInline = nil
-            EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
-        end
-        y = y - h
-
-        -- Row 2: Background Opacity (slider + inline color swatch) | Hide when in Raid
-        local bgRow
-        bgRow, h = W:DualRow(parent, y,
-            { type="slider", text="Background Opacity",
-              min = 0, max = 1, step = 0.05,
-              getValue=function() return Cfg("bgAlpha") or 0.5 end,
-              setValue=function(v) Set("bgAlpha", v); if EQT.ApplyBackground then EQT.ApplyBackground() end end },
+              onChanged = function() RefreshAll() end,
+              onOptionChanged = function() RefreshAll() end },
             { type="dropdown", text="Hide When In Raid",
               tooltip="Always: hide the tracker the whole time you are in a raid.\nBoss Combat: keep it visible and only hide during boss encounters.",
               values = { always = "Always", boss = "Boss Combat" },
               order  = { "always", "boss" },
               getValue=function() return Cfg("hideInRaidMode") or "boss" end,
               setValue=function(v) Set("hideInRaidMode", v); if EQT.UpdateVisibility then EQT.UpdateVisibility() end end })
+        y = y - h
+
+        -- Row 2: Background Opacity (slider + inline color swatch) | Show Top Line.
+        -- Show Top Line moved up from the old trailing half-row to close the gap left
+        -- by Hide When In Raid; both settings describe the tracker's background chrome.
+        local bgRow
+        bgRow, h = W:DualRow(parent, y,
+            { type="slider", text="Background Opacity",
+              min = 0, max = 1, step = 0.05,
+              getValue=function() return Cfg("bgAlpha") or 0.5 end,
+              setValue=function(v) Set("bgAlpha", v); if EQT.ApplyBackground then EQT.ApplyBackground() end end },
+            { type="toggle", text="Show Top Line",
+              tooltip="Draws a 1px accent line above the background at the top of the tracker.",
+              getValue=function() return Cfg("showTopLine") ~= false end,
+              setValue=function(v) Set("showTopLine", v); if EQT.ApplyBackground then EQT.ApplyBackground() end end })
         if not EllesmereUI._prebuilding then
             local rgn = bgRow._leftRegion
             local ctrl = rgn._control
@@ -226,15 +217,6 @@ initFrame:SetScript("OnEvent", function(self)
                   if EQT.ApplyMasterHeaderVisibility then EQT.ApplyMasterHeaderVisibility() end
                   if EQT.QueueResize then EQT.QueueResize() end
               end })
-        y = y - h
-
-        -- Row 5: Show Top Line| spacer
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Show Top Line",
-              tooltip="Draws a 1px accent line above the background at the top of the tracker.",
-              getValue=function() return Cfg("showTopLine") ~= false end,
-              setValue=function(v) Set("showTopLine", v); if EQT.ApplyBackground then EQT.ApplyBackground() end end },
-            { type="spacer" })
         y = y - h
 
         -- -- COLORS ----------------------------------------------------------

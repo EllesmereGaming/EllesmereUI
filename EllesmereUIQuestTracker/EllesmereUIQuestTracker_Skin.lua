@@ -1142,10 +1142,29 @@ local function HookTracker(tracker)
     if SharesWidgetPool(tracker) then
         if tracker.Header then SkinHeader(tracker.Header) end
         if tracker.Update then
+            -- The divider work is DEFERRED, never run inside this post-hook: the
+            -- hook fires mid ObjectiveTrackerContainer:Update(), between module
+            -- updates, and inline texture creation/anchoring against the
+            -- Blizzard header left the rest of that container pass tainted --
+            -- ScenarioObjectiveTracker:LayoutContents then hit
+            -- ShouldShowMawBuffs -> GetAuraDataByIndex (RequiresUnitAuraAccess)
+            -- from tainted execution and hard-errored under aura secrecy,
+            -- aborting the flush before Blizzard cleared its dirty flag (the
+            -- tracker froze until /reload; Curse Surge field repro, isolated by
+            -- deferring only this call). Same dirty-flag + After(0) shape as the
+            -- generic branch below; QueueResize only touches our own bg frame.
+            local _dividerDirty = false
             hooksecurefunc(tracker, "Update", function(self)
                 if ShouldSkipSkin() then return end
-                if self.Header then EnsureAccentDivider(self.Header) end
                 if EQT.QueueResize then EQT.QueueResize() end
+                if self.Header and not _dividerDirty then
+                    _dividerDirty = true
+                    C_Timer.After(0, function()
+                        _dividerDirty = false
+                        if ShouldSkipSkin() then return end
+                        if self.Header then EnsureAccentDivider(self.Header) end
+                    end)
+                end
             end)
         end
         return

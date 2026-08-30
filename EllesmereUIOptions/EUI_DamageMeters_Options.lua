@@ -89,31 +89,24 @@ initFrame:SetScript("OnEvent", function(self)
         -- ── DISPLAY ─────────────────────────────────────────────────────
         _, h = W:SectionHeader(parent, "DISPLAY", y); y = y - h
 
-        -- Visibility | Visibility Options
+        -- Visibility (one control)
+        local function VisApply()
+            if EllesmereUI.RequestVisibilityUpdate then EllesmereUI.RequestVisibilityUpdate() end
+        end
         local visRow
-        visRow, h = EllesmereUI.BuildVisibilityModeRow(W, parent, y,
+        visRow, h = EllesmereUI.BuildVisibilityRow(W, parent, y,
             { getStore = DB, legacyKey = "visibility",
               caps = { partyIncludesRaid = false, luaDragonriding = true },
-              onChanged = function()
-                  if EllesmereUI.RequestVisibilityUpdate then EllesmereUI.RequestVisibilityUpdate() end
-              end },
-            { type="dropdown", text="Visibility Options",
-              values={ __placeholder = "..." }, order={ "__placeholder" },
-              getValue=function() return "__placeholder" end,
-              setValue=function() end })
-        if not EllesmereUI._prebuilding then
-            local rightRgn = visRow._rightRegion
-            if rightRgn._control then rightRgn._control:Hide() end
-            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                rightRgn, 210, rightRgn:GetFrameLevel() + 2,
-                EllesmereUI.VIS_OPT_ITEMS,
-                function(k) return Cfg(k) or false end,
-                function(k, v) Set(k, v); if EllesmereUI.RequestVisibilityUpdate then EllesmereUI.RequestVisibilityUpdate() end end)
-            PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
-            rightRgn._control = cbDD
-            rightRgn._lastInline = nil
-            EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
-        end
+              onChanged = VisApply,
+              onOptionChanged = VisApply },
+            -- Refresh Rate moved up into the slot the Visibility Options dropdown left
+            -- behind; its "(seconds)" suffix is attached below.
+            { type="slider", text="Refresh Rate",
+              tooltip = "Increase to improve performance, Decrease to update meters faster",
+              min = 0.1, max = 2, step = 0.1,
+              getValue = function() return Cfg("refreshRate") or 0.5 end,
+              setValue = function(v) Set("refreshRate", v) end,
+              fmt = function(v) return format("%.2fs", v) end })
         y = y - h
 
         -- Window Border Style (+ directions submenu) | Border Size (+ color)
@@ -218,18 +211,16 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
-        -- Refresh Rate (+ seconds) | Reset Data Keybind (+ inline cog: hide reset button)
+        -- Reset Data Keybind (+ inline cog: hide reset button) | (free). Refresh Rate and
+        -- its "(seconds)" suffix moved up to the Visibility row.
         local rrRow
         rrRow, h = W:DualRow(parent, y,
-            { type="slider", text="Refresh Rate",
-              tooltip = "Increase to improve performance, Decrease to update meters faster",
-              min = 0.1, max = 2, step = 0.1,
-              getValue = function() return Cfg("refreshRate") or 0.5 end,
-              setValue = function(v) Set("refreshRate", v) end,
-              fmt = function(v) return format("%.2fs", v) end },
-            { type="label", text="Reset Data Keybind" })
+            { type="label", text="Reset Data Keybind" },
+            { type="label", text="" })
+        -- "(seconds)" suffix for Refresh Rate, which lives in the Visibility row's right
+        -- slot -- not this row.
         do
-            local rgn = rrRow._leftRegion
+            local rgn = visRow._rightRegion
             local suffix = rgn:CreateFontString(nil, "OVERLAY")
             suffix:SetFont(EllesmereUI.EXPRESSWAY, 11, "")
             suffix:SetTextColor(1, 1, 1, 0.35)
@@ -250,7 +241,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         if not EllesmereUI._prebuilding then
-            local rgn = rrRow._rightRegion
+            local rgn = rrRow._leftRegion
             local KB_W, KB_H = 120, 26
             local kbBtn = CreateFrame("Button", nil, rgn)
             PP.Size(kbBtn, KB_W, KB_H)

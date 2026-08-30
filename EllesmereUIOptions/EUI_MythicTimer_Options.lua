@@ -947,6 +947,20 @@ initFrame:SetScript("OnEvent", function(self)
               order=compareModeOrder,
               getValue=function() return Cfg("objectiveCompareMode") or "NONE" end,
               setValue=function(v) Set("objectiveCompareMode", v); Refresh() end })
+        -- Strict scoping cog: only meaningful for the level scopes (Per Dungeon is the fallback it removes).
+        if not EllesmereUI._prebuilding then
+        _AttachPopupButton(row._rightRegion, EllesmereUI.COGS_ICON, "Split Compare", {
+            { type="toggle", label="Strict Comparison Mode",
+              tooltip="Compare only against splits from the same key level (off: new key levels compare against your dungeon best).",
+              disabled=function()
+                  local mode = Cfg("objectiveCompareMode") or "NONE"
+                  return mode ~= "LEVEL" and mode ~= "LEVEL_AFFIX"
+              end,
+              disabledTooltip="This option requires Split Compare to include a key level",
+              get=function() return Cfg("objectiveCompareStrict") == true end,
+              set=function(v) Set("objectiveCompareStrict", v); Refresh() end },
+        }, function() return Cfg("enabled") == false or Cfg("showObjectives") == false end)
+        end
         y = y - h
 
         _, h = W:Spacer(parent, y, 20); y = y - h
@@ -1225,6 +1239,20 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() local c = TSB(); return not c or c.showSpellName ~= false end,
               setValue=function(v) local c = TSB(); if c then c.showSpellName = v and true or false; TSBRefresh() end end });  y = y - h
         if not EllesmereUI._prebuilding then
+            local _, showIconCog = EllesmereUI.BuildCogPopup({
+                title = "Spell Icon Settings",
+                rows = {
+                    { type="toggle", label="Icon on Right",
+                      tooltip = "Attach the spell icon to the right of the cast bar instead of the left.",
+                      get=function() local c = TSB(); return c and c.iconOnRight end,
+                      set=function(v) local c = TSB(); if c then c.iconOnRight = v; TSBRefresh() end end },
+                    { type="toggle", label="Show Icon Divider",
+                      tooltip = "Draw a 1px divider between the spell icon and the cast bar, matching the border color.",
+                      get=function() local c = TSB(); return c and c.showIconDivider end,
+                      set=function(v) local c = TSB(); if c then c.showIconDivider = v; TSBRefresh() end end },
+                },
+            })
+            MakeCog(row._leftRegion, showIconCog, "Spell Icon Settings")
             local _, showNameCog = EllesmereUI.BuildCogPopup({
                 title = "Spell Name",
                 rows = {

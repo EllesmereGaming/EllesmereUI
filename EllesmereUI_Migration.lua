@@ -4053,3 +4053,56 @@ EllesmereUI.RegisterMigration({
         end
     end,
 })
+
+-- The Important Cast Glow menu used to offer exactly two engines under an ad-hoc
+-- numbering: 1 = Pixel Glow, 4 = Auto-Cast Shine. It now offers the whole
+-- PANDEMIC_GLOW_STYLES list, where 3 is Auto-Cast Shine and 4 is GCD -- so a saved
+-- 4 would silently become a different glow. Re-point it.
+--
+-- 4 is the only value that can be stale: 1 means Pixel Glow in both numberings and
+-- nothing else was reachable from the old menu. Runs per profile and the flag rides
+-- on the profile data, so a profile IMPORTED from an older build is fixed up on the
+-- pass after it lands rather than staying wrong forever.
+EllesmereUI.RegisterMigration({
+    id          = "np_important_cast_glow_style_reindex_v1",
+    scope       = "profile",
+    description = "Re-point the saved Important Cast Glow style from the old two-entry numbering (4 = Auto-Cast Shine) onto the PANDEMIC_GLOW_STYLES index (3).",
+    body = function(ctx)
+        local np = ctx.profile.addons and ctx.profile.addons.EllesmereUINameplates
+        if type(np) ~= "table" then return end
+        if np.importantCastGlowStyle == 4 then
+            np.importantCastGlowStyle = 3
+        end
+    end,
+})
+
+-- The target/focus/boss Debuff Filter became a single-select mode. Before it, a
+-- frame with NOTHING checked (Own Only off, Important off) that carried Tracked
+-- Auras rendered ONLY those spells -- the include link was the whole chain. The
+-- mode model treats Tracked Auras as additional in every mode and derives such
+-- a frame as Show All, so pin those frames to Only Tracked Auras once. Every
+-- other combination derives its old display from the untouched legacy keys
+-- (ns.UF_DebuffFilterMode in EUI_UnitFrames_AuraContainers.lua). An explicit
+-- mode is never touched, so a re-run is a no-op.
+EllesmereUI.RegisterMigration({
+    id          = "uf_debuff_filter_tracked_only_v1",
+    scope       = "profile",
+    description = "Pin target/focus/boss Debuff Filters that had nothing checked but carried Tracked Auras (they rendered only those spells) to the Only Tracked Auras mode.",
+    body = function(ctx)
+        local uf = ctx.profile.addons and ctx.profile.addons.EllesmereUIUnitFrames
+        if type(uf) ~= "table" then return end
+        for _, unitKey in ipairs({ "target", "focus", "boss" }) do
+            local s = uf[unitKey]
+            if type(s) == "table" and s.debuffFilterMode == nil
+                and s.onlyPlayerDebuffs ~= true and s.debuffPriorityAura ~= true
+                and type(s.debuffInclude) == "table" then
+                for _, on in pairs(s.debuffInclude) do
+                    if on then
+                        s.debuffFilterMode = "tracked"
+                        break
+                    end
+                end
+            end
+        end
+    end,
+})

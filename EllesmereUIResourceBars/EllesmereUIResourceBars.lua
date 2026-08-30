@@ -1346,6 +1346,21 @@ local DEFAULTS = {
             alwaysShow    = false,
             unlockPos     = nil,
         },
+        -- Sunfury Arcane Mage Arcane Soul callout (EUI_ResourceBars_ArcaneSoul.lua).
+        -- Flat colour keys per module convention; OFF by default, and nothing at
+        -- all is built or registered until it is turned on.
+        arcaneSoul = {
+            enabled     = false,
+            threshold   = 5,          -- seconds of Arcane Surge left before "Soul in" shows
+            countMode   = "seconds",  -- "seconds" | "gcd" | "secondsGcd" (tenths pre-Soul, GCDs in Soul)
+            font        = "__global",
+            outlineMode = "__global", -- "__global","none","outline","thick"
+            textSize    = 24,
+            preR = 0.64, preG = 0.21, preB = 0.93,
+            soulR = 0.64, soulG = 0.21, soulB = 0.93,
+            lastR = 1.0, lastG = 0.25, lastB = 0.25,
+            unlockPos   = nil,
+        },
         totemBar = {
             iconSize      = 30,
             spacing       = 2,
@@ -2457,6 +2472,12 @@ local function RegisterUnlockElements()
             end,
             savePos = totemSave, loadPos = totemLoad, clearPos = totemClear, applyPos = totemApply,
         })
+    end
+
+    -- Arcane Soul (Sunfury Arcane Mage): returns nil for every other class, so
+    -- the mover only exists where the feature can.
+    if ns.AS_MakeUnlockElement then
+        elements[#elements + 1] = ns.AS_MakeUnlockElement(MK)
     end
 
     EllesmereUI:RegisterUnlockElements(elements, "EllesmereUIResourceBars")
@@ -8917,6 +8938,7 @@ function ERB:ApplyAll()
     UpdateVisibility()
     self:ApplySmoothing()
     if ns.MigrateLegacyAnchorTo then ns.MigrateLegacyAnchorTo() end
+    if ns.AS_Apply then ns.AS_Apply() end
 
     -- Vehicle proxy: hide resource bars during full vehicle UI ([vehicleui]
     -- condition). Secure frame creation + RegisterStateDriver both need combat OOC.

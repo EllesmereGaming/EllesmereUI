@@ -244,6 +244,8 @@ spells = {
         [413984] = { class = "EVOKER", disabled = true },
         [369459] = { class = "EVOKER", disabled = true },
         [406732] = { class = "EVOKER", disabled = true },
+        [361021] = { class = "EVOKER", disabled = true },
+        [361022] = { class = "EVOKER", disabled = true },
     },
     offensive = {
         [1249658] = { class = "DEATHKNIGHT", alts = { 152279 } },
