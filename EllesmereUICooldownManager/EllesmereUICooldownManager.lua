@@ -4105,7 +4105,11 @@ local function ComputeCDMBarSize(barData, count)
     -- there is no match gate here: this is the pre-layout footprint estimate, and a matched bar's live frame rect (checked first by GetStableCDMBarSize) always wins over it.
     local resStride = ReserveStride(barData, stride)
     local grow = barData.growDirection or "CENTER"
-    local isH = (grow == "RIGHT" or grow == "LEFT" or grow == "CENTER")
+    -- CENTER does not imply horizontal: orientation is an independent setting.
+    -- Mirror LayoutCDMBar's rule so the pre-layout/fallback footprint exposes
+    -- visual width and height on the same axes as the eventual live frame.
+    local isH = (grow == "RIGHT" or grow == "LEFT"
+        or (grow == "CENTER" and not barData.verticalOrientation))
     if isH then
         return resStride * iW + (resStride - 1) * sp,
                rows * iH + (rows - 1) * sp
