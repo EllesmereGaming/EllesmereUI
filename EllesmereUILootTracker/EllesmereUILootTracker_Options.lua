@@ -244,6 +244,8 @@ local function PriorityText(goal)
     if not goal then return L("Not marked"), 0.55, 0.55, 0.55 end
     local color = ns.PRIORITY_COLORS[goal.priority] or { 1, 1, 1 }
     local suffix = goal.catalyst and ("  |cffffb347" .. L("Catalyst") .. "|r") or ""
+    local planScope, planCount = ns.GetGoalPlanScopeLabel(goal, true)
+    if planCount > 0 then suffix = suffix .. "  |cff59ccff[" .. planScope .. "]|r" end
     if goal.state == "archived" then suffix = suffix .. "  |cff55dd88" .. L("Obtained") .. "|r" end
     return L(ns.PRIORITY_NAMES[goal.priority]) .. suffix, color[1], color[2], color[3]
 end
@@ -464,6 +466,7 @@ local function BuildCatalogPage(parent, yOffset, kind)
     end
     y = SelectorRows(parent, y, kind)
     local specID = SelectedSpecID()
+    if ns.SyncPlannerGoals then ns.SyncPlannerGoals(specID) end
     local sourceID = kind == "raid" and Profile().selectedRaidEncounterID or Profile().selectedDungeonID
     local source = FindSource(kind, sourceID)
     if not source then parent:SetHeight(math.abs(y)); return math.abs(y) end

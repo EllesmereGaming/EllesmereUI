@@ -177,6 +177,7 @@ local function InvalidateGoalIndex(specID)
 end
 
 function ns.GetGoals(specID, includeArchived)
+    if ns.SyncPlannerGoals then ns.SyncPlannerGoals(specID) end
     local goals = {}
     for _, goal in pairs(SpecData(specID).goals) do
         if includeArchived or goal.state ~= "archived" then goals[#goals + 1] = goal end

@@ -215,6 +215,56 @@ local function SyncGoalFromPlans(goal, specID)
     end
 end
 
+-- Plans and wishlist goals are persisted separately. Repair their relationship
+-- whenever goals are consumed so a saved planner selection can never disappear
+-- from Overview or its source page after a migration, reset, or interrupted UI
+-- refresh. The operation is idempotent and does not reopen archived goals.
+local syncingPlannerGoals
+function ns.SyncPlannerGoals(specID)
+    if syncingPlannerGoals then return end
+    syncingPlannerGoals = true
+    specID = ns.ResolveSpecID(specID)
+    local plans = ns.GetSpecData(specID).plans or {}
+    local bestSelections = {}
+    for mode, savedPlan in pairs(plans) do
+        for slotKey, selection in pairs(savedPlan.slots or {}) do
+            local source = ns.GetSourceByKey(selection.sourceKey)
+            if source and selection.itemID then
+                local goal = ns.GetGoal(selection.sourceKey, selection.itemID, specID)
+                if not goal then
+                    local item = {
+                        itemID=selection.itemID, name=selection.itemName,
+                        icon=selection.itemIcon, link=selection.itemLink,
+                        itemLevel=selection.itemLevel,
+                    }
+                    goal = ns.AddGoal(source, item, ns.PRIORITY_BIS, specID,
+                        selection.difficultyID, selection.targetLevel)
+                    if goal then goal.plannerOnly = true end
+                elseif goal.priority ~= ns.PRIORITY_BIS then
+                    if not goal.plannerRefs then goal.plannerPreviousPriority = goal.priority end
+                    ns.SetPriority(selection.sourceKey, selection.itemID, ns.PRIORITY_BIS, specID)
+                end
+                if goal then
+                    goal.plannerRefs = goal.plannerRefs or {}
+                    goal.plannerRefs[PlanRef(mode, slotKey)] = true
+                    goal.linkKind = selection.linkKind
+                    goal.recipeID = selection.recipeID
+                    local best = bestSelections[goal]
+                    if not best or (selection.targetLevel or 0) > (best.targetLevel or 0) then
+                        bestSelections[goal] = selection
+                    end
+                end
+            end
+        end
+    end
+    for goal, best in pairs(bestSelections) do
+        goal.minItemLevel, goal.linkKind = best.targetLevel, best.linkKind
+        goal.difficultyID, goal.keyLevel = best.difficultyID, best.keyLevel
+        goal.itemLevel = best.itemLevel or goal.itemLevel
+    end
+    syncingPlannerGoals = nil
+end
+
 function ns.RefreshPlanTargets(mode, specID, keyLevel, difficultyID, craftedTargetLevel)
     local plan = ns.GetPlan(mode, specID)
     local targetLevel = ns.GetMPlusTargetLevel(keyLevel)
@@ -251,9 +301,7 @@ function ns.RefreshPlanTargets(mode, specID, keyLevel, difficultyID, craftedTarg
             if goal then goal.minItemLevel = selection.targetLevel end
         end
     end
-    for _, selection in pairs(plan.slots) do
-        SyncGoalFromPlans(ns.GetGoal(selection.sourceKey, selection.itemID, specID), specID)
-    end
+    ns.SyncPlannerGoals(specID)
 end
 
 function ns.GetPlanSlot(slotKey)
