@@ -11,6 +11,7 @@ local PAGE_SETTINGS = "Settings"
 local ROW_H, ROW_GAP = 46, 3
 local pageRebuildQueued
 local catalogRetries = {}
+local pageRebuildFrame = CreateFrame("Frame")
 
 StaticPopupDialogs.EULT_SIMC_EXPORT = {
     text = "SimulationCraft gear block - Ctrl+C",
@@ -31,22 +32,31 @@ StaticPopupDialogs.EULT_SIMC_EXPORT = {
     EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
 }
 
+local function FlushPageRebuild()
+    if InCombatLockdown and InCombatLockdown() then
+        pageRebuildFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+        return
+    end
+    pageRebuildFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
+    if not pageRebuildQueued then return end
+    pageRebuildQueued = nil
+    local activeModule = EllesmereUI.GetActiveModule and EllesmereUI:GetActiveModule()
+    if activeModule == ADDON_NAME then
+        -- Loot state is shared by Overview, Planner and the source pages.
+        -- Refreshing only the visible page leaves the other cached wrappers
+        -- showing stale pool/goal data when the user changes tabs.
+        if EllesmereUI.InvalidateModulePageCache then
+            EllesmereUI:InvalidateModulePageCache(ADDON_NAME)
+        end
+        EllesmereUI:RefreshPage(true)
+    end
+end
+pageRebuildFrame:SetScript("OnEvent", FlushPageRebuild)
+
 local function QueuePageRebuild()
     if pageRebuildQueued then return end
     pageRebuildQueued = true
-    C_Timer.After(0, function()
-        pageRebuildQueued = nil
-        local activeModule = EllesmereUI.GetActiveModule and EllesmereUI:GetActiveModule()
-        if activeModule == ADDON_NAME then
-            -- Loot state is shared by Overview, Planner and the source pages.
-            -- Refreshing only the visible page leaves the other cached wrappers
-            -- showing stale pool/goal data when the user changes tabs.
-            if EllesmereUI.InvalidateModulePageCache then
-                EllesmereUI:InvalidateModulePageCache(ADDON_NAME)
-            end
-            EllesmereUI:RefreshPage(true)
-        end
-    end)
+    C_Timer.After(0, FlushPageRebuild)
 end
 
 local function QueueCatalogRetry(key)
