@@ -3240,6 +3240,11 @@ function ns.RefreshCastBorderColor()
 end
 function ns.RefreshNameplateYOffset()
     local yOff = GetNameplateYOffset()
+    -- The hit rect is derived from this offset (see RefreshHitboxSize), so it has to
+    -- be recomputed or the clickable area stays behind the bar. That pass is
+    -- combat-gated by SetNamePlateSize, so in combat the hitbox catches up on the
+    -- next out-of-combat refresh -- same as the Hitbox Size sliders.
+    if ns.RefreshHitboxSize then ns.RefreshHitboxSize() end
     for _, plate in pairs(ns.plates) do
         plate.health:ClearAllPoints()
         plate.health:SetPoint("CENTER", plate, "CENTER", 0, yOff)
@@ -3285,21 +3290,71 @@ function ns.RefreshStackingMotion()
 end
 
 function ns.RefreshHitboxSize()
-    if InCombatLockdown() then return end
     if not C_NamePlate or not C_NamePlate.SetNamePlateSize then return end
+    -- SetNamePlateSize is protected. Retry at regen rather than dropping the pass:
+    -- a combat /reload would otherwise strand the hit rect for the whole fight.
+    if InCombatLockdown() then
+        local w = ns._hitboxRegen
+        if not w then
+            w = CreateFrame("Frame")
+            w:SetScript("OnEvent", function(self)
+                self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+                if ns.RefreshHitboxSize then ns.RefreshHitboxSize() end
+            end)
+            ns._hitboxRegen = w
+        end
+        w:RegisterEvent("PLAYER_REGEN_ENABLED")
+        return
+    end
     local db = p or defaults
     local sx = (db.hitboxScaleX or 100) / 100
     local sy = (db.hitboxScaleY or 100) / 100
     local baseW = GetHealthBarWidth()
     local baseH = GetHealthBarHeight()
-    local newH  = baseH * sy
+    local hitH  = baseH * sy
+    -- Nameplate Y Offset moves the visible bar off the frame's center, but the frame
+    -- stays centered on the unit -- so without help the bar would sit outside its own
+    -- clickable area. The frame grows from its CENTER, so growing it by twice the
+    -- offset makes it reach far enough to still cover the shifted bar.
+    --
+    -- That growth alone would leave 2*|yOff| of dead grab area on the far side, so
+    -- the far side is then trimmed back with a positive inset, landing the hit rect
+    -- on the bar itself.
+    --
+    -- Inset convention, established by observation rather than docs:
+    --   -10000 on a side  -> that side fills the frame (the value the code has
+    --                        always used, and the only one known to click correctly)
+    --   0 on a side       -> collapses the rect, NOT "no inset"
+    --   a pixel count     -> also kills the rect
+    -- All three are consistent with the values being NORMALIZED FRACTIONS of the
+    -- frame dimension, so the trim is expressed as a fraction here.
+    --
+    -- This is deliberately fail-safe: if the fractions reading is wrong and these
+    -- are really pixels, a value like 0.67 is a sub-pixel trim -- the hit rect stays
+    -- slightly larger than the bar, which is the harmless old slack. It can never
+    -- collapse the rect, because 0 is never sent.
+    local yOff  = GetNameplateYOffset()
+    local absY  = yOff >= 0 and yOff or -yOff
+    local newH  = hitH + 2 * absY
     C_NamePlate.SetNamePlateSize(baseW * sx, newH)
-    -- The frame grows from its CENTER, so a taller size enlarges the hitbox evenly above and
-    -- below the unit. -10000 insets let the hit rect fill the full (centered) frame.
+    local FILL = -10000
+    local topInset, bottomInset = FILL, FILL
+    if absY > 0 and newH > 0 then
+        -- Trim the dead half the growth added on the far side. Capped at 0.9 so a
+        -- miscalculation can never leave nothing to click.
+        local frac = (2 * absY) / newH
+        if frac > 0.9 then frac = 0.9 end
+        if yOff > 0 then bottomInset = frac else topInset = frac end
+    end
+    -- Pixel equivalents, for the visualizer to draw the intended rect.
+    ns._hitTopPx    = (topInset    ~= FILL) and (2 * absY) or 0
+    ns._hitBottomPx = (bottomInset ~= FILL) and (2 * absY) or 0
     if C_NamePlateManager and C_NamePlateManager.SetNamePlateHitTestInsets
        and Enum and Enum.NamePlateType then
-        C_NamePlateManager.SetNamePlateHitTestInsets(Enum.NamePlateType.Enemy, -10000, -10000, -10000, -10000)
-        C_NamePlateManager.SetNamePlateHitTestInsets(Enum.NamePlateType.Friendly, -10000, -10000, -10000, -10000)
+        C_NamePlateManager.SetNamePlateHitTestInsets(Enum.NamePlateType.Enemy,
+            FILL, FILL, topInset, bottomInset)
+        C_NamePlateManager.SetNamePlateHitTestInsets(Enum.NamePlateType.Friendly,
+            FILL, FILL, topInset, bottomInset)
     end
     -- Anchor content at the frame center (GetHitboxYShift is 0): the frame grows
     -- centered, so the bar stays put and the hitbox stays centered on it.
@@ -3307,6 +3362,11 @@ function ns.RefreshHitboxSize()
     for _, plate in pairs(ns.plates) do
         plate:ClearAllPoints()
         plate:SetPoint("CENTER", plate.nameplate, "CENTER", 0, yShift)
+        -- Re-anchor the visualizer against the insets just computed, so it tracks
+        -- the offset slider live instead of going stale until the next plate show.
+        if ns._hitboxOverlayShown and ns._ApplyHitboxOverlay then
+            ns._ApplyHitboxOverlay(plate)
+        end
     end
 end
 
@@ -3339,7 +3399,13 @@ function ns._ApplyHitboxOverlay(plate)
         ov:SetParent(np)
         ov:SetFrameLevel(np:GetFrameLevel() + 10)
         ov:ClearAllPoints()
-        ov:SetAllPoints(np)
+        -- Draw the TRIMMED rect, not the whole frame: with a Nameplate Y Offset the
+        -- frame is grown and the far side inset back off (see RefreshHitboxSize), so
+        -- SetAllPoints would over-report. A fill sentinel contributes no inset.
+        local ti = ns._hitTopPx or 0
+        local bi = ns._hitBottomPx or 0
+        ov:SetPoint("TOPLEFT", np, "TOPLEFT", 0, -ti)
+        ov:SetPoint("BOTTOMRIGHT", np, "BOTTOMRIGHT", 0, bi)
         ov:Show()
     elseif plate.hitboxOverlay then
         plate.hitboxOverlay:Hide()
@@ -3379,6 +3445,11 @@ function ns.RefreshAllSettings()
     -- (override group, profile switch, import) flipped the checkbox while plates kept
     -- the old behaviour. Self-guarded, so an unchanged key costs nothing.
     if ns.ApplyOOCPlates then ns.ApplyOOCPlates() end
+    -- The hit rect is derived from Nameplate Y Offset, and until now nothing but the
+    -- two hitbox sliders ever recomputed it -- so after a reload the bar picked up
+    -- the saved offset while the hitbox stayed where the bar used to be. This is the
+    -- pass that runs on login, profile switch and spec swap, so it belongs here.
+    if ns.RefreshHitboxSize then ns.RefreshHitboxSize() end
 end
 
 -------------------------------------------------------------------------------
@@ -3665,20 +3736,13 @@ local function SetupAuraCVars()
     end
     -- Apply stacking state via the Midnight bitfield CVar.
     ns.RefreshStackingMotion()
+    -- Single source of truth for plate size + hit insets. This used to be a second
+    -- copy of RefreshHitboxSize's logic, and because it runs at login and is hooked
+    -- to UpdateNamePlateOptions it kept overwriting that pass with an offset-unaware
+    -- size -- which is why a Nameplate Y Offset survived a live edit but not a
+    -- /reload. Delegating keeps the offset applied no matter which path fires.
     local function ApplyNamePlateClickArea()
-        if InCombatLockdown() then return end
-        local db = p or defaults
-        local sx = (db.hitboxScaleX or 100) / 100
-        local sy = (db.hitboxScaleY or 100) / 100
-        local baseH = GetHealthBarHeight()
-        local newH  = baseH * sy
-        if C_NamePlate and C_NamePlate.SetNamePlateSize then
-            C_NamePlate.SetNamePlateSize(GetHealthBarWidth() * sx, newH)
-        end
-        if C_NamePlateManager and C_NamePlateManager.SetNamePlateHitTestInsets and Enum and Enum.NamePlateType then
-            C_NamePlateManager.SetNamePlateHitTestInsets(Enum.NamePlateType.Enemy, -10000, -10000, -10000, -10000)
-            C_NamePlateManager.SetNamePlateHitTestInsets(Enum.NamePlateType.Friendly, -10000, -10000, -10000, -10000)
-        end
+        if ns.RefreshHitboxSize then ns.RefreshHitboxSize() end
     end
     ApplyNamePlateClickArea()
     -- Prevent Blizzard resetting nameplate sizes on display changes (jitter).
