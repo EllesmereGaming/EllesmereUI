@@ -3651,7 +3651,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             EllesmereUI.HideWidgetTooltip()
         end)
         local input = CreateFrame("EditBox", nil, row)
-        input:SetSize(190, 30)
+        input:SetSize(165, 30)
         input:SetAutoFocus(false)
         input:SetMaxLetters(80)
         input:SetTextInsets(8, 8, 0, 0)
@@ -3662,9 +3662,44 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         local inputBorder = EllesmereUI.MakeBorder(input, 1, 1, 1, 0.2, PP)
         PP.Point(input, "RIGHT", row, "RIGHT", -SIDE_PAD, 0)
 
+        local itemIcon = row:CreateTexture(nil, "ARTWORK")
+        itemIcon:SetSize(24, 24)
+        itemIcon:SetPoint("RIGHT", input, "LEFT", -6, 0)
+        itemIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+        local itemIconHit = CreateFrame("Button", nil, row)
+        itemIconHit:SetSize(24, 24)
+        itemIconHit:SetPoint("CENTER", itemIcon, "CENTER")
+        itemIconHit:SetFrameLevel(row:GetFrameLevel() + 3)
+        itemIconHit:SetScript("OnEnter", function(self)
+            local id = tonumber(cc.rezItem)
+            if id and GameTooltip then
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetItemByID(id)
+                GameTooltip:Show()
+            end
+        end)
+        itemIconHit:SetScript("OnLeave", function()
+            if GameTooltip then GameTooltip:Hide() end
+        end)
+
+        local function RefreshItemIcon()
+            local id = tonumber(cc.rezItem)
+            local texture
+            if id and C_Item and C_Item.GetItemIconByID then
+                texture = C_Item.GetItemIconByID(id)
+            elseif id and C_Item and C_Item.GetItemInfoInstant then
+                local _, _, _, _, icon = C_Item.GetItemInfoInstant(id)
+                texture = icon
+            end
+            itemIcon:SetTexture(texture or 134400)
+            itemIcon:SetShown(id ~= nil)
+            itemIconHit:SetShown(id ~= nil)
+        end
+
         local popup = CreateFrame("Frame", nil, input)
         popup:SetPoint("TOPLEFT", input, "BOTTOMLEFT", 0, -2)
-        popup:SetSize(190, 1)
+        popup:SetSize(165, 1)
         popup:SetFrameLevel(input:GetFrameLevel() + 10)
         local popupBg = popup:CreateTexture(nil, "BACKGROUND")
         popupBg:SetAllPoints()
@@ -3695,6 +3730,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             cc.rezItem = tonumber(id)
             input:SetText(CurrentLabel())
             input:SetCursorPosition(0)
+            RefreshItemIcon()
             input:ClearFocus()
             popup:Hide()
             ns.CC_ApplyBindings()
@@ -3749,6 +3785,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         end
         input:SetText(CurrentLabel())
         input:SetCursorPosition(0)
+        RefreshItemIcon()
         input:SetScript("OnTextChanged", RefreshMatches)
         input:SetScript("OnKeyDown", function(self, key)
             -- Do not let search text leak through to WoW's movement and
@@ -3798,6 +3835,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 ns.CC_ApplyBindings()
                 self:SetText(CurrentLabel())
                 self:SetCursorPosition(0)
+                RefreshItemIcon()
             end
             self:ClearFocus()
             popup:Hide()
