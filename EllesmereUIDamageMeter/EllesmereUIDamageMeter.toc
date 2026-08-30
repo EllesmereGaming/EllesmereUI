@@ -1,0 +1,16 @@
+## Interface: 120000, 120001
+## Title: |cff0cd39cEllesmere|r|cffffffffUI|r Damage Meter
+## Notes: Damage meter powered by Blizzard's C_DamageMeter API
+## Author: Trenchy
+## Version: 0.1
+## IconTexture: Interface\Icons\INV_Misc_Map_01
+## Dependencies: EllesmereUI
+## OptionalDeps: LibSharedMedia-3.0
+## SavedVariables: EllesmereUIDamageMeterDB
+
+core.lua
+bars.lua
+window.lua
+update.lua
+testdata.lua
+options.lua
