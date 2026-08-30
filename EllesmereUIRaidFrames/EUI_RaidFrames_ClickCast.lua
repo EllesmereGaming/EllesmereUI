@@ -651,7 +651,7 @@ local function BuildRezLines(binding, guard)
         -- instead. Missing or unusable items are harmless /use no-ops,
         -- allowing the binding's normal action below to remain the fallback.
         if rezItem then
-            lines[#lines + 1] = "/use [@mouseover,help,dead,combat" .. guard .. "] " .. rezItem
+            lines[#lines + 1] = "/use [@mouseover,help,dead,combat" .. guard .. "] item:" .. rezItem
         end
     end
     if groupName then
