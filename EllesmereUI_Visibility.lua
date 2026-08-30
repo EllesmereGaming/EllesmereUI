@@ -727,6 +727,15 @@ function EUI.BuildVisibilityDriverStringAny(prefix, vm, opts, extraConstrained, 
     elseif opts.visHideWithEnemy and not opts.visHideNoEnemy then
         axes = axes + 1; emit("noharm")
     end
+    -- Vehicle axis: one axis, three disjuncts, the shape the group axis above has.
+    -- Show is three bracket groups (adjacent groups OR); Hide is one, because its
+    -- three negations have to AND.
+    if opts.visOnlyVehicle and not opts.visHideVehicle then
+        axes = axes + 1
+        emit("vehicleui"); emit("overridebar"); emit("possessbar")
+    elseif opts.visHideVehicle and not opts.visOnlyVehicle then
+        axes = axes + 1; emit("novehicleui,nooverridebar,nopossessbar")
+    end
 
     -- Dragonriding axis. NOT(advflyable AND flying) has no single bracket form, so the
     -- negative lane becomes the TAIL: once no other disjunct matched, hide while

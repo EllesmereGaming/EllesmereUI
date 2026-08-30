@@ -534,6 +534,8 @@ for _, info in ipairs(BAR_CONFIG) do
         visHideMounted = false,
         visHideNoTarget = false,
         visHideNoEnemy = false,
+        visHideVehicle = false,
+        visOnlyVehicle = false,
         hideKeybind = false,
         keybindFontSize = 12,
         keybindFontColor = { r = 1, g = 1, b = 1 },
@@ -8894,6 +8896,17 @@ local function BuildVisibilityString(info, s, visOverride)
         if s.visHideWithTarget then visOptHide = visOptHide .. "[exists] hide; " end
         if s.visHideNoEnemy then visOptHide = visOptHide .. "[noharm] hide; " end
         if s.visHideWithEnemy then visOptHide = visOptHide .. "[harm] hide; " end
+        -- Only Bar 1 can act on either lane here: bars 2-10 and the Stance Bar carry
+        -- [vehicleui]/[overridebar] in their hide-prefix below, and the Pet Bar's wrapper
+        -- demands novehicleui,nooverridebar,nopossessbar -- so there the Hide lane is
+        -- already satisfied and the Show lane would leave the bar permanently hidden.
+        -- The options page locks the row on those (caps.lockedFns in the options file).
+        if s.visHideVehicle then
+            visOptHide = visOptHide .. "[vehicleui][overridebar][possessbar] hide; "
+        end
+        if s.visOnlyVehicle then
+            visOptHide = visOptHide .. "[novehicleui,nooverridebar,nopossessbar] hide; "
+        end
     end
 
     -- Authoritative multi-select set. Explicit overrides (toggle keybind,
@@ -9380,6 +9393,7 @@ function EAB:_RefreshSoftTargetGate()
     self._anyHideNoTarget = anySoft
     self._anyNonMacroVis = anyNonMacro
     self._anyHoverGated = anyHoverGated
+    self:_RefreshVehicleVisibilityGate()
 end
 
 -- Re-derive the resting alpha of every hover-gated bar. Registered once with the shared
@@ -9391,6 +9405,44 @@ end
 function EAB:RefreshHoverGatedAlpha()
     if not self._anyHoverGated then return end
     self:RefreshMouseover(true)
+end
+
+EAB._vehicleVisibilityEvents = {
+    "UNIT_ENTERED_VEHICLE", "UNIT_EXITED_VEHICLE",
+    "UPDATE_OVERRIDE_ACTIONBAR", "UPDATE_POSSESS_BAR",
+}
+
+function EAB:_OnVehicleVisibilityEvent(_, event, unit)
+    if (event == "UNIT_ENTERED_VEHICLE" or event == "UNIT_EXITED_VEHICLE")
+       and unit ~= "player" then
+        return
+    end
+    self:UpdateHousingVisibility()
+end
+
+function EAB:_RefreshVehicleVisibilityGate()
+    local wanted = false
+    for _, info in ipairs(EXTRA_BARS) do
+        if EAB_VTABLE.ExtraBars.IsManagedNonSecureBar(info) then
+            local s = self.db.profile.bars[info.key]
+            if s and (s.visHideVehicle or s.visOnlyVehicle) then
+                wanted = true
+                break
+            end
+        end
+    end
+    if wanted == self._vehicleVisibilityEventsOn then return end
+    self._vehicleVisibilityEventsOn = wanted
+    for _, event in ipairs(self._vehicleVisibilityEvents) do
+        if wanted then
+            if not (C_EventUtils and C_EventUtils.IsEventValid)
+               or C_EventUtils.IsEventValid(event) then
+                self:RegisterEvent(event, "_OnVehicleVisibilityEvent")
+            end
+        else
+            self:UnregisterEvent(event)
+        end
+    end
 end
 
 function EAB:RefreshRuntimeVisibility()

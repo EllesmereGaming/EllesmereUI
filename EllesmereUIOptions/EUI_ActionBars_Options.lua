@@ -1177,12 +1177,24 @@ initFrame:SetScript("OnEvent", function(self)
         s.combatShowEnabled = (v == "in_combat")
     end
 
+    -- Which bars the Vehicle axis means anything on: Bar 1, plus the insecure bars that
+    -- resolve it in Lua. Everywhere else the driver already hides in a vehicle, so the
+    -- Show lane would leave the bar permanently hidden (see BuildVisibilityString). The
+    -- row is locked on those bars, leaving a sync copy as the only route a lane has to
+    -- reach one -- which the strip below closes, as noGroupModes does for group items.
+    local function AllowsVehicleLanes(barKey)
+        return barKey == "MainBar" or VISIBILITY_ONLY[barKey] or false
+    end
+
     local function CopyVisibilitySettings(dst, src, dstKey)
         -- The merged Visibility control owns the option booleans too, so every copy
         -- carries them alongside the mode selection.
         local optKeys = EllesmereUI.VIS_OPT_KEYS
         if optKeys then
             for i = 1, #optKeys do dst[optKeys[i]] = src[optKeys[i]] or nil end
+        end
+        if not AllowsVehicleLanes(dstKey) then
+            dst.visOnlyVehicle, dst.visHideVehicle = nil, nil
         end
         if VisibilityCompat then
             -- Pet Bar ignores group modes: strip them from a copied multi-selection.
@@ -1200,6 +1212,20 @@ initFrame:SetScript("OnEvent", function(self)
         dst.combatHideEnabled = src.combatHideEnabled
         dst.combatShowEnabled = src.combatShowEnabled
         dst.dragShow = src.dragShow
+    end
+
+    -- Sync-icon equality that matches what CopyVisibilitySettings actually does:
+    -- VisFullEquals walks every option key, so comparing the vehicle lanes raw against a
+    -- bar that has them stripped would report "not synced" forever after a correct copy.
+    local _visSyncScratch = {}
+    local function VisEqualsForTarget(src, dst, dstKey)
+        if AllowsVehicleLanes(dstKey) then
+            return EllesmereUI.VisFullEquals(src, "barVisibility", dst, "barVisibility")
+        end
+        wipe(_visSyncScratch)
+        for k, v in pairs(src) do _visSyncScratch[k] = v end
+        _visSyncScratch.visOnlyVehicle, _visSyncScratch.visHideVehicle = nil, nil
+        return EllesmereUI.VisFullEquals(_visSyncScratch, "barVisibility", dst, "barVisibility")
     end
 
 
@@ -1260,7 +1286,11 @@ initFrame:SetScript("OnEvent", function(self)
                   end,
                   legacyKey = "barVisibility",
                   label = leftLabel,
-                  caps = { partyIncludesRaid = false, luaDragonriding = true },
+                  -- vehicleAxis with no lockedFns: every bar this page reaches (Micro
+                  -- Menu, Bag Bar, XP, Rep, House Favor) is insecure and resolves the
+                  -- axis through EllesmereUI.CheckVisibilityOptions, so both lanes work.
+                  caps = { partyIncludesRaid = false, luaDragonriding = true,
+                           vehicleAxis = true },
                   applyScalarFn = function(s, mode) ApplyVisibilityKey(s, mode) end,
                   disabledFn = disabledFn, disabledTooltip = disTip, rawTooltip = disTip and true or nil,
                   onChanged = function()
@@ -1701,6 +1731,17 @@ initFrame:SetScript("OnEvent", function(self)
             -- edge event; secure bars' drivers re-evaluate natively and never lock.
             if IsDataBar() then visCaps.luaDragonriding = true end
 
+            -- Vehicle axis: opt-in, and locked on the bars that cannot act on it (see
+            -- AllowsVehicleLanes). lockedFn rather than a build-time flag so it follows
+            -- the bar selector without a page rebuild.
+            visCaps.vehicleAxis = true
+            visCaps.lockedFns = {
+                vehicle = function() return not AllowsVehicleLanes(SelectedKey()) end,
+            }
+            visCaps.lockedTooltips = visCaps.lockedTooltips or {}
+            visCaps.lockedTooltips.vehicle =
+                "Only Action Bar 1 can change this. Every other action bar is always hidden in vehicles, on override bars and on possess bars."
+
             visRow1, h = EllesmereUI.BuildVisibilityRow(W, parent, y,
                 { getStore = function()
                       local s = SB()
@@ -1755,7 +1796,7 @@ initFrame:SetScript("OnEvent", function(self)
                         local src = SB()
                         for _, key in ipairs(GROUP_BAR_ORDER) do
                             local dst = EAB.db.profile.bars[key]
-                            if not EllesmereUI.VisFullEquals(src, "barVisibility", dst, "barVisibility") then return false end
+                            if not VisEqualsForTarget(src, dst, key) then return false end
                             if (src.dragShow or false) ~= (dst.dragShow or false) then return false end
                         end
                         return true

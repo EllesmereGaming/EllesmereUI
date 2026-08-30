@@ -12673,6 +12673,7 @@ EllesmereUI.VIS_OPT_KEYS = {
     "visHideDragonriding", "visOnlySkyriding",
     "visHideNoTarget", "visHideWithTarget",
     "visHideNoEnemy", "visHideWithEnemy",
+    "visOnlyVehicle", "visHideVehicle",
 }
 
 -- Cache player class once at load time (never changes).
@@ -12701,6 +12702,22 @@ function EllesmereUI.IsInInstancedContent()
     end
     return iType == "party" or iType == "raid" or iType == "scenario"
         or iType == "arena" or iType == "pvp"
+end
+
+-- Vehicle-family probe for the Vehicle axis. Three states, not one: Blizzard treats
+-- vehicle UI, override bars and possess bars as one situation everywhere (the pet bar's
+-- own wrapper tests all three), and each has its own macro token for the secure driver.
+--
+-- UnitHasVehicleUI rather than UnitInVehicle: the latter is true for vehicles that leave
+-- your own bars alone (some flight paths, escort quests), where hiding a bar would take
+-- away the actions you are still meant to be using.
+function EllesmereUI.IsInVehicleLike()
+    if UnitHasVehicleUI and UnitHasVehicleUI("player") then return true end
+    local hasOverride = HasOverrideActionBar
+        or (C_ActionBar and C_ActionBar.HasOverrideActionBar)
+    if hasOverride and hasOverride() then return true end
+    if IsPossessBarVisible and IsPossessBarVisible() then return true end
+    return false
 end
 
 -- Runtime check: returns true if the element should be HIDDEN by visibility options.
@@ -12841,6 +12858,15 @@ function EllesmereUI.CheckVisibilityOptions(opts)
         if UnitExists("target") and UnitCanAttack("player", "target") then return true end
     end
 
+    -- Vehicle axis. Here rather than in the non-macro subset because it IS
+    -- macro-expressible, like the target axes above: secure callers compile it into
+    -- their own driver, and only the insecure ones resolve it here.
+    if opts.visHideVehicle or opts.visOnlyVehicle then
+        local inVehicle = EllesmereUI.IsInVehicleLike()
+        if opts.visHideVehicle and inVehicle then return true end
+        if opts.visOnlyVehicle and not inVehicle then return true end
+    end
+
     return false
 end
 
@@ -12867,6 +12893,10 @@ EllesmereUI.VIS_OPT_AXES = {
       probe = function()
           return (UnitExists("target") and UnitCanAttack("player", "target")) and true or false
       end },
+    -- Neither luaOnly nor needsEdge: all three states have macro tokens, and the secure
+    -- driver re-evaluates them in combat, which is when they mostly happen.
+    { show = "visOnlyVehicle", hide = "visHideVehicle",
+      probe = function() return EllesmereUI.IsInVehicleLike() end },
 }
 
 -- Whether this axis has to be resolved in Lua for a consumer with these edges.

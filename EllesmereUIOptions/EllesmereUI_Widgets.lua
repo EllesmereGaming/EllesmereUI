@@ -8444,7 +8444,9 @@ end
 --  prior counterpart use a new key (EllesmereUI.VIS_OPT_KEYS).
 --  opts = {
 --      getStore/legacyKey  = store accessor + scalar key (required)
---      caps                = { noMouseover, noGroupModes, luaDragonriding, lockedTooltips }
+--      caps                = { noMouseover, noGroupModes, luaDragonriding, lockedTooltips,
+--                              vehicleAxis (opts in to any requiresCap row),
+--                              lockedFns = { [rowKey] = fn -> bool } live per-row lock }
 --      applyScalarFn       = optional fn(store, mode) for scalar side effects
 --      getOption/setOption = optional fn(key)/fn(key, value) when option booleans live
 --                            outside getStore() (Resource Bars writes three stores)
@@ -8496,6 +8498,10 @@ EllesmereUI.VIS_ROW_ITEMS = {
     { key = "mounted", label = "Mounted", axis = "opt",
       show = "visOnlyMounted", hide = "visHideMounted",
       tooltip = "Druid travel, aquatic and flight forms count as mounted." },
+    -- requiresCap: only a module that declares it draws the row.
+    { key = "vehicle", label = "Vehicle", axis = "opt", requiresCap = "vehicleAxis",
+      show = "visOnlyVehicle", hide = "visHideVehicle",
+      tooltip = "Vehicles that replace your action bar, override bars (some quest and boss mechanics) and possess bars (mind control)." },
     { key = "target", label = "Target", axis = "opt",
       show = "visHideNoTarget", hide = "visHideWithTarget",
       tooltip = "*Blizzard's auto targeting (soft target) setting can cause brief flickering when your actual target dies but a soft-target is still active." },
@@ -8541,6 +8547,11 @@ function EllesmereUI.AttachVisibilityChecklist(region, opts)
     for _, def in ipairs(EllesmereUI.VIS_ROW_ITEMS) do
         if def.isHeader then
             items[#items + 1] = def
+        elseif def.requiresCap and not caps[def.requiresCap] then
+            -- Opt-in row, absent unless the module declares the capability: the list is
+            -- shared by eleven modules, and a condition only one of them can act on must
+            -- not render elsewhere as a checkbox that does nothing. Not `listed` either,
+            -- so the row cannot claim a scalar it does not draw.
         elseif not (def.key == "mouseover" and caps.noMouseover) then
             local item = { key = def.key, label = def.label, tooltip = def.tooltip,
                            dual = def.axis and true or nil,
@@ -8549,6 +8560,15 @@ function EllesmereUI.AttachVisibilityChecklist(region, opts)
                 item.locked = true
                 item.lockedTooltip = (caps.lockedTooltips and caps.lockedTooltips[def.key])
                     or "This element cannot use group-based visibility."
+            end
+            -- Live lock for a row inert on some of the module's targets. Evaluated on
+            -- hover/click, so it follows the page's own selector without a rebuild. Set
+            -- before the two assignments below, which own their keys outright.
+            local capLock = caps.lockedFns and caps.lockedFns[def.key]
+            if capLock then
+                item.lockedFn = capLock
+                item.lockedTooltip = (caps.lockedTooltips and caps.lockedTooltips[def.key])
+                    or item.lockedTooltip
             end
             -- Only the airborne row needs the takeoff/landing edge; the mount row
             -- rides PLAYER_CAN_GLIDE_CHANGED, which is always registered.
