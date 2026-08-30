@@ -7557,12 +7557,59 @@ function EAB_VTABLE.CooldownFonts.ApplyToButton(btn, fontPath, cdSize, cdOX, cdO
     end)
 end
 
+-- Blizzard parks HotKey and Count in TextOverlayContainer (frameLevel 500) while the
+-- cooldown frames declare useParentLevel, so the countdown always draws BENEATH the
+-- keybind. OPT-IN per bar: drop that container to just above the button and put the
+-- cooldown frames one step above it. Lowering the text rather than raising the
+-- cooldown keeps the swipe below the assist ring (+15), tint (+14) and proc alerts,
+-- which are deliberately stacked above it. A bar the option was never on for is
+-- skipped entirely. SetFrameLevel and SetUsingParentLevel are both protected and
+-- these frames inherit the button's protection, so combat defers to the regen pass.
+ns._eabCdLayerRaised = {}
+function EAB:ApplyCooldownTextLayerForBar(barKey)
+    local s = self.db.profile.bars[barKey]
+    if not s then return end
+    local buttons = barButtons[barKey]
+    if not buttons then return end
+    local onTop = s.cooldownTextOnTop or false
+    if not onTop and not ns._eabCdLayerRaised[barKey] then return end
+    if InCombatLockdown() then ns._eabApplyDeferred = true return end
+
+    for i = 1, #buttons do
+        local btn = buttons[i]
+        if not btn then break end
+        local host = btn.TextOverlayContainer
+        local bfd = host and EFD(btn)
+        local base = host and btn:GetFrameLevel()
+        if host and onTop then
+            -- Stored as an OFFSET, not the raw level: a bar relayout shifts every
+            -- child with the button, so a captured absolute would restore stale.
+            bfd.textLvlOffset = bfd.textLvlOffset or (host:GetFrameLevel() - base)
+            host:SetFrameLevel(base + 1)
+            if btn.cooldown then
+                btn.cooldown:SetUsingParentLevel(false)
+                btn.cooldown:SetFrameLevel(base + 2)
+            end
+            if btn.chargeCooldown then btn.chargeCooldown:SetFrameLevel(base + 2) end
+        elseif host and bfd.textLvlOffset then
+            host:SetFrameLevel(base + bfd.textLvlOffset)
+            -- Re-slaving the cooldown restores its level too, so no write here.
+            if btn.cooldown then btn.cooldown:SetUsingParentLevel(true) end
+            if btn.chargeCooldown then btn.chargeCooldown:SetFrameLevel(base) end
+            bfd.textLvlOffset = nil
+        end
+    end
+    ns._eabCdLayerRaised[barKey] = onTop or nil
+end
+
 function EAB:ApplyCooldownFontsForBar(barKey)
     local s = self.db.profile.bars[barKey]
     if not s then return end
     local buttons = barButtons[barKey]
     if not buttons then return end
     local fontPath, cdSize, cdOX, cdOY, cdColor, cdFit = EAB_VTABLE.CooldownFonts.GetSettings(s)
+
+    self:ApplyCooldownTextLayerForBar(barKey)
 
     C_Timer.After(0, function()
         for i = 1, #buttons do
