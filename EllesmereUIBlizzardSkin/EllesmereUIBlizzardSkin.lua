@@ -2711,7 +2711,10 @@ do
     end
 
     local function ClearSuppressedComparisons()
-        if not EllesmereUI._tooltipSuppressedByMode(GameTooltip) then return end
+        -- Only clear comparisons while this controller is actually parking the
+        -- global tooltip. Explicitly-owned tips that are allowed by the mode
+        -- stay unparked, so their legitimate comparisons are not touched.
+        if not _parked or not EllesmereUI._tooltipSuppressedByMode(GameTooltip) then return end
 
         -- Clear the manager's state and its owned shopping frames through the
         -- same public method Blizzard calls from GameTooltip_OnHide.  Fall back
@@ -2735,11 +2738,15 @@ do
     end
     local function QueueSuppressedComparisonClear()
         if not _comparisonSupportActive then return end
+        -- The combat mode is global, but allowed GameTooltip builds remain
+        -- unparked. Do not queue a delayed clear for those
+        -- comparisons or they will be cleared after their owner refreshes.
+        if not _parked then return end
         if not ComparisonSuppressionModeEnabled()
             or not EllesmereUI._tooltipSuppressedByMode(GameTooltip) then return end
         if _comparisonClearPending then return end
         _comparisonClearPending = true
-        -- This hook can run from Blizzard's protected tooltip/action-button path.
+        -- This hook can run from Blizzard's protected tooltip/owner path.
         -- Defer all Hide/Clear calls out of that stack, matching the existing EUI
         -- tooltip-skin deferral rules.
         C_Timer.After(0, RunSuppressedComparisonClear)
