@@ -105,7 +105,8 @@ function ns._appendDisplayPresetKeys(t)
         "textSlotTopColor", "textSlotRightColor", "textSlotLeftColor", "textSlotCenterColor",
         "tankHasAggroEnabled", "tankHasAggro", "classicTankAggro", "tankHasAggroOverrideMobType",
         "tankHasAggroOverrideBoss",
-        "dpsHasAggro", "dpsNearAggro", "offTankAggroEnabled", "offTankAggro",
+        "dpsHasAggroEnabled", "dpsHasAggro", "dpsNearAggroEnabled", "dpsNearAggro",
+        "offTankAggroEnabled", "offTankAggro",
         "dpsNoAggroEnabled", "dpsNoAggro", "dpsNoAggroOverrideMiniBoss", "dpsNoAggroOverrideCaster",
         "targetArrowDouble", "targetArrowStyle", "targetArrowColor", "targetArrowClassColor",
         "auraStackTextSize", "auraStackTextColor",
@@ -186,8 +187,10 @@ local defaults = {
     tankLosingAggro = { r = 0.81, g = 0.72, b = 0.19 },
     tankNoAggro = { r = 1.00, g = 0.22, b = 0.17 },
     dpsNearAggro = { r = 0.81, g = 0.72, b = 0.19 },
+    dpsNearAggroEnabled = true,  -- off: near-aggro does not recolor (glow also stays off)
     threatNearAggroGlow = false,  -- Non-Tank Threat cog: red glow while the Near Aggro color is active
     dpsHasAggro = { r = 1.00, g = 0.50, b = 0.00 },
+    dpsHasAggroEnabled = true,  -- off: has-aggro does not recolor; caster/miniboss/etc. stay
     offTankAggro = { r = 0.188, g = 0.761, b = 0.812 },
     offTankAggroEnabled = true,
     dpsNoAggro = { r = 0.35, g = 0.75, b = 0.35 },
@@ -4849,7 +4852,8 @@ local function GetReactionColor(unit)
         return qc.r, qc.g, qc.b
     end
     -- Threat colors that can NEVER be overwritten:
-    -- Non-tank: has aggro, near aggro Tank: losing aggro, no aggro
+    -- Non-tank: has aggro, near aggro (each skippable via dpsHasAggroEnabled /
+    -- dpsNearAggroEnabled; both default on) Tank: losing aggro, no aggro
     local isThreatUnit = false   -- set true when threat data exists
     local threatStatus = 0
     if InRealInstancedContent() then
@@ -4862,12 +4866,21 @@ local function GetReactionColor(unit)
                 -- Only apply when in a group (solo players always have aggro)
                 if IsInGroup() then
                 if status >= 3 then
-                    local c = _C("dpsHasAggro")
-                    return c.r, c.g, c.b
+                    -- Off: fall through so caster/miniboss/etc. keep their color.
+                    local enabled = defaults.dpsHasAggroEnabled
+                    if db.dpsHasAggroEnabled ~= nil then enabled = db.dpsHasAggroEnabled end
+                    if enabled then
+                        local c = _C("dpsHasAggro")
+                        return c.r, c.g, c.b
+                    end
                 elseif status >= 2 then
-                    ns._reactionNearAggro = true
-                    local c = _C("dpsNearAggro")
-                    return c.r, c.g, c.b
+                    local enabled = defaults.dpsNearAggroEnabled
+                    if db.dpsNearAggroEnabled ~= nil then enabled = db.dpsNearAggroEnabled end
+                    if enabled then
+                        ns._reactionNearAggro = true
+                        local c = _C("dpsNearAggro")
+                        return c.r, c.g, c.b
+                    end
                 end
                 end
             else

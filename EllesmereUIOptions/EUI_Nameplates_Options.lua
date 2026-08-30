@@ -10479,77 +10479,17 @@ initFrame:SetScript("OnEvent", function(self)
         -----------------------------------------------------------------------
         _, h = W:SectionHeader(parent, SECTION_THREAT, y);  y = y - h
 
-        -- Row 1: Tank Threat (left) ---- Non-Tank Threat (right)
-        local threatRow
-        threatRow, h = W:DualRow(parent, y,
-            { type="multiSwatch", text="Tank Threat",
-              swatches = {
-                { tooltip = "Losing Aggro",
-                  getValue = function() return DBColor("tankLosingAggro") end,
-                  setValue = function(r, g, b)
-                    DB().tankLosingAggro = { r = r, g = g, b = b }
-                    RefreshAllPlates()
-                  end },
-                { tooltip = "No Aggro",
-                  getValue = function() return DBColor("tankNoAggro") end,
-                  setValue = function(r, g, b)
-                    DB().tankNoAggro = { r = r, g = g, b = b }
-                    RefreshAllPlates()
-                  end },
-              } },
-            { type="multiSwatch", text="Non-Tank Threat",
-              swatches = {
-                { tooltip = "Has Aggro",
-                  getValue = function() return DBColor("dpsHasAggro") end,
-                  setValue = function(r, g, b)
-                    DB().dpsHasAggro = { r = r, g = g, b = b }
-                    RefreshAllPlates()
-                  end },
-                { tooltip = "Near Aggro",
-                  getValue = function() return DBColor("dpsNearAggro") end,
-                  setValue = function(r, g, b)
-                    DB().dpsNearAggro = { r = r, g = g, b = b }
-                    RefreshAllPlates()
-                  end },
-              } });  y = y - h
-
-        -- Inline cog on "Non-Tank Threat": steady red execute-style glow
-        -- while the Near Aggro color is active (see EnsureNearAggroGlow).
-        if not EllesmereUI._prebuilding then
-            local rgn = threatRow._rightRegion
-            local _, ntCogShow = EllesmereUI.BuildCogPopup({
-                title = "Near Aggro",
-                rows = {
-                    { type="toggle", label="Glow Nameplate When Near Aggro",
-                      tooltip="Adds a steady red glow around the nameplate while the Near Aggro color is active.",
-                      get=function()
-                        local db = DB()
-                        local v = db and db.threatNearAggroGlow
-                        if v == nil then v = defaults.threatNearAggroGlow end
-                        return v
-                      end,
-                      set=function(v)
-                        DB().threatNearAggroGlow = v and true or false
-                        for _, plate in pairs(ns.plates) do
-                            plate:UpdateHealthColor()
-                        end
-                      end },
-                },
-            })
-            local ntCogBtn = CreateFrame("Button", nil, rgn)
-            ntCogBtn:SetSize(26, 26)
-            ntCogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = ntCogBtn
-            ntCogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            ntCogBtn:SetAlpha(0.4)
-            local ntCogTex = ntCogBtn:CreateTexture(nil, "OVERLAY")
-            ntCogTex:SetAllPoints(); ntCogTex:SetTexture(EllesmereUI.COGS_ICON)
-            ntCogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
-            ntCogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
-            ntCogBtn:SetScript("OnClick", function(s) ntCogShow(s) end)
+        -- Disabled-state helpers (shared across Row 1 swatches / Row 2-4)
+        local function isDpsHasAggroDisabled()
+            local db = DB()
+            if db and db.dpsHasAggroEnabled ~= nil then return not db.dpsHasAggroEnabled end
+            return not defaults.dpsHasAggroEnabled
         end
-
-        -- Disabled-state helpers (shared across Row 2 / Row 3 swatches)
+        local function isDpsNearAggroDisabled()
+            local db = DB()
+            if db and db.dpsNearAggroEnabled ~= nil then return not db.dpsNearAggroEnabled end
+            return not defaults.dpsNearAggroEnabled
+        end
         local function isTankHasAggroDisabled()
             local db = DB()
             if db and db.tankHasAggroEnabled ~= nil then return not db.tankHasAggroEnabled end
@@ -10571,7 +10511,119 @@ initFrame:SetScript("OnEvent", function(self)
             return not defaults.dpsNoAggroEnabled
         end
 
-        -- Row 2: DPS: Show Special "No Aggro" Color (left) ---- Classic Tank Aggro (right)
+        -- Row 1: Tank Threat (left) ---- Non-Tank Threat (right)
+        local threatRow
+        threatRow, h = W:DualRow(parent, y,
+            { type="multiSwatch", text="Tank Threat",
+              swatches = {
+                { tooltip = "Losing Aggro",
+                  getValue = function() return DBColor("tankLosingAggro") end,
+                  setValue = function(r, g, b)
+                    DB().tankLosingAggro = { r = r, g = g, b = b }
+                    RefreshAllPlates()
+                  end },
+                { tooltip = "No Aggro",
+                  getValue = function() return DBColor("tankNoAggro") end,
+                  setValue = function(r, g, b)
+                    DB().tankNoAggro = { r = r, g = g, b = b }
+                    RefreshAllPlates()
+                  end },
+              } },
+            { type="multiSwatch", text="Non-Tank Threat",
+              swatches = {
+                { tooltip = "Has Aggro",
+                  disabled = isDpsHasAggroDisabled,
+                  disabledTooltip = "DPS: Has Aggro Color",
+                  getValue = function() return DBColor("dpsHasAggro") end,
+                  setValue = function(r, g, b)
+                    DB().dpsHasAggro = { r = r, g = g, b = b }
+                    RefreshAllPlates()
+                  end },
+                { tooltip = "Near Aggro",
+                  disabled = isDpsNearAggroDisabled,
+                  disabledTooltip = "DPS: Near Aggro Color",
+                  getValue = function() return DBColor("dpsNearAggro") end,
+                  setValue = function(r, g, b)
+                    DB().dpsNearAggro = { r = r, g = g, b = b }
+                    RefreshAllPlates()
+                  end },
+              } });  y = y - h
+
+        -- Inline cog on "Non-Tank Threat": steady red execute-style glow
+        -- while the Near Aggro color is active (see EnsureNearAggroGlow).
+        if not EllesmereUI._prebuilding then
+            local rgn = threatRow._rightRegion
+            local _, ntCogShow = EllesmereUI.BuildCogPopup({
+                title = "Near Aggro",
+                rows = {
+                    { type="toggle", label="Glow Nameplate When Near Aggro",
+                      tooltip="Adds a steady red glow around the nameplate while the Near Aggro color is active.",
+                      disabled=isDpsNearAggroDisabled,
+                      disabledTooltip="DPS: Near Aggro Color",
+                      get=function()
+                        local db = DB()
+                        local v = db and db.threatNearAggroGlow
+                        if v == nil then v = defaults.threatNearAggroGlow end
+                        return v
+                      end,
+                      set=function(v)
+                        DB().threatNearAggroGlow = v and true or false
+                        for _, plate in pairs(ns.plates) do
+                            plate:UpdateHealthColor()
+                        end
+                      end },
+                },
+            })
+            local ntCogBtn = CreateFrame("Button", nil, rgn)
+            ntCogBtn:SetSize(26, 26)
+            ntCogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = ntCogBtn
+            ntCogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            local ntCogTex = ntCogBtn:CreateTexture(nil, "OVERLAY")
+            ntCogTex:SetAllPoints(); ntCogTex:SetTexture(EllesmereUI.COGS_ICON)
+            ntCogBtn:SetScript("OnEnter", function(s) if not isDpsNearAggroDisabled() then s:SetAlpha(0.7) end end)
+            ntCogBtn:SetScript("OnLeave", function(s) if not isDpsNearAggroDisabled() then s:SetAlpha(0.4) end end)
+            ntCogBtn:SetScript("OnClick", function(s) if not isDpsNearAggroDisabled() then ntCogShow(s) end end)
+            EllesmereUI.RegisterWidgetRefresh(function()
+                local cogOff = isDpsNearAggroDisabled()
+                ntCogBtn:SetAlpha(cogOff and 0.15 or 0.4)
+                ntCogBtn:EnableMouse(not cogOff)
+            end)
+            do
+                local cogOff = isDpsNearAggroDisabled()
+                ntCogBtn:SetAlpha(cogOff and 0.15 or 0.4)
+                ntCogBtn:EnableMouse(not cogOff)
+            end
+        end
+
+        -- Row 2: DPS: Has Aggro Color (left) ---- DPS: Near Aggro Color (right)
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="DPS: Has Aggro Color",
+              tooltip="Recolors nameplates when you have aggro, including casters and mini-bosses. Disable to keep enemy-type colors.",
+              getValue=function()
+                local db = DB()
+                if db and db.dpsHasAggroEnabled ~= nil then return db.dpsHasAggroEnabled end
+                return defaults.dpsHasAggroEnabled
+              end,
+              setValue=function(v)
+                DB().dpsHasAggroEnabled = v
+                RefreshAllPlates()
+                EllesmereUI:RefreshPage()
+              end },
+            { type="toggle", text="DPS: Near Aggro Color",
+              tooltip="Recolors nameplates when you are close to pulling aggro, including casters and mini-bosses. Disable to keep enemy-type colors.",
+              getValue=function()
+                local db = DB()
+                if db and db.dpsNearAggroEnabled ~= nil then return db.dpsNearAggroEnabled end
+                return defaults.dpsNearAggroEnabled
+              end,
+              setValue=function(v)
+                DB().dpsNearAggroEnabled = v
+                RefreshAllPlates()
+                EllesmereUI:RefreshPage()
+              end });  y = y - h
+
+        -- Row 3: DPS: Show Special "No Aggro" Color (left) ---- Classic Tank Aggro (right)
         local dpsDualFrame
         dpsDualFrame, h = W:DualRow(parent, y,
             { type="toggle", text="DPS: Show Special \"No Aggro\" Color",
@@ -10681,7 +10733,7 @@ initFrame:SetScript("OnEvent", function(self)
             swatch:EnableMouse(not off)
         end
 
-        -- Row 3: Tank: Show Special "Has Aggro" Color (left) ---- Tank: Show Special "Off-Tank" Color (right)
+        -- Row 4: Tank: Show Special "Has Aggro" Color (left) ---- Tank: Show Special "Off-Tank" Color (right)
         local tankDualFrame
         tankDualFrame, h = W:DualRow(parent, y,
             { type="toggle", text="Tank: Show Special \"Has Aggro\" Color",
