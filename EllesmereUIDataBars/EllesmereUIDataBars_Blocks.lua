@@ -4387,6 +4387,156 @@ ns.BlockFactories.profession2 = function(blockCfg, slot, content, barCtx)
 end
 
 -------------------------------------------------------------------------------
+--  GUILD + FRIENDS ONLINE (standalone text blocks)
+-------------------------------------------------------------------------------
+local MMBuildSocialTip, MMBuildGuildTip
+
+local function MakeOnlineCountBlock(blockCfg, slot, content, barCtx, opts)
+    local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
+    inst.key = InstKey(barCtx, blockCfg)
+    inst.events = opts.events
+
+    local frame = CreateFrame("Frame", nil, content)
+    frame:EnableMouse(true)
+    local text = frame:CreateFontString(nil, "OVERLAY")
+    AttachTextOffset(inst, text)
+    local measureFS = frame:CreateFontString(nil, "OVERLAY")
+    measureFS:Hide()
+    local mouseOver = false
+
+    local function ApplyTextColor()
+        if mouseOver then
+            text:SetTextColor(ns.GetAccent())
+        else
+            text:SetTextColor(BlockColorOf(blockCfg))
+        end
+    end
+
+    local function ShowTooltip()
+        ns.Tip_Begin(frame, blockCfg.settings and blockCfg.settings.tooltipDirection)
+        ns.Tip_AddLine("|cFFFFFFFF" .. opts.label .. "|r", 1, 1, 1)
+        if InCombatLockdown() then
+            ns.Tip_AddLine(L["CANNOT_USE_COMBAT"], 0.65, 0.65, 0.65)
+        elseif opts.tooltip then
+            pcall(opts.tooltip)
+        end
+        ns.Tip_Show()
+    end
+
+    frame:SetScript("OnEnter", function()
+        mouseOver = true
+        ApplyTextColor()
+        ShowTooltip()
+    end)
+    frame:SetScript("OnLeave", function()
+        mouseOver = false
+        ApplyTextColor()
+        ns.Tip_HideUnlessInteractive(frame)
+    end)
+
+    function inst:Refresh()
+        local count = opts.sample()
+        local fontSize = max(9, floor(CONTENT_BASE * 0.4333 + 0.5))
+        local barCfg = barCtx.cfg
+        local barH = barCtx.GetThickness()
+        local value = opts.label .. ":" .. count
+
+        ns.SetFont(text, fontSize, barCfg)
+        text:SetText(value)
+        ApplyTextColor()
+
+        if barCtx.IsVertical() then
+            local slotW = VSlotW(inst)
+            local innerW = max(36, slotW - 8)
+            frame:SetSize(innerW, fontSize + 4)
+            frame:ClearAllPoints()
+            frame:SetPoint("CENTER", content, "CENTER", 0, 0)
+            text:ClearAllPoints()
+            text:SetPoint("CENTER", frame, "CENTER", 0, 0)
+            ns.SetWrappedText(text, innerW, "CENTER")
+            content:SetSize(slotW, max(fontSize + 12, barH))
+        else
+            ns.ResetInlineText(text, "CENTER")
+            local digits = #tostring(count)
+            if digits < 2 then digits = 2 end
+            ns.SetFont(measureFS, fontSize, barCfg)
+            measureFS:SetText(opts.label .. ":" .. string.rep("8", digits))
+            local w = ns.SnapToPixelGrid(measureFS:GetStringWidth() or 50) + 2
+            frame:SetSize(w, barH)
+            frame:ClearAllPoints()
+            frame:SetPoint("CENTER", content, "CENTER", 0, 0)
+            text:ClearAllPoints()
+            text:SetPoint("CENTER", frame, "CENTER", 0, 0)
+            content:SetSize(w, barH)
+        end
+        MaybeRelayout(inst)
+    end
+
+    inst.eventFrame = MakeEventFrame(inst, function(self)
+        self:Refresh()
+        if mouseOver then ShowTooltip() end
+    end)
+
+    function inst:Enable()
+        content:Show()
+        RegisterInstEvents(self)
+        self:Refresh()
+    end
+
+    function inst:Disable()
+        UnregisterInstEvents(self)
+        content:Hide()
+    end
+
+    function inst:GetAutoLength()
+        if barCtx.IsVertical() then return max(content:GetHeight() or 40, 30) end
+        return max(content:GetWidth() or 60, 40)
+    end
+
+    function inst:Destroy()
+        self._dead = true
+        UnregisterInstEvents(self)
+        content:Hide()
+    end
+
+    return inst
+end
+
+ns.BlockFactories.guildonline = function(blockCfg, slot, content, barCtx)
+    local lastRosterRequest = 0
+    return MakeOnlineCountBlock(blockCfg, slot, content, barCtx, {
+        label = "Guild",
+        events = { "PLAYER_ENTERING_WORLD", "PLAYER_GUILD_UPDATE", "GUILD_ROSTER_UPDATE" },
+        tooltip = function() MMBuildGuildTip() end,
+        sample = function()
+            if not IsInGuild() then return 0 end
+            local now = GetTime()
+            if not InCombatLockdown() and (now - lastRosterRequest) >= 15 then
+                lastRosterRequest = now
+                C_GuildInfo.GuildRoster()
+            end
+            return select(2, GetNumGuildMembers()) or 0
+        end,
+    })
+end
+
+ns.BlockFactories.friendsonline = function(blockCfg, slot, content, barCtx)
+    return MakeOnlineCountBlock(blockCfg, slot, content, barCtx, {
+        label = "Friends",
+        events = {
+            "PLAYER_ENTERING_WORLD", "BN_CONNECTED", "BN_DISCONNECTED",
+            "BN_FRIEND_ACCOUNT_ONLINE", "BN_FRIEND_ACCOUNT_OFFLINE",
+            "BN_FRIEND_INFO_CHANGED", "FRIENDLIST_UPDATE",
+        },
+        tooltip = function() MMBuildSocialTip() end,
+        sample = function()
+            local _, bnOnline = BNGetNumFriends()
+            return (bnOnline or 0) + (C_FriendList.GetNumOnlineFriends() or 0)
+        end,
+    })
+end
+
+-------------------------------------------------------------------------------
 --  MICROMENU (SECURE; three verbatim mechanisms)
 --    1. Secure click-passthrough buttons (*clickbutton1 -> Blizzard button)
 --    2. Combat lockout via RegisterStateDriver _onstate-combatlock snippet (never addon-Lua EnableMouse/SetAlpha on these frames post-creation)
@@ -4680,7 +4830,7 @@ end
 -- GuildRoster() itself fires GUILD_ROSTER_UPDATE, and the server rate-limits it (~10s); throttle so hovering the guild button does not spam requests.
 local mmLastTipRoster = 0
 
-local function MMBuildSocialTip()
+MMBuildSocialTip = function()
     local ar, ag, ab = ns.GetAccent()
     local totalBN = BNGetNumFriends() or 0
     local totalWoW = C_FriendList.GetNumOnlineFriends() or 0
@@ -4760,7 +4910,7 @@ local function MMBuildSocialTip()
     ns.Tip_AddDouble(L["RIGHT_CLICK"],      L["WHISPER"],      1, 1, 1, ar, ag, ab)
 end
 
-local function MMBuildGuildTip()
+MMBuildGuildTip = function()
     local ar, ag, ab = ns.GetAccent()
     ns.Tip_AddLine(" ")
     if not IsInGuild() then

@@ -12,7 +12,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- `ns` consumed by the options file.
 --
 -- Block factories (clock, fps, ms, location, coords, gold, xprep, spec,
--- profession, travel, micromenu, currency, spacer) live in
+-- profession, travel, guildonline, friendsonline, micromenu, currency, spacer) live in
 -- EllesmereUIDataBars_Blocks.lua and attach themselves to ns.BlockFactories.
 --
 -- API HANDOFF (everything the options file may call; nothing else):
@@ -203,6 +203,8 @@ ns.BLOCK_TYPES = {
     { key = "profession", label = "Professions" },
     { key = "profession2", label = "Secondary Professions" },
     { key = "travel",     label = "Travel Cooldowns" },
+    { key = "guildonline", label = "Guild Online" },
+    { key = "friendsonline", label = "Friends Online" },
     { key = "micromenu",  label = "Micro Menu" },
     { key = "currency",   label = "Currency" },
     { key = "crests",     label = "Crests" },
@@ -229,6 +231,8 @@ ns.BLOCK_DEFAULTS = {
     profession = {},
     profession2 = {},
     travel     = { randomizeHs = true },
+    guildonline = { tooltipDirection = "auto" },
+    friendsonline = { tooltipDirection = "auto" },
     micromenu  = { disableBlizzardMicroMenu = false, hideSocialText = false, charStatsTooltip = false, socialTooltip = false, mainMenuSpacing = 4, iconSpacing = 2,
                    menu = true, guild = true, social = true, char = true, spell = true, ach = true, quest = true, lfg = true,
                    pvp = true, housing = true, journal = true, pet = true, shop = true, help = true },
@@ -720,6 +724,7 @@ end
 do
     local tip
     local owner
+    local tipDirection
     local rows = {}       -- rows[i] = { left = fs, right = fs, cols = { fs, ... } }
     local data = {}       -- data[i] = { l, r, lr, lg, lb, rr, rg, rb }
     local dataCount = 0
@@ -975,9 +980,10 @@ do
         end)
     end
 
-    function ns.Tip_Begin(ownerFrame)
+    function ns.Tip_Begin(ownerFrame, direction)
         EnsureTip()
         owner = ownerFrame
+        tipDirection = (direction == "up" or direction == "down") and direction or nil
         dataCount = 0
         forceInteractive = false
     end
@@ -1370,7 +1376,11 @@ do
             bar = bar:GetParent()
         end
         local ocx, ocy = owner:GetCenter()
-        if bar and ocx then
+        if tipDirection == "up" then
+            tip:SetPoint("BOTTOM", owner, "TOP", 0, 6)
+        elseif tipDirection == "down" then
+            tip:SetPoint("TOP", owner, "BOTTOM", 0, -6)
+        elseif bar and ocx then
             local os = owner:GetEffectiveScale()
             local ts = tip:GetEffectiveScale()
             local bcx, bcy = bar:GetCenter()
@@ -1411,6 +1421,7 @@ do
         if not tip then return end
         if ownerFrame and owner ~= ownerFrame then return end
         owner = nil
+        tipDirection = nil
         HideActionButtons()
         HideClickButtons()
         StopKeepAlive()

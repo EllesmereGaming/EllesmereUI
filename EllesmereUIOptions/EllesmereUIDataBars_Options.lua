@@ -2989,6 +2989,15 @@ initFrame:SetScript("OnEvent", function(self)
                           Apply()
                       end },
                 }
+            elseif b.type == "guildonline" or b.type == "friendsonline" then
+                typeRows = {
+                    { type = "dropdown", text = "Menu Direction",
+                      tooltip = "Where the online-member list opens when you hover this block.",
+                      values = { auto = "Automatic", up = "Up", down = "Down" },
+                      order = { "auto", "up", "down" },
+                      getValue = function() return s.tooltipDirection or "auto" end,
+                      setValue = function(v) s.tooltipDirection = v; Apply() end },
+                }
             elseif b.type == "micromenu" then
                 -- Align Content returns here as a type row (its shared-row
                 -- slot hosts the Enable Text toggle instead): anchors the
