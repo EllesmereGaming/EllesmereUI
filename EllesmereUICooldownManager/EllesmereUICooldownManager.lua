@@ -5265,8 +5265,13 @@ function ns.CdmEnsureCooldownTextClone(icon, cd, fd)
     -- Our own preset/custom frames run their own Cooldown AND their own Threshold
     -- Text apply, which attaches the formatter straight to f._cooldown at injection
     -- time (EllesmereUICdmHooks). A clone would orphan that, so they keep the
-    -- single-widget layout and today's behaviour.
-    if icon._isCustomBuffFrame or icon._isCustomSpellFrame then return nil end
+    -- single-widget layout and today's behaviour. Same for a real Blizzard
+    -- buff-viewer frame (fd._isBuffViewerFrame): a clone would hide the real
+    -- widget's numbers with nothing driving the clone's, blanking the aura's
+    -- duration text.
+    if icon._isCustomBuffFrame or icon._isCustomSpellFrame or (fd and fd._isBuffViewerFrame) then
+        return nil
+    end
     local ok, tc = pcall(CreateFrame, "Cooldown", nil, icon, "CooldownFrameTemplate")
     if not ok or not tc then return nil end
     fd.cdTextClone = tc
