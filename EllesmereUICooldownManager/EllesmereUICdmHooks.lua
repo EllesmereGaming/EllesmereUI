@@ -6518,6 +6518,18 @@ local function CollectAndReanchor()
     local p = ECME.db and ECME.db.profile
     if not p or not p.cdmBars or not p.cdmBars.enabled then return end
 
+    -- Track only replacement frames that are active in this collect pass. Aura
+    -- removal does not reliably run OnCooldownIDSet (Blizzard can simply release
+    -- or hide the buff-viewer frame), so UNIT_AURA uses this small set to decide
+    -- whether the layout must be rebuilt. Keeping instance IDs avoids reanchoring
+    -- on unrelated aura churn while a replacement buff is active.
+    if ns._cdmAnyBuffReplacement then
+        ns._activeBuffReplacementAuraIDs = ns._activeBuffReplacementAuraIDs or {}
+        wipe(ns._activeBuffReplacementAuraIDs)
+        ns._activeBuffReplacement = nil
+        ns._activeBuffReplacementUnknown = nil
+    end
+
     if ns.RebuildCDMSpellCaches then ns.RebuildCDMSpellCaches() end
 
     -- Safety: if RebuildSpellRouteMap has never run successfully (API was
@@ -6605,6 +6617,17 @@ local function CollectAndReanchor()
                                             fc.replacementTargetSpellID = replacementRoute.targetSpellID
                                             fc.isReplacementBuff = true
                                             fc.isHostedBuff = nil
+                                            ns._activeBuffReplacement = true
+                                            local auraInstanceID = frame.auraInstanceID
+                                            if issecretvalue and issecretvalue(auraInstanceID) then
+                                                ns._activeBuffReplacementUnknown = true
+                                            elseif auraInstanceID ~= nil then
+                                                ns._activeBuffReplacementAuraIDs[auraInstanceID] = true
+                                            else
+                                                -- Totems and a few Blizzard buff-viewer
+                                                -- entries do not expose an aura instance ID.
+                                                ns._activeBuffReplacementUnknown = true
+                                            end
                                         else
                                             fc.spellID = baseSID or displaySID
                                             fc.replacementTargetSpellID = nil
@@ -10305,6 +10328,38 @@ function ns.SetupViewerHooks()
                         ns._acGen = (ns._acGen or 0) + 1
                     end
                 end
+            end
+            -- A replacement uses the native buff frame in place of its cooldown.
+            -- Blizzard may remove that frame without another OnCooldownIDSet, so
+            -- restore the underlying cooldown as soon as the tracked aura leaves.
+            -- Unknown/secret instance IDs take the conservative route, but only
+            -- while a replacement is currently active.
+            if ns._activeBuffReplacement then
+                local replacementLayoutDirty = event ~= "UNIT_AURA"
+                if event == "UNIT_AURA" then
+                    if not updateInfo or (issecretvalue and issecretvalue(updateInfo)) then
+                        replacementLayoutDirty = true
+                    else
+                        local full = updateInfo.isFullUpdate
+                        local removed = updateInfo.removedAuraInstanceIDs
+                        if (issecretvalue and (issecretvalue(full) or issecretvalue(removed)))
+                           or full then
+                            replacementLayoutDirty = true
+                        elseif removed then
+                            for i = 1, #removed do
+                                local auraInstanceID = removed[i]
+                                if (issecretvalue and issecretvalue(auraInstanceID))
+                                   or ns._activeBuffReplacementUnknown
+                                   or (ns._activeBuffReplacementAuraIDs
+                                       and ns._activeBuffReplacementAuraIDs[auraInstanceID]) then
+                                    replacementLayoutDirty = true
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+                if replacementLayoutDirty then QueueReanchor() end
             end
             if not _btTicker then
                 _btTicker = EllesmereUI.Tick.NewAnimTicker(cdmBuffTickFrame, _btBody, 0.1)
