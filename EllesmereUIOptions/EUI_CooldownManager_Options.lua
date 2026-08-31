@@ -6755,7 +6755,7 @@ initFrame:SetScript("OnEvent", function(self)
     --  builds a single global popup; each call re-binds the Add handler to the given bar.
     --  withDuration adds the duration field (custom/preset buffs); onAdded(sid) runs after spellDuration/customSpellID storage.
     ---------------------------------------------------------------------------
-    local function ShowCustomSpellIDPopup(barKey, withDuration, onAdded, hideChargeWarn)
+    local function ShowCustomSpellIDPopup(barKey, withDuration, onAdded, hideChargeWarn, selectionOnly)
         local popupName = "EUI_CDM_SpellIDPopup"
         local popup = _G[popupName]
         if not popup then
@@ -6917,6 +6917,14 @@ initFrame:SetScript("OnEvent", function(self)
             local spellName = C_Spell.GetSpellName(sid)
             if not spellName then
                 SetStatus("Unknown spell ID")
+                return
+            end
+            -- Replacement pickers only need a validated identity. Do not tag
+            -- the buff as a custom spell on the cooldown bar or reject it
+            -- because the same id happens to be one of that bar's cooldowns.
+            if selectionOnly then
+                popup._dimmer:Hide()
+                if onAdded then onAdded(sid) end
                 return
             end
             local dur
@@ -7651,7 +7659,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- Lists the class's CDM-trackable buffs plus a Custom Spell ID entry. No
     -- durations (aura-driven, never cast-timed) and no item/preset rows (those are
     -- cast-timer / CD-utility concepts that do not belong on an aura tracker).
-    local function ShowBuffToCDPicker(anchorFrame, targetBarKey, onChanged)
+    local function ShowBuffToCDPicker(anchorFrame, targetBarKey, onChanged, onPicked)
         if _spellPickerMenu and _spellPickerMenu:IsShown() then
             _spellPickerMenu:Hide()
             if _spellPickerMenu._anchorFrame == anchorFrame then return end
@@ -7689,8 +7697,9 @@ initFrame:SetScript("OnEvent", function(self)
         local alreadyCd = sdCur and ns.CollectCdClaimSet(sdCur)
         local knownSpells = {}
         for _, sp in ipairs(allSpells) do
-            if sp.cdmCatGroup == "buff" and sp.spellID and not already[sp.spellID]
-               and not (sp.cdID and alreadyCd and alreadyCd[sp.cdID]) then
+            if sp.cdmCatGroup == "buff" and sp.spellID
+               and (onPicked or (not already[sp.spellID]
+                    and not (sp.cdID and alreadyCd and alreadyCd[sp.cdID]))) then
                 knownSpells[#knownSpells + 1] = sp
             end
         end
@@ -7711,9 +7720,38 @@ initFrame:SetScript("OnEvent", function(self)
 
         local mH = 4
 
-        -- Post-add refresh (picker stays open so several buffs add in a row): onChanged
-        -- reanchors live bars and refreshes the preview in place. No RefreshCDPreview here --
-        -- its full page rebuild orphans this still-open picker's anchor, so the next click falls onto the rebuilt preview slots and pops the per-icon settings dropdown uninvited.
+        if onPicked then
+            local clearItem = CreateFrame("Button", nil, inner)
+            clearItem:SetHeight(ITEM_H)
+            clearItem:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+            clearItem:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+            clearItem:SetFrameLevel(menu:GetFrameLevel() + 2)
+            local clearLbl = clearItem:CreateFontString(nil, "OVERLAY")
+            clearLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+            clearLbl:SetPoint("LEFT", 10, 0)
+            clearLbl:SetText(EllesmereUI.L("None (use cooldown icon)"))
+            clearLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+            local clearHl = clearItem:CreateTexture(nil, "ARTWORK")
+            clearHl:SetAllPoints(); clearHl:SetColorTexture(1, 1, 1, hlA); clearHl:SetAlpha(0)
+            clearItem:SetScript("OnEnter", function()
+                clearLbl:SetTextColor(1, 1, 1, 1); clearHl:SetAlpha(hlA)
+            end)
+            clearItem:SetScript("OnLeave", function()
+                clearLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA); clearHl:SetAlpha(0)
+            end)
+            clearItem:SetScript("OnClick", function()
+                menu:Hide()
+                onPicked(nil, nil)
+            end)
+            mH = mH + ITEM_H
+        end
+
+        -- Post-add refresh; picker stays open so several buffs add in a row.
+        -- onChanged reanchors the live bars and refreshes the preview in place
+        -- (same flow as the CD/utility "+" add). No RefreshCDPreview here: its
+        -- full page rebuild orphans this still-open picker's anchor, and the
+        -- next click falls through onto the rebuilt preview slots -- popping
+        -- the per-icon settings dropdown uninvited.
         local function AfterAdd()
             if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
             if ns.QueueReanchor then ns.QueueReanchor() end
@@ -7739,9 +7777,28 @@ initFrame:SetScript("OnEvent", function(self)
             csItem:SetScript("OnClick", function()
                 menu:Hide()
                 ShowCustomSpellIDPopup(targetBarKey, false, function(sid)
-                    ns.AddBuffToCDUtilBar(targetBarKey, sid)
-                    AfterAdd()
-                end, true)
+                    if onPicked then
+                        local match
+                        for _, candidate in ipairs(allSpells) do
+                            if candidate.cdmCatGroup == "buff" and candidate.spellID == sid then
+                                match = candidate
+                                break
+                            end
+                        end
+                        if match then
+                            local collisionID = match.cdID and ns.IsCollidedBuffSid
+                                and ns.IsCollidedBuffSid(match.spellID) and match.cdID or nil
+                            onPicked(match.spellID, collisionID, false)
+                        else
+                            -- AuraKit can drive a real aura overlay even when
+                            -- Blizzard has no tracked-buff viewer entry for it.
+                            onPicked(sid, nil, true)
+                        end
+                    else
+                        ns.AddBuffToCDUtilBar(targetBarKey, sid)
+                        AfterAdd()
+                    end
+                end, true, onPicked and true or nil)
             end)
             mH = mH + ITEM_H
         end
@@ -7787,8 +7844,17 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             item:SetScript("OnClick", function()
                 if notLearned then EllesmereUI.HideWidgetTooltip() end
-                -- Collided pair (two viewer slots, one shared spellID): claim by cooldownID
-                -- so each slot is hostable on its own; non-collided buffs keep the sid path (identity survives talent swaps, cooldownIDs drift).
+                if onPicked then
+                    local collisionID = sp.cdID and ns.IsCollidedBuffSid
+                        and ns.IsCollidedBuffSid(sp.spellID) and sp.cdID or nil
+                    menu:Hide()
+                    onPicked(sp.spellID, collisionID)
+                    return
+                end
+                -- Collided pair (two viewer slots, one shared spellID): claim
+                -- by cooldownID so each slot is hostable on its own. Non-
+                -- collided buffs keep the sid path (identity survives talent
+                -- swaps, cooldownIDs drift).
                 if sp.cdID and ns.IsCollidedBuffSid and ns.IsCollidedBuffSid(sp.spellID)
                    and ns.AddHostedBuffByCdID then
                     ns.AddHostedBuffByCdID(targetBarKey, sp.cdID)
@@ -11968,12 +12034,60 @@ initFrame:SetScript("OnEvent", function(self)
                     -- (The per-setting "Apply to Bar / (All Specs)" strip superseded
                     -- "Sync All Bar Buttons"; cdm_spell_settings_tiers_v1 migrated it.)
 
-                    -- Custom Icon (per-spell ONLY -- deliberately outside the Apply-to-Bar
-                    -- tiers: an icon replacement is a per-slot identity choice, so no tiers, no
-                    -- apply strip, no false-blocking; a plain nil write removes it). The render
-                    -- side re-stamps after every Blizzard icon repaint against the frame's full
-                    -- identity set, so it follows every transform. At the COMMON rejoin point
-                    -- (both families); skipped for preset/item entries (negative ids -- their settings live in customActiveStates, which nothing reads customIcon from). Popup flow closes the menu, matching Lower Alpha.
+                    -- Cooldown-to-buff replacement. The mapping belongs to the
+                    -- cooldown's per-spec settings entry. Catalog buffs route
+                    -- Blizzard's real frame; custom IDs use a restriction-safe
+                    -- AuraKit overlay while the aura is active.
+                    if not isBuffBar and not isHostedBuff
+                       and type(spellID) == "number" and spellID > 0 then
+                        local replacementSID = rawget(ss, "replacementBuffSpellID")
+                        local replacementName = replacementSID and C_Spell.GetSpellName(replacementSID)
+                        local replaceRow = CreateFrame("Button", nil, inner)
+                        replaceRow:SetHeight(ITEM_H)
+                        replaceRow:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+                        replaceRow:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+                        replaceRow:SetFrameLevel(menu:GetFrameLevel() + 2)
+                        local replaceLbl = replaceRow:CreateFontString(nil, "OVERLAY")
+                        replaceLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                        replaceLbl:SetPoint("LEFT", 10, 0)
+                        replaceLbl:SetPoint("RIGHT", -10, 0)
+                        replaceLbl:SetJustifyH("LEFT")
+                        replaceLbl:SetText(EllesmereUI.L("Replace with Buff") .. ": "
+                            .. (replacementName or EllesmereUI.L("None")))
+                        replaceLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                        local replaceHl = replaceRow:CreateTexture(nil, "ARTWORK")
+                        replaceHl:SetAllPoints(); replaceHl:SetColorTexture(1, 1, 1, hlA)
+                        replaceHl:SetAlpha(0)
+                        replaceRow:SetScript("OnEnter", function()
+                            replaceLbl:SetTextColor(1, 1, 1, 1); replaceHl:SetAlpha(1)
+                        end)
+                        replaceRow:SetScript("OnLeave", function()
+                            replaceLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA); replaceHl:SetAlpha(0)
+                        end)
+                        replaceRow:SetScript("OnClick", function()
+                            menu:Hide()
+                            ShowBuffToCDPicker(replaceRow, barKey, nil, function(buffSID, buffCdID, isCustom)
+                                if ns.SetCooldownBuffReplacement then
+                                    ns.SetCooldownBuffReplacement(
+                                        barKey, spellID, buffSID, buffCdID, isCustom)
+                                end
+                                RefreshCDPreview()
+                            end)
+                        end)
+                        mH = mH + ITEM_H
+                    end
+
+                    -- Custom Icon (per-spell ONLY -- deliberately outside the
+                    -- Apply-to-Bar tier system: an icon replacement is a per-slot
+                    -- identity choice, so no bar tiers, no apply strip, and no
+                    -- false-blocking -- a plain nil write removes it). The render
+                    -- side re-stamps after every Blizzard icon repaint and resolves
+                    -- the frame's full identity set, so the replacement follows the
+                    -- spell through every transform. Placed at the COMMON rejoin
+                    -- point so it appears for both families; skipped for preset /
+                    -- item entries (negative ids -- their settings live in
+                    -- customActiveStates, which nothing reads customIcon from).
+                    -- Popup flow closes the menu, matching Lower Alpha convention.
                     if not (type(spellID) == "number" and spellID < 0) then
                         local hasCI = type(rawget(ss, "customIcon")) == "number"
                         local ciRow = CreateFrame("Button", nil, inner)

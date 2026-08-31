@@ -918,6 +918,11 @@ local _divertedBuffCdIDs  = {}
 --- same way listing a spellID claims a spell. On ns, not a local: this file is at
 --- the 200-local cap.
 ns._divertedSlotCD = {}
+-- Buff-replacement lookups can be queried by Blizzard's early layout refresh
+-- before the first route-map rebuild. Keep stable empty tables from file load
+-- so that path is a harmless miss instead of indexing nil.
+ns._replacementBuffRoutes = ns._replacementBuffRoutes or {}
+ns._replacementBuffCdRoutes = ns._replacementBuffCdRoutes or {}
 -- EXACT assigned ids, split from the maps above (which also hold variant-family
 -- derived keys). One cooldown slot can carry several family members on different
 -- bars (Divine Toll/override Holy Bulwark share cooldownID 29342, base 375576);
@@ -1097,6 +1102,8 @@ function ns.RebuildSpellRouteMap()
     wipe(_divertedVarBaseCD)
     wipe(_divertedBuffCdIDs)
     wipe(ns._divertedSlotCD)
+    wipe(ns._replacementBuffRoutes)
+    wipe(ns._replacementBuffCdRoutes)
     _routeMapBuilt = false
 
     local p = ECME.db and ECME.db.profile
@@ -1261,6 +1268,45 @@ function ns.RebuildSpellRouteMap()
         end
     until not expanded
     for sid in pairs(_divertedDirectCD) do ghostAliasSkip[sid] = nil end
+    -- Pass 3c: cooldown-to-buff replacements. Dormant profiles skip this
+    -- entire pass. Settings live in the cooldown family store, so normal
+    -- spec and conditional override capture applies without special handling.
+    if ns._cdmAnyBuffReplacement then
+        ns._replacementBuffRoutes = ns._replacementBuffRoutes or {}
+        ns._replacementBuffCdRoutes = ns._replacementBuffCdRoutes or {}
+        for _, bd in ipairs(p.cdmBars.bars) do
+            if bd.enabled and not bd.isGhostBar
+               and bd.barType ~= "buffs" and bd.barType ~= "custom_buff" then
+                local sd = ns.GetBarSpellData(bd.key)
+                local settings = ns.GetSpellSettingsStore(bd.key)
+                if sd and sd.assignedSpells and settings then
+                    for _, targetSID in ipairs(sd.assignedSpells) do
+                        if type(targetSID) == "number" and targetSID > 0 then
+                            local ss = ns.ResolveVariantValue(settings, targetSID)
+                            local buffSID = ss and rawget(ss, "replacementBuffSpellID")
+                            local buffCdID = ss and rawget(ss, "replacementBuffCooldownID")
+                            local customAura = ss and rawget(ss, "replacementBuffCustom")
+                            if type(buffSID) == "number" and buffSID > 0 and not customAura then
+                                local route = {
+                                    barKey = bd.key,
+                                    targetSpellID = targetSID,
+                                    buffSpellID = buffSID,
+                                    buffCooldownID = buffCdID,
+                                }
+                                if type(buffCdID) == "number" and buffCdID > 0 then
+                                    ns._replacementBuffCdRoutes[buffCdID] = route
+                                    _divertedBuffCdIDs[buffCdID] = bd.key
+                                else
+                                    SVV(ns._replacementBuffRoutes, buffSID, route, false)
+                                    StoreDirect(_divertedSpellsBuff, buffSID, bd.key)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
 
     -- Pass 4: ghost bars LAST = HIGHEST priority. A spell the user HID stays
     -- hidden even if the same id also sits on a visible bar ("both-state");
@@ -1274,6 +1320,17 @@ function ns.RebuildSpellRouteMap()
     end
 
     _routeMapBuilt = true
+end
+
+function ns.GetBuffReplacementRoute(spellID, cooldownID)
+    if not ns._cdmAnyBuffReplacement then return nil end
+    if cooldownID then
+        local exact = ns._replacementBuffCdRoutes
+            and ns._replacementBuffCdRoutes[cooldownID]
+        if exact then return exact end
+    end
+    return ns.ResolveVariantValue and ns._replacementBuffRoutes
+        and ns.ResolveVariantValue(ns._replacementBuffRoutes, spellID)
 end
 
 --- Lazily resolve a cooldownID to a bar key (per-frame at reanchor).
@@ -6461,6 +6518,18 @@ local function CollectAndReanchor()
     local p = ECME.db and ECME.db.profile
     if not p or not p.cdmBars or not p.cdmBars.enabled then return end
 
+    -- Track only replacement frames that are active in this collect pass. Aura
+    -- removal does not reliably run OnCooldownIDSet (Blizzard can simply release
+    -- or hide the buff-viewer frame), so UNIT_AURA uses this small set to decide
+    -- whether the layout must be rebuilt. Keeping instance IDs avoids reanchoring
+    -- on unrelated aura churn while a replacement buff is active.
+    if ns._cdmAnyBuffReplacement then
+        ns._activeBuffReplacementAuraIDs = ns._activeBuffReplacementAuraIDs or {}
+        wipe(ns._activeBuffReplacementAuraIDs)
+        ns._activeBuffReplacement = nil
+        ns._activeBuffReplacementUnknown = nil
+    end
+
     if ns.RebuildCDMSpellCaches then ns.RebuildCDMSpellCaches() end
 
     -- Safety: if RebuildSpellRouteMap has never run successfully (API was
@@ -6518,6 +6587,8 @@ local function CollectAndReanchor()
                         -------------------------------------------------------
                         local targetBar, displaySID, baseSID = CategorizeFrame(frame, defaultBarKey)
                         if targetBar and displaySID and displaySID > 0 then
+                            local replacementRoute = ns.GetBuffReplacementRoute
+                                and ns.GetBuffReplacementRoute(displaySID, frame.cooldownID)
                             local barSeen = seenSpell[targetBar]
                             if not barSeen then barSeen = {}; seenSpell[targetBar] = barSeen end
                             local dedupKey = frame.cooldownID
@@ -6537,12 +6608,40 @@ local function CollectAndReanchor()
                                         cf[#cf + 1] = frame
                                         local fc = FC(frame)
                                         fc.barKey = targetBar
-                                        fc.spellID = baseSID or displaySID
-                                        -- Hosted buff: Phase 3 ranks it by its hosted
-                                        -- MARKER slot, independent of the same spell's
-                                        -- cooldown entry on this bar.
-                                        fc.isHostedBuff = true
+                                        fc.displayBuffSpellID = baseSID or displaySID
+                                        if replacementRoute then
+                                            -- Hybrid identity: target cooldown owns layout,
+                                            -- keybind and Rotation Assist; the real buff frame
+                                            -- keeps native icon, swipe, duration and stacks.
+                                            fc.spellID = replacementRoute.targetSpellID
+                                            fc.replacementTargetSpellID = replacementRoute.targetSpellID
+                                            fc.isReplacementBuff = true
+                                            fc.isHostedBuff = nil
+                                            ns._activeBuffReplacement = true
+                                            local auraInstanceID = frame.auraInstanceID
+                                            if issecretvalue and issecretvalue(auraInstanceID) then
+                                                ns._activeBuffReplacementUnknown = true
+                                            elseif auraInstanceID ~= nil then
+                                                ns._activeBuffReplacementAuraIDs[auraInstanceID] = true
+                                            else
+                                                -- Totems and a few Blizzard buff-viewer
+                                                -- entries do not expose an aura instance ID.
+                                                ns._activeBuffReplacementUnknown = true
+                                            end
+                                        else
+                                            fc.spellID = baseSID or displaySID
+                                            fc.replacementTargetSpellID = nil
+                                            fc.isReplacementBuff = nil
+                                            -- Hosted buff: Phase 3 ranks it by its hosted
+                                            -- MARKER slot, independent of the same spell's
+                                            -- cooldown entry on this bar.
+                                            fc.isHostedBuff = true
+                                        end
                                     else
+                                        local fc = FC(frame)
+                                        fc.isReplacementBuff = nil
+                                        fc.replacementTargetSpellID = nil
+                                        fc.displayBuffSpellID = nil
                                         if not barLists[targetBar] then barLists[targetBar] = {} end
                                         barLists[targetBar][#barLists[targetBar] + 1] =
                                             AcquireEntry(frame, displaySID, baseSID or displaySID, frame.layoutIndex or 0)
@@ -6653,7 +6752,7 @@ local function CollectAndReanchor()
                                     -- its placeholder routes through the CD pipeline (Phase 3), not barLists.
                                     local hostCD = bd and bd.barType ~= "buffs" and bd.barType ~= "custom_buff"
                                     local showInactive = bd and (bd.showInactiveBuffIcons or bd.hidePlaceholderIcon) and true or false
-                                    if hostCD then showInactive = true end
+                                    if hostCD and not replacementRoute then showInactive = true end
                                     -- Hosted "Visibility When Missing" (per-spell, BUFF family
                                     -- store; hosted entries never chain to bar tiers, so this can
                                     -- never come from Apply-to-Bar). Resolved via the pooled
@@ -6664,9 +6763,10 @@ local function CollectAndReanchor()
                                     -- inject but render alpha-0 (slot stays reserved);
                                     -- "hiddenShift" = skip the injection so later icons close the
                                     -- gap (HideAllPlaceholders at the top of every collect already
-                                    -- hid the pooled frame -- same outcome as Hidden on CD (Shift Icons) for cooldowns).
+                                    -- hid the pooled frame -- same outcome as Hidden on CD (Shift
+                                    -- Icons) for cooldowns).
                                     local hostedMissingVis
-                                    if hostCD then
+                                    if hostCD and not replacementRoute then
                                         local phMV = GetOrCreatePlaceholderFrame(targetBar, realSID, nil, phIdent)
                                         local ssMV = ns.ResolveSpellSettings(phMV, realSID, ns.GetBarSpellData(targetBar), targetBar)
                                         local mv = ssMV and ssMV.hostedMissingVis
@@ -6694,6 +6794,9 @@ local function CollectAndReanchor()
                                             elseif ssAS.alwaysShow == "missing" then showInactive = true end
                                         end
                                     end
+                                    -- Replacements are conditional: when the aura is
+                                    -- missing, the original cooldown frame owns the slot.
+                                    if replacementRoute then showInactive = false end
                                     if bd and bd.enabled and (bd.barType == "buffs" or hostCD)
                                        and showInactive and hostedMissingVis ~= "hiddenShift"
                                        and targetBar ~= ns.FOCUSKICK_BAR_KEY
@@ -6806,6 +6909,9 @@ local function CollectAndReanchor()
                                     fc.barKey = barKey
                                     fc.spellID = baseSID or displaySID
                                     fc.isHostedBuff = nil
+                                    fc.isReplacementBuff = nil
+                                    fc.replacementTargetSpellID = nil
+                                    fc.displayBuffSpellID = nil
                                 else
                                     -- Blizzard CDM "Items" (12.1): a category-driven
                                     -- entry (combat potions etc., category set 5/7)
@@ -6848,6 +6954,9 @@ local function CollectAndReanchor()
                                         -- markers start at -2000000000).
                                         fc.spellID = -(1000000000 + cdID)
                                         fc.isHostedBuff = nil
+                                        fc.isReplacementBuff = nil
+                                        fc.replacementTargetSpellID = nil
+                                        fc.displayBuffSpellID = nil
                                     else
                                         -- Routed to one of our bars, but the spell
                                         -- would not resolve: GetCooldownViewerCooldownInfo
@@ -7370,9 +7479,45 @@ local function CollectAndReanchor()
         end
     end
 
-    -- Pre-build claim set for racial/custom spell checks: collect all spellIDs already
-    -- claimed by Blizzard frames across all bars. This replaces the O(frames *
-    -- FindSpellOverrideByID) inner loop with a set lookup.
+    -- An active replacement and its underlying cooldown intentionally share
+    -- one slot identity. Keep the native buff frame and remove only the
+    -- underlying cooldown from this collect pass; Phase 4 restores it as soon
+    -- as the buff frame disappears on the next event-driven reanchor.
+    if ns._cdmAnyBuffReplacement then
+        for _, frames in pairs(cdFrames) do
+            local targets
+            for _, frame in ipairs(frames) do
+                local fc = _ecmeFC[frame]
+                if fc and fc.isReplacementBuff and fc.replacementTargetSpellID then
+                    if not targets then targets = {} end
+                    targets[fc.replacementTargetSpellID] = true
+                end
+            end
+            if targets then
+                for i = #frames, 1, -1 do
+                    local frame = frames[i]
+                    local fc = _ecmeFC[frame]
+                    if fc and not fc.isReplacementBuff and fc.spellID then
+                        local claimed = targets[fc.spellID]
+                        if not claimed and ns.IsVariantOf then
+                            for targetSID in pairs(targets) do
+                                if ns.IsVariantOf(fc.spellID, targetSID) then
+                                    claimed = true
+                                    break
+                                end
+                            end
+                        end
+                        if claimed then table.remove(frames, i) end
+                    end
+                end
+            end
+        end
+    end
+
+    -- Pre-build claim set for racial/custom spell checks: collect all
+    -- spellIDs already claimed by Blizzard frames across all bars. This
+    -- replaces the O(frames * FindSpellOverrideByID) inner loop with a
+    -- set lookup.
     local _claimSet = _scratch_spellOrder  -- reuse scratch for claim set (wiped per bar below)
     local _globalClaimSet = {}
     for _, flist in pairs(cdFrames) do
@@ -10183,6 +10328,38 @@ function ns.SetupViewerHooks()
                         ns._acGen = (ns._acGen or 0) + 1
                     end
                 end
+            end
+            -- A replacement uses the native buff frame in place of its cooldown.
+            -- Blizzard may remove that frame without another OnCooldownIDSet, so
+            -- restore the underlying cooldown as soon as the tracked aura leaves.
+            -- Unknown/secret instance IDs take the conservative route, but only
+            -- while a replacement is currently active.
+            if ns._activeBuffReplacement then
+                local replacementLayoutDirty = event ~= "UNIT_AURA"
+                if event == "UNIT_AURA" then
+                    if not updateInfo or (issecretvalue and issecretvalue(updateInfo)) then
+                        replacementLayoutDirty = true
+                    else
+                        local full = updateInfo.isFullUpdate
+                        local removed = updateInfo.removedAuraInstanceIDs
+                        if (issecretvalue and (issecretvalue(full) or issecretvalue(removed)))
+                           or full then
+                            replacementLayoutDirty = true
+                        elseif removed then
+                            for i = 1, #removed do
+                                local auraInstanceID = removed[i]
+                                if (issecretvalue and issecretvalue(auraInstanceID))
+                                   or ns._activeBuffReplacementUnknown
+                                   or (ns._activeBuffReplacementAuraIDs
+                                       and ns._activeBuffReplacementAuraIDs[auraInstanceID]) then
+                                    replacementLayoutDirty = true
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+                if replacementLayoutDirty then QueueReanchor() end
             end
             if not _btTicker then
                 _btTicker = EllesmereUI.Tick.NewAnimTicker(cdmBuffTickFrame, _btBody, 0.1)

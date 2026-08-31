@@ -98,6 +98,7 @@ local _events
 local _ticker
 local _api       = {}
 local _overlays  = setmetatable({}, { __mode = "k" })  -- iconFrame -> overlay data
+local _replacementRules = {}                            -- barKey:targetSID:buffSID -> stable AuraKit rule
 
 -- Cooldown-state effects (continuous, cooldown-driven; presets only).
 local _cdStateRules = {}                                -- subset: cas.cdStateEffect set
@@ -781,6 +782,16 @@ end
                 ApplyRule(rule, nil)
                 if st.proxy then st.proxy:Hide() end
                 st.o, st.iconFrame = nil, nil
+                -- Custom replacement mappings are profile/spec data, not
+                -- permanent built-ins. Release removed mappings completely so
+                -- repeated edits cannot accumulate parked AuraKit containers.
+                if rule.replacementBuffCustom then
+                    local AK = EllesmereUI.AuraKit
+                    if st.container and AK and AK.ReleaseContainer then
+                        AK.ReleaseContainer(st.container)
+                    end
+                    FA121.byRule[rule] = nil
+                end
             end
         end
         if AnyArmed() then
@@ -1486,6 +1497,54 @@ function ns.FakeActive_Rearm()
                 AddRule(rule)
             end
         end
+    end
+
+    -- Custom cooldown-to-buff replacements use the same restriction-safe
+    -- one-slot AuraKit overlay as built-in aura active states. Unlike catalog
+    -- replacements there is no Blizzard buff-viewer frame to route, so the
+    -- engine binds the real aura icon, duration and stacks directly over the
+    -- target cooldown's fixed slot. Rules are bar-scoped to keep duplicate
+    -- cooldown identities on different bars independent.
+    local replacementSeen = {}
+    if ns._cdmAnyBuffReplacement then
+        for barKey, bd in pairs(ns.barDataByKey or {}) do
+            if bd.enabled and not bd.isGhostBar
+               and bd.barType ~= "buffs" and bd.barType ~= "custom_buff" then
+                local sd = ns.GetBarSpellData and ns.GetBarSpellData(barKey)
+                local settings = ns.GetSpellSettingsStore and ns.GetSpellSettingsStore(barKey)
+                if sd and sd.assignedSpells and settings then
+                    for _, targetSID in ipairs(sd.assignedSpells) do
+                        if type(targetSID) == "number" and targetSID > 0 then
+                            local ss = ns.ResolveVariantValue
+                                and ns.ResolveVariantValue(settings, targetSID)
+                            local buffSID = ss and rawget(ss, "replacementBuffSpellID")
+                            if ss and rawget(ss, "replacementBuffCustom")
+                               and type(buffSID) == "number" and buffSID > 0 then
+                                -- Include the aura identity: AuraKit bakes the
+                                -- candidate filter at build time, so changing a
+                                -- mapping must create a fresh rule/container.
+                                local key = barKey .. ":" .. targetSID .. ":" .. buffSID
+                                local rule = _replacementRules[key]
+                                if not rule then
+                                    rule = {}
+                                    _replacementRules[key] = rule
+                                end
+                                rule.spellID = targetSID
+                                rule.auraSpellID = buffSID
+                                rule.trigger = "aura"
+                                rule.barKey = barKey
+                                rule.replacementBuffCustom = true
+                                replacementSeen[key] = true
+                                if FA121 then FA121.Want(rule) else AddRule(rule) end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    for key in pairs(_replacementRules) do
+        if not replacementSeen[key] then _replacementRules[key] = nil end
     end
     if FA121 then FA121.EndSweep() end
 

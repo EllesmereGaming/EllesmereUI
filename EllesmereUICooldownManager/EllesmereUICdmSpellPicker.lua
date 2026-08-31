@@ -1816,6 +1816,60 @@ function ns.AddBuffToCDUtilBar(barKey, spellID)
     return true
 end
 
+--- Configure the buff that temporarily occupies a cooldown slot while active.
+--- The settings store is spec/profile aware, so the existing override system
+--- captures these scalar fields exactly like every other per-spell option.
+function ns.SetCooldownBuffReplacement(barKey, targetSpellID, buffSpellID, buffCooldownID, isCustom)
+    if type(targetSpellID) ~= "number" or targetSpellID <= 0 then return false end
+    if buffSpellID ~= nil and (type(buffSpellID) ~= "number" or buffSpellID <= 0) then
+        return false
+    end
+    local store = ns.GetSpellSettingsStore(barKey, true)
+    if not store then return false end
+
+    -- A tracked buff may own only one cooldown slot. CooldownID distinguishes
+    -- collided Blizzard catalog entries that share a canonical spell ID.
+    if buffSpellID then
+        local emptyKeys
+        for key, other in pairs(store) do
+            if type(other) == "table" and key ~= targetSpellID then
+                local otherSID = rawget(other, "replacementBuffSpellID")
+                local otherCdID = rawget(other, "replacementBuffCooldownID")
+                local same = buffCooldownID and otherCdID == buffCooldownID
+                if not same and not buffCooldownID and not otherCdID and otherSID then
+                    same = ns.IsVariantOf and ns.IsVariantOf(otherSID, buffSpellID)
+                end
+                if same then
+                    other.replacementBuffSpellID = nil
+                    other.replacementBuffCooldownID = nil
+                    other.replacementBuffCustom = nil
+                    if next(other) == nil then
+                        emptyKeys = emptyKeys or {}
+                        emptyKeys[#emptyKeys + 1] = key
+                    end
+                end
+            end
+        end
+        if emptyKeys then
+            for _, key in ipairs(emptyKeys) do store[key] = nil end
+        end
+    end
+
+    local ss = store[targetSpellID]
+    if not ss then ss = {}; store[targetSpellID] = ss end
+    ss.replacementBuffSpellID = buffSpellID
+    ss.replacementBuffCooldownID = buffSpellID and buffCooldownID or nil
+    ss.replacementBuffCustom = buffSpellID and isCustom and true or nil
+    if next(ss) == nil then store[targetSpellID] = nil end
+    if buffSpellID then ns._cdmAnyBuffReplacement = true end
+    ns._cdmResGen = (ns._cdmResGen or 0) + 1
+    ns._spellOrderDirty = true
+    if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
+    if ns.FakeActive_Rearm then ns.FakeActive_Rearm() end
+    if ns.QueueReanchor then ns.QueueReanchor() end
+    return true
+end
+
 --- Host a single collided-buff SLOT (cooldownID) on a CD/util bar. Same
 --- collision escape hatch as ns.AddTrackedBuffByCdID: two viewer slots can
 --- share one canonical spellID, so AddBuffToCDUtilBar's spellID-keyed
