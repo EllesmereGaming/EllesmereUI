@@ -4175,3 +4175,48 @@ EllesmereUI.RegisterMigration({
         end
     end,
 })
+
+-- Important Cast Glow lost every style built from square action-button art:
+-- Action Button Glow itself and the three FlipBook rings (GCD, Modern WoW,
+-- Classic WoW). All of them are sprites scaled to the frame, which on a cast bar
+-- smears the corners and thins the side borders. They remain in the nameplate
+-- AURA lists, where the frames are square icons and the art behaves.
+--
+-- Removing entries from the middle renumbers everything after them, so the saved
+-- index has to be re-pointed or a user silently ends up on a different style. The
+-- map is written out rather than derived: three source indices collapse onto one
+-- target, so no arithmetic covers it.
+--
+--   1 Pixel Glow          -> 1 Pixel Glow          (kept)
+--   2 Action Button Glow  -> 1 Pixel Glow          (nearest survivor that is a border)
+--   3 Auto-Cast Shine     -> 2 Auto-Cast Shine     (kept)
+--   4 GCD                 -> 4 Soft Bloom          (a soft animated ring, like GCD)
+--   5 Modern WoW Glow     -> 4 Soft Bloom
+--   6 Classic WoW Glow    -> 4 Soft Bloom
+--
+-- Source numbering is what 9.0.7 shipped, i.e. after
+-- np_important_cast_glow_style_reindex_v1 has run. Blizzard Important Cast, Soft
+-- Bloom and Pulse Border are new here and sit after the survivors, so no shipped
+-- index ever referred to them.
+--
+-- Guarded by a stored version, not by the runner's flag alone: a renumbering is
+-- not self-idempotent -- a second pass would read an already migrated 2 as Action
+-- Button and move it again -- so the version key is what makes the body safe if
+-- the flag is ever lost, as rule (2) requires.
+EllesmereUI.RegisterMigration({
+    id          = "np_important_cast_glow_drop_button_art_v1",
+    scope       = "profile",
+    description = "Re-point Important Cast Glow styles removed in the cast-bar pass (Action Button Glow, GCD, Modern WoW Glow, Classic WoW Glow) onto the nearest surviving style.",
+    body        = function(ctx)
+        local np = ctx.profile.addons and ctx.profile.addons.EllesmereUINameplates
+        if type(np) ~= "table" then return end
+        if np.importantCastGlowStyleVer then return end
+
+        local remap = { [1] = 1, [2] = 1, [3] = 2, [4] = 4, [5] = 4, [6] = 4 }
+        local s = np.importantCastGlowStyle
+        if type(s) == "number" and remap[s] then
+            np.importantCastGlowStyle = remap[s]
+        end
+        np.importantCastGlowStyleVer = 2
+    end,
+})

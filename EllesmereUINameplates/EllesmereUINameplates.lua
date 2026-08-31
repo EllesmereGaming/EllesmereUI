@@ -429,6 +429,10 @@ local defaults = {
     importantCastGlowSpeed = 4,
     importantCastGlowBackground = false,
     importantCastGlowBackgroundColor = { r = 0, g = 0, b = 0 },
+    -- Percent of bar height added around the glow frame. 0 puts the border on the
+    -- bar's edge; negative pulls the whole effect in tighter, which is the knob for
+    -- art whose halo reaches further out than you want.
+    importantCastGlowPad = 0,
     -- Core Positions: slot-based size + XY offsets
     topSlotSize = 26,        topSlotXOffset = 0,      topSlotYOffset = 0,      topSlotRaiseStrata = false,
     rightSlotSize = 24,      rightSlotXOffset = 0,    rightSlotYOffset = 0,    rightSlotRaiseStrata = false,
@@ -686,6 +690,42 @@ if EllesmereUI then EllesmereUI.NameplatePandemicGlowStyles = PANDEMIC_GLOW_STYL
 -- the two drift the first time a style is inserted into either one. On ns, not
 -- a file local: this chunk sits at the Lua 5.1 200-local cap.
 ns.NP_TO_SHARED_GLOW = { 1, 2, 3, 5, 6, 7 }
+
+-- Important Cast Glow gets one style the aura lists cannot use: Blizzard's own
+-- nameplate important-cast art (shared index 8). Every other style is action
+-- BUTTON art scaled onto whatever frame it lands on, which is what makes them
+-- smear across a long cast bar; that one is authored FOR a bar and stretches
+-- along its length by design. Meaningless on a square aura icon, so it is
+-- appended here instead of going into PANDEMIC_GLOW_STYLES. On ns for the same
+-- local-cap reason as the map above.
+-- Every action-button art style is dropped here -- Action Button Glow and the
+-- three FlipBook rings (GCD, Modern WoW, Classic WoW). All of them are square
+-- sprites scaled to the frame, which on a cast bar smears the corners and thins
+-- the side borders. They stay in PANDEMIC_GLOW_STYLES, where the frames are square
+-- aura icons and the art behaves. What is left is drawn per edge and holds its
+-- shape at any aspect: Pixel Glow, Auto-Cast Shine (which walks the perimeter in
+-- frame units), Blizzard's bar-authored art, and EUI's own edge glows. Filtered by
+-- NAME so the list survives reordering.
+ns.IMPORTANT_GLOW_STYLES, ns.IMPORTANT_TO_SHARED_GLOW = {}, {}
+for i = 1, #PANDEMIC_GLOW_STYLES do
+    local entry = PANDEMIC_GLOW_STYLES[i]
+    if entry.name ~= "Modern WoW Glow" and entry.name ~= "Classic WoW Glow"
+       and entry.name ~= "Action Button Glow" and entry.name ~= "GCD" then
+        local n = #ns.IMPORTANT_GLOW_STYLES + 1
+        ns.IMPORTANT_GLOW_STYLES[n] = entry
+        ns.IMPORTANT_TO_SHARED_GLOW[n] = ns.NP_TO_SHARED_GLOW[i]
+    end
+end
+ns.IMPORTANT_GLOW_STYLES[#ns.IMPORTANT_GLOW_STYLES + 1] = { name = "Blizzard Important Cast" }
+ns.IMPORTANT_TO_SHARED_GLOW[#ns.IMPORTANT_TO_SHARED_GLOW + 1] = 8
+-- EUI's own edge glows (shared 9 and 10). Drawn from primitives per edge rather
+-- than from a scaled sprite, so unlike every button-art style they hold their
+-- shape on a bar. Appended after Blizzard's so existing saved indices are
+-- untouched -- these two are additive, and need no migration.
+ns.IMPORTANT_GLOW_STYLES[#ns.IMPORTANT_GLOW_STYLES + 1] = { name = "Soft Bloom" }
+ns.IMPORTANT_TO_SHARED_GLOW[#ns.IMPORTANT_TO_SHARED_GLOW + 1] = 9
+ns.IMPORTANT_GLOW_STYLES[#ns.IMPORTANT_GLOW_STYLES + 1] = { name = "Pulse Border" }
+ns.IMPORTANT_TO_SHARED_GLOW[#ns.IMPORTANT_TO_SHARED_GLOW + 1] = 10
 
 local function GetPandemicGlowStyle()
     local raw = p and p.pandemicGlowStyle
@@ -7369,7 +7409,6 @@ function NameplateFrame:UpdateImportantCastGlow(spellID)
 
     if not self._importantCastOverlay then
         local ov = CreateFrame("Frame", nil, self.cast)
-        ov:SetAllPoints(self.cast)
         ov:SetFrameLevel(self.cast:GetFrameLevel() + 5)
         ov:EnableMouse(false)
         self._importantCastOverlay = ov
@@ -7379,7 +7418,7 @@ function NameplateFrame:UpdateImportantCastGlow(spellID)
     if not Glows then return end
 
     local style = cfg.importantCastGlowStyle or defaults.importantCastGlowStyle or 1
-    if type(style) ~= "number" or style < 1 or style > #PANDEMIC_GLOW_STYLES then style = 1 end
+    if type(style) ~= "number" or style < 1 or style > #ns.IMPORTANT_GLOW_STYLES then style = 1 end
     local c = cfg.importantCastGlowColor or defaults.importantCastGlowColor or { r = 1, g = 0.2, b = 0.2 }
     local bgColor = cfg.importantCastGlowBackgroundColor or defaults.importantCastGlowBackgroundColor or { r = 0, g = 0, b = 0 }
     local bgOn = cfg.importantCastGlowBackground == true
@@ -7392,22 +7431,90 @@ function NameplateFrame:UpdateImportantCastGlow(spellID)
         impPeriod = cfg.importantCastGlowSpeed or defaults.importantCastGlowSpeed or 4
     end
 
-    -- Ensure glow animation is running (idempotent if already active)
+    -- The spell icon hangs off the cast bar's outer edge. It is a CHILD of the cast
+    -- bar, so that is true in "Make Icon Part of the Bar" mode too -- that setting
+    -- narrows the BAR within the plate footprint, it does not tuck the icon inside
+    -- this frame. Anchoring the overlay to the bar alone therefore ran the glow's
+    -- side border straight down the icon's edge. Span both instead.
+    --
+    -- Vertical edges follow whichever frame is taller: the icon matches the bar at
+    -- scale 1, hangs BELOW it above that (top-aligned), and reaches UP to the health
+    -- bar's top when Full Sized. Taking the taller frame's top and bottom encloses
+    -- both in every one of those cases, where a fixed TOPLEFT/BOTTOMRIGHT pair would
+    -- clip the overhang.
+    local ov = self._importantCastOverlay
+    local icon = self.castIconFrame
+    local iconOut = icon and icon:IsShown()
+
+    local pW, pH = self.cast:GetWidth(), self.cast:GetHeight()
+    if pW < 5 then pW = 100 end
+    if pH < 5 then pH = 14 end
+
+    -- Pixel Glow draws its dashes INSIDE the wrapper: the strips are anchored to its
+    -- corners and sized inward, so an overlay flush with the bar paints the border on
+    -- top of the bar's own outermost pixels -- most obvious on the short left and
+    -- right edges. Push the overlay out by the dash thickness so the border rings the
+    -- bar instead of covering it. Every other style already draws beyond its frame
+    -- (baked padding, or Blizzard's own outset) and needs no room made for it.
+    --
+    -- Every style's art meets its frame edge, so a frame flush with the bar draws the
+    -- border across the bar's own outermost pixels. Stand the frame off. Horizontal
+    -- gets much the larger share: it is the edge that reads as wrong, and a stretched
+    -- texture's side border is its thinnest part, so it needs the most room to clear.
+    -- Both are multiples of the bar height, which keeps the standoff in proportion at
+    -- any bar size. Tune these two numbers if the glow sits too close or too far.
+    -- User-tunable, because the trade-off is a matter of taste and cannot be solved
+    -- from the art: each style's halo reaches a fixed fraction past the frame, so
+    -- sitting the border exactly on the bar edge is the same thing as accepting that
+    -- much bleed beyond it. Negative pad trades border placement for a tighter effect.
+    -- Vertical gets a third of the horizontal: bars are short, so the same pad reads
+    -- far heavier above and below than it does at the ends.
+    local pad = (cfg.importantCastGlowPad or defaults.importantCastGlowPad or 0) / 100
+    local barH = pH
+    local edge  = (style == 1) and (impTh or 2) or 0
+    local edgeX = edge + barH * pad
+    local edgeY = edge + barH * pad * 0.33
+
+    ov:ClearAllPoints()
+    if not iconOut then
+        ov:SetPoint("TOPLEFT", self.cast, "TOPLEFT", -edgeX, edgeY)
+        ov:SetPoint("BOTTOMRIGHT", self.cast, "BOTTOMRIGHT", edgeX, -edgeY)
+    else
+        local iScale = icon:GetScale() or 1
+        local iW = (icon:GetWidth() or 0) * iScale
+        local iH = (icon:GetHeight() or 0) * iScale
+        local tall = (iH > pH) and icon or self.cast
+        ov:SetPoint("TOP", tall, "TOP", 0, edgeY)
+        ov:SetPoint("BOTTOM", tall, "BOTTOM", 0, -edgeY)
+        if ns.GetCastIconOnRight() then
+            ov:SetPoint("LEFT", self.cast, "LEFT", -edgeX, 0)
+            ov:SetPoint("RIGHT", icon, "RIGHT", edgeX, 0)
+        else
+            ov:SetPoint("LEFT", icon, "LEFT", -edgeX, 0)
+            ov:SetPoint("RIGHT", self.cast, "RIGHT", edgeX, 0)
+        end
+        if iW > 0 then pW = pW + iW end
+        if iH > pH then pH = iH end
+    end
+    pW = pW + edgeX * 2
+    pH = pH + edgeY * 2
+
+    -- Ensure glow animation is running (idempotent if already active). The measured
+    -- size joins the key: the FlipBook and shine engines size themselves once at
+    -- start, so a bar or icon that changed dimensions has to restart them.
     if not self._importantGlowActive or self._importantGlowStyle ~= style
+       or self._importantGlowW ~= pW or self._importantGlowH ~= pH
        or self._importantGlowR ~= c.r or self._importantGlowG ~= c.g or self._importantGlowB ~= c.b
        or self._importantGlowBgOn ~= bgOn or self._importantGlowBgR ~= bgColor.r
        or self._importantGlowBgG ~= bgColor.g or self._importantGlowBgB ~= bgColor.b
        or self._importantGlowN ~= impN or self._importantGlowTh ~= impTh
        or self._importantGlowPeriod ~= impPeriod then
         Glows.StopAllGlows(self._importantCastOverlay)
-        local pW, pH = self.cast:GetWidth(), self.cast:GetHeight()
-        if pW < 5 then pW = 100 end
-        if pH < 5 then pH = 14 end
         -- StartGlow owns the per-style engine pick. Its Pixel Glow path reproduces
         -- the old direct call exactly: same lineLen formula, and an unset bg alpha
         -- resolves to 1 there, which is what omitting the argument used to do.
         local Start = StartGlow or Glows.StartGlow
-        Start(self._importantCastOverlay, ns.NP_TO_SHARED_GLOW[style] or 1, pW, c.r, c.g, c.b,
+        Start(self._importantCastOverlay, ns.IMPORTANT_TO_SHARED_GLOW[style] or 1, pW, c.r, c.g, c.b,
             style == 1 and {
                 N = impN, th = impTh, period = impPeriod,
                 bg = bgOn and { r = bgColor.r or 0, g = bgColor.g or 0, b = bgColor.b or 0 } or nil,
@@ -7418,6 +7525,7 @@ function NameplateFrame:UpdateImportantCastGlow(spellID)
         self._importantGlowBgOn = bgOn
         self._importantGlowBgR, self._importantGlowBgG, self._importantGlowBgB = bgColor.r, bgColor.g, bgColor.b
         self._importantGlowN, self._importantGlowTh, self._importantGlowPeriod = impN, impTh, impPeriod
+        self._importantGlowW, self._importantGlowH = pW, pH
     end
 
     -- SetAlphaFromBoolean handles the secret boolean taint-free.
