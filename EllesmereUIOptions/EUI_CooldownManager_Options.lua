@@ -1544,6 +1544,34 @@ initFrame:SetScript("OnEvent", function(self)
                         }
                     );  y = y - h
 
+                    -- Row: Require Min Stacks | Min Stack Count
+                    -- Same fail-open bias as the per-icon Glow at Stacks feature:
+                    -- an unknown/secret application count never blocks the glow.
+                    local stackRow
+                    stackRow, h = W:DualRow(parent, y,
+                        { type = "toggle", text = "Require Min Stacks",
+                          tooltip = "Only glow once the buff has reached this many stacks/applications.",
+                          disabled = function() return entry.mode == "MISSING" end,
+                          disabledTooltip = "Not available in Buff Missing mode",
+                          getValue = function() return (entry.stackThreshold or 0) > 1 end,
+                          setValue = function(v)
+                              entry.stackThreshold = v and math.max(2, tonumber(entry.stackThreshold) or 2) or nil
+                              Refresh()
+                          end,
+                        },
+                        { type = "input", text = "Min Stack Count", inputWidth = 42, commitOnBlur = true,
+                          disabled = function() return entry.mode == "MISSING" or not ((entry.stackThreshold or 0) > 1) end,
+                          disabledTooltip = "Enable Require Min Stacks",
+                          getValue = function() return tostring(tonumber(entry.stackThreshold) or 2) end,
+                          setValue = function(v)
+                              local t = math.floor(tonumber(v) or 2)
+                              if t < 2 then t = 2 end
+                              if t > 99 then t = 99 end
+                              entry.stackThreshold = t
+                          end,
+                        }
+                    );  y = y - h
+
                     -- Helper: resolve current glow color and restart preview if active
                     local pvKey = assignKey .. "_" .. aIdx
                     local function RefreshPreviewGlow()
