@@ -1007,6 +1007,15 @@ initFrame:SetScript("OnEvent", function(self)
         return out
     end
 
+    local function OutfitEntries()
+        local out = {}
+        for _, slot in ipairs(ns.OutfitSlots and ns.OutfitSlots() or {}) do
+            local icon, name = ns.SlotDisplay(slot)
+            out[#out + 1] = { icon = icon, name = name, slot = slot }
+        end
+        return out
+    end
+
     -- Every palette this one may open. Not a list of things the game owns, so
     -- it is rebuilt on each use rather than cached: adding a palette or filling
     -- one in has to show up here without reopening the picker.
@@ -1080,6 +1089,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- the whole interface is under twenty rows, and a search box over a
         -- list the user is scanning by ICON buys nothing.
         { key = "panel",     label = "Interface Panels", build = PanelEntries,
+          keepOrder = true, noSearch = true },
+        -- keepOrder: the pane's order IS the numbering the game gives these outfits.
+        { key = "outfit",    label = "Outfits", build = OutfitEntries,
           keepOrder = true, noSearch = true },
         { key = "macrotext", label = "Custom Macro...", custom = true },
     }
@@ -1957,8 +1969,18 @@ initFrame:SetScript("OnEvent", function(self)
         return ns.PanelSlots and ns.PanelSlots(false) or {}
     end
 
+    -- Also returns the overflow: a collector can have more outfits than a menu fits.
+    local function OutfitSlots()
+        local all = ns.OutfitSlots and ns.OutfitSlots() or {}
+        if #all <= MAX_SLOTS then return all end
+        local out = {}
+        for i = 1, MAX_SLOTS do out[i] = all[i] end
+        return out, #all - MAX_SLOTS
+    end
+
     local PALETTE_PRESETS = {
         { label = "Interface Panels", build = InterfacePanelSlots },
+        { label = "Outfits",        build = OutfitSlots },
         { label = "Target Markers", build = TargetMarkerSlots },
         { label = "World Markers",  build = WorldMarkerSlots },
         { label = "Pings",          build = PingSlots },

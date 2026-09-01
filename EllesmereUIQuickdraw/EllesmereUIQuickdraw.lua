@@ -1264,6 +1264,69 @@ do
 end
 
 -------------------------------------------------------------------------------
+--  Outfits  (transmog outfits, NOT the Equipment Manager's gear sets)
+--
+--  Slots store the outfitID. The secure action wants the outfit's position, which
+--  shifts on every add, delete and reorder, so ResolveAction converts at push time
+--  and TRANSMOG_OUTFITS_CHANGED re-pushes.
+--
+--  Never filtered by IsLockedOutfit: that flag is the appearance lock the player
+--  toggles, not an unset slot, and filtering on it hid their locked outfits.
+-------------------------------------------------------------------------------
+do
+    -- Slots are account-wide but their contents per character, so an alt sees the
+    -- main's slots holding placeholders. Their name is no test -- "Outfit 3",
+    -- localized -- but their icon is always the question mark, here as a fileID.
+    local UNSET_ICON = 134400
+    ns.OutfitIsSet = function(info)
+        local icon = info and ns.OutfitIcon(info)
+        return icon ~= nil and icon ~= UNSET_ICON
+    end
+
+    -- playerFacingOutfitIndex is 12.0.5+, so the walk position is the fallback.
+    -- Numeric walk: a nil from an empty slot would stop ipairs and hide the rest.
+    ns.OutfitInfo = function(outfitID)
+        if type(outfitID) ~= "number" then return nil end
+        local list = C_TransmogOutfitInfo.GetOutfitsInfo()
+        if not list then return nil end
+        for index = 1, #list do
+            local info = list[index]
+            if info and info.outfitID == outfitID then
+                return info, info.playerFacingOutfitIndex or index
+            end
+        end
+        return nil
+    end
+
+    -- 0 is the "no icon" fileID and is truthy, so `or fallback` cannot catch it.
+    ns.OutfitIcon = function(info)
+        local icon = info and info.icon
+        if type(icon) == "number" then
+            return icon > 0 and icon or nil
+        end
+        return icon
+    end
+
+    -- name is copied onto the slot so a deleted outfit still draws under it.
+    ns.OutfitSlots = function()
+        local out = {}
+        local list = C_TransmogOutfitInfo.GetOutfitsInfo()
+        if not list then return out end
+        for i = 1, #list do
+            local info = list[i]
+            if info and info.outfitID and ns.OutfitIsSet(info) then
+                local icon = ns.OutfitIcon(info) or { atlas = "poi-transmogrifier" }
+                out[#out + 1] = {
+                    kind = "outfit", id = info.outfitID, name = info.name,
+                    icon = icon,
+                }
+            end
+        end
+        return out
+    end
+end
+
+-------------------------------------------------------------------------------
 --  Dynamic Rez
 --
 --  One entry that is whichever resurrection spell this character has, so a
@@ -1486,6 +1549,8 @@ local function SlotUsable(slot)
         -- region's build. Hidden by the same setting all the same -- an entry
         -- that can never open anything is one to keep off the ring.
         return ns.PanelAvailable(ns.PanelDef(slot))
+    elseif k == "outfit" then
+        return ns.OutfitIsSet(ns.OutfitInfo(slot.id))
     elseif k == "dynamicrez" then
         -- By CLASS rather than by what is in the book right now, which is what
         -- ns.HasRezKit answers: a paladin who has not taken Intercession still
@@ -1694,6 +1759,13 @@ local function ResolveAction(slot, p)
         local text = ns.PanelMacro(ns.PanelDef(slot))
         if not text then return nil end
         return "macro", "macrotext", text, "macro"
+
+    elseif k == "outfit" then
+        -- Secure action rather than "/outfit <n>", which takes the same number but
+        -- TOGGLES: a second press on the worn outfit clears every transmog.
+        local info, index = ns.OutfitInfo(slot.id)
+        if not index or not ns.OutfitIsSet(info) then return nil end
+        return "outfit", "outfit-index", index
 
     elseif k == "cycleraidtarget" or k == "cycleworldmarker" then
         -- The step the position on the slot says is up. The snippet overwrites
@@ -1986,6 +2058,12 @@ local function SlotDisplay(slot)
         -- A key from a newer version of the module, or one that has been
         -- retired. Drawn as an occupied slot, like every other unresolved kind.
         return QUESTION_MARK, slot.name or "Interface Panel"
+
+    elseif k == "outfit" then
+        -- Never through EllesmereUI.L: user data, not a string to translate.
+        local info = ns.OutfitInfo(slot.id)
+        if ns.OutfitIsSet(info) then return ns.OutfitIcon(info) or slot.icon, info.name end
+        return slot.icon, slot.name or "Outfit"
 
     elseif k == "palette" then
         -- ReadPalette, not EnsurePalette: a nested parent is repainted from the
@@ -7679,6 +7757,9 @@ local SNIPPET_PRE = [==[
     -- together.
     self:SetAttribute("action", nil)
     self:SetAttribute("marker", nil)
+    -- A stale index is still a valid one, so a failed resolve would wear the wrong
+    -- outfit rather than do nothing.
+    self:SetAttribute("outfit-index", nil)
 
     -- A cycling entry names a different marker on every press, and the position
     -- it has reached has to advance HERE: an insecure SetAttribute is refused
@@ -9426,6 +9507,8 @@ function SetEventsEnabled(on)
         -- PLAYER_REGEN_ENABLED like every other push.
         EQD:RegisterEvent("SPELLS_CHANGED", RequestPush)
         EQD:RegisterEvent("UPDATE_MACROS", RequestPush)
+        -- Positions shift on add, delete and reorder -- see the Outfits section.
+        EQD:RegisterEvent("TRANSMOG_OUTFITS_CHANGED", RequestPush)
         -- Which world markers are down, for a menu that is open while they
         -- move. That is SOMEBODY ELSE's doing: firing an entry closes the menu,
         -- so the presser never sees their own pip change. It is worth the one
@@ -9490,6 +9573,7 @@ function SetEventsEnabled(on)
         EQD:UnregisterEvent("PLAYER_ENTERING_WORLD")
         EQD:UnregisterEvent("SPELLS_CHANGED")
         EQD:UnregisterEvent("UPDATE_MACROS")
+        EQD:UnregisterEvent("TRANSMOG_OUTFITS_CHANGED")
         EQD:UnregisterEvent("RAID_TARGET_UPDATE")
         EQD:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
     end
