@@ -1149,6 +1149,19 @@ function ns.ResolveAbsorbStyleTex(style, fallback)
         or fallback
 end
 
+-- SetStatusBarTexture leaves the texture's wrap mode set to CLAMP. SetHorizTile and SetVertTile require the corresponding dimension's wrap mode to be REPEAT for tiling to work.
+-- As a workaround, we reset the texture directly with the appropriate wrap mode.
+function ns.ApplyStatusBarTextureTiling(barTexture, mode)
+    if mode then
+        local wrapModeHorizontal = (mode == "BOTH" or mode == "HORIZ") and "REPEAT" or "CLAMP"
+        local wrapModeVertical = (mode == "BOTH" or mode == "VERT")  and "REPEAT" or "CLAMP"
+
+        barTexture:SetTexture(barTexture:GetTexture(), wrapModeHorizontal, wrapModeVertical)
+    end
+    barTexture:SetHorizTile(mode == "BOTH" or mode == "HORIZ")
+    barTexture:SetVertTile(mode == "BOTH" or mode == "VERT")
+end
+
 -------------------------------------------------------------------------------
 --  Power bar visibility (derived from role flags)
 -------------------------------------------------------------------------------
@@ -1942,8 +1955,7 @@ ns.ApplyModernAbsorbBar = function(bar, mask)
     local fill = bar:GetStatusBarTexture()
     if fill then
         fill:SetDrawLayer("ARTWORK", 1)
-        fill:SetHorizTile(true)
-        fill:SetVertTile(true)
+        ns.ApplyStatusBarTextureTiling(fill, "BOTH")
         if mask then fill:AddMaskTexture(mask) end
         local base = bar._modernBase
         if base then base:SetAllPoints(fill); base:Show() end
@@ -1990,8 +2002,7 @@ local function ApplyAbsorbStyle(absorbBar, style, settings)
     local fill = absorbBar:GetStatusBarTexture()
     if fill then
         fill:SetDrawLayer("ARTWORK", 1)
-        fill:SetHorizTile(tiled)
-        fill:SetVertTile(tiled)
+        ns.ApplyStatusBarTextureTiling(fill, tiled and "BOTH")
         if mask then fill:AddMaskTexture(mask) end
     end
     -- New fill object + new tiling state: re-derive rotation.
@@ -2002,8 +2013,7 @@ local function ApplyAbsorbStyle(absorbBar, style, settings)
         local fwFill = fw:GetStatusBarTexture()
         if fwFill then
             fwFill:SetDrawLayer("ARTWORK", 1)
-            fwFill:SetHorizTile(tiled)
-            fwFill:SetVertTile(tiled)
+            ns.ApplyStatusBarTextureTiling(fwFill, tiled and "BOTH")
             if mask then fwFill:AddMaskTexture(mask) end
         end
         ns.RF_ApplyFillRotation(fw)
@@ -2024,8 +2034,7 @@ ns.ApplyHealAbsorbStyle = function(haBar, style, settings)
     local fill = haBar:GetStatusBarTexture()
     if fill then
         fill:SetDrawLayer("ARTWORK", 2)
-        fill:SetHorizTile(tiled)
-        fill:SetVertTile(tiled)
+        ns.ApplyStatusBarTextureTiling(fill, tiled and "BOTH")
         if mask then fill:AddMaskTexture(mask) end
     end
     ns.RF_ApplyFillRotation(haBar)
@@ -2053,8 +2062,7 @@ ns.ApplyMaxHealthStyle = function(bar, style, settings)
     local fill = bar:GetStatusBarTexture()
     if fill then
         fill:SetDrawLayer("ARTWORK", 3)
-        fill:SetHorizTile(tiled)
-        fill:SetVertTile(tiled)
+        ns.ApplyStatusBarTextureTiling(fill, tiled and "BOTH")
     end
     ns.RF_ApplyFillRotation(bar)
 end
@@ -2480,7 +2488,7 @@ local function CreateAbsorbBar(button, healthBar)
     local rmhFill = reducedBar:GetStatusBarTexture()
     if rmhFill then
         rmhFill:SetDrawLayer("ARTWORK", 3)
-        rmhFill:SetHorizTile(true); rmhFill:SetVertTile(true)
+        ns.ApplyStatusBarTextureTiling(rmhFill, "BOTH")
     end
     reducedBar:SetStatusBarColor(0.7, 0.1, 0.1, 1)
     reducedBar:SetReverseFill(true)
@@ -11861,7 +11869,7 @@ local function CreatePreviewFrame(index)
         local rmhFill = rmh:GetStatusBarTexture()
         if rmhFill then
             rmhFill:SetDrawLayer("ARTWORK", 3)
-            rmhFill:SetHorizTile(true); rmhFill:SetVertTile(true)
+            ns.ApplyStatusBarTextureTiling(rmhFill, "BOTH")
         end
         rmh:SetStatusBarColor(0.7, 0.1, 0.1, 1)
         rmh:SetReverseFill(true)
@@ -12653,8 +12661,7 @@ local function ApplyPreviewData(f, index)
                 local bfFill = f._absorbBar:GetStatusBarTexture()
                 if bfFill then
                     bfFill:SetDrawLayer("ARTWORK", 1)
-                    bfFill:SetHorizTile(tiled)
-                    bfFill:SetVertTile(tiled)
+                    ns.ApplyStatusBarTextureTiling(bfFill, tiled and "BOTH")
                     if mask then bfFill:AddMaskTexture(mask) end
                 end
 
@@ -12665,8 +12672,7 @@ local function ApplyPreviewData(f, index)
                     local fwFill = fw:GetStatusBarTexture()
                     if fwFill then
                         fwFill:SetDrawLayer("ARTWORK", 1)
-                        fwFill:SetHorizTile(tiled)
-                        fwFill:SetVertTile(tiled)
+                        ns.ApplyStatusBarTextureTiling(fwFill, tiled and "BOTH")
                         if mask then fwFill:AddMaskTexture(mask) end
                     end
                 end
@@ -12891,8 +12897,7 @@ local function ApplyPreviewData(f, index)
             local haFillPv = f._healAbsorbBar:GetStatusBarTexture()
             if haFillPv then
                 haFillPv:SetDrawLayer("ARTWORK", 2)
-                haFillPv:SetHorizTile(tiled)
-                haFillPv:SetVertTile(tiled)
+                ns.ApplyStatusBarTextureTiling(haFillPv, tiled and "BOTH")
                 if mask then haFillPv:AddMaskTexture(mask) end
             end
             f._healAbsorbBar:SetMinMaxValues(0, 100)
