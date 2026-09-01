@@ -1264,7 +1264,7 @@ initFrame:SetScript("OnEvent", function(self)
                   -- mouseoverEnabled, which an override does not write, so a Mouseover
                   -- override would silently behave like Always. Offered as locked rather
                   -- than looking available and doing nothing.
-                  caps = { partyIncludesRaid = false, luaDragonriding = true,
+                  caps = { partyIncludesRaid = false, luaSkyriding = true,
                            noOverrideMouseover = true },
                   applyScalarFn = function(s, mode) ApplyVisibilityKey(s, mode) end,
                   disabledFn = disabledFn, disabledTooltip = disTip, rawTooltip = disTip and true or nil,
@@ -1705,7 +1705,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
             -- Data bars evaluate in Lua (non-secure), so dragonriding items depend on the gliding
             -- edge event; secure bars' drivers re-evaluate natively and never lock.
-            if IsDataBar() then visCaps.luaDragonriding = true end
+            if IsDataBar() then visCaps.luaSkyriding = true end
 
             visRow1, h = EllesmereUI.BuildVisibilityRow(W, parent, y,
                 { getStore = function()

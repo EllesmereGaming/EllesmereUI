@@ -96,7 +96,7 @@ initFrame:SetScript("OnEvent", function(self)
         local visRow
         visRow, h = EllesmereUI.BuildVisibilityRow(W, parent, y,
             { getStore = DB, legacyKey = "visibility",
-              caps = { partyIncludesRaid = false, luaDragonriding = true },
+              caps = { partyIncludesRaid = false, luaSkyriding = true },
               onChanged = VisApply,
               onOptionChanged = VisApply },
             -- Refresh Rate moved up into the slot the Visibility Options dropdown left

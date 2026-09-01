@@ -6,7 +6,7 @@
 ## Author: Ellesmere
 ## Version: 9.1.4
 ## Dependencies: EllesmereUI
-## SavedVariables: EllesmereUIBlizzardSkinDB, EllesmereUIDragonRidingDB
+## SavedVariables: EllesmereUIBlizzardSkinDB, EllesmereUISkyridingDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
 # Main Luas
@@ -15,7 +15,7 @@ EllesmereUIBlizzardSkin_DiminishingReturns.lua
 EllesmereUIBlizzardSkin_CharacterSheet.lua
 EllesmereUIBlizzardSkin_SocketPanel.lua
 EllesmereUIBlizzardSkin_InspectSheet.lua
-EllesmereUIBlizzardSkin_DragonRiding.lua
+EllesmereUIBlizzardSkin_Skyriding.lua
 EllesmereUIBlizzardSkin_GreatVault.lua
 EllesmereUIBlizzardSkin_GroupFinder.lua
 

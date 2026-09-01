@@ -4579,7 +4579,7 @@ initFrame:SetScript("OnEvent", function(self)
         visRow, h = EllesmereUI.BuildVisibilityRow(W, parent, y,
             { getStore = function() return UNIT_DB_MAP[selectedUnit]() end,
               legacyKey = "barVisibility",
-              caps = { partyIncludesRaid = false, luaDragonriding = true },
+              caps = { partyIncludesRaid = false, luaSkyriding = true },
               refreshPageArg = true,
               -- Visibility owns only the hidden/not-hidden axis: "never" disables
               -- the frame, any visible mode re-enables it. frameSource (the inline

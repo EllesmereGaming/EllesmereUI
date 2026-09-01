@@ -8354,7 +8354,7 @@ end
 --      getStore      = fn -> settings table (required)
 --      legacyKey     = "visibility" | "barVisibility" (required)
 --      caps          = { partyIncludesRaid, noMouseover, noGroupModes,
---                        luaDragonriding, lockedTooltips = { key = text } }
+--                        luaSkyriding, lockedTooltips = { key = text } }
 --      applyScalarFn = optional fn(store, mode) for the module's scalar write side effects (Action Bars
 --                      ApplyMode, Unit Frames side-effect chain, ...)
 --      onChanged     = fn called after every selection write (module's refresh chain; row calls RefreshPage itself)
@@ -8374,9 +8374,9 @@ EllesmereUI.VIS_MODE_ITEMS = {
       tooltip = "Combines with conditions: shows on hover only while they pass." },
     { key = "in_combat",     label = "In Combat" },
     { key = "out_of_combat", label = "Out of Combat" },
-    { key = "show_dragonriding",     label = "When Dragonriding",
+    { key = "show_dragonriding",     label = "When Skyriding",
       tooltip = "Only while airborne on a skyriding mount." },
-    { key = "show_not_dragonriding", label = "When Not Dragonriding",
+    { key = "show_not_dragonriding", label = "When Not Skyriding",
       tooltip = "Whenever not airborne on a skyriding mount." },
     { key = "in_raid",  label = "In Raid Group" },
     { key = "in_party", label = "In Party" },
@@ -8412,7 +8412,7 @@ function EllesmereUI.BuildVisibilityModeRow(W, parent, y, opts, rightCfg)
                 item.lockedTooltip = (caps.lockedTooltips and caps.lockedTooltips[def.key])
                     or "This element cannot use group-based visibility."
             end
-            if caps.luaDragonriding and (def.key == "show_dragonriding" or def.key == "show_not_dragonriding") then
+            if caps.luaSkyriding and (def.key == "show_dragonriding" or def.key == "show_not_dragonriding") then
                 item.lockedFn = function() return not EllesmereUI._hasGlidingEvent end
                 item.lockedTooltip = "Requires a client with gliding events."
             end
@@ -8577,7 +8577,7 @@ end
 --                            store; the marker replaces the shared value, so it has to
 --                            reach exactly the stores that value does.
 --      caps                = { noMouseover, noGroupModes, noOverrideMouseover,
---                              luaDragonriding, lockedTooltips }
+--                              luaSkyriding, lockedTooltips }
 --      applyScalarFn       = optional fn(store, mode) for scalar side effects
 --      getOption/setOption = optional fn(key)/fn(key, value) when option booleans live
 --                            outside getStore() (Resource Bars writes three stores)
@@ -8734,7 +8734,7 @@ function EllesmereUI.AttachVisibilityChecklist(region, opts)
             end
             -- Only the two airborne rows need the takeoff/landing edge; the mount row
             -- rides PLAYER_CAN_GLIDE_CHANGED, which is always registered.
-            if caps.luaDragonriding and (def.key == "skyAirborne" or def.key == "notSkyAirborne") then
+            if caps.luaSkyriding and (def.key == "skyAirborne" or def.key == "notSkyAirborne") then
                 item.lockedFn = function() return not EllesmereUI._hasGlidingEvent end
                 item.lockedTooltip = "Requires a client with gliding events."
             end

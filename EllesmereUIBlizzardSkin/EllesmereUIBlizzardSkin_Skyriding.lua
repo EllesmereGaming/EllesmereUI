@@ -1,6 +1,6 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
---  EllesmereUIBlizzardSkin_DragonRiding.lua - Skyriding HUD
+--  EllesmereUIBlizzardSkin_Skyriding.lua - Skyriding HUD
 -------------------------------------------------------------------------------
 local _, ns = ...
 
@@ -528,7 +528,7 @@ end
 
 function Build()
     if rootFrame then return end
-    rootFrame = CreateFrame("Frame", "EllesmereUIDragonRidingAnchor", UIParent)
+    rootFrame = CreateFrame("Frame", "EllesmereUISkyridingAnchor", UIParent)
     rootFrame:SetFrameStrata("MEDIUM")
     rootFrame:Hide()
     rootFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
@@ -689,8 +689,8 @@ function RegisterUnlockElements()
     EllesmereUI:RegisterUnlockElements({
         MK({
             key   = "EDR_Cluster",
-            label = "Dragon Riding",
-            group = "Dragon Riding",
+            label = "Skyriding",
+            group = "Skyriding",
             order = 700,
             getFrame = function() return rootFrame end,
             getSize  = function()
@@ -794,7 +794,7 @@ initFrame:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
     if not EllesmereUI or not EllesmereUI.Lite then return end
 
-    db = EllesmereUI.Lite.NewDB("EllesmereUIDragonRidingDB", DB_DEFAULTS)
+    db = EllesmereUI.Lite.NewDB("EllesmereUISkyridingDB", DB_DEFAULTS)
     ns.edrDB = db
 
     -- If disabled, skip all frame creation and event registration.

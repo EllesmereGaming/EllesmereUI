@@ -75,7 +75,7 @@ local WINDOW_ENABLE_KEYS = {
 --- profiles[name].disableWindowSkins, resolved live (follows profile switches,
 --- rides exports); nil/false = enabled. Per-window enable keys and style picks are
 --- PRESERVED while killed. Skins install at load, so crossings need a reload
---- (callers show the popup). Queue Popup, Pause Menu, and Dragon Riding are not windows and stay untouched.
+--- (callers show the popup). Queue Popup, Pause Menu, and Skyriding are not windows and stay untouched.
 function EllesmereUI.BlizzWindowSkinsKilled()
     local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
     return (prof and prof.disableWindowSkins) and true or false

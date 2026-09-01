@@ -582,8 +582,8 @@ EllesmereUI._ELEMENT_SETTINGS_MAP = {
     ["EMT_TargetCastBar"]  = { module = "EllesmereUIMythicTimer",     page = "Target/Focus Bars", sectionName = "TARGET CAST BAR",   highlightText = "Enable Target Cast Bar" },
     ["EMT_FocusCastBar"]   = { module = "EllesmereUIMythicTimer",     page = "Target/Focus Bars", sectionName = "FOCUS CAST BAR",    highlightText = "Enable Focus Cast Bar" },
 
-    -- Dragon Riding HUD (Blizz UI Enhanced > Dragon Riding page)
-    ["EDR_Cluster"]        = { module = "EllesmereUIBlizzardSkin",    page = "Dragon Riding",     sectionName = "GENERAL",           highlightText = "Enable Dragon Riding Bar" },
+    -- Skyriding HUD (Blizz UI Enhanced > Skyriding page)
+    ["EDR_Cluster"]        = { module = "EllesmereUIBlizzardSkin",    page = "Skyriding",         sectionName = "GENERAL",           highlightText = "Enable Skyriding Bar" },
 
     -- Fixed-position tooltip anchor (Blizz UI Enhanced > Tooltips, Menus & Popups)
     ["EUI_TooltipAnchor"]  = { module = "EllesmereUIBlizzardSkin",    page = "Tooltips, Menus & Popups", sectionName = "BLIZZARD TOOLTIP", highlightText = "Anchor to Cursor" },
@@ -11327,7 +11327,7 @@ local function DoClose(closeAction)
         _G.EllesmereUIQuestTracker.UpdateVisibility()
     end
 
-    -- Re-check Dragon Riding's real visibility (it force-shows while unlocked
+    -- Re-check Skyriding's real visibility (it force-shows while unlocked
     -- so it can be edited off-mount; without this it stays stuck visible
     -- after exiting Unlock Mode if the player dismounted while unlocked).
     if _G._EDR_UpdateVisibility then pcall(_G._EDR_UpdateVisibility) end
@@ -12751,7 +12751,7 @@ local function SuspendForCombat()
     -- ResumeAfterCombat's sweep releases them again for editing.
     if EllesmereUI._ReapplyOverrideAnchors then EllesmereUI._ReapplyOverrideAnchors() end
 
-    -- Re-check Dragon Riding's real visibility (it force-shows while
+    -- Re-check Skyriding's real visibility (it force-shows while
     -- _unlockActive is true so it can be edited off-mount; must run AFTER
     -- _unlockActive is cleared above, or UpdateVisibility() still hits that
     -- force-show branch and this call is a no-op).
@@ -12795,7 +12795,7 @@ local function ResumeAfterCombat()
     if EllesmereUI._ReapplyOverrideAnchors then EllesmereUI._ReapplyOverrideAnchors() end
     if EllesmereUI._RefreshOverrideGhosts then EllesmereUI._RefreshOverrideGhosts() end
 
-    -- Re-check Dragon Riding's visibility now that _unlockActive is true again:
+    -- Re-check Skyriding's visibility now that _unlockActive is true again:
     -- SuspendForCombat's re-check hid the HUD for a dismounted player, and without
     -- this mirror call the force-show branch never re-evaluates on resume -- the
     -- element would stay invisible (and uneditable) until a mount/dismount re-runs UpdateVisibility.

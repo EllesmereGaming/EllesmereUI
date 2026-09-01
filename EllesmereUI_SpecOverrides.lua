@@ -63,11 +63,11 @@ local LIST_PAGE = "Overrides"
 -- prune (PruneOrphanEntries strips persisted paths and drops emptied entries).
 local FOLDER_BLACKLIST = {
     EllesmereUIBlizzardSkin      = true,
-    -- Skyriding HUD's sub-DB (EllesmereUIDragonRidingDB) registers from inside
+    -- Skyriding HUD's sub-DB (EllesmereUISkyridingDB) registers from inside
     -- BlizzardSkin, dodging that blacklist entry; unmapped folders force a full
     -- RefreshAllAddons per write (minutes of refresh after combat spec changes).
     -- Blacklisted here too; a migration strips existing captured entries.
-    EllesmereUIDragonRiding      = true,
+    EllesmereUISkyriding         = true,
     EllesmereUIDamageMeters      = true,
     EllesmereUIMythicTimer       = true,
     EllesmereUIQuestTracker      = true,
@@ -103,7 +103,7 @@ local REFRESH_FNS = {
     EllesmereUIAuraBuffReminders = { "_EABR_RequestRefresh", "_EABR_ApplyUnlockPos" },
     -- Capture/apply-blacklisted (see FOLDER_BLACKLIST); insurance so a leaked
     -- key can never hit the unmapped-folder fallback's full RefreshAllAddons.
-    EllesmereUIDragonRiding      = { "_EDR_Rebuild" },
+    EllesmereUISkyriding         = { "_EDR_Rebuild" },
 }
 
 -- Class glyph sprite (toolbar button) + modern class sprite (group icons)

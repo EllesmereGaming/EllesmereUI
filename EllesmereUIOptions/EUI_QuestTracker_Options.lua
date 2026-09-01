@@ -115,7 +115,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- left behind: it answers the same question the Visibility control does.
         _, h = EllesmereUI.BuildVisibilityRow(W, parent, y,
             { getStore = DB, legacyKey = "visibility",
-              caps = { partyIncludesRaid = false, luaDragonriding = true },
+              caps = { partyIncludesRaid = false, luaSkyriding = true },
               onChanged = function() RefreshAll() end,
               onOptionChanged = function() RefreshAll() end },
             { type="dropdown", text="Hide When In Raid",
