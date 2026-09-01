@@ -1463,7 +1463,8 @@ ns.BlockFactories.combatTimer = function(blockCfg, slot, content, barCtx)
     }
 
     local mouseOver = false
-    local lastDuration = -1
+    local combatActive = false
+    local frozenDuration = 0
 
     local function D()
         return blockCfg.settings or {}
@@ -1479,12 +1480,18 @@ ns.BlockFactories.combatTimer = function(blockCfg, slot, content, barCtx)
             or not Enum
             or not Enum.DamageMeterSessionType
         then
-            return 0
+            return frozenDuration or 0
         end
 
-        return C_DamageMeter.GetSessionDurationSeconds(
+        local duration = C_DamageMeter.GetSessionDurationSeconds(
             Enum.DamageMeterSessionType.Current
-        ) or 0
+        )
+
+        if type(duration) ~= "number" then
+            return frozenDuration or 0
+        end
+
+        return duration
     end
 
     local function FormatDuration(seconds)
@@ -1537,9 +1544,6 @@ ns.BlockFactories.combatTimer = function(blockCfg, slot, content, barCtx)
         local barH = barCtx.GetThickness()
         local isSide = barCtx.IsVertical()
 
-        local duration = GetCombatDuration()
-        lastDuration = duration
-
         local inCombat = UnitAffectingCombat("player")
 
         if D().onlyInCombat and not inCombat then
@@ -1550,6 +1554,20 @@ ns.BlockFactories.combatTimer = function(blockCfg, slot, content, barCtx)
 
         if not content:IsShown() then
             content:Show()
+        end
+
+        local duration
+
+        if combatActive then
+            duration = GetCombatDuration()
+
+            -- Keep the most recent valid value so that a session reset
+            -- cannot overwrite the final duration with a smaller value.
+            if duration >= frozenDuration then
+                frozenDuration = duration
+            end
+        else
+            duration = frozenDuration
         end
 
         ns.SetFont(text, fontSize, barCfg)
@@ -1588,7 +1606,6 @@ ns.BlockFactories.combatTimer = function(blockCfg, slot, content, barCtx)
 
             ns.SetFont(measureFS, fontSize, barCfg)
 
-            -- Reserve enough space for the largest normal timer string.
             measureFS:SetText("00:00")
             local width = measureFS:GetStringWidth() or 30
 
@@ -1612,8 +1629,84 @@ ns.BlockFactories.combatTimer = function(blockCfg, slot, content, barCtx)
         MaybeRelayout(inst)
     end
 
-    local function RefreshFromEvent()
+    local function StartTimer()
+        if combatActive then
+            return
+        end
+
+        combatActive = true
+
+        -- Immediately pick up the current Blizzard session duration.
+        local duration = GetCombatDuration()
+        if duration >= frozenDuration then
+            frozenDuration = duration
+        end
+
+        if not inst._heartbeatActive then
+            inst._heartbeatActive = true
+
+            ns.RegisterHeartbeat("combatTimer:" .. inst.key, function()
+                if not inst._dead and combatActive then
+                    inst:Refresh()
+                end
+            end)
+        end
+
         inst:Refresh()
+    end
+
+    local function StopTimer()
+        if not combatActive then
+            return
+        end
+
+        -- Do one final read before freezing the value.
+        local duration = GetCombatDuration()
+
+        if duration >= frozenDuration then
+            frozenDuration = duration
+        end
+
+        combatActive = false
+
+        if inst._heartbeatActive then
+            ns.UnregisterHeartbeat("combatTimer:" .. inst.key)
+            inst._heartbeatActive = false
+        end
+
+        inst:Refresh()
+    end
+
+    local function RefreshFromEvent(_, event)
+        if event == "PLAYER_REGEN_DISABLED" then
+            StartTimer()
+            return
+        end
+
+        if event == "PLAYER_REGEN_ENABLED" then
+            StopTimer()
+            return
+        end
+
+        if event == "PLAYER_ENTERING_WORLD" then
+            local inCombat = UnitAffectingCombat("player")
+
+            if inCombat then
+                StartTimer()
+            else
+                combatActive = false
+                inst:Refresh()
+            end
+
+            return
+        end
+
+        -- Damage Meter session updates can indicate that the current
+        -- session rolled over. The next refresh reads the new Blizzard
+        -- session duration directly.
+        if combatActive then
+            inst:Refresh()
+        end
     end
 
     frame:SetScript("OnEnter", function()
@@ -1627,6 +1720,13 @@ ns.BlockFactories.combatTimer = function(blockCfg, slot, content, barCtx)
     end)
 
     function inst:Enable()
+        if self._enabled then
+            return
+        end
+
+        self._enabled = true
+        self._dead = false
+
         content:Show()
 
         if not self.eventFrame then
@@ -1635,19 +1735,30 @@ ns.BlockFactories.combatTimer = function(blockCfg, slot, content, barCtx)
 
         RegisterInstEvents(self)
 
-        self:Refresh()
-
-        -- The Blizzard Damage Meter events tell us when the session changes,
-        -- but the displayed duration itself needs to tick while combat is active.
-        ns.RegisterHeartbeat("combatTimer:" .. self.key, function()
-            if not self._dead then
-                self:Refresh()
-            end
-        end)
+        -- Handle the case where the widget is enabled while already
+        -- in combat.
+        if UnitAffectingCombat("player") then
+            StartTimer()
+        else
+            combatActive = false
+            self:Refresh()
+        end
     end
 
     function inst:Disable()
-        ns.UnregisterHeartbeat("combatTimer:" .. self.key)
+        if not self._enabled then
+            return
+        end
+
+        self._enabled = false
+
+        if self._heartbeatActive then
+            ns.UnregisterHeartbeat("combatTimer:" .. self.key)
+            self._heartbeatActive = false
+        end
+
+        combatActive = false
+
         UnregisterInstEvents(self)
         content:Hide()
     end
@@ -1670,7 +1781,15 @@ ns.BlockFactories.combatTimer = function(blockCfg, slot, content, barCtx)
 
     function inst:Destroy()
         self._dead = true
-        ns.UnregisterHeartbeat("combatTimer:" .. self.key)
+        self._enabled = false
+
+        if self._heartbeatActive then
+            ns.UnregisterHeartbeat("combatTimer:" .. self.key)
+            self._heartbeatActive = false
+        end
+
+        combatActive = false
+
         UnregisterInstEvents(self)
         content:Hide()
     end
