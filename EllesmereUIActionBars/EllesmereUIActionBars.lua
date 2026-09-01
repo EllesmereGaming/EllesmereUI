@@ -524,6 +524,12 @@ for _, info in ipairs(BAR_CONFIG) do
         buttonHeight = 0,
         mouseoverEnabled = false,
         mouseoverAlpha = 1,
+        -- Optional Advanced Fade layer. OFF preserves native 9.1.5 alpha behavior.
+        advancedFadeEnabled = false,
+        fadeMaxAlpha = 1,
+        fadeInSpeed = 0.15,
+        fadeOutSpeed = 0.15,
+        fadeConditions = {},
         combatShowEnabled = false,
         combatHideEnabled = false,
         housingHideEnabled = false,
@@ -611,6 +617,12 @@ for _, info in ipairs(EXTRA_BARS) do
     defaults.profile.bars[info.key] = {
         mouseoverEnabled = false,
         mouseoverAlpha = 1,
+        -- Optional Advanced Fade layer. OFF preserves native 9.1.5 alpha behavior.
+        advancedFadeEnabled = false,
+        fadeMaxAlpha = 1,
+        fadeInSpeed = 0.15,
+        fadeOutSpeed = 0.15,
+        fadeConditions = {},
         combatShowEnabled = false,
         combatHideEnabled = false,
         housingHideEnabled = false,
@@ -8589,6 +8601,267 @@ function EAB_VTABLE.Hover.GetState(barKey, frame)
     return state
 end
 
+-------------------------------------------------------------------------------
+--  Advanced Fade (optional per-bar alpha layer)
+--
+--  IMPORTANT CONTRACT:
+--    advancedFadeEnabled ~= true  -> this layer is inert for that bar.
+--  Native Visibility / Bar Opacity / mouseover remain authoritative and untouched.
+--  The layer is applied only after stock alpha writers have completed.
+-------------------------------------------------------------------------------
+function EAB_VTABLE.Hover.AdvancedFadeEnabled(s)
+    return s and s.advancedFadeEnabled == true
+end
+
+function EAB_VTABLE.Hover.HasCustomFade(s)
+    if not EAB_VTABLE.Hover.AdvancedFadeEnabled(s) then return false end
+    local c = s.fadeConditions
+    return type(c) == "table" and (c.combat or c.party or c.raid or c.instance
+        or c.mounted or c.flying or c.target or c.enemy_target or c.mouseover) and true or false
+end
+
+function EAB_VTABLE.Hover.CustomFadeConditionMet(barKey, s)
+    if not EAB_VTABLE.Hover.AdvancedFadeEnabled(s) then return false end
+    local c = s.fadeConditions
+    if type(c) ~= "table" then return false end
+    local state = hoverStates[barKey]
+
+    -- OR semantics: any selected condition raises the visible bar to Maximum Opacity.
+    if c.mouseover and state then
+        local hoverFrame = state.frame
+        if (hoverFrame and hoverFrame.IsMouseOver and hoverFrame:IsMouseOver()) or state.isHovered then
+            return true
+        end
+    end
+    if c.combat then
+        local combat = (EllesmereUI.IsInCombat and EllesmereUI.IsInCombat())
+            or InCombatLockdown()
+            or (UnitAffectingCombat and UnitAffectingCombat("player"))
+        if combat then return true end
+    end
+    local inRaid = IsInRaid and IsInRaid()
+    if c.raid and inRaid then return true end
+    if c.party and IsInGroup and IsInGroup() and not inRaid then return true end
+    if c.instance and IsInInstance then
+        local inside = IsInInstance()
+        if inside then return true end
+    end
+    if c.mounted and IsMounted and IsMounted() then return true end
+    if c.flying then
+        local airborne = EllesmereUI.IsAirborneSkyriding and EllesmereUI.IsAirborneSkyriding()
+        if airborne then return true end
+    end
+    if c.target and UnitExists and UnitExists("target") then return true end
+    if c.enemy_target and UnitExists and UnitExists("target")
+        and UnitCanAttack and UnitCanAttack("player", "target") then return true end
+    return false
+end
+
+function EAB_VTABLE.Hover.CustomFadeFrame(barKey)
+    local info = BAR_LOOKUP[barKey]
+    if not info or info.noManagedVisibility then return nil, info end
+    local frame = barFrames[barKey]
+        or (info.isDataBar and dataBarFrames[barKey])
+        or (info.isBlizzardMovable and blizzMovableHolders[barKey])
+        or extraBarHolders[barKey]
+        or (info.visibilityOnly and info.frameName and _G[info.frameName])
+    if info.visibilityOnly and not info.isDataBar and not info.isBlizzardMovable
+        and info.frameName and _G[info.frameName] then
+        frame = _G[info.frameName]
+    end
+    return frame, info
+end
+
+function EAB_VTABLE.Hover.RefreshCustomFadeBar(barKey, animate, force)
+    local s = EAB_VTABLE.Hover.GetSettings(barKey)
+    if not EAB_VTABLE.Hover.AdvancedFadeEnabled(s) then return false end
+
+    local enabled = EAB_VTABLE.Hover.HasCustomFade(s)
+    if not enabled and not force then return false end
+
+    -- Temporary surfacing modes remain authoritative over alpha rules.
+    if _gridState.shown or _dragState.visible or _quickKeybindState.open then
+        local st = hoverStates[barKey]
+        if st then st.customFadeTarget = nil end
+        return false
+    end
+
+    local frame = EAB_VTABLE.Hover.CustomFadeFrame(barKey)
+    if not frame then return false end
+    local state = hoverStates[barKey]
+
+    -- Visibility has absolute priority. When it currently uses Mouseover as the live
+    -- gate, stock EUI owns the hidden/off-hover side entirely. We only adjust alpha
+    -- while the bar is already legitimately revealed by hover.
+    local visibilityWantsHover
+    if EllesmereUI.VisWantsMouseover then
+        visibilityWantsHover = EllesmereUI.VisWantsMouseover(
+            s, "barVisibility", nil, EllesmereUI.VIS_CAPS_DEFAULT)
+    else
+        visibilityWantsHover = s.mouseoverEnabled
+    end
+    if visibilityWantsHover then
+        -- Use the frame's real cursor state instead of the hover memo here.  The memo is
+        -- intentionally lazy in stock EUI and can be stale across reload/profile edges;
+        -- Advanced Fade must never use that staleness to defeat Visibility.
+        local over = frame.IsMouseOver and frame:IsMouseOver() or false
+        if not over then
+            if state then state.customFadeTarget = nil end
+            local current = frame:GetAlpha()
+            StopFade(frame)
+            if animate and abs(current) >= 0.01 then
+                FadeTo(frame, 0, s.mouseoverSpeed or 0.15, true)
+            else
+                frame:SetAlpha(0)
+            end
+            if barKey == "MainBar" then SyncPagingAlpha(0) end
+            return true
+        end
+    end
+
+    -- Visibility's Mouseover mode parks the user's real Bar Opacity in
+    -- _savedBarAlpha. Use that as the native/base visible alpha; otherwise use the
+    -- normal opacity value. This reads native state rather than replacing its storage.
+    local base
+    if s.mouseoverEnabled and s._savedBarAlpha ~= nil then
+        base = s._savedBarAlpha
+    else
+        base = s.mouseoverAlpha or 1
+    end
+
+    local target = base
+    if enabled and EAB_VTABLE.Hover.CustomFadeConditionMet(barKey, s) then
+        target = s.fadeMaxAlpha
+        if target == nil then target = 1 end
+    end
+    if target < 0 then target = 0 elseif target > 1 then target = 1 end
+
+    if state and not force and state.customFadeTarget == target then return true end
+    if state then state.customFadeTarget = target end
+
+    local current = frame:GetAlpha()
+    StopFade(frame)
+    if animate and enabled and abs(current - target) >= 0.01 then
+        local duration = (target > current) and (s.fadeInSpeed or 0.15) or (s.fadeOutSpeed or 0.15)
+        if duration < 0.01 then duration = 0.01 end
+        FadeTo(frame, target, duration, true)
+    else
+        frame:SetAlpha(target)
+    end
+    if barKey == "MainBar" then SyncPagingAlpha(target) end
+    return true
+end
+
+function EAB:RefreshCustomFadeGate()
+    local any = false
+    if self.db and self.db.profile and self.db.profile.bars then
+        for _, info in ipairs(ALL_BARS) do
+            if EAB_VTABLE.Hover.HasCustomFade(self.db.profile.bars[info.key]) then
+                any = true
+                break
+            end
+        end
+    end
+    self._anyCustomFade = any
+    -- Hook the native alpha edges lazily.  A fresh login/reload with every
+    -- Advanced Fade toggle OFF registers none of these hooks at all.
+    if any and self.EnsureAdvancedFadeHooks then self:EnsureAdvancedFadeHooks() end
+    return any
+end
+
+function EAB:RefreshCustomFadeForBar(barKey, animate)
+    self:RefreshCustomFadeGate()
+    return EAB_VTABLE.Hover.RefreshCustomFadeBar(barKey, animate, true)
+end
+
+function EAB:RefreshAllCustomFade(animate, force)
+    local any = self:RefreshCustomFadeGate()
+    if not any and not force then return end
+    for _, info in ipairs(ALL_BARS) do
+        local s = self.db.profile.bars[info.key]
+        -- force means restore/re-evaluate every ENABLED Advanced Fade bar (including
+        -- one with an empty condition set), never a disabled/native bar.
+        if s and s.advancedFadeEnabled == true and (force or EAB_VTABLE.Hover.HasCustomFade(s)) then
+            EAB_VTABLE.Hover.RefreshCustomFadeBar(info.key, animate, force and true or false)
+        end
+    end
+end
+
+-- One-time handoff when the master toggle is switched OFF.  This does not touch
+-- any persisted Visibility/Opacity setting.  It only stops an Advanced Fade that may
+-- already be in flight and paints the exact native hover presentation for this instant.
+function EAB_VTABLE.Hover.ReleaseAdvancedFadeBar(barKey)
+    local s = EAB_VTABLE.Hover.GetSettings(barKey)
+    if not s then return end
+    local frame, info = EAB_VTABLE.Hover.CustomFadeFrame(barKey)
+    if not frame then return end
+
+    StopFade(frame)
+    local state = hoverStates[barKey]
+    local over = frame.IsMouseOver and frame:IsMouseOver() or false
+    local target
+
+    if info and info.noManagedVisibility then
+        target = 1
+    elseif s.mouseoverEnabled then
+        local wantsHover
+        if EllesmereUI.VisWantsMouseover then
+            wantsHover = EllesmereUI.VisWantsMouseover(
+                s, "barVisibility", nil, EllesmereUI.VIS_CAPS_DEFAULT)
+        else
+            wantsHover = true
+        end
+        if wantsHover then
+            target = over and (s._savedBarAlpha or 1) or 0
+        else
+            target = s._savedBarAlpha or s.mouseoverAlpha or 1
+        end
+    else
+        target = s.mouseoverAlpha or 1
+    end
+
+    frame:SetAlpha(target)
+    if state then
+        state.customFadeTarget = nil
+        state.isHovered = over
+        if s.mouseoverEnabled and over then
+            state.fadeDir = "in"
+        elseif s.mouseoverEnabled and target == 0 then
+            state.fadeDir = "out"
+        else
+            state.fadeDir = nil
+        end
+    end
+    if barKey == "MainBar" then SyncPagingAlpha(target) end
+end
+
+-- Enable/disable changes do not rebuild Visibility, drivers, or native settings.
+-- ON merely arms our optional hooks; OFF performs the one-time alpha handoff above.
+function EAB:RefreshAdvancedFadeEnabled(changed)
+    if type(changed) == "string" then
+        local s = self.db.profile.bars[changed]
+        if s and s.advancedFadeEnabled ~= true then
+            EAB_VTABLE.Hover.ReleaseAdvancedFadeBar(changed)
+        end
+    elseif type(changed) == "table" then
+        for _, barKey in ipairs(changed) do
+            local s = self.db.profile.bars[barKey]
+            if s and s.advancedFadeEnabled ~= true then
+                EAB_VTABLE.Hover.ReleaseAdvancedFadeBar(barKey)
+            end
+        end
+    end
+
+    self:RefreshCustomFadeGate()
+
+    -- If anything remains enabled, run the stock mouseover refresh first.  Our lazy
+    -- post-hook then layers Advanced Fade only onto enabled bars.  When all toggles are
+    -- OFF, no custom refresh is needed after the one-time handoff.
+    if self._anyCustomFade then
+        self:RefreshMouseover()
+    end
+end
+
 -- The alpha a bar RESTS at while the cursor is not on it, plus whether that resting state
 -- is a hover gate. Single source of truth for every alpha writer here, so a fade-out
 -- cannot land on a different verdict than the visibility refresh would. mouseoverEnabled
@@ -8874,6 +9147,41 @@ function EAB:RefreshMouseover(onlyHoverGated)
                 end
             end
         end
+    end
+end
+
+-- Advanced Fade hooks are installed lazily, only after at least one enabled bar
+-- actually has a Fade Condition.  Therefore a fresh login/reload with all master
+-- toggles OFF runs the stock 9.1.5 alpha functions with no Advanced Fade hooks at all.
+function EAB:EnsureAdvancedFadeHooks()
+    if self._advancedFadeHooksInstalled then return end
+    self._advancedFadeHooksInstalled = true
+
+    hooksecurefunc(EAB, "ApplyBarOpacity", function(_, barKey)
+        EAB_VTABLE.Hover.RefreshCustomFadeBar(barKey, false, true)
+    end)
+
+    hooksecurefunc(EAB_VTABLE.Hover, "FadeIn", function(barKey)
+        EAB_VTABLE.Hover.RefreshCustomFadeBar(barKey, true, false)
+    end)
+
+    hooksecurefunc(EAB_VTABLE.Hover, "FadeOut", function(barKey)
+        EAB_VTABLE.Hover.RefreshCustomFadeBar(barKey, true, false)
+    end)
+
+    hooksecurefunc(EAB, "RefreshMouseover", function(self, onlyHoverGated)
+        if not onlyHoverGated and self._anyCustomFade then
+            self:RefreshAllCustomFade(false, true)
+        end
+    end)
+
+    -- Reuse EUI's existing visibility-edge dispatcher; no new polling or OnUpdate.
+    if EllesmereUI.RegisterVisibilityUpdater then
+        EllesmereUI.RegisterVisibilityUpdater(function()
+            if EAB._anyCustomFade then
+                EAB:RefreshAllCustomFade(true, false)
+            end
+        end)
     end
 end
 
@@ -12824,6 +13132,11 @@ function EAB:OnInitialize()
         or (rawDB.profiles and not next(rawDB.profiles))
 
     self.db = EllesmereUI.Lite.NewDB("EllesmereUIActionBarsDB", defaults, true)
+
+    -- Read only our own settings.  If every Advanced Fade toggle/condition is OFF,
+    -- this leaves the entire native alpha/Visibility runtime completely untouched.
+    self:RefreshCustomFadeGate()
+
     -- Expose for ApplyAnchorPosition's growth-direction edge read.
     EllesmereUI._abBarPositions = self.db.profile.barPositions
 
