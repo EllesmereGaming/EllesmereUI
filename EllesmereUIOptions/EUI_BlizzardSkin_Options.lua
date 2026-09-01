@@ -6,7 +6,7 @@ local ns = EllesmereUI._ModuleNS["EllesmereUIBlizzardSkin"]  -- module namespace
 if not ns then return end  -- module disabled: no options page
 local PAGE_WINDOWSKINS   = "Blizzard Window Skins"
 local PAGE_TOOLTIPS      = "Tooltips, Menus & Popups"
-local PAGE_DRAGONRIDING  = "Dragon Riding"
+local PAGE_SKYRIDING  = "Skyriding"
 
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
@@ -2881,7 +2881,7 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
-    --  Dragon Riding page
+    --  Skyriding page
     ---------------------------------------------------------------------------
     local function EDR_DB()
         return ns.edrDB and ns.edrDB.profile
@@ -2903,7 +2903,7 @@ initFrame:SetScript("OnEvent", function(self)
     local _, EDR_BAR_TEXTURE_NAMES, EDR_BAR_TEXTURE_ORDER =
         EllesmereUI.BuildBarTextureTables()
 
-    local function BuildDragonRidingPage(pageName, parent, yOffset)
+    local function BuildSkyridingPage(pageName, parent, yOffset)
         local W = EllesmereUI.Widgets
         local y = yOffset
         local _, h
@@ -2938,7 +2938,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         _, h = W:SectionHeader(parent, "GENERAL", y); y = y - h
         _, h = W:DualRow(parent, y,
-            { type = "toggle", text = "Enable Dragon Riding Bar",
+            { type = "toggle", text = "Enable Skyriding Bar",
               getValue = function() return EDR_Cfg("enabled") == true end,
               -- DependentSetValue: everything below Row 1 is hidden while the
               -- bar is off; the flip forces the full rebuild.
@@ -2947,7 +2947,7 @@ initFrame:SetScript("OnEvent", function(self)
                   function(v) EDR_Set("enabled", v); EDR_Rebuild() end) },
             { type = "toggle", text = "Hide in Combat",
               disabled = function() return EDR_Cfg("enabled") ~= true end,
-              disabledTooltip = "Dragon Riding Bar",
+              disabledTooltip = "Skyriding Bar",
               getValue = function() return EDR_Cfg("hideInCombat") == true end,
               setValue = function(v) EDR_Set("hideInCombat", v); EDR_Rebuild() end }
         ); y = y - h
@@ -3108,7 +3108,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
         _, h = W:Spacer(parent, y, 20); y = y - h
-        end   -- close Dragon Riding hidden-while-disabled gate
+        end   -- close Skyriding hidden-while-disabled gate
 
         -- The wrapper is SetAllPoints-anchored, so SetHeight on it is inert;
         -- return the measured height so the scroll range is correct.
@@ -3117,9 +3117,9 @@ initFrame:SetScript("OnEvent", function(self)
 
     EllesmereUI:RegisterModule("EllesmereUIBlizzardSkin", {
         title       = "Blizz UI Enhanced",
-        description = "Themed Blizzard frames: window skins, tooltips, menus, popups, Dragon Riding HUD.",
-        searchTerms = "blizzard skin character sheet tooltip menu popup dragon riding skyriding window skins lfg group finder premade queue pause game menu great vault inspect collections mounts pets toys spellbook talents adventure guide encounter journal professions guild communities calendar achievements mail catalyst gem socket item upgrade upgrades crest loot window loot toast you received popup micro menu modern delves companion brann loot roll need greed pass disenchant loot rolls pending rolls group invite invited to a group role",
-        pages       = { PAGE_WINDOWSKINS, PAGE_TOOLTIPS, PAGE_DRAGONRIDING },
+        description = "Themed Blizzard frames: window skins, tooltips, menus, popups, Skyriding HUD.",
+        searchTerms = "blizzard skin character sheet tooltip menu popup skyriding window skins lfg group finder premade queue pause game menu great vault inspect collections mounts pets toys spellbook talents adventure guide encounter journal professions guild communities calendar achievements mail catalyst gem socket item upgrade upgrades crest loot window loot toast you received popup micro menu modern delves companion brann loot roll need greed pass disenchant loot rolls pending rolls group invite invited to a group role",
+        pages       = { PAGE_WINDOWSKINS, PAGE_TOOLTIPS, PAGE_SKYRIDING },
         buildPage   = function(pageName, parent, yOffset)
             if pageName == PAGE_WINDOWSKINS then
                 return BuildWindowSkinsPage(pageName, parent, yOffset)
@@ -3127,15 +3127,11 @@ initFrame:SetScript("OnEvent", function(self)
             if pageName == PAGE_TOOLTIPS then
                 return BuildTooltipsPage(pageName, parent, yOffset)
             end
-            if pageName == PAGE_DRAGONRIDING then
-                return BuildDragonRidingPage(pageName, parent, yOffset)
+            if pageName == PAGE_SKYRIDING then
+                return BuildSkyridingPage(pageName, parent, yOffset)
             end
         end,
         onReset = function()
-            if EllesmereUIDragonRidingDB then
-                EllesmereUIDragonRidingDB.profiles = nil
-                EllesmereUIDragonRidingDB.profileKeys = nil
-            end
             -- Per-profile master kill switch: reset re-enables skins for the
             -- ACTIVE profile (other profiles keep their own choice).
             do

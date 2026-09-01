@@ -7310,7 +7310,7 @@ initFrame:SetScript("OnEvent", function(self)
                   return out
               end,
               legacyKey = "visibility",
-              caps = { partyIncludesRaid = false, luaDragonriding = true },
+              caps = { partyIncludesRaid = false, luaSkyriding = true },
               applyScalarFn = ApplyVisScalarAll,
               getOption = function(k)
                   local p = DB(); if not p then return false end

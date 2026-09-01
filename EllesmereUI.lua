@@ -305,7 +305,7 @@ local ADDON_ROSTER = {
     { folder = "EllesmereUIResourceBars",      display = "Resource & Cast Bars", search_name = "EllesmereUI Resource Bars Cast Bars" },
     { folder = "EllesmereUIAuraBuffReminders", display = "AuraBuff Reminders",   search_name = "EllesmereUI AuraBuff Reminders"      },
     { folder = "EllesmereUIQoL",               display = "Quality of Life",      search_name = "EllesmereUI Quality of Life"         },
-    { folder = "EllesmereUIBlizzardSkin",      display = "Blizz UI Enhanced",    search_name = "EllesmereUI Blizz UI Enhanced",      syncFolder = "EllesmereUIDragonRiding", syncDisplay = "Dragon Riding" },
+    { folder = "EllesmereUIBlizzardSkin",      display = "Blizz UI Enhanced",    search_name = "EllesmereUI Blizz UI Enhanced",      syncFolder = "EllesmereUISkyriding", syncDisplay = "Skyriding" },
     { folder = "EllesmereUIFriends",           display = "Friends List",         search_name = "EllesmereUI Friends List"            },
     { folder = "EllesmereUIMythicTimer",       display = "Mythic+ Tools",        search_name = "EllesmereUI Mythic+ Tools Timer"     },
     { folder = "EllesmereUIQuestTracker",      display = "Quest Tracker",        search_name = "EllesmereUI Quest Tracker"           },
@@ -419,7 +419,7 @@ do
     EllesmereUI._syncExempt = SYNC_EXEMPT
 
     -- Modules with a sync icon but no per-profile data (always "synced"). BlizzardSkin hosts
-    -- Dragon Riding's per-profile DB; its sync icon routes to EllesmereUIDragonRiding via syncFolder.
+    -- Skyriding's per-profile DB; its sync icon routes to EllesmereUISkyriding via syncFolder.
     local SYNC_GLOBAL_ONLY = {}
     EllesmereUI._syncGlobalOnly = SYNC_GLOBAL_ONLY
 
@@ -873,8 +873,8 @@ EllesmereUI.RegisterSyncExclusions("EllesmereUIMythicTimer", {
     "frameWidth",
 })
 
--- Dragon Riding HUD position (unlockPos) stays per-profile on sync, like every module.
-EllesmereUI.RegisterSyncExclusions("EllesmereUIDragonRiding", {
+-- Skyriding HUD position (unlockPos) stays per-profile on sync, like every module.
+EllesmereUI.RegisterSyncExclusions("EllesmereUISkyriding", {
     "unlockPos",
 })
 
@@ -7662,7 +7662,7 @@ local function CreateMainFrame()
             syncTex:SetVertexColor(1, 1, 1, 1)
             syncBtn._tex = syncTex
             -- syncFolder/syncDisplay let an entry drive the sync of a DIFFERENT profile
-            -- folder (Dragon Riding lives in the BlizzardSkin entry); the loaded check
+            -- folder (Skyriding lives in the BlizzardSkin entry); the loaded check
             -- still uses info.folder, only the sync state/group target is redirected.
             local syncFolder = info.syncFolder or info.folder
             syncBtn._folder = syncFolder
@@ -12048,7 +12048,7 @@ EllesmereUI.VIS_VALUES = {
 }
 EllesmereUI.VIS_ORDER = { "never", "always", "mouseover", "in_combat", "out_of_combat", "---", "in_raid", "in_party", "solo" }
 
--- Action Bars variant: adds "When Dragonriding". The secure action bars (1-8, stance, pet)
+-- Action Bars variant: adds "When Skyriding". The secure action bars (1-8, stance, pet)
 -- express it as [advflyable,flying] in their state driver, which re-evaluates the flying
 -- transition in real time. Lua-side modules catch the same transition via the gliding edge events registered in EllesmereUI_Visibility.lua (gated on EllesmereUI._hasGlidingEvent).
 EllesmereUI.VIS_VALUES_AB = {
@@ -12057,8 +12057,8 @@ EllesmereUI.VIS_VALUES_AB = {
     mouseover  = "Mouseover",
     in_combat      = "In Combat",
     out_of_combat  = "Out of Combat",
-    show_dragonriding = "When Dragonriding",
-    show_not_dragonriding = "When Not Dragonriding",
+    show_dragonriding = "When Skyriding",
+    show_not_dragonriding = "When Not Skyriding",
     in_raid        = "In Raid Group",
     in_party   = "In Party",
     solo       = "Solo",

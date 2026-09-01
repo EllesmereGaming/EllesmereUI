@@ -56,7 +56,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Row 1: Visibility (one control; no mouseover for chat frames) | Lock Main Chat Size
         _, h = EllesmereUI.BuildVisibilityRow(W, parent, y,
             { getStore = DB, legacyKey = "visibility",
-              caps = { partyIncludesRaid = false, noMouseover = true, luaDragonriding = true },
+              caps = { partyIncludesRaid = false, noMouseover = true, luaSkyriding = true },
               onChanged = function()
                   if ECHAT.ResetIdleTimer then ECHAT.ResetIdleTimer() end
                   if ECHAT.ApplyIdleFadeHoverMotion then ECHAT.ApplyIdleFadeHoverMotion() end

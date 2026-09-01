@@ -1011,7 +1011,7 @@ local function TileBlizzardSkin(parent, y, W, tile)
               EllesmereUIDB.charSheetEnchantSize = v
               if EllesmereUI._refreshCharSheetSlotLabels then EllesmereUI._refreshCharSheetSlotLabels() end
           end },
-        { type = "slider", text = "Dragonriding Speed Text Size", min = 6, max = 32, step = 1,
+        { type = "slider", text = "Skyriding Speed Text Size", min = 6, max = 32, step = 1,
           getValue = function()
               local p = ns.edrDB and ns.edrDB.profile and ns.edrDB.profile.speedText
               return (p and p.size) or 12
@@ -1077,7 +1077,7 @@ local TILE_BUILDERS = {
     EllesmereUIResourceBars      = { TileResourceBars,     "Health, power, class resource, cast and totem bar text" },
     EllesmereUIAuraBuffReminders = { TileAuraBuffReminders,"Reminder names, item counts and the mana warning" },
     EllesmereUIQoL               = { TileQoL,              "Alerts, trackers, battle res and popup text" },
-    EllesmereUIBlizzardSkin      = { TileBlizzardSkin,     "Tooltip text scale, enchant text and dragonriding speed" },
+    EllesmereUIBlizzardSkin      = { TileBlizzardSkin,     "Tooltip text scale, enchant text and skyriding speed" },
     EllesmereUIFriends           = { TileFontOnly,         "Font face and outline only" },
     EllesmereUIMythicTimer       = { TileMythicTimer,      "M+ timer, objectives, thresholds and spell bar text" },
     EllesmereUIQuestTracker      = { TileQuestTracker,     "Tracker font and per-line text sizes" },

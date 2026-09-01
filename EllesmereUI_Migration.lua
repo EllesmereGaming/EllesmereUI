@@ -4175,3 +4175,46 @@ EllesmereUI.RegisterMigration({
         end
     end,
 })
+
+-- Blizzard retired the Dragonriding name in 10.2.5. Module data lives in
+-- EllesmereUIDB.profiles[*].addons[folder] (child SV globals are vestigial, see
+-- NewDB in EllesmereUI_Lite.lua), so one re-key moves the whole subtree. A
+-- new-key table alongside the old can only be a default-merge artifact, but a
+-- non-empty one still wins so an imported profile is never clobbered. Deleting
+-- the old key makes a re-run a no-op regardless of the flag.
+EllesmereUI.RegisterMigration({
+    id          = "skyriding_folder_rename_v1",
+    scope       = "profile",
+    description = "Move the Skyriding HUD's per-profile data from the retired EllesmereUIDragonRiding folder key to EllesmereUISkyriding.",
+    body = function(ctx)
+        local addons = ctx.profile and ctx.profile.addons
+        if type(addons) ~= "table" then return end
+        local old = addons.EllesmereUIDragonRiding
+        if type(old) ~= "table" then return end
+        local new = addons.EllesmereUISkyriding
+        if type(new) ~= "table" or next(new) == nil then
+            addons.EllesmereUISkyriding = old
+        end
+        addons.EllesmereUIDragonRiding = nil
+    end,
+})
+
+-- Sync group membership lives on EllesmereUIDB, not in a profile, so the re-key
+-- above never reaches it and a synced HUD would read as unsynced with the old
+-- key left behind. Same move and delete, so a re-run is a no-op too.
+EllesmereUI.RegisterMigration({
+    id          = "skyriding_synced_modules_rename_v1",
+    scope       = "global",
+    description = "Re-key the Skyriding HUD's sync group from the retired EllesmereUIDragonRiding folder name to EllesmereUISkyriding.",
+    body = function(ctx)
+        local sm = ctx.db and ctx.db.syncedModules
+        if type(sm) ~= "table" then return end
+        local old = sm.EllesmereUIDragonRiding
+        if type(old) ~= "table" then return end
+        local new = sm.EllesmereUISkyriding
+        if type(new) ~= "table" or next(new) == nil then
+            sm.EllesmereUISkyriding = old
+        end
+        sm.EllesmereUIDragonRiding = nil
+    end,
+})

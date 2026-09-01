@@ -874,7 +874,7 @@ L["seconds"]                        = "секунд"
 L["Character Sheet"]               = "Окно персонажа"
 L["Inspect Sheet"]                 = "Окно осмотра"
 L["Tooltips, Menus & Popups"]      = "Подсказки, меню и окна"
-L["Dragon Riding"]                  = "Езда на драконах"
+L["Skyriding"]                      = "Езда на драконах"
 L["BLIZZARD UI ELEMENTS"]          = "ЭЛЕМЕНТЫ BLIZZARD"
 L["GROUP FINDER QUEUE"]             = "ОЧЕРЕДЬ ПОИСКА ГРУППЫ"
 L["GAME PAUSE MENU"]                = "МЕНЮ ПАУЗЫ ИГРЫ"
@@ -884,10 +884,8 @@ L["INSPECT SHEET"]                  = "ОКНО ОСМОТРА"
 L["STAT DISPLAY"]                   = "ХАРАКТЕРИСТИКИ"
 L["SPEED BAR"]                      = "СКОРОСТЬ"
 
--- Dragon Riding Options (EUI_BlizzardSkin_Options - Dragon Riding page)
+-- Skyriding Options (EUI_BlizzardSkin_Options - Skyriding page)
 L["Skyriding Bar"]                  = "Полоса полетов"
-L["Skyriding Bar Height"]           = "Высота полосы полетов"
-L["Skyriding Bar Color"]            = "Цвет полосы полетов"
 L["Stacks"]                         = "Эффекты"
 L["Second Wind Height"]             = "Высота Второго дыхания"
 L["Second Wind Color"]              = "Цвет Второго дыхания"
@@ -904,7 +902,7 @@ L["Speed Bar X Offset"]             = "Смещение X"
 L["Speed Bar Y Offset"]             = "Смещение Y"
 L["Speed Bar Texture"]              = "Текстура полосы"
 
--- Dragon Riding Bar Texture Names
+-- Skyriding Bar Texture Names
 L["Melli (ElvUI)"]                  = "Melli (ElvUI)"
 L["Beautiful"]                      = "Красивый"
 L["Plating"]                        = "Пластины"
@@ -923,7 +921,6 @@ L["Matte"]                          = "Матовый"
 L["Sheer"]                          = "Прозрачный"
 
 -- Module registration
-L["Themed Blizzard frames: Character Sheet, tooltips, menus, popups, Dragon Riding HUD."] = "Тематические окна Blizzard: окно персонажа, подсказки, меню, всплывающие окна, интерфейс полетов на драконах."
 
 -- Character Sheet - Equipment Slot Names
 L["Head"]                          = "Голова"
@@ -1350,7 +1347,7 @@ L["Chance to deflect melee attacks"] = "Вероятность парирова�
 L["Chance to block incoming attacks with a shield"] = "Вероятность заблокировать входящие атаки щитом"
 L["Converts damage into a delayed effect"] = "Превращает урон в отложенный эффект"
 
--- Dragon Riding unlock elements (translation already at line 510)
+-- Skyriding unlock elements (translation already at line 510)
 
 -- Inspect Sheet
 L["Enchant missing"]               = "Чары отсутствуют"
@@ -3721,7 +3718,7 @@ L["Charge Color"] = "Цвет заряда"
 L["Charge Height"] = "Высота заряда"
 L["Element Spacing"] = "Отступ элементов"
 L["Enable Character Sheet"] = "Включить тему окна персонажа"
-L["Enable Dragon Riding Bar"] = "Включить полосу полетов"
+L["Enable Skyriding Bar"] = "Включить полосу полетов"
 L["Enable Great Vault Skin"] = "Включить оформление Великого хранилища"
 L["Enable Inspect Sheet"] = "Включить тему окна осмотра"
 L["Enchants"] = "Чары (Зачарование)"

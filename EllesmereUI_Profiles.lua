@@ -51,6 +51,8 @@ StaticPopupDialogs["EUI_PROFILE_RELOAD"] = {
 -- "EllesmereUI" prefix). It NEVER contains the contiguous "EllesmereUI" token,
 -- so the standalone packager's textual rename leaves it byte-identical in every
 -- build. It is the anchor for the canonical export/import key (see below).
+-- `legacySuffix` is an optional earlier suffix kept so profile strings exported
+-- before a module rename still import (import-only, see the canon loop below).
 local ADDON_DB_MAP = {
     { folder = "EllesmereUIActionBars",        display = "Action Bars",         svName = "EllesmereUIActionBarsDB",        suffix = "ActionBars"        },
     { folder = "EllesmereUINameplates",        display = "Nameplates",          svName = "EllesmereUINameplatesDB",        suffix = "Nameplates"        },
@@ -64,13 +66,13 @@ local ADDON_DB_MAP = {
     { folder = "EllesmereUIQoL",               display = "Quality of Life",     svName = "EllesmereUIQoLDB",               suffix = "QoL"               },
     -- BlizzardSkin itself is excluded: it stores settings on the shared
     -- EllesmereUIDB root, not through NewDB, so it has no per-profile data.
-    -- Dragon Riding is the one exception inside that addon -- it owns a real
-    -- per-profile DB (EllesmereUIDragonRidingDB) but ships as a file inside the
+    -- Skyriding is the one exception inside that addon -- it owns a real
+    -- per-profile DB (EllesmereUISkyridingDB) but ships as a file inside the
     -- BlizzardSkin addon, so it is NOT a separately loadable addon. hostAddon
     -- tells the loaded check (export strip + import/export checkboxes) to resolve
     -- "installed?" through the BlizzardSkin folder instead of the (nonexistent)
-    -- EllesmereUIDragonRiding addon. Without this it would always be stripped.
-    { folder = "EllesmereUIDragonRiding",      display = "Dragon Riding",       svName = "EllesmereUIDragonRidingDB",      suffix = "DragonRiding",     hostAddon = "EllesmereUIBlizzardSkin" },
+    -- EllesmereUISkyriding addon. Without this it would always be stripped.
+    { folder = "EllesmereUISkyriding",         display = "Skyriding",           svName = "EllesmereUISkyridingDB",         suffix = "Skyriding",        hostAddon = "EllesmereUIBlizzardSkin", legacySuffix = "DragonRiding" },
     { folder = "EllesmereUIBags",              display = "Bags",                svName = "EllesmereUIBagsDB",              suffix = "Bags"              },
     { folder = "EllesmereUIFriends",           display = "Friends List",        svName = "EllesmereUIFriendsDB",           suffix = "Friends"           },
     { folder = "EllesmereUIMythicTimer",       display = "Mythic+ Tools",       svName = "EllesmereUIMythicTimerDB",       suffix = "MythicTimer"       },
@@ -104,7 +106,7 @@ local EUI_CANON_PREFIX = "Ellesmere" .. "UI"  -- split literal: rename-immune
 local FOLDER_TO_CANON = {}
 local CANON_TO_FOLDER = {}
 -- folder -> the addon whose loaded-state proves this module is installed. Most
--- modules host themselves; a sub-module (e.g. Dragon Riding) maps to its host.
+-- modules host themselves; a sub-module (e.g. Skyriding) maps to its host.
 local FOLDER_HOST = {}
 for _, entry in ipairs(ADDON_DB_MAP) do
     local canon = EUI_CANON_PREFIX .. (entry.suffix or "")
@@ -112,6 +114,13 @@ for _, entry in ipairs(ADDON_DB_MAP) do
     FOLDER_TO_CANON[entry.folder] = canon
     CANON_TO_FOLDER[canon] = entry.folder
     FOLDER_HOST[entry.folder] = entry.hostAddon or entry.folder
+    -- `legacySuffix` names a suffix this module shipped under before a rename.
+    -- Import-only (never in FOLDER_TO_CANON), so new exports carry the current
+    -- canon while strings exported under the old name still land on the live
+    -- folder instead of passing through unread and resetting to defaults.
+    if entry.legacySuffix then
+        CANON_TO_FOLDER[EUI_CANON_PREFIX .. entry.legacySuffix] = entry.folder
+    end
 end
 
 -- Re-key an addons table from this build's local db.folder keys to canonical
@@ -229,7 +238,7 @@ EllesmereUI.ResolveKeyToFolder = ResolveKeyToFolder
 -- Set of folders that have NO import/export checkbox (not in ADDON_DB_MAP), so
 -- their anchor/match edges are never exported -- the element keeps its own saved
 -- absolute position on import (decision: always export them unanchored). Today
--- this is only EllesmereUIBlizzardSkin (the Dragon Riding cluster).
+-- this is only EllesmereUIBlizzardSkin (the Skyriding cluster).
 local NO_CHECKBOX_FOLDER = {}
 do
     local has = {}
@@ -663,7 +672,7 @@ local function IsAddonLoaded(name)
 end
 
 --- Is the module behind this profile folder actually installed/loaded?
---- Resolves through hostAddon for sub-modules (e.g. Dragon Riding lives inside
+--- Resolves through hostAddon for sub-modules (e.g. Skyriding lives inside
 --- the BlizzardSkin addon, so its folder is never a loadable addon on its own).
 --- Unknown folders fall back to a direct check so behaviour is unchanged.
 function EllesmereUI.IsModuleAddonLoaded(folder)
@@ -987,7 +996,7 @@ end
 function EllesmereUI.SnapshotAllAddons()
     local data = { addons = {} }
     for _, entry in ipairs(ADDON_DB_MAP) do
-        -- Host-aware: Dragon Riding's folder is not a loadable addon (it lives
+        -- Host-aware: Skyriding's folder is not a loadable addon (it lives
         -- inside BlizzardSkin), so a bare IsAddonLoaded(entry.folder) would drop
         -- it from every full-profile export. IsModuleAddonLoaded resolves through
         -- the hostAddon, matching the per-addon export path (ExportProfile).
@@ -1405,7 +1414,7 @@ local REFRESH_ADDON_STEPS = {
     -- DataBars (bar set + blocks + layout + positions are all per-profile)
     function() if _G._EDB_Apply then _G._EDB_Apply() end end,
     -- Quickdraw (enable state + palette count drive the override bindings),
-    -- Dragon Riding HUD, Minimap (flyout button state)
+    -- Skyriding HUD, Minimap (flyout button state)
     function()
         if _G._EQD_Apply then _G._EQD_Apply() end
         if _G._EDR_Rebuild then _G._EDR_Rebuild() end
@@ -2042,7 +2051,7 @@ function EllesmereUI.ExportProfile(profileName, includedFolders, includeLayout, 
     -- Layout relationships (unlockLayout) are governed by the "Include layout"
     -- toggle and FILTERED per-module: only relationships whose both endpoints are
     -- in the selected modules survive (subset export), and no-checkbox-module
-    -- (Dragon Riding) + stale (deleted-bar) edges are always dropped. A canonical
+    -- (Skyriding) + stale (deleted-bar) edges are always dropped. A canonical
     -- keyToFolder meta rides along so the importer can attribute each edge. Full
     -- export (no includedFolders) keeps all checkbox-module relationships.
     local fLayout, layoutMeta = EllesmereUI.BuildExportUnlockLayout(
@@ -2500,7 +2509,7 @@ function EllesmereUI.ExportCurrentProfile(includeLayout, includeCDM, cdmSpecs)
     profileData.uiScale = (EllesmereUIDB and type(EllesmereUIDB.ppUIScale) == "number")
         and EllesmereUIDB.ppUIScale or nil
     -- Layout: honor the "Include layout" toggle, and even on a full export drop the
-    -- no-checkbox-module (Dragon Riding) + stale (deleted-bar) edges. folderSet=nil
+    -- no-checkbox-module (Skyriding) + stale (deleted-bar) edges. folderSet=nil
     -- keeps all checkbox modules. Attach the canonical keyToFolder meta.
     local fLayout, layoutMeta = EllesmereUI.BuildExportUnlockLayout(
         profileData.unlockLayout, includeLayout, nil)

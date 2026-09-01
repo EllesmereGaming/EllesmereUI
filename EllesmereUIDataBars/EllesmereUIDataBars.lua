@@ -2368,7 +2368,7 @@ end
 --  one enabled bar exists. Mouseover reveal goes through per-bar plain-table
 --  poll proxies (never EnableMouse on the real bar).
 -------------------------------------------------------------------------------
-ns.EDB_VIS_CAPS = { partyIncludesRaid = false, luaDragonriding = true }
+ns.EDB_VIS_CAPS = { partyIncludesRaid = false, luaSkyriding = true }
 
 -- Bar visibility = ALPHA ONLY. A bar hosting a secure block (micromenu
 -- passthrough, travel hearth) is IMPLICITLY PROTECTED: EnableMouse/Show/Hide on it in

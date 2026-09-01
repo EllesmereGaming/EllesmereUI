@@ -5520,7 +5520,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- CDM-family bars; "Only In Combat" is the In Combat axis.
         local _, tbbVisH = EllesmereUI.BuildVisibilityRow(W, parent, y,
             { getStore = SelectedTBB, legacyKey = "barVisibility",
-              caps = { partyIncludesRaid = false, noMouseover = true, luaDragonriding = true },
+              caps = { partyIncludesRaid = false, noMouseover = true, luaSkyriding = true },
               onChanged = function() RefreshTBB() end,
               onOptionChanged = function() RefreshTBB() end,
               extraItems = {
@@ -16448,7 +16448,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- (noMouseover), matching the old VIS_VALUES_CDM list.
         local visRow, visH = EllesmereUI.BuildVisibilityRow(W, parent, y,
             { getStore = BD, legacyKey = "barVisibility",
-              caps = { partyIncludesRaid = false, noMouseover = true, luaDragonriding = true },
+              caps = { partyIncludesRaid = false, noMouseover = true, luaSkyriding = true },
               -- The three built-in bars ship visHideHousing = true in DEFAULTS, so an
               -- explicit uncheck must persist false or DeepMergeDefaults re-fills it to
               -- true on next login. Harmless for other bars: they never go through that

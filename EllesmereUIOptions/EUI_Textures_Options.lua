@@ -18,7 +18,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  _MovementBarTextures) the mirror re-calls the appender with THOSE tables
 --  (identity dedup makes it a sync) and derives fresh display copies, exactly
 --  like the module's own options page. Where the registered names/order live
---  in another file's locals (MythicTimer, Dragonriding) the mirror keeps its
+--  in another file's locals (MythicTimer, Skyriding) the mirror keeps its
 --  own memoized triple, registered once per session.
 -------------------------------------------------------------------------------
 
@@ -832,7 +832,7 @@ local function TileBlizzardSkin(parent, y, W, tile)
     local cat = OwnBarCatalogue("edr", nil)
     local values, order = CopyBarDD(cat.names, cat.order, cat.lookup, true)
     local _, h = W:DualRow(parent, y,
-        { type = "dropdown", text = "Dragonriding Bar Texture", values = values, order = order,
+        { type = "dropdown", text = "Skyriding Bar Texture", values = values, order = order,
           getValue = function()
               local p = ns.edrDB and ns.edrDB.profile
               return (p and p.barTexture) or "none"
@@ -869,7 +869,7 @@ local TILE_BUILDERS = {
     EllesmereUICooldownManager = { TileCooldownManager, "Tracking bar textures and icon borders" },
     EllesmereUIResourceBars    = { TileResourceBars,    "Resource, cast and GCD bar textures" },
     EllesmereUIQoL             = { TileQoL,             "Movement alert bar and cursor ring art" },
-    EllesmereUIBlizzardSkin    = { TileBlizzardSkin,    "Dragonriding speed bar texture" },
+    EllesmereUIBlizzardSkin    = { TileBlizzardSkin,    "Skyriding speed bar texture" },
     EllesmereUIMythicTimer     = { TileMythicTimer,     "Timer, forces and spell bar textures" },
     EllesmereUIMinimap         = { TileMinimap,         "Minimap border style" },
     EllesmereUIChat            = { TileChat,            "Chat background and tab textures" },
