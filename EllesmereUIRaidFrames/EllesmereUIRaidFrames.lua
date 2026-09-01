@@ -4804,6 +4804,16 @@ end
 -------------------------------------------------------------------------------
 --  Unit-to-button mapping
 -------------------------------------------------------------------------------
+-- Public accessor: unitToButton/ns._partyUnitToButton stay private otherwise (every
+-- other reader in this file is a raid-frame-internal event handler), but another
+-- addon in the suite (NaowhUI_SmartReminders' raid-frame glow reminder) needs a way
+-- to find the actual button for a unit without reaching into this file's own locals.
+-- Same combined-lookup shape every internal reader already uses.
+function EllesmereUI.RaidFrames_GetFrameForUnit(unit)
+    if not unit then return nil end
+    return unitToButton[unit] or ns._partyUnitToButton[unit]
+end
+
 local function RebuildUnitMap()
     wipe(unitToButton)
     for _, btn in ipairs(allButtons) do
