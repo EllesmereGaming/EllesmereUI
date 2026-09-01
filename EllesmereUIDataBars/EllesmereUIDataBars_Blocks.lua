@@ -1450,6 +1450,234 @@ ns.BlockFactories.combat = function(blockCfg, slot, content, barCtx)
     return inst
 end
 
+ns.BlockFactories.combatTimer = function(blockCfg, slot, content, barCtx)
+    local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
+    inst.key = InstKey(barCtx, blockCfg)
+
+    inst.events = {
+        "PLAYER_REGEN_DISABLED",
+        "PLAYER_REGEN_ENABLED",
+        "PLAYER_ENTERING_WORLD",
+        "DAMAGE_METER_CURRENT_SESSION_UPDATED",
+        "DAMAGE_METER_COMBAT_SESSION_UPDATED",
+    }
+
+    local mouseOver = false
+    local lastDuration = -1
+
+    local function D()
+        return blockCfg.settings or {}
+    end
+
+    local function BC()
+        return barCtx.cfg
+    end
+
+    local function GetCombatDuration()
+        if not C_DamageMeter
+            or not C_DamageMeter.GetSessionDurationSeconds
+            or not Enum
+            or not Enum.DamageMeterSessionType
+        then
+            return 0
+        end
+
+        return C_DamageMeter.GetSessionDurationSeconds(
+            Enum.DamageMeterSessionType.Current
+        ) or 0
+    end
+
+    local function FormatDuration(seconds)
+        seconds = max(0, floor(seconds or 0))
+
+        if seconds >= 3600 then
+            return format(
+                "%d:%02d:%02d",
+                floor(seconds / 3600),
+                floor(seconds % 3600 / 60),
+                seconds % 60
+            )
+        end
+
+        return format(
+            "%d:%02d",
+            floor(seconds / 60),
+            seconds % 60
+        )
+    end
+
+    local frame = CreateFrame("Button", nil, content)
+    frame:SetSize(60, 20)
+    frame:EnableMouse(true)
+    frame:RegisterForClicks("AnyUp")
+
+    local text = frame:CreateFontString(nil, "OVERLAY")
+    AttachTextOffset(inst, text)
+    text:SetPoint("LEFT")
+
+    local measureFS = frame:CreateFontString(nil, "OVERLAY")
+    measureFS:Hide()
+
+    local fontSize = max(9, floor(CONTENT_BASE * 0.4333 + 0.5))
+
+    local function ApplyColors()
+        local r, g, b
+
+        if mouseOver then
+            r, g, b = ns.GetAccent()
+        else
+            r, g, b = BlockColorOf(blockCfg)
+        end
+
+        text:SetTextColor(r, g, b, 1)
+    end
+
+    function inst:Refresh()
+        local barCfg = BC()
+        local barH = barCtx.GetThickness()
+        local isSide = barCtx.IsVertical()
+
+        local duration = GetCombatDuration()
+        lastDuration = duration
+
+        local inCombat = UnitAffectingCombat("player")
+
+        if D().onlyInCombat and not inCombat then
+            content:Hide()
+            MaybeRelayout(inst)
+            return
+        end
+
+        if not content:IsShown() then
+            content:Show()
+        end
+
+        ns.SetFont(text, fontSize, barCfg)
+
+        text:SetText(FormatDuration(duration))
+        ApplyColors()
+
+        if InCombatLockdown() then
+            MaybeRelayout(inst)
+            return
+        end
+
+        if isSide then
+            local slotW = VSlotW(inst)
+            local innerW = max(36, slotW - 8)
+
+            frame:SetSize(innerW, fontSize + 4)
+            frame:ClearAllPoints()
+            frame:SetPoint("CENTER", content, "CENTER", 0, 0)
+
+            text:ClearAllPoints()
+            text:SetPoint("CENTER", frame, "CENTER", 0, 0)
+
+            ns.SetWrappedText(text, innerW, "CENTER")
+
+            content:SetSize(
+                slotW,
+                max(fontSize + 12, barH)
+            )
+        else
+            local align = blockCfg.align or "CENTER"
+
+            ns.ResetInlineText(text, align)
+            text:ClearAllPoints()
+            text:SetPoint("LEFT", frame, "LEFT", 0, 0)
+
+            ns.SetFont(measureFS, fontSize, barCfg)
+
+            -- Reserve enough space for the largest normal timer string.
+            measureFS:SetText("00:00")
+            local width = measureFS:GetStringWidth() or 30
+
+            measureFS:SetText("00:00:00")
+            width = max(width, measureFS:GetStringWidth() or 30)
+
+            width = max(
+                30,
+                ns.SnapToPixelGrid(width) + 2
+            )
+
+            text:SetWidth(width)
+
+            frame:SetSize(width, barH)
+            frame:ClearAllPoints()
+            frame:SetPoint("CENTER", content, "CENTER", 0, 0)
+
+            content:SetSize(width, barH)
+        end
+
+        MaybeRelayout(inst)
+    end
+
+    local function RefreshFromEvent()
+        inst:Refresh()
+    end
+
+    frame:SetScript("OnEnter", function()
+        mouseOver = true
+        ApplyColors()
+    end)
+
+    frame:SetScript("OnLeave", function()
+        mouseOver = false
+        ApplyColors()
+    end)
+
+    function inst:Enable()
+        content:Show()
+
+        if not self.eventFrame then
+            self.eventFrame = MakeEventFrame(self, RefreshFromEvent)
+        end
+
+        RegisterInstEvents(self)
+
+        self:Refresh()
+
+        -- The Blizzard Damage Meter events tell us when the session changes,
+        -- but the displayed duration itself needs to tick while combat is active.
+        ns.RegisterHeartbeat("combatTimer:" .. self.key, function()
+            if not self._dead then
+                self:Refresh()
+            end
+        end)
+    end
+
+    function inst:Disable()
+        ns.UnregisterHeartbeat("combatTimer:" .. self.key)
+        UnregisterInstEvents(self)
+        content:Hide()
+    end
+
+    function inst:GetAutoLength()
+        if D().onlyInCombat and not UnitAffectingCombat("player") then
+            return 0
+        end
+
+        if not content:IsShown() then
+            return 0
+        end
+
+        if barCtx.IsVertical() then
+            return max(content:GetHeight() or 40, 40)
+        end
+
+        return max(content:GetWidth() or 70, 40)
+    end
+
+    function inst:Destroy()
+        self._dead = true
+        ns.UnregisterHeartbeat("combatTimer:" .. self.key)
+        UnregisterInstEvents(self)
+        content:Hide()
+    end
+
+    return inst
+end
+
 -------------------------------------------------------------------------------
 --  LOCATION + COORDINATES (two block types on one text renderer)
 -------------------------------------------------------------------------------
