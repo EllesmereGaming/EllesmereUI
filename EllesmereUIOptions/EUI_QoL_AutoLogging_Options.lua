@@ -265,6 +265,14 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
         y = y - lustH
     end
 
+    ---------------------------------------------------------------------------
+    --  GEAR DURABILITY
+    ---------------------------------------------------------------------------
+    if _G._EUI_BuildGearDurabilitySection then
+        local durH = _G._EUI_BuildGearDurabilitySection(parent, y, W, EllesmereUI.PP)
+        y = y - durH
+    end
+
     return math.abs(y - yOffset)
 end
 
