@@ -290,6 +290,38 @@ local function EntryOwning(fkey)
     return _fkeyIndex[fkey]
 end
 
+--- Spec precedence over a conditional, SCOPED to the spec being applied. A spec
+--- override only outranks a conditional where it actually holds a value:
+--- _fkeyIndex answers the store-wide question ("did ANY group ever capture this
+--- fkey"), which froze conditionals on specs in no group at all -- a healer-only
+--- group silently killed a Raid override on a Guardian. specID nil (unknown
+--- spec) stays conservative and reports a claim.
+local function SpecClaimsFKey(fkey, specID)
+    local entry = EntryOwning(fkey)
+    if not entry then return false end
+    if not specID then return true end
+    local m = entry.values and entry.values[specID]
+    return (m and m[fkey] ~= nil) or false
+end
+
+--- True when the APPLIED conditional supplies this fkey, so live holds the
+--- conditional's write and NOT a user edit. Harvest must retain the stored value
+--- verbatim for these (same reasoning as MatchOwnedFKey): now that the gate above
+--- lets a conditional write fkeys a group tracks without claiming, banking live
+--- would adopt the conditional's value as the spec's own. Reads the published
+--- namespace, not the Cond local, which is declared much further down this file.
+local function CondHeldFKey(fkey)
+    local C = EllesmereUI._CondOv
+    if not C or not C.EntryOwning then return false end
+    local e = C.EntryOwning(fkey)
+    if not e then return false end
+    local gid = EllesmereUI.Conditions_AppliedGid
+        and EllesmereUI.Conditions_AppliedGid() or nil
+    if not gid then return false end
+    local m = e.values and e.values[gid]
+    return (m and m[fkey] ~= nil) or false
+end
+
 -------------------------------------------------------------------------------
 --  Live profile access by fkey
 -------------------------------------------------------------------------------
@@ -709,6 +741,12 @@ local function Harvest(specID)
                 -- Banking it would adopt the matched width into every spec map it
                 -- touches (store-wide homogenization) -- retain stored verbatim.
                 if prev then m[fkey] = prev[fkey] else m[fkey] = nil end
+            elseif CondHeldFKey(fkey) then
+                -- The applied conditional owns this fkey's live value, so live is
+                -- its write and not a user edit. Same hazard and same remedy as
+                -- match-owned above: banking would plant the conditional's value
+                -- as this spec's own override, permanently.
+                if prev then m[fkey] = prev[fkey] else m[fkey] = nil end
             elseif m[fkey] == dv then
                 -- Equal to default is never a revert outside a session (the default
                 -- may have moved onto the override); retain the stored value. No
@@ -836,14 +874,26 @@ local function WriteSpecValues(specID)
     if not store or #store == 0 or not specID then return nil end
     local touched = nil
     for _, entry in ipairs(store) do
-        local m = entry.values[specID] or entry.values.default
+        local own = entry.values[specID]
+        local m = own or entry.values.default
         for fkey, def in pairs(entry.values.default) do
+            -- An entry tracks a key for EVERY spec, but only the specs in its
+            -- group supply a value; the rest fall back to the recorded baseline.
+            -- That baseline must not outrank an ACTIVE conditional: a group
+            -- holding "Debuff Size" for the healer specs was re-writing its
+            -- pre-capture value on every apply for unrelated specs, silently
+            -- pinning the key store-wide so a conditional could never own it
+            -- (visible as a conditional that reads correct in its edit session
+            -- -- those bypass spec precedence -- yet never applies). A spec that
+            -- claims the key ITSELF still wins, which is the documented rule.
+            local claimed = own ~= nil and own[fkey] ~= nil
             -- Apply-side folder blacklist: legacy entries can carry paths into
             -- hands-off addons (CDM runs its own per-spec system; a stale write
             -- re-injects frozen spell data and its unmapped folder forces a full
             -- RefreshAllAddons mid-play). Match-owned keys: the match engine owns
             -- them while a link exists, so stored is a stale copy.
-            if not BlacklistedFKey(fkey) and not MatchOwnedFKey(fkey) then
+            if not BlacklistedFKey(fkey) and not MatchOwnedFKey(fkey)
+               and not (not claimed and CondHeldFKey(fkey)) then
                 local v = m[fkey]
                 if v == nil then v = def end
                 if v == NIL_SENT then v = nil end
@@ -1387,8 +1437,11 @@ function EllesmereUI.SpecOverrides_PeekEffectiveValues(folder)
             for _, entry in ipairs(cstore) do
                 local map = gid and entry.values[gid] or nil
                 for fkey, def in pairs(entry.values.default) do
+                    -- Same per-spec gate the runtime overlay uses, so the reported
+                    -- effective value matches what actually applies.
                     if not BlacklistedFKey(fkey) and not MatchOwnedFKey(fkey)
-                       and not EntryOwning(fkey) and SplitFKey(fkey) == folder then
+                       and not SpecClaimsFKey(fkey, _activeSpec or CurrentSpecID())
+                       and SplitFKey(fkey) == folder then
                         local v = def
                         local fromCond = false
                         if map and map[fkey] ~= nil then
@@ -3079,9 +3132,14 @@ end
 --  CONDITIONAL OVERRIDES integration (engine in EllesmereUI_Conditions.lua). Same
 --  machine as spec overrides keyed by conditional GROUP instead of spec: entries
 --  carry values = { default = {fkey=v}, [gid] = {fkey=v} }; "no condition active"
---  plays the role of a non-member spec (defaults write). PRECEDENCE: a SPEC-owned
---  fkey (EntryOwning) is off-limits, checked at every conditional write, so
---  later-created spec overrides evict conditional claims silently. Unlock layouts
+--  plays the role of a non-member spec (defaults write). PRECEDENCE: a spec override
+--  outranks a conditional only for the specs it actually holds a value for
+--  (SpecClaimsFKey), applied symmetrically at every conditional write AND every
+--  conditional harvest -- scoping one side alone means the apply writes a value
+--  nothing banks, silently discarding the user's edit. The check was once store-wide
+--  (_fkeyIndex/EntryOwning), which froze conditionals on specs in NO group at all:
+--  one healer-only group killed a Raid override on a Guardian. EntryOwning stays
+--  store-wide for capture/UI ownership questions, which are not per-spec. Unlock layouts
 --  ride the layer engine via the namespaced active pointer ("cond:"..gid); a spec
 --  whose group has a layout ignores conditional layouts entirely (first branch of
 --  layer resolution). Functions live in one table (file local budget).
@@ -3585,11 +3643,14 @@ function Cond.WriteValues(gid, forSession)
     local store = Cond.GetStore()
     if not store or #store == 0 then return nil end
     local touched = nil
+    -- Spec precedence is per-SPEC, not store-wide: see SpecClaimsFKey. Harvest
+    -- retains conditional-held fkeys, so a write here never banks into a spec map.
+    local specID = _activeSpec or CurrentSpecID()
     for _, entry in ipairs(store) do
         local map = gid and entry.values[gid] or nil
         for fkey, def in pairs(entry.values.default) do
             if not BlacklistedFKey(fkey) and not MatchOwnedFKey(fkey)
-               and (forSession or not EntryOwning(fkey)) then
+               and (forSession or not SpecClaimsFKey(fkey, specID)) then
                 local v = def
                 if map and map[fkey] ~= nil then v = map[fkey] end
                 if v == NIL_SENT then v = nil end
@@ -3629,9 +3690,14 @@ end
 function Cond.RestoreEntryDefaults(entry, touched)
     local def = entry.values and entry.values.default
     if not def then return end
+    -- Spec claim scoped to the APPLYING spec, because the docstring's promise that
+    -- these guards mirror Cond.WriteValues is load-bearing: a store-wide check here
+    -- against a spec-scoped apply would leave the conditional's value sitting live
+    -- after its entry is dropped, turning it into the profile's own setting.
+    local specID = _activeSpec or CurrentSpecID()
     for fkey, dv in pairs(def) do
         if not BlacklistedFKey(fkey) and not MatchOwnedFKey(fkey)
-           and not EntryOwning(fkey) and FKeyLoaded(fkey) then
+           and not SpecClaimsFKey(fkey, specID) and FKeyLoaded(fkey) then
             local v = (dv == NIL_SENT) and nil or dv
             local nilPoison = (v == nil) and HasRegisteredDefault(fkey)
             local cur = ReadLive(fkey)
@@ -3698,12 +3764,17 @@ function Cond.Harvest(gid)
     -- (HarvestCurrent orders its call after the canonical restore; this is the belt
     -- for any other caller.)
     local sessionLive = _defaultView or _editGroup or Cond._edit
-    -- SPEC-OWNED fkeys are never harvested in either direction: while the spec store
-    -- tracks an fkey, live reflects SPEC values (runtime applies skip it), so banking
-    -- live here would poison the conditional's default/group maps with spec-scoped
-    -- values; Cond values stay dormant until the spec override is removed. TABLE-typed
-    -- live values are never banked either (structure change; mirror of HarvestMap --
-    -- would alias store to profile).
+    -- SPEC-CLAIMED fkeys are never harvested in either direction, and "claimed" is
+    -- scoped to the APPLYING spec (SpecClaimsFKey), exactly as Cond.WriteValues scopes
+    -- the apply. Where the spec holds a value, live reflects SPEC values (the apply
+    -- skips it), so banking would poison the conditional's default/group maps with
+    -- spec-scoped values and Cond values stay dormant, as before. Where it does NOT,
+    -- the apply wrote the conditional's own value, so live belongs to the conditional
+    -- and MUST bank here. Keeping this store-wide while the apply is spec-scoped is
+    -- what silently discards a user's edit: apply writes it, nothing banks it.
+    -- TABLE-typed live values are never banked either (structure change; mirror of
+    -- HarvestMap, would alias store to profile).
+    local specID = _activeSpec or CurrentSpecID()
     for _, entry in ipairs(store) do
         if gid then
             local map = entry.values[gid]
@@ -3712,7 +3783,7 @@ function Cond.Harvest(gid)
                 -- poison the maps with deletion markers. MatchOwnedFKey: match-engine
                 -- writes never bank (mirrors spec-side Harvest; Cond.WriteValues skips
                 -- these at apply time).
-                if not EntryOwning(fkey) and FKeyLoaded(fkey)
+                if not SpecClaimsFKey(fkey, specID) and FKeyLoaded(fkey)
                    and not MatchOwnedFKey(fkey) then
                     local live = ReadLive(fkey)
                     if type(live) ~= "table" then
@@ -3733,7 +3804,7 @@ function Cond.Harvest(gid)
         elseif not sessionLive then
             local map = entry.values.default
             for fkey in pairs(map) do
-                if not EntryOwning(fkey) and FKeyLoaded(fkey)
+                if not SpecClaimsFKey(fkey, specID) and FKeyLoaded(fkey)
                    and not MatchOwnedFKey(fkey) then
                     local live = ReadLive(fkey)
                     if type(live) ~= "table" then
