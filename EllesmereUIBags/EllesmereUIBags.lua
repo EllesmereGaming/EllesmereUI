@@ -2231,26 +2231,44 @@ do
 
     -- One split per server round trip: issue, wait for the source stack to
     -- settle at the expected count, repeat.
+    -- TEMP diagnostics for the auto-split test build; remove before PR.
+    local function Trace(...)
+        print("|cff0cd29fEUI split|r", ...)
+    end
+
     StepJob = function()
         if not job then return end
-        if not job.window:IsVisible() then StopJob(); return end
+        if not job.window:IsVisible() then Trace("stop: window hidden"); StopJob(); return end
         local info = C_Container.GetContainerItemInfo(job.bag, job.slot)
-        if not info or info.itemID ~= job.itemID then StopJob(); return end
-        if info.isLocked then Later(); return end
+        if not info or info.itemID ~= job.itemID then
+            Trace("stop: source changed", info and info.itemID, job.itemID); StopJob(); return
+        end
+        if info.isLocked then
+            if GetTime() - job.issuedAt > 2 then Trace("stop: locked too long"); StopJob() else Later() end
+            return
+        end
         if job.pending then
             if info.stackCount ~= job.pending then
-                if GetTime() - job.issuedAt > 2 then StopJob() else Later() end
+                if GetTime() - job.issuedAt > 2 then
+                    Trace("stop: count never settled", info.stackCount, "expected", job.pending, "cursor", GetCursorInfo())
+                    StopJob()
+                else
+                    Later()
+                end
                 return
             end
             job.pending = nil
         end
-        if info.stackCount <= job.size then StopJob(); return end
+        if info.stackCount <= job.size then Trace("done: remainder", info.stackCount); StopJob(); return end
         for _, bagID in ipairs(job.targets) do
             for s = 1, C_Container.GetContainerNumSlots(bagID) do
-                if not C_Container.GetContainerItemInfo(bagID, s) then
+                if not job.used[bagID * 1000 + s] and not C_Container.GetContainerItemInfo(bagID, s) then
+                    job.used[bagID * 1000 + s] = true
                     ClearCursor()
                     C_Container.SplitContainerItem(job.bag, job.slot, job.size)
+                    Trace("split", job.bag, job.slot, job.size, "count", info.stackCount, "-> dest", bagID, s, "cursor", GetCursorInfo())
                     C_Container.PickupContainerItem(bagID, s)
+                    Trace("after pickup: cursor", GetCursorInfo(), "src locked", C_Container.GetContainerItemInfo(job.bag, job.slot).isLocked)
                     job.pending = info.stackCount - job.size
                     job.issuedAt = GetTime()
                     Later()
@@ -2258,11 +2276,14 @@ do
                 end
             end
         end
+        Trace("stop: no empty slot")
         StopJob()
     end
 
     local function StartJob(bag, slot, itemID, size, targets, window)
-        job = { bag = bag, slot = slot, itemID = itemID, size = size, targets = targets, window = window }
+        job = { bag = bag, slot = slot, itemID = itemID, size = size, targets = targets, window = window,
+                used = {}, issuedAt = GetTime() }
+        Trace("start", bag, slot, "size", size, "targets", table.concat(targets, ","))
         StepJob()
     end
 
