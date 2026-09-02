@@ -2215,24 +2215,31 @@ local QUEST_BORDER_COLOR = { r = 1.0, g = 0.82, b = 0.0 }
 do
     local dialog
     local job          -- { bag, slot, itemID, size, targets, window, pending, issuedAt }
-    local jobFrame = CreateFrame("Frame")
+    local StepJob
 
     local function StopJob()
         job = nil
-        jobFrame:UnregisterAllEvents()
+    end
+
+    -- Polled rather than event-driven: a SplitContainerItem issued from inside
+    -- the BAG_UPDATE / ITEM_LOCK_CHANGED that reports the previous split is
+    -- silently dropped, so every step has to run on a later frame.
+    local function Later()
+        local this = job
+        C_Timer.After(0.05, function() if job == this then StepJob() end end)
     end
 
     -- One split per server round trip: issue, wait for the source stack to
     -- settle at the expected count, repeat.
-    local function StepJob()
+    StepJob = function()
         if not job then return end
         if not job.window:IsVisible() then StopJob(); return end
         local info = C_Container.GetContainerItemInfo(job.bag, job.slot)
         if not info or info.itemID ~= job.itemID then StopJob(); return end
-        if info.isLocked then return end
+        if info.isLocked then Later(); return end
         if job.pending then
             if info.stackCount ~= job.pending then
-                if GetTime() - job.issuedAt > 2 then StopJob() end
+                if GetTime() - job.issuedAt > 2 then StopJob() else Later() end
                 return
             end
             job.pending = nil
@@ -2246,18 +2253,16 @@ do
                     C_Container.PickupContainerItem(bagID, s)
                     job.pending = info.stackCount - job.size
                     job.issuedAt = GetTime()
+                    Later()
                     return
                 end
             end
         end
         StopJob()
     end
-    jobFrame:SetScript("OnEvent", StepJob)
 
     local function StartJob(bag, slot, itemID, size, targets, window)
         job = { bag = bag, slot = slot, itemID = itemID, size = size, targets = targets, window = window }
-        jobFrame:RegisterEvent("BAG_UPDATE")
-        jobFrame:RegisterEvent("ITEM_LOCK_CHANGED")
         StepJob()
     end
 
