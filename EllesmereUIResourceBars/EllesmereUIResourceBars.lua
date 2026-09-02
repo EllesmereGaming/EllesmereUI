@@ -8158,13 +8158,13 @@ BuildGCDBar = function()
             end
         end
 
-        -- How each spell last behaved, keyed by spellID: "hard" once it has
-        -- ever opened a cast, channel or empower bar, "instant" once it has
-        -- finished with no cast bar at all. "hard" is sticky -- a proc (e.g.
-        -- Infusion of Light) makes one CAST instant, not the spell -- so a
-        -- procced cast simply falls back to the slower, always-correct
-        -- SUCCEEDED edge. Instant-only reads this to decide whether a press
-        -- may arm the bar; see the SPELL_UPDATE_COOLDOWN edge below.
+        -- Whether a spell channels, keyed by spellID: "channel" once it has
+        -- opened a channel or empower bar (sticky), "plain" once it has
+        -- finished with neither. castTime answers the cast-time question on
+        -- the press edge below, but it reports 0 for a channel and so cannot
+        -- tell one from an instant -- hence the wait for a first classified
+        -- SUCCEEDED. Unknown means wait, so the first cast of a spell is late
+        -- rather than wrong.
         local castKind = {}
 
         gcdBarFrame:SetScript("OnEvent", function(self, event, unit, arg2, arg3, arg4)
@@ -8182,22 +8182,26 @@ BuildGCDBar = function()
             -- tenth of the way in. Same-frame collapse absorbs the storm.
             if event == "SPELL_UPDATE_COOLDOWN" then
                 local now = GetTime()
-                if self._gcdCapStamp == now then return end
+                local sent = self._sentSpellID
+                self._sentSpellID = nil   -- one press edge per send
+                -- A cooldown edge that beat UNIT_SPELLCAST_SENT to the frame
+                -- must not collapse the one behind it, or the press would stay
+                -- unconsumed and the NEXT GCD's edge would read it.
+                if self._gcdCapStamp == now and not sent then return end
                 self._gcdCapStamp = now
                 if gc.instantOnly then
                     -- Hard casts and channels predict a GCD at the press too,
                     -- and this edge IS the press: UNIT_SPELLCAST_START only
                     -- lands a round trip later, so a one-frame-later cast read
                     -- found nothing on any real latency and the bar filled for
-                    -- every hard cast. Arm only when the spell just
-                    -- sent has already been seen finishing instantly; every
-                    -- other press waits for its own SUCCEEDED, which arrives
-                    -- classified. Unknown always means "wait", so the first
-                    -- cast of a spell is late rather than wrong.
-                    local sent = self._sentSpellID
-                    self._sentSpellID = nil   -- one press edge per send
-                    if not (sent and castKind[sent] == "instant"
+                    -- every hard cast. Ask the spell behind the press instead:
+                    -- castTime carries the current haste and proc state, so a
+                    -- Flash of Light under Infusion of Light reads 0 while the
+                    -- same spell unprocced reads its full cast.
+                    if not (sent and castKind[sent] == "plain"
                         and (now - (self._sentAt or 0)) < 1) then return end
+                    local info = C_Spell.GetSpellInfo(sent)
+                    if not info or info.castTime ~= 0 then return end
                     -- An off-GCD press landing mid-cast must not open the bar
                     -- on the hard cast's own GCD.
                     if UnitCastingInfo("player") or UnitChannelInfo("player") then return end
@@ -8254,13 +8258,10 @@ BuildGCDBar = function()
                 -- (e.g. Swiftness Regrowth) will count as instant cast
                 if event ~= "UNIT_SPELLCAST_START" then
                     self._realCastSpellID = spellID
-                    if spellID then castKind[spellID] = "hard" end
+                    if spellID then castKind[spellID] = "channel" end
                 else
                     local _, _, _, st, et = UnitCastingInfo("player")
-                    if st and et and et > st then
-                        self._realCastSpellID = spellID
-                        if spellID then castKind[spellID] = "hard" end
-                    end
+                    if st and et and et > st then self._realCastSpellID = spellID end
                 end
                 if gc.instantOnly then return end  -- instant-only: don't fill for hard casts
             elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
@@ -8284,9 +8285,9 @@ BuildGCDBar = function()
                     -- a hard cast, so an off-GCD instant fired mid-cast must
                     -- not open it on the cast's own GCD either.
                     if UnitCastingInfo("player") then return end
-                    -- Got here with no cast bar of its own: this spell is an
-                    -- instant, so its next press may arm the bar directly.
-                    if succeededID and not castKind[succeededID] then castKind[succeededID] = "instant" end
+                    -- Finished with no channel of its own, so the press edge
+                    -- may judge its next press on cast time alone.
+                    if succeededID and not castKind[succeededID] then castKind[succeededID] = "plain" end
                     local gc2 = ERB.db.profile.gcdBar
                     if gc2 and gc2.enabled then captureGCD(self, gc2) end
                 end)
