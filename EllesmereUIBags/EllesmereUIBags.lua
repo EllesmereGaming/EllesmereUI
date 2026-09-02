@@ -2209,13 +2209,36 @@ local QUEST_BORDER_COLOR = { r = 1.0, g = 0.82, b = 0.0 }
 
 -------------------------------------------------------------------------------
 --  Stack splitter: replaces Blizzard's StackSplitFrame on our bag/bank slots
---  (opt-in) with a house dialog that adds Auto Split -- repeated splits into
---  empty slots until the remainder is at most the chosen size.
+--  and on the guild bank's (opt-in) with a house dialog that adds Auto Split --
+--  repeated splits into empty slots until the remainder is at most the chosen size.
 -------------------------------------------------------------------------------
 do
     local dialog
-    local job          -- { bag, slot, itemID, size, targets, window, pending, issuedAt }
+    local job          -- { bag, slot, itemID, size, targets, window, ops, pending, issuedAt }
     local StepJob
+
+    -- Container and guild bank slots share the dialog and job; only the API differs.
+    local containerOps = {
+        ownerBag = function(owner) return owner:GetParent():GetID() end,
+        info     = C_Container.GetContainerItemInfo,
+        isEmpty  = function(bag, slot) return not C_Container.GetContainerItemInfo(bag, slot) end,
+        numSlots = C_Container.GetContainerNumSlots,
+        split    = C_Container.SplitContainerItem,
+        pickup   = C_Container.PickupContainerItem,
+    }
+    local guildOps = {
+        ownerBag = function() return GetCurrentGuildBankTab() end,
+        info = function(tab, slot)
+            local texture, count, locked = GetGuildBankItemInfo(tab, slot)
+            if not texture then return nil end
+            local link = GetGuildBankItemLink(tab, slot)
+            return { stackCount = count, isLocked = locked, itemID = link and GetItemInfoInstant(link) or 0 }
+        end,
+        isEmpty  = function(tab, slot) return not GetGuildBankItemInfo(tab, slot) end,
+        numSlots = function() return 98 end,
+        split    = SplitGuildBankItem,
+        pickup   = PickupGuildBankItem,
+    }
 
     local function StopJob()
         job = nil
@@ -2234,7 +2257,8 @@ do
     StepJob = function()
         if not job then return end
         if not job.window:IsVisible() then StopJob(); return end
-        local info = C_Container.GetContainerItemInfo(job.bag, job.slot)
+        local ops = job.ops
+        local info = ops.info(job.bag, job.slot)
         if not info or info.itemID ~= job.itemID then StopJob(); return end
         if info.isLocked or (job.pending and info.stackCount ~= job.pending) then
             if GetTime() - job.issuedAt > 2 then StopJob() else Later() end
@@ -2243,13 +2267,13 @@ do
         job.pending = nil
         if info.stackCount <= job.size then StopJob(); return end
         for _, bagID in ipairs(job.targets) do
-            for s = 1, C_Container.GetContainerNumSlots(bagID) do
+            for s = 1, ops.numSlots(bagID) do
                 local key = bagID * 1000 + s
-                if not job.used[key] and not C_Container.GetContainerItemInfo(bagID, s) then
+                if not job.used[key] and ops.isEmpty(bagID, s) then
                     job.used[key] = true
                     ClearCursor()
-                    C_Container.SplitContainerItem(job.bag, job.slot, job.size)
-                    C_Container.PickupContainerItem(bagID, s)
+                    ops.split(job.bag, job.slot, job.size)
+                    ops.pickup(bagID, s)
                     job.pending = info.stackCount - job.size
                     job.issuedAt = GetTime()
                     Later()
@@ -2260,10 +2284,16 @@ do
         StopJob()
     end
 
-    local function StartJob(bag, slot, itemID, size, targets, window)
+    local function StartJob(bag, slot, itemID, size, targets, window, ops)
         job = { bag = bag, slot = slot, itemID = itemID, size = size, targets = targets, window = window,
-                used = {}, issuedAt = GetTime() }
+                ops = ops, used = {}, issuedAt = GetTime() }
         StepJob()
+    end
+
+    -- Closing the window a dialog or job belongs to ends it; other windows are unaffected.
+    local function WindowHidden(win)
+        if dialog and dialog._window == win then dialog:Hide() end
+        if job and job.window == win then StopJob() end
     end
 
     local function Clamp(n)
@@ -2287,10 +2317,10 @@ do
     local function Validate()
         if not dialog or not dialog:IsShown() then return end
         local owner = dialog._owner
-        if not owner:IsVisible() or owner:GetParent():GetID() ~= dialog._bag or owner:GetID() ~= dialog._slot then
+        if not owner:IsVisible() or dialog._ops.ownerBag(owner) ~= dialog._bag or owner:GetID() ~= dialog._slot then
             dialog:Hide(); return
         end
-        local info = C_Container.GetContainerItemInfo(dialog._bag, dialog._slot)
+        local info = dialog._ops.info(dialog._bag, dialog._slot)
         if not info or info.itemID ~= dialog._itemID or not info.stackCount or info.stackCount < 2 then
             dialog:Hide(); return
         end
@@ -2320,15 +2350,15 @@ do
 
     local function DoSplit(auto)
         local d = dialog
-        local bag, slot, n = d._bag, d._slot, Current()
+        local bag, slot, n, ops = d._bag, d._slot, Current(), d._ops
         d:Hide()
-        local info = C_Container.GetContainerItemInfo(bag, slot)
+        local info = ops.info(bag, slot)
         if not info or info.isLocked or info.itemID ~= d._itemID or not info.stackCount or n >= info.stackCount then return end
         if auto then
-            StartJob(bag, slot, info.itemID, n, d._targets, d._window)
+            StartJob(bag, slot, info.itemID, n, d._targets, d._window, ops)
         else
             ClearCursor()
-            C_Container.SplitContainerItem(bag, slot, n)
+            ops.split(bag, slot, n)
         end
     end
 
@@ -2417,10 +2447,10 @@ do
         d:SetScript("OnHide", function() eb:ClearFocus() end)
 
         hooksecurefunc(EUI_Bags, "RefreshInventory", Validate)
-        EUI_Bags:HookScript("OnHide", function() d:Hide() end)
+        EUI_Bags:HookScript("OnHide", function() WindowHidden(EUI_Bags) end)
         if EUI_Bank then
             hooksecurefunc(EUI_Bank, "RefreshBank", Validate)
-            EUI_Bank:HookScript("OnHide", function() d:Hide(); if job and job.window == EUI_Bank then StopJob() end end)
+            EUI_Bank:HookScript("OnHide", function() WindowHidden(EUI_Bank) end)
         end
         EllesmereUI.RegisterEscapeClose(d)
         return d
@@ -2429,18 +2459,19 @@ do
     -- Runs from the slot PostClick hooks, after Blizzard's OnModifiedClick has
     -- opened StackSplitFrame on this button (its lock/count/cursor checks passed).
     -- targets: bagIDs Auto Split may fill, in order; window: closing it aborts a job.
-    function EUI_Bags.ShowStackSplitter(owner, targets, window)
+    function EUI_Bags.ShowStackSplitter(owner, targets, window, ops)
         local ssf = StackSplitFrame
         if not ssf:IsShown() or ssf.owner ~= owner then return end
         local maxStack = ssf.maxStack
         ssf:Hide()
-        local bag, slot = owner:GetParent():GetID(), owner:GetID()
-        local info = C_Container.GetContainerItemInfo(bag, slot)
+        ops = ops or containerOps
+        local bag, slot = ops.ownerBag(owner), owner:GetID()
+        local info = ops.info(bag, slot)
         if not info or not info.itemID then return end
         dialog = dialog or CreateDialog()
         StopJob()
         dialog._owner, dialog._bag, dialog._slot, dialog._itemID = owner, bag, slot, info.itemID
-        dialog._targets, dialog._window = targets, window
+        dialog._targets, dialog._window, dialog._ops = targets, window, ops
         dialog._max = maxStack
         dialog._maxLbl:SetText("/ " .. maxStack)
         SetValue(1)
@@ -2449,6 +2480,26 @@ do
         dialog:Show()
         dialog._eb:SetFocus()
         dialog._eb:HighlightText()
+    end
+
+    -- Blizzard's guild bank buttons open StackSplitFrame the same way ours do,
+    -- so the same PostClick takeover applies. Auto Split stays on the viewed tab.
+    local function HookGuildBank()
+        local gb = GuildBankFrame
+        if not gb or not gb.Columns then return end
+        for _, column in ipairs(gb.Columns) do
+            for _, b in ipairs(column.Buttons) do
+                b:HookScript("PostClick", function(self)
+                    if BP().bagStackSplitter ~= true then return end
+                    EUI_Bags.ShowStackSplitter(self, { GetCurrentGuildBankTab() }, gb, guildOps)
+                end)
+            end
+        end
+        hooksecurefunc(gb, "Update", Validate)
+        gb:HookScript("OnHide", function() WindowHidden(gb) end)
+    end
+    if EventUtil and EventUtil.ContinueOnAddOnLoaded then
+        EventUtil.ContinueOnAddOnLoaded("Blizzard_GuildBankUI", HookGuildBank)
     end
 end
 
