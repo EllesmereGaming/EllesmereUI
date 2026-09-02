@@ -220,7 +220,10 @@ local defaults = {
     classColorFriendly = true,
     friendlyBarColor = { r = 0.314, g = 0.800, b = 0.408 },
     friendlyNPCColor = { r = 0, g = 1, b = 0 },
+    friendlyNPCNameColor = { r = 0, g = 1, b = 0 },
+    friendlyNPCTitleColor = { r = 0, g = 1, b = 0, a = 0.7 },
     friendlyNPCNameSize = 13,
+    friendlyNPCTitleSize = 10,
     friendlyNameTextSize = 12,
     friendlyBelowName = "none",
     friendlyBelowNameSize = 12,
@@ -387,7 +390,10 @@ local defaults = {
     hideBloodPlagueCopies = true,  -- Extras (Blood DK only): collapse the Blood Plague copies to one debuff icon
     dispelGlow = false,
     dispelGlowStyle = 2,
-    dispelGlowColor = { r = 1.0, g = 1.0, b = 1.0 },
+    -- Swatch display only: the getter returns nil while the user has never
+    -- customized the color, and the engines render their own default (this
+    -- same gold on the ABG halo). Keep the two in step.
+    dispelGlowColor = { r = 1.0, g = 0.788, b = 0.137 },
     dispelGlowUseTypeColor = false,
     castScale = 100,
     focusCastHeight = 100,
@@ -833,7 +839,12 @@ do
             local c = TYPE_COLOR[dispelType]
             if c then return c.r, c.g, c.b end
         end
-        local c = (p and p.dispelGlowColor) or defaults.dispelGlowColor
+        -- Never customized = no tint request (nil): the glow engines render
+        -- their default look -- gold ABG halo over white ants -- matching how
+        -- the suite's other glow features treat an unset color. An explicit
+        -- swatch pick (even white) is stored and honored.
+        local c = p and p.dispelGlowColor
+        if not c then return nil, nil, nil end
         return c.r, c.g, c.b
     end
 end
@@ -1511,9 +1522,9 @@ local function StopDispelGlow(slot)
     if not dg or not dg.active then return end
     if dg.animGroup then dg.animGroup:Stop() end
     if dg.flipTex then dg.flipTex:Hide() end
-    StopProceduralAnts(dg.wrapper)
-    StopButtonGlow(dg.wrapper)
-    StopAutoCastShine(dg.wrapper)
+    -- One unified stop: pixel/ABG/autocast plus the ABG preview's engine
+    -- substitute (flipbook + halo) on the wrapper.
+    _G_Glows.StopAllGlows(dg.wrapper)
     dg.wrapper:Hide()
     dg.active = false
 end
@@ -1565,19 +1576,22 @@ local function StartDispelGlow(slot, slotSize, dispelType)
         local lineLen = math.floor((sz + sz) * (2 / N - 0.1))
         lineLen = min(lineLen, sz)
         if lineLen < 1 then lineLen = 1 end
-        StartProceduralAnts(dg.wrapper, N, th, period, lineLen, cr, cg, cb, sz)
+        StartProceduralAnts(dg.wrapper, N, th, period, lineLen, cr or 1, cg or 1, cb or 1, sz)
     elseif entry.buttonGlow then
         dg.flipTex:Hide()
         dg.animGroup:Stop()
         StopProceduralAnts(dg.wrapper)
         StopAutoCastShine(dg.wrapper)
-        StartButtonGlow(dg.wrapper, sz, cr, cg, cb, entry.scale or 1.36)
+        -- Preview exactly what the live path renders: the engine substitute
+        -- (white ants + colored halo, gold when no color is chosen), not the
+        -- driver ABG -- shared STYLES index 2 = Action Button Glow.
+        _G_Glows.StartEngineGlow(dg.wrapper, 2, sz, cr, cg, cb)
     elseif entry.autocast then
         dg.flipTex:Hide()
         dg.animGroup:Stop()
         StopProceduralAnts(dg.wrapper)
         StopButtonGlow(dg.wrapper)
-        StartAutoCastShine(dg.wrapper, sz, cr, cg, cb)
+        StartAutoCastShine(dg.wrapper, sz, cr or 1, cg or 0.788, cb or 0.137)
     else
         -- FlipBook-based glow (GCD, Modern, Classic); matches the pandemic pattern
         StopProceduralAnts(dg.wrapper)
@@ -1602,7 +1616,7 @@ local function StartDispelGlow(slot, slotSize, dispelType)
         flipAnim:SetFlipBookFrameHeight(entry.frameH or 0)
 
         flipTex:SetDesaturated(true)
-        flipTex:SetVertexColor(cr, cg, cb)
+        flipTex:SetVertexColor(cr or 1, cg or 1, cb or 1)
         flipTex:Show()
         animGroup:Play()
     end
@@ -2741,6 +2755,14 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
             local hb = PP.GetBorders(plate.health)
             if hb then
                 local sz = (p and p.borderSize) or defaults.borderSize
+                -- The target border-size effect (ApplyTarget) already resized the health
+                -- border before the cast bar showed; carry that size into the wrap instead
+                -- of falling back to the base size, or starting a cast on your target visibly
+                -- shrinks the border back to normal until the next target change.
+                if plate._targetBorderSized then
+                    local tbsz = ns.GetTargetBorderSizeValue()
+                    if tbsz then sz = tbsz end
+                end
                 local col = hb._bdColor
                 local r, g, b, a = 0, 0, 0, 1
                 if col then r, g, b, a = col[1], col[2], col[3], col[4] or 1 end
@@ -2805,7 +2827,12 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
             local hb = PP.GetBorders(plate.health)
             if hb then
                 hb._hideBottom = nil
-                PP.SetBorderSize(plate.health, (p and p.borderSize) or defaults.borderSize)
+                local sz = (p and p.borderSize) or defaults.borderSize
+                if plate._targetBorderSized then
+                    local tbsz = ns.GetTargetBorderSizeValue()
+                    if tbsz then sz = tbsz end
+                end
+                PP.SetBorderSize(plate.health, sz)
             end
             if plate.castWrapRegion then
                 local crb = PP.GetBorders(plate.castWrapRegion)
@@ -3926,6 +3953,7 @@ local function UpdateClassPowerOnPlate(plate)
             if plate._cpPips[i]._bg then plate._cpPips[i]._bg:Hide() end
         end
         if plate._cpBar then plate._cpBar:Hide() end
+        if _G._EWC then _G._EWC.Gate("np") end
         return
     end
 
@@ -4117,6 +4145,7 @@ local function UpdateClassPowerOnPlate(plate)
 
     local cur, maxP
     local isSecret = false
+    local npEngine = false
     if classPowerType == "SOUL_FRAGMENTS_VENGEANCE" then
         cur = C_Spell and C_Spell.GetSpellCastCount and C_Spell.GetSpellCastCount(228477) or 0
         maxP = 6
@@ -4125,18 +4154,17 @@ local function UpdateClassPowerOnPlate(plate)
         cur, maxP = EllesmereUI.GetMaelstromWeapon()
     elseif classPowerType == "TIP_OF_THE_SPEAR" then
         cur, maxP = EllesmereUI.GetTipOfTheSpear()
-    elseif classPowerType == "WHIRLWIND_STACKS" then
-        cur, maxP = EllesmereUI.GetWhirlwindStacks()
-        if not maxP or maxP <= 0 then
-            for i = 1, #plate._cpPips do
-                plate._cpPips[i]:Hide()
-                if plate._cpPips[i]._bg then plate._cpPips[i]._bg:Hide() end
-            end
-            return
-        end
-    elseif classPowerType == "SWEEPING_STRIKES" then
-        cur, maxP = EllesmereUI.GetSweepingStrikes()
-        if not maxP or maxP <= 0 then
+    elseif classPowerType == "WHIRLWIND_STACKS" or classPowerType == "SWEEPING_STRIKES" then
+        -- Engine-slot display only (the cast-count simulator is retired):
+        -- shared geometry below sizes the overlay, the pre-loop handoff
+        -- positions it. Shaped/icon pip styles render the rectangle overlay
+        -- for these two powers. Until the deferred build lands, Arm queues
+        -- it and the row shows empty.
+        if _G._EWC and _G._EWC.EngineOn("np", classPowerType) then
+            npEngine = true
+            cur, maxP = 0, _G._EWC.MaxApps(classPowerType)
+        else
+            if _G._EWC and ns._WCNP_Arm then ns._WCNP_Arm(classPowerType) end
             for i = 1, #plate._cpPips do
                 plate._cpPips[i]:Hide()
                 if plate._cpPips[i]._bg then plate._cpPips[i]._bg:Hide() end
@@ -4211,6 +4239,24 @@ local function UpdateClassPowerOnPlate(plate)
     local emptyCol = ns.GetClassPowerEmptyColor()
 
     local leftAnchor = (anchorPoint == "BOTTOM") and "BOTTOMLEFT" or "TOPLEFT"
+
+    -- Engine-owned warrior charge fill: size and anchor the shared overlay
+    -- from the same math the pips would use, hand over the resolved color,
+    -- park the legacy pips, and stop before any value work.
+    if npEngine and ns._WCNP_Attach then
+        ns._WCNP_Attach(anchorFrame, anchorRelPoint, leftAnchor,
+            cpXOff - halfGroup, yDir * cpYOff, groupW, scaledH, scaledW,
+            scaledGap, plateES, cpColor, emptyCol, bgCol, classPowerType)
+        for i = 1, #plate._cpPips do
+            local pip = plate._cpPips[i]
+            pip:Hide()
+            if pip._bg then pip._bg:Hide() end
+            if pip._secretBar then pip._secretBar:Hide() end
+            ns.HidePipDecor(pip)
+        end
+        if plate._cpBar then plate._cpBar:Hide() end
+        return
+    end
 
     for i = 1, #plate._cpPips do
         local pip = plate._cpPips[i]
@@ -4322,6 +4368,101 @@ local function HideClassPowerOnPlate(plate)
         ns.HidePipDecor(plate._cpPips[i])
     end
     if plate._cpBar then plate._cpBar:Hide() end
+    -- Park the engine-slot overlay with the pips (target lost, form-hidden,
+    -- watcher teardown all route through here).
+    if _G._EWC then _G._EWC.Gate("np") end
+end
+
+-- Engine-slot warrior charge overlay on the target plate (see
+-- EUI_ResourceBars_WarriorCharges.lua; guarded on _G._EWC so a disabled
+-- ResourceBars addon leaves the simulator pips in charge). The proxy is
+-- UIParent-parented and ANCHORED onto plate regions: anchor-derived geometry
+-- needs no rect reads, so it stays legal in combat where the plate subtree
+-- is unmeasurable. Sizes convert plate-local pixels into proxy units via the
+-- two effective scales. Everything is change-gated on the proxy's own
+-- fields, so the 10 Hz class-power poll pays a handful of compares while
+-- nothing moves.
+
+-- Arm: queue the deferred container build with belt colors (the handoff's
+-- Recolor stash wins once armed). Runs per poll tick until built: Sync
+-- early-outs on queued/built/latched-error, so it stays a few field tests.
+ns._WCNP_Arm = function(powerKey)
+    local ewc = _G._EWC
+    if not ewc then return end
+    local o = ns._wcnpOpts
+    if not o then
+        o = { texPath = "Interface\\Buttons\\WHITE8x8", ori = "HORIZONTAL",
+              manualAttach = true, sep = {} }
+        ns._wcnpOpts = o
+    end
+    if GetClassPowerClassColors() then
+        local c = GetClassPipColor(PLAYER_CLASS) or CP_DEFAULT_COLOR
+        o.r, o.g, o.b = c[1], c[2], c[3]
+    else
+        local cc = GetClassPowerCustomColor()
+        o.r, o.g, o.b = cc.r, cc.g, cc.b
+    end
+    o.a = 1
+    ewc.Sync("np", ewc.GetProxy("np"), powerKey, o)
+end
+
+ns._WCNP_Attach = function(anchorFrame, anchorRelPoint, leftAnchor, xOff,
+        yOff, groupW, scaledH, cellW, gapW, plateES, cpColor, emptyCol,
+        bgCol, powerKey)
+    local ewc = _G._EWC
+    if not ewc then return end
+    local o = ns._wcnpOpts
+    if not o then
+        ns._WCNP_Arm(powerKey)
+        o = ns._wcnpOpts
+        if not o then return end
+    end
+    local p = ewc.GetProxy("np")
+    local pES = p:GetEffectiveScale()
+    local k = (pES and pES > 0 and plateES) and (plateES / pES) or 1
+    local w, h = groupW * k, scaledH * k
+    local dirty = not p:IsShown() or p._npPK ~= powerKey
+    -- Geometry gate: reposition only when the layout actually moved (anchor
+    -- frame swap on cast-bar avoidance, offsets, scale, cap changes).
+    if p._npAF ~= anchorFrame or p._npLA ~= leftAnchor
+       or p._npRP ~= anchorRelPoint or p._npX ~= xOff or p._npY ~= yOff
+       or p._npW ~= w or p._npH ~= h then
+        p._npAF, p._npLA, p._npRP = anchorFrame, leftAnchor, anchorRelPoint
+        p._npX, p._npY, p._npW, p._npH = xOff, yOff, w, h
+        p:SetSize(w, h)
+        p:ClearAllPoints()
+        -- SetPoint offsets apply in the POSITIONED frame's own scale: convert
+        -- the plate-local offsets too.
+        p:SetPoint(leftAnchor, anchorFrame, anchorRelPoint, xOff * k, yOff * k)
+        dirty = true
+    end
+    -- Style gate: separator/empty/fill colors from the live settings.
+    if p._npSR ~= bgCol.r or p._npSG ~= bgCol.g or p._npSB ~= bgCol.b
+       or p._npSA ~= bgCol.a or p._npER ~= emptyCol.r or p._npEG ~= emptyCol.g
+       or p._npEB ~= emptyCol.b or p._npEA ~= emptyCol.a
+       or p._npCR ~= cpColor[1] or p._npCG ~= cpColor[2] or p._npCB ~= cpColor[3] then
+        p._npSR, p._npSG, p._npSB, p._npSA = bgCol.r, bgCol.g, bgCol.b, bgCol.a
+        p._npER, p._npEG, p._npEB, p._npEA = emptyCol.r, emptyCol.g, emptyCol.b, emptyCol.a
+        p._npCR, p._npCG, p._npCB = cpColor[1], cpColor[2], cpColor[3]
+        dirty = true
+    end
+    if dirty then
+        p._npPK = powerKey
+        o.r, o.g, o.b, o.a = cpColor[1], cpColor[2], cpColor[3], 1
+        local s = o.sep
+        s.r, s.g, s.b, s.a = bgCol.r, bgCol.g, bgCol.b, bgCol.a
+        s.w = gapW * k
+        s.cellW = cellW * k
+        s.gap = gapW * k
+        s.pad = 0
+        s.stretch = nil
+        local e = s.empty
+        if not e then e = {}; s.empty = e end
+        e.r, e.g, e.b, e.a = emptyCol.r, emptyCol.g, emptyCol.b, emptyCol.a
+        s.emptyInset = 0
+        ewc.Sync("np", p, powerKey, o)
+    end
+    ewc.Recolor("np", powerKey, cpColor[1], cpColor[2], cpColor[3], 1)
 end
 
 -- Return the extra Y offset that elements above the health bar need to clear
@@ -4444,12 +4585,6 @@ local function EnableClassPowerWatcher()
                     if EllesmereUI.HandleTipOfTheSpear then
                         EllesmereUI.HandleTipOfTheSpear(event, unit, castGUID, spellID)
                     end
-                    if EllesmereUI.HandleWhirlwindStacks then
-                        EllesmereUI.HandleWhirlwindStacks(event, unit, castGUID, spellID)
-                    end
-                    if EllesmereUI.HandleSweepingStrikes then
-                        EllesmereUI.HandleSweepingStrikes(event, unit, castGUID, spellID)
-                    end
                 end
                 RefreshClassPower()
             elseif event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" then
@@ -4457,23 +4592,9 @@ local function EnableClassPowerWatcher()
                     if EllesmereUI.HandleTipOfTheSpear then
                         EllesmereUI.HandleTipOfTheSpear(event)
                     end
-                    if EllesmereUI.HandleWhirlwindStacks then
-                        EllesmereUI.HandleWhirlwindStacks(event)
-                    end
-                    if EllesmereUI.HandleSweepingStrikes then
-                        EllesmereUI.HandleSweepingStrikes(event)
-                    end
                 end
                 RefreshClassPower()
             elseif event == "PLAYER_REGEN_ENABLED" then
-                if not _G._ERB_AceDB and EllesmereUI then
-                    if EllesmereUI.HandleWhirlwindStacks then
-                        EllesmereUI.HandleWhirlwindStacks(event)
-                    end
-                    if EllesmereUI.HandleSweepingStrikes then
-                        EllesmereUI.HandleSweepingStrikes(event)
-                    end
-                end
                 RefreshClassPower()
             else
                 RefreshClassPower()

@@ -1508,7 +1508,7 @@ local _itemCountDirty = true
 EABR._resolved = {
     dirty = true,                   -- rebuild pending
     sig = {},                       -- last preferred-setting signature
-    rune = {},                      -- {itemID}
+    rune = {},                      -- {itemID, hasBags}
     flask = {},                     -- {itemID, hasBags}
     food = {},                      -- {itemID}
     inky = {},                      -- {hasPotion}
@@ -1653,11 +1653,13 @@ function EABR.ResolveConsumables()
     local lufd = db.profile and db.profile.lastUsedFood or nil
     local luwe = db.profile and db.profile.lastUsedWeaponEnchant or nil
 
-    -- Augment Rune: void preferred over ethereal; nil if neither in bags.
+    -- Augment Rune: void preferred over ethereal; fall back to the current
+    -- rune so an out-of-stock restock reminder can still render.
     local runeItem = nil
     if CachedGetItemCount(259085) > 0 then runeItem = 259085
     elseif CachedGetItemCount(243191) > 0 then runeItem = 243191 end
-    R.rune.itemID = runeItem
+    R.rune.hasBags = (runeItem ~= nil)
+    R.rune.itemID = runeItem or 259085
 
     -- Flask: resolve a display item even when out of stock (shown desaturated).
     local flaskItemID = FindFlaskItem(pf, luf)
@@ -1852,7 +1854,7 @@ local defaults = {
             whereToShow = {},
         },
         consumables = {
-            -- When false, bag/equip-derived consumables (flask/food/weapon)
+            -- When false, bag/equip-derived consumables (rune/flask/food/weapon)
             -- are hidden entirely when the item isn't in bags, instead of
             -- showing a desaturated restock prompt.
             showWithoutItem = true,
@@ -2244,6 +2246,9 @@ function EABR.EnsureProviderCastButton()
     btn:SetSize(ICON_SIZE, ICON_SIZE)
     btn:RegisterForClicks("LeftButtonDown", "LeftButtonUp", "MiddleButtonUp")
     securecallfunction(btn.SetPassThroughButtons, btn, "RightButton")
+    -- MiddleButton is the dismiss click: NOOP its action type so it cannot fall
+    -- back to the plain "type" attribute and cast the reminder.
+    btn:SetAttribute("*type3", ATTRIBUTE_NOOP)
     btn:SetAttribute("useOnKeyDown", false)
     btn:SetFrameStrata(GetStrata())
     btn:SetFrameLevel(120)
@@ -2721,6 +2726,9 @@ local function GetOrCreateIcon(index)
     btn:SetSize(ICON_SIZE, ICON_SIZE)
     btn:RegisterForClicks("LeftButtonDown", "LeftButtonUp", "MiddleButtonUp")
     securecallfunction(btn.SetPassThroughButtons, btn, "RightButton")
+    -- MiddleButton is the dismiss click: NOOP its action type so it cannot fall
+    -- back to the plain "type" attribute and cast the reminder.
+    btn:SetAttribute("*type3", ATTRIBUTE_NOOP)
     btn:SetFrameStrata(GetStrata())
     btn:Hide()
 
@@ -3361,13 +3369,15 @@ local specialsActive = EABR.SectionShows(co.specialsWhereToShow, inInstance)
         if co.enabled.augment_rune and EABR.ConsumableShows(co, "augment_rune", inInstance) then
             local hasRuneBuff = EABR.ConsumablePresenceUnverifiable() or PlayerHasAuraByID(RUNE_BUFF_IDS)
             if not hasRuneBuff then
-                local runeItem = EABR._resolved.rune.itemID
-                if runeItem then
+                local rr = EABR._resolved.rune
+                local runeItem = rr.itemID
+                if runeItem and (co.showWithoutItem ~= false or rr.hasBags) then
                     local e = AcquireEntry()
                     e.mode = "item"; e.itemID = runeItem
                     e.texture = GetItemIcon(runeItem); e.label = EllesmereUI.L(ShortLabel("Augment Rune"))
                     e.qualityAtlas = EABR.GetItemQualityAtlas(runeItem)
                     e.bagCount = CachedGetItemCount(runeItem)
+                    e.desaturated = not rr.hasBags
                     e.cat = "consumable"
                     e.dismissKey = "consumable:rune"
                     missing[#missing+1] = e

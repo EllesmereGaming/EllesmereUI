@@ -176,12 +176,9 @@ initFrame:SetScript("OnEvent", function(self)
         local info = gsr and gsr()
         if not info or info.type == "bar" then return 5 end
         local m = info.max
-        -- Talent-dependent maxes come from the live trackers
-        if info.power == "SWEEPING_STRIKES" and EllesmereUI and EllesmereUI.GetSweepingStrikes then
-            local _, realMax = EllesmereUI.GetSweepingStrikes()
-            if realMax and realMax > 0 then m = realMax end
-        elseif info.power == "WHIRLWIND_STACKS" and EllesmereUI and EllesmereUI.GetWhirlwindStacks then
-            local _, realMax = EllesmereUI.GetWhirlwindStacks()
+        -- Talent-dependent maxes come from the live sources
+        if info.power == "SWEEPING_STRIKES" or info.power == "WHIRLWIND_STACKS" then
+            local realMax = _G._EWC and _G._EWC.MaxApps(info.power)
             if realMax and realMax > 0 then m = realMax end
         elseif info.power == "MAELSTROM_WEAPON" and EllesmereUI and EllesmereUI.GetMaelstromWeapon then
             local _, realMax = EllesmereUI.GetMaelstromWeapon()
@@ -4566,7 +4563,12 @@ initFrame:SetScript("OnEvent", function(self)
                 return sid == 73
             end
             if _IsProtWarrior() then
-                local ipBarTip = "Creates a class resource bar for Ignore Pain tracking. To see stack text, you must have Ignore Pain tracked in your Blizzard CDM \"Tracked Buffs\" or \"Tracked Bars\" section."
+                -- Translated in halves so the CDM sentence keeps its existing locale
+                -- entries; ShowWidgetTooltip L()s the joined string, a harmless miss.
+                -- The first half stays a variable: its escaped quotes would come back
+                -- truncated from the static key extractor.
+                local ipBarTipCDM = "Creates a class resource bar for Ignore Pain tracking. To see stack text, you must have Ignore Pain tracked in your Blizzard CDM \"Tracked Buffs\" or \"Tracked Bars\" section."
+                local ipBarTip = EllesmereUI.L(ipBarTipCDM) .. " " .. EllesmereUI.L("Tracking it also makes the fill show Ignore Pain alone; without it the fill shows your total absorb, so other shields can add to it.")
                 local ipHashTip = "Draws a hash line that resets to the right edge when you cast Ignore Pain and slides left as the buff runs out."
                 local ipRow
                 ipRow, h = W:DualRow(parent, y,
@@ -6220,6 +6222,21 @@ initFrame:SetScript("OnEvent", function(self)
 				local function _thrOptUsable() return _thrEnabled() and not _thrMultiOn() end
 				local function _thrOffTip() if _thrMultiOn() then return BAND_REPLACES_TIP end return "Enable the Threshold toggle to use these options." end
 				local function _thrIsUpTo() local e=_thrEnt(); return (e and e.thresholdReverse) and true or false end
+				local function _thrIsWarrCharge()
+					-- Arms/Fury class-bar thresholds render on the engine-fed
+					-- Whirlwind/Sweeping Strikes charge bar, whose only
+					-- threshold display is range coloring at/above the count
+					-- (no Lua count exists to flip the whole fill).
+					if (select(2, UnitClass("player"))) ~= "WARRIOR" then return false end
+					local e = _thrEnt()
+					local ids = e and e.specIDs
+					if not ids then return false end
+					for i = 1, #ids do
+						local id = ids[i]
+						if id == 0 or id == 71 or id == 72 then return true end
+					end
+					return false
+				end
 				local threshCog, threshCogShow = EllesmereUI.BuildCogPopup({
 					title = "Threshold Options", bgAlpha = 1, frameStrata = "FULLSCREEN_DIALOG", frameLevel = 500, minWidth = 320,
 					rows = {
@@ -6235,18 +6252,22 @@ initFrame:SetScript("OnEvent", function(self)
 							set = function(v) local e=_thrEnt(); if not e then return end e.thresholdMode=v; RefreshClass(); if RefreshDetail then RefreshDetail() end end },
 						{ type = "segmented", label = "Direction",
 							keys = { "upto", "from" }, labels = { upto = "Up to", from = "From" }, rawTooltip = true,
-							disabled = function() return not _thrOptUsable() end,
-							disabledTooltip = function() return _thrOffTip() end,
-							get = function() local e=_thrEnt(); return (e and e.thresholdReverse) and "upto" or "from" end,
+							disabled = function() return (not _thrOptUsable()) or _thrIsWarrCharge() end,
+							disabledTooltip = function()
+								if _thrIsWarrCharge() and _thrOptUsable() then return "Whirlwind and Sweeping Strikes thresholds only support the 'From' direction." end
+								return _thrOffTip()
+							end,
+							get = function() if _thrIsWarrCharge() then return "from" end local e=_thrEnt(); return (e and e.thresholdReverse) and "upto" or "from" end,
 							set = function(v) local e=_thrEnt(); if not e then return end e.thresholdReverse=(v=="upto"); RefreshClass(); if RefreshDetail then RefreshDetail() end end },
 						{ type = "toggle", label = "Only color at/above threshold", rawTooltip = true,
-							disabled = function() return (not _thrOptUsable()) or _thrIsBar() or _thrIsUpTo() end,
+							disabled = function() return (not _thrOptUsable()) or _thrIsBar() or _thrIsUpTo() or _thrIsWarrCharge() end,
 							disabledTooltip = function()
+								if _thrIsWarrCharge() and _thrOptUsable() then return "Always on for Whirlwind and Sweeping Strikes charges: range coloring at/above the threshold is the only way these bars can display thresholds." end
 								if not _thrOptUsable() then return _thrOffTip() end
 								if _thrIsBar() then return "This option applies to pip-type resources only." end
 								return "Only available with the 'From' direction -- it highlights the pips at/above the threshold."
 							end,
-							get = function() local e=_thrEnt(); return (e and e.thresholdPartialOnly) and true or false end,
+							get = function() if _thrIsWarrCharge() then return true end local e=_thrEnt(); return (e and e.thresholdPartialOnly) and true or false end,
 							set = function(v) local e=_thrEnt(); if not e then return end e.thresholdPartialOnly=v; RefreshClass(); if RefreshDetail then RefreshDetail() end end },
 					},
 				})
@@ -7276,6 +7297,18 @@ initFrame:SetScript("OnEvent", function(self)
         local visRow
         visRow, h = EllesmereUI.BuildVisibilityRow(W, parent, y,
             { getStore = function() local p = DB(); return p and p.secondary end,
+              -- The override marker fans out like the scalar and the option lanes do;
+              -- secondary leads, matching getStore above.
+              getStores = function()
+                  local p = DB(); if not p then return nil end
+                  -- Built by presence, never as a literal triple: a nil in the middle
+                  -- would leave a hole the # operator reads past.
+                  local out = {}
+                  if p.secondary then out[#out + 1] = p.secondary end
+                  if p.health    then out[#out + 1] = p.health    end
+                  if p.primary   then out[#out + 1] = p.primary   end
+                  return out
+              end,
               legacyKey = "visibility",
               caps = { partyIncludesRaid = false, luaDragonriding = true },
               applyScalarFn = ApplyVisScalarAll,

@@ -375,13 +375,13 @@ end
 -- (special-case "timespiral"); warlock pets are excluded (no usable detection).
 local BUFF_BAR_PRESETS = {
     {
-        -- Faction label: Horde = Bloodlust (2825), Alliance = Heroism (32182).
+        -- Horde order; ns.RefreshLustPresetFaction flips it for Alliance below.
+        -- BOTH ids are listed so the "already on this bar" tests recognise a lust
+        -- icon added by the other faction on a shared profile.
         key      = "bloodlust",
-        name     = (UnitFactionGroup("player") == "Horde") and "Bloodlust" or "Heroism",
-        icon     = (UnitFactionGroup("player") == "Horde")
-                       and "Interface\\Icons\\spell_nature_bloodlust"
-                       or  "Interface\\Icons\\ability_shaman_heroism",
-        spellIDs = { (UnitFactionGroup("player") == "Horde") and 2825 or 32182 },
+        name     = "Bloodlust",
+        icon     = "Interface\\Icons\\spell_nature_bloodlust",
+        spellIDs = { 2825, 32182 },
         duration = 40,
         tbbOnly  = true,  -- not a cooldown-usable preset (kept out of the CD/utility picker)
         customAuraToo = true,  -- but allowed on Custom Auras (icon) bars; debuff-driven 40s window
@@ -420,6 +420,43 @@ local BUFF_BAR_PRESETS = {
     },
 }
 ns.BUFF_BAR_PRESETS = BUFF_BAR_PRESETS
+
+-- Horde casts Bloodlust (2825), Alliance casts Heroism (32182). UnitFactionGroup
+-- can read nil this early in a client session, and a wrong read baked into the
+-- table would stick for the whole session (a Horde player got the Heroism name,
+-- icon and id in the picker), so OnEnable calls this again once the player loads.
+function ns.RefreshLustPresetFaction()
+    local alliance = UnitFactionGroup("player") == "Alliance"
+    local name = alliance and "Heroism" or "Bloodlust"
+    local icon = alliance and "Interface\\Icons\\ability_shaman_heroism"
+                          or  "Interface\\Icons\\spell_nature_bloodlust"
+    ns._lustPresetSpellID = alliance and 32182 or 2825
+    for _, p in ipairs(BUFF_BAR_PRESETS) do
+        if p.key == "bloodlust" then
+            p.name, p.icon = name, icon
+            -- This character's id leads: everything that stores a preset takes
+            -- spellIDs[1], while the membership tests read the whole list.
+            p.spellIDs[1] = ns._lustPresetSpellID
+            p.spellIDs[2] = alliance and 2825 or 32182
+            break
+        end
+    end
+    -- The Tracking Bar list copies name/icon by value at load (spellIDs is the
+    -- same table), and is built after this file, so it is absent on the first call.
+    for _, e in ipairs(ns.TBB_POPULAR_BUFFS or {}) do
+        if e.key == "bloodlust" then e.name, e.icon = name, icon; break end
+    end
+end
+ns.RefreshLustPresetFaction()
+
+-- A profile shared between a Horde and an Alliance character keeps whichever lust
+-- id was stored first, so icon art resolves through here instead of off that id.
+function ns.LustPresetIconSpellID(sid)
+    if ns.IsLustPresetSpell and ns.IsLustPresetSpell(sid) then
+        return ns._lustPresetSpellID or sid
+    end
+    return sid
+end
 
 -- Item presets for CD/utility bars (potions that track cooldowns). displayOrder is a
 -- dynamic-display priority list, newest tier first: the icon resolves to the FIRST id
@@ -2346,9 +2383,12 @@ StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
 
     _G_Glows.StopAllGlows(overlay)
 
-    local parent = overlay:GetParent()
+    -- Threshold glows pass the owning icon and its size explicitly so every
+    -- style sizes exactly like the normal buff-glow path.
+    local parent = (opts and opts.owner) or overlay:GetParent()
     if not parent then return end
-    local pW, pH = parent:GetWidth(), parent:GetHeight()
+    local pW = (opts and opts.width) or parent:GetWidth()
+    local pH = (opts and opts.height) or parent:GetHeight()
     if pW < 5 then pW = 36 end
     if pH < 5 then pH = 36 end
     local noColor = (cr == nil)
@@ -2372,6 +2412,13 @@ StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
             maskPath   = maskPath,
             borderPath = borderPath,
             shapeMask  = shapeMask,
+            -- Gated (threshold) glows only: ApplyMaskWith below can bind only the
+            -- textures ON the wrapper, and this is the one engine that creates
+            -- them on the anchor frame instead -- unmasked, its pulse showed
+            -- below the stack threshold. The overlay is SetAllPoints on the icon,
+            -- so anchoring there is identical geometry; ungated callers keep the
+            -- icon parenting they have always had.
+            anchorFrame = (opts and opts.maskWith) and overlay or nil,
         })
     elseif entry.procedural then
         -- Pixel Glow params. Pandemic glow passes explicit opts; per-button glows (active-state,
@@ -2403,6 +2450,12 @@ StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
     else
         if noColor then cr, cg, cb = nil, nil, nil end
         _G_Glows.StartFlipBookGlow(overlay, pW, entry, cr, cg, cb, pH)
+    end
+
+    -- Threshold gating: bound every texture the style just created with the
+    -- caller's mask (see ApplyMaskWith in EllesmereUI_Glows.lua).
+    if opts and opts.maskWith and _G_Glows.ApplyMaskWith then
+        _G_Glows.ApplyMaskWith(overlay, opts.maskWith)
     end
 
     overlay._glowActive = true
@@ -5419,10 +5472,26 @@ local function RefreshCDMIconAppearance(barKey)
             if nColor == "custom" and ssb then
                 nR, nG, nB = ssb.buffGlowColorR, ssb.buffGlowColorG, ssb.buffGlowColorB
             end
+            -- Glow at Stacks: only with the per-spell toggle ON and a sane
+            -- threshold. Own custom frames expose no native applications
+            -- count, so they keep the normal presence glow.
+            local nThreshold
+            if ssb and ssb.buffGlowStackEnabled then
+                -- Default 2 when the toggle is on before the input was ever
+                -- touched (matches the input's displayed default). Minimum 2:
+                -- at 1 this would just be the normal presence glow.
+                nThreshold = tonumber(ssb.buffGlowStackThreshold) or 2
+                if nThreshold < 2 then nThreshold = nil end
+            end
+            if icon._isCustomBuffFrame or not ns.StackGlow_Configure then
+                nThreshold = nil
+            end
             if fd then
                 if fd._bgT ~= nT or fd._bgColor ~= nColor
-                   or fd._bgR ~= nR or fd._bgG ~= nG or fd._bgB ~= nB then
+                   or fd._bgR ~= nR or fd._bgG ~= nG or fd._bgB ~= nB
+                   or fd._bgThreshold ~= nThreshold then
                     fd._bgT = nT; fd._bgColor = nColor; fd._bgR = nR; fd._bgG = nG; fd._bgB = nB
+                    fd._bgThreshold = nThreshold
                     if fd.buffGlowActive and fd.buffGlowOverlay then
                         StopNativeGlow(fd.buffGlowOverlay)
                         fd.buffGlowActive = false
@@ -5430,7 +5499,35 @@ local function RefreshCDMIconAppearance(barKey)
                 end
                 -- Per-icon Desaturate Inactive override, read by the BuffTicker.
                 fd._desatOverride = (ssb and ssb.desatInactive) or nil
+
+                if nThreshold then
+                    -- Style: the spell's effective Buff Glow (per-spell
+                    -- override falling back to the bar's), with None and
+                    -- Blizzard Default falling back to Modern WoW Glow so the
+                    -- threshold always has a maskable glow to drive.
+                    local sgStyle = nT
+                    if sgStyle == nil then sgStyle = barData.buffGlowType end
+                    sgStyle = tonumber(sgStyle) or 0
+                    if sgStyle <= 0 then sgStyle = 6 end -- Modern WoW Glow
+                    local sgMode = nColor or barData.buffGlowMode
+                    local sgR, sgG, sgB
+                    if nColor == "custom" then
+                        sgR, sgG, sgB = nR, nG, nB
+                    elseif sgMode == "class" then
+                        local cc = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
+                        if cc then sgR, sgG, sgB = cc.r, cc.g, cc.b end
+                    elseif sgMode == "custom" then
+                        sgR, sgG, sgB = barData.buffGlowR, barData.buffGlowG, barData.buffGlowB
+                    end
+                    ns.StackGlow_Configure(icon, nThreshold, sgStyle, sgR, sgG, sgB, barData)
+                elseif fd.stackGlow then
+                    ns.StackGlow_Configure(icon)
+                end
             end
+        elseif fd and fd.stackGlow and ns.StackGlow_Configure then
+            -- Blizzard viewer frames are pooled across cooldown and buff
+            -- families: retire a controller when its frame goes non-buff.
+            ns.StackGlow_Configure(icon)
         end
         -- Update texture -- fill the entire frame. The border renders on top via PP.CreateBorder so no inset is needed.
         if tex then
@@ -9353,6 +9450,7 @@ function ECME:OnEnable()
     ns._playerRace = _playerRace
     ns._playerClass = _playerClass
     ns._myRacialsSet = _myRacialsSet
+    ns.RefreshLustPresetFaction()
 
     -- Build cached racial spell list for this character (used for render-time substitution)
     table.wipe(_myRacials)
@@ -9840,6 +9938,177 @@ function ns.RefreshItemCountOOCBars()
     end
 end
 
+-- TAINT LAW (field-proven 2026-08-31, 24x error burst in the field): NEVER
+-- write ANY field on a Blizzard CooldownViewer item frame, not even a key
+-- Blizzard itself owns (spellOutOfRange), and never call its paint methods
+-- from our execution. The written value is tainted; Blizzard's refresh
+-- chains read it MID-EXECUTION and the taint poisons everything downstream:
+-- forbidden secure caches (CheckAllowOnCooldownGeneric dataCache), secret
+-- boolean fields (allowOnCooldownAlert), and map registrations made inside
+-- the chain, which then convert every later event dispatch on the viewer
+-- into tainted execution. A stale-range repaint is never worth that. The
+-- range-on-override-swap staleness it replaced is cosmetic, and is repainted
+-- below WITHIN this law: our own texture only, no frame field, no paint call.
+
+-- Blizzard arms the range check on the BASE spell, so while an override is up the
+-- icon tracks the wrong spell's range. Repainted on fd.tex and the side table,
+-- never the frame. The hook RE-POLLS instead of replaying a stored answer: it
+-- fires on every Blizzard repaint, including the one their own range event drives,
+-- so walking back into range clears the tint without a second event of our own. A
+-- secret or unknown answer leaves their colour alone. Cleared to nil when no
+-- override is live, since Blizzard's own check is correct for the base spell.
+-- On ns.* because the main chunk is at Lua 5.1's 200-local cap.
+function ns.ApplyOverrideRangeTint(icon, overrideSpellID)
+    local fd = _getFD(icon)
+    local tex = fd and fd.tex
+    local C = CooldownViewerConstants
+    if not (tex and C) then return end
+    -- Live-override count, kept on the nil<->value transitions of the ONLY
+    -- writer of _oorSpellID: RepaintOverrideRange gates its whole icon walk on
+    -- it, so the event dispatches Blizzard's own base-spell registrations
+    -- produce (nearly all of them, for nearly every player) cost one integer
+    -- read instead of a full bar scan.
+    if (fd._oorSpellID ~= nil) ~= (overrideSpellID ~= nil) then
+        ns._oorLiveCount = (ns._oorLiveCount or 0) + (overrideSpellID and 1 or -1)
+    end
+    fd._oorSpellID = overrideSpellID
+    if not fd._oorHooked then
+        fd._oorHooked = true
+        local guard = false
+        hooksecurefunc(tex, "SetVertexColor", function()
+            local sid = fd._oorSpellID
+            if guard or not sid then return end
+            local r = C_Spell.IsSpellInRange(sid)
+            if issecretvalue and issecretvalue(r) then return end
+            if r ~= false then return end
+            guard = true
+            tex:SetVertexColor(C.ITEM_NOT_IN_RANGE_COLOR:GetRGBA())
+            guard = false
+        end)
+    end
+    -- Repaint once now: the hook only rides Blizzard's own writes, and the swap
+    -- that brought us here does not produce one.
+    local inRange = overrideSpellID and C_Spell.IsSpellInRange(overrideSpellID)
+    if issecretvalue and issecretvalue(inRange) then return end
+    if inRange == false then
+        tex:SetVertexColor(C.ITEM_NOT_IN_RANGE_COLOR:GetRGBA())
+        return
+    end
+    local sid = overrideSpellID or icon.rangeCheckSpellID
+    if not sid then return end
+    local usable, notEnoughMana = C_Spell.IsSpellUsable(sid)
+    if issecretvalue and (issecretvalue(usable) or issecretvalue(notEnoughMana)) then
+        return
+    end
+    if usable then
+        tex:SetVertexColor(C.ITEM_USABLE_COLOR:GetRGBA())
+    elseif notEnoughMana then
+        tex:SetVertexColor(C.ITEM_NOT_ENOUGH_MANA_COLOR:GetRGBA())
+    else
+        tex:SetVertexColor(C.ITEM_NOT_USABLE_COLOR:GetRGBA())
+    end
+end
+
+-- Blizzard arms its check on the BASE spell only, so a melee base with a 15yd
+-- override never dispatches when you cross 15yd. Arming the override id closes that.
+--
+-- The registration is per SPELL, not per caller, and an override can be a CDM entry
+-- in its own right (Hammer of Wrath overrides Judgment and is also its own icon), so
+-- an id Blizzard holds is left alone in both directions -- re-checked at disarm time,
+-- since a spell can become theirs while ours is armed.
+function ns.BlizzardArmsRange(spellID)
+    for _, icons in pairs(cdmBarIcons) do
+        for _, icon in ipairs(icons) do
+            if icon.rangeCheckSpellID == spellID then return true end
+        end
+    end
+    return false
+end
+
+function ns.ArmOverrideRange(baseSpellID, overrideSpellID)
+    local armed = ns._oorArmed
+    if not armed then armed = {}; ns._oorArmed = armed end
+    local prev = armed[baseSpellID]
+    if prev == overrideSpellID then return end
+    if prev then
+        if not ns.BlizzardArmsRange(prev) then
+            C_Spell.EnableSpellRangeCheck(prev, false)
+        end
+        armed[baseSpellID] = nil
+    end
+    if overrideSpellID and not ns.BlizzardArmsRange(overrideSpellID) then
+        C_Spell.EnableSpellRangeCheck(overrideSpellID, true)
+        armed[baseSpellID] = overrideSpellID
+    end
+end
+
+-- Every registration dropped at once (spec change, logout): a leaked one costs a
+-- dispatch we ignore, but they would accumulate across a session of swaps.
+function ns.DisarmOverrideRanges()
+    local armed = ns._oorArmed
+    if not armed then return end
+    for base, ov in pairs(armed) do
+        if not ns.BlizzardArmsRange(ov) then
+            C_Spell.EnableSpellRangeCheck(ov, false)
+        end
+        armed[base] = nil
+    end
+    -- The tracked ids go with the registrations ("the new spec's overrides
+    -- re-arm on their own events"): a value left behind would keep that icon's
+    -- hook polling a dead spell and hold the repaint gate open. Also what
+    -- keeps the live count exact across spec changes.
+    for _, icons in pairs(cdmBarIcons) do
+        for _, icon in ipairs(icons) do
+            local fd = _getFD(icon)
+            if fd and fd._oorSpellID ~= nil then fd._oorSpellID = nil end
+        end
+    end
+    ns._oorLiveCount = 0
+end
+
+-- SPELL_RANGE_CHECK_UPDATE. Keyed off the icon's own stored override id rather than
+-- our armed set, so it still repaints for an override Blizzard arms itself. The
+-- payload's isInRange is ignored in favour of ApplyOverrideRangeTint's own poll,
+-- which already guards a secret answer. Falls through immediately for the base-spell
+-- registrations Blizzard makes, which is nearly every dispatch.
+function ns.RepaintOverrideRange(spellID)
+    -- No icon holds a live override: nothing here could match. Reads only our
+    -- own counter, so it runs before any payload value is touched.
+    if (ns._oorLiveCount or 0) <= 0 then return end
+    if type(spellID) ~= "number" then return end
+    if issecretvalue and issecretvalue(spellID) then return end
+    for _, icons in pairs(cdmBarIcons) do
+        for _, icon in ipairs(icons) do
+            local fd = _getFD(icon)
+            if fd and fd._oorSpellID == spellID then
+                ns.ApplyOverrideRangeTint(icon, spellID)
+            end
+        end
+    end
+end
+
+-- rangeCheckSpellID is READ, never written: the law is about writes.
+function ns.ResyncCdmRange(baseSpellID, overrideSpellID)
+    -- Secret payload fails open, before any truthiness test or comparison
+    -- touches it: same guard the action bar dispatcher puts on this event.
+    if issecretvalue and (issecretvalue(baseSpellID) or issecretvalue(overrideSpellID)) then
+        return
+    end
+    if not (baseSpellID and C_Spell and C_Spell.IsSpellInRange) then return end
+    -- nil once the override lapses, which hands the icon back to Blizzard: their
+    -- own check is armed on the base spell and is right again from that moment.
+    local liveOverride = (overrideSpellID and overrideSpellID ~= baseSpellID)
+        and overrideSpellID or nil
+    ns.ArmOverrideRange(baseSpellID, liveOverride)
+    for _, icons in pairs(cdmBarIcons) do
+        for _, icon in ipairs(icons) do
+            if icon.rangeCheckSpellID == baseSpellID then
+                ns.ApplyOverrideRangeTint(icon, liveOverride)
+            end
+        end
+    end
+end
+
 -------------------------------------------------------------------------------
 --  Event-Driven Runtime Maintenance
 --
@@ -9856,6 +10125,9 @@ eventFrame:RegisterEvent("SPELLS_CHANGED")
 -- Live override flips (proc-based hero-talent transforms): resolution memos
 -- derived from override state go stale the moment this fires.
 eventFrame:RegisterEvent("COOLDOWN_VIEWER_SPELL_OVERRIDE_UPDATED")
+-- Only ever acted on for an override id we armed ourselves; Blizzard's own base-spell
+-- registrations dispatch here too and fall straight through.
+eventFrame:RegisterEvent("SPELL_RANGE_CHECK_UPDATE")
 eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
@@ -9888,6 +10160,12 @@ eventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 -- Visibility option events: mounted, target, instance zone changes
 eventFrame:RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED")
 eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
+-- Resting: IsResting() has no dedicated poll, so without this the Resting
+-- axis only re-evaluated when some unrelated event above happened to fire.
+eventFrame:RegisterEvent("PLAYER_UPDATE_RESTING")
+-- Vehicle edges for the In Vehicle axis (player-filtered; same reasoning).
+eventFrame:RegisterUnitEvent("UNIT_ENTERED_VEHICLE", "player")
+eventFrame:RegisterUnitEvent("UNIT_EXITED_VEHICLE", "player")
 -- Dragonriding visibility modes: capability edge (mount/dismount/zone) plus
 -- the airborne edge (takeoff/landing while staying mounted; probed at load
 -- in EllesmereUI_Visibility.lua -- absent = the checklist items lock).
@@ -9993,9 +10271,17 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         ns.SaveCachedBarSizes()
         return
     end
+    if event == "SPELL_RANGE_CHECK_UPDATE" then
+        ns.RepaintOverrideRange(unit)   -- payload is (spellID, isInRange, checksRange)
+        return
+    end
     if event == "COOLDOWN_VIEWER_SPELL_OVERRIDE_UPDATED" then
         -- Bump-only: painting is driven by the cooldown/desat hooks, which re-resolve on their next fire. No repaint request from here.
         ns._cdmResGen = ns._cdmResGen + 1
+        -- Except the range tint, which no hook re-resolves -- Blizzard's own check
+        -- is armed on the base id and never re-polls for the override.
+        -- Payload here is (baseSpellID, overrideSpellID).
+        ns.ResyncCdmRange(unit, updateInfo)
         return
     end
     if event == "COMBAT_LOG_EVENT_UNFILTERED" then
@@ -10091,7 +10377,8 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         if ns.QueueReanchor then ns.QueueReanchor() end
         return
     end
-    if event == "PLAYER_TARGET_CHANGED" then
+    if event == "PLAYER_TARGET_CHANGED" or event == "PLAYER_UPDATE_RESTING"
+       or event == "UNIT_ENTERED_VEHICLE" or event == "UNIT_EXITED_VEHICLE" then
         _CDMApplyVisibility()
         return
     end
@@ -10195,6 +10482,7 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         return
     end
     if event == "PLAYER_SPECIALIZATION_CHANGED" and unit == "player" then
+        ns.DisarmOverrideRanges()   -- the new spec's overrides re-arm on their own events
         -- Non-rebuild work only. The actual spec change rebuild is driven by SPELLS_CHANGED above
         -- (which fires for both manual and auto swaps). This handler just invalidates caches that need immediate clearing.
         if EllesmereUI and EllesmereUI.InvalidateFrameCache then

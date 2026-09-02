@@ -6410,6 +6410,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- Only the art moves; identity stays untouched.
     local function ResolveIconArt(sid, cdID)
         if not sid or sid <= 0 then return sid end
+        if ns.LustPresetIconSpellID then sid = ns.LustPresetIconSpellID(sid) end
         if ns.ResolvePlaceholderIconSID then
             local live = ns.ResolvePlaceholderIconSID(sid, cdID)
             if type(live) == "number" and live > 0 then return live end
@@ -7472,17 +7473,11 @@ initFrame:SetScript("OnEvent", function(self)
         -- custom buffs via AddPresetToBar; the buff phase injects an own-frame so
         -- they render alongside Blizzard-tracked buffs.
         do
-            local alreadyTracked = {}
-            local sdPS = ns.GetBarSpellData(targetBarKey)
-            if sdPS and sdPS.assignedSpells then
-                for _, sid in ipairs(sdPS.assignedSpells) do alreadyTracked[sid] = true end
-            end
             local _, _pClass = UnitClass("player")
             for _, preset in ipairs(ns.BUFF_BAR_PRESETS or {}) do
                 if (not preset.class or preset.class == _pClass)
                    and (not preset.tbbOnly or preset.customAuraToo) then
-                    local primaryID = preset.spellIDs and preset.spellIDs[1]
-                    local isAdded = primaryID and alreadyTracked[primaryID]
+                    local isAdded = ns.IsPresetOnBar(targetBarKey, preset)
                     local si = CreateFrame("Button", nil, inner)
                     si:SetHeight(ITEM_H)
                     si:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
@@ -8938,6 +8933,15 @@ initFrame:SetScript("OnEvent", function(self)
                     AB.RunBarApply = function(applyKeys, applyWrite, val, allSpecs)
                         if not applyWrite then return end
                         local keys = applyKeys or {}
+                        -- Resolve the value ONCE, before anything below clears a thing. A payload
+                        -- writer (custom colour, Threshold Seconds) reads the source spell's own keys
+                        -- back out of its entry, and the sweeps clear exactly those keys -- re-running
+                        -- it per tier and per stamp would make the result depend on sweep order.
+                        local temp = {}
+                        applyWrite(temp, val)
+                        local function stamp(t)
+                            for _, k in ipairs(keys) do t[k] = temp[k] end
+                        end
                         local touchesCas = false
                         for _, k in ipairs(keys) do
                             if AB.CAS_KEYS[k] then touchesCas = true; break end
@@ -8960,10 +8964,10 @@ initFrame:SetScript("OnEvent", function(self)
                                 end
                             end)
                             if touchesCas then
-                                AB.StampMemberCas(bsX, applyWrite, val, keys)
+                                AB.StampMemberCas(bsX, stamp, val, keys)
                             end
                             if touchesHosted then
-                                AB.StampHostedBuffs(prof, bsX, applyWrite, val, keys)
+                                AB.StampHostedBuffs(prof, bsX, stamp, val, keys)
                             end
                         end
                         if allSpecs then
@@ -8974,7 +8978,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 -- New tier table: chained results are stale.
                                 ns._cdmResGen = (ns._cdmResGen or 0) + 1
                             end
-                            applyWrite(abs, val)
+                            stamp(abs)
                             AB.FlipSessionGates(abs)
                             local spAll = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
                             if spAll then
@@ -8994,7 +8998,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 ns._cdmResGen = (ns._cdmResGen or 0) + 1
                             end
                             ns.ChainSettings(bs, bdSel and bdSel.barSpellSettings)
-                            applyWrite(bs, val)
+                            stamp(bs)
                             AB.FlipSessionGates(bs)
                             local spAll = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
                             local specKeyA = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
@@ -10709,10 +10713,10 @@ initFrame:SetScript("OnEvent", function(self)
                             })
                         end)
 
-                        MakeCogRow("Charge/Stack Text", function()
+                        MakeCogRow("Stack Text and Glows", function()
                             local b = cdmBd
-                            return valChanged(ss.showItemCount, (b and b.showItemCount) ~= false)
-                                or valChanged(ss.showChargeStackText, (b and b.showChargeStackText) ~= false)
+                            return valChanged(ss.showChargeStackText, (b and b.showChargeStackText) ~= false)
+                                or ss.buffGlowStackEnabled == true
                                 or valChanged(ss.stackCountSize, (b and b.stackCountSize) or 11)
                                 or colChanged(ss.stackCountR, ss.stackCountG, ss.stackCountB,
                                     (b and b.stackCountR) or 1, (b and b.stackCountG) or 1, (b and b.stackCountB) or 1)
@@ -10721,13 +10725,26 @@ initFrame:SetScript("OnEvent", function(self)
                                 or valChanged(ss.stackCountY, (b and b.stackCountY) or 0)
                         end, function(row)
                             return EllesmereUI.BuildCogPopup({
-                                title = "Charge/Stack Text", noOwnerDim = true,
+                                title = "Stack Text and Glows", noOwnerDim = true,
                                 frameStrata = "FULLSCREEN_DIALOG", frameLevel = 350,
                                 rows = {
-                                    { type="toggle", label="Show Item Count",
-                                      get=function() if ss.showItemCount ~= nil then return ss.showItemCount end return (cdmBd and cdmBd.showItemCount) ~= false end,
-                                      set=function(v) EnsureSS(); ss.showItemCount = v; if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end if row._updateLabel then row._updateLabel() end end },
-                                    { type="toggle", label="Show Charge/Stack Text",
+                                    { type="toggle", label="Glow at Stacks",
+                                      tooltip="Replaces Buff Glow: the icon glows only at the set stacks or higher, using this spell's Buff Glow style (Modern WoW Glow if none is set).",
+                                      get=function() return ss.buffGlowStackEnabled == true end,
+                                      set=function(v) EnsureSS(); ss.buffGlowStackEnabled = v or nil; if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end if row._updateLabel then row._updateLabel() end end },
+                                    { type="input", label="Min Stack Count", inputWidth=42, commitOnBlur=true,
+                                      disabled=function() return not ss.buffGlowStackEnabled end,
+                                      disabledTooltip="Enable Glow at Stacks",
+                                      get=function() return tostring(tonumber(ss.buffGlowStackThreshold) or 2) end,
+                                      set=function(v)
+                                          local t = math.floor(tonumber(v) or 0)
+                                          if t < 2 then t = 2 end
+                                          if t > 99 then t = 99 end
+                                          EnsureSS(); ss.buffGlowStackThreshold = t
+                                          if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
+                                          if row._updateLabel then row._updateLabel() end
+                                      end },
+                                    { type="toggle", label="Show Stack Text",
                                       get=function() if ss.showChargeStackText ~= nil then return ss.showChargeStackText end return (cdmBd and cdmBd.showChargeStackText) ~= false end,
                                       set=function(v) EnsureSS(); ss.showChargeStackText = v; if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end if row._updateLabel then row._updateLabel() end end },
                                     { type="slider", label="Size", min=6, max=30, step=1,
@@ -10752,7 +10769,7 @@ initFrame:SetScript("OnEvent", function(self)
                         end)
 
                         -- Border: per-icon override of the bar's border SIZE + COLOR (never style).
-                        -- Mirrors the Charge/Stack Text cog exactly; the render side reads (ssb and ssb.border*) or the bar value in ApplyShapeToCDMIcon.
+                        -- Mirrors the Charges/Stacks cog exactly; the render side reads (ssb and ssb.border*) or the bar value in ApplyShapeToCDMIcon.
                         MakeCogRow("Border", function()
                             local b = cdmBd
                             return valChanged(ss.borderSize, (b and b.borderSize) or 1)
@@ -11277,6 +11294,13 @@ initFrame:SetScript("OnEvent", function(self)
                                 { apply = { keys = { "activeSwipeMode", "activeSwipeClassColor",
                                                      "activeSwipeR", "activeSwipeG", "activeSwipeB", "activeSwipeA" },
                                             write = function(t, v)
+                                                -- Read the source colour BEFORE the clear below: a bar
+                                                -- apply stamps every preset member's cas entry, this icon's included, so clearing first would wipe the colour this write then reads back.
+                                                local pr, pg, pb, pa
+                                                if cas then
+                                                    pr, pg, pb, pa = cas.activeSwipeR, cas.activeSwipeG,
+                                                                     cas.activeSwipeB, cas.activeSwipeA
+                                                end
                                                 -- Colour keys belong to Custom only; clear them for
                                                 -- class/none so a stale colour from an earlier Custom
                                                 -- apply can't linger in the tier. Leftover R/G/B/A
@@ -11295,10 +11319,10 @@ initFrame:SetScript("OnEvent", function(self)
                                                     -- Custom: push this icon's current color.
                                                     t.activeSwipeMode = "custom"
                                                     t.activeSwipeClassColor = false
-                                                    t.activeSwipeR = (cas and cas.activeSwipeR) or 1
-                                                    t.activeSwipeG = (cas and cas.activeSwipeG) or 0.776
-                                                    t.activeSwipeB = (cas and cas.activeSwipeB) or 0.376
-                                                    t.activeSwipeA = (cas and cas.activeSwipeA) or 0.7
+                                                    t.activeSwipeR = pr or 1
+                                                    t.activeSwipeG = pg or 0.776
+                                                    t.activeSwipeB = pb or 0.376
+                                                    t.activeSwipeA = pa or 0.7
                                                 end
                                             end } })
 
@@ -11564,6 +11588,10 @@ initFrame:SetScript("OnEvent", function(self)
                         { apply = { keys = { "activeSwipeMode", "activeSwipeClassColor",
                                              "activeSwipeR", "activeSwipeG", "activeSwipeB", "activeSwipeA" },
                                     write = function(t, v)
+                                        -- Read the source colour BEFORE the clear below: "Apply to This
+                                        -- Spell" passes ss itself, so clearing first would wipe the picked colour this write then reads back, resetting it to the default.
+                                        local pr, pg, pb, pa = ss.activeSwipeR, ss.activeSwipeG,
+                                                               ss.activeSwipeB, ss.activeSwipeA
                                         -- Colour keys belong to Custom only; clear them for class/none so a
                                         -- stale colour from an earlier Custom apply can't linger in the tier and make valuesMatch always fail (perpetual overwrite popup, no change).
                                         t.activeSwipeR = nil; t.activeSwipeG = nil
@@ -11578,10 +11606,10 @@ initFrame:SetScript("OnEvent", function(self)
                                             -- Custom: push this spell's effective color.
                                             t.activeSwipeMode = "custom"
                                             t.activeSwipeClassColor = false
-                                            t.activeSwipeR = ss.activeSwipeR or 1
-                                            t.activeSwipeG = ss.activeSwipeG or 0.776
-                                            t.activeSwipeB = ss.activeSwipeB or 0.376
-                                            t.activeSwipeA = ss.activeSwipeA or 0.7
+                                            t.activeSwipeR = pr or 1
+                                            t.activeSwipeG = pg or 0.776
+                                            t.activeSwipeB = pb or 0.376
+                                            t.activeSwipeA = pa or 0.7
                                         end
                                     end } })
                     if isCustomInjected and activeRow then
@@ -13164,12 +13192,6 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Presets (Heroism, potions, etc.) -- flat list in custom buff bar picker
         if isCustomBuff then
-            local alreadyTracked = {}
-            local sdPS = bd and ns.GetBarSpellData(bd.key)
-            if sdPS and sdPS.assignedSpells then
-                for _, sid in ipairs(sdPS.assignedSpells) do alreadyTracked[sid] = true end
-            end
-
             -- Divider before presets
             local psDiv = inner:CreateTexture(nil, "ARTWORK")
             psDiv:SetHeight(1)
@@ -13185,8 +13207,7 @@ initFrame:SetScript("OnEvent", function(self)
                 -- self-timed icon, armed off the Sated edge instead of a cast).
                 if (not preset.class or preset.class == _pClass)
                     and (not preset.tbbOnly or preset.customAuraToo) then
-                    local primaryID = preset.spellIDs and preset.spellIDs[1]
-                    local isAdded = primaryID and alreadyTracked[primaryID]
+                    local isAdded = ns.IsPresetOnBar(barKey, preset)
 
                     local si = CreateFrame("Button", nil, inner)
                     si:SetHeight(ITEM_H)
@@ -16428,6 +16449,11 @@ initFrame:SetScript("OnEvent", function(self)
         local visRow, visH = EllesmereUI.BuildVisibilityRow(W, parent, y,
             { getStore = BD, legacyKey = "barVisibility",
               caps = { partyIncludesRaid = false, noMouseover = true, luaDragonriding = true },
+              -- The three built-in bars ship visHideHousing = true in DEFAULTS, so an
+              -- explicit uncheck must persist false or DeepMergeDefaults re-fills it to
+              -- true on next login. Harmless for other bars: they never go through that
+              -- merge, so the checkbox reads store[k] == true either way.
+              trueDefaultOpts = { visHideHousing = true },
               onChanged = function()
                   ns.CDMApplyVisibility()
               end,
@@ -18421,7 +18447,7 @@ initFrame:SetScript("OnEvent", function(self)
             if on then scBlock:Hide() else scBlock:Show() end
 
             local scPopupSpec = {
-                title = "Charge/Stack Text",
+                title = "Charges/Stacks",
                 rows = {
                     -- View over the legacy showItemCount boolean (Never = false,
                     -- Always = true/nil) plus the itemCountOOC flag for the new

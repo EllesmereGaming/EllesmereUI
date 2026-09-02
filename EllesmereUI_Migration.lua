@@ -2458,6 +2458,75 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+-- The borderless hover/target highlight draws its own outline at Border Size 0,
+-- where the Hover/Target Border ticks were previously inert. Existing
+-- borderless profiles overwhelmingly kept those ticks ON (they did nothing),
+-- so without a pin the upgrade makes highlights appear unrequested. Pin BOTH
+-- enables OFF for every existing profile whose border size is 0 --
+-- UNCONDITIONALLY, not nil-guarded like the sibling migrations: an explicit
+-- true stored while the setting was inert cannot represent informed intent
+-- for the new behavior, and borderless veterans must see no change. The ticks
+-- are the opt-in. Border'd profiles untouched (the highlight path is
+-- unreachable there, so their recolor behavior is identical either way). A
+-- profile with NO RaidFrames bucket never stored borderSize, defaults to 1,
+-- and is skipped -- no bucket creation needed. Party frames share these keys
+-- (no party_ border section exists); per-spec overrides are out of scope,
+-- matching the sibling existing-off migrations.
+EllesmereUI.RegisterMigration({
+    id          = "rf_borderless_highlight_existing_off_v1",
+    scope       = "global",
+    description = "Pin Raid Frames Hover/Target Border OFF for existing profiles running Border Size 0, so the new borderless highlight stays opt-in for veterans; fresh installs and border'd profiles inherit the live defaults.",
+    body = function(ctx)
+        local db = ctx.db
+        if not db or not db.profiles then return end
+        for _, profData in pairs(db.profiles) do
+            -- Only profiles with real child-addon data: an empty/stub profile
+            -- isn't an existing user's.
+            if type(profData) == "table" and type(profData.addons) == "table"
+               and next(profData.addons) then
+                local rf = profData.addons.EllesmereUIRaidFrames
+                if type(rf) == "table" and (rf.borderSize or 1) <= 0 then
+                    rf.hoverBorderEnabled = false
+                    rf.targetBorderEnabled = false
+                end
+            end
+        end
+    end,
+})
+
+-- The Nameplates dispel glow's Action Button Glow substitute gained real-ABG
+-- anatomy (white ants, the color riding the soft halo, stock gold when no
+-- color is set). A color stored under the OLD rendering was chosen to tint
+-- bare ants; carrying it forward would tint the new halo instead -- a look
+-- the user never picked. Clear it once for profiles running the ABG style so
+-- they land on the stock gold; stored colors on every other style (and the
+-- per-type color toggle) are untouched, and any color picked after this
+-- migration is honored as usual.
+EllesmereUI.RegisterMigration({
+    id          = "np_dispel_abg_color_gold_v1",
+    scope       = "global",
+    description = "Reset stored Dispel Glow colors to the stock gold for profiles using the Action Button Glow style, since the color now tints the new halo rather than the old bare ants.",
+    body = function(ctx)
+        local db = ctx.db
+        if not db or not db.profiles then return end
+        for _, profData in pairs(db.profiles) do
+            -- Only profiles with real child-addon data: an empty/stub profile
+            -- isn't an existing user's.
+            if type(profData) == "table" and type(profData.addons) == "table"
+               and next(profData.addons) then
+                local np = profData.addons.EllesmereUINameplates
+                -- Style 2 = Action Button Glow; a missing key means the same
+                -- via defaults. Cleared color = the engines' gold default.
+                if type(np) == "table"
+                   and (np.dispelGlowStyle == nil or np.dispelGlowStyle == 2)
+                   and np.dispelGlowColor ~= nil then
+                    np.dispelGlowColor = nil
+                end
+            end
+        end
+    end,
+})
+
 -- Profile sync is now two-way mirror groups: a module's sync set is a membership group
 -- (configuring profile is written into it) and only members push at logout/switch. Old
 -- sets stored receivers only with no record of the sender, so they can't translate

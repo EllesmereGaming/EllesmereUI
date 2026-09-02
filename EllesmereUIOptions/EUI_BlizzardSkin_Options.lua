@@ -104,6 +104,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.reskinPopupsMenus = v
+                  EllesmereUI:RefreshPage()  -- update the border cog + swatch disabled states
                   if EllesmereUI.ShowConfirmPopup then
                       EllesmereUI:ShowConfirmPopup({
                           title       = "Reload Required",
@@ -210,15 +211,17 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        _, h = W:DualRow(parent, y,
+        local queueTimerRow
+        queueTimerRow, h = W:DualRow(parent, y,
             { type="toggle", text="Show Queue Timer",
-              tooltip="Shows a countdown bar below the queue accept popup indicating how long you have to accept. Works with or without the reskin.",
+              tooltip="Shows a countdown bar below the queue accept popup indicating how long you have to accept. Works with or without the reskin. Use the swatch and cog to set the countdown text color, text size, bar height and text offset.",
               getValue=function()
                   return not EllesmereUIDB or EllesmereUIDB.showQueueTimer ~= false
               end,
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.showQueueTimer = v
+                  EllesmereUI:RefreshPage()  -- update the style cog + swatch disabled states
               end },
             { type="toggle", text="Enable Blizzard Pause Menu",
               tooltip="Reskins the ESC / Game Menu with the EUI dark style, matching fonts, and accent-colored title.",
@@ -240,6 +243,77 @@ initFrame:SetScript("OnEvent", function(self)
                   end
               end }
         );  y = y - h
+
+        -- Countdown text color + style cog on the Show Queue Timer toggle.
+        if not EllesmereUI._prebuilding then
+            local PP = EllesmereUI.PanelPP
+            local QT = EllesmereUI.QUEUE_TIMER
+            local leftRgn = queueTimerRow._leftRegion
+            local function timerOff()
+                return EllesmereUIDB and EllesmereUIDB.showQueueTimer == false
+            end
+            local function Get(key, default)
+                return (EllesmereUIDB and EllesmereUIDB[key]) or default
+            end
+            local function Set(key, v)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB[key] = v
+                if EllesmereUI.RefreshQueueTimerStyle then EllesmereUI.RefreshQueueTimerStyle() end
+            end
+
+            local _, queueTimerStyleShow = EllesmereUI.BuildCogPopup({
+                title = "Queue Timer Style",
+                rows = {
+                    { type="slider", label="Text Size", min=6, max=24, step=1,
+                      get=function() return Get("queueTimerTextSize", QT.TEXT_SIZE) end,
+                      set=function(v) Set("queueTimerTextSize", v) end },
+                    { type="slider", label="Bar Height", min=4, max=24, step=1,
+                      get=function() return Get("queueTimerBarHeight", QT.BAR_HEIGHT) end,
+                      set=function(v) Set("queueTimerBarHeight", v) end },
+                    { type="slider", label="Text Offset Y", min=-20, max=20, step=1,
+                      tooltip="Moves the countdown number up or down relative to the bar.",
+                      get=function() return Get("queueTimerTextOffsetY", QT.TEXT_OFFSET_Y) end,
+                      set=function(v) Set("queueTimerTextOffsetY", v) end },
+                },
+            })
+
+            local qtCog = CreateFrame("Button", nil, leftRgn)
+            qtCog:SetSize(26, 26)
+            qtCog:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
+            leftRgn._lastInline = qtCog
+            qtCog:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
+            local qtCogTex = qtCog:CreateTexture(nil, "OVERLAY")
+            qtCogTex:SetAllPoints()
+            qtCogTex:SetTexture(EllesmereUI.COGS_ICON)
+            qtCog:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            qtCog:SetScript("OnLeave", function(self) self:SetAlpha(timerOff() and 0.15 or 0.4) end)
+            qtCog:SetScript("OnClick", function(self) queueTimerStyleShow(self) end)
+
+            local qtSwatch, qtSwatchRefresh = EllesmereUI.BuildColorSwatch(leftRgn,
+                leftRgn:GetFrameLevel() + 5,
+                function()
+                    local c = EllesmereUIDB and EllesmereUIDB.queueTimerTextColor
+                    return (c and c.r) or QT.TEXT_R, (c and c.g) or QT.TEXT_G, (c and c.b) or QT.TEXT_B
+                end,
+                function(r, g, b) Set("queueTimerTextColor", { r = r, g = g, b = b }) end,
+                false, 20)
+            PP.Point(qtSwatch, "RIGHT", qtCog, "LEFT", -8, 0)
+            leftRgn._lastInline = qtSwatch
+            qtSwatch:HookScript("OnEnter", function(self)
+                EllesmereUI.ShowWidgetTooltip(self, "Countdown Text Color")
+            end)
+            qtSwatch:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            -- Called at build time too: the refresh list only runs on page show.
+            local function UpdQueueTimerState()
+                local off = timerOff()
+                qtCog:SetAlpha(off and 0.15 or 0.4); qtCog:EnableMouse(not off)
+                qtSwatch:SetAlpha(off and 0.15 or 1); qtSwatch:EnableMouse(not off)
+                qtSwatchRefresh()
+            end
+            EllesmereUI.RegisterWidgetRefresh(UpdQueueTimerState)
+            UpdQueueTimerState()
+        end
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
@@ -3121,6 +3195,10 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.reskinGreatVault = nil
                 EllesmereUIDB.reskinLFGMenu = nil
                 EllesmereUIDB.showQueueTimer = nil
+                EllesmereUIDB.queueTimerTextColor = nil
+                EllesmereUIDB.queueTimerTextSize = nil
+                EllesmereUIDB.queueTimerBarHeight = nil
+                EllesmereUIDB.queueTimerTextOffsetY = nil
                 EllesmereUIDB.blizzWindowSkinStyles = nil
                 EllesmereUIDB.blizzWindowModernBG = nil
                 EllesmereUIDB.blizzWindowModernDefault = nil

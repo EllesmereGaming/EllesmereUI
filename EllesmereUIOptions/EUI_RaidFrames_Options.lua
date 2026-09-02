@@ -715,6 +715,8 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                 end
             end
+            -- Exposed for onModuleLeave below.
+            ns.StopHealthAnim = StopHealthAnim
 
             local function StartHealthAnim()
                 if ns._healthAnimTicker then return end
@@ -1784,6 +1786,8 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                 end
             end
+            -- Exposed for onModuleLeave below.
+            ns.StopPowerAnim = StopPowerAnim
 
             local function StartPowerAnim()
                 if ns._powerAnimTicker then return end
@@ -4896,6 +4900,36 @@ initFrame:SetScript("OnEvent", function(self)
             targetSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(targetSwatch, "Target") end)
             targetSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
+            -- Highlight thickness. Shown only while the frame is borderless (Border Size 0):
+            -- with a border drawn the highlight recolors THAT and these sizes do nothing.
+            local _, hlCogShow = EllesmereUI.BuildCogPopup({
+                title = "Highlight Border",
+                rows = {
+                    { type="slider", label="Hover Border Size", min=1, max=4, step=1,
+                      get=function() return SVal("hoverBorderSize", 1) end,
+                      set=function(v) SSet("hoverBorderSize", v) end },
+                    { type="slider", label="Target Border Size", min=1, max=4, step=1,
+                      get=function() return SVal("targetBorderSize", 1) end,
+                      set=function(v) SSet("targetBorderSize", v) end },
+                },
+            })
+            local hlCog = CreateFrame("Button", nil, rightRgn)
+            hlCog:SetSize(26, 26)
+            hlCog:SetPoint("RIGHT", rightRgn._lastInline, "LEFT", -8, 0)
+            rightRgn._lastInline = hlCog
+            hlCog:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
+            hlCog:SetAlpha(0.4)
+            local hlCogTex = hlCog:CreateTexture(nil, "OVERLAY")
+            hlCogTex:SetAllPoints(); hlCogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
+            hlCog:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
+            hlCog:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
+            hlCog:SetScript("OnClick", function(s) hlCogShow(s) end)
+            local function UpdateHLCogVis()
+                if SVal("borderSize", 1) > 0 then hlCog:Hide() else hlCog:Show() end
+            end
+            EllesmereUI.RegisterWidgetRefresh(UpdateHLCogVis)
+            UpdateHLCogVis()
+
             -- Gray a swatch when its border state is off but keep it clickable so the color can be pre-set (matches the Heal Prediction swatch).
             UpdateHBSwatchVis = function()
                 hoverSwatch:SetAlpha(SVal("hoverBorderEnabled", true) and 1 or 0.3)
@@ -6151,6 +6185,17 @@ initFrame:SetScript("OnEvent", function(self)
             if db.sv then db.sv._capturedOnce_RF = nil end
             db:ResetProfile()
             ReloadUI()
+        end,
+        -- Tears down all 6 Raid Frames preview mechanisms on cross-module
+        -- switch (Real/Party/Size/HealthAnim/PowerAnim/HM previews).
+        onModuleLeave = function()
+            if ns.HidePreview then ns.HidePreview() end
+            if ns.HidePartyPreview then ns.HidePartyPreview() end
+            ns._sizePreviewTier = nil
+            if ns._HideSizePreview then ns._HideSizePreview() end
+            if ns._healthAnimActive and ns.StopHealthAnim then ns.StopHealthAnim() end
+            if ns._powerAnimActive and ns.StopPowerAnim then ns.StopPowerAnim() end
+            if ns._hmPreview and ns.HM_SetPreview then ns.HM_SetPreview(false) end
         end,
     })
 

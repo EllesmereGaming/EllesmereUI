@@ -54,6 +54,10 @@ initFrame:SetScript("OnEvent", function(self)
         return (Cfg("mode") or "never") == "never"
     end
 
+    local function QuickFireDisabled()
+        return Disabled() or Cfg("quickFire") ~= true
+    end
+
     -- The runtime owns the normalize (unknown values retain One Window).
     local function ShowAsVal()
         if ns.ShowAs then return ns.ShowAs() end
@@ -300,6 +304,180 @@ initFrame:SetScript("OnEvent", function(self)
                   Refresh()
               end }
         );  y = y - h
+
+        -- QUICK FIRE
+        -- An explicitly enabled, empty-by-default set of world-marker binds.
+        _, h = W:SectionHeader(parent, "QUICK FIRE", y);  y = y - h
+
+        local qfEnableRow
+        qfEnableRow, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Enable Quick Fire",
+              tooltip = "Adds three optional world-marker keybinds that remain usable in combat. Place drops the first free marker at the cursor in Star to Skull order; Undo removes the last marker placed through Quick Fire; Clear removes all world markers. Every binding starts empty. Marker changes made elsewhere during combat are picked up afterward.",
+              disabled = Disabled,
+              getValue = function() return Cfg("quickFire") == true end,
+              setValue = function(v)
+                  Set("quickFire", v)
+                  Refresh()
+                  EllesmereUI:RefreshPage()
+              end },
+            { type = "label", text = "Place World Marker" }
+        );  y = y - h
+
+        local qfKeysRow
+        qfKeysRow, h = W:DualRow(parent, y,
+            { type = "label", text = "Undo Last Marker" },
+            { type = "label", text = "Clear All Markers" }
+        );  y = y - h
+
+        if not EllesmereUI._prebuilding then
+            local PP = EllesmereUI.PanelPP
+
+            local function AddQuickFireKeybind(region, key)
+                local button = CreateFrame("Button", nil, region)
+                PP.Size(button, 126, 29)
+                PP.Point(button, "RIGHT", region, "RIGHT", -20, 0)
+                button:SetFrameLevel(region:GetFrameLevel() + 4)
+                button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+
+                local bg = EllesmereUI.SolidTex(button, "BACKGROUND",
+                    EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G,
+                    EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
+                bg:SetAllPoints()
+                button._border = EllesmereUI.MakeBorder(button, 1, 1, 1,
+                    EllesmereUI.DD_BRD_A, PP)
+                local label = EllesmereUI.MakeFont(button, 12, nil, 1, 1, 1)
+                label:SetAlpha(EllesmereUI.DD_TXT_A)
+                label:SetPoint("CENTER")
+
+                local listening = false
+
+                local function FormatKey(value)
+                    if not value or value == "" then
+                        return EllesmereUI.L("Not Bound")
+                    end
+                    local parts = {}
+                    for mod in value:gmatch("(%u+)%-") do
+                        parts[#parts + 1] = mod:sub(1, 1) .. mod:sub(2):lower()
+                    end
+                    parts[#parts + 1] = value:match("[^%-]+$") or value
+                    return table.concat(parts, " + ")
+                end
+
+                local function RefreshState()
+                    local off = QuickFireDisabled()
+                    button:SetAlpha(off and 0.3 or 1)
+                    button:EnableMouse(not off)
+                    if region._label then region._label:SetAlpha(off and 0.3 or 1) end
+                    if off and listening then
+                        listening = false
+                        button:EnableKeyboard(false)
+                    end
+                    if not listening then label:SetText(FormatKey(Cfg(key))) end
+                end
+
+                button:SetScript("OnClick", function(self, mouseButton)
+                    if QuickFireDisabled() then return end
+                    if mouseButton == "RightButton" then
+                        if listening then
+                            listening = false
+                            self:EnableKeyboard(false)
+                        end
+                        Set(key, false)
+                        Refresh()
+                        RefreshState()
+                        if EllesmereUI._NotifySettingWrite then
+                            EllesmereUI._NotifySettingWrite(region)
+                        end
+                        return
+                    end
+                    if listening then return end
+                    listening = true
+                    label:SetText(EllesmereUI.L("Press a key..."))
+                    self:EnableKeyboard(true)
+                end)
+
+                button:SetScript("OnKeyDown", function(self, pressed)
+                    if not listening then
+                        self:SetPropagateKeyboardInput(true)
+                        return
+                    end
+                    if pressed == "LSHIFT" or pressed == "RSHIFT"
+                       or pressed == "LCTRL" or pressed == "RCTRL"
+                       or pressed == "LALT" or pressed == "RALT" then
+                        self:SetPropagateKeyboardInput(true)
+                        return
+                    end
+                    self:SetPropagateKeyboardInput(false)
+                    if pressed == "ESCAPE" then
+                        listening = false
+                        self:EnableKeyboard(false)
+                        RefreshState()
+                        return
+                    end
+                    local mods = ""
+                    if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
+                    if IsControlKeyDown() then mods = mods .. "CTRL-" end
+                    if IsAltKeyDown() then mods = mods .. "ALT-" end
+                    Set(key, mods .. pressed)
+                    Refresh()
+                    listening = false
+                    self:EnableKeyboard(false)
+                    RefreshState()
+                    if EllesmereUI._NotifySettingWrite then
+                        EllesmereUI._NotifySettingWrite(region)
+                    end
+                end)
+
+                button:SetScript("OnEnter", function(self)
+                    if QuickFireDisabled() then
+                        EllesmereUI.ShowWidgetTooltip(self,
+                            EllesmereUI.DisabledTooltip("Enable Quick Fire"))
+                        return
+                    end
+                    bg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G,
+                        EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
+                    if button._border and button._border.SetColor then
+                        button._border:SetColor(1, 1, 1, 0.3)
+                    end
+                    EllesmereUI.ShowWidgetTooltip(self,
+                        "Left-click to set a keybind.\nRight-click to unbind.")
+                end)
+                button:SetScript("OnLeave", function()
+                    if listening then return end
+                    bg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G,
+                        EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
+                    if button._border and button._border.SetColor then
+                        button._border:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A)
+                    end
+                    EllesmereUI.HideWidgetTooltip()
+                end)
+                button:SetScript("OnHide", function()
+                    if listening then
+                        listening = false
+                        button:EnableKeyboard(false)
+                        RefreshState()
+                    end
+                    EllesmereUI.HideWidgetTooltip()
+                end)
+
+                RefreshState()
+                EllesmereUI.RegisterWidgetRefresh(RefreshState)
+                EllesmereUI.AddCaptureAccessor(region, {
+                    type = "keybind",
+                    text = region._label and region._label:GetText() or key,
+                    getValue = function() return Cfg(key) end,
+                    setValue = function(v)
+                        Set(key, v)
+                        Refresh()
+                        RefreshState()
+                    end,
+                })
+            end
+
+            AddQuickFireKeybind(qfEnableRow._rightRegion, "quickFirePlaceKey")
+            AddQuickFireKeybind(qfKeysRow._leftRegion, "quickFireUndoKey")
+            AddQuickFireKeybind(qfKeysRow._rightRegion, "quickFireClearKey")
+        end
 
         -- GROUP BUTTONS
         --

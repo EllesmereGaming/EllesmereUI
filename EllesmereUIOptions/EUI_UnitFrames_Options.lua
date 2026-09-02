@@ -1318,7 +1318,10 @@ initFrame:SetScript("OnEvent", function(self)
                 return cfg and AbbreviateNumbers(v, cfg) or AbbreviateNumbers(v)
             end
             local function _pvPct(p01)
-                return _G._EUI_TextDecimals and string.format("%.1f", p01 * 100) or tostring(math.floor(p01 * 100))
+                if not _G._EUI_TextDecimals then return tostring(math.floor(p01 * 100)) end
+                local trim = _G._EUI_PctTrim
+                if trim then return AbbreviateNumbers(trim.curve:Evaluate(p01), trim.cfg) end
+                return string.format("%.1f", p01 * 100)
             end
             local function _pvName()
                 if unitKey == "player" then return UnitName("player") or "Player" end
@@ -3318,8 +3321,7 @@ initFrame:SetScript("OnEvent", function(self)
                             or "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-tb.tga")
                         dispelOverlayPreview:SetVertexColor(c.r, c.g, c.b, alpha)
                     else
-                        dispelOverlayPreview:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
-                        dispelOverlayPreview:SetPoint("BOTTOMRIGHT", healthFill, "BOTTOMRIGHT", 0, 0)
+                        dispelOverlayPreview:SetAllPoints(healthFill)
                         dispelOverlayPreview:SetColorTexture(c.r, c.g, c.b, alpha)
                     end
                     dispelOverlayPreview:Show()
@@ -4297,7 +4299,10 @@ initFrame:SetScript("OnEvent", function(self)
         -- copied) and copying one alone desyncs them. Underscore keys are runtime
         -- memos (e.g. _preHiddenBarVisibility), not settings.
         if type(key) ~= "string" then return false end
-        if key == "barVisibility" or key:sub(1, 1) == "_" then return false end
+        -- visibilityMatch only modifies barVisibility's selection, so it has to stay
+        -- with the frame for the same reason: copying the modifier to a frame that kept
+        -- its own mode changes how that mode reads.
+        if key == "barVisibility" or key == "visibilityMatch" or key:sub(1, 1) == "_" then return false end
         local sup = UNIT_SUPPORTS[key]
         if sup then
             for _, u in ipairs(groupUnits) do
@@ -4533,6 +4538,13 @@ initFrame:SetScript("OnEvent", function(self)
         -- showInRaid/showInParty/showSolo trio: only group items constrain it
         -- (unconstrained = true), matching ToggleFrame's group gating for multi-select.
         local function GroupAxisPasses(vm, inRaid, inParty)
+            -- A checked Hide lane vetoes whatever the Show lanes say, in both match
+            -- modes; both lanes of one row at once counts as unconstrained.
+            if (vm.hide_in_raid and not vm.in_raid and inRaid)
+                or (vm.hide_in_party and not vm.in_party and inParty)
+                or (vm.hide_solo and not vm.solo and not inRaid and not inParty) then
+                return false
+            end
             local g1, g2, g3 = vm.in_raid, vm.in_party, vm.solo
             if not (g1 or g2 or g3) or (g1 and g2 and g3) then return true end
             if g1 and inRaid then return true end
@@ -4582,8 +4594,11 @@ initFrame:SetScript("OnEvent", function(self)
                   if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
                   ReloadAndUpdate()
                   -- Un-hiding a frame whose EUI frame isn't spawned this session
-                  -- (source was Blizzard/Hidden at login) needs a /reload.
-                  if (s.barVisibility or "always") ~= "never" then PromptReloadIfUnspawned({ selectedUnit }) end
+                  -- (source was Blizzard/Hidden at login) needs a /reload. The EFFECTIVE
+                  -- value decides: an override replaces the shared scalar, so an override
+                  -- of Always on a unit whose shared value is "never" un-hides it too.
+                  local visOv = EllesmereUI.VisOverrideValue and EllesmereUI.VisOverrideValue(s)
+                  if (visOv or s.barVisibility or "always") ~= "never" then PromptReloadIfUnspawned({ selectedUnit }) end
               end,
               onOptionChanged = function()
                   if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
@@ -5226,6 +5241,13 @@ initFrame:SetScript("OnEvent", function(self)
                       get=function() return db.profile.showDecimalBoss2 ~= false end,
                       set=function(v)
                           db.profile.showDecimalBoss2 = v
+                          if ns.ApplyTextDecimalGlobals then ns.ApplyTextDecimalGlobals() end
+                          ReloadAndUpdate(); UpdatePreview()
+                      end },
+                    { type="toggle", label="Hide Trailing Zeros",
+                      get=function() return db.profile.showDecimalTrimZeros == true end,
+                      set=function(v)
+                          db.profile.showDecimalTrimZeros = v
                           if ns.ApplyTextDecimalGlobals then ns.ApplyTextDecimalGlobals() end
                           ReloadAndUpdate(); UpdatePreview()
                       end },
@@ -16154,6 +16176,13 @@ initFrame:SetScript("OnEvent", function(self)
         onReset     = function()
             db:ResetProfile()
             ReloadUI()
+        end,
+        -- Tears down Boss Preview on module switch (RegisterOnHide above
+        -- only covers closing the whole options window).
+        onModuleLeave = function()
+            if ns._bossPreviewActive and ns.SetBossPreview then
+                ns.SetBossPreview(false)
+            end
         end,
     })
 

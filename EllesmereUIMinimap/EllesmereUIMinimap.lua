@@ -232,10 +232,19 @@ end)
 -------------------------------------------------------------------------------
 --  Minimap Skin
 -------------------------------------------------------------------------------
+-- MinimapBackdrop (the frame) is deliberately NOT in this list: hiding the
+-- texture regions is enough (its only other art, StaticOverlayTexture, ships
+-- hidden; its one child button is managed separately below), and third-party
+-- encounter tools read the player's facing from
+-- MinimapCompassTexture:GetRotation() -- the instanced-content stand-in for
+-- the restricted GetPlayerFacing(). The compass is a REGION of the backdrop:
+-- with the parent frame hidden it never renders, the client stops rotating
+-- it, and those tools' facing reads freeze. They re-Show the texture
+-- themselves (raw metatable Show, at alpha 0), so hiding the TEXTURE here is
+-- fully compatible; hiding its PARENT is not.
 local minimapDecorations = {
     "MinimapBorder",
     "MinimapBorderTop",
-    "MinimapBackdrop",
     "MinimapNorthTag",
     "MinimapCompassTexture",
     "TimeManagerClockButton",
@@ -3327,14 +3336,22 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
     if not minimap.Layout then minimap.Layout = function() end end
 
     if circleMode then
-        -- Circle layout: horizontal row around the clock
-        if ci.tracking and not p.hideTrackingButton then
-            ci.tracking:ClearAllPoints()
-            if clockBg and clockBg:IsShown() then
-                ci.tracking:SetPoint("RIGHT", clockBg, "LEFT", 0, 0)
+        -- Circle layout: horizontal row growing left from the clock. Each element chains
+        -- to the previous shown one; a hidden element is skipped, since anchoring to a
+        -- frame that was never positioned leaves the whole chain undrawn.
+        local leftAnchor = (clockBg and clockBg:IsShown()) and clockBg or nil
+        local function PlaceLeft(btn)
+            btn:ClearAllPoints()
+            if leftAnchor then
+                btn:SetPoint("RIGHT", leftAnchor, "LEFT", 0, 0)
             else
-                ci.tracking:SetPoint("TOP", mapAnchor, "TOP", -20, -3)
+                btn:SetPoint("TOP", mapAnchor, "TOP", -20, -3)
             end
+            leftAnchor = btn
+        end
+
+        if ci.tracking and not p.hideTrackingButton then
+            PlaceLeft(ci.tracking)
             ci.tracking:Show()
         elseif ci.tracking then
             ci.tracking:Hide()
@@ -3350,19 +3367,16 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
         end
 
         if ci.mail and ci.mail:IsShown() then
-            ci.mail:ClearAllPoints()
             if mailCorner then
+                ci.mail:ClearAllPoints()
                 ci.mail:SetPoint(mailCorner, mapAnchor, mailCorner, p.mailOffsetX or 0, p.mailOffsetY or 0)
             else
-                ci.mail:SetPoint("RIGHT", ci.tracking, "LEFT", 0, 0)
+                PlaceLeft(ci.mail)
             end
         end
 
         if ci.crafting and ci.crafting:IsShown() then
-            ci.crafting:ClearAllPoints()
-            -- Corner-pinned mail is out of the row, so crafting chains to tracking
-            local anchor = (ci.mail and ci.mail:IsShown() and not mailCorner) and ci.mail or ci.tracking
-            ci.crafting:SetPoint("RIGHT", anchor, "LEFT", 0, 0)
+            PlaceLeft(ci.crafting)
         end
 
         if indicatorBg then indicatorBg:Hide() end
@@ -3988,6 +4002,19 @@ function EBS._ApplyAddonCompartment()
     end
 end
 
+-- The mask that crops rectangular mode's square canvas covers the terrain only -- the
+-- engine keeps drawing unit blips across the whole canvas, and the one thing that
+-- confines the native render is the minimap's PARENT rect (ordinary child frames and
+-- textures are not clipped by it, so our border and buttons still draw outside).
+-- Parenting the canvas to the 4:3 layout frame is what crops the blips.
+local function DesiredMapParent(minimap)
+    local p = EBS.db and EBS.db.profile.minimap
+    if p and (p.shape or "square") == "rectangular" then
+        return GetFFD(minimap).layoutFrame or UIParent
+    end
+    return UIParent
+end
+
 local function ApplyMinimap()
     if TEMP_DISABLED.minimap then return end
     if InCombatLockdown() then QueueApplyAll(); return end
@@ -4016,17 +4043,22 @@ local function ApplyMinimap()
     -- Snapshot Blizzard's native size/position before we modify anything
     CaptureBlizzardMinimap()
 
-    -- Reparent to UIParent so MinimapCluster layout cannot override our size. Deferred
-    -- via C_Timer.After(0) to avoid tainting the secure frame environment when
+    -- Reparent out of MinimapCluster so its layout cannot override our size, and so the
+    -- native render is clipped by the frame we own rather than by Blizzard's cluster.
+    -- Deferred via C_Timer.After(0) to avoid tainting the secure frame environment when
     -- ApplyMinimap fires during a ShowUIPanel/World Map open -- that taint causes
     -- ADDON_ACTION_BLOCKED when the dungeon pin data provider later calls the protected SetPropagateMouseClicks() on map pins.
-    local needsReparent = minimap:GetParent() ~= UIParent
     local needsClusterHide = MinimapCluster and MinimapCluster:IsShown()
+    -- The rectangular canvas's parent is built later in this pass, so the first switch
+    -- to that shape has to schedule the reparent on the layout frame's absence.
+    local needsReparent = minimap:GetParent() ~= DesiredMapParent(minimap)
+        or ((p.shape or "square") == "rectangular" and not GetFFD(minimap).layoutFrame)
     if needsReparent or needsClusterHide then
         C_Timer.After(0, function()
-            if InCombatLockdown() then return end
-            if needsReparent and minimap:GetParent() ~= UIParent then
-                minimap:SetParent(UIParent)
+            if InCombatLockdown() then QueueApplyAll(); return end
+            local want = DesiredMapParent(minimap)
+            if minimap:GetParent() ~= want then
+                minimap:SetParent(want)
             end
             if needsClusterHide and MinimapCluster then
                 MinimapCluster:SetAlpha(0)
@@ -4034,13 +4066,19 @@ local function ApplyMinimap()
             end
         end)
     end
-    -- Blizzard reparents the minimap during housing transitions and other events; hook SetParent to force it back to UIParent.
+    -- Blizzard reparents the minimap during housing transitions and other events; hook SetParent to force it back.
     if not GetFFD(minimap).parentGuard then
         GetFFD(minimap).parentGuard = true
         hooksecurefunc(minimap, "SetParent", function()
-            if minimap:GetParent() ~= UIParent then
-                if not InCombatLockdown() then
-                    minimap:SetParent(UIParent)
+            local want = DesiredMapParent(minimap)
+            if minimap:GetParent() ~= want then
+                if InCombatLockdown() then
+                    -- Dropping it would leave the map parented to -- and clipped by --
+                    -- whatever reparented it (the cluster, on a battleground or housing
+                    -- transition) for the rest of the session.
+                    QueueApplyAll()
+                else
+                    minimap:SetParent(want)
                 end
             end
         end)
@@ -4149,14 +4187,17 @@ local function ApplyMinimap()
         minimap:SetHitRectInsets(0, 0, 0, 0)
     end
     if isRectangular and not GetFFD(minimap).layoutFrame then
-        local layout = CreateFrame("Frame", nil, minimap)
-        layout:SetPoint("CENTER", minimap, "CENTER")
+        local layout = CreateFrame("Frame", nil, UIParent)
         layout:EnableMouse(false)
         GetFFD(minimap).layoutFrame = layout
     end
     do
         local layout = GetFFD(minimap).layoutFrame
         if layout then
+            -- Re-anchored every pass for the reason the border host below is: this
+            -- anchor spans the deferred SetParent that hangs the canvas off it.
+            layout:ClearAllPoints()
+            layout:SetPoint("CENTER", minimap, "CENTER")
             layout:SetSize(mapSize, isRectangular and (mapSize * 192 / 256) or mapSize)
             layout:SetFrameLevel(minimap:GetFrameLevel())
         end
@@ -5048,6 +5089,16 @@ local _mmDriverStr
 
 -- Compile the profile's selection into macro-conditional grammar for the secure driver, or nil when it cannot be expressed as one.
 local function MinimapDriverString(p, vm)
+    -- An applied Visibility override replaces the whole setting: a constant, and the
+    -- shared selection underneath never reaches the driver.
+    local visOv = EllesmereUI.VisOverrideValue and EllesmereUI.VisOverrideValue(p)
+    if visOv then return (visOv == "never") and "hide" or "show" end
+    -- Any match: Lua-only lanes (instances, housing, skyriding mount) are resolved at
+    -- build time (caller runs out of combat only); a later zone/mount edge re-runs the
+    -- dispatcher and re-registers the string.
+    if p.visibilityMatch == "any" and EllesmereUI.BuildAnyMatchTail then
+        return (EllesmereUI.BuildAnyMatchTail(p, "visibility", vm))
+    end
     if vm then
         return EllesmereUI.BuildVisibilityDriverString
             and EllesmereUI.BuildVisibilityDriverString("", vm)

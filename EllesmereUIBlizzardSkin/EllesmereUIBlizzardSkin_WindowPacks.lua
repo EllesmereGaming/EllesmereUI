@@ -3124,58 +3124,14 @@ local function Skin_Guild()
         GetFFD(ml).colRefreshHooked = true
         hooksecurefunc(ml, "RefreshListDisplay", WSkin.Debounce(SkinRosterColumns))
     end
-    -- Member-name list rides up 2px (one-shot, every anchor preserved).
-    local mlBox = ml and ml.ScrollBox
-    if mlBox and not GetFFD(mlBox).lifted then
-        local numPts = mlBox:GetNumPoints()
-        if numPts and numPts > 0 then
-            local pts, ok = {}, true
-            for i = 1, numPts do
-                local p, rel, rp, x, y = mlBox:GetPoint(i)
-                if not p then ok = false break end
-                pts[i] = { p, rel, rp, x or 0, (y or 0) + 2 }
-            end
-            if ok then
-                GetFFD(mlBox).lifted = true
-                mlBox:ClearAllPoints()
-                for i = 1, #pts do
-                    local t = pts[i]
-                    mlBox:SetPoint(t[1], t[2], t[3], t[4], t[5])
-                end
-            end
-        end
-    end
-
-
-    -- NEVER widen the roster: CommunitiesMemberListEntryMixin:SetExpanded sizes
-    -- every row from GetMemberList():GetWidth() inside its own secure roster
-    -- refresh, so an addon-written width is read back, taints the execution,
-    -- and blocks the protected actions that refresh triggers (SetNote /
-    -- SetGuildRankOrder / whisper -> ADDON_ACTION_FORBIDDEN). One-shot anchor
-    -- nudges Blizzard never reads back (list lift, scrollbar nudge) are fine.
-
-    -- Chat view's names-column scrollbar sits 5px right (one-shot, every
-    -- anchor preserved).
-    local mlSB = ml and ml.ScrollBar
-    if mlSB and not GetFFD(mlSB).nudged then
-        local numPts = mlSB:GetNumPoints()
-        if numPts and numPts > 0 then
-            local pts, ok = {}, true
-            for i = 1, numPts do
-                local p, rel, rp, x, y = mlSB:GetPoint(i)
-                if not p then ok = false break end
-                pts[i] = { p, rel, rp, (x or 0) + 5, y or 0 }
-            end
-            if ok then
-                GetFFD(mlSB).nudged = true
-                mlSB:ClearAllPoints()
-                for i = 1, #pts do
-                    local t = pts[i]
-                    mlSB:SetPoint(t[1], t[2], t[3], t[4], t[5])
-                end
-            end
-        end
-    end
+    -- NEVER re-anchor or resize the roster: CommunitiesMemberListEntryMixin
+    -- sizes every row from GetMemberList():GetWidth(), and the list view reads
+    -- ScrollBox:GetVisibleExtent() in the same pass that creates the row
+    -- buttons, so an addon-written width or anchor is read back and taints it.
+    -- Rows born in that pass stay tainted for the session: the protected
+    -- actions the refresh triggers are blocked (SetNote / SetGuildRankOrder /
+    -- whisper -> ADDON_ACTION_FORBIDDEN) and the row tooltip throws on the
+    -- secret member fields (C_CreatureInfo.GetRaceInfo(memberInfo.race)).
 
     local mm = f.MaximizeMinimizeFrame
     if mm then

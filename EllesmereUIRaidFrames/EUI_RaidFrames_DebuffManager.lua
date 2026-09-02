@@ -2269,7 +2269,10 @@ function ns.DM_OnUnitAssigned(d, unit)
     local tiles = d.dmTiles
     if not tiles then return end
     for _, c in pairs(tiles) do
-        if c._dmUnit ~= unit then
+        -- The container's own binding, not the stamp beside it: the stamp is a
+        -- shadow, and a re-point that reaches the container by any other route
+        -- would leave it lying about what the tile is actually parsing.
+        if c:GetUnit() ~= unit then
             c:SetUnit(unit)
             c:UpdateAllAuras()
             c._dmUnit = unit

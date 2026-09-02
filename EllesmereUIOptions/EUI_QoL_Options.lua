@@ -2854,6 +2854,13 @@ initFrame:SetScript("OnEvent", function(self)
             if _G._EUI_AutoLogging_Check then _G._EUI_AutoLogging_Check() end
             EllesmereUI:InvalidatePageCache()
         end,
+        -- Tears down Duration Warning, Raid Tools, and Movement Alert
+        -- previews on module switch (Movement Alert also stops its ticker).
+        onModuleLeave = function()
+            if EllesmereUI._durWarnHidePreview then EllesmereUI._durWarnHidePreview() end
+            if _G._EUI_RaidTools_Preview then _G._EUI_RaidTools_Preview(false) end
+            if EllesmereUI._MovementAlertPreview then EllesmereUI._MovementAlertPreview(false) end
+        end,
     })
 
     SLASH_EQOL1 = "/qol"

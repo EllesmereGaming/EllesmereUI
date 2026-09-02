@@ -2,7 +2,7 @@
 ## Title: |cff0cd29fEllesmereUI|r
 ## Notes: Shared framework for the EllesmereUI addon suite
 ## Author: Ellesmere
-## Version: 9.0.7
+## Version: 9.1.4
 ## SavedVariables: EllesmereUIDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 ## X-Curse-Project-ID: 1477613
@@ -14,6 +14,7 @@ EllesmereUI_ClientGate.lua
 # Libraries
 Libs\LibStub\LibStub.lua
 Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua
 Libs\LibSharedMedia-3.0\LibSharedMedia-3.0.lua
 Libs\LibDeflate\LibDeflate.lua
 Libs\LibKeystone\LibKeystone.lua
@@ -26,6 +27,10 @@ EllesmereUI_Lite.lua
 # Translation data lives in the LoadOnDemand EllesmereUILocales child addon,
 # loaded by the engine at ADDON_LOADED for non-English locales only.
 EllesmereUI_Locale.lua
+
+# Central number-abbreviation engine (K/M/B by default; CJK wan/yi grouping
+# tables keyed by locale; a locale file may register its own algorithm).
+EllesmereUI_NumberFormat.lua
 
 # One-time data migration (runs before child addons init)
 EllesmereUI_Migration.lua
@@ -52,6 +57,7 @@ EUI_UnlockMode.lua
 EllesmereUI_Glows.lua
 EllesmereUI_Range.lua
 EllesmereUI_AuraKit.lua
+EllesmereUI_WarriorCharges.lua
 EllesmereUI_FirstInstall.lua
 EllesmereUI_RaidFramesPopup.lua
 EllesmereUI_PatchNotesPopup.lua

@@ -118,7 +118,7 @@ local NPC_COLOR_R, NPC_COLOR_G, NPC_COLOR_B = 0, 1, 0
 
 -- Bar & name color for full-plate friendly NPCs. User-customizable via the inline
 -- swatch on "Show Friendly NPC Nameplates"; defaults to the green NPC_COLOR. Only used
--- in full-plate mode -- name-only NPCs use the overlay's reaction color instead.
+-- in full-plate mode -- name-only NPCs have their own colors in the NPC cog.
 local function GetFriendlyNPCColor()
     local fp = FP()
     local c = fp and fp.friendlyNPCColor
@@ -419,8 +419,24 @@ local function GetNPCNameColor(unit)
         -- Neutral: yellow
         return 0.9, 0.7, 0.0
     end
-    -- Friendly NPC: green
-    return NPC_COLOR_R, NPC_COLOR_G, NPC_COLOR_B
+    local fp = FP()
+    local c = (fp and fp.friendlyNPCNameColor) or ns.defaults.friendlyNPCNameColor
+    return c.r, c.g, c.b
+end
+
+-- Title line under the name-only NPC name. Independent of the name color; the
+-- default alpha is what separates it from the name above it. Neutral units
+-- mirror GetNPCNameColor: reaction yellow wins over the stored color (the
+-- swatch governs friendly units only, same as Name Color), alpha stays the
+-- stored one.
+local function GetNPCTitleColor(unit)
+    local fp = FP()
+    local c = (fp and fp.friendlyNPCTitleColor) or ns.defaults.friendlyNPCTitleColor
+    local reaction = unit and UnitReaction(unit, "player")
+    if reaction and reaction == 4 then
+        return 0.9, 0.7, 0.0, c.a or 1
+    end
+    return c.r, c.g, c.b, c.a or 1
 end
 
 local NPC_TITLE_FONT_SIZE = 10
@@ -466,6 +482,30 @@ local function GetNPCOverlayNameSize()
     return (fp and fp.friendlyNPCNameSize) or NPC_OVERLAY_FONT_SIZE
 end
 
+local function GetNPCTitleSize()
+    local fp = FP()
+    return (fp and fp.friendlyNPCTitleSize) or NPC_TITLE_FONT_SIZE
+end
+
+-- Font and color for both overlay lines. Shared by the first paint and by the
+-- option rows, which re-style live overlays rather than rebuilding them.
+local function ApplyOverlayStyle(overlay, unit)
+    local font, outline, shadow = GetFont(), GetNPOutline(), GetNPUseShadow()
+    local Prime = EllesmereUI and EllesmereUI.PrimeFontShadow
+    if Prime then Prime(overlay.name, shadow) end
+    overlay.name:SetFont(font, GetNPCOverlayNameSize(), outline)
+    overlay.name:SetTextColor(GetNPCNameColor(unit))
+    if overlay.name.SetSnapToPixelGrid then
+        overlay.name:SetSnapToPixelGrid(false)
+    end
+    if overlay.name.SetTexelSnappingBias then
+        overlay.name:SetTexelSnappingBias(0)
+    end
+    if Prime then Prime(overlay.title, shadow) end
+    overlay.title:SetFont(font, GetNPCTitleSize(), outline)
+    overlay.title:SetTextColor(GetNPCTitleColor(unit))
+end
+
 local function ShowNPCOverlay(nameplate, unit)
     if npcOverlays[nameplate] then return end
     local overlay = AcquireOverlay()
@@ -481,28 +521,12 @@ local function ShowNPCOverlay(nameplate, unit)
     overlay.name:SetWordWrap(false)
     overlay.name:SetNonSpaceWrap(false)
     overlay.name:SetMaxLines(1)
-    -- Apply our font
-    local font = GetFont()
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(overlay.name, GetNPUseShadow()) end
-    overlay.name:SetFont(font, GetNPCOverlayNameSize(), GetNPOutline())
-    if overlay.name.SetSnapToPixelGrid then
-        overlay.name:SetSnapToPixelGrid(false)
-    end
-    if overlay.name.SetTexelSnappingBias then
-        overlay.name:SetTexelSnappingBias(0)
-    end
-    -- Color based on reaction
-    local r, g, b = GetNPCNameColor(unit)
-    overlay.name:SetTextColor(r, g, b)
+    ApplyOverlayStyle(overlay, unit)
     -- NPC title (e.g. "Innkeeper", "Flight Master")
     if ShowNPCTitles() then
         local titleText = GetNPCTitle(unit)
         if titleText then
-            local font = GetFont()
-            if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(overlay.title, GetNPUseShadow()) end
-            overlay.title:SetFont(font, NPC_TITLE_FONT_SIZE, GetNPOutline())
             overlay.title:SetText("<" .. titleText .. ">")
-            overlay.title:SetTextColor(r, g, b, 0.7)
             overlay.title:Show()
         else
             overlay.title:Hide()
@@ -550,6 +574,14 @@ local function RefreshAllNPCOverlays()
     end
 end
 ns.RefreshAllNPCOverlays = RefreshAllNPCOverlays
+
+-- Re-style live overlays in place: a slider drag or a swatch change must not
+-- rebuild every overlay, which would re-read each unit's tooltip for the title.
+function ns.RefreshNPCOverlayStyle()
+    for _, overlay in pairs(npcOverlays) do
+        if overlay.unit then ApplyOverlayStyle(overlay, overlay.unit) end
+    end
+end
 
 -------------------------------------------------------------------------------
 --  Below Name sub text: data + rendering (shared by both friendly modes)

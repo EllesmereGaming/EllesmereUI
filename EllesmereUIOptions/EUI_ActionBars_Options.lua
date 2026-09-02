@@ -1192,6 +1192,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         local v = src.barVisibility or "always"
         dst.barVisibility = v
+        dst.visibilityMatch = src.visibilityMatch or nil
         dst.alwaysHidden = src.alwaysHidden
         dst.mouseoverEnabled = src.mouseoverEnabled
         dst.mouseoverAlpha = src.mouseoverAlpha
@@ -1259,7 +1260,12 @@ initFrame:SetScript("OnEvent", function(self)
                   end,
                   legacyKey = "barVisibility",
                   label = leftLabel,
-                  caps = { partyIncludesRaid = false, luaDragonriding = true },
+                  -- noOverrideMouseover: this module's hover wiring reads the STORED
+                  -- mouseoverEnabled, which an override does not write, so a Mouseover
+                  -- override would silently behave like Always. Offered as locked rather
+                  -- than looking available and doing nothing.
+                  caps = { partyIncludesRaid = false, luaDragonriding = true,
+                           noOverrideMouseover = true },
                   applyScalarFn = function(s, mode) ApplyVisibilityKey(s, mode) end,
                   disabledFn = disabledFn, disabledTooltip = disTip, rawTooltip = disTip and true or nil,
                   onChanged = function()
@@ -1271,8 +1277,11 @@ initFrame:SetScript("OnEvent", function(self)
                       end
                   end,
                   -- Option axes recompile the secure driver through the same chain the
-                  -- old Visibility Options dropdown used.
+                  -- old Visibility Options dropdown used. The gate refresh first: a lane
+                  -- click can be what just armed (or disarmed) the soft-target machinery,
+                  -- and the two calls below must see the current flags, not last click's.
                   onOptionChanged = function()
+                      EAB:_RefreshSoftTargetGate()
                       EAB:UpdateHousingVisibility()
                       EAB:ApplyCombatVisibility()
                   end }
@@ -1684,7 +1693,8 @@ initFrame:SetScript("OnEvent", function(self)
             end
 
             -- Pet Bar cannot express group modes: lock them with an explanation instead of offering silent no-ops.
-            local visCaps = { partyIncludesRaid = false }
+            -- noOverrideMouseover: see the caps on the bar row above.
+            local visCaps = { partyIncludesRaid = false, noOverrideMouseover = true }
             if SelectedKey() == "PetBar" then
                 visCaps.noGroupModes = true
                 visCaps.lockedTooltips = {
@@ -1716,8 +1726,11 @@ initFrame:SetScript("OnEvent", function(self)
                       EAB:ApplyCombatVisibility()
                   end,
                   -- Option axes recompile the secure driver through the same chain the
-                  -- old Visibility Options dropdown used.
+                  -- old Visibility Options dropdown used. The gate refresh first: a lane
+                  -- click can be what just armed (or disarmed) the soft-target machinery,
+                  -- and the two calls below must see the current flags, not last click's.
                   onOptionChanged = function()
+                      EAB:_RefreshSoftTargetGate()
                       EAB:UpdateHousingVisibility()
                       EAB:ApplyCombatVisibility()
                   end },

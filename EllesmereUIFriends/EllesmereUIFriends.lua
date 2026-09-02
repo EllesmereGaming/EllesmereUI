@@ -535,12 +535,23 @@ local function BuildClassNameLookup()
     end
 end
 
--- Filled on events, read per-button in the hook. BNet keyed [id], WoW [id+10000].
+-- Filled on demand for displayed rows; only search needs the complete list.
+-- BNet keyed [id], WoW [id+10000].
 local _friendCache = {}
 local _FC_WOW_OFFSET = 10000
+local _friendCacheDirty = true
+local _friendCacheComplete = false
+
+local function ResetFriendCacheIfDirty()
+    if not _friendCacheDirty then return end
+    wipe(_friendCache)
+    _friendCacheDirty = false
+    _friendCacheComplete = false
+end
 
 local function GetCachedFriendInfo(button)
     if not button or not button.buttonType or not button.id then return nil, nil end
+    ResetFriendCacheIfDirty()
     local key
     if button.buttonType == FRIENDS_BUTTON_TYPE_BNET then
         key = button.id
@@ -556,7 +567,7 @@ local function GetCachedFriendInfo(button)
             return nil, cached
         end
     end
-    -- Cache miss fallback (should not happen during normal scroll)
+    -- Read only the friend needed by this row.
     if button.buttonType == FRIENDS_BUTTON_TYPE_BNET then
         local info = C_BattleNet and C_BattleNet.GetFriendAccountInfo(button.id)
         if info then _friendCache[button.id] = info end
@@ -570,17 +581,23 @@ local function GetCachedFriendInfo(button)
 end
 
 local function RefreshFriendCache()
-    wipe(_friendCache)
+    ResetFriendCacheIfDirty()
+    if _friendCacheComplete then return end
     local numBNet = BNGetNumFriends and BNGetNumFriends() or 0
     for i = 1, numBNet do
-        local info = C_BattleNet and C_BattleNet.GetFriendAccountInfo(i)
-        if info then _friendCache[i] = info end
+        if not _friendCache[i] then
+            local info = C_BattleNet and C_BattleNet.GetFriendAccountInfo(i)
+            if info then _friendCache[i] = info end
+        end
     end
     local numWoW = C_FriendList and C_FriendList.GetNumFriends and C_FriendList.GetNumFriends() or 0
     for i = 1, numWoW do
-        local info = C_FriendList.GetFriendInfoByIndex(i)
-        if info then _friendCache[i + _FC_WOW_OFFSET] = info end
+        if not _friendCache[i + _FC_WOW_OFFSET] then
+            local info = C_FriendList.GetFriendInfoByIndex(i)
+            if info then _friendCache[i + _FC_WOW_OFFSET] = info end
+        end
     end
+    _friendCacheComplete = true
 end
 
 local function GetFriendClassFile(bnetInfo, wowInfo)
@@ -864,14 +881,18 @@ local function SkinFriendButton(button)
     end
 end
 
--- hooksecurefunc on FriendsFrame_UpdateFriendButton. Purely cosmetic: never
--- calls C_BattleNet/C_FriendList, reads only the pre-populated _friendCache.
+-- Runs from our deferred driver, outside Blizzard's row initializer.
 local function PostUpdateFriendButton(button)
     if not FriendsFrame:IsShown() then return end
     if not EBS.db or not EBS.db.profile.friends.enabled then return end
     if button.buttonType == FRIENDS_BUTTON_TYPE_DIVIDER then return end
     if not button.buttonType then return end
 
+    local curType = button.buttonType
+    local curId = button.id or 0
+    if GetFFD(button).stampType == curType and GetFFD(button).stampId == curId then return end
+
+    local bnetInfo, wowInfo = GetCachedFriendInfo(button)
     SkinFriendButton(button)
 
     -- Hide Blizzard elements we replace (its selection highlight stays).
@@ -902,15 +923,9 @@ local function PostUpdateFriendButton(button)
         end
     end
 
-    -- Stamp: skip redundant work for the same button+friend combo
-    local curType = button.buttonType
-    local curId = button.id or 0
-    if GetFFD(button).stampType == curType and GetFFD(button).stampId == curId then return end
     GetFFD(button).stampType = curType
     GetFFD(button).stampId = curId
     GetFFD(button)._origInfo = nil  -- clear so note re-captures from Blizzard's fresh text
-
-    local bnetInfo, wowInfo = GetCachedFriendInfo(button)
 
     local nameText = button.name or button.Name
     local infoText = button.info or button.Info
@@ -1057,15 +1072,13 @@ local function PostUpdateFriendButton(button)
     end
 end
 
-local function ProcessFriendButtons()
+local function ProcessFriendButtons(force)
     if LegacyFriendsRetired() then return end
     local scrollBox = FriendsListFrame and FriendsListFrame.ScrollBox
-    if not scrollBox then return end
+    if not scrollBox or not scrollBox:IsVisible() then return end
     for _, button in scrollBox:EnumerateFrames() do
-        if button.buttonType and button.buttonType ~= FRIENDS_BUTTON_TYPE_DIVIDER
-           and button.buttonType ~= FRIENDS_BUTTON_TYPE_INVITE
-           and button.buttonType ~= FRIENDS_BUTTON_TYPE_INVITE_HEADER then
-            GetFFD(button).stampType = nil
+        if button.buttonType == FRIENDS_BUTTON_TYPE_BNET or button.buttonType == FRIENDS_BUTTON_TYPE_WOW then
+            if force then GetFFD(button).stampType = nil end
             PostUpdateFriendButton(button)
         end
     end
@@ -1632,11 +1645,6 @@ local function SkinFriendsFrame()
         if sf then
             sf:HookScript("OnShow", function()
                 UpdateCustomTabs(tabIdx)
-                if tabIdx == 1 then
-                    -- Tab switch is user-initiated, so skinning now is safe.
-                    RefreshFriendCache()
-                    ProcessFriendButtons()
-                end
                 if tabIdx == 3 then C_Timer.After(0, SkinRaidTab); C_Timer.After(0.2, SkinRaidTab) end
             end)
         end
@@ -2362,6 +2370,7 @@ local function SkinFriendsFrame()
         local function UpdateDropdown(term)
             if term == "" then dropdown:Hide(); return end
 
+            RefreshFriendCache()
             local matches = {}
             for key, info in pairs(_friendCache) do
                 if key <= _FC_WOW_OFFSET then
@@ -2497,45 +2506,6 @@ local function SkinFriendsFrame()
         GetFFD(frame).searchDropdown = dropdown
     end
 
-    ---------------------------------------------------------------------------
-    --  Re-apply class colors after Blizzard resets them; read-only, NEVER write onto a button (taint).
-    ---------------------------------------------------------------------------
-    if FriendsFrame_UpdateFriendButton then
-        hooksecurefunc("FriendsFrame_UpdateFriendButton", function(button)
-            if not button or not button.buttonType then return end
-            if button.buttonType == FRIENDS_BUTTON_TYPE_DIVIDER then return end
-            local fd = GetFFD(button)
-            fd.stampType = nil
-        end)
-    end
-
-    -- Scroll poller catches drag/keyboard scroll without touching Blizzard's ScrollBar/ScrollBox; runs only while the panel is shown (Show/Hide hooks).
-    do
-        local scrollPoller = CreateFrame("Frame", nil, frame)
-        scrollPoller:Hide()
-        scrollPoller:SetScript("OnUpdate", function()
-            local sb = FriendsListFrame and FriendsListFrame.ScrollBox
-            if not sb then return end
-            -- Only re-skin if a recycled button shows different data than its stamp
-            local needsSkin = false
-            for _, btn in sb:EnumerateFrames() do
-                if btn.buttonType and btn.buttonType ~= FRIENDS_BUTTON_TYPE_DIVIDER then
-                    local fd = GetFFD(btn)
-                    if fd.stampType ~= btn.buttonType or fd.stampId ~= (btn.id or 0) then
-                        needsSkin = true
-                        break
-                    end
-                end
-            end
-            if needsSkin then
-                ProcessFriendButtons()
-            end
-        end)
-        hooksecurefunc(frame, "Show", function() scrollPoller:Show() end)
-        hooksecurefunc(frame, "Hide", function() scrollPoller:Hide(); _pollLastPct = -1 end)
-        if frame:IsShown() then scrollPoller:Show() end
-    end
-
     local function SyncFriendsTabLabels()
         for i = 1, (FriendsFrame and FriendsFrame.numTabs) or 4 do
             local tab = _G["FriendsFrameTab" .. i]
@@ -2551,42 +2521,56 @@ local function SkinFriendsFrame()
     end
 
     -- Dirty flag drains next frame so addon code never runs inside Blizzard's secure dispatch; driver frame stays hidden while clean.
-    local _skinDirty = false
+    local _forceFriendSkin = false
     local skinDriver = CreateFrame("Frame")
     skinDriver:Hide()
     skinDriver:SetScript("OnUpdate", function(self)
         self:Hide()
-        _skinDirty = false
-        if FriendsFrame:IsShown() then
-            ProcessFriendButtons()
-        end
+        local force = _forceFriendSkin
+        _forceFriendSkin = false
+        ProcessFriendButtons(force)
     end)
-    local function MarkSkinDirty()
-        if not _skinDirty then
-            _skinDirty = true
-            skinDriver:Show()
-        end
+    local function MarkSkinDirty(force)
+        _forceFriendSkin = _forceFriendSkin or force
+        local sb = FriendsListFrame and FriendsListFrame.ScrollBox
+        if not sb or not sb:IsVisible() or LegacyFriendsRetired() then return end
+        skinDriver:Show()
+    end
+
+    -- The native initializer runs for recycled rows on every scroll path, too.
+    -- Only mark external state here; defer all API reads and styling.
+    if FriendsFrame_UpdateFriendButton then
+        hooksecurefunc("FriendsFrame_UpdateFriendButton", function(button)
+            if not button or (button.buttonType ~= FRIENDS_BUTTON_TYPE_BNET
+                and button.buttonType ~= FRIENDS_BUTTON_TYPE_WOW) then return end
+            GetFFD(button).stampType = nil
+            MarkSkinDirty()
+        end)
+    end
+
+    -- Visibility edges ride FriendsListFrame (the tab content frame), NEVER
+    -- the ScrollBox: that object's interaction surface is mapped radioactive
+    -- for whisper taint (see the module history above), and the parent
+    -- carries the exact same show/hide edge -- the ScrollBox is visible iff
+    -- its tab content frame is.
+    if FriendsListFrame then
+        FriendsListFrame:HookScript("OnShow", function()
+            _friendCacheDirty = true
+            MarkSkinDirty(true)
+        end)
+        FriendsListFrame:HookScript("OnHide", function()
+            skinDriver:Hide()
+            _forceFriendSkin = false
+        end)
+        if FriendsListFrame:IsVisible() then MarkSkinDirty(true) end
     end
 
     local friendsEventFrame = CreateFrame("Frame")
     friendsEventFrame:SetScript("OnEvent", function(_, event)
-        RefreshFriendCache()
-        -- Clear stamps so buttons restyle against the fresh data.
-        local sb = FriendsListFrame and FriendsListFrame.ScrollBox
-        if sb then
-            for _, btn in sb:EnumerateFrames() do
-                GetFFD(btn).stampType = nil
-            end
-        end
+        _friendCacheDirty = true
         SyncFriendsTabLabels()
-        MarkSkinDirty()
+        MarkSkinDirty(true)
     end)
-    -- Re-skin after scrolling (HookScript is a post-hook, safe)
-    if FriendsListFrame and FriendsListFrame.ScrollBox then
-        FriendsListFrame.ScrollBox:HookScript("OnMouseWheel", function()
-            MarkSkinDirty()
-        end)
-    end
 
     local function RegisterFriendsEvents()
         friendsEventFrame:RegisterEvent("FRIENDLIST_UPDATE")
@@ -2635,15 +2619,15 @@ local function SkinFriendsFrame()
     end)
 
     -- Events live only while the panel is open.
-    hooksecurefunc(frame, "Hide", function()
+    frame:HookScript("OnHide", function()
         UnregisterFriendsEvents()
         local fd = GetFFD(frame)
         if fd.statusEvt then fd.statusEvt:UnregisterAllEvents() end
     end)
-    hooksecurefunc(frame, "Show", function()
+    frame:HookScript("OnShow", function()
         RegisterFriendsEvents()
-        RefreshFriendCache()
-        MarkSkinDirty()
+        _friendCacheDirty = true
+        MarkSkinDirty(true)
         local fd = GetFFD(frame)
         if fd.statusEvt then
             fd.statusEvt:RegisterEvent("PLAYER_FLAGS_CHANGED")
@@ -3174,7 +3158,7 @@ function EBS:OnInitialize()
     -- Global bridge for options <-> main communication
     _G._EFR_DB                   = EBS.db
     _G._EFR_ApplyFriends         = ApplyFriends
-    _G._EFR_ProcessFriendButtons = ProcessFriendButtons
+    _G._EFR_ProcessFriendButtons = function() ProcessFriendButtons(true) end
 
     -- Visibility updater + mouseover target register only while the panel is shown;
     -- both bill this addon (dispatcher fan-out per event, mouseover scan every 0.15s)

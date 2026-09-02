@@ -3223,6 +3223,34 @@ do
     end
 end
 
+-- Hover/target highlight on a BORDERLESS frame (Border Size 0): the highlight recolors the
+-- frame's own border, and with none drawn there is nothing to recolor, so it draws its own at
+-- hoverBorderSize/targetBorderSize in the configured border style. `size` nil/0 = not
+-- highlighted. The drawn size is cached on the border frame so a group-wide target swap is a
+-- color write per button rather than a restyle; callers clear it when the base border returns.
+function ns.ApplyHighlightBorder(bf, s, size, r, g, b, a)
+    if not (PP and bf) then return end
+    local texKey = s.borderTexture or "solid"
+    if not size or size <= 0 then
+        if bf._hlBorderSize then
+            EllesmereUI.ApplyBorderStyle(bf, 0, r, g, b, a, texKey)
+            -- Keep the cache when the style call bailed (still shown) so the next one retries the hide.
+            if not bf:IsShown() then bf._hlBorderSize = nil end
+        end
+        return
+    end
+    -- IsShown: a base restyle to Border Size 0 hides the frame without clearing the cache,
+    -- so the size alone would let a hover/target repaint after one land on a hidden border.
+    if bf._hlBorderSize == size and bf:IsShown() then
+        EllesmereUI.SetBorderStyleColor(bf, r, g, b, a)
+        return
+    end
+    EllesmereUI.ApplyBorderStyle(bf, size, r, g, b, a, texKey,
+        s.borderTextureOffset, s.borderTextureOffsetY,
+        s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", size)
+    bf._hlBorderSize = size
+end
+
 -------------------------------------------------------------------------------
 --  Style a single button (called once per button at creation time)
 -------------------------------------------------------------------------------
@@ -3703,27 +3731,32 @@ local function StyleButton(button)
         if container then container:SetFrameLevel(lvl + 1) end
     end
 
-    -- Recolor the single border for the current state: hover > target > normal.
+    -- Recolor the single border for the current state: hover > target > normal. A borderless
+    -- frame has nothing to recolor, so the highlight draws its own (ns.ApplyHighlightBorder).
     local function ApplyBorderColor()
         if not (PP and d.borderFrame) then return end
         -- Re-called long after StyleButton: resolve LIVE (see LiveS note) so party overrides and profile swaps are honored.
         local s = LiveS()
-        if (s.borderSize or 1) <= 0 then return end
         local r, g, b, a
-        local raised = false
+        local raised, hlSize = false, nil
         if d._hovered and s.hoverBorderEnabled ~= false then
             local c = s.hoverBorderColor or { r = 1, g = 1, b = 1 }
             r, g, b, a = c.r, c.g, c.b, s.hoverBorderAlpha or 1
-            raised = true
+            raised, hlSize = true, s.hoverBorderSize or 1
         elseif d._isTarget and s.targetBorderEnabled ~= false then
             local c = s.targetBorderColor or { r = 1, g = 1, b = 1 }
             r, g, b, a = c.r, c.g, c.b, s.targetBorderAlpha or 1
-            raised = true
+            raised, hlSize = true, s.targetBorderSize or 1
         else
             local c = s.borderColor or { r = 0, g = 0, b = 0 }
             r, g, b, a = c.r, c.g, c.b, s.borderAlpha or 1
         end
         ApplyBorderLevel(raised)
+        if (s.borderSize or 1) <= 0 then
+            ns.ApplyHighlightBorder(d.borderFrame, s, hlSize, r, g, b, a)
+            return
+        end
+        d.borderFrame._hlBorderSize = nil
         EllesmereUI.SetBorderStyleColor(d.borderFrame, r, g, b, a)
     end
     d.ApplyBorderColor = ApplyBorderColor
@@ -4725,18 +4758,15 @@ local function UpdateReadyCheck(button, unit)
     if s.showReadyCheck and readyCheckActive then
         local status = GetReadyCheckStatus(unit)
         if status == "ready" then
-            tex:SetTexCoord(0, 1, 0, 1)
-            tex:SetTexture("Interface\\RaidFrame\\ReadyCheck-Ready")
+            tex:SetAtlas("UI-LFG-ReadyMark-Raid")
             tex:Show()
             return
         elseif status == "notready" then
-            tex:SetTexCoord(0, 1, 0, 1)
-            tex:SetTexture("Interface\\RaidFrame\\ReadyCheck-NotReady")
+            tex:SetAtlas("UI-LFG-DeclineMark-Raid")
             tex:Show()
             return
         elseif status == "waiting" then
-            tex:SetTexCoord(0, 1, 0, 1)
-            tex:SetTexture("Interface\\RaidFrame\\ReadyCheck-Waiting")
+            tex:SetAtlas("UI-LFG-PendingMark-Raid")
             tex:Show()
             return
         end
@@ -4763,8 +4793,7 @@ local function UpdateReadyCheck(button, unit)
     -- Incoming resurrection (cast in flight, or the latched unaccepted-offer window
     -- -- see ns._RFRezShown). Lowest priority; shows a body is already being picked up.
     if s.showIncomingRez and unit and ns._RFRezShown(unit) then
-        tex:SetTexCoord(0, 1, 0, 1)
-        tex:SetTexture("Interface\\RaidFrame\\Raid-Icon-Rez")
+        tex:SetAtlas("RaidFrame-Icon-Rez")
         tex:Show()
         return
     end
@@ -5346,17 +5375,16 @@ end
 FB.ApplyBorderColor = function(b)
     if not PP or not b._borderFrame or not db then return end
     local s = ns._scaledProfile or db.profile
-    if (s.borderSize or 1) <= 0 then return end
     local r, g, bcol, a
-    local raised = false
+    local raised, hlSize = false, nil
     if b._fbHovered and s.hoverBorderEnabled ~= false then
         local c = s.hoverBorderColor or { r = 1, g = 1, b = 1 }
         r, g, bcol, a = c.r, c.g, c.b, s.hoverBorderAlpha or 1
-        raised = true
+        raised, hlSize = true, s.hoverBorderSize or 1
     elseif UnitIsUnit(FB.UnitOf(b), "target") and s.targetBorderEnabled ~= false then
         local c = s.targetBorderColor or { r = 1, g = 1, b = 1 }
         r, g, bcol, a = c.r, c.g, c.b, s.targetBorderAlpha or 1
-        raised = true
+        raised, hlSize = true, s.targetBorderSize or 1
     else
         local c = s.borderColor or { r = 0, g = 0, b = 0 }
         r, g, bcol, a = c.r, c.g, c.b, s.borderAlpha or 1
@@ -5369,6 +5397,11 @@ FB.ApplyBorderColor = function(b)
         local container = PP.GetBorders(b._borderFrame)
         if container then container:SetFrameLevel(lvl + 1) end
     end
+    if (s.borderSize or 1) <= 0 then
+        ns.ApplyHighlightBorder(b._borderFrame, s, hlSize, r, g, bcol, a)
+        return
+    end
+    b._borderFrame._hlBorderSize = nil
     EllesmereUI.SetBorderStyleColor(b._borderFrame, r, g, bcol, a)
 end
 
@@ -8249,11 +8282,22 @@ local function UpdateButtonRange(unit, btn)
     elseif UnitPhaseReason and UnitPhaseReason(unit) then
         ApplyRangeAlpha(btn, oorAlpha)
     elseif UnitIsDeadOrGhost(unit) then
-        -- Dead units use the standard ~40yd interact range (UnitInRange), the same
-        -- secret-safe path living non-spell-range units take, so corpses fade with
-        -- distance. (A rez-spell-only check would force full alpha for players with
-        -- no rez or an indeterminate rez range.)
-        ApplyRangeAlphaSecret(btn, UnitInRange(unit), 1, oorAlpha)
+        -- Ghost units need to be checked using a rez-spell because UnitInRange checks the ghost's range, not the corpse's.
+        -- We want to provide rez-range feedback based on the corpse's position.
+        if playerHasRez then
+            local r = C_Spell_IsSpellInRange(playerRezSpell, unit)
+            if r == true then
+                ApplyRangeAlpha(btn, 1)
+            elseif r == false then
+                ApplyRangeAlpha(btn, oorAlpha)
+            else
+                -- Use the standard ~40yd interact range (UnitInRange) as fallback
+                ApplyRangeAlphaSecret(btn, UnitInRange(unit), 1, oorAlpha)
+            end
+        else
+            -- Use the standard ~40yd interact range (UnitInRange) when player has no rez spell
+            ApplyRangeAlphaSecret(btn, UnitInRange(unit), 1, oorAlpha)
+        end
     elseif usesSpellRange then
         local r = C_Spell_IsSpellInRange(playerFriendlySpell, unit)
         if r == true then
@@ -8334,23 +8378,52 @@ end  -- range fading section (do-block keeps its locals out of the 200-cap)
 
 -------------------------------------------------------------------------------
 --  Ghost aura safety net
---  Throttled 1s ticker clears stale debuff/BM/dispel indicators when a unit
---  goes invisible (loadscreen, out of render range) or disconnects. Without
---  this, indicators painted before the unit ghosted persist indefinitely
---  because UNIT_AURA stops firing for invisible/DC'd units.
+--  Throttled 1s ticker: UNIT_AURA stops firing for invisible/DC'd units and the
+--  render-visibility edge has no event, so a unit that ghosts (loadscreen, out
+--  of render range, disconnect) keeps whatever its containers last parsed. On
+--  regain the containers are re-parsed in place (the same UpdateAllAuras lever
+--  the assist gate uses on its own false->true edge). The same pass audits each
+--  container's own unit binding, which nothing else re-drives once the header
+--  stops re-asserting the token.
 -------------------------------------------------------------------------------
 local ghostTicker = nil
 
 local function GhostAuraCheck()
     local function checkUnit(unit, btn)
         local d = GetFFD(btn)
+        -- unitToButton et al. only ever gain entries on reassignment, never drop
+        -- the old one, so unit/btn here can be a stale pairing; re-confirm against
+        -- the button's own live attribute before writing to it.
+        if btn:GetAttribute("unit") == unit and ns.RFC_RepointStale then
+            ns.RFC_RepointStale(d, unit)
+        end
         if not UnitIsVisible(unit) or not UnitIsConnected(unit) then
             if not d.ghostCleared then
                 d.ghostCleared = true
+                -- Binding at ghost time: a reassignment inside the window already
+                -- re-parsed the containers (RFC_OnUnitAssigned), so the regain pass
+                -- skips a button whose binding moved.
+                d.ghostUnit = d.rfcUnit
             end
         else
             if d.ghostCleared then
                 d.ghostCleared = false
+                -- unitToButton only ever gains entries, so unit/btn can be a stale
+                -- pairing: re-parse only containers still bound to this unit.
+                if d.rfcUnit == unit and d.ghostUnit == unit then
+                    if d.rfcDebuffs then d.rfcDebuffs:UpdateAllAuras() end
+                    if d.rfcDispLoc then d.rfcDispLoc:UpdateAllAuras() end
+                    if d.rfcDispel then d.rfcDispel:UpdateAllAuras() end
+                    if d.rfcBm then d.rfcBm:UpdateAllAuras() end
+                    if d.rfcBmChain then
+                        for _, cc in pairs(d.rfcBmChain) do cc:UpdateAllAuras() end
+                    end
+                    if d.rfcBmSimple then d.rfcBmSimple:UpdateAllAuras() end
+                    if d.dmTiles then
+                        for _, c in pairs(d.dmTiles) do c:UpdateAllAuras() end
+                    end
+                end
+                d.ghostUnit = nil
             end
         end
     end
@@ -11880,17 +11953,16 @@ local function CreatePreviewFrame(index)
         -- tier-scaled, so the effective overlay may shadow them safely.
         local s = ns._previewSettingsOverride or (ns._partyPvActive and ns._scaledPartyProxy)
             or ns._pvOverlayProxy or ns._scaledProfile
-        if (s.borderSize or 1) <= 0 then return end
         local r, g, b, a
-        local raised = false
+        local raised, hlSize = false, nil
         if f._hovered and s.hoverBorderEnabled ~= false then
             local c = s.hoverBorderColor or { r = 1, g = 1, b = 1 }
             r, g, b, a = c.r, c.g, c.b, s.hoverBorderAlpha or 1
-            raised = true
+            raised, hlSize = true, s.hoverBorderSize or 1
         elseif f._isTarget and s.targetBorderEnabled ~= false then
             local c = s.targetBorderColor or { r = 1, g = 1, b = 1 }
             r, g, b, a = c.r, c.g, c.b, s.targetBorderAlpha or 1
-            raised = true
+            raised, hlSize = true, s.targetBorderSize or 1
         else
             local c = s.borderColor or { r = 0, g = 0, b = 0 }
             r, g, b, a = c.r, c.g, c.b, s.borderAlpha or 1
@@ -11906,6 +11978,11 @@ local function CreatePreviewFrame(index)
             bdrFrame:SetFrameLevel(lvl)
             if container then container:SetFrameLevel(lvl + 1) end
         end
+        if (s.borderSize or 1) <= 0 then
+            ns.ApplyHighlightBorder(bdrFrame, s, hlSize, r, g, b, a)
+            return
+        end
+        bdrFrame._hlBorderSize = nil
         EllesmereUI.SetBorderStyleColor(bdrFrame, r, g, b, a)
     end
     f._ApplyBorderColor = PvApplyBorderColor
@@ -13110,8 +13187,7 @@ local function ApplyPreviewData(f, index)
             if olMode == "fill" then
                 local fillTex = f._health:GetStatusBarTexture()
                 if fillTex then
-                    olTex:SetPoint("TOPLEFT", f._health, "TOPLEFT", 0, 0)
-                    olTex:SetPoint("BOTTOMRIGHT", fillTex, "BOTTOMRIGHT", 0, 0)
+                    olTex:SetAllPoints(fillTex)
                 else
                     olTex:SetAllPoints(f._health)
                 end
@@ -13333,14 +13409,11 @@ local function ApplyPreviewData(f, index)
                 f._readyCheck:SetPoint("CENTER", rcHost, "CENTER", ox, oy)
             end
             if rcStatus == "ready" then
-                f._readyCheck:SetTexture("Interface\\RaidFrame\\ReadyCheck-Ready")
-                f._readyCheck:SetTexCoord(0, 1, 0, 1)
+                f._readyCheck:SetAtlas("UI-LFG-ReadyMark-Raid")
             elseif rcStatus == "notready" then
-                f._readyCheck:SetTexture("Interface\\RaidFrame\\ReadyCheck-NotReady")
-                f._readyCheck:SetTexCoord(0, 1, 0, 1)
+                f._readyCheck:SetAtlas("UI-LFG-DeclineMark-Raid")
             elseif rcStatus == "pending" then
-                f._readyCheck:SetTexture("Interface\\RaidFrame\\ReadyCheck-Waiting")
-                f._readyCheck:SetTexCoord(0, 1, 0, 1)
+                f._readyCheck:SetAtlas("UI-LFG-PendingMark-Raid")
             elseif rcStatus == "summon_pending" then
                 f._readyCheck:SetAtlas("RaidFrame-Icon-SummonPending")
             elseif rcStatus == "summon_accepted" then
@@ -13348,8 +13421,7 @@ local function ApplyPreviewData(f, index)
             elseif rcStatus == "summon_declined" then
                 f._readyCheck:SetAtlas("RaidFrame-Icon-SummonDeclined")
             elseif rcStatus == "rez" then
-                f._readyCheck:SetTexture("Interface\\RaidFrame\\Raid-Icon-Rez")
-                f._readyCheck:SetTexCoord(0, 1, 0, 1)
+                f._readyCheck:SetAtlas("RaidFrame-Icon-Rez")
             end
             f._readyCheck:Show()
         else
@@ -13587,7 +13659,10 @@ local function ApplyPreviewData(f, index)
         else
             f._statusText:SetPoint("CENTER", stHost, "CENTER", stOX, stOY)
         end
-        if isRezCorpse then
+        if stPos == "none" then
+            -- Status text display is turned off
+            f._statusText:Hide()
+        elseif isRezCorpse then
             -- Being resurrected: the rez icon takes this spot, so no DEAD text.
             f._statusText:Hide()
         elseif isDead then
@@ -13600,6 +13675,7 @@ local function ApplyPreviewData(f, index)
             f._statusText:SetText(EllesmereUI.L("AFK"))
             f._statusText:Show()
         else
+            -- No status to show
             f._statusText:Hide()
         end
     end

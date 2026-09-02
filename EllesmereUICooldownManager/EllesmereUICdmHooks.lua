@@ -38,6 +38,222 @@ ns._spellOrderDirty = true  -- start dirty so first reanchor builds caches
 local hookFrameData = setmetatable({}, { __mode = "k" })
 ns._hookFrameData = hookFrameData
 
+-- Glow at Stacks (per-spell): REPLACES the Buff Glow for icons with a stack
+-- threshold -- the glow starts only at N or more applications, using the
+-- spell's effective Buff Glow style (resolved in RefreshCDMIconAppearance).
+-- Stack counts read SECRET in restricted combat, so the comparison must never
+-- happen in Lua there: a one-unit StatusBar window [t-1, t] performs it
+-- C-side (integer counts land exactly on the endpoints), and a
+-- CLAMPTOBLACKADDITIVE MaskTexture anchored to that gate's fill bounds every
+-- glow texture -- fill empty = mask collapsed = glow invisible; fill full =
+-- glow shown. Masks keep rendering where a SetClipsChildren bound goes dark
+-- on secret-derived rects in restricted content, which is why no clip frame
+-- appears anywhere here. Plain counts (out of restriction) skip the render
+-- gate and start/stop the glow directly -- identical visual contract both
+-- ways. Zero cost unless a spell enables the toggle: no frames, no reads.
+do
+    local function StackGlowSize(icon)
+        local width, height = icon:GetWidth(), icon:GetHeight()
+        if not width or width < 5 then width = 36 end
+        if not height or height < 5 then height = width end
+        return width, height
+    end
+
+    -- The gate oversizes the icon by pad on every side and the mask matches the
+    -- gate exactly, so a FULL fill puts the open mask over the whole glow --
+    -- flipbook/pixel textures overhang the icon edges.
+    local function SizeStackGlowMask(st, width, height)
+        if not (st.mask and st.pad) then return end
+        st.mask:SetSize(width + st.pad * 2, height + st.pad * 2)
+    end
+
+    -- LIVE-FIRST: the item's auraDataCached is (re)written on aura
+    -- ASSIGNMENT, so an update-only stack change can leave it holding the
+    -- gain-time count -- a threshold crossing would then wait for the next
+    -- add/remove to rewrite the cache. The instance-id fetch is authoritative
+    -- while its inputs read plain (dirty ticks only, a few icons: cheap).
+    -- Under secrecy the iid reads secret and the id-keyed APIs hard-error,
+    -- so the cached -- possibly secret -- applications value stays the
+    -- gate's source there. Secret probes come FIRST everywhere: even a
+    -- boolean or `~= nil` test on a secret is a hard error.
+    -- Returns a plain number, a SECRET number, or nil (unknown).
+    local function ReadBuffApplications(frame)
+        local iid = frame.auraInstanceID
+        if not (issecretvalue and issecretvalue(iid)) and iid then
+            local unit = frame.auraDataUnit
+            if not (issecretvalue and issecretvalue(unit)) and unit then
+                local ok, data = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, unit, iid)
+                if ok and data then
+                    local a = data.applications
+                    if (issecretvalue and issecretvalue(a)) or a ~= nil then
+                        return a
+                    end
+                end
+            end
+        end
+        local ad = frame.auraDataCached
+        local apps = ad and ad.applications
+        if (issecretvalue and issecretvalue(apps)) or apps ~= nil then
+            return apps
+        end
+        return nil
+    end
+
+    local function StartStackGlow(st, width, height)
+        ns.StartNativeGlow(st.glow, st.style, st.r, st.g, st.b, {
+            owner = st.icon, width = width, height = height,
+            N = st.lines, th = st.thickness, period = st.speed,
+            bg = st.background and { r = st.bgR, g = st.bgG, b = st.bgB } or nil,
+            maskWith = st.mask,
+        })
+        st.width, st.height = width, height
+        st.started = true
+    end
+
+    local function StopStackGlow(st)
+        if st.started then
+            ns.StopNativeGlow(st.glow)
+            st.started = nil
+        end
+        -- Unconditional: the wrapper is created at alpha 1, so anything an
+        -- engine left on it would show through a gate that never opened.
+        if st.glow then st.glow:SetAlpha(0) end
+        if st.gate then st.gate:SetValue(0) end
+    end
+
+    local function StackGlowOnHide(icon)
+        local fd = hookFrameData[icon]
+        local st = fd and fd.stackGlow
+        if st then StopStackGlow(st) end
+    end
+
+    -- (Re)configure or retire an icon's threshold controller. Called from
+    -- RefreshCDMIconAppearance with everything pre-resolved; called with only
+    -- the icon to tear down (toggle off, frame pooled onto a non-buff spell).
+    function ns.StackGlow_Configure(icon, threshold, style, r, g, b, settings)
+        local fd = icon and hookFrameData[icon]
+        if not fd then return end
+        local st = fd.stackGlow
+        threshold, style = tonumber(threshold), tonumber(style)
+        if not (threshold and threshold >= 2 and style and style >= 1) then
+            if st and st.threshold then
+                st.threshold = nil
+                StopStackGlow(st)
+                ns._btDirty = true
+                if ns.ArmBuffTicker then ns.ArmBuffTicker() end
+            end
+            return
+        end
+        threshold = math.floor(threshold)
+        local lines = (settings and settings.buffGlowLines) or 8
+        local thickness = (settings and settings.buffGlowThickness) or 2
+        local speed = (settings and settings.buffGlowSpeed) or 4
+        local background = (settings and settings.buffGlowBackground) or false
+        local bgR = background and (settings.buffGlowBackgroundR or 0) or nil
+        local bgG = background and (settings.buffGlowBackgroundG or 0) or nil
+        local bgB = background and (settings.buffGlowBackgroundB or 0) or nil
+
+        if not st then
+            st = { icon = icon }
+            fd.stackGlow = st
+            -- The gate oversizes the icon so a FULL fill (and therefore the
+            -- open mask) covers the glow textures' overhang past the icon
+            -- edges (flipbook/pixel padding); proportional so big icons keep
+            -- their fringe too.
+            local pad = math.ceil(math.max(StackGlowSize(icon)) * 0.4)
+            if pad < 12 then pad = 12 end
+            st.pad = pad
+            st.gate = CreateFrame("StatusBar", nil, icon)
+            st.gate:SetPoint("TOPLEFT", icon, "TOPLEFT", -pad, pad)
+            st.gate:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", pad, -pad)
+            st.gate:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+            local gft = st.gate:GetStatusBarTexture()
+            if gft then gft:SetAlpha(0) end
+            st.gate:EnableMouse(false)
+
+            -- The mask rides the (alpha-0) fill's RIGHT edge at a FIXED
+            -- gate-sized rect instead of shadowing the fill rect: at value =
+            -- min the fill is zero-wide, and a zero-area mask samples
+            -- undefined -- a partly passing mask reads as a faint glow below
+            -- the threshold. Parked a gate-width left it covers nothing; at
+            -- value = max it lands on the gate. NEAREST for the Raid Frames
+            -- absorb bound's reason: bilinear ramps WHITE8X8's edge texel into
+            -- the black border, and that leak shows along every edge.
+            st.mask = st.gate:CreateMaskTexture()
+            st.mask:SetTexture("Interface\\Buttons\\WHITE8x8",
+                "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE", "NEAREST")
+            st.mask:SetPoint("RIGHT", gft or st.gate, "RIGHT", 0, 0)
+            SizeStackGlowMask(st, StackGlowSize(icon))
+
+            st.glow = CreateFrame("Frame", nil, icon)
+            st.glow:SetAllPoints(icon)
+            st.glow:EnableMouse(false)
+            icon:HookScript("OnHide", StackGlowOnHide)
+        end
+
+        local changed = st.threshold ~= threshold or st.style ~= style
+            or st.r ~= r or st.g ~= g or st.b ~= b or st.lines ~= lines
+            or st.thickness ~= thickness or st.speed ~= speed
+            or st.background ~= background or st.bgR ~= bgR
+            or st.bgG ~= bgG or st.bgB ~= bgB
+        st.threshold, st.style = threshold, style
+        st.r, st.g, st.b = r, g, b
+        st.lines, st.thickness, st.speed = lines, thickness, speed
+        st.background, st.bgR, st.bgG, st.bgB = background, bgR, bgG, bgB
+        if changed then
+            StopStackGlow(st)
+            st.gate:SetMinMaxValues(threshold - 1, threshold)
+        end
+        ns._btDirty = true
+        if ns.ArmBuffTicker then ns.ArmBuffTicker() end
+    end
+
+    -- Buff-tick feed for thresholded icons (the normal buff glow is suppressed
+    -- for them). Plain counts decide in Lua; secret counts go straight to the
+    -- gate and the engine's clamp + the mask decide what renders.
+    function ns.StackGlow_Feed(icon, active)
+        local fd = icon and hookFrameData[icon]
+        local st = fd and fd.stackGlow
+        if not (st and st.threshold) then return end
+        if not active then
+            StopStackGlow(st)
+            return
+        end
+        local applications = ReadBuffApplications(icon)
+        local secret = issecretvalue and issecretvalue(applications)
+        if not secret then
+            -- Unknown count on an active buff fails OPEN to the threshold so
+            -- the gate (not a guess) decides; a known low count stops here.
+            if applications == nil then
+                applications = st.threshold
+            elseif applications < st.threshold then
+                StopStackGlow(st)
+                st.gate:SetValue(applications)
+                return
+            end
+        end
+        st.glow:SetFrameLevel(icon:GetFrameLevel() + 16)
+        local width, height = StackGlowSize(icon)
+        if not st.started or math.abs(width - (st.width or 0)) > 0.01
+           or math.abs(height - (st.height or 0)) > 0.01 then
+            -- Size changed (or first start): re-derive the gate's overhang
+            -- pad from the LIVE size, so the open mask keeps covering the
+            -- glow fringe -- the creation-time pad may have come from the
+            -- pre-layout fallback size, and icons resize with settings.
+            local pad = math.ceil(math.max(width, height) * 0.4)
+            if pad < 12 then pad = 12 end
+            if pad ~= st.pad then
+                st.pad = pad
+                st.gate:SetPoint("TOPLEFT", icon, "TOPLEFT", -pad, pad)
+                st.gate:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", pad, -pad)
+            end
+            SizeStackGlowMask(st, width, height)
+            StartStackGlow(st, width, height)
+        end
+        st.gate:SetValue(applications)
+    end
+end
+
 -- Force active buff glows to re-apply on the next buff tick (<=0.1s): the tick
 -- only (re)starts a glow when fd.buffGlowActive is false, so live option edits
 -- (color, pixel Lines/Thickness/Speed) never reach an already-glowing icon.
@@ -2152,6 +2368,52 @@ function ns.WatchZeroChargeTextIfEnabled(frame)
 end
 
 -------------------------------------------------------------------------------
+--  Charge counter on SPELL_UPDATE_CHARGES. Blizzard_CooldownViewer does not
+--  register the event, so a proc that hands charges to a chargeless spell
+--  reaches the icon only at its next RefreshData, seconds later. Mirrors
+--  RefreshSpellChargeInfo's charge branch (maxCharges > 1, NeverSecret) from
+--  the frame's own GetSpellChargeInfo; SetText takes a secret count. Not
+--  routed through RefreshSpellChargeInfo: SetCachedChargeValues compares
+--  currentCharges, secret while cooldowns are restricted. Show() is
+--  unconditional because the counter's shown aspect is secret once Blizzard
+--  set it from a secret cast count. Frames this wrote are hidden again when
+--  maxCharges drops back; the rest stays with Blizzard. No payload.
+-------------------------------------------------------------------------------
+do
+    local wrote = setmetatable({}, { __mode = "k" })
+
+    local function WriteChargeCount(frame)
+        local cc = frame.ChargeCount
+        local fs = cc and cc.Current
+        if not fs then return end
+        local ci = CdmChargeInfoFor(frame, nil)
+        if ci and (ci.maxCharges or 0) > 1 then
+            fs:SetText(ci.currentCharges)
+            cc:Show()
+            wrote[frame] = true
+        elseif wrote[frame] then
+            wrote[frame] = nil
+            cc:Hide()
+        end
+    end
+
+    local ef = ns.TakeShell()
+    ef:RegisterEvent("SPELL_UPDATE_CHARGES")
+    ef:SetScript("OnEvent", function()
+        if IsCDMSettingsOpen() then return end
+        for vi = 1, 2 do
+            local viewer = GetViewerFrame(vi)
+            local pool = viewer and viewer.itemFramePool
+            if pool and pool.EnumerateActive then
+                for frame in pool:EnumerateActive() do
+                    WriteChargeCount(frame)
+                end
+            end
+        end
+    end)
+end
+
+-------------------------------------------------------------------------------
 --  Cooldown State Effect -- charge-aware readiness for Hidden (CD Ready)
 --  For a CHARGE spell "CD Ready" must mean AT MAX CHARGES, not "a charge in
 --  hand": GetSpellCooldown().isActive is false with a charge left, so a plain
@@ -4179,7 +4441,23 @@ local function UpdateTrinketFrame(slotID)
             scanConclusive = true
         end
     else
-        scanConclusive = (spellID == nil or spellID == 0)
+        -- GetItemSpell reports nothing for an item that carries a passive
+        -- Equip proc alongside a separate on-use ability (Hex Lord's Dooming
+        -- Idol), so the slot read as passive and the icon was dropped. Fall
+        -- back to the localized "Use:" tooltip line the user-added equipment
+        -- slot path above already relies on.
+        local prefix = ITEM_SPELL_TRIGGER_ONUSE
+        local tipData = C_TooltipInfo and C_TooltipInfo.GetItemByID(itemID)
+        if tipData and tipData.lines and prefix then
+            scanConclusive = true
+            for _, tipLine in ipairs(tipData.lines) do
+                local lt = tipLine.leftText
+                if lt and lt:sub(1, #prefix) == prefix then
+                    isRealOnUse = true
+                    break
+                end
+            end
+        end
     end
     if scanConclusive then
         f._trinketIsOnUse = isRealOnUse
@@ -4938,7 +5216,8 @@ local function GetOrCreateCustomBuffFrame(barKey, sid)
             if ns.QueueCustomBuffUpdate then C_Timer.After(0, ns.QueueCustomBuffUpdate) end
             if ns.QueueReanchor then C_Timer.After(0, ns.QueueReanchor) end
         end)
-        local spInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(sid)
+        local iconSID = ns.LustPresetIconSpellID and ns.LustPresetIconSpellID(sid) or sid
+        local spInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(iconSID)
         if spInfo and spInfo.iconID and f._tex then f._tex:SetTexture(spInfo.iconID) end
         _presetFrames[fkey] = f
         _injectedCustomBuffFrames[f] = true
@@ -8849,7 +9128,9 @@ local function UpdateCustomBuffBars()
                                     cd:HookScript("OnCooldownDone", function()
                                         C_Timer.After(0, QueueCustomBuffUpdate)
                                     end)
-                                    local spInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(sid)
+                                    local iconSID = ns.LustPresetIconSpellID
+                                        and ns.LustPresetIconSpellID(sid) or sid
+                                    local spInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(iconSID)
                                     if spInfo and spInfo.iconID and f._tex then f._tex:SetTexture(spInfo.iconID) end
                                 end
                                 if isActive and timer then
@@ -9545,8 +9826,15 @@ function ns.SetupViewerHooks()
                                 -- Buff glow shows on active buffs. isActiveBuff above
                                 -- already counts shown totems and our preset/custom
                                 -- own-frames as active, so this just reads it.
-                                local glowActive = isActiveBuff
+                                local buffPresent = isActiveBuff
                                     or (bd.barType == "custom_buff" and frame:IsShown())
+                                local glowActive = buffPresent
+                                -- Glow at Stacks REPLACES the presence glow for
+                                -- thresholded icons: route to the gate instead.
+                                if fd and fd._bgThreshold then
+                                    glowActive = false
+                                    ns.StackGlow_Feed(frame, buffPresent)
+                                end
                                 -- Effective Buff Glow = per-icon override (fd._bgT,
                                 -- stashed by RefreshCDMIconAppearance) falling back to
                                 -- the bar's Buff Glow. nil override => inherit; 0 => None.
@@ -10284,6 +10572,26 @@ do
         return false
     end
 
+    -- Reverse lookup: the primary itemID of the item preset that owns a given
+    -- alt/current-tier itemID (e.g. Concentrated Health Potion 271884 ->
+    -- 241304). Bar icons for these presets always key off the fixed primary
+    -- id (see silvermoon_health's itemID/altItemIDs split), but a press can
+    -- report any owned tier's itemID, so OnPress needs to resolve it back.
+    local _presetPrimaryByAltID
+    local function PresetPrimaryItemID(itemID)
+        if not _presetPrimaryByAltID then
+            _presetPrimaryByAltID = {}
+            for _, pr in ipairs(ns.CDM_ITEM_PRESETS or {}) do
+                if pr.altItemIDs then
+                    for _, alt in ipairs(pr.altItemIDs) do
+                        _presetPrimaryByAltID[alt] = pr.itemID
+                    end
+                end
+            end
+        end
+        return _presetPrimaryByAltID[itemID]
+    end
+
     local function IconSpellID(icon)
         local fc = _ecmeFC and _ecmeFC[icon]
         local sid = fc and fc.spellID
@@ -10402,6 +10710,8 @@ do
             -- Match both, plus the item's own on-use spell for the rarer case
             -- of it being tracked as a plain Custom Spell entry instead.
             pressedSet[-itemID] = true
+            local primaryItemID = PresetPrimaryItemID(itemID)
+            if primaryItemID then pressedSet[-primaryItemID] = true end
             for invSlot in pairs(ns.INV_SLOT_NAMES) do
                 if GetInventoryItemID("player", invSlot) == itemID then
                     pressedSet[-invSlot] = true
