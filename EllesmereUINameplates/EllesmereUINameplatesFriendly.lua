@@ -588,17 +588,30 @@ end
 -------------------------------------------------------------------------------
 local SUB_TEXT_R, SUB_TEXT_G, SUB_TEXT_B = 0.8, 0.8, 0.8
 
+-- A unit's class color, or nil when there is no class to color by. UnitClass
+-- can hand back a SECRET token, and a secret cannot key RAID_CLASS_COLORS --
+-- C_ClassColor takes it in C (SecretArguments = AllowedWhenTainted) and hands
+-- back the color, so the components stay unread by us and only ever reach a
+-- setter. The table itself is always plain, so callers can still test it.
+local function GetUnitClassColor(unit)
+    local _, classToken = UnitClass(unit)
+    -- type() is the secret-safe nil check
+    if type(classToken) == "nil" then return nil end
+    if C_ClassColor then
+        local c = C_ClassColor.GetClassColor(classToken)
+        if c then return c end
+    end
+    if issecretvalue and issecretvalue(classToken) then return nil end
+    return RAID_CLASS_COLORS and RAID_CLASS_COLORS[classToken] or nil
+end
+
 -- Effective sub text color: the unit's class color when Class Colored is
--- picked (a secret class token falls back to custom), else the custom color.
+-- picked, else the custom color.
 local function GetSubTextColor(unit)
     local fp = FP()
     if fp and fp.friendlyBelowNameClassColor then
-        local _, classToken = UnitClass(unit)
-        if classToken and not (issecretvalue and issecretvalue(classToken))
-            and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classToken] then
-            local cc = RAID_CLASS_COLORS[classToken]
-            return cc.r, cc.g, cc.b
-        end
+        local cc = GetUnitClassColor(unit)
+        if cc then return cc.r, cc.g, cc.b end
     end
     local c = fp and fp.friendlyBelowNameColor
     if c then return c.r or SUB_TEXT_R, c.g or SUB_TEXT_G, c.b or SUB_TEXT_B end
@@ -1201,10 +1214,7 @@ function FriendlyFrame:SetUnit(unit, nameplate)
     local classColor
     if UnitIsPlayer(unit) then
         if useClassColor then
-            local _, classToken = UnitClass(unit)
-            if classToken and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classToken] then
-                classColor = RAID_CLASS_COLORS[classToken]
-            end
+            classColor = GetUnitClassColor(unit)
         else
             local bc = (_fp and _fp.friendlyBarColor) or ns.defaults.friendlyBarColor
             classColor = bc
@@ -1548,11 +1558,8 @@ function ns.RefreshFriendlyColors()
     for unit, plate in pairs(friendlyPlates) do
         if UnitIsPlayer(unit) then
             if useClassColor then
-                local _, classToken = UnitClass(unit)
-                if classToken and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classToken] then
-                    local cc = RAID_CLASS_COLORS[classToken]
-                    plate.health:SetStatusBarColor(cc.r, cc.g, cc.b)
-                end
+                local cc = GetUnitClassColor(unit)
+                if cc then plate.health:SetStatusBarColor(cc.r, cc.g, cc.b) end
             else
                 plate.health:SetStatusBarColor(bc.r, bc.g, bc.b)
             end
