@@ -1477,7 +1477,6 @@ local function GetOrCreateBankSlot(idx)
     btn:RegisterForDrag("LeftButton")
 
     btn:HookScript("PostClick", function(self)
-        if BP().bagStackSplitter ~= true or not EUI_Bags.ShowStackSplitter then return end
         EUI_Bags.ShowStackSplitter(self, EUI_Bank:GetSplitTargetBags(self:GetParent():GetID()), EUI_Bank)
     end)
 

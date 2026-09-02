@@ -2221,7 +2221,6 @@ do
     local containerOps = {
         ownerBag = function(owner) return owner:GetParent():GetID() end,
         info     = C_Container.GetContainerItemInfo,
-        isEmpty  = function(bag, slot) return not C_Container.GetContainerItemInfo(bag, slot) end,
         numSlots = C_Container.GetContainerNumSlots,
         split    = C_Container.SplitContainerItem,
         pickup   = C_Container.PickupContainerItem,
@@ -2236,7 +2235,6 @@ do
             local link = GetGuildBankItemLink(tab, slot)
             return { stackCount = count, isLocked = locked, itemID = link and GetItemInfoInstant(link) or 0 }
         end,
-        isEmpty  = function(tab, slot) return not GetGuildBankItemInfo(tab, slot) end,
         numSlots = function() return 98 end,
         split    = SplitGuildBankItem,
         pickup   = PickupGuildBankItem,
@@ -2263,7 +2261,7 @@ do
         local info = ops.info(job.bag, job.slot)
         if not info or info.itemID ~= job.itemID then StopJob(); return end
         if info.isLocked or (job.pending and info.stackCount ~= job.pending) then
-            if GetTime() - job.issuedAt > 2 then StopJob() else Later() end
+            if GetTime() - job.issuedAt > 2 then ClearCursor(); StopJob() else Later() end
             return
         end
         job.pending = nil
@@ -2271,7 +2269,7 @@ do
         for _, bagID in ipairs(job.targets) do
             for s = 1, ops.numSlots(bagID) do
                 local key = bagID * 1000 + s
-                if not job.used[key] and ops.isEmpty(bagID, s) then
+                if not job.used[key] and not ops.info(bagID, s) then
                     job.used[key] = true
                     ClearCursor()
                     ops.split(job.bag, job.slot, job.size)
@@ -2450,9 +2448,12 @@ do
 
         hooksecurefunc(EUI_Bags, "RefreshInventory", Validate)
         EUI_Bags:HookScript("OnHide", function() WindowHidden(EUI_Bags) end)
-        if EUI_Bank then
-            hooksecurefunc(EUI_Bank, "RefreshBank", Validate)
-            EUI_Bank:HookScript("OnHide", function() WindowHidden(EUI_Bank) end)
+        hooksecurefunc(EUI_BagsReagent, "RefreshInventory", Validate)
+        EUI_BagsReagent:HookScript("OnHide", function() WindowHidden(EUI_BagsReagent) end)
+        local bankFrame = _G.EUI_BankFrame
+        if bankFrame then
+            hooksecurefunc(bankFrame, "RefreshBank", Validate)
+            bankFrame:HookScript("OnHide", function() WindowHidden(bankFrame) end)
         end
         EllesmereUI.RegisterEscapeClose(d)
         return d
@@ -2462,10 +2463,14 @@ do
     -- opened StackSplitFrame on this button (its lock/count/cursor checks passed).
     -- targets: bagIDs Auto Split may fill, in order; window: closing it aborts a job.
     function EUI_Bags.ShowStackSplitter(owner, targets, window, ops)
+        if BP().bagStackSplitter ~= true then return end
         local ssf = StackSplitFrame
         if not ssf:IsShown() or ssf.owner ~= owner then return end
         local maxStack = ssf.maxStack
         ssf:Hide()
+        -- Blizzard's own OnHide doesn't clear .owner, so a stale reference to our
+        -- pooled button would sit on the frame until some unrelated split reuses it.
+        ssf.owner = nil
         ops = ops or containerOps
         local bag, slot = ops.ownerBag(owner), owner:GetID()
         local info = ops.info(bag, slot)
@@ -2492,7 +2497,6 @@ do
         for _, column in ipairs(gb.Columns) do
             for _, b in ipairs(column.Buttons) do
                 b:HookScript("PostClick", function(self)
-                    if BP().bagStackSplitter ~= true then return end
                     EUI_Bags.ShowStackSplitter(self, { GetCurrentGuildBankTab() }, gb, guildOps)
                 end)
             end
@@ -2674,7 +2678,6 @@ local function GetOrCreateSlot(idx)
     end)
 
     btn:HookScript("PostClick", function(self)
-        if BP().bagStackSplitter ~= true then return end
         local bag = self:GetParent():GetID()
         EUI_Bags.ShowStackSplitter(self, bag == 5 and { 5, 0, 1, 2, 3, 4 } or { 0, 1, 2, 3, 4 }, EUI_Bags)
     end)
@@ -2865,6 +2868,10 @@ local function GetOrCreateReagentSlot(idx)
     local fontSize = BP().itemlevelFontSize or 12
     btn.ItemLevelText:SetFont(STANDARD_TEXT_FONT, fontSize, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     btn.ItemLevelText:SetText("")
+
+    btn:HookScript("PostClick", function(self)
+        EUI_Bags.ShowStackSplitter(self, { 5, 0, 1, 2, 3, 4 }, EUI_BagsReagent)
+    end)
 
     reagentSlots[idx] = btn
     return btn
