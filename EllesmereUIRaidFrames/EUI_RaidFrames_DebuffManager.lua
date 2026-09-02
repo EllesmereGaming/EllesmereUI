@@ -973,20 +973,20 @@ local function BuildRecords(s, dm)
     local roleOn = eff.role and (roleTile or fxCats.role or not allOn)
     if bossOn and roleOn and bossTile == roleTile then
         recs[#recs + 1] = { key = "bossrole", tokens = BoolTokens(),
-            cand = Cand(true, { isBossOrRoleAura = true }), gated = true, tile = bossTile }
+            cand = Cand(true, { isBossOrRoleAura = true }), tile = bossTile }
     else
         if bossOn then
             recs[#recs + 1] = { key = "boss", tokens = BoolTokens(),
-                cand = Cand(true, { isBossAura = true }), gated = true, tile = bossTile }
+                cand = Cand(true, { isBossAura = true }), tile = bossTile }
         end
         if roleOn then
             recs[#recs + 1] = { key = "role", tokens = BoolTokens(),
-                cand = Cand(true, { isRoleAura = true }), gated = true, tile = roleTile }
+                cand = Cand(true, { isRoleAura = true }), tile = roleTile }
         end
     end
     if eff.priority and (claims.priority or fxCats.priority or not allOn) then
         recs[#recs + 1] = { key = "priority", tokens = BoolTokens(),
-            cand = Cand(true, { isPriorityAura = true }), gated = true, tile = claims.priority }
+            cand = Cand(true, { isPriorityAura = true }), tile = claims.priority }
     end
 
     -- Non-Player Auras: boolean record (isFromPlayerOrPlayerPet = false -- debuffs not caused by ANY player or
@@ -1172,13 +1172,13 @@ local function EffectFilterFor(dm, cat)
         end
         return { "HARMFUL", "RAID_PLAYER_DISPELLABLE" }, nil, false
     end
-    if cat == "boss" then return { "HARMFUL" }, { isBossAura = true }, true end
-    if cat == "role" then return { "HARMFUL" }, { isRoleAura = true }, true end
+    if cat == "boss" then return { "HARMFUL" }, { isBossAura = true }, false end
+    if cat == "role" then return { "HARMFUL" }, { isRoleAura = true }, false end
     if cat == "nonplayer" then return { "HARMFUL" }, { isFromPlayerOrPlayerPet = false }, false end
     -- Catch-all pseudo-category (TileCatchAllOn tiles; the duration modifier folds in via EffectFilterForTile).
     if cat == "all" then return { "HARMFUL" }, nil, false end
     -- "priority" (default)
-    return { "HARMFUL" }, { isPriorityAura = true }, true
+    return { "HARMFUL" }, { isPriorityAura = true }, false
 end
 
 -- Effect-slot resolution with the tile's HIDE lane and Has Duration modifier
