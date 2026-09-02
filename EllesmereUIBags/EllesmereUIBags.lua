@@ -2208,6 +2208,246 @@ end
 local QUEST_BORDER_COLOR = { r = 1.0, g = 0.82, b = 0.0 }
 
 -------------------------------------------------------------------------------
+--  Stack splitter: replaces Blizzard's StackSplitFrame on our bag/bank slots
+--  (opt-in) with a house dialog that adds Auto Split -- repeated splits into
+--  empty slots until the remainder is at most the chosen size.
+-------------------------------------------------------------------------------
+do
+    local dialog
+    local job          -- { bag, slot, itemID, size, targets, window, pending, issuedAt }
+    local jobFrame = CreateFrame("Frame")
+
+    local function StopJob()
+        job = nil
+        jobFrame:UnregisterAllEvents()
+    end
+
+    -- One split per server round trip: issue, wait for the source stack to
+    -- settle at the expected count, repeat.
+    local function StepJob()
+        if not job then return end
+        if not job.window:IsVisible() then StopJob(); return end
+        local info = C_Container.GetContainerItemInfo(job.bag, job.slot)
+        if not info or info.itemID ~= job.itemID then StopJob(); return end
+        if info.isLocked then return end
+        if job.pending then
+            if info.stackCount ~= job.pending then
+                if GetTime() - job.issuedAt > 2 then StopJob() end
+                return
+            end
+            job.pending = nil
+        end
+        if info.stackCount <= job.size then StopJob(); return end
+        for _, bagID in ipairs(job.targets) do
+            for s = 1, C_Container.GetContainerNumSlots(bagID) do
+                if not C_Container.GetContainerItemInfo(bagID, s) then
+                    ClearCursor()
+                    C_Container.SplitContainerItem(job.bag, job.slot, job.size)
+                    C_Container.PickupContainerItem(bagID, s)
+                    job.pending = info.stackCount - job.size
+                    job.issuedAt = GetTime()
+                    return
+                end
+            end
+        end
+        StopJob()
+    end
+    jobFrame:SetScript("OnEvent", StepJob)
+
+    local function StartJob(bag, slot, itemID, size, targets, window)
+        job = { bag = bag, slot = slot, itemID = itemID, size = size, targets = targets, window = window }
+        jobFrame:RegisterEvent("BAG_UPDATE")
+        jobFrame:RegisterEvent("ITEM_LOCK_CHANGED")
+        StepJob()
+    end
+
+    local function Clamp(n)
+        if n < 1 then return 1 end
+        if n > dialog._max then return dialog._max end
+        return n
+    end
+
+    local function Current()
+        return Clamp(dialog._eb:GetNumber())
+    end
+
+    local function SetValue(n)
+        n = Clamp(n)
+        dialog._eb:SetText(tostring(n))
+        dialog._eb:SetCursorPosition(#dialog._eb:GetText())
+    end
+
+    -- Re-checks the slot the dialog was opened on after every repaint: pooled
+    -- buttons get repurposed, and the count can change under us.
+    local function Validate()
+        if not dialog or not dialog:IsShown() then return end
+        local owner = dialog._owner
+        if not owner:IsVisible() or owner:GetParent():GetID() ~= dialog._bag or owner:GetID() ~= dialog._slot then
+            dialog:Hide(); return
+        end
+        local info = C_Container.GetContainerItemInfo(dialog._bag, dialog._slot)
+        if not info or info.itemID ~= dialog._itemID or not info.stackCount or info.stackCount < 2 then
+            dialog:Hide(); return
+        end
+        if info.stackCount ~= dialog._max then
+            dialog._max = info.stackCount
+            dialog._maxLbl:SetText("/ " .. info.stackCount)
+            SetValue(Current())
+        end
+    end
+
+    local function MakeButton(parent, w, h, label, PP)
+        local b = CreateFrame("Button", nil, parent)
+        b:SetSize(w, h)
+        local bg = b:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetColorTexture(0.15, 0.15, 0.15, 1)
+        if PP and PP.CreateBorder then PP.CreateBorder(b, 0.25, 0.25, 0.25, 1) end
+        local fs = b:CreateFontString(nil, "OVERLAY")
+        SetBagFont(fs, 12)
+        fs:SetPoint("CENTER", 0, 0)
+        fs:SetTextColor(1, 1, 1, 0.9)
+        fs:SetText(label)
+        b:SetScript("OnEnter", function() bg:SetColorTexture(0.2, 0.2, 0.2, 1) end)
+        b:SetScript("OnLeave", function() bg:SetColorTexture(0.15, 0.15, 0.15, 1) end)
+        return b
+    end
+
+    local function DoSplit(auto)
+        local d = dialog
+        local bag, slot, n = d._bag, d._slot, Current()
+        d:Hide()
+        local info = C_Container.GetContainerItemInfo(bag, slot)
+        if not info or info.isLocked or info.itemID ~= d._itemID or not info.stackCount or n >= info.stackCount then return end
+        if auto then
+            StartJob(bag, slot, info.itemID, n, d._targets, d._window)
+        else
+            ClearCursor()
+            C_Container.SplitContainerItem(bag, slot, n)
+        end
+    end
+
+    local function CreateDialog()
+        local PP = EUI and EUI.PP
+        local d = CreateFrame("Frame", "EUI_BagsStackSplitFrame", UIParent)
+        d:SetFrameStrata("DIALOG")
+        d:SetSize(206, 94)
+        d:SetClampedToScreen(true)
+        d:EnableMouse(true)
+        d:EnableMouseWheel(true)
+        d:Hide()
+        local bg = d:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
+        if PP and PP.CreateBorder then PP.CreateBorder(d, 0.2, 0.2, 0.2, 1) end
+
+        local title = d:CreateFontString(nil, "OVERLAY")
+        SetBagFont(title, 13)
+        title:SetPoint("TOPLEFT", d, "TOPLEFT", 10, -9)
+        title:SetTextColor(1, 1, 1, 0.9)
+        title:SetText(EllesmereUI.L("Split Stack"))
+
+        local close = CreateFrame("Button", nil, d)
+        close:SetSize(12, 12)
+        close:SetPoint("TOPRIGHT", d, "TOPRIGHT", -9, -9)
+        close.icon = close:CreateTexture(nil, "OVERLAY")
+        close.icon:SetAllPoints()
+        close.icon:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png")
+        close.icon:SetAlpha(0.7)
+        close:SetScript("OnEnter", function() close.icon:SetAlpha(0.9) end)
+        close:SetScript("OnLeave", function() close.icon:SetAlpha(0.7) end)
+        close:SetScript("OnClick", function() d:Hide() end)
+
+        local minus = MakeButton(d, 22, 22, "-", PP)
+        minus:SetPoint("TOPLEFT", d, "TOPLEFT", 10, -30)
+        minus:SetScript("OnClick", function() SetValue(Current() - 1) end)
+
+        local eb = CreateFrame("EditBox", nil, d)
+        eb:SetSize(56, 22)
+        eb:SetPoint("LEFT", minus, "RIGHT", 4, 0)
+        eb:SetAutoFocus(false)
+        eb:SetNumeric(true)
+        eb:SetMaxLetters(5)
+        eb:SetFont(GetFont(), 12, "")
+        eb:SetTextColor(1, 1, 1, 1)
+        eb:SetJustifyH("CENTER")
+        eb:SetTextInsets(4, 4, 0, 0)
+        local ebBg = eb:CreateTexture(nil, "BACKGROUND")
+        ebBg:SetAllPoints()
+        ebBg:SetColorTexture(0.1, 0.1, 0.1, 1)
+        if PP and PP.CreateBorder then PP.CreateBorder(eb, 0.15, 0.15, 0.15, 1) end
+        eb:SetScript("OnTextChanged", function(self, userInput)
+            if userInput and self:GetNumber() > d._max then SetValue(d._max) end
+        end)
+        eb:SetScript("OnEditFocusLost", function() SetValue(Current()) end)
+        eb:SetScript("OnEnterPressed", function() DoSplit(IsAltKeyDown()) end)
+        eb:SetScript("OnEscapePressed", function() d:Hide() end)
+        d._eb = eb
+
+        local plus = MakeButton(d, 22, 22, "+", PP)
+        plus:SetPoint("LEFT", eb, "RIGHT", 4, 0)
+        plus:SetScript("OnClick", function() SetValue(Current() + 1) end)
+
+        local maxLbl = d:CreateFontString(nil, "OVERLAY")
+        SetBagFont(maxLbl, 12)
+        maxLbl:SetPoint("LEFT", plus, "RIGHT", 8, 0)
+        maxLbl:SetTextColor(0.7, 0.7, 0.7, 1)
+        d._maxLbl = maxLbl
+
+        local split = MakeButton(d, 88, 24, EllesmereUI.L("Split"), PP)
+        split:SetPoint("BOTTOMLEFT", d, "BOTTOMLEFT", 10, 10)
+        split:SetScript("OnClick", function() DoSplit(false) end)
+
+        local auto = MakeButton(d, 88, 24, EllesmereUI.L("Auto Split"), PP)
+        auto:SetPoint("BOTTOMRIGHT", d, "BOTTOMRIGHT", -10, 10)
+        auto:SetScript("OnClick", function() DoSplit(true) end)
+        auto:SetScript("OnEnter", function()
+            if EUI.ShowWidgetTooltip then
+                EUI.ShowWidgetTooltip(auto, "Split this stack into empty slots repeatedly until only the chosen amount or less remains. Alt+Enter does the same.")
+            end
+        end)
+        auto:HookScript("OnLeave", function() if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end end)
+
+        d:SetScript("OnMouseWheel", function(_, delta) SetValue(Current() + (delta > 0 and 1 or -1)) end)
+        d:SetScript("OnHide", function() eb:ClearFocus() end)
+
+        hooksecurefunc(EUI_Bags, "RefreshInventory", Validate)
+        EUI_Bags:HookScript("OnHide", function() d:Hide() end)
+        if EUI_Bank then
+            hooksecurefunc(EUI_Bank, "RefreshBank", Validate)
+            EUI_Bank:HookScript("OnHide", function() d:Hide(); if job and job.window == EUI_Bank then StopJob() end end)
+        end
+        EllesmereUI.RegisterEscapeClose(d)
+        return d
+    end
+
+    -- Runs from the slot PostClick hooks, after Blizzard's OnModifiedClick has
+    -- opened StackSplitFrame on this button (its lock/count/cursor checks passed).
+    -- targets: bagIDs Auto Split may fill, in order; window: closing it aborts a job.
+    function EUI_Bags.ShowStackSplitter(owner, targets, window)
+        local ssf = StackSplitFrame
+        if not ssf:IsShown() or ssf.owner ~= owner then return end
+        local maxStack = ssf.maxStack
+        ssf:Hide()
+        local bag, slot = owner:GetParent():GetID(), owner:GetID()
+        local info = C_Container.GetContainerItemInfo(bag, slot)
+        if not info or not info.itemID then return end
+        dialog = dialog or CreateDialog()
+        StopJob()
+        dialog._owner, dialog._bag, dialog._slot, dialog._itemID = owner, bag, slot, info.itemID
+        dialog._targets, dialog._window = targets, window
+        dialog._max = maxStack
+        dialog._maxLbl:SetText("/ " .. maxStack)
+        SetValue(1)
+        dialog:ClearAllPoints()
+        dialog:SetPoint("BOTTOMLEFT", owner, "TOPLEFT", -4, 6)
+        dialog:Show()
+        dialog._eb:SetFocus()
+        dialog._eb:HighlightText()
+    end
+end
+
+-------------------------------------------------------------------------------
 --  Drag-to-drop: template handles pickup, we handle drop on mouse release
 -------------------------------------------------------------------------------
 local _itemDragFrame = CreateFrame("Frame")
@@ -2373,6 +2613,12 @@ local function GetOrCreateSlot(idx)
             if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
             EUI_Bags._splitHintTimer = nil
         end)
+    end)
+
+    btn:HookScript("PostClick", function(self)
+        if BP().bagStackSplitter ~= true then return end
+        local bag = self:GetParent():GetID()
+        EUI_Bags.ShowStackSplitter(self, bag == 5 and { 5, 0, 1, 2, 3, 4 } or { 0, 1, 2, 3, 4 }, EUI_Bags)
     end)
 
     -- Methods only: writing properties onto Blizzard template sub-objects taints
