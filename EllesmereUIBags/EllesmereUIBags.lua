@@ -2228,7 +2228,9 @@ do
     }
     local guildOps = {
         ownerBag = function() return GetCurrentGuildBankTab() end,
+        -- A tab that is no longer viewed reads as empty so a running job stops there.
         info = function(tab, slot)
+            if tab ~= GetCurrentGuildBankTab() then return nil end
             local texture, count, locked = GetGuildBankItemInfo(tab, slot)
             if not texture then return nil end
             local link = GetGuildBankItemLink(tab, slot)
