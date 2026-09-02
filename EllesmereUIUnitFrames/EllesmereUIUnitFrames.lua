@@ -9241,19 +9241,26 @@ local function ReloadFrames()
             -- the frame's strata. Lift to HIGH so it never hides behind other MEDIUM-
             -- strata frames, unless "Raise Cast Bar Strata (All)" is off, in which case
             -- it's explicitly left at the frame's strata.
+            local cbStrata = strata
             if frame.Castbar and (unitKey == "player" or IsKickCastbarUnit(unitKey)) then
                 local cbg = frame.Castbar:GetParent()
                 if cbg then
                     if profile.raiseCastbarStrata ~= false then
-                        cbg:SetFrameStrata("HIGH")
-                    else
-                        cbg:SetFrameStrata(strata)
+                        cbStrata = "HIGH"
                     end
+                    cbg:SetFrameStrata(cbStrata)
                 end
             end
-            -- SetFrameStrata re-stacks children; lift the raid marker holder back
-            -- above the text overlay so the marker is never hidden behind name/health text.
+            -- SetFrameStrata re-stacks children; lift the text overlay (name/hp text)
+            -- to match the cast bar's strata too, so a raised cast bar doesn't draw in
+            -- front of its own frame's name/health text where they overlap, then lift
+            -- the raid marker holder back above the text overlay so the marker is never
+            -- hidden behind name/health text or the cast bar.
+            if frame._textOverlay then
+                frame._textOverlay:SetFrameStrata(cbStrata)
+            end
             if frame._raidMarkerHolder and frame._textOverlay then
+                frame._raidMarkerHolder:SetFrameStrata(cbStrata)
                 frame._raidMarkerHolder:SetFrameLevel(frame._textOverlay:GetFrameLevel() + 5)
             end
         end
@@ -12263,19 +12270,26 @@ function InitializeFrames()
             -- the frame's strata. Lift to HIGH so it never hides behind other MEDIUM-
             -- strata frames, unless "Raise Cast Bar Strata (All)" is off, in which case
             -- it's explicitly left at the frame's strata.
+            local cbStrata = strata
             if frame.Castbar and (unitKey == "player" or IsKickCastbarUnit(unitKey)) then
                 local cbg = frame.Castbar:GetParent()
                 if cbg then
                     if db.profile.raiseCastbarStrata ~= false then
-                        cbg:SetFrameStrata("HIGH")
-                    else
-                        cbg:SetFrameStrata(strata)
+                        cbStrata = "HIGH"
                     end
+                    cbg:SetFrameStrata(cbStrata)
                 end
             end
-            -- SetFrameStrata re-stacks children; lift the raid marker holder back
-            -- above the text overlay so the marker is never hidden behind name/health text.
+            -- SetFrameStrata re-stacks children; lift the text overlay (name/hp text)
+            -- to match the cast bar's strata too, so a raised cast bar doesn't draw in
+            -- front of its own frame's name/health text where they overlap, then lift
+            -- the raid marker holder back above the text overlay so the marker is never
+            -- hidden behind name/health text or the cast bar.
+            if frame._textOverlay then
+                frame._textOverlay:SetFrameStrata(cbStrata)
+            end
             if frame._raidMarkerHolder and frame._textOverlay then
+                frame._raidMarkerHolder:SetFrameStrata(cbStrata)
                 frame._raidMarkerHolder:SetFrameLevel(frame._textOverlay:GetFrameLevel() + 5)
             end
         end
