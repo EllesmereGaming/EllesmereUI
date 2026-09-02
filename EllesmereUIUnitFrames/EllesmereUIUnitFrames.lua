@@ -14007,6 +14007,29 @@ function EllesmereUF:OnInitialize()
 
     ResolveFontPath()
 
+    -- Unit frame text is fonted only while frames are built, from a path this
+    -- module snapshots; every other module resolves per repaint and heals off
+    -- the shared cache, so a SharedMedia pack registering after the login build
+    -- leaves ONLY the unit frames on the fallback face for the session.
+    -- Deferred a tick so a registration inside the login dispatch lands after
+    -- this module's own setup, and coalesced because a pack registers its faces
+    -- one at a time. The cache drop is ours: the core listens for this event too
+    -- and CallbackHandler does not order its receivers.
+    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+    if LSM then
+        local fontCheckPending
+        LSM.RegisterCallback(EllesmereUF, "LibSharedMedia_Registered", function(_, mediatype)
+            if mediatype ~= "font" or fontCheckPending then return end
+            fontCheckPending = true
+            C_Timer.After(0, function()
+                fontCheckPending = false
+                EllesmereUI.InvalidateFontCache()
+                if EllesmereUI.GetFontPath("unitFrames") == GetSelectedFont() then return end
+                if ns.ReloadFrames then ns.ReloadFrames() end
+            end)
+        end)
+    end
+
     -- Append SharedMedia textures to runtime tables so SM texture keys resolve
     if EllesmereUI.AppendSharedMediaTextures then
         EllesmereUI.AppendSharedMediaTextures(
