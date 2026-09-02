@@ -70,8 +70,19 @@ specData.goals[sourceKey .. ":item:123"] = {
     minItemLevel = 311,
 }
 
-eventHandler(nil, "SPELL_CONFIRMATION_PROMPT", 42, 0, "Roll", 20, 3149, 1, 0, 99, 0, 10)
+-- The initial event can precede Blizzard's populated prompt table and carry no
+-- usable display item. The later UI-readiness retry must be able to complete
+-- the tracking context before the result arrives.
+eventHandler(nil, "SPELL_CONFIRMATION_PROMPT", 42, 0, "Roll", 20, 3149, 1, 0, nil, 0, 10)
+assert(ns.lastBonusRollTrackingDebug.state == "prompt_unknown_source",
+    "incomplete prompt unexpectedly fabricated a source")
+assert(ns.CaptureBonusRollPrompt(42, { spellID = 42, displayItemID = 99, duration = 20 }, source),
+    "ready prompt retry did not capture its source")
 assert(ns.lastBonusRollTrackingDebug.state == "prompt_captured", "prompt source was not captured")
+assert(ns.CaptureBonusRollPrompt(42, { spellID = 42, displayItemID = 99, duration = 20 }, source),
+    "duplicate readiness retry did not reuse its context")
+assert(ns.lastBonusRollTrackingDebug.state == "prompt_refreshed",
+    "duplicate readiness retry replaced rather than refreshed its context")
 
 -- Blizzard may time out/close the confirmation frame before it reports the
 -- item. The context must survive this event long enough to attribute it.

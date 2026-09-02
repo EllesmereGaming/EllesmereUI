@@ -134,6 +134,12 @@ function ns.GetBonusRollPromptDecision(spellID)
     local difficultyID = PromptDifficulty(source, prompt)
     if source.kind == "raid" and not difficultyID then debug.reason = "unknown_raid_difficulty"; return end
     debug.difficultyID = difficultyID
+    -- The core event may have fired before Blizzard populated the prompt table.
+    -- Once this retry has a source, hand it back to roll tracking so the result
+    -- is counted even when the initial SPELL_CONFIRMATION_PROMPT was incomplete.
+    if ns.CaptureBonusRollPrompt then
+        ns.CaptureBonusRollPrompt(spellID, prompt, source, difficultyID)
+    end
     local duration = prompt.duration
     if IsSecret(duration) then duration = nil end
     duration = tonumber(duration)

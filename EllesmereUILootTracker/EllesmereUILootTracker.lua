@@ -694,37 +694,42 @@ local function FindSpellConfirmationPrompt(spellID)
     end
 end
 
-local function OnSpellConfirmation(_, spellID, _, _, duration, currencyID, _, difficultyID,
-    displayItemID, itemContext, treasureContextLevel)
+local function CaptureBonusRollPrompt(spellID, prompt, resolvedSource, resolvedDifficultyID)
     if IsSecret(spellID) then return end
-
-    -- The table API is richer, but on some clients it is already empty by the
-    -- time our event handler runs. Preserve the direct event fields as a
-    -- fallback so BONUS_ROLL_RESULT can still be assigned to its source.
-    local prompt = FindSpellConfirmationPrompt(spellID) or {
-        spellID = spellID,
-        duration = duration,
-        currencyID = currencyID,
-        difficultyID = difficultyID,
-        displayItemID = displayItemID,
-        itemContext = itemContext,
-        treasureContextLevel = treasureContextLevel,
-    }
-    local source = ns.ResolveBonusRollPromptSource and ns.ResolveBonusRollPromptSource(prompt)
+    prompt = prompt or FindSpellConfirmationPrompt(spellID)
+    if not prompt then return false end
+    local source = resolvedSource
+        or (ns.ResolveBonusRollPromptSource and ns.ResolveBonusRollPromptSource(prompt))
         or (not IsSecret(prompt.displayItemID) and ns.GetSourceByChest(prompt.displayItemID))
     if not source then
         ns.lastBonusRollTrackingDebug = { time = GetTime(), state = "prompt_unknown_source", spellID = spellID }
-        return
+        return false
     end
 
-    difficultyID = source.kind == "raid" and SafeNumber(prompt.difficultyID) or nil
+    local difficultyID = source.kind == "raid" and SafeNumber(resolvedDifficultyID) or nil
+    difficultyID = difficultyID or (source.kind == "raid" and SafeNumber(prompt.difficultyID) or nil)
     if difficultyID and difficultyID <= 0 then difficultyID = nil end
     if source.kind == "raid" and not difficultyID and GetBonusRollEncounterJournalLinkDifficulty then
         difficultyID = SafeNumber(GetBonusRollEncounterJournalLinkDifficulty())
     end
     difficultyID = source.kind == "raid" and (difficultyID or ns.GetProfile().raidDifficulty or 16) or nil
     local sourceKey = ns.GetSourceKey(source, difficultyID)
+    -- The prompt UI retries while Blizzard is populating its table. Do not let
+    -- those retries replace a context whose first BONUS_ROLL_RESULT payload was
+    -- already counted; a later item payload still belongs to that same roll.
+    if pendingRoll and pendingRoll.spellID == spellID and pendingRoll.sourceKey == sourceKey then
+        pendingRoll.source = source
+        if pendingRoll.chestItemID == nil and not IsSecret(prompt.displayItemID) then
+            pendingRoll.chestItemID = prompt.displayItemID
+        end
+        ns.lastBonusRollTrackingDebug = {
+            time = GetTime(), state = "prompt_refreshed", spellID = spellID,
+            sourceKey = sourceKey, specID = pendingRoll.specID,
+        }
+        return true
+    end
     pendingRoll = {
+        spellID = spellID,
         source = source,
         sourceKey = sourceKey,
         currencyID = not IsSecret(prompt.currencyID) and (prompt.currencyID or prompt.currencyTypesID) or nil,
@@ -739,6 +744,25 @@ local function OnSpellConfirmation(_, spellID, _, _, duration, currencyID, _, di
         time = GetTime(), state = "prompt_captured", spellID = spellID,
         sourceKey = sourceKey, specID = pendingRoll.specID,
     }
+    return true
+end
+ns.CaptureBonusRollPrompt = CaptureBonusRollPrompt
+
+local function OnSpellConfirmation(_, spellID, _, _, duration, currencyID, _, difficultyID,
+    displayItemID, itemContext, treasureContextLevel)
+    -- The table API is richer, but it can still be empty when our event handler
+    -- runs. Preserve the direct fields now; BonusRoll.lua calls the same capture
+    -- function again when its prompt-readiness retry resolves the real source.
+    local prompt = FindSpellConfirmationPrompt(spellID) or {
+        spellID = spellID,
+        duration = duration,
+        currencyID = currencyID,
+        difficultyID = difficultyID,
+        displayItemID = displayItemID,
+        itemContext = itemContext,
+        treasureContextLevel = treasureContextLevel,
+    }
+    CaptureBonusRollPrompt(spellID, prompt)
 end
 
 local function ArchiveRolledGoal(sourceKey, itemID, rewardLink, specID)
