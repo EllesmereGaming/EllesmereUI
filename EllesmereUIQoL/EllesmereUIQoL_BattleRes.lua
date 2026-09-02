@@ -85,10 +85,10 @@ end
 
 local frame, iconTex, borderTex, durationFS, countFS, cooldownFrame, textFS
 
--- Options-page live preview: forces the icon on screen for as long as the
--- owning page is. No stand-in data needed here (unlike the Bloodlust
--- tracker) -- PollCharges already reads the player's real Battle Rez charges
--- everywhere, so forcing visibility alone is enough to preview the real state.
+-- Options-page live preview: forces the icon on screen for as long as the owning
+-- page is. Real charge data is used whenever the brez pool reports any; outside
+-- a raid or key it reports none, so PollCharges falls back to the stand-in below
+-- rather than previewing an icon with no count and no timer.
 local _previewOwner
 local function _previewActive()
     return _previewOwner ~= nil and _previewOwner:IsVisible() and true or false
@@ -161,6 +161,15 @@ local function _resolveBorderColor(p)
     return 0, 0, 0, 1
 end
 
+-- Snap a config-driven layout offset onto the pixel grid. The frame's own edges
+-- and center are snapped already (ApplyShape / ApplyPosition), so snapping the
+-- offset is what keeps the child anchored to it on the grid too.
+local function _snapOff(v)
+    local PP = EllesmereUI and EllesmereUI.PP
+    if PP and PP.Snap then return PP.Snap(v) end
+    return v
+end
+
 local function ApplyShape()
     if not frame then return end
     local p = P()
@@ -191,12 +200,12 @@ local function ApplyShape()
     SetBrezIconFont(durationFS, p.durationSize or 12)
     durationFS:ClearAllPoints()
     durationFS:SetPoint("CENTER", frame, "CENTER",
-        p.durationOffsetX or 0, p.durationOffsetY or 0)
+        _snapOff(p.durationOffsetX or 0), _snapOff(p.durationOffsetY or 0))
 
     SetBrezIconFont(countFS, p.countSize or 11)
     countFS:ClearAllPoints()
     countFS:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT",
-        -2 + (p.countOffsetX or 0), 2 + (p.countOffsetY or 0))
+        _snapOff(-2 + (p.countOffsetX or 0)), _snapOff(2 + (p.countOffsetY or 0)))
 
     -----------------------------------------------------------------------
     --  BASE CASE: "none" or "cropped" -- plain texture, no mask
@@ -283,8 +292,9 @@ local function ApplyShape()
     if borderPath and bs > 0 then
         borderTex:SetTexture(borderPath)
         borderTex:ClearAllPoints()
-        borderTex:SetPoint("TOPLEFT", frame, "TOPLEFT", -bs, bs)
-        borderTex:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", bs, -bs)
+        local bsp = _snapOff(bs)
+        borderTex:SetPoint("TOPLEFT", frame, "TOPLEFT", -bsp, bsp)
+        borderTex:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", bsp, -bsp)
         local r, g, b, a = _resolveBorderColor(p)
         borderTex:SetVertexColor(r, g, b, a)
         borderTex:Show()
@@ -463,11 +473,34 @@ local function _setDur(s)
     end
 end
 
+-- Options preview stand-in. The shared brez pool only reports charges inside a
+-- raid or key, and BREZ_SPELL_ID is Rebirth, so for most characters in most
+-- places GetSpellCharges returns nothing and the preview would be a bare icon --
+-- exactly the two texts the Count and Duration options tune. Same placeholder
+-- count ApplyText measures with, plus a looping countdown.
+local _previewExpiry = 0
+local function _showPreviewCharges()
+    if _previewExpiry <= GetTime() then
+        -- Once per cycle: re-setting the SAME values each poll is idempotent, but
+        -- re-setting new ones would restart the swipe animation twice a second.
+        _previewExpiry = GetTime() + 90
+        if cooldownFrame then cooldownFrame:SetCooldown(GetTime(), 90) end
+    end
+    local timeText = FormatTime(_previewExpiry - GetTime())
+    if IsTextMode() then
+        _setTextDisplay("2", timeText, false)
+        return
+    end
+    _setCount("2", false)
+    _setDur(timeText)
+end
+
 local function PollCharges()
     if not frame then return end
     local textMode = IsTextMode()
     local info = C_Spell and C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(BREZ_SPELL_ID)
     if not info or not info.maxCharges then
+        if _previewActive() then return _showPreviewCharges() end
         if textMode then
             _setTextDisplay("", "", false)
         else
@@ -513,6 +546,17 @@ local function UpdateVisibility()
     else
         if frame:IsShown() then frame:Hide() end
         if _ticker then _ticker:Cancel(); _ticker = nil end
+        -- Preview just ended: drop the stand-in swipe and texts so no later path
+        -- can surface them as if they were real charge data.
+        if _previewExpiry ~= 0 and not _previewActive() then
+            _previewExpiry = 0
+            if cooldownFrame then cooldownFrame:Clear() end
+            if IsTextMode() then
+                _setTextDisplay("", "", false)
+            else
+                _setCount("", false); _setDur("")
+            end
+        end
     end
 end
 _G._EUI_BattleRes_UpdateVisibility = UpdateVisibility
@@ -520,6 +564,7 @@ _G._EUI_BattleRes_UpdateVisibility = UpdateVisibility
 -- The options page hands us its frame on build; _previewActive() takes it from there.
 function _G._EUI_BattleRes_SetPreviewOwner(f)
     _previewOwner = f
+    _previewExpiry = 0  -- every visit starts a fresh stand-in countdown
     UpdateVisibility()
 end
 

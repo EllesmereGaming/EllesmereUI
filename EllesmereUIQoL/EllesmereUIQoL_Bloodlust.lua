@@ -138,7 +138,7 @@ local function RP_color()
 end
 
 local frame, iconTex, borderTex, durationFS, countFS, cooldownFrame
-local textOverlay, readyFS  -- shared text layer: every fontstring lives above the border/swipes
+local textOverlay, buffTextOverlay, readyFS  -- text layers (see CreateBloodlustFrame for the level stack)
 local buffOverlay, buffTex, buffCooldown, buffDurationFS  -- the 40s active-lust overlay (sits on top of the debuff icon)
 local _satedActive = false
 local _readyShown = false       -- ready label currently rendered (idempotence for the 0.5s poll)
@@ -160,6 +160,7 @@ local _buffZoneGuard = 0        -- suppress rising edges until this time (set on
 -- restrictions hide the real value in combat, this carries the countdown.
 local _satedExpiryGuess = 0
 local UpdateVisibility  -- forward declaration (referenced by PollSated below)
+local _ticker           -- 0.5s countdown ticker (PollSated cancels it directly, see there)
 local FormatTime        -- forward declaration (shared by the debuff text and the buff overlay)
 
 -------------------------------------------------------------------------------
@@ -175,6 +176,15 @@ local function _resolveBorderColor()
     local c = EP_borderColor()
     if c then return c.r or 0, c.g or 0, c.b or 0, c.a or 1 end
     return 0, 0, 0, 1
+end
+
+-- Snap a config-driven layout offset onto the pixel grid. The frame's own edges
+-- and center are snapped already (ApplyShape / ApplyPosition), so snapping the
+-- offset is what keeps the child anchored to it on the grid too.
+local function _snapOff(v)
+    local PP = EllesmereUI and EllesmereUI.PP
+    if PP and PP.Snap then return PP.Snap(v) end
+    return v
 end
 
 -- Configure the buff overlay (texture coords + optional shape mask) so it
@@ -193,7 +203,8 @@ local function _applyBuffShape()
     -- Match the debuff icon's duration text exactly (font, size, position).
     buffDurationFS:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, EP("durationSize") or 12, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     buffDurationFS:ClearAllPoints()
-    buffDurationFS:SetPoint("CENTER", frame, "CENTER", EP("durationOffsetX") or 0, EP("durationOffsetY") or 0)
+    buffDurationFS:SetPoint("CENTER", frame, "CENTER",
+        _snapOff(EP("durationOffsetX") or 0), _snapOff(EP("durationOffsetY") or 0))
 
     if shape == "none" or shape == "cropped" then
         if buffTex._mask then
@@ -260,12 +271,12 @@ local function ApplyShape()
     durationFS:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, EP("durationSize") or 12, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     durationFS:ClearAllPoints()
     durationFS:SetPoint("CENTER", frame, "CENTER",
-        EP("durationOffsetX") or 0, EP("durationOffsetY") or 0)
+        _snapOff(EP("durationOffsetX") or 0), _snapOff(EP("durationOffsetY") or 0))
 
     countFS:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, EP("countSize") or 11, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     countFS:ClearAllPoints()
     countFS:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT",
-        -2 + (EP("countOffsetX") or 0), 2 + (EP("countOffsetY") or 0))
+        _snapOff(-2 + (EP("countOffsetX") or 0)), _snapOff(2 + (EP("countOffsetY") or 0)))
 
     -- Ready label: same font family as the countdown it replaces, but its own
     -- size, colour and offset. Dropped back to hidden so the next poll re-renders
@@ -274,7 +285,7 @@ local function ApplyShape()
         readyFS:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, RP("readySize") or 12, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
         readyFS:ClearAllPoints()
         readyFS:SetPoint("CENTER", frame, "CENTER",
-            RP("readyOffsetX") or 0, RP("readyOffsetY") or 0)
+            _snapOff(RP("readyOffsetX") or 0), _snapOff(RP("readyOffsetY") or 0))
         readyFS:SetTextColor(RP_color())
         readyFS:Hide()
         _readyShown = false
@@ -313,11 +324,10 @@ local function ApplyShape()
             if not PP.GetBorders(frame) then PP.CreateBorder(frame, 0, 0, 0, 1, 1, "OVERLAY", 2) end
             -- PP.CreateBorder parents its container to frame+1, the SAME level
             -- cooldownFrame sits at -- a level TIE the border only won by creation
-            -- order. Pin it to the stack position documented at textOverlay's
-            -- creation (frame+7, one below the text layer) instead of an implicit
-            -- tie-break that a future overlay could flip.
+            -- order. Pin it to its slot in the stack documented at CreateBloodlustFrame
+            -- instead of an implicit tie-break a future overlay could flip.
             local brd = PP.GetBorders(frame)
-            if brd then brd:SetFrameLevel(frame:GetFrameLevel() + 7) end
+            if brd then brd:SetFrameLevel(frame:GetFrameLevel() + 2) end
             if bs > 0 then
                 local r, g, b, a = _resolveBorderColor()
                 PP.UpdateBorder(frame, bs, r, g, b, a)
@@ -361,10 +371,11 @@ local function ApplyShape()
 
     local borderPath = SHAPE_BORDERS[shape]
     if borderPath and bs > 0 then
+        local bsp = _snapOff(bs)
         borderTex:SetTexture(borderPath)
         borderTex:ClearAllPoints()
-        borderTex:SetPoint("TOPLEFT", frame, "TOPLEFT", -bs, bs)
-        borderTex:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", bs, -bs)
+        borderTex:SetPoint("TOPLEFT", frame, "TOPLEFT", -bsp, bsp)
+        borderTex:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", bsp, -bsp)
         local r, g, b, a = _resolveBorderColor()
         borderTex:SetVertexColor(r, g, b, a)
         borderTex:Show()
@@ -514,11 +525,16 @@ end
 -------------------------------------------------------------------------------
 -- Icon for "this character's lust". Falls back to the faction buff (Horde
 -- Bloodlust / Alliance Heroism) for everyone who cannot cast one themselves.
--- Cached, but only once a real spell was found: at login the spellbook can still
--- be empty, and caching the fallback then would stick for the session.
+-- The fallback is cached too: without that, every character who cannot cast a
+-- lust re-runs the whole probe on every call, including twice a second from the
+-- options preview. A cache taken before the spellbook is populated is corrected
+-- by the PLAYER_ENTERING_WORLD reset below (registered on PLAYER_LOGIN, so it
+-- catches the login zone-in), and a spec swap drops it as well -- those are the
+-- only points at which one of these spells can appear or disappear.
 local _lustIconCache
+local _lustIconResolved = false
 local function _lustBuffIcon()
-    if _lustIconCache then return _lustIconCache end
+    if _lustIconResolved then return _lustIconCache end
     for i = 1, #LUST_SPELLS do
         local sid = LUST_SPELLS[i]
         local known = (IsPlayerSpell and IsPlayerSpell(sid))
@@ -527,11 +543,14 @@ local function _lustBuffIcon()
             local tex = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(sid)
             if tex then
                 _lustIconCache = tex
+                _lustIconResolved = true
                 return tex
             end
         end
     end
-    return (UnitFactionGroup("player") == "Alliance") and 132313 or 136012
+    _lustIconCache = (UnitFactionGroup("player") == "Alliance") and 132313 or 136012
+    _lustIconResolved = true
+    return _lustIconCache
 end
 
 -- Countdown text for the overlay, deduped so we only SetText on a real change.
@@ -550,9 +569,14 @@ local _buffAccum = 0
 local function _buffOnUpdate(_, elapsed)
     local rem = _buffExpiry - GetTime()
     if rem <= 0 then
+        _buffExpiry = 0
         buffOverlay:SetScript("OnUpdate", nil)
         buffOverlay:Hide()
         _setBuffDur("")
+        -- The window is part of the visibility rule (ShouldShow keeps the icon up
+        -- for it even with "Show when Sated" off), so its end has to re-evaluate
+        -- rather than wait for the next unrelated event.
+        UpdateVisibility()
         return
     end
     _buffAccum = _buffAccum + (elapsed or 0)
@@ -649,16 +673,25 @@ local function ShouldShow()
     if not p or not p.enabled then return false end
     local v = p.visibility or "NEVER"
     if v == "NEVER" then return false end
-    -- Options preview: forced on screen while the page is up, skipping the instance
-    -- and M+/raid gates below -- the point is to configure it from anywhere.
-    if _previewActive() then return true end
     -- Show Sated / Show Ready are independent: which one gates visibility depends
-    -- on which state the icon is currently in.
+    -- on which state the icon is currently in. This gate sits ABOVE the preview
+    -- short-circuit on purpose, so both toggles show what they do while the
+    -- options page is open; the preview only replaces the content gates below it.
     if _satedActive then
-        if RP("showSated") == false then return false end
+        -- The 40s active-lust overlay is worth seeing even when the lockout
+        -- countdown itself is switched off, so only the remainder of the lockout
+        -- after that window is suppressed.
+        if RP("showSated") == false and _buffExpiry <= GetTime() then return false end
+    elseif _previewActive() then
+        -- No real lockout to key off, so either state is previewable: show as long
+        -- as the user has asked for one of them.
+        if not RP("showReady") and RP("showSated") == false then return false end
     elseif not RP("showReady") then
         return false
     end
+    -- Options preview: forced on screen while the page is up, skipping the instance
+    -- and M+/raid gates below -- the point is to configure it from anywhere.
+    if _previewActive() then return true end
 
     -- Hard gate: must be in a party or raid instance. Prevents any stuck state
     -- from showing the icon in town / open world.
@@ -688,11 +721,13 @@ end
 local function _showPreviewLockout()
     if not frame then return end
     _hideReadyState()
-    iconTex:SetTexture(_lustBuffIcon())
     if _previewExpiry <= GetTime() then
-        _previewExpiry = GetTime() + 600
         -- Once per cycle: re-setting the SAME values each poll is idempotent, but
         -- re-setting new ones would restart the swipe animation twice a second.
+        -- The texture goes here for the same reason -- nothing about it changes
+        -- between ticks.
+        _previewExpiry = GetTime() + 600
+        iconTex:SetTexture(_lustBuffIcon())
         if cooldownFrame then cooldownFrame:SetCooldown(GetTime(), 600) end
     end
     _setDur(FormatTime(_previewExpiry - GetTime()))
@@ -710,13 +745,19 @@ local function PollSated()
         if RP("showReady") then
             -- Render in place and RETURN: UpdateVisibility calls back into this
             -- function whenever the icon is shown, so re-entering it here would
-            -- recurse forever now that "not sated" can still mean "shown".
+            -- recurse forever now that "not sated" can still mean "shown". That is
+            -- also why the ticker is cancelled directly rather than by letting
+            -- UpdateVisibility do it: this branch is exactly the path taken when
+            -- the ticker (not a UNIT_AURA edge) is what spots the lockout ending,
+            -- and the ready state has nothing left to count down.
+            if _ticker then _ticker:Cancel(); _ticker = nil end
             _setDur("")
             _showReadyState()
             return
         end
-        if _previewActive() then
-            -- Same reasoning; the stand-in sets its own countdown text.
+        if _previewActive() and RP("showSated") ~= false then
+            -- Same reasoning; the stand-in sets its own countdown text. Gated on
+            -- showSated so switching it off in the options is visible right away.
             _showPreviewLockout()
             return
         end
@@ -743,7 +784,6 @@ local function PollSated()
     end
 end
 
-local _ticker
 function UpdateVisibility()
     if not frame then return end
     if ShouldShow() then
@@ -761,6 +801,13 @@ function UpdateVisibility()
     else
         if frame:IsShown() then frame:Hide() end
         if _ticker then _ticker:Cancel(); _ticker = nil end
+        -- Preview just ended: drop the stand-in swipe and countdown text so no
+        -- later path can surface them as if they were real lockout data.
+        if _previewExpiry ~= 0 and not _previewActive() then
+            _previewExpiry = 0
+            if cooldownFrame then cooldownFrame:Clear() end
+            _setDur("")
+        end
     end
 end
 _G._EUI_Bloodlust_UpdateVisibility = UpdateVisibility
@@ -822,9 +869,11 @@ local function _onEvent(_, event, _, updateInfo)
         end
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
         -- A spec swap can add or remove this character's lust spell. Drop the cached
-        -- icon and the ready-render latch so the next pass re-renders with the new one.
+        -- icon and tear the ready label down properly -- clearing only the latch
+        -- would leave the fontstring on screen with the old icon behind it.
+        _lustIconResolved = false
         _lustIconCache = nil
-        _readyShown = false
+        _hideReadyState()
     elseif event == "PLAYER_DEAD" then
         -- Buffs drop on death; hide the active-lust overlay even if 40s remain.
         _hideBuffOverlay()
@@ -842,6 +891,7 @@ local function _onEvent(_, event, _, updateInfo)
         or event == "WORLD_STATE_TIMER_STOP" then
         _state.inChallenge = false
     elseif event == "PLAYER_ENTERING_WORLD" then
+        _lustIconResolved = false
         _lustIconCache = nil
         _refreshSated()
         -- Baseline the edge tracker so a debuff already present on login/zone-in
@@ -901,13 +951,16 @@ local function CreateBloodlustFrame()
     cooldownFrame:SetHideCountdownNumbers(true)  -- we render our own duration text
     cooldownFrame:SetFrameLevel(frame:GetFrameLevel() + 1)
 
-    -- Shared text layer: EVERY fontstring below (duration/count/ready/buff-timer)
-    -- lives here, above the icon border ApplyShape pins to frame+7, so text reads
-    -- over the border and every cooldown swipe in every state -- not just
-    -- whichever one happened to be on screen when a given text was last tuned.
+    -- TWO text layers, one per state, so each state's text reads over its own
+    -- border and swipe while the opaque 40s buff icon still covers the debuff
+    -- text underneath it (a single shared layer puts the lockout countdown on
+    -- top of the buff icon and its 40s number). Level stack inside the frame:
+    --   +0 iconTex   +1 cooldownFrame   +2 PP border (pinned in ApplyShape)
+    --   +3 debuff text: duration / count / ready
+    --   +5 buffOverlay   +6 buffCooldown   +7 buff text
     textOverlay = CreateFrame("Frame", nil, frame)
     textOverlay:SetAllPoints(frame)
-    textOverlay:SetFrameLevel(frame:GetFrameLevel() + 8)
+    textOverlay:SetFrameLevel(frame:GetFrameLevel() + 3)
 
     durationFS = textOverlay:CreateFontString(nil, "OVERLAY")
     durationFS:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, 14, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
@@ -941,7 +994,13 @@ local function CreateBloodlustFrame()
     buffCooldown:SetHideCountdownNumbers(true)
     buffCooldown:SetFrameLevel(buffOverlay:GetFrameLevel() + 1)
 
-    buffDurationFS = textOverlay:CreateFontString(nil, "OVERLAY")
+    -- Parented to the overlay, not to frame: the 40s text hides with the window
+    -- it belongs to instead of relying on every hide path to blank the string.
+    buffTextOverlay = CreateFrame("Frame", nil, buffOverlay)
+    buffTextOverlay:SetAllPoints(buffOverlay)
+    buffTextOverlay:SetFrameLevel(buffCooldown:GetFrameLevel() + 1)
+
+    buffDurationFS = buffTextOverlay:CreateFontString(nil, "OVERLAY")
     buffDurationFS:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, 12, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     buffDurationFS:SetText("")
 
