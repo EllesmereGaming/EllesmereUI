@@ -142,6 +142,31 @@ local function Card(parent, y, height, isButton)
     return frame
 end
 
+local function EnsureWidgetFactory(parent, yOffset)
+    if EllesmereUI.Widgets then return true end
+
+    -- Since EllesmereUI 9.1 the widget factory lives in the LoadOnDemand
+    -- EllesmereUIOptions addon. Companion pages can still be selected directly
+    -- (minimap button, global search, cached sidebar entry), so make the page
+    -- builder self-sufficient instead of assuming the normal panel-open path
+    -- already loaded it.
+    if EllesmereUI.EnsureLoaded then EllesmereUI:EnsureLoaded() end
+    if EllesmereUI.Widgets then return true end
+
+    -- The options addon may be disabled or missing. Keep the companion page
+    -- usable enough to explain the problem rather than throwing on W:Widget().
+    local card = Card(parent, yOffset, 82)
+    local text = Font(card, 11, 0.82, 0.84, 0.88, 1)
+    text:SetPoint("TOPLEFT", card, "TOPLEFT", 14, -14)
+    text:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", -14, 14)
+    text:SetJustifyH("LEFT")
+    text:SetJustifyV("MIDDLE")
+    text:SetWordWrap(true)
+    text:SetText(L("EllesmereUI Options could not be loaded. Enable the EllesmereUI Options addon and reload the UI."))
+    parent:SetHeight(112)
+    return false, 112
+end
+
 local function StyledButton(parent, text, width, onClick)
     local button = CreateFrame("Button", nil, parent)
     button:SetSize(width or 110, 28)
@@ -1306,6 +1331,8 @@ local moduleConfig = {
     pages = { PAGE_OVERVIEW, PAGE_PLANNER, PAGE_DUNGEONS, PAGE_RAIDS, PAGE_SETTINGS },
     _euiCore = false,
     buildPage = function(pageName, parent, yOffset)
+        local ready, fallbackHeight = EnsureWidgetFactory(parent, yOffset)
+        if not ready then return fallbackHeight end
         if pageName == PAGE_OVERVIEW then return BuildOverview(parent, yOffset) end
         if pageName == PAGE_PLANNER then return BuildPlanner(parent, yOffset) end
         if pageName == PAGE_DUNGEONS then return BuildCatalogPage(parent, yOffset, "dungeon") end
