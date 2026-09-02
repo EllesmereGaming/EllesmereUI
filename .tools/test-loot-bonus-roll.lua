@@ -8,6 +8,7 @@ local eventHandler
 local styledButtons = {}
 local bonusRollStartHook
 local characterUIState = {}
+local capturedPrompt
 
 local function Noop() end
 local function Region()
@@ -79,6 +80,9 @@ local ns = {
     GetPool = function() return pool end,
     IsPoolItemKnocked = function(_, itemID) return pool.knocked[itemID] end,
     GetGoals = function() return goals end,
+    CaptureBonusRollPrompt = function(spellID, readyPrompt, readySource, difficultyID)
+        capturedPrompt = { spellID, readyPrompt, readySource, difficultyID }
+    end,
 }
 
 local chunk = assert(loadfile("EllesmereUILootTracker/EllesmereUILootTracker_BonusRoll.lua"))
@@ -88,6 +92,9 @@ assert(SLASH_EULTBONUSTEST1 == "/eulttestbonus" and type(SlashCmdList.EULTBONUST
 
 local mode = ns.GetBonusRollPromptDecision(42)
 assert(mode == "cancel", "empty Auto source should follow the configured prompt mode")
+assert(capturedPrompt and capturedPrompt[1] == 42 and capturedPrompt[2] == prompt
+    and capturedPrompt[3] == dungeon,
+    "ready prompt was not handed back to core roll tracking")
 eventHandler(nil, "SPELL_CONFIRMATION_PROMPT", 42)
 assert(cancelled == 42, "cancel mode must use Blizzard's cancellation API")
 eventHandler(nil, "SPELL_CONFIRMATION_TIMEOUT")
