@@ -712,7 +712,16 @@ function ECHAT.TabsSweepBlizzard()
             -- in lockdown; a refused heal retries on the next sweep.
             if InCombatLockdown() then pcall(gdm.Show, gdm) else gdm:Show() end
         end
-        if gdm:GetAlpha() ~= 0 then gdm:SetAlpha(0) end
+        -- GetAlpha can return a secret number mid-combat in a raid (same
+        -- class as the cursor-position guards elsewhere in this file); a
+        -- secret result can't be safely compared for the ~= 0 skip-optimization,
+        -- so just re-assert 0 unconditionally in that case.
+        local gdmAlpha = gdm:GetAlpha()
+        if issecretvalue and issecretvalue(gdmAlpha) then
+            gdm:SetAlpha(0)
+        elseif gdmAlpha ~= 0 then
+            gdm:SetAlpha(0)
+        end
         local ob = gdm.overflowButton
         if ob then
             if ob.SetIgnoreParentAlpha and not ob:IsIgnoringParentAlpha() then
