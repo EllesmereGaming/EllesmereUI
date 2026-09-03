@@ -250,6 +250,7 @@ local defaults = {
             powerPercentPowerColor = true,
             powerBgPowerColored = false,
             powerPercentTextPowerColor = false,
+            bossPacingEnabled = false,
             healthClassColored = true,
             customBgColor = { r = 0.067, g = 0.067, b = 0.067 },
             bgClassColored = false,
@@ -5657,6 +5658,95 @@ local function CreatePowerBar(frame, unit, settings)
     ns.UpdatePowerBorder(power, settings)
 
     return power
+end
+
+-------------------------------------------------------------------------------
+--  Player Power Bar: Boss Health Pacing Marker
+-------------------------------------------------------------------------------
+do
+    local _ufBossPacingFrame = nil
+
+    function ns.UpdatePlayerBossPacing()
+        local pf = frames and frames.player
+        local power = pf and pf.Power
+        local pCfg = db and db.profile and db.profile.player
+        if not pCfg or not pCfg.bossPacingEnabled or not power or not power:IsShown() then
+            if power and power._bossPacingBar then
+                power._bossPacingBar:Hide()
+            end
+            return
+        end
+
+        if not UnitExists("boss1") or UnitIsDead("boss1") then
+            if power._bossPacingBar then
+                power._bossPacingBar:Hide()
+            end
+            return
+        end
+
+        local bp = power._bossPacingBar
+        if not bp then
+            bp = CreateFrame("StatusBar", "EUF_PlayerBossPacingBar", power)
+            bp:SetAllPoints(power)
+            bp:SetFrameLevel(power:GetFrameLevel() + 6)
+            bp:SetStatusBarTexture("Interface\\BUTTONS\\WHITE8X8")
+            local tex = bp:GetStatusBarTexture()
+            if tex then
+                tex:SetColorTexture(0, 0, 0, 0)
+            end
+
+            local spark = bp:CreateTexture(nil, "OVERLAY", nil, 7)
+            spark:SetColorTexture(1, 0.25, 0.25, 0.95)
+            spark:SetSize(2, power:GetHeight() or 6)
+            spark:SetPoint("CENTER", bp:GetStatusBarTexture(), "RIGHT", 0, 0)
+            bp._spark = spark
+
+            power._bossPacingBar = bp
+        end
+
+        bp:SetReverseFill(power:GetReverseFill() and true or false)
+        bp:SetOrientation(power:GetOrientation() or "HORIZONTAL")
+        if bp._spark then
+            bp._spark:SetSize(2, power:GetHeight() or 6)
+            bp._spark:ClearAllPoints()
+            bp._spark:SetPoint("CENTER", bp:GetStatusBarTexture(), "RIGHT", 0, 0)
+        end
+
+        bp:SetMinMaxValues(0, UnitHealthMax("boss1"))
+        bp:SetValue(UnitHealth("boss1"))
+        bp:Show()
+    end
+
+    function ns.UpdatePlayerBossPacingEventRegistration()
+        local pCfg = db and db.profile and db.profile.player
+        local enabled = pCfg and (pCfg.bossPacingEnabled == true)
+        if enabled then
+            if not _ufBossPacingFrame then
+                _ufBossPacingFrame = CreateFrame("Frame")
+                _ufBossPacingFrame:SetScript("OnEvent", function(self, event, unit)
+                    if event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
+                        if unit == "boss1" then ns.UpdatePlayerBossPacing() end
+                    else
+                        ns.UpdatePlayerBossPacing()
+                    end
+                end)
+            end
+            _ufBossPacingFrame:RegisterUnitEvent("UNIT_HEALTH", "boss1")
+            _ufBossPacingFrame:RegisterUnitEvent("UNIT_MAXHEALTH", "boss1")
+            _ufBossPacingFrame:RegisterEvent("INSTANCE_ENCOUNTER_ENGAGE_UNIT")
+            _ufBossPacingFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+            _ufBossPacingFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+            ns.UpdatePlayerBossPacing()
+        else
+            if _ufBossPacingFrame then
+                _ufBossPacingFrame:UnregisterAllEvents()
+            end
+            local pf = frames and frames.player
+            if pf and pf.Power and pf.Power._bossPacingBar then
+                pf.Power._bossPacingBar:Hide()
+            end
+        end
+    end
 end
 
 local function CreatePortrait(frame, side, frameHeight, unit)
@@ -11076,6 +11166,8 @@ local function UnitFrame_OnEnter(self)
             end)
         end
     end
+
+    ns.UpdatePlayerBossPacingEventRegistration()
 end
 
 local function UnitFrame_OnLeave(self)
