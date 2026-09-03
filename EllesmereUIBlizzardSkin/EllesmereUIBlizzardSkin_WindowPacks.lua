@@ -3124,58 +3124,14 @@ local function Skin_Guild()
         GetFFD(ml).colRefreshHooked = true
         hooksecurefunc(ml, "RefreshListDisplay", WSkin.Debounce(SkinRosterColumns))
     end
-    -- Member-name list rides up 2px (one-shot, every anchor preserved).
-    local mlBox = ml and ml.ScrollBox
-    if mlBox and not GetFFD(mlBox).lifted then
-        local numPts = mlBox:GetNumPoints()
-        if numPts and numPts > 0 then
-            local pts, ok = {}, true
-            for i = 1, numPts do
-                local p, rel, rp, x, y = mlBox:GetPoint(i)
-                if not p then ok = false break end
-                pts[i] = { p, rel, rp, x or 0, (y or 0) + 2 }
-            end
-            if ok then
-                GetFFD(mlBox).lifted = true
-                mlBox:ClearAllPoints()
-                for i = 1, #pts do
-                    local t = pts[i]
-                    mlBox:SetPoint(t[1], t[2], t[3], t[4], t[5])
-                end
-            end
-        end
-    end
-
-
-    -- NEVER widen the roster: CommunitiesMemberListEntryMixin:SetExpanded sizes
-    -- every row from GetMemberList():GetWidth() inside its own secure roster
-    -- refresh, so an addon-written width is read back, taints the execution,
-    -- and blocks the protected actions that refresh triggers (SetNote /
-    -- SetGuildRankOrder / whisper -> ADDON_ACTION_FORBIDDEN). One-shot anchor
-    -- nudges Blizzard never reads back (list lift, scrollbar nudge) are fine.
-
-    -- Chat view's names-column scrollbar sits 5px right (one-shot, every
-    -- anchor preserved).
-    local mlSB = ml and ml.ScrollBar
-    if mlSB and not GetFFD(mlSB).nudged then
-        local numPts = mlSB:GetNumPoints()
-        if numPts and numPts > 0 then
-            local pts, ok = {}, true
-            for i = 1, numPts do
-                local p, rel, rp, x, y = mlSB:GetPoint(i)
-                if not p then ok = false break end
-                pts[i] = { p, rel, rp, (x or 0) + 5, y or 0 }
-            end
-            if ok then
-                GetFFD(mlSB).nudged = true
-                mlSB:ClearAllPoints()
-                for i = 1, #pts do
-                    local t = pts[i]
-                    mlSB:SetPoint(t[1], t[2], t[3], t[4], t[5])
-                end
-            end
-        end
-    end
+    -- NEVER re-anchor or resize the roster: CommunitiesMemberListEntryMixin
+    -- sizes every row from GetMemberList():GetWidth(), and the list view reads
+    -- ScrollBox:GetVisibleExtent() in the same pass that creates the row
+    -- buttons, so an addon-written width or anchor is read back and taints it.
+    -- Rows born in that pass stay tainted for the session: the protected
+    -- actions the refresh triggers are blocked (SetNote / SetGuildRankOrder /
+    -- whisper -> ADDON_ACTION_FORBIDDEN) and the row tooltip throws on the
+    -- secret member fields (C_CreatureInfo.GetRaceInfo(memberInfo.race)).
 
     local mm = f.MaximizeMinimizeFrame
     if mm then
@@ -12419,6 +12375,77 @@ WSkin.RegisterWindow({
         end
         Wire("ReadyCheckFrame", LP.SkinReadyCheck)
         Wire("ReadyCheckListenerFrame", LP.SkinReadyCheckList)
+    end,
+})
+
+-------------------------------------------------------------------------------
+--  BNet toast (BNToastFrame): a friend coming online or going offline, plus
+--  broadcasts and club invites. Alert-system driven like the loot toasts, but a
+--  SINGLETON rather than a pool instance, so it takes a plain window
+--  registration instead of their pool sweep. TAINT: clicking it opens a
+--  Battle.net whisper, whose target is a SECRET string, so nothing here writes a
+--  Lua field onto the frame.
+-------------------------------------------------------------------------------
+function LP.SkinBNetToast(f)
+    if not f or f:IsForbidden() then return end
+    local icon = f.IconTexture
+
+    -- The Blizzard art is a BACKDROP (BACKDROP_TOAST_12_12), and
+    -- BackdropTemplateMixin lays its pieces out as ordinary regions ON THE
+    -- FRAME via NineSliceUtil, so the shell fade reaches them. No SetBackdrop
+    -- call is needed, and none is made: that would re-enter Blizzard code.
+    -- No top bar, same as the loot toast -- there is no title row to sit on.
+    WSkin.Shell("bnettoast", f, { noTopBar = true })
+
+    -- The shell faded every region including the toast-type icon. Bring it
+    -- back and keep it out of later restrip passes. It is NOT squared:
+    -- IconTexture is a SetTexCoord crop out of one sheet, re-picked per toast
+    -- type, and WSkin.SquareIcon would overwrite those coordinates.
+    if icon then
+        icon:SetAlpha(1)
+        WSkin.Register(f, { [icon] = true })
+    end
+
+    -- Blizzard flair burst. SetAlpha(0) is not enough: the texture carries its
+    -- OWN alpha animation, which drives alpha every frame and wins over our
+    -- write (same shape as the loot toast art). Clear the texture instead.
+    local glow = f.glow
+    if glow then
+        if glow.SetAtlas then glow:SetAtlas("") end
+        if glow.SetTexture then glow:SetTexture("") end
+        glow:SetAlpha(0)
+    end
+
+    -- Font only, never color: ShowToast recolors these per toast type (account
+    -- name blue, status grey, some of it as an inline color code), and the
+    -- stock colors read correctly on the dark shell.
+    for _, k in ipairs({ "TopLine", "MiddleLine", "BottomLine", "DoubleLine" }) do
+        WSkin.Font(f[k])
+    end
+
+    if f.CloseButton then WSkin.CloseButton(f.CloseButton) end
+
+    -- Hover panel for a truncated broadcast. Inherits TooltipBackdropTemplate,
+    -- so the house panel replaces a real tooltip backdrop.
+    local tip = f.TooltipFrame
+    if tip then
+        WSkin.Panel(tip)
+        if tip.NineSlice then WSkin.FadeNineSlice(tip.NineSlice) end
+        if tip.Text then WSkin.Font(tip.Text) end
+    end
+end
+
+WSkin.RegisterWindow({
+    key = "bnettoast",
+    apply = function()
+        LP.WhenFrameExists("BNToastFrame", function(f)
+            local pass = WSkin.Debounce(function() LP.SkinBNetToast(f) end)
+            -- Blizzard repaints nothing on the frame between toasts, but the
+            -- pass is idempotent and one debounced call per toast is cheap
+            -- insurance against a future template change.
+            WSkin.HookShow(f, pass)
+            LP.SkinBNetToast(f)
+        end)
     end,
 })
 end

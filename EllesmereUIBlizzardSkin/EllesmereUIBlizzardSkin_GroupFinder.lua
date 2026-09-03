@@ -175,6 +175,9 @@ local function SkinAtlasPanel(frame)
         local BASE_U, BASE_V = BASE_R - BASE_L, BASE_B - BASE_T
         local function UpdateBgTexCoords()
             local fw, fh = frame:GetSize()
+            -- Secrecy test BEFORE the zero check: that check is itself a
+            -- comparison and throws on a secret size. Matches the engine.
+            if issecretvalue and (issecretvalue(fw) or issecretvalue(fh)) then return end
             if fw == 0 or fh == 0 then return end
             local fa = fw / fh
             if fa > BG_ASPECT then
@@ -187,9 +190,9 @@ local function SkinAtlasPanel(frame)
                 bg:SetTexCoord(BASE_L + trimU, BASE_R - trimU, BASE_T, BASE_B)
             end
         end
-        hooksecurefunc(frame, "SetSize", UpdateBgTexCoords)
-        hooksecurefunc(frame, "SetWidth", UpdateBgTexCoords)
-        hooksecurefunc(frame, "SetHeight", UpdateBgTexCoords)
+        -- One script hook instead of three setter hooks; also fires for
+        -- anchor-driven resizes (same shape as WSkin.Shell).
+        frame:HookScript("OnSizeChanged", UpdateBgTexCoords)
         UpdateBgTexCoords()
     end
     -- Window border: the shared atlas frame border every other reskinned

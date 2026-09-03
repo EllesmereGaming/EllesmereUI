@@ -2042,6 +2042,48 @@ local function SlotSpellID(slot)
     return nil
 end
 
+-- Display data the client only has once it has been ASKED for: GetSpellInfo
+-- answers nothing for a spell whose data has not been loaded this session
+-- (SpellDocumentation.lua:800-803), and the toy and item getters answer nothing
+-- until their item has. A palette paints once per open, so an entry drawn ahead
+-- of its data kept the question mark for the whole of that open, and the second
+-- open was right only because the first one's failed lookup had fetched it.
+-- Both ns-hosted for the reason ns.SetIconTexture is: this chunk is at Lua
+-- 5.1's 200-local cap.
+function ns.SlotDataReady(slot)
+    if not slot then return true end
+    local k = slot.kind
+
+    if k == "spell" or k == "dynamicrez" or k == "dynamicprofession" then
+        local id = SlotSpellID(slot)
+        return not id or C_Spell.IsSpellDataCached(id)
+    end
+
+    -- A toy's id IS its itemID, so the two kinds share the one cache. An item's
+    -- icon comes off the client's own table and is right either way; its NAME
+    -- is what the load is for, and the hub caption reads that.
+    if k == "item" or k == "toy" then
+        return type(slot.id) ~= "number" or C_Item.IsItemDataCachedByID(slot.id)
+    end
+
+    -- Every other kind reads a client-side table -- the mount journal, the pet
+    -- journal, the spec and profession lists -- and answers on the first ask.
+    return true
+end
+
+-- Ask for it, and say whether the answer is still outstanding. Separate from the
+-- test above because AdvancePendingIcons retests every frame and must not send
+-- the request again with each one.
+function ns.WarmSlot(slot)
+    if ns.SlotDataReady(slot) then return false end
+    if slot.kind == "item" or slot.kind == "toy" then
+        C_Item.RequestLoadItemDataByID(slot.id)
+    else
+        C_Spell.RequestLoadSpellData(SlotSpellID(slot))
+    end
+    return true
+end
+
 local function SlotCooldown(slot)
     if not slot then return nil end
     local k = slot.kind
@@ -5332,6 +5374,12 @@ function PaletteView:Layout(paletteIndex)
     if not liveCells then liveCells = {}; self._liveCells = liveCells end
     for k = #liveCells, 1, -1 do liveCells[k] = nil end
 
+    -- The cells still waiting on their display data, collected the same way and
+    -- kept the same way -- see ns.WarmSlot and AdvancePendingIcons.
+    local pending = self._pendingCells
+    if not pending then pending = {}; self._pendingCells = pending end
+    for k = #pending, 1, -1 do pending[k] = nil end
+
     for i = 1, shown do
         local w = self.widgets[i]
         -- Switching modes leaves the other mode's depth cues behind.
@@ -5359,6 +5407,7 @@ function PaletteView:Layout(paletteIndex)
         -- from. Once Hide Unusable Entries filters anything the two part
         -- company, and testing the stored array would collect the wrong cells.
         if HasLiveIcon(slots[i]) then liveCells[#liveCells + 1] = i end
+        if ns.WarmSlot(slots[i]) then pending[#pending + 1] = i end
         w:Show()
     end
 
@@ -5391,6 +5440,9 @@ function PaletteView:Layout(paletteIndex)
                           c.label ~= false, c.icon, showUsability)
                 if HasLiveIcon(c.slots[j]) then
                     liveCells[#liveCells + 1] = cells
+                end
+                if ns.WarmSlot(c.slots[j]) then
+                    pending[#pending + 1] = cells
                 end
                 -- Hidden until its own claim is opened -- see UpdateNestShown.
                 w:Hide()
@@ -5669,6 +5721,29 @@ function PaletteView:AdvanceLiveIcons()
             local icon = SlotDisplay(slot)
             ns.SetIconTexture(w.icon, icon)
             ApplyIconCrop(w.icon, icon)
+        end
+    end
+end
+
+-- The entries that were drawn before the client had their data. Repainted as
+-- each one's load lands, so a menu still on screen fills its own question marks
+-- in rather than carrying them to the end of the hold. Cells leave the list as
+-- they resolve, and an open with nothing outstanding -- which is every open once
+-- the session has the data -- costs one length test a frame.
+function PaletteView:AdvancePendingIcons()
+    local cells = self._pendingCells
+    if not cells or #cells == 0 then return end
+    for k = #cells, 1, -1 do
+        local index = cells[k]
+        local slot = self:CellSlot(index)
+        if ns.SlotDataReady(slot) then
+            local w = self.widgets[index]
+            if w then
+                local icon = SlotDisplay(slot)
+                ns.SetIconTexture(w.icon, icon)
+                ApplyIconCrop(w.icon, icon)
+            end
+            tremove(cells, k)
         end
     end
 end
@@ -6529,6 +6604,7 @@ local function OnPaletteUpdate(_, elapsed)
     -- Outside the steer skip for the same reason: a modifier goes down without
     -- the cursor moving, and that is the whole gesture this answers.
     liveView:AdvanceLiveIcons()
+    liveView:AdvancePendingIcons()
     -- Outside the steer skip: the connector line's grow-in and sweep both
     -- keep moving under a cursor that is holding still. Costs two table
     -- reads per frame when no line is up.
@@ -8718,6 +8794,10 @@ local function PushPalette(index)
     local slotsEff = UsableSlots(palette, p)
     for i = 1, MAX_SLOTS do
         PushCell(btn, i, slotsEff[i], p)
+        -- Ahead of the first open rather than at it: a load is a server round
+        -- trip, and this runs at login and on every spellbook or macro change,
+        -- so the palette has its icons long before anyone holds the key.
+        ns.WarmSlot(slotsEff[i])
     end
 
     -- The live palette draws exactly what the palette holds -- the trailing "+"
@@ -8860,6 +8940,9 @@ local function PushPalette(index)
         for j = 1, c.n do
             total = total + 1
             PushCell(btn, total, c.slots[j], p)
+            -- A palette reached only by being nested carries no keybind, so it
+            -- gets no push of its own and this is the only warm its entries see.
+            ns.WarmSlot(c.slots[j])
             -- A block layout's nests carry a BOX. Half-extents are what tells
             -- the snippet these cells are tested by containment rather than by
             -- nearness -- the palette's own entries have no half-extents, and

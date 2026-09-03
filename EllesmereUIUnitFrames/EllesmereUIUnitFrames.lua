@@ -222,6 +222,8 @@ local defaults = {
         showDecimalBoss2 = true,
         -- With decimals on, "Only Show for % Health" keeps the decimal on PERCENT (77.3%) but leaves VALUES whole (240k); same inline cog.
         showDecimalPercentOnly = false,
+        -- With decimals on, "Hide Trailing Zeros" drops a zero decimal from the PERCENT (100.0% -> 100%, 99.5% unchanged); same inline cog.
+        showDecimalTrimZeros = false,
         -- Player Threat (Non-Tank): additive "Shadow" border on the PLAYER frame while
         -- pulling/holding aggro, instanced content only; global, default off (zero cost
         -- until enabled). Colors mirror the nameplate non-tank threat defaults (has/near aggro).
@@ -2031,7 +2033,11 @@ do
     -- .smoothing, then the shared secret-safe color chain.
     local function PaintHealth(frame, unit, event)
         local element = frame.Health
-        if not element or not unit or not UnitExists(unit) then return end
+        if not element or not unit then return end
+        -- A UNIT_HEALTH delivery for this token proves the unit exists (the
+        -- tracker only routes real unit events under that name); the identity
+        -- and forced paths still pay the probe.
+        if event ~= "UNIT_HEALTH" and not UnitExists(unit) then return end
         if not ns.Engine.ElementOn(frame, "Health") then return end
         -- Bar bounds ride the max-health/identity events (Blizzard's own
         -- contract); a pure UNIT_HEALTH value tick pushes only the value.
@@ -2167,9 +2173,10 @@ EllesmereUI.IsSmartPowerPercent = EUI_IsSmartPowerPercent
 -- Show Decimal on Text (global): AbbreviateNumbers config emitting one decimal per
 -- magnitude band (240500 -> "240.5k", 2405000 -> "2.4m"). AbbreviateNumbers runs in
 -- Blizzard's secure context, so a secret value plus this config stays secret-safe
--- (like the no-config call on secret health/power). Tags read two _G flags:
+-- (like the no-config call on secret health/power). Tags read these _G flags:
 --   _G._EUI_AbbrevDecimalCfg = this table when on, nil when off
 --   _G._EUI_TextDecimals     = true/false, selects "%.1f" vs "%d" for percents
+--   _G._EUI_PctTrim          = { curve, cfg } trimming the percent, nil when off
 ns._decimalAbbrevConfig = { breakpointData = {
     { breakpoint = 1e9, abbreviation = "b", significandDivisor = 1e8, fractionDivisor = 10, abbreviationIsGlobal = false },
     { breakpoint = 1e6, abbreviation = "m", significandDivisor = 1e5, fractionDivisor = 10, abbreviationIsGlobal = false },
@@ -2182,6 +2189,25 @@ ns._decimalAbbrevConfig2 = { breakpointData = {
     { breakpoint = 1e6, abbreviation = "m", significandDivisor = 1e4, fractionDivisor = 100, abbreviationIsGlobal = false },
     { breakpoint = 1e3, abbreviation = "k", significandDivisor = 1e1, fractionDivisor = 100, abbreviationIsGlobal = false },
 } }
+-- "Hide Trailing Zeros": AbbreviateNumbers drops a zero fraction ("100") but keeps a
+-- real one ("99.5"), which "%.1f" cannot do and a SECRET percent forbids doing with
+-- Lua string ops. It TRUNCATES though, so a fractional significandDivisor reads a tenth
+-- low (0.1 renders 33.3 as "33.2"); the curve scales instead, handing over whole
+-- tenths/hundredths, +0.5 so truncation lands where "%.1f" would have rounded.
+local function MakePctTrim(scale, fractionDivisor)
+    local curve = C_CurveUtil.CreateCurve()
+    curve:SetType(Enum.LuaCurveType.Linear)
+    curve:AddPoint(0.0, 0.5)
+    curve:AddPoint(1.0, scale + 0.5)
+    return {
+        curve = curve,
+        cfg = { breakpointData = {
+            { breakpoint = 0, abbreviation = "", significandDivisor = 1, fractionDivisor = fractionDivisor, abbreviationIsGlobal = false },
+        } },
+    }
+end
+ns._pctTrim  = MakePctTrim(1000, 10)
+ns._pctTrim2 = MakePctTrim(10000, 100)
 function ns.ApplyTextDecimalGlobals()
     if db and db.profile and db.profile.showDecimalOnText then
         _G._EUI_TextDecimals = true
@@ -2191,21 +2217,28 @@ function ns.ApplyTextDecimalGlobals()
         local percentOnly = db.profile.showDecimalPercentOnly
         _G._EUI_AbbrevDecimalCfg = ns._decimalAbbrevConfig
         if percentOnly then _G._EUI_AbbrevDecimalCfg = nil end
+        -- Percent-only, so "Only Show for % Health" never withholds these.
+        local trimZeros = db.profile.showDecimalTrimZeros
+        _G._EUI_PctTrim = trimZeros and ns._pctTrim or nil
         -- Boss frames get a second decimal place. Tags use the 1-decimal path
         -- for non-boss units when the flag is set, and ignore it when nil.
         if db.profile.showDecimalBoss2 ~= false then
             _G._EUI_BossExtraDecimal = true
             _G._EUI_AbbrevDecimalCfg2 = ns._decimalAbbrevConfig2
             if percentOnly then _G._EUI_AbbrevDecimalCfg2 = nil end
+            _G._EUI_PctTrim2 = trimZeros and ns._pctTrim2 or nil
         else
             _G._EUI_BossExtraDecimal = false
             _G._EUI_AbbrevDecimalCfg2 = nil
+            _G._EUI_PctTrim2 = nil
         end
     else
         _G._EUI_TextDecimals = false
         _G._EUI_AbbrevDecimalCfg = nil
         _G._EUI_BossExtraDecimal = false
         _G._EUI_AbbrevDecimalCfg2 = nil
+        _G._EUI_PctTrim = nil
+        _G._EUI_PctTrim2 = nil
     end
 end
 
@@ -2230,16 +2263,29 @@ do
 end
 
 do
+  -- Health percent under the decimal options. "Hide Trailing Zeros" reads the percent
+  -- through a scaling curve so AbbreviateNumbers can drop the zero "%.1f" would pad.
+  local function PercentHP(unit)
+    local boss = _G._EUI_BossExtraDecimal and string.sub(unit, 1, 4) == "boss"
+    local trim = _G._EUI_PctTrim
+    if boss then trim = _G._EUI_PctTrim2 end
+    if trim then
+      local scaled = UnitHealthPercent(unit, true, trim.curve)
+      if not scaled then return "0" end
+      return AbbreviateNumbers(scaled, trim.cfg)
+    end
+    local pct = UnitHealthPercent(unit, true, CurveConstants.ScaleTo100)
+    if not pct then return "0" end
+    if boss then return string_format("%.2f", pct) end
+    return string_format(_G._EUI_TextDecimals and "%.1f" or "%d", pct)
+  end
+
+  TagFns.perhp = PercentHP
   TagFns.perhpnosign = function(unit)
     if not unit or not UnitExists(unit) then return "" end
     if not UnitIsConnected(unit) then return "OFFLINE" end
     if UnitIsDeadOrGhost(unit) then return "DEAD" end
-    local pct = UnitHealthPercent(unit, true, CurveConstants.ScaleTo100)
-    if not pct then return "0" end
-    if _G._EUI_BossExtraDecimal and string.sub(unit, 1, 4) == "boss" then
-      return string_format("%.2f", pct)
-    end
-    return string_format(_G._EUI_TextDecimals and "%.1f" or "%d", pct)
+    return PercentHP(unit)
   end
 end
 
@@ -2616,6 +2662,7 @@ do
 
     -- Function-registered tag methods are shared directly: one body, no drift.
     P.curhpshort  = TagFns.curhpshort
+    P.perhp       = TagFns.perhp
     P.perhpnosign = TagFns.perhpnosign
     P.level       = TagFns.level
     P.name        = TagFns.name
@@ -2625,11 +2672,6 @@ do
     -- String-compiled tag methods get real equivalents (same logic, same
     -- _EUI_ globals; the compiled strings stay registered only while the tag
     -- engine still runs).
-    P.perhp = function(u)
-        local fmt = _G._EUI_TextDecimals and "%.1f" or "%d"
-        if _G._EUI_BossExtraDecimal and string.sub(u, 1, 4) == "boss" then fmt = "%.2f" end
-        return sf(fmt, UnitHealthPercent(u, true, CurveConstants.ScaleTo100))
-    end
     P.perpp = function(u)
         local pType = _G._EUI_ResolvedPowerType[u] or UnitPowerType(u)
         return sf("%d", UnitPowerPercent(u, pType, true, CurveConstants.ScaleTo100))
@@ -2837,13 +2879,36 @@ end
 -- Per-unit frame source resolver. Returns "eui" (spawn skinned frame, default),
 -- "blizzard" (don't spawn, leave Blizzard's default in place), or "hidden" (don't
 -- spawn, actively disable Blizzard's too). "hidden" has highest precedence so a
--- legacy disabled frame (enabledFrames[unit]==false: Visibility "never" or an
--- "Enable X Frame" toggle off) keeps meaning "no frame at all".
+-- disabled frame (enabledFrames[unit]==false, the "Enable X Frame" toggles) keeps
+-- meaning "no frame at all". Visibility "never" is NOT one of these: it hides our
+-- frame at runtime and the frame stays built, so a Spec Override can lift it again
+-- without a /reload.
+
+--- The Visibility mode actually in force for a settings table. An applied override
+--- REPLACES the whole shared setting, "never" included, so every reader that acts on
+--- "never" alone resolves it here instead of off the stored scalar. On ns for the
+--- 200-locals cap.
+function ns.VisEffective(s)
+    if not s then return nil end
+    return (EllesmereUI.VisOverrideValue and EllesmereUI.VisOverrideValue(s)) or s.barVisibility
+end
+
+--- True when the unit has no EllesmereUI frame at all -- the enabledFrames flag, which
+--- only the "Enable X Frame" toggles write now that Visibility no longer touches it.
+--- On ns for the 200-locals cap.
+function ns.VisUnitDisabled(profile, unitKey)
+    local ef = profile and profile.enabledFrames
+    return (ef and ef[unitKey] == false) or false
+end
+
 function ns.GetUnitFrameSource(unit)
     if not db or not db.profile then return "eui" end
-    if db.profile.enabledFrames[unit] == false then return "hidden" end
+    if ns.VisUnitDisabled(db.profile, unit) then return "hidden" end
     local fs = db.profile.frameSource and db.profile.frameSource[unit]
     if fs == "blizzard" then
+        -- Visibility "never" over Blizzard's frame: we spawn nothing of our own to
+        -- hide, so suppressing Blizzard's is the only way to honor it.
+        if ns.VisEffective(db.profile[unit]) == "never" then return "hidden" end
         -- ToT/focus-target have no standalone Blizzard frame (native one is a child
         -- of TargetFrame/FocusFrame, lives only while that parent does), so
         -- "blizzard" is honored for them ONLY when the parent is itself on
@@ -2858,38 +2923,16 @@ function ns.GetUnitFrameSource(unit)
     return "eui"
 end
 
--- Write a unit's frame source, keeping the legacy enabledFrames flag and per-unit
--- "never" visibility in sync so existing readers stay correct. Only takes full effect
--- after a UI reload (oUF permanently disables the Blizzard frame at spawn, and secure
--- frames can't be created/torn down in combat) -- callers should also prompt a reload.
+-- Write a unit's frame source, keeping the legacy enabledFrames flag in sync so
+-- existing readers stay correct (and so the cog is the way back for a frame an old
+-- profile left disabled). Only takes full effect after a UI reload -- the spawn
+-- permanently disables the Blizzard frame, and secure frames can't be created or
+-- torn down in combat -- so callers should also prompt a reload.
 function ns.SetUnitFrameSource(unit, source)
     if not db or not db.profile then return end
     db.profile.frameSource = db.profile.frameSource or {}
     db.profile.frameSource[unit] = source
     db.profile.enabledFrames[unit] = (source ~= "hidden")
-    -- Keep the player/target/focus "Visibility" dropdown ("never") consistent
-    -- with the hidden state; other units have no barVisibility key.
-    local s = db.profile[unit]
-    if s and s.barVisibility ~= nil then
-        if source == "hidden" then
-            -- Stash the visible mode so hidden->visible keeps an "in_combat"/"mouseover"
-            -- preference. Multi-selection sets stash the same way and MUST also clear,
-            -- or they stay authoritative over the forced "never" and the frame keeps showing.
-            if type(s.visibilityModes) == "table" and next(s.visibilityModes) then
-                s._preHiddenVisibilityModes = s.visibilityModes
-            end
-            s.visibilityModes = nil
-            if s.barVisibility ~= "never" then
-                s._preHiddenBarVisibility = s.barVisibility
-            end
-            s.barVisibility = "never"
-        elseif s.barVisibility == "never" then
-            s.barVisibility = s._preHiddenBarVisibility or "always"
-            s._preHiddenBarVisibility = nil
-            s.visibilityModes = s._preHiddenVisibilityModes
-            s._preHiddenVisibilityModes = nil
-        end
-    end
 end
 
 -- Cast-bar icon "part of the bar" resolver. True = icon counts inside the cast bar's
@@ -3020,13 +3063,18 @@ local function LayoutCastbarIcon(castbar, inWidth, iconH, onRight, offX, offY, i
 end
 
 -- Donor settings table for mini frames (focus > target > player); source of
--- inherited border, texture and font settings.
-local function GetMiniDonorSettings()
+-- inherited border, texture and font settings. A frame that is disabled, or that
+-- Visibility keeps off screen entirely, is not a donor -- before Visibility and
+-- enabledFrames were split, "never" cleared that flag and fell out here for free.
+function ns.GetMiniDonorSettings()
     local ef = db.profile.enabledFrames
-    if ef.focus ~= false and db.profile.focus then return db.profile.focus end
-    if ef.target ~= false and db.profile.target then return db.profile.target end
+    local focus = db.profile.focus
+    if ef.focus ~= false and focus and ns.VisEffective(focus) ~= "never" then return focus end
+    local target = db.profile.target
+    if ef.target ~= false and target and ns.VisEffective(target) ~= "never" then return target end
     return db.profile.player
 end
+local GetMiniDonorSettings = ns.GetMiniDonorSettings
 
 -- Boss "Simple Debuff Display" mode: "none"|"left"|"right". Tolerates legacy booleans
 -- (true/nil="left", false="none") so existing/imported profiles read correctly with no
@@ -5050,12 +5098,16 @@ local function CreateAbsorbBar(frame, unit, settings)
             local hpW, hpH = hp:GetWidth(), hp:GetHeight()
             -- Identical-state short-circuit (RF's memo, ported): chatter
             -- events with unchanged values skip the whole paint below.
-            -- Identity/settings/belt paints bypass the skip; any secret input
+            -- Identity/settings paints bypass the skip; any secret input
             -- fails open to painting and poisons the memo for the next plain
-            -- pass (exactly the RF contract).
+            -- pass (exactly the RF contract). The 0.5s belt honors the memo
+            -- like RF's does: it exists for the no-event timer expiry, and
+            -- that edge reads a CHANGED amount (memo miss) -- the arm/disarm
+            -- derivation and the paint stamp above already ran, so a belt
+            -- pass over unchanged plain values has nothing left to move.
             if isSecD and (isSecD(absorbAmt) or isSecD(maxHealth) or isSecD(haAmtD)) then
                 ab._mAbs = nil
-            elseif event ~= "ForceUpdate" and event ~= "Resettle" and event ~= "EUI_AbsorbBelt"
+            elseif event ~= "ForceUpdate" and event ~= "Resettle"
                and ab._mAbs == absorbAmt and ab._mHeal == haAmtD
                and ab._mMax == maxHealth and ab._mW == hpW and ab._mH == hpH then
                 return
@@ -8512,6 +8564,9 @@ ns._cpWatchTick = EllesmereUI.Tick.NewAnimTicker(ns._cpCastWatcher, function()
 end, 0.1)
 
 local function DestroyCustomClassPower()
+    -- Park the engine-slot warrior charge overlay: its proxy is parented to
+    -- the container being torn down; the next _WCUF_Sync re-adopts it.
+    if _G._EWC then _G._EWC.Gate("uf") end
     ns._cpTickFn = nil
     ns._cpDriverTick.Stop()
     ns._cpWatchFn = nil
@@ -8573,10 +8628,9 @@ local function CreateCustomClassPower(playerFrame, style)
             maxPower = (mMax and mMax > 0) and mMax or customMax
         elseif powerType == "TIP_OF_THE_SPEAR" then
             maxPower = customMax
-        elseif powerType == "WHIRLWIND_STACKS" then
-            maxPower = customMax
-        elseif powerType == "SWEEPING_STRIKES" then
-            maxPower = customMax
+        elseif powerType == "WHIRLWIND_STACKS" or powerType == "SWEEPING_STRIKES" then
+            -- Talent-aware cap from the engine-slot module (Broad Strokes).
+            maxPower = (_G._EWC and _G._EWC.MaxApps(powerType)) or customMax
         elseif powerType == "ICICLES" then
             maxPower = customMax or 5
         elseif powerType == "SOUL_FRAGMENTS_DEVOURER" then
@@ -8792,10 +8846,12 @@ local function CreateCustomClassPower(playerFrame, style)
                 cur, max = EllesmereUI.GetMaelstromWeapon()
             elseif powerType == "TIP_OF_THE_SPEAR" and EllesmereUI and EllesmereUI.GetTipOfTheSpear then
                 cur, max = EllesmereUI.GetTipOfTheSpear()
-            elseif powerType == "WHIRLWIND_STACKS" and EllesmereUI and EllesmereUI.GetWhirlwindStacks then
-                cur, max = EllesmereUI.GetWhirlwindStacks()
-            elseif powerType == "SWEEPING_STRIKES" and EllesmereUI and EllesmereUI.GetSweepingStrikes then
-                cur, max = EllesmereUI.GetSweepingStrikes()
+            elseif powerType == "WHIRLWIND_STACKS" or powerType == "SWEEPING_STRIKES" then
+                -- Engine slot owns the display (EllesmereUI_WarriorCharges):
+                -- the true count fills the overlay bar C-side; legacy pips
+                -- stay hidden (empty row until the deferred build lands).
+                for i = 1, #pips do if pips[i] then pips[i]:Hide() end end
+                return
             elseif powerType == "ICICLES" then
                 -- Frost Mage Icicles: stack count from the Icicles aura (205473).
                 local count = 0
@@ -8844,10 +8900,12 @@ local function CreateCustomClassPower(playerFrame, style)
                 pips[i]:Show()
             end
             shownPipCount = max
-            -- Re-stretch pips if in "above" position
-            if container._repositionForWidth then
-                local fw = db and db.profile and db.profile.player and db.profile.player.frameWidth or 181
-                container._repositionForWidth(fw)
+            -- Only "above" stretches the row across the health bar (see
+            -- PositionClassPowerBar); every other position keeps the natural pip
+            -- width laid out just above.
+            if isModern and (db.profile.player.classPowerPosition or "top") == "above"
+               and container._repositionForWidth then
+                container._repositionForWidth(db.profile.player.frameWidth or 181)
             end
         end
 
@@ -8902,10 +8960,12 @@ local function CreateCustomClassPower(playerFrame, style)
         -- needs. Icicles and Maelstrom Weapon are aura-driven; everything else polls
         -- via OnUpdate (either Lua API changes mid-combat, or no reliable event exists).
         local auraDriven    = (powerType == "MAELSTROM_WEAPON" or powerType == "ICICLES")
-        local needsOnUpdate = not auraDriven
+        -- Warrior charge buffs are engine-driven end to end (the overlay owns
+        -- the row: EllesmereUI_WarriorCharges): no poll, no cast events.
+        local engineDriven  = (powerType == "WHIRLWIND_STACKS" or powerType == "SWEEPING_STRIKES")
+        local needsOnUpdate = not auraDriven and not engineDriven
         local needsAura     = auraDriven
-        local needsCasts    = (powerType == "TIP_OF_THE_SPEAR" or powerType == "WHIRLWIND_STACKS"
-                               or powerType == "SWEEPING_STRIKES")
+        local needsCasts    = (powerType == "TIP_OF_THE_SPEAR")
 
         if needsOnUpdate then
             -- 10 Hz poll on the shared anim ticker (see ns._cpDriverTick):
@@ -8931,10 +8991,6 @@ local function CreateCustomClassPower(playerFrame, style)
             eventFrame:RegisterEvent("PLAYER_DEAD")
             eventFrame:RegisterEvent("PLAYER_ALIVE")
         end
-        if powerType == "WHIRLWIND_STACKS" or powerType == "SWEEPING_STRIKES" then
-            eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-        end
-
         eventFrame:SetScript("OnEvent", function(_, event, ...)
             if event == "UNIT_SPELLCAST_SUCCEEDED" then
                 if not _G._ERB_AceDB and EllesmereUI then
@@ -8943,33 +8999,12 @@ local function CreateCustomClassPower(playerFrame, style)
                         if EllesmereUI.HandleTipOfTheSpear then
                             EllesmereUI.HandleTipOfTheSpear(event, unit, castGUID, spellID)
                         end
-                        if EllesmereUI.HandleWhirlwindStacks then
-                            EllesmereUI.HandleWhirlwindStacks(event, unit, castGUID, spellID)
-                        end
-                        if EllesmereUI.HandleSweepingStrikes then
-                            EllesmereUI.HandleSweepingStrikes(event, unit, castGUID, spellID)
-                        end
                     end
                 end
             elseif event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" then
                 if not _G._ERB_AceDB and EllesmereUI then
                     if EllesmereUI.HandleTipOfTheSpear then
                         EllesmereUI.HandleTipOfTheSpear(event)
-                    end
-                    if EllesmereUI.HandleWhirlwindStacks then
-                        EllesmereUI.HandleWhirlwindStacks(event)
-                    end
-                    if EllesmereUI.HandleSweepingStrikes then
-                        EllesmereUI.HandleSweepingStrikes(event)
-                    end
-                end
-            elseif event == "PLAYER_REGEN_ENABLED" then
-                if not _G._ERB_AceDB and EllesmereUI then
-                    if EllesmereUI.HandleWhirlwindStacks then
-                        EllesmereUI.HandleWhirlwindStacks(event)
-                    end
-                    if EllesmereUI.HandleSweepingStrikes then
-                        EllesmereUI.HandleSweepingStrikes(event)
                     end
                 end
             end
@@ -9021,12 +9056,22 @@ local function CreateCustomClassPower(playerFrame, style)
     container._pipH = pipH
     container._gap = gap
     container._pad = pad
+    -- Stash for the engine-slot warrior charge overlay (ns._WCUF_Sync below):
+    -- power identity, style gate and the resolved look, so the sync adapter
+    -- never re-derives them.
+    container._powerType = powerType
+    container._style = style
+    container._cpR, container._cpG, container._cpB = cr, cg, cb
+    container._emptyCol = emptyCol
+    container._sepCol = bgCol
 
     -- Reposition pips to fill a given width (for "above" position)
     -- Uses Snap() to round all positions to physical pixel boundaries
     -- so gaps between pips are guaranteed identical.
     container._repositionForWidth = function(targetW)
-        local n = #pips
+        -- shownPipCount, not #pips: the table is a high-water mark, so a shrunk
+        -- max would divide the width by the old pip count and leave a gap.
+        local n = shownPipCount
         if n <= 0 then return end
         local efs = container:GetEffectiveScale()
         if efs <= 0 then efs = 1 end
@@ -9049,6 +9094,48 @@ local function CreateCustomClassPower(playerFrame, style)
     end
 
     return container
+end
+
+-- Warrior charge buffs: hand the engine-slot module (ResourceBars) the built
+-- class-power row so the true server count fills it C-side (see
+-- EUI_ResourceBars_WarriorCharges.lua). Guarded on _G._EWC: with ResourceBars
+-- disabled the simulator path stays in charge untouched. The circles style
+-- keeps the legacy pips too -- a continuous engine fill cannot render per-pip
+-- circle sprites. Called at the class-power call sites AFTER
+-- PositionClassPowerBar, so "above" stretching has already settled the width.
+ns._WCUF_Sync = function(container)
+    local ewc = _G._EWC
+    if not (ewc and container) then return end
+    local powerType = container._powerType
+    if (powerType ~= "WHIRLWIND_STACKS" and powerType ~= "SWEEPING_STRIKES")
+       or container._style == "circles" then
+        ewc.Gate("uf")
+        return
+    end
+    local position = db.profile.player.classPowerPosition or "top"
+    local stretched = (container._style == "modern" and position == "above")
+        and container:GetWidth() or nil
+    ewc.Sync("uf", container, powerType, {
+        texPath = "Interface\\Buttons\\WHITE8x8",
+        r = container._cpR, g = container._cpG, b = container._cpB, a = 1,
+        ori = "HORIZONTAL",
+        sep = {
+            r = container._sepCol and container._sepCol.r or 0.082,
+            g = container._sepCol and container._sepCol.g or 0.082,
+            b = container._sepCol and container._sepCol.b or 0.082,
+            a = container._sepCol and container._sepCol.a or 1,
+            w = container._gap or 2,
+            cellW = container._pipSize,
+            gap = container._gap,
+            pad = container._pad,
+            stretch = stretched,
+            empty = container._emptyCol,
+            emptyInset = (container._pad or 0) / 2,
+        },
+    })
+    -- After arming: stash the live color for the queued build's bake and the
+    -- out-of-restriction live-recolor path (opts colors are the belt).
+    ewc.Recolor("uf", powerType, container._cpR or 1, container._cpG or 1, container._cpB or 1, 1)
 end
 
 -- Custom enemy reaction colors: override the shared reaction/tapped color table from
@@ -10864,8 +10951,11 @@ local function ApplyBlizzCastbarState()
     if EllesmereUI and EllesmereUI.SetPlayerCastBarSuppressed and db and db.profile and db.profile.player then
         -- Only suppress Blizzard's player cast bar when EUI actually provides a
         -- replacement. If the player is on the Blizzard (or hidden) frame source,
-        -- there is no EUI cast bar, so leave Blizzard's alone.
+        -- there is no EUI cast bar, so leave Blizzard's alone. Visibility "never"
+        -- counts as no replacement too: our cast bar is built now but hides with the
+        -- frame, and taking Blizzard's away would leave no player cast bar at all.
         local suppress = (db.profile.player.showPlayerCastbar
+            and ns.VisEffective(db.profile.player) ~= "never"
             and ns.GetUnitFrameSource("player") == "eui") or false
         EllesmereUI.SetPlayerCastBarSuppressed("UnitFrames", suppress)
     end
@@ -10884,19 +10974,74 @@ function ns.ResolveFrameAlpha(s, inCombat)
     return 1
 end
 
+-- The alpha a unit frame RESTS at while the cursor is not on it, plus whether that resting
+-- state is a hover gate (an alpha 0 a hover may legitimately lift). Single source of truth:
+-- the visibility pass and both hover handlers derive from it, so a mouse leave cannot land
+-- on a different verdict than the pass would. On ns for the 200-locals cap. hiddenByOpts
+-- leads because it did in the pass too (it re-forced 0 at the end of the chain); returning
+-- hoverGated false with it stops a hover from revealing what an option lane has hidden.
+function ns.ResolveVisResting(s, frame, ext, hiddenByOpts, inCombat)
+    if hiddenByOpts then return 0, false end
+    local shownAlpha = ns.ResolveFrameAlpha(s, inCombat)
+    if ext == "mouseover" then return 0, true end
+    if ext ~= nil then
+        -- Driver registered: it owns hiding, so alpha only carries the ooc fade.
+        if frame and frame._euiVisDriver then return shownAlpha, false end
+        return ext and shownAlpha or 0, false
+    end
+    local vis = s.barVisibility or "always"
+    -- Never rides the alpha too, not just the Show/Hide bucket: that bucket is
+    -- lockdown-gated, so a Never picked in combat would otherwise leave the frame at
+    -- full alpha until PLAYER_REGEN_ENABLED. An override reaches the ext block above.
+    if vis == "never" then return 0, false end
+    if vis == "in_combat" then return inCombat and shownAlpha or 0, false end
+    if vis == "out_of_combat" then return (not inCombat) and shownAlpha or 0, false end
+    if vis == "mouseover" then
+        -- Legacy single mouseover: a configured "Hide if" override that is NOT currently
+        -- triggering counts as a positive show, so the frame does not require hover
+        -- (fixes "dismount in combat keeps frame hidden" / "hide if no target inverted").
+        local hasAnyHideOpt = EllesmereUI and EllesmereUI.VisHasAnyOption
+                           and EllesmereUI.VisHasAnyOption(s)
+        if hasAnyHideOpt then return shownAlpha, false end
+        return 0, true
+    end
+    return shownAlpha, false
+end
+
+-- Same verdict for callers outside the visibility pass (the hover handlers): derives the
+-- two inputs the pass would have handed over. State is left nil so the shared engine fills
+-- it from its own combat/group tracking.
+function ns.ResolveVisRestingLive(s, frame)
+    local hiddenByOpts = EllesmereUI and EllesmereUI.CheckVisibilityOptions
+                      and EllesmereUI.CheckVisibilityOptions(s)
+    local ext = EllesmereUI.EvalVisibilityExtended
+        and EllesmereUI.EvalVisibilityExtended(s, "barVisibility", nil, EllesmereUI.VIS_CAPS_DEFAULT)
+    return ns.ResolveVisResting(s, frame, ext, hiddenByOpts, InCombatLockdown())
+end
+
+--- Is the hover mechanism wired for this frame at all? The cheap static prefilter both
+--- handlers use, kept static on purpose (a live verdict here would write alpha on every
+--- mouse leave of every frame). An applied Visibility override answers it too: it holds
+--- the hover state itself, and without this the frame would rest at alpha 0 with no
+--- handler willing to reveal it again.
+function ns.VisMouseoverWired(s)
+    if not s then return false end
+    if (s.barVisibility or "always") == "mouseover" then return true end
+    return (EllesmereUI.VisOverrideValue and EllesmereUI.VisOverrideValue(s)) == "mouseover"
+end
+
 local function UnitFrame_OnEnter(self)
     local unit = self._euiUnit
     if not unit then return end
     local unitKey = unit:match("^boss%d$") and "boss" or unit
     local s = db and db.profile and db.profile[unitKey]
-    if s and (s.barVisibility or "always") == "mouseover" then
-        -- Hover-gated sets only reveal while their conditions pass; a
-        -- legacy single "mouseover" reveals unconditionally as before.
-        local eligible = true
-        if EllesmereUI.VisWantsMouseover then
-            eligible = EllesmereUI.VisWantsMouseover(s, "barVisibility", nil, EllesmereUI.VIS_CAPS_DEFAULT)
-        end
-        if eligible then
+    if ns.VisMouseoverWired(s) then
+        -- Reveal only what is actually hover-gated right now. Under Any the frame may
+        -- already be shown on another passing disjunct, in which case there is nothing to
+        -- reveal and OnLeave must not undo anything either -- both handlers read the same
+        -- resting verdict so they cannot disagree.
+        local _, hoverGated = ns.ResolveVisRestingLive(s, self)
+        if hoverGated then
             local a = ns.ResolveFrameAlpha(s, InCombatLockdown())
             ;(self._visWrap or self):SetAlpha(a)
             -- 3D models don't inherit parent alpha: reveal the portrait too
@@ -10938,27 +11083,11 @@ local function UnitFrame_OnLeave(self)
     if not unit then return end
     local unitKey = unit:match("^boss%d$") and "boss" or unit
     local s = db and db.profile and db.profile[unitKey]
-    if s and (s.barVisibility or "always") == "mouseover" then
-        local vmActive = EllesmereUI.GetActiveVisibilityModes
-            and EllesmereUI.GetActiveVisibilityModes(s, "barVisibility")
-        local leaveAlpha
-        if vmActive then
-            -- Hover-gated set: hidden again on leave; the visibility pass
-            -- re-evaluates the conditions on the next event.
-            leaveAlpha = 0
-        else
-            -- Mirror UpdateFrameVisibility's mouseover logic: when a positive
-            -- "Hide if" override is configured and currently not triggering,
-            -- keep the frame shown on mouse leave instead of re-hiding it.
-            local hiddenByOpts = EllesmereUI and EllesmereUI.CheckVisibilityOptions
-                                 and EllesmereUI.CheckVisibilityOptions(s)
-            -- Shared walk over every option lane: a hand-written subset here left a frame
-            -- fading out on mouse leave whenever it used a lane the list had not caught up to.
-            local hasAnyHideOpt = EllesmereUI and EllesmereUI.VisHasAnyOption
-                               and EllesmereUI.VisHasAnyOption(s)
-            local keepShown = (not hiddenByOpts) and hasAnyHideOpt
-            leaveAlpha = keepShown and ns.ResolveFrameAlpha(s, InCombatLockdown()) or 0
-        end
+    if ns.VisMouseoverWired(s) then
+        -- Return to the resting alpha the visibility pass would paint, never a hardcoded
+        -- 0: under Any a passing disjunct keeps the frame visible with no hover involved,
+        -- and hiding it here would leave it wrong until the next visibility event fires.
+        local leaveAlpha = ns.ResolveVisRestingLive(s, self)
         ;(self._visWrap or self):SetAlpha(leaveAlpha)
         -- 3D models don't inherit parent alpha: hide/dim the portrait too
         local bd3d = self.Portrait and self.Portrait.backdrop and self.Portrait.backdrop._3d
@@ -11411,8 +11540,11 @@ function InitializeFrames()
     end
 
     -- Hook Blizzard class power bar so form/spec changes can't steal it back. Hooks
-    -- SetParent to re-assert our parent, Show/Hide to keep it visible. Only active
-    -- while classPowerStyle == "blizzard".
+    -- SetParent to re-assert our parent, Show/Hide to keep it visible, and
+    -- ClearAllPoints to catch anchors getting stripped without a reparent (seen
+    -- during in-engine cutscenes/UI transitions -- parent and IsShown() stay
+    -- correct, but GetNumPoints() drops to 0 and the frame renders nowhere).
+    -- Only active while classPowerStyle == "blizzard".
     local _blizzCPHooked = false
     local _blizzCPActive = false  -- true while we own the bar
 
@@ -11420,7 +11552,7 @@ function InitializeFrames()
         if _blizzCPHooked then return end
         _blizzCPHooked = true
         local _cpSetParentGuard = false
-        -- Both hooks defer their re-assert work: they can fire inside Blizzard's
+        -- All hooks defer their re-assert work: they can fire inside Blizzard's
         -- secure Edit Mode layout pass (same taint mechanism as the DisableBlizzard
         -- override above), and wait for the manager to close before re-asserting.
         local _cpReassertQueued = false
@@ -11434,7 +11566,7 @@ function InitializeFrames()
                 return
             end
             local wanted = _cpExpectedParent or frames.player or UIParent
-            if self:GetParent() ~= wanted then
+            if self:GetParent() ~= wanted or (self:GetNumPoints() or 0) == 0 then
                 _cpSetParentGuard = true
                 PositionClassPowerBar(self)
                 -- Blizzard may have re-stolen during PositionClassPowerBar.
@@ -11457,6 +11589,15 @@ function InitializeFrames()
         end)
         hooksecurefunc(cpFrame, "Hide", function(self)
             if not _blizzCPActive or _cpReassertQueued then return end
+            _cpReassertQueued = true
+            C_Timer.After(0, function() ReassertClassPower(self) end)
+        end)
+        -- Re-assert anchors when something strips them without a reparent (the
+        -- cutscene case above). Guarded by _cpSetParentGuard the same way as
+        -- SetParent so our own PositionClassPowerBar's internal ClearAllPoints
+        -- doesn't recurse back into itself.
+        hooksecurefunc(cpFrame, "ClearAllPoints", function(self)
+            if not _blizzCPActive or _cpSetParentGuard or _cpReassertQueued then return end
             _cpReassertQueued = true
             C_Timer.After(0, function() ReassertClassPower(self) end)
         end)
@@ -11486,6 +11627,7 @@ function InitializeFrames()
                 frames._customClassPower = custom
                 frames._classPowerBar = custom
                 PositionClassPowerBar(custom)
+                if ns._WCUF_Sync then ns._WCUF_Sync(custom) end
             else
                 -- Spec has no class resource: reset frame sizing
                 ResizeFrameForClassPower(0)
@@ -11560,6 +11702,7 @@ function InitializeFrames()
                 frames._customClassPower = custom
                 frames._classPowerBar = custom
                 PositionClassPowerBar(custom)
+                if ns._WCUF_Sync then ns._WCUF_Sync(custom) end
             else
                 -- Spec has no class resource: reset frame sizing
                 ResizeFrameForClassPower(0)
@@ -12273,7 +12416,6 @@ function InitializeFrames()
         -- (SetAlpha) are not restricted and must run on combat transitions.
         -- Show/Hide and SetAttribute ARE restricted; those are guarded below.
         local isLocked = InCombatLockdown()
-        local enabled2 = db.profile.enabledFrames
         local inRaid = IsInRaid()
         local inParty = not inRaid and IsInGroup()
         local solo = not inRaid and not inParty
@@ -12282,7 +12424,9 @@ function InitializeFrames()
         for _, unitKey in ipairs({"player", "target", "focus"}) do
             local s = db.profile[unitKey]
             local frame = frames[unitKey]
-            if frame and enabled2[unitKey] ~= false and s then
+            -- Visibility "never" no longer clears enabledFrames, so a frame hidden that
+            -- way stays on this path and is hidden below, reversibly.
+            if frame and not ns.VisUnitDisabled(db.profile, unitKey) and s then
                 local hiddenByOpts = EllesmereUI and EllesmereUI.CheckVisibilityOptions and EllesmereUI.CheckVisibilityOptions(s)
                 local vis = s.barVisibility or "always"
 
@@ -12309,10 +12453,37 @@ function InitializeFrames()
                     or vis == "in_combat" or vis == "out_of_combat") then
                     drvSet = { [vis] = true }
                 end
+                -- Tail built once and reused by the mini frame below (both compilers only
+                -- PREPEND their prefix).
+                local visTail
+                -- An applied Visibility override replaces the whole setting, so the tail
+                -- is a constant and the shared selection never reaches the driver.
+                local visOv = EllesmereUI.VisOverrideValue and EllesmereUI.VisOverrideValue(s)
+                if visOv then
+                    visTail = (visOv == "never") and "hide" or "show"
+                elseif s.visibilityMatch == "any" and EllesmereUI.BuildAnyMatchTail then
+                    local tail, _, liveAxes = EllesmereUI.BuildAnyMatchTail(s, "barVisibility", drvSet)
+                    -- Gated on liveAxes: with no soft-target edge here, target/enemy axes
+                    -- resolve in Lua, and a driver compiled from those alone would be a
+                    -- frozen constant. Zero live axes keeps the frame on the live ext/alpha path.
+                    if liveAxes > 0 then visTail = tail end
+                elseif drvSet and EllesmereUI.BuildVisibilityDriverString then
+                    visTail = EllesmereUI.BuildVisibilityDriverString("", drvSet)
+                end
+                -- Off the override, never the stored scalar: an override REPLACES the
+                -- shared setting, so a profile-level "never" under an override of Always
+                -- must not pin anything, and an override of "never" must pin even though
+                -- the stored scalar says otherwise.
+                local visNever = (visOv or vis) == "never"
                 local wantDriver
-                if drvSet and EllesmereUI.BuildVisibilityDriverString then
-                    wantDriver = EllesmereUI.BuildVisibilityDriverString(
-                        "[@" .. unitKey .. ",noexists] hide; ", drvSet)
+                if visNever then
+                    -- Never is terminal, so it pins the secure driver instead of
+                    -- riding the Show/Hide bucket below: that bucket is lockdown-
+                    -- gated, and acquiring a target in combat would otherwise let
+                    -- the unit watch show an alpha-0 click blocker until regen.
+                    wantDriver = "hide"
+                elseif visTail then
+                    wantDriver = "[@" .. unitKey .. ",noexists] hide; " .. visTail
                 end
                 if frame._euiVisDriver ~= wantDriver and not isLocked then
                     if wantDriver then
@@ -12325,13 +12496,6 @@ function InitializeFrames()
                     frame._euiVisDriver = wantDriver
                 end
 
-                -- Whole-frame out-of-combat fade: the alpha to use whenever the frame is
-                -- "shown" below. 1 unless "Fade Out of Combat" is on and we're out of
-                -- combat, in which case the chosen oocAlpha. Uses the event-tracked
-                -- _ufInCombat (authoritative on regen transitions, which lead
-                -- InCombatLockdown()) so the fade flips instantly.
-                local shownAlpha = ns.ResolveFrameAlpha(s, _ufInCombat)
-
                 -- Combat-sensitive and mouseover modes use SetAlpha to show/hide
                 -- (not a restricted API); the frame stays technically shown so it can
                 -- transition instantly, alpha controls visibility. For the player frame
@@ -12339,54 +12503,11 @@ function InitializeFrames()
                 -- the inner frame's alpha (oUF updates, secure templates) can fight us --
                 -- alpha inherits down the parent chain so wrapper alpha 0 always wins.
                 local alphaTarget = frame._visWrap or frame
-                local bodyAlpha
-                if ext == "mouseover" then
-                    -- Hover-gated set with passing conditions: hidden until
-                    -- hovered (the hover handlers reveal it).
-                    bodyAlpha = 0
-                elseif ext ~= nil then
-                    if frame._euiVisDriver then
-                        -- The driver owns hiding; alpha only carries the
-                        -- ooc fade (hide-options still force 0 below).
-                        bodyAlpha = shownAlpha
-                    else
-                        -- Driver not registered yet (selection changed in
-                        -- combat): alpha covers until the regen pass.
-                        bodyAlpha = (not hiddenByOpts and ext) and shownAlpha or 0
-                    end
-                elseif vis == "in_combat" then
-                    bodyAlpha = (not hiddenByOpts and _ufInCombat) and shownAlpha or 0
-                elseif vis == "out_of_combat" then
-                    bodyAlpha = (not hiddenByOpts and not _ufInCombat) and shownAlpha or 0
-                elseif vis == "mouseover" then
-                    -- Mouseover: hidden by default; hover toggles alpha. But when the user
-                    -- has configured any positive "Hide if" override (no target, no enemy,
-                    -- mounted, etc.) and it's NOT currently triggering, treat the frame as
-                    -- a positive-show so it doesn't require hover to see (fixes "dismount
-                    -- in combat keeps frame hidden" / "hide if no target inverted").
-                    local hasAnyHideOpt = EllesmereUI and EllesmereUI.VisHasAnyOption
-                                       and EllesmereUI.VisHasAnyOption(s)
-                    if hiddenByOpts then
-                        bodyAlpha = 0
-                    elseif hasAnyHideOpt then
-                        bodyAlpha = shownAlpha
-                    else
-                        bodyAlpha = 0
-                    end
-                else
-                    -- Non-combat modes: restore the resting alpha (full, or the
-                    -- out-of-combat fade); Show/Hide controls visibility below.
-                    bodyAlpha = shownAlpha
-                end
-
-                -- Alpha-only hide for the "visHide*" overrides (mounted, no target,
-                -- housing, etc). Force alpha 0 now so the frame still looks hidden, but
-                -- leave the secure Show/Hide state alone below -- otherwise a dismount
-                -- landing inside a combat lockdown would leave the frame permanently
-                -- hidden (Show/SetAttribute are restricted in combat).
-                if hiddenByOpts then
-                    bodyAlpha = 0
-                end
+                -- Shared with both hover handlers. Forces 0 for the visHide* overrides too,
+                -- so the frame looks hidden while the secure bucket below stays untouched:
+                -- a dismount inside a lockdown would otherwise hide it permanently.
+                -- _ufInCombat leads InCombatLockdown() on regen, so the ooc fade is instant.
+                local bodyAlpha = ns.ResolveVisResting(s, frame, ext, hiddenByOpts, _ufInCombat)
                 alphaTarget:SetAlpha(bodyAlpha)
 
                 -- 3D PlayerModel frames don't inherit parent alpha, so the model must
@@ -12399,18 +12520,35 @@ function InitializeFrames()
                     bd3d:SetAlpha(bodyAlpha)
                 end
 
+                -- A class resource bar unlocked from the frame is parented to UIParent
+                -- and so survives its owner being hidden. Only Never takes it along:
+                -- that used to leave the player frame unspawned and the bar with it,
+                -- and the other hiding modes have always kept their own bar visible.
+                -- Written only when it moves: this pass runs on every target change,
+                -- and for the "blizzard" style the bar is Blizzard's own frame.
+                if unitKey == "player" and frames._classPowerBar then
+                    local cpWant = visNever and 0 or 1
+                    if frames._classPowerBar:GetAlpha() ~= cpWant then
+                        frames._classPowerBar:SetAlpha(cpWant)
+                    end
+                end
+
                 -- Show/Hide and SetAttribute are restricted during lockdown.
                 -- When a condition driver is registered it owns Show/Hide
                 -- entirely -- a manual toggle would de-sync it until its
                 -- next re-evaluation -- so this whole bucket steps aside.
                 if not isLocked and not frame._euiVisDriver then
                     local shouldShow
-                    if ext ~= nil then
+                    if visNever then
+                        -- Ahead of the engine verdict: Never is exclusive, but under
+                        -- a leftover Any match the engine evaluates the scalar and
+                        -- answers false rather than nil, which would keep the frame
+                        -- secure-Shown at alpha 0 and still eating clicks.
+                        shouldShow = false
+                    elseif ext ~= nil then
                         -- Engine-owned: frame stays secure-Shown; the alpha
                         -- bucket above drives visibility.
                         shouldShow = true
-                    elseif vis == "never" then
-                        shouldShow = false
                     elseif vis == "in_combat" or vis == "out_of_combat" or vis == "mouseover" then
                         -- Frame is kept shown; alpha (above) drives visibility.
                         shouldShow = true
@@ -12488,9 +12626,13 @@ function InitializeFrames()
                 -- condition-hidden mini absorbs no clicks either.
                 if mini then
                     local miniWant
-                    if (not miniAlways) and drvSet and EllesmereUI.BuildVisibilityDriverString then
-                        miniWant = EllesmereUI.BuildVisibilityDriverString(
-                            "[@" .. ns.UF_MINI_OF[unitKey] .. ",noexists] hide; ", drvSet)
+                    if (not miniAlways) and visNever then
+                        -- The parent is hidden outright, so alpha 0 alone would leave
+                        -- the mini an invisible click blocker; pin it like the
+                        -- disabled-parent branch below does.
+                        miniWant = "hide"
+                    elseif (not miniAlways) and visTail then
+                        miniWant = "[@" .. ns.UF_MINI_OF[unitKey] .. ",noexists] hide; " .. visTail
                     end
                     if mini._euiVisDriver ~= miniWant and not isLocked then
                         if miniWant then
@@ -12516,7 +12658,7 @@ function InitializeFrames()
                     mini:SetAlpha(miniAlways and 1 or (frame:IsShown() and bodyAlpha or 0))
                 end
             elseif frame then
-                -- Parent disabled ("Never" clears enabledFrames): a leftover condition
+                -- Parent disabled (the "Enable X Frame" toggles): a leftover condition
                 -- driver must not keep re-showing the frame, so pin it to a constant
                 -- hide. Frames that never had a driver keep the legacy disabled path
                 -- untouched. The mini inherits both.
@@ -12559,6 +12701,12 @@ function InitializeFrames()
         frames._visFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
         frames._visFrame:RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED")
         frames._visFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
+        -- Resting: IsResting() has no dedicated poll, so without this the Resting
+        -- axis only re-evaluated when some unrelated event above happened to fire.
+        frames._visFrame:RegisterEvent("PLAYER_UPDATE_RESTING")
+        -- Vehicle edges for the In Vehicle axis (player-filtered; same reasoning).
+        frames._visFrame:RegisterUnitEvent("UNIT_ENTERED_VEHICLE", "player")
+        frames._visFrame:RegisterUnitEvent("UNIT_EXITED_VEHICLE", "player")
         frames._visFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
         frames._visFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
         -- Dragonriding visibility modes: capability edge plus the airborne
@@ -13483,12 +13631,27 @@ local function RegisterUFUnlockElements()
 
         local function Rebuild() ns.ReloadFrames() end
 
+        -- Which frame's Visibility governs each mover (the minis follow their
+        -- parent, and so does a class resource bar unlocked from the player frame).
+        local MOVER_VIS_OF = { pet = "player", targettarget = "target",
+                               focustarget = "focus", classPower = "player" }
         local function MakeUFElement(key, order)
             return MK({
                 key = key,
                 label = UNIT_LABELS[key] or key,
                 group = "Unit Frames",
                 order = orderBase + order,
+                -- Visibility "never" keeps the frame built but never on screen, so
+                -- there is nothing to drag. Re-read on each unlock-mode open, so
+                -- lifting it (a spec override, the dropdown) needs no /reload. The
+                -- minis and an unlocked class resource bar have no Visibility of
+                -- their own and ride the frame they follow; Always Show Pet opts out.
+                isHidden = function()
+                    if key == "pet" and db.profile.pet and db.profile.pet.alwaysShow then
+                        return false
+                    end
+                    return ns.VisEffective(db.profile[MOVER_VIS_OF[key] or key]) == "never"
+                end,
                 getFrame = function(k)
                     if k == "boss" then return frames["boss1"] end
                     if k == "classPower" then return frames._classPowerBar end
@@ -13729,6 +13892,7 @@ local function RegisterUFUnlockElements()
                     -- effect without a /reload.
                     local s = GetCBSettings()
                     if not s then return true end
+                    if ns.VisEffective(s) == "never" then return true end
                     if unitKey == "player" then return not s.showPlayerCastbar end
                     return s.showCastbar == false
                 end,

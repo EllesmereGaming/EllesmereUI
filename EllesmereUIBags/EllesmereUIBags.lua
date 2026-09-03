@@ -173,6 +173,51 @@ local function IsGearItem(itemLink)
     local _, _, _, _, _, classID = GetItemInfoInstant(itemLink)
     return classID == ITEM_CLASS_WEAPON or classID == ITEM_CLASS_ARMOR
 end
+-- Pin identity: bare itemID can't distinguish two different upgrade tracks
+-- (e.g. Mythic vs Hero) of the same base item -- those share one itemID and
+-- only differ in the bonus IDs encoded on the item LINK. The RAW link is not
+-- a safe persistent key either: it also embeds linkLevel, specializationID,
+-- enchant and gem fields, so the same item's link drifts on level-up, spec
+-- swap or re-gem -- a raw-link pin would silently stop matching AND leak its
+-- stale entry in the account-global store forever (unpin only removes the
+-- current key). The pin key is therefore itemID + the bonus ID list: bonus
+-- IDs carry the upgrade track (the exact thing being distinguished) and hold
+-- steady across spec, level, enchants and gems. Cached per link string, the
+-- same shape as the sort cache -- IsItemPinned runs per item per refresh.
+-- itemID stays supported read-only as a legacy fallback: entries written
+-- before the link-era fix are itemID-keyed and still match every track, same
+-- as before, until the middle-click self-heal clears them.
+local pinKeyCache = {}
+local function NormalizePinKey(itemLink, itemID)
+    if type(itemLink) ~= "string" then return itemID end
+    local cached = pinKeyCache[itemLink]
+    if cached then return cached end
+    local key
+    local payload = itemLink:match("|Hitem:([^|]*)|h")
+    if payload then
+        -- Split keeping empty fields. After "item:": 1 itemID, 2 enchant,
+        -- 3-6 gems, 7 suffix, 8 uniqueID, 9 linkLevel, 10 specID,
+        -- 11 modifiersMask, 12 itemContext, 13 numBonusIDs, 14.. bonusIDs.
+        local f = {}
+        for field in (payload .. ":"):gmatch("([^:]*):") do f[#f + 1] = field end
+        local id = f[1]
+        if id and id ~= "" then
+            local n = tonumber(f[13]) or 0
+            key = "p" .. id
+            for i = 1, n do
+                key = key .. ":" .. (f[13 + i] or "")
+            end
+        end
+    end
+    key = key or itemID
+    if key then pinKeyCache[itemLink] = key end
+    return key
+end
+local function IsItemPinned(pinnedSet, itemLink, itemID)
+    if not pinnedSet then return nil end
+    local nk = itemLink and NormalizePinKey(itemLink, nil)
+    return (nk and pinnedSet[nk]) or (itemID and pinnedSet[itemID])
+end
 local function GetItemLevelAtLocation(loc, itemLink)
     if loc and loc:IsValid() and C_Item.DoesItemExist(loc) then
         local level = C_Item.GetCurrentItemLevel(loc)
@@ -2276,21 +2321,34 @@ local function GetOrCreateSlot(idx)
         local pinned = EllesmereUIDB.bagPinnedItems
         local itemLink = C_Container.GetContainerItemLink(bagID, slotID)
         local isGear = IsGearItem(itemLink)
-        local cur = pinned[info.itemID] or 0
+        -- Pin key is the normalized itemID+bonusIDs identity (distinguishes
+        -- upgrade tracks -- see NormalizePinKey above); pinKey == info.itemID
+        -- when no link is available. A legacy itemID-keyed pin (written before
+        -- this fix, conflating every track) is adopted into `cur` once and
+        -- then always cleared here, regardless of which specific track was
+        -- clicked -- there's no way to know which track a legacy entry
+        -- originally meant, so the honest self-heal is "this interaction
+        -- resolves the ambiguity," not "this interaction guesses which track
+        -- it was." Re-pin afterward to set a precise, track-specific entry.
+        local pinKey = NormalizePinKey(itemLink, info.itemID)
+        local legacyCur = pinned[info.itemID] or 0
+        local cur = pinned[pinKey] or 0
+        if legacyCur > 0 and cur == 0 then cur = legacyCur end
+        pinned[info.itemID] = nil
         if isGear then
             -- Gear: per-stack count toggle
             if cur > 0 then
                 cur = cur - 1
-                pinned[info.itemID] = cur > 0 and cur or nil
+                pinned[pinKey] = cur > 0 and cur or nil
             else
-                pinned[info.itemID] = cur + 1
+                pinned[pinKey] = cur + 1
             end
         else
             -- Non-gear: pin/unpin all stacks at once
             if cur > 0 then
-                pinned[info.itemID] = nil
+                pinned[pinKey] = nil
             else
-                pinned[info.itemID] = 999
+                pinned[pinKey] = 999
             end
         end
         if EUI_Bags.RefreshInventory then EUI_Bags:RefreshInventory() end
@@ -2901,29 +2959,33 @@ local function GetOrCreatePinOverlay()
     end)
     ov:RegisterForDrag("LeftButton")
     ov:SetScript("OnReceiveDrag", function()
-        local cursorType, itemID = GetCursorInfo()
+        -- select(3, ...), not select(2, ...): GetCursorInfo() for "item" returns
+        -- type, itemID, itemLink -- select(2, ...) into a single local re-grabs
+        -- itemID, not the link (see the correct 3-value capture at line ~6988).
+        -- Needed here for a real link now that pins are link-keyed.
+        local cursorType, itemID, cursorLink = GetCursorInfo()
         if cursorType == "item" and itemID then
             if not EllesmereUIDB then EllesmereUIDB = {} end
             if not EllesmereUIDB.bagPinnedItems then EllesmereUIDB.bagPinnedItems = {} end
             local pinned = EllesmereUIDB.bagPinnedItems
-            if not pinned[itemID] or pinned[itemID] == 0 then
-                local itemLink = select(2, GetCursorInfo())
-                pinned[itemID] = IsGearItem(itemLink) and 1 or 999
+            local pinKey = NormalizePinKey(cursorLink, itemID)
+            if not IsItemPinned(pinned, cursorLink, itemID) then
+                pinned[pinKey] = IsGearItem(cursorLink) and 1 or 999
             end
             ClearCursor()
             if EUI_Bags.RefreshInventory then EUI_Bags:RefreshInventory() end
         end
     end)
     ov:SetScript("OnClick", function()
-        local cursorType, itemID = GetCursorInfo()
+        local cursorType, itemID, cursorLink = GetCursorInfo()
         if cursorType == "item" and itemID then
             -- Click-to-place also pins
             if not EllesmereUIDB then EllesmereUIDB = {} end
             if not EllesmereUIDB.bagPinnedItems then EllesmereUIDB.bagPinnedItems = {} end
             local pinned = EllesmereUIDB.bagPinnedItems
-            if not pinned[itemID] or pinned[itemID] == 0 then
-                local itemLink = select(2, GetCursorInfo())
-                pinned[itemID] = IsGearItem(itemLink) and 1 or 999
+            local pinKey = NormalizePinKey(cursorLink, itemID)
+            if not IsItemPinned(pinned, cursorLink, itemID) then
+                pinned[pinKey] = IsGearItem(cursorLink) and 1 or 999
             end
             ClearCursor()
             if EUI_Bags.RefreshInventory then EUI_Bags:RefreshInventory() end
@@ -3299,7 +3361,9 @@ EnterPinSelectMode = function()
                     if info and info.itemID then
                         if not EllesmereUIDB then EllesmereUIDB = {} end
                         if not EllesmereUIDB.bagPinnedItems then EllesmereUIDB.bagPinnedItems = {} end
-                        EllesmereUIDB.bagPinnedItems[info.itemID] = (EllesmereUIDB.bagPinnedItems[info.itemID] or 0) + 1
+                        local itemLink = C_Container.GetContainerItemLink(bagID, slotID)
+                        local pinKey = NormalizePinKey(itemLink, info.itemID)
+                        EllesmereUIDB.bagPinnedItems[pinKey] = (EllesmereUIDB.bagPinnedItems[pinKey] or 0) + 1
                         ClearPinHover()
                         ExitPinSelectMode()
                         EUI_Bags:RefreshInventory()
@@ -4915,6 +4979,40 @@ local function GetOrCreateCatHeader(idx)
     return f
 end
 
+-- "Clear" link on a Recent Items header, sitting just left of its "Hide" link.
+-- Opt-in (bagShowRecentClear, default off): callers gate on the setting, so a
+-- user who never enables it never has the button built. Pooled on the header
+-- like _hideBtn; hidden by the per-refresh header reset.
+local function ShowRecentClearButton(hdr, hideBtn)
+    if not hdr._clearBtn then
+        local cb = CreateFrame("Button", nil, hdr)
+        cb:SetSize(34, 16)
+        cb._fs = cb:CreateFontString(nil, "OVERLAY")
+        SetBagFont(cb._fs, 9)
+        cb._fs:SetAllPoints()
+        cb._fs:SetText(EllesmereUI.L("Clear"))
+        cb._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
+        cb:SetScript("OnEnter", function(self)
+            self._fs:SetTextColor(1, 1, 1, 0.9)
+            if EUI.ShowWidgetTooltip then
+                EUI.ShowWidgetTooltip(self, "Clears the Recent Items list.")
+            end
+        end)
+        cb:SetScript("OnLeave", function(self)
+            self._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
+            if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+        end)
+        cb:SetScript("OnClick", function()
+            if EUI_Bags.ClearRecentItems then EUI_Bags:ClearRecentItems() end
+        end)
+        hdr._clearBtn = cb
+    end
+    hdr._clearBtn:ClearAllPoints()
+    hdr._clearBtn:SetPoint("RIGHT", hideBtn, "LEFT", -6, 0)
+    hdr._clearBtn:Show()
+    return hdr._clearBtn
+end
+
 -- Indented subheaders under a category (expansion names) for All Items nesting
 local _expSubHeaders = {}
 
@@ -5245,7 +5343,7 @@ function EUI_Bags:RefreshInventory()
     if pinnedCatIdx and pinnedSet and showPinned then
         local pinnedCount = 0
         for _, data in ipairs(tempItems) do
-            if data.info and data.info.itemID and pinnedSet[data.info.itemID] then
+            if data.info and data.info.itemID and IsItemPinned(pinnedSet, data.itemLink, data.info.itemID) then
                 pinnedCount = pinnedCount + 1
             end
         end
@@ -5293,7 +5391,7 @@ function EUI_Bags:RefreshInventory()
         if isRecentView then
             show = data.info and data.info.itemID and EUI_Bags._recentItems and EUI_Bags._recentItems[data.info.itemID]
         elseif isPinnedView then
-            show = data.info and data.info.itemID and pinnedSet and pinnedSet[data.info.itemID]
+            show = data.info and data.info.itemID and pinnedSet and IsItemPinned(pinnedSet, data.itemLink, data.info.itemID)
         elseif filterSet then
             show = data.categoryIndex and filterSet[data.categoryIndex]
         end
@@ -5348,6 +5446,7 @@ function EUI_Bags:RefreshInventory()
     for _, hdr in pairs(_catHeaders) do
         hdr:Hide(); hdr._hint:SetText("")
         if hdr._hideBtn then hdr._hideBtn:Hide() end
+        if hdr._clearBtn then hdr._clearBtn:Hide() end
         hdr._line:ClearAllPoints()
         hdr._line:SetPoint("LEFT", hdr._hint, "RIGHT", 6, 0)
         hdr._line:SetPoint("RIGHT", hdr, "RIGHT", -SPACING, 0)
@@ -5738,7 +5837,7 @@ function EUI_Bags:RefreshInventory()
             local pinItems = {}
             if pinnedSet then
                 for _, d in ipairs(tempItems) do
-                    if d.info and d.info.itemID and pinnedSet[d.info.itemID] then
+                    if d.info and d.info.itemID and IsItemPinned(pinnedSet, d.itemLink, d.info.itemID) then
                         pinItems[#pinItems + 1] = d
                     end
                 end
@@ -5871,9 +5970,14 @@ function EUI_Bags:RefreshInventory()
                 EUI_Bags:RefreshInventory()
             end)
             recHdr._hideBtn:Show()
+            local recLineAnchor = recHdr._hideBtn
+            if BP().bagShowRecentClear == true
+               and EUI_Bags._recentItems and next(EUI_Bags._recentItems) then
+                recLineAnchor = ShowRecentClearButton(recHdr, recHdr._hideBtn)
+            end
             recHdr._line:ClearAllPoints()
             recHdr._line:SetPoint("LEFT", recHdr._hint, "RIGHT", 6, 0)
-            recHdr._line:SetPoint("RIGHT", recHdr._hideBtn, "LEFT", -6, 0)
+            recHdr._line:SetPoint("RIGHT", recLineAnchor, "LEFT", -6, 0)
             recHdr:Show()
             curY = curY - 22
 
@@ -6093,9 +6197,17 @@ function EUI_Bags:RefreshInventory()
                 hdr._hideBtn:ClearAllPoints()
                 hdr._hideBtn:SetPoint("RIGHT", hdr, "RIGHT", 0, 0)
                 hdr._hideBtn:Show()
+                -- Recent Items only, opt-in: "Clear" left of "Hide", and only when
+                -- there is something to clear.
+                local lineAnchor = hdr._hideBtn
+                if alwaysShow and not showPinAdd
+                   and BP().bagShowRecentClear == true
+                   and EUI_Bags._recentItems and next(EUI_Bags._recentItems) then
+                    lineAnchor = ShowRecentClearButton(hdr, hdr._hideBtn)
+                end
                 hdr._line:ClearAllPoints()
                 hdr._line:SetPoint("LEFT", hdr._hint, "RIGHT", 6, 0)
-                hdr._line:SetPoint("RIGHT", hdr._hideBtn, "LEFT", -6, 0)
+                hdr._line:SetPoint("RIGHT", lineAnchor, "LEFT", -6, 0)
             end
             hdr:Show()
             curY = curY - 22
@@ -6253,7 +6365,7 @@ function EUI_Bags:RefreshInventory()
                 if pinnedSet and showPinned then
                     local pinItems = {}
                     for _, data in ipairs(displayItems) do
-                        if data.info and data.info.itemID and pinnedSet[data.info.itemID] then
+                        if data.info and data.info.itemID and IsItemPinned(pinnedSet, data.itemLink, data.info.itemID) then
                             pinItems[#pinItems + 1] = data
                         end
                     end
@@ -7087,17 +7199,29 @@ local function StartAddon()
     end)
 
     -- Recent Items: session-only tracking (resets on login/reload)
-    local RECENT_MAX = 12
+    -- Raised from 12 to 15.
+    local RECENT_MAX = 15
     EUI_Bags._recentItems = {}      -- itemID -> true (set of recent item IDs)
     EUI_Bags._recentOrder = {}      -- ordered list of itemIDs (oldest first)
-    local _knownItemCounts = {} -- itemID -> highest stack count seen this session
+    local _knownItemCounts = {} -- itemID -> highest bag-visible count since the last bank/mail resync
     local _snapshotReady = false
 
-    -- Track the highest count ever seen per itemID, not current presence: a stack
-    -- merge (already have 3, loot 1 more) must register as a new pickup, and a
-    -- plain presence set can't see that. Tracking the max instead of the live
-    -- count (and never lowering it) also means unequipping/re-equipping, banking,
-    -- or mailing an item back to yourself doesn't re-flag it as new.
+    -- Both are interaction state, not frame visibility -- a third-party bank/mail
+    -- addon can hide the stock frame, but the server-tracked interaction stays
+    -- accurate. Bank/warband bank contents are only queryable while physically
+    -- there (or via a Personal Distance Inhibitor), so unlike mail there's no
+    -- way to count them from a distance -- detection just freezes at the bank
+    -- instead, the same as it does for mail.
+    local function MailOpen()
+        return (C_PlayerInteractionManager and C_PlayerInteractionManager.IsInteractingWithNpcOfType
+            and C_PlayerInteractionManager.IsInteractingWithNpcOfType(Enum.PlayerInteractionType.MailInfo)) and true or false
+    end
+    local function BankOpen()
+        if not (C_PlayerInteractionManager and C_PlayerInteractionManager.IsInteractingWithNpcOfType) then return false end
+        return (C_PlayerInteractionManager.IsInteractingWithNpcOfType(Enum.PlayerInteractionType.Banker)
+            or C_PlayerInteractionManager.IsInteractingWithNpcOfType(Enum.PlayerInteractionType.AccountBanker)) and true or false
+    end
+
     local function TallyItemCounts()
         local counts, order = {}, {}
         for bag = 0, 5 do
@@ -7118,23 +7242,50 @@ local function StartAddon()
         _snapshotReady = true
     end
 
+    -- A rise flags a new pickup; a drop (sold/used/deleted) lowers the known
+    -- total so a later re-acquisition below the old peak still registers as
+    -- new. Frozen entirely at a mailbox or bank/warband bank -- sending,
+    -- receiving, depositing, or withdrawing would otherwise look identical to
+    -- disposing of or looting an item, since bag contents are all this can
+    -- see. MAIL_CLOSED, BANKFRAME_CLOSED, and
+    -- PLAYER_INTERACTION_MANAGER_FRAME_HIDE below silently resync once the
+    -- mailbox/bank closes, so none of that traffic falsely flags or evicts
+    -- anything.
     local function DetectNewItems()
-        if not _snapshotReady then return end
+        if not _snapshotReady or MailOpen() or BankOpen() then return end
         local counts, order = TallyItemCounts()
         for _, itemID in ipairs(order) do
             local count = counts[itemID]
-            if count > (_knownItemCounts[itemID] or 0) then
-                _knownItemCounts[itemID] = count
-                if not EUI_Bags._recentItems[itemID] then
-                    EUI_Bags._recentItems[itemID] = true
-                    EUI_Bags._recentOrder[#EUI_Bags._recentOrder + 1] = itemID
-                    while #EUI_Bags._recentOrder > RECENT_MAX do
-                        local old = table.remove(EUI_Bags._recentOrder, 1)
-                        EUI_Bags._recentItems[old] = nil
-                    end
+            local known = _knownItemCounts[itemID] or 0
+            if count > known and not EUI_Bags._recentItems[itemID] then
+                EUI_Bags._recentItems[itemID] = true
+                EUI_Bags._recentOrder[#EUI_Bags._recentOrder + 1] = itemID
+                while #EUI_Bags._recentOrder > RECENT_MAX do
+                    local old = table.remove(EUI_Bags._recentOrder, 1)
+                    EUI_Bags._recentItems[old] = nil
                 end
             end
+            _knownItemCounts[itemID] = count
         end
+        -- Items gone from bags entirely (sold/used/deleted) no longer appear
+        -- in `counts`; drop their known peak too. Equipped is not disposed:
+        -- without the guard, swapping gear on (peak pruned) and later off
+        -- again (count rises from 0) would re-flag every swapped piece as
+        -- recent and FIFO-evict genuine loot.
+        for itemID in pairs(_knownItemCounts) do
+            if not counts[itemID] and not C_Item.IsEquippedItem(itemID) then
+                _knownItemCounts[itemID] = nil
+            end
+        end
+    end
+
+    -- "Clear" link on the Recent Items headers. Only the tracked set is dropped --
+    -- _knownItemCounts already holds each item's current bag total, so nothing
+    -- sitting in bags re-flags as new on the next DetectNewItems pass.
+    function EUI_Bags:ClearRecentItems()
+        wipe(EUI_Bags._recentItems)
+        wipe(EUI_Bags._recentOrder)
+        if EUI_Bags:IsVisible() then EUI_Bags:RefreshInventory() end
     end
 
     C_Timer.After(1, function() SnapshotKnownIDs() end)
@@ -7159,6 +7310,21 @@ local function StartAddon()
     EUI_Bags:RegisterEvent("PLAYER_MONEY")
     EUI_Bags:RegisterEvent("ITEM_LOCK_CHANGED")
     EUI_Bags:RegisterEvent("CURRENCY_DISPLAY_UPDATE")
+    -- A keystone's encoded level changing (downgrade on completion, or on reset)
+    -- doesn't reliably fire BAG_UPDATE for its slot, so the keystone level text
+    -- painted by RefreshInventory goes stale while bags stay open across the
+    -- run -- GameTooltip looks correct because it re-queries fresh on every
+    -- hover, independent of our repaint cycle. Force a refresh on these too.
+    EUI_Bags:RegisterEvent("CHALLENGE_MODE_COMPLETED")
+    EUI_Bags:RegisterEvent("CHALLENGE_MODE_RESET")
+    -- Lindormi's NPC-dialogue keystone downgrade is the same in-place encoded-
+    -- level change as above, just triggered outside any dungeon run -- neither
+    -- CHALLENGE_MODE event applies (both are scoped to an active M+ run's
+    -- lifecycle). GOSSIP_CLOSED is the generic "an NPC dialogue just ended"
+    -- signal and fires reliably around her interaction; it also fires for every
+    -- unrelated NPC gossip close, but ScheduleRefresh below is cheap and gated
+    -- on bags being visible, so that's a harmless no-op rather than a real cost.
+    EUI_Bags:RegisterEvent("GOSSIP_CLOSED")
     -- Set created/renamed/deleted: rebuild split categories / refresh name labels.
     -- Registered only while a set feature is on: zero event cost when disabled
     -- (merged-mode routing stays correct without it -- the lookup rebuilds per
@@ -7173,6 +7339,10 @@ local function StartAddon()
     EUI_Bags.UpdateSetEventRegistration()
     -- Replays a refresh that was deferred during combat (secure-button taint guard).
     EUI_Bags:RegisterEvent("PLAYER_REGEN_ENABLED")
+    -- Drives the post-mailbox/bank Recent Items resync (see MailOpen/BankOpen/DetectNewItems above).
+    if C_PlayerInteractionManager then
+        EUI_Bags:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_HIDE")
+    end
 
     -- Panels that move items one bag slot at a time (see SetItemPanelOpen).
     local ITEM_PANEL_EVENTS = {
@@ -7296,10 +7466,16 @@ local function StartAddon()
         end, EUI_Bags)
     end
 
-    -- DetectNewItems: run synchronously but at most once per frame (zone changes fire many BAG_UPDATEs)
-    local _lastDetectFrame = 0
+    -- DetectNewItems: one deferred pass per BAG_UPDATE burst, on the next
+    -- frame. Same-frame dedupe alone stranded misses: the first event of a
+    -- loot burst can tally before every bag involved is readable, and the
+    -- skipped duplicates never re-ran the scan -- an item consumed before the
+    -- next bag change (KP studies, planted seeds, learned cosmetics) was then
+    -- missed forever. The deferred flush scans once, with the burst settled.
+    local _detectQueued = false
+    local function _DetectFlush() _detectQueued = false; DetectNewItems() end
 
-    EUI_Bags:SetScript("OnEvent", function(self, event)
+    EUI_Bags:SetScript("OnEvent", function(self, event, interactionType)
         if event == "PLAYER_REGEN_ENABLED" then
             -- Combat ended: replay any refresh deferred during combat, and top up the pre-warmed pool in case bag count grew while locked.
             if EUI_Bags._refreshPendingCombat then
@@ -7308,6 +7484,28 @@ local function StartAddon()
                 if EUI_BagsReagent:IsVisible() and EUI_BagsReagent.RefreshInventory then
                     EUI_BagsReagent:RefreshInventory()
                 end
+            end
+            return
+        end
+        if event == "MAIL_CLOSED" or event == "BANKFRAME_CLOSED" then
+            -- Legacy belt, doesn't reliably fire on retail; the interaction-
+            -- manager HIDE below is the live driver. Settle first: mail's own
+            -- delivery, or a bank auto-deposit, can still be landing items just
+            -- after close -- and hold detection down through the settle window
+            -- too (_snapshotReady gates DetectNewItems), or those in-flight
+            -- items would flag against the stale frozen baselines the moment
+            -- the interaction check reads closed.
+            _snapshotReady = false
+            C_Timer.After(0.5, SnapshotKnownIDs)
+            -- No return: falls through to the ITEM_PANEL_EVENTS handling below.
+        end
+        if event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then
+            if interactionType == Enum.PlayerInteractionType.MailInfo
+                or interactionType == Enum.PlayerInteractionType.Banker
+                or interactionType == Enum.PlayerInteractionType.AccountBanker then
+                -- Same settle-window hold as the legacy branch above.
+                _snapshotReady = false
+                C_Timer.After(0.5, SnapshotKnownIDs)
             end
             return
         end
@@ -7326,12 +7524,17 @@ local function StartAddon()
             if EUI_Bags:IsVisible() then ScheduleRefresh() end
             return
         end
-        if event == "BAG_UPDATE" and EUI_Bags.refreshEnabled ~= false then
-            local now = GetTime()
-            if now ~= _lastDetectFrame then
-                _lastDetectFrame = now
-                DetectNewItems()
-            end
+        if event == "CHALLENGE_MODE_COMPLETED" or event == "CHALLENGE_MODE_RESET"
+           or event == "GOSSIP_CLOSED" then
+            -- A keystone downgrade here doesn't need a hidden-side invalidation:
+            -- the next manual open already forces a full RefreshInventory
+            -- (ToggleEUI). This only matters while bags are already visible.
+            if EUI_Bags:IsVisible() then ScheduleRefresh() end
+            return
+        end
+        if event == "BAG_UPDATE" and EUI_Bags.refreshEnabled ~= false and not _detectQueued then
+            _detectQueued = true
+            C_Timer.After(0, _DetectFlush)
         end
         if not EUI_Bags:IsVisible() then return end
         if event == "BAG_UPDATE" then

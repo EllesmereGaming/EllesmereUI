@@ -291,9 +291,10 @@ end
 --     ns.PAB_Filters() list order (map iteration via bar.filters alone is
 --     unordered -- would make the tile flicker between refreshes). If 3+
 --     filters are selected the 3rd shown name is truncated to its first 3
---     characters + "..." as an overflow hint. Falls back to the old
---     resolved-count phrasing when no filters are selected at all (e.g. a
---     bar with only Extra Spells and Show All Buffs off).
+--     characters + "..." as an overflow hint. Falls back to the Extra
+--     Spells count when no filters are selected at all (e.g. a bar with
+--     only Extra Spells and Show All Buffs off) -- the ASSIGNED count, not
+--     the resolved one, which expands curated spell families.
 local function TruncateFilterName(name)
     return (name or ""):sub(1, 3) .. "..."
 end
@@ -372,8 +373,7 @@ local function BuildBuffBarSubtitle(bar)
     end
 
     if #names == 0 then
-        local resolved = ns.PAB_ResolveSpells and ns.PAB_ResolveSpells(bar) or (bar.spells or {})
-        return tostring(#resolved) .. " " .. L("spells")
+        return tostring(extraCount) .. " " .. L("spells")
     end
 
     if totalSelected >= 3 then
@@ -752,8 +752,16 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply, isDefau
                 if v then
                     if not HasDirect(k) then cfg.spells[#cfg.spells + 1] = k end
                 else
+                    -- Unchecking drops the whole curated family, not just this id:
+                    -- PAB_ResolveSpells expands a family from any member, so a
+                    -- differently-named sibling left in the list would keep the buff
+                    -- tracked behind an unchecked box. Same family = same table.
+                    local fam = ns.PAB_SPELL_FAMILY and ns.PAB_SPELL_FAMILY[k]
                     for i = #cfg.spells, 1, -1 do
-                        if cfg.spells[i] == k then table.remove(cfg.spells, i) end
+                        local id = cfg.spells[i]
+                        if id == k or (fam and ns.PAB_SPELL_FAMILY[id] == fam) then
+                            table.remove(cfg.spells, i)
+                        end
                     end
                 end
                 apply()
@@ -795,7 +803,10 @@ local function BuildAssignedDebuffsFields(frame, fontPath, sy, cfg, apply)
             values = { __placeholder = "..." }, order = { "__placeholder" },
             getValue = function() return "__placeholder" end, setValue = function() end
         },
-        { type = "label", text = "" }
+        EllesmereUI.MaxDurationDropdown(
+            function() return cfg.maxDurSec end,
+            function(v) cfg.maxDurSec = v end,
+            apply)
     ); sy = sy - hh
     do
         local rgn = safRow._leftRegion
@@ -818,11 +829,29 @@ local function BuildAssignedDebuffsFields(frame, fontPath, sy, cfg, apply)
             local classItems = ns.PAB_ClassItems and ns.PAB_ClassItems(false) or {}
             for i = 1, #classItems do
                 local ci = classItems[i]
-                items[#items + 1] = { key = ci.key, label = ci.label, tooltip = ci.tooltip,
-                    dual = true, showLockedFn = AllOn,
-                    showLockedTooltip = lockedTip }
+                if ci.isHeader then
+                    items[#items + 1] = { isHeader = true, label = ci.label }
+                else
+                    items[#items + 1] = { key = ci.key, label = ci.label, tooltip = ci.tooltip,
+                        dual = true, showLockedFn = AllOn,
+                        showLockedTooltip = lockedTip }
+                end
             end
             return items
+        end
+        -- Non-Player / From Any Player share one engine field: a check in either
+        -- lane clears the sibling from both lanes.
+        local function ClearExclusive(k)
+            local other = ns.PAB_ExclusiveSkey and ns.PAB_ExclusiveSkey[k]
+            if not other then return end
+            if cfg.classFilters then
+                cfg.classFilters[other] = nil
+                if not next(cfg.classFilters) then cfg.classFilters = nil end
+            end
+            if cfg.negClassFilters then
+                cfg.negClassFilters[other] = nil
+                if not next(cfg.negClassFilters) then cfg.negClassFilters = nil end
+            end
         end
         local warnClosed
         local cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
@@ -860,6 +889,7 @@ local function BuildAssignedDebuffsFields(frame, fontPath, sy, cfg, apply)
                 end
                 -- Two-lane class write: checking one lane clears the other;
                 -- emptied lane tables drop to nil (saved-variable hygiene).
+                if v then ClearExclusive(k) end
                 if neg then
                     cfg.negClassFilters = cfg.negClassFilters or {}
                     cfg.negClassFilters[k] = v or nil

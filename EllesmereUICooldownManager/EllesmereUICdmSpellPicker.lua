@@ -1674,6 +1674,22 @@ function ns.AddPresetToBar(barKey, preset)
     return true
 end
 
+--- Is any member of this preset already on the bar? The inverse of the "exists"
+--- guard above, so the picker greys exactly what an add would reject: a preset
+--- with variant ids (the invisibility potions, the two faction lust ids) counts
+--- as present no matter which member is stored.
+function ns.IsPresetOnBar(barKey, preset)
+    local sd = ns.GetBarSpellData(barKey)
+    local spellList = sd and sd.assignedSpells
+    if not spellList or type(preset.spellIDs) ~= "table" then return false end
+    for _, sid in ipairs(preset.spellIDs) do
+        for _, existing in ipairs(spellList) do
+            if existing == sid then return true end
+        end
+    end
+    return false
+end
+
 --- Add a tracked spell (spellID) to a bar. Picker-driven add: always treated
 --- as "claim this spell for the target bar" -- auto-removed from EVERY other
 --- bar in the same family (default + custom + matching ghost) first. One

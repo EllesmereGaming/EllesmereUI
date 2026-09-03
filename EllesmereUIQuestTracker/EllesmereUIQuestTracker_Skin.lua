@@ -239,8 +239,11 @@ local function EnsureAccentDivider(header)
     local isMasterHeader = (header == otf.HeaderMenu or header == otf.Header)
 
     -- Divider is visible only when the tracker itself is currently being
-    -- rendered (Blizzard hides the tracker frame when it has no content).
+    -- rendered (Blizzard hides the tracker frame when it has no content). The
+    -- master header is suppressed with alpha rather than Hide(), so an alpha-0
+    -- header counts as not rendered too -- see ApplyMasterHeaderVisibility.
     local headerShown = header.IsShown and header:IsShown()
+        and (not header.GetAlpha or header:GetAlpha() > 0)
     local active
 
     if isMasterHeader then
@@ -1083,14 +1086,17 @@ end
 
 -------------------------------------------------------------------------------
 -- Master "All Objectives" header visibility. SkinHeader() above is always
--- applied to it in InitSkin(); this only controls Show/Hide, driven by the
+-- applied to it in InitSkin(); this only controls visibility, driven by the
 -- "hideAllObjectivesHeader" option so the user can opt into showing it.
 -- Defaults to hidden (nil in DB reads as hidden) -- see ShouldHideMasterHeader.
 --
--- ObjectiveTrackerFrameMixin:Update() unconditionally calls self.Header:Show() on every
--- layout pass whenever the tracker has any module to display (verified against
--- Gethe/wow-ui-source, Blizzard_ObjectiveTracker.lua), so hiding it requires a
--- persistent HookScript("OnShow", ...) fight rather than a one-time Hide().
+-- Suppressed with alpha, never Hide() -- same pattern as ApplyPOISuppression above, and
+-- layout-equivalent (the container spaces the first module by topModulePadding alone).
+-- ObjectiveTrackerFrameMixin:Update() calls self.Header:Show() before the container layout,
+-- so a Hide() must be fought from an OnShow script that taints the whole pass.
+-- ScenarioObjectiveTracker lays out first, and its LayoutContents call to ShouldShowMawBuffs
+-- -> C_UnitAuras.GetAuraDataByIndex hard-errors while tainted: the pass unwinds before
+-- DirtiableMixin clears self.dirty, nothing schedules another, and it freezes until /reload.
 -------------------------------------------------------------------------------
 -- Default is "hidden" (true) when the DB key is unset. `~= false` treats
 -- nil the same as true, while still honoring an explicit user choice of
@@ -1100,27 +1106,19 @@ local function ShouldHideMasterHeader()
 end
 EQT.ShouldHideMasterHeader = ShouldHideMasterHeader
 
-local _masterHeaderShowHooked = false
 local function ApplyMasterHeaderVisibility()
     local otf = _G.ObjectiveTrackerFrame
     if not otf then return end
     local header = otf.HeaderMenu or otf.Header
     if not header then return end
 
-    if not _masterHeaderShowHooked then
-        _masterHeaderShowHooked = true
-        header:HookScript("OnShow", function(self)
-            if ShouldHideMasterHeader() then self:Hide() end
-        end)
-    end
+    local hide = ShouldHideMasterHeader()
+    header:SetAlpha(hide and 0 or 1)
+    -- The header frame takes no mouse input of its own, but the collapse-all
+    -- button would still be clickable while invisible.
+    local minBtn = header.MinimizeButton
+    if minBtn and minBtn.EnableMouse then minBtn:EnableMouse(not hide) end
 
-    if ShouldHideMasterHeader() then
-        header:Hide()
-    else
-        header:Show()
-    end
-    -- Header:Hide()/Show() above don't retrigger our own hooks, so refresh
-    -- the divider's active-state directly (it reads header:IsShown() live).
     EnsureAccentDivider(header)
 end
 EQT.ApplyMasterHeaderVisibility = ApplyMasterHeaderVisibility

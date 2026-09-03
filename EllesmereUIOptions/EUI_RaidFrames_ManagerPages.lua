@@ -723,6 +723,18 @@ local TILE_LANE_ITEMS = {
       tooltip = "Debuffs you can dispel." },
     { key = "dispel_typed", label = "Dispels", dual = true,
       tooltip = "Any debuff with a dispel type (Magic, Curse, Disease, Poison, Bleed), even if you cannot remove it." },
+    { isHeader = true, label = "Less Common Filters" },
+    { key = "castbyme", label = "Cast By You", dual = true,
+      tooltip = "Debuffs applied by you or your pet." },
+    { key = "anyplayer", label = "From Any Player", dual = true,
+      tooltip = "Debuffs caused by any player or player pet. The opposite of Non-Player Auras; checking one clears the other." },
+    { key = "magic", label = "Magic", dual = true, tooltip = "Debuffs with the Magic dispel type." },
+    { key = "curse", label = "Curse", dual = true, tooltip = "Debuffs with the Curse dispel type." },
+    { key = "poison", label = "Poison", dual = true, tooltip = "Debuffs with the Poison dispel type." },
+    { key = "disease", label = "Disease", dual = true, tooltip = "Debuffs with the Disease dispel type." },
+    { key = "bleed", label = "Bleed", dual = true, tooltip = "Debuffs with the Bleed dispel type." },
+    { key = "canapply", label = "Can Apply Aura", dual = true,
+      tooltip = "Debuffs your own class is able to apply." },
 }
 local function BuildTileFiltersDD(rgn, t, dm)
     local PP = EllesmereUI.PP or EllesmereUI.PanelPP
@@ -751,6 +763,12 @@ local function BuildTileFiltersDD(rgn, t, dm)
             elseif k == "dispel_typed" then
                 if neg then return NegHas("dispel") and dm.dispelMode == "typed" end
                 return (claim.dispel and true or false) and dm.dispelMode == "typed"
+            end
+            -- Two flavors of ONE nonplayer category (global dm.nonplayerMode).
+            if k == "nonplayer" or k == "anyplayer" then
+                if ((dm.nonplayerMode == "any") ~= (k == "anyplayer")) then return false end
+                if neg then return NegHas("nonplayer") end
+                return claim.nonplayer and true or false
             end
             if neg then return NegHas(k) end
             return claim[k] and true or false
@@ -783,6 +801,28 @@ local function BuildTileFiltersDD(rgn, t, dm)
                     if v then
                         SetNeg("dispel", false)
                         dm.dispelMode = (k == "dispel_typed") and "typed" or "you"
+                    end
+                end
+                DmApply()
+                EllesmereUI:RefreshPage()
+                return
+            end
+            if k == "nonplayer" or k == "anyplayer" then
+                -- ONE nonplayer category, one global flavor (shared with the base
+                -- grid): any checked lane owns both the lane and dm.nonplayerMode;
+                -- checking one lane/flavor clears the other.
+                local mode = (k == "anyplayer") and "any" or nil
+                if neg then
+                    SetNeg("nonplayer", v and true or false)
+                    if v then
+                        claim.nonplayer = nil
+                        dm.nonplayerMode = mode
+                    end
+                else
+                    claim.nonplayer = v and true or nil
+                    if v then
+                        SetNeg("nonplayer", false)
+                        dm.nonplayerMode = mode
                     end
                 end
                 DmApply()
@@ -1050,7 +1090,10 @@ local function BuildBaseDetailDM(frame, fontPath)
           values = { __placeholder = "..." }, order = { "__placeholder" },
           getValue = function() return "__placeholder" end,
           setValue = function() end },
-        { type = "label", text = "" }); sy = sy - hh
+        EllesmereUI.MaxDurationDropdown(
+            function() return dm.maxDurSec end,
+            function(v) dm.maxDurSec = v end,
+            DmApply)); sy = sy - hh
     do
         local PPl = EllesmereUI.PP or EllesmereUI.PanelPP
         local rgn = safRow._leftRegion
@@ -1085,6 +1128,25 @@ local function BuildBaseDetailDM(frame, fontPath)
               tooltip = "Debuffs you can dispel." },
             { key = "dispel_typed", label = "Dispels", dual = true, showLockedFn = AllOn,
               tooltip = "Any debuff with a dispel type (Magic, Curse, Disease, Poison, Bleed), even if you cannot remove it." },
+            -- Less common filters: same two-lane rows, engine-evaluated like the
+            -- rest. From Any Player is the other flavor of Non-Player Auras.
+            { isHeader = true, label = "Less Common Filters" },
+            { key = "castbyme", label = "Cast By You", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs applied by you or your pet." },
+            { key = "anyplayer", label = "From Any Player", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs caused by any player or player pet. The opposite of Non-Player Auras; checking one clears the other." },
+            { key = "magic", label = "Magic", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs with the Magic dispel type." },
+            { key = "curse", label = "Curse", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs with the Curse dispel type." },
+            { key = "poison", label = "Poison", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs with the Poison dispel type." },
+            { key = "disease", label = "Disease", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs with the Disease dispel type." },
+            { key = "bleed", label = "Bleed", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs with the Bleed dispel type." },
+            { key = "canapply", label = "Can Apply Aura", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs your own class is able to apply." },
         }
         -- Hovering a dimmed Show box explains the dim (the lane is inert
         -- while All Debuffs already shows everything). Has Duration is an
@@ -1115,6 +1177,9 @@ local function BuildBaseDetailDM(frame, fontPath)
             return dm.boss == true or dm.role == true or dm.priority == true
                 or dm.cc == true or dm.raid == true or dm.raidcombat == true
                 or dm.dispel == true or dm.nonplayer == true
+                or dm.castbyme == true or dm.magic == true or dm.curse == true
+                or dm.poison == true or dm.disease == true or dm.bleed == true
+                or dm.canapply == true
         end
         -- Empty selections are LEGAL here (user directive 2026-08-16, the
         -- same reversal PAB got): any content source can be unchecked,
@@ -1157,6 +1222,12 @@ local function BuildBaseDetailDM(frame, fontPath)
                     if neg then return NegHas("dispel") and dm.dispelMode == "typed" end
                     return dm.dispel == true and dm.dispelMode == "typed"
                 end
+                -- Two flavors of ONE nonplayer category (dm.nonplayerMode).
+                if k == "nonplayer" or k == "anyplayer" then
+                    if ((dm.nonplayerMode == "any") ~= (k == "anyplayer")) then return false end
+                    if neg then return NegHas("nonplayer") end
+                    return dm.nonplayer == true
+                end
                 if neg then return NegHas(k) end
                 return dm[k] == true
             end,
@@ -1197,6 +1268,28 @@ local function BuildBaseDetailDM(frame, fontPath)
                     DmApply()
                     -- Non-force: re-evaluates the empty-selection warning (and
                     -- any other widget refreshers) without closing the menu.
+                    EllesmereUI:RefreshPage()
+                    return
+                end
+                if k == "nonplayer" or k == "anyplayer" then
+                    -- ONE nonplayer category, one flavor (shared with tiles): any
+                    -- checked lane owns both the lane and dm.nonplayerMode;
+                    -- checking one lane/flavor clears the other.
+                    local mode = (k == "anyplayer") and "any" or nil
+                    if neg then
+                        SetNeg("nonplayer", v and true or false)
+                        if v then
+                            dm.nonplayer = nil
+                            dm.nonplayerMode = mode
+                        end
+                    else
+                        dm.nonplayer = v and true or nil
+                        if v then
+                            SetNeg("nonplayer", false)
+                            dm.nonplayerMode = mode
+                        end
+                    end
+                    DmApply()
                     EllesmereUI:RefreshPage()
                     return
                 end
@@ -1558,7 +1651,10 @@ local function BuildTileDetail(frame, fontPath, t)
               values = { __placeholder = "..." }, order = { "__placeholder" },
               getValue = function() return "__placeholder" end,
               setValue = function() end },
-            { type = "label", text = "" }); sy = sy - hh
+            EllesmereUI.MaxDurationDropdown(
+                function() return t.maxDurSec end,
+                function(v) t.maxDurSec = v end,
+                DmApply)); sy = sy - hh
         BuildTileFiltersDD(fRow._leftRegion, t, dm)
 
         _, hh = W:SectionHeader(frame, "CORE", sy); sy = sy - hh
@@ -3954,7 +4050,8 @@ function ns.BMP_ShowFilterEditor()
                 local onFilter = (f.spells and f.spells[id] ~= nil)
                     or (f.custom and f.custom[id])
                 if not onFilter then
-                    local nm = C_Spell.GetSpellName and C_Spell.GetSpellName(id)
+                    local nm = (ns.SPELL_NAME_BY_ID and ns.SPELL_NAME_BY_ID[id])
+                        or (C_Spell.GetSpellName and C_Spell.GetSpellName(id))
                     out[#out + 1] = {
                         key = id, label = nm or tostring(id), noCheck = true,
                         icon = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id),
@@ -4031,7 +4128,8 @@ function ns.BMP_ShowFilterEditor()
     end
     -- Alphabetical by spell name (id tiebreak for identical names).
     local function NameOf(id)
-        return (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)) or tostring(id)
+        return (ns.SPELL_NAME_BY_ID and ns.SPELL_NAME_BY_ID[id])
+            or (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)) or tostring(id)
     end
     local function ByName(a, b)
         local na, nb = NameOf(a), NameOf(b)
@@ -4069,7 +4167,8 @@ function ns.BMP_ShowFilterEditor()
         local tex = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id)
         if tex then ico:SetTexture(tex) end
         ico:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        local name = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)
+        local name = (ns.SPELL_NAME_BY_ID and ns.SPELL_NAME_BY_ID[id])
+            or (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id))
         local lr, lg2, lb2 = 1, 1, 1
         if classColor then lr, lg2, lb2 = classColor.r, classColor.g, classColor.b end
         local lbl = EllesmereUI.MakeFont(srow, 13, nil, lr, lg2, lb2)
@@ -4289,8 +4388,11 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
         -- (adding them as extras would be redundant); direct picks always show under
         -- Selected so they can be unchecked.
         local function SpellEntry(id)
-            local name = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)
-            return { key = id, label = (name or ("Spell " .. tostring(id))),
+            local name = (ns.SPELL_NAME_BY_ID and ns.SPELL_NAME_BY_ID[id])
+                or (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id))
+            local label = name or ("Spell " .. tostring(id))
+            -- Truncated rows (long/duplicate names) still need to be told apart on hover.
+            return { key = id, label = label, tooltip = label,
                 icon = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id) }
         end
         local function ByLabel(a, b) return a.label < b.label end
@@ -4420,7 +4522,8 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
                 local present, seen, out = {}, {}, {}
                 for i = 1, #resolved do present[resolved[i]] = true end
                 local function Add(id)
-                    local nm = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)
+                    local nm = (ns.SPELL_NAME_BY_ID and ns.SPELL_NAME_BY_ID[id])
+                        or (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id))
                     out[#out + 1] = { key = id, label = nm or ("Spell " .. tostring(id)) }
                 end
                 local so = ind.spellOrder

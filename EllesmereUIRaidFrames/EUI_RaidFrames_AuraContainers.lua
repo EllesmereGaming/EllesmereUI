@@ -10,6 +10,12 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local _, ns = ...
 
 local AK -- EllesmereUI.AuraKit, resolved at first use
+-- The engine's own null binding: the AuraContainer intrinsic is born on unitToken
+-- "none" (Blizzard_AuraContainer.xml KeyValues). A button with no unit attribute
+-- yet has to land back on that, never on "player" -- that is a unit whose auras
+-- really do stream, so an unbound container renders the local player's buffs onto
+-- whoever the button later shows.
+local NO_UNIT = "none"
 local FALLBACK_FONT = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
 
 -- Marks debuff rendering as container-owned; the legacy UpdateDebuffs body
@@ -639,11 +645,12 @@ local function ApplyRFDispelSlot(button, dd, style)
     else -- "fill"
         tex:Show()
         local fillTex = health.GetStatusBarTexture and health:GetStatusBarTexture()
-        tex:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
+        -- Both corners come off the fill texture: a TOPLEFT-of-bar pair only tracks a
+        -- left-to-right bar, so a vertical fill spanned the whole frame like "full".
         if fillTex then
-            tex:SetPoint("BOTTOMRIGHT", fillTex, "BOTTOMRIGHT", 0, 0)
+            tex:SetAllPoints(fillTex)
         else
-            tex:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
+            tex:SetAllPoints(health)
         end
         tex:SetColorTexture(r, g, b, alpha)
         tex:SetVertexColor(1, 1, 1, 1)
@@ -2469,7 +2476,7 @@ local function BmAcquireChain(button, d, health, ch, iscale, counters)
         local shell = d.rfcBmShellPool and table.remove(d.rfcBmShellPool)
         if shell then
             DeclareGroups(shell)
-            AK.FinishContainer(shell, button:GetAttribute("unit") or "player")
+            AK.FinishContainer(shell, button:GetAttribute("unit") or NO_UNIT)
             entry = { container = shell, groups = totalGroups }
             pool[poolKey] = entry
         else
@@ -2477,7 +2484,7 @@ local function BmAcquireChain(button, d, health, ch, iscale, counters)
             AK.QueueBuildJob(function()
                 local cc = AK.CreateContainerShell(button, { point = { "CENTER", health, "CENTER" } })
                 DeclareGroups(cc)
-                AK.FinishContainer(cc, button:GetAttribute("unit") or "player")
+                AK.FinishContainer(cc, button:GetAttribute("unit") or NO_UNIT)
                 pool[poolKey] = { container = cc, groups = totalGroups }
                 BmPoolReloadSoon() -- rebind the buttons waiting on this shell
             end, "rf:bmpool-shell")
@@ -2489,7 +2496,8 @@ local function BmAcquireChain(button, d, health, ch, iscale, counters)
 
     local cc = entry.container
     entry.parked = nil
-    cc:SetUnit(button:GetAttribute("unit") or "player")
+    cc:SetEnabled(true)
+    cc:SetUnit(button:GetAttribute("unit") or NO_UNIT)
     -- anchorMembers is per-GROUP (one entry per segment); memberIndex/segIndex
     -- let the anchor pass tell member boundaries from intra-member segments.
     local anchorMembers = {}
@@ -2533,6 +2541,14 @@ local function BmParkUnbound(d, counters)
                         (j == 1) and "chain" or ("chain" .. j), 0)
                 end
                 entry.container:SetShown(false)
+                -- Visibility is shared with presentation, so a park that rests on
+                -- it alone is undone by any later SetShown. IsEnabled is the other
+                -- half of the engine's registration test and nothing but us drives
+                -- it. Dropping the binding too forces a real reparse on re-acquire:
+                -- parking and re-acquiring on the SAME unit used to leave SetUnit a
+                -- no-op and restore the caps over whatever was parsed before.
+                entry.container:SetEnabled(false)
+                entry.container:SetUnit(NO_UNIT)
             end
         end
     end
@@ -2779,7 +2795,7 @@ local function ReloadBm(button, d, s, cls)
             -- pool shells are pending -- rebuilding again would orphan it).
             if d.rfcBm or d.rfcBmSig ~= nil then return end
             if InCombatLockdown() then d.rfcBmPending = true; return end
-            local unit = button:GetAttribute("unit") or "player"
+            local unit = button:GetAttribute("unit") or NO_UNIT
             CreateBmContainer(button, d.rfcHealth, d, unit)
             -- Fresh/retargeted containers may default shown at alpha 1;
             -- clear the readable state cache and re-drive the trust gate so
@@ -2969,7 +2985,7 @@ local function QueueDebuffPhase(button, health, d)
         local c = d.rfcDebuffShell
         if not c then return end
         d.rfcDebuffShell = nil
-        local unit = button:GetAttribute("unit") or "player"
+        local unit = button:GetAttribute("unit") or NO_UNIT
         AK.FinishContainer(c, unit)
         d.rfcHealth = health
         d.rfcDebuffs = c
@@ -3009,7 +3025,7 @@ local function QueueDispLocPhase(button, health, d)
         local c = d.rfcDispLocShell
         if not c then return end
         d.rfcDispLocShell = nil
-        local unit = button:GetAttribute("unit") or "player"
+        local unit = button:GetAttribute("unit") or NO_UNIT
         AK.FinishContainer(c, unit)
         d.rfcDispLoc = c
         local sNow = ProxyFor(d)
@@ -3037,7 +3053,7 @@ local function QueueButtonGroups(button, health, d)
         local c = d.rfcDispelShell
         if not c then return end
         d.rfcDispelShell = nil
-        local unit = button:GetAttribute("unit") or "player"
+        local unit = button:GetAttribute("unit") or NO_UNIT
         AK.FinishContainer(c, unit)
         d.rfcDispel = c
         local sNow = ProxyFor(d)
@@ -3051,7 +3067,7 @@ local function QueueButtonGroups(button, health, d)
     AK.QueueBuildJob(function()
         d.rfcPending = nil
         d.rfcGroupsPending = nil
-        local unit = button:GetAttribute("unit") or "player"
+        local unit = button:GetAttribute("unit") or NO_UNIT
         CreateBmContainer(button, health, d, unit)
         d.rfcUnit = unit
         -- Shells baked the dispel filters from rfcTotemKnown at build time; if a
@@ -3112,25 +3128,35 @@ function ns.RFC_SetupButton(button, health, d)
     end
 end
 
--- Cross-faction (or otherwise non-assistable) group members: the engine SILENTLY
--- SKIPS spell-ID candidate filters for helpful auras on non-assistable units, so
--- include-list displays would degrade to "any buff" -- they hide for such units
--- instead (token-only groups -- debuffs, externals, defensives, CC -- are unaffected).
--- Degradation is NOT directly queryable; assist+visible+not-phased still PASSED for
--- degraded units (a released ghost near the group is visible, unphased, assistable
--- via resurrection, yet leaked "any buff"). Hence: connected, alive, assistable,
--- visible, not phased. RANGE is deliberately NOT a disqualifier: aura data streams
--- fine for members merely out of 40yd spell range, and gating on it made buff
--- displays and health-color effects vanish for out-of-range party members (the
--- unit frame's own oorAlpha fade already dims the containers -- they are children
--- of the button). Local player's own flags never degrade EXCEPT in a vehicle:
--- boarding one makes the player unit non-assistable, the engine skips the
--- spell-ID filters, and every include-list container on the player's own frame
--- degrades to "any buff" (field-confirmed: reliable on every vehicle entry).
--- Outside a vehicle self stays exempt from the full probe.
+-- Trust gate for helpful spell-ID-filtered containers. The engine SILENTLY SKIPS
+-- spell-ID candidate filters for helpful auras on units that fail its identity
+-- gate, so an include-list display would degrade to "any buff" there; the gate
+-- hides such displays instead (token-only groups -- debuffs, CC -- are unaffected).
+-- Degradation is NOT directly queryable, so the non-group probe below approximates
+-- it: connected, alive, visible, not phased, assistable. RANGE is deliberately NOT
+-- a disqualifier: aura data streams fine for members merely out of 40yd spell
+-- range (the unit frame's own oorAlpha fade already dims the containers).
 -- Identity APIs can return SECRET booleans under teardown; any secret errors
 -- inside the pcall and reads fail-closed.
+--
+-- GROUP TOKENS NEVER GATE (12.1.0 build 69497+): CanApplyIdentityCandidateFilters
+-- short-circuits on `isHelpful and UnitIsPlayerControlledOrGroupMember`, a
+-- token-SHAPE test that is unconditionally true for player/partyN/raidN, so a
+-- helpful spell-ID filter can no longer degrade on a group frame -- vehicle and
+-- cinematic included. Every term below was a heuristic for that degradation, and
+-- the liveness terms (connected/alive/visible/unphased) had no dedicated recovery
+-- edge of their own: a sweep landing while a member was dead, out of render
+-- range, or phased hid that member's buff containers, and only an UNRELATED
+-- event (range crossing, roster, flags) could ever re-show them -- field-reported
+-- three times as "a buff missing on one player's frame". Staleness while a unit
+-- is ghosted is Blizzard parity and is owned by the ghost ticker's regain
+-- reparse, so the probe answers true for every group token and the gate can
+-- never hide a raid/party/extra display. Friendly Boss slots host bossN, outside
+-- the exemption, and clients without the call keep the full probe.
 local function AssistProbe(unit)
+    if UnitIsPlayerControlledOrGroupMember and UnitIsPlayerControlledOrGroupMember(unit) then
+        return true
+    end
     if UnitIsUnit(unit, "player") then
         -- UsingVehicle over InVehicle: it is also true during the boarding and
         -- exiting TRANSITIONS, and the filters already degrade while boarding
@@ -3149,13 +3175,17 @@ local function AssistProbe(unit)
         end
         return true
     end
+    -- Non-group tokens only from here (bossN slots, pre-69497 clients): the
+    -- engine's identity gate can still degrade a helpful spell-ID filter to
+    -- "any buff" on these, so hide while the unit is not live or assistable.
     if not (UnitIsConnected(unit)
         and not UnitIsDeadOrGhost(unit)
-        and UnitCanAssist("player", unit)
         and UnitIsVisible(unit)
         and not UnitPhaseReason(unit)) then
         return false
     end
+    -- Evaluated in here so a secret answer errors inside the caller's pcall.
+    if not UnitCanAssist("player", unit) then return false end
     return true
 end
 
@@ -3168,10 +3198,9 @@ end
 -- without fresh evidence of out-of-range filter degradation on the live client.
 
 local function ApplyAssistGate(button, d, unit)
-    -- Faction AND phase: the engine's identity gate degrades for members who are
-    -- cross-faction (open world) or phased/far away (filter flags haven't streamed;
-    -- UnitPhaseReason is the eye-icon signal for that state). While degraded, filter
-    -- results are untrustworthy, so filtered helpful displays hide wholesale.
+    -- Group tokens always trust (see AssistProbe): on raid/party/extra buttons
+    -- this only ever flips true and re-shows fresh containers. The hide branch
+    -- is live for Friendly Boss slots (bossN) and pre-69497 clients only.
     local assist = false
     if unit then
         local ok, res = pcall(AssistProbe, unit)
@@ -3228,6 +3257,45 @@ local function ApplyAssistGate(button, d, unit)
 end
 ns.RFC_ApplyAssistGate = ApplyAssistGate
 
+-- Per-container binding audit. Every build job reads the button's live unit
+-- attribute at its OWN run time and stamps d.rfcUnit, so a reassignment landing
+-- between two jobs leaves the containers that finished earlier bound to the
+-- previous occupant while d.rfcUnit already reads current -- the d.rfcUnit
+-- comparison every reassignment path uses can never see that. A container left
+-- on a token that no longer fires UNIT_AURA freezes on whatever it last parsed;
+-- SetUnit re-registers and reparses.
+local function RebindContainer(c, unit)
+    if c and c:GetUnit() ~= unit then c:SetUnit(unit) end
+end
+
+local function RepointStale(d, unit)
+    RebindContainer(d.rfcDebuffs, unit)
+    RebindContainer(d.rfcDispLoc, unit)
+    RebindContainer(d.rfcDispel, unit)
+    RebindContainer(d.rfcBm, unit)
+    RebindContainer(d.rfcBmSimple, unit)
+    -- Every chain container comes from the pool; a parked one sits on NO_UNIT
+    -- deliberately, so leave it there.
+    if d.rfcBmPool then
+        for _, entry in pairs(d.rfcBmPool) do
+            if type(entry) == "table" and not entry.parked then
+                RebindContainer(entry.container, unit)
+            end
+        end
+    end
+    -- Debuff Manager tiles keep their own per-container stamp beside the binding;
+    -- rebinding them here behind its back would desync the two, so let it re-point.
+    if d.dmTiles and ns.DM_OnUnitAssigned then
+        for _, c in pairs(d.dmTiles) do
+            if c:GetUnit() ~= unit then
+                ns.DM_OnUnitAssigned(d, unit)
+                break
+            end
+        end
+    end
+end
+ns.RFC_RepointStale = RepointStale
+
 -- Called from the OnAttributeChanged("unit") watch when the secure header
 -- (re)assigns a button. SetUnit re-registers events; the explicit refresh
 -- covers assignments where the new unit's auras produce no UNIT_AURA edge.
@@ -3250,6 +3318,10 @@ function ns.RFC_OnUnitAssigned(button, d, unit)
     -- Assist state can still flip without a unit change; its same-state early-out
     -- keeps that call near-free.
     if d.rfcUnit == unit then
+        -- No binding audit here: this branch is the roster-reprocess storm path
+        -- (every button, every roster/name event, several times at pull start)
+        -- and the audit is a per-container read. The 1s sweep owns it instead,
+        -- which bounds a stale binding to one second either way.
         ApplyAssistGate(button, d, unit)
         return
     end

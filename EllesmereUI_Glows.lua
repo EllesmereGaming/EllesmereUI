@@ -34,6 +34,10 @@ local GLOW_STYLES = {
       -- 5x5 grid = 25 cells, but only the first 22 are real ant frames; the last
       -- 3 are blank. Playing all 25 flashed an empty gap each loop that read as a
       -- backwards stutter. 22 matches what the Action Button Glow uses.
+      -- This entry also doubles as Action Button Glow's FlipBook twin on
+      -- engine-hosted buttons; the twin adds ABG's soft outer halo via
+      -- opts.abgHalo, scoped to that substitution (see StartEngineGlow) --
+      -- a direct Classic pick keeps this entry's bare-ants look.
       rows = 5, columns = 5, frames = 22, duration = 0.3,
       frameW = 48, frameH = 48, texPadding = 1.25 },
 }
@@ -685,7 +689,7 @@ end
 --  Handles atlas-based and raw-texture FlipBook animations (GCD, Modern WoW
 --  Glow, Classic WoW Glow, and any future FlipBook styles).
 -------------------------------------------------------------------------------
-local function StartFlipBookGlow(wrapper, szOrW, entry, cr, cg, cb, szH)
+local function StartFlipBookGlow(wrapper, szOrW, entry, cr, cg, cb, szH, opts)
     -- FlipBook frames have transparent padding baked in. Each atlas
     -- has a different amount, so the style entry carries a texPadding
     -- multiplier (defaults to 1 = no compensation).
@@ -757,6 +761,32 @@ local function StartFlipBookGlow(wrapper, szOrW, entry, cr, cg, cb, szH)
         if d.antsAg then d.antsAg:Stop() end
     end
 
+    -- Soft outer halo: matches the halo StartButtonGlow draws behind its ants.
+    -- Keyed on the CALL (opts.abgHalo -- set only by StartEngineGlow's Action
+    -- Button Glow substitution), never on the shared style entry: a direct
+    -- Classic WoW Glow pick and the RestrictionSafeStyle Pixel remap keep
+    -- their own bare-ants look, while the ABG stand-in matches the real
+    -- thing instead of rendering visibly thinner.
+    if opts and opts.abgHalo then
+        if not d.halo then
+            local haloTex = wrapper:CreateTexture(nil, "OVERLAY", nil, 6)
+            haloTex:SetTexture(ICON_ALERT_TEX)
+            haloTex:SetTexCoord(BG_GLOW_L, BG_GLOW_R, BG_GLOW_T, BG_GLOW_B)
+            haloTex:SetBlendMode("ADD")
+            haloTex:SetPoint("CENTER")
+            d.halo = haloTex
+        end
+        d.halo:SetSize(texW * 1.3, texH * 1.3)
+        d.halo:SetDesaturated(true)
+        -- The halo carries the glow color (the ants stay white); no color
+        -- chosen = the suite's canonical gold, the same default
+        -- StartNativeGlow feeds tinted styles.
+        d.halo:SetVertexColor(opts.haloR or 1.0, opts.haloG or 0.788, opts.haloB or 0.137, 1)
+        d.halo:Show()
+    elseif d.halo then
+        d.halo:Hide()
+    end
+
     wrapper:SetScript("OnUpdate", nil)
 end
 
@@ -766,6 +796,7 @@ local function StopFlipBookGlow(wrapper)
         if wrapper._euiFlipData.ag then wrapper._euiFlipData.ag:Stop() end
         if wrapper._euiFlipData.ants then wrapper._euiFlipData.ants:Hide() end
         if wrapper._euiFlipData.antsAg then wrapper._euiFlipData.antsAg:Stop() end
+        if wrapper._euiFlipData.halo then wrapper._euiFlipData.halo:Hide() end
     end
 end
 
@@ -796,6 +827,26 @@ local function StopAllGlows(wrapper)
     -- This clears any stale OnUpdate a pre-migration build may have left on the
     -- wrapper itself (harmless on our own frame; never touches the driver).
     wrapper:SetScript("OnUpdate", nil)
+end
+
+-------------------------------------------------------------------------------
+--  ApplyMaskWith -- bound every texture a glow engine created on a wrapper
+--  with the caller's MaskTexture (caller supplies CLAMPTOBLACKADDITIVE wrap).
+--  Every glow engine creates its textures directly on the wrapper, so the
+--  region list is the complete set. Used by threshold-gated glows: the mask
+--  tracks a gate StatusBar's fill rect, so a C-side value comparison decides
+--  visibility without the value ever crossing into Lua. Masks keep rendering
+--  where a SetClipsChildren bound goes dark on secret-derived rects in
+--  restricted content. Dedicated wrappers only: the mask is never removed.
+-------------------------------------------------------------------------------
+local function ApplyMaskWith(wrapper, mask)
+    if not (wrapper and mask) then return end
+    for _, r in ipairs({ wrapper:GetRegions() }) do
+        if r.AddMaskTexture and r._euiTGMask ~= mask then
+            r._euiTGMask = mask
+            r:AddMaskTexture(mask)
+        end
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -844,8 +895,10 @@ local function StartGlow(wrapper, styleIdx, szOrW, cr, cg, cb, opts, szH)
 
     else
         -- FlipBook mode (GCD, Modern WoW Glow, Classic WoW Glow, etc.)
-        StartFlipBookGlow(wrapper, w, entry, cr, cg, cb, h)
+        StartFlipBookGlow(wrapper, w, entry, cr, cg, cb, h, opts)
     end
+
+    if opts.maskWith then ApplyMaskWith(wrapper, opts.maskWith) end
 
     wrapper._euiGlowActive = true
     wrapper:SetAlpha(1)
@@ -962,6 +1015,7 @@ end
 --  those two; the fallback only covers stale saved values). FlipBook picks
 --  pass through untouched. Never registers with the central driver.
 -------------------------------------------------------------------------------
+local ABG_HALO_OPTS = { abgHalo = true }  -- shared scratch for the no-opts ABG substitution (halo color rewritten per call, read synchronously)
 local function StartEngineGlow(wrapper, styleIdx, szOrW, cr, cg, cb, opts, szH)
     if not wrapper then return end
     styleIdx = tonumber(styleIdx) or 1
@@ -978,7 +1032,15 @@ local function StartEngineGlow(wrapper, styleIdx, szOrW, cr, cg, cb, opts, szH)
         return
     end
     if entry.buttonGlow then
+        -- Classic's flipbook sheet plus ABG's soft outer halo (opts.abgHalo),
+        -- scoped to this substitution and never to the shared Classic entry.
+        -- Real ABG anatomy: the ants stay white (nil color = the flipbook's
+        -- white default) while the COLOR rides the halo alone -- gold when
+        -- the caller never chose one.
         styleIdx = 7
+        if opts then opts.abgHalo = true else opts = ABG_HALO_OPTS end
+        opts.haloR, opts.haloG, opts.haloB = cr, cg, cb
+        cr, cg, cb = nil, nil, nil
     elseif entry.autocast or entry.shapeGlow then
         styleIdx = 6
     end
@@ -1027,6 +1089,7 @@ EllesmereUI.Glows = {
     StopShapeGlow       = StopShapeGlow,
     StartFlipBookGlow   = StartFlipBookGlow,
     StopFlipBookGlow    = StopFlipBookGlow,
+    ApplyMaskWith       = ApplyMaskWith,
     StopAllGlows        = StopAllGlows,
 }
 

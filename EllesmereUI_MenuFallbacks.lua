@@ -7,13 +7,13 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  A raid/party member who is in another zone (a house owner hosting a
 --  housewarming is ALWAYS elsewhere) trips the togglemenu classifier, and the
 --  menu proxy's backstop (EllesmereUI_Kick.lua) re-opens the player menu from
---  Lua -- a TAINTED menu. Every protected item in it fails: Set Focus and
---  Follow throw ADDON_ACTION_FORBIDDEN, and Blizzard's "View Houses" runs
+--  Lua -- a TAINTED menu. Its protected items all fail: Set Focus, Follow and
+--  the Raid Target markers throw ADDON_ACTION_FORBIDDEN; "View Houses" runs
 --  HouseListFrame:InitWithContextData tainted, which poisons the house list's
 --  ScrollBox data for the rest of the session (every later Visit House click,
 --  even from a secure menu, is blocked at C_Housing.VisitHouse).
 --
---  Everything here applies to THAT menu only. Blizzard's Set Focus / Follow /
+--  Everything applies to THAT menu only. Set Focus / Follow / Raid Target /
 --  View Houses entries are greyed out so they cannot throw or poison, and a
 --  "View Houses" button docked beside the menu opens our own house list. Each
 --  row's Visit is a SecureActionButton WE own running the stock "visithouse"
@@ -383,10 +383,13 @@ local function ModifyReopenedMenu(owner, rootDescription, contextData)
     local viewHouses = UNIT_VIEW_HOUSES or "View Houses"
     local setFocus = SET_FOCUS or "Set Focus"
     local follow = FOLLOW or "Follow"
+    local raidTarget = RAID_TARGET_ICON or "Raid Target Icon"
     for _, d in rootDescription:EnumerateElementDescriptions() do
         local text = MenuUtil.GetElementText(d)
-        if d.SetEnabled and (text == setFocus or text == follow or (HOUSING_OK and text == viewHouses)) then
-            -- Protected from a tainted menu: throws (focus/follow) or poisons
+        if d.SetEnabled and (text == setFocus or text == follow or text == raidTarget
+                or (HOUSING_OK and text == viewHouses)) then
+            -- Protected from a tainted menu: throws (focus/follow, and every
+            -- marker under Raid Target Icon -- SetRaidTarget) or poisons
             -- HouseListFrame for the session (View Houses; the docked button
             -- replaces it).
             d:SetEnabled(false)

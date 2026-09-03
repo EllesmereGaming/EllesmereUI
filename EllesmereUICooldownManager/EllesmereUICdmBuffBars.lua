@@ -913,10 +913,27 @@ function _tbbWake.Probe()
     end
     return false
 end
-function _tbbWake.OnEvent(_, event)
-    -- Awake: this is the composition edge that retires the assignment memo. Mark and let the next tick re-pair; no probe, no state change.
+function _tbbWake.OnEvent(_, event, _, updateInfo)
+    -- Awake: this is the composition edge that retires the assignment memo. Mark and
+    -- let the next tick re-pair; no probe, no state change. Pairing keys on frame
+    -- identity only (pool membership, cooldown slot, aura spell variant), and an
+    -- update-only payload (refresh / stack change on auras already bound) moves none
+    -- of those, so only additions, removals, full updates, or an unreadable payload
+    -- retire the memo -- the same secret guard as the buff ticker's UNIT_AURA writer:
+    -- the table and each field can arrive secret in instanced content, and a secret
+    -- can never be boolean-tested, so unreadable means assume churn.
     if tbbTickFrame and tbbTickFrame:IsShown() then
-        _tbbAssignDirty = true
+        if event ~= "UNIT_AURA" or not updateInfo or issecretvalue(updateInfo) then
+            _tbbAssignDirty = true
+        else
+            local full    = updateInfo.isFullUpdate
+            local removed = updateInfo.removedAuraInstanceIDs
+            local added   = updateInfo.addedAuras
+            if issecretvalue(full) or issecretvalue(removed) or issecretvalue(added)
+               or full or removed or added then
+                _tbbAssignDirty = true
+            end
+        end
         return
     end
     if event == "UNIT_AURA" and not _tbbWake.Probe() then return end
@@ -1635,7 +1652,7 @@ local TBB_STYLE_KEYS = {
     "opacity", "hideWhenInactive", "onlyInCombat",
     -- Visibility rides along because the onlyInCombat toggle it replaced already did: a new
     -- bar inheriting a neighbour's style, or one joining a group, kept that gate before.
-    "barVisibility", "visibilityModes",
+    "barVisibility", "visibilityModes", "visibilityMatch",
     -- The option lanes themselves are appended from the shared list below.
     "showTimer", "timerPosition", "timerSize", "timerX", "timerY",
     "timerTextR", "timerTextG", "timerTextB", "timerTextA",
@@ -3895,8 +3912,16 @@ local function _ensureLustListener(enable)
                     _lustZoneGuard = GetTime() + 1.5
                     return
                 end
-                -- Sated lasts 10 minutes and nothing lifts it early, so a rise this
-                -- listener armed on pins the debuff for the next 590s: skip the
+                if event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" then
+                    -- Death strips the lockout debuff, so the 590s pin below has to be
+                    -- released here: a wipe followed by a fresh lust would otherwise be
+                    -- swallowed for the rest of the window the pin was stamped for.
+                    _satedPresent = _playerHasSated()
+                    _satedSince = nil
+                    return
+                end
+                -- Nothing but death lifts the lockout early (handled above), so a rise
+                -- this listener armed on pins the debuff for the next 590s: skip the
                 -- (allocating) aura probe until it can possibly have dropped.
                 if _satedPresent and _satedSince and GetTime() < _satedSince + 590 then return end
                 local present = _playerHasSated()
@@ -3931,6 +3956,8 @@ local function _ensureLustListener(enable)
             _satedSince = nil
             _lustListener:RegisterUnitEvent("UNIT_AURA", "player")
             _lustListener:RegisterEvent("PLAYER_ENTERING_WORLD")
+            _lustListener:RegisterEvent("PLAYER_DEAD")
+            _lustListener:RegisterEvent("PLAYER_ALIVE")
             _lustListenerActive = true
         end
     elseif _lustListener and _lustListenerActive then
@@ -3990,10 +4017,24 @@ local function _UpdateSelfTimedBar(bar, cfg, expiry, duration)
         if cfg.showSpark and bar._spark then bar._spark:Show() end
     end
     if cfg.showTimer and bar._timerText then
+        -- The string changes only when its displayed bucket does (rounded tenths
+        -- under 10s, whole seconds above), so stamp the bucket and skip the
+        -- per-tick format + SetText otherwise. A fresh appearance always writes
+        -- (wasShown false) and the placeholder exit clears the stamp, so no other
+        -- writer of this FontString can strand it.
+        local key
         if remaining < 10 then
-            bar._timerText:SetText(string.format("%.1f", remaining))
+            key = math.floor(remaining * 10 + 0.5)
         else
-            bar._timerText:SetText(string.format("%d", remaining))
+            key = math.floor(remaining)
+        end
+        if not wasShown or bar._stTxtKey ~= key then
+            bar._stTxtKey = key
+            if remaining < 10 then
+                bar._timerText:SetText(string.format("%.1f", remaining))
+            else
+                bar._timerText:SetText(string.format("%d", remaining))
+            end
         end
         bar._timerText:Show()
     elseif bar._timerText then
@@ -5056,6 +5097,12 @@ function ns.UpdateTrackedBuffBarTimers()
             if ns.HideTBBPlaceholders then ns.HideTBBPlaceholders() end
             -- Auras may have moved while the preview was up: re-pair on the first real mirror tick.
             _tbbAssignDirty = true
+            -- The preview may have written the self-timed bars' timer text: drop
+            -- their bucket stamps so the next live tick rewrites it.
+            for bi = 1, #tbbFrames do
+                local b = tbbFrames[bi]
+                if b then b._stTxtKey = nil end
+            end
         end
     end
 
@@ -5730,6 +5777,16 @@ function ns.BuildTrackedBuffBars()
             local namePos2 = cfg.namePosition or ((cfg.showName ~= false) and "left" or "none")
             if namePos2 ~= "none" and bar._nameText then
                 local displayName = cfg.name
+                -- Preset bars take the live label the same way the icon does above:
+                -- the copy saved at pick time can name the other faction's lust.
+                if cfg.popularKey then
+                    for _, pe in ipairs(TBB_POPULAR_BUFFS) do
+                        if pe.key == cfg.popularKey then
+                            displayName = pe.name or displayName
+                            break
+                        end
+                    end
+                end
                 if (not displayName or displayName == "") and cfg.spellID and cfg.spellID > 0 then
                     local spInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(cfg.spellID)
                     displayName = spInfo and spInfo.name

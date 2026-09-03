@@ -103,8 +103,8 @@ initFrame:SetScript("OnEvent", function(self)
             -- behind; its "(seconds)" suffix is attached below.
             { type="slider", text="Refresh Rate",
               tooltip = "Increase to improve performance, Decrease to update meters faster",
-              min = 0.1, max = 2, step = 0.1,
-              getValue = function() return Cfg("refreshRate") or 0.5 end,
+              min = 0.5, max = 2, step = 0.1,
+              getValue = function() return Cfg("refreshRate") or 1 end,
               setValue = function(v) Set("refreshRate", v) end,
               fmt = function(v) return format("%.2fs", v) end })
         y = y - h
@@ -299,7 +299,7 @@ initFrame:SetScript("OnEvent", function(self)
                     return
                 end
                 if key == "LSHIFT" or key == "RSHIFT" or key == "LCTRL" or key == "RCTRL"
-                   or key == "LALT" or key == "RALT" then
+                   or key == "LALT" or key == "RALT" or key == "LMETA" or key == "RMETA" then
                     self:SetPropagateKeyboardInput(true)
                     return
                 end
@@ -310,11 +310,26 @@ initFrame:SetScript("OnEvent", function(self)
                     RefreshLabel()
                     return
                 end
-                local mods = ""
-                if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
-                if IsControlKeyDown() then mods = mods .. "CTRL-" end
-                if IsAltKeyDown() then mods = mods .. "ALT-" end
-                local fullKey = mods .. key
+                -- Blizzard's canonical chord order is ALT-CTRL-SHIFT-KEY, and
+                -- CreateKeyChordStringUsingMetaKeyState is what produces it.
+                -- Hand-rolling the modifiers built SHIFT-CTRL-ALT-KEY, a chord
+                -- string the engine never generates, so any bind using more
+                -- than one modifier was stored in a form nothing could match.
+                -- Single-modifier binds happen to agree, which is why this
+                -- survived.
+                local fullKey
+                if CreateKeyChordStringUsingMetaKeyState then
+                    fullKey = CreateKeyChordStringUsingMetaKeyState(key)
+                else
+                    local mods = ""
+                    if IsAltKeyDown() then mods = mods .. "ALT-" end
+                    if IsControlKeyDown() then mods = mods .. "CTRL-" end
+                    if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
+                    if IsMetaKeyDown and IsMetaKeyDown() then
+                        mods = mods .. "META-"
+                    end
+                    fullKey = mods .. key
+                end
 
                 if _G.EllesmereUIDMResetBindBtn then
                     ClearOverrideBindings(_G.EllesmereUIDMResetBindBtn)
@@ -1368,11 +1383,11 @@ initFrame:SetScript("OnEvent", function(self)
         y = y - h
 
         -- Force English Number Units (K/M/B) | (spacer)
-        -- CJK clients only: zhCN/zhTW/koKR group numbers by wan/eok, so this
-        -- offers K/M/B instead. Every other locale already gets K/M/B and the
-        -- toggle would be a no-op, so the row is skipped for them.
-        local clientLocale = GetLocale()
-        if clientLocale == "zhCN" or clientLocale == "zhTW" or clientLocale == "koKR" then
+        -- Only where the effective locale actually has its own abbreviation
+        -- algorithm (currently the CJK wan/yi grouping tables in
+        -- EllesmereUI_NumberFormat.lua): every other locale already gets
+        -- K/M/B and the toggle would be a no-op, so the row is skipped for them.
+        if EllesmereUI.LocaleHasNumberAbbreviation and EllesmereUI.LocaleHasNumberAbbreviation() then
             _, h = W:DualRow(parent, y,
                 { type="toggle", text="Force English Units (K/M/B)",
                   tooltip = "Always use K/M/B instead of localized units.",
@@ -2067,6 +2082,16 @@ initFrame:SetScript("OnEvent", function(self)
         onReset = function()
             local d = _G._EDM_DB
             if d and d.ResetProfile then d:ResetProfile() end
+        end,
+        -- Mirrors RegisterOnHide below: SA Timer Preview + forced-visible
+        -- meter windows, on module switch instead of just window close.
+        onModuleLeave = function()
+            if ns.HideSATimerPreview then ns.HideSATimerPreview() end
+            ns._optionsOpen = false
+            for _, w in ipairs(ns._windows or {}) do
+                if w.UpdateVisibility then w.UpdateVisibility() end
+            end
+            if ns.ApplySpellHistory then ns.ApplySpellHistory() end
         end,
     })
 

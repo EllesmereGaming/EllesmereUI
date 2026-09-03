@@ -1192,6 +1192,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         local v = src.barVisibility or "always"
         dst.barVisibility = v
+        dst.visibilityMatch = src.visibilityMatch or nil
         dst.alwaysHidden = src.alwaysHidden
         dst.mouseoverEnabled = src.mouseoverEnabled
         dst.mouseoverAlpha = src.mouseoverAlpha
@@ -1259,7 +1260,12 @@ initFrame:SetScript("OnEvent", function(self)
                   end,
                   legacyKey = "barVisibility",
                   label = leftLabel,
-                  caps = { partyIncludesRaid = false, luaDragonriding = true },
+                  -- noOverrideMouseover: this module's hover wiring reads the STORED
+                  -- mouseoverEnabled, which an override does not write, so a Mouseover
+                  -- override would silently behave like Always. Offered as locked rather
+                  -- than looking available and doing nothing.
+                  caps = { partyIncludesRaid = false, luaDragonriding = true,
+                           noOverrideMouseover = true },
                   applyScalarFn = function(s, mode) ApplyVisibilityKey(s, mode) end,
                   disabledFn = disabledFn, disabledTooltip = disTip, rawTooltip = disTip and true or nil,
                   onChanged = function()
@@ -1271,8 +1277,11 @@ initFrame:SetScript("OnEvent", function(self)
                       end
                   end,
                   -- Option axes recompile the secure driver through the same chain the
-                  -- old Visibility Options dropdown used.
+                  -- old Visibility Options dropdown used. The gate refresh first: a lane
+                  -- click can be what just armed (or disarmed) the soft-target machinery,
+                  -- and the two calls below must see the current flags, not last click's.
                   onOptionChanged = function()
+                      EAB:_RefreshSoftTargetGate()
                       EAB:UpdateHousingVisibility()
                       EAB:ApplyCombatVisibility()
                   end }
@@ -1684,7 +1693,8 @@ initFrame:SetScript("OnEvent", function(self)
             end
 
             -- Pet Bar cannot express group modes: lock them with an explanation instead of offering silent no-ops.
-            local visCaps = { partyIncludesRaid = false }
+            -- noOverrideMouseover: see the caps on the bar row above.
+            local visCaps = { partyIncludesRaid = false, noOverrideMouseover = true }
             if SelectedKey() == "PetBar" then
                 visCaps.noGroupModes = true
                 visCaps.lockedTooltips = {
@@ -1716,8 +1726,11 @@ initFrame:SetScript("OnEvent", function(self)
                       EAB:ApplyCombatVisibility()
                   end,
                   -- Option axes recompile the secure driver through the same chain the
-                  -- old Visibility Options dropdown used.
+                  -- old Visibility Options dropdown used. The gate refresh first: a lane
+                  -- click can be what just armed (or disarmed) the soft-target machinery,
+                  -- and the two calls below must see the current flags, not last click's.
                   onOptionChanged = function()
+                      EAB:_RefreshSoftTargetGate()
                       EAB:UpdateHousingVisibility()
                       EAB:ApplyCombatVisibility()
                   end },
@@ -1979,18 +1992,34 @@ initFrame:SetScript("OnEvent", function(self)
                 kbBtn:SetScript("OnKeyDown", function(self, key)
                     if not listening then self:SetPropagateKeyboardInput(true); return end
                     if key == "LSHIFT" or key == "RSHIFT" or key == "LCTRL" or key == "RCTRL"
-                       or key == "LALT" or key == "RALT" then
+                       or key == "LALT" or key == "RALT" or key == "LMETA" or key == "RMETA" then
                         self:SetPropagateKeyboardInput(true); return
                     end
                     self:SetPropagateKeyboardInput(false)
                     if key == "ESCAPE" then
                         listening = false; self:EnableKeyboard(false); RefreshLabel(); return
                     end
-                    local mods = ""
-                    if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
-                    if IsControlKeyDown() then mods = mods .. "CTRL-" end
-                    if IsAltKeyDown() then mods = mods .. "ALT-" end
-                    SB().toggleVisKey = mods .. key
+                    -- Blizzard's canonical chord order is ALT-CTRL-SHIFT-KEY,
+                    -- and CreateKeyChordStringUsingMetaKeyState is what
+                    -- produces it. Hand-rolling the modifiers built
+                    -- SHIFT-CTRL-ALT-KEY, a chord string the engine never
+                    -- generates, so any bind using more than one modifier was
+                    -- stored in a form nothing could match. Single-modifier
+                    -- binds happen to agree, which is why this survived.
+                    local fullKey
+                    if CreateKeyChordStringUsingMetaKeyState then
+                        fullKey = CreateKeyChordStringUsingMetaKeyState(key)
+                    else
+                        local mods = ""
+                        if IsAltKeyDown() then mods = mods .. "ALT-" end
+                        if IsControlKeyDown() then mods = mods .. "CTRL-" end
+                        if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
+                        if IsMetaKeyDown and IsMetaKeyDown() then
+                            mods = mods .. "META-"
+                        end
+                        fullKey = mods .. key
+                    end
+                    SB().toggleVisKey = fullKey
                     EAB:RebuildVisToggleBindings()
                     listening = false
                     self:EnableKeyboard(false)

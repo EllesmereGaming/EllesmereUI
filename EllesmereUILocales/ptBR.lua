@@ -1297,7 +1297,6 @@ L["Open Micro Menu on Middle Click"] = "Abrir Menu Micro ao Clicar com o Botão 
 L["Quest Log"] = "Diário de Missões"
 L["Rotate Minimap"] = "Girar Minimapa"
 L["Scroll to Zoom"] = "Rolagem para Zoom"
-L["Shape Settings"] = "Configurações de Formato"
 L["Show black backgrounds behind minimap indicator buttons (tracking, calendar, mail, crafting, addon buttons, flyout toggle)."] = "Mostra fundos pretos atrás dos botões indicadores do minimapa (rastreamento, calendário, correio, criação, botões de addon, botão de agrupamento)."
 L["Show Blizzard Elements"] = "Mostrar Elementos da Blizzard"
 L["Show Blizzard's addon compartment button on the minimap. Use the cog to choose its corner and nudge its position."] = "Mostra o botão do compartimento de addons da Blizzard no minimapa. Use a engrenagem para escolher seu canto e ajustar sua posição."
@@ -3820,7 +3819,6 @@ L["Apply the selected preset's style to this bar."] = "Aplica o estilo do predef
 L["Apply this pandemic glow to Nameplates, all CDM bars, and other tracking bars. A surface that can't show a style uses its closest match."] = "Aplica este brilho de pandemia a Placas de Nome, todas as barras do CDM e outras barras de status. Uma superfície que não conseguir exibir um estilo usa a opção mais parecida."
 L["Apply this pandemic glow to Nameplates, all CDM bars, and tracking bars. A surface that can't show a style uses its closest match."] = "Aplica este brilho de pandemia a Placas de Nome, todas as barras do CDM e barras de status. Uma superfície que não conseguir exibir um estilo usa a opção mais parecida."
 L["Apply to Group"] = "Aplicar ao Grupo"
-L["Apply Visibility Options to all Bars"] = "Aplicar Opções de Visibilidade a todas as Barras"
 L["Audio Effect on CD Ready"] = "Efeito Sonoro ao Recarregar"
 L["Auras"] = "Auras"
 L["Auto-Add New to This Group"] = "Adicionar Novos Automaticamente a Este Grupo"
@@ -4218,7 +4216,6 @@ L["Apply Text Bar Position to all Frames"] = "Aplicar Posição da Barra de Text
 L["Apply Text Bar Right Text to all Frames"] = "Aplicar Texto à Direita da Barra de Texto a Todos os Quadros"
 L["Apply Text Bar Width to all Frames"] = "Aplicar Largura da Barra de Texto a Todos os Quadros"
 L["Apply Text Color to all Frames"] = "Aplicar Cor do Texto a Todos os Quadros"
-L["Apply Visibility Options to all Frames"] = "Aplicar Opções de Visibilidade a Todos os Quadros"
 L["Apply Visibility to all Frames"] = "Aplicar Visibilidade a Todos os Quadros"
 L["Art Style"] = "Estilo de Arte"
 L["Bar Background Color"] = "Cor de Fundo da Barra"
@@ -4471,7 +4468,6 @@ L["Shows only debuffs from Blizzard's curated raid-frame debuff set"] = "Mostra 
 L["Shows only debuffs not caused by any player or player pet (this is what shows most pve debuffs, do not check this while All Debuffs is selected!"] = "Mostra apenas debuffs não causados por nenhum jogador ou ajudante de jogador (isso é o que mostra a maioria dos debuffs de JxA; não marque isso enquanto Todos os Debuffs estiver selecionado!"
 L["Shows only external defensive cooldowns cast on the unit"] = "Mostra apenas recargas de defensivas externas lançadas na unidade"
 L["Shows only major defensive cooldowns"] = "Mostra apenas recargas de defensivas importantes"
-L["Shows only the Debuffs you apply"] = "Mostra apenas os Debuffs que você aplica"
 L["Shows only the stricter in-combat subset of the raid set"] = "Mostra apenas o subconjunto mais restrito em combate do conjunto de raide"
 L["Shows the nameplate-style dragon badge on elite, rare elite, and rare targets."] = "Mostra o emblema de dragão estilo placa de nome em alvos de elite, elite raro e raro."
 L["Shows the overlay only for debuffs you can currently dispel."] = "Mostra a sobreposição apenas para debuffs que você pode dissipar no momento."
@@ -4727,9 +4723,7 @@ L["Only Group & Pull"] = "Apenas Grupo e Puxada"
 L["Only Markers"] = "Apenas Marcadores"
 L["One Window"] = "Uma Janela"
 L["Two Windows"] = "Duas Janelas"
-L["One Window combines everything into a single element; the Only choices show just that part."] = "Uma Janela combina tudo em um único elemento; as opções Apenas exibem só aquela parte."
 L["Show as"] = "Exibir como"
-L["Shows start as a small icon, and the keybind switches between the icon and the full windows. Turn off to show full windows and make the keybind hide and show them."] = "Começa exibido como um pequeno ícone, e o atalho alterna entre o ícone e as janelas completas. Desative para exibir as janelas completas e fazer o atalho ocultá-las e exibi-las."
 L["Default to Collapsed When Shown"] = "Recolhido por Padrão ao Ser Exibido"
 L["PULL TIMER"] = "CRONÔMETRO DE PUXADA"
 L["Ready Check"] = "Confirm. de Pronto"
@@ -5212,8 +5206,18 @@ L["Hearty Wise Tails"] = "Cauda de Sábio Substanciais"
 L["Missing Pet"] = "Ajudante Ausente"
 L["Passive Pet"] = "Ajudante em Passivo"
 L["Show a reminder when you don't have an active pet summoned. Only applies to pet classes (Hunter, Warlock, Death Knight, Mage)."] = "Exibe um lembrete quando você não tem um ajudante ativo invocado. Aplica-se apenas às classes com ajudante (Caçador, Bruxo, Cavaleiro da Morte, Mago)."
-L["Show a reminder when your Demonology Warlock has the wrong pet summoned (not Felguard)."] = "Exibe um lembrete quando seu Bruxo Demonologia tem o ajudante errado invocado (não é o Guarda Vil)."
-L["Wrong Pet (Demo Lock)"] = "Ajudante Errado (Bruxo Demo)"
+L["Wrong Demon"] = "Demônio Errado"
+L["Show a reminder when your Warlock's active pet isn't one of the demons picked in Allowed Demons. A demon only counts while its summon spell is known, so leaving only Felguard picked stays silent for specs/builds that haven't talented Summon Felguard."] = "Exibe um lembrete quando o ajudante ativo do seu Bruxo não é um dos demônios escolhidos em Demônios Permitidos. Um demônio só conta enquanto seu feitiço de invocação for conhecido, então deixar apenas o Guarda Vil escolhido mantém o lembrete em silêncio para especializações ou configurações que não talentaram Evocar Guarda Vil."
+
+-- Warlock demons (Allowed Demons)
+L["WARLOCK DEMONS"] = "DEMÔNIOS DO BRUXO"
+L["Allowed Demons"] = "Demônios Permitidos"
+L["Pick which demons count as correct for Wrong Demon. A demon only counts while its summon spell is known; with none picked (or everything picked), the reminder never fires."] = "Escolha quais demônios contam como corretos para o Demônio Errado. Um demônio só conta enquanto seu feitiço de invocação for conhecido; com nenhum escolhido (ou todos escolhidos), o lembrete nunca é ativado."
+L["You have not learned %1$s."] = "Você não aprendeu %1$s."
+L["Imp"] = "Diabrete"
+L["Voidwalker"] = "Emissário do Caos"
+L["Felhunter"] = "Caçador Vil"
+L["Sayaad"] = true
 
 -- Healthstone reminder
 L["Remind you to grab a Healthstone when a Warlock is in your group."] = "Lembra você de pegar uma Pedra de Vida quando há um Bruxo no seu grupo."
@@ -5239,7 +5243,6 @@ L["Show Name"] = "Exibir Nome"
 
 -- Flask/food/weapon restock behavior
 L["Show Without Item in Bags"] = "Exibir Sem o Item nas Bolsas"
-L["When on, flask/food/weapon reminders still show (dimmed) when you have no matching item in your bags, as a prompt to restock.\nWhen off, they are hidden entirely if you don't carry the item."] = "Quando ativado, os lembretes de frasco/comida/arma continuam aparecendo (esmaecidos) mesmo sem o item correspondente nas bolsas, como um aviso para reabastecer.\nQuando desativado, ficam totalmente ocultos se você não estiver carregando o item."
 L["Preferred (Click to Buff)"] = "Preferido (Clique para Buffar)"
 L["Last Used"] = "Usado por Último"
 
@@ -5796,7 +5799,6 @@ L["Custom debuff bar"] = "Barra de debuffs personalizada"
 L["damage meters dps hps healing interrupts dispels spell history"] = "medidor de dano dps hps cura interrupções dissipações histórico de feitiços"
 L["DEBUFF BARS"] = "BARRAS DE DEBUFFS"
 L["Debuff Manager changes on this page apply only to this override."] = "As alterações do Gerenciador de Debuffs nesta página se aplicam apenas a esta substituição."
-L["Debuffs Blizzard flags as important"] = "Debuffs marcados pela Blizzard como importantes"
 L["Debuffs not caused by any player or player pet (this is what shows most pve debuffs)."] = "Debuffs não causados por nenhum jogador ou ajudante de jogador (isso é o que mostra a maioria dos debuffs de JxA)."
 L["Delete the custom unlock mode for '%s'? Its specs return to your default unlock mode layout."] = "Excluir o modo de desbloqueio personalizado de '%s'? Suas especializações voltam para o seu layout padrão do modo de desbloqueio."
 L["Delve Tier Picker"] = "Seletor de Nível de Profundezas"
@@ -6027,14 +6029,12 @@ L["Conflicting Keybind"] = "Atalho conflitante"
 L["Disabling both disables this binding."] = "Desativar ambos desativa este atalho."
 
 -- == Quality of Life / Raid Tools ============================================
-L["Countdown length of this pull button, in seconds. Set it to 0 to hide the button; with all three at 0 the whole pull row disappears, Stop included."] = "Duração da contagem regressiva deste botão de puxada, em segundos. Defina como 0 para ocultar o botão; com os três em 0, toda a linha de puxada desaparece, incluindo Parar."
 L["GROUP BUTTONS"] = "BOTÕES DE GRUPO"
 L["Show Convert to Raid"] = "Mostrar Converter em Raide"
 L["Show Disband"] = "Mostrar Desfazer Grupo"
 L["Show Role Check"] = "Mostrar Confirm. de Função"
 L["Shows the Convert to Raid button, which reads Convert to Party while you are in a raid."] = "Mostra o botão Converter em Raide, que exibe Converter em Grupo enquanto você está em uma raide."
 L["Shows the Disband button. It always asks before disbanding, but hiding it puts it out of misclick range for good."] = "Mostra o botão Desfazer Grupo. Ele sempre pergunta antes de desfazer, mas ocultá-lo o tira do alcance de cliques acidentais de vez."
-L["Shows the Role Check button. Turn it off and the remaining buttons close the gap."] = "Mostra o botão Confirm. de Função. Desative-o e os botões restantes fecham o espaço."
 
 -- == Quality of Life / Movement Alerts =======================================
 L["Text: Duration"] = "Texto: Duração"
@@ -6458,4 +6458,284 @@ L["House"] = "Casa"
 L["Leave combat to enable visiting."] = "Saia do combate para poder visitar."
 L["Loading houses..."] = "Carregando casas..."
 L["No houses found."] = "Nenhuma casa encontrada."
+L["View Houses"] = "Ver Casas"
 L["Visit"] = "Visitar"
+
+-- == Resource Bars / Arcane Soul (Solfúria Arcane Mage) =========================
+L["ARCANE SOUL (SUNFURY)"] = "ALMA ARCANA (SOLFÚRIA)"
+L["Arcane Soul"] = "Alma Arcana"
+L["Arcane Soul Helper"] = "Ajuda de Alma Arcana"
+L["Arcane Soul Position"] = "Posição da Alma Arcana"
+L["Countdown Format"] = "Formato da Contagem Regressiva"
+L["Countdown to Soul"] = "Contagem Regressiva até a Alma"
+L["Enable Arcane Soul Helper"] = "Ativar Ajuda de Alma Arcana"
+L["GCD Count"] = "Contagem de GCD"
+L["ILVL"] = true
+L["Inside Soul"] = "Dentro da Alma"
+L["Last Barrage"] = "Última Salva"
+L["Seconds"] = "Segundos"
+L["Seconds + GCD in Soul"] = "Segundos + GCD na Alma"
+L["Seconds counts the time down in tenths. GCD Count counts whole global cooldowns instead, so inside Arcane Soul it reads as the number of Arcane Barrages that still fit, ending on a coloured LAST. Seconds + GCD in Soul mixes the two: tenths counting down to the window, Barrage count once it opens."] = "Segundos conta o tempo em décimos. Contagem de GCD conta GCDs inteiros, então dentro da Alma Arcana ele mostra o número de Salvas Arcanas que ainda cabem, terminando em um LAST colorido. Segundos + GCD na Alma combina os dois: décimos até a janela abrir, contagem de Salvas quando ela abre."
+L["Seconds of Arcane Surge left when the countdown appears. Always in seconds, including in GCD mode."] = "Segundos restantes de Surto Arcano quando a contagem regressiva aparece. Sempre em segundos, mesmo no modo GCD."
+L["Show Threshold"] = "Mostrar Limite"
+L["Shows a countdown to the Arcane Soul window over the last seconds of Arcane Surge, then the time left inside it. Sunfury Arcane Mages only."] = "Mostra uma contagem regressiva para a janela de Alma Arcana nos últimos segundos de Surto Arcano, depois o tempo restante dentro dela. Apenas Magos Arcanos Solfúria."
+L["This option requires Countdown Format to count GCDs inside Arcane Soul"] = "Esta opção requer que o Formato da Contagem Regressiva conte GCDs dentro da Alma Arcana"
+
+-- == Mythic+ Timer / Split Compare Strict Mode ===================================
+L["Compare only against splits from the same key level (off: new key levels compare against your dungeon best)."] = "Compara apenas parciais do mesmo nível de chave (desativado: novos níveis de chave comparam com sua melhor masmorra)."
+L["Strict Comparison Mode"] = "Modo de Comparação Estrita"
+L["This option requires Split Compare to include a key level"] = "Esta opção requer que a Comparação de Parciais inclua um nível de chave"
+
+-- == Data Bars / Crests Block ====================================================
+L["Crest Colors"] = "Cores dos Brasões"
+L["Crests Shown"] = "Brasões Exibidos"
+L["Dash"] = "Traço"
+L["Drops crests you own none of, keeping the block short early in a season. They stay listed in the tooltip."] = "Remove brasões que você não possui, mantendo o bloco mais curto no início de uma temporada. Eles continuam listados na dica de ferramenta."
+L["Equipped counts your worn gear. Total also counts upgrades sitting in your bags."] = "Equipado conta seu equipamento vestido. Total também conta melhorias que estão em suas bolsas."
+L["Hide Empty Crests"] = "Ocultar Brasões Vazios"
+L["Highest First"] = "Maior Primeiro"
+L["How many decimal places the number carries."] = "Quantas casas decimais o número tem."
+L["Line"] = "Linha"
+L["Lowest First"] = "Menor Primeiro"
+L["Order"] = "Ordem"
+L["Prefix"] = "Prefixo"
+L["Replaces the spendable amount with the crests you have earned this season, out of the season cap. The tooltip lists both numbers side by side."] = "Substitui a quantidade utilizável pelos brasões que você ganhou nesta temporada, do total do limite da temporada. A dica de ferramenta lista os dois números lado a lado."
+L["Show Icons"] = "Mostrar Ícones"
+L["Show Season Progress"] = "Mostrar Progresso da Temporada"
+L["Shows each crest's icon in front of its amount."] = "Mostra o ícone de cada brasão na frente de sua quantidade."
+L["Slash"] = "Barra"
+L["Space"] = "Espaço"
+L["What sits between the crest amounts."] = "O que fica entre as quantidades de brasões."
+L["What sits in front of the number. Icon shows the character icon; the color swatches on the left tint it."] = "O que fica na frente do número. Ícone mostra o ícone do personagem; as amostras de cor à esquerda o tingem."
+L["Which end of the crest ladder comes first."] = "Qual extremidade da escala de brasões vem primeiro."
+L["Which of the season's crests this block shows."] = "Qual brasão da temporada este bloco mostra."
+
+-- == Data Bars / Item Level, Character Sheet & PvP Item Level ===================
+L["Band"] = "Faixa"
+L["Current Season Maximum"] = "Máximo da Temporada Atual"
+L["Equipped"] = "Equipado"
+L["Open Character Sheet"] = "Abrir Ficha de Personagem"
+L["PvP Item Level"] = "Nível de item de JxJ"
+
+-- == Raid Frames / Ping Marker ===================================================
+L["Ping Marker"] = "Marcador de Sinalização"
+L["Ping Marker Offset"] = "Deslocamento do Marcador de Sinalização"
+L["Ping Marker Size"] = "Tamanho do Marcador de Sinalização"
+L["Shows the ping mark on a member's frame when someone pings them (needs Blizzard's Show Pings on Raid Frames setting on)."] = "Mostra a marca de sinalização no quadro de um membro quando alguém o sinaliza (requer a configuração 'Mostrar Sinalizações nos Quadros de Raide' da Blizzard ativada)."
+
+-- == Raid Frames / Manager Pages, tooltip modifier mode (Debuff Filter) ==========
+L["Select a Modifier"] = "Selecione um Modificador"
+
+-- == Unit Frames / Debuff Filter Modes ===========================================
+L["Important Only"] = "Apenas Importantes"
+L["Important and Own"] = "Importantes e Próprios"
+L["Important or Own"] = "Importantes ou Próprios"
+L["Included debuffs show in addition to your Debuff Filter selection (unless it is set to Only Tracked Auras)."] = "Os debuffs incluídos aparecem além da sua seleção do Filtro de Debuffs (a menos que esteja definido como Apenas Auras Rastreadas)."
+L["Only Tracked Auras"] = "Apenas Auras Rastreadas"
+L["Shows every debuff on this frame."] = "Mostra todos os debuffs neste quadro."
+L["Shows only debuffs Blizzard flags as important."] = "Mostra apenas os debuffs que a Blizzard marca como importantes."
+L["Shows only the debuffs you apply that Blizzard also flags as important."] = "Mostra apenas os debuffs que você aplica e que a Blizzard também marca como importantes."
+L["Shows only the debuffs you apply."] = "Mostra apenas os debuffs que você aplica."
+L["Shows only this frame's Tracked Auras; add them with Edit Tracked Auras at the top of this menu."] = "Mostra apenas as Auras Rastreadas deste quadro; adicione-as com Editar Rastreadas no topo deste menu."
+L["Shows the debuffs you apply plus important debuffs from anyone."] = "Mostra os debuffs que você aplica além dos debuffs importantes de qualquer pessoa."
+
+-- == Visibility Widgets / Skyriding, Mounted, Housing, Target ====================
+L["A target you can attack."] = "Um alvo que você pode atacar."
+L["Druid travel, aquatic and flight forms count as mounted."] = "Formas de viagem, aquática e de voo do druida contam como montado."
+L["Dungeons, raids, scenarios, arenas and battlegrounds. Garrisons do not count."] = "Masmorras, raides, cenários, arenas e campos de batalha. Guarnições não contam."
+L["Enemy Target"] = "Alvo Inimigo"
+L["Hide while this condition is true"] = "Ocultar enquanto esta condição for verdadeira"
+L["Mounted"] = "Montado"
+L["Only while AIRBORNE on a glide-capable mount or flight form. For the mount itself, ground included, use Skyriding Mount."] = "Apenas enquanto estiver NO AR em uma montaria com capacidade de planar ou em uma forma de voo. Para a montaria em si, incluindo no chão, use Montaria de Pilotagem Aérea."
+L["Reveal on hover only. Combines with the conditions below: hover-reveals while they all pass, stays hidden while any fails."] = "Revela apenas ao passar o mouse. Combina-se com as condições abaixo: revela ao passar o mouse enquanto todas forem atendidas, e permanece oculto se alguma falhar."
+L["Skyriding (Airborne)"] = "Pilotagem Aérea (No Ar)"
+L["Skyriding Mount"] = "Montaria de Pilotagem Aérea"
+L["While on a glide-capable mount, ground included, where Blizzard shows its vigor HUD. Skyriding (Airborne) additionally requires you to be flying."] = "Enquanto estiver em uma montaria com capacidade de planar, incluindo no chão, onde a Blizzard exibe seu HUD de vigor. Pilotagem Aérea (No Ar) exige adicionalmente que você esteja voando."
+L["While you are inside a house or plot."] = "Enquanto você estiver dentro de uma casa ou terreno."
+
+-- == Chat / Timestamps ===========================================================
+L["Set a Timestamps format first"] = "Defina um formato de Marcas de Horário primeiro"
+
+-- == QoL Raid Tools / Compact Band ===============================================
+L["Button Settings"] = "Configurações de Botão"
+L["Compact Band"] = "Faixa Compacta"
+L["Compact Band puts markers, ready check and pull timer in one resizable row. The other choices keep the original window layouts."] = "A Faixa Compacta coloca marcadores, confirmação de pronto e cronômetro de puxada em uma única fileira redimensionável. As outras opções mantêm os layouts de janela originais."
+L["Countdown length in seconds. Compact Band uses First with Ctrl + Left Click, Second with Shift + Left Click, Third with Left Click, and Right Click stops the timer. Set a timer to 0 to disable that shortcut."] = "Duração da contagem regressiva em segundos. A Faixa Compacta usa o Primeiro com Ctrl + Clique Esquerdo, o Segundo com Shift + Clique Esquerdo, o Terceiro com Clique Esquerdo, e o Clique Direito para o cronômetro. Defina um cronômetro como 0 para desativar esse atalho."
+L["Full-window modes only. Shows start as a small icon, and the keybind switches between the icon and the full windows."] = "Apenas nos modos de janela completa. As janelas iniciam como um pequeno ícone, e a tecla de atalho alterna entre o ícone e as janelas completas."
+L["Full-window modes only. Which way the windows extend from the collapsed icon when they open."] = "Apenas nos modos de janela completa. Para qual lado as janelas se expandem a partir do ícone recolhido quando abrem."
+L["Shows the Role Check button in window layouts and enables Right Click: Role Check on Compact Band."] = "Mostra o botão Confirm. de Função nos layouts de janela e ativa Clique Direito: Confirm. de Função na Faixa Compacta."
+
+-- == QoL Raid Tools / Raid & World Marker Actions ================================
+L["Clear Markers"] = "Limpar Marcadores"
+L["Clear all world markers"] = "Limpar todos os marcadores de mundo"
+L["Clear target marker"] = "Limpar marcador de alvo"
+L["Clear world marker"] = "Limpar marcador de mundo"
+L["Ctrl + Left Click"] = "Ctrl + Clique Esquerdo"
+L["Place world marker"] = "Colocar marcador de mundo"
+L["Pull Timer"] = "Cronômetro de Puxada"
+L["Shift + Left Click"] = "Shift + Clique Esquerdo"
+L["Shift + Right Click"] = "Shift + Clique Direito"
+L["Stop pull timer"] = "Parar cronômetro de puxada"
+L["Toggle target marker"] = "Alternar marcador de alvo"
+
+-- == Quickdraw & Raid Marker Names ===============================================
+L["Cycle Target Marker: Circle"] = "Ciclar Marcador de Alvo: Círculo"
+L["Cycle Target Marker: Cross"] = "Ciclar Marcador de Alvo: Cruz"
+L["Cycle Target Marker: Diamond"] = "Ciclar Marcador de Alvo: Diamante"
+L["Cycle Target Marker: Moon"] = "Ciclar Marcador de Alvo: Lua"
+L["Cycle Target Marker: Skull"] = "Ciclar Marcador de Alvo: Caveira"
+L["Cycle Target Marker: Square"] = "Ciclar Marcador de Alvo: Quadrado"
+L["Cycle Target Marker: Star"] = "Ciclar Marcador de Alvo: Estrela"
+L["Cycle Target Marker: Triangle"] = "Ciclar Marcador de Alvo: Triângulo"
+L["Cycle World Marker: Circle"] = "Ciclar Marcador de Mundo: Círculo"
+L["Cycle World Marker: Cross"] = "Ciclar Marcador de Mundo: Cruz"
+L["Cycle World Marker: Diamond"] = "Ciclar Marcador de Mundo: Diamante"
+L["Cycle World Marker: Moon"] = "Ciclar Marcador de Mundo: Lua"
+L["Cycle World Marker: Skull"] = "Ciclar Marcador de Mundo: Caveira"
+L["Cycle World Marker: Square"] = "Ciclar Marcador de Mundo: Quadrado"
+L["Cycle World Marker: Star"] = "Ciclar Marcador de Mundo: Estrela"
+L["Cycle World Marker: Triangle"] = "Ciclar Marcador de Mundo: Triângulo"
+L["Moon"] = "Lua"
+L["Skull"] = "Caveira"
+L["Star"] = "Estrela"
+L["Target Marker: Circle"] = "Marcador de Alvo: Círculo"
+L["Target Marker: Cross"] = "Marcador de Alvo: Cruz"
+L["Target Marker: Diamond"] = "Marcador de Alvo: Diamante"
+L["Target Marker: Moon"] = "Marcador de Alvo: Lua"
+L["Target Marker: Skull"] = "Marcador de Alvo: Caveira"
+L["Target Marker: Square"] = "Marcador de Alvo: Quadrado"
+L["Target Marker: Star"] = "Marcador de Alvo: Estrela"
+L["Target Marker: Triangle"] = "Marcador de Alvo: Triângulo"
+L["Triangle"] = "Triângulo"
+L["World Marker: Circle"] = "Marcador de Mundo: Círculo"
+L["World Marker: Cross"] = "Marcador de Mundo: Cruz"
+L["World Marker: Diamond"] = "Marcador de Mundo: Diamante"
+L["World Marker: Moon"] = "Marcador de Mundo: Lua"
+L["World Marker: Skull"] = "Marcador de Mundo: Caveira"
+L["World Marker: Square"] = "Marcador de Mundo: Quadrado"
+L["World Marker: Star"] = "Marcador de Mundo: Estrela"
+L["World Marker: Triangle"] = "Marcador de Mundo: Triângulo"
+
+-- == Data Bars / Gold ===========================================================
+L["Abbreviate Amount"] = "Abreviar Quantidade"
+L["Shows large amounts using K/M suffixes (284,208g becomes 284.2Kg) instead of the full grouped number. The tooltip always shows the exact amount."] = "Mostra grandes quantidades usando sufixos K/M (284.208 vira 284,2K) em vez do número completo agrupado. A dica sempre mostra a quantia exata."
+
+-- == Raid Frames / Buff Manager ==================================================
+L["Dawnlight"] = "Alvorecer"
+L["Sense Power (Ally)"] = "Detectar Poder (Aliado)"
+
+-- == Aura Buff Reminders =========================================================
+L["When on, augment rune/flask/food/weapon reminders still show (dimmed) when you have no matching item in your bags, as a prompt to restock.\nWhen off, they are hidden entirely if you don't carry the item."] = "Quando ativado, os lembretes de runa de aprimoramento/frasco/comida/arma continuam aparecendo (esmaecidos) mesmo sem o item correspondente nas bolsas, como um aviso para reabastecer.\nQuando desativado, ficam totalmente ocultos se você não estiver carregando o item."
+
+-- == Visibility / Match Mode =====================================================
+L["Match Mode"] = "Modo de Correspondência"
+L["Match All Conditions"] = "Corresponder a Todas as Condições"
+L["Every condition you set has to match. The default."] = "Todas as condições que você definir precisam ser atendidas. O padrão."
+L["Match Any Condition"] = "Corresponder a Qualquer Condição"
+L["Not available while a legacy visibility value is selected. Pick Never or Always first."] = "Não disponível enquanto um valor de visibilidade legado estiver selecionado. Escolha Nunca ou Sempre primeiro."
+L["Resting"] = "Descanso"
+L["While resting, in a city or at an inn."] = "Enquanto estiver descansando, em uma cidade ou em uma estalagem."
+L["In Vehicle"] = "Em Veículo"
+L["While seated in a vehicle."] = "Enquanto estiver sentado em um veículo."
+
+-- == Performance Reminder Popup ===================================================
+L["Performance Reminder"] = "Lembrete de Desempenho"
+L["The taintLog and scriptProfile CVars are enabled."] = "As CVars taintLog e scriptProfile estão ativadas."
+L["The taintLog CVar is enabled."] = "A CVar taintLog está ativada."
+L["The scriptProfile CVar is enabled."] = "A CVar scriptProfile está ativada."
+L["It reduces performance and should be off unless you are capturing a bug report."] = "Isso reduz o desempenho e deve ficar desativado, a menos que você esteja capturando um relatório de bug."
+L["Disable and Reload"] = "Desativar e Recarregar"
+L["Ignore"] = "Ignorar"
+
+-- == Chat / Recall ================================================================
+L["Chat recall is unavailable here. Use Alt+Up and Alt+Down."] = "O histórico de bate-papo não está disponível aqui. Use Alt+Up e Alt+Down."
+
+-- == Bags / Recent Items ==========================================================
+L["Clear"] = "Limpar"
+L["Clears the Recent Items list."] = "Limpa a lista de Itens Recentes."
+
+-- == QoL Raid Tools / Quick Fire ==================================================
+L["QUICK FIRE"] = "DISPARO RÁPIDO"
+L["Enable Quick Fire"] = "Ativar Disparo Rápido"
+L["Adds three optional world-marker keybinds that remain usable in combat. Place drops the first free marker at the cursor in Star to Skull order; Undo removes the last marker placed through Quick Fire; Clear removes all world markers. Every binding starts empty. Marker changes made elsewhere during combat are picked up afterward."] = "Adiciona três atalhos opcionais de marcador de mundo que continuam utilizáveis em combate. Colocar solta o primeiro marcador livre no cursor, na ordem de Estrela a Caveira; Desfazer remove o último marcador colocado pelo Disparo Rápido; Limpar remove todos os marcadores de mundo. Todo atalho começa vazio. Alterações de marcadores feitas em outro lugar durante o combate são detectadas depois."
+L["Place World Marker"] = "Colocar Marcador de Mundo"
+L["Undo Last Marker"] = "Desfazer Último Marcador"
+L["Clear All Markers"] = "Limpar Todos os Marcadores"
+
+-- == Data Bars / Broker Plugin Block ==============================================
+L["Select a plugin"] = "Selecionar um plugin"
+L["not loaded"] = "não carregado"
+L["Broker Plugin"] = "Plugin de Broker"
+L["Plugin"] = "Plugin"
+L["Any LibDataBroker plugin registered right now. One block per plugin -- add the block again for a second one."] = "Qualquer plugin do LibDataBroker registrado no momento. Um bloco por plugin -- adicione o bloco novamente para um segundo."
+L["Show Text"] = "Mostrar texto"
+L["Shows the plugin's own icon next to its text."] = "Mostra o ícone do próprio plugin ao lado do seu texto."
+L["Shows the plugin's text. Off leaves an icon-only block that still carries the plugin's tooltip and clicks."] = "Mostra o texto do plugin. Desativado deixa um bloco somente com ícone, que ainda mantém a dica de ferramenta e os cliques do plugin."
+L["Prefixes the plugin's own name to its text."] = "Adiciona o nome do próprio plugin como prefixo ao seu texto."
+L["Strip Colors"] = "Remover cores"
+L["Removes the color codes the plugin writes into its own text, so this block's Text Color applies. Off keeps the plugin's colors."] = "Remove os códigos de cor que o plugin escreve no próprio texto, para que a Cor do texto deste bloco seja aplicada. Desativado mantém as cores do plugin."
+L["Holds the block at this width and clips longer text, so a plugin whose text keeps changing length never shifts the blocks beside it. Zero sizes the block to whatever the plugin currently says."] = "Mantém o bloco nessa largura e corta o texto mais longo, para que um plugin cujo texto muda de tamanho nunca desloque os blocos ao lado. Zero ajusta o bloco ao que o plugin estiver exibindo no momento."
+
+-- == Raid Frames / Hover & Target Border ==========================================
+L["Highlight Border"] = "Borda de Destaque"
+L["Hover Border Size"] = "Tamanho da borda ao passar o mouse"
+L["Target Border Size"] = "Tamanho da borda do alvo"
+
+-- == Cooldown Manager / Stack Text and Glows ======================================
+L["Stack Text and Glows"] = "Texto de Pilha e Brilhos"
+L["Glow at Stacks"] = "Brilho por Pilha"
+L["Enable Glow at Stacks"] = "Ativar Brilho por Pilha"
+L["Min Stack Count"] = "Quantidade Mínima de Pilha"
+L["Show Stack Text"] = "Mostrar Texto de Pilha"
+L["Replaces Buff Glow: the icon glows only at the set stacks or higher, using this spell's Buff Glow style (Modern WoW Glow if none is set)."] = "Substitui o Brilho de Buff: o ícone brilha apenas na quantidade de pilha definida ou acima, usando o estilo de Brilho de Buff deste feitiço (Brilho Moderno do WoW, se nenhum estiver definido)."
+
+-- == Mythic+ Timer / Split Compare =================================================
+L["Always Show Split Times"] = "Sempre Mostrar Tempos Parciais"
+L["Shows your best split on upcoming bosses instead of only killed ones."] = "Mostra seu melhor tempo parcial em chefes futuros, em vez de apenas os já derrotados."
+L["This option requires a Split Compare mode"] = "Esta opção requer um modo de Comparação de Parciais"
+
+-- == Resource Bars / Ignore Pain ===================================================
+L["Tracking it also makes the fill show Ignore Pain alone; without it the fill shows your total absorb, so other shields can add to it."] = "Rastreá-lo também faz o preenchimento mostrar apenas Ignorar Dor; sem isso, o preenchimento mostra sua absorção total, permitindo que outros escudos se somem a ela."
+
+-- == Raid Frames / Buff Manager (Glyphed Buffs) ===================================
+L["Guardian of Ancient Kings (Glyph of the Queen)"] = "Guardião dos Reis Antigos (Glifo da Rainha)"
+
+-- == Bank / Category Sidebar =======================================================
+L["Category Sidebar"] = "Barra Lateral de Categorias"
+L["Group by Category"] = "Agrupar por categoria"
+L["Hide Bank Tabs in Sidebar"] = "Ocultar Abas do Banco na Barra Lateral"
+L["Hide Empty Slots When Grouped"] = "Ocultar Espaços Vazios ao Agrupar"
+L["Empty Slots"] = "Espaços Vazios"
+L["No Items"] = "Sem Itens"
+L["GROUPING"] = "AGRUPAMENTO"
+L["Right-click a tab in the bank sidebar to rename it or set its deposit filters."] = "Clique com o botão direito em uma aba na barra lateral do banco para renomeá-la ou definir seus filtros de depósito."
+L["Window scale, icon zoom and item level settings are shared with the Bags page."] = "As configurações de escala da janela, zoom dos ícones e nível de item são compartilhadas com a página de Bolsas."
+L["Drop the individual Tab 1 / Tab 2 / Warbank Tab entries once the category list is doing the navigating. The consolidated views stay. Note that right-clicking a tab entry is the only way to rename a tab or change its deposit filters, so leave this off if you still need that."] = "Remove as entradas individuais de Aba 1 / Aba 2 / Aba do Banco do Bando de Guerra assim que a lista de categorias assumir a navegação. As visões consolidadas permanecem. Note que clicar com o botão direito em uma entrada de aba é a única forma de renomeá-la ou alterar seus filtros de depósito, então deixe isso desativado se ainda precisar disso."
+L["In the OneBank and OneWarbank views, split the grid under expansion headers, newest first. Per-tab views are unaffected."] = "Nas visões Banco Único e Banco do Bando de Guerra Único, divide a grade sob cabeçalhos de expansão, mais recentes primeiro. As visões por aba não são afetadas."
+L["List item categories in the bank sidebar the way the bags sidebar does -- groups such as The Armory with Weapons and Armor under them. Selecting one filters the grid to that category. Categories that split further list their parts as a third level while selected: Professions by profession, Armor by equipment slot, Trade Goods by material. Spans your character bank and warband together, so a category shows everything you own."] = "Lista as categorias de itens na barra lateral do banco da mesma forma que a barra lateral das bolsas -- agrupa itens como O Arsenal com Armas e Armadura dentro deles. Selecionar uma filtra a grade para aquela categoria. Categorias que se dividem ainda mais listam suas partes como um terceiro nível enquanto selecionadas: Profissões por profissão, Armadura por espaço de equipamento, Comércio por tipo de material. Abrange seu banco de personagem e o Bando de Guerra juntos, então uma categoria mostra tudo que você possui."
+L["Split items by category -- Armor, Consumables, Professions and so on -- using the same category list, order and renames as the All Items bag view. Nests inside the expansion headers when Nest by Expansion is also on. Categories that split further do so automatically: gear by equipment slot, Professions and Trade Goods by profession and material type."] = "Divide os itens por categoria -- Armadura, Consumíveis, Profissões e assim por diante -- usando a mesma lista, ordem e renomeações de categorias da visão \"Todos os Itens\" da bolsa. Aninha dentro dos cabeçalhos de expansão quando Agrupar por expansão também está ativo. Categorias que se dividem ainda mais fazem isso automaticamente: equipamentos por espaço, e Profissões e Comércio por profissão e tipo de material."
+L["While either grouping toggle is on, drop the trailing block of empty slots so the view only shows items. Turn this off to keep the free slots visible for depositing."] = "Enquanto qualquer uma das opções de agrupamento estiver ativa, remove o bloco final de espaços vazios para que a visão mostre apenas itens. Desative isso para manter os espaços livres visíveis para depósito."
+
+-- == Bags / Recent Items ===========================================================
+L["Show Clear Button"] = "Mostrar Botão Limpar"
+
+-- == Unit Frames / Health Text Decimals ============================================
+L["Hide Trailing Zeros"] = "Ocultar Zeros à Direita"
+
+-- == BlizzardSkin / Queue Timer =====================================================
+L["Countdown Text Color"] = "Cor do Texto da Contagem Regressiva"
+L["Queue Timer Style"] = "Estilo do Cronômetro da Fila"
+L["Text Offset Y"] = "Deslocamento do Texto Y"
+L["Moves the countdown number up or down relative to the bar."] = "Move o número da contagem regressiva para cima ou para baixo em relação à barra."
+L["Shows a countdown bar below the queue accept popup indicating how long you have to accept. Works with or without the reskin. Use the swatch and cog to set the countdown text color, text size, bar height and text offset."] = "Mostra uma barra de contagem regressiva abaixo do pop-up de aceitar fila, indicando quanto tempo você tem para aceitar. Funciona com ou sem a aparência reestilizada. Use a amostra de cor e o ícone de engrenagem para definir a cor do texto, o tamanho do texto, a altura da barra e o deslocamento do texto da contagem regressiva."
+
+-- == Visibility Widgets / Not Skyriding, Match Mode, Overrides =====================
+L["Not overridable"] = "Não Substituível"
+L["Not Skyriding (Airborne)"] = "Não-Pilotagem Aérea (No Ar)"
+L["The exact inverse of Skyriding (Airborne): anything that is not airborne on a glide-capable mount or flight form, standing on the ground included."] = "O exato inverso de Pilotagem Aérea (No Ar): qualquer coisa que não esteja no ar em uma montaria com capacidade de planar ou em uma forma de voo, incluindo estar parado no chão."
+L["This element shows as soon as ONE Show condition matches. Hide keeps its meaning in both match modes: a checked Hide always hides, on every row."] = "Este elemento é exibido assim que UMA condição de Exibir for atendida. Ocultar mantém seu significado em ambos os modos de correspondência: uma opção Ocultar marcada sempre oculta, em toda linha."
+L["Combines with the conditions below: shows outright once at least one passes, otherwise still reveals on hover. A checked Hide state still hides it, hover included."] = "Combina-se com as condições abaixo: exibe diretamente assim que pelo menos uma for atendida; caso contrário, ainda revela ao passar o mouse. Um estado Ocultar marcado ainda assim oculta, incluindo ao passar o mouse."
+L["Makes this the override. It replaces the whole Visibility setting, so the conditions below no longer apply while it does. Click it again to remove the override."] = "Torna isto a substituição. Ela substitui toda a configuração de Visibilidade, então as condições abaixo deixam de se aplicar enquanto ela estiver ativa. Clique novamente para remover a substituição."
+L["Not overridable. These conditions are shared and can only be changed while no override is being edited. An override replaces the Visibility setting outright -- Never, Always or Mouseover -- and ignores everything set here while it applies."] = "Não substituível. Estas condições são compartilhadas e só podem ser alteradas enquanto nenhuma substituição estiver sendo editada. Uma substituição troca totalmente a configuração de Visibilidade -- Nunca, Sempre ou Ao Passar o Mouse -- e ignora tudo o que for definido aqui enquanto estiver ativa."
+L["Not overridable. These conditions are shared and can only be changed while no override is being edited. An override replaces the Visibility setting outright -- Never, Always or Mouseover -- and ignores everything set here while it applies. Mouseover is sealed here too for this element: its hover mechanism follows the shared setting, so an override could only leave it shown."] = "Não substituível. Estas condições são compartilhadas e só podem ser alteradas enquanto nenhuma substituição estiver sendo editada. Uma substituição troca totalmente a configuração de Visibilidade -- Nunca, Sempre ou Ao Passar o Mouse -- e ignora tudo o que for definido aqui enquanto estiver ativa. O recurso de passar o mouse também fica bloqueado aqui para este elemento: seu mecanismo de exibição ao passar o mouse segue a configuração compartilhada, então uma substituição só poderia deixá-lo visível."
+L[" Mouseover is sealed here too for this element: its hover mechanism follows the shared setting, so an override could only leave it shown."] = true

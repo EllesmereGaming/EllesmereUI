@@ -447,10 +447,11 @@ local EBON_MIGHT_DURATION = 20
 
 local ICICLES_SPELL_ID = 205473
 
--- Prot Warrior Ignore Pain: stacking buff 190456 (0-100 stacks), but ALL player aura
--- fields are SECRET even out of combat (field-confirmed: spellId, name, applications),
--- so stacks are unreadable. Absorb amount IS readable and IP caps at 30% max health
--- (CAP), so absorbs vs that cap gives the same 0-100% fullness. DURATION drives the
+-- Prot Warrior Ignore Pain: stacking buff 190456 (0-100 stacks). ALL player aura fields
+-- are SECRET even out of combat (field-confirmed: spellId, name, applications) and the
+-- id is restriction-flagged, so the aura API gives nothing; Blizzard's tracked-buff icon
+-- is the only stack source. IP caps at 30% max health (CAP), so stacks and absorbs-vs-
+-- cap are the same 0-100% fullness -- see UpdateSecondaryResource. DURATION drives the
 -- moving hash line, reset on cast since aura expiry is secret (same approach as Ironfur
 -- ticks). One namespace table for the feature (200-local cap).
 local IP = {
@@ -3371,11 +3372,10 @@ local function BuildBars()
             elseif powerType == "TIP_OF_THE_SPEAR" and EllesmereUI.GetTipOfTheSpear then
                 local _, realMax = EllesmereUI.GetTipOfTheSpear()
                 if realMax and realMax > 0 then maxPts = realMax end
-            elseif powerType == "WHIRLWIND_STACKS" and EllesmereUI.GetWhirlwindStacks then
-                local _, realMax = EllesmereUI.GetWhirlwindStacks()
-                if realMax and realMax > 0 then maxPts = realMax end
-            elseif powerType == "SWEEPING_STRIKES" and EllesmereUI.GetSweepingStrikes then
-                local _, realMax = EllesmereUI.GetSweepingStrikes()
+            elseif (powerType == "WHIRLWIND_STACKS" or powerType == "SWEEPING_STRIKES")
+                   and _G._EWC then
+                -- Talent-aware cap from the engine-slot module (Broad Strokes).
+                local realMax = _G._EWC.MaxApps(powerType)
                 if realMax and realMax > 0 then maxPts = realMax end
             elseif powerType == "ICICLES" then
                 maxPts = 5
@@ -3593,9 +3593,9 @@ local function BuildBars()
                 if not runeFrames[i] then
                     runeFrames[i] = CreatePip(secondaryFrame, 20, pipH, i,
                         0, 0, 0, 0, 0)
-                    -- Countdown number on its own overlay ABOVE the bar border. Rune
-                    -- pips use per-pip border size 0, so the VISIBLE border is the
-                    -- outer secondaryFrame._barBorder at level +5 -- the number must
+                    -- Countdown number on its own overlay ABOVE the bar border (whichever
+                    -- one is visible: per-pip when Border on Individual Pips is on, else
+                    -- the outer secondaryFrame._barBorder at level +5) -- the number must
                     -- clear that (not just the pip) while staying below the
                     -- count/value text overlay (level 25). Recharge fill stays
                     -- framed by the border, matching the ready-rune fill.
@@ -3641,7 +3641,13 @@ local function BuildBars()
                 rf["_barAnim_x1"] = x1 - x0
                 rf["_barAnim_ph"] = pipH
                 ApplyRunePos()
-                runeFrames[i]:ApplyBorder(0, 0, 0, 0, 0)
+                if sp.borderOnPips then
+                    runeFrames[i]:ApplyBorder(sp.borderSize, sp.borderR, sp.borderG, sp.borderB, sp.borderA,
+                        sp.borderTexture, sp.borderTextureOffset, sp.borderTextureOffsetY,
+                        sp.borderTextureShiftX, sp.borderTextureShiftY, "resourcebars", sp.borderSize)
+                else
+                    runeFrames[i]:ApplyBorder(0, 0, 0, 0, 0)
+                end
                 runeFrames[i]:ApplyTexture(g.barTexture or "none")
                 runeFrames[i]._bg:SetColorTexture(ERB.PipBgColor(sp))
                 -- Fill Opacity: same stamp as regular pips (consumed by
@@ -3750,7 +3756,7 @@ local function BuildBars()
             local pl = secondaryFrame:GetFrameLevel()
             secondaryFrame._barBorder._frame:SetFrameLevel(sp.borderBehind and math.max(0, pl - 1) or (pl + 5))
         end
-        if sp.borderOnPips and cachedSecondary.type ~= "runes" and not isBarType then
+        if sp.borderOnPips and not isBarType then
             secondaryFrame._barBorder:ApplyStyle(0,0,0,0,0)
         else
             secondaryFrame._barBorder:ApplyStyle(sp.borderSize, sp.borderR, sp.borderG, sp.borderB, sp.borderA,
@@ -3829,6 +3835,15 @@ local function BuildBars()
             end
         elseif secondaryFrame._countText then
             secondaryFrame._countText:Hide()
+        end
+
+        -- Warrior charge buffs: hand the engine-slot module the resolved build
+        -- (it parks itself for every other power type and non-warriors; see
+        -- EUI_ResourceBars_WarriorCharges.lua). Must run after _countText is
+        -- created and styled above -- the engine bakes its count-text font from
+        -- this fontstring at slot-creation time and never re-reads it.
+        if ns.WC_Sync then
+            ns.WC_Sync(secondaryFrame, sp, cachedSecondary and cachedSecondary.power, g)
         end
 
         secondaryFrame:Show()
@@ -4564,8 +4579,9 @@ IP.HandleCast = function(spellID)
     -- fallback (frames-as-truth, works under restriction when the user tracks
     -- the proc) backs it up. Called at SUCCEEDED: if the proc aura is already
     -- consumed by then BOTH probes can miss -- field question; the escalation
-    -- is a SENT-time latch, not a wider guess. A miss degrades to the
-    -- pre-fix behavior (stale tick), never a false refresh.
+    -- is a SENT-time latch, not a wider guess. A miss leaves a stale tick and,
+    -- since the bar fill rides this same window, an early-empty bar; IP.Active
+    -- covers both from the tracked-buff icon when the user tracks IP.
     if spellID == IP.SHIELD_SLAM then
         local aura = C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID
             and C_UnitAuras.GetPlayerAuraBySpellID(IP.VO_PROC)
@@ -5050,6 +5066,30 @@ IP.ScanViewer = function(force)
     end
 end
 
+-- Lazy (re)scan for the Blizzard tracked-buff IP icon (2s throttle); also rescan
+-- while the captured FS is invisible, since a viewer pool rebuild (tracked buffs
+-- proccing/expiring, e.g. Thunder Blast) can strand the capture on a released
+-- hidden frame that never fires SetText, while the icon lives on in another pool
+-- frame -- otherwise text stays blank until the orphan happens to be reused. Driven
+-- from MotionTick, not from UpdateText: the fill gate below reads the capture too,
+-- so it has to stay current with the count text switched off.
+IP.EnsureViewer = function()
+    local staleFS = IP.viewerFS and not IP.viewerFS:IsVisible()
+    if (not IP.viewerFrame or staleFS) and GetTime() >= IP.nextScan then
+        IP.nextScan = GetTime() + 2
+        IP.ScanViewer(staleFS)
+    end
+end
+
+-- Is Ignore Pain up? Blizzard's tracked-buff icon is the authoritative answer -- it
+-- survives a reload, a spec swap and a Violent Outburst refresh the cast handler
+-- missed -- but it only exists while the user tracks IP in the CDM, so the
+-- cast-driven window backs it up.
+IP.Active = function()
+    if IP.viewerFS and IP.viewerFS:IsVisible() then return true end
+    return IP.hashEndTime > GetTime()
+end
+
 -- Per-frame stack text for the IP bar. Preferred source: the exact stack number
 -- captured from Blizzard's tracked-buff icon above; fallback: rendered fill width
 -- (fill/bar = percent of cap = stacks) when values read clean but the viewer is
@@ -5063,16 +5103,6 @@ IP.UpdateText = function()
             IP.lastTextStacks = nil
         end
         return
-    end
-    -- Lazy (re)scan for the Blizzard tracked-buff IP icon (2s throttle); also rescan
-    -- while the captured FS is invisible, since a viewer pool rebuild (tracked buffs
-    -- proccing/expiring, e.g. Thunder Blast) can strand the capture on a released
-    -- hidden frame that never fires SetText, while the icon lives on in another pool
-    -- frame -- otherwise text stays blank until the orphan happens to be reused.
-    local staleFS = IP.viewerFS and not IP.viewerFS:IsVisible()
-    if (not IP.viewerFrame or staleFS) and GetTime() >= IP.nextScan then
-        IP.nextScan = GetTime() + 2
-        IP.ScanViewer(staleFS)
     end
     -- The captured viewer value is usually a SECRET number (type() says "number"
     -- and truthiness works, but comparisons/format error). SetText renders secret
@@ -5583,15 +5613,27 @@ local function UpdateSecondaryResource()
                 if maxTainted then maxC = maxPts end
                 if not maxTainted and maxC <= 0 then maxC = 1 end
             elseif powerType == "IGNOREPAIN_BAR" then
-                -- Prot Ignore Pain: total absorbs vs the IP cap (30% max health) --
-                -- the only readable source, since aura stack data is fully secret.
-                -- A secret absorb value flows into SetValue via the smooth target.
-                cur = UnitGetTotalAbsorbs("player") or 0
+                -- Prot Ignore Pain. Preferred: the tracked-buff icon's stack count --
+                -- IP caps at 30% max health, so 0-100 stacks are percent-of-cap, i.e.
+                -- IP's own share with no foreign shield mixed in. It exists only while
+                -- the user tracks IP in the CDM, so UnitGetTotalAbsorbs stays as the
+                -- fallback: EVERY shield on the player, and secret, so IP cannot be
+                -- subtracted out -- gated on IP being up, still over-reads in uptime.
+                -- 190456 is restriction-flagged and GetPlayerAuraBySpellID returns
+                -- NOTHING for it (field-probed): aura points are not an exact source.
                 maxC = UnitHealthMax("player")
                 if (issecretvalue and issecretvalue(maxC)) or not maxC or maxC <= 0 then
                     maxC = maxPts
                 else
                     maxC = maxC * IP.CAP
+                end
+                if IP.value and IP.viewerFS and IP.viewerFS:IsVisible() then
+                    -- Kept for the value-mode threshold rescale below.
+                    IP.stackAxis = maxC
+                    cur, maxC = IP.value, 100
+                else
+                    IP.stackAxis = nil
+                    cur = IP.Active() and (UnitGetTotalAbsorbs("player") or 0) or 0
                 end
             end
             -- Brewmaster stagger ceiling
@@ -5710,7 +5752,14 @@ local function UpdateSecondaryResource()
                         -- StatusBar-overlay technique (as Vengeance pips): the fill
                         -- texture is the "cell", each overlay repaints the visible fill.
                         local function _ipBound(to)
-                            return (_tsBandMode == "value") and (to or 0) or (maxC * (to or 0) / 100)
+                            if _tsBandMode ~= "value" then return maxC * (to or 0) / 100 end
+                            -- A value-mode bound is an absorb amount. On the stack axis
+                            -- maxC is 0-100, so rescale it against the absorb-scale cap
+                            -- (both clean: user config and max health).
+                            if IP.stackAxis and IP.stackAxis > 0 then
+                                return (to or 0) / IP.stackAxis * 100
+                            end
+                            return to or 0
                         end
                         IP.layerN = 0
                         if _tsBandOn and _tsBands and #_tsBands > 0 then
@@ -5842,6 +5891,7 @@ local function UpdateSecondaryResource()
     elseif cachedSecondary.type == "custom" or _ptsSecret then
         local cur, maxC = 0, maxPts
         local isSecret = false
+        local _wcEngine = false
         if _ptsSecret then
             cur = _ptsCur
             maxC = maxPts
@@ -5863,15 +5913,26 @@ local function UpdateSecondaryResource()
             if sp.enhanceFiveBar and maxC > 5 then maxC = 5 end
         elseif powerType == "TIP_OF_THE_SPEAR" and EllesmereUI and EllesmereUI.GetTipOfTheSpear then
             cur, maxC = EllesmereUI.GetTipOfTheSpear()
-        elseif powerType == "WHIRLWIND_STACKS" and EllesmereUI and EllesmereUI.GetWhirlwindStacks then
-            cur, maxC = EllesmereUI.GetWhirlwindStacks()
-            if not maxC or maxC <= 0 then
-                for i = 1, #pips do if pips[i] then pips[i]:Hide() end end
-                return
+        elseif powerType == "WHIRLWIND_STACKS" or powerType == "SWEEPING_STRIKES" then
+            -- Engine slot owns the display (EllesmereUI_WarriorCharges): the
+            -- true count fills the overlay bar C-side. Fall through the shared
+            -- color chain below so the fill inherits the exact resolved color;
+            -- the handoff before the render paths does the rest. Until the
+            -- deferred build lands the row simply shows empty (the cast-count
+            -- simulator is retired).
+            -- BuildBars still lays the legacy gap-fill strips from the OLD pip
+            -- grid (cumulative cell+gap pixels); the engine bar's separator
+            -- ticks follow the fill's uniform fractions, so live strips
+            -- double-line against them, drifting apart along the bar (worst
+            -- with a wide Bar Spacing). These two powers never render pips,
+            -- so the strips are never wanted; hide once when present.
+            local gf = secondaryFrame._gapFills
+            if gf and gf[1] and gf[1]:IsShown() then
+                for gi = 1, #gf do gf[gi]:Hide() end
             end
-        elseif powerType == "SWEEPING_STRIKES" and EllesmereUI and EllesmereUI.GetSweepingStrikes then
-            cur, maxC = EllesmereUI.GetSweepingStrikes()
-            if not maxC or maxC <= 0 then
+            if ns.WC_EngineOn and ns.WC_EngineOn(powerType) then
+                _wcEngine = true
+            else
                 for i = 1, #pips do if pips[i] then pips[i]:Hide() end end
                 return
             end
@@ -5897,6 +5958,32 @@ local function UpdateSecondaryResource()
             end
         end
 
+        -- Warrior charge powers: hand the module the fully resolved color on
+        -- EVERY pass, engine-owned or not. Pre-build passes stash it, so the
+        -- creation-window bake paints the painter's exact color -- under
+        -- restriction that window is the ONLY legal color write into the slot
+        -- subtree. Engine-owned passes then park the legacy pips and legacy
+        -- count text (the engine slot carries its own) and stop before any
+        -- value read.
+        if ns.WC_Recolor and (powerType == "WHIRLWIND_STACKS" or powerType == "SWEEPING_STRIKES") then
+            ns.WC_Recolor(powerType, r, g, b, a)
+            -- Threshold/band settings ride along raw (already resolved above
+            -- at this pass's existing cost); the engine module change-gates
+            -- and renders them as fill-masked range strips -- no Lua count
+            -- exists for these two powers, so this is the only threshold
+            -- renderer they have.
+            if ns.WC_Thresholds then
+                ns.WC_Thresholds(powerType,
+                    (_tsEntry and _tsEntry.thresholdMode) or sp.thresholdMode,
+                    _tsEntry and _tsThreshCount or nil, _tsR, _tsG, _tsB, _tsA,
+                    _tsBandOn, _tsBands, _tsBandReverse, _tsReverse)
+            end
+        end
+        if _wcEngine then
+            for i = 1, #pips do if pips[i] then pips[i]:Hide() end end
+            if secondaryFrame._countText then secondaryFrame._countText:SetText("") end
+            return
+        end
         if isSecret then
             -- Secret-value path: each pip is driven by a StatusBar overlay, which
             -- accepts the secret number natively -- a value inside [i-1, i] fills
@@ -6512,6 +6599,7 @@ ns.MotionTick = EllesmereUI.Tick.NewAnimTicker(CreateFrame("Frame"), function() 
         UpdateIronfurBar()
         return true
     elseif cs.power == "IGNOREPAIN_BAR" then
+        IP.EnsureViewer()
         IP.UpdateHash()
         IP.UpdateText()
         return true
@@ -9474,17 +9562,11 @@ local function OnEvent(self, event, ...)
     elseif event == "PLAYER_REGEN_ENABLED" then
         isInCombat = false
         UpdateVisibility()
-        -- Clean up Whirlwind / Sweeping Strikes GUID caches on combat end
-        if EllesmereUI and EllesmereUI.HandleWhirlwindStacks then
-            EllesmereUI.HandleWhirlwindStacks(event)
-        end
-        if EllesmereUI and EllesmereUI.HandleSweepingStrikes then
-            EllesmereUI.HandleSweepingStrikes(event)
-        end
     elseif event == "PLAYER_TARGET_CHANGED" then
         UpdateVisibility()
     elseif event == "PLAYER_MOUNT_DISPLAY_CHANGED" or event == "PLAYER_CAN_GLIDE_CHANGED"
-        or event == "PLAYER_IS_GLIDING_CHANGED" then
+        or event == "PLAYER_IS_GLIDING_CHANGED" or event == "PLAYER_UPDATE_RESTING"
+        or event == "UNIT_ENTERED_VEHICLE" or event == "UNIT_EXITED_VEHICLE" then
         UpdateVisibility()
     elseif event == "ZONE_CHANGED_NEW_AREA" then
         -- Re-check secondary max power: UnitPowerMax can change across zone
@@ -9575,12 +9657,6 @@ local function OnEvent(self, event, ...)
                 if EllesmereUI.HandleTipOfTheSpear then
                     EllesmereUI.HandleTipOfTheSpear(event, unit, castGUID, spellID)
                 end
-                if EllesmereUI.HandleWhirlwindStacks then
-                    EllesmereUI.HandleWhirlwindStacks(event, unit, castGUID, spellID)
-                end
-                if EllesmereUI.HandleSweepingStrikes then
-                    EllesmereUI.HandleSweepingStrikes(event, unit, castGUID, spellID)
-                end
             end
             if cachedSecondary and (cachedSecondary.type == "custom"
                or cachedSecondary.power == "IRONFUR_BAR") then
@@ -9595,12 +9671,6 @@ local function OnEvent(self, event, ...)
         if EllesmereUI then
             if EllesmereUI.HandleTipOfTheSpear then
                 EllesmereUI.HandleTipOfTheSpear(event)
-            end
-            if EllesmereUI.HandleWhirlwindStacks then
-                EllesmereUI.HandleWhirlwindStacks(event)
-            end
-            if EllesmereUI.HandleSweepingStrikes then
-                EllesmereUI.HandleSweepingStrikes(event)
             end
         end
     elseif event == "PLAYER_ENTERING_WORLD" then
@@ -9824,6 +9894,12 @@ function ERB:OnEnable()
     -- Visibility option events
     eventFrame:RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED")
     eventFrame:RegisterEvent("PLAYER_CAN_GLIDE_CHANGED")
+    -- Resting: IsResting() has no dedicated poll, so without this the Resting
+    -- axis only re-evaluated when some unrelated event above happened to fire.
+    eventFrame:RegisterEvent("PLAYER_UPDATE_RESTING")
+    -- Vehicle edges for the In Vehicle axis (player-filtered; same reasoning).
+    eventFrame:RegisterUnitEvent("UNIT_ENTERED_VEHICLE", "player")
+    eventFrame:RegisterUnitEvent("UNIT_EXITED_VEHICLE", "player")
     -- Airborne edge for the dragonriding visibility modes (probed at load
     -- in EllesmereUI_Visibility.lua; absent = the checklist items lock)
     if EllesmereUI._hasGlidingEvent then

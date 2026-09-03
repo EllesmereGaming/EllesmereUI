@@ -281,9 +281,9 @@ function WSkin.Shell(winKey, frame, opts)
                 bg:SetTexCoord(BASE_L + trimU, BASE_R - trimU, BASE_T, BASE_B)
             end
         end
-        hooksecurefunc(frame, "SetSize", UpdateBgTexCoords)
-        hooksecurefunc(frame, "SetWidth", UpdateBgTexCoords)
-        hooksecurefunc(frame, "SetHeight", UpdateBgTexCoords)
+        -- One script hook instead of three setter hooks: it also fires for
+        -- anchor-driven resizes the setters never saw.
+        frame:HookScript("OnSizeChanged", UpdateBgTexCoords)
         UpdateBgTexCoords()
 
         -- Black top bar behind the window title. Sits above both style backdrops

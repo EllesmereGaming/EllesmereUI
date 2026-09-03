@@ -199,7 +199,20 @@ local function StyleKeyFor(d)
 end
 
 -- The category vocabulary. token = filter-string routing (negatable); cand = candidate-boolean routing (positive-only, identity-gated).
-local CATS = { "boss", "role", "priority", "cc", "raid", "raidcombat", "dispel", "nonplayer" }
+local CATS = { "boss", "role", "priority", "cc", "raid", "raidcombat", "dispel", "nonplayer",
+    -- Less common filters: the PLAYER token, one include map per dispel type, and
+    -- the canApplyAura boolean. "From Any Player" is a FLAVOR of nonplayer
+    -- (dm.nonplayerMode == "any"), never a category of its own: both sides share
+    -- one engine field, so the dropdown keeps them mutually exclusive like the
+    -- two dispel flavors.
+    "castbyme", "magic", "curse", "poison", "disease", "bleed", "canapply" }
+local LESS_CATS = { "castbyme", "magic", "curse", "poison", "disease", "bleed", "canapply" }
+-- Per-type dispel categories: engine dispel name + a static single-type include
+-- map per category (never mutated; type folds copy on write).
+local TYPE_ORDER = { "magic", "curse", "poison", "disease", "bleed" }
+local TYPE_CATS = { magic = "Magic", curse = "Curse", poison = "Poison", disease = "Disease", bleed = "Bleed" }
+local TYPE_INCLUDE = {}
+for cat, T in pairs(TYPE_CATS) do TYPE_INCLUDE[cat] = { [T] = true } end
 
 -- A tile hosts a catch-all record when All Debuffs is checked, or when Has
 -- Duration (an AND-modifier) is checked with no claimed categories -- checked
@@ -683,6 +696,21 @@ function ns.DM_CfgFP()
         -- Exclude set varies only with the lust-debuff opt-out (hardcoded lists are load-constant).
         (not prof or prof.hideLustDebuff ~= false) and "lx1" or "lx0",
     }
+    -- Max Duration joins the fingerprint only when set, so Unlimited profiles
+    -- keep a byte-identical print (no re-apply on the update).
+    if bv.maxDurSec then parts[#parts + 1] = "md" .. tostring(bv.maxDurSec) end
+    -- Less common categories (both lanes) and the Non-Player flavor: appended
+    -- only when set, same byte-identical rule.
+    do
+        local lc
+        for i = 1, #LESS_CATS do
+            local c = LESS_CATS[i]
+            if bv[c] == true then lc = lc or {}; lc[#lc + 1] = c end
+            if neg and neg[c] == true then lc = lc or {}; lc[#lc + 1] = "-" .. c end
+        end
+        if dm.nonplayerMode == "any" then lc = lc or {}; lc[#lc + 1] = "npany" end
+        if lc then parts[#parts + 1] = table.concat(lc, "+") end
+    end
     -- Fingerprint the ACTIVE union: spec swaps, bucket edits and per-spec
     -- disables all land here, so the containers re-apply exactly when the
     -- rendered tile set changes (edits to buckets other specs own don't).
@@ -722,6 +750,14 @@ function ns.DM_CfgFP()
                 TileStyleFP(t),
                 FxListFP(t.fxList),
             }, ",")
+            if t.maxDurSec then
+                parts[#parts] = parts[#parts] .. ",md" .. tostring(t.maxDurSec)
+            end
+            for li = 1, #LESS_CATS do
+                local c = LESS_CATS[li]
+                if t.claim and t.claim[c] then parts[#parts] = parts[#parts] .. "," .. c end
+                if t.neg and t.neg[c] == true then parts[#parts] = parts[#parts] .. ",-" .. c end
+            end
         end
     end
     return table.concat(parts, ":")
@@ -749,7 +785,9 @@ local function EffectiveState(dm)
     else
         eff = { boss = dm.boss, role = dm.role, priority = dm.priority,
             cc = dm.cc == true, raid = dm.raid, raidcombat = dm.raidcombat, dispel = dm.dispel,
-            nonplayer = dm.nonplayer }
+            nonplayer = dm.nonplayer,
+            castbyme = dm.castbyme, magic = dm.magic, curse = dm.curse, poison = dm.poison,
+            disease = dm.disease, bleed = dm.bleed, canapply = dm.canapply }
     end
     local claims = {}
     -- First enabled grid tile in catch-all state (TileCatchAllOn: All Debuffs
@@ -821,6 +859,8 @@ local function BuildRecords(s, dm)
     local anyShow = bv.boss == true or bv.role == true or bv.priority == true
         or bv.cc == true or bv.raid == true or bv.raidcombat == true
         or bv.dispel == true or bv.nonplayer == true
+        or bv.castbyme == true or bv.magic == true or bv.curse == true or bv.poison == true
+        or bv.disease == true or bv.bleed == true or bv.canapply == true
     local durAlone = durOn and not allOn and not anyShow
     -- HIDE lane (dm.neg): subtracts in BOTH modes. Token categories negate off
     -- every lower-ranked record (ownership rank cc > dispel > raid > raidcombat
@@ -834,13 +874,58 @@ local function BuildRecords(s, dm)
         boss = NegHas("boss"), role = NegHas("role"),
         priority = NegHas("priority"), raid = NegHas("raid"),
         raidcombat = NegHas("raidcombat"), dispel = NegHas("dispel"),
-        nonplayer = NegHas("nonplayer"),
+        nonplayer = NegHas("nonplayer"), canapply = NegHas("canapply"),
     } or nil
     -- Non-cc records always exclude CROWD_CONTROL under Show All (cc group
     -- renders CC while on, and a subtracted cc -- parked by the apply pass --
     -- must stay hidden everywhere), when cc is effectively on, and when the
     -- hide lane subtracts cc in add mode.
     local ccOn = allOn or (eff.cc and true or false) or NegHas("cc")
+    -- Non-Player flavor: the nonplayer category renders isFromPlayerOrPlayerPet
+    -- = false ("Non-Player Auras") or = true ("From Any Player"); every fold the
+    -- category applies to OTHER records carries the complement.
+    local npAny = dm.nonplayerMode == "any"
+    local npHideVal = not npAny
+    -- Cast By You (PLAYER token) ranks lowest among token categories: it negates
+    -- every other token owner, and every non-token record negates !PLAYER while
+    -- it is shown or hidden anywhere (same shape as raid/raidcombat).
+    local castActive = (eff.castbyme and true or false) or NegHas("castbyme")
+    -- Per-type dispel ownership: a type shown as its own record, or hidden, is
+    -- excluded from every other record (the typed dispel record loses it from
+    -- its include map, everything else gains an exclude entry). Per-type records
+    -- negate only crowd control, so they own their type outright.
+    local typeEx
+    for i = 1, #TYPE_ORDER do
+        local cat = TYPE_ORDER[i]
+        if (eff[cat] and (claims[cat] or fxCats[cat] or not allOn)) or NegHas(cat) then
+            typeEx = typeEx or {}
+            typeEx[TYPE_CATS[cat]] = true
+        end
+    end
+    -- Copy-on-write type exclusion. Include maps derived from TYPED_DEBUFFS (the
+    -- typed dispel record) shrink; a per-type record's own single-type include is
+    -- never touched; every other record grows an exclude map. Static vocabulary
+    -- tables are never mutated.
+    local typedCopies = {}
+    local function ExcludeType(cf, T)
+        local inc = cf.includeDispelTypes
+        if inc then
+            if (inc == TYPED_DEBUFFS or typedCopies[inc]) and inc[T] then
+                local m = {}
+                for k, v in pairs(inc) do m[k] = v end
+                m[T] = nil
+                typedCopies[m] = true
+                cf.includeDispelTypes = m
+            end
+            return
+        end
+        local exm = cf.excludeDispelTypes
+        if exm == TYPED_DEBUFFS or (exm and exm[T]) then return end
+        local m = {}
+        if exm then for k, v in pairs(exm) do m[k] = v end end
+        m[T] = true
+        cf.excludeDispelTypes = m
+    end
 
     -- Two dispel flavors: "you" = RAID_PLAYER_DISPELLABLE token; "typed" = any dispel
     -- type (candidate include map, not tokenizable, dedup rides excludeDispelTypes instead of a !token).
@@ -874,6 +959,11 @@ local function BuildRecords(s, dm)
         if typedMap and not cf.includeDispelTypes then
             cf.excludeDispelTypes = TYPED_DEBUFFS
         end
+        -- Per-type ownership folds (see typeEx); a per-type record's own include
+        -- map is left alone inside ExcludeType.
+        if typeEx then
+            for T in pairs(typeEx) do ExcludeType(cf, T) end
+        end
         -- Add-mode hide lane, boolean categories: false-valued candidate booleans
         -- ride every positive record (never overriding a record's own positive
         -- boolean; the merged bossrole record skips both constituents). Under
@@ -883,7 +973,8 @@ local function BuildRecords(s, dm)
             if neg.boss and cf.isBossAura == nil and cf.isBossOrRoleAura == nil then cf.isBossAura = false end
             if neg.role and cf.isRoleAura == nil and cf.isBossOrRoleAura == nil then cf.isRoleAura = false end
             if neg.priority and cf.isPriorityAura == nil then cf.isPriorityAura = false end
-            if neg.nonplayer and cf.isFromPlayerOrPlayerPet == nil then cf.isFromPlayerOrPlayerPet = true end
+            if neg.nonplayer and cf.isFromPlayerOrPlayerPet == nil then cf.isFromPlayerOrPlayerPet = npHideVal end
+            if neg.canapply and cf.canApplyAura == nil then cf.canApplyAura = false end
         end
         return cf
     end
@@ -911,6 +1002,7 @@ local function BuildRecords(s, dm)
             ((sub and sub.dispel) or claims.dispel or fxCats.dispel or NegHas("dispel")) and true or false,
             ((sub and sub.raid) or claims.raid or fxCats.raid or NegHas("raid")) and true or false)
         if (sub and sub.raidcombat) or claims.raidcombat or fxCats.raidcombat or NegHas("raidcombat") then toks[#toks + 1] = "!RAID_IN_COMBAT" end
+        if castActive then toks[#toks + 1] = "!PLAYER" end
         local cf = Cand(false)
         -- Subtracted boolean categories (see `sub`); fx-routed keeps its forced base record (effect wins over
         -- subtraction, same accepted edge as duplicating boolean claims). Under durAlone (add mode) Cand's own
@@ -919,7 +1011,8 @@ local function BuildRecords(s, dm)
             if sub.boss then cf.isBossAura = false end
             if sub.role then cf.isRoleAura = false end
             if sub.priority then cf.isPriorityAura = false end
-            if sub.nonplayer then cf.isFromPlayerOrPlayerPet = true end
+            if sub.nonplayer then cf.isFromPlayerOrPlayerPet = npHideVal end
+            if sub.canapply then cf.canApplyAura = false end
         end
         recs[#recs + 1] = { key = "all", tokens = toks, cand = cf }
     end
@@ -965,7 +1058,25 @@ local function BuildRecords(s, dm)
     local function BoolTokens()
         local toks = Neg({ "HARMFUL" }, true, true, true)
         if eff.raidcombat or NegHas("raidcombat") then toks[#toks + 1] = "!RAID_IN_COMBAT" end
+        if castActive then toks[#toks + 1] = "!PLAYER" end
         return toks
+    end
+    -- Cast By You: token record, lowest token rank (negates every other token
+    -- owner; per-type dispel ownership reaches it through Cand's type folds).
+    if eff.castbyme and (claims.castbyme or fxCats.castbyme or not allOn) then
+        local toks = Neg({ "HARMFUL", "PLAYER" }, true, true, true)
+        if eff.raidcombat or NegHas("raidcombat") then toks[#toks + 1] = "!RAID_IN_COMBAT" end
+        recs[#recs + 1] = { key = "castbyme", tokens = toks, cand = Cand(false), tile = claims.castbyme }
+    end
+    -- Per-type dispels: one include-map record per shown type. Only crowd
+    -- control is negated (cc owns every overlap); every other record excludes
+    -- the type through typeEx, so each record owns its type outright.
+    for i = 1, #TYPE_ORDER do
+        local cat = TYPE_ORDER[i]
+        if eff[cat] and (claims[cat] or fxCats[cat] or not allOn) then
+            recs[#recs + 1] = { key = cat, tokens = Neg({ "HARMFUL" }, true, false, false),
+                cand = Cand(false, { includeDispelTypes = TYPE_INCLUDE[cat] }), tile = claims[cat] }
+        end
     end
     -- Boss/role merge into one record only when they route to the SAME place; split claims build separate records.
     local bossTile, roleTile = claims.boss, claims.role
@@ -988,6 +1099,12 @@ local function BuildRecords(s, dm)
         recs[#recs + 1] = { key = "priority", tokens = BoolTokens(),
             cand = Cand(true, { isPriorityAura = true }), gated = true, tile = claims.priority }
     end
+    -- Can Apply Aura: boolean record (debuffs the player's own class can apply),
+    -- same shape and overlap doctrine as the other boolean categories.
+    if eff.canapply and (claims.canapply or fxCats.canapply or not allOn) then
+        recs[#recs + 1] = { key = "canapply", tokens = BoolTokens(),
+            cand = Cand(true, { canApplyAura = true }), gated = true, tile = claims.canapply }
+    end
 
     -- Non-Player Auras: boolean record (isFromPlayerOrPlayerPet = false -- debuffs not caused by ANY player or
     -- player pet, engine-evaluated; a !PLAYER token would exclude only YOUR casts, never other players' Sated/Forbearance noise). Full
@@ -996,7 +1113,7 @@ local function BuildRecords(s, dm)
     -- claiming tile or a per-filter effect still forces it (same routing as the other boolean categories).
     if eff.nonplayer and (claims.nonplayer or fxCats.nonplayer or not allOn) then
         recs[#recs + 1] = { key = "nonplayer", tokens = BoolTokens(),
-            cand = Cand(false, { isFromPlayerOrPlayerPet = false }), tile = claims.nonplayer }
+            cand = Cand(false, { isFromPlayerOrPlayerPet = npAny }), tile = claims.nonplayer }
     end
 
     -- Tile-hosted catch-all: the first enabled grid tile in catch-all state
@@ -1013,7 +1130,8 @@ local function BuildRecords(s, dm)
             if sub.boss then cf.isBossAura = false end
             if sub.role then cf.isRoleAura = false end
             if sub.priority then cf.isPriorityAura = false end
-            if sub.nonplayer then cf.isFromPlayerOrPlayerPet = true end
+            if sub.nonplayer then cf.isFromPlayerOrPlayerPet = npHideVal end
+            if sub.canapply then cf.canApplyAura = false end
         end
         recs[#recs + 1] = { key = "all", tokens = BoolTokens(),
             cand = cf, tile = claimsAll }
@@ -1043,7 +1161,8 @@ local function BuildRecords(s, dm)
                 end
             end
         end
-        if not deadBlocked and (deadTile or bv.nonplayer == true) then
+        -- The From Any Player flavor is not "Non-Player Auras": no corpse swap.
+        if not deadBlocked and not npAny and (deadTile or bv.nonplayer == true) then
             recs[#recs + 1] = { key = "npdead", tokens = { "HARMFUL" },
                 cand = { excludeSpellIDs = ex }, deadOnly = true, tile = deadTile }
         end
@@ -1088,7 +1207,16 @@ local function BuildRecords(s, dm)
             if tn.role == true and cf.isRoleAura == nil and cf.isBossOrRoleAura == nil then cf.isRoleAura = false end
             if tn.priority == true and cf.isPriorityAura == nil then cf.isPriorityAura = false end
             if tn.nonplayer == true and key ~= "nonplayer" and cf.isFromPlayerOrPlayerPet == nil then
-                cf.isFromPlayerOrPlayerPet = true
+                cf.isFromPlayerOrPlayerPet = npHideVal
+            end
+            -- Less common categories: token, boolean, and per-type folds.
+            if tn.castbyme == true and key ~= "castbyme" and not HasTok(toks, "!PLAYER") then
+                toks[#toks + 1] = "!PLAYER"
+            end
+            if tn.canapply == true and cf.canApplyAura == nil then cf.canApplyAura = false end
+            for ti = 1, #TYPE_ORDER do
+                local tcat = TYPE_ORDER[ti]
+                if tn[tcat] == true and key ~= tcat then ExcludeType(cf, TYPE_CATS[tcat]) end
             end
         end
     end
@@ -1105,8 +1233,12 @@ local function BuildRecords(s, dm)
     for i = 1, #recs do
         local r = recs[i]
         local owner = r.tile or bv
-        if owner.hasDuration == true and r.key ~= "cc" and r.key ~= "npdead" then
-            r.cand.maxDuration = math.huge
+        -- Max Duration (seconds) is the same native gate with a real cap; it
+        -- implies Has Duration (a capped aura is a timed aura). nil = Unlimited
+        -- = no field on the candidate table at all.
+        local cap = owner.maxDurSec or (owner.hasDuration == true and math.huge) or nil
+        if cap and r.key ~= "cc" and r.key ~= "npdead" then
+            r.cand.maxDuration = cap
         end
         r.fxSize = FxSizeFor(r.tile and r.tile.fxList or bv.fxList, r.key)
     end
@@ -1174,7 +1306,11 @@ local function EffectFilterFor(dm, cat)
     end
     if cat == "boss" then return { "HARMFUL" }, { isBossAura = true }, true end
     if cat == "role" then return { "HARMFUL" }, { isRoleAura = true }, true end
-    if cat == "nonplayer" then return { "HARMFUL" }, { isFromPlayerOrPlayerPet = false }, false end
+    -- Follows the base Non-Player flavor (false = Non-Player Auras, true = From Any Player).
+    if cat == "nonplayer" then return { "HARMFUL" }, { isFromPlayerOrPlayerPet = dm.nonplayerMode == "any" }, false end
+    if cat == "castbyme" then return { "HARMFUL", "PLAYER" }, nil, false end
+    if TYPE_CATS[cat] then return { "HARMFUL" }, { includeDispelTypes = TYPE_INCLUDE[cat] }, false end
+    if cat == "canapply" then return { "HARMFUL" }, { canApplyAura = true }, true end
     -- Catch-all pseudo-category (TileCatchAllOn tiles; the duration modifier folds in via EffectFilterForTile).
     if cat == "all" then return { "HARMFUL" }, nil, false end
     -- "priority" (default)
@@ -1189,9 +1325,10 @@ end
 -- ccCand bypassing Cand).
 local function EffectFilterForTile(dm, t, cat)
     local toks, cf, gated = EffectFilterFor(dm, cat)
-    if t and t.hasDuration == true and cat ~= "cc" then
+    local cap = t and (t.maxDurSec or (t.hasDuration == true and math.huge)) or nil
+    if cap and cat ~= "cc" then
         cf = cf or {}
-        if cf.maxDuration == nil then cf.maxDuration = math.huge end
+        if cf.maxDuration == nil then cf.maxDuration = cap end
     end
     local tn = t and t.neg
     if tn and cat ~= "cc" then
@@ -1220,7 +1357,37 @@ local function EffectFilterForTile(dm, t, cat)
         end
         if tn.nonplayer == true and cat ~= "nonplayer" then
             cf = cf or {}
-            if cf.isFromPlayerOrPlayerPet == nil then cf.isFromPlayerOrPlayerPet = true end
+            if cf.isFromPlayerOrPlayerPet == nil then cf.isFromPlayerOrPlayerPet = (dm.nonplayerMode ~= "any") end
+        end
+        if tn.castbyme == true and cat ~= "castbyme" then toks[#toks + 1] = "!PLAYER" end
+        if tn.canapply == true and cat ~= "canapply" then
+            cf = cf or {}
+            if cf.canApplyAura == nil then cf.canApplyAura = false end
+        end
+        -- Per-type hides: the typed dispel slot's include map shrinks (copy),
+        -- any other slot gains an exclude entry; a slot's own type is skipped.
+        for ti = 1, #TYPE_ORDER do
+            local tcat = TYPE_ORDER[ti]
+            if tn[tcat] == true and cat ~= tcat then
+                local T = TYPE_CATS[tcat]
+                cf = cf or {}
+                local inc = cf.includeDispelTypes
+                if inc then
+                    if inc[T] then
+                        local m = {}
+                        for k, v in pairs(inc) do m[k] = v end
+                        m[T] = nil
+                        cf.includeDispelTypes = m
+                    end
+                elseif cf.excludeDispelTypes ~= TYPED_DEBUFFS then
+                    local m = {}
+                    if cf.excludeDispelTypes then
+                        for k, v in pairs(cf.excludeDispelTypes) do m[k] = v end
+                    end
+                    m[T] = true
+                    cf.excludeDispelTypes = m
+                end
+            end
         end
     end
     return toks, cf, gated
@@ -2269,7 +2436,10 @@ function ns.DM_OnUnitAssigned(d, unit)
     local tiles = d.dmTiles
     if not tiles then return end
     for _, c in pairs(tiles) do
-        if c._dmUnit ~= unit then
+        -- The container's own binding, not the stamp beside it: the stamp is a
+        -- shadow, and a re-point that reaches the container by any other route
+        -- would leave it lying about what the tile is actually parsing.
+        if c:GetUnit() ~= unit then
             c:SetUnit(unit)
             c:UpdateAllAuras()
             c._dmUnit = unit

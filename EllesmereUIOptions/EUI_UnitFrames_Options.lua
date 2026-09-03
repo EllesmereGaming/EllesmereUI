@@ -1318,7 +1318,10 @@ initFrame:SetScript("OnEvent", function(self)
                 return cfg and AbbreviateNumbers(v, cfg) or AbbreviateNumbers(v)
             end
             local function _pvPct(p01)
-                return _G._EUI_TextDecimals and string.format("%.1f", p01 * 100) or tostring(math.floor(p01 * 100))
+                if not _G._EUI_TextDecimals then return tostring(math.floor(p01 * 100)) end
+                local trim = _G._EUI_PctTrim
+                if trim then return AbbreviateNumbers(trim.curve:Evaluate(p01), trim.cfg) end
+                return string.format("%.1f", p01 * 100)
             end
             local function _pvName()
                 if unitKey == "player" then return UnitName("player") or "Player" end
@@ -2390,10 +2393,7 @@ initFrame:SetScript("OnEvent", function(self)
             local isMini = (unitKey == "pet" or unitKey == "boss" or unitKey == "targettarget" or unitKey == "focustarget")
             local ds = s
             if isMini then
-                local ef = db.profile.enabledFrames
-                if ef.focus ~= false and db.profile.focus then ds = db.profile.focus
-                elseif ef.target ~= false and db.profile.target then ds = db.profile.target
-                else ds = db.profile.player end
+                ds = ns.GetMiniDonorSettings and ns.GetMiniDonorSettings() or db.profile.player
             end
 
             -- The preview mocks the EUI frame, so it counts as "enabled" only when the
@@ -3318,8 +3318,7 @@ initFrame:SetScript("OnEvent", function(self)
                             or "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-tb.tga")
                         dispelOverlayPreview:SetVertexColor(c.r, c.g, c.b, alpha)
                     else
-                        dispelOverlayPreview:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
-                        dispelOverlayPreview:SetPoint("BOTTOMRIGHT", healthFill, "BOTTOMRIGHT", 0, 0)
+                        dispelOverlayPreview:SetAllPoints(healthFill)
                         dispelOverlayPreview:SetColorTexture(c.r, c.g, c.b, alpha)
                     end
                     dispelOverlayPreview:Show()
@@ -4297,7 +4296,10 @@ initFrame:SetScript("OnEvent", function(self)
         -- copied) and copying one alone desyncs them. Underscore keys are runtime
         -- memos (e.g. _preHiddenBarVisibility), not settings.
         if type(key) ~= "string" then return false end
-        if key == "barVisibility" or key:sub(1, 1) == "_" then return false end
+        -- visibilityMatch only modifies barVisibility's selection, so it has to stay
+        -- with the frame for the same reason: copying the modifier to a frame that kept
+        -- its own mode changes how that mode reads.
+        if key == "barVisibility" or key == "visibilityMatch" or key:sub(1, 1) == "_" then return false end
         local sup = UNIT_SUPPORTS[key]
         if sup then
             for _, u in ipairs(groupUnits) do
@@ -4533,6 +4535,13 @@ initFrame:SetScript("OnEvent", function(self)
         -- showInRaid/showInParty/showSolo trio: only group items constrain it
         -- (unconstrained = true), matching ToggleFrame's group gating for multi-select.
         local function GroupAxisPasses(vm, inRaid, inParty)
+            -- A checked Hide lane vetoes whatever the Show lanes say, in both match
+            -- modes; both lanes of one row at once counts as unconstrained.
+            if (vm.hide_in_raid and not vm.in_raid and inRaid)
+                or (vm.hide_in_party and not vm.in_party and inParty)
+                or (vm.hide_solo and not vm.solo and not inRaid and not inParty) then
+                return false
+            end
             local g1, g2, g3 = vm.in_raid, vm.in_party, vm.solo
             if not (g1 or g2 or g3) or (g1 and g2 and g3) then return true end
             if g1 and inRaid then return true end
@@ -4569,12 +4578,13 @@ initFrame:SetScript("OnEvent", function(self)
               legacyKey = "barVisibility",
               caps = { partyIncludesRaid = false, luaDragonriding = true },
               refreshPageArg = true,
-              -- Visibility owns only the hidden/not-hidden axis: "never" disables
-              -- the frame, any visible mode re-enables it. frameSource (the inline
-              -- cog's EUI/Blizzard choice) is left intact so it resumes on re-enable.
+              -- Visibility is a RUNTIME axis and never touches enabledFrames: that
+              -- key decides whether the frame is built at all, once, at login, so a
+              -- Spec Override carrying "never" used to leave the frame uncreated for
+              -- the session with no way back but a /reload. "never" is hidden by the
+              -- visibility pass instead (ns.UpdateFrameVisibility), which reverses.
               applyScalarFn = function(s, mode)
                   s.barVisibility = mode
-                  db.profile.enabledFrames[selectedUnit] = (mode ~= "never")
               end,
               onChanged = function()
                   local s = UNIT_DB_MAP[selectedUnit]()
@@ -4582,8 +4592,11 @@ initFrame:SetScript("OnEvent", function(self)
                   if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
                   ReloadAndUpdate()
                   -- Un-hiding a frame whose EUI frame isn't spawned this session
-                  -- (source was Blizzard/Hidden at login) needs a /reload.
-                  if (s.barVisibility or "always") ~= "never" then PromptReloadIfUnspawned({ selectedUnit }) end
+                  -- (source was Blizzard/Hidden at login) needs a /reload. The EFFECTIVE
+                  -- value decides: an override replaces the shared scalar, so an override
+                  -- of Always on a unit whose shared value is "never" un-hides it too.
+                  local visOv = EllesmereUI.VisOverrideValue and EllesmereUI.VisOverrideValue(s)
+                  if (visOv or s.barVisibility or "always") ~= "never" then PromptReloadIfUnspawned({ selectedUnit }) end
               end,
               onOptionChanged = function()
                   if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
@@ -4663,8 +4676,8 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- ONE sync icon now that both halves share a control: set-aware for correct
-        -- multi-selection compare/copy, and VisFullCopy carries the option booleans too;
-        -- runs each target's scalar side effects (enabledFrames) + boolean-trio derivation.
+        -- multi-selection compare/copy, and VisFullCopy carries the option booleans too,
+        -- plus each target's boolean-trio derivation.
         if not EllesmereUI._prebuilding then
             local rgn = visRow._leftRegion
             local function CopyVisToUnit(key)
@@ -4673,7 +4686,6 @@ initFrame:SetScript("OnEvent", function(self)
                 if dst == src then return end
                 EllesmereUI.VisFullCopy(dst, src, "barVisibility", nil, function(t, mode)
                     t.barVisibility = mode
-                    db.profile.enabledFrames[key] = (mode ~= "never")
                 end)
                 SyncUnitVisBooleans(dst)
             end
@@ -5226,6 +5238,13 @@ initFrame:SetScript("OnEvent", function(self)
                       get=function() return db.profile.showDecimalBoss2 ~= false end,
                       set=function(v)
                           db.profile.showDecimalBoss2 = v
+                          if ns.ApplyTextDecimalGlobals then ns.ApplyTextDecimalGlobals() end
+                          ReloadAndUpdate(); UpdatePreview()
+                      end },
+                    { type="toggle", label="Hide Trailing Zeros",
+                      get=function() return db.profile.showDecimalTrimZeros == true end,
+                      set=function(v)
+                          db.profile.showDecimalTrimZeros = v
                           if ns.ApplyTextDecimalGlobals then ns.ApplyTextDecimalGlobals() end
                           ReloadAndUpdate(); UpdatePreview()
                       end },
@@ -11022,10 +11041,25 @@ initFrame:SetScript("OnEvent", function(self)
                         local classItems = ns.PAB_ClassItems and ns.PAB_ClassItems(false) or {}
                         for i = 1, #classItems do
                             local ci = classItems[i]
-                            items[#items + 1] = { key = ci.key, label = ci.label, tooltip = ci.tooltip,
-                                dual = true, showLockedFn = AllOn, showLockedTooltip = lockedTip }
+                            if ci.isHeader then
+                                items[#items + 1] = { isHeader = true, label = ci.label }
+                            else
+                                items[#items + 1] = { key = ci.key, label = ci.label, tooltip = ci.tooltip,
+                                    dual = true, showLockedFn = AllOn, showLockedTooltip = lockedTip }
+                            end
                         end
                         return items
+                    end
+                    -- Non-Player / From Any Player share one engine field: a check
+                    -- in either lane clears the sibling from both lanes.
+                    local function ClearExclusive(k)
+                        local other = ns.PAB_ExclusiveSkey and ns.PAB_ExclusiveSkey[k]
+                        if not other then return end
+                        ps["debuff" .. other] = nil
+                        if ps.debuffNegClasses then
+                            ps.debuffNegClasses[other] = nil
+                            if not next(ps.debuffNegClasses) then ps.debuffNegClasses = nil end
+                        end
                     end
                     if ns.UF_EnsurePlayerAuraLanes then ns.UF_EnsurePlayerAuraLanes(ps) end
                     local warnClosed
@@ -11056,6 +11090,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 return
                             end
                             -- Two-lane class write: checking one lane clears the other.
+                            if v then ClearExclusive(k) end
                             if neg then
                                 ps.debuffNegClasses = ps.debuffNegClasses or {}
                                 ps.debuffNegClasses[k] = v or nil
@@ -12591,13 +12626,12 @@ initFrame:SetScript("OnEvent", function(self)
 
     ---------------------------------------------------------------------------
     --  Mini frame donor settings helper
-    --  Returns the settings table from focus (if enabled) target player
+    --  Returns the settings table from focus (if usable) target player. Routed
+    --  through the runtime resolver so the options preview and the live frames
+    --  can never disagree about which frame is on screen to inherit from.
     ---------------------------------------------------------------------------
     local function GetMiniDonorSettings()
-        local ef = db.profile.enabledFrames
-        if ef.focus ~= false and db.profile.focus then return db.profile.focus end
-        if ef.target ~= false and db.profile.target then return db.profile.target end
-        return db.profile.player
+        return ns.GetMiniDonorSettings and ns.GetMiniDonorSettings() or db.profile.player
     end
 
     ---------------------------------------------------------------------------
@@ -16154,6 +16188,13 @@ initFrame:SetScript("OnEvent", function(self)
         onReset     = function()
             db:ResetProfile()
             ReloadUI()
+        end,
+        -- Tears down Boss Preview on module switch (RegisterOnHide above
+        -- only covers closing the whole options window).
+        onModuleLeave = function()
+            if ns._bossPreviewActive and ns.SetBossPreview then
+                ns.SetBossPreview(false)
+            end
         end,
     })
 

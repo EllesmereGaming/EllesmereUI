@@ -41,6 +41,7 @@ local WINDOW_ENABLE_KEYS = {
     itemupgrade     = "reskinItemUpgrade",
     loot            = "reskinLoot",
     loottoast       = "reskinLootToast",
+    bnettoast       = "reskinBNetToast",
     lootroll        = "reskinLootRoll",
     loothistory     = "reskinLootHistory",
     groupinvite     = "reskinGroupInvite",
@@ -98,6 +99,7 @@ do
         { marker = "readyCheckStyleSeeded", keys = { "readycheck" } },
         { marker = "queueChoiceTradeStyleSeeded",
           keys = { "queuestatus", "delvepicker", "playerchoice", "trade" } },
+        { marker = "bnetToastStyleSeeded", keys = { "bnettoast" } },
     }
     local function SeedBatch(marker, newKeys)
         if EllesmereUIDB[marker] then return end
@@ -1380,6 +1382,45 @@ end
 
         local timerBorder, timerBg
 
+        -- True once the user has touched ANY Queue Timer Style setting. Gates the
+        -- unified style below off the Blizzard-style branch: reskin-off users chose
+        -- the stock look, so an untouched profile keeps the legacy rendering
+        -- byte-identically; the first setting they touch activates the unified
+        -- style in both modes (and a section reset returns them to legacy).
+        local function QueueTimerCustomized()
+            local db = EllesmereUIDB
+            return (db and (db.queueTimerTextColor ~= nil or db.queueTimerTextSize ~= nil
+                or db.queueTimerBarHeight ~= nil or db.queueTimerTextOffsetY ~= nil))
+                and true or false
+        end
+
+        -- Applied after either style branch, so the look holds with the reskin on or off.
+        local function ApplyTimerStyle()
+            if not timerBar then return end
+            if GetFFD(timerBar).style == false and not QueueTimerCustomized() then
+                -- Legacy stock rendering, exactly as before the style controls existed.
+                timerText:SetFontObject("GameFontHighlight")
+                timerText:ClearAllPoints()
+                timerText:SetPoint("CENTER", timerBar, "CENTER", 0, 0)
+                timerBar:SetHeight(9)
+                return
+            end
+            local db = EllesmereUIDB or {}
+            local QT = EllesmereUI.QUEUE_TIMER
+            local c = db.queueTimerTextColor
+            local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras"))
+                or "Fonts\\FRIZQT__.TTF"
+            if EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(timerText, true) end
+            timerText:SetFont(fontPath, db.queueTimerTextSize or QT.TEXT_SIZE, "")
+            timerText:SetTextColor((c and c.r) or QT.TEXT_R, (c and c.g) or QT.TEXT_G,
+                (c and c.b) or QT.TEXT_B, 1)
+            timerText:ClearAllPoints()
+            timerText:SetPoint("CENTER", timerBar, "CENTER", 0,
+                db.queueTimerTextOffsetY or QT.TEXT_OFFSET_Y)
+            timerBar:SetHeight(db.queueTimerBarHeight or QT.BAR_HEIGHT)
+        end
+        EllesmereUI.RefreshQueueTimerStyle = ApplyTimerStyle
+
         local function ShowQueueTimer(useEuiStyle)
             local popup = LFGDungeonReadyPopup
             if not popup then return end
@@ -1400,7 +1441,6 @@ end
                 timerBorder:SetPoint("TOP", timerBar, 0, 28)
 
                 timerText = timerBar:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-                timerText:SetPoint("CENTER", timerBar, "CENTER", 0, 0)
 
                 if EllesmereUI.RegAccent then
                     EllesmereUI.RegAccent({ type = "callback", fn = function()
@@ -1416,11 +1456,13 @@ end
             local dialog = LFGDungeonReadyDialog
             local anchorFrame = dialog or popup
 
+            -- The bar's parent sits a level below the dialog so its backdrop draws under the dialog art; a raised countdown must not.
+            timerBar:SetFrameLevel(anchorFrame:GetFrameLevel() + 5)
+
             timerBar:ClearAllPoints()
             if useEuiStyle then
                 timerBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
                 local mult = (_PP and _PP.mult) or 1
-                timerBar:SetHeight(11)
                 timerBar:SetPoint("BOTTOMLEFT", anchorFrame, "BOTTOMLEFT", mult, mult)
                 timerBar:SetPoint("BOTTOMRIGHT", anchorFrame, "BOTTOMRIGHT", -mult, mult)
                 local ar, ag, ab = EllesmereUI.GetAccentColor()
@@ -1428,23 +1470,19 @@ end
                 timerBg:SetColorTexture(0, 0, 0, 0.5)
                 timerBorder:Hide()
                 timerBg:Show()
-                local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras"))
-                    or "Fonts\\FRIZQT__.TTF"
-                if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(timerText, true) end
-                timerText:SetFont(fontPath, 9, "")
-                timerText:SetTextColor(1, 0.831, 0, 1) -- #ffd400
                 GetFFD(timerBar).style = true
             else
                 -- Blizzard style: stock bar texture + casting-bar border art.
                 timerBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
                 timerBar:SetPoint("TOP", anchorFrame, "BOTTOM", 0, -5)
-                timerBar:SetSize(190, 9)
+                timerBar:SetWidth(190)
                 timerBar:SetStatusBarColor(1, 0.1, 0)
                 timerBorder:Show()
                 timerBg:Show()
-                timerText:SetFontObject("GameFontHighlight")
                 GetFFD(timerBar).style = false
             end
+
+            ApplyTimerStyle()
 
             -- Hide any other addon's timer bar parented to the popup.
             for _, child in ipairs({ popup:GetChildren() }) do
@@ -1509,13 +1547,63 @@ end
             status:HookScript("OnShow", function() SkinQueueStatus() end)
         end
 
+        -- The "Confirm your role" popup shown to the whole party when ANYONE queues
+        -- (leader or otherwise) and roles aren't already locked in. LFG_PROPOSAL_SHOW
+        -- only fires for the later group-found step, so this frame is hooked directly.
+        -- Only the outer chrome is stripped; the role icons live on separate child
+        -- buttons (RoleButtonTank/Healer/DPS), never direct regions of this frame.
+        local function SkinRoleCheckPopup()
+            local popup = _G.LFDRoleCheckPopup
+            if not popup or not IsQueueReskinOn() then return end
+            for i = 1, _select("#", popup:GetRegions()) do
+                local r = _select(i, popup:GetRegions())
+                if r and r:IsObjectType("Texture") and not GetFFD(r).owned then
+                    r:SetTexture(nil)
+                    if r.SetAtlas then r:SetAtlas("") end
+                end
+            end
+            if popup.BG then popup.BG:SetAlpha(0) end
+            if popup.NineSlice then popup.NineSlice:SetAlpha(0) end
+            if popup.Border then popup.Border:SetAlpha(0) end
+            if not GetFFD(popup).bg then
+                local RS = EllesmereUI.RESKIN
+                GetFFD(popup).bg = popup:CreateTexture(nil, "BACKGROUND", nil, -8)
+                GetFFD(popup).bg:SetAllPoints()
+                GetFFD(popup).bg:SetColorTexture(RS.BG_R, RS.BG_G, RS.BG_B, RS.QT_ALPHA)
+                GetFFD(GetFFD(popup).bg).owned = true
+                if not _PP then _PP = EllesmereUI and EllesmereUI.PP end
+                if _PP and _PP.CreateBorder then
+                    _PP.CreateBorder(popup, 1, 1, 1, RS.BRD_ALPHA, 1, "OVERLAY", 7)
+                end
+            end
+        end
+
+        -- Not gated behind any LFG event: unlike the proposal/status popups above,
+        -- this frame is part of the always-loaded base UI and can show independently
+        -- of any Dungeon Finder UI ever being opened locally, so it is hooked directly.
+        local _roleCheckHooked = false
+        local function HookRoleCheckOnShow()
+            if _roleCheckHooked then return end
+            local popup = _G.LFDRoleCheckPopup
+            if not popup then return end
+            _roleCheckHooked = true
+            popup:HookScript("OnShow", function() SkinRoleCheckPopup() end)
+        end
+        HookRoleCheckOnShow()
+
         local lfgFrame = CreateFrame("Frame")
         lfgFrame:RegisterEvent("LFG_PROPOSAL_SHOW")
         lfgFrame:RegisterEvent("LFG_PROPOSAL_FAILED")
         lfgFrame:RegisterEvent("LFG_PROPOSAL_SUCCEEDED")
+        -- Fallback retry only: HookRoleCheckOnShow already ran once at load. If
+        -- LFDRoleCheckPopup somehow didn't exist yet at that point, this catches it
+        -- the first time a role check actually happens, before the popup shows.
+        lfgFrame:RegisterEvent("LFG_ROLE_CHECK_SHOW")
         lfgFrame:SetScript("OnEvent", function(_, event)
             if not EllesmereUIDB then return end
-            if event == "LFG_PROPOSAL_SHOW" then
+            if event == "LFG_ROLE_CHECK_SHOW" then
+                HookRoleCheckOnShow()
+            elseif event == "LFG_PROPOSAL_SHOW" then
                 local reskinOn = IsQueueReskinOn()
                 if reskinOn then
                     SkinQueuePopup()
@@ -2480,10 +2568,9 @@ end
 -------------------------------------------------------------------------------
 --  Show Tooltips (global visibility mode). The "Blizzard Tooltip" dropdown
 --  (EllesmereUIDB.tooltipShowMode, default "always") suppresses the game tooltip
---  by combat state, applied to every default-anchored tooltip via the same
---  GameTooltip_SetDefaultAnchor post-hook the cursor anchor uses. Action tooltip
---  paths can re-own the tooltip explicitly after that hook, so action owners are
---  recognized separately before SetAction builds the tooltip.
+--  by combat state across both default-anchored and explicitly-owned paths.
+--  The default-anchor post-hook also serves the cursor anchor; the SetOwner
+--  post-hook covers action buttons, item slots, and custom tooltip owners.
 --    always          -> never suppressed (default; the hook early-outs)
 --    outOfCombat     -> hidden while in combat lockdown
 --    outOfBossCombat -> hidden while a boss encounter is in progress
@@ -2579,7 +2666,6 @@ do
 
     local _comparisonFlagOwned = false
     local _parked = false
-    local _modeEligible = false
     local function GetComparisonState(tooltip, create)
         local state = FFD[tooltip]
         if not state and create then
@@ -2640,9 +2726,8 @@ do
     end
 
     local function OnItemTooltipPreCall(tooltip)
-        -- Parking is the authoritative scope: default-anchored tips suppressed by
-        -- this controller are parked, while SetOwner unparks explicit tooltip paths
-        -- before they process item data. This also survives action-button owner reuse.
+        -- Parking is the authoritative scope. Re-arm after item setters reset the
+        -- Blizzard field so every parked item path stays comparison-suppressed.
         if tooltip ~= GameTooltip or not _parked then return end
         ArmComparisonSuppression(tooltip)
     end
@@ -2661,7 +2746,10 @@ do
     end
 
     local function ClearSuppressedComparisons()
-        if not EllesmereUI._tooltipSuppressedByMode(GameTooltip) then return end
+        -- Only clear comparisons while this controller is actually parking the
+        -- global tooltip. Unparked shows (mode off, or a transient rebuild)
+        -- keep their legitimate comparisons untouched.
+        if not _parked or not EllesmereUI._tooltipSuppressedByMode(GameTooltip) then return end
 
         -- Clear the manager's state and its owned shopping frames through the
         -- same public method Blizzard calls from GameTooltip_OnHide.  Fall back
@@ -2685,11 +2773,14 @@ do
     end
     local function QueueSuppressedComparisonClear()
         if not _comparisonSupportActive then return end
+        -- Queue only while parked: an unparked build's comparisons are
+        -- legitimate and must not be cleared after their owner refreshes.
+        if not _parked then return end
         if not ComparisonSuppressionModeEnabled()
             or not EllesmereUI._tooltipSuppressedByMode(GameTooltip) then return end
         if _comparisonClearPending then return end
         _comparisonClearPending = true
-        -- This hook can run from Blizzard's protected tooltip/action-button path.
+        -- This hook can run from Blizzard's protected tooltip/owner path.
         -- Defer all Hide/Clear calls out of that stack, matching the existing EUI
         -- tooltip-skin deferral rules.
         C_Timer.After(0, RunSuppressedComparisonClear)
@@ -2697,24 +2788,15 @@ do
 
     local _comparisonTooltipHooksInstalled = false
     local _comparisonManagerHookInstalled = false
-    local _comparisonLifecycleHooksInstalled = false
+    local _comparisonHideHookInstalled = false
     local function InstallComparisonHooks()
         InstallComparisonPreCall()
 
-        if not _comparisonLifecycleHooksInstalled then
-            -- SetOwner starts a new build, so restore the previous build before a
-            -- following default-anchor hook can arm suppression again. The main
-            -- SetOwner hook below already restores before an explicit action path
-            -- arms, so do not immediately undo that new ownership here.
-            hooksecurefunc(GameTooltip, "SetOwner", function(tooltip)
-                if not _modeEligible then
-                    ReleaseComparisonSuppression(tooltip)
-                end
-            end)
+        if not _comparisonHideHookInstalled then
             -- Blizzard resets the field itself before hooks run, so only forget
             -- our ownership; restoring would overwrite Blizzard's reset.
             GameTooltip:HookScript("OnHide", ForgetComparisonSuppression)
-            _comparisonLifecycleHooksInstalled = true
+            _comparisonHideHookInstalled = true
         end
 
         if not _comparisonTooltipHooksInstalled then
@@ -2755,11 +2837,10 @@ do
     -- on world units) snaps alpha back to full and animates it down, leaking the tip.
     -- Parking wins both ways: the tooltip stays SHOWN (secure hover path keeps
     -- building/refreshing it), visibility inherits from the hidden host regardless of
-    -- engine alpha, and peek is a pure reparent flip. OnHide never fires while parked
-    -- (frame not visible), so restore relies on the SetOwner hook below instead: every
-    -- tooltip build starts with SetOwner, so an explicitly-anchored use (bags, other
-    -- addons) that never passes SetDefaultAnchor can't inherit a parked tooltip;
-    -- default-anchored builds re-park right after in the SetDefaultAnchor post-hook (its internal SetOwner runs first).
+    -- engine alpha, and peek is a pure reparent flip. Parking itself never calls Hide;
+    -- item setters may still fire transient OnHide while rebuilding, so restore relies
+    -- on the next SetOwner. Every tooltip build starts there, covering both explicit
+    -- owners and the SetOwner call inside GameTooltip_SetDefaultAnchor.
     local _suppressHost = CreateFrame("Frame", nil, UIParent)
     _suppressHost:Hide()
     local _origParent
@@ -2785,44 +2866,44 @@ do
             ParkTooltip(tt)
             QueueSuppressedComparisonClear()
         else
+            ReleaseComparisonSuppression(tt)
             UnparkTooltip(tt)
         end
     end
+    local _modeShowHookInstalled = false
+    local function EnsureModeShowHook()
+        if _modeShowHookInstalled then return end
+        _modeShowHookInstalled = true
+        -- Item data can hide and re-show the tooltip without another SetOwner,
+        -- including after asynchronous data arrives. Re-apply before it renders.
+        GameTooltip:HookScript("OnShow", function(tt)
+            ApplySuppression(tt)
+        end)
+    end
     local function SuppressTooltipByMode(tooltip)
         if tooltip ~= GameTooltip then return end
-        _modeEligible = true
         ApplySuppression(tooltip)
     end
     if GameTooltip_SetDefaultAnchor then
         hooksecurefunc("GameTooltip_SetDefaultAnchor", SuppressTooltipByMode)
     end
-    local function ReadActionOwner(owner)
-        return owner.GetAttribute and owner:GetAttribute("action") ~= nil
-    end
-    local function IsActionOwner(owner)
-        if not owner then return false end
-        local ok, result = pcall(ReadActionOwner, owner)
-        return ok and result
-    end
-    hooksecurefunc(GameTooltip, "SetOwner", function(tt, owner)
-        -- Restore the previous build before classifying the new owner. The flag
+    hooksecurefunc(GameTooltip, "SetOwner", function(tt)
+        -- Restore the previous build before starting the new owner path. The flag
         -- makes this a single branch until comparison support has owned it.
         if _comparisonFlagOwned then
             ReleaseComparisonSuppression(tt)
         end
-        _modeEligible = false
         UnparkTooltip(tt)
-        -- Custom action buttons and tooltip-anchor addons can use an explicit
-        -- owner after the default-anchor hook. Recognize the action attribute
-        -- itself instead of inferring the path from the UberTooltips CVar.
-        if ComparisonSuppressionModeEnabled() and IsActionOwner(owner) then
-            _modeEligible = true
+        -- Explicitly-owned paths must follow the same global visibility mode as
+        -- default-anchored paths. This includes action buttons, container items,
+        -- character equipment slots, and custom EUI tooltip owners.
+        if ComparisonSuppressionModeEnabled() then
             ApplySuppression(tt)
         end
     end)
     GameTooltip:HookScript("OnHide", function(tt)
-        -- Only fires for unparked hides (a parked tooltip is never visible).
-        _modeEligible = false
+        -- Item setters can fire OnHide while rebuilding content, so do not latch
+        -- owner eligibility here. Active state is derived from IsShown instead.
         if not (_comparisonSupportActive or _comparisonStateWatcherRegistered) then return end
         if EllesmereUI._tooltipSuppressedByMode(tt) then
             QueueSuppressedComparisonClear()
@@ -2848,7 +2929,7 @@ do
         -- parked tooltip remained logically shown, and unpark would resurrect
         -- stale content.  The next SetOwner path restores it normally.
         if not EllesmereUI._tooltipSuppressedByMode(GameTooltip) then return end
-        if _modeEligible then
+        if GameTooltip:IsShown() then
             ApplySuppression(GameTooltip)
         end
         QueueSuppressedComparisonClear()
@@ -2861,6 +2942,7 @@ do
             return
         end
         EnsureComparisonSupport()
+        EnsureModeShowHook()
         if not ComparisonStateWatcherNeeded() then
             UnregisterStateWatcher()
             return
@@ -2957,13 +3039,9 @@ do
                 FireHoveredOnEnter()
             end
         elseif GameTooltip:IsShown() and EllesmereUI._tooltipSuppressedByMode(GameTooltip) then
-            if _modeEligible then
-                ArmComparisonSuppression(GameTooltip)
-                ParkTooltip(GameTooltip)
-                QueueSuppressedComparisonClear()
-            else
-                GameTooltip:Hide()
-            end
+            ArmComparisonSuppression(GameTooltip)
+            ParkTooltip(GameTooltip)
+            QueueSuppressedComparisonClear()
         end
     end)
 end
