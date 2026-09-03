@@ -2050,9 +2050,11 @@ do
         -- restricted content, where the value is secret) instead of the value,
         -- and without the interpolation, which otherwise eases toward zero and
         -- leaves a sliver standing on a bar that gets no further ticks.
+        -- UnitIsDead, not UnitIsDeadOrGhost: a ghost is at full health, and
+        -- Blizzard's own bar reads it the same way (CompactUnitFrame_UpdateHealthColor).
         if not UnitIsConnected(unit) then
             element:SetValue(UnitHealthMax(unit), element.smoothing)
-        elseif UnitIsDeadOrGhost(unit) then
+        elseif UnitIsDead(unit) then
             element:SetValue(0)
         else
             element:SetValue(UnitHealth(unit), element.smoothing)
@@ -2275,7 +2277,9 @@ do
   local function PercentHP(unit)
     -- Predicted percent (incoming heals) can outlive the unit: a corpse fires no
     -- further UNIT_HEALTH and the text channel never hears UNIT_HEAL_PREDICTION.
-    if UnitIsDeadOrGhost(unit) then return "0" end
+    -- Corpses only, like Blizzard's health paths: a ghost is at full health, and
+    -- the neighbouring DEAD zone is the piece that speaks for dead-or-ghost.
+    if UnitIsDead(unit) then return "0" end
     local boss = _G._EUI_BossExtraDecimal and string.sub(unit, 1, 4) == "boss"
     local trim = _G._EUI_PctTrim
     if boss then trim = _G._EUI_PctTrim2 end
