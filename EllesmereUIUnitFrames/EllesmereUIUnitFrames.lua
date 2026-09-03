@@ -2266,6 +2266,9 @@ do
   -- Health percent under the decimal options. "Hide Trailing Zeros" reads the percent
   -- through a scaling curve so AbbreviateNumbers can drop the zero "%.1f" would pad.
   local function PercentHP(unit)
+    -- Predicted percent (incoming heals) can outlive the unit: a corpse fires no
+    -- further UNIT_HEALTH and the text channel never hears UNIT_HEAL_PREDICTION.
+    if UnitIsDeadOrGhost(unit) then return "0" end
     local boss = _G._EUI_BossExtraDecimal and string.sub(unit, 1, 4) == "boss"
     local trim = _G._EUI_PctTrim
     if boss then trim = _G._EUI_PctTrim2 end
