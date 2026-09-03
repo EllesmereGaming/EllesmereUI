@@ -2942,7 +2942,14 @@ do
                 macro = macro .. (inInstance and "[@mouseover,harm,nodead]1;"
                     or "[@mouseover,harm,nodead,combat]1;")
             end
-            if allyCombat then macro = macro .. "[@mouseover,help,nodead,combat]1;" end
+            -- "group" restricts the match to actual party/raid members -- this
+            -- feature exists to stop a stray right-click from targeting/
+            -- interacting with an ally UNIT FRAME during combat, but plain
+            -- [help] also matches any friendly-classified summoned object
+            -- (e.g. a Warlock's Demonic Gateway), which blocked right-clicking
+            -- the gateway itself to use it. A gateway is never a group member,
+            -- so this excludes it while leaving the party/raid protection intact.
+            if allyCombat then macro = macro .. "[@mouseover,help,group,nodead,combat]1;" end
             macro = macro .. "0"
             SecureStateDriverManager:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
             -- [combat] arms re-evaluate on combat edges even when the mouseover
