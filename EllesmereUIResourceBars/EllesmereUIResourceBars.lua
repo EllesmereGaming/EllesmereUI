@@ -105,11 +105,35 @@ end
 local function GetRBUseShadow()
     return not EllesmereUI or not EllesmereUI.GetFontUseShadow or EllesmereUI.GetFontUseShadow("resourceBars")
 end
-local function SetRBFont(fs, font, size)
+-- Optional settings+prefix: per-slot Font / Font Outline (__global/nil = module font).
+local function SetRBFont(fs, font, size, settings, prefix)
     if not (fs and fs.SetFont) then return end
-    local f = GetRBOutline()
+    local fontPath, f
+    if type(settings) == "table" then
+        local fontKey = prefix and settings[prefix .. "Font"]
+        local outlineMode = prefix and settings[prefix .. "Outline"]
+        if fontKey and fontKey ~= "__global" and EllesmereUI.ResolveFontName then
+            fontPath = EllesmereUI.ResolveFontName(fontKey) or font or GetRBFont()
+        else
+            fontPath = font or GetRBFont()
+        end
+        if outlineMode and outlineMode ~= "__global" then
+            if outlineMode == "outline" then
+                f = (EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG"
+            elseif outlineMode == "thick" then
+                f = (EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("THICKOUTLINE, SLUG")) or "THICKOUTLINE, SLUG"
+            else
+                f = ""
+            end
+        else
+            f = GetRBOutline()
+        end
+    else
+        fontPath = font or GetRBFont()
+        f = GetRBOutline()
+    end
     if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, f == "") end
-    fs:SetFont(font, size, f)
+    fs:SetFont(fontPath, size, f)
 end
 
 -- Cast-bar text side anchoring (mirrors nameplate/unit-frame cast text). Spell text
@@ -3121,7 +3145,7 @@ local function BuildBars()
         healthBar._text:ClearAllPoints()
         local _hpTA = hp.textAnchor or "CENTER"
         healthBar._text:SetPoint(_hpTA, healthBar, _hpTA, hp.textXOffset, hp.textYOffset)
-        SetRBFont(healthBar._text, GetRBFont(), hp.textSize)
+        SetRBFont(healthBar._text, GetRBFont(), hp.textSize, hp, "text")
         -- Text color: class color when textCustomColored == false, else custom (default custom)
         if hp.textCustomColored == false then
             local tcc = CLASS_COLORS[cachedClass]
@@ -3290,7 +3314,7 @@ local function BuildBars()
         primaryBar._text:ClearAllPoints()
         local _ppTA = pp.textAnchor or "CENTER"
         primaryBar._text:SetPoint(_ppTA, primaryBar, _ppTA, pp.textXOffset, pp.textYOffset)
-        SetRBFont(primaryBar._text, GetRBFont(), pp.textSize)
+        SetRBFont(primaryBar._text, GetRBFont(), pp.textSize, pp, "text")
         -- Text color: power-type color when textCustomColored == false, else custom (default custom)
         if pp.textCustomColored == false then
             local tpc = POWER_COLORS[cachedPrimary]
@@ -3608,7 +3632,7 @@ local function BuildBars()
                 local cdText = runeFrames[i]._cdText
                 if cdText then
                     cdText:SetTextColor(sp.textR or 1, sp.textG or 1, sp.textB or 1, 0.8)
-                    SetRBFont(cdText, GetRBFont(), sp.textSize or 9)
+                    SetRBFont(cdText, GetRBFont(), sp.textSize or 9, sp, "text")
                     cdText:ClearAllPoints()
                     cdText:SetPoint("CENTER", runeFrames[i], "CENTER",
                         sp.textXOffset or 0, sp.textYOffset or 0)
@@ -3821,7 +3845,7 @@ local function BuildBars()
             secondaryFrame._countText:SetParent(secondaryFrame._countTextOverlay)
             local _spTA = sp.textAnchor or "CENTER"
             secondaryFrame._countText:SetPoint(_spTA, secondaryFrame, _spTA, sp.textXOffset, sp.textYOffset)
-            SetRBFont(secondaryFrame._countText, GetRBFont(), sp.textSize)
+            SetRBFont(secondaryFrame._countText, GetRBFont(), sp.textSize, sp, "text")
             -- "Only if Power Bar Hidden": the fontstring is still created and
             -- updated (so text-value writes never hit nil), just hidden while the
             -- power bar is visible. Re-evaluated every build (spec/power changes
@@ -6847,7 +6871,7 @@ end
     -- Timer / duration text (auto-sized, anchored to its side)
     local timerText = castBarFrame._timerText
     if cb.showTimer then
-        SetRBFont(timerText, GetRBFont(), cb.timerSize or 11)
+        SetRBFont(timerText, GetRBFont(), cb.timerSize or 11, cb, "timer")
         local pt, xb, jh = ns.GetCastTextAnchor(durSide, false, timerW)
         timerText:ClearAllPoints()
         timerText:SetJustifyH(jh)
@@ -6860,7 +6884,7 @@ end
     -- Spell name text
     local nameText = castBarFrame._nameText
     if cb.showSpellText then
-        SetRBFont(nameText, GetRBFont(), cb.spellTextSize or 11)
+        SetRBFont(nameText, GetRBFont(), cb.spellTextSize or 11, cb, "spellText")
         local pt, xb, jh = ns.GetCastTextAnchor(spellSide, cb.showTimer and durSide == spellSide, timerW)
         nameText:ClearAllPoints()
         nameText:SetJustifyH(jh)

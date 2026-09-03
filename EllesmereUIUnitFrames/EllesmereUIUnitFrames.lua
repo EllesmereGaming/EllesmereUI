@@ -1171,15 +1171,42 @@ local function GetUFUseShadow()
     return not EllesmereUI or not EllesmereUI.GetFontUseShadow or EllesmereUI.GetFontUseShadow("unitFrames")
 end
 
-local function SetFSFont(fs, size, flags)
+-- SetFSFont(fs, size [, flags])
+-- SetFSFont(fs, size, settings, "leftText") -- per-slot font/outline; "__global"/nil follows
+-- the unit-frames module font (or EUI Global). Same inheritance as BattleRes / moduleFonts.
+local function SetFSFont(fs, size, flags, prefix)
   if not (fs and fs.SetFont) then return end
-  -- Outline flag is already slug-gated at the source (GetFontOutlineFlag).
-  local f = flags or (EllesmereUI and EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("unitFrames")) or ""
+  local fontPath, f
+  if type(flags) == "table" then
+    local s = flags
+    local fontKey = prefix and s[prefix .. "Font"]
+    local outlineMode = prefix and s[prefix .. "Outline"]
+    if fontKey and fontKey ~= "__global" and EllesmereUI.ResolveFontName then
+      fontPath = EllesmereUI.ResolveFontName(fontKey)
+    else
+      fontPath = GetSelectedFont()
+    end
+    if outlineMode and outlineMode ~= "__global" then
+      if outlineMode == "outline" then
+        f = (EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG"
+      elseif outlineMode == "thick" then
+        f = (EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("THICKOUTLINE, SLUG")) or "THICKOUTLINE, SLUG"
+      else
+        f = ""
+      end
+    else
+      f = (EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("unitFrames")) or ""
+    end
+  else
+    -- Outline flag is already slug-gated at the source (GetFontOutlineFlag).
+    f = flags or (EllesmereUI and EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("unitFrames")) or ""
+    fontPath = GetSelectedFont()
+  end
   -- Drop shadows only render from a FontObject; prime before SetFont.
   if EllesmereUI and EllesmereUI.PrimeFontShadow then
     EllesmereUI.PrimeFontShadow(fs, f == "")
   end
-  fs:SetFont(GetSelectedFont(), size or 12, f)
+  fs:SetFont(fontPath, size or 12, f)
 end
 
 -- Shared cast-bar text anchoring (mirrors the nameplate cast text system). Three
@@ -3741,19 +3768,19 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
     textOvr:SetFrameLevel(frame:GetFrameLevel() + 15)
 
     local leftFS = textOvr:CreateFontString(nil, "OVERLAY")
-    SetFSFont(leftFS, settings.btbLeftSize or 11)
+    SetFSFont(leftFS, settings.btbLeftSize or 11, settings, "btbLeft")
     leftFS:SetWordWrap(false)
     leftFS:SetTextColor(1, 1, 1)
     btb.LeftText = leftFS
 
     local rightFS = textOvr:CreateFontString(nil, "OVERLAY")
-    SetFSFont(rightFS, settings.btbRightSize or 11)
+    SetFSFont(rightFS, settings.btbRightSize or 11, settings, "btbRight")
     rightFS:SetWordWrap(false)
     rightFS:SetTextColor(1, 1, 1)
     btb.RightText = rightFS
 
     local centerFS = textOvr:CreateFontString(nil, "OVERLAY")
-    SetFSFont(centerFS, settings.btbCenterSize or 11)
+    SetFSFont(centerFS, settings.btbCenterSize or 11, settings, "btbCenter")
     centerFS:SetWordWrap(false)
     centerFS:SetTextColor(1, 1, 1)
     btb.CenterText = centerFS
@@ -3798,7 +3825,7 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
         local rsz = s.btbRightSize or 11
         local csz = s.btbCenterSize or 11
 
-        SetFSFont(leftFS, lsz)
+        SetFSFont(leftFS, lsz, s, "btbLeft")
         leftFS:ClearAllPoints()
         if lc ~= "none" then
             leftFS:SetJustifyH("LEFT")
@@ -3807,7 +3834,7 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
             leftFS:Show()
         else leftFS:Hide() end
 
-        SetFSFont(rightFS, rsz)
+        SetFSFont(rightFS, rsz, s, "btbRight")
         rightFS:ClearAllPoints()
         if rc ~= "none" then
             rightFS:SetJustifyH("RIGHT")
@@ -3816,7 +3843,7 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
             rightFS:Show()
         else rightFS:Hide() end
 
-        SetFSFont(centerFS, csz)
+        SetFSFont(centerFS, csz, s, "btbCenter")
         centerFS:ClearAllPoints()
         if cc ~= "none" then
             centerFS:SetJustifyH("CENTER")
@@ -6264,7 +6291,7 @@ local function CreateCastBar(frame, unit, settings)
     textOverlay:SetFrameLevel(frame:GetFrameLevel() + 11)
 
     local text = textOverlay:CreateFontString(nil, "OVERLAY")
-    SetFSFont(text, settings.castSpellNameSize or 11)
+    SetFSFont(text, settings.castSpellNameSize or 11, settings, "castSpellName")
     text:SetJustifyH("LEFT")
     text:SetWordWrap(false)
     text:SetMaxLines(1)
@@ -6272,7 +6299,7 @@ local function CreateCastBar(frame, unit, settings)
     castbar.Text = text
 
     local time = textOverlay:CreateFontString(nil, "OVERLAY")
-    SetFSFont(time, settings.castDurationSize or 10)
+    SetFSFont(time, settings.castDurationSize or 10, settings, "castDuration")
     time:SetJustifyH("RIGHT")
     time:SetWordWrap(false)
     time:SetMaxLines(1)
@@ -6280,7 +6307,7 @@ local function CreateCastBar(frame, unit, settings)
     castbar.Time = time
 
     local target = textOverlay:CreateFontString(nil, "OVERLAY")
-    SetFSFont(target, settings.castSpellTargetSize or 11)
+    SetFSFont(target, settings.castSpellTargetSize or 11, settings, "castSpellTarget")
     target:SetJustifyH("RIGHT")
     target:SetWordWrap(false)
     target:SetMaxLines(1)
@@ -7145,19 +7172,19 @@ local function StyleFullFrame(frame, unit)
     local ets = settings.extraTextSize or settings.textSize or 12
 
     local leftText = textOverlay:CreateFontString(nil, "OVERLAY")
-    SetFSFont(leftText, lts)
+    SetFSFont(leftText, lts, settings, "leftText")
     leftText:SetWordWrap(false)
     leftText:SetTextColor(1, 1, 1)
     frame.LeftText = leftText
 
     local rightText = textOverlay:CreateFontString(nil, "OVERLAY")
-    SetFSFont(rightText, rts)
+    SetFSFont(rightText, rts, settings, "rightText")
     rightText:SetWordWrap(false)
     rightText:SetTextColor(1, 1, 1)
     frame.RightText = rightText
 
     local centerText = textOverlay:CreateFontString(nil, "OVERLAY")
-    SetFSFont(centerText, cts)
+    SetFSFont(centerText, cts, settings, "centerText")
     centerText:SetWordWrap(false)
     centerText:SetTextColor(1, 1, 1)
     frame.CenterText = centerText
@@ -7165,7 +7192,7 @@ local function StyleFullFrame(frame, unit)
     -- Extra Text: a 4th text zone, identical to the others (same tags + absorb gate);
     -- anchors per extraTextAlign, capped at 95% of the bar width (ellipsis truncation).
     local extraText = textOverlay:CreateFontString(nil, "OVERLAY")
-    SetFSFont(extraText, ets)
+    SetFSFont(extraText, ets, settings, "extraText")
     extraText:SetWordWrap(false)
     extraText:SetTextColor(1, 1, 1)
     frame.ExtraText = extraText
@@ -7261,7 +7288,7 @@ local function StyleFullFrame(frame, unit)
         -- Extra Text: anchored per extraTextAlign (left/right/center); ellipsis-
         -- truncated past 95% of health bar width (SetWordWrap(false) + capped width below).
         local ec = s.extraTextContent or "none"
-        SetFSFont(extraText, s.extraTextSize or s.textSize or 12)
+        SetFSFont(extraText, s.extraTextSize or s.textSize or 12, s, "extraText")
         extraText:ClearAllPoints()
         if ec ~= "none" then
             local exo = s.extraTextX or 0
@@ -7283,7 +7310,7 @@ local function StyleFullFrame(frame, unit)
         else extraText:Hide() end
 
         -- Each text position renders independently; Center no longer hides Left/Right.
-        SetFSFont(centerText, csz)
+        SetFSFont(centerText, csz, s, "centerText")
         centerText:ClearAllPoints()
         if cc ~= "none" then
             centerText:SetJustifyH("CENTER")
@@ -7293,7 +7320,7 @@ local function StyleFullFrame(frame, unit)
             ApplyClassColor(centerText, unit, s.centerTextClassColor, s.centerTextColorR, s.centerTextColorG, s.centerTextColorB)
         else centerText:Hide() end
 
-        SetFSFont(leftText, lsz)
+        SetFSFont(leftText, lsz, s, "leftText")
         leftText:ClearAllPoints()
         if lc ~= "none" then
             leftText:SetJustifyH("LEFT")
@@ -7309,7 +7336,7 @@ local function StyleFullFrame(frame, unit)
             ApplyClassColor(leftText, unit, s.leftTextClassColor, s.leftTextColorR, s.leftTextColorG, s.leftTextColorB)
         else leftText:Hide() end
 
-        SetFSFont(rightText, rsz)
+        SetFSFont(rightText, rsz, s, "rightText")
         rightText:ClearAllPoints()
         if rc ~= "none" then
             rightText:SetJustifyH("RIGHT")
@@ -7467,19 +7494,19 @@ local function StyleFocusFrame(frame, unit)
     local ets = settings.extraTextSize or settings.textSize or 12
 
     local leftText = textOverlay:CreateFontString(nil, "OVERLAY")
-    SetFSFont(leftText, lts)
+    SetFSFont(leftText, lts, settings, "leftText")
     leftText:SetWordWrap(false)
     leftText:SetTextColor(1, 1, 1)
     frame.LeftText = leftText
 
     local rightText = textOverlay:CreateFontString(nil, "OVERLAY")
-    SetFSFont(rightText, rts)
+    SetFSFont(rightText, rts, settings, "rightText")
     rightText:SetWordWrap(false)
     rightText:SetTextColor(1, 1, 1)
     frame.RightText = rightText
 
     local centerText = textOverlay:CreateFontString(nil, "OVERLAY")
-    SetFSFont(centerText, cts)
+    SetFSFont(centerText, cts, settings, "centerText")
     centerText:SetWordWrap(false)
     centerText:SetTextColor(1, 1, 1)
     frame.CenterText = centerText
@@ -7487,7 +7514,7 @@ local function StyleFocusFrame(frame, unit)
     -- Extra Text: a 4th text zone, identical to the others (same tags + absorb gate);
     -- anchors per extraTextAlign, capped at 95% of the bar width (ellipsis truncation).
     local extraText = textOverlay:CreateFontString(nil, "OVERLAY")
-    SetFSFont(extraText, ets)
+    SetFSFont(extraText, ets, settings, "extraText")
     extraText:SetWordWrap(false)
     extraText:SetTextColor(1, 1, 1)
     frame.ExtraText = extraText
@@ -7583,7 +7610,7 @@ local function StyleFocusFrame(frame, unit)
         -- Extra Text: anchored per extraTextAlign (left/right/center); ellipsis-
         -- truncated past 95% of health bar width (SetWordWrap(false) + capped width below).
         local ec = s.extraTextContent or "none"
-        SetFSFont(extraText, s.extraTextSize or s.textSize or 12)
+        SetFSFont(extraText, s.extraTextSize or s.textSize or 12, s, "extraText")
         extraText:ClearAllPoints()
         if ec ~= "none" then
             local exo = s.extraTextX or 0
@@ -7605,7 +7632,7 @@ local function StyleFocusFrame(frame, unit)
         else extraText:Hide() end
 
         -- Each text position renders independently; Center no longer hides Left/Right.
-        SetFSFont(centerText, csz)
+        SetFSFont(centerText, csz, s, "centerText")
         centerText:ClearAllPoints()
         if cc ~= "none" then
             centerText:SetJustifyH("CENTER")
@@ -7615,7 +7642,7 @@ local function StyleFocusFrame(frame, unit)
             ApplyClassColor(centerText, unit, s.centerTextClassColor, s.centerTextColorR, s.centerTextColorG, s.centerTextColorB)
         else centerText:Hide() end
 
-        SetFSFont(leftText, lsz)
+        SetFSFont(leftText, lsz, s, "leftText")
         leftText:ClearAllPoints()
         if lc ~= "none" then
             leftText:SetJustifyH("LEFT")
@@ -7630,7 +7657,7 @@ local function StyleFocusFrame(frame, unit)
             ApplyClassColor(leftText, unit, s.leftTextClassColor, s.leftTextColorR, s.leftTextColorG, s.leftTextColorB)
         else leftText:Hide() end
 
-        SetFSFont(rightText, rsz)
+        SetFSFont(rightText, rsz, s, "rightText")
         rightText:ClearAllPoints()
         if rc ~= "none" then
             rightText:SetJustifyH("RIGHT")
@@ -7754,19 +7781,19 @@ local function StyleSimpleFrame(frame, unit)
     local centerContent = settings.centerTextContent or "none"
 
     local leftText = textOverlay:CreateFontString(nil, "OVERLAY")
-    SetFSFont(leftText, settings.leftTextSize or settings.textSize or 12)
+    SetFSFont(leftText, settings.leftTextSize or settings.textSize or 12, settings, "leftText")
     leftText:SetWordWrap(false)
     leftText:SetTextColor(1, 1, 1)
     frame.LeftText = leftText
 
     local rightText = textOverlay:CreateFontString(nil, "OVERLAY")
-    SetFSFont(rightText, settings.rightTextSize or settings.textSize or 12)
+    SetFSFont(rightText, settings.rightTextSize or settings.textSize or 12, settings, "rightText")
     rightText:SetWordWrap(false)
     rightText:SetTextColor(1, 1, 1)
     frame.RightText = rightText
 
     local centerText = textOverlay:CreateFontString(nil, "OVERLAY")
-    SetFSFont(centerText, settings.centerTextSize or settings.textSize or 12)
+    SetFSFont(centerText, settings.centerTextSize or settings.textSize or 12, settings, "centerText")
     centerText:SetWordWrap(false)
     centerText:SetTextColor(1, 1, 1)
     frame.CenterText = centerText
@@ -7855,7 +7882,7 @@ local function StyleSimpleFrame(frame, unit)
         local cyo = s.centerTextY or 0
         local barW = s.frameWidth or 100
         -- Each text position renders independently; Center no longer hides Left/Right.
-        SetFSFont(centerText, csz)
+        SetFSFont(centerText, csz, s, "centerText")
         centerText:ClearAllPoints()
         if cc ~= "none" then
             centerText:SetJustifyH("CENTER")
@@ -7865,7 +7892,7 @@ local function StyleSimpleFrame(frame, unit)
             ApplyClassColor(centerText, unit, s.centerTextClassColor, s.centerTextColorR, s.centerTextColorG, s.centerTextColorB)
         else centerText:Hide() end
 
-        SetFSFont(leftText, lsz)
+        SetFSFont(leftText, lsz, s, "leftText")
         if lc ~= "none" then
             leftText:ClearAllPoints()
             leftText:SetJustifyH("LEFT")
@@ -7879,7 +7906,7 @@ local function StyleSimpleFrame(frame, unit)
             leftText:Show()
             ApplyClassColor(leftText, unit, s.leftTextClassColor, s.leftTextColorR, s.leftTextColorG, s.leftTextColorB)
         else leftText:Hide() end
-        SetFSFont(rightText, rsz)
+        SetFSFont(rightText, rsz, s, "rightText")
         if rc ~= "none" then
             rightText:ClearAllPoints()
             rightText:SetJustifyH("RIGHT")
@@ -7990,19 +8017,19 @@ local function StylePetFrame(frame, unit)
     local centerContent = settings.centerTextContent or "none"
 
     local leftText = textOverlay:CreateFontString(nil, "OVERLAY")
-    SetFSFont(leftText, settings.leftTextSize or settings.textSize or 12)
+    SetFSFont(leftText, settings.leftTextSize or settings.textSize or 12, settings, "leftText")
     leftText:SetWordWrap(false)
     leftText:SetTextColor(1, 1, 1)
     frame.LeftText = leftText
 
     local rightText = textOverlay:CreateFontString(nil, "OVERLAY")
-    SetFSFont(rightText, settings.rightTextSize or settings.textSize or 12)
+    SetFSFont(rightText, settings.rightTextSize or settings.textSize or 12, settings, "rightText")
     rightText:SetWordWrap(false)
     rightText:SetTextColor(1, 1, 1)
     frame.RightText = rightText
 
     local centerText = textOverlay:CreateFontString(nil, "OVERLAY")
-    SetFSFont(centerText, settings.centerTextSize or settings.textSize or 12)
+    SetFSFont(centerText, settings.centerTextSize or settings.textSize or 12, settings, "centerText")
     centerText:SetWordWrap(false)
     centerText:SetTextColor(1, 1, 1)
     frame.CenterText = centerText
@@ -8090,7 +8117,7 @@ local function StylePetFrame(frame, unit)
         local cyo = s.centerTextY or 0
         local barW = s.frameWidth or 100
         -- Each text position renders independently; Center no longer hides Left/Right.
-        SetFSFont(centerText, csz)
+        SetFSFont(centerText, csz, s, "centerText")
         centerText:ClearAllPoints()
         if cc ~= "none" then
             centerText:SetJustifyH("CENTER")
@@ -8100,7 +8127,7 @@ local function StylePetFrame(frame, unit)
             ApplyClassColor(centerText, unit, s.centerTextClassColor, s.centerTextColorR, s.centerTextColorG, s.centerTextColorB)
         else centerText:Hide() end
 
-        SetFSFont(leftText, lsz)
+        SetFSFont(leftText, lsz, s, "leftText")
         if lc ~= "none" then
             leftText:ClearAllPoints()
             leftText:SetJustifyH("LEFT")
@@ -8114,7 +8141,7 @@ local function StylePetFrame(frame, unit)
             leftText:Show()
             ApplyClassColor(leftText, unit, s.leftTextClassColor, s.leftTextColorR, s.leftTextColorG, s.leftTextColorB)
         else leftText:Hide() end
-        SetFSFont(rightText, rsz)
+        SetFSFont(rightText, rsz, s, "rightText")
         if rc ~= "none" then
             rightText:ClearAllPoints()
             rightText:SetJustifyH("RIGHT")
@@ -8237,19 +8264,19 @@ local function StyleBossFrame(frame, unit)
     local extraContent = settings.extraTextContent or "none"
 
     local leftText = textOverlay:CreateFontString(nil, "OVERLAY")
-    SetFSFont(leftText, settings.leftTextSize or settings.textSize or 12)
+    SetFSFont(leftText, settings.leftTextSize or settings.textSize or 12, settings, "leftText")
     leftText:SetWordWrap(false)
     leftText:SetTextColor(1, 1, 1)
     frame.LeftText = leftText
 
     local rightText = textOverlay:CreateFontString(nil, "OVERLAY")
-    SetFSFont(rightText, settings.rightTextSize or settings.textSize or 12)
+    SetFSFont(rightText, settings.rightTextSize or settings.textSize or 12, settings, "rightText")
     rightText:SetWordWrap(false)
     rightText:SetTextColor(1, 1, 1)
     frame.RightText = rightText
 
     local centerText = textOverlay:CreateFontString(nil, "OVERLAY")
-    SetFSFont(centerText, settings.centerTextSize or settings.textSize or 12)
+    SetFSFont(centerText, settings.centerTextSize or settings.textSize or 12, settings, "centerText")
     centerText:SetWordWrap(false)
     centerText:SetTextColor(1, 1, 1)
     frame.CenterText = centerText
@@ -8258,7 +8285,7 @@ local function StyleBossFrame(frame, unit)
     -- gate); it only anchors per extraTextAlign and is capped at 95% of the bar
     -- width (ellipsis truncation). Mirrors the Main Frames implementation.
     local extraText = textOverlay:CreateFontString(nil, "OVERLAY")
-    SetFSFont(extraText, settings.extraTextSize or settings.textSize or 12)
+    SetFSFont(extraText, settings.extraTextSize or settings.textSize or 12, settings, "extraText")
     extraText:SetWordWrap(false)
     extraText:SetTextColor(1, 1, 1)
     frame.ExtraText = extraText
@@ -8353,7 +8380,7 @@ local function StyleBossFrame(frame, unit)
         -- Extra Text: anchored per extraTextAlign (left/right/center); ellipsis-
         -- truncated past 95% of health bar width (SetWordWrap(false) + capped width below), matching Main Frames.
         local ec = s.extraTextContent or "none"
-        SetFSFont(extraText, s.extraTextSize or s.textSize or 12)
+        SetFSFont(extraText, s.extraTextSize or s.textSize or 12, s, "extraText")
         extraText:ClearAllPoints()
         if ec ~= "none" then
             local exo = s.extraTextX or 0
@@ -8374,7 +8401,7 @@ local function StyleBossFrame(frame, unit)
             ApplyClassColor(extraText, unit, s.extraTextClassColor, s.extraTextColorR, s.extraTextColorG, s.extraTextColorB)
         else extraText:Hide() end
         -- Each text position renders independently; Center no longer hides Left/Right.
-        SetFSFont(centerText, csz)
+        SetFSFont(centerText, csz, s, "centerText")
         centerText:ClearAllPoints()
         if cc ~= "none" then
             centerText:SetJustifyH("CENTER")
@@ -8384,7 +8411,7 @@ local function StyleBossFrame(frame, unit)
             ApplyClassColor(centerText, unit, s.centerTextClassColor, s.centerTextColorR, s.centerTextColorG, s.centerTextColorB)
         else centerText:Hide() end
 
-        SetFSFont(leftText, lsz)
+        SetFSFont(leftText, lsz, s, "leftText")
         if lc ~= "none" then
             leftText:ClearAllPoints()
             leftText:SetJustifyH("LEFT")
@@ -8398,7 +8425,7 @@ local function StyleBossFrame(frame, unit)
             leftText:Show()
             ApplyClassColor(leftText, unit, s.leftTextClassColor, s.leftTextColorR, s.leftTextColorG, s.leftTextColorB)
         else leftText:Hide() end
-        SetFSFont(rightText, rsz)
+        SetFSFont(rightText, rsz, s, "rightText")
         if rc ~= "none" then
             rightText:ClearAllPoints()
             rightText:SetJustifyH("RIGHT")
@@ -9689,13 +9716,13 @@ local function ReloadFrames()
                             -- Apply cast bar text settings
                             if frame.Castbar.Text then
                                 local snSz = settings.castSpellNameSize or 11
-                                SetFSFont(frame.Castbar.Text, snSz)
+                                SetFSFont(frame.Castbar.Text, snSz, settings, "castSpellName")
                                 local snC = settings.castSpellNameColor or { r=1, g=1, b=1 }
                                 frame.Castbar.Text:SetTextColor(snC.r, snC.g, snC.b)
                             end
                             if frame.Castbar.Time then
                                 local dtSz = settings.castDurationSize or 10
-                                SetFSFont(frame.Castbar.Time, dtSz)
+                                SetFSFont(frame.Castbar.Time, dtSz, settings, "castDuration")
                                 local dtC = settings.castDurationColor or { r=1, g=1, b=1 }
                                 frame.Castbar.Time:SetTextColor(dtC.r, dtC.g, dtC.b)
                                 frame.Castbar._showDuration = settings.showCastDuration ~= false
@@ -9709,7 +9736,7 @@ local function ReloadFrames()
                             end
                             if frame.Castbar.Target then
                                 local tsSz = settings.castSpellTargetSize or 11
-                                SetFSFont(frame.Castbar.Target, tsSz)
+                                SetFSFont(frame.Castbar.Target, tsSz, settings, "castSpellTarget")
                                 local tsC = settings.castSpellTargetColor or { r=1, g=1, b=1 }
                                 frame.Castbar.Target:SetTextColor(tsC.r, tsC.g, tsC.b)
                                 frame.Castbar._showTarget = settings.showCastTarget ~= false
@@ -10070,13 +10097,13 @@ local function ReloadFrames()
                         -- Apply cast bar text settings
                         if frame.Castbar.Text then
                             local snSz = settings.castSpellNameSize or 11
-                            SetFSFont(frame.Castbar.Text, snSz)
+                            SetFSFont(frame.Castbar.Text, snSz, settings, "castSpellName")
                             local snC = settings.castSpellNameColor or { r=1, g=1, b=1 }
                             frame.Castbar.Text:SetTextColor(snC.r, snC.g, snC.b)
                         end
                         if frame.Castbar.Time then
                             local dtSz = settings.castDurationSize or 10
-                            SetFSFont(frame.Castbar.Time, dtSz)
+                            SetFSFont(frame.Castbar.Time, dtSz, settings, "castDuration")
                             local dtC = settings.castDurationColor or { r=1, g=1, b=1 }
                             frame.Castbar.Time:SetTextColor(dtC.r, dtC.g, dtC.b)
                             frame.Castbar._showDuration = settings.showCastDuration ~= false
@@ -10089,7 +10116,7 @@ local function ReloadFrames()
                         end
                         if frame.Castbar.Target then
                             local tsSz = settings.castSpellTargetSize or 11
-                            SetFSFont(frame.Castbar.Target, tsSz)
+                            SetFSFont(frame.Castbar.Target, tsSz, settings, "castSpellTarget")
                             local tsC = settings.castSpellTargetColor or { r=1, g=1, b=1 }
                             frame.Castbar.Target:SetTextColor(tsC.r, tsC.g, tsC.b)
                             frame.Castbar._showTarget = settings.showCastTarget ~= false
@@ -10344,13 +10371,13 @@ local function ReloadFrames()
                     -- Apply cast bar text settings
                     if frame.Castbar.Text then
                         local snSz = settings.castSpellNameSize or 11
-                        SetFSFont(frame.Castbar.Text, snSz)
+                        SetFSFont(frame.Castbar.Text, snSz, settings, "castSpellName")
                         local snC = settings.castSpellNameColor or { r=1, g=1, b=1 }
                         frame.Castbar.Text:SetTextColor(snC.r, snC.g, snC.b)
                     end
                     if frame.Castbar.Time then
                         local dtSz = settings.castDurationSize or 10
-                        SetFSFont(frame.Castbar.Time, dtSz)
+                        SetFSFont(frame.Castbar.Time, dtSz, settings, "castDuration")
                         local dtC = settings.castDurationColor or { r=1, g=1, b=1 }
                         frame.Castbar.Time:SetTextColor(dtC.r, dtC.g, dtC.b)
                         frame.Castbar._showDuration = settings.showCastDuration ~= false
@@ -10363,7 +10390,7 @@ local function ReloadFrames()
                     end
                     if frame.Castbar.Target then
                         local tsSz = settings.castSpellTargetSize or 11
-                        SetFSFont(frame.Castbar.Target, tsSz)
+                        SetFSFont(frame.Castbar.Target, tsSz, settings, "castSpellTarget")
                         local tsC = settings.castSpellTargetColor or { r=1, g=1, b=1 }
                         frame.Castbar.Target:SetTextColor(tsC.r, tsC.g, tsC.b)
                         frame.Castbar._showTarget = settings.showCastTarget ~= false
@@ -10581,13 +10608,13 @@ local function ReloadFrames()
                     end
                     if frame.Castbar.Text then
                         local snSz = settings.castSpellNameSize or 11
-                        SetFSFont(frame.Castbar.Text, snSz)
+                        SetFSFont(frame.Castbar.Text, snSz, settings, "castSpellName")
                         local snC = settings.castSpellNameColor or { r=1, g=1, b=1 }
                         frame.Castbar.Text:SetTextColor(snC.r, snC.g, snC.b)
                     end
                     if frame.Castbar.Time then
                         local dtSz = settings.castDurationSize or 10
-                        SetFSFont(frame.Castbar.Time, dtSz)
+                        SetFSFont(frame.Castbar.Time, dtSz, settings, "castDuration")
                         local dtC = settings.castDurationColor or { r=1, g=1, b=1 }
                         frame.Castbar.Time:SetTextColor(dtC.r, dtC.g, dtC.b)
                         frame.Castbar._showDuration = settings.showCastDuration ~= false
@@ -10600,7 +10627,7 @@ local function ReloadFrames()
                     end
                     if frame.Castbar.Target then
                         local tsSz = settings.castSpellTargetSize or 11
-                        SetFSFont(frame.Castbar.Target, tsSz)
+                        SetFSFont(frame.Castbar.Target, tsSz, settings, "castSpellTarget")
                         local tsC = settings.castSpellTargetColor or { r=1, g=1, b=1 }
                         frame.Castbar.Target:SetTextColor(tsC.r, tsC.g, tsC.b)
                         frame.Castbar._showTarget = settings.showCastTarget ~= false
@@ -10767,8 +10794,12 @@ local function ReloadFrames()
             end
 
             -- Helper: set font on a FontString, using donor font for mini frames
-            local function SetMiniFont(fs, sz)
+            local function SetMiniFont(fs, sz, prefix)
                 if not fs or not fs.SetFont then return end
+                if prefix then
+                    SetFSFont(fs, sz, settings, prefix)
+                    return
+                end
                 if isMiniFrame then
                     local f = (EllesmereUI and EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("unitFrames")) or ""
                     if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, f == "") end
@@ -10781,20 +10812,25 @@ local function ReloadFrames()
             if frame.NameText then
                 local s = isMiniFrame and donorSettings or GetSettingsForUnit(unit)
                 local rts = s.leftTextSize or s.textSize or 12
-                SetMiniFont(frame.NameText, rts)
+                SetMiniFont(frame.NameText, rts, "leftText")
                 frame.NameText:SetWordWrap(false)
             end
             if frame.HealthValue then
                 local s = isMiniFrame and donorSettings or GetSettingsForUnit(unit)
                 local rts = s.rightTextSize or s.textSize or 12
-                SetMiniFont(frame.HealthValue, rts)
+                SetMiniFont(frame.HealthValue, rts, "rightText")
                 frame.HealthValue:SetWordWrap(false)
             end
             if frame.CenterText then
                 local s = isMiniFrame and donorSettings or GetSettingsForUnit(unit)
                 local cts = s.centerTextSize or s.textSize or 12
-                SetMiniFont(frame.CenterText, cts)
+                SetMiniFont(frame.CenterText, cts, "centerText")
                 frame.CenterText:SetWordWrap(false)
+            end
+            if frame.ExtraText then
+                local s = GetSettingsForUnit(unit) or settings
+                SetMiniFont(frame.ExtraText, s.extraTextSize or s.textSize or 12, "extraText")
+                frame.ExtraText:SetWordWrap(false)
             end
 
             -- Apply text tags and positions for mini frames
@@ -10809,23 +10845,21 @@ local function ReloadFrames()
                 local s = isMiniFrame and donorSettings or settings
                 if frame.Castbar.Text then
                     local snSz = s.castSpellNameSize or 11
-                    SetMiniFont(frame.Castbar.Text, snSz)
+                    SetFSFont(frame.Castbar.Text, snSz, s, "castSpellName")
                 end
                 if frame.Castbar.Time then
                     local dtSz = s.castDurationSize or 10
-                    SetMiniFont(frame.Castbar.Time, dtSz)
+                    SetFSFont(frame.Castbar.Time, dtSz, s, "castDuration")
                 end
                 -- Boss frames get their full cast text refresh in the boss branch above
-                -- (colors/show/sides/bg). Two gaps remain: the donor-font line just above
-                -- set boss cast text to the DONOR size, and that branch re-runs layout from
-                -- CACHED offsets. Re-apply the size from boss settings (keeping the donor
-                -- typeface) and sync X/Y offsets + side layout so live boss frames update
-                -- on every cast-text option change.
+                -- (colors/show/sides/bg). Re-apply size/font from boss settings and
+                -- sync X/Y offsets + side layout so live boss frames update on every
+                -- cast-text option change.
                 if unit:match("^boss") then
                     local cb = frame.Castbar
-                    if cb.Text then SetMiniFont(cb.Text, settings.castSpellNameSize or 11) end
-                    if cb.Time then SetMiniFont(cb.Time, settings.castDurationSize or 10) end
-                    if cb.Target then SetMiniFont(cb.Target, settings.castSpellTargetSize or 11) end
+                    if cb.Text then SetFSFont(cb.Text, settings.castSpellNameSize or 11, settings, "castSpellName") end
+                    if cb.Time then SetFSFont(cb.Time, settings.castDurationSize or 10, settings, "castDuration") end
+                    if cb.Target then SetFSFont(cb.Target, settings.castSpellTargetSize or 11, settings, "castSpellTarget") end
                     if cb._syncOffsetsAndLayout then cb:_syncOffsetsAndLayout(settings) end
                 end
             end

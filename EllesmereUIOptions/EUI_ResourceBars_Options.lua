@@ -97,16 +97,78 @@ initFrame:SetScript("OnEvent", function(self)
     local FONT_PATH = (EllesmereUI and EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("resourceBars"))
         or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
     local function GetRBOptOutline()
-        return (EllesmereUI and EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag()) or ""
+        return (EllesmereUI and EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("resourceBars")) or ""
     end
     local function GetRBOptUseShadow()
-        return not EllesmereUI or not EllesmereUI.GetFontUseShadow or EllesmereUI.GetFontUseShadow()
+        return not EllesmereUI or not EllesmereUI.GetFontUseShadow or EllesmereUI.GetFontUseShadow("resourceBars")
     end
-    local function SetPVFont(fs, font, size)
+    -- Per-slot font/outline for resource-bar text. "__global"/nil follows the
+    -- resource-bars module font (or EUI Global). Resolve the path at call time.
+    local function SetPVSlotFont(fs, s, prefix, size)
         if not (fs and fs.SetFont) then return end
-        local f = GetRBOptOutline()
-        if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, f == "") end
-        fs:SetFont(font, size, f)
+        local font = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("resourceBars"))
+            or FONT_PATH
+        local fontKey = s and s[prefix .. "Font"]
+        if fontKey and fontKey ~= "__global" and EllesmereUI.ResolveFontName then
+            font = EllesmereUI.ResolveFontName(fontKey) or font
+        end
+        local f
+        local mode = s and s[prefix .. "Outline"]
+        if mode and mode ~= "__global" then
+            if mode == "outline" then
+                f = (EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG"
+            elseif mode == "thick" then
+                f = (EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("THICKOUTLINE, SLUG")) or "THICKOUTLINE, SLUG"
+            else
+                f = ""
+            end
+        else
+            f = GetRBOptOutline()
+        end
+        if EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, f == "") end
+        fs:SetFont(font, size or 12, f)
+    end
+
+    local RB_TEXT_OUTLINE_VALUES = {
+        ["__global"] = { text = "EUI Global Outline" },
+        ["none"]     = { text = "Drop Shadow" },
+        ["outline"]  = { text = "Outline" },
+        ["thick"]    = { text = "Thick Outline" },
+    }
+    local RB_TEXT_OUTLINE_ORDER = { "__global", "none", "outline", "thick" }
+
+    -- Insert Font + Font Outline after Size / Text Size / Timer Size, else after
+    -- leading toggles, else at the top of the cog.
+    local function InsertTextFontCogRows(rows, prefix, getVal, setVal, afterSet)
+        local fontValues, fontOrder = EllesmereUI.BuildFontDropdownData()
+        local insertAt = 0
+        local sizeAt
+        for i, row in ipairs(rows) do
+            local label = row.label
+            if label == "Size" or label == "Text Size" or label == "Timer Size" then
+                sizeAt = i
+                break
+            elseif row.type == "toggle" and not sizeAt then
+                insertAt = i
+            end
+        end
+        if sizeAt then insertAt = sizeAt end
+        table.insert(rows, insertAt + 1, {
+            type = "dropdown", label = "Font", values = fontValues, order = fontOrder,
+            get = function() return getVal(prefix .. "Font", "__global") end,
+            set = function(v)
+                setVal(prefix .. "Font", v)
+                if afterSet then afterSet() end
+            end,
+        })
+        table.insert(rows, insertAt + 2, {
+            type = "dropdown", label = "Font Outline", values = RB_TEXT_OUTLINE_VALUES, order = RB_TEXT_OUTLINE_ORDER,
+            get = function() return getVal(prefix .. "Outline", "__global") end,
+            set = function(v)
+                setVal(prefix .. "Outline", v)
+                if afterSet then afterSet() end
+            end,
+        })
     end
     local CONTENT_PAD = 45
     local SIDE_PAD = 20
@@ -496,7 +558,7 @@ initFrame:SetScript("OnEvent", function(self)
                             fs:SetTextColor(1, 1, 1, 0.9)
                             pip._pvCdText = fs
                         end
-                        SetPVFont(pip._pvCdText, FONT_PATH, sp.textSize)
+                        SetPVSlotFont(pip._pvCdText, sp, "text", sp.textSize)
                         pip._pvCdText:ClearAllPoints()
                         pip._pvCdText:SetPoint("CENTER", pip, "CENTER",
                             sp.textXOffset or 0, sp.textYOffset or 0)
@@ -593,7 +655,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Count text (centered on bar); DK uses per-pip durations instead
             local isDK = cf == "DEATHKNIGHT"
             if sp.showText and pc._countText and not isDK then
-                SetPVFont(pc._countText, FONT_PATH, sp.textSize)
+                SetPVSlotFont(pc._countText, sp, "text", sp.textSize)
                 pc._countText:ClearAllPoints()
                 local _pvTA = sp.textAnchor or "CENTER"
                 pc._countText:SetPoint(_pvTA, pc, _pvTA, sp.textXOffset or 0, sp.textYOffset or 0)
@@ -747,7 +809,7 @@ initFrame:SetScript("OnEvent", function(self)
         countTextOverlay:SetAllPoints(pipC)
         countTextOverlay:SetFrameLevel(pipC:GetFrameLevel() + 10)
         local countText = countTextOverlay:CreateFontString(nil, "OVERLAY")
-        SetPVFont(countText, FONT_PATH, sp.textSize)
+        SetPVSlotFont(countText, sp, "text", sp.textSize)
         countText:SetTextColor(1, 1, 1, 0.9)
         do local _pvTA = sp.textAnchor or "CENTER"; countText:SetPoint(_pvTA, pipC, _pvTA, sp.textXOffset or 0, sp.textYOffset or 0) end
         pipC._countText = countText
@@ -3544,9 +3606,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Health Text inline cog: anchor + x/y offsets
         if not EllesmereUI._prebuilding then
             local rgn = healthTextSizeRow._leftRegion
-            local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Health Text",
-                rows = {
+            local healthTextCogRows = {
                     { type = "dropdown", label = "Anchor",
                       values = { LEFT = "Left", CENTER = "Center", RIGHT = "Right" },
                       order = { "LEFT", "CENTER", "RIGHT" },
@@ -3568,7 +3628,14 @@ initFrame:SetScript("OnEvent", function(self)
                           local c = cfg(); if not c then return end
                           c.textYOffset = v; RefreshHealth()
                       end },
-                },
+            }
+            InsertTextFontCogRows(healthTextCogRows, "text",
+                function(key, default) local c = cfg(); if c and c[key] ~= nil then return c[key] end; return default end,
+                function(key, val) local c = cfg(); if c then c[key] = val end end,
+                RefreshHealth)
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Health Text",
+                rows = healthTextCogRows,
             })
             local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.DIRECTIONS_ICON)
             AddFormTextBtn(rgn, cogBtn, cfg, RefreshHealth)
@@ -4332,9 +4399,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Power Text inline cog: percent sign, anchor, x/y offsets
         if not EllesmereUI._prebuilding then
             local rgn = powerTextSizeRow._leftRegion
-            local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Power Text",
-                rows = {
+            local powerTextCogRows = {
                     { type = "toggle", label = "Show %",
                       get = function() local c = cfg(); return (not c) or c.showPercent ~= false end,
                       set = function(v)
@@ -4362,7 +4427,14 @@ initFrame:SetScript("OnEvent", function(self)
                           local c = cfg(); if not c then return end
                           c.textYOffset = v; RefreshPower()
                       end },
-                },
+            }
+            InsertTextFontCogRows(powerTextCogRows, "text",
+                function(key, default) local c = cfg(); if c and c[key] ~= nil then return c[key] end; return default end,
+                function(key, val) local c = cfg(); if c then c[key] = val end end,
+                RefreshPower)
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Power Text",
+                rows = powerTextCogRows,
             })
             local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.DIRECTIONS_ICON)
             AddFormTextBtn(rgn, cogBtn, cfg, RefreshPower)
@@ -5431,6 +5503,14 @@ initFrame:SetScript("OnEvent", function(self)
                         end })
                 end
             end
+            InsertTextFontCogRows(resTextRows, "text",
+                function(key, default)
+                    local p = DB(); local c = p and p.secondary
+                    if c and c[key] ~= nil then return c[key] end
+                    return default
+                end,
+                function(key, val) local p = DB(); if p then p.secondary[key] = val end end,
+                RefreshClass)
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Resource Text",
                 rows = resTextRows,
@@ -8318,7 +8398,7 @@ initFrame:SetScript("OnEvent", function(self)
         local cbBarW = pf.bar:GetWidth() or 0
         -- Timer / duration text
         if cb.showTimer then
-            SetPVFont(pf.timerText, FONT_PATH, cb.timerSize or 11)
+            SetPVSlotFont(pf.timerText, cb, "timer", cb.timerSize or 11)
             local pt, xb, jh = ns.GetCastTextAnchor(cbDurSide, false, cbTimerW)
             pf.timerText:ClearAllPoints()
             pf.timerText:SetJustifyH(jh)
@@ -8336,7 +8416,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Spell name text
         if cb.showSpellText then
-            SetPVFont(pf.spellText, FONT_PATH, cb.spellTextSize or 11)
+            SetPVSlotFont(pf.spellText, cb, "spellText", cb.spellTextSize or 11)
             local pt, xb, jh = ns.GetCastTextAnchor(cbSpellSide, cb.showTimer and cbDurSide == cbSpellSide, cbTimerW)
             pf.spellText:ClearAllPoints()
             pf.spellText:SetJustifyH(jh)
@@ -8479,7 +8559,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Timer text
         local timerText = bar:CreateFontString(nil, "OVERLAY")
-        SetPVFont(timerText, FONT_PATH, cb.timerSize or 11)
+        SetPVSlotFont(timerText, cb, "timer", cb.timerSize or 11)
         timerText:SetPoint("RIGHT", bar, "RIGHT", -4 + (cb.timerX or 0), cb.timerY or 0)
         timerText:SetJustifyH("RIGHT")
         if cb.showTimer then
@@ -8495,7 +8575,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Spell name text
         local spellText = bar:CreateFontString(nil, "OVERLAY")
-        SetPVFont(spellText, FONT_PATH, cb.spellTextSize or 11)
+        SetPVSlotFont(spellText, cb, "spellText", cb.spellTextSize or 11)
         spellText:SetPoint("LEFT", bar, "LEFT", 4 + (cb.spellTextX or 0), cb.spellTextY or 0)
         spellText:SetJustifyH("LEFT")
         if cb.showSpellText then
@@ -9091,9 +9171,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline cog (RESIZE) on Spell Text for text size + x/y
         if not EllesmereUI._prebuilding then
             local rgn = textRow._rightRegion
-            local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Spell Text Settings",
-                rows = {
+            local spellTextCogRows = {
                     { type = "slider", label = "Text Size", min = 8, max = 24, step = 1,
                       get = function() local p = DB(); return p and p.castBar.spellTextSize or 11 end,
                       set = function(v)
@@ -9112,7 +9190,18 @@ initFrame:SetScript("OnEvent", function(self)
                           local p = DB(); if not p then return end
                           p.castBar.spellTextY = v; RefreshCast()
                       end },
-                },
+            }
+            InsertTextFontCogRows(spellTextCogRows, "spellText",
+                function(key, default)
+                    local p = DB(); local c = p and p.castBar
+                    if c and c[key] ~= nil then return c[key] end
+                    return default
+                end,
+                function(key, val) local p = DB(); if p then p.castBar[key] = val end end,
+                RefreshCast)
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Spell Text Settings",
+                rows = spellTextCogRows,
             })
             local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.DIRECTIONS_ICON)
             local cogDis = CreateFrame("Frame", nil, rgn)
@@ -9169,9 +9258,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline cog (RESIZE) on Duration Text for timer size + x/y
         if not EllesmereUI._prebuilding then
             local rgn = timerRow._leftRegion
-            local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Timer Settings",
-                rows = {
+            local timerCogRows = {
                     { type = "slider", label = "Timer Size", min = 8, max = 24, step = 1,
                       get = function() local p = DB(); return p and p.castBar.timerSize or 11 end,
                       set = function(v)
@@ -9190,7 +9277,18 @@ initFrame:SetScript("OnEvent", function(self)
                           local p = DB(); if not p then return end
                           p.castBar.timerY = v; RefreshCast()
                       end },
-                },
+            }
+            InsertTextFontCogRows(timerCogRows, "timer",
+                function(key, default)
+                    local p = DB(); local c = p and p.castBar
+                    if c and c[key] ~= nil then return c[key] end
+                    return default
+                end,
+                function(key, val) local p = DB(); if p then p.castBar[key] = val end end,
+                RefreshCast)
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Timer Settings",
+                rows = timerCogRows,
             })
             local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.DIRECTIONS_ICON)
             local cogDis = CreateFrame("Frame", nil, rgn)
