@@ -9,6 +9,16 @@ if not ns then return end  -- module disabled: no options page
 local EAB = ns.EAB
 local VisibilityCompat = EAB and EAB.VisibilityCompat
 
+-- Keep the load-on-demand options page resilient to a partially updated suite:
+-- availability detection does not require the Action Bars runtime to have
+-- created a Masque group, or to expose a particular helper revision.
+local function IsMasqueAvailable()
+    if ns.IsMasqueAvailable then
+        return ns.IsMasqueAvailable()
+    end
+    return LibStub and LibStub("Masque", true) ~= nil
+end
+
 local function GetEABOptOutline() return EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag() or "" end
 local function GetEABOptUseShadow() return EllesmereUI.GetFontUseShadow and EllesmereUI.GetFontUseShadow() or true end
 
@@ -44,9 +54,14 @@ initFrame:SetScript("OnEvent", function(self)
 
     -- Filtered bar list for multi-edit: action bars only (no MicroBar/BagBar)
     local GROUP_BAR_ORDER = {}
+    local MASQUE_BAR_ORDER = {}
     for _, key in ipairs(BAR_DROPDOWN_ORDER) do
         if not VISIBILITY_ONLY[key] then
             GROUP_BAR_ORDER[#GROUP_BAR_ORDER + 1] = key
+            local info = BAR_LOOKUP[key]
+            if info and not info.isStance and not info.isPetBar then
+                MASQUE_BAR_ORDER[#MASQUE_BAR_ORDER + 1] = key
+            end
         end
     end
 
@@ -617,7 +632,7 @@ initFrame:SetScript("OnEvent", function(self)
             local mcColor   = settings.macroFontColor or { r = 1, g = 1, b = 1 }
 
             -- Shape settings: derive from unified border system
-            local btnShape = settings.buttonShape or "none"
+            local btnShape = ns.MasqueOwnsBar(SelectedKey()) and "none" or settings.buttonShape or "none"
             local shapeBrdOn = resolvedBrdSize > 0
             local shapeBrdColor = settings.shapeBorderColor or settings.borderColor or { r = 0, g = 0, b = 0, a = 1 }
             local shapeBrdSize = resolvedBrdSize
@@ -1127,6 +1142,8 @@ initFrame:SetScript("OnEvent", function(self)
         Bar6     = "Bar 6",
         Bar7     = "Bar 7",
         Bar8     = "Bar 8",
+        Bar9     = "Bar 9",
+        Bar10    = "Bar 10",
         StanceBar = "Stance",
         PetBar   = "Pet",
         MicroBar = "Micro",
@@ -3075,6 +3092,13 @@ initFrame:SetScript("OnEvent", function(self)
             -------------------------------------------------------------------
             iconsSectionHeader, h = W:SectionHeader(parent, SECTION_ICON_APPEARANCE, y);  y = y - h
 
+            local function MasqueEnabledValue()
+                for _, key in ipairs(MASQUE_BAR_ORDER) do
+                    if EAB.db.profile.bars[key].masqueEnabled ~= true then return false end
+                end
+                return true
+            end
+
             local function BlizzStyleOn()
                 return EAB.db.profile.useBlizzardStyle or false
             end
@@ -3497,7 +3521,12 @@ initFrame:SetScript("OnEvent", function(self)
             local classColorBorderRow
             classColorBorderRow, h = W:DualRow(parent, y,
                 { type="dropdown", text="Custom Button Shape",
-                  disabled=BlizzStyleOn, disabledTooltip="Blizzard Style Action Bars", requireState="disabled",
+                  disabled=function() return BlizzStyleOn() or ns.MasqueOwnsBar(SelectedKey()) end,
+                  disabledTooltip=function()
+                      if ns.MasqueOwnsBar(SelectedKey()) then return "Button shape is controlled by Masque" end
+                      return "Blizzard Style Action Bars"
+                  end,
+                  requireState="disabled",
                   values=SHAPE_VALUES, order=SHAPE_ORDER,
                   itemDisabled=function(val)
                       if val ~= "none" and val ~= "cropped" and (SGet("borderTexture") or "solid") ~= "solid" then return true end
@@ -3869,6 +3898,35 @@ initFrame:SetScript("OnEvent", function(self)
                     sbgUpdateSwatch()
                 end)
             end
+
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Enable Masque Support",
+                  tooltip="Allows Masque to skin the buttons on Action Bars 1-10. Requires a UI reload to apply.",
+                  disabled=function() return not IsMasqueAvailable() end,
+                  disabledTooltip=function()
+                      if not IsMasqueAvailable() then return "Masque is not installed or enabled." end
+                      return "Masque is available for Action Bars 1-10."
+                  end,
+                  requireState="disabled",
+                  getValue=MasqueEnabledValue,
+                  setValue=function(v)
+                      EllesmereUI:ShowConfirmPopup({
+                          title       = "Reload Required",
+                          message     = "Changing Masque for all action bars requires a UI reload.",
+                          confirmText = "Reload Now",
+                          cancelText  = "Cancel",
+                          onConfirm   = function()
+                              for _, key in ipairs(MASQUE_BAR_ORDER) do
+                                  EAB.db.profile.bars[key].masqueEnabled = v and true or false
+                              end
+                              ReloadUI()
+                          end,
+                          onCancel    = function()
+                              EllesmereUI:RefreshPage()
+                          end,
+                      })
+                  end },
+                { type="label", text="" });  y = y - h
             -------------------------------------------------------------------
             --  ICON EFFECTS
             -------------------------------------------------------------------

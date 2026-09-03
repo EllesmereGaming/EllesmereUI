@@ -13,6 +13,18 @@ EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns
 local EAB = EllesmereUI.Lite.NewAddon(ADDON_NAME)
 ns.EAB = EAB
 
+function ns.IsMasqueAvailable()
+    return LibStub and LibStub("Masque", true) ~= nil
+end
+
+function ns.InitializeMasque()
+    if ns.MasqueGroup then return true end
+    local masque = LibStub and LibStub("Masque", true)
+    if not masque then return false end
+    ns.MasqueGroup = masque:Group(ADDON_NAME, "Action Bars")
+    return ns.MasqueGroup ~= nil
+end
+
 local PP = EllesmereUI.PP
 
 -- CPU-attribution shell pool: the engine bills a handler's whole call tree to the addon
@@ -218,6 +230,13 @@ for _, info in ipairs(EXTRA_BARS) do ALL_BARS[#ALL_BARS + 1] = info end
 local BAR_LOOKUP = {}
 for _, info in ipairs(BAR_CONFIG) do BAR_LOOKUP[info.key] = info end
 for _, info in ipairs(EXTRA_BARS) do BAR_LOOKUP[info.key] = info end
+function ns.MasqueOwnsBar(key)
+    local info = BAR_LOOKUP[key]
+    if not (ns.MasqueGroup and info and not info.isStance and not info.isPetBar) then return false end
+    local bars = EAB and EAB.db and EAB.db.profile and EAB.db.profile.bars
+    local settings = bars and bars[key]
+    return settings and settings.masqueEnabled == true
+end
 
 -- Expose AB bar keys immediately so unlock mode's ApplyAnchorPosition can gate
 -- edge logic to CDM/AB without waiting for deferred RegisterWithUnlockMode.
@@ -571,6 +590,7 @@ for _, info in ipairs(BAR_CONFIG) do
         bgExpandDirectionY = "up",
         outOfRangeColoring = false,
         outOfRangeColor = { r = 0.8, g = 0.1, b = 0.1 },
+        masqueEnabled = false,
         buttonShape = "none",
         shapeBorderEnabled = true,
         shapeBorderColor = { r = 0, g = 0, b = 0, a = 1 },
@@ -2191,6 +2211,14 @@ local function GetOrCreateButton(slot, parent, info, index, skipProtected)
         end
     end
 
+    if ns.MasqueOwnsBar(info.key) then
+        -- Masque-owned buttons intentionally skip MakeButtonSquare(), but the
+        -- proc driver used the resulting `squared` flag as its eligibility
+        -- check. Keep an explicit marker so these buttons still receive the
+        -- yellow spell-activation ring.
+        EFD(btn).masqueOwned = true
+        EAB_VTABLE.SetupCastAnimSuppression(btn)
+    end
     RegisterButtonWithController(btn)
     allButtons[slot] = btn
     return btn
@@ -2989,6 +3017,9 @@ local function SetupBar(info, skipProtected)
     local buttons = {}
     local buttonShape = EAB and EAB.db and EAB.db.profile and EAB.db.profile.bars[key]
         and EAB.db.profile.bars[key].buttonShape or "none"
+    if ns.MasqueOwnsBar(key) then
+        buttonShape = "none"
+    end
 
     if info.isStance then
         -- Stance bar: reuse StanceButton1-N
@@ -5575,7 +5606,7 @@ local function ComputeBarLayout(key)
     local padding = s.buttonPadding or 2
     local isVertical = (s.orientation == "vertical")
     local growDir = EAB:ResolveGrowDirectionForLayout(key, s)
-    local shape = s.buttonShape or "none"
+    local shape = ns.MasqueOwnsBar(key) and "none" or s.buttonShape or "none"
 
     local base = barBaseSize[key]
     local baseW = base and base.w or 45
@@ -5925,7 +5956,7 @@ local function LayoutBar(key)
     local padding = s.buttonPadding or 2
     local isVertical = (s.orientation == "vertical")
     local growDir = EAB:ResolveGrowDirectionForLayout(key, s)
-    local shape = s.buttonShape or "none"
+    local shape = ns.MasqueOwnsBar(key) and "none" or s.buttonShape or "none"
 
     local base = barBaseSize[key]
     local baseW = base and base.w or 45
@@ -6497,6 +6528,69 @@ function EAB_VTABLE.HideRegionDeferred(region, resetAlpha)
     C_Timer_After(0, fd.hideFn)
 end
 
+function EAB_VTABLE.SetupCastAnimSuppression(btn)
+    local fd = EFD(btn)
+    -- Masque buttons skip MakeButtonSquare, so install the cast-animation hooks
+    -- independently of that path. The existing Hide Casting Animations setting
+    -- remains authoritative; custom shapes continue to force suppression because
+    -- Blizzard's rectangular sweep does not fit their masks.
+    if (btn.SpellCastAnimFrame and not fd.castHooked)
+       or (btn.InterruptDisplay and not fd.intHooked) then
+        local hideCastAnim = function(self)
+            local prof = EAB.db and EAB.db.profile
+            if not prof then return end
+            local bfd = EFD(btn)
+            if not prof.hideCastingAnimations and not bfd.shapeApplied
+               and not bfd.cropped then return end
+            self:SetAlpha(0)
+            if not self:IsForbidden() then self:Hide() end
+            EAB_VTABLE.HideRegionDeferred(self, 1)
+        end
+        if btn.SpellCastAnimFrame and not fd.castHooked then
+            btn.SpellCastAnimFrame:HookScript("OnShow", hideCastAnim)
+            fd.castHooked = true
+        end
+        if btn.InterruptDisplay and not fd.intHooked then
+            btn.InterruptDisplay:HookScript("OnShow", hideCastAnim)
+            fd.intHooked = true
+        end
+    end
+    -- When the cast animation hides, it resets the cooldown swipe color. Re-assert
+    -- the configured swipe on the same edge so Masque buttons keep that setting.
+    if btn.SpellCastAnimFrame and not fd.castSwipeHooked then
+        fd.castSwipeHooked = true
+        btn.SpellCastAnimFrame:HookScript("OnHide", function()
+            local pdb = EAB.db and EAB.db.profile
+            local cd = btn.cooldown
+            if not pdb or not (cd and cd.SetSwipeColor) then return end
+            local c = pdb.cdSwipeColor or { r = 0, g = 0, b = 0 }
+            pcall(cd.SetSwipeColor, cd, c.r or 0, c.g or 0, c.b or 0, (pdb.cdSwipeAlpha or 80) / 100)
+        end)
+    end
+end
+
+function EAB_VTABLE.RegisterMasqueButtons()
+    if not ns.MasqueGroup then return end
+    -- Masque skins synchronously in AddButton. Register only after EUI's final
+    -- layout pass so its first skin calculation sees the finished button size.
+    -- Registering during GetOrCreateButton skins the template's initial size and
+    -- leaves regions bloated until a Masque option forces a later reskin.
+    for _, info in ipairs(BAR_CONFIG) do
+        if ns.MasqueOwnsBar(info.key) then
+            local buttons = barButtons[info.key]
+            if buttons then
+                for _, btn in ipairs(buttons) do
+                    local fd = EFD(btn)
+                    if not fd.masqueRegistered then
+                        ns.MasqueGroup:AddButton(btn)
+                        fd.masqueRegistered = true
+                    end
+                end
+            end
+        end
+    end
+end
+
 local function MakeButtonSquare(btn)
     if EFD(btn).squared then return end
     -- Always hide SlotBackground regardless of style (our own icon
@@ -6515,13 +6609,21 @@ local function MakeButtonSquare(btn)
     end
     local fd = EFD(btn)
     if btn.NormalTexture and not fd.ntHooked then
-        btn.NormalTexture:HookScript("OnShow", HideSelfDeferred)
+        fd.ntHideFn = function()
+            if btn.NormalTexture and not btn.NormalTexture:IsForbidden()
+               and not EFD(btn).masqueOwned then
+                btn.NormalTexture:Hide()
+            end
+        end
+        btn.NormalTexture:HookScript("OnShow", function()
+            C_Timer_After(0, fd.ntHideFn)
+        end)
         fd.ntHooked = true
     end
     if not fd.showHooked then
         -- Cache the deferred closure per button to avoid allocation on every OnShow
         local hideBorderFn = function()
-            if btn and not btn:IsForbidden() then HideBorder(btn) end
+            if btn and not btn:IsForbidden() and not EFD(btn).masqueOwned then HideBorder(btn) end
         end
         btn:HookScript("OnShow", function() C_Timer_After(0, hideBorderFn) end)
         fd.showHooked = true
@@ -6539,7 +6641,7 @@ local function MakeButtonSquare(btn)
             if not sfd.artFn then
                 sfd.artFn = function()
                     sfd.artPending = nil
-                    if self and not self:IsForbidden() then
+                    if self and not self:IsForbidden() and not sfd.masqueOwned then
                         HideBorder(self)
                     end
                 end
@@ -6604,47 +6706,7 @@ local function MakeButtonSquare(btn)
         btn.cooldown:ClearAllPoints()
         btn.cooldown:SetAllPoints(btn)
     end
-    -- Cast-anim suppression (SpellCastAnimFrame + InterruptDisplay): Hide the ANIMATED
-    -- frame synchronously -- its animation group re-drives alpha on the next render
-    -- tick, so SetAlpha(0) plus a deferred Hide leaks a one-frame blink of the cast
-    -- sweep, while a hidden frame renders no animations. The deferred Hide stays as a
-    -- fallback reset. Insecure UNIT_SPELLCAST/OnShow context, IsForbidden-guarded.
-    if (btn.SpellCastAnimFrame and not fd.castHooked)
-       or (btn.InterruptDisplay and not fd.intHooked) then
-        local hideCastAnim = function(self)
-            local prof = EAB.db and EAB.db.profile
-            if not prof then return end
-            local bfd = EFD(btn)
-            if not prof.hideCastingAnimations and not bfd.shapeApplied and not bfd.cropped then return end
-            self:SetAlpha(0)
-            if not self:IsForbidden() then self:Hide() end
-            EAB_VTABLE.HideRegionDeferred(self, 1)
-        end
-        if btn.SpellCastAnimFrame and not fd.castHooked then
-            btn.SpellCastAnimFrame:HookScript("OnShow", hideCastAnim)
-            fd.castHooked = true
-        end
-        if btn.InterruptDisplay and not fd.intHooked then
-            btn.InterruptDisplay:HookScript("OnShow", hideCastAnim)
-            fd.intHooked = true
-        end
-    end
-    -- The cast-on-button anim's OnHide resets the swipe to opaque black on the
-    -- button that hard-cast, clobbering the CD Swipe color/opacity setting there
-    -- (cast-time spells only; instants never play the anim, and the suppression
-    -- hook above trips the same OnHide at cast START). HookScript runs after the
-    -- reset, so re-assert ours on the same edge -- fires only when a cast anim
-    -- frame hides, nothing at idle.
-    if btn.SpellCastAnimFrame and not fd.castSwipeHooked then
-        fd.castSwipeHooked = true
-        btn.SpellCastAnimFrame:HookScript("OnHide", function()
-            local pdb = EAB.db and EAB.db.profile
-            local cd = btn.cooldown
-            if not pdb or not (cd and cd.SetSwipeColor) then return end
-            local c = pdb.cdSwipeColor or { r = 0, g = 0, b = 0 }
-            pcall(cd.SetSwipeColor, cd, c.r or 0, c.g or 0, c.b or 0, (pdb.cdSwipeAlpha or 80) / 100)
-        end)
-    end
+    EAB_VTABLE.SetupCastAnimSuppression(btn)
     if btn.SlotBackground then
         btn.SlotBackground:SetAlpha(0)
         if not fd.slotBgHooked then
@@ -6676,10 +6738,12 @@ local function MakeButtonSquare(btn)
     -- Border:SetAtlas()/Show() on refreshes and EAB owns the visible border.
     if btn.Border and not fd.borderHooked then
         hooksecurefunc(btn.Border, "SetAtlas", function(self)
+            if EFD(btn).masqueOwned then return end
             self:SetAlpha(0)
             EAB_VTABLE.HideRegionDeferred(self)
         end)
         hooksecurefunc(btn.Border, "Show", function(self)
+            if EFD(btn).masqueOwned then return end
             self:SetAlpha(0)
             EAB_VTABLE.HideRegionDeferred(self)
         end)
@@ -7199,11 +7263,25 @@ function EAB:ApplyBordersForBar(barKey)
     local behind = s.borderBehind
     local buttons = barButtons[barKey]
     if not buttons then return end
+    local masqueOwns = ns.MasqueOwnsBar(barKey)
     for i = 1, #buttons do
         local btn = buttons[i]
         if btn then
             EFD(btn).barKey = barKey
-            ApplyButtonBorders(btn, on, cr, cg, cb, ca, sz, zoom, textureKey, texOffset, texOffsetY, texShiftX, texShiftY, "actionbars", thicknessKey, behind)
+            if masqueOwns then
+                local fd = EFD(btn)
+                if fd.borders then PP.HideBorder(btn) end
+                if EllesmereUI._bdBorderData then
+                    local bdFrame = EllesmereUI._bdBorderData[btn]
+                    if bdFrame then bdFrame:Hide() end
+                end
+                if fd.shapeBorder then
+                    fd.shapeBorder:Hide()
+                    EFD(fd.shapeBorder).wantsShow = false
+                end
+            else
+                ApplyButtonBorders(btn, on, cr, cg, cb, ca, sz, zoom, textureKey, texOffset, texOffsetY, texShiftX, texShiftY, "actionbars", thicknessKey, behind)
+            end
         end
     end
 end
@@ -7234,10 +7312,22 @@ function EAB:ApplyShapesForBar(barKey)
     end
     local buttons = barButtons[barKey]
     if not buttons then return end
+    local masqueOwns = ns.MasqueOwnsBar(barKey)
     for i = 1, #buttons do
         local btn = buttons[i]
         if btn then
-            ApplyShapeToButton(btn, shape, brdOn, brdR, brdG, brdB, brdA, brdSz, zoom)
+            if masqueOwns then
+                btn:SetHitRectInsets(0, 0, 0, 0)
+                local fd = EFD(btn)
+                if fd.shapeApplied or fd.cropped then
+                    ApplyShapeToButton(btn, "none", false, brdR, brdG, brdB, brdA, brdSz, zoom)
+                elseif fd.shapeBorder then
+                    fd.shapeBorder:Hide()
+                    EFD(fd.shapeBorder).wantsShow = false
+                end
+            else
+                ApplyShapeToButton(btn, shape, brdOn, brdR, brdG, brdB, brdA, brdSz, zoom)
+            end
         end
     end
     LayoutBar(barKey)
@@ -9969,7 +10059,11 @@ function EAB:ApplyPushedTextures()
             for i = 1, #buttons do
                 local btn = buttons[i]
                 if btn and btn.PushedTexture then
-                    if p.useBlizzardStyle then
+                    if ns.MasqueOwnsBar(info.key) then
+                        -- Masque owns the pushed region for registered action buttons.
+                        -- EUI's full-button texture can extend past a skin's border.
+                        ns._hideBorderEdges(btn, "_pushedBorder")
+                    elseif p.useBlizzardStyle then
                         btn.PushedTexture:SetAtlas("UI-HUD-ActionBar-IconFrame-Down", true)
                         btn.PushedTexture:SetDrawLayer("OVERLAY", 7)
                         btn.PushedTexture:ClearAllPoints()
@@ -10115,7 +10209,10 @@ function EAB:ApplyHighlightTextures()
             for i = 1, #buttons do
                 local btn = buttons[i]
                 if btn and btn.HighlightTexture then
-                    if hType == 6 then
+                    if ns.MasqueOwnsBar(info.key) then
+                        -- Masque owns the mouseover region for registered action buttons.
+                        ns._hideBorderEdges(btn, "_highlightBorder")
+                    elseif hType == 6 then
                         btn.HighlightTexture:SetAlpha(0)
                         ns._hideBorderEdges(btn, "_highlightBorder")
                     elseif hType == 5 then
@@ -10475,7 +10572,7 @@ function EAB:HookProcGlow()
             local buttons = (not ns._eabBarDormant[info.key]) and barButtons[info.key] or nil
             if buttons then
                 for _, btn in ipairs(buttons) do
-                    if btn and (EFD(btn).squared or blizz) and not _procState.active[btn] then
+                    if btn and (EFD(btn).squared or EFD(btn).masqueOwned or blizz) and not _procState.active[btn] then
                         UpdateOverlayGlow(btn)
                     end
                 end
@@ -10531,7 +10628,7 @@ function EAB:HookProcGlow()
                 local buttons = (not ns._eabBarDormant[info.key]) and barButtons[info.key] or nil
                 if buttons then
                     for _, btn in ipairs(buttons) do
-                        if btn and (EFD(btn).squared or blizz2) then
+                        if btn and (EFD(btn).squared or EFD(btn).masqueOwned or blizz2) then
                             local id = GetButtonSpellID(btn)
                             if id and id == arg1 then
                                 ShowGlow(btn)
@@ -10549,7 +10646,7 @@ function EAB:HookProcGlow()
     -- native glows must show normally.
     if ActionButtonSpellAlertManager and ActionButtonSpellAlertManager.ShowAlert then
         hooksecurefunc(ActionButtonSpellAlertManager, "ShowAlert", function(_, btn)
-            if btn and EFD(btn).squared and not IsBlizzStyle()
+            if btn and (EFD(btn).squared or EFD(btn).masqueOwned) and not IsBlizzStyle()
                and not _procState.active[btn]
                and btn.SpellActivationAlert then
                 btn.SpellActivationAlert:SetAlpha(0)
@@ -10930,7 +11027,7 @@ function EAB:ScanExistingProcs()
         if buttons then
             for i = 1, #buttons do
                 local btn = buttons[i]
-                if btn and (EFD(btn).squared or blizz) then
+                if btn and (EFD(btn).squared or EFD(btn).masqueOwned or blizz) then
                     total = total + 1
                     local spellID = _procState.GetButtonSpellID(btn)
                     local ISO = C_SpellActivationOverlay and C_SpellActivationOverlay.IsSpellOverlayed
@@ -12172,6 +12269,10 @@ local function ApplyAll()
     -- keybind, Bloodlust) before these buttons existed for it to claim.
     if ns.PartySpin_Refresh then ns.PartySpin_Refresh() end
 
+    -- AddButton applies the Masque skin immediately. Keep registration after
+    -- every EUI sizing/layout operation so the initial skin uses final sizes.
+    EAB_VTABLE.RegisterMasqueButtons()
+
     _isApplyingAll = false
 end
 
@@ -12629,6 +12730,18 @@ function EAB:OnInitialize()
         or (rawDB.profiles and not next(rawDB.profiles))
 
     self.db = EllesmereUI.Lite.NewDB("EllesmereUIActionBarsDB", defaults, true)
+
+    -- Masque is strictly opt-in. Do not create its group unless at least one
+    -- action bar has an explicit saved enable. An enabled preference survives
+    -- reload/profile persistence because AceDB retains the true override even
+    -- though the default is false.
+    for _, info in ipairs(BAR_CONFIG) do
+        local settings = self.db.profile.bars[info.key]
+        if settings and settings.masqueEnabled == true then
+            ns.InitializeMasque()
+            break
+        end
+    end
     -- Expose for ApplyAnchorPosition's growth-direction edge read.
     EllesmereUI._abBarPositions = self.db.profile.barPositions
 
