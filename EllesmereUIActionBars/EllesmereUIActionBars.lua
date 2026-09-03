@@ -7371,7 +7371,18 @@ function EAB:SetGrowDirectionForBar(barKey, dir)
         if frame then
             local point, _, relPoint, x, y = frame:GetPoint(1)
             if point then
-                local centerPos = self:ConvertEdgeToCenter(barKey, { point = point, relPoint = relPoint, x = x, y = y })
+                local centerPos
+                if point == "CENTER" or point == "LEFT" or point == "RIGHT" or point == "TOP" or point == "BOTTOM" then
+                    centerPos = self:ConvertEdgeToCenter(barKey, { point = point, relPoint = relPoint, x = x, y = y })
+                elseif EllesmereUI.ConvertToCenterPos then
+                    -- Legacy corner-anchored bar (pre-dates the CENTER/CENTER position
+                    -- system): normalize via the general converter, which reads live
+                    -- frame bounds, before pinning the new grow-direction edge.
+                    local cp, crp, cx, cy = EllesmereUI.ConvertToCenterPos(barKey, point, relPoint, x, y)
+                    centerPos = { point = cp, relPoint = crp, x = cx, y = cy }
+                else
+                    centerPos = { point = point, relPoint = relPoint, x = x, y = y }
+                end
                 local sp, sx, sy = self:ConvertCenterToEdge(barKey, centerPos.point, centerPos.x, centerPos.y)
                 local rpt = centerPos.relPoint or relPoint
                 local PPa = EllesmereUI and EllesmereUI.PP
