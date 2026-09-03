@@ -2045,10 +2045,17 @@ do
             element._maxSet = true
             element:SetMinMaxValues(0, UnitHealthMax(unit))
         end
-        if UnitIsConnected(unit) then
-            element:SetValue(UnitHealth(unit), element.smoothing)
-        else
+        -- A corpse fires no further UNIT_HEALTH, so the death tick's paint is the
+        -- last one the bar gets: zero it from the dead flag (a plain boolean in
+        -- restricted content, where the value is secret) instead of the value,
+        -- and without the interpolation, which otherwise eases toward zero and
+        -- leaves a sliver standing on a bar that gets no further ticks.
+        if not UnitIsConnected(unit) then
             element:SetValue(UnitHealthMax(unit), element.smoothing)
+        elseif UnitIsDeadOrGhost(unit) then
+            element:SetValue(0)
+        else
+            element:SetValue(UnitHealth(unit), element.smoothing)
         end
         -- Color inputs (class/reaction/dark/disconnect/tap) change via their
         -- own events or identity repaints -- a pure health tick re-runs the
