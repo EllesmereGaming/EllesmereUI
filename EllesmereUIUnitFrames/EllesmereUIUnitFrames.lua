@@ -2296,6 +2296,7 @@ _G._EUI_ResolvedPowerType = _G._EUI_ResolvedPowerType or {}
 
 local PLAYER_POWER_DEFAULT = {
     PRIEST = { [3] = 0 },   -- Shadow: default to Mana
+    MONK   = { [2] = 0 },   -- Mistweaver: default to Mana
 }
 local PLAYER_POWER_ALT = {
     DRUID  = { [1] = 0, [2] = 0, [3] = 0 },  -- Balance/Feral/Guardian -> Mana
