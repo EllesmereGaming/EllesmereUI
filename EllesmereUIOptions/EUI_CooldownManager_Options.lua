@@ -18677,29 +18677,6 @@ initFrame:SetScript("OnEvent", function(self)
         if not isCustomBuffBar and not isFocusKick then
         _, h = W:SectionHeader(parent, "EXTRAS", y);  y = y - h
 
-        -- Global, not per-bar: one gate for every glow the Cooldown Manager
-        -- draws, so it is labelled as such and sits in a full-width row.
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Show Glows Only in Combat (global)",
-              tooltip = "Hide every Cooldown Manager glow while you are out of combat: proc glows, active state, max stacks, buff and pandemic glows, cooldown ready glows and bar glows.\n\nThey come back the moment you enter combat, including a glow that started before the pull.\n\nApplies to every CDM bar and to the Tracking Bars at once. Glows from other EllesmereUI modules are not affected.",
-              getValue=function()
-                  local p = DB()
-                  return (p and p.cdmBars and p.cdmBars.glowsOnlyInCombat) == true
-              end,
-              setValue=function(v)
-                  local p = DB()
-                  if not p or not p.cdmBars then return end
-                  p.cdmBars.glowsOnlyInCombat = v and true or false
-                  -- Re-read the cached gate, then let the sweep take the running
-                  -- glows down (or bring the suppressed ones back) immediately
-                  -- instead of waiting for the next combat edge.
-                  if ns.RefreshGlowCombatGate then ns.RefreshGlowCombatGate() end
-                  if ns.CDMGlowCombatSync then ns.CDMGlowCombatSync() end
-                  EllesmereUI:RefreshPage()
-              end },
-            { type = "label", text = "" }
-        );  y = y - h
-
         -- Hide Items if Missing: one config, hosted in a different row per bar
         -- family. Buff bars carry it in the tooltip row's right slot; CD and
         -- utility bars keep it beside Mirror Key Presses further down.
@@ -19002,6 +18979,28 @@ initFrame:SetScript("OnEvent", function(self)
                   end
               end });  y = y - h
 
+        -- Global, not per-bar: one gate for every glow the Cooldown Manager
+        -- draws, hence the label. Same hosting trick as Hide Items if Missing
+        -- above -- it takes the cooldown edge row's free slot where that row
+        -- exists, and closes the section on its own for buff-family bars.
+        local glowCombatCfg = { type="toggle", text="Show Glows Only in Combat (global)",
+              tooltip = "Hide every Cooldown Manager glow while you are out of combat: proc glows, active state, max stacks, buff and pandemic glows, cooldown ready glows and bar glows.\n\nThey come back the moment you enter combat, including a glow that started before the pull.\n\nApplies to every CDM bar and to the Tracking Bars at once. Glows from other EllesmereUI modules are not affected.",
+              getValue=function()
+                  local p = DB()
+                  return (p and p.cdmBars and p.cdmBars.glowsOnlyInCombat) == true
+              end,
+              setValue=function(v)
+                  local p = DB()
+                  if not p or not p.cdmBars then return end
+                  p.cdmBars.glowsOnlyInCombat = v and true or false
+                  -- Re-read the cached gate, then let the sweep take the running
+                  -- glows down (or bring the suppressed ones back) right away
+                  -- instead of waiting for the next combat edge.
+                  if ns.RefreshGlowCombatGate then ns.RefreshGlowCombatGate() end
+                  if ns.CDMGlowCombatSync then ns.CDMGlowCombatSync() end
+                  EllesmereUI:RefreshPage()
+              end }
+
         -- Cooldown/utility bars only: buff bars have no cooldown edge.
         if barData.barType == "cooldowns" or barData.barType == "utility" then
         _, h = W:DualRow(parent, y,
@@ -19012,7 +19011,9 @@ initFrame:SetScript("OnEvent", function(self)
                   BD().showCooldownEdge = v and true or nil
                   ns.BuildAllCDMBars(); Refresh()
               end },
-            { type="label", text="" });  y = y - h
+            glowCombatCfg);  y = y - h
+        else
+        _, h = W:DualRow(parent, y, glowCombatCfg, { type="label", text="" });  y = y - h
         end
 
         end -- custom_buff extras guard
