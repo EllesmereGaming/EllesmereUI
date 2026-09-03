@@ -686,10 +686,12 @@ local function RestoreCVars()
     end
 end
 
--- want means "we need this channel's bubbles ON", because ours ride on them.
-local function ApplyCVar(name, want, saved, held)
+-- target is the value this switch has to sit at while we hold it, or nil for "we do not need
+-- it", which hands it back. A value rather than a flag, because hiding bubbles inside an
+-- instance means forcing one OFF and not only on.
+local function ApplyCVar(name, target, saved, held)
     local cur = C_CVar.GetCVar(name)
-    if want then
+    if target then
         -- Snapshot at the moment we take the CVar over, not once per install: while we were
         -- leaving this channel alone the player may well have changed it themselves, and that
         -- is the value they must get back.
@@ -697,7 +699,7 @@ local function ApplyCVar(name, want, saved, held)
             saved[name] = cur
             held[name] = true
         end
-        if cur ~= "1" then C_CVar.SetCVar(name, "1") end
+        if cur ~= target then C_CVar.SetCVar(name, target) end
     elseif held[name] then
         held[name] = nil
         local prev = saved[name]
@@ -748,6 +750,16 @@ local function AssertCVars()
     EnsureFrame():RegisterEvent("PLAYER_LOGOUT")
 
     if inInst then
+        if cfg.hideInInstances == true then
+            -- Ours cannot draw here at all, so Blizzard's are the only bubbles an instance
+            -- has, and hiding them means holding all three switches at zero for the stay.
+            -- The snapshot each one was taken over on is untouched, so the loop below hands
+            -- them back off it on the way out.
+            for _, name in ipairs(BLIZZ_CVARS) do
+                ApplyCVar(name, "0", saved, held)
+            end
+            return
+        end
         -- We draw nothing inside, so holding their switches on would put Blizzard's bubbles
         -- in front of a player who had them off. Hand them back for the stay; the
         -- PLAYER_ENTERING_WORLD on the way out takes them again.
@@ -767,7 +779,7 @@ local function AssertCVars()
             -- Independent of party and raid, which have switches of their own.
             want = (cfg.say == true or cfg.yell == true or cfg.npc == true or cfg.emote == true)
         end
-        ApplyCVar(name, want, saved, held)
+        ApplyCVar(name, want and "1" or nil, saved, held)
     end
 end
 

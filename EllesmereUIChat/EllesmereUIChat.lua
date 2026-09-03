@@ -165,6 +165,9 @@ local CHAT_DEFAULTS = {
             -- EllesmereUIChat_Bubbles.lua), so group bubbles are never put in front of a
             -- player who had them off.
             say = true, yell = true, party = true, raid = false, npc = true, emote = true,
+            -- Our own bubbles never draw inside an instance, so this decides whether
+            -- Blizzard's are visible there. Off, which leaves the stay exactly as it is now.
+            hideInInstances = false,
             padding = 8,
             maxWidth = 260,
             -- Nudge away from where Blizzard put the bubble we ride on. Zero means exactly

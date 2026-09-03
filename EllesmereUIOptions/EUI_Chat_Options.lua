@@ -1733,6 +1733,17 @@ initFrame:SetScript("OnEvent", function(self)
             chUpdateDisabled()
         end
 
+        -- Structural, not appearance: it decides which of Blizzard's switches we hold and at
+        -- what value, so it takes the full pass. Half-empty right slot is allowed here because
+        -- this is the last row of its section.
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Hide Chat Bubbles in Instances",
+              tooltip="Switch Blizzard's chat bubbles off for as long as you are inside a dungeon, raid, scenario or battleground, and back on the way out.\n\nEllesmereUI never restyles bubbles inside an instance: the game's bubble frames are off limits to addons there. This decides whether Blizzard's own are visible at all.",
+              getValue=function() return CBVal("hideInInstances") == true end,
+              setValue=function(v) CBSet("hideInInstances", v) end,
+              disabled = Off, disabledTooltip = GATE_REQ },
+            { type="label", text="" });  y = y - h
+
         _, h = W:SectionHeader(parent, "APPEARANCE", y);  y = y - h
 
         _, h = W:DualRow(parent, y,
