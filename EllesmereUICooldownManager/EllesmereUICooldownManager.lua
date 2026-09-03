@@ -597,6 +597,10 @@ local DEFAULTS = {
             -- seeds it into existing profiles at login, and an explicit
             -- false (user turned it off) survives the logout default-strip.
             stableKeybinds = true,
+            -- Suppress every CDM glow while out of combat (global, all bars).
+            -- Off by default: opt-in, and off means the gate in StartNativeGlow
+            -- is a single boolean test that never fires.
+            glowsOnlyInCombat = false,
             -- The 3 default bars (match Blizzard CDM)
             bars = {
                 {
@@ -2384,6 +2388,23 @@ function EllesmereUI.IsPandemicGlowSyncedToAll(payload, opts)
     return true
 end
 
+-- Show Glows Only in Combat (global). Every CDM glow -- proc, active state, max
+-- stacks, buff, pandemic, CD ready, custom active states, bar glows, tracking
+-- bars -- starts here, so the whole feature is one gate on this function
+-- instead of a condition bolted onto thirteen decision sites.
+-- overlay -> its last StartNativeGlow request. Weak-keyed: a recycled icon's
+-- record drops out with the frame. Only currently lit (or suppressed) overlays
+-- carry rec.active, so the combat sweep below stays a handful of entries.
+ns._cdmGlowRec = setmetatable({}, { __mode = "k" })
+
+-- Cached toggle: StartNativeGlow tests it on every glow start, so it must not
+-- walk the DB there. Re-read on apply/profile change, at world entry, and from
+-- the option itself.
+function ns.RefreshGlowCombatGate()
+    local p = ECME and ECME.db and ECME.db.profile
+    ns._cdmGlowOOCGate = (p and p.cdmBars and p.cdmBars.glowsOnlyInCombat) and true or false
+end
+
 StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
     if not overlay then return end
     local styleIdx = tonumber(style) or 1
@@ -2391,6 +2412,30 @@ StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
     local entry = GLOW_STYLES[styleIdx]
 
     _G_Glows.StopAllGlows(overlay)
+
+    -- Record the request verbatim, pre-defaulting, so a nil colour stays nil.
+    -- Recorded even with the gate off: the option has to be flippable
+    -- mid-session, and the proc glow and CD ready glow are edge-driven, so a
+    -- suppressed request can only ever come back by being replayed from here.
+    local rec = ns._cdmGlowRec[overlay]
+    if not rec then rec = {}; ns._cdmGlowRec[overlay] = rec end
+    rec.style, rec.r, rec.g, rec.b, rec.opts = styleIdx, cr, cg, cb, opts
+    rec.active = true
+    -- Suppressed overlays keep _glowActive = true: the buff ticker's active-glow
+    -- integrity pass and the preset cd-state re-assert restart any glow whose
+    -- overlay reads dark, so the truth would churn every tick for exactly the
+    -- users who asked for less work out of combat.
+    -- Options previews opt out on their own overlay rather than through opts:
+    -- three of the four preview call sites pass no opts, and a non-nil opts
+    -- flips the pixel-glow branch off the bar's Lines/Thickness/Speed.
+    if ns._cdmGlowOOCGate and not _inCombat and not overlay._euiGlowPreview then
+        rec.suppressed = true
+        ns._cdmGlowAnySuppressed = true  -- lets the sweep run once after the option goes off
+        overlay._glowActive = true
+        overlay:SetAlpha(0)
+        return
+    end
+    rec.suppressed = false
 
     -- Threshold glows pass the owning icon and its size explicitly so every
     -- style sizes exactly like the normal buff-glow path.
@@ -2478,10 +2523,54 @@ StopNativeGlow = function(overlay)
     _G_Glows.StopAllGlows(overlay)
     overlay._glowActive = false
     overlay:SetAlpha(0)
+    local rec = ns._cdmGlowRec[overlay]
+    if rec then rec.active = false; rec.suppressed = false end
     -- No Hide() -- just alpha 0. Same reason as above.
 end
 ns.StartNativeGlow = StartNativeGlow
 ns.StopNativeGlow = StopNativeGlow
+
+-- Combat edges for Show Glows Only in Combat. Entering combat replays what was
+-- suppressed; leaving combat takes the running glows down but keeps their
+-- records, so the next pull lights them again without waiting for their owners
+-- to re-fire. Also the transition when the option itself is switched: with the
+-- gate off everything is due to be shown, which is what un-suppresses glows the
+-- moment the user turns the option back off while standing around.
+-- Both flags false (the default) makes this two boolean tests per combat edge.
+function ns.CDMGlowCombatSync()
+    if not ns._cdmGlowOOCGate and not ns._cdmGlowAnySuppressed then return end
+    local show = _inCombat or not ns._cdmGlowOOCGate
+    local anySuppressed = false
+    for overlay, rec in pairs(ns._cdmGlowRec) do
+        if rec.active and not overlay._euiGlowPreview then
+            if show then
+                if rec.suppressed then
+                    if overlay:IsVisible() then
+                        StartNativeGlow(overlay, rec.style, rec.r, rec.g, rec.b, rec.opts)
+                    else
+                        -- Hidden or recycled while suppressed: drop the request
+                        -- rather than replay it onto whatever spell sits on that
+                        -- icon now. Clearing _glowActive hands the decision back
+                        -- to the owning driver, whose integrity pass restarts the
+                        -- glow on the next tick if it is still wanted.
+                        rec.active = false
+                        rec.suppressed = false
+                        overlay._glowActive = false
+                    end
+                end
+            elseif rec.suppressed then
+                anySuppressed = true
+            else
+                _G_Glows.StopAllGlows(overlay)
+                overlay:SetAlpha(0)
+                rec.suppressed = true
+                anySuppressed = true
+                -- _glowActive deliberately stays true (see StartNativeGlow).
+            end
+        end
+    end
+    ns._cdmGlowAnySuppressed = anySuppressed or nil
+end
 
 -- Our bar frames (keyed by bar key)
 local cdmBarFrames = {}
@@ -9418,6 +9507,9 @@ function ECME:OnInitialize()
     -- Expose for options
     _G._ECME_AceDB = self.db
     _G._ECME_Apply = function()
+        -- Profile switches land here, so the cached glow gate is re-read before
+        -- the rebuild restarts any glow under the new profile's setting.
+        ns.RefreshGlowCombatGate()
         if ns._skipNextApplyRebuild then
             ns._skipNextApplyRebuild = false
         elseif ns._specChangeJustRan then
@@ -9437,6 +9529,10 @@ function ECME:OnInitialize()
         end
         if ns.UpdateCustomBuffAuraTracking then ns.UpdateCustomBuffAuraTracking() end
         if ns.UpdateCustomBuffBars then ns.UpdateCustomBuffBars() end
+        -- A profile that switches the gate off has to release the glows the old
+        -- profile suppressed: the edge-driven ones (proc, cd ready) have no
+        -- ticker to bring them back on their own.
+        ns.CDMGlowCombatSync()
     end
 
     -- Append SharedMedia textures to TBB runtime tables
@@ -10421,6 +10517,11 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
             _inCombat = true
             _CDMApplyVisibility()
             ns.RefreshItemCountOOCBars()
+            -- Deferred one frame: replaying suppressed glows builds textures, and
+            -- the pull frame is already paying for the visibility pass above.
+            -- CDMGlowCombatSync re-reads _inCombat, so a pull that ended inside
+            -- that frame takes the suppress branch instead.
+            C_Timer.After(0, ns.CDMGlowCombatSync)
         elseif event == "PLAYER_REGEN_ENABLED" then
             -- Buffer combat exit: brief out-of-combat blips (mob dies, re-aggro) shouldn't flash visibility changes.
             C_Timer.After(0.1, function()
@@ -10428,6 +10529,7 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
                     _inCombat = false
                     _CDMApplyVisibility()
                     ns.RefreshItemCountOOCBars()
+                    ns.CDMGlowCombatSync()
                 end
             end)
         else
@@ -10454,6 +10556,10 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
     end
     if event == "PLAYER_ENTERING_WORLD" then
         _inCombat = InCombatLockdown and InCombatLockdown() or false
+        -- Covers a login or zone-in that lands mid-combat: the regen events
+        -- above never fire for that transition.
+        ns.RefreshGlowCombatGate()
+        ns.CDMGlowCombatSync()
         -- PvP instance transition backstop: entering or leaving a PvP instance rebuilds viewer pools (PvP talents activate/deactivate). Rebuild + reanchor so the new pool frames are claimed.
         local _, instType = IsInInstance()
         local wasPvP = ns._cdmWasInPvP
