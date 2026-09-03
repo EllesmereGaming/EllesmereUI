@@ -2015,6 +2015,16 @@ initFrame:SetScript("OnEvent", function(self)
             buildContent = BuildLootToastContent,
         },
         {
+            key   = "bnettoast",
+            title = "Friend Notifications",
+            desc  = "The Battle.net popup when a friend comes online or goes offline, plus broadcasts and invites.",
+            reloadMsg = "Changing the Friend Notifications reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles.",
+            setEnabled = function(v)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.reskinBNetToast = v
+            end,
+        },
+        {
             key   = "lootroll",
             title = "Loot Roll Popups",
             desc  = "The need / greed / pass roll popups, with a squared icon and a flat roll timer.",
@@ -3218,6 +3228,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.reskinItemUpgrade = nil
                 EllesmereUIDB.reskinLoot = nil
                 EllesmereUIDB.reskinLootToast = nil
+                EllesmereUIDB.reskinBNetToast = nil
                 EllesmereUIDB.lootToastQualityStrip = nil
                 EllesmereUIDB.lootToastQualityStripMoney = nil
                 EllesmereUIDB.lootToastScale = nil

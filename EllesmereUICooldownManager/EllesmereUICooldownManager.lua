@@ -412,6 +412,15 @@ local BUFF_BAR_PRESETS = {
         duration = 30,
     },
     {
+        key      = "liquid_luster",
+        name     = "Liquid Luster",
+        -- Picker art runtime-resolved (fileID not known statically at authoring
+        -- time), mirroring CDM_ITEM_PRESETS' liquid_luster entry below.
+        icon     = (C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(271887)) or 134400,
+        spellIDs = { 1295132 },
+        duration = 30,
+    },
+    {
         key      = "invis_potion",
         name     = "Invisibility Potion",
         icon     = 134764,
@@ -5473,25 +5482,27 @@ local function RefreshCDMIconAppearance(barKey)
                 nR, nG, nB = ssb.buffGlowColorR, ssb.buffGlowColorG, ssb.buffGlowColorB
             end
             -- Glow at Stacks: only with the per-spell toggle ON and a sane
-            -- threshold. Own custom frames expose no native applications
+            -- comparison. Own custom frames expose no native applications
             -- count, so they keep the normal presence glow.
-            local nThreshold
+            local nThreshold, nOperator
             if ssb and ssb.buffGlowStackEnabled then
                 -- Default 2 when the toggle is on before the input was ever
-                -- touched (matches the input's displayed default). Minimum 2:
-                -- at 1 this would just be the normal presence glow.
+                -- touched (matches the input's displayed default). A missing
+                -- operator keeps the original at-least behaviour.
                 nThreshold = tonumber(ssb.buffGlowStackThreshold) or 2
-                if nThreshold < 2 then nThreshold = nil end
+                if nThreshold < 1 then nThreshold = nil end
+                nOperator = ssb.buffGlowStackOperator or "gte"
             end
             if icon._isCustomBuffFrame or not ns.StackGlow_Configure then
-                nThreshold = nil
+                nThreshold, nOperator = nil, nil
             end
             if fd then
                 if fd._bgT ~= nT or fd._bgColor ~= nColor
                    or fd._bgR ~= nR or fd._bgG ~= nG or fd._bgB ~= nB
-                   or fd._bgThreshold ~= nThreshold then
+                   or fd._bgThreshold ~= nThreshold or fd._bgStackOperator ~= nOperator then
                     fd._bgT = nT; fd._bgColor = nColor; fd._bgR = nR; fd._bgG = nG; fd._bgB = nB
                     fd._bgThreshold = nThreshold
+                    fd._bgStackOperator = nOperator
                     if fd.buffGlowActive and fd.buffGlowOverlay then
                         StopNativeGlow(fd.buffGlowOverlay)
                         fd.buffGlowActive = false
@@ -5519,7 +5530,7 @@ local function RefreshCDMIconAppearance(barKey)
                     elseif sgMode == "custom" then
                         sgR, sgG, sgB = barData.buffGlowR, barData.buffGlowG, barData.buffGlowB
                     end
-                    ns.StackGlow_Configure(icon, nThreshold, sgStyle, sgR, sgG, sgB, barData)
+                    ns.StackGlow_Configure(icon, nThreshold, nOperator, sgStyle, sgR, sgG, sgB, barData)
                 elseif fd.stackGlow then
                     ns.StackGlow_Configure(icon)
                 end

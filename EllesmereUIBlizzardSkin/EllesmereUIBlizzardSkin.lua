@@ -41,6 +41,7 @@ local WINDOW_ENABLE_KEYS = {
     itemupgrade     = "reskinItemUpgrade",
     loot            = "reskinLoot",
     loottoast       = "reskinLootToast",
+    bnettoast       = "reskinBNetToast",
     lootroll        = "reskinLootRoll",
     loothistory     = "reskinLootHistory",
     groupinvite     = "reskinGroupInvite",
@@ -98,6 +99,7 @@ do
         { marker = "readyCheckStyleSeeded", keys = { "readycheck" } },
         { marker = "queueChoiceTradeStyleSeeded",
           keys = { "queuestatus", "delvepicker", "playerchoice", "trade" } },
+        { marker = "bnetToastStyleSeeded", keys = { "bnettoast" } },
     }
     local function SeedBatch(marker, newKeys)
         if EllesmereUIDB[marker] then return end

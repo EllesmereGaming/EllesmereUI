@@ -22,6 +22,18 @@ do
         for _, n in ipairs(e.names) do
             TELEPORT_BY_NAME[n] = e.spellID
         end
+        -- Locale-agnostic: GetLFGDungeonInfo returns the dungeon's name in
+        -- whatever locale THIS client is running -- the same source the LFG
+        -- teleport prompt's activity fullName comes from -- so this covers
+        -- every client locale automatically instead of only the languages
+        -- hardcoded in `names` above (English/Russian only, so e.g. a German
+        -- client never got a match and the LFG Reminder popup silently never fired).
+        if e.dungeonID and GetLFGDungeonInfo then
+            local ok, localName = pcall(GetLFGDungeonInfo, e.dungeonID)
+            if ok and type(localName) == "string" and localName ~= "" then
+                TELEPORT_BY_NAME[localName:lower()] = e.spellID
+            end
+        end
     end
     if C_ChallengeMode and C_ChallengeMode.GetMapTable then
         local maps = C_ChallengeMode.GetMapTable()

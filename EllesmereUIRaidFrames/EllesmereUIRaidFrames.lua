@@ -1428,11 +1428,13 @@ function ns._ApplyHealthBg(d, health, s, unit, connected, deadOrGhost)
     if not bg then return end
     -- Alive: the bg covers only MISSING health, so it hangs off the far side of the
     -- fill: the fill's right edge normally, its top edge on a vertical bar. The
-    -- anchor set only changes when the fill texture object or the axis does, so it
-    -- is stamped instead of being re-cleared and re-set on every health tick.
-    local vert = health.GetOrientation and health:GetOrientation() == "VERTICAL"
-    local tex = health:GetStatusBarTexture()
-    if d._bgSt ~= 1 or d._bgTex ~= tex or d._bgVert ~= vert then
+    -- anchor set only changes when the fill texture object or the axis does; both
+    -- change only in the restyle passes (ReloadFrames / ReloadPartyFrames), which
+    -- clear d._bgSt right after, so the steady-state tick skips the two reads and
+    -- the anchor pass entirely.
+    if d._bgSt ~= 1 then
+        local vert = health.GetOrientation and health:GetOrientation() == "VERTICAL"
+        local tex = health:GetStatusBarTexture()
         d._bgSt, d._bgTex, d._bgVert = 1, tex, vert
         d._bgA = nil
         bg:ClearAllPoints()
@@ -2420,7 +2422,9 @@ local function CreateAbsorbBar(button, healthBar)
     if CreateUnitHealPredictionCalculator then
         hpCalc = CreateUnitHealPredictionCalculator()
         if hpCalc.SetMaximumHealthMode then
-            hpCalc:SetMaximumHealthMode(Enum.UnitMaximumHealthMode.WithAbsorbs)
+            -- Configured ONCE: modes persist on the calculator across fills, and
+            -- UpdateAbsorb reads the Default (base) maximum every paint.
+            hpCalc:SetMaximumHealthMode(Enum.UnitMaximumHealthMode.Default)
             -- Missing Health clamp: GetDamageAbsorbs' 2nd return is then the standard "overshield"
             -- boolean (absorb exceeds empty health), consistent in and out of combat. Bars get the
             -- FULL absorb (UnitGetTotalAbsorbs) so overflow/backfill still renders.
@@ -2501,6 +2505,14 @@ local function CreateAbsorbBar(button, healthBar)
     backfillBar._reducedMaxBg = rmhBg
     backfillBar._hpBar        = healthBar
     backfillBar._hpCalculator = hpCalc
+    -- Health-bar size for the absorb paint: stamped by the bar's own resize edge
+    -- instead of two reads per paint (the bar resizes only on reload/tier
+    -- passes; the next paint reads the stamp). 0 until the first layout, which
+    -- the paint treats as "read it".
+    backfillBar._hpW, backfillBar._hpH = healthBar:GetWidth(), healthBar:GetHeight()
+    healthBar:HookScript("OnSizeChanged", function(_, w, h)
+        backfillBar._hpW, backfillBar._hpH = w, h
+    end)
     backfillBar._curClip      = curClip
     backfillBar._missClip     = missClip
     backfillBar._absorbMask   = absorbMask
@@ -2580,7 +2592,27 @@ end
 -------------------------------------------------------------------------------
 --  Update absorb bar for a button
 -------------------------------------------------------------------------------
-local function UpdateAbsorb(button, unit)
+-- Absorb paint helpers (on ns: this file sits at the 200-local cap). Every
+-- absorb child is toggled by UpdateAbsorb alone -- creation hides them and the
+-- style appliers never touch visibility -- so a stamped Show/Hide is exact:
+-- nil = fresh frame, always pushes. Ranges: max health reads PLAIN for group
+-- members, so a per-bar stamp skips the identical re-push; a secret max always
+-- pushes and clears the stamp (today's behavior in every restricted context).
+function ns._RFShow(f)
+    if f._vis ~= true then f._vis = true; f:Show() end
+end
+function ns._RFHide(f)
+    if f._vis ~= false then f._vis = false; f:Hide() end
+end
+function ns._RFPushRange(bar, maxHealth, maxPlain)
+    if maxPlain and bar._rMax == maxHealth then return end
+    bar:SetMinMaxValues(0, maxHealth)
+    bar._rMax = maxPlain and maxHealth or nil
+end
+
+-- now: the caller's frame clock when it has one (the flush paints a batch on
+-- one read); nil = read it here.
+local function UpdateAbsorb(button, unit, now)
     local d = GetFFD(button)
     local ab = d.absorbBar
     if not ab then return end
@@ -2589,6 +2621,7 @@ local function UpdateAbsorb(button, unit)
     local ha = ab._healAbsorb
     local calc = ab._hpCalculator
     if not hp then return end
+    local RFShow, RFHide, PushRange = ns._RFShow, ns._RFHide, ns._RFPushRange
 
     local s = d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
     local topBar = ab._topBar
@@ -2598,35 +2631,46 @@ local function UpdateAbsorb(button, unit)
     local healBarPos = ns.GetHealAbsorbBarPosition(s)
     local healBarOn = healTopBar and healBarPos ~= "none"
     local styleOn = s.absorbStyle and s.absorbStyle ~= "none"
+    local modern = s.absorbStyle == "blizzardModern"
     -- Heal absorb is independent of the shield absorb: keep going whenever its style is on.
     local healOn = (s.healAbsorbStyle or "clean") ~= "none"
     -- Heal prediction is also independent, and shares this frame, so it must keep the frame alive too.
     local predOn = s.healPrediction and true or false
-    if not styleOn and not barOn and not healOn and not healBarOn and not predOn then
-        ab:Hide()
-        if fw then fw:Hide() end
-        if fw and fw._edgeSpark then fw._edgeSpark:Hide() end
-        if fw and fw._bfSpark then fw._bfSpark:Hide() end
-        if ha then ha:Hide() end
-        if topBar then topBar:Hide() end
-        if healTopBar then healTopBar:Hide() end
+    -- Reduced max health is independent too (a max-HP-loss debuff has nothing to do with
+    -- shield absorbs) -- without this the whole overlay frame bails out below whenever
+    -- Absorb Style is "none", even with Max Health Style on, so it never gets to paint.
+    local maxHealthOn = (s.maxHealthStyle or "maxHealthStripes") ~= "none"
+    if not styleOn and not barOn and not healOn and not healBarOn and not predOn and not maxHealthOn then
+        RFHide(ab)
+        if fw then RFHide(fw) end
+        if fw and fw._edgeSpark then RFHide(fw._edgeSpark) end
+        if fw and fw._bfSpark then RFHide(fw._bfSpark) end
+        if ha then RFHide(ha) end
+        if topBar then RFHide(topBar) end
+        if healTopBar then RFHide(healTopBar) end
         return
     end
 
     local maxHealth, absorbAmt, isClamped
-    if calc and UnitGetDetailedHealPrediction then
+    -- The calculator serves exactly two consumers: the Default Blizz Frames
+    -- spark pair (the Missing-Health clamp boolean) and the incoming-heal
+    -- amount (its heal-absorb-reduced form). Every other style with prediction
+    -- off reads nothing it adds, so those skip the fill and take the range from
+    -- the plain max. Max mode is configured once at creation.
+    if calc and UnitGetDetailedHealPrediction and (modern or predOn) then
         UnitGetDetailedHealPrediction(unit, nil, calc)
-        calc:SetMaximumHealthMode(Enum.UnitMaximumHealthMode.Default)
         maxHealth = calc:GetMaximumHealth()
-        -- 2nd return (Missing Health clamp) = secret-safe overshield boolean.
-        local _, clampedBool = calc:GetDamageAbsorbs()
-        isClamped = clampedBool
-        -- Bars get the FULL absorb so the overflow/backfill renders correctly.
-        absorbAmt = (UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(unit)) or 0
+        if modern then
+            -- 2nd return (Missing Health clamp) = secret-safe overshield boolean.
+            local _, clampedBool = calc:GetDamageAbsorbs()
+            isClamped = clampedBool
+        end
     else
         maxHealth = UnitHealthMax(unit) or 0
-        absorbAmt = (UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(unit)) or 0
     end
+    -- Bars get the FULL absorb so the overflow/backfill renders correctly.
+    absorbAmt = (UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(unit)) or 0
+    local maxPlain = not issecretvalue(maxHealth)
     -- One heal-absorb fetch serves both the strip bar AND the overlay below.
     local healAbsorbAmt = (UnitGetTotalHealAbsorbs and UnitGetTotalHealAbsorbs(unit)) or 0
 
@@ -2637,7 +2681,7 @@ local function UpdateAbsorb(button, unit)
     -- Calculator is refreshed above; legacy global only as its fallback.
     local incomingHeals = 0
     if predOn then
-        if calc and calc.GetIncomingHeals then
+        if calc and UnitGetDetailedHealPrediction and calc.GetIncomingHeals then
             incomingHeals = calc:GetIncomingHeals() or 0
         elseif UnitGetIncomingHeals then
             incomingHeals = UnitGetIncomingHeals(unit) or 0
@@ -2648,7 +2692,10 @@ local function UpdateAbsorb(button, unit)
     -- paint below is idempotent. Skip when values, health-bar size and the settings generation all
     -- match the last paint. SECRET-SAFE: secrets cannot be compared, so any secret input fails
     -- open to painting and poisons the memo for the next plain pass.
-    local hpW, hpH = hp:GetWidth(), hp:GetHeight()
+    -- Health-bar size from the resize stamp (CreateAbsorbBar hooks the bar's
+    -- own OnSizeChanged); the read is the fallback until the first layout.
+    local hpW, hpH = ab._hpW, ab._hpH
+    if not hpW or hpW == 0 then hpW, hpH = hp:GetWidth(), hp:GetHeight() end
     local isSec = issecretvalue
     local anySec = isSec and (isSec(absorbAmt) or isSec(maxHealth)
        or isSec(healAbsorbAmt) or isSec(isClamped) or isSec(incomingHeals))
@@ -2657,7 +2704,7 @@ local function UpdateAbsorb(button, unit)
     -- absorb, a health change alters nothing this function paints). Event
     -- branches arm it; a fresh PLAIN all-zero read here disarms; secret reads
     -- keep it armed (fail-open = today's always-paint behavior in combat).
-    ab._paintAt = GetTime()
+    ab._paintAt = now or GetTime()
     if anySec then
         if not d._absActive then ns._AbArm(button, unit, d) end
     elseif (absorbAmt or 0) > 0 or (healAbsorbAmt or 0) > 0
@@ -2700,11 +2747,11 @@ local function UpdateAbsorb(button, unit)
                 end
                 topBar:SetStatusBarColor(bc.r, bc.g, bc.b, bc.a or 1)
             end
-            topBar:SetMinMaxValues(0, maxHealth)
+            PushRange(topBar, maxHealth, maxPlain)
             topBar:SetValue(absorbAmt)
-            topBar:Show()
+            RFShow(topBar)
         else
-            topBar:Hide()
+            RFHide(topBar)
         end
     end
 
@@ -2730,11 +2777,11 @@ local function UpdateAbsorb(button, unit)
                 end
                 healTopBar:SetStatusBarColor(hbc.r, hbc.g, hbc.b, hbc.a or 1)
             end
-            healTopBar:SetMinMaxValues(0, maxHealth)
+            PushRange(healTopBar, maxHealth, maxPlain)
             healTopBar:SetValue(healAbsorbAmt)
-            healTopBar:Show()
+            RFShow(healTopBar)
         else
-            healTopBar:Hide()
+            RFHide(healTopBar)
         end
     end
 
@@ -2781,29 +2828,29 @@ local function UpdateAbsorb(button, unit)
             end
         end
         if ha._styleNone then
-            ha:Hide()
+            RFHide(ha)
         else
             if ha._szW ~= hpW or ha._szH ~= hpH then
                 ha._szW = hpW; ha._szH = hpH
                 ha:SetWidth(hpW); ha:SetHeight(hpH)
             end
-            ha:SetMinMaxValues(0, maxHealth)
+            PushRange(ha, maxHealth, maxPlain)
             ha:SetValue(healAbsorbAmt)
-            ha:Show()
+            RFShow(ha)
             local hbg = ha._bg
-            if hbg then hbg:Show() end
+            if hbg then RFShow(hbg) end
         end
     end
 
     -- Shield style off: hide the in-frame shield bars. Heal absorb paints earlier in this
-    -- function so it's untouched either way; heal prediction paints later, so only stop
-    -- here if that's off too, or its block below never runs.
+    -- function so it's untouched either way; heal prediction and reduced max health both
+    -- paint later, so only stop here if those are off too, or their blocks below never run.
     if not styleOn then
-        ab:Hide()
-        if fw then fw:Hide() end
-        if fw and fw._edgeSpark then fw._edgeSpark:Hide() end
-        if fw and fw._bfSpark then fw._bfSpark:Hide() end
-        if not predOn then return end
+        RFHide(ab)
+        if fw then RFHide(fw) end
+        if fw and fw._edgeSpark then RFHide(fw._edgeSpark) end
+        if fw and fw._bfSpark then RFHide(fw._bfSpark) end
+        if not predOn and not maxHealthOn then return end
     end
 
     -- Bars track the health-bar size; size-gated (frame sizes are never secret, so it holds in combat).
@@ -2813,6 +2860,11 @@ local function UpdateAbsorb(button, unit)
         if fw then fw:SetWidth(hpW); fw:SetHeight(hpH) end
     end
 
+    -- Shield absorb bar painting (ab/fw + the Default Blizz spark decoration below) is scoped to
+    -- styleOn only -- with it off, execution still reaches this point (Heal Prediction/Max Health
+    -- Style may need to run past here), but must not re-Show() the shield bars styleOn already
+    -- asked to hide above.
+    if styleOn then
     -- Settings-derived style + mode flags, gen-gated (see the Absorb Bar note).
     if ab._sGen ~= ns._absorbGen then
         ab._sGen = ns._absorbGen
@@ -2847,17 +2899,17 @@ local function UpdateAbsorb(button, unit)
     if not ab._overshieldOn and ab._overlayLike then abValue = 0 end
 
     -- Both bars get the raw absorb value and maxHealth; clip frames do the visual math, so no secret comparisons.
-    ab:SetMinMaxValues(0, maxHealth)
+    PushRange(ab, maxHealth, maxPlain)
     ab:SetValue(abValue)
-    ab:Show()
+    RFShow(ab)
 
     if fw then
-        fw:SetMinMaxValues(0, maxHealth)
+        PushRange(fw, maxHealth, maxPlain)
         fw:SetValue(absorbAmt)
-        fw:Show()
+        -- Edge modes (right/left): the full-bar backfill shows the whole absorb, so the
+        -- overlay-only forward bar is not needed.
+        if ab._edgeOverlay then RFShow(fw) else RFHide(fw) end
     end
-    -- Edge modes (right/left): the full-bar backfill shows the whole absorb, so the overlay-only forward bar is not needed.
-    if not ab._edgeOverlay and fw then fw:Hide() end
 
     -- "Default Blizz Frames": backfill = 10% white overshield, forward = modern texture. The spark
     -- always rides the shield's LEFT edge: the seam spark (current-HP edge) self-gates on "has
@@ -2868,8 +2920,8 @@ local function UpdateAbsorb(button, unit)
         -- Vertical fill: the shield rotates, but these 16px edge glows are pinned to the shield's
         -- LEFT edge and cannot follow a vertical seam; hide them rather than render sideways.
         if ab._axisVert and fw then
-            if fw._edgeSpark then fw._edgeSpark:Hide() end
-            if fw._bfSpark then fw._bfSpark:Hide() end
+            if fw._edgeSpark then RFHide(fw._edgeSpark) end
+            if fw._bfSpark then RFHide(fw._bfSpark) end
         elseif fw then
             -- Fill-rect anchors are permanent (statusbar textures persist across SetValue); sizes
             -- size-gated; the overshield spark's anchor moves only when Show Overshield flips.
@@ -2888,7 +2940,7 @@ local function UpdateAbsorb(button, unit)
                     sp:SetAllPoints(g:GetStatusBarTexture())
                 end
                 if sp.SetAlphaFromBoolean then sp:SetAlphaFromBoolean(isClamped, 0, 1) else sp:SetAlpha(1) end
-                sp:Show()
+                RFShow(sp)
             end
             -- Overshield spark rides the backfill's LEFT edge (slides left as the overshield grows);
             -- with Show Overshield OFF the backfill is suppressed, so pin it to the health-bar
@@ -2906,13 +2958,14 @@ local function UpdateAbsorb(button, unit)
                     end
                 end
                 if bsp.SetAlphaFromBoolean then bsp:SetAlphaFromBoolean(isClamped, 1, 0) else bsp:SetAlpha(0) end
-                bsp:Show()
+                RFShow(bsp)
             end
         end
     elseif fw and fw._edgeSpark then
-        fw._edgeSpark:Hide()
-        if fw._bfSpark then fw._bfSpark:Hide() end
+        RFHide(fw._edgeSpark)
+        if fw._bfSpark then RFHide(fw._bfSpark) end
     end
+    end -- styleOn
 
     -- Heal prediction: extends from current HP into missing health
     local hpd = ab._healPred
@@ -2927,15 +2980,15 @@ local function UpdateAbsorb(button, unit)
             end
         end
         if not hpd._on then
-            hpd:Hide()
+            RFHide(hpd)
         else
             if hpd._szW ~= hpW or hpd._szH ~= hpH then
                 hpd._szW = hpW; hpd._szH = hpH
                 hpd:SetWidth(hpW); hpd:SetHeight(hpH)
             end
-            hpd:SetMinMaxValues(0, maxHealth)
+            PushRange(hpd, maxHealth, maxPlain)
             hpd:SetValue(incomingHeals)
-            hpd:Show()
+            RFShow(hpd)
         end
     end
 
@@ -2968,12 +3021,20 @@ local function UpdateAbsorb(button, unit)
                 end
             end
         end
-        local lossPct = GetUnitTotalModifiedMaxHealthPercent and GetUnitTotalModifiedMaxHealthPercent(unit) or 0
+        -- Loss percent is cached per occupant: it moves only on
+        -- UNIT_MAX_HEALTH_MODIFIERS_CHANGED (both dispatchers clear the stamp
+        -- there), on occupant change (the assignment hook's full path) and on
+        -- a full paint (UpdateButton clears it) -- never on an absorb tick.
+        local lossPct = d._rmhPct
+        if lossPct == nil then
+            lossPct = GetUnitTotalModifiedMaxHealthPercent and GetUnitTotalModifiedMaxHealthPercent(unit) or 0
+            d._rmhPct = lossPct
+        end
         if not rmh._styleNone and lossPct > 0 then
-            rmh:SetValue(lossPct)
-            rmh:Show()
+            if rmh._rv ~= lossPct then rmh._rv = lossPct; rmh:SetValue(lossPct) end
+            RFShow(rmh)
         else
-            rmh:Hide()
+            RFHide(rmh)
         end
     end
 end
@@ -2998,13 +3059,14 @@ ns._abFlush:Hide()
 ns._abFlush:SetScript("OnUpdate", function(self)
     local dirty = ns._abDirty
     local left = ns._abFlushBudget
+    local now = GetTime()
     for button in pairs(dirty) do
         dirty[button] = nil
         -- The button's CURRENT occupant, never the token captured at mark
         -- time: a header reassignment between mark and flush would paint the
         -- old occupant's absorb onto the new one.
         local unit = button:GetAttribute("unit")
-        if unit then UpdateAbsorb(button, unit) end
+        if unit then UpdateAbsorb(button, unit, now) end
         left = left - 1
         if left <= 0 then break end
     end
@@ -3931,6 +3993,7 @@ local function StyleButton(button)
             -- those derive again on the next tick for one cheap read each.
             d._clsTok = nil
             d._pwType = nil
+            d._rmhPct = nil
             -- Drop the power-hide cache only on a token change -- else it forces an
             -- unconditional Show/Hide/SetHeight repaint, reintroducing the pop the
             -- deferred-power fix removed.
@@ -4348,7 +4411,8 @@ local function UpdateButton(button)
     -- Power (filtered by role + hide if unit has no power)
     ns._PaintPower(button, d, s, unit)
 
-    -- Absorb
+    -- Absorb (full paint: re-read the reduced-max percent too)
+    d._rmhPct = nil
     UpdateAbsorb(button, unit)
 
     ns._PaintButtonTail(button, d, s, unit)
@@ -5069,9 +5133,12 @@ ns._PaintStatusText = function(d, s, unit, connected, deadOrGhost)
 end
 
 ns._UpdateButtonHealth = function(button, unit)
-    -- Dispatchers pass the event's unit token; rare callers omit it.
-    unit = unit or button:GetAttribute("unit")
-    if not unit or not UnitExists(unit) then return end
+    -- Dispatchers pass the event's unit token (a unit that just fired an event
+    -- exists -- no probe); rare callers omit it and pay the existence check.
+    if not unit then
+        unit = button:GetAttribute("unit")
+        if not unit or not UnitExists(unit) then return end
+    end
     local d = GetFFD(button)
     if not d.styled then return end
     local s = d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
@@ -6444,6 +6511,7 @@ XF.EnsureBuilt = function(count)
                 ns._MarkAbsorbDirty(b, unit)
                 if event == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED" then ns.UpdateHealAbsorbTextFor(b, unit) end
                 if event == "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" then
+                    dd._rmhPct = nil -- reduced-max cache: this is its only value edge
                     ns._UpdateButtonHealth(b, unit)
                     ns._ResettleButtonHealth(b)
                 end
@@ -8566,7 +8634,71 @@ ns.UpdateVisibility = UpdateVisibility
 --  Event handlers
 -------------------------------------------------------------------------------
 local function OnEvent(self, event, arg1, ...)
-    if event == "PLAYER_REGEN_DISABLED" then
+    -- Hot per-unit branches FIRST (thousands per pull); everything below them
+    -- is rare. Order is semantics-free -- event names are distinct -- and a
+    -- hidden frame set has empty routing maps, so these no-op there exactly as
+    -- they did behind the visibility guard further down.
+    if event == "UNIT_HEALTH" then
+        local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
+        if btn then
+            -- Latched rez offer: the accept lands as a health edge (no further
+            -- INCOMING_RESURRECT_CHANGED). This edge OWNS the alive-clear (the
+            -- predicate is deliberately pure), then repaints the shared icon.
+            -- Clearing here also stops a lingering offer window from painting a
+            -- fresh, unrezzed corpse if the unit dies again. Nil lookup for
+            -- everyone else.
+            local hadRez = ns._rezPend[arg1]
+            if hadRez ~= nil and hadRez ~= true and not UnitIsDeadOrGhost(arg1) then
+                ns._rezPend[arg1] = nil
+            end
+            ns._UpdateButtonHealth(btn, arg1)
+            if hadRez then UpdateReadyCheck(btn, arg1) end
+        end
+    elseif event == "UNIT_MAXHEALTH" then
+        local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
+        if btn then
+            -- Same latch ownership as UNIT_HEALTH: on accept both fire in
+            -- unguaranteed order, and whichever runs first must fix the icon.
+            local hadRez = ns._rezPend[arg1]
+            if hadRez ~= nil and hadRez ~= true and not UnitIsDeadOrGhost(arg1) then
+                ns._rezPend[arg1] = nil
+            end
+            ns._UpdateButtonHealth(btn, arg1)
+            ns._ResettleButtonHealth(btn)
+            -- Max moves the absorb bars' range (see the header dispatcher's
+            -- UNIT_MAXHEALTH branch for the full rationale).
+            local dmx = GetFFD(btn)
+            if dmx._absActive then ns._MarkAbsorbDirty(btn, arg1) end
+            if hadRez then UpdateReadyCheck(btn, arg1) end
+        end
+    elseif event == "UNIT_ABSORB_AMOUNT_CHANGED" or event == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED"
+        or event == "UNIT_HEAL_PREDICTION" or event == "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" then
+        local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
+        if btn then
+            -- The event IS the arm: plainly observable even while the values
+            -- are secret. Paint coalesces to once per render frame.
+            -- Prediction is view-gated: with the feature off for this button's
+            -- view the event changes no pixel and must not arm.
+            local dd = GetFFD(btn)
+            if event == "UNIT_HEAL_PREDICTION" then
+                local sv = dd._isParty and ns._scaledPartyProxy
+                    or (dd._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
+                if sv.healPrediction then
+                    ns._AbArm(btn, arg1, dd)
+                    ns._MarkAbsorbDirty(btn, arg1)
+                end
+            else
+            if event ~= "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" then ns._AbArm(btn, arg1, dd) end
+            ns._MarkAbsorbDirty(btn, arg1)
+            if event == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED" then ns.UpdateHealAbsorbTextFor(btn, arg1) end
+            if event == "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" then
+                dd._rmhPct = nil -- reduced-max cache: this is its only value edge
+                ns._UpdateButtonHealth(btn, arg1)
+                ns._ResettleButtonHealth(btn)
+            end
+            end -- prediction view-gate else
+        end
+    elseif event == "PLAYER_REGEN_DISABLED" then
         inCombat = true
         -- HARD INVARIANT: the real party/raid frames must never be left hidden
         -- when a pull starts. Every restore op reached from here is combat-legal
@@ -8840,39 +8972,6 @@ local function OnEvent(self, event, arg1, ...)
     elseif event == "UNIT_PHASE" then
         -- Phasing doesn't fire UNIT_IN_RANGE_UPDATE; re-evaluate all (rare).
         if ns._RangeSeedAll then ns._RangeSeedAll() end
-    elseif event == "UNIT_HEALTH" then
-        local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
-        if btn then
-            -- Latched rez offer: the accept lands as a health edge (no further
-            -- INCOMING_RESURRECT_CHANGED). This edge OWNS the alive-clear (the
-            -- predicate is deliberately pure), then repaints the shared icon.
-            -- Clearing here also stops a lingering offer window from painting a
-            -- fresh, unrezzed corpse if the unit dies again. Nil lookup for
-            -- everyone else.
-            local hadRez = ns._rezPend[arg1]
-            if hadRez ~= nil and hadRez ~= true and not UnitIsDeadOrGhost(arg1) then
-                ns._rezPend[arg1] = nil
-            end
-            ns._UpdateButtonHealth(btn, arg1)
-            if hadRez then UpdateReadyCheck(btn, arg1) end
-        end
-    elseif event == "UNIT_MAXHEALTH" then
-        local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
-        if btn then
-            -- Same latch ownership as UNIT_HEALTH: on accept both fire in
-            -- unguaranteed order, and whichever runs first must fix the icon.
-            local hadRez = ns._rezPend[arg1]
-            if hadRez ~= nil and hadRez ~= true and not UnitIsDeadOrGhost(arg1) then
-                ns._rezPend[arg1] = nil
-            end
-            ns._UpdateButtonHealth(btn, arg1)
-            ns._ResettleButtonHealth(btn)
-            -- Max moves the absorb bars' range (see the header dispatcher's
-            -- UNIT_MAXHEALTH branch for the full rationale).
-            local dmx = GetFFD(btn)
-            if dmx._absActive then ns._MarkAbsorbDirty(btn, arg1) end
-            if hadRez then UpdateReadyCheck(btn, arg1) end
-        end
     elseif event == "UNIT_POWER_UPDATE" then
         -- Healer Mana Display rides the same per-unit registration: one hash
         -- lookup when off/empty, one text repaint when this unit has a row.
@@ -8900,32 +8999,6 @@ local function OnEvent(self, event, arg1, ...)
             local d = GetFFD(btn)
             ns._RFPowerTypeEdge(d, arg1)
             d.power:SetValue(UnitPowerPercent(arg1, d._pwType, true, CurveConstants.ScaleTo100))
-        end
-    elseif event == "UNIT_ABSORB_AMOUNT_CHANGED" or event == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED"
-        or event == "UNIT_HEAL_PREDICTION" or event == "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" then
-        local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
-        if btn then
-            -- The event IS the arm: plainly observable even while the values
-            -- are secret. Paint coalesces to once per render frame.
-            -- Prediction is view-gated: with the feature off for this button's
-            -- view the event changes no pixel and must not arm.
-            local dd = GetFFD(btn)
-            if event == "UNIT_HEAL_PREDICTION" then
-                local sv = dd._isParty and ns._scaledPartyProxy
-                    or (dd._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
-                if sv.healPrediction then
-                    ns._AbArm(btn, arg1, dd)
-                    ns._MarkAbsorbDirty(btn, arg1)
-                end
-            else
-            if event ~= "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" then ns._AbArm(btn, arg1, dd) end
-            ns._MarkAbsorbDirty(btn, arg1)
-            if event == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED" then ns.UpdateHealAbsorbTextFor(btn, arg1) end
-            if event == "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" then
-                ns._UpdateButtonHealth(btn, arg1)
-                ns._ResettleButtonHealth(btn)
-            end
-            end -- prediction view-gate else
         end
     elseif event == "UNIT_NAME_UPDATE" then
         local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]

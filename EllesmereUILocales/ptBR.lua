@@ -5206,8 +5206,18 @@ L["Hearty Wise Tails"] = "Cauda de Sábio Substanciais"
 L["Missing Pet"] = "Ajudante Ausente"
 L["Passive Pet"] = "Ajudante em Passivo"
 L["Show a reminder when you don't have an active pet summoned. Only applies to pet classes (Hunter, Warlock, Death Knight, Mage)."] = "Exibe um lembrete quando você não tem um ajudante ativo invocado. Aplica-se apenas às classes com ajudante (Caçador, Bruxo, Cavaleiro da Morte, Mago)."
-L["Show a reminder when your Demonology Warlock has the wrong pet summoned (not Felguard)."] = "Exibe um lembrete quando seu Bruxo Demonologia tem o ajudante errado invocado (não é o Guarda Vil)."
-L["Wrong Pet (Demo Lock)"] = "Ajudante Errado (Bruxo Demo)"
+L["Wrong Demon"] = "Demônio Errado"
+L["Show a reminder when your Warlock's active pet isn't one of the demons picked in Allowed Demons. A demon only counts while its summon spell is known, so leaving only Felguard picked stays silent for specs/builds that haven't talented Summon Felguard."] = "Exibe um lembrete quando o ajudante ativo do seu Bruxo não é um dos demônios escolhidos em Demônios Permitidos. Um demônio só conta enquanto seu feitiço de invocação for conhecido, então deixar apenas o Guarda Vil escolhido mantém o lembrete em silêncio para especializações ou configurações que não talentaram Evocar Guarda Vil."
+
+-- Warlock demons (Allowed Demons)
+L["WARLOCK DEMONS"] = "DEMÔNIOS DO BRUXO"
+L["Allowed Demons"] = "Demônios Permitidos"
+L["Pick which demons count as correct for Wrong Demon. A demon only counts while its summon spell is known; with none picked (or everything picked), the reminder never fires."] = "Escolha quais demônios contam como corretos para o Demônio Errado. Um demônio só conta enquanto seu feitiço de invocação for conhecido; com nenhum escolhido (ou todos escolhidos), o lembrete nunca é ativado."
+L["You have not learned %1$s."] = "Você não aprendeu %1$s."
+L["Imp"] = "Diabrete"
+L["Voidwalker"] = "Emissário do Caos"
+L["Felhunter"] = "Caçador Vil"
+L["Sayaad"] = true
 
 -- Healthstone reminder
 L["Remind you to grab a Healthstone when a Warlock is in your group."] = "Lembra você de pegar uma Pedra de Vida quando há um Bruxo no seu grupo."
@@ -6622,14 +6632,11 @@ L["Match Mode"] = "Modo de Correspondência"
 L["Match All Conditions"] = "Corresponder a Todas as Condições"
 L["Every condition you set has to match. The default."] = "Todas as condições que você definir precisam ser atendidas. O padrão."
 L["Match Any Condition"] = "Corresponder a Qualquer Condição"
-L["This element shows as soon as ONE condition matches, and a Hide lane then means show while that condition is false."] = "Este elemento é exibido assim que UMA condição for atendida, e uma faixa Ocultar passa a significar exibir enquanto essa condição for falsa."
-L["Combines with the conditions below: shows outright once at least one passes, otherwise still reveals on hover."] = "Combina-se com as condições abaixo: exibe diretamente assim que pelo menos uma for atendida; caso contrário, ainda revela ao passar o mouse."
 L["Not available while a legacy visibility value is selected. Pick Never or Always first."] = "Não disponível enquanto um valor de visibilidade legado estiver selecionado. Escolha Nunca ou Sempre primeiro."
 L["Resting"] = "Descanso"
 L["While resting, in a city or at an inn."] = "Enquanto estiver descansando, em uma cidade ou em uma estalagem."
 L["In Vehicle"] = "Em Veículo"
 L["While seated in a vehicle."] = "Enquanto estiver sentado em um veículo."
-L["Show while this condition is false"] = "Exibir enquanto esta condição for falsa"
 
 -- == Performance Reminder Popup ===================================================
 L["Performance Reminder"] = "Lembrete de Desempenho"
@@ -6692,3 +6699,43 @@ L["Tracking it also makes the fill show Ignore Pain alone; without it the fill s
 
 -- == Raid Frames / Buff Manager (Glyphed Buffs) ===================================
 L["Guardian of Ancient Kings (Glyph of the Queen)"] = "Guardião dos Reis Antigos (Glifo da Rainha)"
+
+-- == Bank / Category Sidebar =======================================================
+L["Category Sidebar"] = "Barra Lateral de Categorias"
+L["Group by Category"] = "Agrupar por categoria"
+L["Hide Bank Tabs in Sidebar"] = "Ocultar Abas do Banco na Barra Lateral"
+L["Hide Empty Slots When Grouped"] = "Ocultar Espaços Vazios ao Agrupar"
+L["Empty Slots"] = "Espaços Vazios"
+L["No Items"] = "Sem Itens"
+L["GROUPING"] = "AGRUPAMENTO"
+L["Right-click a tab in the bank sidebar to rename it or set its deposit filters."] = "Clique com o botão direito em uma aba na barra lateral do banco para renomeá-la ou definir seus filtros de depósito."
+L["Window scale, icon zoom and item level settings are shared with the Bags page."] = "As configurações de escala da janela, zoom dos ícones e nível de item são compartilhadas com a página de Bolsas."
+L["Drop the individual Tab 1 / Tab 2 / Warbank Tab entries once the category list is doing the navigating. The consolidated views stay. Note that right-clicking a tab entry is the only way to rename a tab or change its deposit filters, so leave this off if you still need that."] = "Remove as entradas individuais de Aba 1 / Aba 2 / Aba do Banco do Bando de Guerra assim que a lista de categorias assumir a navegação. As visões consolidadas permanecem. Note que clicar com o botão direito em uma entrada de aba é a única forma de renomeá-la ou alterar seus filtros de depósito, então deixe isso desativado se ainda precisar disso."
+L["In the OneBank and OneWarbank views, split the grid under expansion headers, newest first. Per-tab views are unaffected."] = "Nas visões Banco Único e Banco do Bando de Guerra Único, divide a grade sob cabeçalhos de expansão, mais recentes primeiro. As visões por aba não são afetadas."
+L["List item categories in the bank sidebar the way the bags sidebar does -- groups such as The Armory with Weapons and Armor under them. Selecting one filters the grid to that category. Categories that split further list their parts as a third level while selected: Professions by profession, Armor by equipment slot, Trade Goods by material. Spans your character bank and warband together, so a category shows everything you own."] = "Lista as categorias de itens na barra lateral do banco da mesma forma que a barra lateral das bolsas -- agrupa itens como O Arsenal com Armas e Armadura dentro deles. Selecionar uma filtra a grade para aquela categoria. Categorias que se dividem ainda mais listam suas partes como um terceiro nível enquanto selecionadas: Profissões por profissão, Armadura por espaço de equipamento, Comércio por tipo de material. Abrange seu banco de personagem e o Bando de Guerra juntos, então uma categoria mostra tudo que você possui."
+L["Split items by category -- Armor, Consumables, Professions and so on -- using the same category list, order and renames as the All Items bag view. Nests inside the expansion headers when Nest by Expansion is also on. Categories that split further do so automatically: gear by equipment slot, Professions and Trade Goods by profession and material type."] = "Divide os itens por categoria -- Armadura, Consumíveis, Profissões e assim por diante -- usando a mesma lista, ordem e renomeações de categorias da visão \"Todos os Itens\" da bolsa. Aninha dentro dos cabeçalhos de expansão quando Agrupar por expansão também está ativo. Categorias que se dividem ainda mais fazem isso automaticamente: equipamentos por espaço, e Profissões e Comércio por profissão e tipo de material."
+L["While either grouping toggle is on, drop the trailing block of empty slots so the view only shows items. Turn this off to keep the free slots visible for depositing."] = "Enquanto qualquer uma das opções de agrupamento estiver ativa, remove o bloco final de espaços vazios para que a visão mostre apenas itens. Desative isso para manter os espaços livres visíveis para depósito."
+
+-- == Bags / Recent Items ===========================================================
+L["Show Clear Button"] = "Mostrar Botão Limpar"
+
+-- == Unit Frames / Health Text Decimals ============================================
+L["Hide Trailing Zeros"] = "Ocultar Zeros à Direita"
+
+-- == BlizzardSkin / Queue Timer =====================================================
+L["Countdown Text Color"] = "Cor do Texto da Contagem Regressiva"
+L["Queue Timer Style"] = "Estilo do Cronômetro da Fila"
+L["Text Offset Y"] = "Deslocamento do Texto Y"
+L["Moves the countdown number up or down relative to the bar."] = "Move o número da contagem regressiva para cima ou para baixo em relação à barra."
+L["Shows a countdown bar below the queue accept popup indicating how long you have to accept. Works with or without the reskin. Use the swatch and cog to set the countdown text color, text size, bar height and text offset."] = "Mostra uma barra de contagem regressiva abaixo do pop-up de aceitar fila, indicando quanto tempo você tem para aceitar. Funciona com ou sem a aparência reestilizada. Use a amostra de cor e o ícone de engrenagem para definir a cor do texto, o tamanho do texto, a altura da barra e o deslocamento do texto da contagem regressiva."
+
+-- == Visibility Widgets / Not Skyriding, Match Mode, Overrides =====================
+L["Not overridable"] = "Não Substituível"
+L["Not Skyriding (Airborne)"] = "Não-Pilotagem Aérea (No Ar)"
+L["The exact inverse of Skyriding (Airborne): anything that is not airborne on a glide-capable mount or flight form, standing on the ground included."] = "O exato inverso de Pilotagem Aérea (No Ar): qualquer coisa que não esteja no ar em uma montaria com capacidade de planar ou em uma forma de voo, incluindo estar parado no chão."
+L["This element shows as soon as ONE Show condition matches. Hide keeps its meaning in both match modes: a checked Hide always hides, on every row."] = "Este elemento é exibido assim que UMA condição de Exibir for atendida. Ocultar mantém seu significado em ambos os modos de correspondência: uma opção Ocultar marcada sempre oculta, em toda linha."
+L["Combines with the conditions below: shows outright once at least one passes, otherwise still reveals on hover. A checked Hide state still hides it, hover included."] = "Combina-se com as condições abaixo: exibe diretamente assim que pelo menos uma for atendida; caso contrário, ainda revela ao passar o mouse. Um estado Ocultar marcado ainda assim oculta, incluindo ao passar o mouse."
+L["Makes this the override. It replaces the whole Visibility setting, so the conditions below no longer apply while it does. Click it again to remove the override."] = "Torna isto a substituição. Ela substitui toda a configuração de Visibilidade, então as condições abaixo deixam de se aplicar enquanto ela estiver ativa. Clique novamente para remover a substituição."
+L["Not overridable. These conditions are shared and can only be changed while no override is being edited. An override replaces the Visibility setting outright -- Never, Always or Mouseover -- and ignores everything set here while it applies."] = "Não substituível. Estas condições são compartilhadas e só podem ser alteradas enquanto nenhuma substituição estiver sendo editada. Uma substituição troca totalmente a configuração de Visibilidade -- Nunca, Sempre ou Ao Passar o Mouse -- e ignora tudo o que for definido aqui enquanto estiver ativa."
+L["Not overridable. These conditions are shared and can only be changed while no override is being edited. An override replaces the Visibility setting outright -- Never, Always or Mouseover -- and ignores everything set here while it applies. Mouseover is sealed here too for this element: its hover mechanism follows the shared setting, so an override could only leave it shown."] = "Não substituível. Estas condições são compartilhadas e só podem ser alteradas enquanto nenhuma substituição estiver sendo editada. Uma substituição troca totalmente a configuração de Visibilidade -- Nunca, Sempre ou Ao Passar o Mouse -- e ignora tudo o que for definido aqui enquanto estiver ativa. O recurso de passar o mouse também fica bloqueado aqui para este elemento: seu mecanismo de exibição ao passar o mouse segue a configuração compartilhada, então uma substituição só poderia deixá-lo visível."
+L[" Mouseover is sealed here too for this element: its hover mechanism follows the shared setting, so an override could only leave it shown."] = true

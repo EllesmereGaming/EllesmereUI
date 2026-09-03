@@ -41,15 +41,13 @@ local function GetBGLeftOffset()
     return EQT.Cfg("showQuestIcons") and -19 or -6
 end
 
--- When "Hide All Objectives" is on, otf.Header/HeaderMenu is Hidden but Blizzard's
--- topModulePadding still reserves its layout slot above the first module (the same
--- "dead gap" this suite has run into before) -- otf:GetTop() doesn't move to reclaim
--- it. Anchor the BG's top edge to the header's own bottom edge in that case instead,
--- so the BG shrinks to skip the empty gap. A Hidden frame's rect (GetBottom/GetTop)
--- still reflects its anchored layout position, since Blizzard doesn't reflow on
--- Hide(). When the header is shown, keep anchoring to the tracker's own top edge so
--- the BG covers the header as before. Returns: anchorFrame, relPoint ("TOP" or
--- "BOTTOM" -- caller appends LEFT/RIGHT).
+-- When "Hide All Objectives" is on, otf.Header/HeaderMenu is faded to alpha 0 but
+-- Blizzard's topModulePadding still reserves its layout slot above the first module
+-- (the same "dead gap" this suite has run into before) -- otf:GetTop() doesn't move to
+-- reclaim it. Anchor the BG's top edge to the header's own bottom edge in that case
+-- instead, so the BG shrinks to skip the empty gap. When the header is shown, keep
+-- anchoring to the tracker's own top edge so the BG covers the header as before.
+-- Returns: anchorFrame, relPoint ("TOP" or "BOTTOM" -- caller appends LEFT/RIGHT).
 local function GetBGTopAnchor()
     local otf = GetTracker()
     if not otf then return nil, "TOP" end

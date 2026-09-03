@@ -907,9 +907,11 @@ hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", function(_, unit)
 
     -- Re-assert the name-only font size for this newly added / camera-revealed
     -- plate -- Blizzard's per-plate setup resets the shared font object to default.
-    -- No-op outside name-only mode. Forced in instanced content: friendly-player
-    -- plates are restricted there and the per-string re-stamp cannot take.
-    ScheduleNameSizeReapply(IsInInstance())
+    -- No-op outside name-only mode. Forced in instanced content for PLAYER plates
+    -- only: those are the restricted ones where the per-string re-stamp cannot
+    -- take, and the forced path relayouts every plate name four times, so a
+    -- pet / NPC add must not pay it.
+    ScheduleNameSizeReapply(IsInInstance() and UnitIsPlayer(unit))
 
     -- Health-bar mode: full UF suppression for players (and NPCs if enabled)
     if IsFriendlyEnabled() then

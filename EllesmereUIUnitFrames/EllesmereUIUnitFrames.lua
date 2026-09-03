@@ -2033,7 +2033,11 @@ do
     -- .smoothing, then the shared secret-safe color chain.
     local function PaintHealth(frame, unit, event)
         local element = frame.Health
-        if not element or not unit or not UnitExists(unit) then return end
+        if not element or not unit then return end
+        -- A UNIT_HEALTH delivery for this token proves the unit exists (the
+        -- tracker only routes real unit events under that name); the identity
+        -- and forced paths still pay the probe.
+        if event ~= "UNIT_HEALTH" and not UnitExists(unit) then return end
         if not ns.Engine.ElementOn(frame, "Health") then return end
         -- Bar bounds ride the max-health/identity events (Blizzard's own
         -- contract); a pure UNIT_HEALTH value tick pushes only the value.
@@ -2875,21 +2879,26 @@ end
 -- Per-unit frame source resolver. Returns "eui" (spawn skinned frame, default),
 -- "blizzard" (don't spawn, leave Blizzard's default in place), or "hidden" (don't
 -- spawn, actively disable Blizzard's too). "hidden" has highest precedence so a
--- legacy disabled frame (enabledFrames[unit]==false: Visibility "never" or an
--- "Enable X Frame" toggle off) keeps meaning "no frame at all".
---- True when the unit has no EllesmereUI frame at all. That is the enabledFrames flag,
---- with the one exception an applied Visibility override carves out: the same flag is how
---- a shared Visibility of "never" is stored (applyScalarFn writes it), and an override
---- REPLACES the whole Visibility setting, "never" included. A frame source of "hidden" is
---- the cog's own choice rather than a Visibility setting, so it still wins. On ns for the
+-- disabled frame (enabledFrames[unit]==false, the "Enable X Frame" toggles) keeps
+-- meaning "no frame at all". Visibility "never" is NOT one of these: it hides our
+-- frame at runtime and the frame stays built, so a Spec Override can lift it again
+-- without a /reload.
+
+--- The Visibility mode actually in force for a settings table. An applied override
+--- REPLACES the whole shared setting, "never" included, so every reader that acts on
+--- "never" alone resolves it here instead of off the stored scalar. On ns for the
 --- 200-locals cap.
+function ns.VisEffective(s)
+    if not s then return nil end
+    return (EllesmereUI.VisOverrideValue and EllesmereUI.VisOverrideValue(s)) or s.barVisibility
+end
+
+--- True when the unit has no EllesmereUI frame at all -- the enabledFrames flag, which
+--- only the "Enable X Frame" toggles write now that Visibility no longer touches it.
+--- On ns for the 200-locals cap.
 function ns.VisUnitDisabled(profile, unitKey)
     local ef = profile and profile.enabledFrames
-    if not ef or ef[unitKey] ~= false then return false end
-    if (profile.frameSource and profile.frameSource[unitKey]) == "hidden" then return true end
-    local s = profile[unitKey]
-    local ov = s and EllesmereUI.VisOverrideValue and EllesmereUI.VisOverrideValue(s)
-    return not (ov and ov ~= "never")
+    return (ef and ef[unitKey] == false) or false
 end
 
 function ns.GetUnitFrameSource(unit)
@@ -2897,6 +2906,9 @@ function ns.GetUnitFrameSource(unit)
     if ns.VisUnitDisabled(db.profile, unit) then return "hidden" end
     local fs = db.profile.frameSource and db.profile.frameSource[unit]
     if fs == "blizzard" then
+        -- Visibility "never" over Blizzard's frame: we spawn nothing of our own to
+        -- hide, so suppressing Blizzard's is the only way to honor it.
+        if ns.VisEffective(db.profile[unit]) == "never" then return "hidden" end
         -- ToT/focus-target have no standalone Blizzard frame (native one is a child
         -- of TargetFrame/FocusFrame, lives only while that parent does), so
         -- "blizzard" is honored for them ONLY when the parent is itself on
@@ -2911,38 +2923,16 @@ function ns.GetUnitFrameSource(unit)
     return "eui"
 end
 
--- Write a unit's frame source, keeping the legacy enabledFrames flag and per-unit
--- "never" visibility in sync so existing readers stay correct. Only takes full effect
--- after a UI reload (oUF permanently disables the Blizzard frame at spawn, and secure
--- frames can't be created/torn down in combat) -- callers should also prompt a reload.
+-- Write a unit's frame source, keeping the legacy enabledFrames flag in sync so
+-- existing readers stay correct (and so the cog is the way back for a frame an old
+-- profile left disabled). Only takes full effect after a UI reload -- the spawn
+-- permanently disables the Blizzard frame, and secure frames can't be created or
+-- torn down in combat -- so callers should also prompt a reload.
 function ns.SetUnitFrameSource(unit, source)
     if not db or not db.profile then return end
     db.profile.frameSource = db.profile.frameSource or {}
     db.profile.frameSource[unit] = source
     db.profile.enabledFrames[unit] = (source ~= "hidden")
-    -- Keep the player/target/focus "Visibility" dropdown ("never") consistent
-    -- with the hidden state; other units have no barVisibility key.
-    local s = db.profile[unit]
-    if s and s.barVisibility ~= nil then
-        if source == "hidden" then
-            -- Stash the visible mode so hidden->visible keeps an "in_combat"/"mouseover"
-            -- preference. Multi-selection sets stash the same way and MUST also clear,
-            -- or they stay authoritative over the forced "never" and the frame keeps showing.
-            if type(s.visibilityModes) == "table" and next(s.visibilityModes) then
-                s._preHiddenVisibilityModes = s.visibilityModes
-            end
-            s.visibilityModes = nil
-            if s.barVisibility ~= "never" then
-                s._preHiddenBarVisibility = s.barVisibility
-            end
-            s.barVisibility = "never"
-        elseif s.barVisibility == "never" then
-            s.barVisibility = s._preHiddenBarVisibility or "always"
-            s._preHiddenBarVisibility = nil
-            s.visibilityModes = s._preHiddenVisibilityModes
-            s._preHiddenVisibilityModes = nil
-        end
-    end
 end
 
 -- Cast-bar icon "part of the bar" resolver. True = icon counts inside the cast bar's
@@ -3073,13 +3063,18 @@ local function LayoutCastbarIcon(castbar, inWidth, iconH, onRight, offX, offY, i
 end
 
 -- Donor settings table for mini frames (focus > target > player); source of
--- inherited border, texture and font settings.
-local function GetMiniDonorSettings()
+-- inherited border, texture and font settings. A frame that is disabled, or that
+-- Visibility keeps off screen entirely, is not a donor -- before Visibility and
+-- enabledFrames were split, "never" cleared that flag and fell out here for free.
+function ns.GetMiniDonorSettings()
     local ef = db.profile.enabledFrames
-    if ef.focus ~= false and db.profile.focus then return db.profile.focus end
-    if ef.target ~= false and db.profile.target then return db.profile.target end
+    local focus = db.profile.focus
+    if ef.focus ~= false and focus and ns.VisEffective(focus) ~= "never" then return focus end
+    local target = db.profile.target
+    if ef.target ~= false and target and ns.VisEffective(target) ~= "never" then return target end
     return db.profile.player
 end
+local GetMiniDonorSettings = ns.GetMiniDonorSettings
 
 -- Boss "Simple Debuff Display" mode: "none"|"left"|"right". Tolerates legacy booleans
 -- (true/nil="left", false="none") so existing/imported profiles read correctly with no
@@ -5103,12 +5098,16 @@ local function CreateAbsorbBar(frame, unit, settings)
             local hpW, hpH = hp:GetWidth(), hp:GetHeight()
             -- Identical-state short-circuit (RF's memo, ported): chatter
             -- events with unchanged values skip the whole paint below.
-            -- Identity/settings/belt paints bypass the skip; any secret input
+            -- Identity/settings paints bypass the skip; any secret input
             -- fails open to painting and poisons the memo for the next plain
-            -- pass (exactly the RF contract).
+            -- pass (exactly the RF contract). The 0.5s belt honors the memo
+            -- like RF's does: it exists for the no-event timer expiry, and
+            -- that edge reads a CHANGED amount (memo miss) -- the arm/disarm
+            -- derivation and the paint stamp above already ran, so a belt
+            -- pass over unchanged plain values has nothing left to move.
             if isSecD and (isSecD(absorbAmt) or isSecD(maxHealth) or isSecD(haAmtD)) then
                 ab._mAbs = nil
-            elseif event ~= "ForceUpdate" and event ~= "Resettle" and event ~= "EUI_AbsorbBelt"
+            elseif event ~= "ForceUpdate" and event ~= "Resettle"
                and ab._mAbs == absorbAmt and ab._mHeal == haAmtD
                and ab._mMax == maxHealth and ab._mW == hpW and ab._mH == hpH then
                 return
@@ -8901,10 +8900,12 @@ local function CreateCustomClassPower(playerFrame, style)
                 pips[i]:Show()
             end
             shownPipCount = max
-            -- Re-stretch pips if in "above" position
-            if container._repositionForWidth then
-                local fw = db and db.profile and db.profile.player and db.profile.player.frameWidth or 181
-                container._repositionForWidth(fw)
+            -- Only "above" stretches the row across the health bar (see
+            -- PositionClassPowerBar); every other position keeps the natural pip
+            -- width laid out just above.
+            if isModern and (db.profile.player.classPowerPosition or "top") == "above"
+               and container._repositionForWidth then
+                container._repositionForWidth(db.profile.player.frameWidth or 181)
             end
         end
 
@@ -9068,7 +9069,9 @@ local function CreateCustomClassPower(playerFrame, style)
     -- Uses Snap() to round all positions to physical pixel boundaries
     -- so gaps between pips are guaranteed identical.
     container._repositionForWidth = function(targetW)
-        local n = #pips
+        -- shownPipCount, not #pips: the table is a high-water mark, so a shrunk
+        -- max would divide the width by the old pip count and leave a gap.
+        local n = shownPipCount
         if n <= 0 then return end
         local efs = container:GetEffectiveScale()
         if efs <= 0 then efs = 1 end
@@ -10948,8 +10951,11 @@ local function ApplyBlizzCastbarState()
     if EllesmereUI and EllesmereUI.SetPlayerCastBarSuppressed and db and db.profile and db.profile.player then
         -- Only suppress Blizzard's player cast bar when EUI actually provides a
         -- replacement. If the player is on the Blizzard (or hidden) frame source,
-        -- there is no EUI cast bar, so leave Blizzard's alone.
+        -- there is no EUI cast bar, so leave Blizzard's alone. Visibility "never"
+        -- counts as no replacement too: our cast bar is built now but hides with the
+        -- frame, and taking Blizzard's away would leave no player cast bar at all.
         local suppress = (db.profile.player.showPlayerCastbar
+            and ns.VisEffective(db.profile.player) ~= "never"
             and ns.GetUnitFrameSource("player") == "eui") or false
         EllesmereUI.SetPlayerCastBarSuppressed("UnitFrames", suppress)
     end
@@ -10984,6 +10990,10 @@ function ns.ResolveVisResting(s, frame, ext, hiddenByOpts, inCombat)
         return ext and shownAlpha or 0, false
     end
     local vis = s.barVisibility or "always"
+    -- Never rides the alpha too, not just the Show/Hide bucket: that bucket is
+    -- lockdown-gated, so a Never picked in combat would otherwise leave the frame at
+    -- full alpha until PLAYER_REGEN_ENABLED. An override reaches the ext block above.
+    if vis == "never" then return 0, false end
     if vis == "in_combat" then return inCombat and shownAlpha or 0, false end
     if vis == "out_of_combat" then return (not inCombat) and shownAlpha or 0, false end
     if vis == "mouseover" then
@@ -12414,8 +12424,8 @@ function InitializeFrames()
         for _, unitKey in ipairs({"player", "target", "focus"}) do
             local s = db.profile[unitKey]
             local frame = frames[unitKey]
-            -- The enabledFrames gate through VisUnitDisabled: a unit disabled purely by a
-            -- shared Visibility of "never" comes back while an override replaces it.
+            -- Visibility "never" no longer clears enabledFrames, so a frame hidden that
+            -- way stays on this path and is hidden below, reversibly.
             if frame and not ns.VisUnitDisabled(db.profile, unitKey) and s then
                 local hiddenByOpts = EllesmereUI and EllesmereUI.CheckVisibilityOptions and EllesmereUI.CheckVisibilityOptions(s)
                 local vis = s.barVisibility or "always"
@@ -12460,8 +12470,19 @@ function InitializeFrames()
                 elseif drvSet and EllesmereUI.BuildVisibilityDriverString then
                     visTail = EllesmereUI.BuildVisibilityDriverString("", drvSet)
                 end
+                -- Off the override, never the stored scalar: an override REPLACES the
+                -- shared setting, so a profile-level "never" under an override of Always
+                -- must not pin anything, and an override of "never" must pin even though
+                -- the stored scalar says otherwise.
+                local visNever = (visOv or vis) == "never"
                 local wantDriver
-                if visTail then
+                if visNever then
+                    -- Never is terminal, so it pins the secure driver instead of
+                    -- riding the Show/Hide bucket below: that bucket is lockdown-
+                    -- gated, and acquiring a target in combat would otherwise let
+                    -- the unit watch show an alpha-0 click blocker until regen.
+                    wantDriver = "hide"
+                elseif visTail then
                     wantDriver = "[@" .. unitKey .. ",noexists] hide; " .. visTail
                 end
                 if frame._euiVisDriver ~= wantDriver and not isLocked then
@@ -12499,18 +12520,35 @@ function InitializeFrames()
                     bd3d:SetAlpha(bodyAlpha)
                 end
 
+                -- A class resource bar unlocked from the frame is parented to UIParent
+                -- and so survives its owner being hidden. Only Never takes it along:
+                -- that used to leave the player frame unspawned and the bar with it,
+                -- and the other hiding modes have always kept their own bar visible.
+                -- Written only when it moves: this pass runs on every target change,
+                -- and for the "blizzard" style the bar is Blizzard's own frame.
+                if unitKey == "player" and frames._classPowerBar then
+                    local cpWant = visNever and 0 or 1
+                    if frames._classPowerBar:GetAlpha() ~= cpWant then
+                        frames._classPowerBar:SetAlpha(cpWant)
+                    end
+                end
+
                 -- Show/Hide and SetAttribute are restricted during lockdown.
                 -- When a condition driver is registered it owns Show/Hide
                 -- entirely -- a manual toggle would de-sync it until its
                 -- next re-evaluation -- so this whole bucket steps aside.
                 if not isLocked and not frame._euiVisDriver then
                     local shouldShow
-                    if ext ~= nil then
+                    if visNever then
+                        -- Ahead of the engine verdict: Never is exclusive, but under
+                        -- a leftover Any match the engine evaluates the scalar and
+                        -- answers false rather than nil, which would keep the frame
+                        -- secure-Shown at alpha 0 and still eating clicks.
+                        shouldShow = false
+                    elseif ext ~= nil then
                         -- Engine-owned: frame stays secure-Shown; the alpha
                         -- bucket above drives visibility.
                         shouldShow = true
-                    elseif vis == "never" then
-                        shouldShow = false
                     elseif vis == "in_combat" or vis == "out_of_combat" or vis == "mouseover" then
                         -- Frame is kept shown; alpha (above) drives visibility.
                         shouldShow = true
@@ -12588,7 +12626,12 @@ function InitializeFrames()
                 -- condition-hidden mini absorbs no clicks either.
                 if mini then
                     local miniWant
-                    if (not miniAlways) and visTail then
+                    if (not miniAlways) and visNever then
+                        -- The parent is hidden outright, so alpha 0 alone would leave
+                        -- the mini an invisible click blocker; pin it like the
+                        -- disabled-parent branch below does.
+                        miniWant = "hide"
+                    elseif (not miniAlways) and visTail then
                         miniWant = "[@" .. ns.UF_MINI_OF[unitKey] .. ",noexists] hide; " .. visTail
                     end
                     if mini._euiVisDriver ~= miniWant and not isLocked then
@@ -12615,7 +12658,7 @@ function InitializeFrames()
                     mini:SetAlpha(miniAlways and 1 or (frame:IsShown() and bodyAlpha or 0))
                 end
             elseif frame then
-                -- Parent disabled ("Never" clears enabledFrames): a leftover condition
+                -- Parent disabled (the "Enable X Frame" toggles): a leftover condition
                 -- driver must not keep re-showing the frame, so pin it to a constant
                 -- hide. Frames that never had a driver keep the legacy disabled path
                 -- untouched. The mini inherits both.
@@ -13588,12 +13631,27 @@ local function RegisterUFUnlockElements()
 
         local function Rebuild() ns.ReloadFrames() end
 
+        -- Which frame's Visibility governs each mover (the minis follow their
+        -- parent, and so does a class resource bar unlocked from the player frame).
+        local MOVER_VIS_OF = { pet = "player", targettarget = "target",
+                               focustarget = "focus", classPower = "player" }
         local function MakeUFElement(key, order)
             return MK({
                 key = key,
                 label = UNIT_LABELS[key] or key,
                 group = "Unit Frames",
                 order = orderBase + order,
+                -- Visibility "never" keeps the frame built but never on screen, so
+                -- there is nothing to drag. Re-read on each unlock-mode open, so
+                -- lifting it (a spec override, the dropdown) needs no /reload. The
+                -- minis and an unlocked class resource bar have no Visibility of
+                -- their own and ride the frame they follow; Always Show Pet opts out.
+                isHidden = function()
+                    if key == "pet" and db.profile.pet and db.profile.pet.alwaysShow then
+                        return false
+                    end
+                    return ns.VisEffective(db.profile[MOVER_VIS_OF[key] or key]) == "never"
+                end,
                 getFrame = function(k)
                     if k == "boss" then return frames["boss1"] end
                     if k == "classPower" then return frames._classPowerBar end
@@ -13834,6 +13892,7 @@ local function RegisterUFUnlockElements()
                     -- effect without a /reload.
                     local s = GetCBSettings()
                     if not s then return true end
+                    if ns.VisEffective(s) == "never" then return true end
                     if unitKey == "player" then return not s.showPlayerCastbar end
                     return s.showCastbar == false
                 end,

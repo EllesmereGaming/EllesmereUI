@@ -39,18 +39,16 @@ local hookFrameData = setmetatable({}, { __mode = "k" })
 ns._hookFrameData = hookFrameData
 
 -- Glow at Stacks (per-spell): REPLACES the Buff Glow for icons with a stack
--- threshold -- the glow starts only at N or more applications, using the
--- spell's effective Buff Glow style (resolved in RefreshCDMIconAppearance).
+-- comparison, using the spell's effective Buff Glow style (resolved in
+-- RefreshCDMIconAppearance).
 -- Stack counts read SECRET in restricted combat, so the comparison must never
--- happen in Lua there: a one-unit StatusBar window [t-1, t] performs it
--- C-side (integer counts land exactly on the endpoints), and a
--- CLAMPTOBLACKADDITIVE MaskTexture anchored to that gate's fill bounds every
--- glow texture -- fill empty = mask collapsed = glow invisible; fill full =
--- glow shown. Masks keep rendering where a SetClipsChildren bound goes dark
--- on secret-derived rects in restricted content, which is why no clip frame
--- appears anywhere here. Plain counts (out of restriction) skip the render
--- gate and start/stop the glow directly -- identical visual contract both
--- ways. Zero cost unless a spell enables the toggle: no frames, no reads.
+-- happen in Lua there. One-unit StatusBar windows perform lower and upper
+-- bounds C-side; equality intersects one of each. Fixed-size
+-- CLAMPTOBLACKADDITIVE masks ride the gates' fill edges and bound every glow
+-- texture. Masks keep rendering where SetClipsChildren goes dark on
+-- secret-derived rects. Plain counts skip the render gate and start/stop the
+-- glow directly. Zero cost unless a spell enables the toggle: no frames, no
+-- reads.
 do
     local function StackGlowSize(icon)
         local width, height = icon:GetWidth(), icon:GetHeight()
@@ -63,8 +61,41 @@ do
     -- gate exactly, so a FULL fill puts the open mask over the whole glow --
     -- flipbook/pixel textures overhang the icon edges.
     local function SizeStackGlowMask(st, width, height)
-        if not (st.mask and st.pad) then return end
-        st.mask:SetSize(width + st.pad * 2, height + st.pad * 2)
+        local w, h = width + st.pad * 2, height + st.pad * 2
+        st.mask:SetSize(w, h)
+        if st.mask2 then st.mask2:SetSize(w, h) end
+    end
+
+    local function NewStackGlowGate(icon, pad)
+        local gate = CreateFrame("StatusBar", nil, icon)
+        gate:SetPoint("TOPLEFT", icon, "TOPLEFT", -pad, pad)
+        gate:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", pad, -pad)
+        gate:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+        local fill = gate:GetStatusBarTexture()
+        if fill then fill:SetAlpha(0) end
+        gate:EnableMouse(false)
+        local mask = gate:CreateMaskTexture()
+        mask:SetTexture("Interface\\Buttons\\WHITE8x8",
+            "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE", "NEAREST")
+        return gate, mask, fill
+    end
+
+    local function StackGlowMatches(value, operator, threshold)
+        if operator == "lt" then return value < threshold end
+        if operator == "lte" then return value <= threshold end
+        if operator == "eq" then return value == threshold end
+        if operator == "gt" then return value > threshold end
+        return value >= threshold
+    end
+
+    local function ApplySecondStackGlowMask(st)
+        if not st.mask2 then return end
+        for _, region in ipairs({ st.glow:GetRegions() }) do
+            if region.AddMaskTexture and region._euiTGMask2 ~= st.mask2 then
+                region._euiTGMask2 = st.mask2
+                region:AddMaskTexture(st.mask2)
+            end
+        end
     end
 
     -- LIVE-FIRST: the item's auraDataCached is (re)written on aura
@@ -106,6 +137,7 @@ do
             bg = st.background and { r = st.bgR, g = st.bgG, b = st.bgB } or nil,
             maskWith = st.mask,
         })
+        ApplySecondStackGlowMask(st)
         st.width, st.height = width, height
         st.started = true
     end
@@ -118,7 +150,8 @@ do
         -- Unconditional: the wrapper is created at alpha 1, so anything an
         -- engine left on it would show through a gate that never opened.
         if st.glow then st.glow:SetAlpha(0) end
-        if st.gate then st.gate:SetValue(0) end
+        if st.gate then st.gate:SetValue(st.closeValue or 0) end
+        if st.gate2 then st.gate2:SetValue(st.closeValue2 or 0) end
     end
 
     local function StackGlowOnHide(icon)
@@ -130,12 +163,16 @@ do
     -- (Re)configure or retire an icon's threshold controller. Called from
     -- RefreshCDMIconAppearance with everything pre-resolved; called with only
     -- the icon to tear down (toggle off, frame pooled onto a non-buff spell).
-    function ns.StackGlow_Configure(icon, threshold, style, r, g, b, settings)
+    function ns.StackGlow_Configure(icon, threshold, operator, style, r, g, b, settings)
         local fd = icon and hookFrameData[icon]
         if not fd then return end
         local st = fd.stackGlow
         threshold, style = tonumber(threshold), tonumber(style)
-        if not (threshold and threshold >= 2 and style and style >= 1) then
+        if operator ~= "lt" and operator ~= "lte" and operator ~= "eq"
+           and operator ~= "gte" and operator ~= "gt" then
+            operator = "gte"
+        end
+        if not (threshold and threshold >= 1 and style and style >= 1) then
             if st and st.threshold then
                 st.threshold = nil
                 StopStackGlow(st)
@@ -163,26 +200,15 @@ do
             local pad = math.ceil(math.max(StackGlowSize(icon)) * 0.4)
             if pad < 12 then pad = 12 end
             st.pad = pad
-            st.gate = CreateFrame("StatusBar", nil, icon)
-            st.gate:SetPoint("TOPLEFT", icon, "TOPLEFT", -pad, pad)
-            st.gate:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", pad, -pad)
-            st.gate:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
-            local gft = st.gate:GetStatusBarTexture()
-            if gft then gft:SetAlpha(0) end
-            st.gate:EnableMouse(false)
+            st.gate, st.mask, st.fill = NewStackGlowGate(icon, pad)
 
-            -- The mask rides the (alpha-0) fill's RIGHT edge at a FIXED
+            -- The mask rides the (alpha-0) fill's edge at a FIXED
             -- gate-sized rect instead of shadowing the fill rect: at value =
             -- min the fill is zero-wide, and a zero-area mask samples
             -- undefined -- a partly passing mask reads as a faint glow below
-            -- the threshold. Parked a gate-width left it covers nothing; at
-            -- value = max it lands on the gate. NEAREST for the Raid Frames
-            -- absorb bound's reason: bilinear ramps WHITE8X8's edge texel into
-            -- the black border, and that leak shows along every edge.
-            st.mask = st.gate:CreateMaskTexture()
-            st.mask:SetTexture("Interface\\Buttons\\WHITE8x8",
-                "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE", "NEAREST")
-            st.mask:SetPoint("RIGHT", gft or st.gate, "RIGHT", 0, 0)
+            -- the comparison. Lower bounds park it left and open at max;
+            -- upper bounds open at min and park it right. Equality intersects
+            -- one of each. NEAREST avoids a leaking edge texel.
             SizeStackGlowMask(st, StackGlowSize(icon))
 
             st.glow = CreateFrame("Frame", nil, icon)
@@ -191,18 +217,41 @@ do
             icon:HookScript("OnHide", StackGlowOnHide)
         end
 
-        local changed = st.threshold ~= threshold or st.style ~= style
+        local changed = st.threshold ~= threshold or st.operator ~= operator or st.style ~= style
             or st.r ~= r or st.g ~= g or st.b ~= b or st.lines ~= lines
             or st.thickness ~= thickness or st.speed ~= speed
             or st.background ~= background or st.bgR ~= bgR
             or st.bgG ~= bgG or st.bgB ~= bgB
-        st.threshold, st.style = threshold, style
+        st.threshold, st.operator, st.style = threshold, operator, style
         st.r, st.g, st.b = r, g, b
         st.lines, st.thickness, st.speed = lines, thickness, speed
         st.background, st.bgR, st.bgG, st.bgB = background, bgR, bgG, bgB
         if changed then
             StopStackGlow(st)
-            st.gate:SetMinMaxValues(threshold - 1, threshold)
+            local upper = operator == "lt" or operator == "lte"
+            local edge = (operator == "gt" or operator == "lte")
+                and threshold + 1 or threshold
+            st.gate:SetMinMaxValues(edge - 1, edge)
+            st.mask:ClearAllPoints()
+            st.mask:SetPoint(upper and "LEFT" or "RIGHT",
+                st.fill or st.gate, "RIGHT", 0, 0)
+            st.closeValue = upper and edge or edge - 1
+            st.openValue = upper and edge - 1 or edge
+
+            if operator == "eq" and not st.gate2 then
+                st.gate2, st.mask2, st.fill2 = NewStackGlowGate(icon, st.pad)
+                SizeStackGlowMask(st, StackGlowSize(icon))
+            end
+            if st.gate2 then
+                local equality = operator == "eq"
+                st.gate2:SetMinMaxValues(equality and threshold or 0,
+                    equality and threshold + 1 or 1)
+                st.mask2:ClearAllPoints()
+                st.mask2:SetPoint(equality and "LEFT" or "RIGHT",
+                    st.fill2 or st.gate2, "RIGHT", 0, 0)
+                st.closeValue2 = equality and threshold + 1 or 0
+            end
+            StopStackGlow(st)
         end
         ns._btDirty = true
         if ns.ArmBuffTicker then ns.ArmBuffTicker() end
@@ -222,15 +271,18 @@ do
         local applications = ReadBuffApplications(icon)
         local secret = issecretvalue and issecretvalue(applications)
         if not secret then
-            -- Unknown count on an active buff fails OPEN to the threshold so
-            -- the gate (not a guess) decides; a known low count stops here.
+            -- Unknown count on an active buff fails OPEN; known counts use the
+            -- selected comparison without touching the secret-value path.
             if applications == nil then
-                applications = st.threshold
-            elseif applications < st.threshold then
+                applications = st.openValue
+            elseif not StackGlowMatches(applications, st.operator, st.threshold) then
                 StopStackGlow(st)
-                st.gate:SetValue(applications)
                 return
             end
+        end
+        st.gate:SetValue(applications)
+        if st.gate2 then
+            st.gate2:SetValue(st.operator == "eq" and applications or 1)
         end
         st.glow:SetFrameLevel(icon:GetFrameLevel() + 16)
         local width, height = StackGlowSize(icon)
@@ -244,13 +296,18 @@ do
             if pad < 12 then pad = 12 end
             if pad ~= st.pad then
                 st.pad = pad
+                st.gate:ClearAllPoints()
                 st.gate:SetPoint("TOPLEFT", icon, "TOPLEFT", -pad, pad)
                 st.gate:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", pad, -pad)
+                if st.gate2 then
+                    st.gate2:ClearAllPoints()
+                    st.gate2:SetPoint("TOPLEFT", icon, "TOPLEFT", -pad, pad)
+                    st.gate2:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", pad, -pad)
+                end
             end
             SizeStackGlowMask(st, width, height)
             StartStackGlow(st, width, height)
         end
-        st.gate:SetValue(applications)
     end
 end
 

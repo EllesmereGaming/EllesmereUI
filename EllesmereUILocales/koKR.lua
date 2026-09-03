@@ -7040,7 +7040,24 @@ L["Assisted Highlight"] = "보조 강조 효과"
 L["Assisted Highlight Outset"] = "보조 강조 효과 돌출"
 L["This option requires a style that draws the glow ring"] = "이 옵션을 사용하려면 빛나는 고리를 그리는 스타일이 필요합니다"
 
+--핵심 애드온 - 지원 및 시전바
+L["Queue Timer Style"] = "대기열 타이머 스타일"
+L["Text Offset Y"] = "텍스트 Y축 오프셋"
+L["Not Skyriding (Airborne)"] = "하늘라이딩 중 아님 (공중 비행 중 아님)"
+L["Countdown Text Color"] = "카운트다운 텍스트 색상"
+L["Resting"] = "휴식 중"
+L["In Vehicle"] = "탈것 탑승 중"
+L["While seated in a vehicle."] = "탈것에 탑승해 있는 동안."
+L["While resting, in a city or at an inn."] = "대도시나 여관 등에서 휴식 중인 동안."
+
+--핵심 애드온 - 지원 및 시전바 - 툴팁
+L["Moves the countdown number up or down relative to the bar."] = "바를 기준으로 카운트다운 숫자를 위 또는 아래로 이동합니다."
+L["Shows a countdown bar below the queue accept popup indicating how long you have to accept. Works with or without the reskin. Use the swatch and cog to set the countdown text color, text size. bar height and text offset."] = "대기열 수락 팝업 아래에 수락할 수 있는 남은 시간을 나타내는 카운트다운 바를 표시합니다. 리스킨 적용 여부와 관계없이 작동합니다. 색상 견본과 톱니바퀴 아이콘을 사용하여 카운트다운 텍스트 색상, 텍스트 크기, 바 높이, 텍스트 오프셋을 설정하세요."
+L["This element shows as soon as ONE Show condition matches. Hide keeps its meaning in both match modes: a checked Hide always hides, on every row."] = "이 요소는 '표시' 조건 중 하나만 일치해도 즉시 표시됩니다. '숨기기'는 두 일치 모드 모두에서 원래의 의미를 유지합니다. '숨기기'에 체크되어 있으면 모든 행에서 항상 숨겨집니다."
+L["The exact inverse of Skyriding (Airborne): anything that is not airborne on a glide-capable mount or flight form, standing on the ground included."] = "하늘라이딩(공중 비행)의 정반대 조건: 활강 가능한 탈것이나 비행 변신 상태로 공중에 떠 있지 않은 모든 상태(지상에 서 있는 상태 포함)를 의미합니다."
+
 --핵심 애드온 - 유닛 프레임 
+L["Hide Trailing Zeros"] = "소수점 끝의 0 숨기기"
 L["Hide these instead of showing them"] = "표시하는 대신 숨기기"
 L["Buffs you can spellsteal or purge"] = "마법 훔치기 또는 해제 가능한 강화 효과"
 L["Major defensive cooldowns"] = "주요 생존기"
@@ -7313,10 +7330,24 @@ L["Range Fade Settings"] = "사거리 흐려짐 설정"
 L["Raid Target Marker"] = "공격대 징표"
 L["Important Cast Glow Settings"] = "중요 시전 반짝임 설정"
 
--- UI 모양 변경 -- 가방
+-- UI 모양 변경 - 가방
 L["Show Clear Button"] = "초기화 버튼 표시"
+L["GROUPING"] = "그룹화"
+L["Group by Category"] = "카테고리별 그룹화"
+L["Category Sidebar"] = "카테고리 사이드바"
+L["Hide Empty Slots When Grouped"] = "그룹화 시 빈 칸 숨기기"
+L["Hide Bank Tabs in Sidebar"] = "사이드바에서 은행 탭 숨기기"
 
--- ui 모양 변경 - 기본 ui 개선 - 툴팁,메뉴&팝업
+-- UI 모양 변경 -가방 - 툴팁
+L["Turn on Category Sidebar first, or the sidebar would have nothing left to navigate with."] = "'카테고리 사이드바'를 먼저 켜주세요. 그렇지 않으면 사이드바에서 탐색할 항목이 없"
+L["Right-click a tab in the bank sidebar to rename it or set its deposit filters."] = "은행 사이드바의 탭을 마우스 우클릭하여 이름을 변경하거나 입금 필터를 설정할 수 있습니다."
+L["Window scale, icon zoom and item level settings are shared with the Bags page."] = "창 크기, 아이콘 확대 및 아이템 레벨 설정은 가방 페이지와 공유됩니다."
+L["In the OneBank and OneWarbank views, split the grid under expansion headers, newest first. Per-tab views are unaffected."] = "통합 은행(OneBank) 및 통합 전투부대 은행(OneWarbank) 보기에서는 확장팩 헤더 아래로 격자가 나뉘며, 최신 확장팩이 먼저 표시됩니다. 탭별 보기에는 영향을 주지 않습니다."
+L["List item categories in the bank sidebar the way the bags sidebar does -- groups such as The Armory with Weapons and Armor under them. Selecting one filters the grid to that category. Categories that split further list their parts as a third level while selected: Professions by profession, Armor by equipment slot, Trade Goods by material. Spans your character bank and warband together, so a category shows everything you own."] = "가방 사이드바와 마찬가지로 은행 사이드바에 아이템 카테고리를 나열합니다(예: 무기 및 방어구가 속한 무기고 그룹). 항목을 선택하면 해당 카테고리로 격자창이 필터링됩니다. 하위로 나뉘는 카테고리는 선택 시 세 번째 단계로 표시됩니다(예: 전문 기술별 기술, 장비 부위별 방어구, 재질별 무역 상품). 캐릭터 은행과 전투부대가 통합되어 표시되므로, 카테고리 하나로 보유 중인 모든 아이템을 확인할 수 있습니다."
+L["Turn on Nest by Expansion or Group by Category first; the flat view has nowhere to move empty slots to."] = "'확장팩별 중첩' 또는 '카테고리별 그룹화'를 먼저 켜주세요. 기본(평면) 보기에서는 빈 칸을 이동할 공간이 없"
+L["Split items by category -- Armor, Consumables, Professions and so on -- using the same category list, order and renames as the All Items bag view. Nests inside the expansion headers when Nest by Expansion is also on. Categories that split further do so automatically: gear by equipment slot, Professions and Trade Goods by profession and material type."] = "'모든 아이템' 가방 보기와 동일한 카테고리 목록, 순서, 이름을 사용하여 아이템을 카테고리(방어구, 소모품, 전문 기술 등)별로 분류합니다. '확장팩별 중첩'이 켜져 있으면 확장팩 헤더 내부에 중첩됩니다. 세부 분류가 있는 카테고리는 장비 부위별 장비, 전문 기술 및 재질별 전문 기술/무역 상품 등으로 자동 분류됩니다."
+
+-- UI 모양 변경 - 기본 ui 개선 - 툴팁,메뉴&팝업
 L["Restyles Blizzard's on-screen progress bars (event objectives, nameplate counters) to the EUI look. Requires reload to apply.\n\nThese bars are drawn over rather than modified, so if the game ever reports their contents as protected the original bar is shown instead.\n\nUse the cog to set a minimum size, so bars on shrunken nameplates stay readable."] = "블리자드의 기본 화면 진행 바(이벤트 목표, 이름표 카운터 등)를 EUI 스타일로 재디자인합니다. 적용하려면 애드온을 새로고침(리로드)해야 합니다.\n\n이 바들은 기존 바를 수정하는 게 아니라 그 위에 덧그리는 방식이므로, 게임 내에서 해당 콘텐츠를 보호 항목으로 지정할 경우 원래의 기본 바가 대신 표시됩니다.\n\n톱니바퀴 아이콘을 눌러 최소 크기를 설정하면, 작아진 이름표 위의 바도 가독성을 유지할 수 있습니다."
 
 -- UI 모양 변경 - 쐐기돌 도구 - 툴팁

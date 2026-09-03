@@ -803,7 +803,10 @@ local function BuildAssignedDebuffsFields(frame, fontPath, sy, cfg, apply)
             values = { __placeholder = "..." }, order = { "__placeholder" },
             getValue = function() return "__placeholder" end, setValue = function() end
         },
-        { type = "label", text = "" }
+        EllesmereUI.MaxDurationDropdown(
+            function() return cfg.maxDurSec end,
+            function(v) cfg.maxDurSec = v end,
+            apply)
     ); sy = sy - hh
     do
         local rgn = safRow._leftRegion
@@ -826,11 +829,29 @@ local function BuildAssignedDebuffsFields(frame, fontPath, sy, cfg, apply)
             local classItems = ns.PAB_ClassItems and ns.PAB_ClassItems(false) or {}
             for i = 1, #classItems do
                 local ci = classItems[i]
-                items[#items + 1] = { key = ci.key, label = ci.label, tooltip = ci.tooltip,
-                    dual = true, showLockedFn = AllOn,
-                    showLockedTooltip = lockedTip }
+                if ci.isHeader then
+                    items[#items + 1] = { isHeader = true, label = ci.label }
+                else
+                    items[#items + 1] = { key = ci.key, label = ci.label, tooltip = ci.tooltip,
+                        dual = true, showLockedFn = AllOn,
+                        showLockedTooltip = lockedTip }
+                end
             end
             return items
+        end
+        -- Non-Player / From Any Player share one engine field: a check in either
+        -- lane clears the sibling from both lanes.
+        local function ClearExclusive(k)
+            local other = ns.PAB_ExclusiveSkey and ns.PAB_ExclusiveSkey[k]
+            if not other then return end
+            if cfg.classFilters then
+                cfg.classFilters[other] = nil
+                if not next(cfg.classFilters) then cfg.classFilters = nil end
+            end
+            if cfg.negClassFilters then
+                cfg.negClassFilters[other] = nil
+                if not next(cfg.negClassFilters) then cfg.negClassFilters = nil end
+            end
         end
         local warnClosed
         local cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
@@ -868,6 +889,7 @@ local function BuildAssignedDebuffsFields(frame, fontPath, sy, cfg, apply)
                 end
                 -- Two-lane class write: checking one lane clears the other;
                 -- emptied lane tables drop to nil (saved-variable hygiene).
+                if v then ClearExclusive(k) end
                 if neg then
                     cfg.negClassFilters = cfg.negClassFilters or {}
                     cfg.negClassFilters[k] = v or nil

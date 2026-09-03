@@ -3146,6 +3146,14 @@ do
 
         CreateCrosshair()
 
+        -- Strata (cog dropdown); MEDIUM = the original hardcoded value.
+        -- Change-guarded: SetFrameStrata re-sorts the frame tree.
+        local strata = G("crosshairStrata") or "MEDIUM"
+        if crosshairFrame._strata ~= strata then
+            crosshairFrame._strata = strata
+            crosshairFrame:SetFrameStrata(strata)
+        end
+
         local c = G("crosshairColor")
         local cr = c and c.r or 1
         local cg = c and c.g or 1

@@ -561,6 +561,14 @@ local _curViewFrozenDur = 0    -- final Current-session duration, pinned when co
 -- 0 HP (confirmed real death); UnitIsFeignDeath can remain true through a feign-then-die transition so it can't be used to clear safely.
 local _feignDeathGUIDs = {}
 
+-- In-combat death time placeholders, keyed by deathRecapID (NeverSecret, unique
+-- per death). deathTimeSeconds is SECRET while in combat, so a Deaths row read
+-- 0:00 until combat ended; the row's first appearance is stamped with the plain
+-- live session duration instead (accurate to one refresh interval) and the
+-- engine's exact value replaces it as soon as it reads plain. Wiped at every
+-- combat start with the feign cache.
+local _deathStamps = {}
+
 -- Switch a window to a segment (sessionID) or session type (Current/Overall); windows with
 -- syncSegments switch together. On ns not local: CreateDMWindow is at Lua 5.1's 60-upvalue limit.
 function ns.ApplySegmentSelection(W, sessionType, sessionID)
@@ -1120,6 +1128,30 @@ ns._ResolveGroupGUID = ResolveGroupGUID
 local function FormatTimer(seconds)
     if not seconds or (issecretvalue and issecretvalue(seconds)) then return "0:00" end
     return format("%d:%02d", math.floor(seconds / 60), math.floor(seconds % 60))
+end
+
+-- Deaths row time text. Plain deathTimeSeconds wins; a secret one (in combat)
+-- falls back to the placeholder stamped when the row first appeared. Published
+-- on ns: CreateDMWindow sits at the 60-upvalue cap and already holds ns.
+function ns._DeathTimeText(src, live)
+    local t = src.deathTimeSeconds
+    if t ~= nil and not (issecretvalue and issecretvalue(t)) then
+        return FormatTimer(t)
+    end
+    local rid = src.deathRecapID
+    if not rid or (issecretvalue and issecretvalue(rid)) then return "0:00" end
+    local st = _deathStamps[rid]
+    if not st then
+        -- Only the LIVE Current view may stamp: a past segment viewed during
+        -- the next pull is secret too, and its deaths must not borrow this
+        -- pull's clock.
+        if not (_inCombat and live) then return "0:00" end
+        st = GetCurrentViewDuration()
+        -- 0 = no live duration yet; leave unstamped so a later refresh can.
+        if not st or st <= 0 then return "0:00" end
+        _deathStamps[rid] = st
+    end
+    return FormatTimer(st)
 end
 
 local function FormatTimerDecimal(seconds)
@@ -3462,7 +3494,8 @@ local function CreateDMWindow(winIdx)
         end
         if isDeaths then
             local isOverall = (not W.curSessionID and W.curSession == Enum.DamageMeterSessionType.Overall)
-            bar.amount:SetText(isOverall and "" or FormatTimer(src.deathTimeSeconds))
+            bar.amount:SetText(isOverall and "" or ns._DeathTimeText(src,
+                not W.curSessionID and W.curSession == Enum.DamageMeterSessionType.Current))
         elseif isCount then
             bar.amount:SetText(AbbrevNumber(src.totalAmount))
         else
@@ -3643,7 +3676,8 @@ local function CreateDMWindow(winIdx)
                         local fmtVal
                         if isDeaths then
                             local isOverall = (not W.curSessionID and W.curSession == Enum.DamageMeterSessionType.Overall)
-                            fmtVal = isOverall and "" or FormatTimer(src.deathTimeSeconds)
+                            fmtVal = isOverall and "" or ns._DeathTimeText(src,
+                                not W.curSessionID and W.curSession == Enum.DamageMeterSessionType.Current)
                         elseif isCount then
                             fmtVal = AbbrevNumber(src.totalAmount)
                         else
@@ -5139,6 +5173,7 @@ combatFrame:SetScript("OnEvent", function(_, event, ...)
         -- the timer pin. No clock anchored here -- the timer derives from the live "Current" session so it self-resets on the roll; a synchronous read here would race it and show the stale pre-pull duration.
         _combatGen = _combatGen + 1
         if next(_feignDeathGUIDs) then wipe(_feignDeathGUIDs) end -- new segment: stale feign tags would mis-filter real deaths
+        if next(_deathStamps) then wipe(_deathStamps) end
         _inCombat = true
         _combatEndTime = 0
         _curViewFrozenDur = 0
@@ -5185,6 +5220,7 @@ combatFrame:SetScript("OnEvent", function(_, event, ...)
         if _G._EUIDM_PvpBlocked and _G._EUIDM_PvpBlocked() then return end
         _combatGen = _combatGen + 1
         if next(_feignDeathGUIDs) then wipe(_feignDeathGUIDs) end -- new segment: stale feign tags would mis-filter real deaths
+        if next(_deathStamps) then wipe(_deathStamps) end
         _inCombat = true
         _combatEndTime = 0
         _curViewFrozenDur = 0

@@ -7455,8 +7455,10 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         end
         for _, item in ipairs(items) do
             -- isModifier rows (the Visibility match toggle) are not conditions: excluded
-            -- from the summary and from the "All" shortcut.
-            if not item.isHeader and not item.isTopAction and not item.isModifier then
+            -- from the summary and from the "All" shortcut. item.excludeFromSummaryFn
+            -- opts a row out the same way (e.g. locked behind an unlearned talent).
+            if not item.isHeader and not item.isTopAction and not item.isModifier
+               and not (item.excludeFromSummaryFn and item.excludeFromSummaryFn()) then
                 total = total + 1
                 if getFn(item.key) then names[#names + 1] = EllesmereUI.L(item.label) end
                 -- Dual-lane rows: the hide lane reads through getFn(key, true).
@@ -9699,4 +9701,55 @@ function EllesmereUI.BuildUnlockPlaceholder(opts)
     end)
 
     return f
+end
+
+-- Debuff "Max Duration" dropdown spec for a DualRow slot: Unlimited (nil, the
+-- consumer adds nothing to its candidate filters) or Custom, which opens the
+-- standard input popup for a whole number of seconds and then reads back as
+-- "Custom (Ns)". get/set move the stored seconds (nil = unlimited); apply
+-- re-drives the display. Shared by the Raid Frames Debuff Manager (base grid
+-- and grid tiles) and Player Aura Bars debuff bars.
+function EllesmereUI.MaxDurationDropdown(get, set, apply)
+    local L = EllesmereUI.L
+    local cur = get()
+    local values = {
+        unlimited = L("Unlimited"),
+        custom = cur and (L("Custom") .. " (" .. tostring(cur) .. "s)") or (L("Custom") .. "..."),
+    }
+    return {
+        type = "dropdown", text = "Max Duration",
+        tooltip = "Only show debuffs whose full duration is at most this many seconds. Combines with the filters; Unlimited applies no cap.",
+        values = values, order = { "unlimited", "custom" },
+        getValue = function() return get() and "custom" or "unlimited" end,
+        setValue = function(v)
+            if v == "unlimited" then
+                if get() ~= nil then
+                    set(nil)
+                    if apply then apply() end
+                end
+                EllesmereUI:RefreshPage(true)
+                return
+            end
+            local now = get()
+            EllesmereUI:ShowInputPopup({
+                title = L("Max Duration"),
+                message = L("Enter the maximum debuff duration in seconds:"),
+                placeholder = now and tostring(now) or "30",
+                confirmText = L("Apply"),
+                cancelText = L("Cancel"),
+                onConfirm = function(text)
+                    local n = tonumber(text or "")
+                    if n and n > 0 then
+                        n = math.floor(n)
+                        if n ~= get() then
+                            set(n)
+                            if apply then apply() end
+                        end
+                    end
+                    EllesmereUI:RefreshPage(true)
+                end,
+                onCancel = function() EllesmereUI:RefreshPage(true) end,
+            })
+        end,
+    }
 end

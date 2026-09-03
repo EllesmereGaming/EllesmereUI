@@ -1855,6 +1855,7 @@ do
         "reskinAchievements", "reskinMail", "reskinCatalyst", "reskinSocket",
         "reskinItemUpgrade", "reskinLoot", "reskinLootToast", "lootToastQualityStrip",
         "lootToastQualityStripMoney", "lootToastScale",
+        "reskinBNetToast",
         "reskinLootRoll", "reskinLootHistory", "reskinGroupInvite",
         "reskinReadyCheck",
         "reskinMicroMenu", "reskinHousing", "reskinDressUp", "reskinTransmog",

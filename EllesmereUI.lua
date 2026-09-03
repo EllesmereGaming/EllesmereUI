@@ -3599,19 +3599,39 @@ function EllesmereUI.GetDarkModeDB()
     return EllesmereUIDB.darkMode
 end
 
+-- Materialized Dark Mode palette. The fill and background quadruples are read on
+-- every raid-frame and unit-frame health tick, so they are served from this cache
+-- instead of walking to the active profile per read. Rebuilt lazily after an
+-- invalidation; the generation is bumped by InvalidateColorCache, which every
+-- writer reaches: the swatches and darken sliders (RefreshDarkMode), the master
+-- toggle (RefreshDarkMode), every profile repoint (RefreshDarkMode in the profile
+-- apply pass) and ApplyColorsToOUF. Lives on the namespace: this file sits at the
+-- 200-local cap.
+EllesmereUI._dmGen = 0
+EllesmereUI._dmCache = { gen = -1 }
+
+function EllesmereUI._RebuildDarkModeCache()
+    local c = EllesmereUI._dmCache
+    local d = EllesmereUI.GetDarkModeDB()
+    local def = EllesmereUI.DEFAULT_DARK_MODE
+    c.fr, c.fg, c.fb, c.fa = d.fillR or def.fillR, d.fillG or def.fillG, d.fillB or def.fillB, d.fillA or def.fillA
+    c.br, c.bg, c.bb, c.ba = d.bgR or def.bgR, d.bgG or def.bgG, d.bgB or def.bgB, d.bgA or def.bgA
+    c.gen = EllesmereUI._dmGen
+end
+
 -- Dark Mode fill colour (r, g, b, a). Opacity is honoured by Unit Frames and
 -- Raid Frames; Resource Bars ignore the alpha and keep their own.
 function EllesmereUI.GetDarkModeFill()
-    local d = EllesmereUI.GetDarkModeDB()
-    local def = EllesmereUI.DEFAULT_DARK_MODE
-    return d.fillR or def.fillR, d.fillG or def.fillG, d.fillB or def.fillB, d.fillA or def.fillA
+    local c = EllesmereUI._dmCache
+    if c.gen ~= EllesmereUI._dmGen then EllesmereUI._RebuildDarkModeCache() end
+    return c.fr, c.fg, c.fb, c.fa
 end
 
 -- Dark Mode background colour (r, g, b, a). Same opacity rules as the fill.
 function EllesmereUI.GetDarkModeBg()
-    local d = EllesmereUI.GetDarkModeDB()
-    local def = EllesmereUI.DEFAULT_DARK_MODE
-    return d.bgR or def.bgR, d.bgG or def.bgG, d.bgB or def.bgB, d.bgA or def.bgA
+    local c = EllesmereUI._dmCache
+    if c.gen ~= EllesmereUI._dmGen then EllesmereUI._RebuildDarkModeCache() end
+    return c.br, c.bg, c.bb, c.ba
 end
 
 -- Effective-colour cache. Class/power/resource getters run in hot render paths, so the FINAL
@@ -3626,6 +3646,8 @@ EllesmereUI._powerBgDarkenFactor = 1
 
 function EllesmereUI.InvalidateColorCache()
     EllesmereUI._colorCacheDirty = true
+    -- The dark palette cache above shares every invalidation input.
+    EllesmereUI._dmGen = EllesmereUI._dmGen + 1
 end
 
 -- Fill `out` with {r,g,b} per key: defaults overlaid by custom, blackened by darkenPct (0-100); sub-tables are recreated each rebuild (rare) so hot-path reads never allocate.
@@ -10699,7 +10721,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.1.4"
+EllesmereUI.VERSION = "9.1.6"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end

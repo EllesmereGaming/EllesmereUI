@@ -87,6 +87,13 @@ local function Tex(id)
     if t then texCache[id] = t end; return t
 end
 
+local spellNameCache = {}
+local function SpellName(id)
+    local c = spellNameCache[id]; if c then return c end
+    local n = (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)) or GetSpellInfo(id)
+    if n then spellNameCache[id] = n end; return n
+end
+
 local _cachedPlayerClass
 local function GetPlayerClass()
     if not _cachedPlayerClass then
@@ -998,7 +1005,7 @@ end
 -------------------------------------------------------------------------------
 -- Resolves a spell's display name from ID in client locale (English fallback), so labels follow client language. Exposed as _G._EABR_SpellName for options.
 _G._EABR_SpellName = function(spellID, fallback)
-    local n = spellID and C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)
+    local n = spellID and SpellName(spellID)
     return n or fallback
 end
 
@@ -1152,6 +1159,32 @@ local SHAMAN_SHIELDS = {
       castSpellFn=ShamanShieldCastSpell, buffIDs={974, 192106, 52127}, excludeTalent=383010,
       check="player" },
 }
+
+-- Warlock permanent pets ("wrong demon" check). families includes cosmetic
+-- Grimoire-of-* reskins (e.g. Wrathguard = Felguard) so those don't misfire.
+local WARLOCK_PETS = {
+    { key="felguard",   name="Felguard",   castSpell=30146,  families={[29]=true,  [104]=true} },
+    { key="imp",        name="Imp",        castSpell=688,    families={[23]=true,  [100]=true} },
+    { key="voidwalker", name="Voidwalker", castSpell=697,    families={[16]=true,  [101]=true} },
+    { key="sayaad",     name="Sayaad",     castSpell=366222, families={[17]=true,  [102]=true, [302]=true} },
+    { key="felhunter",  name="Felhunter",  castSpell=691,    families={[15]=true,  [103]=true} },
+}
+
+-- Points an entry at whichever pet the shared cycle index currently selects
+-- from `pets` (Missing Pet and Wrong Demon share one index, so cycling on
+-- either reminder advances the same pointer). On EABR, not a top-level
+-- local -- this file is at Lua's 200-local ceiling.
+EABR.SetWarlockPetSpell = function(e, pets, fallbackTexture, labelOverride)
+    local n = #pets
+    local idx = EABR._petCycleIndex or 1
+    if idx > n then idx = 1 end
+    local pet = pets[idx]
+    e.mode = "spell"
+    e.spellID = pet.castSpell
+    e.texture = Tex(pet.castSpell) or fallbackTexture
+    e.label = labelOverride or EllesmereUI.L(pet.name)
+    e.petCycleTotal = n > 1 and n or nil
+end
 
 -- Weapon Enchant Items (temporary weapon enchants applied from items). weaponType: BLADED, BLUNT, RANGED, NEUTRAL (NEUTRAL fits any weapon).
 local WEAPON_ENCHANT_ITEMS = {
@@ -1874,6 +1907,8 @@ local defaults = {
             -- set for the class specials (open world on).
             whereToShow = { open_world = false },
             specialsWhereToShow = {},
+            -- Pets allowed by the wrong-demon reminder. Absent/false = not allowed.
+            wrongPetAllowed = { felguard = true },
             preferredFlask = "last_used",
             preferredFood = "last_used",
             preferredWeaponEnchant = "last_used",
@@ -2724,18 +2759,27 @@ local function GetOrCreateIcon(index)
     -- SecureActionButtonTemplate for click-to-cast in combat
     local btn = CreateFrame("Button", "EABR_Icon"..index, iconAnchor, "SecureActionButtonTemplate")
     btn:SetSize(ICON_SIZE, ICON_SIZE)
-    btn:RegisterForClicks("LeftButtonDown", "LeftButtonUp", "MiddleButtonUp")
+    btn:RegisterForClicks("LeftButtonDown", "LeftButtonUp", "MiddleButtonUp", "RightButtonUp")
     securecallfunction(btn.SetPassThroughButtons, btn, "RightButton")
-    -- MiddleButton is the dismiss click: NOOP its action type so it cannot fall
-    -- back to the plain "type" attribute and cast the reminder.
+    -- MiddleButton is the dismiss click, RightButton the pet-cycle-preview
+    -- click: NOOP both action types so neither can fall back to the plain
+    -- "type" attribute and cast the reminder.
+    btn:SetAttribute("*type2", ATTRIBUTE_NOOP)
     btn:SetAttribute("*type3", ATTRIBUTE_NOOP)
     btn:SetFrameStrata(GetStrata())
     btn:Hide()
 
-    -- Middle-click dismiss: hide this reminder until the next loading screen
+    -- Middle-click dismiss: hide this reminder until the next loading screen.
+    -- Right-click on a multi-pet-cycle reminder previews the next pet without
+    -- casting (RightButton is a permanent NOOP type above; ShowIcon's
+    -- pass-through toggle decides whether this reminder claims the click at
+    -- all, vs letting it fall through like every other reminder does).
     btn:HookScript("PostClick", function(self, button)
         if button == "MiddleButton" and self._dismissKey then
             _dismissedUntilLoad[self._dismissKey] = true
+            if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
+        elseif button == "RightButton" and self._petCycleTotal then
+            EABR._petCycleIndex = ((EABR._petCycleIndex or 1) % self._petCycleTotal) + 1
             if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
         end
     end)
@@ -2761,7 +2805,6 @@ local function GetOrCreateIcon(index)
     iconPool[index] = btn
     return btn
 end
-
 
 -- Sets icon to a plain texture with no click action (clears cast attributes OOC).
 local function SetIconTexture(btn, texture, label)
@@ -2835,7 +2878,7 @@ do
         e.mode = nil; e.spellID = nil; e.itemID = nil; e.macro = nil
         e.texture = nil; e.label = nil; e.unit = nil; e.desaturated = false
         e.tooltipItem = nil
-        e.cat = nil; e.data = nil; e.dismissKey = nil
+        e.cat = nil; e.data = nil; e.dismissKey = nil; e.petCycleTotal = nil
         e.isEating = nil; e.eatingExpirationTime = nil
         e.qualityAtlas = nil
         e.bagCount = nil
@@ -2948,6 +2991,22 @@ end
 local function ShowIcon(iconIdx, m)
     local btn = GetOrCreateIcon(iconIdx)
     btn._dismissKey = m.dismissKey or nil
+    btn._petCycleTotal = m.petCycleTotal or nil
+    -- Right-click is passed through to whatever's behind (e.g. camera drag)
+    -- for every other reminder; only a multi-pet cycle button claims it.
+    -- Click-routing changes are combat-protected, same as the attribute
+    -- writes below, so this only ever runs OOC.
+    if not InCombat() then
+        local wantRightCapture = m.petCycleTotal and true or false
+        if btn._petCycleRightCapture ~= wantRightCapture then
+            btn._petCycleRightCapture = wantRightCapture
+            if wantRightCapture then
+                securecallfunction(btn.SetPassThroughButtons, btn)
+            else
+                securecallfunction(btn.SetPassThroughButtons, btn, "RightButton")
+            end
+        end
+    end
     ApplySetup(btn, m)
     local p = db.profile.display
     local glowType = p.glowType or 0
@@ -3679,6 +3738,7 @@ local function Refresh()
             local suppress = false
             local petIcon = 132161
             local petLabel = "Pet"
+            local warlockEnforcedPets
             if playerClass == "HUNTER" then
                 local spec = GetSpecialization and GetSpecialization()
                 if spec then
@@ -3688,6 +3748,15 @@ local function Refresh()
             elseif playerClass == "WARLOCK" then
                 petIcon = 136218
                 if Known(108503) and PlayerHasAuraByID({196099}) then suppress = true end
+                local allowed = co.wrongPetAllowed
+                warlockEnforcedPets = {}
+                if allowed then
+                    for _, pet in ipairs(WARLOCK_PETS) do
+                        if allowed[pet.key] and Known(pet.castSpell) then
+                            warlockEnforcedPets[#warlockEnforcedPets+1] = pet
+                        end
+                    end
+                end
             elseif playerClass == "DEATHKNIGHT" then
                 petIcon = 1100170
                 petLabel = "Ghoul"
@@ -3702,23 +3771,30 @@ local function Refresh()
                and not (EABR._petRemountGrace and GetTime() < EABR._petRemountGrace)
                and not (UnitExists("pet") and not UnitIsDead("pet")) then
                 local e = AcquireEntry()
-                e.mode = "texture"
-                e.texture = petIcon
-                e.label = petLabel
                 e.cat = "consumable"
                 e.dismissKey = "consumable:pet"
+                local n = warlockEnforcedPets and #warlockEnforcedPets or 0
+                if n > 0 then
+                    EABR.SetWarlockPetSpell(e, warlockEnforcedPets, petIcon)
+                else
+                    e.mode = "texture"
+                    e.texture = petIcon
+                    e.label = petLabel
+                end
                 missing[#missing+1] = e
             end
-            if not suppress and playerClass == "WARLOCK" and specID == 266
+            if not suppress and playerClass == "WARLOCK"
                and co.enabled.wrong_pet ~= false
                and UnitExists("pet") and not UnitIsDead("pet") then
                 local _, familyID = UnitCreatureFamily("pet")
-                local isFelguard = familyID and not (issecretvalue and issecretvalue(familyID)) and familyID == 29
-                if not isFelguard then
+                familyID = familyID and not (issecretvalue and issecretvalue(familyID)) and familyID or nil
+                local isAllowed = false
+                for _, pet in ipairs(warlockEnforcedPets) do
+                    if familyID and pet.families[familyID] then isAllowed = true; break end
+                end
+                if #warlockEnforcedPets > 0 and not isAllowed then
                     local e = AcquireEntry()
-                    e.mode = "texture"
-                    e.texture = 136216
-                    e.label = EllesmereUI.L("Felguard")
+                    EABR.SetWarlockPetSpell(e, warlockEnforcedPets, 136216, EllesmereUI.L("Wrong Demon"))
                     e.cat = "consumable"
                     e.dismissKey = "consumable:wrong_pet"
                     missing[#missing+1] = e
@@ -4481,8 +4557,10 @@ function EABR:OnEnable()
     _G._EABR_PALADIN_RITES = PALADIN_RITES
     _G._EABR_SHAMAN_IMBUES = SHAMAN_IMBUES
     _G._EABR_SHAMAN_SHIELDS = SHAMAN_SHIELDS
+    _G._EABR_WARLOCK_PETS = WARLOCK_PETS
     _G._EABR_WEAPON_ENCHANT_ITEMS = WEAPON_ENCHANT_ITEMS
     _G._EABR_Tex = Tex
+    _G._EABR_Known = Known
     _G._EABR_ICON_SIZE = ICON_SIZE
     _G._EABR_FLASK_ITEMS = FLASK_ITEMS
     _G._EABR_FOOD_ITEMS = FOOD_ITEMS

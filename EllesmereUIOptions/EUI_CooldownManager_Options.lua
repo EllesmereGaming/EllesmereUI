@@ -10729,16 +10729,27 @@ initFrame:SetScript("OnEvent", function(self)
                                 frameStrata = "FULLSCREEN_DIALOG", frameLevel = 350,
                                 rows = {
                                     { type="toggle", label="Glow at Stacks",
-                                      tooltip="Replaces Buff Glow: the icon glows only at the set stacks or higher, using this spell's Buff Glow style (Modern WoW Glow if none is set).",
+                                      tooltip="Replaces Buff Glow: the icon glows when its stack count matches the comparison below, using this spell's Buff Glow style (Modern WoW Glow if none is set).",
                                       get=function() return ss.buffGlowStackEnabled == true end,
                                       set=function(v) EnsureSS(); ss.buffGlowStackEnabled = v or nil; if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end if row._updateLabel then row._updateLabel() end end },
-                                    { type="input", label="Min Stack Count", inputWidth=42, commitOnBlur=true,
+                                    { type="dropdown", label="Comparison",
+                                      values={ lt="Below (<)", lte="At Most (<=)", eq="Exactly (=)", gte="At Least (>=)", gt="Above (>)" },
+                                      order={ "lt", "lte", "eq", "gte", "gt" },
+                                      disabled=function() return not ss.buffGlowStackEnabled end,
+                                      disabledTooltip="Enable Glow at Stacks",
+                                      get=function() return ss.buffGlowStackOperator or "gte" end,
+                                      set=function(v)
+                                          EnsureSS(); ss.buffGlowStackOperator = v ~= "gte" and v or nil
+                                          if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
+                                          if row._updateLabel then row._updateLabel() end
+                                      end },
+                                    { type="input", label="Stack Count", inputWidth=42, commitOnBlur=true,
                                       disabled=function() return not ss.buffGlowStackEnabled end,
                                       disabledTooltip="Enable Glow at Stacks",
                                       get=function() return tostring(tonumber(ss.buffGlowStackThreshold) or 2) end,
                                       set=function(v)
                                           local t = math.floor(tonumber(v) or 0)
-                                          if t < 2 then t = 2 end
+                                          if t < 1 then t = 1 end
                                           if t > 99 then t = 99 end
                                           EnsureSS(); ss.buffGlowStackThreshold = t
                                           if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end

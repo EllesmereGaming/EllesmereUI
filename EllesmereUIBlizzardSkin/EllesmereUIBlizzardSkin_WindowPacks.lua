@@ -12377,6 +12377,77 @@ WSkin.RegisterWindow({
         Wire("ReadyCheckListenerFrame", LP.SkinReadyCheckList)
     end,
 })
+
+-------------------------------------------------------------------------------
+--  BNet toast (BNToastFrame): a friend coming online or going offline, plus
+--  broadcasts and club invites. Alert-system driven like the loot toasts, but a
+--  SINGLETON rather than a pool instance, so it takes a plain window
+--  registration instead of their pool sweep. TAINT: clicking it opens a
+--  Battle.net whisper, whose target is a SECRET string, so nothing here writes a
+--  Lua field onto the frame.
+-------------------------------------------------------------------------------
+function LP.SkinBNetToast(f)
+    if not f or f:IsForbidden() then return end
+    local icon = f.IconTexture
+
+    -- The Blizzard art is a BACKDROP (BACKDROP_TOAST_12_12), and
+    -- BackdropTemplateMixin lays its pieces out as ordinary regions ON THE
+    -- FRAME via NineSliceUtil, so the shell fade reaches them. No SetBackdrop
+    -- call is needed, and none is made: that would re-enter Blizzard code.
+    -- No top bar, same as the loot toast -- there is no title row to sit on.
+    WSkin.Shell("bnettoast", f, { noTopBar = true })
+
+    -- The shell faded every region including the toast-type icon. Bring it
+    -- back and keep it out of later restrip passes. It is NOT squared:
+    -- IconTexture is a SetTexCoord crop out of one sheet, re-picked per toast
+    -- type, and WSkin.SquareIcon would overwrite those coordinates.
+    if icon then
+        icon:SetAlpha(1)
+        WSkin.Register(f, { [icon] = true })
+    end
+
+    -- Blizzard flair burst. SetAlpha(0) is not enough: the texture carries its
+    -- OWN alpha animation, which drives alpha every frame and wins over our
+    -- write (same shape as the loot toast art). Clear the texture instead.
+    local glow = f.glow
+    if glow then
+        if glow.SetAtlas then glow:SetAtlas("") end
+        if glow.SetTexture then glow:SetTexture("") end
+        glow:SetAlpha(0)
+    end
+
+    -- Font only, never color: ShowToast recolors these per toast type (account
+    -- name blue, status grey, some of it as an inline color code), and the
+    -- stock colors read correctly on the dark shell.
+    for _, k in ipairs({ "TopLine", "MiddleLine", "BottomLine", "DoubleLine" }) do
+        WSkin.Font(f[k])
+    end
+
+    if f.CloseButton then WSkin.CloseButton(f.CloseButton) end
+
+    -- Hover panel for a truncated broadcast. Inherits TooltipBackdropTemplate,
+    -- so the house panel replaces a real tooltip backdrop.
+    local tip = f.TooltipFrame
+    if tip then
+        WSkin.Panel(tip)
+        if tip.NineSlice then WSkin.FadeNineSlice(tip.NineSlice) end
+        if tip.Text then WSkin.Font(tip.Text) end
+    end
+end
+
+WSkin.RegisterWindow({
+    key = "bnettoast",
+    apply = function()
+        LP.WhenFrameExists("BNToastFrame", function(f)
+            local pass = WSkin.Debounce(function() LP.SkinBNetToast(f) end)
+            -- Blizzard repaints nothing on the frame between toasts, but the
+            -- pass is idempotent and one debounced call per toast is cheap
+            -- insurance against a future template change.
+            WSkin.HookShow(f, pass)
+            LP.SkinBNetToast(f)
+        end)
+    end,
+})
 end
 
 -------------------------------------------------------------------------------

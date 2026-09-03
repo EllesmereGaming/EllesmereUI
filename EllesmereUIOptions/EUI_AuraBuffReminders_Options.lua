@@ -1488,23 +1488,80 @@ initFrame:SetScript("OnEvent", function(self)
         petHdr, h = W:SectionHeader(parent, "PETS", y);  y = y - h
 
         local petFirstRow
-        petFirstRow, h = W:TripleRow(parent, y,
+        petFirstRow, h = W:DualRow(parent, y,
             { type="toggle", text="Missing Pet",
               tooltip="Show a reminder when you don't have an active pet summoned. Only applies to pet classes (Hunter, Warlock, Death Knight, Mage).",
               getValue=function() local c = CDB(); return c and c.enabled and c.enabled.pet ~= false end,
               setValue=function(v) local c = CDB(); if c and c.enabled then c.enabled.pet = v; RefreshAll(); RebuildPreviewHeader() end end },
-            { type="toggle", text="Wrong Pet (Demo Lock)",
-              tooltip="Show a reminder when your Demonology Warlock has the wrong pet summoned (not Felguard).",
-              getValue=function() local c = CDB(); return c and c.enabled and c.enabled.wrong_pet ~= false end,
-              setValue=function(v) local c = CDB(); if c and c.enabled then c.enabled.wrong_pet = v; RefreshAll(); RebuildPreviewHeader() end end },
             { type="toggle", text="Passive Pet",
               tooltip="Show a reminder when your active pet is set to Passive stance. Only applies to pet classes (Hunter, Warlock, Death Knight, Mage).",
               getValue=function() local c = CDB(); return c and c.enabled and c.enabled.pet_passive ~= false end,
-              setValue=function(v) local c = CDB(); if c and c.enabled then c.enabled.pet_passive = v; RefreshAll(); RebuildPreviewHeader() end end },
-            { 0.34, 0.33, 0.33 }
+              setValue=function(v) local c = CDB(); if c and c.enabled then c.enabled.pet_passive = v; RefreshAll(); RebuildPreviewHeader() end end }
         );  y = y - h
 
         _eabrClickMappings.pet = { section = petHdr, target = petFirstRow }
+
+        _, h = W:Spacer(parent, y, 10);  y = y - h
+
+        -----------------------------------------------------------------------
+        --  WARLOCK DEMONS section
+        -----------------------------------------------------------------------
+        local warlockHdr
+        warlockHdr, h = W:SectionHeader(parent, "WARLOCK DEMONS", y);  y = y - h
+
+        local WARLOCK_PET_ITEMS = {}
+        for _, pet in ipairs(_G._EABR_WARLOCK_PETS or {}) do
+            local unlearned = function() return not (_G._EABR_Known and _G._EABR_Known(pet.castSpell)) end
+            WARLOCK_PET_ITEMS[#WARLOCK_PET_ITEMS+1] = {
+                key = pet.key, label = pet.name,
+                lockedFn = unlearned,
+                excludeFromSummaryFn = unlearned,
+                lockedTooltip = function()
+                    local spellName = _G._EABR_SpellName and _G._EABR_SpellName(pet.castSpell, pet.name) or pet.name
+                    return EllesmereUI.Lf("You have not learned %1$s.", spellName)
+                end,
+            }
+        end
+        local warlockRow
+        warlockRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Wrong Demon",
+              tooltip="Show a reminder when your Warlock's active pet isn't one of the demons picked in Allowed Demons. A demon only counts while its summon spell is known, so leaving only Felguard picked stays silent for specs/builds that haven't talented Summon Felguard.",
+              getValue=function() local c = CDB(); return c and c.enabled and c.enabled.wrong_pet ~= false end,
+              setValue=function(v) local c = CDB(); if c and c.enabled then c.enabled.wrong_pet = v; RefreshAll(); RebuildPreviewHeader() end end },
+            { type="dropdown", text="Allowed Demons",
+              tooltip="Pick which demons count as correct for Wrong Demon. A demon only counts while its summon spell is known; with none picked (or everything picked), the reminder never fires.",
+              values={ _placeholder="..." }, order={ "_placeholder" },
+              getValue=function() return "_placeholder" end, setValue=function() end }
+        );  y = y - h
+
+        local wcc = RAID_CLASS_COLORS and RAID_CLASS_COLORS.WARLOCK
+        if wcc then
+            if warlockRow._leftRegion._label then warlockRow._leftRegion._label:SetTextColor(wcc.r, wcc.g, wcc.b, 1) end
+            if warlockRow._rightRegion._label then warlockRow._rightRegion._label:SetTextColor(wcc.r, wcc.g, wcc.b, 1) end
+        end
+
+        if not EllesmereUI._prebuilding then
+            local rrgn = warlockRow._rightRegion
+            if rrgn._control then rrgn._control:Hide() end
+            local petDD, petDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                rrgn, 220, rrgn:GetFrameLevel() + 2, WARLOCK_PET_ITEMS,
+                function(k) local c = CDB(); return c and c.wrongPetAllowed and c.wrongPetAllowed[k] end,
+                function(k, v)
+                    local c = CDB()
+                    if c then
+                        c.wrongPetAllowed = c.wrongPetAllowed or {}
+                        c.wrongPetAllowed[k] = v
+                    end
+                    RefreshAll(); RebuildPreviewHeader()
+                end,
+                nil, nil, nil, nil, nil, { emptyLabel = "All" })
+            PP.Point(petDD, "RIGHT", rrgn, "RIGHT", -20, 0)
+            rrgn._control = petDD
+            rrgn._lastInline = nil
+            EllesmereUI.RegisterWidgetRefresh(petDDRefresh)
+        end
+
+        _eabrClickMappings.warlock_demons = { section = warlockHdr, target = warlockRow }
 
         _, h = W:Spacer(parent, y, 10);  y = y - h
 

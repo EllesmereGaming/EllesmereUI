@@ -3128,25 +3128,35 @@ function ns.RFC_SetupButton(button, health, d)
     end
 end
 
--- Cross-faction (or otherwise non-assistable) group members: the engine SILENTLY
--- SKIPS spell-ID candidate filters for helpful auras on non-assistable units, so
--- include-list displays would degrade to "any buff" -- they hide for such units
--- instead (token-only groups -- debuffs, externals, defensives, CC -- are unaffected).
--- Degradation is NOT directly queryable; assist+visible+not-phased still PASSED for
--- degraded units (a released ghost near the group is visible, unphased, assistable
--- via resurrection, yet leaked "any buff"). Hence: connected, alive, assistable,
--- visible, not phased. RANGE is deliberately NOT a disqualifier: aura data streams
--- fine for members merely out of 40yd spell range, and gating on it made buff
--- displays and health-color effects vanish for out-of-range party members (the
--- unit frame's own oorAlpha fade already dims the containers -- they are children
--- of the button). Local player's own flags never degrade EXCEPT in a vehicle:
--- boarding one makes the player unit non-assistable, the engine skips the
--- spell-ID filters, and every include-list container on the player's own frame
--- degrades to "any buff" (field-confirmed: reliable on every vehicle entry).
--- Outside a vehicle self stays exempt from the full probe.
+-- Trust gate for helpful spell-ID-filtered containers. The engine SILENTLY SKIPS
+-- spell-ID candidate filters for helpful auras on units that fail its identity
+-- gate, so an include-list display would degrade to "any buff" there; the gate
+-- hides such displays instead (token-only groups -- debuffs, CC -- are unaffected).
+-- Degradation is NOT directly queryable, so the non-group probe below approximates
+-- it: connected, alive, visible, not phased, assistable. RANGE is deliberately NOT
+-- a disqualifier: aura data streams fine for members merely out of 40yd spell
+-- range (the unit frame's own oorAlpha fade already dims the containers).
 -- Identity APIs can return SECRET booleans under teardown; any secret errors
 -- inside the pcall and reads fail-closed.
+--
+-- GROUP TOKENS NEVER GATE (12.1.0 build 69497+): CanApplyIdentityCandidateFilters
+-- short-circuits on `isHelpful and UnitIsPlayerControlledOrGroupMember`, a
+-- token-SHAPE test that is unconditionally true for player/partyN/raidN, so a
+-- helpful spell-ID filter can no longer degrade on a group frame -- vehicle and
+-- cinematic included. Every term below was a heuristic for that degradation, and
+-- the liveness terms (connected/alive/visible/unphased) had no dedicated recovery
+-- edge of their own: a sweep landing while a member was dead, out of render
+-- range, or phased hid that member's buff containers, and only an UNRELATED
+-- event (range crossing, roster, flags) could ever re-show them -- field-reported
+-- three times as "a buff missing on one player's frame". Staleness while a unit
+-- is ghosted is Blizzard parity and is owned by the ghost ticker's regain
+-- reparse, so the probe answers true for every group token and the gate can
+-- never hide a raid/party/extra display. Friendly Boss slots host bossN, outside
+-- the exemption, and clients without the call keep the full probe.
 local function AssistProbe(unit)
+    if UnitIsPlayerControlledOrGroupMember and UnitIsPlayerControlledOrGroupMember(unit) then
+        return true
+    end
     if UnitIsUnit(unit, "player") then
         -- UsingVehicle over InVehicle: it is also true during the boarding and
         -- exiting TRANSITIONS, and the filters already degrade while boarding
@@ -3165,22 +3175,14 @@ local function AssistProbe(unit)
         end
         return true
     end
-    -- LIVENESS, not identity: UNIT_AURA stops for a unit that disconnects, dies,
-    -- leaves render range or phases, and nothing clears the containers for the
-    -- duration, so they hide rather than sit frozen on what they last parsed.
+    -- Non-group tokens only from here (bossN slots, pre-69497 clients): the
+    -- engine's identity gate can still degrade a helpful spell-ID filter to
+    -- "any buff" on these, so hide while the unit is not live or assistable.
     if not (UnitIsConnected(unit)
         and not UnitIsDeadOrGhost(unit)
         and UnitIsVisible(unit)
         and not UnitPhaseReason(unit)) then
         return false
-    end
-    -- Assist is the only IDENTITY term left, and it is dead for group tokens
-    -- since 12.1.0 build 69497: CanApplyIdentityCandidateFilters short-circuits
-    -- on `isHelpful and UnitIsPlayerControlledOrGroupMember`, a token-SHAPE test,
-    -- and every container gated here is helpful spell-ID filtered. Friendly Boss
-    -- slots host bossN, outside the exemption, and keep the test.
-    if UnitIsPlayerControlledOrGroupMember and UnitIsPlayerControlledOrGroupMember(unit) then
-        return true
     end
     -- Evaluated in here so a secret answer errors inside the caller's pcall.
     if not UnitCanAssist("player", unit) then return false end
@@ -3196,10 +3198,9 @@ end
 -- without fresh evidence of out-of-range filter degradation on the live client.
 
 local function ApplyAssistGate(button, d, unit)
-    -- Faction AND phase: the engine's identity gate degrades for members who are
-    -- cross-faction (open world) or phased/far away (filter flags haven't streamed;
-    -- UnitPhaseReason is the eye-icon signal for that state). While degraded, filter
-    -- results are untrustworthy, so filtered helpful displays hide wholesale.
+    -- Group tokens always trust (see AssistProbe): on raid/party/extra buttons
+    -- this only ever flips true and re-shows fresh containers. The hide branch
+    -- is live for Friendly Boss slots (bossN) and pre-69497 clients only.
     local assist = false
     if unit then
         local ok, res = pcall(AssistProbe, unit)
