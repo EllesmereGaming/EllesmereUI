@@ -7355,7 +7355,32 @@ function EAB:SetGrowDirectionForBar(barKey, dir)
     local s = self.db.profile.bars[barKey]
     if not s then return end
     s.growDirection = dir or "up"
+    -- Growth direction alone never changes frame size, so the OnSizeChanged/
+    -- ApplyAnchorPosition fallback never fires and the bar stays parked at
+    -- whatever edge it was last anchored to. Re-derive the edge for the new
+    -- direction here so picking a direction has a visible effect immediately.
+    if not InCombatLockdown() then
+        if EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored(barKey) then
+            if EllesmereUI.ReapplyOwnAnchor then
+                EllesmereUI.ReapplyOwnAnchor(barKey)
+            end
+        else
+            local frame = barFrames[barKey]
+            if frame then
+                local point, _, relPoint, x, y = frame:GetPoint(1)
+                if point then
+                    local centerPos = self:ConvertEdgeToCenter(barKey, { point = point, relPoint = relPoint, x = x, y = y })
+                    local sp, sx, sy = self:ConvertCenterToEdge(barKey, centerPos.point, centerPos.x, centerPos.y)
+                    local rpt = centerPos.relPoint or relPoint
+                    self.db.profile.barPositions[barKey] = { point = sp, relPoint = rpt, x = sx, y = sy }
+                    frame:ClearAllPoints()
+                    frame:SetPoint(sp, UIParent, rpt, sx, sy)
+                end
+            end
+        end
+    end
     LayoutBar(barKey)
+    self:ApplyAlwaysShowButtons(barKey)
     self:LayoutAnchoredBarsFrom(barKey, 0)
 end
 
