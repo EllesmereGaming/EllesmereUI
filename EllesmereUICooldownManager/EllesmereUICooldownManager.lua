@@ -2392,9 +2392,10 @@ end
 -- stacks, buff, pandemic, CD ready, custom active states, bar glows, tracking
 -- bars -- starts here, so the whole feature is one gate on this function
 -- instead of a condition bolted onto thirteen decision sites.
--- overlay -> its last StartNativeGlow request. Weak-keyed: a recycled icon's
--- record drops out with the frame. Only currently lit (or suppressed) overlays
--- carry rec.active, so the combat sweep below stays a handful of entries.
+-- overlay -> its last StartNativeGlow request. Weak keys are form only: the
+-- values reach the key frames back through opts.owner and Lua 5.1 has no
+-- ephemerons, so nothing drops out (WoW frames are permanent anyway). The
+-- rec.active filter is what keeps the combat sweep below short.
 ns._cdmGlowRec = setmetatable({}, { __mode = "k" })
 
 -- Cached toggle: StartNativeGlow tests it on every glow start, so it must not
@@ -2516,6 +2517,9 @@ StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
     overlay:SetAlpha(1)
     -- NEVER Show()/Hide() -- the overlay is always shown (created in DecorateFrame).
     -- Toggling visibility on a child of a Blizzard viewer frame triggers Layout hooks and causes position cascades.
+    -- Caller-side work that must follow every real start (the threshold glow's
+    -- second mask). Riding on opts means the combat replay below runs it too.
+    if opts and opts.postStart then opts.postStart(overlay) end
 end
 
 StopNativeGlow = function(overlay)
@@ -2541,12 +2545,20 @@ function ns.CDMGlowCombatSync()
     if not ns._cdmGlowOOCGate and not ns._cdmGlowAnySuppressed then return end
     local show = _inCombat or not ns._cdmGlowOOCGate
     local anySuppressed = false
+    -- Replays are collected here and run after the traversal: StartNativeGlow
+    -- writes into _cdmGlowRec, and inserting a key during pairs() is undefined
+    -- in Lua 5.1. It only ever rewrites an existing key today, but that is not
+    -- a property this loop should rest on.
+    local queue = ns._cdmGlowSyncScratch
+    if not queue then queue = {}; ns._cdmGlowSyncScratch = queue end
+    local n = 0
     for overlay, rec in pairs(ns._cdmGlowRec) do
         if rec.active and not overlay._euiGlowPreview then
             if show then
                 if rec.suppressed then
                     if overlay:IsVisible() then
-                        StartNativeGlow(overlay, rec.style, rec.r, rec.g, rec.b, rec.opts)
+                        n = n + 1
+                        queue[n] = overlay
                     else
                         -- Hidden or recycled while suppressed: drop the request
                         -- rather than replay it onto whatever spell sits on that
@@ -2567,6 +2579,14 @@ function ns.CDMGlowCombatSync()
                 anySuppressed = true
                 -- _glowActive deliberately stays true (see StartNativeGlow).
             end
+        end
+    end
+    for i = 1, n do
+        local overlay = queue[i]
+        queue[i] = nil
+        local rec = ns._cdmGlowRec[overlay]
+        if rec then
+            StartNativeGlow(overlay, rec.style, rec.r, rec.g, rec.b, rec.opts)
         end
     end
     ns._cdmGlowAnySuppressed = anySuppressed or nil
@@ -10517,10 +10537,10 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
             _inCombat = true
             _CDMApplyVisibility()
             ns.RefreshItemCountOOCBars()
-            -- Deferred one frame: replaying suppressed glows builds textures, and
-            -- the pull frame is already paying for the visibility pass above.
-            -- CDMGlowCombatSync re-reads _inCombat, so a pull that ended inside
-            -- that frame takes the suppress branch instead.
+            -- Deferred one frame so _CDMApplyVisibility above lands first: the
+            -- sweep's IsVisible() test has to see the bars this pull actually
+            -- shows. CDMGlowCombatSync re-reads _inCombat, so a pull that ended
+            -- inside that frame takes the suppress branch instead.
             C_Timer.After(0, ns.CDMGlowCombatSync)
         elseif event == "PLAYER_REGEN_ENABLED" then
             -- Buffer combat exit: brief out-of-combat blips (mob dies, re-aggro) shouldn't flash visibility changes.

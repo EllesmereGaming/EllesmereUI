@@ -131,13 +131,22 @@ do
     end
 
     local function StartStackGlow(st, width, height)
+        -- Handed to StartNativeGlow instead of called after it: the combat
+        -- replay of Show Glows Only in Combat restarts from the recorded opts,
+        -- so a mask applied out here would be missing on every texture that
+        -- replay creates fresh. One closure per state, not per start.
+        local post = st._applyMask2
+        if not post then
+            post = function() ApplySecondStackGlowMask(st) end
+            st._applyMask2 = post
+        end
         ns.StartNativeGlow(st.glow, st.style, st.r, st.g, st.b, {
             owner = st.icon, width = width, height = height,
             N = st.lines, th = st.thickness, period = st.speed,
             bg = st.background and { r = st.bgR, g = st.bgG, b = st.bgB } or nil,
             maskWith = st.mask,
+            postStart = post,
         })
-        ApplySecondStackGlowMask(st)
         st.width, st.height = width, height
         st.started = true
     end

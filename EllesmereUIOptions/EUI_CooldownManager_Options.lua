@@ -18984,7 +18984,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- above -- it takes the cooldown edge row's free slot where that row
         -- exists, and closes the section on its own for buff-family bars.
         local glowCombatCfg = { type="toggle", text="Show Glows Only in Combat (global)",
-              tooltip = "Hide every Cooldown Manager glow while you are out of combat: proc glows, active state, max stacks, buff and pandemic glows, cooldown ready glows and bar glows.\n\nThey come back the moment you enter combat, including a glow that started before the pull.\n\nApplies to every CDM bar and to the Tracking Bars at once. Glows from other EllesmereUI modules are not affected.",
+              tooltip = "Hide every Cooldown Manager glow while you are out of combat: proc glows, active state, max stacks, buff and pandemic glows, cooldown ready glows and bar glows.\n\nThey come back the moment you enter combat, including a glow that started before the pull.\n\nApplies to every CDM bar and to the Tracking Bars at once. Glows from other EllesmereUI modules are not affected.\n\nThe Bar Glows page keeps its own per-mapping Only In Combat toggle; this one applies on top of it.",
               getValue=function()
                   local p = DB()
                   return (p and p.cdmBars and p.cdmBars.glowsOnlyInCombat) == true
