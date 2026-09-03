@@ -297,6 +297,20 @@ initFrame:SetScript("OnEvent", function(self)
                 if _G._ECL_ApplyOnlyWhenHidden then _G._ECL_ApplyOnlyWhenHidden() end
               end }
         );  y = y - h
+
+        -- Combat Only
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Combat Only",
+              tooltip="Only shows the cursor circle while you are in combat.",
+              getValue=function() local p = DB(); return p and p.combatOnly or false end,
+              setValue=function(v)
+                local p = DB(); if not p then return end
+                p.combatOnly = v
+                if _G._ECL_ApplyCombatOnlyEvents then _G._ECL_ApplyCombatOnlyEvents() end
+                if _G._ECL_UpdateVisibility then _G._ECL_UpdateVisibility() end
+              end },
+            { type="label", text="" }
+        );  y = y - h
         end   -- close Cursor Circle hidden-while-disabled gate
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
@@ -438,7 +452,7 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
-        -- Only Show in Instances
+        -- Only Show in Instances ---- Combat Only
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Only Show in Instances",
               getValue=function() return GCD_DB().instanceOnly or false end,
@@ -446,7 +460,14 @@ initFrame:SetScript("OnEvent", function(self)
                 GCD_DB().instanceOnly = v
                 if _G._ECL_UpdateVisibility then _G._ECL_UpdateVisibility() end
               end },
-            { type="label", text="" }
+            { type="toggle", text="Combat Only",
+              tooltip="Only shows the GCD circle while you are in combat.",
+              getValue=function() return GCD_DB().combatOnly or false end,
+              setValue=function(v)
+                GCD_DB().combatOnly = v
+                if _G._ECL_ApplyCombatOnlyEvents then _G._ECL_ApplyCombatOnlyEvents() end
+                if _G._ECL_UpdateVisibility then _G._ECL_UpdateVisibility() end
+              end }
         );  y = y - h
         end   -- close GCD Circle hidden-while-disabled gate
 
@@ -622,7 +643,7 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
-        -- Only Show in Instances
+        -- Only Show in Instances ---- Combat Only
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Only Show in Instances",
               getValue=function() return Cast_DB().instanceOnly or false end,
@@ -630,7 +651,14 @@ initFrame:SetScript("OnEvent", function(self)
                 Cast_DB().instanceOnly = v
                 if _G._ECL_UpdateVisibility then _G._ECL_UpdateVisibility() end
               end },
-            { type="label", text="" }
+            { type="toggle", text="Combat Only",
+              tooltip="Only shows the cast bar circle while you are in combat.",
+              getValue=function() return Cast_DB().combatOnly or false end,
+              setValue=function(v)
+                Cast_DB().combatOnly = v
+                if _G._ECL_ApplyCombatOnlyEvents then _G._ECL_ApplyCombatOnlyEvents() end
+                if _G._ECL_UpdateVisibility then _G._ECL_UpdateVisibility() end
+              end }
         );  y = y - h
         end   -- close Cast Bar Circle hidden-while-disabled gate
 

@@ -982,3 +982,65 @@ do
         end,
     })
 end
+
+-------------------------------------------------------------------------------
+--  Guide #4: the presets website ("presets_website")
+--
+--  The in-game Popular Presets browser is retired; presets live on the
+--  EllesmereUI website. Shown EVERY time (plain Show, never FireOnce) from
+--  the Profiles page's Popular Presets card and the Presets top tab.
+-------------------------------------------------------------------------------
+-- ONE paste point for the website presets section (popup + any future banner).
+EllesmereUI.PRESETS_URL = "https://ellesmereui.com/presets"
+
+do
+    EllesmereUI.VideoGuides.Register("presets_website", {
+        eyebrow  = "ELLESMEREUI WEBSITE",
+        title    = "Presets Have a New Home",
+        blurb    = "Popular presets now live on the new EllesmereUI website including full previews, step-by-step install instructions, plus new presets added every day!",
+        url      = EllesmereUI.PRESETS_URL,
+        footnote = "Each preset's page includes its import string.",
+        okText   = "Got It",
+        art = function(popup, ctx)
+            local PPx, band = ctx.PP, ctx.band
+            local EG = ctx.accent
+
+            -- A row of three preset "cards" (the website gallery read): each a
+            -- mini tile with a title bar and two content lines, the center one
+            -- lit with an accent border and accent title bar.
+            local CARD_W, CARD_H, GAP = 64, 46, 12
+            for k = 1, 3 do
+                local isMid = (k == 2)
+                local card = CreateFrame("Frame", nil, band)
+                card:SetFrameLevel(band:GetFrameLevel() + 2)
+                PPx.Size(card, CARD_W, CARD_H + (isMid and 8 or 0))
+                PPx.Point(card, "CENTER", band, "CENTER", (k - 2) * (CARD_W + GAP), 0)
+                local cbg = card:CreateTexture(nil, "BACKGROUND")
+                cbg:SetAllPoints()
+                cbg:SetColorTexture(0.045, 0.055, 0.07, 1)
+                if isMid then
+                    ctx.MakeBorder(card, EG.r, EG.g, EG.b, 0.85, PPx)
+                else
+                    ctx.MakeBorder(card, 1, 1, 1, 0.18, PPx)
+                end
+
+                local barTex = card:CreateTexture(nil, "ARTWORK")
+                barTex:SetHeight(7)
+                PPx.Point(barTex, "TOPLEFT", card, "TOPLEFT", 1, -1)
+                PPx.Point(barTex, "TOPRIGHT", card, "TOPRIGHT", -1, -1)
+                if isMid then
+                    barTex:SetColorTexture(EG.r, EG.g, EG.b, 0.9)
+                else
+                    barTex:SetColorTexture(1, 1, 1, 0.16)
+                end
+
+                for l = 1, 2 do
+                    local line = card:CreateTexture(nil, "ARTWORK")
+                    PPx.Size(line, CARD_W - 16 - (l - 1) * 14, 3)
+                    PPx.Point(line, "TOPLEFT", card, "TOPLEFT", 8, -(16 + (l - 1) * 8))
+                    line:SetColorTexture(1, 1, 1, isMid and 0.35 or 0.18)
+                end
+            end
+        end,
+    })
+end

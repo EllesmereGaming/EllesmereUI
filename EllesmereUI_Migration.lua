@@ -2458,6 +2458,75 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+-- The borderless hover/target highlight draws its own outline at Border Size 0,
+-- where the Hover/Target Border ticks were previously inert. Existing
+-- borderless profiles overwhelmingly kept those ticks ON (they did nothing),
+-- so without a pin the upgrade makes highlights appear unrequested. Pin BOTH
+-- enables OFF for every existing profile whose border size is 0 --
+-- UNCONDITIONALLY, not nil-guarded like the sibling migrations: an explicit
+-- true stored while the setting was inert cannot represent informed intent
+-- for the new behavior, and borderless veterans must see no change. The ticks
+-- are the opt-in. Border'd profiles untouched (the highlight path is
+-- unreachable there, so their recolor behavior is identical either way). A
+-- profile with NO RaidFrames bucket never stored borderSize, defaults to 1,
+-- and is skipped -- no bucket creation needed. Party frames share these keys
+-- (no party_ border section exists); per-spec overrides are out of scope,
+-- matching the sibling existing-off migrations.
+EllesmereUI.RegisterMigration({
+    id          = "rf_borderless_highlight_existing_off_v1",
+    scope       = "global",
+    description = "Pin Raid Frames Hover/Target Border OFF for existing profiles running Border Size 0, so the new borderless highlight stays opt-in for veterans; fresh installs and border'd profiles inherit the live defaults.",
+    body = function(ctx)
+        local db = ctx.db
+        if not db or not db.profiles then return end
+        for _, profData in pairs(db.profiles) do
+            -- Only profiles with real child-addon data: an empty/stub profile
+            -- isn't an existing user's.
+            if type(profData) == "table" and type(profData.addons) == "table"
+               and next(profData.addons) then
+                local rf = profData.addons.EllesmereUIRaidFrames
+                if type(rf) == "table" and (rf.borderSize or 1) <= 0 then
+                    rf.hoverBorderEnabled = false
+                    rf.targetBorderEnabled = false
+                end
+            end
+        end
+    end,
+})
+
+-- The Nameplates dispel glow's Action Button Glow substitute gained real-ABG
+-- anatomy (white ants, the color riding the soft halo, stock gold when no
+-- color is set). A color stored under the OLD rendering was chosen to tint
+-- bare ants; carrying it forward would tint the new halo instead -- a look
+-- the user never picked. Clear it once for profiles running the ABG style so
+-- they land on the stock gold; stored colors on every other style (and the
+-- per-type color toggle) are untouched, and any color picked after this
+-- migration is honored as usual.
+EllesmereUI.RegisterMigration({
+    id          = "np_dispel_abg_color_gold_v1",
+    scope       = "global",
+    description = "Reset stored Dispel Glow colors to the stock gold for profiles using the Action Button Glow style, since the color now tints the new halo rather than the old bare ants.",
+    body = function(ctx)
+        local db = ctx.db
+        if not db or not db.profiles then return end
+        for _, profData in pairs(db.profiles) do
+            -- Only profiles with real child-addon data: an empty/stub profile
+            -- isn't an existing user's.
+            if type(profData) == "table" and type(profData.addons) == "table"
+               and next(profData.addons) then
+                local np = profData.addons.EllesmereUINameplates
+                -- Style 2 = Action Button Glow; a missing key means the same
+                -- via defaults. Cleared color = the engines' gold default.
+                if type(np) == "table"
+                   and (np.dispelGlowStyle == nil or np.dispelGlowStyle == 2)
+                   and np.dispelGlowColor ~= nil then
+                    np.dispelGlowColor = nil
+                end
+            end
+        end
+    end,
+})
+
 -- Profile sync is now two-way mirror groups: a module's sync set is a membership group
 -- (configuring profile is written into it) and only members push at logout/switch. Old
 -- sets stored receivers only with no record of the sender, so they can't translate
@@ -3960,5 +4029,200 @@ EllesmereUI.RegisterMigration({
         if fonts.global == "Expressway" then
             fonts.global = EllesmereUI.SYSTEM_FONT_KEY
         end
+    end,
+})
+
+--------------------------------------------------------------------------------
+--  Power Bar's per-form threshold mode used to resolve Moonkin into the same
+--  "mana" entry as Caster (both report PT.MANA from GetPrimaryPowerType()).
+--  Now that Moonkin is checked by form ID and gets its own "moonkin" bucket,
+--  seed it as a copy of the existing "mana" entry so upgrading users see the
+--  same threshold behavior in Moonkin they had before, with a separate entry
+--  to customize going forward.
+--------------------------------------------------------------------------------
+EllesmereUI.RegisterMigration({
+    id          = "erb_power_form_mode_moonkin_bucket_v1",
+    scope       = "profile",
+    description = "Give the Power Bar's per-form threshold mode its own Moonkin entry instead of sharing Caster's.",
+    body        = function(ctx)
+        local erb = ctx.profile.addons and ctx.profile.addons.EllesmereUIResourceBars
+        local pri = erb and erb.primary
+        if not pri or not pri.thresholdFormMode then return end
+        local entries = pri.thresholdSpecs
+        if type(entries) ~= "table" or #entries == 0 then return end
+        local manaEntry
+        for _, entry in ipairs(entries) do
+            if type(entry) == "table" then
+                if entry.formKey == "moonkin" then return end  -- already migrated
+                if entry.formKey == "mana" then manaEntry = entry end
+            end
+        end
+        if not manaEntry then return end
+        local moonkinEntry = EllesmereUI.Lite.DeepCopy(manaEntry)
+        moonkinEntry.formKey = "moonkin"
+        entries[#entries + 1] = moonkinEntry
+    end,
+})
+
+-- Same split for the Health/Power "hide bar/text per form" popups: Moonkin
+-- used to share the "mana"/Caster bucket, so disabling Caster there also hid
+-- Moonkin. Seed moonkin=true wherever mana=true so that choice survives.
+-- Class Resource is skipped: it exempts Moonkin from this system entirely.
+EllesmereUI.RegisterMigration({
+    id          = "erb_moonkin_form_bucket_v1",
+    scope       = "profile",
+    description = "Preserve existing Moonkin bar/text visibility now that Moonkin has its own per-form bucket separate from Caster.",
+    body        = function(ctx)
+        local erb = ctx.profile.addons and ctx.profile.addons.EllesmereUIResourceBars
+        if not erb then return end
+        local function SeedMoonkin(sectionKey)
+            local sec = erb[sectionKey]
+            if not sec then return end
+            for _, field in ipairs({ "textDisabledForms", "barDisabledForms" }) do
+                local df = sec[field]
+                if type(df) == "table" and df.mana and df.moonkin == nil then
+                    df.moonkin = true
+                end
+            end
+        end
+        SeedMoonkin("health")
+        SeedMoonkin("primary")
+    end,
+})
+
+-- Merge Groups renders through one Blizzard flat SecureGroupHeader, whose column
+-- axis can only run perpendicular to Unit Growth -- a same-axis pair has no valid
+-- column direction, so the runtime silently substitutes one instead of honoring
+-- Group Growth. The options UI now prevents new conflicting pairs; this fixes up
+-- profiles that already saved one.
+EllesmereUI.RegisterMigration({
+    id          = "rf_merge_groups_growth_axis_v1",
+    scope       = "profile",
+    description = "For Raid Frames profiles with Merge Groups on, bump Unit Growth off Group Growth's axis (base and per-tier overrides) so the merged flat header has a valid column direction.",
+    body = function(ctx)
+        local rf = ctx.profile.addons and ctx.profile.addons.EllesmereUIRaidFrames
+        if type(rf) ~= "table" then return end
+        if not rf.mergeGroups then return end
+        local function isVert(g) return g == "UP" or g == "DOWN" end
+        local gg, ug = rf.groupGrowth or "RIGHT", rf.unitGrowth or "DOWN"
+        if isVert(gg) == isVert(ug) then
+            ug = isVert(gg) and "RIGHT" or "DOWN"
+            rf.unitGrowth = ug
+        end
+        local overrides = rf.raidSizeOverrides
+        if type(overrides) ~= "table" then return end
+        for _, ov in pairs(overrides) do
+            if type(ov) == "table" then
+                local ogg = ov.groupGrowth or gg
+                local oug = ov.unitGrowth or ug
+                if isVert(ogg) == isVert(oug) then
+                    ov.unitGrowth = isVert(ogg) and "RIGHT" or "DOWN"
+                end
+            end
+        end
+    end,
+})
+
+-- The Important Cast Glow menu used to offer exactly two engines under an ad-hoc
+-- numbering: 1 = Pixel Glow, 4 = Auto-Cast Shine. It now offers the whole
+-- PANDEMIC_GLOW_STYLES list, where 3 is Auto-Cast Shine and 4 is GCD -- so a saved
+-- 4 would silently become a different glow. Re-point it.
+--
+-- 4 is the only value that can be stale: 1 means Pixel Glow in both numberings and
+-- nothing else was reachable from the old menu. Runs per profile and the flag rides
+-- on the profile data, so a profile IMPORTED from an older build is fixed up on the
+-- pass after it lands rather than staying wrong forever.
+EllesmereUI.RegisterMigration({
+    id          = "np_important_cast_glow_style_reindex_v1",
+    scope       = "profile",
+    description = "Re-point the saved Important Cast Glow style from the old two-entry numbering (4 = Auto-Cast Shine) onto the PANDEMIC_GLOW_STYLES index (3).",
+    body = function(ctx)
+        local np = ctx.profile.addons and ctx.profile.addons.EllesmereUINameplates
+        if type(np) ~= "table" then return end
+        if np.importantCastGlowStyle == 4 then
+            np.importantCastGlowStyle = 3
+        end
+    end,
+})
+
+-- The target/focus/boss Debuff Filter became a single-select mode. Before it, a
+-- frame with NOTHING checked (Own Only off, Important off) that carried Tracked
+-- Auras rendered ONLY those spells -- the include link was the whole chain. The
+-- mode model treats Tracked Auras as additional in every mode and derives such
+-- a frame as Show All, so pin those frames to Only Tracked Auras once. Every
+-- other combination derives its old display from the untouched legacy keys
+-- (ns.UF_DebuffFilterMode in EUI_UnitFrames_AuraContainers.lua). An explicit
+-- mode is never touched, so a re-run is a no-op.
+EllesmereUI.RegisterMigration({
+    id          = "uf_debuff_filter_tracked_only_v1",
+    scope       = "profile",
+    description = "Pin target/focus/boss Debuff Filters that had nothing checked but carried Tracked Auras (they rendered only those spells) to the Only Tracked Auras mode.",
+    body = function(ctx)
+        local uf = ctx.profile.addons and ctx.profile.addons.EllesmereUIUnitFrames
+        if type(uf) ~= "table" then return end
+        for _, unitKey in ipairs({ "target", "focus", "boss" }) do
+            local s = uf[unitKey]
+            if type(s) == "table" and s.debuffFilterMode == nil
+                and s.onlyPlayerDebuffs ~= true and s.debuffPriorityAura ~= true
+                and type(s.debuffInclude) == "table" then
+                for _, on in pairs(s.debuffInclude) do
+                    if on then
+                        s.debuffFilterMode = "tracked"
+                        break
+                    end
+                end
+            end
+        end
+    end,
+})
+
+-- Visibility "Never" used to write enabledFrames[unit] = false, and that key decides
+-- whether the frame is BUILT, once, at login -- so a Spec Override carrying it left
+-- the frame uncreated for the whole session with no way back but a /reload.
+-- Visibility no longer touches it and the visibility pass hides the frame at runtime
+-- instead, so clear the flag the old pairing left behind. player/target/focus have no
+-- Enable toggle of their own, so a stored false there can only have come from it.
+EllesmereUI.RegisterMigration({
+    id          = "uf_visibility_never_keeps_frame_v1",
+    scope       = "profile",
+    description = "Clear the enabledFrames flag Visibility \"Never\" used to write for player/target/focus, so the frame is built and a Spec Override can lift the hide without a reload.",
+    body = function(ctx)
+        local UNITS = { "player", "target", "focus" }
+        local uf = ctx.profile.addons and ctx.profile.addons.EllesmereUIUnitFrames
+        local ef = uf and uf.enabledFrames
+        if type(ef) == "table" then
+            for _, unitKey in ipairs(UNITS) do
+                if ef[unitKey] == false then ef[unitKey] = nil end
+            end
+        end
+        -- Auto-capture banked the key alongside barVisibility while the two were
+        -- written together, and nothing blacklists it -- left in place, the next
+        -- spec apply writes false back and the frame goes missing again at the
+        -- following login. Other units keep theirs: their Enable toggles own it.
+        local stale = {}
+        for _, unitKey in ipairs(UNITS) do
+            stale["EllesmereUIUnitFrames\31enabledFrames\30" .. unitKey] = true
+        end
+        local function strip(store)
+            if type(store) ~= "table" then return end
+            for i = #store, 1, -1 do
+                local e = store[i]
+                local vals = type(e) == "table" and e.values
+                if type(vals) == "table" then
+                    for _, m in pairs(vals) do
+                        if type(m) == "table" then
+                            for fkey in pairs(m) do
+                                if stale[fkey] then m[fkey] = nil end
+                            end
+                        end
+                    end
+                    if type(vals.default) ~= "table" or next(vals.default) == nil then
+                        table.remove(store, i)
+                    end
+                end
+            end
+        end
+        strip(ctx.profile.specOverrides)
+        strip(ctx.profile.condOverrides)
     end,
 })

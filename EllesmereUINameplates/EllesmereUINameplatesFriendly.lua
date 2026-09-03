@@ -118,7 +118,7 @@ local NPC_COLOR_R, NPC_COLOR_G, NPC_COLOR_B = 0, 1, 0
 
 -- Bar & name color for full-plate friendly NPCs. User-customizable via the inline
 -- swatch on "Show Friendly NPC Nameplates"; defaults to the green NPC_COLOR. Only used
--- in full-plate mode -- name-only NPCs use the overlay's reaction color instead.
+-- in full-plate mode -- name-only NPCs have their own colors in the NPC cog.
 local function GetFriendlyNPCColor()
     local fp = FP()
     local c = fp and fp.friendlyNPCColor
@@ -206,8 +206,21 @@ local function ApplySubtitleFont()
 end
 ApplySubtitleFont()
 
-local function ApplyFriendlyFontOverride()
+local _ffFile, _ffSize
+local function ApplyFriendlyFontOverride(force)
     SaveOriginalFonts()
+    local font = GetFont()
+    local size = GetFriendlyNameSize()
+    -- Blizzard never rewrites the shared font OBJECTS (its plate setup only
+    -- SetFontObjects the name strings onto them), so once they carry our
+    -- file + size they keep it: an unchanged pair means nothing to restore
+    -- or re-apply. Every SetFont on these objects relayouts every plate
+    -- name, so this stamp is what keeps plate-add bursts free.
+    -- `force` bypasses the stamp: on RESTRICTED friendly-player plates
+    -- (instanced content) the per-string SetTextHeight re-stamp is denied,
+    -- and this relayout is the only lever that clears Blizzard's per-instance
+    -- height, so the deferred re-apply forces it there (once per burst).
+    if not force and fontOverrideApplied and font == _ffFile and size == _ffSize then return end
     -- Restore to known-good originals first so we read the correct height
     -- even if Blizzard reset the font objects after a CVar change.
     if fontOverrideApplied then
@@ -219,8 +232,6 @@ local function ApplyFriendlyFontOverride()
         end
         fontOverrideApplied = false
     end
-    local font = GetFont()
-    local size = GetFriendlyNameSize()
     if SystemFont_NamePlate and SystemFont_NamePlate.SetFont then
         local _, _, flags = SystemFont_NamePlate:GetFont()
         SystemFont_NamePlate:SetFont(font, size, flags or GetNPOutline())
@@ -229,6 +240,7 @@ local function ApplyFriendlyFontOverride()
         local _, _, flags = SystemFont_NamePlate_Outlined:GetFont()
         SystemFont_NamePlate_Outlined:SetFont(font, size, flags or GetNPOutline())
     end
+    _ffFile, _ffSize = font, size
     fontOverrideApplied = true
 end
 
@@ -303,13 +315,30 @@ local function _OnNameWidthChanged(self)
     _nameFixGuard = false
 end
 
+-- Blizzard's ApplyFrameOptions stamps a PER-INSTANCE height on the name
+-- FontString (name:SetTextHeight(healthBarFontHeight)), which beats the shared
+-- SystemFont_NamePlate size, so the font-object override alone is lost on every
+-- plate setup. Re-assert the configured height per FontString, and again whenever
+-- Blizzard re-stamps it. Guarded because our own write re-enters the hook.
+local _nameHeightGuard = false
+local function ApplyNameTextHeight(nameFS)
+    if _nameHeightGuard then return end
+    if not (nameFS and nameFS.SetTextHeight) then return end
+    if not IsNameOnlyMode() then return end
+    _nameHeightGuard = true
+    pcall(nameFS.SetTextHeight, nameFS, GetFriendlyNameSize())
+    _nameHeightGuard = false
+end
+
 local function EnsureNameUnconstrained(nameFS)
     if not nameFS then return end
     FixNameSizing(nameFS)
+    ApplyNameTextHeight(nameFS)
     if hookedNameFonts[nameFS] then return end
     hookedNameFonts[nameFS] = true
     hooksecurefunc(nameFS, "SetWidth", _OnNameWidthChanged)
     if nameFS.SetSize then hooksecurefunc(nameFS, "SetSize", _OnNameWidthChanged) end
+    if nameFS.SetTextHeight then hooksecurefunc(nameFS, "SetTextHeight", ApplyNameTextHeight) end
 end
 
 local function ApplyFontToNameplate(nameplate)
@@ -323,6 +352,9 @@ ns.ApplyFontToNameplate = ApplyFontToNameplate
 function ns.RefreshFriendlyNameSize()
     if IsNameOnlyMode() then
         ApplyFriendlyFontOverride()
+        -- Blizzard's per-instance name height overrides the font object, so the
+        -- visible plates need the new size stamped on directly.
+        if ReanchorAllPlayerNames then ReanchorAllPlayerNames() end
         -- The guild line hangs half a name-height below the plate centre, so
         -- a new name size moves it (ns lookup: defined later in this file).
         if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
@@ -338,13 +370,17 @@ end
 -- Touches font objects only -- no CVar writes -- so it can never feed back into
 -- UpdateNamePlateOptions.
 local _nameSizeReapplyPending = false
-local function ScheduleNameSizeReapply()
+local _nameSizeReapplyForce = false
+local function ScheduleNameSizeReapply(force)
+    if force then _nameSizeReapplyForce = true end
     if _nameSizeReapplyPending or not IsNameOnlyMode() then return end
     _nameSizeReapplyPending = true
     C_Timer.After(0, function()
         _nameSizeReapplyPending = false
+        local forced = _nameSizeReapplyForce
+        _nameSizeReapplyForce = false
         if not IsNameOnlyMode() then return end
-        ApplyFriendlyFontOverride()
+        ApplyFriendlyFontOverride(forced)
         -- Blizzard's own ApplyFrameOptions pass re-anchors the name (that is
         -- what fires this), so re-collapse it here rather than from a
         -- SetPoint hook, which would re-enter UpdateAnchors mid-pass. Rides
@@ -383,8 +419,24 @@ local function GetNPCNameColor(unit)
         -- Neutral: yellow
         return 0.9, 0.7, 0.0
     end
-    -- Friendly NPC: green
-    return NPC_COLOR_R, NPC_COLOR_G, NPC_COLOR_B
+    local fp = FP()
+    local c = (fp and fp.friendlyNPCNameColor) or ns.defaults.friendlyNPCNameColor
+    return c.r, c.g, c.b
+end
+
+-- Title line under the name-only NPC name. Independent of the name color; the
+-- default alpha is what separates it from the name above it. Neutral units
+-- mirror GetNPCNameColor: reaction yellow wins over the stored color (the
+-- swatch governs friendly units only, same as Name Color), alpha stays the
+-- stored one.
+local function GetNPCTitleColor(unit)
+    local fp = FP()
+    local c = (fp and fp.friendlyNPCTitleColor) or ns.defaults.friendlyNPCTitleColor
+    local reaction = unit and UnitReaction(unit, "player")
+    if reaction and reaction == 4 then
+        return 0.9, 0.7, 0.0, c.a or 1
+    end
+    return c.r, c.g, c.b, c.a or 1
 end
 
 local NPC_TITLE_FONT_SIZE = 10
@@ -430,6 +482,30 @@ local function GetNPCOverlayNameSize()
     return (fp and fp.friendlyNPCNameSize) or NPC_OVERLAY_FONT_SIZE
 end
 
+local function GetNPCTitleSize()
+    local fp = FP()
+    return (fp and fp.friendlyNPCTitleSize) or NPC_TITLE_FONT_SIZE
+end
+
+-- Font and color for both overlay lines. Shared by the first paint and by the
+-- option rows, which re-style live overlays rather than rebuilding them.
+local function ApplyOverlayStyle(overlay, unit)
+    local font, outline, shadow = GetFont(), GetNPOutline(), GetNPUseShadow()
+    local Prime = EllesmereUI and EllesmereUI.PrimeFontShadow
+    if Prime then Prime(overlay.name, shadow) end
+    overlay.name:SetFont(font, GetNPCOverlayNameSize(), outline)
+    overlay.name:SetTextColor(GetNPCNameColor(unit))
+    if overlay.name.SetSnapToPixelGrid then
+        overlay.name:SetSnapToPixelGrid(false)
+    end
+    if overlay.name.SetTexelSnappingBias then
+        overlay.name:SetTexelSnappingBias(0)
+    end
+    if Prime then Prime(overlay.title, shadow) end
+    overlay.title:SetFont(font, GetNPCTitleSize(), outline)
+    overlay.title:SetTextColor(GetNPCTitleColor(unit))
+end
+
 local function ShowNPCOverlay(nameplate, unit)
     if npcOverlays[nameplate] then return end
     local overlay = AcquireOverlay()
@@ -445,28 +521,12 @@ local function ShowNPCOverlay(nameplate, unit)
     overlay.name:SetWordWrap(false)
     overlay.name:SetNonSpaceWrap(false)
     overlay.name:SetMaxLines(1)
-    -- Apply our font
-    local font = GetFont()
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(overlay.name, GetNPUseShadow()) end
-    overlay.name:SetFont(font, GetNPCOverlayNameSize(), GetNPOutline())
-    if overlay.name.SetSnapToPixelGrid then
-        overlay.name:SetSnapToPixelGrid(false)
-    end
-    if overlay.name.SetTexelSnappingBias then
-        overlay.name:SetTexelSnappingBias(0)
-    end
-    -- Color based on reaction
-    local r, g, b = GetNPCNameColor(unit)
-    overlay.name:SetTextColor(r, g, b)
+    ApplyOverlayStyle(overlay, unit)
     -- NPC title (e.g. "Innkeeper", "Flight Master")
     if ShowNPCTitles() then
         local titleText = GetNPCTitle(unit)
         if titleText then
-            local font = GetFont()
-            if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(overlay.title, GetNPUseShadow()) end
-            overlay.title:SetFont(font, NPC_TITLE_FONT_SIZE, GetNPOutline())
             overlay.title:SetText("<" .. titleText .. ">")
-            overlay.title:SetTextColor(r, g, b, 0.7)
             overlay.title:Show()
         else
             overlay.title:Hide()
@@ -514,6 +574,14 @@ local function RefreshAllNPCOverlays()
     end
 end
 ns.RefreshAllNPCOverlays = RefreshAllNPCOverlays
+
+-- Re-style live overlays in place: a slider drag or a swatch change must not
+-- rebuild every overlay, which would re-read each unit's tooltip for the title.
+function ns.RefreshNPCOverlayStyle()
+    for _, overlay in pairs(npcOverlays) do
+        if overlay.unit then ApplyOverlayStyle(overlay, overlay.unit) end
+    end
+end
 
 -------------------------------------------------------------------------------
 --  Below Name sub text: data + rendering (shared by both friendly modes)
@@ -712,7 +780,10 @@ function ReanchorAllPlayerNames()
     for unit, nameplate in pairs(pending) do
         if UnitIsPlayer(unit) and not UnitCanAttack("player", unit) and not UnitIsUnit(unit, "player") then
             local uf = nameplate.UnitFrame
-            if uf and uf.name then FixNameSizing(uf.name) end
+            if uf and uf.name then
+                FixNameSizing(uf.name)
+                ApplyNameTextHeight(uf.name)
+            end
         end
     end
 end
@@ -836,8 +907,11 @@ hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", function(_, unit)
 
     -- Re-assert the name-only font size for this newly added / camera-revealed
     -- plate -- Blizzard's per-plate setup resets the shared font object to default.
-    -- No-op outside name-only mode.
-    ScheduleNameSizeReapply()
+    -- No-op outside name-only mode. Forced in instanced content for PLAYER plates
+    -- only: those are the restricted ones where the per-string re-stamp cannot
+    -- take, and the forced path relayouts every plate name four times, so a
+    -- pet / NPC add must not pay it.
+    ScheduleNameSizeReapply(IsInInstance() and UnitIsPlayer(unit))
 
     -- Health-bar mode: full UF suppression for players (and NPCs if enabled)
     if IsFriendlyEnabled() then
@@ -865,6 +939,25 @@ hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", function(_, unit)
     if IsNameOnlyMode() and UnitIsPlayer(unit) then
         local nameplate = C_NamePlate.GetNamePlateForUnit(unit)
         if nameplate and nameplate.UnitFrame and nameplate.UnitFrame.name then
+            -- Name-only player plates render ONLY the name, but Blizzard's
+            -- CompactUnitFrame keeps its full ~47-event surface live behind
+            -- every one of them (incl. UNIT_AURA and UPDATE_MOUSEOVER_UNIT).
+            -- Kill it; keep the name channel plus the soft-target trio. Self-
+            -- healing: the driver's secure SetUnit re-registers everything on
+            -- the plate's next occupant, and the name-only mode toggle writes
+            -- nameplate CVars, which trigger the driver's own full re-setup.
+            local uf = nameplate.UnitFrame
+            if not uf:IsForbidden() then
+                uf:UnregisterAllEvents()
+                uf:RegisterUnitEvent("UNIT_NAME_UPDATE", unit)
+                uf:RegisterEvent("PLAYER_TARGET_CHANGED")
+                uf:RegisterEvent("PLAYER_SOFT_FRIEND_CHANGED")
+                uf:RegisterEvent("PLAYER_SOFT_ENEMY_CHANGED")
+                -- Blizzard's RaidTargetFrame is the marker display on this path and
+                -- its OnUnitSet drives it from this event alone; without it the marker
+                -- froze until the plate was re-acquired.
+                uf:RegisterEvent("RAID_TARGET_UPDATE")
+            end
             EnsureNameUnconstrained(nameplate.UnitFrame.name)
             -- Subtitle Text: inline title + guild line, both composed onto
             -- this same FontString.
@@ -1807,7 +1900,7 @@ end
 -- Font objects only -- safe, debounced, no CVar feedback.
 if NamePlateDriverFrame and NamePlateDriverFrame.UpdateNamePlateOptions then
     hooksecurefunc(NamePlateDriverFrame, "UpdateNamePlateOptions", function()
-        ScheduleNameSizeReapply()
+        ScheduleNameSizeReapply(IsInInstance())
     end)
 end
 

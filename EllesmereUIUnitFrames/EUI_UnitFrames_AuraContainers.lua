@@ -18,12 +18,6 @@ local _, ns = ...
 
 local AK -- EllesmereUI.AuraKit, resolved at first use (parent loads first)
 
--- Phase gate: units render through containers once listed here.
-ns.UF_ContainerUnits = {
-    player = true, target = true, focus = true,
-    boss1 = true, boss2 = true, boss3 = true, boss4 = true, boss5 = true,
-}
-
 local AURA_CROP_HEIGHT = 0.80
 local AURA_ZOOM = 0.07
 local FALLBACK_FONT = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
@@ -54,6 +48,9 @@ local TOKEN_CLASSES = {
     { key = "bigdef",      token = "BIG_DEFENSIVE",           skey = "BigDefensive" },
     { key = "extdef",      token = "EXTERNAL_DEFENSIVE",      skey = "ExternalDefensive" },
     { key = "cancel",      token = "CANCELABLE",              skey = "Cancelable", buffOnly = true },
+    -- Less common (debuffs): your own casts. LAST so every existing chain
+    -- shape is byte-identical while it is unselected.
+    { key = "castbyme",    token = "PLAYER",                  skey = "CastByMe",   debuffOnly = true },
 }
 local CANDIDATE_CLASSES = {
     -- Player-frame only: debuffs not caused by ANY player or player pet (engine
@@ -64,8 +61,22 @@ local CANDIDATE_CLASSES = {
     -- PLAYER-token handoff; see BuildChain).
     { key = "nonplayer", cand = { isFromPlayerOrPlayerPet = false }, skey = "NonPlayer",
       debuffOnly = true, playerUnitOnly = true },
+    -- The complement of nonplayer on the SAME engine field; the options setters
+    -- keep the two mutually exclusive across both lanes (BuildChain carries the
+    -- complementary FALSE forward once this one is in the chain).
+    { key = "anyplayer", cand = { isFromPlayerOrPlayerPet = true }, skey = "AnyPlayer",
+      debuffOnly = true, playerUnitOnly = true },
     { key = "bossaura", cand = { isBossAura = true },     skey = "BossAura",     debuffOnly = true },
     { key = "roleaura", cand = { isRoleAura = true },     skey = "RoleAura",     debuffOnly = true },
+    -- Debuffs the player's own class can apply (engine boolean).
+    { key = "canapply", cand = { canApplyAura = true },   skey = "CanApply",     debuffOnly = true },
+    -- Per-type dispels: BEFORE dispeltyped so a shown type forwards its exclude
+    -- onto the typed record (which then shows the remaining types).
+    { key = "magic",   cand = { includeDispelTypes = { Magic = true } },   skey = "DispelMagic",   debuffOnly = true },
+    { key = "curse",   cand = { includeDispelTypes = { Curse = true } },   skey = "DispelCurse",   debuffOnly = true },
+    { key = "poison",  cand = { includeDispelTypes = { Poison = true } },  skey = "DispelPoison",  debuffOnly = true },
+    { key = "disease", cand = { includeDispelTypes = { Disease = true } }, skey = "DispelDisease", debuffOnly = true },
+    { key = "bleed",   cand = { includeDispelTypes = { Bleed = true } },   skey = "DispelBleed",   debuffOnly = true },
     -- Important: two Blizzard importance concepts, combined per unit in BuildChain. The
     -- class default (isPriorityAura) is the raid-frame priority curation -- the concept
     -- for debuffs on FRIENDLY units (the player frame and Player Aura Bars use it
@@ -145,19 +156,135 @@ local function CandFP(cf)
     return table.concat(parts, ",")
 end
 
+-- The "priority" candidate payload (isPriorityAura), shared by the
+-- non-player debuff modes below and the class vocabulary above.
+local PRIORITY_CAND
+for i = 1, #CANDIDATE_CLASSES do
+    if CANDIDATE_CLASSES[i].key == "priority" then PRIORITY_CAND = CANDIDATE_CLASSES[i].cand end
+end
+
+-- Non-player DEBUFF filter (target/focus/boss): ONE single-select mode,
+-- a pure VIEW over the legacy keys -- nothing is rewritten on update.
+--   s.debuffFilterMode      explicit pick from the Debuff Filter dropdown
+--   else derived:  Important + Own Only checked -> "importantOwn"
+--                  Important checked            -> "important"
+--                  Own Only checked             -> "own" (the boss default)
+--                  nothing                      -> "all"
+-- Tracked Auras never enter the derivation: they are ADDITIONAL tracking in
+-- every mode (caster scope = the per-entry MINE tag, never the filter), and
+-- only the explicit "tracked" mode makes them the whole display.
+local MODE_VALID = {
+    all = true, tracked = true, own = true,
+    important = true, importantOwn = true, importantOrOwn = true,
+}
+local function HasActiveIncludes(s)
+    local inc = s.debuffInclude
+    if not inc then return false end
+    for _, v in pairs(inc) do
+        if v then return true end
+    end
+    return false
+end
+local function DebuffFilterMode(s)
+    local m = s.debuffFilterMode
+    if m and MODE_VALID[m] then return m end
+    local own = s.onlyPlayerDebuffs == true
+    if s.debuffPriorityAura == true then
+        if own then return "importantOwn" end
+        return "important"
+    end
+    if own then return "own" end
+    return "all"
+end
+ns.UF_DebuffFilterMode = DebuffFilterMode
+ns.UF_DebuffHasIncludes = HasActiveIncludes
+
+-- Tracked Auras include links (target/focus/boss): the unit's explicit
+-- always-show spells, additive in every mode. Caster scope lives in the
+-- filter STRING, so the two scopes are two links: "inc" any caster,
+-- "incmine" your casts (PLAYER). Boss entries default to your casts with an
+-- any-caster OPT-OUT map (s.debuffIncludeAnyCaster); target/focus entries
+-- default to any caster with a MINE OPT-IN map (s.debuffIncludeMine). Each
+-- key embeds its id-set fingerprint so list/tag edits declare a fresh
+-- variant (stale ones park at 0); the cand overrides BOTH spell-ID sets in
+-- the config sweep -- includeSpellIDs = the actives, excludeSpellIDs = {}
+-- so the shared excludes (which hide the actives from every OTHER group,
+-- see ApplyGroupConfig) never blank these.
+local function AppendIncludeLinks(chain, s, unit)
+    local inc = s.debuffInclude
+    if not inc then return end
+    local isBoss = unit:match("^boss") ~= nil
+    local anym = isBoss and s.debuffIncludeAnyCaster or nil
+    local minem = (not isBoss) and s.debuffIncludeMine or nil
+    local m, mm
+    for id, v in pairs(inc) do
+        if v then
+            local mine
+            if isBoss then
+                mine = not (anym and anym[id])
+            else
+                mine = minem ~= nil and minem[id] == true
+            end
+            if mine then
+                mm = mm or {}; mm[id] = true
+            else
+                m = m or {}; m[id] = true
+            end
+        end
+    end
+    if m then
+        chain[#chain + 1] = { key = "inc|" .. CandFP({ includeSpellIDs = m }),
+            tokens = { "HARMFUL" },
+            cand = { includeSpellIDs = m, excludeSpellIDs = {} }, inc = true }
+    end
+    if mm then
+        chain[#chain + 1] = { key = "incmine|" .. CandFP({ includeSpellIDs = mm }),
+            tokens = { "HARMFUL", "PLAYER" },
+            cand = { includeSpellIDs = mm, excludeSpellIDs = {} }, inc = true }
+    end
+end
+
+-- Non-player DEBUFF chain: a fixed, mutually exclusive group set per mode.
+-- Own Only is the PLAYER filter token (the isFromPlayerOrPlayerPet candidate
+-- is identity-gated on hostile units; the token filters everywhere), and
+-- "Important or Own" partitions with !PLAYER so an aura renders once.
+-- Important covers both importance concepts (see PRIORITY_NONPLAYER_CAND).
+-- Show All emits no include links: the catch-all already shows the tracked
+-- spells, and ApplyGroupConfig leaves them un-excluded when no link renders
+-- them. Only Tracked Auras with an empty list = an empty chain = nothing.
+local function NonPlayerDebuffChain(s, unit)
+    local mode = DebuffFilterMode(s)
+    local chain = {}
+    if mode == "all" then
+        chain[1] = { key = "all", tokens = { "HARMFUL" } }
+        return chain
+    end
+    if mode == "own" then
+        chain[1] = { key = "own", tokens = { "HARMFUL", "PLAYER" } }
+    elseif mode == "important" then
+        chain[1] = { key = "priority",   tokens = { "HARMFUL" }, cand = PRIORITY_CAND }
+        chain[2] = { key = "prioritynp", tokens = { "HARMFUL" }, cand = PRIORITY_NONPLAYER_CAND }
+    elseif mode == "importantOwn" then
+        chain[1] = { key = "priorityown",   tokens = { "HARMFUL", "PLAYER" }, cand = PRIORITY_CAND }
+        chain[2] = { key = "prioritynpown", tokens = { "HARMFUL", "PLAYER" }, cand = PRIORITY_NONPLAYER_CAND }
+    elseif mode == "importantOrOwn" then
+        chain[1] = { key = "own",           tokens = { "HARMFUL", "PLAYER" } }
+        chain[2] = { key = "priorityoth",   tokens = { "HARMFUL", "!PLAYER" }, cand = PRIORITY_CAND }
+        chain[3] = { key = "prioritynpoth", tokens = { "HARMFUL", "!PLAYER" }, cand = PRIORITY_NONPLAYER_CAND }
+    end
+    AppendIncludeLinks(chain, s, unit)
+    return chain
+end
+
 local function ClassEnabled(class, isBuff, s, unit)
     if class.buffOnly and not isBuff then return false end
     if class.debuffOnly and isBuff then return false end
     -- Player-frame-only classes: offered nowhere else in the UI, and a
     -- stale key on another unit's settings must have no effect.
     if class.playerUnitOnly and unit ~= "player" then return false end
-    -- Non-player DEBUFF vocabulary is just Important (plus the Own Only
-    -- toggle, which lives outside the class system): every other debuff
-    -- class is player/PAB-only now, so stale keys from the retired
-    -- target/focus/boss checkboxes stay inert with zero migration.
-    if not isBuff and unit ~= "player" and class.key ~= "priority" then return false end
-    -- Non-player BUFF vocabulary is Stealable / Big Defensive / Dispellable only (same
-    -- zero-migration rule: retired checkbox keys go unread).
+    -- Non-player BUFF vocabulary is Stealable / Big Defensive / Dispellable only
+    -- (zero-migration rule: retired checkbox keys go unread). Non-player DEBUFFS
+    -- never reach the class system -- NonPlayerDebuffChain owns them.
     if isBuff and unit ~= "player" and class.key ~= "steal"
         and class.key ~= "bigdef" and class.key ~= "dispellable" then
         return false
@@ -176,7 +303,6 @@ local function ClassNegated(class, isBuff, s, unit)
     if class.buffOnly and not isBuff then return false end
     if class.debuffOnly and isBuff then return false end
     if class.playerUnitOnly and unit ~= "player" then return false end
-    if not isBuff and unit ~= "player" and class.key ~= "priority" then return false end
     if isBuff and unit ~= "player" and class.key ~= "steal"
         and class.key ~= "bigdef" and class.key ~= "dispellable" then
         return false
@@ -186,9 +312,24 @@ local function ClassNegated(class, isBuff, s, unit)
     return negs ~= nil and negs[class.skey] == true
 end
 
+-- Union of two dispel-type sets as a NEW table (vocabulary tables are shared
+-- and never mutated); nil-safe on the accumulator.
+local function MergeDispelTypes(acc, add)
+    local out = {}
+    if acc then for k, v in pairs(acc) do out[k] = v end end
+    for k, v in pairs(add) do out[k] = v end
+    return out
+end
+ns.UF_MergeDispelTypes = MergeDispelTypes
+
 local function BuildChain(base, isBuff, s, unit)
+    -- Non-player DEBUFFS run the mode model (one dropdown value, see
+    -- NonPlayerDebuffChain). The class chain below serves the non-player BUFF
+    -- elements and the player frame's debuff legacy path (PlayerDebuffChain
+    -- delegates here for the class-checkbox model).
+    if not isBuff and unit ~= "player" then return NonPlayerDebuffChain(s, unit) end
     local chain, negations = {}, {}
-    local subCand, negDispelTypes, npNegOwned
+    local subCand, negDispelTypes, npNegOwned, anyNegOwned
 
     -- HIDDEN PASS -- hide-lane classes join FIRST as parked links so their
     -- negations / forward excludes / inverted booleans reach every positive link
@@ -220,8 +361,9 @@ local function BuildChain(base, isBuff, s, unit)
                 for n = 1, #negations do tokens[#tokens + 1] = negations[n] end
                 chain[#chain + 1] = { key = class.key .. "|" .. table.concat(tokens, ""),
                     tokens = tokens, cand = cc, hidden = true }
-                if cc.includeDispelTypes then negDispelTypes = cc.includeDispelTypes end
-                if cc.isFromPlayerOrPlayerPet == false then npNegOwned = true end
+                if cc.includeDispelTypes then negDispelTypes = MergeDispelTypes(negDispelTypes, cc.includeDispelTypes) end
+                if cc.isFromPlayerOrPlayerPet == false then npNegOwned = true
+                elseif cc.isFromPlayerOrPlayerPet == true then anyNegOwned = true end
             else
                 subCand = subCand or {}
                 for k, v in pairs(cc) do
@@ -253,13 +395,31 @@ local function BuildChain(base, isBuff, s, unit)
                 if out[k] == nil then out[k] = v end
             end
         end
-        if negDispelTypes and not (out and out.includeDispelTypes) then
+        if negDispelTypes then
             out = out or {}
-            out.excludeDispelTypes = negDispelTypes
+            local inc = out.includeDispelTypes
+            if inc then
+                -- A positive include map (typed dispels) shrinks by the hidden
+                -- types; a per-type map never holds a hidden type (lanes are
+                -- exclusive per class), so the copy is a no-op there.
+                local m
+                for T in pairs(negDispelTypes) do
+                    if inc[T] then
+                        m = m or MergeDispelTypes(nil, inc)
+                        m[T] = nil
+                    end
+                end
+                if m then out.includeDispelTypes = m end
+            else
+                out.excludeDispelTypes = negDispelTypes
+            end
         end
         if npNegOwned then
             out = out or {}
             if out.isFromPlayerOrPlayerPet == nil then out.isFromPlayerOrPlayerPet = true end
+        elseif anyNegOwned then
+            out = out or {}
+            if out.isFromPlayerOrPlayerPet == nil then out.isFromPlayerOrPlayerPet = false end
         end
         return out
     end
@@ -288,18 +448,37 @@ local function BuildChain(base, isBuff, s, unit)
     -- candidate class carries the complementary TRUE so the two sides
     -- partition instead of double-displaying (an aura is shown by exactly
     -- one group; candidate booleans cannot be token-negated).
-    local npOwned = false
+    local npOwned, anyOwned = false, false
+    -- Shown per-type dispel maps forward an exclude onto later candidate links
+    -- (the typed dispel class), so a type shown on its own renders once.
+    local shownTypes
     for i = 1, #CANDIDATE_CLASSES do
         local class = CANDIDATE_CLASSES[i]
         if ClassEnabled(class, isBuff, s, unit) then
             local tokens = { base }
             for n = 1, #negations do tokens[#tokens + 1] = negations[n] end
             local cand = class.cand
-            if npOwned then
+            if npOwned or anyOwned then
                 local src = cand
                 cand = {}
                 for k, v in pairs(src) do cand[k] = v end
-                cand.isFromPlayerOrPlayerPet = true
+                if cand.isFromPlayerOrPlayerPet == nil then cand.isFromPlayerOrPlayerPet = npOwned end
+            end
+            if shownTypes and cand.includeDispelTypes then
+                local inc = cand.includeDispelTypes
+                local m
+                for T in pairs(shownTypes) do
+                    if inc[T] then
+                        m = m or MergeDispelTypes(nil, inc)
+                        m[T] = nil
+                    end
+                end
+                if m then
+                    local src = cand
+                    cand = {}
+                    for k, v in pairs(src) do cand[k] = v end
+                    cand.includeDispelTypes = m
+                end
             end
             cand = NegCand(cand)
             chain[#chain + 1] = { key = LaneKey(class.key, tokens, cand), tokens = tokens, cand = cand }
@@ -314,49 +493,27 @@ local function BuildChain(base, isBuff, s, unit)
                 chain[#chain + 1] = { key = LaneKey("prioritynp", tokens, pnp), tokens = tokens, cand = pnp }
             end
             if class.key == "nonplayer" then npOwned = true end
+            if class.key == "anyplayer" then anyOwned = true end
+            if class.cand.includeDispelTypes and class.key ~= "dispeltyped" then
+                shownTypes = MergeDispelTypes(shownTypes, class.cand.includeDispelTypes)
+            end
         end
     end
 
     -- Hide lane with NOTHING positive on a non-player unit: the legacy show-all
     -- fallback (plain "all" group, ApplyGroupConfig) cannot carry the negations,
     -- so an explicit catch-all link takes its place -- everything minus the hide
-    -- lane. Suppressed when Tracked Auras includes exist (explicit includes keep
-    -- owning the frame's content, consistent with includes winning everywhere).
-    -- Player frames keep PAB semantics: nothing positive = show nothing.
+    -- lane. Player frames keep PAB semantics: nothing positive = show nothing.
     if lanesActive and unit ~= "player" then
         local hasPositive = false
         for i = 1, #chain do
             if not chain[i].hidden then hasPositive = true break end
         end
-        local hasInc = false
-        if not isBuff and s.debuffInclude then
-            for _, v in pairs(s.debuffInclude) do
-                if v then hasInc = true break end
-            end
-        end
-        if not hasPositive and not hasInc then
+        if not hasPositive then
             local allTokens = { base }
             for n = 1, #negations do allTokens[#allTokens + 1] = negations[n] end
             local cand = NegCand(nil)
             chain[#chain + 1] = { key = LaneKey("nall", allTokens, cand), tokens = allTokens, cand = cand }
-        end
-    end
-    -- Tracked Auras include list (target/focus/boss debuff filters): the
-    -- unit's own any-caster include group. The key embeds the active-set
-    -- fingerprint so list edits declare a fresh variant (stale ones park
-    -- at 0); its cand overrides BOTH spell-ID sets in the config sweep --
-    -- includeSpellIDs = the actives, excludeSpellIDs = {} so the shared
-    -- excludes (which deliberately hide the actives from every OTHER
-    -- group, see ApplyGroupConfig) never blank this one.
-    if not isBuff and unit ~= "player" and s.debuffInclude then
-        local m
-        for id, v in pairs(s.debuffInclude) do
-            if v then m = m or {}; m[id] = true end
-        end
-        if m then
-            chain[#chain + 1] = { key = "inc|" .. CandFP({ includeSpellIDs = m }),
-                tokens = { base },
-                cand = { includeSpellIDs = m, excludeSpellIDs = {} } }
         end
     end
     return chain
@@ -424,6 +581,19 @@ local function PlayerBuffChain(s)
         pbImportEnsured = true
         if ns.PAB_ImportBM2Filters then ns.PAB_ImportBM2Filters() end
     end
+    -- Curated spell families (a primary plus its alts: rank/talent ids and
+    -- multi-state buffs whose aura swaps spell ID as it advances) expand at
+    -- resolution, exactly as PAB_ResolveSpells does for this same shared filter
+    -- registry, so the player frame and Player Aura Bars agree on what a filter
+    -- tracks. An explicit false in the owning filter wins.
+    local function ExpandBuffFamily(set, id, blocked)
+        local fam = ns.PAB_SPELL_FAMILY and ns.PAB_SPELL_FAMILY[id]
+        if not fam then return end
+        for i = 1, #fam do
+            local m = fam[i]
+            if not (blocked and blocked[m] == false) then set[m] = true end
+        end
+    end
     local chain = {}
     local dur = s.buffHasDuration == true
     -- All Buffs and Has Duration are mutually exclusive broad-content modes (the
@@ -449,6 +619,7 @@ local function PlayerBuffChain(s)
                         if on then
                             ex = ex or {}
                             ex[id] = true
+                            ExpandBuffFamily(ex, id, f.spells)
                         end
                     end
                 end
@@ -474,6 +645,7 @@ local function PlayerBuffChain(s)
                 inc[id] = true
                 n = (n or 0) + 1
             end
+            ExpandBuffFamily(inc, id)
         end
     end
     if not broad and s.buffFilters then
@@ -487,6 +659,7 @@ local function PlayerBuffChain(s)
                             inc[id] = true
                             n = (n or 0) + 1
                         end
+                        ExpandBuffFamily(inc, id, f.spells)
                     end
                 end
             end
@@ -498,15 +671,27 @@ local function PlayerBuffChain(s)
         local direct
         if s.buffSpells then
             direct = {}
-            for i = 1, #s.buffSpells do direct[s.buffSpells[i]] = true end
+            for i = 1, #s.buffSpells do
+                direct[s.buffSpells[i]] = true
+                ExpandBuffFamily(direct, s.buffSpells[i])
+            end
         end
+        -- Hidden filters expand as families too, or one hidden id of a family
+        -- would leak its siblings; direct Extra Spells still win.
+        local hide = {}
         for filterId in pairs(s.buffNegFilters) do
             local f = ns.PAB_GetFilter and ns.PAB_GetFilter(filterId)
             if f and f.spells then
                 for id, on in pairs(f.spells) do
-                    if on and not (direct and direct[id]) then inc[id] = nil end
+                    if on then
+                        hide[id] = true
+                        ExpandBuffFamily(hide, id, f.spells)
+                    end
                 end
             end
+        end
+        for id in pairs(hide) do
+            if not (direct and direct[id]) then inc[id] = nil end
         end
         if next(inc) == nil then inc = nil end
     end
@@ -620,29 +805,8 @@ local function SettingsFor(unit)
     return db.profile[key]
 end
 
-local function ResolveOwnOnly(base, s)
-    if base == "HELPFUL" then return s.onlyPlayerBuffs end
-    return s.onlyPlayerDebuffs
-end
-
--- Own Only renders as a PLAYER filter token on the group declarations (same mechanism
--- as the nameplate module): the isFromPlayerOrPlayerPet candidate boolean does not
--- filter HARMFUL auras on enemy units (boss/target), while the token filters
--- everywhere. Filter strings are fixed at declaration, so own-only is part of the
--- container-swap signature, not a live setter. The PLAYER frame never applies own-only
--- on either polarity: its elements run the Player Aura Bars content model (no Own Only
--- there -- the filter registry covers the need), and any stale onlyPlayerBuffs/Debuffs
--- value must have no effect.
-local function EffectiveOwnOnly(unit, base, s)
-    if unit == "player" then return false end
-    -- Buff-side Own Only is retired (the checkbox is gone from every
-    -- buff dropdown): a stale onlyPlayerBuffs key must have no effect.
-    -- Debuff Own Only stays a live option.
-    if base == "HELPFUL" then return false end
-    return ResolveOwnOnly(base, s) == true
-end
-
--- Mirrors the main file's ResolveBuffLayout anchor/growth tables.
+-- Anchor/growth tables: initial anchor, frame point + offset direction, and
+-- the growth pair per anchor position.
 local ANCHOR_IA = {
     topleft = "BOTTOMLEFT", topright = "BOTTOMRIGHT",
     bottomleft = "TOPLEFT", bottomright = "TOPRIGHT",
@@ -673,7 +837,7 @@ local function ResolveLayout(anchor, growth)
     return ia, fp[1], fp[2], fp[3], g[1], g[2]
 end
 
--- Mirrors AuraMaxCols on the growth SETTING string: explicit per-row cap wins;
+-- Column cap from the growth SETTING string: explicit per-row cap wins;
 -- explicit vertical growth = one column; anything else = unlimited row.
 local function ResolveColumns(growth, maxCount, maxPerRow)
     if maxPerRow and maxPerRow >= 1 and maxPerRow < maxCount then return maxPerRow end
@@ -832,35 +996,22 @@ local function StyleTableFP(st, font)
         st.noTooltips)
 end
 
--- Effective engine group key: own-only variants are SEPARATE groups
--- (filter strings are declaration-fixed, so "raid" and "raid + PLAYER"
--- cannot share one). Containers are never swapped: the ever-used variant
--- set accumulates, inactive variants sit at count 0.
-local function EffKey(key, own)
-    if own then return key .. "_o" end
-    return key
-end
-
--- Declares one class group (own-variant aware) and records it in the element's
--- declared-set registry. Used at creation and by the additive reload path (AddAuraGroup
--- on an existing container is combat-legal -- probe T1/T1b).
-local function DeclareElementGroup(container, declared, styleKey, base, key, tokens, cand, own)
-    local eff = EffKey(key, own)
-    local ftokens = tokens
-    if own then
-        ftokens = {}
-        for t = 1, #tokens do ftokens[t] = tokens[t] end
-        ftokens[#ftokens + 1] = "PLAYER"
-    end
+-- Declares one chain group and records it in the element's declared-set
+-- registry (filter strings are declaration-fixed, so every distinct token set
+-- is its own group; containers are never swapped -- the ever-used set
+-- accumulates and inactive groups sit at count 0). Used at creation and by
+-- the additive reload path (AddAuraGroup on an existing container is
+-- combat-legal -- probe T1/T1b).
+local function DeclareElementGroup(container, declared, styleKey, key, tokens, cand)
     AK.AddGroupToContainer(container, {
-        key = eff, filter = ftokens, maxFrameCount = 0, style = styleKey,
+        key = key, filter = tokens, maxFrameCount = 0, style = styleKey,
         -- Candidates ride the declaration too: payloads are declaration- fixed on a
         -- live group, and the player-buff chain keys embed a candidate fingerprint
         -- precisely so a changed payload arrives here as a fresh variant (the config
         -- pass still live-sets candidates on top for the shared debuff excludes).
         candidateFilters = cand or nil,
     })
-    declared[eff] = { cand = cand or false }
+    declared[key] = { cand = cand or false }
 end
 
 -- Explicit either/or (never `cond and a or b`: a falsy setting must not fall
@@ -1194,7 +1345,7 @@ local function AnchorContainer(container, frame, unit, base, s, buffContainer)
     return anchor
 end
 
-local function ApplyGroupConfig(container, unit, base, s, chain, own, declared)
+local function ApplyGroupConfig(container, unit, base, s, chain, declared)
     local PP = EllesmereUI.PP
     local isBuff = (base == "HELPFUL")
     local anyClass = #chain > 0
@@ -1244,23 +1395,30 @@ local function ApplyGroupConfig(container, unit, base, s, chain, own, declared)
     end
     AK.SetContainerRowWidth(container, rowWidth)
 
-    -- Candidate filters: (debuffs) the sated/always-hide excludes. Own Only
-    -- lives in the group filter strings (see EffectiveOwnOnly), not here.
+    -- Candidate filters: (debuffs) the sated/always-hide excludes. Caster
+    -- scope rides the chain links' own PLAYER tokens, never this table.
     local cand = nil
     if not isBuff then
         local ex = {}
         for id in pairs(ALWAYS_HIDE_DEBUFFS) do ex[id] = true end
         for id in pairs(SATED_DEBUFFS) do ex[id] = true end
         -- Tracked Auras (target/focus/boss): user excludes hide everywhere; active
-        -- INCLUDES are excluded from every OTHER group -- the include link renders them
-        -- (its own cand overrides both spell-ID sets). Player units carry neither key.
+        -- INCLUDES are excluded from every OTHER group while an include link renders
+        -- them (its own cand overrides both spell-ID sets). Show All carries no
+        -- include link, so its catch-all keeps them. Player units carry neither key.
         local uex = s.debuffExclude
         if uex then
             for id, v in pairs(uex) do if v then ex[id] = true end end
         end
         local uinc = s.debuffInclude
         if uinc then
-            for id, v in pairs(uinc) do if v then ex[id] = true end end
+            local incLink = false
+            for i = 1, #chain do
+                if chain[i].inc then incLink = true break end
+            end
+            if incLink then
+                for id, v in pairs(uinc) do if v then ex[id] = true end end
+            end
         end
         cand = cand or {}
         cand.excludeSpellIDs = ex
@@ -1268,31 +1426,31 @@ local function ApplyGroupConfig(container, unit, base, s, chain, own, declared)
 
     local layout = { elementWidth = size, elementHeight = h, elementSpacing = spX, lineSpacing = spY }
 
-    -- Active set = the CURRENT own-variant of "all" (when no classes are
-    -- enabled) or of each enabled class. Every other declared group --
-    -- disabled classes AND the opposite own-variants -- parks at count 0
-    -- (declared sets only ever grow; setters run per declared key only).
+    -- Active set = "all" (a non-player BUFF element with no classes enabled)
+    -- or each chain link. Every other declared group -- disabled classes and
+    -- retired variants -- parks at count 0 (declared sets only ever grow;
+    -- setters run per declared key only).
     local active, hiddenKeys = {}, nil
     if num > 0 then
         if anyClass then
             for i = 1, #chain do
                 local c = chain[i]
-                local eff = EffKey(c.key, own)
-                active[eff] = c.cand or false
+                active[c.key] = c.cand or false
                 -- Subtracted classes (the player PAB model) stay declared
                 -- so their negations keep them out of the catch-all, but
                 -- render nothing themselves.
                 if c.hidden then
                     hiddenKeys = hiddenKeys or {}
-                    hiddenKeys[eff] = true
+                    hiddenKeys[c.key] = true
                 end
             end
-        elseif unit ~= "player" then
-            -- Player-frame elements run the PAB content model: an empty
-            -- chain means "add mode with nothing selected" = show nothing
-            -- (the legacy show-all fallback belongs to the class-checkbox
-            -- model every other unit still uses).
-            active[EffKey("all", own)] = false
+        elseif isBuff and unit ~= "player" then
+            -- Non-player buffs keep the legacy show-all fallback (no classes =
+            -- everything). Player elements run the PAB content model (an empty
+            -- chain = add mode with nothing selected = show nothing), and
+            -- non-player debuff chains carry their catch-all explicitly (Show
+            -- All) or mean nothing at all (Only Tracked Auras, empty list).
+            active.all = false
         end
     end
     for eff, info in pairs(declared) do
@@ -1382,8 +1540,11 @@ local function CfgFP(unit, base, s, frame)
         CastbarBelowFrame(unit, frame),
         -- Tracked Auras lists: ApplyGroupConfig reads both (the shared
         -- excludes), and TRI-STATE flips don't move the chain sig -- an
-        -- entry's enable checkbox must re-drive this pass.
-        TriListFP(s.debuffExclude), TriListFP(s.debuffInclude))
+        -- entry's enable checkbox must re-drive this pass. The caster-scope
+        -- maps (boss any-caster opt-out, target/focus MINE opt-in) move an
+        -- include between the two scope links.
+        TriListFP(s.debuffExclude), TriListFP(s.debuffInclude),
+        TriListFP(s.debuffIncludeAnyCaster), TriListFP(s.debuffIncludeMine))
 end
 
 ------------------------------------------------------------------------------
@@ -1405,15 +1566,16 @@ local DISPEL_SLOTS = {
 }
 local DISPEL_TYPE_TOKENS = { magic = "Magic", curse = "Curse", disease = "Disease", poison = "Poison", bleed = "Bleed" }
 
--- A dispel type only the player's RACE can clear (bleeds, via Stoneform) is
--- rejected by RAID_PLAYER_DISPELLABLE, which knows class and spec dispels
--- only. Handled here by keeping the PLAIN slot lit for such a type rather than
--- giving the by-me twin a filter that would match it: two slots declaring one
--- filter string share a single engine parse batch (see AK.Filter) and both are
--- not guaranteed to receive the aura. The rule itself lives with the legacy
--- overlay in EllesmereUIUnitFrames.lua, which needs the same answer.
-local function RacialCoversDispelSlot(slotKey)
-    return ns.UF_RacialClearsDispel ~= nil and ns.UF_RacialClearsDispel(slotKey)
+-- A dispel type RAID_PLAYER_DISPELLABLE can never match (bleeds via the dwarf
+-- racial, poison on a shaman via Poison Cleansing Totem -- the token knows class
+-- and spec dispels only) is handled here by keeping the PLAIN slot lit for such
+-- a type rather than giving the by-me twin a filter that would match it: two
+-- slots declaring one filter string share a single engine parse batch (see
+-- AK.Filter) and both are not guaranteed to receive the aura. The rule itself
+-- lives with the legacy overlay in EllesmereUIUnitFrames.lua, which needs the
+-- same answer.
+local function TokenBlindDispelSlot(slotKey)
+    return ns.UF_TokenBlindDispel ~= nil and ns.UF_TokenBlindDispel(slotKey)
 end
 local GRADIENT_TEXTURE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-tb.tga"
 local GRADIENT_SHARP_TEXTURE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-sharp.tga"
@@ -1455,11 +1617,12 @@ local function ApplyDispelSlotStyle(button, d, style)
         tex:SetVertexColor(c.r, c.g, c.b, alpha)
     elseif style.mode == "fill" then
         local fillTex = health.GetStatusBarTexture and health:GetStatusBarTexture()
-        tex:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
+        -- Both corners come off the fill texture so the overlay follows vertical and
+        -- reverse fills; anchoring TOPLEFT to the bar only tracks left-to-right.
         if fillTex then
-            tex:SetPoint("BOTTOMRIGHT", fillTex, "BOTTOMRIGHT", 0, 0)
+            tex:SetAllPoints(fillTex)
         else
-            tex:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
+            tex:SetAllPoints(health)
         end
         tex:SetColorTexture(c.r, c.g, c.b, alpha)
         tex:SetVertexColor(1, 1, 1, 1)
@@ -1486,10 +1649,10 @@ local function BuildDispelStyles(frame)
     local op = p.dispelOverlayOpacity or 100
     for i = 1, #DISPEL_SLOTS do
         local slot = DISPEL_SLOTS[i]
-        -- A type only the player's RACE can clear keeps using the PLAIN slot in
-        -- "by me" mode: the engine token can never match it, so its by-me twin
-        -- stays dark and would swallow the setting entirely.
-        local racial = RacialCoversDispelSlot(slot.key)
+        -- A type the engine token can never match keeps using the PLAIN slot in
+        -- "by me" mode: its by-me twin stays dark and would swallow the setting
+        -- entirely.
+        local tokenBlind = TokenBlindDispelSlot(slot.key)
         local col = p[slot.colorKey]
         local color = { r = col and col.r or slot.fallback[1], g = col and col.g or slot.fallback[2], b = col and col.b or slot.fallback[3] }
         AK.styles[DispelStyleKey(slot.key)] = {
@@ -1497,7 +1660,7 @@ local function BuildDispelStyles(frame)
             noRegions = true,
             mode = mode,
             color = color,
-            opacity = (byMe and not racial) and 0 or op,
+            opacity = (byMe and not tokenBlind) and 0 or op,
             level = slot.level,
             healthFrame = frame.Health,
             applyExtra = ApplyDispelSlotStyle,
@@ -1507,7 +1670,7 @@ local function BuildDispelStyles(frame)
             noRegions = true,
             mode = mode,
             color = color,
-            opacity = (byMe and not racial) and op or 0,
+            opacity = (byMe and not tokenBlind) and op or 0,
             level = slot.level,
             healthFrame = frame.Health,
             applyExtra = ApplyDispelSlotStyle,
@@ -1575,7 +1738,10 @@ local function CreateDispelSlots(frame, entry)
 end
 
 local function DispelFP(p)
+    -- The poison capability is a talent (Poison Cleansing Totem), so it rides
+    -- the fingerprint; race can't change mid-session.
     return FP(p.dispelOverlay, p.dispelOverlayOpacity, p.dispelOverlayByMe == true,
+        TokenBlindDispelSlot("poison") and 1 or 0,
         CK(p.dispelColorMagic), CK(p.dispelColorCurse),
         CK(p.dispelColorDisease), CK(p.dispelColorPoison), CK(p.dispelColorBleed))
 end
@@ -1603,6 +1769,26 @@ function ns.UF_ReloadPlayerDispelSlots()
     local entry = registry.player
     if entry and entry.frame and not entry.building then
         ReloadDispelSlots(entry.frame, entry)
+    end
+end
+
+-- The poison capability behind UF_TokenBlindDispel is a talent (Poison
+-- Cleansing Totem). Talent edits fire no spec event, and IsPlayerSpell can lag
+-- the trait event itself (the spellbook grant lands with SPELLS_CHANGED), so
+-- shamans re-check on both; the reload runs only when the cached capability
+-- actually flips. No combat gate: the restyle routes through AK.RestyleSoon,
+-- whose worker defers secrecy-denied writes to the restriction-lift re-queue.
+do
+    local _, class = UnitClass("player")
+    if class == "SHAMAN" then
+        local ev = CreateFrame("Frame")
+        ev:RegisterEvent("TRAIT_CONFIG_UPDATED")
+        ev:RegisterEvent("SPELLS_CHANGED")
+        ev:SetScript("OnEvent", function()
+            if ns.UF_RefreshPoisonTotem and ns.UF_RefreshPoisonTotem() then
+                ns.UF_ReloadPlayerDispelSlots()
+            end
+        end)
     end
 end
 
@@ -1662,12 +1848,11 @@ function ns.UF_ReloadAuraContainers(frame, unit)
             AK.RestyleSoon(key)
         end
 
-        -- Groups are ADDITIVE and the container is NEVER swapped: a changed class set /
-        -- Own Only declares any missing (variant) groups on the existing container
-        -- (combat-legal -- probe T1/T1b), and the config pass zeroes whatever fell out
-        -- of the active set. The old swap path permanently leaked a 10-button batch per
-        -- group per toggle (engine frames are never freed).
-        local own = EffectiveOwnOnly(unit, base, s)
+        -- Groups are ADDITIVE and the container is NEVER swapped: a changed chain
+        -- declares any missing groups on the existing container (combat-legal --
+        -- probe T1/T1b), and the config pass zeroes whatever fell out of the active
+        -- set. The old swap path permanently leaked a 10-button batch per group per
+        -- toggle (engine frames are never freed).
         local chain
         if unit == "player" and base == "HELPFUL" then
             chain = PlayerBuffChain(s)
@@ -1676,7 +1861,7 @@ function ns.UF_ReloadAuraContainers(frame, unit)
         else
             chain = BuildChain(base, base == "HELPFUL", s, unit)
         end
-        local sig = ChainSignature(chain) .. (own and "|own" or "")
+        local sig = ChainSignature(chain)
         local force = forceCfg
         local container = entry[field]
         local declared = (entry.groups and entry.groups[field]) or {}
@@ -1684,13 +1869,13 @@ function ns.UF_ReloadAuraContainers(frame, unit)
         -- fallback table would lose track and double-declare next change.
         if entry.sig[field] ~= sig and container and entry.groups then
             entry.sig[field] = sig
-            if not declared[EffKey("all", own)] then
-                DeclareElementGroup(container, declared, key, base, "all", { base }, nil, own)
+            if not declared.all then
+                DeclareElementGroup(container, declared, key, "all", { base }, nil)
             end
             for i = 1, #chain do
                 local c = chain[i]
-                if not declared[EffKey(c.key, own)] then
-                    DeclareElementGroup(container, declared, key, base, c.key, c.tokens, c.cand, own)
+                if not declared[c.key] then
+                    DeclareElementGroup(container, declared, key, c.key, c.tokens, c.cand)
                 end
             end
             force = true
@@ -1701,7 +1886,7 @@ function ns.UF_ReloadAuraContainers(frame, unit)
             if force or st.cfg ~= cfgV then
                 st.cfg = cfgV
                 AnchorContainer(container, frame, unit, base, s, entry.buffs) -- self-skips on anchor "none"
-                ApplyGroupConfig(container, unit, base, s, chain, own, declared)
+                ApplyGroupConfig(container, unit, base, s, chain, declared)
             end
         end
     end
@@ -1890,10 +2075,9 @@ local function BuildUnitContainers(frame, unit)
     end
 
     -- Stage 2: one missing group declaration per invocation (the expensive
-    -- atom). Own Only appends the PLAYER token via the variant key.
+    -- atom).
     for e = 1, 2 do
         local base, field = ELEMENT_ORDER[e][1], ELEMENT_ORDER[e][2]
-        local own = EffectiveOwnOnly(unit, base, s)
         local chain
         if unit == "player" and base == "HELPFUL" then
             chain = PlayerBuffChain(s)
@@ -1904,14 +2088,14 @@ local function BuildUnitContainers(frame, unit)
         end
         local declared = entry.groups[field]
         local styleKey = StyleKey(unit, base)
-        if not declared[EffKey("all", own)] then
-            DeclareElementGroup(entry[field], declared, styleKey, base, "all", { base }, nil, own)
+        if not declared.all then
+            DeclareElementGroup(entry[field], declared, styleKey, "all", { base }, nil)
             return "again"
         end
         for i = 1, #chain do
             local c = chain[i]
-            if not declared[EffKey(c.key, own)] then
-                DeclareElementGroup(entry[field], declared, styleKey, base, c.key, c.tokens, c.cand, own)
+            if not declared[c.key] then
+                DeclareElementGroup(entry[field], declared, styleKey, c.key, c.tokens, c.cand)
                 return "again"
             end
         end

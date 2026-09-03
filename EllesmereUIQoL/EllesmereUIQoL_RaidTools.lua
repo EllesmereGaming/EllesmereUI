@@ -2,10 +2,14 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EllesmereUIQoL_RaidTools.lua -- Raid control panels (QoL: Raid Tools page)
 --
---  TWO content groups -- Group & Pull (ready/role/convert/disband + the pull
---  timer; plain buttons) and Markers (target row + world row; secure buttons,
---  placeable mid-combat) -- shown either as one combined window (default) or
---  as two independently positioned windows.
+--  COMPACT BAND is an opt-in layout: one resizable row with eight marker
+--  symbols, clear, Ready/Role and pull controls. Target and world actions share
+--  each symbol through mouse-button/modifier attributes, so every secure
+--  action remains placeable mid-combat without duplicating the row.
+--
+--  The original Group & Pull and Markers content groups remain available as
+--  legacy window modes for existing profiles and low-frequency Convert /
+--  Disband access.
 --
 --  Group & Pull buttons are all created once at build; per-button switches and
 --  0-second pull slots decide which ones LayoutGroupContent places (it re-flows
@@ -26,8 +30,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Lua-side, since no macro conditional can express it -- see AssistSuppressed
 --  and RefreshAssistGate.
 --
---  The Toggle Raid Tools keybind works in every active mode, and what it
---  toggles follows Default to Collapsed When Shown: with it ON the key rocks
+--  The Toggle Raid Tools keybind works in every active mode. Compact Band is
+--  already the minimized form, so its key is a plain show/hide. Legacy modes
+--  follow Default to Collapsed When Shown: with it ON the key rocks
 --  between the collapsed icon and the full windows (the icon is the minimized
 --  state, so hiding would be redundant); with it OFF the key is a plain
 --  show/hide of the full windows, riding the override on top of the mode's
@@ -73,7 +78,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  SHOW AS (p.showAs) owns the window composition outright -- there are no
 --  separate per-panel enable toggles:
 --
---    "one"     -- the default. Both content groups in the Group & Pull shell,
+--    "compact" -- one resizable band in the Group shell. Unlock Mode owns
+--                 its position, width and height like any other container.
+--    "one"     -- both content groups in the Group & Pull shell,
 --                 which grows to fit and retitles to "Raid Tools"; ONE unlock
 --                 element positioned by pos.Group. The markers holder
 --                 re-parents (OOC) into the shell; holders are plain frames,
@@ -86,7 +93,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --    "markers" -- only the Markers shell exists on screen; the collapsed
 --                 icon anchors to IT in this mode.
 --
---  One Window Scale (p.scale) covers every form: both shells and the
+--  One Raid Tools Scale (p.scale) covers every form: both shells and the
 --  collapsed icon wear the same value, whichever windows the Show as choice
 --  puts on screen.
 -------------------------------------------------------------------------------
@@ -111,6 +118,14 @@ local ROW_GAP      = 4
 local MARKER_SZ    = 23
 local MARKER_LBL_H = 10
 local ICON_SZ      = 30
+local COMPACT_H    = 40
+local COMPACT_W    = 400
+local COMPACT_MIN_W = 365
+local COMPACT_MIN_H = 28
+local COMPACT_PAD  = 6
+local COMPACT_ICON = 28
+local COMPACT_GAP  = 4
+local COMPACT_DIVIDER_OFFSET = 5
 local PULL_SLOTS   = 3
 local PULL_DEFAULTS = { 3, 5, 10 }   -- also seeded into DB_DEFAULTS below
 ns.PULL_DEFAULTS = PULL_DEFAULTS
@@ -151,6 +166,9 @@ local function SkinPanelBg(f)
     topBar:SetPoint("TOPLEFT")
     topBar:SetPoint("TOPRIGHT")
     topBar:SetHeight(TOPBAR_H)
+    f._bgArt = bg
+    f._bgOverlay = overlay
+    f._titleBar = topBar
     f._bgFit = function()
         local fw, fh = f:GetSize()
         if not fw or fw == 0 or not fh or fh == 0 then return end
@@ -173,7 +191,8 @@ end
 local function SkinPanelBorder(f)
     local info = C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(BORDER_ATLAS)
     if not info then
-        EllesmereUI.MakeBorder(f, BRD_R, BRD_G, BRD_B, BRD_A, EllesmereUI.PP)
+        local fallback = EllesmereUI.MakeBorder(f, BRD_R, BRD_G, BRD_B, BRD_A, EllesmereUI.PP)
+        f._windowBorder = fallback and fallback._frame
         return
     end
     local ov = CreateFrame("Frame", nil, f)
@@ -182,6 +201,7 @@ local function SkinPanelBorder(f)
     local tex = ov:CreateTexture(nil, "OVERLAY", nil, 7)
     tex:SetAtlas(BORDER_ATLAS)
     tex:SetAllPoints(ov)
+    f._windowBorder = ov
 end
 
 -- Button chrome: flat fill, 1px line, white hover on the HIGHLIGHT layer
@@ -218,6 +238,7 @@ local COMBINED_LABEL = "Raid Tools"
 -- them and to ask the anchor system about them, so the two cannot drift.
 -- These keys persist in saved anchors -- renaming breaks existing links.
 local UNLOCK_KEY = "EUI_RaidTools_"
+local COMPACT_UNLOCK_KEY = UNLOCK_KEY .. "Compact"
 
 local SECTION_KEYS = {}
 local SECTION_LABEL = {}
@@ -231,9 +252,10 @@ local applyPending             -- true when combat blocked an Apply()
 local previewOn = false        -- Raid Tools settings page is in front (see ApplyVisibility)
 local lastSuppressed           -- assist gate verdict currently ON SCREEN (see AssistSuppressed)
 local toggleButton             -- keybind target; also the out-of-combat path
+local runtime = {}             -- Quick Fire's lazily-created secure state
 local sections = {}            -- key -> shell frame
 local shellTitle = {}          -- key -> title fontstring
-local groupHolder, markersHolder   -- plain content holders (see header)
+local groupHolder, markersHolder, compactHolder   -- plain content holders (see header)
 local iconBtn                  -- collapsed-state square
 -- Markers are fixed at build; the Group & Pull height follows the settings and
 -- is re-computed by LayoutGroupContent on every Apply.
@@ -387,6 +409,9 @@ local pullButtons = {}         -- fixed set of 3; only the ones above 0s show
 -- Created once at build; the layout pass decides which reach the screen. Ready
 -- Check has no switch by design.
 local readyButton, roleButton, convertButton, disbandButton, stopButton
+local compactReadyButton, compactPullButton, compactDivider
+local compactMarkerButtons = {}
+local ShowCompactTip, HideCompactTip
 
 -- Both marker rows draw Blizzard's own raid target sheet -- the texture the
 -- rest of the suite already uses for markers, in nameplates and raid frames.
@@ -398,7 +423,20 @@ local MARKER_SHEET = "Interface\\TargetingFrame\\UI-RaidTargetingIcons"
 -- shows the symbol and this maps it to the flare that actually wears it -- without it,
 -- clicking Star (symbol 1) dropped the BLUE flare (world ID 1).
 local SYMBOL_TO_WORLD = { 5, 6, 3, 2, 7, 1, 4, 8 }
-
+local MARKER_NAME = {
+    "Star", "Circle", "Diamond", "Triangle",
+    "Moon", "Square", "Cross", "Skull",
+}
+local COMPACT_MARKER_TIP_ROWS = {
+    { "Left Click",          "Toggle target marker" },
+    { "Right Click",         "Place world marker" },
+    { "Shift + Left Click",  "Clear target marker" },
+    { "Shift + Right Click", "Clear world marker" },
+}
+local COMPACT_CLEAR_TIP_ROWS = {
+    { "Left Click",  "Clear target marker" },
+    { "Right Click", "Clear all world markers" },
+}
 -- One slice of the shared EllesmereUIQoLDB profile, the same arrangement
 -- BattleRes and Bloodlust use: each QoL feature merges its own defaults into
 -- the SAME profile table under its own key.
@@ -411,13 +449,21 @@ local DB_DEFAULTS = {
         -- Toggle Raid Tools key ("SHIFT-R" form). Profile-stored and applied
         -- as an override binding, exactly like Action Bars' toggleVisKey.
         toggleKey     = false,
+        -- Opt-in world-marker bindings. Empty defaults mean enabling Quick
+        -- Fire alone never claims a key.
+        quickFire         = false,
+        quickFirePlaceKey = false,
+        quickFireUndoKey  = false,
+        quickFireClearKey = false,
         -- Default to Collapsed When Shown: EVERY show (driver, settings pass,
         -- keybind) starts as the small icon; click it to expand. Turning this
         -- off makes the keybind a plain full-window toggle.
         collapsedIcon = true,
-        -- "one" | "two" | "group" | "markers" (see header). The single owner
+        -- "compact" | "one" | "two" | "group" | "markers" (see header). The single owner
         -- of window composition; there are no per-panel enable toggles.
         showAs        = "one",
+        compactWidth  = COMPACT_W,
+        compactHeight = COMPACT_H,
         -- One scale for the whole feature: whichever windows the Show as
         -- choice puts on screen (and the collapsed icon) all wear it.
         scale         = 1,
@@ -457,14 +503,26 @@ local function Mode()
     return (p and p.mode) or "never"
 end
 
--- The Show as choice, normalized: any unset/unknown value reads as "one".
+-- The Show as choice, normalized: any unset/unknown value preserves the
+-- original One Window behavior. Compact Band is selected explicitly.
 local function ShowAs()
     local p = P()
     local v = p and p.showAs
-    if v ~= "two" and v ~= "group" and v ~= "markers" then v = "one" end
+    if v ~= "compact" and v ~= "one" and v ~= "two"
+       and v ~= "group" and v ~= "markers" then v = "one" end
     return v
 end
 ns.ShowAs = ShowAs
+
+local function CompactWidth()
+    local p = P()
+    return math.max(COMPACT_MIN_W, (p and p.compactWidth) or COMPACT_W)
+end
+
+local function CompactHeight()
+    local p = P()
+    return math.max(COMPACT_MIN_H, (p and p.compactHeight) or COMPACT_H)
+end
 
 local function WindowScale()
     local p = P()
@@ -516,16 +574,43 @@ end
 --     clearing across action1 and action2.
 local function MakeMarkerButton(parent, index, kind)
     local b = CreateFrame("Button", nil, parent, "SecureActionButtonTemplate")
-    b:SetSize(MARKER_SZ, MARKER_SZ)
+    local compact = kind == "compact" or kind == "compact-clear"
+    local size = compact and COMPACT_ICON or MARKER_SZ
+    b:SetSize(size, size)
     -- One phase only: the "!" prefix toggles the marker, so firing on both the
-    -- down and the up would set it and immediately clear it again.
+    -- down and the up would set it and immediately clear it again. useOnKeyDown
+    -- is pinned because left unset it follows the ActionButtonUseKeyDown CVar,
+    -- and at 0 the secure handler acts on the up phase we never register --
+    -- every marker button goes dead.
     b:RegisterForClicks("AnyDown")
+    b:SetAttribute("useOnKeyDown", true)
 
     local icon = b:CreateTexture(nil, "ARTWORK")
     icon:SetAllPoints()
     b.icon = icon
 
-    if kind == "target" then
+    if kind == "compact" then
+        local worldID = SYMBOL_TO_WORLD[index]
+        -- One symbol, four combat-safe actions. The ordinary clicks perform
+        -- the frequent actions; Shift exposes their explicit clear variants.
+        b:SetAttribute("type1", "macro")
+        b:SetAttribute("macrotext1", (SLASH_TARGET_MARKER1 or "/tm") .. " !" .. index)
+        b:SetAttribute("type2", "worldmarker")
+        b:SetAttribute("marker2", tostring(worldID))
+        b:SetAttribute("action2", "set")
+        b:SetAttribute("shift-type1", "macro")
+        b:SetAttribute("shift-macrotext1", (SLASH_TARGET_MARKER1 or "/tm") .. " 0")
+        b:SetAttribute("shift-type2", "worldmarker")
+        b:SetAttribute("shift-marker2", tostring(worldID))
+        b:SetAttribute("shift-action2", "clear")
+        b._worldID = worldID
+    elseif kind == "compact-clear" then
+        b:SetAttribute("type1", "macro")
+        b:SetAttribute("macrotext1", (SLASH_TARGET_MARKER1 or "/tm") .. " 0")
+        b:SetAttribute("type2", "macro")
+        b:SetAttribute("macrotext2",
+            (SLASH_CLEAR_WORLD_MARKER1 or "/cwm") .. " " .. (ALL or "All"))
+    elseif kind == "target" then
         -- Left: toggle this marker on the target. Right: clear it.
         b:SetAttribute("type", "macro")
         if index == 0 then
@@ -563,11 +648,31 @@ local function MakeMarkerButton(parent, index, kind)
     -- (our CreateFrame'd button); RefreshPermissions owns its value.
     icon:SetAlpha(0.8)
     b._baseAlpha = 0.8
+    if kind == "compact" then
+        local active = b:CreateTexture(nil, "OVERLAY")
+        active:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 2, -2)
+        active:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -2, -2)
+        active:SetHeight(2)
+        local ar, ag, ab = 0.05, 0.82, 0.62
+        if EllesmereUI.GetAccentColor then ar, ag, ab = EllesmereUI.GetAccentColor() end
+        active:SetColorTexture(ar, ag, ab, 0.95)
+        active:Hide()
+        b._activeLine = active
+    end
     b:SetScript("OnEnter", function(self)
         if (self._baseAlpha or 0.8) >= 0.8 then self.icon:SetAlpha(1) end
+        if compact and ShowCompactTip then
+            if kind == "compact-clear" then
+                ShowCompactTip(self, "Clear Markers", COMPACT_CLEAR_TIP_ROWS)
+            else
+                ShowCompactTip(self, MARKER_NAME[index] or "Raid Marker",
+                    COMPACT_MARKER_TIP_ROWS)
+            end
+        end
     end)
     b:SetScript("OnLeave", function(self)
         self.icon:SetAlpha(self._baseAlpha or 0.8)
+        if compact and HideCompactTip then HideCompactTip(self) end
     end)
 
     markerButtons[#markerButtons + 1] = b
@@ -643,7 +748,9 @@ local function RefreshPermissions(force)
     lastAssist, lastLeader, lastRaid = assist, leader, raid
 
     for _, b in ipairs(groupButtons) do
-        if b.needsLeader then SetButtonEnabled(b, leader) else SetButtonEnabled(b, assist) end
+        local allowed
+        if b.needsLeader then allowed = leader else allowed = assist end
+        SetButtonEnabled(b, allowed)
     end
 
     -- Secure buttons: cosmetic only, never Enable/Disable (see header).
@@ -955,6 +1062,301 @@ local function BuildMarkersContent()
     f:SetHeight(MARKERS_CONTENT_H)
 end
 
+-- Compact Band uses its own holder so the existing window layouts and secure
+-- marker buttons keep their original geometry.
+-- Its tooltip copies the established Data Bars grammar locally because that
+-- child addon is optional: bracketed title, input left and result right.
+do
+    local tip, owner
+    local rows = {}
+    local TIP_PAD, TIP_ROW_GAP, TIP_COL_GAP, TIP_FONT_SIZE = 10, 3, 18, 12
+
+    local function SetTipFont(fs)
+        local path = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath(FONT_KEY)
+        local _, _, flags = fs:GetFont()
+        if not path and GameFontNormal then
+            local fallbackPath, _, fallbackFlags = GameFontNormal:GetFont()
+            path, flags = fallbackPath, fallbackFlags
+        end
+        if path then fs:SetFont(path, TIP_FONT_SIZE, flags or "") end
+    end
+
+    local function EnsureTip()
+        if tip then return tip end
+        tip = CreateFrame("Frame", "EllesmereUIRaidToolsTip", UIParent)
+        tip:SetFrameStrata("TOOLTIP")
+        tip:SetFrameLevel(900)
+        tip:SetClampedToScreen(true)
+        tip:Hide()
+        local bg = tip:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetColorTexture(0.067, 0.067, 0.067, 0.97)
+        if EllesmereUI.PP and EllesmereUI.PP.CreateBorder then
+            EllesmereUI.PP.CreateBorder(tip, 0, 0, 0, 0.9, 1, "OVERLAY", 7)
+        end
+        return tip
+    end
+
+    local function EnsureRow(i)
+        local row = rows[i]
+        if not row then
+            row = {
+                left = tip:CreateFontString(nil, "OVERLAY"),
+                right = tip:CreateFontString(nil, "OVERLAY"),
+            }
+            rows[i] = row
+        end
+        SetTipFont(row.left)
+        SetTipFont(row.right)
+        return row
+    end
+
+    ShowCompactTip = function(ownerFrame, title, actions)
+        EnsureTip()
+        owner = ownerFrame
+        local count = #actions + 2
+        local maxLeft, maxRight, totalH = 0, 0, 0
+        for i = 1, count do
+            local row = EnsureRow(i)
+            row.left:ClearAllPoints()
+            row.right:ClearAllPoints()
+            row.left:SetWordWrap(false)
+            row.right:SetWordWrap(false)
+            row.left:SetWidth(0)
+            row.right:SetWidth(0)
+
+            if i == 1 then
+                row.left:SetText("[" .. EllesmereUI.L(title) .. "]")
+                row.right:SetText("")
+                row.right:Hide()
+                row._h = row.left:GetStringHeight() or TIP_FONT_SIZE
+            elseif i == 2 then
+                row.left:SetText("")
+                row.right:SetText("")
+                row.right:Hide()
+                row._h = 4
+            else
+                local action = actions[i - 2]
+                row.left:SetText(EllesmereUI.L(action[1]))
+                row.right:SetText(EllesmereUI.L(action[2]))
+                row.right:Show()
+                row._h = math.max(row.left:GetStringHeight() or TIP_FONT_SIZE,
+                    row.right:GetStringHeight() or TIP_FONT_SIZE)
+            end
+            row.left:SetTextColor(1, 1, 1, 1)
+            row.right:SetTextColor(1, 1, 1, 1)
+            row.left:Show()
+            maxLeft = math.max(maxLeft, row.left:GetStringWidth() or 0)
+            if row.right:IsShown() then
+                maxRight = math.max(maxRight, row.right:GetStringWidth() or 0)
+            end
+            totalH = totalH + row._h + (i > 1 and TIP_ROW_GAP or 0)
+        end
+        for i = count + 1, #rows do
+            rows[i].left:Hide()
+            rows[i].right:Hide()
+        end
+
+        local innerW = maxLeft + (maxRight > 0 and TIP_COL_GAP + maxRight or 0)
+        tip:SetSize(math.max(60, innerW + TIP_PAD * 2),
+            math.max(24, totalH + TIP_PAD * 2))
+        local y = -TIP_PAD
+        for i = 1, count do
+            local row = rows[i]
+            row.left:SetPoint("TOPLEFT", tip, "TOPLEFT", TIP_PAD, y)
+            if row.right:IsShown() then
+                row.right:SetPoint("TOPRIGHT", tip, "TOPRIGHT", -TIP_PAD, y)
+            end
+            y = y - row._h - TIP_ROW_GAP
+        end
+
+        local level = 900
+        if GameTooltip and GameTooltip.GetFrameLevel then
+            local gameTipLevel = GameTooltip:GetFrameLevel()
+            if gameTipLevel then level = math.max(level, gameTipLevel + 10) end
+        end
+        if tip:GetFrameLevel() < level then tip:SetFrameLevel(level) end
+        tip:ClearAllPoints()
+        local _, cy = ownerFrame:GetCenter()
+        if cy and cy < UIParent:GetHeight() / 2 then
+            tip:SetPoint("BOTTOM", ownerFrame, "TOP", 0, 6)
+        else
+            tip:SetPoint("TOP", ownerFrame, "BOTTOM", 0, -6)
+        end
+        tip:Show()
+    end
+
+    HideCompactTip = function(ownerFrame)
+        if not tip or (ownerFrame and owner ~= ownerFrame) then return end
+        owner = nil
+        tip:Hide()
+    end
+end
+
+local function MakeCompactActionButton(parent, label, tipBuilder, onClick)
+    local b = CreateFrame("Button", nil, parent)
+    b:SetSize(COMPACT_ICON, COMPACT_ICON)
+    b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    b:SetScript("OnClick", onClick)
+    local fs = TrackFont(parent, EllesmereUI.MakeFont(b, 11, nil, 1, 1, 1), 11)
+    fs:SetPoint("CENTER")
+    fs:SetText(label)
+    fs:SetAlpha(0.8)
+    b.label = fs
+    b:SetScript("OnEnter", function(self)
+        self.label:SetAlpha(1)
+        local title, actions = tipBuilder()
+        ShowCompactTip(self, title, actions)
+    end)
+    b:SetScript("OnLeave", function(self)
+        self.label:SetAlpha(0.8)
+        HideCompactTip(self)
+    end)
+    groupButtons[#groupButtons + 1] = b
+    return b
+end
+
+local function CompactPullTime(slot)
+    local times = (P() and P().pullTimes) or {}
+    local value = times[slot]
+    if value == nil then value = PULL_DEFAULTS[slot] end
+    return value and value > 0 and value or nil
+end
+
+-- Fill the complete marker region instead of leaving a dead elastic gap before
+-- the utilities. Skull owns the left edge, Clear owns the right edge beside
+-- the divider, and the seven symbols between them share the remaining width.
+local function LayoutCompactMarkers()
+    if not compactHolder or not sections.Group or #compactMarkerButtons < 2 then return end
+    local width = sections.Group:GetWidth()
+    if not width or width < COMPACT_MIN_W then return end
+
+    local utilityCount = compactPullButton and compactPullButton:IsShown() and 2 or 1
+    local utilityWidth = utilityCount * COMPACT_ICON
+        + (utilityCount - 1) * COMPACT_GAP
+    local firstLeft = COMPACT_PAD
+    local lastLeft = width - COMPACT_PAD - utilityWidth
+        - COMPACT_DIVIDER_OFFSET - COMPACT_GAP - COMPACT_ICON
+    local stride = (lastLeft - firstLeft) / (#compactMarkerButtons - 1)
+
+    for i, button in ipairs(compactMarkerButtons) do
+        button:ClearAllPoints()
+        local x = math.floor(firstLeft + (i - 1) * stride + 0.5)
+        button:SetPoint("LEFT", compactHolder, "LEFT", x, 0)
+    end
+end
+
+local function RefreshCompactPullState()
+    if not compactPullButton then return end
+    local secs = CompactPullTime(3) or CompactPullTime(2) or CompactPullTime(1)
+    compactPullButton:SetShown(secs ~= nil)
+    if compactReadyButton then
+        compactReadyButton:Show()
+        compactReadyButton:ClearAllPoints()
+        compactReadyButton:SetPoint("RIGHT", compactHolder, "RIGHT", -COMPACT_PAD, 0)
+    end
+    compactPullButton:ClearAllPoints()
+    if secs and compactReadyButton then
+        compactPullButton:SetPoint("RIGHT", compactReadyButton, "LEFT", -COMPACT_GAP, 0)
+    end
+    if compactDivider and compactReadyButton then
+        local firstUtility = secs and compactPullButton or compactReadyButton
+        compactDivider:ClearAllPoints()
+        compactDivider:SetPoint("TOP", firstUtility, "TOPLEFT",
+            -COMPACT_DIVIDER_OFFSET, -2)
+        compactDivider:SetPoint("BOTTOM", firstUtility, "BOTTOMLEFT",
+            -COMPACT_DIVIDER_OFFSET, 2)
+    end
+    LayoutCompactMarkers()
+end
+
+local function RefreshCompactMarkerState()
+    for _, b in ipairs(compactMarkerButtons) do
+        local active = b._worldID and IsRaidMarkerActive and IsRaidMarkerActive(b._worldID)
+        if b.icon.SetDesaturated then b.icon:SetDesaturated(active and true or false) end
+        if b._activeLine then b._activeLine:SetShown(active and true or false) end
+    end
+end
+
+local function BuildCompactContent()
+    compactHolder = CreateFrame("Frame", nil, sections.Group)
+    compactHolder:SetHeight(COMPACT_H)
+
+    -- Blizzard's marker menus and the supplied references both read
+    -- Star -> Skull from left to right, followed by one clear action.
+    local markerOrder = { 1, 2, 3, 4, 5, 6, 7, 8 }
+    for _, index in ipairs(markerOrder) do
+        local b = MakeMarkerButton(compactHolder, index, "compact")
+        compactMarkerButtons[#compactMarkerButtons + 1] = b
+    end
+    local clear = MakeMarkerButton(compactHolder, 0, "compact-clear")
+    compactMarkerButtons[#compactMarkerButtons + 1] = clear
+
+    compactReadyButton = MakeCompactActionButton(compactHolder,
+        "RC",
+        function()
+            if ButtonShown("showRoleCheck") then
+                return "Ready Check", {
+                    { "Left Click", "Ready Check" },
+                    { "Right Click", "Role Check" },
+                }
+            end
+            return "Ready Check", {
+                { "Left Click", "Ready Check" },
+            }
+        end,
+        function(_, button)
+            if button == "RightButton" then
+                if ButtonShown("showRoleCheck") then InitiateRolePoll() end
+            else
+                DoReadyCheck()
+            end
+        end)
+
+    compactPullButton = MakeCompactActionButton(compactHolder,
+        "PT",
+        function()
+            local a = CompactPullTime(1) or "off"
+            local b = CompactPullTime(2) or "off"
+            local c = CompactPullTime(3) or "off"
+            return "Pull Timer", {
+                { "Left Click", "Pull " .. c },
+                { "Shift + Left Click", "Pull " .. b },
+                { "Ctrl + Left Click", "Pull " .. a },
+                { "Right Click", "Stop pull timer" },
+            }
+        end,
+        function(_, button)
+            if button == "RightButton" then StopPull(); return end
+            local secs
+            if IsControlKeyDown() then
+                secs = CompactPullTime(1)
+            elseif IsShiftKeyDown() then
+                secs = CompactPullTime(2)
+            else
+                secs = CompactPullTime(3) or CompactPullTime(2) or CompactPullTime(1)
+            end
+            if secs then StartPull(secs) end
+        end)
+
+    -- Pull is the inner utility beside the marker region; Ready Check owns the
+    -- far-right edge, matching the established scan order from raid action to
+    -- group confirmation.
+    compactReadyButton:SetPoint("RIGHT", compactHolder, "RIGHT", -COMPACT_PAD, 0)
+    compactPullButton:SetPoint("RIGHT", compactReadyButton, "LEFT", -COMPACT_GAP, 0)
+
+    compactDivider = compactHolder:CreateTexture(nil, "ARTWORK")
+    compactDivider:SetColorTexture(1, 1, 1, 0.10)
+    compactDivider:SetWidth(1)
+    compactDivider:SetPoint("TOP", compactPullButton, "TOPLEFT",
+        -COMPACT_DIVIDER_OFFSET, -2)
+    compactDivider:SetPoint("BOTTOM", compactPullButton, "BOTTOMLEFT",
+        -COMPACT_DIVIDER_OFFSET, 2)
+
+    RefreshCompactPullState()
+    RefreshCompactMarkerState()
+end
+
 -- The collapsed-state square: bg + border + the icon, expanding on click.
 -- A click template (not a state template) -- it cannot dispatch _onstate, so
 -- the shells fan the driver verdict to it (see MakeShell).
@@ -1070,6 +1472,13 @@ local ICON_CORNER = {
     upleft    = "BOTTOMRIGHT",
 }
 
+local function ApplyShellMaterial(f, compact)
+    if f._bgArt then f._bgArt:SetShown(not compact) end
+    if f._titleBar then f._titleBar:SetShown(not compact) end
+    if f._bgOverlay then f._bgOverlay:SetColorTexture(0, 0, 0, 0.62) end
+    if f._windowBorder then f._windowBorder:SetShown(not compact) end
+end
+
 -- Show-as arrangement. OOC only (Apply gates); the holders are plain frames,
 -- so the re-parent is an ordinary SetParent.
 local function ApplyLayout()
@@ -1077,14 +1486,33 @@ local function ApplyLayout()
     local showAs = ShowAs()
     local winGroup, winMarkers = sections.Group, sections.Markers
 
-    local collapseUI = p and p.collapsedIcon ~= false
+    local compact = showAs == "compact"
+    local collapseUI = not compact and p and p.collapsedIcon ~= false
     winGroup._collapseBtn:SetShown(collapseUI)
     -- Two Windows: only Group & Pull carries the collapse control -- one
     -- button folds the whole feature, and a second on Markers would just be
     -- a duplicate. Markers keeps its own ONLY when it is the lone window.
     winMarkers._collapseBtn:SetShown(collapseUI and showAs ~= "two")
 
-    if showAs == "one" then
+    ApplyShellMaterial(winGroup, compact)
+    ApplyShellMaterial(winMarkers, false)
+    shellTitle.Group:SetShown(not compact)
+    shellTitle.Markers:SetShown(true)
+    if compact and not compactHolder then BuildCompactContent() end
+    if compactHolder then compactHolder:SetShown(compact) end
+
+    if compact then
+        local width = CompactWidth()
+        winGroup:SetWidth(width)
+        compactHolder:SetParent(winGroup)
+        compactHolder:ClearAllPoints()
+        compactHolder:SetAllPoints(winGroup)
+        groupHolder:SetShown(false)
+        markersHolder:SetShown(false)
+        winGroup:SetHeight(CompactHeight())
+    elseif showAs == "one" then
+        winGroup:SetWidth(PANEL_W)
+        winMarkers:SetWidth(PANEL_W)
         shellTitle.Group:SetText(EllesmereUI.L(COMBINED_LABEL))
         groupHolder:SetShown(true)
         groupHolder:SetParent(winGroup)
@@ -1098,6 +1526,8 @@ local function ApplyLayout()
         winGroup:SetHeight(CONTENT_TOP + GROUP_CONTENT_H + ROW_GAP * 2
             + MARKERS_CONTENT_H + PAD)
     else
+        winGroup:SetWidth(PANEL_W)
+        winMarkers:SetWidth(PANEL_W)
         -- Every split mode parents each holder to its own shell; which shells
         -- actually SHOW is ApplyVisibility's call (the enabled attribute).
         shellTitle.Group:SetText(EllesmereUI.L(SECTION_LABEL.Group))
@@ -1127,6 +1557,8 @@ local function ApplyLayout()
     -- change right here, so a direct call is the whole hook).
     if winGroup._bgFit then winGroup._bgFit() end
     if winMarkers._bgFit then winMarkers._bgFit() end
+    RefreshCompactPullState()
+    RefreshCompactMarkerState()
 end
 
 -- Positions round-trip through unlock mode's CENTER/CENTER convention.
@@ -1150,22 +1582,25 @@ local function DefaultPos(key)
     return { point = "TOPLEFT", relPoint = "TOPLEFT", x = MARGIN / s, y = top / s }
 end
 
-local function ApplySectionPosition(key)
+local function ApplySectionPosition(key, unlockKey, posKey)
     local f = sections[key]
     if not f then return end
     if InCombatLockdown() then applyPending = true; return end
 
-    local pos = ((P() and P().pos) or {})[key] or DefaultPos(key)
+    local p = P()
+    unlockKey = unlockKey or (UNLOCK_KEY .. key)
+    posKey = posKey or key
+    local pos = ((p and p.pos) or {})[posKey] or DefaultPos(key)
     if EllesmereUI.ApplyCenterPosition
        and pos.point == "CENTER" and pos.relPoint == "CENTER" then
         -- Skips anchor-linked elements itself, and defers its own combat case for
         -- protected frames. FALSE means it could not resolve a live frame for this key
         -- -- fall through to the plain path, exactly as unlock mode's own caller does.
-        if EllesmereUI.ApplyCenterPosition(UNLOCK_KEY .. key, pos) then return end
+        if EllesmereUI.ApplyCenterPosition(unlockKey, pos) then return end
     end
 
     -- Anything not in that convention is a default or a pre-conversion value.
-    if EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored(UNLOCK_KEY .. key) then
+    if EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored(unlockKey) then
         return
     end
     f:ClearAllPoints()
@@ -1185,7 +1620,11 @@ local function ApplyPositions()
     -- Each shell is positioned only when the Show as choice can put it on screen; One
     -- Window and Only Group & Pull ride pos.Group, Only Markers rides pos.Markers.
     local showAs = ShowAs()
-    if showAs ~= "markers" then ApplySectionPosition("Group") end
+    if showAs == "compact" then
+        ApplySectionPosition("Group", COMPACT_UNLOCK_KEY, "Compact")
+    elseif showAs ~= "markers" then
+        ApplySectionPosition("Group")
+    end
     if showAs == "two" or showAs == "markers" then ApplySectionPosition("Markers") end
 end
 
@@ -1220,6 +1659,7 @@ local function ApplyVisibility()
     -- The assist gate rides on top of that and takes ALL of them, icon
     -- included -- a raid without assist is a raid where nothing here works.
     local showAs = ShowAs()
+    local compact = showAs == "compact"
     local suppressed = AssistSuppressed()
     local shellOn = {
         Group   = showAs ~= "markers" and not suppressed,
@@ -1227,7 +1667,9 @@ local function ApplyVisibility()
     }
     -- One seed for every show (see header): Default to Collapsed When Shown.
     -- With the toggle off the seed is "expanded" and the icon never shows.
-    local startExpanded = not (p and p.collapsedIcon ~= false)
+    -- The strip is already the minimized form. Its keybind is therefore a
+    -- direct show/hide, never a second collapse into a mystery icon.
+    local startExpanded = compact or not (p and p.collapsedIcon ~= false)
 
     -- Settings preview (the TBB-placeholder arrangement): while the Raid
     -- Tools page is in front, the windows are forced shown and FULLY EXPANDED
@@ -1262,7 +1704,7 @@ local function ApplyVisibility()
     -- something, so it is on while the mode is active and the assist gate is
     -- open. With it shut the keybind and the slash command go quiet too --
     -- both run the secure snippets, and those refuse a disabled frame.
-    iconBtn:SetAttribute("enabled", not suppressed)
+    iconBtn:SetAttribute("enabled", not compact and not suppressed)
     iconBtn:SetAttribute("visible", visNow)
     iconBtn:SetAttribute("override", "")
     iconBtn:SetAttribute("startexpanded", startExpanded)
@@ -1295,6 +1737,169 @@ local function ApplyToggleKeybind()
     -- override binding swallows whatever the key does otherwise.
     if k and k ~= "" and Mode() ~= "never" and not AssistSuppressed() then
         SetOverrideBindingClick(toggleButton, false, k, "EllesmereUIRaidToolsToggle")
+    end
+end
+
+-- Build the first-free run from live marker state. Protected attributes cannot
+-- be changed during combat, so the secure Place button consumes the last run
+-- prepared out of combat and PLAYER_REGEN_ENABLED refreshes it afterward.
+local function PrimeQuickFire(place)
+    if not place or InCombatLockdown() then return end
+    local count = 0
+    for i = 1, 8 do
+        local marker = SYMBOL_TO_WORLD[i]
+        if not IsRaidMarkerActive or not IsRaidMarkerActive(marker) then
+            count = count + 1
+            place:SetAttribute("qfAvail" .. count, i)
+        end
+    end
+    for i = count + 1, 8 do place:SetAttribute("qfAvail" .. i, nil) end
+    place:SetAttribute("qfAvailCount", count)
+    place:SetAttribute("qfAvailPos", 0)
+end
+
+-- The three invisible buttons are created only after Quick Fire is enabled.
+-- Their secure click snippets keep Place, Undo and Clear usable in combat;
+-- changing the bindings themselves still follows WoW's normal combat lock.
+local function BuildQuickFire()
+    if runtime.qfPlace then return end
+
+    runtime.qfHeader = CreateFrame("Frame", "EllesmereUIRaidToolsQuickFireHeader",
+        UIParent, "SecureHandlerBaseTemplate")
+
+    local place = CreateFrame("Button", "EllesmereUIRaidToolsQuickFirePlace",
+        UIParent, "SecureActionButtonTemplate")
+    place:RegisterForClicks("AnyDown")
+    place:SetAttribute("useOnKeyDown", true)
+    place:EnableMouse(false)
+    place:SetSize(1, 1)
+    place:SetAlpha(0)
+    place:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", -120, -120)
+    place:Show()
+    place:SetAttribute("qfCount", 8)
+    place:SetAttribute("qfDepth", 0)
+    for i = 1, 8 do
+        place:SetAttribute("qfMarker" .. i, SYMBOL_TO_WORLD[i])
+        place:SetAttribute("qfPlaceMacro" .. i,
+            (SLASH_WORLD_MARKER1 or "/wm") .. " [@cursor] " .. SYMBOL_TO_WORLD[i])
+    end
+    place:SetScript("PreClick", function(self) PrimeQuickFire(self) end)
+    SecureHandlerWrapScript(place, "OnClick", runtime.qfHeader, [[
+        self:SetAttribute("type", nil)
+        self:SetAttribute("macrotext", nil)
+        local n = tonumber(self:GetAttribute("qfCount")) or 8
+        local available = tonumber(self:GetAttribute("qfAvailCount")) or 0
+        local nextPos = (tonumber(self:GetAttribute("qfAvailPos")) or 0) + 1
+        if nextPos > available then return end
+        local pos = tonumber(self:GetAttribute("qfAvail" .. nextPos))
+        if not pos then return end
+        self:SetAttribute("qfAvailPos", nextPos)
+
+        local depth = tonumber(self:GetAttribute("qfDepth")) or 0
+        if depth >= n then
+            for i = 1, n - 1 do
+                self:SetAttribute("qfStack" .. i,
+                    self:GetAttribute("qfStack" .. (i + 1)))
+            end
+            depth = n - 1
+        end
+        depth = depth + 1
+        self:SetAttribute("qfDepth", depth)
+        self:SetAttribute("qfStack" .. depth, pos)
+        self:SetAttribute("macrotext", self:GetAttribute("qfPlaceMacro" .. pos))
+        self:SetAttribute("type", "macro")
+    ]], [[
+        self:SetAttribute("type", nil)
+        self:SetAttribute("macrotext", nil)
+    ]])
+
+    local undo = CreateFrame("Button", "EllesmereUIRaidToolsQuickFireUndo",
+        UIParent, "SecureActionButtonTemplate")
+    undo:RegisterForClicks("AnyDown")
+    undo:SetAttribute("useOnKeyDown", true)
+    undo:EnableMouse(false)
+    undo:SetSize(1, 1)
+    undo:SetAlpha(0)
+    undo:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", -124, -120)
+    undo:Show()
+    SecureHandlerSetFrameRef(undo, "place", place)
+    SecureHandlerWrapScript(undo, "OnClick", runtime.qfHeader, [[
+        self:SetAttribute("type", nil)
+        self:SetAttribute("action", nil)
+        self:SetAttribute("marker", nil)
+        local place = self:GetFrameRef("place")
+        local depth = place and (tonumber(place:GetAttribute("qfDepth")) or 0) or 0
+        if depth < 1 then return end
+        local pos = tonumber(place:GetAttribute("qfStack" .. depth))
+        if not pos then return end
+        place:SetAttribute("qfStack" .. depth, nil)
+        place:SetAttribute("qfDepth", depth - 1)
+        local availablePos = tonumber(place:GetAttribute("qfAvailPos")) or 0
+        if availablePos > 0
+           and tonumber(place:GetAttribute("qfAvail" .. availablePos)) == pos then
+            place:SetAttribute("qfAvailPos", availablePos - 1)
+        end
+        self:SetAttribute("marker", place:GetAttribute("qfMarker" .. pos))
+        self:SetAttribute("action", "clear")
+        self:SetAttribute("type", "worldmarker")
+    ]], [[
+        self:SetAttribute("type", nil)
+        self:SetAttribute("action", nil)
+        self:SetAttribute("marker", nil)
+    ]])
+
+    local clear = CreateFrame("Button", "EllesmereUIRaidToolsQuickFireClear",
+        UIParent, "SecureActionButtonTemplate")
+    clear:RegisterForClicks("AnyDown")
+    clear:SetAttribute("useOnKeyDown", true)
+    clear:EnableMouse(false)
+    clear:SetSize(1, 1)
+    clear:SetAlpha(0)
+    clear:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", -128, -120)
+    clear:Show()
+    SecureHandlerSetFrameRef(clear, "place", place)
+    SecureHandlerWrapScript(clear, "OnClick", runtime.qfHeader, [[
+        local place = self:GetFrameRef("place")
+        if place then
+            local n = tonumber(place:GetAttribute("qfCount")) or 8
+            place:SetAttribute("qfDepth", 0)
+            place:SetAttribute("qfAvailCount", n)
+            place:SetAttribute("qfAvailPos", 0)
+            for i = 1, n do
+                place:SetAttribute("qfAvail" .. i, i)
+                place:SetAttribute("qfStack" .. i, nil)
+            end
+        end
+        self:SetAttribute("macrotext", self:GetAttribute("qfClearMacro"))
+        self:SetAttribute("type", "macro")
+    ]], [[
+        self:SetAttribute("type", nil)
+        self:SetAttribute("macrotext", nil)
+    ]])
+    clear:SetAttribute("qfClearMacro",
+        (SLASH_CLEAR_WORLD_MARKER1 or "/cwm") .. " " .. (ALL or "All"))
+
+    runtime.qfPlace, runtime.qfUndo, runtime.qfClear = place, undo, clear
+    runtime.qfBindingOwner = CreateFrame("Frame")
+    PrimeQuickFire(place)
+end
+
+local function ApplyQuickFireBindings()
+    local p = P()
+    if runtime.qfBindingOwner then ClearOverrideBindings(runtime.qfBindingOwner) end
+    if not p or p.quickFire ~= true or Mode() == "never" or AssistSuppressed() then return end
+
+    BuildQuickFire()
+    PrimeQuickFire(runtime.qfPlace)
+    local bindings = {
+        { p.quickFirePlaceKey, "EllesmereUIRaidToolsQuickFirePlace" },
+        { p.quickFireUndoKey,  "EllesmereUIRaidToolsQuickFireUndo" },
+        { p.quickFireClearKey, "EllesmereUIRaidToolsQuickFireClear" },
+    }
+    for _, binding in ipairs(bindings) do
+        if binding[1] and binding[1] ~= "" then
+            SetOverrideBindingClick(runtime.qfBindingOwner, false, binding[1], binding[2])
+        end
     end
 end
 
@@ -1334,6 +1939,17 @@ local function EnsureEvents()
                 return
             end
             if Mode() == "never" then return end
+            if event == "RAID_TARGET_UPDATE" and ShowAs() == "compact" then
+                RefreshCompactMarkerState()
+            end
+            -- Both features share this event, but each only does work while
+            -- enabled. An old Quick Fire frame can survive being disabled.
+            if event == "RAID_TARGET_UPDATE" or event == "PLAYER_REGEN_ENABLED" then
+                local p = P()
+                if p and p.quickFire == true and runtime.qfPlace then
+                    PrimeQuickFire(runtime.qfPlace)
+                end
+            end
             RefreshPermissions()
             RefreshAssistGate()
         end)
@@ -1342,6 +1958,12 @@ local function EnsureEvents()
     ev:RegisterEvent("PARTY_LEADER_CHANGED")
     ev:RegisterEvent("PLAYER_ENTERING_WORLD")
     ev:RegisterEvent("PLAYER_REGEN_ENABLED")
+    local p = P()
+    if Mode() ~= "never" and (ShowAs() == "compact" or (p and p.quickFire == true)) then
+        ev:RegisterEvent("RAID_TARGET_UPDATE")
+    else
+        ev:UnregisterEvent("RAID_TARGET_UPDATE")
+    end
 end
 local function DropEvents()
     if ev then ev:UnregisterAllEvents() end
@@ -1360,8 +1982,9 @@ local function RegisterUnlock()
 
     local elements = {}
     for i, key in ipairs(SECTION_KEYS) do
+        local unlockKey = UNLOCK_KEY .. key
         elements[#elements + 1] = MK({
-            key      = UNLOCK_KEY .. key,
+            key      = unlockKey,
             label    = SECTION_LABEL[key],
             group    = "Raid Tools",
             order    = 540 + i,
@@ -1375,7 +1998,9 @@ local function RegisterUnlock()
                 -- One Window / Only Group & Pull = the Group element alone,
                 -- Two Windows = both, Only Markers = the Markers element alone.
                 local showAs = ShowAs()
-                if key == "Group" and showAs == "markers" then return nil end
+                if key == "Group" and (showAs == "compact" or showAs == "markers") then
+                    return nil
+                end
                 if key == "Markers" and showAs ~= "two" and showAs ~= "markers" then return nil end
                 BuildAll()
                 return sections[key]
@@ -1399,7 +2024,7 @@ local function RegisterUnlock()
                 -- untouched, so the drag path is unaffected.
                 if EllesmereUI.ConvertToCenterPos then
                     point, relPoint, x, y =
-                        EllesmereUI.ConvertToCenterPos(UNLOCK_KEY .. key, point, relPoint, x, y)
+                        EllesmereUI.ConvertToCenterPos(unlockKey, point, relPoint, x, y)
                 end
                 -- Direct index, no `p.pos = p.pos or {}` reseed: DB_DEFAULTS
                 -- guarantees the table, and under a Spec Overrides capture
@@ -1414,9 +2039,74 @@ local function RegisterUnlock()
             clearPos = function()
                 local p = P(); if p and p.pos then p.pos[key] = nil end
             end,
-            applyPos = function() ApplySectionPosition(key) end,
+            applyPos = function()
+                -- Compact reuses the Group shell but owns a separate unlock key
+                -- and saved position. The global login pass visits every
+                -- registered element, including this inactive legacy entry; do
+                -- not let its stale Group position overwrite Compact's position.
+                if key == "Group" and ShowAs() == "compact" then return end
+                ApplySectionPosition(key)
+            end,
         })
     end
+
+    elements[#elements + 1] = MK({
+        key      = COMPACT_UNLOCK_KEY,
+        label    = "Compact Band",
+        group    = "Raid Tools",
+        order    = 540,
+        getFrame = function()
+            if Mode() == "never" or AssistSuppressed() or ShowAs() ~= "compact" then
+                return nil
+            end
+            BuildAll()
+            return sections.Group
+        end,
+        getSize = function()
+            local f = sections.Group
+            if f then return f:GetWidth(), f:GetHeight() end
+            return CompactWidth(), CompactHeight()
+        end,
+        setWidth = function(_, newW)
+            local p = P()
+            if not (p and newW) then return end
+            local PP = EllesmereUI and EllesmereUI.PP
+            p.compactWidth = math.max(COMPACT_MIN_W,
+                PP and PP.Snap(newW) or math.floor(newW + 0.5))
+            if sections.Group then ApplyLayout() end
+        end,
+        setHeight = function(_, newH)
+            local p = P()
+            if not (p and newH) then return end
+            local PP = EllesmereUI and EllesmereUI.PP
+            p.compactHeight = math.max(COMPACT_MIN_H,
+                PP and PP.Snap(newH) or math.floor(newH + 0.5))
+            if sections.Group then ApplyLayout() end
+        end,
+        savePos = function(_, point, relPoint, x, y)
+            if not point then return end
+            local p = P()
+            if not (p and p.pos) then return end
+            if EllesmereUI.ConvertToCenterPos then
+                point, relPoint, x, y = EllesmereUI.ConvertToCenterPos(
+                    COMPACT_UNLOCK_KEY, point, relPoint, x, y)
+            end
+            p.pos.Compact = { point = point, relPoint = relPoint, x = x, y = y }
+            if not EllesmereUI._unlockActive then
+                ApplySectionPosition("Group", COMPACT_UNLOCK_KEY, "Compact")
+            end
+        end,
+        loadPos = function() return ((P() and P().pos) or {}).Compact end,
+        clearPos = function()
+            local p = P()
+            if p and p.pos then p.pos.Compact = nil end
+        end,
+        applyPos = function()
+            if ShowAs() ~= "compact" then return end
+            ApplySectionPosition("Group", COMPACT_UNLOCK_KEY, "Compact")
+        end,
+    })
+
     if #elements > 0 then
         EllesmereUI:RegisterUnlockElements(elements, "EllesmereUIQoL")
     end
@@ -1451,6 +2141,7 @@ function Apply()
             iconBtn:Hide()
             ClearOverrideBindings(toggleButton)
         end
+        if runtime.qfBindingOwner then ClearOverrideBindings(runtime.qfBindingOwner) end
         -- Fully off and nothing pending: no reason to keep hearing roster
         -- spam. Never-activated sessions never created the frame at all.
         DropEvents()
@@ -1472,6 +2163,7 @@ function Apply()
     ApplyPositions()
     ApplyVisibility()
     ApplyToggleKeybind()
+    ApplyQuickFireBindings()
     ApplyFonts()
     RefreshPermissions(true)
 end

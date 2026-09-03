@@ -176,12 +176,9 @@ initFrame:SetScript("OnEvent", function(self)
         local info = gsr and gsr()
         if not info or info.type == "bar" then return 5 end
         local m = info.max
-        -- Talent-dependent maxes come from the live trackers
-        if info.power == "SWEEPING_STRIKES" and EllesmereUI and EllesmereUI.GetSweepingStrikes then
-            local _, realMax = EllesmereUI.GetSweepingStrikes()
-            if realMax and realMax > 0 then m = realMax end
-        elseif info.power == "WHIRLWIND_STACKS" and EllesmereUI and EllesmereUI.GetWhirlwindStacks then
-            local _, realMax = EllesmereUI.GetWhirlwindStacks()
+        -- Talent-dependent maxes come from the live sources
+        if info.power == "SWEEPING_STRIKES" or info.power == "WHIRLWIND_STACKS" then
+            local realMax = _G._EWC and _G._EWC.MaxApps(info.power)
             if realMax and realMax > 0 then m = realMax end
         elseif info.power == "MAELSTROM_WEAPON" and EllesmereUI and EllesmereUI.GetMaelstromWeapon then
             local _, realMax = EllesmereUI.GetMaelstromWeapon()
@@ -569,7 +566,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
             pc._barBorderFrame:SetFrameLevel(sp.borderBehind and math.max(0, pc:GetFrameLevel() - 1) or (pc:GetFrameLevel() + 2))
 
-            if sp.borderOnPips and cf ~= "DEATHKNIGHT" and not isBar then
+            if sp.borderOnPips and not isBar then
                 pc._barBorderFrame:Hide()
             else
                 EllesmereUI.ApplyBorderStyle(pc._barBorderFrame, sp.borderSize or 1,
@@ -1050,7 +1047,8 @@ initFrame:SetScript("OnEvent", function(self)
         tooltip = tooltip or EllesmereUI.L(title)
         local FORMS = { { key = "mana", label = "Caster" },
                         { key = "rage", label = "Bear" },
-                        { key = "energy", label = "Cat" } }
+                        { key = "energy", label = "Cat" },
+                        { key = "moonkin", label = "Moonkin" } }
         local rows = {}
         for _, f in ipairs(FORMS) do
             local key = f.key
@@ -1859,14 +1857,16 @@ initFrame:SetScript("OnEvent", function(self)
         -- Druid "form specific" (Advanced mode only): a threshold per resource type, keyed by form
         local _playerClassFile = select(2, UnitClass("player"))
         local hasFormToggle = cfg.formCapable and cfg.singleSpec and _playerClassFile == "DRUID"
-        local FORM_LABEL = { mana = "Caster", rage = "Bear", energy = "Cat" }
+        local FORM_LABEL = { mana = "Caster", rage = "Bear", energy = "Cat", moonkin = "Moonkin" }
         local function DefaultFormEntries()
             return {
-                { formKey = "mana",   thresholdEnabled = true, thresholdPct = 30, thresholdPartialOnly = true,
+                { formKey = "mana",    thresholdEnabled = true, thresholdPct = 30, thresholdPartialOnly = true,
                   thresholdR = defR, thresholdG = defG, thresholdB = defB, thresholdA = defA },
-                { formKey = "rage",   thresholdEnabled = true, thresholdPct = 30, thresholdPartialOnly = false,
+                { formKey = "rage",    thresholdEnabled = true, thresholdPct = 30, thresholdPartialOnly = false,
                   thresholdR = defR, thresholdG = defG, thresholdB = defB, thresholdA = defA },
-                { formKey = "energy", thresholdEnabled = true, thresholdPct = 30, thresholdPartialOnly = true,
+                { formKey = "energy",  thresholdEnabled = true, thresholdPct = 30, thresholdPartialOnly = true,
+                  thresholdR = defR, thresholdG = defG, thresholdB = defB, thresholdA = defA },
+                { formKey = "moonkin", thresholdEnabled = true, thresholdPct = 30, thresholdPartialOnly = true,
                   thresholdR = defR, thresholdG = defG, thresholdB = defB, thresholdA = defA },
             }
         end
@@ -4563,7 +4563,12 @@ initFrame:SetScript("OnEvent", function(self)
                 return sid == 73
             end
             if _IsProtWarrior() then
-                local ipBarTip = "Creates a class resource bar for Ignore Pain tracking. To see stack text, you must have Ignore Pain tracked in your Blizzard CDM \"Tracked Buffs\" or \"Tracked Bars\" section."
+                -- Translated in halves so the CDM sentence keeps its existing locale
+                -- entries; ShowWidgetTooltip L()s the joined string, a harmless miss.
+                -- The first half stays a variable: its escaped quotes would come back
+                -- truncated from the static key extractor.
+                local ipBarTipCDM = "Creates a class resource bar for Ignore Pain tracking. To see stack text, you must have Ignore Pain tracked in your Blizzard CDM \"Tracked Buffs\" or \"Tracked Bars\" section."
+                local ipBarTip = EllesmereUI.L(ipBarTipCDM) .. " " .. EllesmereUI.L("Tracking it also makes the fill show Ignore Pain alone; without it the fill shows your total absorb, so other shields can add to it.")
                 local ipHashTip = "Draws a hash line that resets to the right edge when you cast Ignore Pain and slides left as the buff runs out."
                 local ipRow
                 ipRow, h = W:DualRow(parent, y,
@@ -6217,6 +6222,21 @@ initFrame:SetScript("OnEvent", function(self)
 				local function _thrOptUsable() return _thrEnabled() and not _thrMultiOn() end
 				local function _thrOffTip() if _thrMultiOn() then return BAND_REPLACES_TIP end return "Enable the Threshold toggle to use these options." end
 				local function _thrIsUpTo() local e=_thrEnt(); return (e and e.thresholdReverse) and true or false end
+				local function _thrIsWarrCharge()
+					-- Arms/Fury class-bar thresholds render on the engine-fed
+					-- Whirlwind/Sweeping Strikes charge bar, whose only
+					-- threshold display is range coloring at/above the count
+					-- (no Lua count exists to flip the whole fill).
+					if (select(2, UnitClass("player"))) ~= "WARRIOR" then return false end
+					local e = _thrEnt()
+					local ids = e and e.specIDs
+					if not ids then return false end
+					for i = 1, #ids do
+						local id = ids[i]
+						if id == 0 or id == 71 or id == 72 then return true end
+					end
+					return false
+				end
 				local threshCog, threshCogShow = EllesmereUI.BuildCogPopup({
 					title = "Threshold Options", bgAlpha = 1, frameStrata = "FULLSCREEN_DIALOG", frameLevel = 500, minWidth = 320,
 					rows = {
@@ -6232,18 +6252,22 @@ initFrame:SetScript("OnEvent", function(self)
 							set = function(v) local e=_thrEnt(); if not e then return end e.thresholdMode=v; RefreshClass(); if RefreshDetail then RefreshDetail() end end },
 						{ type = "segmented", label = "Direction",
 							keys = { "upto", "from" }, labels = { upto = "Up to", from = "From" }, rawTooltip = true,
-							disabled = function() return not _thrOptUsable() end,
-							disabledTooltip = function() return _thrOffTip() end,
-							get = function() local e=_thrEnt(); return (e and e.thresholdReverse) and "upto" or "from" end,
+							disabled = function() return (not _thrOptUsable()) or _thrIsWarrCharge() end,
+							disabledTooltip = function()
+								if _thrIsWarrCharge() and _thrOptUsable() then return "Whirlwind and Sweeping Strikes thresholds only support the 'From' direction." end
+								return _thrOffTip()
+							end,
+							get = function() if _thrIsWarrCharge() then return "from" end local e=_thrEnt(); return (e and e.thresholdReverse) and "upto" or "from" end,
 							set = function(v) local e=_thrEnt(); if not e then return end e.thresholdReverse=(v=="upto"); RefreshClass(); if RefreshDetail then RefreshDetail() end end },
 						{ type = "toggle", label = "Only color at/above threshold", rawTooltip = true,
-							disabled = function() return (not _thrOptUsable()) or _thrIsBar() or _thrIsUpTo() end,
+							disabled = function() return (not _thrOptUsable()) or _thrIsBar() or _thrIsUpTo() or _thrIsWarrCharge() end,
 							disabledTooltip = function()
+								if _thrIsWarrCharge() and _thrOptUsable() then return "Always on for Whirlwind and Sweeping Strikes charges: range coloring at/above the threshold is the only way these bars can display thresholds." end
 								if not _thrOptUsable() then return _thrOffTip() end
 								if _thrIsBar() then return "This option applies to pip-type resources only." end
 								return "Only available with the 'From' direction -- it highlights the pips at/above the threshold."
 							end,
-							get = function() local e=_thrEnt(); return (e and e.thresholdPartialOnly) and true or false end,
+							get = function() if _thrIsWarrCharge() then return true end local e=_thrEnt(); return (e and e.thresholdPartialOnly) and true or false end,
 							set = function(v) local e=_thrEnt(); if not e then return end e.thresholdPartialOnly=v; RefreshClass(); if RefreshDetail then RefreshDetail() end end },
 					},
 				})
@@ -6578,7 +6602,7 @@ initFrame:SetScript("OnEvent", function(self)
 
 					-- Threshold input bounds (Enhance five-bar minimum). Bar-type reads the threshold as % (max 100) or an absolute value (higher cap)
 					local threshIsValue = isBar and not isStagger and ent.thresholdMode == "value"
-					local threshMax = isStagger and 500 or (isBar and (threshIsValue and 1000 or 100) or 10)
+					local threshMax = isStagger and 500 or (isBar and (threshIsValue and 1000 or 100) or 20)
 					local entryIsEnhance = false
 					local pp = DB()
 					if pp and pp.secondary.enhanceFiveBar == true then
@@ -7267,41 +7291,70 @@ initFrame:SetScript("OnEvent", function(self)
                 p.primary.visibilityModes = nil
             end
         end
+        -- One control for all three bars: the scalar, the multi-select set and the option
+        -- booleans all fan out to health/primary/secondary; reads come from secondary,
+        -- the representative.
         local visRow
-        visRow, h = EllesmereUI.BuildVisibilityModeRow(W, parent, y,
+        visRow, h = EllesmereUI.BuildVisibilityRow(W, parent, y,
             { getStore = function() local p = DB(); return p and p.secondary end,
+              -- The override marker fans out like the scalar and the option lanes do;
+              -- secondary leads, matching getStore above.
+              getStores = function()
+                  local p = DB(); if not p then return nil end
+                  -- Built by presence, never as a literal triple: a nil in the middle
+                  -- would leave a hole the # operator reads past.
+                  local out = {}
+                  if p.secondary then out[#out + 1] = p.secondary end
+                  if p.health    then out[#out + 1] = p.health    end
+                  if p.primary   then out[#out + 1] = p.primary   end
+                  return out
+              end,
               legacyKey = "visibility",
               caps = { partyIncludesRaid = false, luaDragonriding = true },
               applyScalarFn = ApplyVisScalarAll,
+              getOption = function(k)
+                  local p = DB(); if not p then return false end
+                  return p.secondary[k] or false
+              end,
+              setOption = function(k, v)
+                  local p = DB(); if not p then return end
+                  p.secondary[k] = v
+                  p.health[k] = v
+                  p.primary[k] = v
+              end,
               onChanged = function()
                   MirrorVisModes()
                   Refresh()
-              end },
-            { type = "dropdown", text = "Visibility Options",
+              end,
+              onOptionChanged = function() Refresh() end },
+            -- Smooth Bars: placeholder slot, swapped for the checkbox dropdown below.
+            { type = "dropdown", text = "Smooth Bars",
               values = { __placeholder = "..." }, order = { "__placeholder" },
               getValue = function() return "__placeholder" end,
               setValue = function() end }
         );  y = y - h
 
-        -- Swap the dummy right dropdown for the checkbox dropdown
+        -- Smooth Bars checkbox dropdown. Each item enables native StatusBar interpolation
+        -- on its bar; off = a plain SetValue with zero added cost. Defaults all off.
         if not EllesmereUI._prebuilding then
             local rightRgn = visRow._rightRegion
             if rightRgn._control then rightRgn._control:Hide() end
-            local visItems = EllesmereUI.VIS_OPT_ITEMS
+            local smoothItems = {
+                { key = "secondary", label = "Class Resource Bar" },
+                { key = "primary",   label = "Power Bar" },
+                { key = "health",    label = "Health Bar" },
+            }
             local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
                 rightRgn, 210, rightRgn:GetFrameLevel() + 2,
-                visItems,
+                smoothItems,
                 function(k)
                     local p = DB(); if not p then return false end
-                    return p.secondary[k] or false
+                    return (p[k] and p[k].smoothBars) or false
                 end,
                 function(k, v)
                     local p = DB(); if not p then return end
-                    p.secondary[k] = v
-                    p.health[k] = v
-                    p.primary[k] = v
-                    Refresh()
-                    EllesmereUI:RefreshPage()
+                    if p[k] then p[k].smoothBars = v end
+                    if _G._ERB_ApplySmoothing then _G._ERB_ApplySmoothing() end
                 end)
             PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
             rightRgn._control = cbDD
@@ -7679,10 +7732,7 @@ initFrame:SetScript("OnEvent", function(self)
                   RebuildPower()
                   EllesmereUI:RefreshPage()
               end },
-            { type = "dropdown", text = "Smooth Bars",
-              values = { __placeholder = "..." }, order = { "__placeholder" },
-              getValue = function() return "__placeholder" end,
-              setValue = function() end }
+            { type = "label", text = "" }
         );  y = y - h
         -- Inline reposition cog on "Shift Elements if No Power": Extra Y Offset
         if not EllesmereUI._prebuilding then
@@ -7706,33 +7756,6 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
             MakeCogBtn(rgn, cogShow, nil, EllesmereUI.DIRECTIONS_ICON)
-        end
-
-        -- Replace the dummy "Smooth Bars" right dropdown with a checkbox dropdown. Each item enables native StatusBar interpolation on its bar; off = a plain SetValue with zero added cost. Defaults all off.
-        if not EllesmereUI._prebuilding then
-            local rightRgn = shiftPowRow._rightRegion
-            if rightRgn._control then rightRgn._control:Hide() end
-            local smoothItems = {
-                { key = "secondary", label = "Class Resource Bar" },
-                { key = "primary",   label = "Power Bar" },
-                { key = "health",    label = "Health Bar" },
-            }
-            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                rightRgn, 210, rightRgn:GetFrameLevel() + 2,
-                smoothItems,
-                function(k)
-                    local p = DB(); if not p then return false end
-                    return (p[k] and p[k].smoothBars) or false
-                end,
-                function(k, v)
-                    local p = DB(); if not p then return end
-                    if p[k] then p[k].smoothBars = v end
-                    if _G._ERB_ApplySmoothing then _G._ERB_ApplySmoothing() end
-                end)
-            PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
-            rightRgn._control = cbDD
-            rightRgn._lastInline = nil
-            EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
         end
 
         _, h = W:Spacer(parent, y, 16);  y = y - h
@@ -7858,6 +7881,205 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         _, h = W:Spacer(parent, y, 16);  y = y - h
+
+        -- ARCANE SOUL (SUNFURY)
+        -- Mage-only: the section is absent entirely for every other class rather
+        -- than built and disabled, since nothing in it can ever apply to them.
+        -- The spec/hero-tree gate itself lives in the module (it changes at
+        -- runtime); this only decides whether the controls exist at all.
+        if select(2, UnitClass("player")) == "MAGE" then
+            -- Straight to the module: this display is not part of the bar build,
+            -- so a full ApplyAll would rebuild every bar to retint one string.
+            local function RefreshAS()
+                if ns.AS_Apply then ns.AS_Apply() end
+            end
+            local asOff = function() local p = DB(); return p and not p.arcaneSoul.enabled end
+            local AS_TIP = "Arcane Soul Helper"
+
+            _, h = W:SectionHeader(parent, "ARCANE SOUL (SUNFURY)", y);  y = y - h
+
+            -- Row: Enable Arcane Soul Helper (+ position cog) | Show Threshold
+            local asEnableRow
+            asEnableRow, h = W:DualRow(parent, y,
+                { type = "toggle", text = "Enable Arcane Soul Helper",
+                  tooltip = "Shows a countdown to the Arcane Soul window over the last seconds of Arcane Surge, then the time left inside it. Sunfury Arcane Mages only.",
+                  getValue = function() local p = DB(); return p and p.arcaneSoul.enabled end,
+                  setValue = function(v)
+                      local p = DB(); if not p then return end
+                      p.arcaneSoul.enabled = v; RefreshAS(); EllesmereUI:RefreshPage()
+                  end },
+                { type = "slider", text = "Show Threshold", min = 1, max = 15, step = 1,
+                  tooltip = "Seconds of Arcane Surge left when the countdown appears. Always in seconds, including in GCD mode.",
+                  disabled = asOff, disabledTooltip = AS_TIP,
+                  getValue = function() local p = DB(); return p and p.arcaneSoul.threshold or 5 end,
+                  setValue = function(v) local p = DB(); if not p then return end; p.arcaneSoul.threshold = v; RefreshAS() end }
+            );  y = y - h
+
+            -- Inline position cog (X/Y + unlock) on Enable, as on the GCD Bar page
+            if not EllesmereUI._prebuilding then
+                local rgn = asEnableRow._leftRegion
+                local _, cogShow = EllesmereUI.BuildCogPopup({
+                    title = "Arcane Soul Position",
+                    rows = {
+                        { type = "slider", label = "X Offset", min = -600, max = 600, step = 1,
+                          get = function()
+                              local p = DB(); if not p then return 0 end
+                              local a = p.arcaneSoul
+                              return (a.unlockPos and a.unlockPos.x) or 0
+                          end,
+                          set = function(v)
+                              local p = DB(); if not p then return end
+                              local a = p.arcaneSoul
+                              -- No separate offset pair for this display: the cog edits
+                              -- the same saved position the mover writes, seeding it
+                              -- from the default the renderer falls back to.
+                              a.unlockPos = a.unlockPos or { point = "CENTER", relPoint = "CENTER", x = 0, y = -150 }
+                              a.unlockPos.x = v
+                              RefreshAS()
+                          end },
+                        { type = "slider", label = "Y Offset", min = -600, max = 600, step = 1,
+                          get = function()
+                              local p = DB(); if not p then return -150 end
+                              local a = p.arcaneSoul
+                              return (a.unlockPos and a.unlockPos.y) or -150
+                          end,
+                          set = function(v)
+                              local p = DB(); if not p then return end
+                              local a = p.arcaneSoul
+                              a.unlockPos = a.unlockPos or { point = "CENTER", relPoint = "CENTER", x = 0, y = -150 }
+                              a.unlockPos.y = v
+                              RefreshAS()
+                          end },
+                    },
+                    footer = { unlockKey = "EUI_ArcaneSoul" },
+                })
+                local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.DIRECTIONS_ICON)
+                local cogDis = CreateFrame("Frame", nil, rgn)
+                cogDis:SetAllPoints(cogBtn)
+                cogDis:SetFrameLevel(cogBtn:GetFrameLevel() + 5)
+                cogDis:EnableMouse(true)
+                cogDis:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip(AS_TIP))
+                end)
+                cogDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local function UpdateAsCogDis()
+                    local p = DB()
+                    if p and not p.arcaneSoul.enabled then cogDis:Show() else cogDis:Hide() end
+                end
+                cogBtn:HookScript("OnShow", UpdateAsCogDis)
+                EllesmereUI.RegisterWidgetRefresh(UpdateAsCogDis)
+                UpdateAsCogDis()
+            end
+
+            -- Row: Countdown Format | Text Size
+            local asFormatValues = {
+                ["seconds"]    = { text = "Seconds" },
+                ["gcd"]        = { text = "GCD Count" },
+                ["secondsGcd"] = { text = "Seconds + GCD in Soul" },
+            }
+            local asFormatOrder = { "seconds", "gcd", "secondsGcd" }
+            -- The LAST warning only exists where the Soul window counts Barrages.
+            local function AsSoulCountsGcd()
+                local p = DB()
+                local m = p and p.arcaneSoul.countMode
+                return m == "gcd" or m == "secondsGcd"
+            end
+            _, h = W:DualRow(parent, y,
+                { type = "dropdown", text = "Countdown Format",
+                  tooltip = "Seconds counts the time down in tenths. GCD Count counts whole global cooldowns instead, so inside Arcane Soul it reads as the number of Arcane Barrages that still fit, ending on a coloured LAST. Seconds + GCD in Soul mixes the two: tenths counting down to the window, Barrage count once it opens.",
+                  disabled = asOff, disabledTooltip = AS_TIP,
+                  values = asFormatValues, order = asFormatOrder,
+                  getValue = function() local p = DB(); return p and p.arcaneSoul.countMode or "seconds" end,
+                  setValue = function(v) local p = DB(); if not p then return end; p.arcaneSoul.countMode = v; RefreshAS() end },
+                { type = "slider", text = "Text Size", min = 10, max = 48, step = 1,
+                  disabled = asOff, disabledTooltip = AS_TIP,
+                  getValue = function() local p = DB(); return p and p.arcaneSoul.textSize or 24 end,
+                  setValue = function(v)
+                      local p = DB(); if not p then return end
+                      p.arcaneSoul.textSize = v; RefreshAS()
+                      if EllesmereUI.NotifyElementResized then
+                          EllesmereUI.NotifyElementResized("EUI_ArcaneSoul")
+                      end
+                  end }
+            );  y = y - h
+
+            -- Row: Font | Font Outline (mirrors the Battle Res text controls)
+            do
+                local asFontValues, asFontOrder = EllesmereUI.BuildFontDropdownData()
+                local asOutlineValues = {
+                    ["__global"] = { text = "EUI Global Default" },
+                    ["none"]     = { text = "Drop Shadow" },
+                    ["outline"]  = { text = "Outline" },
+                    ["thick"]    = { text = "Thick Outline" },
+                }
+                local asOutlineOrder = { "__global", "none", "outline", "thick" }
+                _, h = W:DualRow(parent, y,
+                    { type = "dropdown", text = "Font",
+                      disabled = asOff, disabledTooltip = AS_TIP,
+                      values = asFontValues, order = asFontOrder,
+                      getValue = function() local p = DB(); return p and p.arcaneSoul.font or "__global" end,
+                      setValue = function(v) local p = DB(); if not p then return end; p.arcaneSoul.font = v; RefreshAS() end },
+                    { type = "dropdown", text = "Font Outline",
+                      disabled = asOff, disabledTooltip = AS_TIP,
+                      values = asOutlineValues, order = asOutlineOrder,
+                      getValue = function() local p = DB(); return p and p.arcaneSoul.outlineMode or "__global" end,
+                      setValue = function(v) local p = DB(); if not p then return end; p.arcaneSoul.outlineMode = v; RefreshAS() end }
+                );  y = y - h
+            end
+
+            -- Row: Colors (pre-Soul / in-Soul / final GCD)
+            _, h = W:DualRow(parent, y,
+                { type = "multiSwatch", text = "Colors",
+                  disabled = asOff, disabledTooltip = AS_TIP,
+                  swatches = {
+                    { tooltip = "Countdown to Soul", hasAlpha = false,
+                      getValue = function()
+                          local p = DB(); if not p then return 1, 1, 1 end
+                          local a = p.arcaneSoul
+                          return a.preR or 0.64, a.preG or 0.21, a.preB or 0.93
+                      end,
+                      setValue = function(r, g, b)
+                          local p = DB(); if not p then return end
+                          local a = p.arcaneSoul
+                          a.preR, a.preG, a.preB = r, g, b
+                          RefreshAS()
+                      end },
+                    { tooltip = "Inside Soul", hasAlpha = false,
+                      getValue = function()
+                          local p = DB(); if not p then return 1, 1, 1 end
+                          local a = p.arcaneSoul
+                          return a.soulR or 0.64, a.soulG or 0.21, a.soulB or 0.93
+                      end,
+                      setValue = function(r, g, b)
+                          local p = DB(); if not p then return end
+                          local a = p.arcaneSoul
+                          a.soulR, a.soulG, a.soulB = r, g, b
+                          RefreshAS()
+                      end },
+                    -- Only ever rendered in GCD Count mode (the LAST warning).
+                    { tooltip = "Last Barrage", hasAlpha = false,
+                      disabled = function()
+                          local p = DB()
+                          return not p or not p.arcaneSoul.enabled or not AsSoulCountsGcd()
+                      end,
+                      disabledTooltip = "This option requires Countdown Format to count GCDs inside Arcane Soul",
+                      getValue = function()
+                          local p = DB(); if not p then return 1, 1, 1 end
+                          local a = p.arcaneSoul
+                          return a.lastR or 1.0, a.lastG or 0.25, a.lastB or 0.25
+                      end,
+                      setValue = function(r, g, b)
+                          local p = DB(); if not p then return end
+                          local a = p.arcaneSoul
+                          a.lastR, a.lastG, a.lastB = r, g, b
+                          RefreshAS()
+                      end },
+                  } },
+                { type = "label", text = "" }
+            );  y = y - h
+
+            _, h = W:Spacer(parent, y, 16);  y = y - h
+        end
 
         -- Wire up click mappings for preview hit overlays (never from a hidden pre-build: the shared live table would end up pointing at off-screen rows).
         if not EllesmereUI._prebuilding then

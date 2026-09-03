@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: EllesmereUI settings panel. Loads on demand when you open EllesmereUI options.
 ## Author: Ellesmere
-## Version: 8.9.6
+## Version: 9.1.6
 ## Dependencies: EllesmereUI
 ## LoadOnDemand: 1
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -13,6 +13,8 @@
 # mirrors the original suite load order (parent files, then children A-Z).
 EllesmereUI_Widgets.lua
 EUI__General_Options.lua
+EUI_Fonts_Options.lua
+EUI_Textures_Options.lua
 EUI_PartyMode_Options.lua
 
 EUI_ActionBars_Options.lua

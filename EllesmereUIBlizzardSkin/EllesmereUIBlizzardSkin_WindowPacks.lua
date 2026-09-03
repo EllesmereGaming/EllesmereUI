@@ -3124,58 +3124,14 @@ local function Skin_Guild()
         GetFFD(ml).colRefreshHooked = true
         hooksecurefunc(ml, "RefreshListDisplay", WSkin.Debounce(SkinRosterColumns))
     end
-    -- Member-name list rides up 2px (one-shot, every anchor preserved).
-    local mlBox = ml and ml.ScrollBox
-    if mlBox and not GetFFD(mlBox).lifted then
-        local numPts = mlBox:GetNumPoints()
-        if numPts and numPts > 0 then
-            local pts, ok = {}, true
-            for i = 1, numPts do
-                local p, rel, rp, x, y = mlBox:GetPoint(i)
-                if not p then ok = false break end
-                pts[i] = { p, rel, rp, x or 0, (y or 0) + 2 }
-            end
-            if ok then
-                GetFFD(mlBox).lifted = true
-                mlBox:ClearAllPoints()
-                for i = 1, #pts do
-                    local t = pts[i]
-                    mlBox:SetPoint(t[1], t[2], t[3], t[4], t[5])
-                end
-            end
-        end
-    end
-
-
-    -- NEVER widen the roster: CommunitiesMemberListEntryMixin:SetExpanded sizes
-    -- every row from GetMemberList():GetWidth() inside its own secure roster
-    -- refresh, so an addon-written width is read back, taints the execution,
-    -- and blocks the protected actions that refresh triggers (SetNote /
-    -- SetGuildRankOrder / whisper -> ADDON_ACTION_FORBIDDEN). One-shot anchor
-    -- nudges Blizzard never reads back (list lift, scrollbar nudge) are fine.
-
-    -- Chat view's names-column scrollbar sits 5px right (one-shot, every
-    -- anchor preserved).
-    local mlSB = ml and ml.ScrollBar
-    if mlSB and not GetFFD(mlSB).nudged then
-        local numPts = mlSB:GetNumPoints()
-        if numPts and numPts > 0 then
-            local pts, ok = {}, true
-            for i = 1, numPts do
-                local p, rel, rp, x, y = mlSB:GetPoint(i)
-                if not p then ok = false break end
-                pts[i] = { p, rel, rp, (x or 0) + 5, y or 0 }
-            end
-            if ok then
-                GetFFD(mlSB).nudged = true
-                mlSB:ClearAllPoints()
-                for i = 1, #pts do
-                    local t = pts[i]
-                    mlSB:SetPoint(t[1], t[2], t[3], t[4], t[5])
-                end
-            end
-        end
-    end
+    -- NEVER re-anchor or resize the roster: CommunitiesMemberListEntryMixin
+    -- sizes every row from GetMemberList():GetWidth(), and the list view reads
+    -- ScrollBox:GetVisibleExtent() in the same pass that creates the row
+    -- buttons, so an addon-written width or anchor is read back and taints it.
+    -- Rows born in that pass stay tainted for the session: the protected
+    -- actions the refresh triggers are blocked (SetNote / SetGuildRankOrder /
+    -- whisper -> ADDON_ACTION_FORBIDDEN) and the row tooltip throws on the
+    -- secret member fields (C_CreatureInfo.GetRaceInfo(memberInfo.race)).
 
     local mm = f.MaximizeMinimizeFrame
     if mm then
@@ -12421,6 +12377,77 @@ WSkin.RegisterWindow({
         Wire("ReadyCheckListenerFrame", LP.SkinReadyCheckList)
     end,
 })
+
+-------------------------------------------------------------------------------
+--  BNet toast (BNToastFrame): a friend coming online or going offline, plus
+--  broadcasts and club invites. Alert-system driven like the loot toasts, but a
+--  SINGLETON rather than a pool instance, so it takes a plain window
+--  registration instead of their pool sweep. TAINT: clicking it opens a
+--  Battle.net whisper, whose target is a SECRET string, so nothing here writes a
+--  Lua field onto the frame.
+-------------------------------------------------------------------------------
+function LP.SkinBNetToast(f)
+    if not f or f:IsForbidden() then return end
+    local icon = f.IconTexture
+
+    -- The Blizzard art is a BACKDROP (BACKDROP_TOAST_12_12), and
+    -- BackdropTemplateMixin lays its pieces out as ordinary regions ON THE
+    -- FRAME via NineSliceUtil, so the shell fade reaches them. No SetBackdrop
+    -- call is needed, and none is made: that would re-enter Blizzard code.
+    -- No top bar, same as the loot toast -- there is no title row to sit on.
+    WSkin.Shell("bnettoast", f, { noTopBar = true })
+
+    -- The shell faded every region including the toast-type icon. Bring it
+    -- back and keep it out of later restrip passes. It is NOT squared:
+    -- IconTexture is a SetTexCoord crop out of one sheet, re-picked per toast
+    -- type, and WSkin.SquareIcon would overwrite those coordinates.
+    if icon then
+        icon:SetAlpha(1)
+        WSkin.Register(f, { [icon] = true })
+    end
+
+    -- Blizzard flair burst. SetAlpha(0) is not enough: the texture carries its
+    -- OWN alpha animation, which drives alpha every frame and wins over our
+    -- write (same shape as the loot toast art). Clear the texture instead.
+    local glow = f.glow
+    if glow then
+        if glow.SetAtlas then glow:SetAtlas("") end
+        if glow.SetTexture then glow:SetTexture("") end
+        glow:SetAlpha(0)
+    end
+
+    -- Font only, never color: ShowToast recolors these per toast type (account
+    -- name blue, status grey, some of it as an inline color code), and the
+    -- stock colors read correctly on the dark shell.
+    for _, k in ipairs({ "TopLine", "MiddleLine", "BottomLine", "DoubleLine" }) do
+        WSkin.Font(f[k])
+    end
+
+    if f.CloseButton then WSkin.CloseButton(f.CloseButton) end
+
+    -- Hover panel for a truncated broadcast. Inherits TooltipBackdropTemplate,
+    -- so the house panel replaces a real tooltip backdrop.
+    local tip = f.TooltipFrame
+    if tip then
+        WSkin.Panel(tip)
+        if tip.NineSlice then WSkin.FadeNineSlice(tip.NineSlice) end
+        if tip.Text then WSkin.Font(tip.Text) end
+    end
+end
+
+WSkin.RegisterWindow({
+    key = "bnettoast",
+    apply = function()
+        LP.WhenFrameExists("BNToastFrame", function(f)
+            local pass = WSkin.Debounce(function() LP.SkinBNetToast(f) end)
+            -- Blizzard repaints nothing on the frame between toasts, but the
+            -- pass is idempotent and one debounced call per toast is cheap
+            -- insurance against a future template change.
+            WSkin.HookShow(f, pass)
+            LP.SkinBNetToast(f)
+        end)
+    end,
+})
 end
 
 -------------------------------------------------------------------------------
@@ -13514,6 +13541,9 @@ function HP.ApplyTrade()
                 HP.CloseButton(f, f.CloseButton or _G.TradeFrameCloseButton)
             end,
             function() HP.TradeHidePortrait() end,
+            -- Behavior, not chrome, but it rides the phase list for the
+            -- same crash isolation. No-op after its first run.
+            function() HP.TradeAlertFix() end,
         }
     end
 
@@ -13561,6 +13591,100 @@ function HP.TradeSlots()
             HP.SkinTradeSlot(_G["TradePlayerItem" .. i])
             HP.SkinTradeSlot(_G["TradeRecipientItem" .. i])
         end
+end
+
+-- THE CHANGE GLOW FOLLOWS THE ITEM. A drag between trade slots is a REMOVE
+-- then an ADD (OnDragStart and OnReceiveDrag both call ClickTradeButton), so
+-- two slots change and TradeFrame_AlertItemIfChanged lights the wrong one:
+-- the emptied slot alerts, and the filled one stays silent while its itemKey
+-- is nil -- Blizzard skips a slot's first item, and the enchant slot behind
+-- "Will not be traded" is almost always in that state. Latched per side: a
+-- slot going empty arms its side, the next slot on that side to gain an item
+-- consumes the latch. side -> the Alert frame left glowing on the empty slot.
+HP.tradeVacated = {}
+
+-- Named so the state above can be dropped between trades. Slot 7 is the
+-- enchant slot on both halves.
+HP.TRADE_ALERT_BUTTONS = {}
+for i = 1, 7 do
+    HP.TRADE_ALERT_BUTTONS[#HP.TRADE_ALERT_BUTTONS + 1] = "TradePlayerItem" .. i .. "ItemButton"
+    HP.TRADE_ALERT_BUTTONS[#HP.TRADE_ALERT_BUTTONS + 1] = "TradeRecipientItem" .. i .. "ItemButton"
+end
+
+-- Stop() alone lands the alpha at 0 only if the group is still running;
+-- zeroing it too covers a stop between steps, which is when this is called.
+function HP.TradeAlertStop(alert)
+    if not alert or (alert.IsForbidden and alert:IsForbidden()) then return end
+    if alert.ItemIconAlertAnim then alert.ItemIconAlertAnim:Stop() end
+    if alert.LoopFlipbook then alert.LoopFlipbook:SetAlpha(0) end
+end
+
+-- Which half a button is on, read off its name: the two halves use otherwise
+-- identical templates and share this one alert function, and a partner
+-- rearranging their offer must not steal the glow off yours.
+function HP.TradeButtonSide(btn)
+    local n = btn and btn.GetName and btn:GetName()
+    if not n then return end
+    if n:find("TradePlayerItem", 1, true) == 1 then return "player" end
+    if n:find("TradeRecipientItem", 1, true) == 1 then return "recipient" end
+end
+
+-- Only a MOVE is redirected: an item that leaves the offer for good never gets
+-- its latch consumed, so its removal glow survives. That is a CHANGE warning,
+-- not the accept state (TradeHighlightPlayer/Recipient, left stock below).
+-- Blizzard's oldItemKey is gone by the time a post-hook runs, hence the shadow
+-- flag -- which also makes a button's FIRST sighting quiet, so a /reload
+-- mid-trade initializes instead of alerting on all fourteen slots.
+function HP.OnTradeItemAlert(btn, itemID)
+    if not btn or (btn.IsForbidden and btn:IsForbidden()) then return end
+    local side = HP.TradeButtonSide(btn)
+    if not side then return end
+    local d = GetFFD(btn)
+    local had = d.tradeHadItem
+    -- Blizzard's own emptiness test: an empty slot reports 0, not nil.
+    local has = (itemID or 0) > 0
+    d.tradeHadItem = has
+    if had and not has then
+        HP.tradeVacated[side] = btn.Alert
+    elseif has and not had then
+        local src = HP.tradeVacated[side]
+        if not src then return end
+        HP.tradeVacated[side] = nil
+        -- Source first: dropping an item back where it came from makes src and
+        -- the destination the same frame, so the restart has to win.
+        HP.TradeAlertStop(src)
+        local alert = btn.Alert
+        if alert and alert.ItemIconAlertAnim and not (alert.IsForbidden and alert:IsForbidden()) then
+            alert.ItemIconAlertAnim:Restart()
+        end
+    end
+end
+
+-- Dropped with the window. A trade cancelled with items still in its slots
+-- would otherwise leave them flagged as filled, and the next trade's first
+-- update would read as an emptying and arm the latch against nothing.
+function HP.TradeAlertReset()
+    wipe(HP.tradeVacated)
+    for i = 1, #HP.TRADE_ALERT_BUTTONS do
+        local btn = _G[HP.TRADE_ALERT_BUTTONS[i]]
+        if btn then GetFFD(btn).tradeHadItem = nil end
+    end
+end
+
+-- Once per session, from the pack because this window has no other owner.
+function HP.TradeAlertFix()
+    if HP.tradeAlertHooked then return end
+    if type(_G.TradeFrame_AlertItemIfChanged) ~= "function" then return end
+    HP.tradeAlertHooked = true
+    hooksecurefunc("TradeFrame_AlertItemIfChanged", function(btn, itemID)
+        -- Inside Blizzard's event handler: a throw would surface as an error
+        -- in their update, not ours.
+        pcall(HP.OnTradeItemAlert, btn, itemID)
+    end)
+    local f = _G.TradeFrame
+    if f and not f:IsForbidden() then
+        f:HookScript("OnHide", function() pcall(HP.TradeAlertReset) end)
+    end
 end
 
 -- Both player names and both "Will not be traded" enchant captions. White,

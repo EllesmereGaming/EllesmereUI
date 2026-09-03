@@ -846,6 +846,17 @@ local _tbbRebuildPending = false
 local _tbbAssignDirty = true
 local _tbbAssignedFor
 
+-- Group reflow gate: ReflowGroup's inputs are the visible member sequence plus the
+-- group's grow direction and spacing. Bar frames dirty this from their OnShow/OnHide,
+-- the group setting writers, rebuilds and wakes dirty it directly, and the tick
+-- reflows only while it is set instead of re-walking every bar every 16 ms.
+local _tbbReflowDirty = true
+local function _MarkTBBReflowDirty() _tbbReflowDirty = true end
+
+-- Smooth-fill switch memo for the tick: GetTBBSmoothSettings walks the profile store,
+-- and its result can only change with the active profile name or the live spec-profile bucket, both re-read per tick without a call.
+local _tickSm, _tickSmProf, _tickSmSp
+
 -- TBB idle sleeper: UpdateTrackedBuffBarTimers counts consecutive dead ticks (no
 -- active/fallback aura, self-timed window, running cooldown, or placeholder preview);
 -- after ~2s it parks the tick frame (OnUpdate stops) and this frame listens for the
@@ -869,6 +880,7 @@ function _tbbWake.Wake()
     _tbbWake:RegisterUnitEvent("UNIT_AURA", "player")
     _tbbWake._idleTicks = 0
     _tbbAssignDirty = true
+    _tbbReflowDirty = true
     if _tbbWake._enabled and tbbTickFrame then tbbTickFrame:Show() end
 end
 -- UNIT_AURA fires steadily in group content and every false wake buys ~0.5s of full
@@ -901,10 +913,27 @@ function _tbbWake.Probe()
     end
     return false
 end
-function _tbbWake.OnEvent(_, event)
-    -- Awake: this is the composition edge that retires the assignment memo. Mark and let the next tick re-pair; no probe, no state change.
+function _tbbWake.OnEvent(_, event, _, updateInfo)
+    -- Awake: this is the composition edge that retires the assignment memo. Mark and
+    -- let the next tick re-pair; no probe, no state change. Pairing keys on frame
+    -- identity only (pool membership, cooldown slot, aura spell variant), and an
+    -- update-only payload (refresh / stack change on auras already bound) moves none
+    -- of those, so only additions, removals, full updates, or an unreadable payload
+    -- retire the memo -- the same secret guard as the buff ticker's UNIT_AURA writer:
+    -- the table and each field can arrive secret in instanced content, and a secret
+    -- can never be boolean-tested, so unreadable means assume churn.
     if tbbTickFrame and tbbTickFrame:IsShown() then
-        _tbbAssignDirty = true
+        if event ~= "UNIT_AURA" or not updateInfo or issecretvalue(updateInfo) then
+            _tbbAssignDirty = true
+        else
+            local full    = updateInfo.isFullUpdate
+            local removed = updateInfo.removedAuraInstanceIDs
+            local added   = updateInfo.addedAuras
+            if issecretvalue(full) or issecretvalue(removed) or issecretvalue(added)
+               or full or removed or added then
+                _tbbAssignDirty = true
+            end
+        end
         return
     end
     if event == "UNIT_AURA" and not _tbbWake.Probe() then return end
@@ -1036,11 +1065,12 @@ function ns.TBBSetGroupGrow(gid, v)
     local gkey = ns.TBBGroupGlobalKey and ns.TBBGroupGlobalKey(gid)
     if gkey then
         local e = ns.TBBGlobalGroup(gkey)
-        if e then e.grow = v end
+        if e then e.grow = v; _tbbReflowDirty = true end
         return
     end
     TBBGroupStore(t, gid, true).grow = v
     if gid == 1 then t.groupGrowDirection = v end
+    _tbbReflowDirty = true
 end
 
 function ns.TBBGroupSpacing(gid)
@@ -1052,17 +1082,19 @@ function ns.TBBSetGroupSpacing(gid, v)
     local gkey = ns.TBBGroupGlobalKey and ns.TBBGroupGlobalKey(gid)
     if gkey then
         local e = ns.TBBGlobalGroup(gkey)
-        if e then e.spacing = v end
+        if e then e.spacing = v; _tbbReflowDirty = true end
         return
     end
     TBBGroupStore(t, gid, true).spacing = v
     if gid == 1 then t.groupSpacing = v end
+    _tbbReflowDirty = true
 end
 
 -- Clear a group's stored settings when its id is (re)claimed for a brand-new group, so a dissolved group's leftovers do not leak into it.
 function ns.TBBResetGroupSettings(gid)
     local t = ns.GetTrackedBuffBars()
     if t.groups then t.groups[_gidKeys[gid]] = nil end
+    _tbbReflowDirty = true
 end
 
 -- Optional user-given group name (Group Settings input). Empty/absent = nil, callers fall back to the default "Group N" label.
@@ -1351,6 +1383,7 @@ do
                     t.groupGrowDirection = entry.grow
                     t.groupSpacing = entry.spacing
                 end
+                _tbbReflowDirty = true
                 if entry.pos then
                     local posDB = ns.GetTBBPositions()
                     for j, c in ipairs(t.bars or {}) do
@@ -1494,6 +1527,7 @@ do
                                 tbb.groupGrowDirection = entry.grow
                                 tbb.groupSpacing = entry.spacing
                             end
+                            _tbbReflowDirty = true
                             if entry.pos then
                                 if not prof.tbbPositions then prof.tbbPositions = {} end
                                 local kn = tonumber(k)
@@ -1618,10 +1652,8 @@ local TBB_STYLE_KEYS = {
     "opacity", "hideWhenInactive", "onlyInCombat",
     -- Visibility rides along because the onlyInCombat toggle it replaced already did: a new
     -- bar inheriting a neighbour's style, or one joining a group, kept that gate before.
-    "barVisibility", "visibilityModes",
-    "visOnlyInstances", "visHideHousing", "visOnlyHousing",
-    "visHideMounted", "visOnlyMounted", "visHideDragonriding",
-    "visHideNoTarget", "visHideNoEnemy",
+    "barVisibility", "visibilityModes", "visibilityMatch",
+    -- The option lanes themselves are appended from the shared list below.
     "showTimer", "timerPosition", "timerSize", "timerX", "timerY",
     "timerTextR", "timerTextG", "timerTextB", "timerTextA",
     "timerDecimals", "timerDecimalThreshold",
@@ -1637,6 +1669,13 @@ local TBB_STYLE_KEYS = {
     "pandemicGlow", "pandemicGlowStyle", "pandemicGlowColor",
     "pandemicGlowLines", "pandemicGlowThickness", "pandemicGlowSpeed",
 }
+-- Appended rather than spelled out: a lane added to the shared list is copied with the
+-- rest of the style instead of silently staying behind on the source bar.
+if EllesmereUI.VIS_OPT_KEYS then
+    for i = 1, #EllesmereUI.VIS_OPT_KEYS do
+        TBB_STYLE_KEYS[#TBB_STYLE_KEYS + 1] = EllesmereUI.VIS_OPT_KEYS[i]
+    end
+end
 ns.TBB_STYLE_KEYS = TBB_STYLE_KEYS
 
 -- Copy src's visual style onto dst, key-exact (including nil) so both bars resolve defaults
@@ -1909,6 +1948,7 @@ local function ReflowVisibleGroupedTBBars(tbb, bars)
     -- Never fight edit-preview (placeholder) or unlock-mode dragging: there BuildTrackedBuffBars and the unlock system own bar positions.
     if ns._tbbPlaceholderMode or EllesmereUI._unlockActive then return end
     -- Reflow each present group once; the done-set is reused across ticks so this pass allocates nothing.
+    _tbbReflowDirty = false
     wipe(_tbbReflowDone)
     for _, cfg in ipairs(bars) do
         local gid = ns.TBBBarGroupID(cfg)
@@ -1968,6 +2008,9 @@ local function CreateTrackedBuffBarFrame(parent, idx)
     -- displays (MEDIUM, low levels). Internal level order: strips +6 < glow +7 < text +8.
     wrapFrame:SetFrameStrata("MEDIUM")
     wrapFrame:SetFrameLevel(100)
+    -- Visibility is a group reflow input: every Show/Hide edge, whichever path drives it, dirties the reflow.
+    wrapFrame:SetScript("OnShow", _MarkTBBReflowDirty)
+    wrapFrame:SetScript("OnHide", _MarkTBBReflowDirty)
 
     local bar = CreateFrame("StatusBar", "ECME_TBB" .. idx, wrapFrame)
     if bar.EnableMouseClicks then bar:EnableMouseClicks(false) end
@@ -2780,12 +2823,22 @@ ns.ApplyTBBBarSettings = ApplyTrackedBuffBarSettings
 --  Matches by cooldownID first (cached on cfg), then by spell ID variants from
 --  cooldownInfo. No external caches, no stale data in combat.
 -------------------------------------------------------------------------------
+-- cfg -> base-spell id seen once, awaiting a confirming second pass before the
+-- permanent cfg.baseSpellID write (a pool frame mid-reuse can echo another
+-- slot's ids for one pass). Separate table: frame-adjacent state must never
+-- ride the config into SavedVariables.
+local _tbbBaseCapturePending = {}
+
 local function MatchesSID(info, sid)
-    if info.overrideSpellID == sid then return true end
-    if info.spellID == sid then return true end
+    -- cooldownInfo id fields can read SECRET in restricted content, and a
+    -- secret on either side of == hard-errors: every compare is gated. sid is
+    -- the caller's cfg-side id (plain by contract).
+    local isSec = issecretvalue
+    if not (isSec and isSec(info.overrideSpellID)) and info.overrideSpellID == sid then return true end
+    if not (isSec and isSec(info.spellID)) and info.spellID == sid then return true end
     if info.linkedSpellIDs then
         for _, lid in ipairs(info.linkedSpellIDs) do
-            if lid == sid then return true end
+            if not (isSec and isSec(lid)) and lid == sid then return true end
         end
     end
     return false
@@ -2807,10 +2860,21 @@ local function MatchFrameToConfig(frame, cfg)
     -- cooldownInfo carries the override id ONLY while talented, so without the
     -- stored base the bar goes dark when untalented (the cast becomes the base
     -- spell). Also backfills bars saved without a pick-time baseSpellID.
+    local isSec = issecretvalue
     if cfg.spellID and cfg.spellID > 0 and not cfg.baseSpellID
+       and not (isSec and isSec(info.overrideSpellID))
+       and not (isSec and isSec(info.spellID))
        and info.overrideSpellID == cfg.spellID
        and info.spellID and info.spellID > 0 and info.spellID ~= cfg.spellID then
-        cfg.baseSpellID = info.spellID
+        -- Two matching reads on separate passes before committing: the write is
+        -- permanent (SavedVariables), so a single transient echo from a frame
+        -- mid-reuse must never corrupt the config's identity.
+        if _tbbBaseCapturePending[cfg] == info.spellID then
+            cfg.baseSpellID = info.spellID
+            _tbbBaseCapturePending[cfg] = nil
+        else
+            _tbbBaseCapturePending[cfg] = info.spellID
+        end
     end
     -- Fast path: match via cooldownInfo struct fields.
     if cfg.spellIDs then
@@ -2863,6 +2927,7 @@ function ns.InvalidateTBBFrameCache()
     wipe(_findChildCache)
     wipe(_tbbStickyFrame)
     wipe(_tbbStickyCdID)
+    wipe(_tbbBaseCapturePending)
     -- Every structural edge funnels here (pool Acquire, spec swap, rebuilds), so the assignment memo retires with the caches.
     _tbbAssignDirty = true
 end
@@ -2925,6 +2990,10 @@ local function CfgWantsSID(cfg, sid)
     -- Cooldown-tracking bars NEVER match buff-viewer frames or buff coverage.
     if cfg.trackType == "cooldown" then return false end
     if not sid then return false end
+    -- Tick paths feed raw aura/struct ids (icon, coverage): a secret survives
+    -- the nil check and hard-errors on ==. Narrow matcher: secret = not
+    -- provably ours.
+    if issecretvalue and issecretvalue(sid) then return false end
     if cfg.spellIDs then
         for _, s in ipairs(cfg.spellIDs) do if s == sid then return true end end
         return false
@@ -2948,6 +3017,10 @@ end
 local function TbbNameFamily(name)
     if type(name) ~= "string" or name == "" then return nil end
     local i = name:find(":", 1, true)
+    -- zhCN/zhTW labels separate variants with the fullwidth colon (U+FF1A;
+    -- decimal byte escapes -- Lua 5.1 has no hex escapes).
+    local j = name:find("\239\188\154", 1, true)
+    if j and (not i or j < i) then i = j end
     local fam = i and name:sub(1, i - 1) or name
     fam = fam:gsub("^%s+", ""):gsub("%s+$", ""):lower()
     if fam == "" then return nil end
@@ -2994,6 +3067,139 @@ local function TbbLinkedMemberSID(frame)
     return sid
 end
 
+-- Per-config name families for label/binding compatibility: cfg.name (the
+-- picker's display name) plus the resolved spellID/baseSpellID names.
+-- Weak-keyed memo; every input is re-checked on hit so options edits
+-- self-invalidate, and entries with unloaded spell data retry until resolved
+-- (same class as the deferred name fill).
+local _tbbCfgFamilies = setmetatable({}, { __mode = "k" })
+
+local function TbbCfgFamilies(cfg)
+    local e = _tbbCfgFamilies[cfg]
+    if e and not e.retry and e.nm == cfg.name and e.sid == cfg.spellID
+       and e.bsid == cfg.baseSpellID then
+        return e
+    end
+    if not e then e = {}; _tbbCfgFamilies[cfg] = e end
+    e.nm, e.sid, e.bsid = cfg.name, cfg.spellID, cfg.baseSpellID
+    e.retry = nil
+    e.f1 = TbbNameFamily(cfg.name)
+    e.f2, e.f3 = nil, nil
+    if cfg.spellID and cfg.spellID > 0 then
+        local si = C_Spell.GetSpellInfo(cfg.spellID)
+        if si and si.name then e.f2 = TbbNameFamily(si.name) else e.retry = true end
+    end
+    if cfg.baseSpellID and cfg.baseSpellID > 0 then
+        local si = C_Spell.GetSpellInfo(cfg.baseSpellID)
+        if si and si.name then e.f3 = TbbNameFamily(si.name) else e.retry = true end
+    end
+    return e
+end
+
+-- Two families are compatible when equal or one extends the other ("eclipse"
+-- vs "eclipse (solar)") -- variant naming keeps the base name as a prefix,
+-- while different abilities ("spirit walk" vs "spirit wolf") never do.
+local function TbbFamiliesCompatible(a, b)
+    if not a or not b then return false end
+    if a == b then return true end
+    return a:find(b, 1, true) == 1 or b:find(a, 1, true) == 1
+end
+
+-- fam vs ANY of the config's known families. openOnUnknown decides the
+-- verdict when either side is unknowable (the label gate fails OPEN to
+-- today's behavior; variant evidence fails CLOSED).
+local function TbbCfgFamilyMatch(cfg, fam, openOnUnknown)
+    local e = TbbCfgFamilies(cfg)
+    local f1, f2, f3 = e.f1, e.f2, e.f3
+    if fam == nil or not (f1 or f2 or f3) then return openOnUnknown end
+    return TbbFamiliesCompatible(fam, f1) or TbbFamiliesCompatible(fam, f2)
+        or TbbFamiliesCompatible(fam, f3)
+end
+
+-- cooldownID -> definite "variant-labeled slot" verdict, session-long (cdIDs
+-- are stable per session; verdicts only come from fully readable inputs). A
+-- slot is variant-labeled when its linked forms resolve to MORE THAN ONE
+-- distinct display string (Diabolist ritual trios, Eclipse Solar/Lunar) --
+-- the only case where a SECRET label can say something the config name
+-- cannot. Field 2026-08: a hidden pool frame can render another slot's text
+-- persistently after re-acquire, so unproven slots never paint secret labels.
+local _tbbVariantSlot = {}
+
+local function TbbSlotVariantLabeled(bar, cdID)
+    if type(cdID) ~= "number" or (issecretvalue and issecretvalue(cdID)) then
+        return false
+    end
+    local known = _tbbVariantSlot[cdID]
+    if known ~= nil then return known end
+    -- In combat one indefinite probe is pinned per binding (secret linked ids
+    -- would otherwise re-derive at 60Hz); out of combat retries until the
+    -- verdict is definite (spell data load is the only wait).
+    if bar._varProbeCd == cdID and InCombatLockdown() then
+        return bar._varProbeVal or false
+    end
+    local verdict, complete = false, false
+    if C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+        local ok, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cdID)
+        if ok and info then
+            local isSec = issecretvalue
+            local lids = info.linkedSpellIDs
+            if not lids or #lids == 0 then
+                -- No linked forms at all: definitively single-labeled.
+                _tbbVariantSlot[cdID] = false
+                return false
+            end
+            complete = true
+            local baseNm
+            local bsid = info.spellID
+            if bsid and not (isSec and isSec(bsid)) then
+                local si = C_Spell.GetSpellInfo(bsid)
+                local nm = si and si.name
+                if nm and not (isSec and isSec(nm)) then baseNm = nm:lower() end
+            end
+            if not baseNm then complete = false end
+            local firstNm
+            for k = 1, #lids do
+                local lid = lids[k]
+                local nm
+                if type(lid) == "number" and not (isSec and isSec(lid)) then
+                    local si = C_Spell.GetSpellInfo(lid)
+                    nm = si and si.name
+                    if nm and (isSec and isSec(nm)) then nm = nil end
+                end
+                if not nm then
+                    complete = false
+                else
+                    nm = nm:lower()
+                    if baseNm and nm ~= baseNm then verdict = true; break end
+                    if firstNm == nil then
+                        firstNm = nm
+                    elseif nm ~= firstNm then
+                        verdict = true; break
+                    end
+                end
+            end
+        end
+    end
+    if verdict or complete then
+        _tbbVariantSlot[cdID] = verdict
+    else
+        bar._varProbeCd, bar._varProbeVal = cdID, verdict
+    end
+    return verdict
+end
+
+-- Pass-3 candidate veto: a fuzzy struct match (linked-group membership) can
+-- be a mechanically different neighbor -- Blizzard links Spirit Walk into the
+-- Spirit Wolf slot's group, and with Spirit Walk's own frame inactive the
+-- neighbor is the UNIQUE match (field 2026-08). A READABLE live aura name
+-- that is family-incompatible with the config rejects the candidate;
+-- secret/unreadable fails open so variant slots stay bindable in combat.
+local function TbbFuzzyNameOK(cfg, frame)
+    local fam = TbbFrameNameFamily(frame)
+    if not fam then return true end
+    return TbbCfgFamilyMatch(cfg, fam, true)
+end
+
 local function AssignFramesToConfigs(bars)
     local assignment = _tbbAssignment
     -- Memo: pairing moves only on composition edges (player aura events, pool
@@ -3029,16 +3235,27 @@ local function AssignFramesToConfigs(bars)
         end
     end
 
-    -- The family hint overrides the canonical memo only where it is UNIQUE among the
-    -- active slots: collided slots each list the whole family (Eclipse Solar and Lunar,
-    -- both up), so an added aura stamps the same member on BOTH and only their
-    -- per-slot memos still tell them apart.
+    -- The family hint overrides the canonical memo only where (1) some enabled
+    -- bar actually WANTS the member: a single bar tracking the family under
+    -- its base/shared id must keep its per-slot memo, or the flip releases a
+    -- working binding for nothing (claim-style gate; also keeps shared-id
+    -- configs like Diabolist's on their memos if a variant stamp ever reads
+    -- clean), and (2) it is UNIQUE among the active slots: collided slots each
+    -- list the whole family (Eclipse Solar and Lunar, both up), so an added
+    -- aura stamps the same member on BOTH and only their per-slot memos still
+    -- tell them apart.
     for i = 1, #frames do
         local m = _tbbFrameMember[frames[i]]
         if m then
-            local unique = true
-            for j = 1, #frames do
-                if j ~= i and _tbbFrameMember[frames[j]] == m then unique = false; break end
+            local wanted = false
+            for _, c in ipairs(bars) do
+                if CfgWantsSID(c, m) then wanted = true; break end
+            end
+            local unique = wanted
+            if unique then
+                for j = 1, #frames do
+                    if j ~= i and _tbbFrameMember[frames[j]] == m then unique = false; break end
+                end
             end
             if unique then _tbbFrameSID[frames[i]] = m end
         end
@@ -3139,7 +3356,8 @@ local function AssignFramesToConfigs(bars)
             local candidate, matches = nil, 0
             for i = 1, #frames do
                 local frame = frames[i]
-                if not consumed[frame] and MatchFrameToConfig(frame, cfg) then
+                if not consumed[frame] and MatchFrameToConfig(frame, cfg)
+                   and TbbFuzzyNameOK(cfg, frame) then
                     matches = matches + 1
                     candidate = frame
                 end
@@ -3147,7 +3365,8 @@ local function AssignFramesToConfigs(bars)
             if matches == 1 then
                 local cfgMatches = 0
                 for _, other in ipairs(bars) do
-                    if not assignment[other] and MatchFrameToConfig(candidate, other) then
+                    if not assignment[other] and MatchFrameToConfig(candidate, other)
+                       and TbbFuzzyNameOK(other, candidate) then
                         cfgMatches = cfgMatches + 1
                     end
                 end
@@ -3663,6 +3882,7 @@ end
 local SATED_DEBUFFS = { 57723, 57724, 80354, 95809, 160455, 264689, 390435 }
 local _lustExpiry   = 0
 local _satedPresent = false
+local _satedSince                 -- GetTime() of the rise this listener armed on (nil = unknown age)
 local _lustZoneGuard = 0          -- suppress rising edges until this time (set on zone-in)
 local _lustListenerActive = false -- baseline _satedPresent only on (re)enable, not every rebuild
 local _lustListener
@@ -3688,9 +3908,22 @@ local function _ensureLustListener(enable)
                     -- briefly. An already-carried Sated debuff (zoning out of a dungeon) must
                     -- never read as a fresh cast and pop a phantom 40s bar in the open world.
                     _satedPresent = _playerHasSated()
+                    _satedSince = nil
                     _lustZoneGuard = GetTime() + 1.5
                     return
                 end
+                if event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" then
+                    -- Death strips the lockout debuff, so the 590s pin below has to be
+                    -- released here: a wipe followed by a fresh lust would otherwise be
+                    -- swallowed for the rest of the window the pin was stamped for.
+                    _satedPresent = _playerHasSated()
+                    _satedSince = nil
+                    return
+                end
+                -- Nothing but death lifts the lockout early (handled above), so a rise
+                -- this listener armed on pins the debuff for the next 590s: skip the
+                -- (allocating) aura probe until it can possibly have dropped.
+                if _satedPresent and _satedSince and GetTime() < _satedSince + 590 then return end
                 local present = _playerHasSated()
                 -- Arm ONLY on a genuine incremental application: not a full
                 -- aura refresh (zone/login resends every aura), and not inside
@@ -3706,11 +3939,13 @@ local function _ensureLustListener(enable)
                 if present and not _satedPresent and not isFull
                     and GetTime() >= _lustZoneGuard then
                     _lustExpiry = GetTime() + 40  -- rising edge: lust just went out
+                    _satedSince = GetTime()
                     _tbbWake.Wake()  -- lust can come from other players: no local cast/aura edge is guaranteed
                     -- Drive Custom Auras (icon) lust displays sharing this edge.
                     if ns.SignalLustCast then ns.SignalLustCast() end
                 end
                 _satedPresent = present
+                if not present then _satedSince = nil end
             end)
         end
         -- Baseline ONLY on the OFF->ON transition. Re-baselining on every BuildTrackedBuffBars
@@ -3718,8 +3953,11 @@ local function _ensureLustListener(enable)
         -- could set _satedPresent=false and make the debuff's return look like a cast.
         if not _lustListenerActive then
             _satedPresent = _playerHasSated()
+            _satedSince = nil
             _lustListener:RegisterUnitEvent("UNIT_AURA", "player")
             _lustListener:RegisterEvent("PLAYER_ENTERING_WORLD")
+            _lustListener:RegisterEvent("PLAYER_DEAD")
+            _lustListener:RegisterEvent("PLAYER_ALIVE")
             _lustListenerActive = true
         end
     elseif _lustListener and _lustListenerActive then
@@ -3779,10 +4017,24 @@ local function _UpdateSelfTimedBar(bar, cfg, expiry, duration)
         if cfg.showSpark and bar._spark then bar._spark:Show() end
     end
     if cfg.showTimer and bar._timerText then
+        -- The string changes only when its displayed bucket does (rounded tenths
+        -- under 10s, whole seconds above), so stamp the bucket and skip the
+        -- per-tick format + SetText otherwise. A fresh appearance always writes
+        -- (wasShown false) and the placeholder exit clears the stamp, so no other
+        -- writer of this FontString can strand it.
+        local key
         if remaining < 10 then
-            bar._timerText:SetText(string.format("%.1f", remaining))
+            key = math.floor(remaining * 10 + 0.5)
         else
-            bar._timerText:SetText(string.format("%d", remaining))
+            key = math.floor(remaining)
+        end
+        if not wasShown or bar._stTxtKey ~= key then
+            bar._stTxtKey = key
+            if remaining < 10 then
+                bar._timerText:SetText(string.format("%.1f", remaining))
+            else
+                bar._timerText:SetText(string.format("%d", remaining))
+            end
         end
         bar._timerText:Show()
     elseif bar._timerText then
@@ -4794,10 +5046,10 @@ local function TBBUsesVisCondition(cfg)
     if vis and vis ~= "always" then return true end
     local vm = cfg.visibilityModes
     if type(vm) == "table" and next(vm) then return true end
-    local items = EllesmereUI.VIS_OPT_ITEMS
-    if items then
-        for i = 1, #items do
-            if cfg[items[i].key] then return true end
+    local keys = EllesmereUI.VIS_OPT_KEYS
+    if keys then
+        for i = 1, #keys do
+            if cfg[keys[i]] then return true end
         end
     end
     return false
@@ -4810,17 +5062,25 @@ end
 -------------------------------------------------------------------------------
 function ns.UpdateTrackedBuffBarTimers()
     if not ECME or not ECME.db then return end
-    local MS, MD = ns._MemSnap, ns._MemDelta
-    if MS then MS("TBBTick") end
     local tbb = ns.GetTrackedBuffBars()
     local bars = tbb.bars
-    if not bars then if MD then MD("TBBTick") end return end
+    if not bars then return end
 
     -- Liveness for the idle sleeper: set by any branch below that is actually animating or tracking something this tick.
     local tickLive = false
 
     -- Profile-wide smooth-fill switches, resolved once per tick for every fill site (absent buffs key = enabled; absent cooldowns key = OFF).
-    local sm = ns.GetTBBSmoothSettings and ns.GetTBBSmoothSettings()
+    local sm
+    do
+        local pn = EllesmereUIDB and EllesmereUIDB.activeProfile
+        local sp = ns._cachedSpecProfiles
+        if _tickSm and pn == _tickSmProf and sp == _tickSmSp then
+            sm = _tickSm
+        else
+            sm = ns.GetTBBSmoothSettings and ns.GetTBBSmoothSettings()
+            _tickSm, _tickSmProf, _tickSmSp = sm, pn, sp
+        end
+    end
     if sm then
         _smoothBuffs = sm.buffs ~= false
         _smoothCooldowns = sm.cooldowns == true
@@ -4837,6 +5097,12 @@ function ns.UpdateTrackedBuffBarTimers()
             if ns.HideTBBPlaceholders then ns.HideTBBPlaceholders() end
             -- Auras may have moved while the preview was up: re-pair on the first real mirror tick.
             _tbbAssignDirty = true
+            -- The preview may have written the self-timed bars' timer text: drop
+            -- their bucket stamps so the next live tick rewrites it.
+            for bi = 1, #tbbFrames do
+                local b = tbbFrames[bi]
+                if b then b._stTxtKey = nil end
+            end
         end
     end
 
@@ -4994,23 +5260,22 @@ function ns.UpdateTrackedBuffBarTimers()
                         end
                     end
 
-                    -- Name resolution ladder (Diabolist field probe 2026-08-16,
-                    -- /euitbbdbg: on the ACTIVE ritual frame GetSpellID,
-                    -- GetAuraSpellID AND the aura-instance read are all
-                    -- secret/nil even out of combat -- the variant identity is
-                    -- unreadable to Lua; only Blizzard's own label knows which
-                    -- ritual is up):
+                    -- Name resolution ladder:
                     --  1. Blizzard's rendered label FontString on the BOUND
-                    --     frame -- the ONLY channel that carries the live
-                    --     variant name (Overlord / Mother of Chaos / Pit Lord)
-                    --     while ids are unreadable. Handed straight to SetText
-                    --     (accepts secrets natively; NEVER compared or stored),
-                    --     and taken only while that frame is SHOWN with a bound
-                    --     aura: the old wrong-name report came from scraping a
-                    --     label whose pooled frame had been recycled under a
-                    --     stale binding -- bindings are cooldownID-anchored now
-                    --     (sticky releases on slot change), and a shown frame's
-                    --     label belongs to its current occupant.
+                    --     frame -- the only channel carrying live variant
+                    --     names (Diabolist probe 2026-08-16: on the active
+                    --     ritual frame every id AND the aura-instance read are
+                    --     secret even out of combat; only the label knows
+                    --     which ritual is up). FIELD-PROVEN 2026-08: a hidden
+                    --     pool frame's label can ALSO hold another slot's
+                    --     readable text persistently after re-acquire (binding
+                    --     right, label lying -- SotR as "Consecration", Bone
+                    --     Shield as "Blood Draw"), so the label is trusted
+                    --     only inside the config's name family: readable text
+                    --     must be family-compatible, and secret text paints
+                    --     only on slots whose linked forms provably render
+                    --     distinct names. Secrets pass straight to SetText
+                    --     (never compared or stored).
                     --  2. Live aura data, when readable and provably this bar's
                     --     family (exact config ids or the bound slot's
                     --     cooldownInfo override/spellID/linkedSpellIDs).
@@ -5021,13 +5286,10 @@ function ns.UpdateTrackedBuffBarTimers()
                         -- (probe-confirmed): type() reads the tag without touching
                         -- the value -- the taint-safe presence test for secrets.
                         -- SLOT CHECK (the Wardead class, 2+ bars in one group in
-                        -- combat): the frame's label is right for its CURRENT
-                        -- occupant, so it is wrong only when OUR binding is stale
-                        -- -- a pool re-acquire that moved this frame to another
-                        -- slot before the next re-pair. cooldownID stays a plain
-                        -- readable number in secret windows, so comparing it to
-                        -- the slot we bound under catches that same-tick window
-                        -- (the sticky pass applies the identical test on its own
+                        -- combat): cooldownID stays a plain readable number in
+                        -- secret windows, so a pooled frame moved to another slot
+                        -- since binding is caught before its label is read (the
+                        -- sticky pass applies the identical test on its own
                         -- schedule); a mismatch skips the label and falls through.
                         if blzChild and blzChild:IsShown() and blizzBar
                            and type(blzChild.auraInstanceID) ~= "nil"
@@ -5036,9 +5298,26 @@ function ns.UpdateTrackedBuffBarTimers()
                             local blizzNameFS = GetBlizzBarFontStrings(blizzBar)
                             if blizzNameFS then
                                 local ok, txt = pcall(blizzNameFS.GetText, blizzNameFS)
-                                if ok and txt ~= nil
-                                   and ((issecretvalue and issecretvalue(txt)) or txt ~= "") then
-                                    nameStr = txt
+                                if ok and txt ~= nil then
+                                    if issecretvalue and issecretvalue(txt) then
+                                        if TbbSlotVariantLabeled(bar, blzChild.cooldownID) then
+                                            nameStr = txt
+                                        end
+                                    elseif txt ~= "" then
+                                        -- Family gate memoized on (cfg, cfg.name,
+                                        -- text): the verdict only moves when the
+                                        -- rendered string or the config does.
+                                        if bar._labelGateCfg ~= cfg
+                                           or bar._labelGateNm ~= cfg.name
+                                           or bar._labelGateTxt ~= txt then
+                                            bar._labelGateCfg = cfg
+                                            bar._labelGateNm  = cfg.name
+                                            bar._labelGateTxt = txt
+                                            bar._labelGateOk  = TbbCfgFamilyMatch(
+                                                cfg, TbbNameFamily(txt), true)
+                                        end
+                                        if bar._labelGateOk then nameStr = txt end
+                                    end
                                 end
                             end
                         end
@@ -5323,7 +5602,7 @@ function ns.UpdateTrackedBuffBarTimers()
     end
 
     -- Re-pack visible grouped Tracking Bars after the active/inactive pass so hidden buffs do not reserve a slot in the group.
-    ReflowVisibleGroupedTBBars(tbb, bars)
+    if _tbbReflowDirty then ReflowVisibleGroupedTBBars(tbb, bars) end
 
     -- Deferred name fill: retry each tick when BuildTrackedBuffBars could not resolve the spell name (spell data not loaded yet).
     for i, cfg in ipairs(bars) do
@@ -5383,7 +5662,6 @@ function ns.UpdateTrackedBuffBarTimers()
         _tbbWake._idleTicks = n
         if n >= 30 then _tbbWake.Sleep() end
     end
-    if ns._MemDelta then ns._MemDelta("TBBTick") end
 end
 
 -------------------------------------------------------------------------------
@@ -5394,6 +5672,7 @@ function ns.BuildTrackedBuffBars()
     if not ECME or not ECME.db then return end
     -- No InCombatLockdown guard needed: TBB frames are ours (UIParent), not secure Blizzard frames, so positioning in combat is safe.
     _tbbRebuildPending = false
+    _tbbReflowDirty = true
 
     -- Per-spec unlock-link views: the global anchor/match stores must hold THIS spec's TBB entries before any anchored-state below is read.
     ns.SyncTBBUnlockLinks()
@@ -5498,6 +5777,16 @@ function ns.BuildTrackedBuffBars()
             local namePos2 = cfg.namePosition or ((cfg.showName ~= false) and "left" or "none")
             if namePos2 ~= "none" and bar._nameText then
                 local displayName = cfg.name
+                -- Preset bars take the live label the same way the icon does above:
+                -- the copy saved at pick time can name the other faction's lust.
+                if cfg.popularKey then
+                    for _, pe in ipairs(TBB_POPULAR_BUFFS) do
+                        if pe.key == cfg.popularKey then
+                            displayName = pe.name or displayName
+                            break
+                        end
+                    end
+                end
                 if (not displayName or displayName == "") and cfg.spellID and cfg.spellID > 0 then
                     local spInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(cfg.spellID)
                     displayName = spInfo and spInfo.name

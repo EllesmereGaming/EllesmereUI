@@ -47,6 +47,16 @@ local pabSpecSel = "allspecs"
 -- Inherited-bar selection ({kind, group, id}); wins over pabSel while set.
 local pabInhSel = nil
 
+-- Exported selection setter for What's New deep links (same pattern as
+-- EllesmereUI._setUnitFrameUnit / _setMiniUnit): the sidebar selection is a
+-- session-sticky file local defaulting to the Buffs bar, so a nav targeting a
+-- debuff-side section must pre-select the right pane or the section scan
+-- silently misses.
+EllesmereUI._setPABSelection = function(kind, id)
+    pabSel = { kind = kind, id = id or "default" }
+    pabInhSel = nil
+end
+
 -- Editing-spec group buckets (labels/icons mirror the RaidFrames roster in
 -- EUI_RaidFrames_BuffManager.lua -- different addon namespace, keep the two
 -- lists in sync).
@@ -281,9 +291,10 @@ end
 --     ns.PAB_Filters() list order (map iteration via bar.filters alone is
 --     unordered -- would make the tile flicker between refreshes). If 3+
 --     filters are selected the 3rd shown name is truncated to its first 3
---     characters + "..." as an overflow hint. Falls back to the old
---     resolved-count phrasing when no filters are selected at all (e.g. a
---     bar with only Extra Spells and Show All Buffs off).
+--     characters + "..." as an overflow hint. Falls back to the Extra
+--     Spells count when no filters are selected at all (e.g. a bar with
+--     only Extra Spells and Show All Buffs off) -- the ASSIGNED count, not
+--     the resolved one, which expands curated spell families.
 local function TruncateFilterName(name)
     return (name or ""):sub(1, 3) .. "..."
 end
@@ -362,8 +373,7 @@ local function BuildBuffBarSubtitle(bar)
     end
 
     if #names == 0 then
-        local resolved = ns.PAB_ResolveSpells and ns.PAB_ResolveSpells(bar) or (bar.spells or {})
-        return tostring(#resolved) .. " " .. L("spells")
+        return tostring(extraCount) .. " " .. L("spells")
     end
 
     if totalSelected >= 3 then
@@ -742,8 +752,16 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply, isDefau
                 if v then
                     if not HasDirect(k) then cfg.spells[#cfg.spells + 1] = k end
                 else
+                    -- Unchecking drops the whole curated family, not just this id:
+                    -- PAB_ResolveSpells expands a family from any member, so a
+                    -- differently-named sibling left in the list would keep the buff
+                    -- tracked behind an unchecked box. Same family = same table.
+                    local fam = ns.PAB_SPELL_FAMILY and ns.PAB_SPELL_FAMILY[k]
                     for i = #cfg.spells, 1, -1 do
-                        if cfg.spells[i] == k then table.remove(cfg.spells, i) end
+                        local id = cfg.spells[i]
+                        if id == k or (fam and ns.PAB_SPELL_FAMILY[id] == fam) then
+                            table.remove(cfg.spells, i)
+                        end
                     end
                 end
                 apply()
@@ -785,7 +803,10 @@ local function BuildAssignedDebuffsFields(frame, fontPath, sy, cfg, apply)
             values = { __placeholder = "..." }, order = { "__placeholder" },
             getValue = function() return "__placeholder" end, setValue = function() end
         },
-        { type = "label", text = "" }
+        EllesmereUI.MaxDurationDropdown(
+            function() return cfg.maxDurSec end,
+            function(v) cfg.maxDurSec = v end,
+            apply)
     ); sy = sy - hh
     do
         local rgn = safRow._leftRegion
@@ -808,11 +829,29 @@ local function BuildAssignedDebuffsFields(frame, fontPath, sy, cfg, apply)
             local classItems = ns.PAB_ClassItems and ns.PAB_ClassItems(false) or {}
             for i = 1, #classItems do
                 local ci = classItems[i]
-                items[#items + 1] = { key = ci.key, label = ci.label, tooltip = ci.tooltip,
-                    dual = true, showLockedFn = AllOn,
-                    showLockedTooltip = lockedTip }
+                if ci.isHeader then
+                    items[#items + 1] = { isHeader = true, label = ci.label }
+                else
+                    items[#items + 1] = { key = ci.key, label = ci.label, tooltip = ci.tooltip,
+                        dual = true, showLockedFn = AllOn,
+                        showLockedTooltip = lockedTip }
+                end
             end
             return items
+        end
+        -- Non-Player / From Any Player share one engine field: a check in either
+        -- lane clears the sibling from both lanes.
+        local function ClearExclusive(k)
+            local other = ns.PAB_ExclusiveSkey and ns.PAB_ExclusiveSkey[k]
+            if not other then return end
+            if cfg.classFilters then
+                cfg.classFilters[other] = nil
+                if not next(cfg.classFilters) then cfg.classFilters = nil end
+            end
+            if cfg.negClassFilters then
+                cfg.negClassFilters[other] = nil
+                if not next(cfg.negClassFilters) then cfg.negClassFilters = nil end
+            end
         end
         local warnClosed
         local cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
@@ -850,6 +889,7 @@ local function BuildAssignedDebuffsFields(frame, fontPath, sy, cfg, apply)
                 end
                 -- Two-lane class write: checking one lane clears the other;
                 -- emptied lane tables drop to nil (saved-variable hygiene).
+                if v then ClearExclusive(k) end
                 if neg then
                     cfg.negClassFilters = cfg.negClassFilters or {}
                     cfg.negClassFilters[k] = v or nil
@@ -1365,10 +1405,65 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
 end
 
 -- Debuff-category bars only (default debuffs + custom debuff bars).
+local DISPEL_ICON_POS_VALUES = {
+    none        = "None",
+    topleft     = "Top Left",
+    top         = "Top",
+    topright    = "Top Right",
+    left        = "Left",
+    center      = "Center",
+    right       = "Right",
+    bottomleft  = "Bottom Left",
+    bottom      = "Bottom",
+    bottomright = "Bottom Right",
+}
+local DISPEL_ICON_POS_ORDER = { "none", "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+
 local function BuildDispelColorFields(frame, fontPath, sy, cfg, apply)
     local W = EllesmereUI.Widgets
     local PP = EllesmereUI.PanelPP
     local _, hh = 0, 0
+
+    -- Dispel-type indicator icon on each debuff bar (engine-driven, mirrors
+    -- Raid Frames' "Type Icon Position"). "none" (default) = feature off.
+    _, hh = W:SectionHeader(frame, "DEBUFF TYPE ICON", sy); sy = sy - hh
+    do
+        local function IconOn() return (cfg.dispelIconPosition or "none") ~= "none" end
+        local row
+        row, hh = W:DualRow(frame, sy,
+            { type = "dropdown", text = "Type Icon Position",
+              tooltip = "Shows the debuff's dispel type icon (Magic, Curse, Disease, Poison, Bleed) on the bar.",
+              values = DISPEL_ICON_POS_VALUES, order = DISPEL_ICON_POS_ORDER,
+              getValue = function() return cfg.dispelIconPosition or "none" end,
+              setValue = function(v)
+                  cfg.dispelIconPosition = v
+                  apply()
+                  EllesmereUI:RefreshPage()
+              end },
+            { type = "label", text = "" }
+        ); sy = sy - hh
+        local rgn = row._leftRegion
+        local _, cogShow = EllesmereUI.BuildCogPopup({
+            title = "Type Icon",
+            rows = {
+                { type = "slider", label = "Icon Size", min = 8, max = 48, step = 1,
+                  get = function() return cfg.dispelIconSize or 16 end,
+                  set = function(v) cfg.dispelIconSize = v; apply() end },
+                { type = "slider", label = "Offset X", min = -50, max = 50, step = 1,
+                  get = function() return cfg.dispelIconOffsetX or 0 end,
+                  set = function(v) cfg.dispelIconOffsetX = v; apply() end },
+                { type = "slider", label = "Offset Y", min = -50, max = 50, step = 1,
+                  get = function() return cfg.dispelIconOffsetY or 0 end,
+                  set = function(v) cfg.dispelIconOffsetY = v; apply() end },
+            },
+        })
+        local cogBtn = ns._PAMakeCogBtn(rgn, function(self)
+            if IconOn() then cogShow(self) end
+        end)
+        cogBtn:SetAlpha(IconOn() and 0.4 or 0.15)
+        cogBtn:SetScript("OnEnter", function(self) if IconOn() then self:SetAlpha(0.7) end end)
+        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(IconOn() and 0.4 or 0.15) end)
+    end
 
     _, hh = W:SectionHeader(frame, "DISPEL COLORS", sy); sy = sy - hh
 

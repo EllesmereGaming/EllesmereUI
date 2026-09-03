@@ -249,6 +249,21 @@ local function EnsureDB()
     if not EUI or not EUI.Lite then return nil end
     _dmDB = EUI.Lite.NewDB("EllesmereUIDamageMetersDB", DM_DEFAULTS)
     _G._EDM_DB = _dmDB
+    -- Refresh Rate floor raised to 0.5s: each tick fetches a full session
+    -- snapshot per window, so sub-0.5 rates multiply allocation churn far
+    -- past any visual gain. Clamp every stored profile once per session
+    -- (idempotent; imports of old exports are caught by the ticker clamp
+    -- until their next login).
+    local sv = _G.EllesmereUIDamageMetersDB
+    if type(sv) == "table" and type(sv.profiles) == "table" then
+        for _, p in pairs(sv.profiles) do
+            local dm = type(p) == "table" and p.dm
+            if type(dm) == "table" and type(dm.refreshRate) == "number"
+               and dm.refreshRate < 0.5 then
+                dm.refreshRate = 0.5
+            end
+        end
+    end
     return _dmDB
 end
 
@@ -517,14 +532,24 @@ ns.RegisterDMUnlock = function()
     if DB().standaloneTimer and ns.MakeSATimerUnlockElement then
         elements[#elements + 1] = ns.MakeSATimerUnlockElement(MK)
     end
+    -- Icon History is owned by the spell-history file, but participates in the
+    -- same first-class unlock system as the meter windows and combat timer.
+    local spellHistory = DB().spellHistory
+    if spellHistory and spellHistory.iconEnabled and ns.MakeIconHistoryUnlockElement then
+        elements[#elements + 1] = ns.MakeIconHistoryUnlockElement(MK)
+    end
     EUI:RegisterUnlockElements(elements, "EllesmereUIDamageMeters")
-    -- Drop registrations for window slots beyond the live count and the timer while disabled (symmetric across profile swaps)
+    -- Drop registrations for window slots beyond the live count and optional
+    -- elements while disabled (symmetric across profile swaps).
     if EUI.UnregisterUnlockElement then
         for i = #_windows + 1, MAX_WINDOWS do
             EUI:UnregisterUnlockElement("EDM_Win" .. i)
         end
         if not DB().standaloneTimer then
             EUI:UnregisterUnlockElement("EDM_CombatTimer")
+        end
+        if not (spellHistory and spellHistory.iconEnabled) then
+            EUI:UnregisterUnlockElement("EDM_IconHistory")
         end
     end
 end
@@ -535,6 +560,14 @@ local _curViewFrozenDur = 0    -- final Current-session duration, pinned when co
 -- deathRecapID > 0 filter would treat as a real death. Cleared at combat/encounter start and on
 -- 0 HP (confirmed real death); UnitIsFeignDeath can remain true through a feign-then-die transition so it can't be used to clear safely.
 local _feignDeathGUIDs = {}
+
+-- In-combat death time placeholders, keyed by deathRecapID (NeverSecret, unique
+-- per death). deathTimeSeconds is SECRET while in combat, so a Deaths row read
+-- 0:00 until combat ended; the row's first appearance is stamped with the plain
+-- live session duration instead (accurate to one refresh interval) and the
+-- engine's exact value replaces it as soon as it reads plain. Wiped at every
+-- combat start with the feign cache.
+local _deathStamps = {}
 
 -- Switch a window to a segment (sessionID) or session type (Current/Overall); windows with
 -- syncSegments switch together. On ns not local: CreateDMWindow is at Lua 5.1's 60-upvalue limit.
@@ -705,6 +738,12 @@ instanceFrame:SetScript("OnEvent", function(_, event)
     elseif event == "DAMAGE_METER_COMBAT_SESSION_UPDATED" then
         -- Blizzard created/updated a combat session (boss kill, combat end); "Current" may now point
         -- elsewhere. Invalidate cache for the next ticker refresh; force an immediate refresh only out of combat (the shared ticker covers combat at refreshRate).
+        -- Readable session data changed: refresh the breakdown resolver's
+        -- class:spec -> guid snapshot (ns route: this closure predates the
+        -- resolver's definition).
+        if ns._SnapshotSourceKeys and not InCombatLockdown() then
+            ns._SnapshotSourceKeys()
+        end
         if not instanceFrame._sessionPending then
             instanceFrame._sessionPending = true
             C_Timer.After(0.1, function()
@@ -814,10 +853,11 @@ local function GetDMOutline()
     return (EUI and EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("damageMeters")) or ""
 end
 
-local function SetDMFont(fs, size)
+local function SetDMFont(fs, size, flagsOverride, fontOverride)
     if not (fs and fs.SetFont) then return end
-    local font = GetDMFont()
-    local flags = GetDMOutline()
+    local font = fontOverride or GetDMFont()
+    local flags = flagsOverride
+    if flags == nil then flags = GetDMOutline() end
     if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, flags == "") end
     fs:SetFont(font, size, flags)
 end
@@ -933,51 +973,30 @@ local function ApplyBarTexture(fill, texPath, texKey)
     end
 end
 
--- Physical pixel spacing: convert user values to physical pixels (user setting = physical pixel count)
+-- Physical pixel spacing: convert user values to physical pixels (user setting = physical pixel count).
+-- Snapped through PP.Scale so accumulated row offsets (stride * index) don't drift off the pixel
+-- grid from float dust -- without this, a spacing of 1 can round to 0px on some rows and 2px on others.
 local function PhysicalPixels(userValue)
     local PP = EUI and EUI.PP
     local mult = (PP and PP.mult) or 1
-    return (userValue or 0) * mult
+    local value = (userValue or 0) * mult
+    if PP and PP.Scale then return PP.Scale(value) end
+    return value
 end
 
--- Number formatting
-local _abbreviateCfg
--- East Asian clients group large numbers by ten-thousands (wan) and hundred-millions (yi) rather than K/M/B; Simplified/Traditional Chinese share the math, only the wan/yi glyphs differ
-local CJK = ({
-    zhCN = { thousand = "千", wan = "万", yi = "亿" },
-    zhTW = { thousand = "千", wan = "萬", yi = "億" },
-    koKR = { thousand = "천", wan = "만", yi = "억" },
-})[GetLocale()]
--- Choose the abbreviation breakpoint table: CJK clients normally group by 萬/억, but fall
--- through to K/M/B if forceEnglish is on. Non-CJK clients always get K/M/B (forceEnglish is a no-op).
-local function BuildAbbrevOpts(forceEnglish)
-    if CJK and not forceEnglish then
-        return {
-            { breakpoint = 100000000, abbreviation = CJK.yi,       significandDivisor = 1000000, fractionDivisor = 100, abbreviationIsGlobal = false },
-            { breakpoint = 10000,     abbreviation = CJK.wan,      significandDivisor = 100,      fractionDivisor = 100, abbreviationIsGlobal = false },
-            { breakpoint = 1000,      abbreviation = CJK.thousand, significandDivisor = 100,      fractionDivisor = 10,  abbreviationIsGlobal = false },
-            { breakpoint = 1,         abbreviation = "",           significandDivisor = 1,        fractionDivisor = 1,   abbreviationIsGlobal = false },
-        }
-    else
-        return {
-            { breakpoint = 1000000000, abbreviation = "B", significandDivisor = 10000000, fractionDivisor = 100, abbreviationIsGlobal = false },
-            { breakpoint = 1000000,    abbreviation = "M", significandDivisor = 10000,    fractionDivisor = 100, abbreviationIsGlobal = false },
-            { breakpoint = 1000,       abbreviation = "K", significandDivisor = 100,      fractionDivisor = 10,  abbreviationIsGlobal = false },
-            { breakpoint = 1,          abbreviation = "",  significandDivisor = 1,         fractionDivisor = 1,   abbreviationIsGlobal = false },
-        }
-    end
-end
+-- Number formatting: delegates to the shared EllesmereUI_NumberFormat.lua engine
+-- (breakpoint tables, the CJK wan/yi grouping tables and the
+-- AbbreviateNumbers/CreateAbbreviateConfig plumbing all live there now,
+-- shared with EllesmereUIDataBars' gold abbreviation).
+local _forceEnglishUnits = false
 
--- Rebuild _abbreviateCfg from the saved setting: once at load (DB not ready yet -> reads
--- false), once after DB creation, and on every options toggle flip. Cheap: one config object, never touches per-bar/per-refresh work.
+-- Re-read the saved setting: once at load (DB not ready yet -> reads false),
+-- once after DB creation, and on every options toggle flip.
 local function RebuildAbbrevCfg()
-    local forceEnglish = false
+    _forceEnglishUnits = false
     if ns.EDM and ns.EDM.DB then
         local db = ns.EDM.DB()
-        if db and db.forceEnglishUnits then forceEnglish = true end
-    end
-    if CreateAbbreviateConfig then
-        _abbreviateCfg = { config = CreateAbbreviateConfig(BuildAbbrevOpts(forceEnglish)) }
+        if db and db.forceEnglishUnits then _forceEnglishUnits = true end
     end
 end
 RebuildAbbrevCfg()
@@ -985,21 +1004,7 @@ ns.RebuildNumberFormat = RebuildAbbrevCfg
 
 local function AbbrevNumber(n)
     if n == nil then return "0" end
-    if AbbreviateNumbers then
-        return AbbreviateNumbers(n, _abbreviateCfg) or "0"
-    end
-    local num = tonumber(n)
-    if not num then return "?" end
-    if CJK then
-        if num >= 1e8 then return format("%.2f%s", num / 1e8, CJK.yi)
-        elseif num >= 1e4 then return format("%.2f%s", num / 1e4, CJK.wan)
-        elseif num >= 1e3 then return format("%.1f%s", num / 1e3, CJK.thousand)
-        else return format("%.0f", num) end
-    end
-    if num >= 1e9 then return format("%.1fB", num / 1e9)
-    elseif num >= 1e6 then return format("%.1fM", num / 1e6)
-    elseif num >= 1e3 then return format("%.1fK", num / 1e3)
-    else return format("%.0f", num) end
+    return EllesmereUI.AbbreviateNumber(n, _forceEnglishUnits)
 end
 
 local function FormatBarValue(amt, perSec, numFmt)
@@ -1042,9 +1047,111 @@ end
 -- spending two upvalues of its own.
 ns._IsSecret, ns._IsOwnRow = IsSecret, IsOwnRow
 
+-- Resolve a group member's row to a PLAIN guid. Field truth (three debug
+-- rounds): in combat the row's `name` and `sourceGUID` are SECRET (the
+-- header only renders the name because engine sinks accept secrets) while
+-- `classFilename` + `specIconID` are NeverSecret -- and OUT of combat the
+-- whole source list reads plain. Group TOKEN reads (UnitGUID/name) stay
+-- plain even in combat, but they cannot be JOINED to a row through a secret
+-- name. So the bridge is CLASS+SPECICON: out of combat the session's own
+-- sources are snapshotted into key "CLASS:specIconID" -> guid (a duplicate
+-- key banks FALSE = ambiguous, honest block for e.g. two same-spec
+-- players), and the in-combat resolver joins the row's two NeverSecret
+-- fields against that snapshot. Guids never change for a player, so
+-- pre-combat snapshots stay correct all fight; sources first seen only
+-- mid-combat resolve after it ends.
+local _srcKeyGuid = {}
+-- The group-row resolve channel runs in DUNGEONS ONLY (user rule). Raids
+-- mostly ambiguous-block anyway (duplicate specs collapse the class:spec
+-- key), while the Overall harvest walk and its session fetch scale with
+-- source count; outside instanced parties there is no group audience worth
+-- the fetches. Own-row breakdowns and death recaps are separate lanes and
+-- keep working everywhere (every caller checks IsOwnRow first).
+local function AllyResolveZone()
+    local _, instType = IsInInstance()
+    return instType == "party"
+end
+local function SnapshotSourceKeys()
+    if not AllyResolveZone() then return end
+    -- Declassification LAGS regen (field-confirmed: a post-combat snapshot
+    -- banked only the own row): while the Combat addon-restriction is still
+    -- active the source list reads partially secret. Skip WITHOUT wiping so
+    -- the previous good snapshot survives the lag window; the
+    -- ADDON_RESTRICTION_STATE_CHANGED lift edge re-runs this at the exact
+    -- declassified moment (the probe reads false during that dispatch by
+    -- documented design).
+    if C_RestrictedActions and C_RestrictedActions.IsAddOnRestrictionActive
+       and Enum.AddOnRestrictionType
+       and C_RestrictedActions.IsAddOnRestrictionActive(Enum.AddOnRestrictionType.Combat) then
+        return
+    end
+    -- ADDITIVE, never wiped here: guids are valid for the whole run, and the
+    -- Current session ROLLS after each pull -- a refresh against the fresh
+    -- (empty) session must not empty the map ("worked once then never
+    -- again" was exactly that). The roster branch owns the wipe; Overall is
+    -- harvested because it stays populated for the entire run.
+    if not (C_DamageMeter and C_DamageMeter.GetCombatSessionFromType) then return end
+    local ok, s = pcall(C_DamageMeter.GetCombatSessionFromType,
+        Enum.DamageMeterSessionType.Overall, Enum.DamageMeterType.DamageDone)
+    if not ok or not s or not s.combatSources then return end
+    for _, src in ipairs(s.combatSources) do
+        local g, cls, ic = src.sourceGUID, src.classFilename, src.specIconID
+        if g and cls and ic
+           and not (IsSecret(g) or IsSecret(cls) or IsSecret(ic))
+           and type(cls) == "string" and type(ic) == "number" then
+            local key = cls .. ":" .. ic
+            if _srcKeyGuid[key] ~= nil and _srcKeyGuid[key] ~= g then
+                _srcKeyGuid[key] = false   -- two sources share the key: ambiguous
+            else
+                _srcKeyGuid[key] = g
+            end
+        end
+    end
+end
+ns._SnapshotSourceKeys = SnapshotSourceKeys
+local function ResolveGroupGUID(src)
+    if not src then return nil end
+    if not AllyResolveZone() then return nil end
+    -- Out of combat the callers' row guids are plain and the gates never
+    -- fire, so a resolve call here is a cheap chance to refresh the
+    -- snapshot instead (one session fetch at hover edge cadence).
+    if not InCombatLockdown() then SnapshotSourceKeys() end
+    local cls, ic = src.classFilename, src.specIconID
+    if not cls or not ic or IsSecret(cls) or IsSecret(ic) then return nil end
+    if type(cls) ~= "string" or type(ic) ~= "number" then return nil end
+    local g = _srcKeyGuid[cls .. ":" .. ic]
+    if g == false then return nil end
+    return g
+end
+ns._ResolveGroupGUID = ResolveGroupGUID
+
 local function FormatTimer(seconds)
     if not seconds or (issecretvalue and issecretvalue(seconds)) then return "0:00" end
     return format("%d:%02d", math.floor(seconds / 60), math.floor(seconds % 60))
+end
+
+-- Deaths row time text. Plain deathTimeSeconds wins; a secret one (in combat)
+-- falls back to the placeholder stamped when the row first appeared. Published
+-- on ns: CreateDMWindow sits at the 60-upvalue cap and already holds ns.
+function ns._DeathTimeText(src, live)
+    local t = src.deathTimeSeconds
+    if t ~= nil and not (issecretvalue and issecretvalue(t)) then
+        return FormatTimer(t)
+    end
+    local rid = src.deathRecapID
+    if not rid or (issecretvalue and issecretvalue(rid)) then return "0:00" end
+    local st = _deathStamps[rid]
+    if not st then
+        -- Only the LIVE Current view may stamp: a past segment viewed during
+        -- the next pull is secret too, and its deaths must not borrow this
+        -- pull's clock.
+        if not (_inCombat and live) then return "0:00" end
+        st = GetCurrentViewDuration()
+        -- 0 = no live duration yet; leave unstamped so a later refresh can.
+        if not st or st <= 0 then return "0:00" end
+        _deathStamps[rid] = st
+    end
+    return FormatTimer(st)
 end
 
 local function FormatTimerDecimal(seconds)
@@ -1306,6 +1413,19 @@ local _activeRow = nil
 
 local TT_HDR_H = 20
 
+-- Same conversion as PhysicalPixels(), but snapped against the tooltip frame's own
+-- effective scale. The hover tooltip has its own user-configurable hoverTooltipScale
+-- (SetScale), independent of the addon-wide UI scale that PP.mult is derived from --
+-- using the global PhysicalPixels() here rounds bar spacing to the wrong pixel grid
+-- whenever hoverTooltipScale isn't 100%.
+local function TTPhysicalPixels(userValue)
+    local PP = EUI and EUI.PP
+    if not PP or not PP.perfect or not PP.SnapForES or not _ttFrame then return PhysicalPixels(userValue) end
+    local es = _ttFrame:GetEffectiveScale()
+    local onePixel = PP.perfect / es
+    return PP.SnapForES((userValue or 0) * onePixel, es)
+end
+
 local function BlizzardSkinBordersAvailable()
     return C_AddOns and C_AddOns.IsAddOnLoaded
         and C_AddOns.IsAddOnLoaded("EllesmereUIBlizzardSkin")
@@ -1375,7 +1495,7 @@ end
 local function EnsureTTBar(i)
     if _ttBars[i] then return _ttBars[i] end
     EnsureTooltipFrame()
-    local ttSp = PhysicalPixels(1)
+    local ttSp = TTPhysicalPixels(1)
     local b = {}
     b.row = CreateFrame("Frame", nil, _ttFrame)
     b.row:SetHeight(TT_BAR_H)
@@ -1414,7 +1534,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
     if not C_DamageMeter then return false end
 
     -- Reposition tooltip bars with physical-pixel spacing (only when spacing changes)
-    local ttSp = PhysicalPixels(1)
+    local ttSp = TTPhysicalPixels(1)
     local ttStride = TT_BAR_H + ttSp
     if ttSp ~= _ttLastSp then
         _ttLastSp = ttSp
@@ -1464,7 +1584,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
         -- Reverse to oldest-first
         local reversed = {}
         for ri = #raw, 1, -1 do reversed[#reversed + 1] = raw[ri] end
-        ApplyTTHeader(StripRealm(bar._src.name) or "Unknown", EllesmereUI.L("Death Recap"))
+        ApplyTTHeader(StripRealm(bar._src.name), EllesmereUI.L("Death Recap"))
         local texPath, texKey = GetBreakdownBarTexturePath()
         local deathTime = reversed[#reversed] and reversed[#reversed].timestamp
         if IsSecret(deathTime) then deathTime = nil end
@@ -1601,14 +1721,16 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
     local guid = bar._srcGUID
     local cid = bar._src.sourceCreatureID
     if issecretvalue and (issecretvalue(guid) or issecretvalue(cid)) then
-        -- Own row mid-combat: the getters refuse secret ARGUMENTS from addon
-        -- code, but the local player's own GUID is a plain value -- substitute
-        -- it and the call is legal. Anyone else's row stays unreadable until
-        -- combat ends (their GUIDs only exist here as secrets).
+        -- Mid-combat the row guids are SECRET and the getters refuse secret
+        -- ARGUMENTS from addon code -- but plain guids stay legal. Own row:
+        -- UnitGUID("player"). Group rows: the identity-exempt token channel
+        -- (ResolveGroupGUID). Anything unresolvable (enemies, creature rows,
+        -- identity-restricted content) stays blocked until combat ends.
         if IsOwnRow(bar._src) then
             guid, cid = UnitGUID("player"), nil
         else
-            return false
+            guid, cid = ResolveGroupGUID(bar._src), nil
+            if not guid then return false end
         end
     end
     local srcData
@@ -1619,7 +1741,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
     end
     if not srcData or not srcData.combatSpells or #srcData.combatSpells == 0 then return false end
 
-    ApplyTTHeader(StripRealm(bar._src.name) or "Unknown", L(DM_TYPE_NAMES[curDMType] or "Damage Done"))
+    ApplyTTHeader(StripRealm(bar._src.name), L(DM_TYPE_NAMES[curDMType] or "Damage Done"))
 
     wipe(_ttSorted)
     for _, spell in ipairs(srcData.combatSpells) do
@@ -1690,7 +1812,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
             -- Lazy-create tooltip target elements
             if not _ttFrame._tgtDivider then
                 _ttFrame._tgtDivider = _ttFrame:CreateTexture(nil, "ARTWORK")
-                _ttFrame._tgtDivider:SetHeight(PhysicalPixels(1)); _ttFrame._tgtDivider:SetColorTexture(1, 1, 1, 0.15)
+                _ttFrame._tgtDivider:SetHeight(TTPhysicalPixels(1)); _ttFrame._tgtDivider:SetColorTexture(1, 1, 1, 0.15)
                 _ttFrame._tgtLabel = _ttFrame:CreateFontString(nil, "OVERLAY")
                 SetDMFont(_ttFrame._tgtLabel, 9); _ttFrame._tgtLabel:SetTextColor(0.6, 0.6, 0.6, 1)
                 _ttFrame._tgtLabel:SetText(EllesmereUI.L("Targets"))
@@ -1780,13 +1902,15 @@ local function ShowBarTooltip(bar, curSession, curSessionID, curDMType)
     if cfg.showHoverTooltip == false then return end
     EnsureTooltipFrame()
 
+    -- Scale before populating: the row stride snaps against the frame's effective scale.
+    local scale = (cfg.hoverTooltipScale or 100) / 100
+    if scale ~= _ttLastScale then
+        _ttFrame:SetScale(scale)
+        _ttLastScale = scale
+    end
+
     -- Always rebuild from fresh data (no GUID cache); PopulatePreview costs ~0.5ms, fine for a hover action
     if PopulatePreview(bar, curSession, curSessionID, curDMType) then
-        local scale = (cfg.hoverTooltipScale or 100) / 100
-        if scale ~= _ttLastScale then
-            _ttFrame:SetScale(scale)
-            _ttLastScale = scale
-        end
         AnchorBreakdownFrame(bar.row, bar._win and bar._win.frame)
         _ttFrame:Show()
     else
@@ -2199,13 +2323,14 @@ local function CreateDMWindow(winIdx)
         bar.ApplyTextOffsets()
         bar.row:SetScript("OnClick", function(_, button)
             if button == "LeftButton" then
-                -- In combat, only the rows the API leaves readable may open:
-                -- death recaps (deathRecapID is NeverSecret and C_DeathRecap
-                -- reads by plain ID) and the local player's own breakdown
-                -- (own GUID is plain). Every other row keeps the block until
-                -- combat ends.
+                -- In combat, rows open when a PLAIN guid exists for them:
+                -- death recaps (NeverSecret plain ID), the local player's
+                -- own breakdown (own GUID plain), and group members via the
+                -- identity-exempt token channel (ns._ResolveGroupGUID).
+                -- Everything else keeps the block until combat ends.
                 if InCombatLockdown() and not IsOwnRow(bar._src)
-                   and W.curDMType ~= Enum.DamageMeterType.Deaths then
+                   and W.curDMType ~= Enum.DamageMeterType.Deaths
+                   and not ns._ResolveGroupGUID(bar._src) then
                     return
                 end
                 if bar._src and (bar._srcGUID or bar._src.sourceCreatureID) then
@@ -2218,12 +2343,19 @@ local function CreateDMWindow(winIdx)
                             if not ok or not raw or #raw == 0 then return end
                         end
                     end
-                    -- Own row mid-combat carries a SECRET GUID the getters
-                    -- would refuse as an argument; store the plain own GUID
-                    -- instead so the panel's per-tick refresh stays legal.
+                    -- Rows mid-combat carry SECRET GUIDs the getters would
+                    -- refuse as arguments; store a plain one instead so the
+                    -- panel's per-tick refresh stays legal: own GUID for the
+                    -- own row, the identity-exempt token guid for group rows.
+                    -- Deaths rows keep their guid untouched (recap path).
                     local guid, cid = bar._srcGUID, bar._src.sourceCreatureID
-                    if IsOwnRow(bar._src) and (IsSecret(guid) or IsSecret(cid)) then
-                        guid, cid = UnitGUID("player"), nil
+                    if IsSecret(guid) or IsSecret(cid) then
+                        if IsOwnRow(bar._src) then
+                            guid, cid = UnitGUID("player"), nil
+                        elseif W.curDMType ~= Enum.DamageMeterType.Deaths then
+                            local rg = ns._ResolveGroupGUID(bar._src)
+                            if rg then guid, cid = rg, nil end
+                        end
                     end
                     W.OpenSource(guid, cid, StripRealm(bar._src.name), bar._class, bar._src.deathRecapID, bar._src.name)
                 end
@@ -2245,7 +2377,7 @@ local function CreateDMWindow(winIdx)
                 end
                 if not hasRecap then
                     EnsureTooltipFrame()
-                    local playerName = StripRealm(bar._src.name) or "Unknown"
+                    local playerName = StripRealm(bar._src.name)
                     _ttFrame._hdrText:SetText(EllesmereUI.Lf("%1$s's Death Recap", playerName))
                     local cfg2 = DB()
                     local hc = cfg2.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
@@ -2263,14 +2395,16 @@ local function CreateDMWindow(winIdx)
                     return
                 end
             end
-            -- The combat message only for rows the API keeps unreadable: the
-            -- local player's own breakdown and death recaps fall through to
-            -- the normal hover path, whose builders are secret-safe.
+            -- The combat message only for rows the API keeps unreadable:
+            -- own breakdown, death recaps, and group rows resolvable through
+            -- the identity-exempt token channel all fall through to the
+            -- normal hover path, whose builders are secret-safe.
             if InCombatLockdown() and not IsOwnRow(bar._src)
-               and W.curDMType ~= Enum.DamageMeterType.Deaths then
+               and W.curDMType ~= Enum.DamageMeterType.Deaths
+               and not ns._ResolveGroupGUID(bar._src) then
                 EnsureTooltipFrame()
                 -- Show header with player name + type
-                local playerName = StripRealm(bar._src and bar._src.name) or "Unknown"
+                local playerName = StripRealm(bar._src and bar._src.name)
                 local typeName = L(DM_TYPE_NAMES[W.curDMType] or "Damage Done")
                 _ttFrame._hdrText:SetText(EllesmereUI.Lf("%1$s's %2$s Breakdown", playerName, typeName))
                 local cfg2 = DB()
@@ -2947,7 +3081,7 @@ local function CreateDMWindow(winIdx)
     local _scrollRefreshPending = false
     viewport:EnableMouseWheel(true)
     viewport:SetScript("OnMouseWheel", function(_, delta)
-        local c = DB(); local step = (PhysicalPixels(c.barHeight or 18) + PhysicalPixels(c.barSpacing)) * 2
+        local c = DB(); local step = (PhysicalPixels(c.barHeight or 18) + (c.barSpacing or 2)) * 2
         local cur = viewport:GetVerticalScroll() or 0
         local newVal = math.max(0, math.min(_scrollMax, cur - delta * step))
         viewport:SetVerticalScroll(newVal)
@@ -2993,7 +3127,7 @@ local function CreateDMWindow(winIdx)
     local _srcScrollMax = 0
     W.srcViewport:EnableMouseWheel(true)
     W.srcViewport:SetScript("OnMouseWheel", function(_, delta)
-        local c = DB(); local step = (PhysicalPixels(c.barHeight or 18) + PhysicalPixels(c.barSpacing)) * 2
+        local c = DB(); local step = (PhysicalPixels(c.barHeight or 18) + (c.barSpacing or 2)) * 2
         local cur = W.srcViewport:GetVerticalScroll() or 0
         W.srcViewport:SetVerticalScroll(math.max(0, math.min(_srcScrollMax, cur - delta * step)))
     end)
@@ -3225,7 +3359,7 @@ local function CreateDMWindow(winIdx)
 
     local function RecalcViewport(dataCount)
         if not viewport or not content then return end
-        local c = DB(); local barH = PhysicalPixels(c.barHeight or 18); local barSp = PhysicalPixels(c.barSpacing)
+        local c = DB(); local barH = PhysicalPixels(c.barHeight or 18); local barSp = c.barSpacing or 2
         local totalH = dataCount * (barH + barSp)
         content:SetHeight(math.max(10, totalH))
         local viewH = viewport:GetHeight(); if viewH < 1 then viewH = 1 end
@@ -3251,7 +3385,7 @@ local function CreateDMWindow(winIdx)
         local playerIdx
         for i, src in ipairs(sources) do if src.isLocalPlayer then playerIdx = i; break end end
         if not playerIdx then W.stickyPlayer.row:Hide(); W.stickySep:Hide(); ResetScrollAnchors(); W.stickyAtTop = false; return end
-        local barH = PhysicalPixels(c.barHeight or 18); local barSp = PhysicalPixels(c.barSpacing); local stride = barH + barSp
+        local barH = PhysicalPixels(c.barHeight or 18); local barSp = c.barSpacing or 2; local stride = barH + barSp
         local scrollVal = viewport:GetVerticalScroll() or 0
         local fullViewH = frame:GetHeight() - GetHeaderH()
         if fullViewH < 1 then fullViewH = 1 end
@@ -3352,15 +3486,16 @@ local function CreateDMWindow(winIdx)
         -- Name: only when source name changes (guard secret values)
         local srcName = src.name
         if issecretvalue and issecretvalue(srcName) then
-            bar.label:SetText(StripRealm(srcName) or "You")
+            bar.label:SetText(StripRealm(srcName))
             W._stickyNameCache = nil
         elseif srcName ~= W._stickyNameCache then
             W._stickyNameCache = srcName
-            bar.label:SetText(StripRealm(srcName) or "You")
+            bar.label:SetText(StripRealm(srcName))
         end
         if isDeaths then
             local isOverall = (not W.curSessionID and W.curSession == Enum.DamageMeterSessionType.Overall)
-            bar.amount:SetText(isOverall and "" or FormatTimer(src.deathTimeSeconds))
+            bar.amount:SetText(isOverall and "" or ns._DeathTimeText(src,
+                not W.curSessionID and W.curSession == Enum.DamageMeterSessionType.Current))
         elseif isCount then
             bar.amount:SetText(AbbrevNumber(src.totalAmount))
         else
@@ -3381,7 +3516,7 @@ local function CreateDMWindow(winIdx)
         if session and session.combatSources then
 
             local sources = session.combatSources
-            local c = DB(); local barH = PhysicalPixels(c.barHeight or 18); local barSp = PhysicalPixels(c.barSpacing); local stride = barH + barSp
+            local c = DB(); local barH = PhysicalPixels(c.barHeight or 18); local barSp = c.barSpacing or 2; local stride = barH + barSp
             local leftFS = c.leftFontSize or c.fontSize or 11; local rightFS = c.rightFontSize or c.fontSize or 11
             local fontSize = leftFS -- compat for cacheKey
             local showIcon = (c.iconStyle or "spec") ~= "none"
@@ -3541,7 +3676,8 @@ local function CreateDMWindow(winIdx)
                         local fmtVal
                         if isDeaths then
                             local isOverall = (not W.curSessionID and W.curSession == Enum.DamageMeterSessionType.Overall)
-                            fmtVal = isOverall and "" or FormatTimer(src.deathTimeSeconds)
+                            fmtVal = isOverall and "" or ns._DeathTimeText(src,
+                                not W.curSessionID and W.curSession == Enum.DamageMeterSessionType.Current)
                         elseif isCount then
                             fmtVal = AbbrevNumber(src.totalAmount)
                         else
@@ -3684,7 +3820,7 @@ local function CreateDMWindow(winIdx)
             local reversed = {}
             for ri = #events, 1, -1 do reversed[#reversed + 1] = events[ri] end
             local c = DB(); local barH = PhysicalPixels(c.barHeight or 18)
-            local barSp = PhysicalPixels(c.barSpacing); local stride = barH + barSp
+            local barSp = c.barSpacing or 2; local stride = barH + barSp
             local leftFS = c.leftFontSize or c.fontSize or 11; local rightFS = c.rightFontSize or c.fontSize or 11
             local texPath, texKey = GetBarTexturePath()
             local deathTime = reversed[#reversed] and reversed[#reversed].timestamp
@@ -3797,7 +3933,7 @@ local function CreateDMWindow(winIdx)
                 if W.spellPool then for i = 1, BAR_POOL_SIZE do W.spellPool[i].row:Hide() end end
                 return
             end
-            local barSp = PhysicalPixels(c.barSpacing); local stride = barH + barSp
+            local barSp = c.barSpacing or 2; local stride = barH + barSp
             local leftFS = c.leftFontSize or c.fontSize or 11; local rightFS = c.rightFontSize or c.fontSize or 11
             local texPath, texKey = GetBarTexturePath()
             local maxAmt = players[1].total
@@ -3849,7 +3985,7 @@ local function CreateDMWindow(winIdx)
             return
         end
         local spells = srcData.combatSpells; local c = DB(); local barH = PhysicalPixels(c.barHeight or 18)
-        local barSp = PhysicalPixels(c.barSpacing); local stride = barH + barSp; local leftFS = c.leftFontSize or c.fontSize or 11; local rightFS = c.rightFontSize or c.fontSize or 11; local texPath, texKey = GetBarTexturePath()
+        local barSp = c.barSpacing or 2; local stride = barH + barSp; local leftFS = c.leftFontSize or c.fontSize or 11; local rightFS = c.rightFontSize or c.fontSize or 11; local texPath, texKey = GetBarTexturePath()
         local sorted = {}
         for _, spell in ipairs(spells) do local ok, amt = pcall(function() return spell.totalAmount end); sorted[#sorted + 1] = { spell = spell, amount = (ok and amt) or 0 } end
         -- API returns combatSpells pre-sorted; no table.sort needed
@@ -4510,8 +4646,25 @@ end
 -- Standalone Combat Timer
 local _saTimer  -- frame reference
 local _saTimerFS -- fontstring
+local _saTimerBG -- backdrop texture
+local _saTimerBorder -- PP border child frame
 local _saTimerPreview = false
 local _saTimerLive = false  -- last live/idle state seen (drives OOC desaturation)
+
+local function GetSATimerPreviewText()
+    return DB().standaloneTimerDecimal and "11:37.0" or "11:37"
+end
+
+-- Per-user font override for the standalone timer only (standaloneTimerFont,
+-- a dropdown key: "__global"/nil = follow the Damage Meters module font).
+local function GetSATimerFontOverride()
+    local key = DB().standaloneTimerFont
+    if key and key ~= "__global" and EllesmereUI and EllesmereUI.ResolveFontName then
+        local path = EllesmereUI.ResolveFontName(key)
+        if path and path ~= "" then return path end
+    end
+    return nil
+end
 
 local function GetSATimerColor()
     local cfg = DB()
@@ -4536,23 +4689,64 @@ local function ApplySATimerStyle()
     if not _saTimer or not _saTimerFS then return end
     local cfg = DB()
     _saTimer:SetFrameStrata(cfg.standaloneTimerStrata or "HIGH")
-    SetDMFont(_saTimerFS, cfg.standaloneTimerSize or 14)
+
+    local outline = cfg.standaloneTimerOutline or "INHERIT"
+    local outlineFlags
+    if outline == "NONE" then
+        outlineFlags = ""
+    elseif outline == "THICKOUTLINE" then
+        outlineFlags = "THICKOUTLINE"
+    elseif outline == "INHERIT" then
+        outlineFlags = nil
+    else
+        outlineFlags = "OUTLINE"
+    end
+    SetDMFont(_saTimerFS, cfg.standaloneTimerSize or 26, outlineFlags, GetSATimerFontOverride())
     ApplySATimerColor()
+
+    local previousText = _saTimerFS:GetText()
+    -- Auto-size worst case must cover the decimal form, or live tenths clip.
+    _saTimerFS:SetText(cfg.standaloneTimerDecimal and "99:99.9" or "99:99")
+    local autoWidth = (_saTimerFS:GetStringWidth() or 30) + 4
+    local autoHeight = (_saTimerFS:GetStringHeight() or 14) + 4
+    _saTimerFS:SetText(previousText)
+    _saTimer:SetSize(cfg.standaloneTimerWidth and math.max(40, cfg.standaloneTimerWidth) or autoWidth,
+                     cfg.standaloneTimerHeight and math.max(20, cfg.standaloneTimerHeight) or autoHeight)
+
+    if _saTimerBG then
+        local c = cfg.standaloneTimerBackgroundColor or { r = 0, g = 0, b = 0, a = 0 }
+        _saTimerBG:SetColorTexture(c.r or 0, c.g or 0, c.b or 0, c.a or 0)
+    end
+
+    if _saTimerBorder then
+        local PP = EllesmereUI and EllesmereUI.PP
+        local c = cfg.standaloneTimerBorderColor or { r = 0, g = 0, b = 0, a = 1 }
+        local borderSize = math.max(0, math.floor((cfg.standaloneTimerBorderSize or 0) + 0.5))
+        if borderSize > 0 and PP and PP.UpdateBorder then
+            PP.UpdateBorder(_saTimerBorder, borderSize, c.r or 0, c.g or 0, c.b or 0, c.a == nil and 1 or c.a)
+            _saTimerBorder:Show()
+        else
+            _saTimerBorder:Hide()
+        end
+    end
+
     _saTimerFS:ClearAllPoints()
-    local anchor = cfg.standaloneTimerAnchor or "free"
-    local alignLeft
-    if anchor == "free" then
-        alignLeft = cfg.standaloneTimerAlignLeft
-    else
-        alignLeft = anchor == "topleft" or anchor == "bottomleft"
+    local borderSize = cfg.standaloneTimerBorderSize or 0
+    local inset = borderSize > 0 and borderSize + 3 or 0
+    _saTimerFS:SetPoint("LEFT", _saTimer, "LEFT", inset, 0)
+    _saTimerFS:SetPoint("RIGHT", _saTimer, "RIGHT", -inset, 0)
+    -- Preserve the old binary left-align preference until the user chooses
+    -- a value in the new three-way alignment control.
+    local textAlign = cfg.standaloneTimerTextAlign
+    if not textAlign then
+        local anchor = cfg.standaloneTimerAnchor or "free"
+        if anchor == "free" then
+            textAlign = cfg.standaloneTimerAlignLeft and "LEFT" or "RIGHT"
+        else
+            textAlign = (anchor == "topleft" or anchor == "bottomleft") and "LEFT" or "RIGHT"
+        end
     end
-    if alignLeft then
-        _saTimerFS:SetPoint("LEFT")
-        _saTimerFS:SetJustifyH("LEFT")
-    else
-        _saTimerFS:SetPoint("RIGHT")
-        _saTimerFS:SetJustifyH("RIGHT")
-    end
+    _saTimerFS:SetJustifyH(textAlign)
 end
 
 -- Decimal display: API duration is whole seconds, so tenths are derived from a GetTime() anchor
@@ -4698,20 +4892,17 @@ local function CreateSATimer()
         end
     end)
 
-    _saTimerFS = _saTimer:CreateFontString(nil, "OVERLAY")
-    _saTimerFS:SetPoint("RIGHT")
-    ApplySATimerStyle()
-    _saTimerFS:SetText("0:00")
+    _saTimerBG = _saTimer:CreateTexture(nil, "BACKGROUND")
+    _saTimerBG:SetAllPoints()
 
-    -- Size to text
-    _saTimer:SetScript("OnSizeChanged", nil)
-    local function ResizeToText()
-        local w = (_saTimerFS:GetStringWidth() or 30) + 4
-        local h = (_saTimerFS:GetStringHeight() or 14) + 4
-        _saTimer:SetSize(w, h)
-    end
-    _saTimerFS:SetText("99:99")
-    ResizeToText()
+    _saTimerBorder = CreateFrame("Frame", nil, _saTimer)
+    _saTimerBorder:SetAllPoints(_saTimer)
+    _saTimerBorder:SetFrameLevel(_saTimer:GetFrameLevel() + 5)
+    local PP = EllesmereUI and EllesmereUI.PP
+    if PP and PP.CreateBorder then PP.CreateBorder(_saTimerBorder, 0, 0, 0, 1, 1) end
+
+    _saTimerFS = _saTimer:CreateFontString(nil, "OVERLAY")
+    ApplySATimerStyle()
     _saTimerFS:SetText("0:00")
 
     RepositionSATimer()
@@ -4725,15 +4916,10 @@ ns.ApplySATimer = function()
     if cfg.standaloneTimer then
         if not _saTimer then CreateSATimer() end
         ApplySATimerStyle()
-        -- Resize for new font size (measure with worst-case, then restore)
         local prevText = _saTimerFS:GetText()
-        _saTimerFS:SetText("99:99")
-        local w = (_saTimerFS:GetStringWidth() or 30) + 4
-        local h = (_saTimerFS:GetStringHeight() or 14) + 4
-        _saTimer:SetSize(w, h)
         RepositionSATimer()
         if _saTimerPreview then
-            _saTimerFS:SetText("11:37")
+            _saTimerFS:SetText(GetSATimerPreviewText())
         else
             _saTimerFS:SetText(prevText or "0:00")
             UpdateSATimerText()
@@ -4752,7 +4938,7 @@ ns.ShowSATimerPreview = function()
         return
     end
     _saTimerPreview = true
-    _saTimerFS:SetText("11:37")
+    _saTimerFS:SetText(GetSATimerPreviewText())
     _saTimer:Show()
 end
 ns.HideSATimerPreview = function()
@@ -4876,6 +5062,9 @@ end
 StartSharedTicker = function()
     if _sharedTicker then _sharedTicker:Cancel() end
     local rate = DB().refreshRate or TICK_COMBAT
+    -- Belt for values the login clamp has not seen yet (a profile imported
+    -- mid-session from an old export can carry a sub-floor rate).
+    if rate < 0.5 then rate = 0.5 end
     _sharedTicker = C_Timer.NewTicker(rate, SharedRefreshTick)
     StopTimerTicker()
     _timerTicker = C_Timer.NewTicker(0.5, TimerTick)
@@ -4906,6 +5095,9 @@ end
 local combatFrame = CreateFrame("Frame")
 combatFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+combatFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+combatFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+combatFrame:RegisterEvent("ADDON_RESTRICTION_STATE_CHANGED")
 combatFrame:RegisterEvent("UNIT_FLAGS")
 combatFrame:RegisterEvent("ENCOUNTER_START")
 combatFrame:RegisterEvent("ENCOUNTER_END")
@@ -4928,6 +5120,32 @@ combatFrame:SetScript("OnEvent", function(_, event, ...)
         end
         -- Do not clear on non-FD casts: a live hunter can still have a feign entry with a valid
         -- deathRecapID; CleanupFeignCache clears it once they are truly dead.
+        return
+    end
+    if event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_SPECIALIZATION_CHANGED" then
+        -- The TWO stale-key edges own the additive snapshot map's wipe:
+        -- membership changes (guids leave) and spec changes (a respec strands
+        -- the old CLASS:specIcon key; field dump showed a lone live mage
+        -- blocked by its former twin's echo, and a respec's old key can
+        -- ambiguous-block the new one). Never mid-combat, where the rebuild
+        -- would read secrets and trade good captures for nothing; the lift
+        -- edge re-runs the harvest anyway.
+        if not InCombatLockdown() then
+            wipe(_srcKeyGuid)
+            SnapshotSourceKeys()
+        end
+        return
+    end
+    if event == "ADDON_RESTRICTION_STATE_CHANGED" then
+        -- Doc-sequenced to fire AFTER a restriction deactivates: the Combat
+        -- restriction lifting is the exact declassified edge -- the moment
+        -- every source field reads plain again. Snapshot right here (the
+        -- function self-gates against the activation-side firing).
+        local rType = ...
+        if Enum.AddOnRestrictionType and rType == Enum.AddOnRestrictionType.Combat
+           and not InCombatLockdown() then
+            SnapshotSourceKeys()
+        end
         return
     end
     if event == "UNIT_FLAGS" then
@@ -4955,6 +5173,7 @@ combatFrame:SetScript("OnEvent", function(_, event, ...)
         -- the timer pin. No clock anchored here -- the timer derives from the live "Current" session so it self-resets on the roll; a synchronous read here would race it and show the stale pre-pull duration.
         _combatGen = _combatGen + 1
         if next(_feignDeathGUIDs) then wipe(_feignDeathGUIDs) end -- new segment: stale feign tags would mis-filter real deaths
+        if next(_deathStamps) then wipe(_deathStamps) end
         _inCombat = true
         _combatEndTime = 0
         _curViewFrozenDur = 0
@@ -5001,6 +5220,7 @@ combatFrame:SetScript("OnEvent", function(_, event, ...)
         if _G._EUIDM_PvpBlocked and _G._EUIDM_PvpBlocked() then return end
         _combatGen = _combatGen + 1
         if next(_feignDeathGUIDs) then wipe(_feignDeathGUIDs) end -- new segment: stale feign tags would mis-filter real deaths
+        if next(_deathStamps) then wipe(_deathStamps) end
         _inCombat = true
         _combatEndTime = 0
         _curViewFrozenDur = 0
@@ -5032,6 +5252,11 @@ combatFrame:SetScript("OnEvent", function(_, event, ...)
         -- Delayed refresh after exiting combat: API needs a moment to declassify secret source GUIDs so breakdowns work post-combat
         C_Timer.After(0.5, function()
             for _, w in ipairs(_windows) do w.Refresh() end
+            -- Declassified = the ideal moment to refresh the breakdown
+            -- resolver's class:spec -> guid snapshot for the NEXT pull.
+            if ns._SnapshotSourceKeys and not InCombatLockdown() then
+                ns._SnapshotSourceKeys()
+            end
         end)
     end
 end)
@@ -5182,6 +5407,9 @@ initFrame:SetScript("OnEvent", function(self)
             _windows[i] = CreateDMWindow(i)
             ns.ApplyWindowBorder()
         end
+        -- Spell History caches its profile table; refresh it before rebuilding
+        -- optional unlock registrations so enable state and positions agree.
+        if ns.RefreshSpellHistoryProfile then ns.RefreshSpellHistoryProfile() end
         -- Refresh unlock registrations for the new profile's window count
         ns.RegisterDMUnlock()
         -- Recreate standalone timer if enabled

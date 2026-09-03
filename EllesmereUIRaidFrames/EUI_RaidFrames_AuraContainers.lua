@@ -10,6 +10,12 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local _, ns = ...
 
 local AK -- EllesmereUI.AuraKit, resolved at first use
+-- The engine's own null binding: the AuraContainer intrinsic is born on unitToken
+-- "none" (Blizzard_AuraContainer.xml KeyValues). A button with no unit attribute
+-- yet has to land back on that, never on "player" -- that is a unit whose auras
+-- really do stream, so an unbound container renders the local player's buffs onto
+-- whoever the button later shows.
+local NO_UNIT = "none"
 local FALLBACK_FONT = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
 
 -- Marks debuff rendering as container-owned; the legacy UpdateDebuffs body
@@ -352,10 +358,16 @@ local function BuildDebuffStyle(s, sizeOverride)
         stackColor = s.debuffStacksTextColor,
         stackOffX = s.debuffStacksOffsetX,
         stackOffY = s.debuffStacksOffsetY,
-        -- 4-state tooltip mode: true/nil=hidden, false=shown, "combat"=hidden in
-        -- combat, "cursor"=shown at cursor. Raw key already in DebuffStyleFP.
+        -- 5-state tooltip mode: true/nil=hidden, false=shown, "combat"=hidden in
+        -- combat, "cursor"=shown at cursor, "modifier"=shown only while the Use
+        -- Modifier cog's key is held. Style-side, "modifier" renders as plain
+        -- Shown; the gating is the DM file's tooltip eater -- a secure unit
+        -- sub-button over the debuff band that takes the hover and hides while
+        -- the key is held (button-surface writes are refused while auras are
+        -- secret, so nothing here can gate at runtime). Raw key already in DebuffStyleFP.
         noTooltips = not (s.debuffHideTooltips == false
-            or s.debuffHideTooltips == "combat" or s.debuffHideTooltips == "cursor"),
+            or s.debuffHideTooltips == "combat" or s.debuffHideTooltips == "cursor"
+            or s.debuffHideTooltips == "modifier"),
         tooltipCombatHide = s.debuffHideTooltips == "combat",
         tooltipAnchor = (s.debuffHideTooltips == "cursor") and "cursor" or nil,
         -- Base DM Effects (per-filter blocks); tile styles override this
@@ -418,8 +430,24 @@ local function ResolveFlowAnchor(pos, corner, grow, wrap)
     return corner, corner, grow, wrap
 end
 
+-- The debuff row's pin: the flow's start point on the health frame plus the
+-- cell geometry the row is laid out with. AnchorDebuffContainer pins the
+-- container here (same math below); the Debuff Manager's tooltip-modifier
+-- eaters pin to the same point with a settings-derived maximum footprint, so
+-- their rect never derives from the container's content-driven (secret) size.
+function ns.RFC_DebuffPin(s)
+    local pos = s.debuffPosition or "bottomright"
+    local corner = CORNERS[pos] or "BOTTOMRIGHT"
+    local grow = s.debuffGrowDirection or "LEFT"
+    local point = ResolveFlowAnchor(pos, corner, grow, s.debuffWrapDirection or "UP")
+    return point, corner, s.debuffOffsetX or 0, s.debuffOffsetY or 0,
+        s.debuffSize or 18, s.debuffSpacing or 1, s.debuffPerRow or 5,
+        (grow == "UP" or grow == "DOWN")
+end
+
 local function AnchorDebuffContainer(container, health, s)
     health = ns.RF_AnchorHost and ns.RF_AnchorHost(health, s) or health   -- Uniform Icon Anchoring
+    -- Pin math mirrored by ns.RFC_DebuffPin above; keep the two in step.
     local pos = s.debuffPosition or "bottomright"
     local corner = CORNERS[pos] or "BOTTOMRIGHT"
     local grow = s.debuffGrowDirection or "LEFT"
@@ -524,11 +552,42 @@ end
 local GRADIENT_TEXTURE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-tb.tga"
 local GRADIENT_SHARP_TEXTURE = "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-sharp.tga"
 
-local function DispelSlotFilter(s)
-    if s.dispelShowAll == false then
+-- RAID_PLAYER_DISPELLABLE knows class and spec dispels only, so it never matches
+-- Poison for a shaman whose poison removal is Poison Cleansing Totem (a talent).
+-- That slot keeps the plain filter in only-dispellable mode; its include-Poison
+-- candidate already narrows it to poison debuffs.
+-- The capability is CACHED: IsPlayerSpell can lag both addon load and the trait
+-- event that announces a change, so the shaman watcher on bmRegen (below)
+-- re-checks on trait and spellbook events and forces a reload on a flip.
+-- rfcTotemGen lets a button whose shells baked filters under the old value
+-- reconcile at finalize.
+local POISON_CLEANSING_TOTEM = 383013
+local _, rfcPlayerClass = UnitClass("player")
+local rfcTotemKnown = rfcPlayerClass == "SHAMAN"
+    and IsPlayerSpell(POISON_CLEANSING_TOTEM) or false
+local rfcTotemGen = 0
+
+local function TokenBlindDispel(token)
+    return token == "Poison" and rfcTotemKnown
+end
+
+local function DispelSlotFilter(s, token)
+    if s.dispelShowAll == false and not TokenBlindDispel(token) then
         return { "HARMFUL", "RAID_PLAYER_DISPELLABLE" }
     end
     return { "HARMFUL" }
+end
+
+local function DispelSlotFilters(s)
+    local parts = {}
+    for i = 1, #DISPEL_SLOTS do
+        parts[i] = AK.Filter(unpack(DispelSlotFilter(s, DISPEL_SLOTS[i].token)))
+    end
+    return parts
+end
+
+local function DispelFilterFP(s)
+    return table.concat(DispelSlotFilters(s), ";")
 end
 
 -- applyExtra for dispel slots. Per-button refs (health, slot definition) come from the
@@ -586,11 +645,12 @@ local function ApplyRFDispelSlot(button, dd, style)
     else -- "fill"
         tex:Show()
         local fillTex = health.GetStatusBarTexture and health:GetStatusBarTexture()
-        tex:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
+        -- Both corners come off the fill texture: a TOPLEFT-of-bar pair only tracks a
+        -- left-to-right bar, so a vertical fill spanned the whole frame like "full".
         if fillTex then
-            tex:SetPoint("BOTTOMRIGHT", fillTex, "BOTTOMRIGHT", 0, 0)
+            tex:SetAllPoints(fillTex)
         else
-            tex:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
+            tex:SetAllPoints(health)
         end
         tex:SetColorTexture(r, g, b, alpha)
         tex:SetVertexColor(1, 1, 1, 1)
@@ -744,7 +804,7 @@ local function PrimeClassFP(styleKey, s)
     st.dispLocStyle = DispLocStyleFP(s, font)
     st.dispLocCfg = DispLocCfgFP(s)
     st.dispelStyle = DispelStyleFP(s)
-    st.dispelFilter = AK.Filter(unpack(DispelSlotFilter(s)))
+    st.dispelFilter = DispelFilterFP(s)
 end
 
 local function ApplyDebuffConfig(container, d, s)
@@ -2416,7 +2476,7 @@ local function BmAcquireChain(button, d, health, ch, iscale, counters)
         local shell = d.rfcBmShellPool and table.remove(d.rfcBmShellPool)
         if shell then
             DeclareGroups(shell)
-            AK.FinishContainer(shell, button:GetAttribute("unit") or "player")
+            AK.FinishContainer(shell, button:GetAttribute("unit") or NO_UNIT)
             entry = { container = shell, groups = totalGroups }
             pool[poolKey] = entry
         else
@@ -2424,7 +2484,7 @@ local function BmAcquireChain(button, d, health, ch, iscale, counters)
             AK.QueueBuildJob(function()
                 local cc = AK.CreateContainerShell(button, { point = { "CENTER", health, "CENTER" } })
                 DeclareGroups(cc)
-                AK.FinishContainer(cc, button:GetAttribute("unit") or "player")
+                AK.FinishContainer(cc, button:GetAttribute("unit") or NO_UNIT)
                 pool[poolKey] = { container = cc, groups = totalGroups }
                 BmPoolReloadSoon() -- rebind the buttons waiting on this shell
             end, "rf:bmpool-shell")
@@ -2436,7 +2496,8 @@ local function BmAcquireChain(button, d, health, ch, iscale, counters)
 
     local cc = entry.container
     entry.parked = nil
-    cc:SetUnit(button:GetAttribute("unit") or "player")
+    cc:SetEnabled(true)
+    cc:SetUnit(button:GetAttribute("unit") or NO_UNIT)
     -- anchorMembers is per-GROUP (one entry per segment); memberIndex/segIndex
     -- let the anchor pass tell member boundaries from intra-member segments.
     local anchorMembers = {}
@@ -2480,6 +2541,14 @@ local function BmParkUnbound(d, counters)
                         (j == 1) and "chain" or ("chain" .. j), 0)
                 end
                 entry.container:SetShown(false)
+                -- Visibility is shared with presentation, so a park that rests on
+                -- it alone is undone by any later SetShown. IsEnabled is the other
+                -- half of the engine's registration test and nothing but us drives
+                -- it. Dropping the binding too forces a real reparse on re-acquire:
+                -- parking and re-acquiring on the SAME unit used to leave SetUnit a
+                -- no-op and restore the caps over whatever was parsed before.
+                entry.container:SetEnabled(false)
+                entry.container:SetUnit(NO_UNIT)
             end
         end
     end
@@ -2726,7 +2795,7 @@ local function ReloadBm(button, d, s, cls)
             -- pool shells are pending -- rebuilding again would orphan it).
             if d.rfcBm or d.rfcBmSig ~= nil then return end
             if InCombatLockdown() then d.rfcBmPending = true; return end
-            local unit = button:GetAttribute("unit") or "player"
+            local unit = button:GetAttribute("unit") or NO_UNIT
             CreateBmContainer(button, d.rfcHealth, d, unit)
             -- Fresh/retargeted containers may default shown at alpha 1;
             -- clear the readable state cache and re-drive the trust gate so
@@ -2818,12 +2887,11 @@ local function CreateButtonShells(button, health, d)
             local dispelStyleKey = StyleKeyFor(d):gsub("debuff", "dispel")
             AK.styles[dispelStyleKey] = AK.styles[dispelStyleKey] or BuildDispelStyle(s)
             local c = AK.CreateContainerShell(button, { point = { "CENTER", health, "CENTER" } })
-            local dispelFilter = DispelSlotFilter(s)
             for i = 1, #DISPEL_SLOTS do
                 local def = DISPEL_SLOTS[i]
                 AK.AddSlotToContainer(c, {
                     key = def.key,
-                    filter = dispelFilter,
+                    filter = DispelSlotFilter(s, def.token),
                     candidateFilters = { includeDispelTypes = { [def.token] = true } },
                     style = dispelStyleKey,
                     extraInit = function(slotButton, dd)
@@ -2840,6 +2908,7 @@ local function CreateButtonShells(button, health, d)
             -- NO unit yet: an unbound shell registers no events and parses
             -- nothing. The finish job binds the real unit.
             d.rfcDispelShell = c
+            d.rfcTotemGen = rfcTotemGen
         end
     end
 
@@ -2916,7 +2985,7 @@ local function QueueDebuffPhase(button, health, d)
         local c = d.rfcDebuffShell
         if not c then return end
         d.rfcDebuffShell = nil
-        local unit = button:GetAttribute("unit") or "player"
+        local unit = button:GetAttribute("unit") or NO_UNIT
         AK.FinishContainer(c, unit)
         d.rfcHealth = health
         d.rfcDebuffs = c
@@ -2956,7 +3025,7 @@ local function QueueDispLocPhase(button, health, d)
         local c = d.rfcDispLocShell
         if not c then return end
         d.rfcDispLocShell = nil
-        local unit = button:GetAttribute("unit") or "player"
+        local unit = button:GetAttribute("unit") or NO_UNIT
         AK.FinishContainer(c, unit)
         d.rfcDispLoc = c
         local sNow = ProxyFor(d)
@@ -2984,7 +3053,7 @@ local function QueueButtonGroups(button, health, d)
         local c = d.rfcDispelShell
         if not c then return end
         d.rfcDispelShell = nil
-        local unit = button:GetAttribute("unit") or "player"
+        local unit = button:GetAttribute("unit") or NO_UNIT
         AK.FinishContainer(c, unit)
         d.rfcDispel = c
         local sNow = ProxyFor(d)
@@ -2998,9 +3067,20 @@ local function QueueButtonGroups(button, health, d)
     AK.QueueBuildJob(function()
         d.rfcPending = nil
         d.rfcGroupsPending = nil
-        local unit = button:GetAttribute("unit") or "player"
+        local unit = button:GetAttribute("unit") or NO_UNIT
         CreateBmContainer(button, health, d, unit)
         d.rfcUnit = unit
+        -- Shells baked the dispel filters from rfcTotemKnown at build time; if a
+        -- totem flip landed mid-build, re-apply the current filters before the
+        -- fingerprint below is primed as current (which would otherwise latch the
+        -- stale filters as already-applied).
+        if d.rfcDispel and d.rfcTotemGen ~= rfcTotemGen then
+            local parts = DispelSlotFilters(ProxyFor(d) or s)
+            for i = 1, #DISPEL_SLOTS do
+                d.rfcDispel:SetAuraSlotFilterString(DISPEL_SLOTS[i].key, parts[i])
+            end
+        end
+        d.rfcTotemGen = nil
         -- Everything above was configured from current settings; prime the class
         -- fingerprints so the first reload doesn't re-drive it all (class resolved
         -- here, not at queue time -- party self button).
@@ -3048,25 +3128,35 @@ function ns.RFC_SetupButton(button, health, d)
     end
 end
 
--- Cross-faction (or otherwise non-assistable) group members: the engine SILENTLY
--- SKIPS spell-ID candidate filters for helpful auras on non-assistable units, so
--- include-list displays would degrade to "any buff" -- they hide for such units
--- instead (token-only groups -- debuffs, externals, defensives, CC -- are unaffected).
--- Degradation is NOT directly queryable; assist+visible+not-phased still PASSED for
--- degraded units (a released ghost near the group is visible, unphased, assistable
--- via resurrection, yet leaked "any buff"). Hence: connected, alive, assistable,
--- visible, not phased. RANGE is deliberately NOT a disqualifier: aura data streams
--- fine for members merely out of 40yd spell range, and gating on it made buff
--- displays and health-color effects vanish for out-of-range party members (the
--- unit frame's own oorAlpha fade already dims the containers -- they are children
--- of the button). Local player's own flags never degrade EXCEPT in a vehicle:
--- boarding one makes the player unit non-assistable, the engine skips the
--- spell-ID filters, and every include-list container on the player's own frame
--- degrades to "any buff" (field-confirmed: reliable on every vehicle entry).
--- Outside a vehicle self stays exempt from the full probe.
+-- Trust gate for helpful spell-ID-filtered containers. The engine SILENTLY SKIPS
+-- spell-ID candidate filters for helpful auras on units that fail its identity
+-- gate, so an include-list display would degrade to "any buff" there; the gate
+-- hides such displays instead (token-only groups -- debuffs, CC -- are unaffected).
+-- Degradation is NOT directly queryable, so the non-group probe below approximates
+-- it: connected, alive, visible, not phased, assistable. RANGE is deliberately NOT
+-- a disqualifier: aura data streams fine for members merely out of 40yd spell
+-- range (the unit frame's own oorAlpha fade already dims the containers).
 -- Identity APIs can return SECRET booleans under teardown; any secret errors
 -- inside the pcall and reads fail-closed.
+--
+-- GROUP TOKENS NEVER GATE (12.1.0 build 69497+): CanApplyIdentityCandidateFilters
+-- short-circuits on `isHelpful and UnitIsPlayerControlledOrGroupMember`, a
+-- token-SHAPE test that is unconditionally true for player/partyN/raidN, so a
+-- helpful spell-ID filter can no longer degrade on a group frame -- vehicle and
+-- cinematic included. Every term below was a heuristic for that degradation, and
+-- the liveness terms (connected/alive/visible/unphased) had no dedicated recovery
+-- edge of their own: a sweep landing while a member was dead, out of render
+-- range, or phased hid that member's buff containers, and only an UNRELATED
+-- event (range crossing, roster, flags) could ever re-show them -- field-reported
+-- three times as "a buff missing on one player's frame". Staleness while a unit
+-- is ghosted is Blizzard parity and is owned by the ghost ticker's regain
+-- reparse, so the probe answers true for every group token and the gate can
+-- never hide a raid/party/extra display. Friendly Boss slots host bossN, outside
+-- the exemption, and clients without the call keep the full probe.
 local function AssistProbe(unit)
+    if UnitIsPlayerControlledOrGroupMember and UnitIsPlayerControlledOrGroupMember(unit) then
+        return true
+    end
     if UnitIsUnit(unit, "player") then
         -- UsingVehicle over InVehicle: it is also true during the boarding and
         -- exiting TRANSITIONS, and the filters already degrade while boarding
@@ -3085,13 +3175,17 @@ local function AssistProbe(unit)
         end
         return true
     end
+    -- Non-group tokens only from here (bossN slots, pre-69497 clients): the
+    -- engine's identity gate can still degrade a helpful spell-ID filter to
+    -- "any buff" on these, so hide while the unit is not live or assistable.
     if not (UnitIsConnected(unit)
         and not UnitIsDeadOrGhost(unit)
-        and UnitCanAssist("player", unit)
         and UnitIsVisible(unit)
         and not UnitPhaseReason(unit)) then
         return false
     end
+    -- Evaluated in here so a secret answer errors inside the caller's pcall.
+    if not UnitCanAssist("player", unit) then return false end
     return true
 end
 
@@ -3104,10 +3198,9 @@ end
 -- without fresh evidence of out-of-range filter degradation on the live client.
 
 local function ApplyAssistGate(button, d, unit)
-    -- Faction AND phase: the engine's identity gate degrades for members who are
-    -- cross-faction (open world) or phased/far away (filter flags haven't streamed;
-    -- UnitPhaseReason is the eye-icon signal for that state). While degraded, filter
-    -- results are untrustworthy, so filtered helpful displays hide wholesale.
+    -- Group tokens always trust (see AssistProbe): on raid/party/extra buttons
+    -- this only ever flips true and re-shows fresh containers. The hide branch
+    -- is live for Friendly Boss slots (bossN) and pre-69497 clients only.
     local assist = false
     if unit then
         local ok, res = pcall(AssistProbe, unit)
@@ -3164,6 +3257,45 @@ local function ApplyAssistGate(button, d, unit)
 end
 ns.RFC_ApplyAssistGate = ApplyAssistGate
 
+-- Per-container binding audit. Every build job reads the button's live unit
+-- attribute at its OWN run time and stamps d.rfcUnit, so a reassignment landing
+-- between two jobs leaves the containers that finished earlier bound to the
+-- previous occupant while d.rfcUnit already reads current -- the d.rfcUnit
+-- comparison every reassignment path uses can never see that. A container left
+-- on a token that no longer fires UNIT_AURA freezes on whatever it last parsed;
+-- SetUnit re-registers and reparses.
+local function RebindContainer(c, unit)
+    if c and c:GetUnit() ~= unit then c:SetUnit(unit) end
+end
+
+local function RepointStale(d, unit)
+    RebindContainer(d.rfcDebuffs, unit)
+    RebindContainer(d.rfcDispLoc, unit)
+    RebindContainer(d.rfcDispel, unit)
+    RebindContainer(d.rfcBm, unit)
+    RebindContainer(d.rfcBmSimple, unit)
+    -- Every chain container comes from the pool; a parked one sits on NO_UNIT
+    -- deliberately, so leave it there.
+    if d.rfcBmPool then
+        for _, entry in pairs(d.rfcBmPool) do
+            if type(entry) == "table" and not entry.parked then
+                RebindContainer(entry.container, unit)
+            end
+        end
+    end
+    -- Debuff Manager tiles keep their own per-container stamp beside the binding;
+    -- rebinding them here behind its back would desync the two, so let it re-point.
+    if d.dmTiles and ns.DM_OnUnitAssigned then
+        for _, c in pairs(d.dmTiles) do
+            if c:GetUnit() ~= unit then
+                ns.DM_OnUnitAssigned(d, unit)
+                break
+            end
+        end
+    end
+end
+ns.RFC_RepointStale = RepointStale
+
 -- Called from the OnAttributeChanged("unit") watch when the secure header
 -- (re)assigns a button. SetUnit re-registers events; the explicit refresh
 -- covers assignments where the new unit's auras produce no UNIT_AURA edge.
@@ -3186,6 +3318,10 @@ function ns.RFC_OnUnitAssigned(button, d, unit)
     -- Assist state can still flip without a unit change; its same-state early-out
     -- keeps that call near-free.
     if d.rfcUnit == unit then
+        -- No binding audit here: this branch is the roster-reprocess storm path
+        -- (every button, every roster/name event, several times at pull start)
+        -- and the audit is a per-container read. The 1s sweep owns it instead,
+        -- which bounds a stale binding to one second either way.
         ApplyAssistGate(button, d, unit)
         return
     end
@@ -3269,10 +3405,11 @@ local function ComputeClassFlags(styleKey, s)
         AK.styles[dispelStyleKey] = BuildDispelStyle(s)
         AK.RestyleSoon(dispelStyleKey)
     end
-    local dispelFilter = AK.Filter(unpack(DispelSlotFilter(s)))
+    local parts = DispelSlotFilters(s)
+    local dispelFilter = table.concat(parts, ";")
     if st.dispelFilter ~= dispelFilter then
         st.dispelFilter = dispelFilter
-        flags.dispelFilter = dispelFilter
+        flags.dispelFilter = parts
     end
 
     return flags
@@ -3320,6 +3457,9 @@ function ns.RFC_ReloadAll()
                     AnchorDebuffContainer(container, d.rfcHealth, s)
                     ApplyDebuffConfig(container, d, s)
                 end
+                -- "Shown on Modifier" motion eaters (frames we own; the DM
+                -- file builds/flips them -- see its tooltip-modifier section).
+                if ns.DM_TipModEnsure then ns.DM_TipModEnsure(button, d, s) end
                 if flags.dispLocCfg then
                     local c2 = d.rfcDispLoc
                     if c2 then
@@ -3349,7 +3489,8 @@ function ns.RFC_ReloadAll()
                 if d.rfcDispel then
                     if flags.dispelFilter then
                         for j = 1, #DISPEL_SLOTS do
-                            d.rfcDispel:SetAuraSlotFilterString(DISPEL_SLOTS[j].key, flags.dispelFilter)
+                            d.rfcDispel:SetAuraSlotFilterString(DISPEL_SLOTS[j].key,
+                                flags.dispelFilter[j])
                         end
                     end
                     d.rfcDispel:SetShown(d.rfcAssist ~= false and DispelVisible(s))
@@ -3386,9 +3527,35 @@ local bmRegen = CreateFrame("Frame")
 bmRegen:RegisterEvent("PLAYER_REGEN_ENABLED")
 bmRegen:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 bmRegen:RegisterEvent("PLAYER_ENTERING_WORLD")
+-- The poison dispel-slot filter depends on Poison Cleansing Totem being talented
+-- (see DispelSlotFilter). Talent edits fire no spec event, and IsPlayerSpell can
+-- lag the trait event itself (the spellbook grant lands with SPELLS_CHANGED), so
+-- shamans re-check on both; the reload runs only on an actual flip, and a flip
+-- seen in combat latches for the regen branch below.
+local function RecheckTotem()
+    local known = rfcPlayerClass == "SHAMAN"
+        and IsPlayerSpell(POISON_CLEANSING_TOTEM) or false
+    if known == rfcTotemKnown then ns._rfcTotemDirty = nil; return end
+    if InCombatLockdown() then ns._rfcTotemDirty = true; return end
+    ns._rfcTotemDirty = nil
+    rfcTotemKnown = known
+    rfcTotemGen = rfcTotemGen + 1
+    -- Stale by construction now: force the next compare to re-apply the slot
+    -- filters instead of trusting a fingerprint stamped under the old value.
+    for _, st in pairs(classFP) do st.dispelFilter = nil end
+    ns.RFC_ReloadAll()
+end
+if rfcPlayerClass == "SHAMAN" then
+    bmRegen:RegisterEvent("TRAIT_CONFIG_UPDATED")
+    bmRegen:RegisterEvent("SPELLS_CHANGED")
+end
 bmRegen:SetScript("OnEvent", function(_, event, arg1)
     if event == "PLAYER_SPECIALIZATION_CHANGED" then
         if arg1 == "player" and not InCombatLockdown() then ns.RFC_ReloadAll() end
+        return
+    end
+    if event == "TRAIT_CONFIG_UPDATED" or event == "SPELLS_CHANGED" then
+        RecheckTotem()
         return
     end
     if event == "PLAYER_ENTERING_WORLD" then
@@ -3398,6 +3565,7 @@ bmRegen:SetScript("OnEvent", function(_, event, arg1)
         AssistSweep()
         return
     end
+    if ns._rfcTotemDirty then RecheckTotem() end
     local any = false
     for i = 1, #registry do
         local d = ns.GetFFD and ns.GetFFD(registry[i])
