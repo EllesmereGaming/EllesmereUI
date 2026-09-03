@@ -18999,7 +18999,7 @@ initFrame:SetScript("OnEvent", function(self)
                   -- glows down (or bring the suppressed ones back) right away
                   -- instead of waiting for the next combat edge.
                   if ns.RefreshGlowCombatGate then ns.RefreshGlowCombatGate() end
-                  if ns.CDMGlowCombatSync then ns.CDMGlowCombatSync(true) end
+                  if ns.CDMGlowCombatSync then ns.CDMGlowCombatSync() end
                   EllesmereUI:RefreshPage()
               end }
 

@@ -2403,7 +2403,11 @@ ns._cdmGlowRec = {}
 -- the option itself.
 function ns.RefreshGlowCombatGate()
     local p = ECME and ECME.db and ECME.db.profile
-    ns._cdmGlowOOCGate = (p and p.cdmBars and p.cdmBars.glowsOnlyInCombat) and true or false
+    local on = (p and p.cdmBars and p.cdmBars.glowsOnlyInCombat) and true or false
+    ns._cdmGlowOOCGate = on
+    -- Sticky: once the gate has been on there may be suppressed glows left to
+    -- release, so the sweep has to stay reachable after it goes off again.
+    if on then ns._cdmGlowGateEverOn = true end
 end
 
 StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
@@ -2553,11 +2557,11 @@ ns.StopNativeGlow = StopNativeGlow
 -- Combat edges for Show Glows Only in Combat. Entering combat replays what was
 -- suppressed; leaving combat takes the running glows down but keeps their
 -- records, so the next pull lights them again without waiting for their owners
--- to re-fire. force is for the three callers that may just have changed the
--- gate itself (the option, a profile apply, world entry): with the gate off
--- there is nothing to do unless glows are still suppressed under the old value.
-function ns.CDMGlowCombatSync(force)
-    if not force and not ns._cdmGlowOOCGate then return end
+-- to re-fire. The option, a profile apply and world entry call it after
+-- re-reading the gate, so a change takes effect at once. Never having had the
+-- gate on makes this two reads and a return for the whole session.
+function ns.CDMGlowCombatSync()
+    if not ns._cdmGlowOOCGate and not ns._cdmGlowGateEverOn then return end
     local show = _inCombat or not ns._cdmGlowOOCGate
     -- Replays are collected here and run after the traversal: StartNativeGlow
     -- writes into _cdmGlowRec, and inserting a key during pairs() is undefined
@@ -9566,9 +9570,8 @@ function ECME:OnInitialize()
         if ns.UpdateCustomBuffBars then ns.UpdateCustomBuffBars() end
         -- A profile that switches the gate off has to release the glows the old
         -- profile suppressed: the edge-driven ones (proc, cd ready) have no
-        -- ticker to bring them back on their own. Forced, because the gate the
-        -- sweep tests against is already the new profile's.
-        ns.CDMGlowCombatSync(true)
+        -- ticker to bring them back on their own.
+        ns.CDMGlowCombatSync()
     end
 
     -- Append SharedMedia textures to TBB runtime tables
@@ -10596,7 +10599,7 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         -- a zone-in that lands mid-combat. At the very first world entry nothing
         -- is recorded yet, so only the gate read matters there.
         ns.RefreshGlowCombatGate()
-        ns.CDMGlowCombatSync(true)
+        ns.CDMGlowCombatSync()
         -- PvP instance transition backstop: entering or leaving a PvP instance rebuilds viewer pools (PvP talents activate/deactivate). Rebuild + reanchor so the new pool frames are claimed.
         local _, instType = IsInInstance()
         local wasPvP = ns._cdmWasInPvP
