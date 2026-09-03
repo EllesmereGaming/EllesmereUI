@@ -7397,17 +7397,14 @@ function EAB:SetGrowDirectionForBar(barKey, dir)
                     end
                 end
                 self.db.profile.barPositions[barKey] = { point = sp, relPoint = rpt, x = sx, y = sy }
-                if InCombatLockdown() then
-                    -- Store the write, defer the SetPoint: reapplied from
-                    -- barPositions on PLAYER_REGEN_ENABLED by the same mechanism
-                    -- a blocked anchor apply uses.
-                    if EllesmereUI._AnchorPark then
-                        EllesmereUI._AnchorPark.ParkBarPos(barKey)
-                    end
-                else
+                if not InCombatLockdown() then
                     frame:ClearAllPoints()
                     frame:SetPoint(sp, UIParent, rpt, sx, sy)
                 end
+                -- If in combat, the barPositions write above already stands; the
+                -- unconditional LayoutBar call below sets ns._eabApplyDeferred and
+                -- the existing PLAYER_REGEN_ENABLED -> ApplyAll -> LayoutBar pass
+                -- re-syncs this frame's SetPoint from that entry once combat drops.
             end
         end
     end
