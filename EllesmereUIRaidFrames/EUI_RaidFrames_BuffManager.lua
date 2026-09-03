@@ -352,6 +352,9 @@ for _, spec in ipairs(HEALER_SPECS) do
         end
     end
 end
+-- 212641 is Guardian of Ancient Kings with Glyph of the Queen applied; Blizzard's
+-- client reports it under the same name as the base buff (86659).
+STORED_NAME_BY_ID[212641] = "Guardian of Ancient Kings (Glyph of the Queen)"
 -- Display-name lookup. Curated names win: they distinguish variants the client
 -- API cannot ("Echo Reversion" vs "Reversion") and localize via L(); the client
 -- name is the uncurated fallback. No cache -- L() must stay live for locale swaps.
@@ -3165,7 +3168,9 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                             -- by Blizzard); SPELL_NAME_BY_ID already falls back to
                             -- the live API internally when no curated name exists.
                             local name = SPELL_NAME_BY_ID[id]
-                            return { key = id, label = (name or ("Spell " .. tostring(id))),
+                            local label = name or ("Spell " .. tostring(id))
+                            -- Truncated rows still need to be told apart on hover.
+                            return { key = id, label = label, tooltip = label,
                                 icon = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id) }
                         end
                         -- Dynamic items: fresh per menu open. Spells already supplied by

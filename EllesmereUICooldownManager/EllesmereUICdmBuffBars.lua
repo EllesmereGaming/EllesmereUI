@@ -913,10 +913,27 @@ function _tbbWake.Probe()
     end
     return false
 end
-function _tbbWake.OnEvent(_, event)
-    -- Awake: this is the composition edge that retires the assignment memo. Mark and let the next tick re-pair; no probe, no state change.
+function _tbbWake.OnEvent(_, event, _, updateInfo)
+    -- Awake: this is the composition edge that retires the assignment memo. Mark and
+    -- let the next tick re-pair; no probe, no state change. Pairing keys on frame
+    -- identity only (pool membership, cooldown slot, aura spell variant), and an
+    -- update-only payload (refresh / stack change on auras already bound) moves none
+    -- of those, so only additions, removals, full updates, or an unreadable payload
+    -- retire the memo -- the same secret guard as the buff ticker's UNIT_AURA writer:
+    -- the table and each field can arrive secret in instanced content, and a secret
+    -- can never be boolean-tested, so unreadable means assume churn.
     if tbbTickFrame and tbbTickFrame:IsShown() then
-        _tbbAssignDirty = true
+        if event ~= "UNIT_AURA" or not updateInfo or issecretvalue(updateInfo) then
+            _tbbAssignDirty = true
+        else
+            local full    = updateInfo.isFullUpdate
+            local removed = updateInfo.removedAuraInstanceIDs
+            local added   = updateInfo.addedAuras
+            if issecretvalue(full) or issecretvalue(removed) or issecretvalue(added)
+               or full or removed or added then
+                _tbbAssignDirty = true
+            end
+        end
         return
     end
     if event == "UNIT_AURA" and not _tbbWake.Probe() then return end
@@ -4000,10 +4017,24 @@ local function _UpdateSelfTimedBar(bar, cfg, expiry, duration)
         if cfg.showSpark and bar._spark then bar._spark:Show() end
     end
     if cfg.showTimer and bar._timerText then
+        -- The string changes only when its displayed bucket does (rounded tenths
+        -- under 10s, whole seconds above), so stamp the bucket and skip the
+        -- per-tick format + SetText otherwise. A fresh appearance always writes
+        -- (wasShown false) and the placeholder exit clears the stamp, so no other
+        -- writer of this FontString can strand it.
+        local key
         if remaining < 10 then
-            bar._timerText:SetText(string.format("%.1f", remaining))
+            key = math.floor(remaining * 10 + 0.5)
         else
-            bar._timerText:SetText(string.format("%d", remaining))
+            key = math.floor(remaining)
+        end
+        if not wasShown or bar._stTxtKey ~= key then
+            bar._stTxtKey = key
+            if remaining < 10 then
+                bar._timerText:SetText(string.format("%.1f", remaining))
+            else
+                bar._timerText:SetText(string.format("%d", remaining))
+            end
         end
         bar._timerText:Show()
     elseif bar._timerText then
@@ -5066,6 +5097,12 @@ function ns.UpdateTrackedBuffBarTimers()
             if ns.HideTBBPlaceholders then ns.HideTBBPlaceholders() end
             -- Auras may have moved while the preview was up: re-pair on the first real mirror tick.
             _tbbAssignDirty = true
+            -- The preview may have written the self-timed bars' timer text: drop
+            -- their bucket stamps so the next live tick rewrites it.
+            for bi = 1, #tbbFrames do
+                local b = tbbFrames[bi]
+                if b then b._stTxtKey = nil end
+            end
         end
     end
 

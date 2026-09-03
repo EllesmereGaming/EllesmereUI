@@ -80,6 +80,7 @@ spells = {
         [184662] = { class = "PALADIN", disabled = true },
         [31850] = { class = "PALADIN" },
         [86659] = { class = "PALADIN" },
+        [212641] = { class = "PALADIN" },
         [114216] = { class = "PRIEST", alts = { 114214 }, disabled = true },
         [19236] = { class = "PRIEST" },
         [47585] = { class = "PRIEST" },

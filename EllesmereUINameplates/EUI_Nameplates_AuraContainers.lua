@@ -330,7 +330,9 @@ local function ApplyNPBuffExtra(button, d, style)
         -- the flipbook picks translate before the call (raw pass-through rendered GCD
         -- for Modern picks, Modern for GCD/Classic picks).
         local gType = NP_TO_SHARED_GLOW[style.purgeStyle or 2] or 6
-        local cr, cg, cb = style.purgeR or 0.2, style.purgeG or 0.6, style.purgeB or 1
+        -- nil (color never customized) passes through: the engines render
+        -- their default look (gold ABG halo over white ants).
+        local cr, cg, cb = style.purgeR, style.purgeG, style.purgeB
         local sz = style.width or 24
         if (not host._euiGlowActive) or host._npStyle ~= gType or host._npW ~= sz
            or host._npR ~= cr or host._npG ~= cg or host._npB ~= cb then

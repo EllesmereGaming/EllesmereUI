@@ -1307,7 +1307,7 @@ initFrame:SetScript("OnEvent", function(self)
                     return
                 end
                 if key == "LSHIFT" or key == "RSHIFT" or key == "LCTRL" or key == "RCTRL"
-                   or key == "LALT" or key == "RALT" then
+                   or key == "LALT" or key == "RALT" or key == "LMETA" or key == "RMETA" then
                     self:SetPropagateKeyboardInput(true)
                     return
                 end
@@ -1318,11 +1318,26 @@ initFrame:SetScript("OnEvent", function(self)
                     RefreshLabel()
                     return
                 end
-                local mods = ""
-                if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
-                if IsControlKeyDown() then mods = mods .. "CTRL-" end
-                if IsAltKeyDown() then mods = mods .. "ALT-" end
-                local fullKey = mods .. key
+                -- Blizzard's canonical chord order is ALT-CTRL-SHIFT-KEY, and
+                -- CreateKeyChordStringUsingMetaKeyState is what produces it.
+                -- Hand-rolling the modifiers built SHIFT-CTRL-ALT-KEY, a chord
+                -- string the engine never generates, so any bind using more
+                -- than one modifier was stored in a form nothing could match.
+                -- Single-modifier binds happen to agree, which is why this
+                -- survived.
+                local fullKey
+                if CreateKeyChordStringUsingMetaKeyState then
+                    fullKey = CreateKeyChordStringUsingMetaKeyState(key)
+                else
+                    local mods = ""
+                    if IsAltKeyDown() then mods = mods .. "ALT-" end
+                    if IsControlKeyDown() then mods = mods .. "CTRL-" end
+                    if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
+                    if IsMetaKeyDown and IsMetaKeyDown() then
+                        mods = mods .. "META-"
+                    end
+                    fullKey = mods .. key
+                end
 
                 if not EllesmereUIDB then EllesmereUIDB = {} end
                 local bindBtn = _G["EUI_FPSBindBtn"]
@@ -2419,6 +2434,12 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Y Offset", min=-200, max=200, step=1,
                       get=function() return cget("crosshairYOffset") or 0 end,
                       set=function(v) dbset("crosshairYOffset", v) end },
+                    { type="dropdown", label="Frame Strata",
+                      tooltip="Controls the order that overlapping elements display in. Set higher to show above other elements.",
+                      values = EllesmereUI.FRAME_STRATA_LABELS,
+                      order = EllesmereUI.FRAME_STRATA_ORDER_BASE,
+                      get=function() return cget("crosshairStrata") or "MEDIUM" end,
+                      set=function(v) dbset("crosshairStrata", v) end },
             }
             -- Holy Paladin uses a 40yd out-of-range cutoff by default; let
             -- paladins opt into a melee (5yd) cutoff. Shown only for Paladins.
@@ -2853,6 +2874,13 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._ShutdownShifter then EllesmereUI._ShutdownShifter() end
             if _G._EUI_AutoLogging_Check then _G._EUI_AutoLogging_Check() end
             EllesmereUI:InvalidatePageCache()
+        end,
+        -- Tears down Duration Warning, Raid Tools, and Movement Alert
+        -- previews on module switch (Movement Alert also stops its ticker).
+        onModuleLeave = function()
+            if EllesmereUI._durWarnHidePreview then EllesmereUI._durWarnHidePreview() end
+            if _G._EUI_RaidTools_Preview then _G._EUI_RaidTools_Preview(false) end
+            if EllesmereUI._MovementAlertPreview then EllesmereUI._MovementAlertPreview(false) end
         end,
     })
 

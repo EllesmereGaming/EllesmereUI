@@ -947,9 +947,16 @@ initFrame:SetScript("OnEvent", function(self)
               order=compareModeOrder,
               getValue=function() return Cfg("objectiveCompareMode") or "NONE" end,
               setValue=function(v) Set("objectiveCompareMode", v); Refresh() end })
-        -- Strict scoping cog: only meaningful for the level scopes (Per Dungeon is the fallback it removes).
+        -- Split Compare cog: strict scoping (only meaningful for the level scopes,
+        -- since Per Dungeon is the fallback it removes) and the upcoming-split target.
         if not EllesmereUI._prebuilding then
         _AttachPopupButton(row._rightRegion, EllesmereUI.COGS_ICON, "Split Compare", {
+            { type="toggle", label="Always Show Split Times",
+              tooltip="Shows your best split on upcoming bosses instead of only killed ones.",
+              disabled=function() return (Cfg("objectiveCompareMode") or "NONE") == "NONE" end,
+              disabledTooltip="This option requires a Split Compare mode",
+              get=function() return Cfg("showUpcomingSplitTargets") == true end,
+              set=function(v) Set("showUpcomingSplitTargets", v); Refresh() end },
             { type="toggle", label="Strict Comparison Mode",
               tooltip="Compare only against splits from the same key level (off: new key levels compare against your dungeon best).",
               disabled=function()

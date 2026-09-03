@@ -64,7 +64,21 @@ local CLASS_LABELS = {
     DispelTyped       = { "Dispels", "Shows any debuff with a dispel type (Magic, Curse, Disease, Poison, Bleed), even if you cannot remove it" },
     Raid              = { "Raid",            "Shows only debuffs from Blizzard's curated raid-frame debuff set" },
     RaidInCombat      = { "Raid In Combat",  "Shows only the stricter in-combat subset of the raid set" },
+    -- Less common filters (below the divider in the Filters dropdown).
+    CastByMe          = { "Cast By You",     "Debuffs applied by you or your pet" },
+    AnyPlayer         = { "From Any Player", "Debuffs caused by any player or player pet. The opposite of Non-Player Auras; checking one clears the other" },
+    DispelMagic       = { "Magic",           "Debuffs with the Magic dispel type" },
+    DispelCurse       = { "Curse",           "Debuffs with the Curse dispel type" },
+    DispelPoison      = { "Poison",          "Debuffs with the Poison dispel type" },
+    DispelDisease     = { "Disease",         "Debuffs with the Disease dispel type" },
+    DispelBleed       = { "Bleed",           "Debuffs with the Bleed dispel type" },
+    CanApply          = { "Can Apply Aura",  "Debuffs your own class is able to apply" },
 }
+
+-- Non-Player Auras and From Any Player share one engine field: checking either
+-- (in either lane) clears the other from both lanes. Keyed by .skey.
+local EXCLUSIVE_SKEY = { NonPlayer = "AnyPlayer", AnyPlayer = "NonPlayer" }
+ns.PAB_ExclusiveSkey = EXCLUSIVE_SKEY
 
 -- Curated debuff filter list: exact vocabulary+order parity with Raid Frames' debuff
 -- filters (EUI_RaidFrames_ManagerPages.lua TILE_FILTER_ITEMS); shared by Base Filters
@@ -74,6 +88,10 @@ local CLASS_LABELS = {
 -- profiles that already set them.
 local DEBUFF_FILTER_ORDER = {
     "nonplayer", "priority", "cc", "bossaura", "roleaura", "raid", "raidcombat", "dispellable", "dispeltyped",
+    -- Divider sentinel (ClassByKey resolves nothing for it; PAB_ClassItems emits a
+    -- header row, PAB_FxClassItems skips it), then the less common filters.
+    "__less",
+    "castbyme", "anyplayer", "magic", "curse", "poison", "disease", "bleed", "canapply",
 }
 
 local function ClassByKey(key)
@@ -91,14 +109,19 @@ function ns.PAB_ClassItems(isBuff)
     if not isBuff then
         local items = {}
         for i = 1, #DEBUFF_FILTER_ORDER do
-            local class = ClassByKey(DEBUFF_FILTER_ORDER[i])
-            if class then
-                local meta = CLASS_LABELS[class.skey]
-                items[#items + 1] = {
-                    key = class.skey,
-                    label = meta and meta[1] or class.skey,
-                    tooltip = meta and meta[2] or nil,
-                }
+            local key = DEBUFF_FILTER_ORDER[i]
+            if key == "__less" then
+                items[#items + 1] = { isHeader = true, label = "Less Common Filters" }
+            else
+                local class = ClassByKey(key)
+                if class then
+                    local meta = CLASS_LABELS[class.skey]
+                    items[#items + 1] = {
+                        key = class.skey,
+                        label = meta and meta[1] or class.skey,
+                        tooltip = meta and meta[2] or nil,
+                    }
+                end
             end
         end
         return items
@@ -211,7 +234,8 @@ end
 -- the matching Base Filter on.
 local function PAB_FxSafeToForce(class)
     local c = class.cand
-    return not (c and (c.isBossAura ~= nil or c.isRoleAura ~= nil or c.isPriorityAura ~= nil))
+    return not (c and (c.isBossAura ~= nil or c.isRoleAura ~= nil or c.isPriorityAura ~= nil
+        or c.canApplyAura ~= nil))
 end
 
 -- Filter vocabulary for the Icon Effects UI (debuffs only): same curated
@@ -443,9 +467,19 @@ local function DebuffSubtractFn(cfg)
     end
 end
 
+-- Union of two dispel-type sets as a NEW table (the shared vocabulary tables
+-- are never mutated); nil-safe on the accumulator. Several per-type classes
+-- can forward at once, so the carrier accumulates instead of overwriting.
+local function MergeTypes(acc, add)
+    local out = {}
+    if acc then for k, v in pairs(acc) do out[k] = v end end
+    for k, v in pairs(add) do out[k] = v end
+    return out
+end
+
 local function BuildChain(base, classEnabledFn, includeCatchAll, subtractFn)
     local chain, negations = {}, {}
-    local excludeDispelTypes, npOwned, subCand
+    local excludeDispelTypes, npOwned, anyOwned, subCand
     local tokenClasses = VisibleTokenClasses()
     local candidateClasses = VisibleCandidateClasses()
     if not (tokenClasses and candidateClasses) then return chain end
@@ -469,10 +503,13 @@ local function BuildChain(base, classEnabledFn, includeCatchAll, subtractFn)
     -- subCand stays a catch-all-only payload, legacy parity).
     local function ExtraCand()
         local withSub = addMode and subCand or nil
-        if not (excludeDispelTypes or npOwned or withSub) then return nil end
+        if not (excludeDispelTypes or npOwned or anyOwned or withSub) then return nil end
         local t = {}
         if excludeDispelTypes then t.excludeDispelTypes = excludeDispelTypes end
-        if npOwned then t.isFromPlayerOrPlayerPet = true end
+        -- Non-Player and From Any Player are the same field; the options
+        -- setters keep them exclusive, nonplayer wins if stale data disagrees.
+        if npOwned then t.isFromPlayerOrPlayerPet = true
+        elseif anyOwned then t.isFromPlayerOrPlayerPet = false end
         if withSub then
             for k, v in pairs(withSub) do t[k] = v end
         end
@@ -516,8 +553,9 @@ local function BuildChain(base, classEnabledFn, includeCatchAll, subtractFn)
                     for n = 1, #negations do tokens[#tokens + 1] = negations[n] end
                     chain[#chain + 1] = { key = class.key, tokens = tokens, cand = cc, excludeCand = ExtraCand(),
                         hidden = true }
-                    if cc.includeDispelTypes then excludeDispelTypes = cc.includeDispelTypes end
-                    if cc.isFromPlayerOrPlayerPet == false then npOwned = true end
+                    if cc.includeDispelTypes then excludeDispelTypes = MergeTypes(excludeDispelTypes, cc.includeDispelTypes) end
+                    if cc.isFromPlayerOrPlayerPet == false then npOwned = true
+                    elseif cc.isFromPlayerOrPlayerPet == true then anyOwned = true end
                 else
                     CollectSub(cc)
                 end
@@ -542,8 +580,9 @@ local function BuildChain(base, classEnabledFn, includeCatchAll, subtractFn)
                 -- class.cand is a candidate-filter TABLE; the shared vocabulary
                 -- carries set-valued filters (includeDispelTypes) directly in it.
                 chain[#chain + 1] = { key = class.key, tokens = tokens, cand = cc, excludeCand = ExtraCand() }
-                if cc.includeDispelTypes then excludeDispelTypes = cc.includeDispelTypes end
-                if cc.isFromPlayerOrPlayerPet == false then npOwned = true end
+                if cc.includeDispelTypes then excludeDispelTypes = MergeTypes(excludeDispelTypes, cc.includeDispelTypes) end
+                if cc.isFromPlayerOrPlayerPet == false then npOwned = true
+                elseif cc.isFromPlayerOrPlayerPet == true then anyOwned = true end
             end
         end
         return chain
@@ -585,8 +624,9 @@ local function BuildChain(base, classEnabledFn, includeCatchAll, subtractFn)
                 -- set-valued filters (includeDispelTypes) directly in it.
                 chain[#chain + 1] = { key = class.key, tokens = tokens, cand = cc, excludeCand = ExtraCand(),
                     hidden = (sub and not en) or nil }
-                if cc.includeDispelTypes then excludeDispelTypes = cc.includeDispelTypes end
-                if cc.isFromPlayerOrPlayerPet == false then npOwned = true end
+                if cc.includeDispelTypes then excludeDispelTypes = MergeTypes(excludeDispelTypes, cc.includeDispelTypes) end
+                if cc.isFromPlayerOrPlayerPet == false then npOwned = true
+                elseif cc.isFromPlayerOrPlayerPet == true then anyOwned = true end
             else
                 CollectSub(cc)
             end
@@ -1079,8 +1119,13 @@ end
 -- the engine's only duration filter (Blizzard_AuraContainerUtil), so Has
 -- Duration exists as a show-side AND-modifier only, never a hide-lane entry.
 local function DebuffCandidateExtras(cfg)
-    if cfg and cfg.hasDuration then
-        return { maxDuration = math.huge }
+    if not cfg then return nil end
+    -- Max Duration (seconds) is the same gate with a real cap and implies Has
+    -- Duration; nil = Unlimited = no extras at all (the candidate fingerprint
+    -- sees the cap value, so edits re-declare like any payload change).
+    local cap = cfg.maxDurSec or (cfg.hasDuration and math.huge) or nil
+    if cap then
+        return { maxDuration = cap }
     end
     return nil
 end

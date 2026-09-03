@@ -22,8 +22,107 @@ initFrame:SetScript("OnEvent", function(self)
         title = "Bags",
         description = "Enhanced inventory system with sidebar categories, item levels, and quality borders.",
         searchTerms = "bags inventory items slots reagent categories columns sidebar",
-        pages = { "Bags" },
+        pages = { "Bags", "Bank" },
         buildPage = function(pageName, parent, yOffset)
+            if pageName == "Bank" then
+                local okB, resB = pcall(function()
+                local W = EllesmereUI.Widgets
+                local y = yOffset
+                local h, _
+
+                local function RefreshBank()
+                    local bank = _G.EUI_BankFrame
+                    if bank and bank.RefreshBank then bank:RefreshBank() end
+                end
+
+                -- Info label
+                do
+                    local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("bags")) or "Fonts\\FRIZQT__.TTF"
+                    local infoFrame = CreateFrame("Frame", nil, parent)
+                    infoFrame:SetSize(parent:GetWidth(), 34)
+                    infoFrame:SetPoint("TOP", parent, "TOP", 0, y - 10)
+                    infoFrame._isSpacer = true
+                    local line1 = infoFrame:CreateFontString(nil, "OVERLAY")
+                    line1:SetFont(fontPath, 15, "")
+                    line1:SetTextColor(1, 1, 1, 0.75)
+                    line1:SetPoint("TOP", infoFrame, "TOP", 0, 0)
+                    line1:SetJustifyH("CENTER")
+                    line1:SetText(EllesmereUI.L("Right-click a tab in the bank sidebar to rename it or set its deposit filters."))
+                    local line2 = infoFrame:CreateFontString(nil, "OVERLAY")
+                    line2:SetFont(fontPath, 15, "")
+                    line2:SetTextColor(1, 1, 1, 0.75)
+                    line2:SetPoint("TOP", line1, "BOTTOM", 0, -2)
+                    line2:SetJustifyH("CENTER")
+                    line2:SetText(EllesmereUI.L("Window scale, icon zoom and item level settings are shared with the Bags page."))
+                    y = y - 50
+                end
+
+                _, h = W:SectionHeader(parent, "GROUPING", y); y = y - h
+
+                -- Nest by Expansion | Group by Category
+                _, h = W:DualRow(parent, y,
+                    { type="toggle", text="Nest by Expansion",
+                      tooltip="In the OneBank and OneWarbank views, split the grid under expansion headers, newest first. Per-tab views are unaffected.",
+                      getValue=function() return db.profile.bankNestByExpansion == true end,
+                      setValue=function(v)
+                          db.profile.bankNestByExpansion = v and true or false
+                          RefreshBank()
+                          EllesmereUI:RefreshPage()
+                      end },
+                    { type="toggle", text="Group by Category",
+                      tooltip="Split items by category -- Armor, Consumables, Professions and so on -- using the same category list, order and renames as the All Items bag view. Nests inside the expansion headers when Nest by Expansion is also on. Categories that split further do so automatically: gear by equipment slot, Professions and Trade Goods by profession and material type.",
+                      getValue=function() return db.profile.bankGroupByCategory == true end,
+                      setValue=function(v)
+                          db.profile.bankGroupByCategory = v and true or false
+                          RefreshBank()
+                          EllesmereUI:RefreshPage()
+                      end }
+                ); y = y - h
+
+                _, h = W:SectionHeader(parent, "SIDEBAR", y); y = y - h
+
+                _, h = W:DualRow(parent, y,
+                    { type="toggle", text="Category Sidebar",
+                      tooltip="List item categories in the bank sidebar the way the bags sidebar does -- groups such as The Armory with Weapons and Armor under them. Selecting one filters the grid to that category. Categories that split further list their parts as a third level while selected: Professions by profession, Armor by equipment slot, Trade Goods by material. Spans your character bank and warband together, so a category shows everything you own.",
+                      getValue=function() return db.profile.bankCategorySidebar == true end,
+                      setValue=function(v)
+                          db.profile.bankCategorySidebar = v and true or false
+                          RefreshBank()
+                          EllesmereUI:RefreshPage()
+                      end },
+                    { type="toggle", text="Hide Bank Tabs in Sidebar",
+                      tooltip="Drop the individual Tab 1 / Tab 2 / Warbank Tab entries once the category list is doing the navigating. The consolidated views stay. Note that right-clicking a tab entry is the only way to rename a tab or change its deposit filters, so leave this off if you still need that.",
+                      disabled = function() return db.profile.bankCategorySidebar ~= true end,
+                      disabledTooltip = "Turn on Category Sidebar first, or the sidebar would have nothing left to navigate with.",
+                      getValue=function() return db.profile.bankHideTabsInSidebar == true end,
+                      setValue=function(v)
+                          db.profile.bankHideTabsInSidebar = v and true or false
+                          RefreshBank()
+                      end }
+                ); y = y - h
+
+                _, h = W:DualRow(parent, y,
+                    { type="toggle", text="Hide Empty Slots When Grouped",
+                      tooltip="While either grouping toggle is on, drop the trailing block of empty slots so the view only shows items. Turn this off to keep the free slots visible for depositing.",
+                      disabled = function()
+                          return not (db.profile.bankNestByExpansion or db.profile.bankGroupByCategory)
+                      end,
+                      disabledTooltip = "Turn on Nest by Expansion or Group by Category first; the flat view has nowhere to move empty slots to.",
+                      getValue=function() return db.profile.bankHideEmptyWhenNested == true end,
+                      setValue=function(v)
+                          db.profile.bankHideEmptyWhenNested = v and true or false
+                          RefreshBank()
+                      end },
+                    { type="label", text="" }
+                ); y = y - h
+
+                _, h = W:Spacer(parent, y, 20); y = y - h
+                return math.abs(y)
+                end) -- end pcall
+                if not okB then print("|cffff0000[Bank Options ERROR]|r " .. tostring(resB)) end
+                return okB and resB or 0
+            end
+
             if pageName ~= "Bags" then return end
 
             local ok, result = pcall(function()
@@ -749,6 +848,12 @@ initFrame:SetScript("OnEvent", function(self)
                           get=function() return db.profile.bagRecentInOneBag == true end,
                           set=function(v)
                               db.profile.bagRecentInOneBag = v
+                              if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                          end },
+                        { type="toggle", label="Show Clear Button",
+                          get=function() return db.profile.bagShowRecentClear == true end,
+                          set=function(v)
+                              db.profile.bagShowRecentClear = v
                               if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                           end },
                     },

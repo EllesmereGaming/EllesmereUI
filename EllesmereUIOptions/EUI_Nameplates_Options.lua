@@ -2658,6 +2658,10 @@ initFrame:SetScript("OnEvent", function(self)
             -- Retained (always nil) so legacy owner-check code paths stay harmless with the shared BuildCogPopup.
             local npcCogPopup, npcCogPopupOwner
             local function npcOff() return DBVal("showFriendlyNPCs") ~= true end
+            -- Every row here styles the name-only overlay, so the mode gate lives
+            -- on the cog button; only the title rows need a gate of their own.
+            local function npcCogOff() return npcOff() or nameOnlyOff() end
+            local function titleOff() return DBVal("showNPCTitles") == false end
 
             local _, ShowNPCCogPopup = EllesmereUI.BuildCogPopup({
                 title = "Friendly NPC Settings",
@@ -2668,12 +2672,38 @@ initFrame:SetScript("OnEvent", function(self)
                         DB().showNPCTitles = v and true or false
                         if ns.RefreshAllNPCOverlays then ns.RefreshAllNPCOverlays() end
                       end },
-                    { type = "slider", label = "Name Only Size", min = 6, max = 30, step = 1,
+                    { type = "slider", label = "Name Size", min = 6, max = 30, step = 1,
                       get = function() return DBVal("friendlyNPCNameSize") or defaults.friendlyNPCNameSize end,
                       set = function(v)
                         DB().friendlyNPCNameSize = v
-                        if ns.RefreshAllNPCOverlays then ns.RefreshAllNPCOverlays() end
+                        if ns.RefreshNPCOverlayStyle then ns.RefreshNPCOverlayStyle() end
                       end },
+                    { type = "slider", label = "Title Size", min = 6, max = 30, step = 1,
+                      get = function() return DBVal("friendlyNPCTitleSize") or defaults.friendlyNPCTitleSize end,
+                      set = function(v)
+                        DB().friendlyNPCTitleSize = v
+                        if ns.RefreshNPCOverlayStyle then ns.RefreshNPCOverlayStyle() end
+                      end,
+                      disabled = titleOff, disabledTooltip = "Show NPC Titles" },
+                    { type = "colorpicker", label = "Name Color",
+                      get = function()
+                        local c = DBVal("friendlyNPCNameColor") or defaults.friendlyNPCNameColor
+                        return c.r, c.g, c.b
+                      end,
+                      set = function(r, g, b)
+                        DB().friendlyNPCNameColor = { r = r, g = g, b = b }
+                        if ns.RefreshNPCOverlayStyle then ns.RefreshNPCOverlayStyle() end
+                      end },
+                    { type = "colorpicker", label = "Title Color", hasAlpha = true,
+                      get = function()
+                        local c = DBVal("friendlyNPCTitleColor") or defaults.friendlyNPCTitleColor
+                        return c.r, c.g, c.b, c.a or 1
+                      end,
+                      set = function(r, g, b, a)
+                        DB().friendlyNPCTitleColor = { r = r, g = g, b = b, a = a or 1 }
+                        if ns.RefreshNPCOverlayStyle then ns.RefreshNPCOverlayStyle() end
+                      end,
+                      disabled = titleOff, disabledTooltip = "Show NPC Titles" },
                 },
             })
 
@@ -2682,28 +2712,30 @@ initFrame:SetScript("OnEvent", function(self)
             btn:SetSize(26, 26)
             btn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
             btn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            btn:SetAlpha(npcOff() and 0.15 or 0.4)
+            btn:SetAlpha(npcCogOff() and 0.15 or 0.4)
             local tex = btn:CreateTexture(nil, "OVERLAY")
             tex:SetAllPoints(); tex:SetTexture(COGS_ICON)
             btn:SetScript("OnEnter", function(self)
                 if npcOff() then
                     EllesmereUI.ShowWidgetTooltip(self, "Requires Show Friendly NPC Nameplates to be enabled")
+                elseif nameOnlyOff() then
+                    EllesmereUI.ShowWidgetTooltip(self, "Requires Name Only mode")
                 else self:SetAlpha(0.7) end
             end)
             btn:SetScript("OnLeave", function(self)
                 EllesmereUI.HideWidgetTooltip()
-                if npcCogPopupOwner ~= self then self:SetAlpha(npcOff() and 0.15 or 0.4) end
+                if npcCogPopupOwner ~= self then self:SetAlpha(npcCogOff() and 0.15 or 0.4) end
             end)
             btn:SetScript("OnClick", function(self)
-                if npcOff() then return end
+                if npcCogOff() then return end
                 ShowNPCCogPopup(self)
             end)
             EllesmereUI.RegisterWidgetRefresh(function()
-                if npcCogPopupOwner ~= btn then btn:SetAlpha(npcOff() and 0.15 or 0.4) end
+                if npcCogPopupOwner ~= btn then btn:SetAlpha(npcCogOff() and 0.15 or 0.4) end
             end)
 
-            -- Inline swatch: friendly NPC bar & name color (freely customizable, full-plate mode only). Disabled in Name Only mode (NPCs use a reaction-colored overlay there) or when friendly NPCs are hidden.
-            local function npcColorOff() return npcOff() or DBVal("friendlyNameOnly") ~= false end
+            -- Inline swatch: friendly NPC bar & name color, full-plate mode only -- the exact complement of the cog beside it, which owns the name-only colors.
+            local function npcColorOff() return npcOff() or friendlyPlateOff() end
             local npcSwatch, updateNpcSwatch
             local function refreshNpcSwatch()
                 if updateNpcSwatch then updateNpcSwatch() end

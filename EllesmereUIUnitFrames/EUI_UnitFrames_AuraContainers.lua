@@ -48,6 +48,9 @@ local TOKEN_CLASSES = {
     { key = "bigdef",      token = "BIG_DEFENSIVE",           skey = "BigDefensive" },
     { key = "extdef",      token = "EXTERNAL_DEFENSIVE",      skey = "ExternalDefensive" },
     { key = "cancel",      token = "CANCELABLE",              skey = "Cancelable", buffOnly = true },
+    -- Less common (debuffs): your own casts. LAST so every existing chain
+    -- shape is byte-identical while it is unselected.
+    { key = "castbyme",    token = "PLAYER",                  skey = "CastByMe",   debuffOnly = true },
 }
 local CANDIDATE_CLASSES = {
     -- Player-frame only: debuffs not caused by ANY player or player pet (engine
@@ -58,8 +61,22 @@ local CANDIDATE_CLASSES = {
     -- PLAYER-token handoff; see BuildChain).
     { key = "nonplayer", cand = { isFromPlayerOrPlayerPet = false }, skey = "NonPlayer",
       debuffOnly = true, playerUnitOnly = true },
+    -- The complement of nonplayer on the SAME engine field; the options setters
+    -- keep the two mutually exclusive across both lanes (BuildChain carries the
+    -- complementary FALSE forward once this one is in the chain).
+    { key = "anyplayer", cand = { isFromPlayerOrPlayerPet = true }, skey = "AnyPlayer",
+      debuffOnly = true, playerUnitOnly = true },
     { key = "bossaura", cand = { isBossAura = true },     skey = "BossAura",     debuffOnly = true },
     { key = "roleaura", cand = { isRoleAura = true },     skey = "RoleAura",     debuffOnly = true },
+    -- Debuffs the player's own class can apply (engine boolean).
+    { key = "canapply", cand = { canApplyAura = true },   skey = "CanApply",     debuffOnly = true },
+    -- Per-type dispels: BEFORE dispeltyped so a shown type forwards its exclude
+    -- onto the typed record (which then shows the remaining types).
+    { key = "magic",   cand = { includeDispelTypes = { Magic = true } },   skey = "DispelMagic",   debuffOnly = true },
+    { key = "curse",   cand = { includeDispelTypes = { Curse = true } },   skey = "DispelCurse",   debuffOnly = true },
+    { key = "poison",  cand = { includeDispelTypes = { Poison = true } },  skey = "DispelPoison",  debuffOnly = true },
+    { key = "disease", cand = { includeDispelTypes = { Disease = true } }, skey = "DispelDisease", debuffOnly = true },
+    { key = "bleed",   cand = { includeDispelTypes = { Bleed = true } },   skey = "DispelBleed",   debuffOnly = true },
     -- Important: two Blizzard importance concepts, combined per unit in BuildChain. The
     -- class default (isPriorityAura) is the raid-frame priority curation -- the concept
     -- for debuffs on FRIENDLY units (the player frame and Player Aura Bars use it
@@ -295,6 +312,16 @@ local function ClassNegated(class, isBuff, s, unit)
     return negs ~= nil and negs[class.skey] == true
 end
 
+-- Union of two dispel-type sets as a NEW table (vocabulary tables are shared
+-- and never mutated); nil-safe on the accumulator.
+local function MergeDispelTypes(acc, add)
+    local out = {}
+    if acc then for k, v in pairs(acc) do out[k] = v end end
+    for k, v in pairs(add) do out[k] = v end
+    return out
+end
+ns.UF_MergeDispelTypes = MergeDispelTypes
+
 local function BuildChain(base, isBuff, s, unit)
     -- Non-player DEBUFFS run the mode model (one dropdown value, see
     -- NonPlayerDebuffChain). The class chain below serves the non-player BUFF
@@ -302,7 +329,7 @@ local function BuildChain(base, isBuff, s, unit)
     -- delegates here for the class-checkbox model).
     if not isBuff and unit ~= "player" then return NonPlayerDebuffChain(s, unit) end
     local chain, negations = {}, {}
-    local subCand, negDispelTypes, npNegOwned
+    local subCand, negDispelTypes, npNegOwned, anyNegOwned
 
     -- HIDDEN PASS -- hide-lane classes join FIRST as parked links so their
     -- negations / forward excludes / inverted booleans reach every positive link
@@ -334,8 +361,9 @@ local function BuildChain(base, isBuff, s, unit)
                 for n = 1, #negations do tokens[#tokens + 1] = negations[n] end
                 chain[#chain + 1] = { key = class.key .. "|" .. table.concat(tokens, ""),
                     tokens = tokens, cand = cc, hidden = true }
-                if cc.includeDispelTypes then negDispelTypes = cc.includeDispelTypes end
-                if cc.isFromPlayerOrPlayerPet == false then npNegOwned = true end
+                if cc.includeDispelTypes then negDispelTypes = MergeDispelTypes(negDispelTypes, cc.includeDispelTypes) end
+                if cc.isFromPlayerOrPlayerPet == false then npNegOwned = true
+                elseif cc.isFromPlayerOrPlayerPet == true then anyNegOwned = true end
             else
                 subCand = subCand or {}
                 for k, v in pairs(cc) do
@@ -367,13 +395,31 @@ local function BuildChain(base, isBuff, s, unit)
                 if out[k] == nil then out[k] = v end
             end
         end
-        if negDispelTypes and not (out and out.includeDispelTypes) then
+        if negDispelTypes then
             out = out or {}
-            out.excludeDispelTypes = negDispelTypes
+            local inc = out.includeDispelTypes
+            if inc then
+                -- A positive include map (typed dispels) shrinks by the hidden
+                -- types; a per-type map never holds a hidden type (lanes are
+                -- exclusive per class), so the copy is a no-op there.
+                local m
+                for T in pairs(negDispelTypes) do
+                    if inc[T] then
+                        m = m or MergeDispelTypes(nil, inc)
+                        m[T] = nil
+                    end
+                end
+                if m then out.includeDispelTypes = m end
+            else
+                out.excludeDispelTypes = negDispelTypes
+            end
         end
         if npNegOwned then
             out = out or {}
             if out.isFromPlayerOrPlayerPet == nil then out.isFromPlayerOrPlayerPet = true end
+        elseif anyNegOwned then
+            out = out or {}
+            if out.isFromPlayerOrPlayerPet == nil then out.isFromPlayerOrPlayerPet = false end
         end
         return out
     end
@@ -402,18 +448,37 @@ local function BuildChain(base, isBuff, s, unit)
     -- candidate class carries the complementary TRUE so the two sides
     -- partition instead of double-displaying (an aura is shown by exactly
     -- one group; candidate booleans cannot be token-negated).
-    local npOwned = false
+    local npOwned, anyOwned = false, false
+    -- Shown per-type dispel maps forward an exclude onto later candidate links
+    -- (the typed dispel class), so a type shown on its own renders once.
+    local shownTypes
     for i = 1, #CANDIDATE_CLASSES do
         local class = CANDIDATE_CLASSES[i]
         if ClassEnabled(class, isBuff, s, unit) then
             local tokens = { base }
             for n = 1, #negations do tokens[#tokens + 1] = negations[n] end
             local cand = class.cand
-            if npOwned then
+            if npOwned or anyOwned then
                 local src = cand
                 cand = {}
                 for k, v in pairs(src) do cand[k] = v end
-                cand.isFromPlayerOrPlayerPet = true
+                if cand.isFromPlayerOrPlayerPet == nil then cand.isFromPlayerOrPlayerPet = npOwned end
+            end
+            if shownTypes and cand.includeDispelTypes then
+                local inc = cand.includeDispelTypes
+                local m
+                for T in pairs(shownTypes) do
+                    if inc[T] then
+                        m = m or MergeDispelTypes(nil, inc)
+                        m[T] = nil
+                    end
+                end
+                if m then
+                    local src = cand
+                    cand = {}
+                    for k, v in pairs(src) do cand[k] = v end
+                    cand.includeDispelTypes = m
+                end
             end
             cand = NegCand(cand)
             chain[#chain + 1] = { key = LaneKey(class.key, tokens, cand), tokens = tokens, cand = cand }
@@ -428,6 +493,10 @@ local function BuildChain(base, isBuff, s, unit)
                 chain[#chain + 1] = { key = LaneKey("prioritynp", tokens, pnp), tokens = tokens, cand = pnp }
             end
             if class.key == "nonplayer" then npOwned = true end
+            if class.key == "anyplayer" then anyOwned = true end
+            if class.cand.includeDispelTypes and class.key ~= "dispeltyped" then
+                shownTypes = MergeDispelTypes(shownTypes, class.cand.includeDispelTypes)
+            end
         end
     end
 

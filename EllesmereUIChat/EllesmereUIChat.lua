@@ -3907,7 +3907,7 @@ local CHAT_MSG_EVENTS = {
     -- WHISPER/BN_WHISPER stay off this frame: the whisper-sound event frame
     -- (init section 7) receives them, keeping secret-sender events on ONE
     -- frame. Outgoing _INFORM variants need no registration -- the edit-box
-    -- OnEditFocusGained/OnTextChanged hooks already reset the fade.
+    -- focus-gained callback and OnChar hook already reset the fade.
 }
 
 -------------------------------------------------------------------------------
@@ -3915,6 +3915,122 @@ local CHAT_MSG_EVENTS = {
 --  strip, styled from the same settings, with Blizzard's strip hidden. The
 --  ECHAT.ApplyTab* entry points the options page calls are defined there.
 -------------------------------------------------------------------------------
+
+-------------------------------------------------------------------------------
+--  Chat-state callbacks: header font, input-top strips, sent-line capture,
+--  recall-cursor reset, idle-fade and hover focus tracking.
+--
+--  Deliberately NOT widget HookScripts on a Blizzard edit box. THE RULE: no
+--  EUI code may execute inside a Blizzard chat-state execution. An addon
+--  closure invoked by a script dispatch inside a secure execution leaves that
+--  execution tainted after it returns, and the chat-state functions write the
+--  edit box's chatType ATTRIBUTE after the script dispatches they perform:
+--    * ChatFrameUtil.ActivateChat does editBox:Show() (dispatches OnShow) and
+--      editBox:SetFocus() (dispatches OnEditFocusGained), THEN calls
+--      editBox:UpdateHeader(), which smart-switches a sticky RAID/PARTY to
+--      INSTANCE_CHAT with SetChatType (ChatFrameEditBox.lua:655/661).
+--    * ChatFrameEditBoxMixin:Deactivate does SetText("") (OnTextChanged) and
+--      ClearFocus() (OnEditFocusLost), THEN ResetChatTypeToSticky/
+--      ResetChatType.
+--  SendText reads that attribute back on EVERY later message, so one tainted
+--  write makes every send a tainted caller of C_ChatInfo.SendChatMessage.
+--  Ordinarily invisible; inside a chat messaging lockdown (encounter,
+--  challenge mode, PvP match) the call refuses a tainted caller and the
+--  message is silently swallowed -- the "RBG chat eats my messages" report.
+--
+--  EventRegistry is the sanctioned substitute: CallbackRegistryMixin
+--  :TriggerEvent runs every registrant through securecallfunction, so our
+--  taint stops at our own closure. Blizzard fires ChatFrame.OnEditBoxShow /
+--  .OnEditBoxHide / .OnEditBoxFocusGained / .OnEditBoxFocusLost /
+--  .OnEditBoxPreSendText for exactly these points. A constant owner string
+--  replaces rather than stacks, so repeated skin passes are safe.
+-------------------------------------------------------------------------------
+local _chatStateCallbacksDone = false
+
+-- Blizzard fires these callbacks for EVERY chat edit box, including the temp
+-- whisper windows (11+). Deriving EUI state from one of those poisons
+-- HistoryKeeper through the secret BN_WHISPER tellTarget, which is what the
+-- "idx <= 10" gate in SkinEditBox exists to prevent, so the same filter has
+-- to be re-applied inside each callback body.
+local function PermanentEditBox(eb)
+    if not eb or type(eb.GetName) ~= "function" then return false end
+    local n = eb:GetName()
+    local i = n and tonumber(n:match("^ChatFrame(%d+)EditBox$"))
+    return i ~= nil and i <= 10
+end
+
+-- Shared registration point for the focus-gained side: the permanent-frame
+-- gate is applied once and the owner string keeps repeat passes idempotent.
+-- On ECHAT rather than a file local because this file runs close to the
+-- 200-local ceiling.
+function ECHAT._RegisterEditBoxFocusGained(owner, fn)
+    if not (EventRegistry and EventRegistry.RegisterCallback) then return end
+    EventRegistry:RegisterCallback("ChatFrame.OnEditBoxFocusGained", function(_, eb)
+        if not PermanentEditBox(eb) then return end
+        fn(eb)
+    end, owner)
+end
+
+local function EnsureChatStateCallbacks()
+    if _chatStateCallbacksDone then return end
+    if not (EventRegistry and EventRegistry.RegisterCallback) then return end
+    _chatStateCallbacksDone = true
+
+    -- Input-on-top strip reclaim. Blizzard triggers these from the first line
+    -- of its own OnShow/OnHide, so the timing matches the HookScripts these
+    -- replace; RefreshInputTopStrips rescans every frame, so one registration
+    -- covers all of them.
+    EventRegistry:RegisterCallback("ChatFrame.OnEditBoxShow", function(_, eb)
+        if not PermanentEditBox(eb) then return end
+        ECHAT.RefreshInputTopStrips()
+    end, "EUI_Chat_InputTopShow")
+    EventRegistry:RegisterCallback("ChatFrame.OnEditBoxHide", function(_, eb)
+        if not PermanentEditBox(eb) then return end
+        ECHAT.RefreshInputTopStrips()
+    end, "EUI_Chat_InputTopHide")
+
+    -- Sent-line capture for the Up/Down recall history. Blizzard triggers
+    -- this from SendText, sequenced AFTER ParseText has stripped any slash
+    -- header and BEFORE GetText, so the string seen here is byte-identical to
+    -- what the old OnTextChanged shadow held for both plain and slash-
+    -- prefixed sends ("/raid hello" records "hello" either way).
+    EventRegistry:RegisterCallback("ChatFrame.OnEditBoxPreSendText", function(_, eb)
+        if not PermanentEditBox(eb) then return end
+        local d = CFD(eb)
+        local h = d.history
+        if not h then return end
+        local text = eb:GetText()
+        -- type() and issecretvalue() BEFORE any comparison. `text == ""` on a
+        -- secret string THROWS ("attempt to compare ... a secret string
+        -- value"), and this callback runs inside SendText one line before
+        -- SendChatMessage, so the throw would swallow the message and read as
+        -- the very bug this file is fixing. A BN-whisper reply produces one.
+        if type(text) ~= "string" then return end
+        if issecretvalue and issecretvalue(text) then return end
+        if text == "" then return end
+        -- KNOWN, ACCEPTED NARROWING vs the old OnTextChanged shadow: ParseText
+        -- runs most non-secure slash commands and ClearChat empties the box, so
+        -- "/dance" reaches here as "" and never enters our history. Blizzard's
+        -- own AddHistoryLine still holds it for Alt+Up/Down. Not universal --
+        -- ExtractChannel returns without SetText or ClearChat when the channel
+        -- is not joined (ChatFrameEditBox.lua:123-125), so "/c <name> msg" does
+        -- survive to here. Harmless: recalling it re-sends what the user typed.
+        local cmd = text:match("^%s*(/%S+)")
+        if cmd and IsSecureCmd and IsSecureCmd(cmd) then return end
+        if h[#h] ~= text then
+            h[#h + 1] = text
+            if #h > 50 then table.remove(h, 1) end
+        end
+    end, "EUI_Chat_SendLineCapture")
+
+    -- Recall cursor reset. Blizzard triggers this at the top of
+    -- OnEditFocusLost, one line before it reaches DeactivateChat, so the
+    -- timing is identical to the HookScript this replaces.
+    EventRegistry:RegisterCallback("ChatFrame.OnEditBoxFocusLost", function(_, eb)
+        if not PermanentEditBox(eb) then return end
+        CFD(eb).histIdx = 0
+    end, "EUI_Chat_RecallReset")
+end
 
 -------------------------------------------------------------------------------
 --  SkinEditBox: ALL edit box modifications in one place. Chrome/position/font
@@ -3975,20 +4091,14 @@ local function SkinEditBox(cf)
     -- HistoryKeeper for the rest of the session. Only permanent docked frames
     -- (1-10) may be hooked; temp windows (11+) get visuals only.
     if idx <= 10 then
-        eb:HookScript("OnEditFocusGained", function(self)
-            ApplyEditBoxHeaderFont(self)
-        end)
-
-        -- Input-on-top: reclaim/release the reserved top strip of the text
-        -- area as the input comes and goes, so an idle chat uses its full
-        -- height. OnShow/OnHide are C-side script hooks -- no field write onto
-        -- the edit box, the hazard the block comment above describes.
-        eb:HookScript("OnShow", function()
-            ECHAT.RefreshInputTopStrips()
-        end)
-        eb:HookScript("OnHide", function()
-            ECHAT.RefreshInputTopStrips()
-        end)
+        -- Header re-font and the input-on-top strip reclaim are EventRegistry
+        -- callbacks, not HookScripts. Both of those dispatch points sit inside
+        -- ChatFrameUtil.ActivateChat (Show() then SetFocus(), both ahead of the
+        -- UpdateHeader() that writes chatType), so a script hook on either one
+        -- taints the attribute every send reads back. Full rationale in the
+        -- chat-state callbacks block above.
+        EnsureChatStateCallbacks()
+        ECHAT._RegisterEditBoxFocusGained("EUI_Chat_HeaderFont", ApplyEditBoxHeaderFont)
 
         -- Plain Up/Down input recall. The Midnight edit box performs no native recall
         -- on plain arrows regardless of alt-arrow mode, so recall is Lua-side over an
@@ -4003,56 +4113,37 @@ local function SkinEditBox(cf)
         if not CFD(eb).history then
             CFD(eb).history = {}
             CFD(eb).histIdx = 0
-            -- Sent-line capture for the recall history above. NEVER use
-            -- hooksecurefunc(eb, "AddHistoryLine", ...): it reads as
-            -- a function hook but is a FIELD WRITE onto the Blizzard edit box
-            -- (hooksecurefunc(object, "method", fn) assigns object.method =
-            -- wrapper), which taints ChatFrame1EditBox. Blizzard calls
-            -- self:AddHistoryLine(text) from inside its send path, so that tainted
-            -- field read lands in the chat machinery and blocks
-            -- ChatFrameEditBoxMixin:OnUpdate's SetText on a secret whisper target.
-            -- Script hooks carry no field write and are verified clean. OnEnterPressed
-            -- alone is not enough: Blizzard's handler runs first and clears the box, so
-            -- text is shadowed on change and committed on send.
-            eb:HookScript("OnTextChanged", function(self, userInput)
-                local t = self:GetText()
-                if issecretvalue and issecretvalue(t) then
-                    CFD(self).pendingLine = nil
-                    return
-                end
-                -- A PROGRAMMATIC empty write must not consume the shadow:
-                -- Blizzard's OnEnterPressed clears the box (SetText("")) before our
-                -- commit hook runs, so honoring it would erase the line the commit is
-                -- about to read. User-typed emptiness (select-all + delete) still
-                -- records "" so an empty send commits nothing; programmatic non-empty
-                -- writes (arrow recall, reply prefill) shadow normally.
-                if t == "" and not userInput then return end
-                CFD(self).pendingLine = t
-            end)
-            eb:HookScript("OnEnterPressed", function(self)
-                local d = CFD(self)
-                local text = d.pendingLine
-                d.pendingLine = nil
-                if not text or text == "" then return end
-                if issecretvalue and issecretvalue(text) then return end
-                local cmd = text:match("^%s*(/%S+)")
-                if cmd and IsSecureCmd and IsSecureCmd(cmd) then return end
-                local h = d.history
-                if h[#h] ~= text then
-                    h[#h + 1] = text
-                    if #h > 50 then table.remove(h, 1) end
-                end
-            end)
+            -- Sent-line capture lives in EnsureChatStateCallbacks, NOT in a
+            -- script hook on this frame. hooksecurefunc(eb, "AddHistoryLine")
+            -- reads as a function hook but is a FIELD WRITE onto the Blizzard
+            -- edit box; the OnTextChanged shadow that replaced it dropped the
+            -- field write but not the problem, since Deactivate's SetText("")
+            -- dispatches OnTextChanged and then writes chatType. OnChar and
+            -- OnKeyDown stay safe: physical input only, so they can never land
+            -- inside SendText or Deactivate.
             eb:HookScript("OnKeyDown", function(self, key)
                 if key ~= "UP" and key ~= "DOWN" then return end
                 if IsAltKeyDown() then return end
-                -- Narrow, field-proven restriction guards.
-                -- C_ChatInfo.InChatMessagingLockdown exists but its breadth on
-                -- Midnight is unverified -- do not swap it in blind.
+                -- Restriction guards. Recall is SetText, and addon-planted edit
+                -- box text alone makes SendText a tainted caller: it reads the
+                -- text back at GetText() one line before SendChatMessage
+                -- (ChatFrameEditBox.lua:289). Field-proven by shift-clicked item
+                -- links, which Blizzard's InsertLink plants from a tainted click
+                -- -- that one message is refused, a retype sends fine. Alt+Up/Down
+                -- still recalls in a lockdown (the engine writes the text), so say
+                -- so once rather than leaving a silently dead key.
                 local restricted = GetCVarBool("addonChatRestrictionsForced")
+                    or C_ChatInfo.InChatMessagingLockdown()
                     or (C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive
                         and C_ChallengeMode.IsChallengeModeActive())
-                if restricted then return end
+                if restricted then
+                    if not ECHAT._recallLockdownNoticeShown then
+                        ECHAT._recallLockdownNoticeShown = true
+                        local cf = self.chatFrame or DEFAULT_CHAT_FRAME
+                        cf:AddMessage(EllesmereUI.L("Chat recall is unavailable here. Use Alt+Up and Alt+Down."))
+                    end
+                    return
+                end
                 local d = CFD(self)
                 local h = d.history
                 if #h == 0 then return end
@@ -4069,9 +4160,6 @@ local function SkinEditBox(cf)
                     local entry = h[#h - d.histIdx + 1]
                     if entry then self:SetText(entry) else self:SetText("") end
                 end
-            end)
-            eb:HookScript("OnEditFocusLost", function(self)
-                CFD(self).histIdx = 0
             end)
         end
     end
@@ -5354,17 +5442,21 @@ initFrame:SetScript("OnEvent", function(self)
         end
         idleEventFrame:SetScript("OnEvent", OnActiveMessage)
 
-        -- Permanent docked frames only (1-10): hooking a temp whisper edit
-        -- box (11+) taints its execution context and poisons HistoryKeeper on
-        -- BN_WHISPER. A /reload with a conversation window open could expose
-        -- one here, hence the gate.
+        -- Permanent docked frames only (1-10): hooking a temp whisper edit box
+        -- (11+) taints its execution context and poisons HistoryKeeper on
+        -- BN_WHISPER. OnChar, not OnTextChanged: OnChar means "the user typed",
+        -- and the engine never dispatches it from SetText, including the
+        -- SetText("") inside Deactivate that writes chatType in the same
+        -- execution. The trade is that OnChar misses backspace, paste and some
+        -- IME paths, so composing by paste then pausing can fade chat mid-edit;
+        -- any committed character un-fades it.
+        ECHAT._RegisterEditBoxFocusGained("EUI_Chat_IdleFade", function()
+            OnActiveMessage()
+        end)
         for i = 1, 10 do
             local eb = _G["ChatFrame" .. i .. "EditBox"]
             if eb then
-                eb:HookScript("OnEditFocusGained", function(...)
-                    OnActiveMessage(...)
-                end)
-                eb:HookScript("OnTextChanged", function(...)
+                eb:HookScript("OnChar", function(...)
                     OnActiveMessage(...)
                 end)
             end
@@ -5509,12 +5601,26 @@ initFrame:SetScript("OnEvent", function(self)
         -- execution context, causing secret value errors on BN_WHISPER tellTarget.
         local eb1 = _G["ChatFrame1EditBox"]
         if eb1 then
-            eb1:HookScript("OnEditFocusGained", function()
-                _editFocusCount = _editFocusCount + 1; UpdateHoverState()
+            -- Neither side can be a HookScript: GAINED is dispatched by the
+            -- SetFocus() inside ChatFrameUtil.ActivateChat, which then writes
+            -- chatType in UpdateHeader(), and LOST runs on into DeactivateChat
+            -- -> Deactivate, which writes it after its own dispatches. Blizzard
+            -- triggers both callbacks from the first line of the matching
+            -- handler, so the timing is unchanged and the counter still pairs
+            -- exactly.
+            ECHAT._RegisterEditBoxFocusGained("EUI_Chat_HoverEditFocus", function(eb)
+                if eb ~= eb1 then return end
+                _editFocusCount = _editFocusCount + 1
+                UpdateHoverState()
             end)
-            eb1:HookScript("OnEditFocusLost", function()
-                _editFocusCount = max(0, _editFocusCount - 1); UpdateHoverState()
-            end)
+            if EventRegistry and EventRegistry.RegisterCallback then
+                EventRegistry:RegisterCallback("ChatFrame.OnEditBoxFocusLost",
+                    function(_, eb)
+                        if eb ~= eb1 then return end
+                        _editFocusCount = max(0, _editFocusCount - 1)
+                        UpdateHoverState()
+                    end, "EUI_Chat_HoverEditFocus")
+            end
         end
 
         -- Start the initial timer

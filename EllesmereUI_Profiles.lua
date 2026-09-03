@@ -1828,7 +1828,9 @@ do
         "showSpellID", "spellIDModifier", "showIconID", "showItemID",
         "showItemMaxStacks", "itemStackModifier",
         "reskinPopupsMenus", "reskinGameMenu", "reskinQueuePopup",
-        "showQueueTimer", "resurrectAcceptGlow",
+        "showQueueTimer", "queueTimerTextColor", "queueTimerTextSize",
+        "queueTimerBarHeight", "queueTimerTextOffsetY",
+        "resurrectAcceptGlow",
         "reskinWidgetBars", "widgetBarMinSize", "reskinExtraActionButton",
         "popupMenuButtonBackgroundColor", "popupMenuButtonTextColorMode",
         "popupMenuButtonTextColor",
@@ -1853,6 +1855,7 @@ do
         "reskinAchievements", "reskinMail", "reskinCatalyst", "reskinSocket",
         "reskinItemUpgrade", "reskinLoot", "reskinLootToast", "lootToastQualityStrip",
         "lootToastQualityStripMoney", "lootToastScale",
+        "reskinBNetToast",
         "reskinLootRoll", "reskinLootHistory", "reskinGroupInvite",
         "reskinReadyCheck",
         "reskinMicroMenu", "reskinHousing", "reskinDressUp", "reskinTransmog",
@@ -2952,6 +2955,29 @@ local function BuildImportedCDMSpellBucket(profileName, activeName, incomingSpec
     end
 end
 
+--- Drop applied Visibility override MARKERS (store.visibilityOverride) from imported
+--- addon data. Every other applied override value is an ordinary setting and stays, as it
+--- always has; this one key is different because it REPLACES an element's whole Visibility
+--- setting and has no control of its own outside an editing session. Arriving without the
+--- override store that owns it, it would pin that element on Never/Always/Mouseover with
+--- nothing able to write it back. A marker the recipient's OWN override still owns is
+--- restored by that override's next apply, so stripping is safe in both directions.
+local function StripStrandedVisOverrides(addons)
+    if type(addons) ~= "table" then return end
+    local seen = {}
+    local function walk(t)
+        if seen[t] then return end
+        seen[t] = true
+        t.visibilityOverride = nil
+        for _, v in pairs(t) do
+            if type(v) == "table" then walk(v) end
+        end
+    end
+    for _, snap in pairs(addons) do
+        if type(snap) == "table" then walk(snap) end
+    end
+end
+
 --- Import a profile string. Returns: success, errorMsg
 --- The caller must provide a name for the new profile.
 function EllesmereUI.ImportProfile(importStr, profileName)
@@ -3109,6 +3135,10 @@ function EllesmereUI.ImportProfile(importStr, profileName)
                 for _, k in ipairs(OV_KEYS) do
                     merged[k] = imported[k]
                 end
+            else
+                -- The recipient's stores stand, so nothing in the incoming addon data
+                -- owns an applied Visibility override marker it carries.
+                StripStrandedVisOverrides(merged.addons)
             end
         end
         -- Layout: the new profile's unlockLayout is the active profile's CURRENT
