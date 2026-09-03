@@ -673,25 +673,23 @@ local function ShouldShow()
     if not p or not p.enabled then return false end
     local v = p.visibility or "NEVER"
     if v == "NEVER" then return false end
+    -- Options preview: forced on screen while the page is up, skipping the state
+    -- gate below along with the instance and M+/raid gates -- the point is to
+    -- configure it from anywhere. It deliberately ignores the two toggles for
+    -- VISIBILITY: everything above them (size, shape, border, zoom, position)
+    -- stays configurable with both switched off, so a blank page would just read
+    -- as broken. Which state gets previewed still follows Show Ready, in PollSated.
+    if _previewActive() then return true end
     -- Show Sated / Show Ready are independent: which one gates visibility depends
-    -- on which state the icon is currently in. This gate sits ABOVE the preview
-    -- short-circuit on purpose, so both toggles show what they do while the
-    -- options page is open; the preview only replaces the content gates below it.
+    -- on which state the icon is currently in.
     if _satedActive then
         -- The 40s active-lust overlay is worth seeing even when the lockout
         -- countdown itself is switched off, so only the remainder of the lockout
         -- after that window is suppressed.
         if RP("showSated") == false and _buffExpiry <= GetTime() then return false end
-    elseif _previewActive() then
-        -- No real lockout to key off, so either state is previewable: show as long
-        -- as the user has asked for one of them.
-        if not RP("showReady") and RP("showSated") == false then return false end
     elseif not RP("showReady") then
         return false
     end
-    -- Options preview: forced on screen while the page is up, skipping the instance
-    -- and M+/raid gates below -- the point is to configure it from anywhere.
-    if _previewActive() then return true end
 
     -- Hard gate: must be in a party or raid instance. Prevents any stuck state
     -- from showing the icon in town / open world.
@@ -755,9 +753,11 @@ local function PollSated()
             _showReadyState()
             return
         end
-        if _previewActive() and RP("showSated") ~= false then
-            -- Same reasoning; the stand-in sets its own countdown text. Gated on
-            -- showSated so switching it off in the options is visible right away.
+        if _previewActive() then
+            -- Same reasoning; the stand-in sets its own countdown text. This is
+            -- the fallback state for the preview: Show Ready above picks the ready
+            -- label when it is on, everything else previews the lockout, including
+            -- the both-off case where the icon has no live state of its own.
             _showPreviewLockout()
             return
         end
