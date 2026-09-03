@@ -232,6 +232,26 @@ local function BlizzText(fs)
     return _readOut
 end
 
+local _colorFS, _colorR, _colorG, _colorB
+
+local function RawReadColor()
+    _colorR, _colorG, _colorB = _colorFS:GetTextColor()
+end
+
+-- The colour the engine itself put on this bubble, which is how "follow Blizzard" answers per
+-- channel without us mapping chat events to chat types. Guarded like every other read of a
+-- Blizzard frame, and secret-tested because a restricted one answers with numbers that cannot
+-- be handed to SetTextColor.
+local function BlizzTextColor(fs)
+    if not fs then return nil end
+    _colorFS, _colorR, _colorG, _colorB = fs, nil, nil, nil
+    local ok = pcall(RawReadColor)
+    _colorFS = nil
+    if not ok or _colorR == nil or _colorG == nil or _colorB == nil then return nil end
+    if IsSecret(_colorR) or IsSecret(_colorG) or IsSecret(_colorB) then return nil end
+    return _colorR, _colorG, _colorB
+end
+
 local _alphaFrame, _alphaValue
 
 local function RawSetAlpha()
@@ -307,6 +327,9 @@ local function Release(f)
     end
     f:ClearAllPoints()
     f:Hide()
+    -- Cleared so the next speaker on this frame gets their own colour, or the configured one,
+    -- never the last speaker's.
+    f.blizzR, f.blizzG, f.blizzB = nil, nil, nil
     -- Deliberately uncapped. Every bubble frame also builds a PP border container, and PP
     -- registers those permanently (PP.ResnapAllBorders walks the list on each scale or
     -- resolution change and it never shrinks), so the count worth bounding is the number of
@@ -385,7 +408,13 @@ local function Layout(f, cfg)
         f.text:SetFont("Fonts\\FRIZQT__.TTF", fontSize, flag)
     end
     local tc = cfg.textColor or d.textColor
-    f.text:SetTextColor((tc and tc.r) or 1, (tc and tc.g) or 1, (tc and tc.b) or 1, 1)
+    local tr, tg, tb = (tc and tc.r) or 1, (tc and tc.g) or 1, (tc and tc.b) or 1
+    -- Blizzard's own colour when it was asked for AND we managed to read it; the configured
+    -- one otherwise, so a bubble whose colour would not come back is still readable.
+    if cfg.followBlizzardColor == true and f.blizzR then
+        tr, tg, tb = f.blizzR, f.blizzG, f.blizzB
+    end
+    f.text:SetTextColor(tr, tg, tb, 1)
 
     -- Config numbers that end up as frame geometry go through the pixel grid. maxWidth is a
     -- real width (it clamps the FontString), so it is snapped before the measurement.
@@ -421,7 +450,7 @@ end
 -- binds this local instead of creating a global.
 local HookOuter
 
-local function Claim(outer, child, text)
+local function Claim(outer, child, fs, text)
     local cfg = Cfg()
     if not cfg then return end
 
@@ -429,6 +458,9 @@ local function Claim(outer, child, text)
     f.outer = outer
     ours[outer] = f
     blanked[outer] = nil
+    -- Taken now, while the bubble is still untouched, and kept for the life of the claim so
+    -- RefreshStyle can switch between the two colours without the bubble being rebuilt.
+    f.blizzR, f.blizzG, f.blizzB = BlizzTextColor(fs)
     f.text:SetText(text)
     -- Shown at alpha 0 BEFORE Layout, never after: font geometry on a HIDDEN frame is wrong
     -- (the shared tooltip measures the same way for the same reason), and a wrapped line
@@ -506,7 +538,7 @@ local function OnBlizzShow(outer)
                 -- Blizzard's own text, not the chat event's: the client has already formatted
                 -- it (an emote carries the speaker's name, a monster emote its filled token),
                 -- and it is the string the bubble we are covering actually shows.
-                Claim(outer, child, text)
+                Claim(outer, child, fs, text)
             end
         end
         return
@@ -569,7 +601,7 @@ function Sweep(direct)
                         local idx = MatchPending(text, at)
                         if idx then
                             table.remove(pending, idx)
-                            Claim(outer, child, text)
+                            Claim(outer, child, fs, text)
                         end
                     end
                 end

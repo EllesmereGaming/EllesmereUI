@@ -177,6 +177,9 @@ local CHAT_DEFAULTS = {
             borderColor = { r = 0, g = 0, b = 0, a = 1 },
             fontSize = 12,
             textColor = { r = 1, g = 1, b = 1 },
+            -- Off, so the configured textColor above keeps applying. On, the bubble takes the
+            -- colour the engine already gave it, which is per channel.
+            followBlizzardColor = false,
         },
     },
 }

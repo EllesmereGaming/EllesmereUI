@@ -1766,8 +1766,47 @@ initFrame:SetScript("OnEvent", function(self)
         if not EllesmereUI._prebuilding then
             EllesmereUI.BuildInlineSwatches(fontBorderRow._leftRegion, {
                 { getValue = function() local r, g, b = CBColor("textColor"); return r, g, b, 1 end,
-                  setValue = function(r, g, b) CBSetStyle("textColor", { r=r, g=g, b=b }) end },
+                  setValue = function(r, g, b) CBSetStyle("textColor", { r=r, g=g, b=b }) end,
+                  -- Two reasons this swatch can be dead, so the tip is resolved per reason:
+                  -- the wrapper sentence fits the gate, but not "something else owns this".
+                  disabled = function() return Off() or CBVal("followBlizzardColor") == true end,
+                  disabledTooltip = function()
+                      if Off() then return GATE_REQ end
+                      return "Blizzard's own color is in use. Turn Follow Blizzard Default Color off in the cog to pick your own."
+                  end,
+                  rawTooltip = function() return not Off() end },
             }, { disabled = Off, disabledTooltip = GATE_REQ })
+
+            -- Built AFTER the swatch on purpose: BuildInlineSwatches chains _lastInline, so a
+            -- cog made afterwards lands to its left rather than on top of it.
+            local _, colorCogShow = EllesmereUI.BuildCogPopup({
+                title = "Text Color",
+                rows = {
+                    { type = "toggle", label = "Follow Blizzard Default Color",
+                      get = function() return CBVal("followBlizzardColor") == true end,
+                      set = function(v)
+                          CBSetStyle("followBlizzardColor", v)
+                          EllesmereUI:RefreshPage()
+                      end },
+                },
+            })
+            local colorRgn = fontBorderRow._leftRegion
+            local colorCog = CreateFrame("Button", nil, colorRgn)
+            colorCog:SetSize(26, 26)
+            colorCog:SetPoint("RIGHT", colorRgn._lastInline or colorRgn._control, "LEFT", -8, 0)
+            colorRgn._lastInline = colorCog
+            colorCog:SetFrameLevel(colorRgn:GetFrameLevel() + 5)
+            local function UpdateColorCogAlpha()
+                colorCog:SetAlpha(Off() and 0.15 or 0.4)
+            end
+            UpdateColorCogAlpha(); EllesmereUI.RegisterWidgetRefresh(UpdateColorCogAlpha)
+            local colorCogTex = colorCog:CreateTexture(nil, "OVERLAY")
+            colorCogTex:SetAllPoints(); colorCogTex:SetTexture(EllesmereUI.COGS_ICON)
+            colorCog:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
+            colorCog:SetScript("OnLeave", function() UpdateColorCogAlpha() end)
+            colorCog:SetScript("OnClick", function(s)
+                if not Off() then colorCogShow(s) end
+            end)
 
             EllesmereUI.BuildInlineSwatches(fontBorderRow._rightRegion, {
                 { getValue = function() return CBColor("borderColor") end,
