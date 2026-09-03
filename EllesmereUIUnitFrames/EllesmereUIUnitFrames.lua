@@ -3706,6 +3706,75 @@ local function ApplyDetachedPortraitShape(backdrop, uSettings, unitToken)
         PP.Point(backdrop._3d, "BOTTOMRIGHT", backdrop, "BOTTOMRIGHT", 0, 0)
     end
 end
+
+-- SecureUnitButton overlays on power and the text bar
+-- carry the same unit/menu attrs as the health barframe.
+local function SilenceMouse(region)
+    if not region then return end
+    region:EnableMouse(false)
+    if region.SetMouseClickEnabled then
+        pcall(region.SetMouseClickEnabled, region, false)
+    end
+end
+
+local function WireBarClicks(frame)
+    if not frame then return end
+    SilenceMouse(frame._barClip)
+    SilenceMouse(frame.Health)
+    SilenceMouse(frame._textOverlay)
+    local function Attach(host, suffix)
+        if not host then return end
+        SilenceMouse(host)
+        SilenceMouse(host._ppTextOvr)
+        SilenceMouse(host._pbBorder)
+        SilenceMouse(host._textOverlay)
+        SilenceMouse(host._classIconHolder)
+        local surf = host._euiClickSurf
+        if not surf then
+            if InCombatLockdown() then return end
+            local n = frame:GetName()
+            surf = CreateFrame("Button", n and (n .. suffix .. "Click") or nil, frame, "SecureUnitButtonTemplate")
+            host._euiClickSurf = surf
+            surf:RegisterForClicks("AnyUp")
+            surf:SetAttribute("useparent-unit", true)
+            surf:SetAttribute("*type1", "target")
+            if EllesmereUI.AttachSecureUnitMenu then
+                EllesmereUI.AttachSecureUnitMenu(surf)
+            else
+                surf:SetAttribute("*type2", "togglemenu")
+            end
+            if type(ClickCastFrames) ~= "table" then ClickCastFrames = {} end
+            ClickCastFrames[surf] = true
+            surf:HookScript("OnEnter", function(self)
+                local o = self:GetParent()
+                if o and o._euiOnEnter then o._euiOnEnter(o) end
+            end)
+            surf:HookScript("OnLeave", function(self)
+                local o = self:GetParent()
+                if o and o._euiOnLeave then o._euiOnLeave(o) end
+            end)
+        elseif InCombatLockdown() then
+            return
+        end
+        surf:SetFrameStrata(host:GetFrameStrata())
+        local hl = host:GetFrameLevel() or 0
+        local ovr = host._ppTextOvr or host._textOverlay
+        if ovr then
+            local ol = ovr:GetFrameLevel() or 0
+            if ol > hl then hl = ol end
+        end
+        local fl = frame:GetFrameLevel() or 0
+        surf:ClearAllPoints()
+        surf:SetAllPoints(host)
+        -- Above bar chrome AND the full-frame raid-marker holder (frame+20).
+        surf:SetFrameLevel(math.max(hl + 5, fl + 25))
+        surf:EnableMouse(true)
+        surf:Show()
+    end
+    Attach(frame.Power, "Power")
+    Attach(frame.BottomTextBar, "BTB")
+end
+
 -- Bottom text bar frame: below the health+power area, above the castbar.
 local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, overrideWidth)
     local btbH = settings.bottomTextBarHeight or 16
@@ -3877,7 +3946,9 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
 
     ApplyBTBClassIcon(settings)
     btb._applyBTBClassIcon = ApplyBTBClassIcon
+    btb._classIconHolder = classIconHolder
 
+    WireBarClicks(frame)
     return btb
 end
 
@@ -3960,6 +4031,7 @@ local function ReparentBarsToClip(frame, powerPosition, settings)
             ns.UpdatePowerBorder(frame.Power, settings)
         end
     end
+    WireBarClicks(frame)
 end
 
 
@@ -5314,6 +5386,7 @@ function ns.UpdatePowerBorder(power, settings)
     border:SetFrameLevel(borderLevel)
     local showBorder = (isDet or isAttached) and size > 0
     if showBorder then border:Show() else border:Hide() end
+    SilenceMouse(border)
 
     -- The power text overlay must clear the border: the border shares the bar's strata
     -- and can outrank the overlay's default level, so match strata and lift past it.
@@ -5326,6 +5399,16 @@ function ns.UpdatePowerBorder(power, settings)
             local pf = power:GetParent()
             ovr:SetFrameLevel((pf and pf:GetFrameLevel() or power:GetFrameLevel()) + 15)
         end
+    end
+    local surf = power._euiClickSurf
+    if surf and not InCombatLockdown() then
+        local hl = power:GetFrameLevel() or 0
+        if ovr then
+            local ol = ovr:GetFrameLevel() or 0
+            if ol > hl then hl = ol end
+        end
+        surf:SetFrameStrata(power:GetFrameStrata())
+        surf:SetFrameLevel(hl + 5)
     end
 end
 
@@ -5655,6 +5738,7 @@ local function CreatePowerBar(frame, unit, settings)
 
     -- Power bar border: full when detached, divider when attached; lazy.
     ns.UpdatePowerBorder(power, settings)
+    WireBarClicks(frame)
 
     return power
 end
@@ -7352,6 +7436,7 @@ local function StyleFullFrame(frame, unit)
         frame._btb = frame.BottomTextBar
         -- Cast bar positioning owned by centralized unlock system
     end
+    WireBarClicks(frame)
 end
 
 
@@ -7662,6 +7747,7 @@ local function StyleFocusFrame(frame, unit)
         frame._btb = frame.BottomTextBar
         -- Cast bar positioning owned by centralized unlock system
     end
+    WireBarClicks(frame)
 end
 
 local function StyleSimpleFrame(frame, unit)
@@ -8415,6 +8501,7 @@ local function StyleBossFrame(frame, unit)
     end
     ApplyTextPositions(settings)
     frame._applyTextPositions = ApplyTextPositions
+    WireBarClicks(frame)
 end
 
 
@@ -11169,6 +11256,9 @@ function InitializeFrames()
         end
         frame:HookScript("OnEnter", UnitFrame_OnEnter)
         frame:HookScript("OnLeave", UnitFrame_OnLeave)
+        frame._euiOnEnter = UnitFrame_OnEnter
+        frame._euiOnLeave = UnitFrame_OnLeave
+        WireBarClicks(frame)
         -- Expose to click-casting via the standard global table. EUI unit frames
         -- replace the Blizzard ones, which the click-cast engine registers by name --
         -- but those are hidden, so the engine never reaches the visible frames.
