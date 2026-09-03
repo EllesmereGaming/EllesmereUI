@@ -737,6 +737,7 @@ do
         { 19505,  "Magic",  "WARLOCK" },  -- Devour Magic (Felhunter)
         { 19801,  "Both",   nil       },  -- Tranquilizing Shot (Hunter)
         { 2908,   "Enrage", nil       },  -- Soothe (Druid)
+        { 5938,   "Enrage", nil       },  -- Shiv (Rogue)
         { 30449,  "Magic",  nil       },  -- Spellsteal (Mage)
         { 115078, "Enrage", "MONK", 450432 },  -- Paralysis (w/ Pressure Points talent)
     }
