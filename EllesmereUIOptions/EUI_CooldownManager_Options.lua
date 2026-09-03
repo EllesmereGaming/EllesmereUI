@@ -329,7 +329,9 @@ initFrame:SetScript("OnEvent", function(self)
         glowOvr._euiGlowPreview = true  -- exempt from Show Glows Only in Combat
 
         local function RefreshPreview()
-            EllesmereUI.Glows.StopAllGlows(glowOvr)
+            -- Through the CDM wrapper, not Glows directly: it also clears this
+            -- overlay's glow record, so a preview left off keeps no stale one.
+            ns.StopNativeGlow(glowOvr)
             if isOffFn() then
                 iconFrame:SetAlpha(0.3)
                 return
@@ -18997,7 +18999,7 @@ initFrame:SetScript("OnEvent", function(self)
                   -- glows down (or bring the suppressed ones back) right away
                   -- instead of waiting for the next combat edge.
                   if ns.RefreshGlowCombatGate then ns.RefreshGlowCombatGate() end
-                  if ns.CDMGlowCombatSync then ns.CDMGlowCombatSync() end
+                  if ns.CDMGlowCombatSync then ns.CDMGlowCombatSync(true) end
                   EllesmereUI:RefreshPage()
               end }
 
