@@ -6602,6 +6602,45 @@ function EAB_VTABLE.SetupCastAnimSuppression(btn)
     end
 end
 
+function EAB_VTABLE.SyncMasqueCastAnimationMask(btn)
+    -- Masque skins the icon, but Blizzard's newer cast animation is not a
+    -- Masque layer. Its stock mask is the default action-button silhouette, so
+    -- the fill/glow can show beyond skins whose border is inset or non-square.
+    -- Reuse Masque's button mask so the complete animation observes the same
+    -- visible boundary as the skinned icon.
+    local fd = EFD(btn)
+    local cfg = btn._MSQ_CFG
+    local mask = cfg and cfg.ButtonMask
+    if not mask then
+        local icon = btn.icon or btn.Icon
+        if icon and icon.GetMaskTexture then
+            local ok, iconMask = pcall(icon.GetMaskTexture, icon, 1)
+            if ok then mask = iconMask end
+        end
+    end
+    if not mask then return end
+    if fd.masqueCastMask == mask then return end
+
+    local castFrame = btn.SpellCastAnimFrame
+    local fill = castFrame and castFrame.Fill
+    local function applyMask(region)
+        if region and region.AddMaskTexture then
+            if fd.masqueCastMask and fd.masqueCastMask ~= mask
+               and region.RemoveMaskTexture then
+                pcall(region.RemoveMaskTexture, region, fd.masqueCastMask)
+            end
+            pcall(region.AddMaskTexture, region, mask)
+        end
+    end
+    applyMask(fill and fill.CastFill)
+    applyMask(fill and fill.InnerGlowTexture)
+    applyMask(castFrame and castFrame.EndBurst and castFrame.EndBurst.GlowRing)
+    local interrupt = btn.InterruptDisplay
+    applyMask(interrupt and interrupt.Base and interrupt.Base.Base)
+    applyMask(interrupt and interrupt.Highlight and interrupt.Highlight.HighlightTexture)
+    fd.masqueCastMask = mask
+end
+
 function EAB_VTABLE.RegisterMasqueButtons()
     if not ns.MasqueGroup then return end
     -- Masque skins synchronously in AddButton. Register only after EUI's final
@@ -6618,6 +6657,7 @@ function EAB_VTABLE.RegisterMasqueButtons()
                         ns.MasqueGroup:AddButton(btn)
                         fd.masqueRegistered = true
                     end
+                    EAB_VTABLE.SyncMasqueCastAnimationMask(btn)
                 end
             end
         end

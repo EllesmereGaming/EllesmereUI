@@ -6002,6 +6002,18 @@ initFrame:SetScript("OnEvent", function(self)
             ReloadUI()
         end,
     })
+
+    -- Bar Display is deliberately excluded from the global search prebuild
+    -- because constructing it creates a live action-bar edit overlay. Register
+    -- this suite-wide integration directly so "Masque" is searchable even
+    -- before the player has opened Bar Display during this session.
+    if EllesmereUI._RegisterSearchEntry then
+        EllesmereUI._RegisterSearchEntry(
+            "Enable Masque Support", nil,
+            "Allows Masque to skin the buttons on Action Bars 1-10. Requires a UI reload to apply.",
+            "EllesmereUIActionBars", PAGE_DISPLAY, SECTION_ICON_APPEARANCE,
+            EllesmereUI._setActionBarKey, "MainBar")
+    end
 end)
 -- LoadOnDemand: this addon loads after PLAYER_LOGIN, so the event above will never fire; run the init now.
 if IsLoggedIn() then initFrame:GetScript("OnEvent")(initFrame) end
