@@ -6583,6 +6583,7 @@ function ns.XF_Apply()
         -- The boss group may have been chained behind this container;
         -- re-anchor it back onto the raid (no-op when FB is not built).
         FB.Anchor()
+        if ns._NotifyTrackerProviders then ns._NotifyTrackerProviders() end
         return
     end
 
@@ -6636,6 +6637,10 @@ function ns.XF_Apply()
     -- Re-evaluate the boss group's chain now that this container is shown
     -- and (re)positioned: same-side boss frames hop behind it.
     FB.Anchor()
+    -- Extra frames are excluded from _CollectTrackerFrames (duplicates), but
+    -- name-scanning trackers do index them, and PLAYER_ROLES_ASSIGNED reshuffles
+    -- them with no event those trackers listen for.
+    if ns._NotifyTrackerProviders then ns._NotifyTrackerProviders() end
 end
 
 function ns.XF_IsMoverShown()
@@ -15288,8 +15293,9 @@ end
 -- frames, found via a hardcoded addon list or a public provider API. EUI
 -- frames are custom, so where a provider API exists we hand it our buttons;
 -- the unit lives on the secure "unit" attribute (GetAttribute), so no plain
--- field on the button is needed. Name-scanning trackers (LibGetFrame) need
--- nothing from us: our name patterns are already in that library's default priority list.
+-- field on the button is needed. Name-scanning trackers (LibGetFrame) match our
+-- button names from that library's default priority list, but the match only runs
+-- against a frame list it caches (see ns._NotifyTrackerProviders).
 
 -- Currently-visible EUI unit buttons with a unit assigned (party AND raid). Both sets
 -- are pre-created once (the startingIndex -4 / Show / 1 trick) and never destroyed or
@@ -15319,13 +15325,23 @@ end
 -- Notifies subscribed providers that our frame set changed, debounced to one
 -- refresh per frame. Driven from the visibility paths -- the one change a
 -- provider cannot learn from its own roster events.
+--
+-- LibGetFrame resolves units against a frame list it caches, rebuilt only on its
+-- own six events and recording only buttons visible at that instant. Our header
+-- set builds lazily and defers combat-time changes to regen, so the cache can
+-- miss the whole set with no event left to correct it; consumers then read nil
+-- and silently do nothing. ScanForUnitFrames is its public invalidation (queued
+-- and time-sliced). Resolved per call, not cached: either provider may load late.
 ns._NotifyTrackerProviders = function()
+    if ns._trackerRefreshPending then return end
     local cb = ns._trackerRefreshCb
-    if not cb or ns._trackerRefreshPending then return end
+    local lgf = LibStub and LibStub("LibGetFrame-1.0", true)
+    if not cb and not (lgf and lgf.ScanForUnitFrames) then return end
     ns._trackerRefreshPending = true
     C_Timer.After(0, function()
         ns._trackerRefreshPending = false
-        pcall(cb)
+        if cb then pcall(cb) end
+        if lgf then pcall(lgf.ScanForUnitFrames) end
     end)
 end
 
