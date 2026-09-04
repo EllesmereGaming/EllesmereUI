@@ -1262,6 +1262,54 @@ for _, id in ipairs({1235113, 1235114, 1235115, 1235116}) do
     FLASK_BUFF_ID_SET[id] = true
 end
 
+-------------------------------------------------------------------------------
+--  Flask presence while aura reads are restricted (keystones, raids). Nothing
+--  about the player's own auras is readable there, but an engine aura button's
+--  secret IsShown() can be passed to SetAlphaFromBoolean, so the icon hides
+--  itself while the flask is up without this addon learning whether it is.
+--  A SLOT rather than a group: one deterministic frame, no pool index to guess.
+--  Returns available (plain boolean), secret (SECRET -- only ever pass it on).
+-------------------------------------------------------------------------------
+function EABR.FlaskPresenceSecret()
+    local AK = EllesmereUI.AuraKit
+    if not (AK and AK.AurasRestricted and AK.AurasRestricted()) then return false end
+    if not AK.CreateContainer then return false end
+    local slot = EABR._flaskSlot
+    if not slot then
+        -- Bare style: the initializer keys styleButtons by the style key, and a
+        -- style with regions builds font strings the engine SetText()s unstyled.
+        AK.styles["eabrFlaskPresence"] = AK.styles["eabrFlaskPresence"] or { noRegions = true }
+        local host = EABR._flaskHost
+        if not host then
+            -- The engine parses from a run-when-visible OnUpdate, so the host
+            -- must be anchored and shown; alpha 0 keeps it out of sight.
+            host = CreateFrame("Frame", nil, UIParent)
+            host:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+            host:SetSize(1, 1)
+            host:SetAlpha(0)
+            EABR._flaskHost = host
+        end
+        host:Show()
+        local include = {}
+        for id in pairs(FLASK_BUFF_ID_SET) do include[id] = true end
+        local ok, container, slots = pcall(AK.CreateContainer, host, "player", {
+            point = { "CENTER", host, "CENTER", 0, 0 },
+            slots = {
+                { key = "flask", filter = { "HELPFUL" }, style = "eabrFlaskPresence",
+                  candidateFilters = { includeSpellIDs = include } },
+            },
+        })
+        if not ok then return false end
+        EABR._flaskContainer = container
+        slot = slots and slots.flask
+        EABR._flaskSlot = slot
+    end
+    if not slot then return false end
+    local okv, vis = pcall(slot.IsShown, slot)
+    if not okv then return false end
+    return true, vis
+end
+
 -- Food Items (Midnight)
 local FOOD_ITEMS = {
     { key="royal_roast",           itemID=242275, name="Royal Roast" },
@@ -1997,6 +2045,10 @@ function EABR.HandleAppearSounds(missing)
     local primed = EABR._soundPrimed
     for i = 1, #missing do
         local dk = missing[i].dismissKey
+        -- Alpha-driven entries are emitted unconditionally and hidden by the
+        -- engine, so this addon cannot tell whether one is actually showing.
+        -- Firing an alert off that would sound with the buff already up.
+        if missing[i].alphaFromSecret then dk = nil end
         if dk and not _dismissedUntilLoad[dk] then
             cur[dk] = true
             if primed and not prev[dk] then
@@ -2133,6 +2185,10 @@ local function ShowCombatIcon(iconIdx, m)
             (not m.isEating) and m.substitute or nil)
     end
     f:Show()
+    -- Stamped, not applied here: every layout pass rewrites alpha from the
+    -- opacity setting, so the secret has to win afterwards.
+    f._alphaFromSecret = m.alphaFromSecret or nil
+    f._alphaSecret = m.alphaSecret
     combatActiveIcons[#combatActiveIcons+1] = f
 end
 
@@ -2152,6 +2208,7 @@ local function LayoutCombatIcons()
     for i, f in ipairs(combatActiveIcons) do
         f:SetSize(sz, sz)
         f:SetAlpha(p.opacity or 1.0)
+        if f._alphaFromSecret then f:SetAlphaFromBoolean(f._alphaSecret, 0, 1) end
         EABR.SizeIconQuality(f, sz)
         EABR.SizeIconBagCount(f, sz)
         f:ClearAllPoints()
@@ -2235,6 +2292,10 @@ local function ShowCursorIcon(iconIdx, m)
             (not m.isEating) and m.substitute or nil)
     end
     f:Show()
+    -- Stamped, not applied here: every layout pass rewrites alpha from the
+    -- opacity setting, so the secret has to win afterwards.
+    f._alphaFromSecret = m.alphaFromSecret or nil
+    f._alphaSecret = m.alphaSecret
     cursorActiveIcons[#cursorActiveIcons+1] = f
 end
 
@@ -2249,6 +2310,7 @@ local function LayoutCursorIcons()
     for i, f in ipairs(cursorActiveIcons) do
         f:SetSize(sz, sz)
         f:SetAlpha(p.opacity or 1.0)
+        if f._alphaFromSecret then f:SetAlphaFromBoolean(f._alphaSecret, 0, 1) end
         EABR.SizeIconQuality(f, sz)
         EABR.SizeIconBagCount(f, sz)
         f:ClearAllPoints()
@@ -2903,6 +2965,7 @@ do
         e.texture = nil; e.label = nil; e.unit = nil; e.desaturated = false
         e.tooltipItem = nil
         e.cat = nil; e.data = nil; e.dismissKey = nil; e.petCycleTotal = nil
+        e.alphaFromSecret = nil; e.alphaSecret = nil
         e.isEating = nil; e.eatingExpirationTime = nil
         e.qualityAtlas = nil
         e.bagCount = nil
@@ -3003,6 +3066,7 @@ local function LayoutIcons()
     for i, btn in ipairs(allIcons) do
         btn:SetSize(sz, sz)
         btn:SetAlpha(p.opacity or 1.0)
+        if btn._alphaFromSecret then btn:SetAlphaFromBoolean(btn._alphaSecret, 0, 1) end
         EABR.SizeIconQuality(btn, sz)
         EABR.SizeIconBagCount(btn, sz)
         btn:ClearAllPoints()
@@ -3015,6 +3079,10 @@ end
 local function ShowIcon(iconIdx, m)
     local btn = GetOrCreateIcon(iconIdx)
     btn._dismissKey = m.dismissKey or nil
+    -- Stamped, not applied here: LayoutIcons rewrites alpha from the opacity
+    -- setting, so the secret has to win afterwards.
+    btn._alphaFromSecret = m.alphaFromSecret or nil
+    btn._alphaSecret = m.alphaSecret
     btn._petCycleTotal = m.petCycleTotal or nil
     -- Right-click is passed through to whatever's behind (e.g. camera drag)
     -- for every other reminder; only a multi-pet cycle button claims it.
@@ -3485,7 +3553,10 @@ local specialsActive = EABR.SectionShows(co.specialsWhereToShow, inInstance)
         -- Flask / Food: remind only when absence is verifiable (the checks
         -- suppress under combat/M+/restriction instead of false-firing).
         if co.enabled.flask and EABR.ConsumableShows(co, "flask", inInstance) then
-            if not PlayerHasFlaskBuff() then
+            -- Under restriction presence is unknowable, so the icon is always
+            -- emitted and its alpha is driven by the engine's answer instead.
+            local flaskSecretOk, flaskSecret = EABR.FlaskPresenceSecret()
+            if flaskSecretOk or not PlayerHasFlaskBuff() then
                 local rf = EABR._resolved.flask
                 local flaskItemID = rf.itemID
                 if flaskItemID and (co.showWithoutItem ~= false or rf.hasBags) then
@@ -3498,6 +3569,10 @@ local specialsActive = EABR.SectionShows(co.specialsWhereToShow, inInstance)
                     e.desaturated = not rf.hasBags
                     e.cat = "consumable"
                     e.dismissKey = "consumable:flask"
+                    if flaskSecretOk then
+                        e.alphaFromSecret = true
+                        e.alphaSecret = flaskSecret
+                    end
                     missing[#missing+1] = e
                 end
             end
@@ -4261,6 +4336,7 @@ local function BeaconLayoutIcons()
             for i, f in ipairs(visIcons) do
                 f:SetSize(sz, sz)
                 f:SetAlpha(p.opacity or 1.0)
+                if f._alphaFromSecret then f:SetAlphaFromBoolean(f._alphaSecret, 0, 1) end
                 f:SetFrameStrata("TOOLTIP")
                 f:SetFrameLevel(9980)
                 f:ClearAllPoints()
