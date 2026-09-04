@@ -503,6 +503,10 @@ local function PlayerHasAuraByID(spellIDs, sectionKey)
             if _preCombatAuraCache[id] then return true end
         end
     end
+    -- Nothing found. Inside a keystone or raid GetPlayerAuraBySpellID returns
+    -- nil for the player's own whitelisted buff while it is plainly active
+    -- (verified in game), so an empty read there cannot prove absence.
+    if EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted() then return true end
     return false
 end
 
@@ -556,6 +560,9 @@ local function _unitHasBuff(u, spellIDs)
                     if inCombat and _preCombatAuraCache[id] then return true, true end
                 end
             end
+        end
+        if EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted() then
+            return false, false
         end
         return false, true
     end
@@ -737,8 +744,11 @@ local function CountGroupBuffCoverage(spellIDs, benefit)
     local have, total = 0, 0
     if not IsInGroup() then
         if EABR.UnitBenefits("player", benefit) and _unitOk("player") then
-            total = 1
-            if _unitHasBuff("player", spellIDs) then have = 1 end
+            local has, readable = _unitHasBuff("player", spellIDs)
+            if readable then
+                total = 1
+                if has then have = 1 end
+            end
         end
         return have, total
     end
@@ -758,8 +768,11 @@ local function CountGroupBuffCoverage(spellIDs, benefit)
         end
     else
         if EABR.UnitBenefits("player", benefit) and _unitOk("player") then
-            total = total + 1
-            if _unitHasBuff("player", spellIDs) then have = have + 1 end
+            local has, readable = _unitHasBuff("player", spellIDs)
+            if readable then
+                total = total + 1
+                if has then have = have + 1 end
+            end
         end
         for i = 1, GetNumSubgroupMembers() do
             local u = "party"..i
