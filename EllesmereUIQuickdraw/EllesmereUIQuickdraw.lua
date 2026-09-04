@@ -2170,14 +2170,20 @@ local USABILITY_TINT = {
 -- for a kind with nothing to say.
 --
 -- Every call here is secret-SAFE, and that was checked rather than assumed:
--- C_Spell.IsSpellUsable, C_Spell.IsSpellInRange, C_Item.IsUsableItem,
--- C_Item.ItemHasRange and C_Item.IsItemInRange all carry no
--- SecretWhenCooldownsRestricted flag in the generated documentation, unlike
+-- C_Spell.IsSpellUsable, C_Spell.IsSpellInRange and C_Item.IsUsableItem carry
+-- no SecretWhenCooldownsRestricted flag in the generated documentation, unlike
 -- the cooldown and charge getters two functions up. So these results may be
 -- branched on. Do not add a kind here without checking its getter the same
 -- way -- a mount's usability, for one, has to come from the Mount Journal
 -- rather than from its summon spell, which is not in the spellbook and
 -- answers unusable for every mount.
+--
+-- Secret-safe is only half of it, and the other half is a DIFFERENT predicate.
+-- The spell getters are AllowedWhenTainted and may be called from here.
+-- C_Item.IsItemInRange is AllowedWhenUntainted: calling it from addon code
+-- fires ADDON_ACTION_BLOCKED, and a blocked call cannot answer false, so the
+-- range tint it was meant to produce never appeared in the first place. Check
+-- BOTH predicates before adding a getter here.
 --
 -- Out of range OUTRANKS the other two, matching every action bar: a spell you
 -- cannot reach is the thing to say first, and it is the state a step forward
@@ -2206,10 +2212,8 @@ local function SlotUsability(slot)
 
     elseif k == "item" then
         if type(slot.id) ~= "number" then return nil end
-        if C_Item.ItemHasRange(slot.id)
-           and C_Item.IsItemInRange(slot.id, "target") == false then
-            return "OUTOFRANGE"
-        end
+        -- No OUTOFRANGE for items: the getter that would answer it is blocked
+        -- for addons (see the predicate note above). Usability still applies.
         local usable, noPower = C_Item.IsUsableItem(slot.id)
         if usable then return nil end
         return noPower and "NOPOWER" or "UNUSABLE"
