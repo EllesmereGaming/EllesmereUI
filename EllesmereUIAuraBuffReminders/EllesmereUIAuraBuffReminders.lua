@@ -1484,11 +1484,12 @@ local function PlayerHasWellFed()
     return false
 end
 
--- Unlike the other consumables this one still answers under restriction: a
--- flask buff reads back plainly for the player whenever the client reports that
--- aura as non-secret, which the static whitelist only approximates --
--- ShouldSpellAuraBeSecret is the authority, so an ID missing from the list (the
--- legacy TWW flasks) is still read when the client allows it.
+-- Unlike the other consumables this one attempts the read under restriction
+-- instead of bailing outright, so a flask can be reported missing wherever the
+-- client still answers. Where it does not answer the reminder stays silent:
+-- inside a keystone GetPlayerAuraBySpellID returns nil for the player's own
+-- flask even though the ID is whitelisted and the buff is plainly up (verified
+-- in game 2026-09-04), so an empty read there proves nothing.
 local function PlayerHasFlaskBuff()
     if InPvPInstance() then return true end
     local restricted = EABR.ConsumablePresenceUnverifiable()
@@ -1516,6 +1517,9 @@ local function PlayerHasFlaskBuff()
             if FLASK_NAME_SET[aName] then return true end
         end
     end
+    -- Nothing found. Only meaningful where the reads answer at all: under
+    -- restriction an empty result is indistinguishable from an absent flask.
+    if restricted then return true end
     return false
 end
 
