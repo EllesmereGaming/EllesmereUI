@@ -1,7 +1,7 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EUI_RaidFrames_BuffManager.lua
---  Indicator-centric buff manager: icon/square/bar/healthcolor/border/framealpha
+--  Indicator-centric buff manager: icon/square/bar/healthcolor/border/framedim
 --  indicators take whitelisted healer spells + position/size/color/growth (max
 --  20/spec). Rendered by the aura containers (EUI_RaidFrames_AuraContainers.lua)
 --  from the indicator config; no per-frame allocs (wipe + reuse).
@@ -39,7 +39,8 @@ local INDICATOR_TYPES = {
     { key = "healthcolor", name = "Health Bar Color",  placed = false },
     { key = "bgcolor",     name = "Background Color", placed = false },
     { key = "border",      name = "Frame Border",     placed = false },
-    { key = "framealpha",  name = "Frame Alpha",      placed = false },
+    -- Darkens behind an overlay
+    { key = "framedim",  name = "Frame Dim",        placed = false },
 }
 
 local INDICATOR_TYPE_MAP = {}
@@ -49,38 +50,10 @@ local INDICATOR_TYPE_VALUES = {}
 local INDICATOR_TYPE_ORDER = {}
 for _, t in ipairs(INDICATOR_TYPES) do
     INDICATOR_TYPE_VALUES[t.key] = t.name
-    -- Frame Alpha cannot be created: fading the frame needs per-aura presence, which is secret in combat. Existing ones stay listed.
-    local skipType = (t.key == "framealpha")
-    if not skipType then
-        INDICATOR_TYPE_ORDER[#INDICATOR_TYPE_ORDER + 1] = t.key
-    end
+    INDICATOR_TYPE_ORDER[#INDICATOR_TYPE_ORDER + 1] = t.key
 end
 -- Insert divider after "bar"
 tinsert(INDICATOR_TYPE_ORDER, 4, "---")
-
--- Gray blocking overlay + red removal notice for settings whose backing
--- machinery has no aura-container equivalent (styled after the party-tab sync
--- overlays). UI-only (the runtime side of these settings is inert elsewhere);
--- callers anchor the returned frame.
-local function BuildPTROverlay(parentFrame, label, fontSize)
-    local ov = CreateFrame("Frame", nil, parentFrame)
-    ov._searchIgnore = true -- inline search must never re-anchor/collapse it
-    ov:SetFrameLevel(parentFrame:GetFrameLevel() + 60)
-    ov:EnableMouse(true)
-    local bg = ov:CreateTexture(nil, "OVERLAY")
-    bg:SetAllPoints()
-    bg:SetColorTexture(0.10, 0.10, 0.12, 0.95)
-    local fs = ov:CreateFontString(nil, "OVERLAY")
-    local fp = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("raidFrames")) or "Fonts\\FRIZQT__.TTF"
-    fs:SetFont(fp, fontSize or 12, "")
-    fs:SetPoint("LEFT", ov, "LEFT", 8, 0)
-    fs:SetPoint("RIGHT", ov, "RIGHT", -8, 0)
-    fs:SetJustifyH("CENTER")
-    fs:SetTextColor(0.86, 0.24, 0.24, 0.95)
-    fs:SetText(EllesmereUI.Lf("%1$s Removed in 12.1 Unless API Changes", EllesmereUI.L(label)))
-    ov._msg = fs
-    return ov
-end
 
 -- 9-position grid
 local POSITION_VALUES = {
@@ -458,6 +431,84 @@ end
 
 DetectActiveSpecKey()
 
+-- Spec-scoped identify: matches a secret spellID for the active spec with NO
+-- indicator-config gate, so other modules (e.g. defensives) can recognize a
+-- player-cast secret aura regardless of BM setup. PLAYER filters + active-spec
+-- lookup guarantee it's never another player's aura or a cross-class collision.
+-- NOTE (2026-08-26): NOTHING CALLS THIS. It and the whole spell.secret/spell.sig
+-- fingerprint table are currently dead weight -- the 12.x aura containers match
+-- by candidate spell ID (BmIncludeMap), so tracking never consults a signature.
+-- Consequences: (1) sig collisions in a spec list (Dawnlight 431381 and Holy
+-- Armaments 432502 both declare 0:1:0:0) are harmless today, and (2) adding a
+-- spell to a spec list needs its APPLIED aura id -- a sig alone tracks nothing.
+-- Use /euibm to read both. SECRET_SPELL_ICONS is the one live remnant (fallback
+-- icons). Delete or wire this up; don't trust it as working coverage.
+function ns.BM_IdentifySecretAura(unit, instanceID, sigCache)
+    if not activeSpecKey_BM then return nil end
+    local sig = CachedSignature(sigCache, unit, instanceID)
+    if not sig then return nil end
+    return GetSpecSignatures(activeSpecKey_BM)[sig]
+end
+
+-- /euibm [unit] -- dumps every HELPFUL aura on a unit with its instance ID, spell
+-- ID (or <secret>) and four-filter signature, plus which tracked spell that
+-- signature currently resolves to. Slash handlers run UNTAINTED, so this reads
+-- state the normal path cannot. This is how you obtain the two facts needed to
+-- add a secret buff to a spec list: the APPLIED aura's spellId (which often
+-- differs from the castable spell's id) and its signature. Cast the buff on
+-- someone, target them, run it. No top-level locals -- this file is near the
+-- 200-local cap, so the helper lives inside the handler.
+SLASH_EUIBM1 = "/euibm"
+SlashCmdList["EUIBM"] = function(msg)
+    local unit = msg and msg:match("^%s*(%S+)") or "target"
+    if not UnitExists(unit) then
+        print("|cff33ff99EUI BM|r: no unit '" .. tostring(unit) .. "' (try /euibm player)")
+        return
+    end
+    -- issecretvalue FIRST: comparing a secret against nil is itself an error.
+    local function Show(v)
+        if issecretvalue and issecretvalue(v) then return "<secret>" end
+        if v == nil then return "<nil>" end
+        local ok, s = pcall(tostring, v)
+        return ok and s or "<err>"
+    end
+    print(("|cff33ff99EUI BM|r auras on %s (%s) -- spec key: %s")
+        :format(unit, UnitName(unit) or "?", tostring(activeSpecKey_BM)))
+    local sigs = activeSpecKey_BM and GetSpecSignatures(activeSpecKey_BM) or {}
+    for i = 1, 60 do
+        local a = C_UnitAuras.GetAuraDataByIndex(unit, i, "HELPFUL")
+        if not a then break end
+        local iid = a.auraInstanceID
+        local sig = iid and MakeSignature(unit, iid)
+        local matched = sig and sigs[sig]
+        print(("  [%d] id=%s name=%s sig=%s -> %s"):format(
+            i, Show(a.spellId), Show(a.name), sig or "-",
+            matched and (tostring(matched) .. " " .. tostring(STORED_NAME_BY_ID[matched] or "?"))
+                or "(not tracked)"))
+    end
+    print("|cff33ff99EUI BM|r: sig is PLAYER|HELPFUL RAID:RAID_IN_COMBAT:EXTERNAL_DEFENSIVE:RAID_PLAYER_DISPELLABLE -- all four read 0 for auras you did not cast.")
+end
+
+-- Fallback icon textures for secret auras (icon field is also secret)
+local SECRET_SPELL_ICONS = {
+    [102342] = 572025,   -- Ironbark
+    [33206]  = 135936,   -- Pain Suppression
+    [10060]  = 135939,   -- Power Infusion
+    [47788]  = 237542,   -- Guardian Spirit
+    [116849] = 636288,   -- Life Cocoon
+    [443113] = 615340,   -- Strength of the Black Ox
+    [1022]   = 135964,   -- Blessing of Protection
+    [432502] = 5927636,  -- Holy Armaments (bulwark icon)
+    [432496] = 5927636,  -- Holy Bulwark (same bulwark icon 432502 already borrows)
+    [6940]   = 135966,   -- Blessing of Sacrifice
+    [1044]   = 135968,   -- Blessing of Freedom
+    [431381] = 5927633,  -- Dawnlight
+    [357170] = 4630500,  -- Time Dilation
+    [363534] = 4630498,  -- Rewind
+    [361022] = 132160,   -- Sense Power
+
+}
+
 -------------------------------------------------------------------------------
 --  Default indicator factory
 -------------------------------------------------------------------------------
@@ -542,9 +593,12 @@ local function NewIndicator(indType, spells)
         ind.borderDashCount = 8
         ind.borderOpacity = 100
         ind.showWhen    = "present"
-    elseif indType == "framealpha" then
-        ind.ownOnly          = true
+    elseif indType == "framedim" then
+        ind.ownOnly  = true
+        -- Resulting brightness, not overlay strength: 0.4 = "frame at 40%". The
+        -- renderer paints the complement, so pre-12.1 configs keep their intent.
         ind.alpha    = 0.4
+        ind.dimColor = { r = 0, g = 0, b = 0 }
         ind.showWhen = "present"
     end
     return ind
@@ -1159,12 +1213,24 @@ function ns.BM_CreatePreviewIndicators(f, health, PP)
     effectBorder:Hide()
     if PP then PP.CreateBorder(effectBorder, 0, 1, 0, 1, 2) end
 
+    -- Frame Dim previews as the dim overlay the live renderer uses, NOT as
+    -- f:SetAlpha -- live cannot fade the unit button (see the AuraContainers
+    -- header), so a fading preview would promise something the frames won't do.
+    local dimOverlay = CreateFrame("Frame", nil, f)
+    dimOverlay:SetAllPoints(f)
+    dimOverlay:SetFrameLevel(f:GetFrameLevel() + 20)
+    dimOverlay:Hide()
+    local dimTex = dimOverlay:CreateTexture(nil, "OVERLAY", nil, 7)
+    dimTex:SetAllPoints(dimOverlay)
+    dimOverlay._tex = dimTex
+
     f._bmIconPool      = iconPool
     f._bmBarPool       = barPool
     f._bmHCOverlay     = hcOverlay
     f._bmHCBar         = health
     f._bmBGOverlay     = bgOverlay
     f._bmEffectBorder  = effectBorder
+    f._bmDimOverlay    = dimOverlay
 end
 
 -------------------------------------------------------------------------------
@@ -1207,6 +1273,7 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
     if f._bmHCOverlay then f._bmHCOverlay:Hide() end
     if f._bmBGOverlay then f._bmBGOverlay:Hide() end
     if f._bmEffectBorder then f._bmEffectBorder:Hide() end
+    if f._bmDimOverlay then f._bmDimOverlay:Hide() end
     f:SetAlpha(1)
 
     -- Only show on slot 1 (player) for the preview
@@ -1401,8 +1468,10 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
                                 local c = ind.color or { r=0, g=1, b=0 }
                                 ApplyEffectBorder(f._bmEffectBorder, ind, c.r, c.g, c.b, (ind.borderOpacity or 100) / 100)
                                 f._bmEffectBorder:Show()
-                            elseif indType == "framealpha" then
-                                f:SetAlpha(ind.alpha or 0.4)
+                            elseif indType == "framedim" and f._bmDimOverlay then
+                                local c = ind.dimColor or { r=0, g=0, b=0 }
+                                f._bmDimOverlay._tex:SetColorTexture(c.r, c.g, c.b, 1 - (ind.alpha or 0.4))
+                                f._bmDimOverlay:Show()
                             end
                         end
                     end
@@ -2935,13 +3004,6 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         sep:SetPoint("BOTTOMLEFT", tile, "BOTTOMLEFT", 0, 0)
         sep:SetPoint("BOTTOMRIGHT", tile, "BOTTOMRIGHT", 0, 0)
         sep:SetColorTexture(1, 1, 1, 0.04)
-
-        -- Frame Alpha is removed: the notice covers the tile body but leaves the right controls usable so it can still be toggled off or deleted.
-        if ind.type == "framealpha" then
-            local ov = BuildPTROverlay(tile, "Frame Alpha", 10)
-            ov:SetPoint("TOPLEFT", tile, "TOPLEFT", 0, 0)
-            ov:SetPoint("BOTTOMRIGHT", tile, "BOTTOMRIGHT", -52, 1)
-        end
 
         tileY = tileY - TILE_H
     end
@@ -5091,7 +5153,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             end
 
         else
-            -- Frame effects: healthcolor, border, framealpha
+            -- Frame effects: healthcolor, border, framedim
 
             if indType == "border" then
                 -----------------------------------------------------------
@@ -5217,16 +5279,20 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                       setValue=function(v) ind.opacity = v; ReloadAndUpdate() end })
 
             else
-                -- framealpha
+                -- framedim (the stored key; labelled Frame Dim in the UI)
                 -----------------------------------------------------------
-                --  FRAME ALPHA: CORE
+                --  FRAME DIM: CORE
                 -----------------------------------------------------------
                 _, h = W:SectionHeader(leftFrame, "CORE", sy); sy = sy - h
 
                 local faSwRow = SettingsRow(
-                    { type="dropdown", text="Show When", values=SHOW_WHEN_VALUES, order=SHOW_WHEN_ORDER,
-                      getValue=function() return ind.showWhen or "present" end,
-                      setValue=function(v) ind.showWhen = v; ReloadAndUpdate() end },
+                    -- Pinned to "present" like Frame Border: the engine can show a
+                    -- slot when an aura EXISTS, never when one is missing, and the
+                    -- counting workaround is engine-forbidden.
+                    { type="dropdown", text="Show When", values=SHOW_WHEN_VALUES_EFFECT, order=SHOW_WHEN_ORDER_EFFECT,
+                      tooltip=SHOW_WHEN_EFFECT_TIP,
+                      getValue=function() return "present" end,
+                      setValue=function(v) ind.showWhen = "present"; ReloadAndUpdate() end },
                     { type="toggle", text="Own Only",
                       tooltip="Only show buffs cast by you.",
                       getValue=function() return ind.ownOnly == true end,
@@ -5235,16 +5301,31 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 AttachOwnAllSpecsCog(faSwRow._rightRegion, ind)
 
                 -----------------------------------------------------------
-                --  FRAME ALPHA: DISPLAY
+                --  FRAME DIM: DISPLAY
                 -----------------------------------------------------------
                 _, h = W:SectionHeader(leftFrame, "DISPLAY", sy); sy = sy - h
 
                 SettingsRow(
-                    { type="slider", text="Alpha", min=5, max=100, step=1,
+                    -- "Brightness", not "Dim": the stored value has always been the
+                    -- RESULTING brightness (0.4 = frame at 40%), and the renderer paints
+                    -- the complement. Labelling it Dim would invert what the number means
+                    -- and silently flip every existing config.
+                    { type="slider", text="Brightness", min=5, max=100, step=1,
+                      tooltip="How bright the frame looks while the buff is up -- lower is darker. This darkens the frame behind a tint rather than fading it, so nothing shows through from behind.",
                       getValue=function() return floor((ind.alpha or 0.4) * 100) end,
                       setValue=function(v) ind.alpha = v / 100; ReloadAndUpdate() end },
-                    { type="label", text="" })
-                -- Frame Alpha has no Threshold section: its alpha multiplies with the range-fade alpha and two secret values can't be combined.
+                    { type="colorpicker", text="Tint", hasAlpha=false,
+                      tooltip="Color the frame is dimmed toward. Black is the usual choice.",
+                      getValue=function()
+                          local c = ind.dimColor or { r=0, g=0, b=0 }
+                          return c.r, c.g, c.b
+                      end,
+                      setValue=function(r, g, b)
+                          ind.dimColor = { r=r, g=g, b=b }
+                          ReloadAndUpdate()
+                      end })
+                -- No Threshold section, same as the other frame effects: an effect slot's
+                -- visibility is all the engine gives us, so there is no duration to band on.
             end
         end
     else
