@@ -6511,6 +6511,7 @@ end
 --  5. Alpha 0 for unclaimed, alpha 1 for claimed
 -------------------------------------------------------------------------------
 local reanchorDirty = false
+local reanchorUrgent = false
 local reanchorFrame = nil
 local viewerHooksInstalled = false
 
@@ -9513,19 +9514,28 @@ local function QueueReanchor()
 end
 ns.QueueReanchor = QueueReanchor
 
+local function QueueUrgentReanchor()
+    -- Replacement aura removal already hides Blizzard's buff frame. Bypass the
+    -- general layout throttle so its normal cooldown icon returns next frame.
+    reanchorUrgent = true
+    QueueReanchor()
+end
+
 -- Cancel any pending queued reanchor. Used by FullCDMRebuild's spec swap branch when it
 -- runs CollectAndReanchor directly -- without this, the reanchor BuildAllCDMBars queued
 -- earlier in the same call would fire a second time after the throttle expires.
 local function ClearQueuedReanchor()
     reanchorDirty = false
+    reanchorUrgent = false
 end
 ns.ClearQueuedReanchor = ClearQueuedReanchor
 
 local function ProcessReanchorQueue(self)
     if not reanchorDirty then self:Hide(); return end
     local now = GetTime()
-    if now - _lastReanchorTime < REANCHOR_THROTTLE then return end
+    if not reanchorUrgent and now - _lastReanchorTime < REANCHOR_THROTTLE then return end
     reanchorDirty = false
+    reanchorUrgent = false
     _lastReanchorTime = now
     CollectAndReanchor()
     -- Reapply visibility: newly collected icons may be at alpha 0.
@@ -10359,7 +10369,7 @@ function ns.SetupViewerHooks()
                         end
                     end
                 end
-                if replacementLayoutDirty then QueueReanchor() end
+                if replacementLayoutDirty then QueueUrgentReanchor() end
             end
             if not _btTicker then
                 _btTicker = EllesmereUI.Tick.NewAnimTicker(cdmBuffTickFrame, _btBody, 0.1)
