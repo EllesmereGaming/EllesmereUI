@@ -136,6 +136,10 @@ local CHAT_DEFAULTS = {
             idleFadeStrength = 40,
             idleFadeEnabled = true,
             inputOnTop = false,
+            editBoxBgAlpha = 0,
+            editBoxBgR = 0.05,
+            editBoxBgG = 0.065,
+            editBoxBgB = 0.08,
             lockChatSize = false,
             abbreviateChannels = true,  -- same key as live: saved settings carry over
             classColorNames = true,
@@ -276,7 +280,43 @@ end
 
 local BG_R, BG_G, BG_B, BG_A = 0.03, 0.045, 0.05, 0.70
 
-local EDIT_BG_R, EDIT_BG_G, EDIT_BG_B = 0.05, 0.065, 0.08
+local EDIT_BOX_BG_R, EDIT_BOX_BG_G, EDIT_BOX_BG_B = 0.05, 0.065, 0.08
+local EDIT_BOX_BG_BORDER_SIZES = { none=0, thin=1, normal=2, heavy=3, strong=4 }
+
+local function GetEditBoxBackgroundColor()
+    local cfg = ECHAT.DB()
+    return cfg.editBoxBgR or EDIT_BOX_BG_R,
+           cfg.editBoxBgG or EDIT_BOX_BG_G,
+           cfg.editBoxBgB or EDIT_BOX_BG_B,
+           cfg.editBoxBgAlpha or 0
+end
+
+local function GetEditBoxBackgroundInset(eb)
+    local key = ECHAT.DB().panelBorderThickness or "none"
+    local size = EDIT_BOX_BG_BORDER_SIZES[key] or 1
+    local scale = eb:GetEffectiveScale()
+    return size > 0 and scale and scale > 0 and size * PP.perfect / scale or 0
+end
+
+local function PositionEditBoxBackground(eb, bg, onTop)
+    local inset = GetEditBoxBackgroundInset(eb)
+    bg:ClearAllPoints()
+    bg:SetPoint("TOPLEFT", eb, "TOPLEFT", inset, onTop and 3 - inset or 0)
+    bg:SetPoint("BOTTOMRIGHT", eb, "BOTTOMRIGHT", 5 - inset,
+        onTop and 0 or -4 + inset)
+end
+
+local _editBoxBackgroundCreated = false
+local function EnsureEditBoxBackground(eb)
+    local d = CFD(eb)
+    if d.editBoxBg then return d.editBoxBg end
+    local bg = eb:CreateTexture(nil, "BACKGROUND", nil, -8)
+    bg._euiOwned = true
+    PositionEditBoxBackground(eb, bg, ECHAT.DB().inputOnTop)
+    d.editBoxBg = bg
+    _editBoxBackgroundCreated = true
+    return bg
+end
 
 local function GetInnerBorderColor(cfg)
     if cfg.innerBorderColorMode == "accent" and EllesmereUI.GetAccentColor then
@@ -326,6 +366,25 @@ function ECHAT.RefreshBgTextureCatalogue()
     if EllesmereUI.AppendSharedMediaTextures then
         EllesmereUI.AppendSharedMediaTextures(
             ns.chatBgTextureNames, ns.chatBgTextureOrder, nil, ns.chatBgTextures)
+    end
+end
+
+-- Apply edit box background settings to all skinned chat frames
+function ECHAT.ApplyEditBoxBackground()
+    local r, g, b, a = GetEditBoxBackgroundColor()
+    if a <= 0 and not _editBoxBackgroundCreated then return end
+    local onTop = ECHAT.DB().inputOnTop
+    for i = 1, 20 do
+        local eb = _G["ChatFrame" .. i .. "EditBox"]
+        local d = eb and CFD(eb)
+        local bg = d and d.editBoxBg
+        if d and not bg and a > 0 and d.skinned then
+            bg = EnsureEditBoxBackground(eb)
+        end
+        if bg then
+            PositionEditBoxBackground(eb, bg, onTop)
+            bg:SetColorTexture(r, g, b, a)
+        end
     end
 end
 
@@ -581,6 +640,9 @@ function ECHAT.ApplyExtendedBackground()
     if ECHAT.ApplyTabBorders then ECHAT.ApplyTabBorders() end
     if ECHAT.ApplyTabSeparators then ECHAT.ApplyTabSeparators() end
     if ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
+    if _editBoxBackgroundCreated or (cfg.editBoxBgAlpha or 0) > 0 then
+        ECHAT.ApplyEditBoxBackground()
+    end
 end
 
 -- Re-apply font to all chat text surfaces. Chat text size is Blizzard's
@@ -2893,6 +2955,10 @@ function ECHAT.ApplyInputPosition()
                     eb:SetPoint("TOPRIGHT", cf, "BOTTOMRIGHT", 5, -8)
                 end
                 eb:SetHeight(inputHeight)
+                if _editBoxBackgroundCreated then
+                    local ebBg = CFD(eb).editBoxBg
+                    if ebBg then PositionEditBoxBackground(eb, ebBg, onTop) end
+                end
             end
 
             if div then
@@ -4060,6 +4126,11 @@ local function SkinEditBox(cf)
     eb:SetPoint("TOPLEFT", cf, "BOTTOMLEFT", -10, -8)
     eb:SetPoint("TOPRIGHT", cf, "BOTTOMRIGHT", 5, -8)
     eb:SetHeight(GetEditBoxHeight())
+
+    local r, g, b, a = GetEditBoxBackgroundColor()
+    if a > 0 then
+        EnsureEditBoxBackground(eb):SetColorTexture(r, g, b, a)
+    end
 
     -- Same outline as the chat frames and ECHAT.ApplyFonts (both read
     -- GetOutlineFlag), so the input box always matches the rest of chat --

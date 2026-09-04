@@ -1385,6 +1385,37 @@ initFrame:SetScript("OnEvent", function(self)
             y = y - h
         end
 
+        -- Row 3: Background Opacity (+ inline color swatch) | (empty)
+        local editBoxBgRow
+        editBoxBgRow, h = W:DualRow(parent, y,
+            { type="slider", text="Background Opacity",
+              min = 0, max = 1, step = 0.05,
+              getValue=function() return Cfg("editBoxBgAlpha") or 0 end,
+              setValue=function(v)
+                  Set("editBoxBgAlpha", v)
+                  if ECHAT.ApplyEditBoxBackground then ECHAT.ApplyEditBoxBackground() end
+              end },
+            { type="label", text="" })
+        if not EllesmereUI._prebuilding then
+            local rgn = editBoxBgRow._leftRegion
+            local ctrl = rgn._control
+            local bgSwatch, bgSwatchRefresh = EllesmereUI.BuildColorSwatch(
+                rgn, editBoxBgRow:GetFrameLevel() + 3,
+                function()
+                    return (Cfg("editBoxBgR") or 0.05),
+                           (Cfg("editBoxBgG") or 0.065),
+                           (Cfg("editBoxBgB") or 0.08)
+                end,
+                function(r, g, b)
+                    Set("editBoxBgR", r); Set("editBoxBgG", g); Set("editBoxBgB", b)
+                    if ECHAT.ApplyEditBoxBackground then ECHAT.ApplyEditBoxBackground() end
+                end,
+                false, 20)
+            PP.Point(bgSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            EllesmereUI.RegisterWidgetRefresh(function() bgSwatchRefresh() end)
+        end
+        y = y - h
+
         -- -- EXTRAS ------------------------------------------------------------
         _, h = W:SectionHeader(parent, "EXTRAS", y); y = y - h
 
