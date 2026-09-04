@@ -48,6 +48,306 @@ local DEFAULT_CATEGORIES = {
 }
 
 -------------------------------------------------------------------------------
+--  Profession split
+--  Replaces the Trade Goods / Professions / Reagent Bag trio with a single
+--  "Professions" anchor carrying one child category per profession, the same
+--  runtime-only child pattern the "Item Set Gear" anchor uses for equipment
+--  sets. Gated on bagSplitByProfession; everything below is inert while off.
+-------------------------------------------------------------------------------
+local PROFESSION_ORDER = {
+    -- Gathering first: raw materials are filed under the profession that
+    -- gathers them, not the one that consumes them.
+    "Mining", "Herbalism", "Skinning", "Fishing",
+    "Alchemy", "Blacksmithing", "Enchanting", "Engineering", "Inscription",
+    "Jewelcrafting", "Leatherworking", "Tailoring", "Cooking",
+}
+
+-- Texture paths rather than file IDs: these names have been stable since
+-- Classic and survive art re-imports that renumber file IDs.
+local PROFESSION_ICONS = {
+    Mining         = "Interface\\Icons\\Trade_Mining",
+    Herbalism      = "Interface\\Icons\\Trade_Herbalism",
+    Skinning       = "Interface\\Icons\\INV_Misc_Pelt_Wolf_01",
+    Fishing        = "Interface\\Icons\\Trade_Fishing",
+    Alchemy        = "Interface\\Icons\\Trade_Alchemy",
+    Blacksmithing  = "Interface\\Icons\\Trade_BlackSmithing",
+    Enchanting     = "Interface\\Icons\\Trade_Engraving",
+    Engineering    = "Interface\\Icons\\Trade_Engineering",
+    Inscription    = "Interface\\Icons\\INV_Inscription_Tradeskill01",
+    Jewelcrafting  = "Interface\\Icons\\INV_Misc_Gem_01",
+    Leatherworking = "Interface\\Icons\\Trade_LeatherWorking",
+    Tailoring      = "Interface\\Icons\\Trade_Tailoring",
+    Cooking        = "Interface\\Icons\\INV_Misc_Food_15",
+}
+
+-- Base (Classic-era) skill line IDs, used only to ask the client for a
+-- localized profession name. Stable across expansions.
+local PROFESSION_SKILL_LINES = {
+    Mining = 186, Herbalism = 182, Skinning = 393, Fishing = 356,
+    Alchemy = 171, Blacksmithing = 164, Enchanting = 333, Engineering = 202,
+    Inscription = 773, Jewelcrafting = 755, Leatherworking = 165,
+    Tailoring = 197, Cooking = 185,
+}
+
+local _profNameCache = {}
+local function ProfessionDisplayName(key)
+    local cached = _profNameCache[key]
+    if cached then return cached end
+    local name
+    local sl = PROFESSION_SKILL_LINES[key]
+    if sl and C_TradeSkillUI and C_TradeSkillUI.GetTradeSkillDisplayName then
+        local ok, res = pcall(C_TradeSkillUI.GetTradeSkillDisplayName, sl)
+        if ok and type(res) == "string" and res ~= "" then name = res end
+    end
+    if not name then name = EllesmereUI.L(key) end
+    _profNameCache[key] = name
+    return name
+end
+
+-- Subclass maps are built from the Enum field names, not hardcoded numbers, so
+-- a client that lacks a subclass simply omits that entry instead of erroring.
+-- Trade goods subclass IDs are written out numerically on purpose: there is no
+-- Enum.ItemTradegoodsSubclass in this client (Enum.ItemRecipeSubclass does
+-- exist and is used below). These IDs are stable game data -- Blizzard renames
+-- subclasses, as Meat became Cooking, but does not renumber them.
+local TG_PARTS, TG_EXPLOSIVES, TG_DEVICES   = 1, 2, 3
+local TG_JEWELCRAFTING, TG_CLOTH, TG_LEATHER = 4, 5, 6
+local TG_METAL_STONE, TG_COOKING, TG_HERB    = 7, 8, 9
+local TG_ELEMENTAL                           = 10
+local TG_ENCHANTING                          = 12
+local TG_ITEM_ENCHANT, TG_WEAPON_ENCHANT     = 14, 15
+local TG_INSCRIPTION, TG_EXPLOSIVES_DEVICES  = 16, 17
+
+-- Raw materials are filed under the profession that GATHERS them, so ore is
+-- Mining rather than Blacksmithing and hides are Skinning rather than
+-- Leatherworking. Cloth is the exception only because nothing gathers it.
+-- Generic crafting reagents (Other, Materials, Optional/Finishing Reagents)
+-- are deliberately absent: they stay on the Professions anchor.
+local TRADEGOODS_TO_PROFESSION = {
+    [TG_HERB]               = "Herbalism",
+    [TG_METAL_STONE]        = "Mining",
+    [TG_ELEMENTAL]          = "Mining",
+    [TG_LEATHER]            = "Skinning",
+    [TG_COOKING]            = "Cooking",
+    [TG_CLOTH]              = "Tailoring",
+    [TG_ENCHANTING]         = "Enchanting",
+    [TG_ITEM_ENCHANT]       = "Enchanting",
+    [TG_WEAPON_ENCHANT]     = "Enchanting",
+    [TG_JEWELCRAFTING]      = "Jewelcrafting",
+    [TG_INSCRIPTION]        = "Inscription",
+    [TG_PARTS]              = "Engineering",
+    [TG_EXPLOSIVES]         = "Engineering",
+    [TG_DEVICES]            = "Engineering",
+    [TG_EXPLOSIVES_DEVICES] = "Engineering",
+}
+
+local RECIPE_TO_PROFESSION = {}
+do
+    local RC = Enum.ItemRecipeSubclass
+    local function put(key, fallback, prof)
+        local id = RC and RC[key]
+        if id == nil then id = fallback end
+        if id ~= nil then RECIPE_TO_PROFESSION[id] = prof end
+    end
+    put("Leatherworking", 1,  "Leatherworking")
+    put("Tailoring",      2,  "Tailoring")
+    put("Engineering",    3,  "Engineering")
+    put("Blacksmithing",  4,  "Blacksmithing")
+    put("Cooking",        5,  "Cooking")
+    put("Alchemy",        6,  "Alchemy")
+    put("Enchanting",     8,  "Enchanting")
+    put("Fishing",        9,  "Fishing")
+    put("Jewelcrafting",  10, "Jewelcrafting")
+    put("Inscription",    11, "Inscription")
+end
+
+-- Knowledge items carry no class/subclass signal that names their profession,
+-- so they need an explicit list. Item IDs cover The War Within and Midnight.
+-- STALENESS: this is a static snapshot and will not cover professions added in
+-- a later patch -- those items fall through to the Professions anchor rather
+-- than a child, which is a cosmetic miss, not a break.
+local KNOWLEDGE_ITEM_PROFESSION = {}
+do
+    local function Add(prof, ...)
+        for i = 1, select("#", ...) do
+            KNOWLEDGE_ITEM_PROFESSION[select(i, ...)] = prof
+        end
+    end
+    Add("Alchemy",
+
+        222546, 224024, 224645, 225234, 225235, 226265, 226266, 226267, 226268, 226269,
+
+        226270, 226271, 226272, 227409, 227420, 227431, 228724, 228773, 232499, 235865,
+
+        238532, 238533, 238534, 238535, 238536, 238537, 238538, 238539, 245755, 259188,
+
+        259189, 262645, 263454, 274500
+
+    )
+
+    Add("Blacksmithing",
+
+        222554, 224038, 224647, 225232, 225233, 226276, 226277, 226278, 226279, 226280,
+
+        226281, 226282, 226283, 227407, 227418, 227429, 228726, 228774, 232500, 235864,
+
+        238540, 238541, 238542, 238543, 238544, 238545, 238546, 238547, 245763, 246322,
+
+        259190, 259191, 262644, 263455, 274515
+
+    )
+
+    Add("Enchanting",
+
+        222550, 224050, 224652, 225230, 225231, 226284, 226285, 226286, 226287, 226288,
+
+        226289, 226290, 226291, 227411, 227422, 227433, 227659, 227661, 227662, 227667,
+
+        232501, 235863, 238548, 238549, 238550, 238551, 238552, 238553, 238554, 238555,
+
+        245759, 250445, 257600, 259192, 259193, 263464, 267653, 267654, 267655, 274511
+
+    )
+
+    Add("Engineering",
+
+        222621, 224052, 224653, 225228, 225229, 226292, 226293, 226294, 226295, 226296,
+
+        226297, 226298, 226299, 227412, 227423, 227434, 228730, 228775, 232507, 235862,
+
+        238556, 238557, 238558, 238559, 238560, 238561, 238562, 238563, 245809, 246326,
+
+        259194, 259195, 262646, 263456, 274516
+
+    )
+
+    Add("Herbalism",
+
+        222552, 224023, 224264, 224265, 224656, 224817, 224835, 226300, 226301, 226302,
+
+        226303, 226304, 226305, 226306, 226307, 227415, 227426, 227437, 232503, 235861,
+
+        238465, 238466, 238467, 238468, 238469, 238470, 238471, 238472, 238473, 238474,
+
+        238475, 245761, 250443, 258410, 263462, 274513
+
+    )
+
+    Add("Inscription",
+
+        222548, 224053, 224654, 225226, 225227, 226308, 226309, 226310, 226311, 226312,
+
+        226313, 226314, 226315, 227408, 227419, 227430, 228732, 228776, 232508, 235860,
+
+        238572, 238573, 238574, 238575, 238576, 238577, 238578, 238579, 245757, 246328,
+
+        258411, 259196, 259197, 263457, 274514
+
+    )
+
+    Add("Jewelcrafting",
+
+        222551, 224054, 224655, 225224, 225225, 226316, 226317, 226318, 226319, 226320,
+
+        226321, 226322, 226323, 227413, 227424, 227435, 228734, 228777, 232504, 235859,
+
+        238580, 238581, 238582, 238583, 238584, 238585, 238586, 238587, 245760, 246330,
+
+        257599, 259198, 259199, 263458, 274510
+
+    )
+
+    Add("Leatherworking",
+
+        222549, 224056, 224658, 225222, 225223, 226324, 226325, 226326, 226327, 226328,
+
+        226329, 226330, 226331, 227414, 227425, 227436, 228736, 228778, 232505, 235858,
+
+        238588, 238589, 238590, 238591, 238592, 238593, 238594, 238595, 245758, 246332,
+
+        250922, 259200, 259201, 263459, 274507
+
+    )
+
+    Add("Mining",
+
+        222553, 224055, 224583, 224584, 224651, 224818, 224838, 226332, 226333, 226334,
+
+        226335, 226336, 226337, 226338, 226339, 227416, 227427, 227438, 232509, 235857,
+
+        237496, 237506, 237507, 238596, 238597, 238598, 238599, 238600, 238601, 238602,
+
+        238603, 245762, 250444, 250924, 263463, 274509
+
+    )
+
+    Add("Skinning",
+
+        222649, 224007, 224657, 224780, 224781, 224782, 224807, 226340, 226341, 226342,
+
+        226343, 226344, 226345, 226346, 226347, 227417, 227428, 227439, 232506, 235856,
+
+        238625, 238626, 238627, 238628, 238629, 238630, 238631, 238632, 238633, 238634,
+
+        238635, 245828, 250360, 250923, 263461, 274508
+
+    )
+
+    Add("Tailoring",
+
+        222547, 224036, 224648, 225220, 225221, 226348, 226349, 226350, 226351, 226352,
+
+        226353, 226354, 226355, 227410, 227421, 227432, 228738, 228779, 232502, 235855,
+
+        238612, 238613, 238614, 238615, 238616, 238617, 238618, 238619, 245756, 246334,
+
+        257601, 259202, 259203, 263460, 274512
+
+    )
+end
+
+local function GetItemProfession(itemLink, itemID)
+    if itemID then
+        local known = KNOWLEDGE_ITEM_PROFESSION[itemID]
+        if known then return known end
+    end
+    if not itemLink then return nil end
+    local _, _, _, _, _, classID, subclassID = GetItemInfoInstant(itemLink)
+    if classID == nil or subclassID == nil then return nil end
+    if classID == IC_TRADESKILL then
+        return TRADEGOODS_TO_PROFESSION[subclassID]
+    end
+    if classID == IC_RECIPE then
+        return RECIPE_TO_PROFESSION[subclassID]
+    end
+    -- IC_PROFESSION (Midnight, class 19) subclass numbering is not verified,
+    -- and misfiling is worse than not filing: those items fall through to the
+    -- anchor unless the knowledge list above already named them.
+    return nil
+end
+
+local function ProfessionSplitEnabled()
+    return BP().bagSplitByProfession == true
+end
+
+-- The reagent bag is a location, not a category. It is always shown as a view
+-- alongside OneBag / All Items / MultiBag, the category is dropped, and its
+-- contents classify by type like anything else -- so a stack of ore appears
+-- under both the Reagent Bag view and Mining. Unconditional by design: this
+-- is the one place the patch diverges from stock with every toggle off.
+local function ReagentBagIsView()
+    return true
+end
+EllesmereUI._BagsReagentBagIsView = ReagentBagIsView
+
+-- Which built-in categories are dissolved, and by which toggle.
+local function CategoryIsDissolved(defName)
+    if defName == "Trade Goods" then return ProfessionSplitEnabled() end
+    if defName == "Reagent Bag" then return ReagentBagIsView() end
+    return false
+end
+
+-------------------------------------------------------------------------------
 --  Init
 --  Builds the runtime category list from hardcoded defaults + saved user state
 --  (renames, reorder, grouping). Saved state keyed by default name.
@@ -163,12 +463,23 @@ function CategoryManager:InitCategories()
                 }
                 customInserted[uc.key] = true
             end
+        elseif CategoryIsDissolved(def.name) then
+            -- Trade Goods folds into the Professions anchor; Reagent Bag becomes
+            -- a location view. Either way the category is not emitted.
         else
             local state = userState[def.name]
+            local isProfAnchor = ProfessionSplitEnabled() and def.name == "Professions"
+            local defTypes = def.types
+            if isProfAnchor then
+                -- Absorb the trade goods classes so reagents and materials
+                -- reach the anchor and can be routed to a profession child.
+                defTypes = { IC_PROFESSION, IC_RECIPE, IC_TRADESKILL, IC_REAGENT }
+            end
             cats[#cats + 1] = {
                 _defaultName      = def.name,
                 name              = (state and state.rename) or EllesmereUI.L(def.name),
-                types             = def.types,
+                types             = defTypes,
+                isProfAnchor      = isProfAnchor,
                 icon              = def.icon,
                 isAtlas           = def.isAtlas,
                 equipSlots        = def.equipSlots,
@@ -187,6 +498,23 @@ function CategoryManager:InitCategories()
             -- the "Item Set Gear" anchor. Runtime-only -- SaveState skips them, so
             -- per-character set names never reach the shared profile; the sidebar
             -- renders them nested one level under the anchor, wherever it sits.
+            -- Split mode: one runtime-only child per profession, right after the
+            -- "Professions" anchor. Same contract as the equipment-set children --
+            -- SaveState skips them and the sidebar nests them one level under.
+            if isProfAnchor then
+                for _, key in ipairs(PROFESSION_ORDER) do
+                    cats[#cats + 1] = {
+                        _defaultName  = "Prof:" .. key,
+                        name          = ProfessionDisplayName(key),
+                        types         = defTypes,
+                        icon          = PROFESSION_ICONS[key],
+                        isProfession  = true,
+                        professionKey = key,
+                        noGroup       = true,
+                    }
+                end
+            end
+
             if def.isSetGear and BP().bagSplitSetGearBySet then
                 local setIDs = C_EquipmentSet.GetEquipmentSetIDs()
                 if setIDs then
@@ -272,7 +600,7 @@ function CategoryManager:SaveState()
     local userState = {}
     local userOrder = {}
     for _, cat in ipairs(cats) do
-        if cat.isEquipSet then
+        if cat.isEquipSet or cat.isProfession then
             -- Runtime-only children of the "Item Set Gear" anchor: never persisted;
             -- InitCategories re-appends them after the anchor each rebuild.
             -- (skip)
@@ -384,8 +712,10 @@ function CategoryManager:ClassifyItem(itemLink, itemID, bag, slot)
 
     local cats = self:GetCategories()
 
-    -- Reagent bag items always go to the Reagent Bag category
-    if bag == 5 then
+    -- Reagent bag items always go to the Reagent Bag category. While the
+    -- profession split is on that category does not exist and reagents are
+    -- classified by profession like anything else, so location no longer wins.
+    if bag == 5 and not ReagentBagIsView() then
         for i, cat in ipairs(cats) do
             if cat.isReagentBag then return i end
         end
@@ -452,6 +782,18 @@ function CategoryManager:ClassifyItem(itemLink, itemID, bag, slot)
                 -- Anchor explicitly: children are isSetGear too, and cats order
                 -- can put them first after the anchor is drag-reordered
                 if cat.isSetGear and not cat.isEquipSet then return i end
+            end
+        end
+    end
+
+    -- Profession split: route to the matching child before the type walk, or
+    -- the anchor would swallow everything via its absorbed classes.
+    if ProfessionSplitEnabled() then
+        local prof = GetItemProfession(itemLink, itemID)
+        if prof then
+            local wanted = "Prof:" .. prof
+            for i, cat in ipairs(cats) do
+                if cat._defaultName == wanted then return i end
             end
         end
     end
@@ -584,7 +926,7 @@ function CategoryManager:ReorderCategory(fromIndex, toIndex)
     if not cats[fromIndex] or fromIndex == toIndex then return end
     -- Equip-set categories move as a block via their anchor; a single one dragged
     -- out would snap back on the next rebuild (SaveState collapses the block).
-    if cats[fromIndex].isEquipSet then return end
+    if cats[fromIndex].isEquipSet or cats[fromIndex].isProfession then return end
     if toIndex < 1 or toIndex > #cats + 1 then return end
     local entry = table.remove(cats, fromIndex)
     local insertAt = toIndex
@@ -837,6 +1179,7 @@ function CategoryManager:CanAssignToCategory(catIndex)
     if not cat then return false end
     if cat.isPinned or cat.isRecent or cat.isReagentBag then return false end
     if cat.isEquipSet then return false end  -- membership comes from the set itself
+    if cat.isProfession then return false end -- membership comes from the item type
     return true
 end
 

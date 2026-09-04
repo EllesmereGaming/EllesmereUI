@@ -642,6 +642,135 @@ local function ArmorySlotGroupingEnabled()
 end
 
 -------------------------------------------------------------------------------
+--  Type nesting: item subclass sub-headers for the crafting / consumable
+--  categories, the counterpart to armory slot nesting for gear. Recipe and
+--  Profession subclasses are the professions themselves (Herbalism, Mining),
+--  Tradegoods subclasses the material families (Herb, Cloth, Metal & Stone),
+--  Consumable subclasses Potion / Flask / Food.
+-------------------------------------------------------------------------------
+local TYPE_NEST_CATEGORIES = {
+    ["Trade Goods"]       = true,
+    -- ClassifyItem routes everything physically sitting in the reagent bag
+    -- here before any type matching, so this is where a stocked character
+    -- actually keeps their ore, herbs and fish -- the category that needs
+    -- the type split most.
+    ["Reagent Bag"]       = true,
+    ["Professions"]       = true,
+    ["Gear Enhancements"] = true,
+    ["Consumables"]       = true,
+    ["Miscellaneous"]     = true,
+}
+
+local function IsTypeNestCategory(cat)
+    if not cat or not cat._defaultName then return false end
+    return TYPE_NEST_CATEGORIES[cat._defaultName] == true
+end
+
+-- Facts are fetched lazily and cached on the item table, mirroring
+-- GetArmorySlotBucket: this only runs while type nesting is on.
+local function GetItemTypeBucket(data)
+    local classID = data._classID
+    local subclassID = data._subclassID
+    if data.itemLink and classID == nil then
+        local _, equipSlot
+        _, _, _, equipSlot, _, classID, subclassID = GetItemInfoInstant(data.itemLink)
+        data._equipSlot, data._classID, data._subclassID = equipSlot, classID, subclassID
+    end
+    if classID == nil then return nil, EllesmereUI.L("Other") end
+    local name
+    if C_Item and C_Item.GetItemSubClassInfo then
+        name = C_Item.GetItemSubClassInfo(classID, subclassID or 0)
+    end
+    if (not name or name == "") and _G.GetItemSubClassInfo then
+        name = _G.GetItemSubClassInfo(classID, subclassID or 0)
+    end
+    if (not name or name == "") and data.itemLink then
+        name = select(7, GetItemInfo(data.itemLink))
+    end
+    if not name or name == "" then return nil, EllesmereUI.L("Other") end
+    return name, name
+end
+
+local function BuildTypeBuckets(itemList)
+    local byKey, list = {}, {}
+    for _, data in ipairs(itemList) do
+        local key, label = GetItemTypeBucket(data)
+        local isOther = (key == nil)
+        local b = byKey[key or "__other__"]
+        if not b then
+            b = { label = label, isOther = isOther, items = {} }
+            byKey[key or "__other__"] = b
+            list[#list + 1] = b
+        end
+        b.items[#b.items + 1] = data
+    end
+    -- Alphabetical, with the uncategorisable remainder pinned last.
+    table.sort(list, function(a, b)
+        if a.isOther ~= b.isOther then return b.isOther end
+        return a.label < b.label
+    end)
+    for _, b in ipairs(list) do
+        PreCacheSortFields(b.items)
+        table.sort(b.items, VisualSortCompare)
+    end
+    return list
+end
+
+-- Buckets for the Professions anchor view: one per profession child, in the
+-- order the children were generated, with anything that stayed on the anchor
+-- itself trailing under "Other".
+local function BuildProfessionBuckets(itemList)
+    local cats = EUI_CategoryManager and EUI_CategoryManager:GetCategories()
+    if not cats then return nil end
+    local byKey, list = {}, {}
+    for _, data in ipairs(itemList) do
+        local ci = data.categoryIndex
+        local cat = ci and cats[ci]
+        local isChild = cat and cat.isProfession
+        local key = isChild and ci or 0
+        local b = byKey[key]
+        if not b then
+            b = {
+                order = isChild and ci or math.huge,
+                label = isChild and cat.name or EllesmereUI.L("Other"),
+                items = {},
+            }
+            byKey[key] = b
+            list[#list + 1] = b
+        end
+        b.items[#b.items + 1] = data
+    end
+    table.sort(list, function(a, b) return a.order < b.order end)
+    for _, b in ipairs(list) do
+        PreCacheSortFields(b.items)
+        table.sort(b.items, VisualSortCompare)
+    end
+    return list
+end
+
+local function TypeGroupingEnabled()
+    return BP().bagGroupCraftingByType == true
+end
+
+-- Mirrors IsGearOnlyGroup: a group qualifies only if every member does, so a
+-- mixed group is never split on a dimension half its items lack.
+local function ShouldTypeNest(sectionName, catIdx)
+    if not TypeGroupingEnabled() or not EUI_CategoryManager then return false end
+    local cats = EUI_CategoryManager:GetCategories()
+    if not cats then return false end
+    if sectionName then
+        local members = EUI_CategoryManager:GetGroupMembers(sectionName)
+        if members and #members > 0 then
+            for _, mi in ipairs(members) do
+                if not IsTypeNestCategory(cats[mi]) then return false end
+            end
+            return true
+        end
+    end
+    return IsTypeNestCategory(catIdx and cats[catIdx])
+end
+
+-------------------------------------------------------------------------------
 --  Slot data table pool (avoids ~200 table allocations per refresh)
 -------------------------------------------------------------------------------
 local _slotPool = {}
@@ -2358,7 +2487,7 @@ local function GetOrCreateSlot(idx)
     btn:HookScript("PostClick", function(self, button)
         if button ~= "LeftButton" and button ~= "RightButton" then return end
         if not IsShiftKeyDown() then return end
-        if selectedCategoryIndex == -1 or selectedCategoryIndex == -2 then return end
+        if selectedCategoryIndex == -1 or selectedCategoryIndex == -2 or selectedCategoryIndex == -3 then return end
         if _anyItemPanelOpen or BP().bagMergeDuplicates == false then return end
         local bagID = self:GetParent():GetID()
         local slotID = self:GetID()
@@ -4296,6 +4425,19 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
     for _, _k in ipairs({ "all", "onebag", "multibag" }) do
         if _k ~= _dbt then displayList[#displayList + 1] = _fixedViews[_k] end
     end
+    -- The Reagent Bag is a location, not a category: it sits with the other
+    -- whole-bag views and its contents still classify into normal categories.
+    if (C_Container.GetContainerNumSlots(5) or 0) > 0 then
+        -- Counted straight from the container: tempItems is local to
+        -- RefreshInventory and is not in scope here.
+        local reagCount = 0
+        for slot = 1, C_Container.GetContainerNumSlots(5) do
+            if C_Container.GetContainerItemInfo(5, slot) then reagCount = reagCount + 1 end
+        end
+        displayList[#displayList + 1] = {
+            catIdx = -3, name = EllesmereUI.L("Reagent Bag"), icon = 3622222, count = reagCount,
+        }
+    end
 
     -- Split-mode set children: rendered nested under the "Item Set Gear" anchor
     -- wherever it sits (plain or inside a group), skipped by the main loop.
@@ -4323,6 +4465,35 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
     end
     local function IsSetAnchor(c) return c and c.isSetGear and not c.isEquipSet end
 
+    -- Profession children of the "Professions" anchor, same contract as the
+    -- equipment-set children above. Categories with no items are dropped here
+    -- rather than filling the sidebar with the ten professions you do not have.
+    local profChildren, profChildTotal = nil, 0
+    if BP().bagSplitByProfession then
+        for i, c in ipairs(cats) do
+            if c.isProfession then
+                local n = categoryCounts and categoryCounts[i] or 0
+                profChildTotal = profChildTotal + n
+                if n > 0 or BP().bagHideEmptyCategories == false then
+                    profChildren = profChildren or {}
+                    profChildren[#profChildren + 1] = i
+                end
+            end
+        end
+    end
+    local function EmitProfChildren(level)
+        if not profChildren or collapsed then return end
+        for _, pci in ipairs(profChildren) do
+            local pc = cats[pci]
+            displayList[#displayList + 1] = {
+                catIdx = pci, name = pc.name, icon = pc.icon or 134400,
+                count = categoryCounts and categoryCounts[pci] or 0,
+                indent = level, isProfession = true,
+            }
+        end
+    end
+    local function IsProfAnchor(c) return c and c.isProfAnchor == true end
+
     local renderedGroups = {}
     for ci, cat in ipairs(cats) do
         if cat.groupName then
@@ -4334,6 +4505,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                 for _, mi in ipairs(members) do
                     groupCount = groupCount + (categoryCounts and categoryCounts[mi] or 0)
                     if IsSetAnchor(cats[mi]) then groupCount = groupCount + setChildTotal end
+                    if IsProfAnchor(cats[mi]) then groupCount = groupCount + profChildTotal end
                 end
                 -- Use first member's icon for group
                 local firstCat = cats[members[1]]
@@ -4356,20 +4528,26 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                         local anchor = IsSetAnchor(mc)
                         displayList[#displayList + 1] = {
                             catIdx = mi, name = mc.name, icon = mc.icon or 134400, isAtlas = mc.isAtlas,
-                            count = (categoryCounts and categoryCounts[mi] or 0) + (anchor and setChildTotal or 0),
+                            count = (categoryCounts and categoryCounts[mi] or 0) + (anchor and setChildTotal or 0)
+                                + (IsProfAnchor(mc) and profChildTotal or 0),
                             indent = true, groupName = cat.groupName, isGroupMember = true,
                             isUserCreated = mc.isUserCreated,
                         }
                         -- Set children: third level under a grouped anchor
                         if anchor then EmitSetChildren(2) end
+                        if IsProfAnchor(mc) then EmitProfChildren(2) end
                     end
                 end
             end
         elseif cat.isEquipSet then
             -- Emitted by EmitSetChildren under the anchor
+        elseif cat.isProfession then
+            -- Emitted by EmitProfChildren under the anchor
         else
             local anchor = IsSetAnchor(cat)
+            local profAnchor = IsProfAnchor(cat)
             local count = (categoryCounts and categoryCounts[ci] or 0) + (anchor and setChildTotal or 0)
+                + (profAnchor and profChildTotal or 0)
             local isUserCreated = not cat.isCatchAll and (not cat.types or #cat.types == 0)
             -- Skip Pinned/Recent Items if disabled
             if cat.isPinned and BP().bagShowPinnedItems == false then
@@ -4379,6 +4557,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
             else
                 displayList[#displayList + 1] = { catIdx = ci, name = cat.name, icon = cat.icon or 134400, isAtlas = cat.isAtlas, count = count, noMove = cat.noMove, isPinned = cat.isPinned, isRecent = cat.isRecent, isUserCreated = cat.isUserCreated }
                 if anchor then EmitSetChildren(1) end
+                if profAnchor then EmitProfChildren(1) end
             end
         end
     end
@@ -5372,16 +5551,26 @@ function EUI_Bags:RefreshInventory()
                 if c.isEquipSet then filterSet[i] = true end
             end
         end
+        -- Same for the "Professions" anchor: the children hold the items, so the
+        -- anchor view shows the lot rather than only what failed to classify.
+        local function AddProfChildren(anchorIdx)
+            if not (cats[anchorIdx] and cats[anchorIdx].isProfAnchor) then return end
+            for i, c in ipairs(cats) do
+                if c.isProfession then filterSet[i] = true end
+            end
+        end
         if selectedGroupName then
             filterSet = {}
             local members = EUI_CategoryManager:GetGroupMembers(selectedGroupName)
             for _, mi in ipairs(members) do
                 filterSet[mi] = true
                 AddSetChildren(mi)
+                AddProfChildren(mi)
             end
         elseif selectedCategoryIndex > 0 and not isRecentView and not isPinnedView then
             filterSet = { [selectedCategoryIndex] = true }
             AddSetChildren(selectedCategoryIndex)
+            AddProfChildren(selectedCategoryIndex)
         end
     end
 
@@ -5500,6 +5689,10 @@ function EUI_Bags:RefreshInventory()
                 if hasSetChild then S = S + 1 end
             end
             if S < 1 then S = 1 end
+        elseif selectedCategoryIndex == -3 then
+            -- Reagent Bag: a single section
+            n = C_Container.GetContainerNumSlots(5) or 0
+            S = 1
         elseif selectedCategoryIndex == -2 then
             -- MultiBag: one section per bag that has slots (+ reagent)
             n = #tempItems + #emptySlots
@@ -5751,62 +5944,72 @@ function EUI_Bags:RefreshInventory()
         end
     end
 
+    -- Generic bucket run: subheader + item block per bucket. Shared by armory
+    -- slot nesting and crafting type nesting, so it is defined regardless of
+    -- which of those toggles is on.
+    local function RenderBucketRun(buckets, subHeaderIdx, assignCatKey)
+
+        local assignShown = false
+        for _, bucket in ipairs(buckets) do
+            if #bucket.items > 0 then
+                subHeaderIdx = subHeaderIdx + 1
+                local header = GetOrCreateExpSubHeader(subHeaderIdx)
+                header:SetParent(child)
+                header:ClearAllPoints()
+                header:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
+                header:SetWidth(gridW)
+                header._label:SetText(bucket.label .. " (" .. #bucket.items .. ")")
+                SetBagFont(header._label, math.max(8, catTitleSize - 2))
+                header:Show()
+                curY = curY - 18
+                RenderItemBlock(bucket.items)
+
+                if assignCatKey and not assignShown then
+                    assignShown = true
+                    local remainder = #bucket.items % columns
+                    if remainder ~= 0 then
+                        curY = curY + (SLOT_SIZE + SPACING)
+                    end
+                    slotIdx = slotIdx + 1
+                    local assignSlot = GetOrCreateSlot(slotIdx)
+                    if assignSlot then
+                        assignSlot:GetParent():SetParent(child)
+                        RenderButton(assignSlot, { bag = 0, slot = 0 }, slotIdx,
+                            remainder, 0, startX, curY, columns)
+                        local overlay = GetOrCreateAssignOverlay()
+                        overlay._assignCatKey = assignCatKey
+                        overlay:SetParent(child)
+                        overlay:ClearAllPoints()
+                        overlay:SetAllPoints(assignSlot)
+                        overlay:Show()
+                    end
+                    curY = curY - (SLOT_SIZE + SPACING)
+                end
+            end
+        end
+        curY = curY - 6
+        return subHeaderIdx
+    end
+
     local RenderSlotBuckets
     if armorySlotGrouping then
         RenderSlotBuckets = function(buckets, subHeaderIdx, assignCatKey)
             if RenderCompactSlotBuckets then
                 return RenderCompactSlotBuckets(buckets, subHeaderIdx, assignCatKey)
             end
-
-            local assignShown = false
-            for _, bucket in ipairs(buckets) do
-                if #bucket.items > 0 then
-                    subHeaderIdx = subHeaderIdx + 1
-                    local header = GetOrCreateExpSubHeader(subHeaderIdx)
-                    header:SetParent(child)
-                    header:ClearAllPoints()
-                    header:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
-                    header:SetWidth(gridW)
-                    header._label:SetText(bucket.label .. " (" .. #bucket.items .. ")")
-                    SetBagFont(header._label, math.max(8, catTitleSize - 2))
-                    header:Show()
-                    curY = curY - 18
-                    RenderItemBlock(bucket.items)
-
-                    if assignCatKey and not assignShown then
-                        assignShown = true
-                        local remainder = #bucket.items % columns
-                        if remainder ~= 0 then
-                            curY = curY + (SLOT_SIZE + SPACING)
-                        end
-                        slotIdx = slotIdx + 1
-                        local assignSlot = GetOrCreateSlot(slotIdx)
-                        if assignSlot then
-                            assignSlot:GetParent():SetParent(child)
-                            RenderButton(assignSlot, { bag = 0, slot = 0 }, slotIdx,
-                                remainder, 0, startX, curY, columns)
-                            local overlay = GetOrCreateAssignOverlay()
-                            overlay._assignCatKey = assignCatKey
-                            overlay:SetParent(child)
-                            overlay:ClearAllPoints()
-                            overlay:SetAllPoints(assignSlot)
-                            overlay:Show()
-                        end
-                        curY = curY - (SLOT_SIZE + SPACING)
-                    end
-                end
-            end
-            curY = curY - 6
-            return subHeaderIdx
+            return RenderBucketRun(buckets, subHeaderIdx, assignCatKey)
         end
     end
 
 
-    if selectedCategoryIndex == -1 or selectedCategoryIndex == -2 then
+    if selectedCategoryIndex == -1 or selectedCategoryIndex == -2 or selectedCategoryIndex == -3 then
         -- OneBag/MultiBag: Pinned Items (display-only) + bag section(s) + Reagent Bag. OneBag
         -- merges bags 0-4 into one "Main Bags" section, MultiBag renders one per bag; reuses tempItems + emptySlots instead of re-querying bags.
+        -- Reagent Bag (-3) is a location view like the other two: it reuses the
+        -- reagent section below and skips everything above it.
         local headerIdx = 0
         local isMulti = (selectedCategoryIndex == -2)
+        local isReagentOnly = (selectedCategoryIndex == -3)
 
         -- OneBag/MultiBag warning label (created once, reused)
         if not EUI_Bags._oneBagWarning then
@@ -5817,7 +6020,7 @@ function EUI_Bags:RefreshInventory()
             EUI_Bags._oneBagWarning = warn
         end
         local warn = EUI_Bags._oneBagWarning
-        local _warnHidden = BP().bagHideOneBagWarning
+        local _warnHidden = BP().bagHideOneBagWarning or isReagentOnly
         if not _warnHidden then
             warn:SetParent(child)
             warn:ClearAllPoints()
@@ -5832,7 +6035,7 @@ function EUI_Bags:RefreshInventory()
         end
 
         -- Pinned Items quickview (display-only duplicates)
-        local showPinnedOneBag = (BP().bagPinnedInOneBag ~= false) and showPinned
+        local showPinnedOneBag = (BP().bagPinnedInOneBag ~= false) and showPinned and not isReagentOnly
         if showPinnedOneBag then
             local pinItems = {}
             if pinnedSet then
@@ -5924,7 +6127,7 @@ function EUI_Bags:RefreshInventory()
         end
 
         -- Recent Items quickview (display-only duplicates)
-        local showRecentOneBag = BP().bagRecentInOneBag == true
+        local showRecentOneBag = (BP().bagRecentInOneBag == true) and not isReagentOnly
         local showRecent = BP().bagShowRecentItems ~= false
         if showRecentOneBag and showRecent then
             local recentItems = {}
@@ -6030,7 +6233,9 @@ function EUI_Bags:RefreshInventory()
             curY = curY - (rows * (SLOT_SIZE + SPACING)) - 6
         end
 
-        if not isMulti then
+        if isReagentOnly then
+            -- Reagent Bag view: only the bag 5 section below is drawn.
+        elseif not isMulti then
             -- OneBag: Main Bags (0-4) merged, in bag:slot order
             local mainSlots = {}
             local mainFilled = 0
@@ -6142,9 +6347,16 @@ function EUI_Bags:RefreshInventory()
                 and not showPinAdd
                 and not alwaysShow
 
+            local useTypeNest = not useSlotNest
+                and ShouldTypeNest(sectionName, assignCatIdx)
+                and itemCount > 0
+                and not showPinAdd
+                and not alwaysShow
+
             local useExpNest = nestByExpansion
                 and BP().bagNestByExpansion
                 and not useSlotNest
+                and not useTypeNest
                 and itemCount > 0
                 and not showPinAdd
                 and not alwaysShow
@@ -6220,6 +6432,19 @@ function EUI_Bags:RefreshInventory()
                     local cats = showAssign and EUI_CategoryManager:GetCategories()
                     local assignCat = cats and cats[assignCatIdx]
                     expSubIdx = RenderSlotBuckets(buckets, expSubIdx,
+                        assignCat and assignCat._defaultName)
+                    return
+                end
+            end
+
+            if useTypeNest then
+                local buckets = BuildTypeBuckets(sectionItems)
+                if #buckets > 0 then
+                    local showAssign = assignCatIdx and EUI_CategoryManager
+                        and EUI_CategoryManager:CanAssignToCategory(assignCatIdx)
+                    local cats = showAssign and EUI_CategoryManager:GetCategories()
+                    local assignCat = cats and cats[assignCatIdx]
+                    expSubIdx = RenderBucketRun(buckets, expSubIdx,
                         assignCat and assignCat._defaultName)
                     return
                 end
@@ -6491,11 +6716,18 @@ function EUI_Bags:RefreshInventory()
                 hdr:Show()
                 curY = curY - 22
 
-                if useSlotNest and #memberItems > 0 then
-                    local buckets = BuildSlotBuckets(memberItems)
+                local memberTypeNest = not useSlotNest and TypeGroupingEnabled()
+                    and IsTypeNestCategory(memberCat)
+                if (useSlotNest or memberTypeNest) and #memberItems > 0 then
+                    local buckets = useSlotNest and BuildSlotBuckets(memberItems)
+                        or BuildTypeBuckets(memberItems)
                     local showAssign = EUI_CategoryManager and EUI_CategoryManager:CanAssignToCategory(mi)
-                    expSubIdx = RenderSlotBuckets(buckets, expSubIdx,
-                        showAssign and memberCat and memberCat._defaultName)
+                    local assignKey = showAssign and memberCat and memberCat._defaultName
+                    if useSlotNest then
+                        expSubIdx = RenderSlotBuckets(buckets, expSubIdx, assignKey)
+                    else
+                        expSubIdx = RenderBucketRun(buckets, expSubIdx, assignKey)
+                    end
                 else
                 for j, data in ipairs(memberItems) do
                     slotIdx = slotIdx + 1
@@ -6681,14 +6913,30 @@ function EUI_Bags:RefreshInventory()
                 and selCat and IsArmoryGearCategory(selCat)
                 and itemCount > 0
 
-            if useSlotNest then
+            local useProfNest = not useSlotNest
+                and selCat and selCat.isProfAnchor
+                and itemCount > 0
+
+            local useTypeNest = not useSlotNest and not useProfNest
+                and IsTypeNestCategory(selCat) and TypeGroupingEnabled()
+                and itemCount > 0
+
+            if useSlotNest or useTypeNest or useProfNest then
                 local expSubIdx = 0
-                local buckets = BuildSlotBuckets(displayItems)
+                local buckets
+                if useSlotNest then buckets = BuildSlotBuckets(displayItems)
+                elseif useProfNest then buckets = BuildProfessionBuckets(displayItems)
+                else buckets = BuildTypeBuckets(displayItems) end
+                buckets = buckets or {}
                 local showAssign = selectedCategoryIndex > 0
                     and EUI_CategoryManager
                     and EUI_CategoryManager:CanAssignToCategory(selectedCategoryIndex)
-                expSubIdx = RenderSlotBuckets(buckets, expSubIdx,
-                    showAssign and selCat and selCat._defaultName)
+                local assignKey = showAssign and selCat and selCat._defaultName
+                if useSlotNest then
+                    expSubIdx = RenderSlotBuckets(buckets, expSubIdx, assignKey)
+                else
+                    expSubIdx = RenderBucketRun(buckets, expSubIdx, assignKey)
+                end
             else
             for i, data in ipairs(displayItems) do
                 slotIdx = slotIdx + 1
@@ -6771,7 +7019,7 @@ function EUI_Bags:RefreshInventory()
     end
 
     if EUI_Bags.Header and EUI_Bags.Header.itemCount then
-        if selectedCategoryIndex == 0 or selectedCategoryIndex == -1 or selectedCategoryIndex == -2 then
+        if selectedCategoryIndex == 0 or selectedCategoryIndex == -1 or selectedCategoryIndex == -2 or selectedCategoryIndex == -3 then
             local totalSlots = totalCount + #emptySlots
             EUI_Bags.Header.itemCount:SetText(EllesmereUI.Lf("%d / %d Items", totalCount, totalSlots))
         else
