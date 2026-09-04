@@ -167,7 +167,9 @@ local function ResolveLooter(message, sender, alternateSender)
     return Ambiguate and Ambiguate(player, "none") or player
 end
 
-local function OnChatLoot(message, sender, ...)
+local pendingItemLevels = {}
+
+local function EvaluateChatLoot(message, sender, eventArgs, allowItemLoad)
     if ns.GetProfile().lootWhisperPopup == false or not IsInGroup() then return end
     if type(message) ~= "string" or (issecretvalue and issecretvalue(message)) then return end
     local itemLink = message:match("(|c%x+|Hitem:.-|h.-|h|r)") or message:match("(|Hitem:.-|h.-|h)")
@@ -176,10 +178,31 @@ local function OnChatLoot(message, sender, ...)
     if not itemID or (issecretvalue and issecretvalue(itemID)) then return end
     local level = C_Item.GetDetailedItemLevelInfo and C_Item.GetDetailedItemLevelInfo(itemLink)
     if issecretvalue and issecretvalue(level) then level = nil else level = tonumber(level) end
+    if not level or level <= 0 then
+        -- CHAT_MSG_LOOT can arrive before the bonus-bearing item link is cached.
+        -- Never treat an unknown level as eligible: that would allow a lower raid
+        -- difficulty to match a higher-difficulty wishlist goal.
+        if allowItemLoad and Item and Item.CreateFromItemLink then
+            local loadKey = tostring(eventArgs[9] or "") .. ":" .. itemLink
+            if not pendingItemLevels[loadKey] then
+                pendingItemLevels[loadKey] = true
+                local item = Item:CreateFromItemLink(itemLink)
+                if item and item.ContinueOnItemLoad then
+                    item:ContinueOnItemLoad(function()
+                        pendingItemLevels[loadKey] = nil
+                        EvaluateChatLoot(message, sender, eventArgs, false)
+                    end)
+                else
+                    pendingItemLevels[loadKey] = nil
+                end
+            end
+        end
+        return
+    end
     local goal
     for _, candidate in ipairs(ns.GetGoals(nil, false)) do
         if candidate.itemID == itemID and candidate.state == "open"
-            and (not level or level <= 0 or level >= (candidate.minItemLevel or 0))
+            and level >= (candidate.minItemLevel or 0)
             and (not goal or candidate.priority > goal.priority
                 or (candidate.priority == goal.priority
                     and (candidate.minItemLevel or 0) > (goal.minItemLevel or 0))) then
@@ -188,15 +211,15 @@ local function OnChatLoot(message, sender, ...)
     end
     if not goal then return end
 
-    local alternateSender = select(3, ...)
-    local senderGUID = select(10, ...)
+    local alternateSender = eventArgs[3]
+    local senderGUID = eventArgs[10]
     if senderGUID and not (issecretvalue and issecretvalue(senderGUID)) and senderGUID == UnitGUID("player") then return end
     local player = ResolveLooter(message, sender, alternateSender)
     if not player then return end
     local playerShort = Ambiguate and Ambiguate(UnitName("player") or "", "none") or UnitName("player")
     if player == playerShort then return end
 
-    local lineID = select(9, ...)
+    local lineID = eventArgs[9]
     local key = tostring(lineID or "") .. ":" .. player .. ":" .. itemID
     local now = GetTime()
     PruneRecent(now)
@@ -208,6 +231,10 @@ local function OnChatLoot(message, sender, ...)
         itemName=C_Item.GetItemNameByID(itemID), icon=C_Item.GetItemIconByID(itemID),
         goal=goal,
     })
+end
+
+local function OnChatLoot(message, sender, ...)
+    EvaluateChatLoot(message, sender, { ... }, true)
 end
 
 local events = CreateFrame("Frame")
