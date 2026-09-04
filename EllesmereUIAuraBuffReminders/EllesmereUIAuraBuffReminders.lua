@@ -537,6 +537,10 @@ end
 
 -- Shared helpers for group aura scanning (hoisted to avoid per-call closure allocation)
 local function _unitOk(u) return UnitExists(u) and UnitIsConnected(u) and not UnitIsDeadOrGhost(u) end
+-- Returns hasBuff, readable. On another unit GetUnitAuraBySpellID hands back a
+-- secret while unit auras are restricted (keystones, raids), so absence there
+-- means "unknown", not "missing"; callers must drop unreadable units instead of
+-- scoring them as missing.
 local function _unitHasBuff(u, spellIDs)
     local inCombat = InCombat()
     -- Fast path for player: use GetPlayerAuraBySpellID for whitelisted IDs
@@ -546,38 +550,41 @@ local function _unitHasBuff(u, spellIDs)
             if NON_SECRET_SPELL_IDS[id] then
                 local ok, result = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
                 if ok then
-                    if result ~= nil then return true end
-                    if inCombat and _preCombatAuraCache[id] then return true end
+                    if result ~= nil then return true, true end
+                    if inCombat and _preCombatAuraCache[id] then return true, true end
                 else
-                    if inCombat and _preCombatAuraCache[id] then return true end
+                    if inCombat and _preCombatAuraCache[id] then return true, true end
                 end
             end
         end
-    else
-        -- Non-player units: GetUnitAuraBySpellID for whitelisted IDs; works in combat for non-secret IDs.
-        for j = 1, #spellIDs do
-            local id = spellIDs[j]
-            if NON_SECRET_SPELL_IDS[id] then
-                local ok, result = pcall(C_UnitAuras.GetUnitAuraBySpellID, u, id)
-                if ok and result ~= nil and not isSecret(result) then
-                    return true
-                end
+        return false, true
+    end
+
+    -- Non-player units: GetUnitAuraBySpellID for whitelisted IDs; works in combat for non-secret IDs.
+    local readable = false
+    for j = 1, #spellIDs do
+        local id = spellIDs[j]
+        if NON_SECRET_SPELL_IDS[id] then
+            local ok, result = pcall(C_UnitAuras.GetUnitAuraBySpellID, u, id)
+            if ok and not isSecret(result) then
+                readable = true
+                if result ~= nil then return true, true end
             end
         end
     end
     -- Iterate auras for non-whitelisted IDs: OOC and outside restricted content only (scan errors under restriction). Skipped for player (covered above).
-    if not inCombat and not UnitIsUnit(u, "player")
-        and not (EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted()) then
+    if not inCombat and not (EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted()) then
         for i = 1, AURA_SCAN_LIMIT do
             local aura = C_UnitAuras.GetAuraDataByIndex(u, i, "HELPFUL")
             if not aura then break end
             local sid = aura.spellId
             if sid and not isSecret(sid) then
-                for j = 1, #spellIDs do if sid == spellIDs[j] then return true end end
+                for j = 1, #spellIDs do if sid == spellIDs[j] then return true, true end end
             end
         end
+        readable = true
     end
-    return false
+    return false, readable
 end
 
 -- True if the buff's source is the player. Non-player units: OOC iteration only, false in combat (caller uses the snapshot).
@@ -722,6 +729,9 @@ end
 -- ("intellect"/"attackPower"/nil = everyone). EABR.UnitBenefits resolves it
 -- spec-aware when comm data exists, class-level otherwise, and skips units
 -- whose identity reads come back secret (teardown/restriction edges).
+-- Members whose aura read is secret leave the denominator too: under a
+-- keystone or raid restriction nobody else is readable, so the count falls
+-- back to the player alone rather than reporting the whole group as missing.
 -- Returns have, total.
 local function CountGroupBuffCoverage(spellIDs, benefit)
     local have, total = 0, 0
@@ -737,8 +747,11 @@ local function CountGroupBuffCoverage(spellIDs, benefit)
             local u = "raid"..i
             if _unitOk(u) and UnitIsPlayer(u) and _unitInRange(u) then
                 if EABR.UnitBenefits(u, benefit) then
-                    total = total + 1
-                    if _unitHasBuff(u, spellIDs) then have = have + 1 end
+                    local has, readable = _unitHasBuff(u, spellIDs)
+                    if readable then
+                        total = total + 1
+                        if has then have = have + 1 end
+                    end
                 end
             end
         end
@@ -751,8 +764,11 @@ local function CountGroupBuffCoverage(spellIDs, benefit)
             local u = "party"..i
             if _unitOk(u) and UnitIsPlayer(u) and _unitInRange(u) then
                 if EABR.UnitBenefits(u, benefit) then
-                    total = total + 1
-                    if _unitHasBuff(u, spellIDs) then have = have + 1 end
+                    local has, readable = _unitHasBuff(u, spellIDs)
+                    if readable then
+                        total = total + 1
+                        if has then have = have + 1 end
+                    end
                 end
             end
         end
