@@ -194,6 +194,27 @@ local function ClassToken(d)
     return "raid"
 end
 
+-- Debuff Manager tile sizes live inside dmDebuff rather than as top-level
+-- profile keys, so the raid-frame proxy cannot scale them through
+-- INDICATOR_SCALE_KEYS. Keep their physical size on the same class-specific
+-- scale as the base debuff grid.
+local function EffectiveIconSizeForClass(rawSize, classToken)
+    local scale
+    if classToken == "party" then
+        scale = ns._partyIndicatorScale or 1
+    else
+        scale = ns._indicatorScale or 1
+        if classToken == "extra" then
+            scale = scale * (ns._xfExtraRatio or 1)
+        end
+    end
+    return (tonumber(rawSize) or 18) * scale
+end
+
+local function EffectiveIconSize(d, rawSize)
+    return EffectiveIconSizeForClass(rawSize, ClassToken(d))
+end
+
 local function StyleKeyFor(d)
     return "rf:debuff:" .. ClassToken(d)
 end
@@ -648,7 +669,7 @@ function ns.DM_TipModEnsure(button, d, s)
                         local grow = t.growDirection or "CENTER"
                         local g = geo and geo.tiles and geo.tiles[t.id]
                         w, h = TipFootprint((g and g.n) or (t.cap or s.debuffCap or 3),
-                            (g and g.cell) or (t.size or 18), t.spacing or 1,
+                            (g and g.cell) or EffectiveIconSize(d, t.size or 18), t.spacing or 1,
                             tonumber(t.iconsPerRow) or 0, (grow == "UP" or grow == "DOWN"))
                     end
                     EnsureEater(d, t.id, button, c, active and point ~= nil,
@@ -1628,7 +1649,7 @@ end
 -- Icon-tile flow anchoring: corner-pinned chain, CENTER growth centers the
 -- row on the anchor point's X (based on the defensives-row math, with tile
 -- settings and the vertical seat kept flush with the anchored edge).
-local function AnchorTileContainer(container, health, s, t)
+local function AnchorTileContainer(container, health, s, t, d)
     health = ns.RF_AnchorHost and ns.RF_AnchorHost(health, s) or health
     -- Pin shared with the tooltip-modifier eater (TilePin): point = corner for
     -- directional growth, the flush edge midpoint for CENTER growth.
@@ -1671,7 +1692,7 @@ local function AnchorTileContainer(container, health, s, t)
         AK.SetContainerGrowth(container, FlowDir(gH), FlowDir(gV))
     end
 
-    local size = t.size or 18
+    local size = EffectiveIconSize(d, t.size or 18)
     local spacing = t.spacing or 1
     local vertical = (grow == "UP" or grow == "DOWN")
     if per >= 2 then
@@ -1691,10 +1712,10 @@ local dmTileFP = {}
 -- sized record on its own STABLE per-category variant (content rebuilds on size edits, group variant swaps only at sized/unsized).
 -- Grid-tile style core, shared by EnsureTileStyle and DM_RefreshSizedStyles: tile styles VIEW the base debuff
 -- style keys, so a pure base-style edit must re-derive them here too or they render stale (same as sized siblings).
-local function RefreshTileGridStyle(key, st, s, t, szOv, font)
+local function RefreshTileGridStyle(key, st, s, t, renderSize, font)
     local sv = TileStyleView(s, t)
     local v = ((ns.RFC_DebuffStyleFP and ns.RFC_DebuffStyleFP(sv, font)) or "")
-        .. "|" .. tostring(szOv or t.size or 18)
+        .. "|" .. tostring(renderSize)
         .. "|" .. FxListFP(t.fxList)
     if t.type == "square" then
         local c = t.color or {}
@@ -1703,7 +1724,7 @@ local function RefreshTileGridStyle(key, st, s, t, szOv, font)
     end
     if st.style ~= v and ns.RFC_BuildDebuffStyle then
         st.style = v
-        local sty = ns.RFC_BuildDebuffStyle(sv, szOv or t.size or 18)
+        local sty = ns.RFC_BuildDebuffStyle(sv, renderSize)
         if t.type == "square" then
             -- Square grid: flat color block over the icon (shared applier).
             sty.squareColor = t.color or { r = 1, g = 0.35, b = 0.35, a = 1 }
@@ -1733,7 +1754,8 @@ local function EnsureTileStyle(d, s, t, szOv, szCat)
     if isGrid then
         -- Rebuild handles for DM_RefreshSizedStyles (base-style edits re-derive this key without an apply pass).
         st.cls, st.tid, st.szOv, st.grid = cls, t.id, szOv, true
-        RefreshTileGridStyle(key, st, s, t, szOv, font)
+        RefreshTileGridStyle(key, st, s, t,
+            EffectiveIconSizeForClass(szOv or t.size or 18, cls), font)
     else
         local c = t.color or {}
         local bgc = t.barBgColor or {}
@@ -1800,7 +1822,8 @@ local function EnsureBaseSizeStyle(d, s, cat, size)
     local key = "rf:dmsz:" .. cls .. ":" .. tostring(cat)
     local st = dmSizeFP[key]
     if not st then st = { cls = cls, cat = cat }; dmSizeFP[key] = st end
-    st.size = size
+    st.rawSize = size
+    size = EffectiveIconSizeForClass(size, cls)
     local font = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("raidFrames")) or ""
     local v = ((ns.RFC_DebuffStyleFP and ns.RFC_DebuffStyleFP(s, font)) or "")
         .. "|" .. tostring(size)
@@ -1827,16 +1850,17 @@ function ns.DM_RefreshSizedStyles(baseStyleKey, s)
     if not cls then return end
     local font = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("raidFrames")) or ""
     for key, st in pairs(dmSizeFP) do
-        if st.cls == cls and st.style and st.size then
+        if st.cls == cls and st.style and st.rawSize then
+            local size = EffectiveIconSizeForClass(st.rawSize, cls)
             local v = ((ns.RFC_DebuffStyleFP and ns.RFC_DebuffStyleFP(s, font)) or "")
-                .. "|" .. tostring(st.size)
+                .. "|" .. tostring(size)
             if st.style ~= v and ns.RFC_BuildDebuffStyle then
                 st.style = v
                 local sty
                 if st.cat == "cc" and ns.RFC_BuildDebuffCCStyle then
-                    sty = ns.RFC_BuildDebuffCCStyle(s, st.size)
+                    sty = ns.RFC_BuildDebuffCCStyle(s, size)
                 else
-                    sty = ns.RFC_BuildDebuffStyle(s, st.size)
+                    sty = ns.RFC_BuildDebuffStyle(s, size)
                 end
                 AK.styles[key] = sty
                 AK.RestyleSoon(key)
@@ -1851,7 +1875,10 @@ function ns.DM_RefreshSizedStyles(baseStyleKey, s)
         for key, st in pairs(dmTileFP) do
             if st.grid and st.cls == cls then
                 local t = byId[st.tid]
-                if t then RefreshTileGridStyle(key, st, s, t, st.szOv, font) end
+                if t then
+                    local size = EffectiveIconSizeForClass(st.szOv or t.size or 18, cls)
+                    RefreshTileGridStyle(key, st, s, t, size, font)
+                end
             end
         end
     end
@@ -2034,9 +2061,10 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
     -- Base records.
     for gkey, r in pairs(wantedBase) do
         if declared[gkey] then
+            local recordSize = r.fxSize and EffectiveIconSize(d, r.fxSize)
             if tipOn then
                 tipN = tipN + cap
-                if r.fxSize and r.fxSize > tipCell then tipCell = r.fxSize end
+                if recordSize and recordSize > tipCell then tipCell = recordSize end
             end
             local n = cap
             if r.gated then
@@ -2051,7 +2079,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                 -- Sized record: keep the stable per-category style fresh (size edits restyle existing buttons) + same size in the flow math.
                 EnsureBaseSizeStyle(d, s, r.key, r.fxSize)
                 container:SetAuraGroupLayout(gkey, {
-                    elementWidth = r.fxSize, elementHeight = r.fxSize,
+                    elementWidth = recordSize, elementHeight = recordSize,
                     elementSpacing = s.debuffSpacing or 1,
                     lineSpacing = s.debuffSpacing or 1,
                 })
@@ -2107,14 +2135,26 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                         local sk = r.fxSize
                             and EnsureBaseSizeStyle(d, s2, r.key, r.fxSize)
                             or StyleKeyFor(d)
-                        AK.AddGroupToContainer(c2, { key = gkey, filter = r.tokens,
-                            maxFrameCount = 0, style = sk,
+                        local groupSize = r.fxSize
+                            and EffectiveIconSize(d, r.fxSize) or s2.debuffSize or 18
+                        local groupSpacing = s2.debuffSpacing or 1
+                        AK.AddGroupToContainer(c2, {
+                            key = gkey,
+                            filter = r.tokens,
+                            candidateFilters = r.cand,
+                            maxFrameCount = 0,
+                            style = sk,
+                            layout = {
+                                elementWidth = groupSize, elementHeight = groupSize,
+                                elementSpacing = groupSpacing, lineSpacing = groupSpacing,
+                            },
                             extraInit = function(btn2, d2, style)
                                 if d2 then d2.dmCat = catKey end
                                 if style and ns.RFC_ApplyDmFx then
                                     ns.RFC_ApplyDmFx(btn2, d2, style)
                                 end
-                            end })
+                            end,
+                        })
                         declared2[gkey] = true
                     end
                 end
@@ -2242,7 +2282,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                             end
                         end
                         local tCap = t.cap or cap
-                        local tSize = t.size or 18
+                        local tSize = EffectiveIconSize(d, t.size or 18)
                         local tLayout = {
                             elementWidth = tSize, elementHeight = tSize,
                             elementSpacing = t.spacing or 1, lineSpacing = t.spacing or 1,
@@ -2251,9 +2291,10 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                         local tN, tCell = 0, tSize
                         for gkey, r in pairs(tWanted) do
                             if tDecl[gkey] then
+                                local recordSize = r.fxSize and EffectiveIconSize(d, r.fxSize)
                                 if tipOn then
                                     tN = tN + tCap
-                                    if r.fxSize and r.fxSize > tCell then tCell = r.fxSize end
+                                    if recordSize and recordSize > tCell then tCell = recordSize end
                                 end
                                 local n = tCap
                                 if r.gated then
@@ -2267,7 +2308,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                                     -- Sized record: per-category tile style variant fresh + matching flow math.
                                     EnsureTileStyle(d, s, t, r.fxSize, r.key)
                                     tc:SetAuraGroupLayout(gkey, {
-                                        elementWidth = r.fxSize, elementHeight = r.fxSize,
+                                        elementWidth = recordSize, elementHeight = recordSize,
                                         elementSpacing = t.spacing or 1,
                                         lineSpacing = t.spacing or 1,
                                     })
@@ -2306,20 +2347,30 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                                             local gkey = GroupKey(AK, r)
                                             if not decl2[gkey] then
                                                 local catKey = r.key
+                                                local groupSize = EffectiveIconSize(d,
+                                                    r.fxSize or r.tile.size or 18)
+                                                local groupSpacing = r.tile.spacing or 1
                                                 AK.AddGroupToContainer(tc2, {
-                                                    key = gkey, filter = r.tokens,
+                                                    key = gkey,
+                                                    filter = r.tokens,
+                                                    candidateFilters = r.cand,
                                                     maxFrameCount = 0,
                                                     -- Sized records bind the per-category sized tile-style variant.
                                                     style = r.fxSize
                                                         and EnsureTileStyle(d, s2, r.tile, r.fxSize, r.key)
                                                         or EnsureTileStyle(d, s2, r.tile),
+                                                    layout = {
+                                                        elementWidth = groupSize, elementHeight = groupSize,
+                                                        elementSpacing = groupSpacing, lineSpacing = groupSpacing,
+                                                    },
                                                     extraInit = function(btn2, d2, style)
                                                         if d2 then d2.dmCat = catKey end
                                                         -- Arm ICON EFFECTS in the creation window (see the base-record site).
                                                         if style and ns.RFC_ApplyDmFx then
                                                             ns.RFC_ApplyDmFx(btn2, d2, style)
                                                         end
-                                                    end })
+                                                    end,
+                                                })
                                                 decl2[gkey] = true
                                             end
                                         end
@@ -2339,7 +2390,7 @@ function ns.DM_ApplyDebuffConfig(container, d, s, styleKey)
                             end
                             d.dmDeadSwap = { show = deadRec.gkey, cap = tCap, park = park, tileId = t.id }
                         end
-                        AnchorTileContainer(tc, d.rfcHealth, s, t)
+                        AnchorTileContainer(tc, d.rfcHealth, s, t, d)
                     end
 
                     if gatedContent then
