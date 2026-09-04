@@ -272,7 +272,6 @@ spells = {
         [194249] = { class = "PRIEST" },
         [13750] = { class = "ROGUE" },
         [121471] = { class = "ROGUE" },
-        [360194] = { class = "ROGUE" },
         [185422] = { class = "ROGUE" },
         [114050] = { class = "SHAMAN", alts = { 114051, 114052, 1219480 } },
         [466772] = { class = "SHAMAN" },
