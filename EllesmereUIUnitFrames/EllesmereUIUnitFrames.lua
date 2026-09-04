@@ -2525,7 +2525,10 @@ _G._EUF_RefreshUnitNames = ns.RefreshAllUnitNames
 do
     local function ForceTextRepaint()
         for _, f in pairs(frames) do
-            if type(f) == "table" and f._euiTextZones then
+            -- The painter refuses an empty token, so a frame between units must
+            -- not be blanked here either -- it would never get the value back.
+            if type(f) == "table" and f._euiTextZones
+               and f._euiUnit and UnitExists(f._euiUnit) then
                 local zones = f._euiTextZones
                 for i = 1, #zones do
                     local fs = zones[i].fs
@@ -2806,6 +2809,10 @@ do
     local function PaintText(frame, unit, event)
         local zones = frame._euiTextZones
         if not zones then return end
+        -- An empty token renders every zone blank, and a boss frame outlives the
+        -- gap: the unit watch is a 0.2s poll, so the frame is still shown while
+        -- its slot sits between units. Same probe the health painter pays.
+        if not (unit and UnitExists(unit)) then return end
         local valueOnly = event ~= nil and VALUE_EVENTS[event]
         for i = 1, #zones do
             local z = zones[i]
