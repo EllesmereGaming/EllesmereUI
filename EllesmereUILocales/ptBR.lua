@@ -6778,3 +6778,19 @@ L["Exactly (=)"] = "Exatamente (=)"
 L["At Least (>=)"] = "No Mínimo (>=)"
 L["Above (>)"] = "Acima (>)"
 L["Replaces Buff Glow: the icon glows when its stack count matches the comparison below, using this spell's Buff Glow style (Modern WoW Glow if none is set)."] = "Substitui o Brilho de Buff: o ícone brilha quando sua quantidade de pilha corresponde à comparação abaixo, usando o estilo de Brilho de Buff deste feitiço (Brilho Moderno do WoW, se nenhum estiver definido)."
+
+-- == Cooldown Manager / Bar Glow at Stacks Toggle ==================================
+L["At Stacks"] = "Por Pilha"
+L["Enable At Stacks"] = "Ativar Por Pilha"
+L["Not available in Buff Missing mode"] = "Não disponível no modo Buff Ausente"
+L["Only glow once the buff's stack count matches the comparison set via the gear."] = "Só brilha quando a quantidade de pilha do buff corresponder à comparação definida na engrenagem."
+
+-- == Player Aura Bars / Less Common Filters (reworded, no trailing period) =========
+L["Debuffs applied by you or your pet"] = "Debuffs aplicados por você ou seu ajudante"
+L["Debuffs caused by any player or player pet. The opposite of Non-Player Auras; checking one clears the other"] = "Debuffs causados por qualquer jogador ou ajudante de jogador. O oposto de Auras de Não-Jogadores; marcar um desmarca o outro"
+L["Debuffs with the Bleed dispel type"] = "Debuffs com o tipo de dissipação Sangramento"
+L["Debuffs with the Curse dispel type"] = "Debuffs com o tipo de dissipação Maldição"
+L["Debuffs with the Disease dispel type"] = "Debuffs com o tipo de dissipação Doença"
+L["Debuffs with the Magic dispel type"] = "Debuffs com o tipo de dissipação Magia"
+L["Debuffs with the Poison dispel type"] = "Debuffs com o tipo de dissipação Veneno"
+L["Debuffs your own class is able to apply"] = "Debuffs que sua própria classe é capaz de aplicar"
