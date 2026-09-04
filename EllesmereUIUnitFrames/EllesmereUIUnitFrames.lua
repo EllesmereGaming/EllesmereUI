@@ -14066,6 +14066,41 @@ function EllesmereUF:OnInitialize()
 
     ResolveFontPath()
 
+    -- Unit frame text is fonted only while frames are built, from a path this
+    -- module snapshots; every other module resolves per repaint and heals off
+    -- the shared cache, so a SharedMedia pack registering after the login build
+    -- leaves ONLY the unit frames on the fallback face for the session. What is
+    -- tracked here is the last path actually REPAINTED, never the snapshot:
+    -- ReloadFrames refreshes that before its own lockdown return, so a combat
+    -- reload would otherwise look settled and never retry. Deferred a tick to
+    -- land after the core's own receiver and this module's login setup.
+    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+    if LSM then
+        local paintedFont = EllesmereUI.GetFontPath("unitFrames")
+        local checkPending
+        local fontRegen = CreateFrame("Frame")
+        local function RepaintForFont()
+            checkPending = false
+            local want = EllesmereUI.GetFontPath("unitFrames")
+            if want == paintedFont or not ns.ReloadFrames then return end
+            if InCombatLockdown() then
+                fontRegen:RegisterEvent("PLAYER_REGEN_ENABLED")
+                return
+            end
+            paintedFont = want
+            ns.ReloadFrames()
+        end
+        fontRegen:SetScript("OnEvent", function(self)
+            self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+            RepaintForFont()
+        end)
+        LSM.RegisterCallback(EllesmereUF, "LibSharedMedia_Registered", function(_, mediatype)
+            if mediatype ~= "font" or checkPending then return end
+            checkPending = true
+            C_Timer.After(0, RepaintForFont)
+        end)
+    end
+
     -- Append SharedMedia textures to runtime tables so SM texture keys resolve
     if EllesmereUI.AppendSharedMediaTextures then
         EllesmereUI.AppendSharedMediaTextures(
