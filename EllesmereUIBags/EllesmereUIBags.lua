@@ -650,11 +650,6 @@ end
 -------------------------------------------------------------------------------
 local TYPE_NEST_CATEGORIES = {
     ["Trade Goods"]       = true,
-    -- ClassifyItem routes everything physically sitting in the reagent bag
-    -- here before any type matching, so this is where a stocked character
-    -- actually keeps their ore, herbs and fish -- the category that needs
-    -- the type split most.
-    ["Reagent Bag"]       = true,
     ["Professions"]       = true,
     ["Gear Enhancements"] = true,
     ["Consumables"]       = true,
@@ -4277,8 +4272,9 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
     local cats = EUI_CategoryManager:GetCategories()
     local cat = cats[catIdx]
     if not cat then return end
-    -- Set children have no menu actions (rename/group/hide all N/A): no empty menu
-    if cat.isEquipSet then return end
+    -- Set and profession children have no menu actions (rename/group/hide all
+    -- N/A -- both are runtime-only and SaveState discards any rename): no empty menu
+    if cat.isEquipSet or cat.isProfession then return end
 
     MenuUtil.CreateContextMenu(btn, function(_, rootDescription)
         local myGroup = cat.groupName
@@ -4427,15 +4423,15 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
     end
     -- The Reagent Bag is a location, not a category: it sits with the other
     -- whole-bag views and its contents still classify into normal categories.
-    if (C_Container.GetContainerNumSlots(5) or 0) > 0 then
-        -- Counted straight from the container: tempItems is local to
-        -- RefreshInventory and is not in scope here.
-        local reagCount = 0
-        for slot = 1, C_Container.GetContainerNumSlots(5) do
-            if C_Container.GetContainerItemInfo(5, slot) then reagCount = reagCount + 1 end
-        end
+    local reagSlots = C_Container.GetContainerNumSlots(5) or 0
+    if reagSlots > 0 then
+        -- Counted from the container: tempItems is local to RefreshInventory and
+        -- is not in scope here. Free-slot count rather than a per-slot walk, since
+        -- this runs on every sidebar rebuild whether or not the split is on.
+        local reagFree = C_Container.GetContainerNumFreeSlots(5) or 0
         displayList[#displayList + 1] = {
-            catIdx = -3, name = EllesmereUI.L("Reagent Bag"), icon = 3622222, count = reagCount,
+            catIdx = -3, name = EllesmereUI.L("Reagent Bag"), icon = 3622222,
+            count = reagSlots - reagFree,
         }
     end
 
@@ -4667,8 +4663,8 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
             end)
             btn:SetScript("OnMouseDown", function(self, button)
                 if button ~= "LeftButton" then return end
-                -- Equip-set cats: ReorderCategory rejects them; don't start the drag either
-                if self._catIdx <= 0 or self._noMove or self._isEquipSet then return end
+                -- Set/profession children: ReorderCategory rejects them; don't start the drag either
+                if self._catIdx <= 0 or self._noMove or self._isEquipSet or self._isProfession then return end
                 self._didDrag = false
                 local _, startY = GetCursorPosition()
                 self._dragStartY = startY
@@ -4726,6 +4722,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
         btn._groupName = entry.groupName
         btn._noMove = entry.noMove or false
         btn._isEquipSet = entry.isEquipSet or false
+        btn._isProfession = entry.isProfession or false
         btn._isPinned = entry.isPinned or false
 
         btn:SetParent(sidebarChild or sidebar)
@@ -5478,7 +5475,8 @@ function EUI_Bags:RefreshInventory()
     TakeBagSnapshot(tempItems)
 
     -- Show blocked-swap tooltip in category/group views (not All Items, not OneBag)
-    if swapDetected and not isAllItems and selectedCategoryIndex ~= -1 and selectedCategoryIndex ~= -2 then
+    if swapDetected and not isAllItems and selectedCategoryIndex ~= -1
+        and selectedCategoryIndex ~= -2 and selectedCategoryIndex ~= -3 then
         if EUI.ShowWidgetTooltip then
             EUI.ShowWidgetTooltip(EUI_Bags, "Positions can only be changed\nin the All Items, OneBag, or MultiBag views", { anchor = "cursor" })
             C_Timer.After(3, function()
@@ -6674,23 +6672,34 @@ function EUI_Bags:RefreshInventory()
 
             local itemsByMember = {}
             for _, mi in ipairs(members) do itemsByMember[mi] = {} end
-            -- Split-mode set children fold into their anchor member's section
-            local anchorMi, childSet
-            if BP().bagSplitSetGearBySet then
+            -- Split-mode children fold into their anchor member's section. Both
+            -- child kinds map here: a child whose anchor is not in this group has
+            -- no entry and renders standalone as before.
+            local childAnchor
+            if BP().bagSplitSetGearBySet or BP().bagSplitByProfession then
+                local setAnchorMi, profAnchorMi
                 for _, mi in ipairs(members) do
-                    if cats[mi] and cats[mi].isSetGear and not cats[mi].isEquipSet then anchorMi = mi; break end
+                    local c = cats[mi]
+                    if c then
+                        if not setAnchorMi and c.isSetGear and not c.isEquipSet then setAnchorMi = mi end
+                        if not profAnchorMi and c._defaultName == "Professions" then profAnchorMi = mi end
+                    end
                 end
-                if anchorMi then
-                    childSet = {}
-                    for i, c in ipairs(cats) do if c.isEquipSet then childSet[i] = true end end
+                if setAnchorMi or profAnchorMi then
+                    childAnchor = {}
+                    for i, c in ipairs(cats) do
+                        if c.isEquipSet then childAnchor[i] = setAnchorMi
+                        elseif c.isProfession then childAnchor[i] = profAnchorMi end
+                    end
                 end
             end
             for _, data in ipairs(displayItems) do
                 local ci = data.categoryIndex
                 if ci and itemsByMember[ci] then
                     itemsByMember[ci][#itemsByMember[ci] + 1] = data
-                elseif ci and childSet and childSet[ci] then
-                    itemsByMember[anchorMi][#itemsByMember[anchorMi] + 1] = data
+                elseif ci and childAnchor and childAnchor[ci] then
+                    local ai = childAnchor[ci]
+                    itemsByMember[ai][#itemsByMember[ai] + 1] = data
                 end
             end
 
@@ -7019,7 +7028,11 @@ function EUI_Bags:RefreshInventory()
     end
 
     if EUI_Bags.Header and EUI_Bags.Header.itemCount then
-        if selectedCategoryIndex == 0 or selectedCategoryIndex == -1 or selectedCategoryIndex == -2 or selectedCategoryIndex == -3 then
+        if selectedCategoryIndex == -3 then
+            local slots = C_Container.GetContainerNumSlots(5) or 0
+            local free  = C_Container.GetContainerNumFreeSlots(5) or 0
+            EUI_Bags.Header.itemCount:SetText(EllesmereUI.Lf("%d / %d Items", slots - free, slots))
+        elseif selectedCategoryIndex == 0 or selectedCategoryIndex == -1 or selectedCategoryIndex == -2 then
             local totalSlots = totalCount + #emptySlots
             EUI_Bags.Header.itemCount:SetText(EllesmereUI.Lf("%d / %d Items", totalCount, totalSlots))
         else

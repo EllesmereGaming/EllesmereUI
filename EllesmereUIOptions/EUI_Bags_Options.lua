@@ -478,8 +478,8 @@ initFrame:SetScript("OnEvent", function(self)
                     if _G.EUI_CategoryManager then
                         local cats = _G.EUI_CategoryManager:GetCategories()
                         for ci, cat in ipairs(cats) do
-                            -- isEquipSet excluded: per-character keys, governed by the split toggle instead
-                            if not cat.isCatchAll and not cat.isPinned and not cat.isRecent and not cat.isReagentBag and not cat.isEquipSet then
+                            -- isEquipSet/isProfession excluded: runtime-only keys, governed by their split toggle instead
+                            if not cat.isCatchAll and not cat.isPinned and not cat.isRecent and not cat.isReagentBag and not cat.isEquipSet and not cat.isProfession then
                                 catItems[#catItems + 1] = { key = cat._defaultName, label = cat.name }
                             end
                         end
@@ -953,6 +953,14 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue=function() return db.profile.bagSplitByProfession == true end,
                   setValue=function(v)
                       db.profile.bagSplitByProfession = v and true or false
+                      -- Re-resolves the selected view by stable key: adding or
+                      -- removing the children shifts every later index, so a kept
+                      -- selection would point at a different category.
+                      if _G.EUI_Bags and _G.EUI_Bags.InvalidateSetCategories then
+                          _G.EUI_Bags.InvalidateSetCategories()
+                      elseif _G.EUI_CategoryManager then
+                          _G.EUI_CategoryManager:OnEquipmentSetsChanged()
+                      end
                       if _G.EUI_CategoryManager then _G.EUI_CategoryManager:InitCategories() end
                       ResetAndRefreshBagLayout()
                       EllesmereUI:RefreshPage()
