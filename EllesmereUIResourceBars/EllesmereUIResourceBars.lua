@@ -1127,7 +1127,8 @@ local DEFAULTS = {
             visHideNoEnemy = false,
             orientation = "HORIZONTAL",  -- "HORIZONTAL","VERTICAL_UP","VERTICAL_DOWN"
             thresholdEnabled = false,
-            thresholdPct     = 30,
+            thresholdCount   = 30,
+            thresholdMode    = "percent",
             thresholdR = 1.0, thresholdG = 0.2, thresholdB = 0.2, thresholdA = 1,
             thresholdSpecs = {},
             thresholdTextInstead = false,
@@ -1180,8 +1181,9 @@ local DEFAULTS = {
             visHideNoEnemy = false,
             orientation = "HORIZONTAL",  -- "HORIZONTAL","VERTICAL_UP","VERTICAL_DOWN"
             thresholdEnabled = false,
-            thresholdPct     = 30,
-            thresholdPartialOnly = false,
+            thresholdCount   = 30,
+            thresholdMode    = "percent",
+            thresholdReverse = false,
             thresholdR = 1.0, thresholdG = 0.2, thresholdB = 0.2, thresholdA = 1,
             thresholdSpecs = {},
             thresholdTextInstead = false,
@@ -3868,13 +3870,25 @@ local function BuildBars()
         EllesmereUI.SetElementVisibility(secondaryFrame, false)
     end
 
-    -- Hash lines on the health and power bars
+    -- Hash lines on the health and power bars: hash-specific fields now live
+    -- per-spec on thresholdSpecs (matching Class Resource Bar's model) rather
+    -- than bar-wide. ApplyHashLines itself is unchanged -- it only ever reads
+    -- cfg.hashEnabled/hashValues/hashMode/hashWidth/hashColor*, and a resolved
+    -- thresholdSpecs entry carries the exact same field names. Deliberately NOT
+    -- preserving the old bar-wide borderSize-driven vertical inset here, to
+    -- match Class Resource Bar's own hash lines exactly (which never had one) --
+    -- reduces divergence between the three bars' hash rendering instead of
+    -- keeping Power/Health as a bordered special case. ResolveThresholdSpecEntry
+    -- returning nil (no matching/no entries) is handled by ApplyHashLines itself,
+    -- which no-ops cleanly on a nil cfg.
     do
         local _prof = ERB.db and ERB.db.profile
         if _prof then
-            ns.ApplyHashLines(healthBar, _prof.health,
+            local _healthEntry = _prof.health and ResolveThresholdSpecEntry(_prof.health)
+            local _primaryEntry = _prof.primary and ResolveThresholdSpecEntry(_prof.primary)
+            ns.ApplyHashLines(healthBar, _healthEntry,
                 function() return UnitHealthMax("player") end)
-            ns.ApplyHashLines(primaryBar, _prof.primary,
+            ns.ApplyHashLines(primaryBar, _primaryEntry,
                 function() return UnitPowerMax("player", GetPrimaryPowerType()) end)
         end
     end
@@ -3934,6 +3948,53 @@ end
 
 
 -- Update functions (event-driven)
+-- ActiveBuffColor/ActiveSpenderColor are defined further below (also used by
+-- UpdateIronfurBar/UpdateSecondaryResource), but UpdateHealthBar and
+-- UpdatePrimaryBar -- which also need them -- are both defined earlier in the
+-- file. Forward-declared here so both can call them; same idiom already used
+-- above for ResolveThresholdSpecEntry.
+-- ActiveBuffColor/ActiveSpenderColor: namespaced under ns. rather than a
+-- top-level local forward-declaration -- this file's main chunk is at Lua
+-- 5.1's 200-local-variable hard limit, and ns.-fields don't need forward
+-- declaration at all (always accessible via the table). Functionally
+-- identical either way; every call site updated to ns.ActiveBuffColor/
+-- ns.ActiveSpenderColor accordingly.
+
+-- AbbreviateNumbers is a Blizzard API function (FrameXML global, promoted to a
+-- proper API in Patch 12.0.0) that does raw numeric comparison and arithmetic on
+-- its argument with no secret-value protection at all -- confirmed against its
+-- actual published implementation (warcraft.wiki.gg): `value >= data.breakpoint`
+-- and `value / data.significandDivisor`, unguarded. Power Bar's own cur is already
+-- known to be secret at least transiently for some custom power types (see the
+-- negative-clamp guard in UpdatePrimaryBar), so calling AbbreviateNumbers(cur)
+-- directly would throw the moment that happens. Guard explicitly (cheap, matches
+-- the issecretvalue idiom already used throughout this file) and pcall as
+-- defense-in-depth for any other, untested edge case, since this is Blizzard's
+-- own function, not something inspectable/fixable here. tostring() as the pcall-
+-- failure fallback is only reached once the value is already confirmed non-secret
+-- above, so it's safe there -- tostring() on a genuinely secret value is not
+-- guaranteed safe either, hence the separate, earlier check.
+-- Namespaced under ns. rather than declared as its own top-level local: this
+-- file's main chunk is at Lua 5.1's 200-local-variable hard limit -- see the
+-- identical note on ns.IsOnRealCooldown above. Functionally identical either way.
+ns.SafeAbbreviateNumbers = function(value)
+    if issecretvalue and issecretvalue(value) then
+        -- Can't safely compare/divide a secret value (which is what
+        -- AbbreviateNumbers does internally), but format("%s", ...) renders a
+        -- secret's digits natively, engine-side -- the same trick already used
+        -- elsewhere in this file and by Class Resource Bar's own bar-type
+        -- resources for exactly this reason. Loses the k/m abbreviation for
+        -- the secret case (which, in practice, is not the rare edge case the
+        -- comment above originally assumed -- it happens routinely enough that
+        -- returning "" here blanked the value display outright), but still
+        -- shows the actual number instead of nothing.
+        return format("%s", value)
+    end
+    local ok, result = pcall(AbbreviateNumbers, value)
+    if ok and result then return result end
+    return tostring(value)
+end
+
 local function UpdateHealthBar()
     if not healthBar or not healthBar:IsShown() then return end
     local hp = _G._ERB_ResolveHealthCfg()
@@ -3960,20 +4021,67 @@ local function UpdateHealthBar()
     -- Color: threshold via ColorCurve (same as the power bar), from the
     -- per-spec threshold entry.
     local _hpTsEntry = ResolveThresholdSpecEntry(hp)
+    local _hpBuffEntry = _hpTsEntry
     local _hpTsEnabled = _hpTsEntry and (_hpTsEntry.thresholdEnabled ~= false) or false
     local _hpBandOn, _hpBands, _hpBandMode, _hpBandRev = ResolveBandConfig(hp, _hpTsEntry)
     if not _hpTsEnabled then _hpTsEntry = nil end
     local ft = healthBar:GetStatusBarTexture()
     local _hpTextInstead = _hpTsEntry and _hpTsEntry.thresholdTextInstead and hp.textFormat ~= "none"
-    if (_hpTsEntry or _hpBandOn) and ft and UnitHealthPercent then
-        local curve
-        local baseR, baseG, baseB
-        if hp.customColored then
-            baseR, baseG, baseB = hp.fillR, hp.fillG, hp.fillB
+    -- Curve direction, used by both the text-instead and normal branches below.
+    -- No Health-Bar-specific default here going forward -- existing users'
+    -- actual prior (opposite-of-default) behavior was already made explicit
+    -- data by the migration; this fallback only matters for genuinely new
+    -- entries, which get the same default as Power Bar/Class Resource Bar.
+    local _hpReverse = _hpTsEntry and _hpTsEntry.thresholdReverse
+    if _hpReverse == nil then _hpReverse = hp.thresholdReverse end
+
+    -- Base fill color: needed by the buff/spender override below, the
+    -- threshold curve's fill-stays-base case, and the plain default branch --
+    -- computed once here instead of three times.
+    local baseR, baseG, baseB
+    if hp.customColored then
+        baseR, baseG, baseB = hp.fillR, hp.fillG, hp.fillB
+    else
+        local cc = CLASS_COLORS[cachedClass]
+        if cc then baseR, baseG, baseB = cc[1], cc[2], cc[3] else baseR, baseG, baseB = 0.15, 0.75, 0.30 end
+    end
+
+    -- A tracked buff overrides the fill (buff wins over threshold/band).
+    -- Spenders is checked only when no buff is active, so it can never
+    -- override Buff Colors. Uses _hpBuffEntry (the raw entry, captured before
+    -- threshold-gating above) so this works independently of whether
+    -- Threshold is enabled -- matching Class Resource Bar and Power Bar.
+    -- Spenders on a health bar is an unusual pairing (recoloring health based
+    -- on spell castability), but deliberately wired in the same way as the
+    -- other two bars rather than special-cased out at the render level -- the
+    -- plan is to hide the option from the UI for Health Bar specifically, not
+    -- to fork the render logic per bar. Both return plain, non-secret colors,
+    -- so unlike the threshold/band path below they never need the ColorCurve.
+    local _bfr, _bfg, _bfb, _bfa = ns.ActiveBuffColor(_hpBuffEntry)
+    if not _bfr then
+        _bfr, _bfg, _bfb, _bfa = ns.ActiveSpenderColor(_hpBuffEntry)
+    end
+    local _buffActive = _bfr ~= nil
+
+    if _buffActive then
+        if _hpTextInstead then
+            if healthBar._text then healthBar._text:SetTextColor(_bfr, _bfg, _bfb, _bfa or 1) end
+            if hp.gradientEnabled then
+                ApplyBarGradient(ft, hp.gradientDir or "HORIZONTAL", baseR, baseG, baseB, 1,
+                    hp.gradientR, hp.gradientG, hp.gradientB, hp.gradientA)
+            else
+                ApplyBarFlat(ft, baseR, baseG, baseB, 1)
+            end
         else
-            local cc = CLASS_COLORS[cachedClass]
-            if cc then baseR, baseG, baseB = cc[1], cc[2], cc[3] else baseR, baseG, baseB = 0.15, 0.75, 0.30 end
+            if hp.gradientEnabled then
+                ApplyBarGradient(ft, hp.gradientDir or "HORIZONTAL", _bfr, _bfg, _bfb, _bfa or 1,
+                    hp.gradientR, hp.gradientG, hp.gradientB, hp.gradientA)
+            else
+                ApplyBarFlat(ft, _bfr, _bfg, _bfb, _bfa or 1)
+            end
         end
+    elseif (_hpTsEntry or _hpBandOn) and ft and UnitHealthPercent then
+        local curve
         local _bandOn, _bands, _bandMode, _bandRev = _hpBandOn, _hpBands, _hpBandMode, _hpBandRev
 		-- Recolor text instead of bar
         if _hpTextInstead then
@@ -3990,7 +4098,16 @@ local function UpdateHealthBar()
                 local tR = _hpTsEntry.thresholdR or hp.thresholdR or 1
                 local tG = _hpTsEntry.thresholdG or hp.thresholdG or 0.2
                 local tB = _hpTsEntry.thresholdB or hp.thresholdB or 0.2
-                curve = GetBarThresholdCurve(tbR, tbG, tbB, tR, tG, tB, _hpTsEntry.thresholdPct or hp.thresholdPct or 30)
+                local _hpThreshCount = _hpTsEntry.thresholdCount or hp.thresholdCount or 30
+                local tPct = _hpThreshCount
+                if _hpTsEntry.thresholdMode == "value" and mx and mx > 0 then
+                    tPct = math.min(100, _hpThreshCount / mx * 100)
+                end
+                if _hpReverse then
+                    curve = GetBarThresholdCurve(tbR, tbG, tbB, tR, tG, tB, tPct)
+                else
+                    curve = GetBarThresholdCurve(tR, tG, tB, tbR, tbG, tbB, tPct)
+                end
             end
             if curve and healthBar._text then
                 local ok, colorResult = pcall(UnitHealthPercent, "player", false, curve)
@@ -4013,25 +4130,53 @@ local function UpdateHealthBar()
                 local tR = _hpTsEntry.thresholdR or hp.thresholdR or 1
                 local tG = _hpTsEntry.thresholdG or hp.thresholdG or 0.2
                 local tB = _hpTsEntry.thresholdB or hp.thresholdB or 0.2
-                curve = GetBarThresholdCurve(baseR, baseG, baseB, tR, tG, tB, _hpTsEntry.thresholdPct or hp.thresholdPct or 30)
+                local _hpThreshCount = _hpTsEntry.thresholdCount or hp.thresholdCount or 30
+                local tPct = _hpThreshCount
+                if _hpTsEntry.thresholdMode == "value" and mx and mx > 0 then
+                    tPct = math.min(100, _hpThreshCount / mx * 100)
+                end
+                if _hpReverse then
+                    curve = GetBarThresholdCurve(baseR, baseG, baseB, tR, tG, tB, tPct)
+                else
+                    curve = GetBarThresholdCurve(tR, tG, tB, baseR, baseG, baseB, tPct)
+                end
             end
             if curve then
                 local ok, colorResult = pcall(UnitHealthPercent, "player", false, curve)
                 if ok and colorResult and colorResult.GetRGBA then
                     ft:SetVertexColor(colorResult:GetRGBA())
+                    -- This bypasses ApplyBarFlat/ApplyBarGradient's dedup cache (the curve
+                    -- result is secret-evaluated, so there's no clean r,g,b to cache against
+                    -- anyway). Invalidate both so a LATER cache-aware write (e.g. the default
+                    -- branch below, when Threshold gets toggled off) can't be silently skipped
+                    -- as a false-positive "unchanged" match against this bypassed value.
+                    ft._lfOn, ft._lgOn = nil, nil
+                else
+                    -- Curve evaluation failed (pcall error, or a malformed/missing result) --
+                    -- without this, the fill silently freezes at whatever it last showed.
+                    -- CRB has the identical fallback for its own bar-type curve; Health Bar
+                    -- had no equivalent until this fix. Uses Health Bar's own baseR/G/B (the
+                    -- class color or custom fill), never Class Resource Bar's color.
+                    ft:SetVertexColor(baseR, baseG, baseB, 1)
+                    ft._lfOn, ft._lgOn = nil, nil
                 end
             end
         end
-    elseif ft and not hp.customColored then
-        local r, g, b
-        local cc = CLASS_COLORS[cachedClass]
-        if cc then r, g, b = cc[1], cc[2], cc[3] else r, g, b = 0.15, 0.75, 0.30 end
+    elseif ft then
+        -- No condition on hp.customColored: baseR/G/B was already correctly
+        -- resolved for either case above (pp.customColored ? pp.fillR/G/B :
+        -- the power-type color). This used to be conditional, which was
+        -- harmless before Buff Colors/Spenders existed (nothing else ever
+        -- wrote a DIFFERENT color here to revert from) -- but with them, a
+        -- customColored bar with Threshold/Band both off had no fallback
+        -- branch at all once a buff/spender released control, leaving the
+        -- fill permanently stuck on whatever color it last showed.
         if hp.gradientEnabled then
             ApplyBarGradient(ft, hp.gradientDir or "HORIZONTAL",
-                r, g, b, 1,
+                baseR, baseG, baseB, 1,
                 hp.gradientR, hp.gradientG, hp.gradientB, hp.gradientA)
         else
-            ApplyBarFlat(ft, r, g, b, 1)
+            ApplyBarFlat(ft, baseR, baseG, baseB, 1)
         end
     end
 
@@ -4046,7 +4191,7 @@ local function UpdateHealthBar()
     if hp.textFormat ~= "none" and not _G._ERB_TextHiddenByForm(hp) then
         local fmt = hp.textFormat
         local pctStr = format("%d", pctRaw)
-        local curStr = AbbreviateNumbers(cur)
+        local curStr = ns.SafeAbbreviateNumbers(cur)
         local txt
         if fmt == "both" then
             txt = curStr .. " | " .. pctStr .. "%"
@@ -4085,6 +4230,11 @@ local function UpdatePrimaryBar()
         -- ResolveBandConfig must see the RAW entry, not the enabled-gated one.
         pc.bandOn, pc.bands, pc.bandMode, pc.bandRev = ResolveBandConfig(pc.pp, e)
         pc.tsEntry = (e and (e.thresholdEnabled ~= false)) and e or nil
+        -- Buff Colors/Spenders must ALSO see the raw entry, not the enabled-gated
+        -- one -- same reasoning as ResolveBandConfig above. Class Resource Bar's
+        -- equivalent (_buffEntry) was never gated on Threshold in the first place;
+        -- Power Bar's was, incorrectly, until this fix.
+        pc.rawEntry = e
         -- Primary power type is spec/form/profile state; every path that can
         -- change it funnels through BuildBars, which bumps CfgGen.
         pc.primary = GetPrimaryPowerType()
@@ -4198,15 +4348,59 @@ local function UpdatePrimaryBar()
     local _ppBandOn, _ppBands, _ppBandMode, _ppBandRev = pc.bandOn, pc.bands, pc.bandMode, pc.bandRev
     local ft = primaryBar:GetStatusBarTexture()
     local _ppTextInstead = _ppTsEntry and _ppTsEntry.thresholdTextInstead and pp.textFormat ~= "none"
-    if (_ppTsEntry or _ppBandOn) and ft and UnitPowerPercent then
-        local curve
-        local baseR, baseG, baseB
-        if pp.customColored then
-            baseR, baseG, baseB = pp.fillR, pp.fillG, pp.fillB
+
+    -- Base fill color: needed by the buff/spender override below, the
+    -- threshold curve's text-instead fill, and the plain default branch --
+    -- computed once here instead of three times.
+    local baseR, baseG, baseB
+    if pp.customColored then
+        baseR, baseG, baseB = pp.fillR, pp.fillG, pp.fillB
+    else
+        local _powerColorDef = POWER_COLORS[cachedPrimary]
+        if _powerColorDef then baseR, baseG, baseB = _powerColorDef[1], _powerColorDef[2], _powerColorDef[3]
+        else baseR, baseG, baseB = 1, 1, 1 end
+    end
+
+    -- A tracked buff overrides the fill (buff wins over threshold/band).
+    -- Spenders is checked only when no buff is active, so it can never
+    -- override Buff Colors. Uses pc.rawEntry (the raw entry, captured before
+    -- threshold-gating above) so this works independently of whether
+    -- Threshold is enabled -- matching Class Resource Bar and Health Bar.
+    -- Both return plain, non-secret colors, so unlike the threshold/band
+    -- path below they never need the ColorCurve -- applied directly via
+    -- SetVertexColor instead.
+    local _bfr, _bfg, _bfb, _bfa = ns.ActiveBuffColor(pc.rawEntry)
+    if not _bfr then
+        _bfr, _bfg, _bfb, _bfa = ns.ActiveSpenderColor(pc.rawEntry)
+    end
+    local _buffActive = _bfr ~= nil
+
+    if _buffActive then
+        -- Invalidate the config-gen/power-type cache below (both the curve branch's
+        -- own text-instead fill-reset, and the final default branch): neither of
+        -- those track buff state, only ns.CfgGen/cachedPrimary. Without this, a
+        -- buff ending would leave the fill permanently stuck on the buff's color --
+        -- the cache would see CfgGen/cachedPrimary unchanged (only buff state
+        -- changed) and wrongly skip the repaint that should revert it.
+        primaryBar._colGen, primaryBar._colPow = nil, nil
+        if _ppTextInstead then
+            if primaryBar._text then primaryBar._text:SetTextColor(_bfr, _bfg, _bfb, _bfa or 1) end
+            if pp.gradientEnabled then
+                ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL", baseR, baseG, baseB, 1,
+                    pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
+            else
+                ApplyBarFlat(ft, baseR, baseG, baseB, 1)
+            end
         else
-            local pc = POWER_COLORS[cachedPrimary]
-            if pc then baseR, baseG, baseB = pc[1], pc[2], pc[3] else baseR, baseG, baseB = 1, 1, 1 end
+            if pp.gradientEnabled then
+                ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL", _bfr, _bfg, _bfb, _bfa or 1,
+                    pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
+            else
+                ApplyBarFlat(ft, _bfr, _bfg, _bfb, _bfa or 1)
+            end
         end
+    elseif (_ppTsEntry or _ppBandOn) and ft and UnitPowerPercent then
+        local curve
         local _bandOn, _bands, _bandMode, _bandRev = _ppBandOn, _ppBands, _ppBandMode, _ppBandRev
         local rvR, rvG, rvB = baseR, baseG, baseB
         if _ppTextInstead then
@@ -4223,10 +4417,17 @@ local function UpdatePrimaryBar()
             local tR = _ppTsEntry.thresholdR or pp.thresholdR or 1
             local tG = _ppTsEntry.thresholdG or pp.thresholdG or 0.2
             local tB = _ppTsEntry.thresholdB or pp.thresholdB or 0.2
-            local tPct = _ppTsEntry.thresholdPct or pp.thresholdPct or 30
-            local _ppPartial = _ppTsEntry.thresholdPartialOnly
-            if _ppPartial == nil then _ppPartial = pp.thresholdPartialOnly end
-            if _ppPartial then
+            -- thresholdCount/thresholdMode mirror Class Resource Bar exactly: a
+            -- "value" mode threshold is an absolute amount, converted to a percent
+            -- against mx for the curve (which always works in percent terms).
+            local _ppThreshCount = _ppTsEntry.thresholdCount or pp.thresholdCount or 30
+            local tPct = _ppThreshCount
+            if _ppTsEntry.thresholdMode == "value" and mx and mx > 0 then
+                tPct = math.min(100, _ppThreshCount / mx * 100)
+            end
+            local _ppReverse = _ppTsEntry.thresholdReverse
+            if _ppReverse == nil then _ppReverse = pp.thresholdReverse end
+            if _ppReverse then
                 curve = GetBarThresholdCurve(rvR, rvG, rvB, tR, tG, tB, tPct)
             else
                 curve = GetBarThresholdCurve(tR, tG, tB, rvR, rvG, rvB, tPct)
@@ -4246,7 +4447,26 @@ local function UpdatePrimaryBar()
                     if primaryBar._text then primaryBar._text:SetTextColor(colorResult:GetRGBA()) end
                 else
                     ft:SetVertexColor(colorResult:GetRGBA())
+                    -- This bypasses ApplyBarFlat/ApplyBarGradient's dedup cache (the curve
+                    -- result is secret-evaluated, so there's no clean r,g,b to cache against
+                    -- anyway). Invalidate both so a LATER cache-aware write (e.g. the default
+                    -- branch below, when Threshold gets toggled off) can't be silently skipped
+                    -- as a false-positive "unchanged" match against this bypassed value.
+                    ft._lfOn, ft._lgOn = nil, nil
                 end
+            elseif not _ppTextInstead then
+                -- Curve evaluation failed (pcall error, or a malformed/missing result) --
+                -- without this, the fill silently freezes at whatever it last showed.
+                -- CRB has the identical fallback for its own bar-type curve (Maelstrom/
+                -- Insanity/Focus/Lunar Power); Power Bar had no equivalent until this fix.
+                -- Uses Power Bar's own baseR/G/B (the actual power-type color -- Energy/
+                -- Mana/Rage/Fury/etc, or the custom fill if set), never Class Resource
+                -- Bar's color. Matches CRB's own scope exactly: no equivalent fallback
+                -- for the text-instead+colorText case either there or here (a stale text
+                -- color is a far smaller issue than a frozen fill, and the fill already
+                -- gets a guaranteed-correct reset just below regardless).
+                ft:SetVertexColor(baseR, baseG, baseB, 1)
+                ft._lfOn, ft._lgOn = nil, nil
             end
         end
         if _ppTextInstead then
@@ -4263,19 +4483,30 @@ local function UpdatePrimaryBar()
                 end
             end
         end
-    elseif not pp.customColored then
-        -- Static per config generation + power type (same stamp as above).
+    else
+        -- No condition on pp.customColored: baseR/G/B was already correctly
+        -- resolved for either case above (pp.customColored ? pp.fillR/G/B :
+        -- the power-type color). This used to be conditional, which was
+        -- harmless before Buff Colors/Spenders existed (nothing else ever
+        -- wrote a DIFFERENT color here to revert from) -- but with them, a
+        -- customColored bar with Threshold/Band both off had no fallback
+        -- branch at all once a buff/spender released control, leaving the
+        -- fill permanently stuck on whatever color it last showed.
+        --
+        -- Static per config generation + power type (same stamp as the
+        -- text-instead case above): reapplying this on every power tick when
+        -- nothing relevant changed was pure churn. Safe to gate on CfgGen/
+        -- cachedPrimary alone, without also checking buff/spender state,
+        -- because the buff-active branch above invalidates this same stamp
+        -- whenever it runs -- see the comment there.
         if primaryBar._colGen ~= ns.CfgGen or primaryBar._colPow ~= cachedPrimary then
             primaryBar._colGen, primaryBar._colPow = ns.CfgGen, cachedPrimary
-            local r, g, b
-            local pc = POWER_COLORS[cachedPrimary]
-            if pc then r, g, b = pc[1], pc[2], pc[3] else r, g, b = 1, 1, 1 end
             if pp.gradientEnabled then
                 ApplyBarGradient(ft, pp.gradientDir or "HORIZONTAL",
-                    r, g, b, 1,
+                    baseR, baseG, baseB, 1,
                     pp.gradientR, pp.gradientG, pp.gradientB, pp.gradientA)
             else
-                ApplyBarFlat(ft, r, g, b, 1)
+                ApplyBarFlat(ft, baseR, baseG, baseB, 1)
             end
         end
     end
@@ -4303,15 +4534,15 @@ local function UpdatePrimaryBar()
             local txt
             if fmt == "smart" then
                 local isPercent = EllesmereUI.IsSmartPowerPercent and EllesmereUI.IsSmartPowerPercent(cachedPrimary)
-                txt = isPercent and percentText or AbbreviateNumbers(cur)
+                txt = isPercent and percentText or ns.SafeAbbreviateNumbers(cur)
             elseif fmt == "both" then
-                txt = AbbreviateNumbers(cur) .. " | " .. percentText
+                txt = ns.SafeAbbreviateNumbers(cur) .. " | " .. percentText
             elseif fmt == "curpp" then
-                txt = AbbreviateNumbers(cur)
+                txt = ns.SafeAbbreviateNumbers(cur)
             elseif fmt == "perpp" then
                 txt = percentText
             else
-                txt = AbbreviateNumbers(cur)
+                txt = ns.SafeAbbreviateNumbers(cur)
             end
             primaryBar._text:SetText(txt)
         end
@@ -4450,7 +4681,7 @@ local function PlayerHasBuff(spellID)
 end
 
 -- Buff coloring for the class-resource bar
-local function ActiveBuffColor(entry)
+ns.ActiveBuffColor = function(entry)
     if not entry or not entry.buffColorEnabled then return nil end
     local list = entry.buffColors
     if not list then return nil end
@@ -4468,6 +4699,83 @@ local function SecondaryTracksBuff(sp)
     if not sp then return false end
     local e = ResolveThresholdSpecEntry(sp)
     return (e and e.buffColorEnabled and e.buffColors and #e.buffColors > 0) and true or false
+end
+
+-- Spender coloring for the class-resource bar ("Spenders" in the options UI): the FIRST
+-- entry in the list whose spell is currently castable wins. Lower priority than Buff
+-- Colors -- callers only reach this when ActiveBuffColor already returned nil, so a tracked
+-- buff always wins when both would otherwise apply.
+--
+-- Also checks for a real cooldown, not just resource cost -- IsSpellUsable alone
+-- doesn't mean "off cooldown." Normally invisible, since casting a spell also spends
+-- its resource, so cooldown and resource-insufficiency happen at the same time. An
+-- edge case spender like Void Ray (Devourer DH, free while Void Metamorphosis is
+-- active) breaks that -- IsOnRealCooldown below catches it, for every Spender on
+-- every bar. Gated on isOnGCD too, or every spender would read "on cooldown" for the
+-- GCD after every single cast.
+--
+-- Both the call and the boolean check happen inside the pcall (in case the fields
+-- are ever secret) -- a failure just falls through to the normal IsSpellUsable
+-- check, same as before this existed.
+-- Namespaced under ns. rather than declared as its own top-level local: this
+-- file's main chunk is at Lua 5.1's 200-local-variable hard limit (confirmed
+-- directly -- luac refuses to compile with a plain "local function" here).
+-- Attaching to the existing ns table avoids consuming a new local slot;
+-- functionally identical either way.
+ns.IsOnRealCooldown = function(spellID)
+    local getCD = C_Spell and C_Spell.GetSpellCooldown
+    if not getCD then return false end
+    local ok, active = pcall(function()
+        local cd = getCD(spellID)
+        return cd and cd.isActive == true and cd.isOnGCD ~= true
+    end)
+    return ok and active or false
+end
+--
+-- C_Spell.IsSpellUsable is documented (and field-tested) as reporting the PLAYER'S OWN
+-- ability to cast a spell, not an opponent-facing combat value, so it is not expected to be
+-- a Midnight secret value the way e.g. an enemy's interrupt-protection flag is elsewhere in
+-- this file. Even so, both the call and the boolean branch on its result happen INSIDE the
+-- pcall below (not just the call): if IsSpellUsable's return were ever secret in some
+-- content mode this hasn't been tested against, evaluating it truthy/falsy is what would
+-- throw, and only wrapping the call would not catch that. A failure here just treats that
+-- list entry as "not usable" and moves on -- it never surfaces as a Lua error.
+-- Note on override-swapped abilities (buttons whose spell changes based on player state,
+-- e.g. Devourer DH's Void Metamorphosis button becoming Collapsing Star while active):
+-- C_Spell.IsSpellUsable is override-aware for the ORIGINAL/base spell ID -- it correctly
+-- reports whatever the button currently resolves to, including custom resource gates the
+-- override target itself has no cost data for (confirmed via GetSpellPowerCost returning
+-- empty on the override target while behaving correctly on the base ID). Querying the
+-- override target's spellID directly returns a static, meaningless result.
+ns.ActiveSpenderColor = function(entry)
+    if not entry or not entry.spenderColorEnabled then return nil end
+    local list = entry.spenderColors
+    if not (list and C_Spell and C_Spell.IsSpellUsable) then return nil end
+    for i = 1, #list do
+        local e = list[i]
+        if e.spellID and not ns.IsOnRealCooldown(e.spellID) then
+            local ok, usable = pcall(function()
+                return C_Spell.IsSpellUsable(e.spellID) and true or false
+            end)
+            if ok and usable then return e.r, e.g, e.b, e.a end
+        end
+    end
+    return nil
+end
+-- True when the current spec's resolved threshold entry has an enabled, non-empty spender
+-- list. Mirrors SecondaryTracksBuff above.
+local function SecondaryTracksSpender(sp)
+    if not sp then return false end
+    local e = ResolveThresholdSpecEntry(sp)
+    return (e and e.spenderColorEnabled and e.spenderColors and #e.spenderColors > 0) and true or false
+end
+-- Combined "does this resolved entry need buff/spender-aware live-refresh treatment" check.
+-- ns.STB is a SINGLE cache read by four independent call sites (the points-type
+-- value-unchanged early-out, the ns.PollTick/ns.ArmTick poll gates, and the UNIT_AURA
+-- handler) -- this is the one place that ORs "tracks a buff" with "tracks a spender" so all
+-- four stay consistent instead of drifting via four separately-written OR-expressions.
+local function SecondaryNeedsLiveColorTracking(sp)
+    return SecondaryTracksBuff(sp) or SecondaryTracksSpender(sp)
 end
 
 -- Per-frame render for the Guardian Ironfur bar: prune expired ticks, position
@@ -4558,8 +4866,12 @@ local function UpdateIronfurBar()
     -- survives (buff + text-instead => buff colors the count text, fill stays base).
     local _tiWanted = (tsEntry and tsEntry.thresholdTextInstead and sp.showText) and true or false
     -- Buff coloring wins: a tracked buff on this entry overrides the base color and
-    -- suppresses the stack-count threshold/bands below.
-    local _bfr, _bfg, _bfb, _bfa = ActiveBuffColor(tsEntry)
+    -- suppresses the stack-count threshold/bands below. Spenders is checked only when no
+    -- buff is active, so it can never override Buff Colors.
+    local _bfr, _bfg, _bfb, _bfa = ns.ActiveBuffColor(tsEntry)
+    if not _bfr then
+        _bfr, _bfg, _bfb, _bfa = ns.ActiveSpenderColor(tsEntry)
+    end
     local _buffActive = _bfr ~= nil
     if _buffActive and not _tiWanted then r, g, b, a = _bfr or r, _bfg or g, _bfb or b, _bfa or a end
     -- Ironfur colors by active stack count, NOT the bar's duration fraction, so
@@ -4869,7 +5181,7 @@ local function UpdateSecondaryResource()
             if not stb or stb.gen ~= ns.CfgGen then
                 if not stb then stb = {}; ns.STB = stb end
                 stb.gen = ns.CfgGen
-                stb.v = SecondaryTracksBuff(_G._ERB_ResolveSecondaryCfg()) and true or false
+                stb.v = SecondaryNeedsLiveColorTracking(_G._ERB_ResolveSecondaryCfg())
             end
             if not stb.v then
                 local st = ns.SecSt
@@ -4962,8 +5274,15 @@ local function UpdateSecondaryResource()
 
     -- A tracked buff overrides the fill (buff wins over threshold). With "recolor
     -- text instead" on, the buff colors the count TEXT (done at the end of this
-    -- function) and fill/pips stay at their base color.
-    local _bfr, _bfg, _bfb, _bfa = ActiveBuffColor(_buffEntry)
+    -- function) and fill/pips stay at their base color. Spenders is checked only when no
+    -- buff is active (it must never override Buff Colors), and shares this same variable
+    -- pair -- every branch below (runes, bar-type/stagger, points/pip, secret pip overlay,
+    -- final text coloring) already keys off _buffActive/_bfr and doesn't care which of the
+    -- two sources produced the color.
+    local _bfr, _bfg, _bfb, _bfa = ns.ActiveBuffColor(_buffEntry)
+    if not _bfr then
+        _bfr, _bfg, _bfb, _bfa = ns.ActiveSpenderColor(_buffEntry)
+    end
     local _buffActive = _bfr ~= nil
     if _buffActive then
         if not _spTextInstead then
@@ -5418,9 +5737,6 @@ local function UpdateSecondaryResource()
                         end
                     elseif _tsEntry and powerType == "SOUL_FRAGMENTS_DEVOURER" then
                         local threshVal = _tsThreshCount or 30
-                        if _tsEntry.thresholdMode ~= "value" and maxC and maxC > 0 then
-                            threshVal = maxC * threshVal / 100
-                        end
                         if _spTextInstead then
                             -- Fill at base; tint the count text when at/over the threshold.
                             ft:SetVertexColor(r, g, b, a)
@@ -6294,32 +6610,60 @@ end, 1 / 30)
 -- 10Hz, Evoker Essence recharge at 20Hz. ONE ticker at a 20Hz base; 10Hz jobs
 -- skip every other fire. All paths funnel into UpdateSecondaryResource, whose
 -- value early-out makes an unchanged poll nearly free.
+--
+-- Power Bar / Health Bar buff/spender tracking rides this same ticker (below,
+-- after the 10Hz flip) -- same reasoning as Class Resource Bar's own stb check:
+-- a genuinely secret buff tracked via Buff Colors has no reliable event at all
+-- (not even the UNIT_AURA fix), so this poll is the only thing that can ever
+-- catch it. The original unconditional "if not cs then return end" is replaced
+-- with "if cs then ... end" wrapping the exact same CRB logic unchanged, so CRB's
+-- behavior is identical when cs exists; the difference is only that execution
+-- can now fall through to the new Power/Health checks when it doesn't.
 ns.PollTick = EllesmereUI.Tick.NewAnimTicker(CreateFrame("Frame"), function()    local cs = cachedSecondary
-    if not cs then return end
-    local pwr, typ = cs.power, cs.type
-    if _essenceNextTick and pwr == PT.ESSENCE then
-        UpdateSecondaryResource()
-        return true
+    if cs then
+        local pwr, typ = cs.power, cs.type
+        if _essenceNextTick and pwr == PT.ESSENCE then
+            UpdateSecondaryResource()
+            return true
+        end
     end
     ns._pollFlip = not ns._pollFlip
     if ns._pollFlip then return true end
-    if typ == "runes" or typ == "custom" or typ == "bar" or cs.frac then
-        -- cs.frac (Destruction shard fragments): sub-unit movement, including
-        -- out-of-combat decay, has no reliable event. The fragment-aware value
-        -- guard costs one UnitPower per fire when nothing moved.
-        UpdateSecondaryResource()
-        return true
+    if cs then
+        local pwr, typ = cs.power, cs.type
+        if typ == "runes" or typ == "custom" or typ == "bar" or cs.frac then
+            -- cs.frac (Destruction shard fragments): sub-unit movement, including
+            -- out-of-combat decay, has no reliable event. The fragment-aware value
+            -- guard costs one UnitPower per fire when nothing moved.
+            UpdateSecondaryResource()
+            return true
+        end
+        local stb = ns.STB
+        if not stb or stb.gen ~= ns.CfgGen then
+            if not stb then stb = {}; ns.STB = stb end
+            stb.gen = ns.CfgGen
+            stb.v = SecondaryNeedsLiveColorTracking(_G._ERB_ResolveSecondaryCfg())
+        end
+        if stb.v then
+            UpdateSecondaryResource()
+            return true
+        end
     end
-    local stb = ns.STB
-    if not stb or stb.gen ~= ns.CfgGen then
-        if not stb then stb = {}; ns.STB = stb end
-        stb.gen = ns.CfgGen
-        stb.v = SecondaryTracksBuff(_G._ERB_ResolveSecondaryCfg()) and true or false
+    local ptb = ns.PTB
+    if not ptb or ptb.gen ~= ns.CfgGen then
+        if not ptb then ptb = {}; ns.PTB = ptb end
+        ptb.gen = ns.CfgGen
+        ptb.v = SecondaryNeedsLiveColorTracking(_G._ERB_ResolvePowerCfg())
     end
-    if stb.v then
-        UpdateSecondaryResource()
-        return true
+    if ptb.v then UpdatePrimaryBar() end
+    local htb = ns.HTB
+    if not htb or htb.gen ~= ns.CfgGen then
+        if not htb then htb = {}; ns.HTB = htb end
+        htb.gen = ns.CfgGen
+        htb.v = SecondaryNeedsLiveColorTracking(_G._ERB_ResolveHealthCfg())
     end
+    if htb.v then UpdateHealthBar() end
+    if ptb.v or htb.v then return true end
 end, 0.05)
 
 
@@ -6345,11 +6689,30 @@ function ns.ArmTick()
             if not stb or stb.gen ~= ns.CfgGen then
                 if not stb then stb = {}; ns.STB = stb end
                 stb.gen = ns.CfgGen
-                stb.v = SecondaryTracksBuff(_G._ERB_ResolveSecondaryCfg()) and true or false
+                stb.v = SecondaryNeedsLiveColorTracking(_G._ERB_ResolveSecondaryCfg())
             end
             if stb.v then ns.PollTick.Start() end
         end
     end
+    -- Power Bar / Health Bar buff/spender tracking also needs the poll safety
+    -- net (PollTick above), independent of whether Class Resource Bar itself
+    -- needs it -- a user can have Buff Colors on Power Bar with Class Resource
+    -- Bar's Buff Colors off entirely, or vice versa. Same ns.STB-style
+    -- per-config-generation cache pattern, separate slots (ns.PTB/ns.HTB).
+    local ptb = ns.PTB
+    if not ptb or ptb.gen ~= ns.CfgGen then
+        if not ptb then ptb = {}; ns.PTB = ptb end
+        ptb.gen = ns.CfgGen
+        ptb.v = SecondaryNeedsLiveColorTracking(_G._ERB_ResolvePowerCfg())
+    end
+    if ptb.v then ns.PollTick.Start() end
+    local htb = ns.HTB
+    if not htb or htb.gen ~= ns.CfgGen then
+        if not htb then htb = {}; ns.HTB = htb end
+        htb.gen = ns.CfgGen
+        htb.v = SecondaryNeedsLiveColorTracking(_G._ERB_ResolveHealthCfg())
+    end
+    if htb.v then ns.PollTick.Start() end
     if cachedPrimary == "EBON_MIGHT" and not ns.EMB121_Owns
        and _ebonMightExpiry > GetTime() then
         ns.EMTick.Start()
@@ -9234,6 +9597,7 @@ local function OnEvent(self, event, ...)
         cachedSecondary = GetSecondaryResource()
         BuildBars()
         BuildCastBar()
+        UpdateHealthBar()
         UpdatePrimaryBar()
         UpdateSecondaryResource()
         UpdateVisibility()
@@ -9261,11 +9625,24 @@ local function OnEvent(self, event, ...)
     elseif event == "UNIT_AURA" then
         local unit = ...
         if unit == "player" then
-            if cachedPrimary == "EBON_MIGHT" then UpdatePrimaryBar() end
+            -- Power/Health Bar never had an aura-driven refresh at all before this
+            -- (only the unrelated Ebon Might special case) -- Class Resource Bar's
+            -- own buff/spender coloring has always had this; Power/Health's version
+            -- only worked opportunistically, whenever an unrelated power/health tick
+            -- happened to coincide with a buff applying or expiring. SecondaryTracksBuff/
+            -- SecondaryTracksSpender/SecondaryNeedsLiveColorTracking already take a
+            -- generic bar-data table (never hardcoded to p.secondary), so reused as-is.
+            if cachedPrimary == "EBON_MIGHT" or SecondaryNeedsLiveColorTracking(_G._ERB_ResolvePowerCfg()) then
+                UpdatePrimaryBar()
+            end
+            if SecondaryNeedsLiveColorTracking(_G._ERB_ResolveHealthCfg()) then
+                UpdateHealthBar()
+            end
             if cachedSecondary then
-                -- Refresh on aura change for custom resources and for buff coloring
-                -- (any resource type -- a tracked buff gain/loss recolors the bar).
-                if cachedSecondary.type == "custom" or SecondaryTracksBuff(_G._ERB_ResolveSecondaryCfg()) then
+                -- Refresh on aura change for custom resources and for buff/spender coloring
+                -- (any resource type -- a tracked buff gain/loss, or an aura-gated reactive
+                -- spender becoming usable, recolors the bar).
+                if cachedSecondary.type == "custom" or SecondaryNeedsLiveColorTracking(_G._ERB_ResolveSecondaryCfg()) then
                     UpdateSecondaryResource()
                 end
             end
