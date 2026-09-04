@@ -1479,18 +1479,28 @@ local function PlayerHasWellFed()
     return false
 end
 
--- Unlike the other consumables this one still answers under restriction: the
--- Midnight flask buffs are whitelisted, so the player's own aura reads back
--- plainly in combat and inside a key. The unwhitelisted legacy TWW IDs and the
--- name scan are unreadable there and sit out.
+-- Unlike the other consumables this one still answers under restriction: a
+-- flask buff reads back plainly for the player whenever the client reports that
+-- aura as non-secret, which the static whitelist only approximates --
+-- ShouldSpellAuraBeSecret is the authority, so an ID missing from the list (the
+-- legacy TWW flasks) is still read when the client allows it.
+-- Absence is only reported when every candidate ID was actually readable: a
+-- skipped ID means "unknown", and claiming the flask is missing off an
+-- incomplete scan is what put the reminder on screen mid-key with a flask up.
 local function PlayerHasFlaskBuff()
     if InPvPInstance() then return true end
     local restricted = EABR.ConsumablePresenceUnverifiable()
+    local unreadable = false
     -- Direct ID lookup for known flask buff IDs (zero allocation)
     for id in pairs(FLASK_BUFF_ID_SET) do
-        if not restricted or NON_SECRET_SPELL_IDS[id] then
+        if not restricted or NON_SECRET_SPELL_IDS[id] or _isRuntimeNonSecret(id) then
             local ok, result = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
-            if ok and result ~= nil then
+            if not ok then
+                unreadable = true
+            elseif result ~= nil then
+                -- A secret result still means an aura came back: present, but
+                -- its duration cannot be inspected for the threshold.
+                if isSecret(result) then return true end
                 local dur, exp = result.duration, result.expirationTime
                 if dur ~= nil and exp ~= nil and not isSecret(dur) and not isSecret(exp)
                    and IsUnderDuration(dur, exp, "consumable") then
@@ -1498,6 +1508,8 @@ local function PlayerHasFlaskBuff()
                 end
                 return true
             end
+        else
+            unreadable = true
         end
     end
     -- Name-based fallback for flasks not in our ID set (lazy scan)
@@ -1507,6 +1519,7 @@ local function PlayerHasFlaskBuff()
             if FLASK_NAME_SET[aName] then return true end
         end
     end
+    if unreadable then return true end
     return false
 end
 
