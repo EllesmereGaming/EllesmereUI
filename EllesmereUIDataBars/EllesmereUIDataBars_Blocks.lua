@@ -4679,6 +4679,22 @@ end
 
 -- GuildRoster() itself fires GUILD_ROSTER_UPDATE, and the server rate-limits it (~10s); throttle so hovering the guild button does not spam requests.
 local mmLastTipRoster = 0
+local mmGuildTipList = {}
+local mmGuildTipTokens = { "", "", "" }
+
+-- Rank index 0 is Guild Master; higher indices are lower ranks. Same-rank ties go A-Z.
+local function MMGuildTipSort(a, b)
+    local ai, bi = a.rankIndex, b.rankIndex
+    if ai ~= bi then return ai < bi end
+    return a.sortName < b.sortName
+end
+
+local function MMGuildNoteText(s)
+    if type(s) ~= "string" or s == "" then return nil end
+    if issecretvalue and issecretvalue(s) then return nil end
+    if not s:find("%S") then return nil end
+    return s
+end
 
 local function MMBuildSocialTip()
     local ar, ag, ab = ns.GetAccent()
@@ -4777,25 +4793,41 @@ local function MMBuildGuildTip()
     local gName = GetGuildInfo("player")
     if gName then ns.Tip_AddLine("|cff00ff00" .. gName .. "|r") end
 
+    wipe(mmGuildTipList)
     for i = 1, GetNumGuildMembers() do
-        local name, _, _, level, _, zone, _, _, isOnline, status, class = GetGuildRosterInfo(i)
+        local name, rankName, rankIndex, level, _, zone, publicNote, _, isOnline, status, class = GetGuildRosterInfo(i)
         if isOnline then
-            local cc  = class and RAID_CLASS_COLORS[class]
-            local clr, clg, clb = 1, 1, 1
-            if cc then clr, clg, clb = cc.r, cc.g, cc.b end
-            local st  = (status == 1 and DEFAULT_AFK_MESSAGE) or (status == 2 and DEFAULT_DND_MESSAGE) or ""
-            local cn  = name and name:match("[^-]+") or "?"
-            -- Left plain (no |c): the class color rides the left-color args so the hover recolor to accent shows, like the M+ teleport rows.
-            local left  = format("%s  %s %s", level or "", cn, st)
-            local fname = name
-            ns.Tip_AddClickable(left, zone or "", function(mouseButton)
-                if not fname then return end
-                if mouseButton == "LeftButton" then
-                    if IsShiftKeyDown() then C_PartyInfo.InviteUnit(fname)
-                    else MMOpenWhisper(fname, nil) end
-                end
-            end, clr, clg, clb, 1, 1, 1)
+            local cn = name and name:match("[^-]+") or "?"
+            mmGuildTipList[#mmGuildTipList + 1] = {
+                name = name, rankName = rankName, rankIndex = tonumber(rankIndex) or 99,
+                level = level, zone = zone, status = status, class = class, sortName = cn,
+                publicNote = publicNote,
+            }
         end
+    end
+    tsort(mmGuildTipList, MMGuildTipSort)
+
+    for i = 1, #mmGuildTipList do
+        local e = mmGuildTipList[i]
+        local cc  = e.class and RAID_CLASS_COLORS[e.class]
+        local clr, clg, clb = 1, 1, 1
+        if cc then clr, clg, clb = cc.r, cc.g, cc.b end
+        local st  = (e.status == 1 and DEFAULT_AFK_MESSAGE) or (e.status == 2 and DEFAULT_DND_MESSAGE) or ""
+        -- Left plain (no |c): the class color rides the left-color args so the hover recolor to accent shows, like the M+ teleport rows.
+        local left = format("%s  %s %s", e.level or "", e.sortName, st)
+        -- Rank and note sit in aligned columns, muted, so names and zones still scan as the primary pair.
+        local note = MMGuildNoteText(e.publicNote)
+        mmGuildTipTokens[1] = format("|cff999999%s|r", e.rankName or "")
+        mmGuildTipTokens[2] = note and format("|cff999999%s|r", note) or ""
+        mmGuildTipTokens[3] = e.zone or ""
+        local fname = e.name
+        ns.Tip_AddClickableColumns(left, mmGuildTipTokens, function(mouseButton)
+            if not fname then return end
+            if mouseButton == "LeftButton" then
+                if IsShiftKeyDown() then C_PartyInfo.InviteUnit(fname)
+                else MMOpenWhisper(fname, nil) end
+            end
+        end, clr, clg, clb)
     end
 
     ns.Tip_AddLine(" ")
