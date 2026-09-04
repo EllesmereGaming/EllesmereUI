@@ -1267,15 +1267,17 @@ end
 --  about the player's own auras is readable there, but an engine aura button's
 --  secret IsShown() can be passed to SetAlphaFromBoolean, so the icon hides
 --  itself while the flask is up without this addon learning whether it is.
---  A SLOT rather than a group: one deterministic frame, no pool index to guess.
+--  A GROUP, not a slot: a slot's frame is forbidden to us and every method on
+--  it raises, while a pooled group frame answers IsShown with a usable secret.
+--  maxFrameCount 1 caps it at one acquired frame, and AcquireFrame pops the END
+--  of the available list, so the last owned frame is the one to read.
 --  Returns available (plain boolean), secret (SECRET -- only ever pass it on).
 -------------------------------------------------------------------------------
 function EABR.FlaskPresenceSecret()
     local AK = EllesmereUI.AuraKit
     if not (AK and AK.AurasRestricted and AK.AurasRestricted()) then return false end
     if not AK.CreateContainer then return false end
-    local slot = EABR._flaskSlot
-    if not slot then
+    if not EABR._flaskContainer then
         -- Bare style: the initializer keys styleButtons by the style key, and a
         -- style with regions builds font strings the engine SetText()s unstyled.
         AK.styles["eabrFlaskPresence"] = AK.styles["eabrFlaskPresence"] or { noRegions = true }
@@ -1292,20 +1294,24 @@ function EABR.FlaskPresenceSecret()
         host:Show()
         local include = {}
         for id in pairs(FLASK_BUFF_ID_SET) do include[id] = true end
-        local ok, container, slots = pcall(AK.CreateContainer, host, "player", {
+        local ok, container = pcall(AK.CreateContainer, host, "player", {
             point = { "CENTER", host, "CENTER", 0, 0 },
-            slots = {
+            groups = {
                 { key = "flask", filter = { "HELPFUL" }, style = "eabrFlaskPresence",
+                  maxFrameCount = 1,
                   candidateFilters = { includeSpellIDs = include } },
             },
         })
         if not ok then return false end
         EABR._flaskContainer = container
-        slot = slots and slots.flask
-        EABR._flaskSlot = slot
     end
-    if not slot then return false end
-    local okv, vis = pcall(slot.IsShown, slot)
+    local c = EABR._flaskContainer
+    if not c then return false end
+    local okn, n = pcall(c.GetAuraGroupFrameCount, c, "flask")
+    if not okn or type(n) ~= "number" or n < 1 then return false end
+    local okf, frame = pcall(c.GetAuraGroupFrame, c, "flask", n)
+    if not okf or not frame then return false end
+    local okv, vis = pcall(frame.IsShown, frame)
     if not okv then return false end
     return true, vis
 end
