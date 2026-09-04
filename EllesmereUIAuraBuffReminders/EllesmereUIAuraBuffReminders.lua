@@ -326,6 +326,11 @@ end
 
 function EABR.IsUnderDuration(duration, expirationTime, sectionKey)
     if not (db and db.profile and duration and expirationTime and sectionKey) then return false end
+    -- Zero means "no timing info", the same sentinel GetEatingExpirationTime
+    -- rejects, not "about to expire": 0 - GetTime() is hugely negative and would
+    -- clear every threshold below. Restricted aura reads hand back a real
+    -- duration with the expiration withheld this way.
+    if duration <= 0 or expirationTime <= 0 then return false end
     if not EABR.ShowUnderThresholdApplies() then return false end
     local thresholdSeconds = EABR.GetShowUnderMinutes() * 60
     if thresholdSeconds > 0 and duration >= thresholdSeconds then
@@ -1484,20 +1489,14 @@ end
 -- aura as non-secret, which the static whitelist only approximates --
 -- ShouldSpellAuraBeSecret is the authority, so an ID missing from the list (the
 -- legacy TWW flasks) is still read when the client allows it.
--- Absence is only reported when every candidate ID was actually readable: a
--- skipped ID means "unknown", and claiming the flask is missing off an
--- incomplete scan is what put the reminder on screen mid-key with a flask up.
 local function PlayerHasFlaskBuff()
     if InPvPInstance() then return true end
     local restricted = EABR.ConsumablePresenceUnverifiable()
-    local unreadable = false
     -- Direct ID lookup for known flask buff IDs (zero allocation)
     for id in pairs(FLASK_BUFF_ID_SET) do
         if not restricted or NON_SECRET_SPELL_IDS[id] or _isRuntimeNonSecret(id) then
             local ok, result = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
-            if not ok then
-                unreadable = true
-            elseif result ~= nil then
+            if ok and result ~= nil then
                 -- A secret result still means an aura came back: present, but
                 -- its duration cannot be inspected for the threshold.
                 if isSecret(result) then return true end
@@ -1508,8 +1507,6 @@ local function PlayerHasFlaskBuff()
                 end
                 return true
             end
-        else
-            unreadable = true
         end
     end
     -- Name-based fallback for flasks not in our ID set (lazy scan)
@@ -1519,7 +1516,6 @@ local function PlayerHasFlaskBuff()
             if FLASK_NAME_SET[aName] then return true end
         end
     end
-    if unreadable then return true end
     return false
 end
 
