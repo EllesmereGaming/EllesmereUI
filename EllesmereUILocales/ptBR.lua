@@ -7,6 +7,12 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local L = EllesmereUI.RegisterLocale("ptBR")
 if not L then return end
 
+L["WARLOCK"] = "BRUXO"
+L["Soulstone"] = "Pedra da Alma"
+L["Show a reminder until your own Soulstone is active on you or another group member."] = "Exibe um lembrete até que sua própria Pedra da Alma esteja ativa em você ou em outro membro do grupo."
+L["Item Count Font"] = "Fonte da Contagem de Itens"
+L["Mana Warning Font"] = "Fonte do Aviso de Mana"
+
 L["BLIZZARD POPUPS & GAME MENU"] = "POP-UPS DA BLIZZARD E MENU DO JOGO"
 L["Reskin Popups and Menus"] = "Reestilizar pop-ups e menus"
 L["Reskins Blizzard's right-click context menus and pop-up dialogs with the EUI dark style. Requires reload to apply."] = "Reestiliza os menus de contexto e as janelas pop-up da Blizzard com o estilo escuro da EUI. Requer recarregar a interface."
@@ -5212,8 +5218,7 @@ L["Show a reminder when you don't have an active pet summoned. Only applies to p
 L["Wrong Demon"] = "Demônio Errado"
 L["Show a reminder when your Warlock's active pet isn't one of the demons picked in Allowed Demons. A demon only counts while its summon spell is known, so leaving only Felguard picked stays silent for specs/builds that haven't talented Summon Felguard."] = "Exibe um lembrete quando o ajudante ativo do seu Bruxo não é um dos demônios escolhidos em Demônios Permitidos. Um demônio só conta enquanto seu feitiço de invocação for conhecido, então deixar apenas o Guarda Vil escolhido mantém o lembrete em silêncio para especializações ou configurações que não talentaram Evocar Guarda Vil."
 
--- Warlock demons (Allowed Demons)
-L["WARLOCK DEMONS"] = "DEMÔNIOS DO BRUXO"
+-- Warlock (Allowed Demons)
 L["Allowed Demons"] = "Demônios Permitidos"
 L["Pick which demons count as correct for Wrong Demon. A demon only counts while its summon spell is known; with none picked (or everything picked), the reminder never fires."] = "Escolha quais demônios contam como corretos para o Demônio Errado. Um demônio só conta enquanto seu feitiço de invocação for conhecido; com nenhum escolhido (ou todos escolhidos), o lembrete nunca é ativado."
 L["You have not learned %1$s."] = "Você não aprendeu %1$s."

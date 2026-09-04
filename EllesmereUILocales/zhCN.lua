@@ -7,6 +7,18 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local L = EllesmereUI.RegisterLocale("zhCN")
 if not L then return end
 
+L["WARLOCK"] = "术士"
+L["Soulstone"] = "灵魂石"
+L["Show a reminder until your own Soulstone is active on you or another group member."] = "在你自己的灵魂石未作用于自己或其他队伍成员时显示提醒。"
+L["Wrong Demon"] = "错误的恶魔"
+L["Allowed Demons"] = "允许的恶魔"
+L["Show a reminder when your Warlock's active pet isn't one of the demons picked in Allowed Demons. A demon only counts while its summon spell is known, so leaving only Felguard picked stays silent for specs/builds that haven't talented Summon Felguard."] = "当术士当前的宠物不在“允许的恶魔”选择中时显示提醒。只有学会对应召唤法术的恶魔才会计入，因此仅选择恶魔卫士时，未学习召唤恶魔卫士天赋的专精或配置不会触发提醒。"
+L["Pick which demons count as correct for Wrong Demon. A demon only counts while its summon spell is known; with none picked (or everything picked), the reminder never fires."] = "选择哪些恶魔可被“错误的恶魔”提醒视为正确。只有学会对应召唤法术的恶魔才会计入；未选择任何恶魔或选择全部恶魔时，提醒永远不会触发。"
+L["Item Count Font"] = "物品数量字体"
+L["Mana Warning Font"] = "法力警告字体"
+L["Name Text Size"] = "名称文本大小"
+L["Mana Warning Text Size"] = "法力警告文本大小"
+
 -- == 常用标签 (Common labels) ===============================================
 L["Anchor"] = "锚点"
 L["Anchor Point"] = "锚点位置"

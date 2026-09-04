@@ -5,6 +5,12 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- to generate the full remaining key list. Untranslated keys fall back to English.
 local L = EllesmereUI.RegisterLocale("zhTW")
 if not L then return end
+
+L["WARLOCK"] = "術士"
+L["Soulstone"] = "靈魂石"
+L["Show a reminder until your own Soulstone is active on you or another group member."] = "當你自己的靈魂石尚未作用於自己或其他隊伍成員時顯示提醒。"
+L["Item Count Font"] = "物品數量字型"
+L["Mana Warning Font"] = "法力警告字型"
 L["Behind Unit Frame"] = "顯示於單位框架後方"
 
 -- == Common labels =========================================================
@@ -3542,7 +3548,6 @@ L["Vicious Thalassian Flask of Honor"] = "薩拉斯榮譽兇惡精煉藥劑"
 L["Void-Kissed Fish Rolls"]        = "虛無之吻魚肉卷"
 L["Voidscar Arena"]                = "虛無之痕競技場"
 L["Voidwalker"]                    = "虛無行者"
-L["WARLOCK DEMONS"]                = "術士惡魔"
 L["Warped Wise Wings"]             = "扭曲聰魚鰭翼"
 L["Warsong Gulch"]                 = "戰歌峽谷"
 L["Weapon"]                        = "武器"

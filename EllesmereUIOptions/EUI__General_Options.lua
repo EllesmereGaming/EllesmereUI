@@ -979,7 +979,7 @@ EllesmereUI._WHATSNEW_PATCHES = {
                 title  = "Warlock Demon Reminder",
                 desc   = "Allowed Demons picks which demons count as correct for any Warlock spec, and the Missing Pet reminder now summons on click",
                 nav    = { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables",
-                           section = "WARLOCK DEMONS", highlight = "Wrong Demon" },
+                           section = "WARLOCK", highlight = "Wrong Demon" },
             },
             {
                 module = "Blizz UI Enhanced",

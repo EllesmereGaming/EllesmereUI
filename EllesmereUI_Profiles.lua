@@ -1377,8 +1377,10 @@ local REFRESH_ADDON_STEPS = {
             EllesmereUI._applySecondaryStats()
         end
     end,
-    -- AuraBuffReminders (refresh + position)
+    -- AuraBuffReminders (style + refresh + position)
     function()
+        if _G._EABR_UpdateGroupAuraRegistration then _G._EABR_UpdateGroupAuraRegistration() end
+        if _G._EABR_ApplyAllIconBorders then _G._EABR_ApplyAllIconBorders() end
         if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
         if _G._EABR_ApplyUnlockPos then _G._EABR_ApplyUnlockPos() end
     end,
