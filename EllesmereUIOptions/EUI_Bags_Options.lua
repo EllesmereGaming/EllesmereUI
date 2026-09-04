@@ -478,8 +478,8 @@ initFrame:SetScript("OnEvent", function(self)
                     if _G.EUI_CategoryManager then
                         local cats = _G.EUI_CategoryManager:GetCategories()
                         for ci, cat in ipairs(cats) do
-                            -- isEquipSet excluded: per-character keys, governed by the split toggle instead
-                            if not cat.isCatchAll and not cat.isPinned and not cat.isRecent and not cat.isReagentBag and not cat.isEquipSet then
+                            -- isEquipSet/isProfession excluded: runtime-only keys, governed by their split toggle instead
+                            if not cat.isCatchAll and not cat.isPinned and not cat.isRecent and not cat.isReagentBag and not cat.isEquipSet and not cat.isProfession then
                                 catItems[#catItems + 1] = { key = cat._defaultName, label = cat.name }
                             end
                         end
@@ -943,6 +943,34 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v)
                       db.profile.bagHideRandomize = v
                       if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                  end }
+            ); y = y - h
+
+            -- Split by Profession | Group Crafting by Type
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Split by Profession",
+                  tooltip="Replace the Trade Goods, Professions and Reagent Bag categories with a single Professions category holding one sub-entry per profession -- Mining, Herbalism, Skinning, Fishing, Alchemy and the rest -- nested the way equipment sets nest under Item Set Gear. Raw materials are filed under the profession that gathers them, so ore lands in Mining and hides in Skinning rather than under the craft that consumes them. Profession knowledge items are filed with their profession. Professions with nothing in your bags are hidden unless you turn off Hide Categories with 0 Items.",
+                  getValue=function() return db.profile.bagSplitByProfession == true end,
+                  setValue=function(v)
+                      db.profile.bagSplitByProfession = v and true or false
+                      -- Re-resolves the selected view by stable key: adding or
+                      -- removing the children shifts every later index, so a kept
+                      -- selection would point at a different category.
+                      if _G.EUI_Bags and _G.EUI_Bags.InvalidateSetCategories then
+                          _G.EUI_Bags.InvalidateSetCategories()
+                      elseif _G.EUI_CategoryManager then
+                          _G.EUI_CategoryManager:OnEquipmentSetsChanged()
+                      end
+                      if _G.EUI_CategoryManager then _G.EUI_CategoryManager:InitCategories() end
+                      ResetAndRefreshBagLayout()
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type="toggle", text="Group Crafting by Type",
+                  tooltip="In the Trade Goods, Professions, Consumables, Gear Enhancements and Miscellaneous category views, group items under item-type sub-headers -- Herb, Metal & Stone, Cloth for materials, the individual professions for recipes, Potion / Flask / Food for consumables. The counterpart to Group Armory by Slot, and it takes precedence over Nest by Expansion in those categories. Does not add sidebar views.",
+                  getValue=function() return db.profile.bagGroupCraftingByType == true end,
+                  setValue=function(v)
+                      db.profile.bagGroupCraftingByType = v and true or false
+                      ResetAndRefreshBagLayout()
                   end }
             ); y = y - h
 
