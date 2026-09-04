@@ -727,12 +727,12 @@ end
 -- Counts how many in-range beneficiaries have the buff vs how many should
 -- (the "12/15" coverage badge). `benefit` is the buff's benefit KEY
 -- ("intellect"/"attackPower"/nil = everyone). EABR.UnitBenefits resolves it
--- spec-aware when comm data exists, class-level otherwise, and skips units
--- whose identity reads come back secret (teardown/restriction edges).
--- Members whose aura read is secret leave the denominator too: under a
--- keystone or raid restriction nobody else is readable, so the count falls
--- back to the player alone rather than reporting the whole group as missing.
--- Returns have, total.
+-- spec-aware when comm data exists, class-level otherwise, and leaves out any
+-- unit it cannot decide (secret identity reads, or a hybrid whose role spans
+-- both stats). Members whose aura read is secret leave the denominator too:
+-- under a keystone or raid restriction nobody else is readable, so the count
+-- falls back to the player alone rather than reporting the whole group as
+-- missing. Returns have, total.
 local function CountGroupBuffCoverage(spellIDs, benefit)
     local have, total = 0, 0
     if not IsInGroup() then
@@ -746,7 +746,8 @@ local function CountGroupBuffCoverage(spellIDs, benefit)
         for i = 1, GetNumGroupMembers() do
             local u = "raid"..i
             if _unitOk(u) and UnitIsPlayer(u) and _unitInRange(u) then
-                if EABR.UnitBenefits(u, benefit) then
+                local benefits, decided = EABR.UnitBenefits(u, benefit)
+                if benefits and decided then
                     local has, readable = _unitHasBuff(u, spellIDs)
                     if readable then
                         total = total + 1
@@ -763,7 +764,8 @@ local function CountGroupBuffCoverage(spellIDs, benefit)
         for i = 1, GetNumSubgroupMembers() do
             local u = "party"..i
             if _unitOk(u) and UnitIsPlayer(u) and _unitInRange(u) then
-                if EABR.UnitBenefits(u, benefit) then
+                local benefits, decided = EABR.UnitBenefits(u, benefit)
+                if benefits and decided then
                     local has, readable = _unitHasBuff(u, spellIDs)
                     if readable then
                         total = total + 1
@@ -959,61 +961,62 @@ function EABR.GroupSpecFor(u)
     return EABR._groupSpecs[n]
 end
 
--- Whether a unit benefits from a stat-filtered buff. Resolution ladder:
--- (1) cached spec verdict when known and mapped (unknown/starter spec IDs
--- fall through); (2) assigned-ROLE refinement for combos the role alone
--- decides (no comms needed); (3) the class table. Unreadable class = not
--- counted (coverage skips the unit).
+-- Classes that appear in BOTH beneficiary sets, so the class table alone
+-- cannot answer for them. Maps the roles that do pin the class to one side of
+-- the stat divide; a role absent here leaves the unit undecided (Balance vs
+-- Feral, Elemental vs Enhancement and Havoc vs Devourer all share DAMAGER).
+-- Hung on EABR, not a local: this file sits at the 200-local cap.
+EABR.HYBRID_ROLE_STAT = {
+    PALADIN     = { HEALER = "intellect", DAMAGER = "attackPower", TANK = "attackPower" },
+    MONK        = { HEALER = "intellect", DAMAGER = "attackPower", TANK = "attackPower" },
+    DRUID       = { HEALER = "intellect", TANK = "attackPower" },
+    SHAMAN      = { HEALER = "intellect" },
+    DEMONHUNTER = { TANK = "attackPower" },
+}
+
+-- Whether a unit benefits from a stat-filtered buff. Returns benefits, decided.
+-- Ladder: (1) cached spec verdict when known and mapped (unknown/starter spec
+-- IDs fall through); (2) the class table, which settles every class wanting
+-- only one of the two stats; (3) the assigned ROLE for a hybrid, no comms
+-- needed. Effective role: the player's spec wins over a stale assigned role.
+-- Undecided (unreadable class or role, or a hybrid whose role spans both
+-- stats) reports false, false, and coverage drops the unit rather than guess.
 function EABR.UnitBenefits(u, benefit)
-    if not benefit then return true end
+    if not benefit then return true, true end
     local specSet = EABR.SPEC_BENEFITS[benefit]
     if specSet then
         local spec = EABR.GroupSpecFor(u)
         if spec then
-            if specSet[spec] then return true end
+            if specSet[spec] then return true, true end
             -- A spec listed under any benefit set is a real, mapped spec:
             -- its absence here is a definitive no. Anything else (starter
             -- specs, future IDs) falls back to the checks below.
             for _, set in pairs(EABR.SPEC_BENEFITS) do
-                if set[spec] then return false end
+                if set[spec] then return false, true end
             end
         end
     end
     local classSet = BUFF_BENEFICIARIES[benefit]
-    if not classSet then return true end
+    if not classSet then return true, true end
     local _, class = UnitClass(u)
-    if class == nil or isSecret(class) then return false end
-    if not classSet[class] then return false end
-    -- Role refinement for members with no spec data: some class+benefit
-    -- pairs are decided by the role alone -- Intellect only serves the
-    -- HEALER spec of Paladin/Monk (and never a Druid tank); Attack Power
-    -- never serves the healer spec of these hybrids. Ambiguous combos
-    -- (e.g. a DAMAGER Druid: Balance wants int, Feral wants AP) and
-    -- unassigned ("NONE") or secret roles fall through to the class answer.
-    -- Effective role: the player's spec wins over a stale assigned role.
-    local role = EllesmereUI.UnitEffectiveRole(u)
-    if role ~= nil and not isSecret(role) then
-        if benefit == "intellect" then
-            if (class == "PALADIN" or class == "MONK") and (role == "DAMAGER" or role == "TANK") then
-                return false
-            end
-            if class == "DRUID" and role == "TANK" then
-                return false
-            end
-        elseif benefit == "attackPower" then
-            if role == "HEALER" and (class == "PALADIN" or class == "MONK"
-                or class == "DRUID" or class == "SHAMAN") then
-                return false
-            end
-        end
+    if class == nil or isSecret(class) then return false, false end
+    if not classSet[class] then return false, true end
+    local roleStats = EABR.HYBRID_ROLE_STAT[class]
+    if roleStats then
+        local role = EllesmereUI.UnitEffectiveRole(u)
+        if role == nil or isSecret(role) then return false, false end
+        local stat = roleStats[role]
+        if not stat then return false, false end
+        return stat == benefit, true
     end
-    return true
+    return true, true
 end
 
 -- Whether the local player benefits from a raid buff (spec-aware; class
 -- fallback). Buffs with no benefit key help everyone.
 function EABR.PlayerBenefitsFromBuff(buff)
-    return EABR.UnitBenefits("player", buff.benefit) and true or false
+    local benefits, decided = EABR.UnitBenefits("player", buff.benefit)
+    return (benefits and decided) and true or false
 end
 
 -------------------------------------------------------------------------------
