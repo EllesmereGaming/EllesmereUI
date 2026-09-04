@@ -3305,6 +3305,41 @@ function ns.RefreshStackingMotion()
     end
 end
 
+function ns.ApplyEnemyHitbox(plate)
+    if not plate then return end
+    local db = p or defaults
+    plate:SetSize(
+        GetHealthBarWidth() * ((db.hitboxScaleX or 100) / 100),
+        GetHealthBarHeight() * ((db.hitboxScaleY or 100) / 100))
+    local np = plate.nameplate
+    if np and np.CanChangeHitTestPoints and np.SetAllHitTestPoints
+       and np:CanChangeHitTestPoints() then
+        np:SetAllHitTestPoints(plate)
+    end
+end
+
+function ns.UpdateNamePlateSizeOwnership()
+    local euiOwnsFriendly = (p or defaults).showFriendlyPlayers ~= false
+    if euiOwnsFriendly and ns._blizzardNamePlateSize == nil and GetCVar then
+        ns._blizzardNamePlateSize = GetCVar("nameplateSize")
+    end
+    if NamePlateDriverFrame then
+        if euiOwnsFriendly then
+            NamePlateDriverFrame:UnregisterEvent("DISPLAY_SIZE_CHANGED")
+            NamePlateDriverFrame:UnregisterEvent("CVAR_UPDATE")
+        else
+            NamePlateDriverFrame:RegisterEvent("DISPLAY_SIZE_CHANGED")
+            NamePlateDriverFrame:RegisterEvent("CVAR_UPDATE")
+        end
+    end
+    if euiOwnsFriendly and SetCVar then
+        SetCVar("nameplateSize", 3)
+    elseif ns._blizzardNamePlateSize ~= nil and SetCVar then
+        SetCVar("nameplateSize", ns._blizzardNamePlateSize)
+        ns._blizzardNamePlateSize = nil
+    end
+end
+
 function ns.RefreshHitboxSize()
     if InCombatLockdown() then return end
     if not C_NamePlate or not C_NamePlate.SetNamePlateSize then return end
@@ -3314,9 +3349,18 @@ function ns.RefreshHitboxSize()
     local baseW = GetHealthBarWidth()
     local baseH = GetHealthBarHeight()
     local newH  = baseH * sy
-    C_NamePlate.SetNamePlateSize(baseW * sx, newH)
-    -- The frame grows from its CENTER, so a taller size enlarges the hitbox evenly above and
-    -- below the unit. -10000 insets let the hit rect fill the full (centered) frame.
+    -- Native nameplate geometry is global. Restore Blizzard's size while Blizzard owns
+    -- friendly plates so protected friendly visuals keep a matching hit target.
+    if db.showFriendlyPlayers == false and NamePlateDriverFrame
+       and NamePlateDriverFrame.GetNamePlateScale and NamePlateDriverFrame.UpdateNamePlateSize then
+        local scale = NamePlateDriverFrame:GetNamePlateScale()
+        NamePlateDriverFrame:UpdateNamePlateSize(
+            GetCVarNumberOrDefault(NamePlateConstants.STYLE_CVAR), scale)
+    else
+        C_NamePlate.SetNamePlateSize(baseW * sx, newH)
+    end
+    -- Keep the native fallback clickable. EUI enemy plates replace this with
+    -- their per-frame hit-test points; Blizzard friendly plates keep it.
     if C_NamePlateManager and C_NamePlateManager.SetNamePlateHitTestInsets
        and Enum and Enum.NamePlateType then
         C_NamePlateManager.SetNamePlateHitTestInsets(Enum.NamePlateType.Enemy, -10000, -10000, -10000, -10000)
@@ -3326,13 +3370,14 @@ function ns.RefreshHitboxSize()
     -- centered, so the bar stays put and the hitbox stays centered on it.
     local yShift = GetHitboxYShift()
     for _, plate in pairs(ns.plates) do
+        ns.ApplyEnemyHitbox(plate)
         plate:ClearAllPoints()
         plate:SetPoint("CENTER", plate.nameplate, "CENTER", 0, yShift)
     end
 end
 
 -- Hitbox visualizer: translucent overlay matching each enemy nameplate's clickable bounds (the
--- frame sized by SetNamePlateSize), so the Hitbox Size sliders can be dialled in visually.
+-- EUI plate frame bound by SetAllHitTestPoints), so the Hitbox Size sliders can be dialled in visually.
 -- Runtime-only (resets on reload), created lazily so it costs nothing when off. On ns (cap).
 function ns._ApplyHitboxOverlay(plate)
     local np = plate and plate.nameplate
@@ -3360,7 +3405,7 @@ function ns._ApplyHitboxOverlay(plate)
         ov:SetParent(np)
         ov:SetFrameLevel(np:GetFrameLevel() + 10)
         ov:ClearAllPoints()
-        ov:SetAllPoints(np)
+        ov:SetAllPoints(plate)
         ov:Show()
     elseif plate.hitboxOverlay then
         plate.hitboxOverlay:Hide()
@@ -3653,7 +3698,6 @@ local function SetupAuraCVars()
             SetCVar("ShowClassColorInFriendlyNameplate", (db.classColorFriendly ~= false) and 1 or 0)
         end
         SetCVar("ShowClassColorInNameplate", 1)
-        SetCVar("nameplateSize", 3)
         SetCVar("nameplateShowAll", 1)
         SetCVar("nameplateMinScale", 1)
         SetCVar("nameplateOverlapH", 1)
@@ -3687,25 +3731,13 @@ local function SetupAuraCVars()
     -- Apply stacking state via the Midnight bitfield CVar.
     ns.RefreshStackingMotion()
     local function ApplyNamePlateClickArea()
-        if InCombatLockdown() then return end
-        local db = p or defaults
-        local sx = (db.hitboxScaleX or 100) / 100
-        local sy = (db.hitboxScaleY or 100) / 100
-        local baseH = GetHealthBarHeight()
-        local newH  = baseH * sy
-        if C_NamePlate and C_NamePlate.SetNamePlateSize then
-            C_NamePlate.SetNamePlateSize(GetHealthBarWidth() * sx, newH)
-        end
-        if C_NamePlateManager and C_NamePlateManager.SetNamePlateHitTestInsets and Enum and Enum.NamePlateType then
-            C_NamePlateManager.SetNamePlateHitTestInsets(Enum.NamePlateType.Enemy, -10000, -10000, -10000, -10000)
-            C_NamePlateManager.SetNamePlateHitTestInsets(Enum.NamePlateType.Friendly, -10000, -10000, -10000, -10000)
-        end
+        ns.RefreshHitboxSize()
     end
+    ns.UpdateNamePlateSizeOwnership()
     ApplyNamePlateClickArea()
-    -- Prevent Blizzard resetting nameplate sizes on display changes (jitter).
+    -- EUI suppresses Blizzard size refreshes only while it owns friendly plates.
+    -- Otherwise Blizzard's size slider owns the native frame used by friendlies.
     if NamePlateDriverFrame then
-        NamePlateDriverFrame:UnregisterEvent("DISPLAY_SIZE_CHANGED")
-        NamePlateDriverFrame:UnregisterEvent("CVAR_UPDATE")
         hooksecurefunc(NamePlateDriverFrame, "UpdateNamePlateOptions", ApplyNamePlateClickArea)
         -- Suppress Blizzard class resource bar setup on our nameplates
         if NamePlateDriverFrame.SetupClassNameplateBars then
@@ -6119,6 +6151,7 @@ function NameplateFrame:SetUnit(unit, nameplate)
         self:ApplyAppearance()
         self._appearanceGen = ns._npAppearanceGen
     end
+    ns.ApplyEnemyHitbox(self)
     HideBlizzardFrame(nameplate, unit)
     self:RegisterUnitEvent("UNIT_HEALTH", unit)
     self:RegisterUnitEvent("UNIT_MAXHEALTH", unit)
@@ -6224,6 +6257,14 @@ function NameplateFrame:SetUnit(unit, nameplate)
 end
 function NameplateFrame:ClearUnit()
     self:UnregisterAllEvents()
+
+    local np = self.nameplate
+    if np and np.CanChangeHitTestPoints and np.SetAllHitTestPoints and np.UnitFrame
+       and np:CanChangeHitTestPoints() then
+        -- Restore Blizzard's own frame before
+        -- Blizzard recycles this enemy nameplate for a friendly unit.
+        np:SetAllHitTestPoints(np.UnitFrame)
+    end
 
     -- Non-Target Opacity: released pool frames always go back at full
     -- alpha (nil _ntCurAlpha = never faded, keeps this a no-op).
