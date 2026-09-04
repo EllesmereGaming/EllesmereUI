@@ -6,11 +6,19 @@ EllesmereUI = {
     Lf = function(value, ...) return string.format(value, ...) end,
 }
 local detailedLevel = 311
+local itemLoadCallback
 C_Item = {
     GetItemInfoInstant = function() return 123 end,
     GetDetailedItemLevelInfo = function() return detailedLevel end,
     GetItemNameByID = function() return "Test Item" end,
     GetItemIconByID = function() return 1 end,
+}
+Item = {
+    CreateFromItemLink = function()
+        return {
+            ContinueOnItemLoad = function(_, callback) itemLoadCallback = callback end,
+        }
+    end,
 }
 function IsInGroup() return true end
 function UnitName() return "Me" end
@@ -66,5 +74,25 @@ eventFrame.callback(eventFrame, "CHAT_MSG_LOOT",
     "Other receives loot: |Hitem:123|h[Test Item]|h.", "",
     "", "", "Other", "", 0, 0, "", "", 44, "Player-Other")
 assert(not alert, "a drop below the wishlist target level must not queue a trade alert")
+
+alert, detailedLevel, itemLoadCallback = nil, nil, nil
+eventFrame.callback(eventFrame, "CHAT_MSG_LOOT",
+    "Other receives loot: |Hitem:123|h[Test Item]|h.", "",
+    "", "", "Other", "", 0, 0, "", "", 45, "Player-Other")
+assert(not alert and itemLoadCallback,
+    "an uncached item level must wait instead of matching the wishlist")
+detailedLevel = 295
+itemLoadCallback()
+assert(not alert,
+    "a deferred lower-difficulty item must still be rejected after loading")
+
+alert, detailedLevel, itemLoadCallback = nil, nil, nil
+eventFrame.callback(eventFrame, "CHAT_MSG_LOOT",
+    "Other receives loot: |Hitem:123|h[Test Item]|h.", "",
+    "", "", "Other", "", 0, 0, "", "", 46, "Player-Other")
+detailedLevel = 311
+itemLoadCallback()
+assert(alert and alert.player == "Other",
+    "an eligible cached item must queue after its item data loads")
 
 print("loot alert parsing ok")
