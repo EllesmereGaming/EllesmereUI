@@ -7067,6 +7067,30 @@ initFrame:SetScript("OnEvent", function(self)
             end)
         end
 
+
+        -- Whole-plate vertical nudge, i.e. how high the plate floats above the
+        -- character. The EUI plate is anchored CENTER to Blizzard's base nameplate
+        -- (which the game pins to the unit's head), and the health bar is the plate's
+        -- own anchor with everything else hanging off it -- so offsetting the health
+        -- bar moves the whole visible nameplate relative to the model. There is no
+        -- CVar for this; the insets only control screen-edge clamping. Distinct from
+        -- "Cast Bar Y Offset" above, which moves only the cast bar within the plate.
+        local plateOffsetRow
+        plateOffsetRow, h = W:DualRow(parent, y,
+            { type="slider", text="Nameplate Y Offset", min=-50, max=50, step=1,
+              tooltip="Move the whole nameplate up or down relative to the character it belongs to. Raise it to clear a tall model's head, lower it to sit closer. Everything anchored to the health bar moves with it.",
+              getValue=function()
+                local v = DBVal("nameplateYOffset")
+                if v == nil then return defaults.nameplateYOffset end
+                return v
+              end,
+              setValue=function(v)
+                DB().nameplateYOffset = v
+                if ns.RefreshNameplateYOffset then ns.RefreshNameplateYOffset() end
+                UpdatePreview()
+              end },
+            { type="label", text="" });  y = y - h
+
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         -----------------------------------------------------------------------
