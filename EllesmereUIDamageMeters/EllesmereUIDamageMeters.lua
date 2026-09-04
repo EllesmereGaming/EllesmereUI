@@ -973,14 +973,15 @@ local function ApplyBarTexture(fill, texPath, texKey)
     end
 end
 
--- Physical pixel spacing: convert user values to physical pixels (user setting = physical pixel count).
--- Snapped through PP.Scale so accumulated row offsets (stride * index) don't drift off the pixel
--- grid from float dust -- without this, a spacing of 1 can round to 0px on some rows and 2px on others.
+-- The meter windows are plain UIParent children with no SetScale of their own, so
+-- snapping against UIParent's effective scale keeps sizes consistent with the rest of the UI.
 local function PhysicalPixels(userValue)
     local PP = EUI and EUI.PP
-    local mult = (PP and PP.mult) or 1
-    local value = (userValue or 0) * mult
-    if PP and PP.Scale then return PP.Scale(value) end
+    local value = userValue or 0
+    if PP and PP.SnapForES then
+        local es = (UIParent and UIParent:GetEffectiveScale()) or 1
+        return PP.SnapForES(value, es)
+    end
     return value
 end
 
