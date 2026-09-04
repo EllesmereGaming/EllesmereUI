@@ -6641,6 +6641,25 @@ function EAB_VTABLE.SyncMasqueCastAnimationMask(btn)
     fd.masqueCastMask = mask
 end
 
+function EAB_VTABLE.SyncMasqueEmptySlotGloss(btn)
+    -- Masque treats a hidden action icon as an empty button and hides Gloss.
+    -- EUI can intentionally keep that empty button visible with its own slot
+    -- background, so the result otherwise becomes an unglossed square beside
+    -- skinned occupied buttons (most noticeable after instance transitions).
+    local cfg = btn._MSQ_CFG
+    local gloss = cfg and cfg.Gloss
+    if not (gloss and gloss.GetTexture) then return end
+
+    local fd = EFD(btn)
+    if fd.masqueGlossHooked ~= gloss then
+        fd.masqueGlossHooked = gloss
+        hooksecurefunc(gloss, "Hide", function(self)
+            if self:GetTexture() and EFD(btn).masqueOwned then self:Show() end
+        end)
+    end
+    if gloss:GetTexture() then gloss:Show() end
+end
+
 function EAB_VTABLE.RegisterMasqueButtons()
     if not ns.MasqueGroup then return end
     -- Masque skins synchronously in AddButton. Register only after EUI's final
@@ -6658,6 +6677,7 @@ function EAB_VTABLE.RegisterMasqueButtons()
                         fd.masqueRegistered = true
                     end
                     EAB_VTABLE.SyncMasqueCastAnimationMask(btn)
+                    EAB_VTABLE.SyncMasqueEmptySlotGloss(btn)
                 end
             end
         end
