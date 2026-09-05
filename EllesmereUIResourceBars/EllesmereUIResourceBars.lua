@@ -7753,14 +7753,27 @@ end
 -- what OnEmpowerStop below already does. Instead the live channel is re-queried:
 -- an instantly restarted channel (Clearcasting Arcane Missiles) can deliver the
 -- OLD channel's STOP after the NEW channel's START, and that late stop must not
--- tear down the bar that is still channeling.
+-- tear down the bar that is still channeling. The opposite order happens too:
+-- a channel re-issued mid-flight (Hover cast during Disintegrate) can deliver
+-- its STOP in a frame where UnitChannelInfo is already empty and the re-issuing
+-- START has not landed, so going idle here blanks the bar for that frame and
+-- the retry in OnChannelStart rebuilds it from scratch. Re-check next frame;
+-- a real channel end reads empty both times.
 local function OnChannelStop()
     if not castBarFrame then return end
     if not castBarFrame._channeling then return end
     if UnitChannelInfo("player") then return end
-    castBarFrame._channeling = false
-    castBarFrame._castID = nil
-    ns.ShowIdleCastBar()
+    if castBarFrame._channelStopPending then return end
+    castBarFrame._channelStopPending = true
+    C_Timer.After(0, function()
+        if not castBarFrame then return end
+        castBarFrame._channelStopPending = nil
+        if not castBarFrame._channeling then return end
+        if UnitChannelInfo("player") then return end
+        castBarFrame._channeling = false
+        castBarFrame._castID = nil
+        ns.ShowIdleCastBar()
+    end)
 end
 
 -- Undo the per-stage empower tint and put the configured fill back. Shared by
