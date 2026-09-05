@@ -2844,10 +2844,29 @@ end
 --  Disable Right Click Targeting
 -------------------------------------------------------------------------------
 do
+    -- Safety net for a mouselook we started: the BUTTON2 override can vanish
+    -- between the down and the up click (combat edge, or the engine dropping
+    -- the mouseover while the button is held), and the up would then never
+    -- reach this button, leaving mouselook on until a /reload. The registration
+    -- itself is the "we own this mouselook" flag, so it can only undo our own
+    -- start, never a toggle-mouselook addon's, and costs nothing when idle.
+    local mlookGuard = CreateFrame("Frame")
+    mlookGuard:SetScript("OnEvent", function(self)
+        if IsMouseButtonDown("RightButton") then return end
+        self:UnregisterEvent("GLOBAL_MOUSE_UP")
+        if IsMouselooking() then MouselookStop() end
+    end)
+
     local mlookBtn = CreateFrame("Button", "EUI_MouseLookBtn", UIParent)
     mlookBtn:RegisterForClicks("AnyDown", "AnyUp")
     mlookBtn:SetScript("OnClick", function(_, _, down)
-        if down then MouselookStart() else MouselookStop() end
+        if down then
+            mlookGuard:RegisterEvent("GLOBAL_MOUSE_UP")
+            MouselookStart()
+        else
+            mlookGuard:UnregisterEvent("GLOBAL_MOUSE_UP")
+            MouselookStop()
+        end
     end)
 
     local stateFrame = CreateFrame("Frame", "EUI_NoRightClickState", UIParent, "SecureHandlerStateTemplate")
@@ -2866,6 +2885,14 @@ do
     -- SetAttribute on this protected frame in lockdown, and a stale rc=1
     -- (pulled while hovering an enemy) would otherwise pin the bind on allies
     -- for the whole fight.
+    -- "rcclear" zeroes rc the same way when the engine reports no harmful
+    -- mouseover at all. UPDATE_MOUSEOVER_UNIT fires when a mouseover STARTS but
+    -- never when it clears, so the Lua lane alone stays pinned at 1 after the
+    -- last enemy hover and keeps BUTTON2 bound over quest objects and terrain
+    -- until something else is hovered or the UI is reloaded. This rides
+    -- SecureStateDriverManager's existing 0.2s sweep (it re-resolves every
+    -- driver on a timer, not only on its registered events), so the clear costs
+    -- no Lua per frame and needs no ticker of our own.
     local ONSTATE_MOV = [[
         if newstate == 1 then
             self:SetBindingClick(1, "BUTTON2", "EUI_MouseLookBtn")
@@ -2885,18 +2912,24 @@ do
             self:SetAttribute("state-rc", 0)
         end
     ]]
+    local ONSTATE_RCCLEAR = [[
+        if newstate ~= 1 then
+            self:SetAttribute("state-rc", 0)
+        end
+    ]]
 
     -- OOC enemy-arm verdict, edge-memoed: one attribute push per verdict CHANGE,
-    -- not per hover. All reads are clean out of combat.
-    local rcLast
+    -- not per hover. The memo reads the live attribute rather than a Lua cache,
+    -- because the two secure snippets above also write it -- a private cache
+    -- would go stale against them and swallow the next arming push. All reads
+    -- are clean out of combat.
     local function PushRCState()
         local match = (UnitExists("mouseover")
             and not UnitIsDeadOrGhost("mouseover")
             and UnitCanAttack("player", "mouseover")
             and not UnitIsWildBattlePet("mouseover")
             and not UnitIsBattlePetCompanion("mouseover")) and 1 or 0
-        if match == rcLast then return end
-        rcLast = match
+        if match == (stateFrame:GetAttribute("state-rc") or 0) then return end
         stateFrame:SetAttribute("state-rc", match)
     end
 
@@ -2908,7 +2941,6 @@ do
             PushRCState()
         elseif event == "PLAYER_REGEN_DISABLED" then
             self:UnregisterEvent("UPDATE_MOUSEOVER_UNIT")
-            rcLast = nil
         elseif event == "PLAYER_REGEN_ENABLED" then
             self:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
             PushRCState()
@@ -2953,24 +2985,27 @@ do
             stateFrame:SetAttribute("_onstate-mov", ONSTATE_MOV)
             stateFrame:SetAttribute("_onstate-rc", ONSTATE_RC)
             stateFrame:SetAttribute("_onstate-combatclear", ONSTATE_COMBATCLEAR)
+            stateFrame:SetAttribute("_onstate-rcclear", ONSTATE_RCCLEAR)
             RegisterStateDriver(stateFrame, "mov", macro)
             RegisterStateDriver(stateFrame, "combatclear", "[combat]1;0")
             if ruleLaneOn then
                 rcHoverFrame:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
                 rcHoverFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
                 rcHoverFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-                rcLast = nil
+                -- Registered with the lane it clears, so the extra driver only
+                -- exists where the Lua lane does.
+                RegisterStateDriver(stateFrame, "rcclear", "[@mouseover,harm,nodead]1;0")
                 PushRCState()
             else
                 rcHoverFrame:UnregisterAllEvents()
-                rcLast = nil
+                UnregisterStateDriver(stateFrame, "rcclear")
                 stateFrame:SetAttribute("state-rc", 0)
             end
         else
             UnregisterStateDriver(stateFrame, "mov")
             UnregisterStateDriver(stateFrame, "combatclear")
+            UnregisterStateDriver(stateFrame, "rcclear")
             rcHoverFrame:UnregisterAllEvents()
-            rcLast = nil
             stateFrame:SetAttribute("state-rc", 0)
             ClearOverrideBindings(stateFrame)
         end
