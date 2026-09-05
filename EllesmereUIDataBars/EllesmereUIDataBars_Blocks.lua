@@ -1028,7 +1028,12 @@ ns.BlockFactories.fps = function(blockCfg, slot, content, barCtx)
 
         local now = GetTime()
         -- UpdateAddOnMemoryUsage() iterates every loaded addon and is a noticeable spike; amortise the rescan to once per 30s.
-        if not skipMemoryScan and (now - sysLastMemScanTime) >= 30 then
+        -- Skipped entirely in combat: on a busy pull that spike can push the
+        -- hovered tooltip's whole script past the "script ran too long" watchdog
+        -- (field report: Murder Row, adds casting Felfire Orb). The data is
+        -- already tolerated at up to 30s stale, so holding it longer is not a
+        -- new behaviour; the next out-of-combat hover rescans normally.
+        if not skipMemoryScan and not InCombatLockdown() and (now - sysLastMemScanTime) >= 30 then
             sysLastMemScanTime = now
             UpdateAddOnMemoryUsage()
             local count = 0
