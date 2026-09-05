@@ -21,6 +21,7 @@ move-folders:
   EllesmereUI/EllesmereUIRaidFrames: EllesmereUIRaidFrames
   EllesmereUI/EllesmereUIResourceBars: EllesmereUIResourceBars
   EllesmereUI/EllesmereUIUnitFrames: EllesmereUIUnitFrames
+  EllesmereUI/EllesmereUILoadoutManager: EllesmereUILoadoutManager
 
 externals:
   Libs/LibStub:
