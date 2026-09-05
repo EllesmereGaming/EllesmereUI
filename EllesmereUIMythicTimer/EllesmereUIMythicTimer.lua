@@ -151,6 +151,7 @@ local DB_DEFAULTS = {
         showCompletedMilliseconds = true,
         objectiveCompareMode = "NONE",
         objectiveCompareDeltaOnly = false,
+        objectiveCompareStrict = false,
         showUpcomingSplitTargets = false,
         frameWidth        = 260,
         barWidth          = 210,
@@ -201,6 +202,8 @@ local DB_DEFAULTS = {
             bgColor          = { r = 0, g = 0, b = 0, a = 0.45 },
             borderSize       = 1,
             showIcon         = true,
+            iconOnRight      = false,  -- attach the spell icon to the right of the bar instead of the left
+            showIconDivider  = false,  -- draw a 1px divider at the icon/bar seam
             showSpellName    = true,
             nameSize         = 10,
             nameX            = 0,
@@ -215,6 +218,27 @@ local DB_DEFAULTS = {
             timerSize        = 10,
             timerX           = 0,
             timerY           = 0,
+            -- Interrupt awareness and visibility. Cast Colors (kick-ready
+            -- tint + uninterruptible wash) always applies, no off switch;
+            -- the rest is opt-in and off by default: important-cast
+            -- tint/glow, out-of-interrupt-range fade, raid target marker.
+            interruptReady    = { r = 0.92, g = 0.35, b = 0.20 },
+            uninterruptible   = { r = 0.45, g = 0.45, b = 0.45 },
+            importantEnabled  = false,
+            importantColor    = { r = 1, g = 0.2, b = 0.2 },
+            importantGlow     = false,
+            importantGlowStyle = 1,
+            importantGlowColor = { r = 1, g = 0.2, b = 0.2 },
+            importantGlowLines = 8,
+            importantGlowThickness = 2,
+            importantGlowSpeed = 4,
+            oorEnabled       = false,
+            oorAlpha         = 0.45,
+            showRaidMarker   = false,
+            raidMarkerSize   = 14,
+            -- Where to Show: positive filter -- a key is present (true) only
+            -- when selected; nothing selected = the bars show everywhere.
+            whereToShow      = {},
         },
         -- Target/Focus standalone cast bars (Mythic+ Tools tab): unlock-mode
         -- placeable cast bars carrying the nameplate interrupt color/effects
@@ -485,10 +509,13 @@ local function GetReferenceObjectiveTime(run, objectiveIndex, mode)
     local store = EnsureProfileStore("bestObjectiveSplits")
     if not store then return nil end
 
-    -- Try exact scope first, then fall back to broader scopes.
-    -- LEVEL_AFFIX -> LEVEL -> DUNGEON
+    -- Try exact scope first, then fall back to broader scopes
+    -- (LEVEL_AFFIX -> LEVEL -> DUNGEON); strict mode = exact scope only, so a
+    -- new key level shows no comparison instead of the dungeon-wide best.
     local tryOrder
-    if mode == COMPARE_LEVEL_AFFIX then
+    if db.profile.objectiveCompareStrict == true then
+        tryOrder = { mode }
+    elseif mode == COMPARE_LEVEL_AFFIX then
         tryOrder = { COMPARE_LEVEL_AFFIX, COMPARE_LEVEL, COMPARE_DUNGEON }
     elseif mode == COMPARE_LEVEL then
         tryOrder = { COMPARE_LEVEL, COMPARE_DUNGEON }
@@ -535,7 +562,13 @@ local function UpdateObjectiveCompletion(obj, objectiveIndex)
 end
 
 local function BuildSplitCompareText(referenceTime, currentTime, deltaOnly, fasterColor, slowerColor)
-    if not referenceTime or not currentTime then return "" end
+    if not referenceTime then return "" end
+
+    -- No time to compare yet (boss still alive): the reference on its own, in the
+    -- same gray parentheses a completed objective uses, just without the +/-.
+    if not currentTime then
+        return format("  |cff888888(%s)|r", FormatTime(referenceTime))
+    end
 
     local diff = currentTime - referenceTime
     local color = diff <= 0 and fasterColor or slowerColor
@@ -962,10 +995,10 @@ local PREVIEW_RUN = {
     _previewAffixNames = { "Tyrannical", "Xal'atath's Bargain: Ascendant" },
     _previewAffixIDs = { 9, 152 },
     objectives    = {
-        { name = "Kyrioss",                 completed = true,  elapsed = 510,  quantity = 1,     totalQuantity = 1,   rawQuantity = 1, rawTotalQuantity = 1, percent = 0, isWeighted = false },
-        { name = "Stormguard Gorren",       completed = true,  elapsed = 1005, quantity = 1,     totalQuantity = 1,   rawQuantity = 1, rawTotalQuantity = 1, percent = 0, isWeighted = false },
-        { name = "Lua Error Monstrosity",   completed = false, elapsed = 0,    quantity = 0,     totalQuantity = 1,   rawQuantity = 0, rawTotalQuantity = 1, percent = 0, isWeighted = false },
-        { name = "|cffff3333Ellesmere|r",    completed = false, elapsed = 0,    quantity = 0,     totalQuantity = 1,   rawQuantity = 0, rawTotalQuantity = 1, percent = 0, isWeighted = false },
+        { name = "Kyrioss",                 completed = true,  elapsed = 510,  quantity = 1,     totalQuantity = 1,   rawQuantity = 1, rawTotalQuantity = 1, percent = 0, isWeighted = false, previewSplit = 528 },
+        { name = "Stormguard Gorren",       completed = true,  elapsed = 1005, quantity = 1,     totalQuantity = 1,   rawQuantity = 1, rawTotalQuantity = 1, percent = 0, isWeighted = false, previewSplit = 972 },
+        { name = "Lua Error Monstrosity",   completed = false, elapsed = 0,    quantity = 0,     totalQuantity = 1,   rawQuantity = 0, rawTotalQuantity = 1, percent = 0, isWeighted = false, previewSplit = 1500 },
+        { name = "|cffff3333Ellesmere|r",    completed = false, elapsed = 0,    quantity = 0,     totalQuantity = 1,   rawQuantity = 0, rawTotalQuantity = 1, percent = 0, isWeighted = false, previewSplit = 1770 },
         { name = "Enemy Forces",            completed = false, elapsed = 0,    quantity = 78.42, totalQuantity = 100, rawQuantity = 188, rawTotalQuantity = 240, percent = 78.42, isWeighted = true },
     },
 }
@@ -2526,14 +2559,24 @@ local function RenderStandalone()
                     timeStr = format("|cff%02x%02x%02x%s|r",
                         floor(cR * 255), floor(cG * 255), floor(cB * 255), FormatTime(obj.elapsed))
                 end
+                local compareMode = p.objectiveCompareMode or COMPARE_NONE
                 local compareSuffix = ""
-                if obj.completed and obj.referenceElapsed then
-                    compareSuffix = BuildSplitCompareText(obj.referenceElapsed, obj.elapsed, p.objectiveCompareDeltaOnly, p.splitFasterColor, p.splitSlowerColor)
-                elseif (not obj.completed) and p.showUpcomingSplitTargets and (p.objectiveCompareMode or COMPARE_NONE) ~= COMPARE_NONE then
-                    local target = GetReferenceObjectiveTime(run, i, p.objectiveCompareMode or COMPARE_NONE)
-                    if target then
-                        compareSuffix = "  |cff888888PB " .. FormatTime(target) .. "|r"
+                if obj.completed then
+                    local reference = obj.referenceElapsed
+                    if isPreview then
+                        reference = (compareMode ~= COMPARE_NONE) and obj.previewSplit or nil
                     end
+                    if reference then
+                        compareSuffix = BuildSplitCompareText(reference, obj.elapsed, p.objectiveCompareDeltaOnly, p.splitFasterColor, p.splitSlowerColor)
+                    end
+                elseif p.showUpcomingSplitTargets and compareMode ~= COMPARE_NONE then
+                    local target
+                    if isPreview then
+                        target = obj.previewSplit
+                    else
+                        target = GetReferenceObjectiveTime(run, i, compareMode)
+                    end
+                    compareSuffix = BuildSplitCompareText(target)
                 end
                 -- Timer/split text uses its own FontString (never truncated).
                 -- Boss name uses the remaining width (truncated with "..." by

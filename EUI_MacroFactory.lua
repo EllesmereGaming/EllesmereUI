@@ -208,8 +208,10 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
             icon = "Interface\\Icons\\inv_potion_131",
             label = "Health / Recuperate (Combat Based)",
             spells = {1231418}, -- Recuperate (universal campfire self-heal)
-            fixedBody = "/stopcasting\n/cast [nocombat] {1}\n/use [combat] item:241304\n/use [combat] item:241305",
-            fixedTooltip = "item:241304",
+            -- Line order is the priority: the first potion in bags is the one used.
+            -- Concentrated Silvermoon r2 > r1, then Silvermoon r2 > r1.
+            fixedBody = "/stopcasting\n/cast [nocombat] {1}\n/use [combat] item:271884\n/use [combat] item:271883\n/use [combat] item:241304\n/use [combat] item:241305",
+            fixedTooltip = "item:271884",
         },
         {
             name = "EUI_Food",
@@ -275,7 +277,9 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                     lines[#lines + 1] = "/tm [@focus] ~" .. mark
                 end
                 if db.ping then
-                    lines[#lines + 1] = "/ping [@focus] onmyway"
+                    -- Numeric alias (3 = On My Way): the word forms resolve through
+                    -- localized PING_TYPE_* globals and only match on English clients.
+                    lines[#lines + 1] = "/ping [@focus] 3"
                 end
                 if db.announce then
                     -- %f is the built-in chat substitution for the focus unit's
@@ -509,7 +513,7 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
 
     -- Shaman (262=Elemental, 263=Enhancement, 264=Restoration)
     local SHAMAN_GEN = {
-        { name="EUI_WindShear", icon="Interface\\Icons\\spell_nature_cyclonestrikes", label="Wind Shear\n(Focus)", spells={57994}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Wind Shear
+        { name="EUI_WindShear", icon="Interface\\Icons\\spell_nature_cyclone", label="Wind Shear\n(Focus)", spells={57994}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Wind Shear
         { name="EUI_Purge", icon="Interface\\Icons\\spell_nature_purge", label="Purge\n(Focus)", spells={370}, fixedBody="/cast [@focus,harm,nodead][] {1}", fixedTooltip="{1}" }, -- Purge
         { name="EUI_CleanseSpirit", icon="Interface\\Icons\\ability_shaman_cleansespirit", label="Cleanse Spirit\n(Focus)", spells={51886}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Cleanse Spirit
         { name="EUI_WindrushTotem", icon="Interface\\Icons\\ability_shaman_windwalktotem", label="Windrush Totem\n(Cursor)", spells={192077}, fixedBody="/cast [@cursor] {1}", fixedTooltip="{1}" }, -- Wind Rush Totem

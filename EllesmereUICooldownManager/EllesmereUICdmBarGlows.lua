@@ -175,6 +175,110 @@ local overlayFrames = {}  -- [key] = overlay frame
 local lastStates = {}     -- [key] = bool (last glow state for change detection)
 local _cachedBG = nil     -- cached barGlows reference (refreshed on SetupOverlays)
 
+-------------------------------------------------------------------------------
+--  Stack-threshold gate (secret-safe)
+--  Applications counts read SECRET even in open-world content, so the
+--  threshold compare can never happen in Lua (a hard error on a secret).
+--  Same trick -- and same 5-operator support -- as the per-icon Glow at
+--  Stacks feature (EllesmereUICdmHooks.lua's StackGlow_Configure/Feed):
+--  one-unit StatusBar windows perform lower/upper bounds C-side via
+--  SetValue; equality intersects one of each (two gates). A fixed-size
+--  CLAMPTOBLACKADDITIVE mask rides each gate's fill edge and is handed to
+--  StartNativeGlow so the glow texture itself is cropped by the fill(s) --
+--  Lua never reads the count, just forwards it.
+-------------------------------------------------------------------------------
+local stackGates = {}  -- [key] = { gate,mask,fill, gate2,mask2,fill2, pad, threshold, operator, closeValue, openValue, closeValue2 }
+
+local function StackGateSize(overlay)
+    local w, h = overlay:GetWidth(), overlay:GetHeight()
+    if not w or w < 5 then w = 36 end
+    if not h or h < 5 then h = w end
+    return w, h
+end
+
+local function NewStackGate(overlay, pad)
+    local gate = CreateFrame("StatusBar", nil, overlay)
+    gate:SetPoint("TOPLEFT", overlay, "TOPLEFT", -pad, pad)
+    gate:SetPoint("BOTTOMRIGHT", overlay, "BOTTOMRIGHT", pad, -pad)
+    gate:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+    local fill = gate:GetStatusBarTexture()
+    if fill then fill:SetAlpha(0) end
+    gate:EnableMouse(false)
+    local mask = gate:CreateMaskTexture()
+    mask:SetTexture("Interface\\Buttons\\WHITE8x8",
+        "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE", "NEAREST")
+    return gate, mask, fill
+end
+
+local function SizeStackGateMasks(st, width, height)
+    local w, h = width + st.pad * 2, height + st.pad * 2
+    st.mask:SetSize(w, h)
+    if st.mask2 then st.mask2:SetSize(w, h) end
+end
+
+local function StackGlowMatches(value, operator, threshold)
+    if operator == "lt" then return value < threshold end
+    if operator == "lte" then return value <= threshold end
+    if operator == "eq" then return value == threshold end
+    if operator == "gt" then return value > threshold end
+    return value >= threshold
+end
+
+local function EnsureStackGate(overlay, key)
+    local st = stackGates[key]
+    if not st then
+        st = {}
+        stackGates[key] = st
+        local w, h = StackGateSize(overlay)
+        local pad = math.ceil(math.max(w, h) * 0.4)
+        if pad < 12 then pad = 12 end
+        st.pad = pad
+        st.gate, st.mask, st.fill = NewStackGate(overlay, pad)
+        SizeStackGateMasks(st, w, h)
+    end
+    return st
+end
+
+-- (Re)configure the gate(s) for the current threshold/operator. Mirrors
+-- StackGlow_Configure's edge math exactly: lower bounds park the mask left
+-- and open at max; upper bounds open at min and park right; equality
+-- intersects one lower + one upper gate (both masks applied to the glow).
+local function ConfigureStackGate(overlay, key, threshold, operator)
+    local st = EnsureStackGate(overlay, key)
+    if st.threshold == threshold and st.operator == operator then return st end
+    st.threshold, st.operator = threshold, operator
+
+    local upper = operator == "lt" or operator == "lte"
+    local edge = (operator == "gt" or operator == "lte") and threshold + 1 or threshold
+    st.gate:SetMinMaxValues(edge - 1, edge)
+    st.mask:ClearAllPoints()
+    st.mask:SetPoint(upper and "LEFT" or "RIGHT", st.fill or st.gate, "RIGHT", 0, 0)
+    st.closeValue = upper and edge or edge - 1
+    st.openValue = upper and edge - 1 or edge
+
+    if operator == "eq" and not st.gate2 then
+        local w, h = StackGateSize(overlay)
+        st.gate2, st.mask2, st.fill2 = NewStackGate(overlay, st.pad)
+        SizeStackGateMasks(st, w, h)
+    end
+    if st.gate2 then
+        local equality = operator == "eq"
+        st.gate2:SetMinMaxValues(equality and threshold or 0, equality and threshold + 1 or 1)
+        st.mask2:ClearAllPoints()
+        st.mask2:SetPoint(equality and "LEFT" or "RIGHT", st.fill2 or st.gate2, "RIGHT", 0, 0)
+        st.closeValue2 = equality and threshold + 1 or 0
+    end
+    return st
+end
+
+-- Equality needs a SECOND mask (lower + upper gate intersect). StartNativeGlow's
+-- opts.maskWith already applies gateSt.mask; this adds gateSt.mask2 on top of
+-- the same fresh textures (must run right after the Start call).
+local function ApplySecondStackGateMask(overlay, gateSt)
+    if not (gateSt and gateSt.mask2 and EllesmereUI.Glows and EllesmereUI.Glows.ApplyMaskWith) then return end
+    EllesmereUI.Glows.ApplyMaskWith(overlay, gateSt.mask2)
+end
+
 --- Rebuild overlay frames from assignments
 local function SetupOverlays()
     local bg = ns.GetBarGlows()
@@ -184,8 +288,14 @@ local function SetupOverlays()
             StopNativeGlow(overlay)
             overlay:Hide()
         end
+        ns._anyBarGlowStackGate = false
         return
     end
+
+    -- Whether the buff-tick's aura pool-walk should bother reading applications
+    -- at all (EllesmereUICdmHooks.lua). Zero At Stacks assignments means zero
+    -- extra work there -- no ReadBuffApplications call, no stack cache writes.
+    local anyStack = false
 
     local activeKeys = {}
     for assignKey, buffList in pairs(bg.assignments) do
@@ -225,10 +335,12 @@ local function SetupOverlays()
                     overlay._assignEntry = entry
                     overlay:Show()
                     activeKeys[key] = true
+                    if entry.stackEnabled then anyStack = true end
                 end
             end
         end
     end
+    ns._anyBarGlowStackGate = anyStack
 
     -- Hide overlays that are no longer assigned
     for key, overlay in pairs(overlayFrames) do
@@ -275,7 +387,46 @@ local function UpdateOverlayVisuals()
                 shouldGlow = (InCombatLockdown and InCombatLockdown()) or UnitAffectingCombat("player") or false
             end
 
-            -- Only update on state change (avoids restarting animations)
+            -- At Stacks (ACTIVE mode only): fed to the gate(s) every tick
+            -- regardless of state-change dedupe below, so the mask tracks a
+            -- live stack count while the glow keeps running. A KNOWN count
+            -- that fails the comparison stops the glow outright (Lua-side,
+            -- cheap); an UNKNOWN/SECRET count never blocks it -- the gate's
+            -- open value / the engine-side clamp decide instead.
+            local gateSt
+            local applyMask2 = false
+            if shouldGlow and mode ~= "MISSING" and entry.stackEnabled and spellID and spellID > 0 then
+                local threshold = tonumber(entry.stackThreshold) or 2
+                local operator = entry.stackOperator or "gte"
+                gateSt = ConfigureStackGate(overlay, key, threshold, operator)
+                -- Same sid/baseSID/linked resolution as auraActive above, so
+                -- this matches whatever spellID the entry was saved against
+                -- (a raw GetPlayerAuraBySpellID(spellID) query missed on the
+                -- override/linked-id drift these tracked buffs can have).
+                local stacks = ns._tickBlizzAuraStacks and ns._tickBlizzAuraStacks[spellID]
+                -- Secret probe FIRST: any truthy/nil/relational test on a
+                -- secret value hard-errors, not just `<`/`>=`.
+                local secret = issecretvalue and issecretvalue(stacks)
+                local feedValue
+                if secret then
+                    feedValue = stacks
+                elseif stacks == nil then
+                    feedValue = gateSt.openValue
+                elseif not StackGlowMatches(stacks, operator, threshold) then
+                    shouldGlow = false
+                else
+                    feedValue = stacks
+                end
+                if shouldGlow then
+                    gateSt.gate:SetValue(feedValue)
+                    if gateSt.gate2 then
+                        gateSt.gate2:SetValue(operator == "eq" and feedValue or 1)
+                    end
+                    applyMask2 = gateSt.mask2 ~= nil
+                end
+            end
+
+            -- Only update start/stop on state change (avoids restarting animations)
             if shouldGlow ~= lastStates[key] then
                 lastStates[key] = shouldGlow
                 if shouldGlow then
@@ -297,7 +448,12 @@ local function UpdateOverlayVisuals()
                         cg = entry.glowColor.g or 0.788
                         cb = entry.glowColor.b or 0.137
                     end
-                    StartNativeGlow(overlay, style, cr, cg, cb)
+                    if gateSt then
+                        StartNativeGlow(overlay, style, cr, cg, cb, { maskWith = gateSt.mask })
+                        if applyMask2 then ApplySecondStackGateMask(overlay, gateSt) end
+                    else
+                        StartNativeGlow(overlay, style, cr, cg, cb)
+                    end
                 else
                     StopNativeGlow(overlay)
                 end

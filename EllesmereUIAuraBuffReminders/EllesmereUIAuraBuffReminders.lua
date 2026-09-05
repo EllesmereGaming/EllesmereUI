@@ -87,6 +87,13 @@ local function Tex(id)
     if t then texCache[id] = t end; return t
 end
 
+local spellNameCache = {}
+local function SpellName(id)
+    local c = spellNameCache[id]; if c then return c end
+    local n = (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)) or GetSpellInfo(id)
+    if n then spellNameCache[id] = n end; return n
+end
+
 local _cachedPlayerClass
 local function GetPlayerClass()
     if not _cachedPlayerClass then
@@ -511,6 +518,20 @@ local function GetStanceState(stanceSpellID)
     return false, false
 end
 
+-- Same idea, but checks a list of spellIDs instead of one fixed form index.
+local function IsAnyShapeshiftFormActive(spellIDs)
+    local numForms = GetNumShapeshiftForms()
+    for i = 1, numForms do
+        local _, isActive, _, spellID = GetShapeshiftFormInfo(i)
+        if isActive then
+            for _, id in ipairs(spellIDs) do
+                if spellID == id then return true end
+            end
+        end
+    end
+    return false
+end
+
 -- 12.1: aura restrictions apply in M+/raids even OOC, and index scans HARD-ERROR there (not just secret results). Every
 -- OOC-only scan checks AuraKit.AurasRestricted() inline (no helper local -- this chunk sits at the Lua 5.1 200-local cap).
 
@@ -835,6 +856,7 @@ local BUFF_BENEFICIARIES = {
     intellect = {
         MAGE = true, WARLOCK = true, PRIEST = true, DRUID = true,
         SHAMAN = true, MONK = true, EVOKER = true, PALADIN = true,
+        DEMONHUNTER = true, -- Devourer (1480) is Intellect; Havoc/Vengeance are not
     },
     attackPower = {
         WARRIOR = true, ROGUE = true, HUNTER = true, DEATHKNIGHT = true,
@@ -887,13 +909,14 @@ EABR.SPEC_BENEFITS = {
         [262]=true, [264]=true,                   -- Shaman: Elemental, Restoration
         [270]=true,                               -- Monk: Mistweaver
         [65]=true,                                -- Paladin: Holy
+        [1480]=true,                               -- Demon Hunter: Devourer (Intellect, not Agility)
     },
     attackPower = {
         [71]=true, [72]=true, [73]=true,          -- Warrior
         [259]=true, [260]=true, [261]=true,       -- Rogue
         [253]=true, [254]=true, [255]=true,       -- Hunter
         [250]=true, [251]=true, [252]=true,       -- Death Knight
-        [577]=true, [581]=true, [1480]=true,      -- Demon Hunter (incl. Devourer)
+        [577]=true, [581]=true,                   -- Demon Hunter: Havoc, Vengeance
         [103]=true, [104]=true,                   -- Druid: Feral, Guardian
         [66]=true, [70]=true,                     -- Paladin: Protection, Retribution
         [268]=true, [269]=true,                   -- Monk: Brewmaster, Windwalker
@@ -946,12 +969,13 @@ function EABR.UnitBenefits(u, benefit)
     if class == nil or isSecret(class) then return false end
     if not classSet[class] then return false end
     -- Role refinement for members with no spec data: some class+benefit
-    -- pairs are decided by the assigned role alone -- Intellect only serves
-    -- the HEALER spec of Paladin/Monk (and never a Druid tank); Attack
-    -- Power never serves the healer spec of these hybrids. Ambiguous combos
+    -- pairs are decided by the role alone -- Intellect only serves the
+    -- HEALER spec of Paladin/Monk (and never a Druid tank); Attack Power
+    -- never serves the healer spec of these hybrids. Ambiguous combos
     -- (e.g. a DAMAGER Druid: Balance wants int, Feral wants AP) and
     -- unassigned ("NONE") or secret roles fall through to the class answer.
-    local role = UnitGroupRolesAssigned(u)
+    -- Effective role: the player's spec wins over a stale assigned role.
+    local role = EllesmereUI.UnitEffectiveRole(u)
     if role ~= nil and not isSecret(role) then
         if benefit == "intellect" then
             if (class == "PALADIN" or class == "MONK") and (role == "DAMAGER" or role == "TANK") then
@@ -981,7 +1005,7 @@ end
 -------------------------------------------------------------------------------
 -- Resolves a spell's display name from ID in client locale (English fallback), so labels follow client language. Exposed as _G._EABR_SpellName for options.
 _G._EABR_SpellName = function(spellID, fallback)
-    local n = spellID and C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)
+    local n = spellID and SpellName(spellID)
     return n or fallback
 end
 
@@ -1025,9 +1049,10 @@ local AURAS = {
       check="player", specs={72}, combatOk=false, isStance=true },
     { key="def_stance",  class="WARRIOR", name="Defensive Stance",  castSpell=386208, buffIDs={386208},
       check="player", specs={73}, combatOk=false, isStance=true },
-    -- Shadowform OOC only (Void Form 194249 also satisfies); shapeshiftIndex=1 is the PvP fallback where the aura API is restricted.
+    -- Shadowform OOC only (Void Form 194249 also satisfies); formSpellIDs lists every form that counts as active,
+    -- for the combat/PvP fallback where the aura API is restricted.
     { key="shadowform", class="PRIEST",  name="Shadowform",        castSpell=232698, buffIDs={232698, 194249},
-      check="player", specs={258}, combatOk=false, shapeshiftIndex=1 },
+      check="player", specs={258}, combatOk=false, formSpellIDs={232698, 194249, 185916} },
     -- Paladin Aura: only Devotion satisfies in dungeons/raids, any aura elsewhere; noPvP because Devotion Aura is ContextuallySecret in PvP even OOC.
     -- nameFallback: with a second Paladin's aura also active, the source is
     -- ambiguous and GetPlayerAuraBySpellID(465) can come back nil (fully
@@ -1134,6 +1159,32 @@ local SHAMAN_SHIELDS = {
       castSpellFn=ShamanShieldCastSpell, buffIDs={974, 192106, 52127}, excludeTalent=383010,
       check="player" },
 }
+
+-- Warlock permanent pets ("wrong demon" check). families includes cosmetic
+-- Grimoire-of-* reskins (e.g. Wrathguard = Felguard) so those don't misfire.
+local WARLOCK_PETS = {
+    { key="felguard",   name="Felguard",   castSpell=30146,  families={[29]=true,  [104]=true} },
+    { key="imp",        name="Imp",        castSpell=688,    families={[23]=true,  [100]=true} },
+    { key="voidwalker", name="Voidwalker", castSpell=697,    families={[16]=true,  [101]=true} },
+    { key="sayaad",     name="Sayaad",     castSpell=366222, families={[17]=true,  [102]=true, [302]=true} },
+    { key="felhunter",  name="Felhunter",  castSpell=691,    families={[15]=true,  [103]=true} },
+}
+
+-- Points an entry at whichever pet the shared cycle index currently selects
+-- from `pets` (Missing Pet and Wrong Demon share one index, so cycling on
+-- either reminder advances the same pointer). On EABR, not a top-level
+-- local -- this file is at Lua's 200-local ceiling.
+EABR.SetWarlockPetSpell = function(e, pets, fallbackTexture, labelOverride)
+    local n = #pets
+    local idx = EABR._petCycleIndex or 1
+    if idx > n then idx = 1 end
+    local pet = pets[idx]
+    e.mode = "spell"
+    e.spellID = pet.castSpell
+    e.texture = Tex(pet.castSpell) or fallbackTexture
+    e.label = labelOverride or EllesmereUI.L(pet.name)
+    e.petCycleTotal = n > 1 and n or nil
+end
 
 -- Weapon Enchant Items (temporary weapon enchants applied from items). weaponType: BLADED, BLUNT, RANGED, NEUTRAL (NEUTRAL fits any weapon).
 local WEAPON_ENCHANT_ITEMS = {
@@ -1490,7 +1541,7 @@ local _itemCountDirty = true
 EABR._resolved = {
     dirty = true,                   -- rebuild pending
     sig = {},                       -- last preferred-setting signature
-    rune = {},                      -- {itemID}
+    rune = {},                      -- {itemID, hasBags}
     flask = {},                     -- {itemID, hasBags}
     food = {},                      -- {itemID}
     inky = {},                      -- {hasPotion}
@@ -1635,11 +1686,13 @@ function EABR.ResolveConsumables()
     local lufd = db.profile and db.profile.lastUsedFood or nil
     local luwe = db.profile and db.profile.lastUsedWeaponEnchant or nil
 
-    -- Augment Rune: void preferred over ethereal; nil if neither in bags.
+    -- Augment Rune: void preferred over ethereal; fall back to the current
+    -- rune so an out-of-stock restock reminder can still render.
     local runeItem = nil
     if CachedGetItemCount(259085) > 0 then runeItem = 259085
     elseif CachedGetItemCount(243191) > 0 then runeItem = 243191 end
-    R.rune.itemID = runeItem
+    R.rune.hasBags = (runeItem ~= nil)
+    R.rune.itemID = runeItem or 259085
 
     -- Flask: resolve a display item even when out of stock (shown desaturated).
     local flaskItemID = FindFlaskItem(pf, luf)
@@ -1834,7 +1887,7 @@ local defaults = {
             whereToShow = {},
         },
         consumables = {
-            -- When false, bag/equip-derived consumables (flask/food/weapon)
+            -- When false, bag/equip-derived consumables (rune/flask/food/weapon)
             -- are hidden entirely when the item isn't in bags, instead of
             -- showing a desaturated restock prompt.
             showWithoutItem = true,
@@ -1854,6 +1907,8 @@ local defaults = {
             -- set for the class specials (open world on).
             whereToShow = { open_world = false },
             specialsWhereToShow = {},
+            -- Pets allowed by the wrong-demon reminder. Absent/false = not allowed.
+            wrongPetAllowed = { felguard = true },
             preferredFlask = "last_used",
             preferredFood = "last_used",
             preferredWeaponEnchant = "last_used",
@@ -2226,6 +2281,9 @@ function EABR.EnsureProviderCastButton()
     btn:SetSize(ICON_SIZE, ICON_SIZE)
     btn:RegisterForClicks("LeftButtonDown", "LeftButtonUp", "MiddleButtonUp")
     securecallfunction(btn.SetPassThroughButtons, btn, "RightButton")
+    -- MiddleButton is the dismiss click: NOOP its action type so it cannot fall
+    -- back to the plain "type" attribute and cast the reminder.
+    btn:SetAttribute("*type3", ATTRIBUTE_NOOP)
     btn:SetAttribute("useOnKeyDown", false)
     btn:SetFrameStrata(GetStrata())
     btn:SetFrameLevel(120)
@@ -2284,7 +2342,7 @@ function EABR.SyncProviderCastSpell()
         btn:SetAttribute("spell", spellID)
         btn:SetAttribute("item", nil)
         btn:SetAttribute("macrotext", nil)
-        btn:SetAttribute("unit", nil) -- raid buffs are self-cast, no unit needed
+        btn:SetAttribute("unit", "player") -- explicit unit so casting doesn't depend on your current target
         btn._icon:SetTexture(Tex(spellID) or 134400)
         btn._tooltipSpell = spellID
         btn._tooltipItem = nil
@@ -2701,15 +2759,27 @@ local function GetOrCreateIcon(index)
     -- SecureActionButtonTemplate for click-to-cast in combat
     local btn = CreateFrame("Button", "EABR_Icon"..index, iconAnchor, "SecureActionButtonTemplate")
     btn:SetSize(ICON_SIZE, ICON_SIZE)
-    btn:RegisterForClicks("LeftButtonDown", "LeftButtonUp", "MiddleButtonUp")
+    btn:RegisterForClicks("LeftButtonDown", "LeftButtonUp", "MiddleButtonUp", "RightButtonUp")
     securecallfunction(btn.SetPassThroughButtons, btn, "RightButton")
+    -- MiddleButton is the dismiss click, RightButton the pet-cycle-preview
+    -- click: NOOP both action types so neither can fall back to the plain
+    -- "type" attribute and cast the reminder.
+    btn:SetAttribute("*type2", ATTRIBUTE_NOOP)
+    btn:SetAttribute("*type3", ATTRIBUTE_NOOP)
     btn:SetFrameStrata(GetStrata())
     btn:Hide()
 
-    -- Middle-click dismiss: hide this reminder until the next loading screen
+    -- Middle-click dismiss: hide this reminder until the next loading screen.
+    -- Right-click on a multi-pet-cycle reminder previews the next pet without
+    -- casting (RightButton is a permanent NOOP type above; ShowIcon's
+    -- pass-through toggle decides whether this reminder claims the click at
+    -- all, vs letting it fall through like every other reminder does).
     btn:HookScript("PostClick", function(self, button)
         if button == "MiddleButton" and self._dismissKey then
             _dismissedUntilLoad[self._dismissKey] = true
+            if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
+        elseif button == "RightButton" and self._petCycleTotal then
+            EABR._petCycleIndex = ((EABR._petCycleIndex or 1) % self._petCycleTotal) + 1
             if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
         end
     end)
@@ -2735,7 +2805,6 @@ local function GetOrCreateIcon(index)
     iconPool[index] = btn
     return btn
 end
-
 
 -- Sets icon to a plain texture with no click action (clears cast attributes OOC).
 local function SetIconTexture(btn, texture, label)
@@ -2809,7 +2878,7 @@ do
         e.mode = nil; e.spellID = nil; e.itemID = nil; e.macro = nil
         e.texture = nil; e.label = nil; e.unit = nil; e.desaturated = false
         e.tooltipItem = nil
-        e.cat = nil; e.data = nil; e.dismissKey = nil
+        e.cat = nil; e.data = nil; e.dismissKey = nil; e.petCycleTotal = nil
         e.isEating = nil; e.eatingExpirationTime = nil
         e.qualityAtlas = nil
         e.bagCount = nil
@@ -2833,7 +2902,7 @@ do
         elseif mode == "item" then
             SetIconItem(btn, m.itemID, m.texture, m.label)
         elseif mode == "macro" then
-            SetIconMacro(btn, m.macro, m.texture, nil)
+            SetIconMacro(btn, m.macro, m.texture or (m.spellID and Tex(m.spellID)), m.spellID)
             btn._tooltipItem = m.tooltipItem
         else -- "texture"
             SetIconTexture(btn, m.texture, m.label)
@@ -2922,6 +2991,22 @@ end
 local function ShowIcon(iconIdx, m)
     local btn = GetOrCreateIcon(iconIdx)
     btn._dismissKey = m.dismissKey or nil
+    btn._petCycleTotal = m.petCycleTotal or nil
+    -- Right-click is passed through to whatever's behind (e.g. camera drag)
+    -- for every other reminder; only a multi-pet cycle button claims it.
+    -- Click-routing changes are combat-protected, same as the attribute
+    -- writes below, so this only ever runs OOC.
+    if not InCombat() then
+        local wantRightCapture = m.petCycleTotal and true or false
+        if btn._petCycleRightCapture ~= wantRightCapture then
+            btn._petCycleRightCapture = wantRightCapture
+            if wantRightCapture then
+                securecallfunction(btn.SetPassThroughButtons, btn)
+            else
+                securecallfunction(btn.SetPassThroughButtons, btn, "RightButton")
+            end
+        end
+    end
     ApplySetup(btn, m)
     local p = db.profile.display
     local glowType = p.glowType or 0
@@ -3077,7 +3162,7 @@ do
                 -- false flashes.
                 local canCheck = true
                 if inCombat then
-                    if aura.isStance or aura.shapeshiftIndex then
+                    if aura.isStance or aura.formSpellIDs then
                         canCheck = true
                     elseif aura.buffIDs and aura.buffIDs[1] then
                         for _, id in ipairs(aura.buffIDs) do
@@ -3114,11 +3199,10 @@ do
                         -- Use instance-specific buff list if available and in instance
                         local checkIDs = (inInstance and aura.instanceBuffIDs) or aura.buffIDs
                         -- When aura reads are restricted (PvP, combat, M+),
-                        -- fall back to the shapeshift form index for
-                        -- form-based auras (e.g. Shadowform) whose buff IDs
-                        -- are not readable.
-                        if aura.shapeshiftIndex and (inCombat or InPvPInstance()) then
-                            isMissing = (GetShapeshiftForm() ~= aura.shapeshiftIndex)
+                        -- fall back to scanning the shapeshift form bar for
+                        -- form-based auras whose buff IDs aren't readable.
+                        if aura.formSpellIDs and (inCombat or InPvPInstance()) then
+                            isMissing = not IsAnyShapeshiftFormActive(aura.formSpellIDs)
                         else
                             local hasIt = PlayerHasAuraByID(checkIDs, "aura")
                             -- Some auras (e.g. Devotion Aura) go fully secret
@@ -3263,7 +3347,10 @@ local specialsActive = EABR.SectionShows(co.specialsWhereToShow, inInstance)
                         end
                         if show then
                             local e = AcquireEntry()
-                            e.mode = "spell"; e.spellID = rite.castSpell
+                            local spellName = _G._EABR_SpellName(rite.castSpell, rite.name)
+                            e.mode = "macro"
+                            e.spellID = rite.castSpell
+                            e.macro = "/cast " .. spellName .. "\n/use 16"
                             e.label = ShortLabel(_G._EABR_SpellName(rite.castSpell, rite.name))
                             e.cat = "consumable"; e.data = rite
                             e.dismissKey = "consumable:" .. rite.key
@@ -3341,13 +3428,15 @@ local specialsActive = EABR.SectionShows(co.specialsWhereToShow, inInstance)
         if co.enabled.augment_rune and EABR.ConsumableShows(co, "augment_rune", inInstance) then
             local hasRuneBuff = EABR.ConsumablePresenceUnverifiable() or PlayerHasAuraByID(RUNE_BUFF_IDS)
             if not hasRuneBuff then
-                local runeItem = EABR._resolved.rune.itemID
-                if runeItem then
+                local rr = EABR._resolved.rune
+                local runeItem = rr.itemID
+                if runeItem and (co.showWithoutItem ~= false or rr.hasBags) then
                     local e = AcquireEntry()
                     e.mode = "item"; e.itemID = runeItem
                     e.texture = GetItemIcon(runeItem); e.label = EllesmereUI.L(ShortLabel("Augment Rune"))
                     e.qualityAtlas = EABR.GetItemQualityAtlas(runeItem)
                     e.bagCount = CachedGetItemCount(runeItem)
+                    e.desaturated = not rr.hasBags
                     e.cat = "consumable"
                     e.dismissKey = "consumable:rune"
                     missing[#missing+1] = e
@@ -3469,8 +3558,12 @@ local specialsActive = EABR.SectionShows(co.specialsWhereToShow, inInstance)
     ---------------------------------------------------------------------------
     --  Healthstone in bags (group; "Where to Show" governs visibility). Bag
     --  state and class scans are combat-safe; secret class tokens skip units.
+    --  In combat only the warlock is reminded: a non-warlock can't be handed
+    --  a stone mid-fight, so for everyone else it is noise until the fight
+    --  ends (the list rebuilds on both combat transitions).
     ---------------------------------------------------------------------------
-    if (IsInGroup() or IsInRaid()) and EABR.ConsumableShows(co, "healthstone", inInstance) then
+    if (IsInGroup() or IsInRaid()) and EABR.ConsumableShows(co, "healthstone", inInstance)
+       and not (InCombat() and GetPlayerClass() ~= "WARLOCK") then
         if co and co.enabled and co.enabled.healthstone ~= false then
             -- Only remind if a Warlock is in the group
             local hasWarlock = false
@@ -3590,13 +3683,7 @@ local function Refresh()
 
     CacheInstanceInfo()
 
-    -- MEMORY PROBES (temporary -- remove after diagnosis)
-    local _memProbe = _G._EABR_MemProbe
-    local _m0, _m1, _m2, _m3, _m4, _m5, _m6, _m7
-    if _memProbe then collectgarbage("stop"); _m0 = collectgarbage("count") end
-
     BuildPlayerAuraCache()
-    if _memProbe then _m1 = collectgarbage("count") end
 
     local playerClass = GetPlayerClass()
     local inCombat = InCombat()
@@ -3625,7 +3712,6 @@ local function Refresh()
     if remindersOn then
         CollectRaidBuffs(missing, playerClass, inInstance, inCombat)
     end
-    if _memProbe then _m2 = collectgarbage("count") end
 
     ---------------------------------------------------------------------------
     --  2) Auras: OOC normally; in restricted contexts only reminders whose
@@ -3634,7 +3720,6 @@ local function Refresh()
     if remindersOn then
         CollectAuras(missing, playerClass, specID, inInstance, restricted)
     end
-    if _memProbe then _m3 = collectgarbage("count") end
 
     ---------------------------------------------------------------------------
     --  3) Consumables: OOC (non-PvP) normally; in restricted contexts the
@@ -3643,17 +3728,17 @@ local function Refresh()
     if remindersOn and not inPvP then
         CollectConsumables(missing, playerClass, specID, inInstance, inKeystone, inCombat)
     end
-    if _memProbe then _m4 = collectgarbage("count") end
 
     ---------------------------------------------------------------------------
     --  4) Pet Reminders (combat-safe: UnitExists/UnitIsDead unrestricted); suppressed for petless specs, Grimoire of Sacrifice, etc.
     ---------------------------------------------------------------------------
     if remindersOn and PET_CLASSES[playerClass] then
         local co = db.profile.consumables
-        if co and co.enabled and co.enabled.pet ~= false then
+        if co and co.enabled and co.enabled.pet ~= false and EABR.SectionShows(co.specialsWhereToShow, inInstance) then
             local suppress = false
             local petIcon = 132161
             local petLabel = "Pet"
+            local warlockEnforcedPets
             if playerClass == "HUNTER" then
                 local spec = GetSpecialization and GetSpecialization()
                 if spec then
@@ -3663,6 +3748,15 @@ local function Refresh()
             elseif playerClass == "WARLOCK" then
                 petIcon = 136218
                 if Known(108503) and PlayerHasAuraByID({196099}) then suppress = true end
+                local allowed = co.wrongPetAllowed
+                warlockEnforcedPets = {}
+                if allowed then
+                    for _, pet in ipairs(WARLOCK_PETS) do
+                        if allowed[pet.key] and Known(pet.castSpell) then
+                            warlockEnforcedPets[#warlockEnforcedPets+1] = pet
+                        end
+                    end
+                end
             elseif playerClass == "DEATHKNIGHT" then
                 petIcon = 1100170
                 petLabel = "Ghoul"
@@ -3677,23 +3771,30 @@ local function Refresh()
                and not (EABR._petRemountGrace and GetTime() < EABR._petRemountGrace)
                and not (UnitExists("pet") and not UnitIsDead("pet")) then
                 local e = AcquireEntry()
-                e.mode = "texture"
-                e.texture = petIcon
-                e.label = petLabel
                 e.cat = "consumable"
                 e.dismissKey = "consumable:pet"
+                local n = warlockEnforcedPets and #warlockEnforcedPets or 0
+                if n > 0 then
+                    EABR.SetWarlockPetSpell(e, warlockEnforcedPets, petIcon)
+                else
+                    e.mode = "texture"
+                    e.texture = petIcon
+                    e.label = petLabel
+                end
                 missing[#missing+1] = e
             end
-            if not suppress and playerClass == "WARLOCK" and specID == 266
+            if not suppress and playerClass == "WARLOCK"
                and co.enabled.wrong_pet ~= false
                and UnitExists("pet") and not UnitIsDead("pet") then
                 local _, familyID = UnitCreatureFamily("pet")
-                local isFelguard = familyID and not (issecretvalue and issecretvalue(familyID)) and familyID == 29
-                if not isFelguard then
+                familyID = familyID and not (issecretvalue and issecretvalue(familyID)) and familyID or nil
+                local isAllowed = false
+                for _, pet in ipairs(warlockEnforcedPets) do
+                    if familyID and pet.families[familyID] then isAllowed = true; break end
+                end
+                if #warlockEnforcedPets > 0 and not isAllowed then
                     local e = AcquireEntry()
-                    e.mode = "texture"
-                    e.texture = 136216
-                    e.label = EllesmereUI.L("Felguard")
+                    EABR.SetWarlockPetSpell(e, warlockEnforcedPets, 136216, EllesmereUI.L("Wrong Demon"))
                     e.cat = "consumable"
                     e.dismissKey = "consumable:wrong_pet"
                     missing[#missing+1] = e
@@ -3726,7 +3827,6 @@ local function Refresh()
     end
 
     -- Talent reminders handled by EllesmereUIABR_TalentReminders.lua
-    if _memProbe then _m5 = collectgarbage("count") end
 
     -- Per-section sound alerts: fire once as each reminder newly appears.
     EABR.HandleAppearSounds(missing)
@@ -3883,26 +3983,6 @@ local function Refresh()
     else
         EABR.ParkProviderCastButton()
         EllesmereUI.SetElementVisibility(iconAnchor, false)
-    end
-
-
-    -- MEMORY PROBE REPORT (temporary)
-    if _memProbe then
-        _m6 = collectgarbage("count")
-        collectgarbage("restart")
-        _memProbe.n = (_memProbe.n or 0) + 1
-        _memProbe.auraCache  = (_memProbe.auraCache  or 0) + (_m1 - _m0)
-        _memProbe.raidBuffs  = (_memProbe.raidBuffs  or 0) + (_m2 - _m1)
-        _memProbe.auras      = (_memProbe.auras      or 0) + (_m3 - _m2)
-        _memProbe.consumables= (_memProbe.consumables or 0) + (_m4 - _m3)
-        _memProbe.talents    = (_memProbe.talents    or 0) + (_m5 - _m4)
-        _memProbe.display    = (_memProbe.display    or 0) + (_m6 - _m5)
-        _memProbe.total      = (_memProbe.total      or 0) + (_m6 - _m0)
-        if _memProbe.n >= 20 then
-            _memProbe.n = 0; _memProbe.auraCache = 0; _memProbe.raidBuffs = 0
-            _memProbe.auras = 0; _memProbe.consumables = 0; _memProbe.talents = 0
-            _memProbe.display = 0; _memProbe.total = 0
-        end
     end
 
     UpdateDurationTicker()
@@ -4477,8 +4557,10 @@ function EABR:OnEnable()
     _G._EABR_PALADIN_RITES = PALADIN_RITES
     _G._EABR_SHAMAN_IMBUES = SHAMAN_IMBUES
     _G._EABR_SHAMAN_SHIELDS = SHAMAN_SHIELDS
+    _G._EABR_WARLOCK_PETS = WARLOCK_PETS
     _G._EABR_WEAPON_ENCHANT_ITEMS = WEAPON_ENCHANT_ITEMS
     _G._EABR_Tex = Tex
+    _G._EABR_Known = Known
     _G._EABR_ICON_SIZE = ICON_SIZE
     _G._EABR_FLASK_ITEMS = FLASK_ITEMS
     _G._EABR_FOOD_ITEMS = FOOD_ITEMS
@@ -4760,18 +4842,21 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
         -- set our combat flag, so HideAllIcons guards on InCombatLockdown itself.
         HideAllIcons()
         HideCursorIcons()
-        _eabrInCombat = true
         -- Re-snapshots only if ENCOUNTER_START didn't just do it (fires ms before REGEN_DISABLED, producing a cleaner snapshot since the aura API is fully available pre-lockdown).
+        -- Must snapshot before marking combat, or the group-buff lookup treats itself as restricted and reports nothing found.
         if not _encounterSnapshotTime or (GetTime() - _encounterSnapshotTime) > 1 then
             SnapshotPlayerAuras()
             if _isEvokerOwnOnRaid then SnapshotOwnOnRaidBuffs() end
         end
+        _eabrInCombat = true
         _encounterSnapshotTime = nil
         RequestRefresh()
         return
     end
 
-    if e == "PLAYER_REGEN_ENABLED" then
+    -- A fast encounter reset can end without a player combat transition, so
+    -- clear ENCOUNTER_START's synthetic flag when lockdown is already gone.
+    if e == "PLAYER_REGEN_ENABLED" or (e == "ENCOUNTER_END" and not InCombatLockdown()) then
         _eabrInCombat = false
         -- Restore broad UNIT_AURA for OOC group buff tracking
         if _needGroupAura then _setBroad(true) end
@@ -4924,6 +5009,7 @@ do
 end
 
 mainFrame:RegisterEvent("ENCOUNTER_START")
+mainFrame:RegisterEvent("ENCOUNTER_END")
 mainFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 mainFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 mainFrame:RegisterEvent("PLAYER_ENTERING_WORLD")

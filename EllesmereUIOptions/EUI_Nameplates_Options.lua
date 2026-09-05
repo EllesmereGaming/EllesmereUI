@@ -9,7 +9,7 @@ if not ns then return end  -- module disabled: no options page
 
 local function GetNPOptOutline()
     -- Body-text preview flag, already slug-gated at the source (GetFontOutlineFlag).
-    return EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag() or ""
+    return EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("nameplates") or ""
 end
 
 -------------------------------------------------------------------------------
@@ -828,7 +828,7 @@ initFrame:SetScript("OnEvent", function(self)
         pf.Update = function(self)
             local fontPath   = (EllesmereUI and EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("nameplates")) or DBVal("font")
             -- Body-text outline, already slug-gated at the source (GetFontOutlineFlag).
-            local npOutline  = (EllesmereUI and EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag()) or "OUTLINE, SLUG"
+            local npOutline  = (EllesmereUI and EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("nameplates")) or "OUTLINE, SLUG"
             local barH       = Snap(DBVal("healthBarHeight"))
             local rawBarW    = BAR_W + DBVal("healthBarWidth")
             local barW       = IsDragging() and rawBarW or Snap(rawBarW)
@@ -2658,6 +2658,10 @@ initFrame:SetScript("OnEvent", function(self)
             -- Retained (always nil) so legacy owner-check code paths stay harmless with the shared BuildCogPopup.
             local npcCogPopup, npcCogPopupOwner
             local function npcOff() return DBVal("showFriendlyNPCs") ~= true end
+            -- Every row here styles the name-only overlay, so the mode gate lives
+            -- on the cog button; only the title rows need a gate of their own.
+            local function npcCogOff() return npcOff() or nameOnlyOff() end
+            local function titleOff() return DBVal("showNPCTitles") == false end
 
             local _, ShowNPCCogPopup = EllesmereUI.BuildCogPopup({
                 title = "Friendly NPC Settings",
@@ -2668,12 +2672,38 @@ initFrame:SetScript("OnEvent", function(self)
                         DB().showNPCTitles = v and true or false
                         if ns.RefreshAllNPCOverlays then ns.RefreshAllNPCOverlays() end
                       end },
-                    { type = "slider", label = "Name Only Size", min = 6, max = 30, step = 1,
+                    { type = "slider", label = "Name Size", min = 6, max = 30, step = 1,
                       get = function() return DBVal("friendlyNPCNameSize") or defaults.friendlyNPCNameSize end,
                       set = function(v)
                         DB().friendlyNPCNameSize = v
-                        if ns.RefreshAllNPCOverlays then ns.RefreshAllNPCOverlays() end
+                        if ns.RefreshNPCOverlayStyle then ns.RefreshNPCOverlayStyle() end
                       end },
+                    { type = "slider", label = "Title Size", min = 6, max = 30, step = 1,
+                      get = function() return DBVal("friendlyNPCTitleSize") or defaults.friendlyNPCTitleSize end,
+                      set = function(v)
+                        DB().friendlyNPCTitleSize = v
+                        if ns.RefreshNPCOverlayStyle then ns.RefreshNPCOverlayStyle() end
+                      end,
+                      disabled = titleOff, disabledTooltip = "Show NPC Titles" },
+                    { type = "colorpicker", label = "Name Color",
+                      get = function()
+                        local c = DBVal("friendlyNPCNameColor") or defaults.friendlyNPCNameColor
+                        return c.r, c.g, c.b
+                      end,
+                      set = function(r, g, b)
+                        DB().friendlyNPCNameColor = { r = r, g = g, b = b }
+                        if ns.RefreshNPCOverlayStyle then ns.RefreshNPCOverlayStyle() end
+                      end },
+                    { type = "colorpicker", label = "Title Color", hasAlpha = true,
+                      get = function()
+                        local c = DBVal("friendlyNPCTitleColor") or defaults.friendlyNPCTitleColor
+                        return c.r, c.g, c.b, c.a or 1
+                      end,
+                      set = function(r, g, b, a)
+                        DB().friendlyNPCTitleColor = { r = r, g = g, b = b, a = a or 1 }
+                        if ns.RefreshNPCOverlayStyle then ns.RefreshNPCOverlayStyle() end
+                      end,
+                      disabled = titleOff, disabledTooltip = "Show NPC Titles" },
                 },
             })
 
@@ -2682,28 +2712,30 @@ initFrame:SetScript("OnEvent", function(self)
             btn:SetSize(26, 26)
             btn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
             btn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            btn:SetAlpha(npcOff() and 0.15 or 0.4)
+            btn:SetAlpha(npcCogOff() and 0.15 or 0.4)
             local tex = btn:CreateTexture(nil, "OVERLAY")
             tex:SetAllPoints(); tex:SetTexture(COGS_ICON)
             btn:SetScript("OnEnter", function(self)
                 if npcOff() then
                     EllesmereUI.ShowWidgetTooltip(self, "Requires Show Friendly NPC Nameplates to be enabled")
+                elseif nameOnlyOff() then
+                    EllesmereUI.ShowWidgetTooltip(self, "Requires Name Only mode")
                 else self:SetAlpha(0.7) end
             end)
             btn:SetScript("OnLeave", function(self)
                 EllesmereUI.HideWidgetTooltip()
-                if npcCogPopupOwner ~= self then self:SetAlpha(npcOff() and 0.15 or 0.4) end
+                if npcCogPopupOwner ~= self then self:SetAlpha(npcCogOff() and 0.15 or 0.4) end
             end)
             btn:SetScript("OnClick", function(self)
-                if npcOff() then return end
+                if npcCogOff() then return end
                 ShowNPCCogPopup(self)
             end)
             EllesmereUI.RegisterWidgetRefresh(function()
-                if npcCogPopupOwner ~= btn then btn:SetAlpha(npcOff() and 0.15 or 0.4) end
+                if npcCogPopupOwner ~= btn then btn:SetAlpha(npcCogOff() and 0.15 or 0.4) end
             end)
 
-            -- Inline swatch: friendly NPC bar & name color (freely customizable, full-plate mode only). Disabled in Name Only mode (NPCs use a reaction-colored overlay there) or when friendly NPCs are hidden.
-            local function npcColorOff() return npcOff() or DBVal("friendlyNameOnly") ~= false end
+            -- Inline swatch: friendly NPC bar & name color, full-plate mode only -- the exact complement of the cog beside it, which owns the name-only colors.
+            local function npcColorOff() return npcOff() or friendlyPlateOff() end
             local npcSwatch, updateNpcSwatch
             local function refreshNpcSwatch()
                 if updateNpcSwatch then updateNpcSwatch() end
@@ -7221,14 +7253,24 @@ initFrame:SetScript("OnEvent", function(self)
                 if on == nil then on = defaults.importantCastGlow end
                 return not on
             end
+            -- Assigned once the preview frame exists, below. Forward-declared because
+            -- the dropdown, swatch and cog handlers are all built before that point
+            -- and every one of them re-renders the preview.
+            local RefreshImpCastPreview = function() end
+
             local function impCastAntsOff()
                 if impCastOff() then return true end
                 local raw = DB().importantCastGlowStyle or defaults.importantCastGlowStyle
                 return type(raw) ~= "number" or raw ~= 1
             end
 
-            local impGlowValues = { [0] = "None", [1] = "Pixel Glow", [4] = "Auto-Cast Shine" }
-            local impGlowOrder = { 0, 1, 4 }
+            -- Same list, same indices as the Pandemic Glow dropdown above.
+            local impGlowValues = { [0] = "None" }
+            local impGlowOrder = { 0 }
+            for i, entry in ipairs(ns.PANDEMIC_GLOW_STYLES) do
+                impGlowValues[i] = entry.name
+                impGlowOrder[#impGlowOrder + 1] = i
+            end
 
             local impGlowRow
             impGlowRow, h = W:DualRow(parent, y,
@@ -7236,7 +7278,10 @@ initFrame:SetScript("OnEvent", function(self)
                   values=impGlowValues, order=impGlowOrder,
                   getValue=function()
                     if impCastOff() then return 0 end
-                    return DB().importantCastGlowStyle or defaults.importantCastGlowStyle or 1
+                    local raw = DB().importantCastGlowStyle or defaults.importantCastGlowStyle or 1
+                    if type(raw) ~= "number" then return 1 end
+                    if raw < 1 or raw > #ns.PANDEMIC_GLOW_STYLES then return 1 end
+                    return raw
                   end,
                   setValue=function(v)
                     if v == 0 then
@@ -7246,6 +7291,7 @@ initFrame:SetScript("OnEvent", function(self)
                         DB().importantCastGlowStyle = v
                     end
                     RefreshAllPlates()
+                    RefreshImpCastPreview()
                     C_Timer.After(0, function() EllesmereUI:RefreshPage() end)
                   end,
                   tooltip="Show a glow on the cast bar when the enemy is casting a spell Blizzard marks as important." },
@@ -7271,6 +7317,7 @@ initFrame:SetScript("OnEvent", function(self)
                         function(r, g, b)
                             DB().importantCastGlowColor = { r = r, g = g, b = b }
                             RefreshAllPlates()
+                            RefreshImpCastPreview()
                         end, nil, 20)
                     PP.Point(swatch, "RIGHT", ctrl, "LEFT", -12, 0)
                     leftRgn._lastInline = swatch
@@ -7292,22 +7339,22 @@ initFrame:SetScript("OnEvent", function(self)
                     rows = {
                         { type = "slider", label = "Lines", min = 2, max = 16, step = 1,
                           get = function() return DB().importantCastGlowLines or defaults.importantCastGlowLines or 8 end,
-                          set = function(v) DB().importantCastGlowLines = v; RefreshAllPlates() end },
+                          set = function(v) DB().importantCastGlowLines = v; RefreshAllPlates(); RefreshImpCastPreview() end },
                         { type = "slider", label = "Thickness", min = 1, max = 4, step = 1,
                           get = function() return DB().importantCastGlowThickness or defaults.importantCastGlowThickness or 2 end,
-                          set = function(v) DB().importantCastGlowThickness = v; RefreshAllPlates() end },
+                          set = function(v) DB().importantCastGlowThickness = v; RefreshAllPlates(); RefreshImpCastPreview() end },
                         { type = "slider", label = "Speed", min = 1, max = 8, step = 1,
                           get = function() local s = DB().importantCastGlowSpeed or defaults.importantCastGlowSpeed or 4; return 9 - s end,
-                          set = function(v) DB().importantCastGlowSpeed = 9 - v; RefreshAllPlates() end },
+                          set = function(v) DB().importantCastGlowSpeed = 9 - v; RefreshAllPlates(); RefreshImpCastPreview() end },
                         { type = "toggle", label = "Background",
                           get = function() return DB().importantCastGlowBackground == true end,
-                          set = function(v) DB().importantCastGlowBackground = v and true or nil; RefreshAllPlates() end },
+                          set = function(v) DB().importantCastGlowBackground = v and true or nil; RefreshAllPlates(); RefreshImpCastPreview() end },
                         { type = "colorpicker", label = "Background Color",
                           get = function()
                               local c = DB().importantCastGlowBackgroundColor or defaults.importantCastGlowBackgroundColor or { r = 0, g = 0, b = 0 }
                               return c.r or 0, c.g or 0, c.b or 0
                           end,
-                          set = function(r, g, b) DB().importantCastGlowBackgroundColor = { r = r, g = g, b = b }; RefreshAllPlates() end,
+                          set = function(r, g, b) DB().importantCastGlowBackgroundColor = { r = r, g = g, b = b }; RefreshAllPlates(); RefreshImpCastPreview() end,
                           disabled = function() return DB().importantCastGlowBackground ~= true end,
                           disabledTooltip = "Pixel Glow Background" },
                     },
@@ -7344,6 +7391,61 @@ initFrame:SetScript("OnEvent", function(self)
                 end)
                 cogBtn:SetAlpha(impCastAntsOff() and 0.15 or 0.4)
                 cogBtn:EnableMouse(not impCastAntsOff())
+
+                -- Glow preview. The Pandemic Glow row hosts its preview in the row's
+                -- right half; here that half is a real setting, so the preview joins
+                -- the inline chain instead and sits to the left of the cog.
+                local IMP_PREVIEW_SIZE = 26
+                local previewFrame = CreateFrame("Frame", nil, leftRgn)
+                PP.Size(previewFrame, IMP_PREVIEW_SIZE, IMP_PREVIEW_SIZE)
+                -- -12 rather than the chain's usual -6: the widest FlipBook styles
+                -- draw roughly 8px past the icon edge on each side.
+                PP.Point(previewFrame, "RIGHT", cogBtn, "LEFT", -12, 0)
+                previewFrame:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
+
+                local previewTex = previewFrame:CreateTexture(nil, "ARTWORK")
+                previewTex:SetAllPoints()
+                previewTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                PP.CreateBorder(previewFrame, 0, 0, 0, 1, 1, "OVERLAY", 7)
+
+                -- Leftmost inline item on this half; the row label is bounded against
+                -- it (region._lastInline, see EllesmereUI_Widgets.lua).
+                leftRgn._lastInline = previewFrame
+
+                -- Renders through the SAME dispatcher, style list and stored options
+                -- the nameplate itself uses, so the preview cannot drift from the real
+                -- cast bar. Assigns the forward-declared local from the top of the block.
+                RefreshImpCastPreview = function()
+                    ns.StopAllGlows(previewFrame)
+                    previewTex:SetTexture(displayCastIcons[_previewCastIconIdx or 1])
+
+                    local off = impCastOff()
+                    previewFrame:SetAlpha(off and 0.3 or 1)
+                    if off then return end
+
+                    local styles = ns.PANDEMIC_GLOW_STYLES
+                    local style = DB().importantCastGlowStyle or defaults.importantCastGlowStyle or 1
+                    if type(style) ~= "number" or style < 1 or style > #styles then style = 1 end
+
+                    local c = DB().importantCastGlowColor or defaults.importantCastGlowColor
+                    local opts
+                    if style == 1 then
+                        local bgc = DB().importantCastGlowBackgroundColor
+                            or defaults.importantCastGlowBackgroundColor or { r = 0, g = 0, b = 0 }
+                        opts = {
+                            N      = DB().importantCastGlowLines or defaults.importantCastGlowLines,
+                            th     = DB().importantCastGlowThickness or defaults.importantCastGlowThickness,
+                            period = DB().importantCastGlowSpeed or defaults.importantCastGlowSpeed,
+                            bg     = DB().importantCastGlowBackground == true
+                                     and { r = bgc.r or 0, g = bgc.g or 0, b = bgc.b or 0 } or nil,
+                        }
+                    end
+                    ns.StartGlow(previewFrame, ns.NP_TO_SHARED_GLOW[style] or 1,
+                        IMP_PREVIEW_SIZE, c.r, c.g, c.b, opts, IMP_PREVIEW_SIZE)
+                end
+
+                EllesmereUI.RegisterWidgetRefresh(RefreshImpCastPreview)
+                RefreshImpCastPreview()
             end
         end
 

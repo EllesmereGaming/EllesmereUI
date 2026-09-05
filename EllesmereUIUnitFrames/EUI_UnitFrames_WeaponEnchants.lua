@@ -141,11 +141,17 @@ local function ApplyStyle(b, style)
         if not b._bdr then
             b._bdr = CreateFrame("Frame", nil, b)
             b._bdr:SetAllPoints()
-            PP.CreateBorder(b._bdr, bd[1] or 0, bd[2] or 0, bd[3] or 0, bd[4] or 1, bd.size or 1)
+            b._bdr:EnableMouse(false)
         end
-        PP.UpdateBorder(b._bdr, bd.size or 1, bd[1] or 0, bd[2] or 0, bd[3] or 0, bd[4] or 1)
-        b._bdr:Show()
+        b._bdr:SetFrameLevel(bd.behind
+            and math.max(0, b:GetFrameLevel() - 1)
+            or (b.cd:GetFrameLevel() + 1))
+        EllesmereUI.ApplyBorderStyle(b._bdr, bd.textureSize or bd.size or 1,
+            bd[1] or 0, bd[2] or 0, bd[3] or 0, bd[4] or 1,
+            bd.texture or "solid", bd.offsetX, bd.offsetY, bd.shiftX, bd.shiftY,
+            bd.addonKey or "unitframes", bd.sizeKey or bd.size or 1)
     elseif b._bdr then
+        if EllesmereUI.HideBorderStyle then EllesmereUI.HideBorderStyle(b._bdr) end
         b._bdr:Hide()
     end
     b.cd:SetReverse(style.cooldownReverse ~= false)
@@ -415,16 +421,38 @@ local function LayoutHost(key, rec)
         hosts[key] = host
     end
     host.rec = rec
-    if not (host.secure and InCombatLockdown()) then
-        -- Parent from rec.parent ONLY -- rec.anchorTo can be an engine aura
-        -- container, which carries forbidden aspects
-        -- (UntrustedLayoutScriptExecution): SetParent into it hard-errors for
-        -- the secure host ("child object would inherit forbidden aspects").
-        -- Anchoring is legal, so the host RIDES the container's rect while
-        -- living in the plain bar frame's tree.
-        host.frame:SetParent(rec.parent or rec.frame)
+    if host.secure and InCombatLockdown() then return end
+    -- Parent from rec.parent ONLY -- rec.anchorTo can be an engine aura
+    -- container, which carries forbidden aspects
+    -- (UntrustedLayoutScriptExecution): SetParent into it hard-errors for
+    -- the secure host ("child object would inherit forbidden aspects").
+    -- Anchoring is legal, so the host RIDES the container's rect while
+    -- living in the plain bar frame's tree.
+    local function DoAnchor()
+        local r = host.rec
+        -- Cleared-rec guard, plus the outer skip mirrored: AuraKit jobs are
+        -- combat-runnable, so a job enqueued OOC can drain in lockdown and
+        -- these writes on the SECURE host would be blocked actions there.
+        -- The rec stays, and the regen relayout heals it like the old skip.
+        if not r or (host.secure and InCombatLockdown()) then return end
+        host.frame:SetParent(r.parent or r.frame)
         host.frame:ClearAllPoints()
-        host.frame:SetAllPoints(rec.anchorTo or rec.parent or rec.frame)
+        host.frame:SetAllPoints(r.anchorTo or r.parent or r.frame)
+    end
+    if host.secure then
+        -- Some callers (e.g. Unlock Mode's grow-direction dropdown) reach
+        -- here from a live, insecure OnClick handler; anchoring the secure
+        -- host straight onto an engine aura container from that stack throws
+        -- UntrustedLayoutScriptExecution. AuraKit's own job queue gives the
+        -- anchor write a fresh, untainted execution context instead.
+        local AK = EllesmereUI.AuraKit
+        if AK and AK.QueueLiveBuildJob then
+            AK.QueueLiveBuildJob(DoAnchor, "uf:weaponench-anchor")
+        else
+            DoAnchor()
+        end
+    else
+        DoAnchor()
     end
 end
 

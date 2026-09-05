@@ -64,7 +64,21 @@ local CLASS_LABELS = {
     DispelTyped       = { "Dispels", "Shows any debuff with a dispel type (Magic, Curse, Disease, Poison, Bleed), even if you cannot remove it" },
     Raid              = { "Raid",            "Shows only debuffs from Blizzard's curated raid-frame debuff set" },
     RaidInCombat      = { "Raid In Combat",  "Shows only the stricter in-combat subset of the raid set" },
+    -- Less common filters (below the divider in the Filters dropdown).
+    CastByMe          = { "Cast By You",     "Debuffs applied by you or your pet" },
+    AnyPlayer         = { "From Any Player", "Debuffs caused by any player or player pet. The opposite of Non-Player Auras; checking one clears the other" },
+    DispelMagic       = { "Magic",           "Debuffs with the Magic dispel type" },
+    DispelCurse       = { "Curse",           "Debuffs with the Curse dispel type" },
+    DispelPoison      = { "Poison",          "Debuffs with the Poison dispel type" },
+    DispelDisease     = { "Disease",         "Debuffs with the Disease dispel type" },
+    DispelBleed       = { "Bleed",           "Debuffs with the Bleed dispel type" },
+    CanApply          = { "Can Apply Aura",  "Debuffs your own class is able to apply" },
 }
+
+-- Non-Player Auras and From Any Player share one engine field: checking either
+-- (in either lane) clears the other from both lanes. Keyed by .skey.
+local EXCLUSIVE_SKEY = { NonPlayer = "AnyPlayer", AnyPlayer = "NonPlayer" }
+ns.PAB_ExclusiveSkey = EXCLUSIVE_SKEY
 
 -- Curated debuff filter list: exact vocabulary+order parity with Raid Frames' debuff
 -- filters (EUI_RaidFrames_ManagerPages.lua TILE_FILTER_ITEMS); shared by Base Filters
@@ -74,6 +88,10 @@ local CLASS_LABELS = {
 -- profiles that already set them.
 local DEBUFF_FILTER_ORDER = {
     "nonplayer", "priority", "cc", "bossaura", "roleaura", "raid", "raidcombat", "dispellable", "dispeltyped",
+    -- Divider sentinel (ClassByKey resolves nothing for it; PAB_ClassItems emits a
+    -- header row, PAB_FxClassItems skips it), then the less common filters.
+    "__less",
+    "castbyme", "anyplayer", "magic", "curse", "poison", "disease", "bleed", "canapply",
 }
 
 local function ClassByKey(key)
@@ -91,14 +109,19 @@ function ns.PAB_ClassItems(isBuff)
     if not isBuff then
         local items = {}
         for i = 1, #DEBUFF_FILTER_ORDER do
-            local class = ClassByKey(DEBUFF_FILTER_ORDER[i])
-            if class then
-                local meta = CLASS_LABELS[class.skey]
-                items[#items + 1] = {
-                    key = class.skey,
-                    label = meta and meta[1] or class.skey,
-                    tooltip = meta and meta[2] or nil,
-                }
+            local key = DEBUFF_FILTER_ORDER[i]
+            if key == "__less" then
+                items[#items + 1] = { isHeader = true, label = "Less Common Filters" }
+            else
+                local class = ClassByKey(key)
+                if class then
+                    local meta = CLASS_LABELS[class.skey]
+                    items[#items + 1] = {
+                        key = class.skey,
+                        label = meta and meta[1] or class.skey,
+                        tooltip = meta and meta[2] or nil,
+                    }
+                end
             end
         end
         return items
@@ -211,7 +234,8 @@ end
 -- the matching Base Filter on.
 local function PAB_FxSafeToForce(class)
     local c = class.cand
-    return not (c and (c.isBossAura ~= nil or c.isRoleAura ~= nil or c.isPriorityAura ~= nil))
+    return not (c and (c.isBossAura ~= nil or c.isRoleAura ~= nil or c.isPriorityAura ~= nil
+        or c.canApplyAura ~= nil))
 end
 
 -- Filter vocabulary for the Icon Effects UI (debuffs only): same curated
@@ -371,6 +395,22 @@ local function ClassEnabled(class, isBuff, cfg)
     return cfg.classFilters and cfg.classFilters[class.skey] == true
 end
 
+-- Curated FAMILIES (a primary plus its `alts`: rank/talent ids for one buff, and
+-- multi-state buffs like Aspect of Harmony whose aura swaps spell ID as it advances)
+-- expand at RESOLUTION, as the Raid Frames Buff Manager does in BmIncludeMap. Not at
+-- write time: the Filter Editor and both spell dropdowns collapse a family into ONE
+-- same-named row, so only one member is ever reachable to add, and saved filters hold
+-- that member alone. `blocked` is the owning filter's spell map, where an explicit
+-- `false` wins. Show lane and hide lane both expand, or a hide filter carrying one id
+-- of a family would leak the rest.
+local function ExpandFamily(set, id, blocked)
+    local fam = ns.PAB_SPELL_FAMILY and ns.PAB_SPELL_FAMILY[id]
+    if not fam then return end
+    for i = 1, #fam do
+        if not (blocked and blocked[fam[i]] == false) then set[fam[i]] = true end
+    end
+end
+
 -- BuildChain contract: includeCatchAll (default true) appends "every remaining aura
 -- of this polarity" after the per-class groups; callers pass false wherever the UI
 -- promises the Base Filters dropdown restricts what is shown (Custom Debuff Bars with
@@ -404,6 +444,7 @@ local function BuffBarChain(cfg)
                     if on then
                         ex = ex or {}
                         ex[id] = true
+                        ExpandFamily(ex, id, f.spells)
                     end
                 end
             end
@@ -426,9 +467,19 @@ local function DebuffSubtractFn(cfg)
     end
 end
 
+-- Union of two dispel-type sets as a NEW table (the shared vocabulary tables
+-- are never mutated); nil-safe on the accumulator. Several per-type classes
+-- can forward at once, so the carrier accumulates instead of overwriting.
+local function MergeTypes(acc, add)
+    local out = {}
+    if acc then for k, v in pairs(acc) do out[k] = v end end
+    for k, v in pairs(add) do out[k] = v end
+    return out
+end
+
 local function BuildChain(base, classEnabledFn, includeCatchAll, subtractFn)
     local chain, negations = {}, {}
-    local excludeDispelTypes, npOwned, subCand
+    local excludeDispelTypes, npOwned, anyOwned, subCand
     local tokenClasses = VisibleTokenClasses()
     local candidateClasses = VisibleCandidateClasses()
     if not (tokenClasses and candidateClasses) then return chain end
@@ -452,10 +503,13 @@ local function BuildChain(base, classEnabledFn, includeCatchAll, subtractFn)
     -- subCand stays a catch-all-only payload, legacy parity).
     local function ExtraCand()
         local withSub = addMode and subCand or nil
-        if not (excludeDispelTypes or npOwned or withSub) then return nil end
+        if not (excludeDispelTypes or npOwned or anyOwned or withSub) then return nil end
         local t = {}
         if excludeDispelTypes then t.excludeDispelTypes = excludeDispelTypes end
-        if npOwned then t.isFromPlayerOrPlayerPet = true end
+        -- Non-Player and From Any Player are the same field; the options
+        -- setters keep them exclusive, nonplayer wins if stale data disagrees.
+        if npOwned then t.isFromPlayerOrPlayerPet = true
+        elseif anyOwned then t.isFromPlayerOrPlayerPet = false end
         if withSub then
             for k, v in pairs(withSub) do t[k] = v end
         end
@@ -499,8 +553,9 @@ local function BuildChain(base, classEnabledFn, includeCatchAll, subtractFn)
                     for n = 1, #negations do tokens[#tokens + 1] = negations[n] end
                     chain[#chain + 1] = { key = class.key, tokens = tokens, cand = cc, excludeCand = ExtraCand(),
                         hidden = true }
-                    if cc.includeDispelTypes then excludeDispelTypes = cc.includeDispelTypes end
-                    if cc.isFromPlayerOrPlayerPet == false then npOwned = true end
+                    if cc.includeDispelTypes then excludeDispelTypes = MergeTypes(excludeDispelTypes, cc.includeDispelTypes) end
+                    if cc.isFromPlayerOrPlayerPet == false then npOwned = true
+                    elseif cc.isFromPlayerOrPlayerPet == true then anyOwned = true end
                 else
                     CollectSub(cc)
                 end
@@ -525,8 +580,9 @@ local function BuildChain(base, classEnabledFn, includeCatchAll, subtractFn)
                 -- class.cand is a candidate-filter TABLE; the shared vocabulary
                 -- carries set-valued filters (includeDispelTypes) directly in it.
                 chain[#chain + 1] = { key = class.key, tokens = tokens, cand = cc, excludeCand = ExtraCand() }
-                if cc.includeDispelTypes then excludeDispelTypes = cc.includeDispelTypes end
-                if cc.isFromPlayerOrPlayerPet == false then npOwned = true end
+                if cc.includeDispelTypes then excludeDispelTypes = MergeTypes(excludeDispelTypes, cc.includeDispelTypes) end
+                if cc.isFromPlayerOrPlayerPet == false then npOwned = true
+                elseif cc.isFromPlayerOrPlayerPet == true then anyOwned = true end
             end
         end
         return chain
@@ -568,8 +624,9 @@ local function BuildChain(base, classEnabledFn, includeCatchAll, subtractFn)
                 -- set-valued filters (includeDispelTypes) directly in it.
                 chain[#chain + 1] = { key = class.key, tokens = tokens, cand = cc, excludeCand = ExtraCand(),
                     hidden = (sub and not en) or nil }
-                if cc.includeDispelTypes then excludeDispelTypes = cc.includeDispelTypes end
-                if cc.isFromPlayerOrPlayerPet == false then npOwned = true end
+                if cc.includeDispelTypes then excludeDispelTypes = MergeTypes(excludeDispelTypes, cc.includeDispelTypes) end
+                if cc.isFromPlayerOrPlayerPet == false then npOwned = true
+                elseif cc.isFromPlayerOrPlayerPet == true then anyOwned = true end
             else
                 CollectSub(cc)
             end
@@ -618,6 +675,8 @@ local STYLE_DEBUFFS = "playerAuraBars_debuffs"
 -- stackTextSize/stackPosition/stackOffsetX/Y; stackColorR/G/B (same nil=white rule).
 -- Buff/debuff bars additionally: iconZoom (default 0.07, AK's fallback);
 -- borderSize/borderR/G/B/A (base border color, per-dispel-type override is separate);
+-- borderTexture ("solid" or a built-in/LibSharedMedia key), optional
+-- borderTextureOffset/OffsetY/ShiftX/ShiftY, and borderBehind;
 -- padding (single scalar -> all 4 sides); rowSpacing (optional row gap: feeds
 -- lineSpacing/groupLineSpacing only, nil falls back to `padding`; elementSpacing/
 -- groupSpacing, icon-to-icon within a row, always stay tied to `padding`); maxTotal
@@ -650,6 +709,23 @@ local DISPEL_SLOTS = {
     { token = "Disease", colorKey = "dispelColorDisease", fallback = { 0.671, 0.384, 0.098 } },
     { token = "Poison",  colorKey = "dispelColorPoison",  fallback = { 0.0, 0.706, 0.286 } },
     { token = "Bleed",   colorKey = "dispelColorBleed",   fallback = { 0.75, 0.15, 0.15 } },
+}
+
+-- Dispel-type indicator icon: preview-only atlas/point maps. The LIVE icon is
+-- engine-rendered (AK's one-hot dispel-texture channel, style.dispelTypeIcon);
+-- these exist so the options preview can paint the same art from the fake
+-- entries' plain dispel tokens.
+local PV_DISPEL_ICON_ATLAS = {
+    Magic   = "RaidFrame-Icon-DebuffMagic",
+    Curse   = "RaidFrame-Icon-DebuffCurse",
+    Disease = "RaidFrame-Icon-DebuffDisease",
+    Poison  = "RaidFrame-Icon-DebuffPoison",
+    Bleed   = "RaidFrame-Icon-DebuffBleed",
+}
+local PV_DISPEL_ICON_POINTS = {
+    topleft = "TOPLEFT", top = "TOP", topright = "TOPRIGHT",
+    left = "LEFT", center = "CENTER", right = "RIGHT",
+    bottomleft = "BOTTOMLEFT", bottom = "BOTTOM", bottomright = "BOTTOMRIGHT",
 }
 
 -- Same shape as RaidFrames' ns.RFC_DispelBorderColorMap: a customDispelColorMap
@@ -815,6 +891,13 @@ local function PAB_ApplyExtraText(button, d, style)
         SetTexturePixelSnap(border._left, d.pabCenteredSnap)
         SetTexturePixelSnap(border._right, d.pabCenteredSnap)
     end
+    -- Textured borders use the secret-safe eight-slice renderer rather than PP.
+    -- Keep its edge art on the same centered-growth snapping policy.
+    if d._secretBorderEdges then
+        for _, tex in pairs(d._secretBorderEdges) do
+            SetTexturePixelSnap(tex, d.pabCenteredSnap)
+        end
+    end
 end
 
 -- Icon-text outline flag for duration/stack text. Default follows the house icon-text
@@ -843,7 +926,21 @@ local function BuildStyle(isBuff, cfg)
     -- size 0 = no border; no separate "Hide Border" toggle.
     local border
     if borderSize > 0 then
-        border = { borderR, borderG, borderB, borderA, size = borderSize }
+        local textureSize = cfg.borderTextureSizeOverride or borderSize
+        border = {
+            borderR, borderG, borderB, borderA,
+            size = borderSize,
+            texture = cfg.borderTexture or "solid",
+            textureSize = textureSize,
+            offsetX = cfg.borderTextureOffset,
+            offsetY = cfg.borderTextureOffsetY,
+            shiftX = cfg.borderTextureShiftX,
+            shiftY = cfg.borderTextureShiftY,
+            behind = cfg.borderBehind == true,
+            addonKey = "unitframes",
+            sizeKey = textureSize,
+            edgeScale = cfg.borderTextureScaleOverride,
+        }
     end
 
     -- Positions may arrive mixed-case ("Bottom") rather than the uppercase anchor
@@ -964,6 +1061,20 @@ local function BuildStyle(isBuff, cfg)
         style.dispelColorMap = dcMap
         style.dispelColorFP = dcFP
 
+        -- Dispel-type indicator icon (AK's one-hot engine channel; default off).
+        -- Independent of borderSize: the icon renders with or without a ring.
+        local dip = cfg.dispelIconPosition
+        if dip and dip ~= "none" then
+            style.dispelTypeIcon = {
+                pos = dip,
+                -- Scaled like iconSize (button-geometry class); offsets stay raw
+                -- like durationX (fine-tune class).
+                size = PP.Scale(cfg.dispelIconSize or 16),
+                offX = cfg.dispelIconOffsetX or 0,
+                offY = cfg.dispelIconOffsetY or 0,
+            }
+        end
+
         -- Icon Effects Per-Filter: debuffs only (buffs never get style.fxList, so
         -- PAB_ApplyDmFx's gate in PAB_ApplyExtraText stays a cheap no-op).
         style.fxList = PAB_FxListView(cfg.fxList)
@@ -1031,8 +1142,13 @@ end
 -- the engine's only duration filter (Blizzard_AuraContainerUtil), so Has
 -- Duration exists as a show-side AND-modifier only, never a hide-lane entry.
 local function DebuffCandidateExtras(cfg)
-    if cfg and cfg.hasDuration then
-        return { maxDuration = math.huge }
+    if not cfg then return nil end
+    -- Max Duration (seconds) is the same gate with a real cap and implies Has
+    -- Duration; nil = Unlimited = no extras at all (the candidate fingerprint
+    -- sees the cap value, so edits re-declare like any payload change).
+    local cap = cfg.maxDurSec or (cfg.hasDuration and math.huge) or nil
+    if cap then
+        return { maxDuration = cap }
     end
     return nil
 end
@@ -1481,10 +1597,9 @@ end
 -- SkinAuraButton sized duration AND stack-count font strings from cfg.textSize, NOT
 -- the duration-only/stack-only split the old External Defensives module uses.
 -- noBorderDebuffs -> debuffCfg.borderSize = 0 (debuffs-only override, applied after
--- the shared borderSize above). NOT migrated, no PAB cfg field exists (known gap):
--- borderTexture/borderTextureOffset(Y)/borderTextureShiftX/Y/borderBehind,
--- durationFormat. Old buffIconZoom/debuffIconZoom are also skipped -- PAB has its own
--- per-bar iconZoom.
+-- the shared borderSize above). Border texture/offset/layer fields now map directly;
+-- durationFormat remains unsupported. Old buffIconZoom/debuffIconZoom are skipped --
+-- PAB has its own per-bar iconZoom.
 local function MigratePlayerAuraStyle(buffCfg, debuffCfg)
     local old = ns.db and ns.db.profile and ns.db.profile.playerAuras
     if not (old and old.enabled) then return end
@@ -1495,6 +1610,12 @@ local function MigratePlayerAuraStyle(buffCfg, debuffCfg)
         if old.borderG then cfg.borderG = old.borderG end
         if old.borderB then cfg.borderB = old.borderB end
         if old.borderA then cfg.borderA = old.borderA end
+        if old.borderTexture then cfg.borderTexture = old.borderTexture end
+        if old.borderTextureOffset ~= nil then cfg.borderTextureOffset = old.borderTextureOffset end
+        if old.borderTextureOffsetY ~= nil then cfg.borderTextureOffsetY = old.borderTextureOffsetY end
+        if old.borderTextureShiftX ~= nil then cfg.borderTextureShiftX = old.borderTextureShiftX end
+        if old.borderTextureShiftY ~= nil then cfg.borderTextureShiftY = old.borderTextureShiftY end
+        if old.borderBehind ~= nil then cfg.borderBehind = old.borderBehind end
         if old.showText ~= nil then cfg.durationShow = old.showText end
         if old.textSize then
             cfg.durationTextSize = old.textSize
@@ -1738,6 +1859,12 @@ local function EnsureExtDefCustomBar(s)
         if from.sortDirection then bar.sortDirection = from.sortDirection end
         if from.borderSize then bar.borderSize = from.borderSize end
         if from.borderR then bar.borderR, bar.borderG, bar.borderB, bar.borderA = from.borderR, from.borderG, from.borderB, from.borderA end
+        if from.borderTexture then bar.borderTexture = from.borderTexture end
+        if from.borderTextureOffset ~= nil then bar.borderTextureOffset = from.borderTextureOffset end
+        if from.borderTextureOffsetY ~= nil then bar.borderTextureOffsetY = from.borderTextureOffsetY end
+        if from.borderTextureShiftX ~= nil then bar.borderTextureShiftX = from.borderTextureShiftX end
+        if from.borderTextureShiftY ~= nil then bar.borderTextureShiftY = from.borderTextureShiftY end
+        if from.borderBehind ~= nil then bar.borderBehind = from.borderBehind end
     end
     local pos = s.extDefPos or (legacy and legacy.unlockPos)
     if pos and pos.point then
@@ -1760,7 +1887,9 @@ local lastSize = { buffs = nil, debuffs = nil } -- {w=,h=} last-applied grid siz
 local buffsSlotSig -- signature of the default Buffs bar's last-applied resolved spell list (ns.PAB_ResolveSpells), mirrors customBuffSig[barId] for the per-bar slots model
 local RegisterPABUnlock -- forward-declared; defined after CreateBars, called from it
 local SyncCancelCVar -- forward-declared; defined after RestyleBars, called from CreateBars/RestyleBars/ReloadCustomBuffBarImpl
-local vehicleHidden = false -- vehicle suppression state (assigned in the recovery section at file bottom); ApplyDefaultBarShown yields to it
+local vehicleHidden = false -- vehicle ride state (assigned in the recovery section at file bottom); feeds pabSuppressed below
+local pabSuppressed = false -- vehicle ride OR degraded-filter window: SetParentShownSafe dims the parents instead of hiding them (see ApplyVehicleHidden)
+local ClearDegraded -- forward-declared; defined in the recovery section at file bottom, called from PAB_SetEnabled
 -- Last label the Buffs mover was registered under, so ApplyLiveConfig can
 -- re-register on a name change without doing it on every slider drag.
 local lastUnlockBuffLabel
@@ -1827,33 +1956,39 @@ end
 -- No call at all when the state already matches; in combat the visual verdict
 -- lands through alpha (never protected) and the real Show/Hide is replayed at
 -- regen via `recompute`, which re-derives the verdict at that time.
+-- Suppression (pabSuppressed) rides on alpha OUT of combat too, never on the
+-- shown state: it lifts on transitions that routinely land mid-combat, and a
+-- real Hide taken while suppressed cannot be undone until the next regen edge.
+-- Field report (Kings' Rest, Entomb): the tomb is a vehicle and being inside it
+-- drops the player's combat, so the ride's hide replayed for real at that regen
+-- and the exit's show was blocked -- the bars stayed gone for the whole boss
+-- pulled afterwards.
 local function SetParentShownSafe(key, parent, want, recompute)
     want = want and true or false
+    local locked = InCombatLockdown()
     local shown = parent:IsShown()
     if issecretvalue and issecretvalue(shown) then shown = nil end
-    if not InCombatLockdown() then
-        if parent:GetAlpha() ~= 1 then parent:SetAlpha(1) end
-        if shown ~= want then parent:SetShown(want) end
+    local alpha = (pabSuppressed or (locked and not want)) and 0 or 1
+    if parent:GetAlpha() ~= alpha then parent:SetAlpha(alpha) end
+    if shown == want then return end
+    if locked then
+        QueuePABRegenApply("shown:" .. key, recompute)
         return
     end
-    if shown == want then
-        if want and parent:GetAlpha() ~= 1 then parent:SetAlpha(1) end
-        return
-    end
-    parent:SetAlpha(want and 1 or 0)
-    QueuePABRegenApply("shown:" .. key, recompute)
+    parent:SetShown(want)
 end
 
 -- Default-bar enable toggle (cfg.enabled, nil = enabled): the parent hides
--- exactly like a disabled custom bar's. Vehicle suppression owns the parents
--- during a ride, so it wins while active.
+-- exactly like a disabled custom bar's. Vehicle suppression still wins while
+-- active -- SetParentShownSafe keeps it on alpha, so this pass carries the
+-- enable verdict without un-suppressing anything (a bar built mid-ride used to
+-- come up at full alpha here).
 local function ApplyDefaultBarShown(isBuff)
     local s = PAB()
     if not s then return end
     local parent
     if isBuff then parent = buffsParent else parent = debuffsParent end
     if not parent then return end
-    if vehicleHidden then return end
     local cfg = isBuff and DefaultBuffsCfg(s) or DefaultDebuffsCfg(s)
     -- Master enable + Use Blizzard Buffs both stand the defaults down (the
     -- recovery lane can reach this while disabled-awaiting-reload).
@@ -2372,6 +2507,37 @@ local function CreateBars()
     SyncCancelCVar()
 end
 
+-- Unlock mode's cog menu only offers "Element Options" for keys in
+-- EllesmereUI._ELEMENT_SETTINGS_MAP; a module adds its own dynamic keys there the
+-- way EllesmereUIDataBars.lua does, so EUI_UnlockMode.lua's static map needs no
+-- PAB branch. barId nil = one of the two built-in bars.
+--
+-- No sectionName/highlightText: NavigateToElementSettings scans the page
+-- wrapper's DIRECT children for section headers, and PABMP_BuildPage builds past
+-- `parent` into its own root on the shared scroll frame, so nothing is scannable.
+local function MapElementSettings(key, kind, barId)
+    if not EllesmereUI then return end
+    EllesmereUI._ELEMENT_SETTINGS_MAP = EllesmereUI._ELEMENT_SETTINGS_MAP or {}
+    EllesmereUI._ELEMENT_SETTINGS_MAP[key] = {
+        module = "EllesmereUIUnitFrames",
+        page = "Player Aura Bars",
+        preSelectFn = function()
+            if not EllesmereUI._setPABSelection then return end
+            if not barId then
+                EllesmereUI._setPABSelection(kind, "default")
+                return
+            end
+            -- Owning bucket resolved at click time, not baked in at registration:
+            -- the tile's "Add To" menu can move a bar to another editing-spec
+            -- bucket long after its key was mapped.
+            local bar, bucket
+            if kind == "buff" then bar, bucket = ns.PAB_GetCustomBuffBar(barId)
+            else bar, bucket = ns.PAB_GetCustomDebuffBar(barId) end
+            if bar then EllesmereUI._setPABSelection(kind, barId, bucket) end
+        end,
+    }
+end
+
 -- Unlock-mode registration, patterned on EllesmereUIDamageMeters.lua's
 -- ns.RegisterDMUnlock/MakeSATimerUnlockElement (observed EUI.MakeUnlockElement field
 -- usage, not a verified schema). Both bars use noResize (AuraKit sizes the container
@@ -2444,6 +2610,8 @@ function RegisterPABUnlock()
         MakeBarElement("PAB_Buffs", buffLabel, 700, true, function() return buffsParent end),
         MakeBarElement("PAB_Debuffs", "Debuffs", 701, false, function() return debuffsParent end),
     }
+    MapElementSettings("PAB_Buffs", "buff")
+    MapElementSettings("PAB_Debuffs", "debuff")
     EllesmereUI:RegisterUnlockElements(elements, "EllesmereUIUnitFrames")
     -- Registration alone only updates the element table; a mover already built
     -- this session keeps the label CreateMover baked into its FontString. No-op
@@ -2943,6 +3111,16 @@ function ns.PAB_SetSpellState(filterId, spellID, state)
         end
     end
     Write(spellID)
+    -- Members of a curated family follow the clicked row, deletes included: the editor
+    -- shows one row per NAME, so a member under a different name has a row of its own
+    -- but is still the same buff, and would otherwise linger as a tracked id with no
+    -- row left to clear it from. Only ids the filter already holds are rewritten.
+    local fam = ns.PAB_SPELL_FAMILY and ns.PAB_SPELL_FAMILY[spellID]
+    if fam then
+        for i = 1, #fam do
+            if fam[i] ~= spellID and f.spells[fam[i]] ~= nil then Write(fam[i]) end
+        end
+    end
     local name = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)
     if name then
         for id in pairs(f.spells) do
@@ -2971,6 +3149,8 @@ function ns.PAB_ResolveSpells(cfg)
         for i = 1, #spells do
             set[spells[i]] = true
             direct[spells[i]] = true
+            ExpandFamily(direct, spells[i])
+            ExpandFamily(set, spells[i])
         end
     end
     -- Under the broad modes (All Buffs / Has Duration) the hide-lane filters leave via
@@ -2984,20 +3164,30 @@ function ns.PAB_ResolveSpells(cfg)
             local f = ns.PAB_GetFilter(filterId)
             if f then
                 for id, on in pairs(f.spells) do
-                    if on then set[id] = true end
+                    if on then
+                        set[id] = true
+                        ExpandFamily(set, id, f.spells)
+                    end
                 end
             end
         end
     end
     local negFilters = addMode and cfg.negFilters or nil
     if negFilters then
+        local hide = {}
         for filterId in pairs(negFilters) do
             local f = ns.PAB_GetFilter(filterId)
             if f then
                 for id, on in pairs(f.spells) do
-                    if on and not (direct and direct[id]) then set[id] = nil end
+                    if on then
+                        hide[id] = true
+                        ExpandFamily(hide, id, f.spells)
+                    end
                 end
             end
+        end
+        for id in pairs(hide) do
+            if not (direct and direct[id]) then set[id] = nil end
         end
     end
     local out = {}
@@ -3191,6 +3381,16 @@ do
         BM2_FILTER_SEED[#BM2_FILTER_SEED + 1] =
             { name = def.name, enabled = enabled, disabled = disabled }
     end
+    -- Every member of a curated family (primary + its alternates) maps to the whole
+    -- member list, so PAB_ResolveSpells can expand from whichever id the user has.
+    -- Families are disjoint, so one carried by two preset filters rewrites an equal entry.
+    local fams = {}
+    for primary, alts in pairs(PRESET_ALTS) do
+        local fam = { primary }
+        for i = 1, #alts do fam[#fam + 1] = alts[i] end
+        for i = 1, #fam do fams[fam[i]] = fam end
+    end
+    ns.PAB_SPELL_FAMILY = fams
 end
 ns.PAB_SPELL_CLASS_HINTS = SPELL_CLASS_HINTS
 
@@ -3318,7 +3518,8 @@ end
 -- Bar objects (both kinds) also carry the same shared+category cfg fields as
 -- DefaultBuffsCfg/DefaultDebuffsCfg (iconSize, durationShow/stackShow,
 -- durationPosition/TextSize/OffsetX/Y/ColorR/G/B, stackPosition/TextSize/OffsetX/
--- Y/ColorR/G/B; buff/debuff bars additionally borderSize/R/G/B/A, iconZoom, padding,
+-- Y/ColorR/G/B; buff/debuff bars additionally borderSize/R/G/B/A, borderTexture and
+-- optional texture offset/shift/layer fields, iconZoom, padding,
 -- iconsPerRow, maxRows, maxTotal; debuff bars additionally dispelColorMagic/Curse/
 -- Disease/Poison/Bleed). NOT pre-populated, same as those two starting as {}:
 -- BuildStyle/ComputeGrid apply the same `or <default>` fallbacks either way, so a
@@ -3642,6 +3843,7 @@ local function RegisterPABCustomUnlock()
 
     local function MakeCustomBarElement(barId, bar, order, isBuff, parents)
         local key = (isBuff and "PAB_CustomBuff_" or "PAB_CustomDebuff_") .. barId
+        MapElementSettings(key, isBuff and "buff" or "debuff", barId)
         return key, MK({
             key = key,
             label = "PAB: " .. (bar.name or (isBuff and "Buff Bar" or "Debuff Bar")),
@@ -3738,15 +3940,24 @@ local function RegisterPABCustomUnlock()
     end
 
     -- Retire keys for bars deleted since the last call -- safe here (unlike TBB)
-    -- because PAB custom-bar ids are permanent, see doc comment above.
+    -- because PAB custom-bar ids are permanent, see doc comment above. The
+    -- element-options map entry is retired with the mover; a leftover entry would
+    -- be harmless (no mover, no cog) but the id is gone for good either way.
+    local elemMap = EllesmereUI._ELEMENT_SETTINGS_MAP
     if prevBuffKeys then
         for key in pairs(prevBuffKeys) do
-            if not pabRegisteredCustomBuffKeys[key] then EllesmereUI:UnregisterUnlockElement(key) end
+            if not pabRegisteredCustomBuffKeys[key] then
+                EllesmereUI:UnregisterUnlockElement(key)
+                if elemMap then elemMap[key] = nil end
+            end
         end
     end
     if prevDebuffKeys then
         for key in pairs(prevDebuffKeys) do
-            if not pabRegisteredCustomDebuffKeys[key] then EllesmereUI:UnregisterUnlockElement(key) end
+            if not pabRegisteredCustomDebuffKeys[key] then
+                EllesmereUI:UnregisterUnlockElement(key)
+                if elemMap then elemMap[key] = nil end
+            end
         end
     end
 end
@@ -4384,6 +4595,7 @@ local function CreatePreviewIcon(box)
     btn.cooldown:SetHideCountdownNumbers(true)
     btn.cooldown:Hide()
     btn.border = CreateFrame("Frame", nil, btn)
+    btn.borderState = {}
     -- Plain preview region, not a real AuraKit button -- masking is unguarded here.
     btn.shapeMask = btn:CreateMaskTexture()
     btn.shapeMask:Hide()
@@ -4437,6 +4649,11 @@ local function ApplyPreviewScale(cfg, comp)
     out.padding = (cfg.padding or 5) * comp
     out.rowSpacing = cfg.rowSpacing and (cfg.rowSpacing * comp) or nil
     out.borderSize = (cfg.borderSize or 1) * comp
+    -- Textured borders use a discrete 0-4 lookup for edge art. Preserve that raw
+    -- key and scale the resolved edge/offset geometry separately; Solid continues
+    -- to use the compensated borderSize above.
+    out.borderTextureSizeOverride = cfg.borderSize or 1
+    out.borderTextureScaleOverride = comp
     -- PabShapeBorderSize is keyed by the raw 0-4 level, so it must run BEFORE scaling
     -- (unlike out.borderSize above) -- resolve the level, then scale the result,
     -- mirroring iconSize's own scale-after-resolve treatment. BuildStyle prefers this
@@ -4445,6 +4662,9 @@ local function ApplyPreviewScale(cfg, comp)
     out.durationTextSize = (cfg.durationTextSize or 11) * comp
     out.durationOffsetX = (cfg.durationOffsetX or 0) * comp
     out.durationOffsetY = (cfg.durationOffsetY or 0) * comp
+    out.dispelIconSize = (cfg.dispelIconSize or 16) * comp
+    out.dispelIconOffsetX = (cfg.dispelIconOffsetX or 0) * comp
+    out.dispelIconOffsetY = (cfg.dispelIconOffsetY or 0) * comp
     out.stackTextSize = (cfg.stackTextSize or 11) * comp
     out.stackOffsetX = (cfg.stackOffsetX or 0) * comp
     out.stackOffsetY = (cfg.stackOffsetY or 0) * comp
@@ -4565,6 +4785,7 @@ local function BuildMixedRealSpells(cfg)
                         if on then
                             negSet = negSet or {}
                             negSet[id] = true
+                            ExpandFamily(negSet, id, nf.spells)
                         end
                     end
                 end
@@ -4676,6 +4897,7 @@ local function BuildPreviewSlots(isBuff, cfg, list, listLen, count)
                             if on then
                                 subSet = subSet or {}
                                 subSet[id] = true
+                                ExpandFamily(subSet, id, f.spells)
                             end
                         end
                     end
@@ -5019,7 +5241,9 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
             end
 
             btn.border:SetAllPoints(shapeActive and btn or btn.icon)
-            btn.border:SetFrameLevel(btn:GetFrameLevel() + 1)
+            btn.border:SetFrameLevel(style.border and style.border.behind
+                and math.max(0, btn:GetFrameLevel() - 1)
+                or (btn:GetFrameLevel() + 1))
             local PP = EllesmereUI and EllesmereUI.PanelPP
             if PP and style.border then
                 local br, bg, bb, ba = style.border[1], style.border[2], style.border[3], style.border[4]
@@ -5029,26 +5253,53 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
                 end
                 local size = style.border.size or 1
                 if shapeActive and style.shapeBorderPath and PP.ApplyMaskedShapeBorder then
+                    if EllesmereUI.HideBorderStyle then EllesmereUI.HideBorderStyle(btn.border) end
+                    if btn.borderState and btn.borderState._secretBorderEdges then
+                        for _, tex in pairs(btn.borderState._secretBorderEdges) do tex:Hide() end
+                    end
                     PP:ApplyMaskedShapeBorder(btn.border, btn.shapeMask, style.shapeBorderPath, style.shapeBorderSize or size, br, bg, bb, ba)
-                    if PP.ShowBorder then PP.ShowBorder(btn.border) end
                     btn.border:Show()
                 else
                     if PP.HideMaskedShapeBorder then PP:HideMaskedShapeBorder(btn.border)
                     elseif btn.border._shapeBorderTex then btn.border._shapeBorderTex:Hide() end
-                    -- PP.CreateBorder is create-once-only; live size/color changes on an
-                    -- already-created host go through PP.UpdateBorder instead.
-                    if btn.borderMade then
-                        PP.UpdateBorder(btn.border, size, br, bg, bb, ba)
-                    elseif PP.CreateBorder then
-                        PP.CreateBorder(btn.border, br, bg, bb, ba, size, "OVERLAY", 7)
-                        btn.borderMade = true
-                    end
-                    if PP.ShowBorder then PP.ShowBorder(btn.border) else btn.border:Show() end
+                    local b = style.border
+                    local appliedSize = (b.texture and b.texture ~= "" and b.texture ~= "solid")
+                        and (b.textureSize or size) or size
+                    EllesmereUI.ApplySecretSafeBorderStyle(btn.border, btn.borderState,
+                        appliedSize, br, bg, bb, ba, b.texture or "solid",
+                        b.offsetX, b.offsetY, b.shiftX, b.shiftY,
+                        b.addonKey or "unitframes", b.sizeKey or size, b.edgeScale)
+                    btn.borderMade = true
                 end
             else
-                if PP and PP.HideBorder then PP.HideBorder(btn.border) else btn.border:Hide() end
+                if EllesmereUI.ApplySecretSafeBorderStyle then
+                    EllesmereUI.ApplySecretSafeBorderStyle(btn.border, btn.borderState,
+                        0, 0, 0, 0, 0, "solid")
+                elseif PP and PP.HideBorder then PP.HideBorder(btn.border) else btn.border:Hide() end
                 if PP and PP.HideMaskedShapeBorder then PP:HideMaskedShapeBorder(btn.border)
                 elseif btn.border._shapeBorderTex then btn.border._shapeBorderTex:Hide() end
+            end
+
+            -- Dispel-type indicator icon (style.dispelTypeIcon): the live bar's
+            -- engine channel picks the art per aura; here the fake entry's own
+            -- dispel token does. Drawn above the border on the button itself.
+            local ti = style.dispelTypeIcon
+            if ti and dispel and PV_DISPEL_ICON_ATLAS[dispel] then
+                if not btn.typeIcon then
+                    btn.typeIcon = btn:CreateTexture(nil, "OVERLAY", nil, 3)
+                end
+                btn.typeIcon:SetAtlas(PV_DISPEL_ICON_ATLAS[dispel])
+                -- Geometry from the (panel-scaled) cfg, like iconSize above --
+                -- style carries the live PP.Scale'd size, wrong units here.
+                local tiSz = cfg.dispelIconSize or 16
+                btn.typeIcon:SetSize(tiSz, tiSz)
+                btn.typeIcon:ClearAllPoints()
+                local tiPt = PV_DISPEL_ICON_POINTS[ti.pos] or "CENTER"
+                btn.typeIcon:SetPoint(tiPt, btn, tiPt,
+                    cfg.dispelIconOffsetX or 0, cfg.dispelIconOffsetY or 0)
+                btn.typeIcon:Show()
+            elseif btn.typeIcon then
+                btn.typeIcon:Hide()
             end
 
             local cdMaskKey = shapeActive and style.iconShape or nil
@@ -5338,6 +5589,9 @@ function ns.PAB_SetEnabled(v)
     if not s then return end
     s.enabled = v and true or nil
     if v then
+        -- A stand-down latched before the module went off has no lane to lift
+        -- it while disabled, and the rebuild below would come up dimmed.
+        ClearDegraded()
         CreateBars()
         return
     end
@@ -5421,12 +5675,14 @@ end
 -- start+end UNIT_FACTION burst collapses to one re-drive.
 -- Vehicle suppression: assistability stays down for the WHOLE ride, so the
 -- exit re-drive alone still left the ride itself showing the full buff set.
--- Match the raid frames' gate by hiding the bar parents outright -- the
+-- Match the raid frames' gate by standing the bar parents down -- the
 -- vehicle has its own UI -- and restoring on exit, where the recovery
--- re-drive repaints from clean filter state. Hidden containers fully
--- unregister their engine events, so a suppressed ride costs nothing.
--- vehicleHidden is forward-declared at the top of the state section (the
--- enable-toggle applier yields to it).
+-- re-drive repaints from clean filter state. The stand-down is alpha, not a
+-- Hide (SetParentShownSafe): the exit routinely lands inside lockdown, where
+-- a Show is blocked. A suppressed ride therefore costs what ordinary play
+-- costs -- the containers stay registered behind alpha 0.
+-- vehicleHidden and pabSuppressed are forward-declared at the top of the state
+-- section (every parent-visibility pass reads the latter).
 -- Bare apply, no state guard: the recovery lane re-asserts the CURRENT
 -- state after its reload paths (which Show() the parents as a side effect).
 -- Restoring (hidden = false) honors each bar's OWN enable toggle -- a
@@ -5453,18 +5709,23 @@ local function ApplyVehicleHidden(hidden)
     -- window (cinematic / faction flip) hide the same parents -- degraded
     -- filter output must never render, exactly like the RF assist gate.
     hidden = hidden or pabDegraded
+    -- The suppression itself lands on alpha inside SetParentShownSafe; `want`
+    -- below stays the durable render verdict, so a bar disabled mid-ride still
+    -- hides for real and a reload that runs during the ride cannot un-suppress
+    -- the parents behind our back.
+    pabSuppressed = hidden
     local s = PAB()
     -- Regen replay re-derives from the LIVE vehicle state, not the argument.
     local function recompute() ApplyVehicleHidden(vehicleHidden) end
     -- Master enable + Use Blizzard Buffs both stand the defaults down: a
     -- vehicle exit during the disabled "Later" window must not re-show them.
     if buffsParent then
-        SetParentShownSafe("vehicle-buffs", buffsParent, not hidden and (not s
+        SetParentShownSafe("vehicle-buffs", buffsParent, (not s
             or (s.enabled == true and DefaultBuffsCfg(s).enabled ~= false
                 and s.useBlizzardBuffs ~= true)), recompute)
     end
     if debuffsParent then
-        SetParentShownSafe("vehicle-debuffs", debuffsParent, not hidden and (not s
+        SetParentShownSafe("vehicle-debuffs", debuffsParent, (not s
             or (s.enabled == true and DefaultDebuffsCfg(s).enabled ~= false
                 and s.useBlizzardBuffs ~= true)), recompute)
     end
@@ -5476,18 +5737,37 @@ local function ApplyVehicleHidden(hidden)
     for barId, parent in pairs(customBuffParents) do
         local bar, bk = ns.PAB_GetCustomBuffBar(barId)
         SetParentShownSafe("vehicle-cb-" .. barId, parent,
-            not hidden and bar ~= nil and ns.PAB_BarActive(bar, bk), recompute)
+            bar ~= nil and ns.PAB_BarActive(bar, bk), recompute)
     end
     for barId, parent in pairs(customDebuffParents) do
         local bar, bk = ns.PAB_GetCustomDebuffBar(barId)
         SetParentShownSafe("vehicle-cd-" .. barId, parent,
-            not hidden and bar ~= nil and ns.PAB_BarActive(bar, bk), recompute)
+            bar ~= nil and ns.PAB_BarActive(bar, bk), recompute)
     end
 end
 local function SetVehicleHidden(hidden)
     if vehicleHidden == hidden then return end
     vehicleHidden = hidden
+    -- Lifting: the containers kept parsing behind alpha 0 (dimmed, not hidden,
+    -- so their engine events stayed live) and the spell-ID filters are still
+    -- degraded through the exit transition -- un-dimming on the raw event edge
+    -- would paint the full-set parse. Hand the stand-down to the degraded lane
+    -- instead: the same event arms it, and it un-dims and forces the clean
+    -- re-parse in one execution. Both callers reach the lane immediately, and
+    -- every lane exit clears the latch (ClearDegraded below).
+    if not hidden then pabDegraded = true end
     ApplyVehicleHidden(hidden)
+end
+
+-- The latch is only ever meaningful while the recovery lane is live: every
+-- early exit down there hands it back, or a stand-down set on a transition
+-- outlives the thing that caused it and every later bar comes up dimmed.
+-- Forward-declared at the top of the state section (the enable path clears a
+-- latch that was set while the module was off, where no lane runs at all).
+function ClearDegraded()
+    if not pabDegraded then return end
+    pabDegraded = false
+    ApplyVehicleHidden(vehicleHidden)
 end
 
 local cineFixPending = false
@@ -5497,20 +5777,24 @@ local function ReapplyAllAfterCinematic()
     -- Buffs the default containers never exist, but custom bars still need
     -- the filter-degradation repair.
     if not (buffsContainer or debuffsContainer
-        or next(customBuffContainers) or next(customDebuffContainers)) then return end
+        or next(customBuffContainers) or next(customDebuffContainers)) then
+        ClearDegraded()
+        return
+    end
     cineFixPending = true
     C_Timer.After(0, function()
         cineFixPending = false
         -- Master-disabled (awaiting reload): nothing to repair, and the
         -- re-drives below must not touch parked frames.
         local sM = PAB()
-        if not sM or sM.enabled ~= true then return end
-        -- Suppressed ride: a re-drive is pointless (the parents are hidden;
-        -- the exit edge re-drives for real) AND actively harmful -- the
-        -- reload paths Show() the parents, silently undoing the vehicle
-        -- suppression (field: bars reappeared with degraded content moments
-        -- after boarding, because UNIT_FACTION fires on the same transition
-        -- and funnels here). Re-assert the hide and stop.
+        if not sM or sM.enabled ~= true then
+            ClearDegraded()
+            return
+        end
+        -- Suppressed ride: a re-drive is pointless -- the bars are dimmed and
+        -- the exit edge re-drives for real. UNIT_FACTION fires on the boarding
+        -- transition and funnels straight here, so this is the common path.
+        -- Re-assert and stop.
         if vehicleHidden then
             ApplyVehicleHidden(true)
             return
@@ -5519,27 +5803,24 @@ local function ReapplyAllAfterCinematic()
         -- while the player is STILL non-assistable re-bakes the degraded
         -- full-set parse, and if that was the last UNIT_FACTION edge nothing
         -- ever repairs it (field: full buff set stuck after cinematics).
-        -- Degraded at this tick: hide the parents and wait. No event marks
-        -- "assistability restored" when the restore lags the event, so a
-        -- settle watcher exists ONLY while degraded; it self-cancels on the
-        -- first clean probe (or gives up watching after 15s -- the hide
-        -- stays, and any later trigger edge re-arms it).
+        -- Degraded at this tick: stand the parents down and wait. No event
+        -- marks "assistability restored" when the restore lags the event, so a
+        -- settle watcher exists ONLY while degraded and self-cancels on the
+        -- first clean probe. It deliberately never gives up: the stand-down is
+        -- alpha-only now, so nothing else re-shows the bars, and a watcher that
+        -- stopped early would leave them invisible for the rest of the session.
+        -- Two C calls per quarter-second, and only while degraded.
         if not PabAssistProbe() then
             if not pabDegraded then
                 pabDegraded = true
                 ApplyVehicleHidden(vehicleHidden)
             end
             if not pabSettleTicker then
-                local ticks = 0
                 pabSettleTicker = C_Timer.NewTicker(0.25, function()
-                    ticks = ticks + 1
                     if PabAssistProbe() then
                         pabSettleTicker:Cancel()
                         pabSettleTicker = nil
                         ReapplyAllAfterCinematic()
-                    elseif ticks >= 60 then
-                        pabSettleTicker:Cancel()
-                        pabSettleTicker = nil
                     end
                 end)
             end
@@ -5547,9 +5828,8 @@ local function ReapplyAllAfterCinematic()
         end
         if pabSettleTicker then pabSettleTicker:Cancel(); pabSettleTicker = nil end
         if pabDegraded then
-            -- Verified regain: un-hide first so the re-drives below act on
-            -- shown parents (their Show also retakes engine-side, the same
-            -- free re-parse the vehicle exit always had).
+            -- Verified regain: un-dim here and force the re-parse below in the
+            -- same execution, so no frame paints the stand-down's stale content.
             pabDegraded = false
             ApplyVehicleHidden(vehicleHidden)
         end

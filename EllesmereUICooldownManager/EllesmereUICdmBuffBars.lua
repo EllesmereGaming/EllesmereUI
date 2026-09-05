@@ -243,6 +243,8 @@ local TBB_DEFAULT_BAR = {
     chargeHashLineWidth = 2,
     chargeHashLineR = 0, chargeHashLineG = 0,
     chargeHashLineB = 0, chargeHashLineA = 1,
+    chargeHashShade = false,      -- darken the partially recharged charge segment
+    chargeHashShadeAlpha = 0.5,   -- darkness of the partial-charge shade (0-1)
     texture   = "none",
     fillR = _classR, fillG = _classG, fillB = _classB, fillA = 1,
     bgR = 0, bgG = 0, bgB = 0, bgA = 0.4,
@@ -846,6 +848,17 @@ local _tbbRebuildPending = false
 local _tbbAssignDirty = true
 local _tbbAssignedFor
 
+-- Group reflow gate: ReflowGroup's inputs are the visible member sequence plus the
+-- group's grow direction and spacing. Bar frames dirty this from their OnShow/OnHide,
+-- the group setting writers, rebuilds and wakes dirty it directly, and the tick
+-- reflows only while it is set instead of re-walking every bar every 16 ms.
+local _tbbReflowDirty = true
+local function _MarkTBBReflowDirty() _tbbReflowDirty = true end
+
+-- Smooth-fill switch memo for the tick: GetTBBSmoothSettings walks the profile store,
+-- and its result can only change with the active profile name or the live spec-profile bucket, both re-read per tick without a call.
+local _tickSm, _tickSmProf, _tickSmSp
+
 -- TBB idle sleeper: UpdateTrackedBuffBarTimers counts consecutive dead ticks (no
 -- active/fallback aura, self-timed window, running cooldown, or placeholder preview);
 -- after ~2s it parks the tick frame (OnUpdate stops) and this frame listens for the
@@ -869,6 +882,7 @@ function _tbbWake.Wake()
     _tbbWake:RegisterUnitEvent("UNIT_AURA", "player")
     _tbbWake._idleTicks = 0
     _tbbAssignDirty = true
+    _tbbReflowDirty = true
     if _tbbWake._enabled and tbbTickFrame then tbbTickFrame:Show() end
 end
 -- UNIT_AURA fires steadily in group content and every false wake buys ~0.5s of full
@@ -901,10 +915,27 @@ function _tbbWake.Probe()
     end
     return false
 end
-function _tbbWake.OnEvent(_, event)
-    -- Awake: this is the composition edge that retires the assignment memo. Mark and let the next tick re-pair; no probe, no state change.
+function _tbbWake.OnEvent(_, event, _, updateInfo)
+    -- Awake: this is the composition edge that retires the assignment memo. Mark and
+    -- let the next tick re-pair; no probe, no state change. Pairing keys on frame
+    -- identity only (pool membership, cooldown slot, aura spell variant), and an
+    -- update-only payload (refresh / stack change on auras already bound) moves none
+    -- of those, so only additions, removals, full updates, or an unreadable payload
+    -- retire the memo -- the same secret guard as the buff ticker's UNIT_AURA writer:
+    -- the table and each field can arrive secret in instanced content, and a secret
+    -- can never be boolean-tested, so unreadable means assume churn.
     if tbbTickFrame and tbbTickFrame:IsShown() then
-        _tbbAssignDirty = true
+        if event ~= "UNIT_AURA" or not updateInfo or issecretvalue(updateInfo) then
+            _tbbAssignDirty = true
+        else
+            local full    = updateInfo.isFullUpdate
+            local removed = updateInfo.removedAuraInstanceIDs
+            local added   = updateInfo.addedAuras
+            if issecretvalue(full) or issecretvalue(removed) or issecretvalue(added)
+               or full or removed or added then
+                _tbbAssignDirty = true
+            end
+        end
         return
     end
     if event == "UNIT_AURA" and not _tbbWake.Probe() then return end
@@ -1036,11 +1067,12 @@ function ns.TBBSetGroupGrow(gid, v)
     local gkey = ns.TBBGroupGlobalKey and ns.TBBGroupGlobalKey(gid)
     if gkey then
         local e = ns.TBBGlobalGroup(gkey)
-        if e then e.grow = v end
+        if e then e.grow = v; _tbbReflowDirty = true end
         return
     end
     TBBGroupStore(t, gid, true).grow = v
     if gid == 1 then t.groupGrowDirection = v end
+    _tbbReflowDirty = true
 end
 
 function ns.TBBGroupSpacing(gid)
@@ -1052,17 +1084,19 @@ function ns.TBBSetGroupSpacing(gid, v)
     local gkey = ns.TBBGroupGlobalKey and ns.TBBGroupGlobalKey(gid)
     if gkey then
         local e = ns.TBBGlobalGroup(gkey)
-        if e then e.spacing = v end
+        if e then e.spacing = v; _tbbReflowDirty = true end
         return
     end
     TBBGroupStore(t, gid, true).spacing = v
     if gid == 1 then t.groupSpacing = v end
+    _tbbReflowDirty = true
 end
 
 -- Clear a group's stored settings when its id is (re)claimed for a brand-new group, so a dissolved group's leftovers do not leak into it.
 function ns.TBBResetGroupSettings(gid)
     local t = ns.GetTrackedBuffBars()
     if t.groups then t.groups[_gidKeys[gid]] = nil end
+    _tbbReflowDirty = true
 end
 
 -- Optional user-given group name (Group Settings input). Empty/absent = nil, callers fall back to the default "Group N" label.
@@ -1351,6 +1385,7 @@ do
                     t.groupGrowDirection = entry.grow
                     t.groupSpacing = entry.spacing
                 end
+                _tbbReflowDirty = true
                 if entry.pos then
                     local posDB = ns.GetTBBPositions()
                     for j, c in ipairs(t.bars or {}) do
@@ -1494,6 +1529,7 @@ do
                                 tbb.groupGrowDirection = entry.grow
                                 tbb.groupSpacing = entry.spacing
                             end
+                            _tbbReflowDirty = true
                             if entry.pos then
                                 if not prof.tbbPositions then prof.tbbPositions = {} end
                                 local kn = tonumber(k)
@@ -1611,6 +1647,7 @@ local TBB_STYLE_KEYS = {
     "height", "width", "verticalOrientation", "reverseFill", "fillUp",
     "chargeHashLines", "chargeHashLineWidth",
     "chargeHashLineR", "chargeHashLineG", "chargeHashLineB", "chargeHashLineA",
+    "chargeHashShade", "chargeHashShadeAlpha",
     "texture", "strata",
     "fillColorMode", "fillR", "fillG", "fillB", "fillA",
     "bgR", "bgG", "bgB", "bgA",
@@ -1618,10 +1655,8 @@ local TBB_STYLE_KEYS = {
     "opacity", "hideWhenInactive", "onlyInCombat",
     -- Visibility rides along because the onlyInCombat toggle it replaced already did: a new
     -- bar inheriting a neighbour's style, or one joining a group, kept that gate before.
-    "barVisibility", "visibilityModes",
-    "visOnlyInstances", "visHideHousing", "visOnlyHousing",
-    "visHideMounted", "visOnlyMounted", "visHideDragonriding",
-    "visHideNoTarget", "visHideNoEnemy",
+    "barVisibility", "visibilityModes", "visibilityMatch",
+    -- The option lanes themselves are appended from the shared list below.
     "showTimer", "timerPosition", "timerSize", "timerX", "timerY",
     "timerTextR", "timerTextG", "timerTextB", "timerTextA",
     "timerDecimals", "timerDecimalThreshold",
@@ -1637,6 +1672,13 @@ local TBB_STYLE_KEYS = {
     "pandemicGlow", "pandemicGlowStyle", "pandemicGlowColor",
     "pandemicGlowLines", "pandemicGlowThickness", "pandemicGlowSpeed",
 }
+-- Appended rather than spelled out: a lane added to the shared list is copied with the
+-- rest of the style instead of silently staying behind on the source bar.
+if EllesmereUI.VIS_OPT_KEYS then
+    for i = 1, #EllesmereUI.VIS_OPT_KEYS do
+        TBB_STYLE_KEYS[#TBB_STYLE_KEYS + 1] = EllesmereUI.VIS_OPT_KEYS[i]
+    end
+end
 ns.TBB_STYLE_KEYS = TBB_STYLE_KEYS
 
 -- Copy src's visual style onto dst, key-exact (including nil) so both bars resolve defaults
@@ -1909,6 +1951,7 @@ local function ReflowVisibleGroupedTBBars(tbb, bars)
     -- Never fight edit-preview (placeholder) or unlock-mode dragging: there BuildTrackedBuffBars and the unlock system own bar positions.
     if ns._tbbPlaceholderMode or EllesmereUI._unlockActive then return end
     -- Reflow each present group once; the done-set is reused across ticks so this pass allocates nothing.
+    _tbbReflowDirty = false
     wipe(_tbbReflowDone)
     for _, cfg in ipairs(bars) do
         local gid = ns.TBBBarGroupID(cfg)
@@ -1968,6 +2011,9 @@ local function CreateTrackedBuffBarFrame(parent, idx)
     -- displays (MEDIUM, low levels). Internal level order: strips +6 < glow +7 < text +8.
     wrapFrame:SetFrameStrata("MEDIUM")
     wrapFrame:SetFrameLevel(100)
+    -- Visibility is a group reflow input: every Show/Hide edge, whichever path drives it, dirties the reflow.
+    wrapFrame:SetScript("OnShow", _MarkTBBReflowDirty)
+    wrapFrame:SetScript("OnHide", _MarkTBBReflowDirty)
 
     local bar = CreateFrame("StatusBar", "ECME_TBB" .. idx, wrapFrame)
     if bar.EnableMouseClicks then bar:EnableMouseClicks(false) end
@@ -2323,12 +2369,14 @@ local function ApplyTBBChargeHashLines(bar, cfg, maxCharges)
     local lineA = cfg.chargeHashLineA
     if lineA == nil then lineA = 1 end
     local isVert = cfg.verticalOrientation and true or false
+    local reverse = cfg.reverseFill and true or false
     local effectiveScale = sb:GetEffectiveScale() or 1
     -- Also runs from the shared timer tick, so the cache stays SCALAR: synthesized table/string keys would allocate even on a cache hit.
     if bar._chargeHashLineCacheValid
        and bar._chargeHashLineMaxCharges == maxCharges
        and bar._chargeHashLineWidth == width
        and bar._chargeHashLineVertical == isVert
+       and bar._chargeHashLineReverse == reverse
        and bar._chargeHashLineBarW == barW
        and bar._chargeHashLineBarH == barH
        and bar._chargeHashLineScale == effectiveScale
@@ -2363,21 +2411,66 @@ local function ApplyTBBChargeHashLines(bar, cfg, maxCharges)
         ticks[#ticks + 1] = tick
     end
 
+    -- Divider boundary bars: hidden StatusBars frozen at value i of maxCharges (clean
+    -- constants). Their texture edges come from the same engine math as the charge hash
+    -- fill's live countTexture edge, so ticks centered here leave no sub-pixel sliver
+    -- beside the partial-charge shade at any bar width (a PP.Scale-snapped offset could
+    -- sit up to a physical pixel off that native edge and shimmer at unlucky widths).
+    local divBars = bar._chargeHashDivBars
+    if not divBars then divBars = {}; bar._chargeHashDivBars = divBars end
+    for i = 1, maxCharges - 1 do
+        local db2 = divBars[i]
+        if not db2 then
+            db2 = CreateFrame("StatusBar", nil, sb)
+            db2:SetAllPoints(sb)
+            db2:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+            local dt = db2:GetStatusBarTexture()
+            dt:SetSnapToPixelGrid(false)
+            dt:SetTexelSnappingBias(0)
+            db2:SetAlpha(0)
+            db2:EnableMouse(false)
+            divBars[i] = db2
+        end
+        db2:SetOrientation(isVert and "VERTICAL" or "HORIZONTAL")
+        db2:SetReverseFill(reverse)
+        db2:SetMinMaxValues(0, maxCharges)
+        db2:SetValue(i)
+        db2:Show()
+    end
+    for i = maxCharges, #divBars do divBars[i]:Hide() end
+
     local PP = EllesmereUI and EllesmereUI.PP
     local lineWidth = PP and PP.Scale(width) or width
+    local halfLine = lineWidth / 2
     for i = 1, maxCharges - 1 do
         local tick = ticks[i]
-        local frac = i / maxCharges
+        local divTex = divBars[i] and divBars[i]:GetStatusBarTexture()
         tick:SetColorTexture(lineR, lineG, lineB, lineA)
         tick:ClearAllPoints()
         if isVert then
-            local offset = PP and PP.Scale(barH * frac) or (barH * frac)
             tick:SetSize(barW, lineWidth)
-            tick:SetPoint("CENTER", sb, "BOTTOM", 0, offset)
+            if divTex then
+                if reverse then
+                    tick:SetPoint("TOP", divTex, "BOTTOM", 0, halfLine)
+                else
+                    tick:SetPoint("BOTTOM", divTex, "TOP", 0, -halfLine)
+                end
+            else
+                local offset = PP and PP.Scale(barH * (i / maxCharges)) or (barH * (i / maxCharges))
+                tick:SetPoint("CENTER", sb, "BOTTOM", 0, offset)
+            end
         else
-            local offset = PP and PP.Scale(barW * frac) or (barW * frac)
             tick:SetSize(lineWidth, barH)
-            tick:SetPoint("CENTER", sb, "LEFT", offset, 0)
+            if divTex then
+                if reverse then
+                    tick:SetPoint("RIGHT", divTex, "LEFT", halfLine, 0)
+                else
+                    tick:SetPoint("LEFT", divTex, "RIGHT", -halfLine, 0)
+                end
+            else
+                local offset = PP and PP.Scale(barW * (i / maxCharges)) or (barW * (i / maxCharges))
+                tick:SetPoint("CENTER", sb, "LEFT", offset, 0)
+            end
         end
         tick:Show()
     end
@@ -2386,6 +2479,7 @@ local function ApplyTBBChargeHashLines(bar, cfg, maxCharges)
     bar._chargeHashLineMaxCharges = maxCharges
     bar._chargeHashLineWidth = width
     bar._chargeHashLineVertical = isVert
+    bar._chargeHashLineReverse = reverse
     bar._chargeHashLineBarW = barW
     bar._chargeHashLineBarH = barH
     bar._chargeHashLineScale = effectiveScale
@@ -3839,6 +3933,7 @@ end
 local SATED_DEBUFFS = { 57723, 57724, 80354, 95809, 160455, 264689, 390435 }
 local _lustExpiry   = 0
 local _satedPresent = false
+local _satedSince                 -- GetTime() of the rise this listener armed on (nil = unknown age)
 local _lustZoneGuard = 0          -- suppress rising edges until this time (set on zone-in)
 local _lustListenerActive = false -- baseline _satedPresent only on (re)enable, not every rebuild
 local _lustListener
@@ -3864,9 +3959,22 @@ local function _ensureLustListener(enable)
                     -- briefly. An already-carried Sated debuff (zoning out of a dungeon) must
                     -- never read as a fresh cast and pop a phantom 40s bar in the open world.
                     _satedPresent = _playerHasSated()
+                    _satedSince = nil
                     _lustZoneGuard = GetTime() + 1.5
                     return
                 end
+                if event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" then
+                    -- Death strips the lockout debuff, so the 590s pin below has to be
+                    -- released here: a wipe followed by a fresh lust would otherwise be
+                    -- swallowed for the rest of the window the pin was stamped for.
+                    _satedPresent = _playerHasSated()
+                    _satedSince = nil
+                    return
+                end
+                -- Nothing but death lifts the lockout early (handled above), so a rise
+                -- this listener armed on pins the debuff for the next 590s: skip the
+                -- (allocating) aura probe until it can possibly have dropped.
+                if _satedPresent and _satedSince and GetTime() < _satedSince + 590 then return end
                 local present = _playerHasSated()
                 -- Arm ONLY on a genuine incremental application: not a full
                 -- aura refresh (zone/login resends every aura), and not inside
@@ -3882,11 +3990,13 @@ local function _ensureLustListener(enable)
                 if present and not _satedPresent and not isFull
                     and GetTime() >= _lustZoneGuard then
                     _lustExpiry = GetTime() + 40  -- rising edge: lust just went out
+                    _satedSince = GetTime()
                     _tbbWake.Wake()  -- lust can come from other players: no local cast/aura edge is guaranteed
                     -- Drive Custom Auras (icon) lust displays sharing this edge.
                     if ns.SignalLustCast then ns.SignalLustCast() end
                 end
                 _satedPresent = present
+                if not present then _satedSince = nil end
             end)
         end
         -- Baseline ONLY on the OFF->ON transition. Re-baselining on every BuildTrackedBuffBars
@@ -3894,8 +4004,11 @@ local function _ensureLustListener(enable)
         -- could set _satedPresent=false and make the debuff's return look like a cast.
         if not _lustListenerActive then
             _satedPresent = _playerHasSated()
+            _satedSince = nil
             _lustListener:RegisterUnitEvent("UNIT_AURA", "player")
             _lustListener:RegisterEvent("PLAYER_ENTERING_WORLD")
+            _lustListener:RegisterEvent("PLAYER_DEAD")
+            _lustListener:RegisterEvent("PLAYER_ALIVE")
             _lustListenerActive = true
         end
     elseif _lustListener and _lustListenerActive then
@@ -3955,10 +4068,24 @@ local function _UpdateSelfTimedBar(bar, cfg, expiry, duration)
         if cfg.showSpark and bar._spark then bar._spark:Show() end
     end
     if cfg.showTimer and bar._timerText then
+        -- The string changes only when its displayed bucket does (rounded tenths
+        -- under 10s, whole seconds above), so stamp the bucket and skip the
+        -- per-tick format + SetText otherwise. A fresh appearance always writes
+        -- (wasShown false) and the placeholder exit clears the stamp, so no other
+        -- writer of this FontString can strand it.
+        local key
         if remaining < 10 then
-            bar._timerText:SetText(string.format("%.1f", remaining))
+            key = math.floor(remaining * 10 + 0.5)
         else
-            bar._timerText:SetText(string.format("%d", remaining))
+            key = math.floor(remaining)
+        end
+        if not wasShown or bar._stTxtKey ~= key then
+            bar._stTxtKey = key
+            if remaining < 10 then
+                bar._timerText:SetText(string.format("%.1f", remaining))
+            else
+                bar._timerText:SetText(string.format("%d", remaining))
+            end
         end
         bar._timerText:Show()
     elseif bar._timerText then
@@ -4201,6 +4328,19 @@ local function _ensureTBBChargeHashFill(bar)
     fill:SetSnapToPixelGrid(false)
     fill:SetTexelSnappingBias(0)
     bar._chargeHashFillTexture = fill
+
+    -- Partial-charge shade: darkens the segment still recharging (the region between the
+    -- full-charge edge and the live progress edge). Its anchors ride the two invisible
+    -- status textures, so the region tracks secret-driven geometry with no Lua computation.
+    -- The hash tick lines center on divider bars whose texture edges come from the same
+    -- engine math as countTexture's edge, so the shade's leading edge always lands under
+    -- its divider line -- no sub-pixel sliver can open beside it at any bar width.
+    local shade = clip:CreateTexture(nil, "ARTWORK", nil, 2)
+    shade:SetColorTexture(0, 0, 0, 0.5)
+    shade:SetSnapToPixelGrid(false)
+    shade:SetTexelSnappingBias(0)
+    shade:Hide()
+    bar._chargeHashShadeTexture = shade
 end
 
 local function _styleTBBChargeHashFill(bar, cfg)
@@ -4318,6 +4458,34 @@ local function _updateTBBChargeHashFill(bar, cfg, maxCharges, currentCharges,
     local reverse = cfg.reverseFill and true or false
     local orientation = isVert and "VERTICAL" or "HORIZONTAL"
     local barW, barH = sb:GetWidth(), sb:GetHeight()
+    -- Divider boundary bars: one per charge boundary, frozen at value i (clean constants).
+    -- Their texture edges come from the SAME engine math as the live countTexture edge, so
+    -- the hash tick lines centered here share one coordinate system with the partial-charge
+    -- shade's leading edge -- the sliver that shimmered beside the divider at some bar
+    -- widths came from the old PP.Scale-snapped tick offset missing that native edge.
+    local divBars = bar._chargeHashDivBars
+    if not divBars then divBars = {}; bar._chargeHashDivBars = divBars end
+    for i = 1, maxCharges - 1 do
+        local db2 = divBars[i]
+        if not db2 then
+            db2 = CreateFrame("StatusBar", nil, sb)
+            db2:SetAllPoints(sb)
+            db2:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+            local dt = db2:GetStatusBarTexture()
+            dt:SetSnapToPixelGrid(false)
+            dt:SetTexelSnappingBias(0)
+            db2:SetAlpha(0)
+            db2:EnableMouse(false)
+            divBars[i] = db2
+        end
+        db2:SetOrientation(orientation)
+        db2:SetReverseFill(reverse)
+        db2:SetMinMaxValues(0, maxCharges)
+        db2:SetValue(i)
+        db2:Show()
+    end
+    for i = maxCharges, #divBars do divBars[i]:Hide() end
+
     -- Direct scalar comparisons name every geometry invalidator while keeping the steady-state update allocation-free.
     if not bar._chargeHashFillGeometryValid
        or bar._chargeHashFillMaxCharges ~= maxCharges
@@ -4371,6 +4539,31 @@ local function _updateTBBChargeHashFill(bar, cfg, maxCharges, currentCharges,
                 clip:SetPoint("BOTTOMRIGHT", progressTexture, "BOTTOMRIGHT", 0, 0)
             end
         end
+
+        -- The shade spans from the full-charge boundary to the moving progress edge,
+        -- mirroring the clip's orientation/reverse geometry.
+        local shade = bar._chargeHashShadeTexture
+        if shade then
+            shade:ClearAllPoints()
+            if isVert then
+                if reverse then
+                    shade:SetPoint("TOPLEFT", countTexture, "BOTTOMLEFT", 0, 0)
+                    shade:SetPoint("BOTTOMRIGHT", progressTexture, "BOTTOMRIGHT", 0, 0)
+                else
+                    shade:SetPoint("BOTTOMLEFT", countTexture, "TOPLEFT", 0, 0)
+                    shade:SetPoint("TOPRIGHT", progressTexture, "TOPRIGHT", 0, 0)
+                end
+            else
+                if reverse then
+                    shade:SetPoint("TOPRIGHT", countTexture, "TOPLEFT", 0, 0)
+                    shade:SetPoint("BOTTOMLEFT", progressTexture, "BOTTOMLEFT", 0, 0)
+                else
+                    shade:SetPoint("TOPLEFT", countTexture, "TOPRIGHT", 0, 0)
+                    shade:SetPoint("BOTTOMRIGHT", progressTexture, "BOTTOMRIGHT", 0, 0)
+                end
+            end
+        end
+
         bar._chargeHashFillGeometryValid = true
         bar._chargeHashFillMaxCharges = maxCharges
         bar._chargeHashFillVertical = isVert
@@ -4398,6 +4591,24 @@ local function _updateTBBChargeHashFill(bar, cfg, maxCharges, currentCharges,
     end
 
     _styleTBBChargeHashFill(bar, cfg)
+
+    -- Partial-charge shade state: scalar-cached so the steady-state tick is a no-op.
+    local shade = bar._chargeHashShadeTexture
+    if shade then
+        local shadeA = cfg.chargeHashShade == true
+            and (tonumber(cfg.chargeHashShadeAlpha) or 0.5) or 0
+        if shadeA > 1 then shadeA = 1 end
+        if shadeA > 0 then
+            if bar._chargeHashShadeAlpha ~= shadeA then
+                shade:SetColorTexture(0, 0, 0, shadeA)
+                bar._chargeHashShadeAlpha = shadeA
+            end
+            if not shade:IsShown() then shade:Show() end
+        elseif shade:IsShown() then
+            shade:Hide()
+        end
+    end
+
     local activating = not bar._chargeHashFillActive
     if activating then
         countBar:Show()
@@ -4970,10 +5181,10 @@ local function TBBUsesVisCondition(cfg)
     if vis and vis ~= "always" then return true end
     local vm = cfg.visibilityModes
     if type(vm) == "table" and next(vm) then return true end
-    local items = EllesmereUI.VIS_OPT_ITEMS
-    if items then
-        for i = 1, #items do
-            if cfg[items[i].key] then return true end
+    local keys = EllesmereUI.VIS_OPT_KEYS
+    if keys then
+        for i = 1, #keys do
+            if cfg[keys[i]] then return true end
         end
     end
     return false
@@ -4986,17 +5197,25 @@ end
 -------------------------------------------------------------------------------
 function ns.UpdateTrackedBuffBarTimers()
     if not ECME or not ECME.db then return end
-    local MS, MD = ns._MemSnap, ns._MemDelta
-    if MS then MS("TBBTick") end
     local tbb = ns.GetTrackedBuffBars()
     local bars = tbb.bars
-    if not bars then if MD then MD("TBBTick") end return end
+    if not bars then return end
 
     -- Liveness for the idle sleeper: set by any branch below that is actually animating or tracking something this tick.
     local tickLive = false
 
     -- Profile-wide smooth-fill switches, resolved once per tick for every fill site (absent buffs key = enabled; absent cooldowns key = OFF).
-    local sm = ns.GetTBBSmoothSettings and ns.GetTBBSmoothSettings()
+    local sm
+    do
+        local pn = EllesmereUIDB and EllesmereUIDB.activeProfile
+        local sp = ns._cachedSpecProfiles
+        if _tickSm and pn == _tickSmProf and sp == _tickSmSp then
+            sm = _tickSm
+        else
+            sm = ns.GetTBBSmoothSettings and ns.GetTBBSmoothSettings()
+            _tickSm, _tickSmProf, _tickSmSp = sm, pn, sp
+        end
+    end
     if sm then
         _smoothBuffs = sm.buffs ~= false
         _smoothCooldowns = sm.cooldowns == true
@@ -5013,6 +5232,12 @@ function ns.UpdateTrackedBuffBarTimers()
             if ns.HideTBBPlaceholders then ns.HideTBBPlaceholders() end
             -- Auras may have moved while the preview was up: re-pair on the first real mirror tick.
             _tbbAssignDirty = true
+            -- The preview may have written the self-timed bars' timer text: drop
+            -- their bucket stamps so the next live tick rewrites it.
+            for bi = 1, #tbbFrames do
+                local b = tbbFrames[bi]
+                if b then b._stTxtKey = nil end
+            end
         end
     end
 
@@ -5512,7 +5737,7 @@ function ns.UpdateTrackedBuffBarTimers()
     end
 
     -- Re-pack visible grouped Tracking Bars after the active/inactive pass so hidden buffs do not reserve a slot in the group.
-    ReflowVisibleGroupedTBBars(tbb, bars)
+    if _tbbReflowDirty then ReflowVisibleGroupedTBBars(tbb, bars) end
 
     -- Deferred name fill: retry each tick when BuildTrackedBuffBars could not resolve the spell name (spell data not loaded yet).
     for i, cfg in ipairs(bars) do
@@ -5572,7 +5797,6 @@ function ns.UpdateTrackedBuffBarTimers()
         _tbbWake._idleTicks = n
         if n >= 30 then _tbbWake.Sleep() end
     end
-    if ns._MemDelta then ns._MemDelta("TBBTick") end
 end
 
 -------------------------------------------------------------------------------
@@ -5583,6 +5807,7 @@ function ns.BuildTrackedBuffBars()
     if not ECME or not ECME.db then return end
     -- No InCombatLockdown guard needed: TBB frames are ours (UIParent), not secure Blizzard frames, so positioning in combat is safe.
     _tbbRebuildPending = false
+    _tbbReflowDirty = true
 
     -- Per-spec unlock-link views: the global anchor/match stores must hold THIS spec's TBB entries before any anchored-state below is read.
     ns.SyncTBBUnlockLinks()
@@ -5687,6 +5912,16 @@ function ns.BuildTrackedBuffBars()
             local namePos2 = cfg.namePosition or ((cfg.showName ~= false) and "left" or "none")
             if namePos2 ~= "none" and bar._nameText then
                 local displayName = cfg.name
+                -- Preset bars take the live label the same way the icon does above:
+                -- the copy saved at pick time can name the other faction's lust.
+                if cfg.popularKey then
+                    for _, pe in ipairs(TBB_POPULAR_BUFFS) do
+                        if pe.key == cfg.popularKey then
+                            displayName = pe.name or displayName
+                            break
+                        end
+                    end
+                end
                 if (not displayName or displayName == "") and cfg.spellID and cfg.spellID > 0 then
                     local spInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(cfg.spellID)
                     displayName = spInfo and spInfo.name

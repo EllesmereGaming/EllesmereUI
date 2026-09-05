@@ -54,10 +54,28 @@ initFrame:SetScript("OnEvent", function(self)
         return (Cfg("mode") or "never") == "never"
     end
 
-    -- The runtime owns the normalize (unknown values read as "one").
+    local function QuickFireDisabled()
+        return Disabled() or Cfg("quickFire") ~= true
+    end
+
+    -- The runtime owns the normalize (unknown values retain One Window).
     local function ShowAsVal()
         if ns.ShowAs then return ns.ShowAs() end
         return Cfg("showAs") or "one"
+    end
+
+    local function LegacyDisabled()
+        return Disabled() or ShowAsVal() == "compact"
+    end
+    local function RoleCheckDisabled()
+        return Disabled() or ShowAsVal() == "markers"
+    end
+    local function FullPanelButtonDisabled()
+        local mode = ShowAsVal()
+        return Disabled() or mode == "compact" or mode == "markers"
+    end
+    local function PullDisabled()
+        return Disabled() or ShowAsVal() == "markers"
     end
 
     -- Pull durations live in a fixed 3-slot array; each slider owns one slot.
@@ -181,18 +199,34 @@ initFrame:SetScript("OnEvent", function(self)
             kbBtn:SetScript("OnKeyDown", function(self, key)
                 if not listening then self:SetPropagateKeyboardInput(true); return end
                 if key == "LSHIFT" or key == "RSHIFT" or key == "LCTRL" or key == "RCTRL"
-                   or key == "LALT" or key == "RALT" then
+                   or key == "LALT" or key == "RALT" or key == "LMETA" or key == "RMETA" then
                     self:SetPropagateKeyboardInput(true); return
                 end
                 self:SetPropagateKeyboardInput(false)
                 if key == "ESCAPE" then
                     listening = false; self:EnableKeyboard(false); RefreshLabel(); return
                 end
-                local mods = ""
-                if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
-                if IsControlKeyDown() then mods = mods .. "CTRL-" end
-                if IsAltKeyDown() then mods = mods .. "ALT-" end
-                Set("toggleKey", mods .. key)
+                -- Blizzard's canonical chord order is ALT-CTRL-SHIFT-KEY, and
+                -- CreateKeyChordStringUsingMetaKeyState is what produces it.
+                -- Hand-rolling the modifiers built SHIFT-CTRL-ALT-KEY, a chord
+                -- string the engine never generates, so any bind using more
+                -- than one modifier was stored in a form nothing could match.
+                -- Single-modifier binds happen to agree, which is why this
+                -- survived.
+                local fullKey
+                if CreateKeyChordStringUsingMetaKeyState then
+                    fullKey = CreateKeyChordStringUsingMetaKeyState(key)
+                else
+                    local mods = ""
+                    if IsAltKeyDown() then mods = mods .. "ALT-" end
+                    if IsControlKeyDown() then mods = mods .. "CTRL-" end
+                    if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
+                    if IsMetaKeyDown and IsMetaKeyDown() then
+                        mods = mods .. "META-"
+                    end
+                    fullKey = mods .. key
+                end
+                Set("toggleKey", fullKey)
                 Refresh()
                 listening = false
                 self:EnableKeyboard(false)
@@ -240,35 +274,32 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        -- Row 2: collapsed-when-shown default | window composition. One rule
-        -- for every show, keybind included -- a user who wants the keybind to
-        -- toggle the full windows simply turns this off.
+        -- Row 2: collapsed-when-shown default | window composition.
         _, h = W:DualRow(parent, y,
             { type = "toggle", text = "Default to Collapsed When Shown",
-              tooltip = "Shows start as a small icon, and the keybind switches between the icon and the full windows. Turn off to show full windows and make the keybind hide and show them.",
-              disabled = Disabled,
+              tooltip = "Full-window modes only. Shows start as a small icon, and the keybind switches between the icon and the full windows.",
+              disabled = LegacyDisabled,
               getValue = function() return Cfg("collapsedIcon") ~= false end,
               setValue = function(v)
                   Set("collapsedIcon", v)
                   Refresh()
               end },
             { type = "dropdown", text = "Show as",
-              tooltip = "One Window combines everything into a single element; the Only choices show just that part.",
+              tooltip = "Compact Band puts markers, ready check and pull timer in one resizable row. The other choices keep the original window layouts.",
               disabled = Disabled,
-              values = { one = "One Window", two = "Two Windows",
-                         group = "Only Group & Pull", markers = "Only Markers" },
-              order = { "one", "two", "group", "markers" },
+              values = { compact = "Compact Band", one = "One Window",
+                         two = "Two Windows", group = "Only Group & Pull",
+                         markers = "Only Markers" },
+              order = { "compact", "one", "two", "group", "markers" },
               getValue = function() return ShowAsVal() end,
               setValue = function(v)
                   Set("showAs", v)
                   Refresh()
-                  EllesmereUI:RefreshPage()  -- the scale sliders follow
+                  EllesmereUI:RefreshPage()
               end }
         );  y = y - h
 
-        -- Row 3: one scale for the whole feature -- both shells and the
-        -- collapsed icon wear it, whichever windows the Show as choice puts
-        -- on screen | which way the windows extend from the collapsed icon.
+        -- Row 3: one scale for every layout | legacy menu grow direction.
         _, h = W:DualRow(parent, y,
             { type = "slider", text = "Window Scale", min = 0.5, max = 2.0, step = 0.05,
               disabled = Disabled,
@@ -278,8 +309,8 @@ initFrame:SetScript("OnEvent", function(self)
                   Refresh()
               end },
             { type = "dropdown", text = "Menu Grow Direction",
-              tooltip = "Which way the windows extend from the collapsed icon when they open.",
-              disabled = Disabled,
+              tooltip = "Full-window modes only. Which way the windows extend from the collapsed icon when they open.",
+              disabled = LegacyDisabled,
               values = { downright = "Down Right", upright = "Up Right",
                          downleft = "Down Left", upleft = "Up Left" },
               order = { "downright", "upright", "downleft", "upleft" },
@@ -290,6 +321,197 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
+        -- QUICK FIRE
+        -- An explicitly enabled, empty-by-default set of world-marker binds.
+        _, h = W:SectionHeader(parent, "QUICK FIRE", y);  y = y - h
+
+        local qfEnableRow
+        qfEnableRow, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Enable Quick Fire",
+              tooltip = "Adds three optional world-marker keybinds that remain usable in combat. Place drops the first free marker at the cursor in Star to Skull order; Undo removes the last marker placed through Quick Fire; Clear removes all world markers. Every binding starts empty. Marker changes made elsewhere during combat are picked up afterward.",
+              disabled = Disabled,
+              getValue = function() return Cfg("quickFire") == true end,
+              setValue = function(v)
+                  Set("quickFire", v)
+                  Refresh()
+                  EllesmereUI:RefreshPage()
+              end },
+            { type = "label", text = "Place World Marker" }
+        );  y = y - h
+
+        local qfKeysRow
+        qfKeysRow, h = W:DualRow(parent, y,
+            { type = "label", text = "Undo Last Marker" },
+            { type = "label", text = "Clear All Markers" }
+        );  y = y - h
+
+        if not EllesmereUI._prebuilding then
+            local PP = EllesmereUI.PanelPP
+
+            local function AddQuickFireKeybind(region, key)
+                local button = CreateFrame("Button", nil, region)
+                PP.Size(button, 126, 29)
+                PP.Point(button, "RIGHT", region, "RIGHT", -20, 0)
+                button:SetFrameLevel(region:GetFrameLevel() + 4)
+                button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+
+                local bg = EllesmereUI.SolidTex(button, "BACKGROUND",
+                    EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G,
+                    EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
+                bg:SetAllPoints()
+                button._border = EllesmereUI.MakeBorder(button, 1, 1, 1,
+                    EllesmereUI.DD_BRD_A, PP)
+                local label = EllesmereUI.MakeFont(button, 12, nil, 1, 1, 1)
+                label:SetAlpha(EllesmereUI.DD_TXT_A)
+                label:SetPoint("CENTER")
+
+                local listening = false
+
+                local function FormatKey(value)
+                    if not value or value == "" then
+                        return EllesmereUI.L("Not Bound")
+                    end
+                    local parts = {}
+                    for mod in value:gmatch("(%u+)%-") do
+                        parts[#parts + 1] = mod:sub(1, 1) .. mod:sub(2):lower()
+                    end
+                    parts[#parts + 1] = value:match("[^%-]+$") or value
+                    return table.concat(parts, " + ")
+                end
+
+                local function RefreshState()
+                    local off = QuickFireDisabled()
+                    button:SetAlpha(off and 0.3 or 1)
+                    button:EnableMouse(not off)
+                    if region._label then region._label:SetAlpha(off and 0.3 or 1) end
+                    if off and listening then
+                        listening = false
+                        button:EnableKeyboard(false)
+                    end
+                    if not listening then label:SetText(FormatKey(Cfg(key))) end
+                end
+
+                button:SetScript("OnClick", function(self, mouseButton)
+                    if QuickFireDisabled() then return end
+                    if mouseButton == "RightButton" then
+                        if listening then
+                            listening = false
+                            self:EnableKeyboard(false)
+                        end
+                        Set(key, false)
+                        Refresh()
+                        RefreshState()
+                        if EllesmereUI._NotifySettingWrite then
+                            EllesmereUI._NotifySettingWrite(region)
+                        end
+                        return
+                    end
+                    if listening then return end
+                    listening = true
+                    label:SetText(EllesmereUI.L("Press a key..."))
+                    self:EnableKeyboard(true)
+                end)
+
+                button:SetScript("OnKeyDown", function(self, pressed)
+                    if not listening then
+                        self:SetPropagateKeyboardInput(true)
+                        return
+                    end
+                    if pressed == "LSHIFT" or pressed == "RSHIFT"
+                       or pressed == "LCTRL" or pressed == "RCTRL"
+                       or pressed == "LALT" or pressed == "RALT"
+                       or pressed == "LMETA" or pressed == "RMETA" then
+                        self:SetPropagateKeyboardInput(true)
+                        return
+                    end
+                    self:SetPropagateKeyboardInput(false)
+                    if pressed == "ESCAPE" then
+                        listening = false
+                        self:EnableKeyboard(false)
+                        RefreshState()
+                        return
+                    end
+                    -- Blizzard's canonical chord order is ALT-CTRL-SHIFT-KEY,
+                    -- and CreateKeyChordStringUsingMetaKeyState is what
+                    -- produces it. Hand-rolling the modifiers built
+                    -- SHIFT-CTRL-ALT-KEY, a chord string the engine never
+                    -- generates, so any bind using more than one modifier was
+                    -- stored in a form nothing could match. Single-modifier
+                    -- binds happen to agree, which is why this survived.
+                    local fullPressed
+                    if CreateKeyChordStringUsingMetaKeyState then
+                        fullPressed = CreateKeyChordStringUsingMetaKeyState(pressed)
+                    else
+                        local mods = ""
+                        if IsAltKeyDown() then mods = mods .. "ALT-" end
+                        if IsControlKeyDown() then mods = mods .. "CTRL-" end
+                        if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
+                        if IsMetaKeyDown and IsMetaKeyDown() then
+                            mods = mods .. "META-"
+                        end
+                        fullPressed = mods .. pressed
+                    end
+                    Set(key, fullPressed)
+                    Refresh()
+                    listening = false
+                    self:EnableKeyboard(false)
+                    RefreshState()
+                    if EllesmereUI._NotifySettingWrite then
+                        EllesmereUI._NotifySettingWrite(region)
+                    end
+                end)
+
+                button:SetScript("OnEnter", function(self)
+                    if QuickFireDisabled() then
+                        EllesmereUI.ShowWidgetTooltip(self,
+                            EllesmereUI.DisabledTooltip("Enable Quick Fire"))
+                        return
+                    end
+                    bg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G,
+                        EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
+                    if button._border and button._border.SetColor then
+                        button._border:SetColor(1, 1, 1, 0.3)
+                    end
+                    EllesmereUI.ShowWidgetTooltip(self,
+                        "Left-click to set a keybind.\nRight-click to unbind.")
+                end)
+                button:SetScript("OnLeave", function()
+                    if listening then return end
+                    bg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G,
+                        EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
+                    if button._border and button._border.SetColor then
+                        button._border:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A)
+                    end
+                    EllesmereUI.HideWidgetTooltip()
+                end)
+                button:SetScript("OnHide", function()
+                    if listening then
+                        listening = false
+                        button:EnableKeyboard(false)
+                        RefreshState()
+                    end
+                    EllesmereUI.HideWidgetTooltip()
+                end)
+
+                RefreshState()
+                EllesmereUI.RegisterWidgetRefresh(RefreshState)
+                EllesmereUI.AddCaptureAccessor(region, {
+                    type = "keybind",
+                    text = region._label and region._label:GetText() or key,
+                    getValue = function() return Cfg(key) end,
+                    setValue = function(v)
+                        Set(key, v)
+                        Refresh()
+                        RefreshState()
+                    end,
+                })
+            end
+
+            AddQuickFireKeybind(qfEnableRow._rightRegion, "quickFirePlaceKey")
+            AddQuickFireKeybind(qfKeysRow._leftRegion, "quickFireUndoKey")
+            AddQuickFireKeybind(qfKeysRow._rightRegion, "quickFireClearKey")
+        end
+
         -- GROUP BUTTONS
         --
         -- One switch per optional action. Ready Check has none: it is the
@@ -297,9 +519,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- leaves -- the survivors re-flow across the rows.
         _, h = W:SectionHeader(parent, "GROUP BUTTONS", y);  y = y - h
 
-        local function ButtonToggle(key, text, tooltip)
+        local function ButtonToggle(key, text, tooltip, disabled)
             return { type = "toggle", text = text, tooltip = tooltip,
-                     disabled = Disabled,
+                     disabled = disabled or Disabled,
                      getValue = function() return Cfg(key) ~= false end,
                      setValue = function(v)
                          Set(key, v)
@@ -309,13 +531,16 @@ initFrame:SetScript("OnEvent", function(self)
 
         _, h = W:DualRow(parent, y,
             ButtonToggle("showRoleCheck", "Show Role Check",
-                "Shows the Role Check button. Turn it off and the remaining buttons close the gap."),
+                "Shows the Role Check button in window layouts and enables Right Click: Role Check on Compact Band.",
+                RoleCheckDisabled),
             ButtonToggle("showConvert", "Show Convert to Raid",
-                "Shows the Convert to Raid button, which reads Convert to Party while you are in a raid.")
+                "Shows the Convert to Raid button, which reads Convert to Party while you are in a raid.",
+                FullPanelButtonDisabled)
         );  y = y - h
         _, h = W:DualRow(parent, y,
             ButtonToggle("showDisband", "Show Disband",
-                "Shows the Disband button. It always asks before disbanding, but hiding it puts it out of misclick range for good."),
+                "Shows the Disband button. It always asks before disbanding, but hiding it puts it out of misclick range for good.",
+                FullPanelButtonDisabled),
             { type = "spacer" }
         );  y = y - h
 
@@ -323,11 +548,11 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:SectionHeader(parent, "PULL TIMER", y);  y = y - h
 
         local PULL_LABELS = { "First Timer", "Second Timer", "Third Timer" }
-        local PULL_TIP = "Countdown length of this pull button, in seconds. Set it to 0 to hide the button; with all three at 0 the whole pull row disappears, Stop included."
+        local PULL_TIP = "Countdown length in seconds. Compact Band uses First with Ctrl + Left Click, Second with Shift + Left Click, Third with Left Click, and Right Click stops the timer. Set a timer to 0 to disable that shortcut."
         local function PullSlider(i)
             return { type="slider", text=PULL_LABELS[i], min=0, max=60, step=1,
                      tooltip=PULL_TIP,
-                     disabled=Disabled,
+                     disabled=PullDisabled,
                      getValue=function() return PullGet(i) end,
                      setValue=function(v) PullSet(i, v) end }
         end

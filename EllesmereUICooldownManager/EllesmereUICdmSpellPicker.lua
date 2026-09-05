@@ -562,18 +562,18 @@ function ns.EnumerateCDMSettingsCatalog(wantSet)
     if not settings or type(settings.GetDataProvider) ~= "function" then return nil end
     local okP, provider = pcall(settings.GetDataProvider, settings)
     if not okP or type(provider) ~= "table" then return nil end
-    if type(provider.GetOrderedCooldownIDs) ~= "function"
-       or type(provider.GetCooldownInfoForID) ~= "function" then return nil end
-    local okO, ordered = pcall(provider.GetOrderedCooldownIDs, provider)
-    if not okO or type(ordered) ~= "table" then return nil end
+    -- Read the already-built display table, never the getters that would
+    -- build it (see ns.CDMGetProviderDisplayData, EllesmereUICooldownManager.lua).
+    local ordered, infoByID = ns.CDMGetProviderDisplayData(provider)
+    if not ordered then return nil end
     local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
     if not gci then return nil end
 
     local result = {}
     for _, cdID in ipairs(ordered) do
-        local okI, pInfo = pcall(provider.GetCooldownInfoForID, provider, cdID)
+        local pInfo = _IsUsableSID(cdID) and infoByID[cdID]
         local category
-        if okI and type(pInfo) == "table" then category = pInfo.category end
+        if type(pInfo) == "table" then category = pInfo.category end
         if category ~= nil and wantSet[category] then
             -- Same shape the migration and spell caches use. Prefer override
             -- only when the player actually has it -- CDM info can report a
@@ -1672,6 +1672,22 @@ function ns.AddPresetToBar(barKey, preset)
     local frame = cdmBarFrames[barKey]
     if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
     return true
+end
+
+--- Is any member of this preset already on the bar? The inverse of the "exists"
+--- guard above, so the picker greys exactly what an add would reject: a preset
+--- with variant ids (the invisibility potions, the two faction lust ids) counts
+--- as present no matter which member is stored.
+function ns.IsPresetOnBar(barKey, preset)
+    local sd = ns.GetBarSpellData(barKey)
+    local spellList = sd and sd.assignedSpells
+    if not spellList or type(preset.spellIDs) ~= "table" then return false end
+    for _, sid in ipairs(preset.spellIDs) do
+        for _, existing in ipairs(spellList) do
+            if existing == sid then return true end
+        end
+    end
+    return false
 end
 
 --- Add a tracked spell (spellID) to a bar. Picker-driven add: always treated

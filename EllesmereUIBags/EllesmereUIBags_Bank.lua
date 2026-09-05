@@ -40,6 +40,12 @@ local THUMB_MIN_H = 20
 local _selectedView = 0   -- 0 = All Bank Tabs, -1 = OneBank, -2 = All Warbank, -3 = OneWarbank, >0 = tab index
 local _allTabs = {}        -- populated on bank open: { bagID, name, isWarband, numSlots, icon, depositFlags }
 local _warbandOnly = false -- true when opened via portable warbank (AccountBanker interaction)
+-- Category sidebar selection. nil = a normal view/tab is showing; otherwise
+-- { group = "<group name>" } or { key = "<category _defaultName>", detail = "<bucket label>" }.
+-- Keyed by _defaultName rather than list index so a drag-reorder in the bags
+-- sidebar cannot silently repoint the bank selection at another category.
+local _catSel = nil
+local _catIndex = nil      -- rebuilt every refresh; see BuildBankCategoryIndex
 
 local function GetBankSidebarWidth()
     local collapsed = BP().bankSidebarCollapsed
@@ -59,6 +65,13 @@ local function IsGearItem(itemLink)
     if not itemLink then return false end
     local _, _, _, _, _, classID = GetItemInfoInstant(itemLink)
     return classID == ITEM_CLASS_WEAPON or classID == ITEM_CLASS_ARMOR
+end
+local function GetItemLevelAtLocation(loc, itemLink)
+    if loc and loc:IsValid() and C_Item.DoesItemExist(loc) then
+        local level = C_Item.GetCurrentItemLevel(loc)
+        if level and level > 0 then return level end
+    end
+    return itemLink and C_Item.GetDetailedItemLevelInfo(itemLink) or nil
 end
 local function GetAccentRGB()
     if EUI.GetAccentColor then return EUI.GetAccentColor() end
@@ -1530,8 +1543,318 @@ local function GetOrCreateBankSlot(idx)
 end
 
 -------------------------------------------------------------------------------
---  Render Button
+--  Expansion nesting (OneBank / OneWarbank)
+--  Bucket logic follows EllesmereUIBags.lua, with one deliberate difference: the
+--  bags side forces every item of ilvl >= 180 into Midnight before reading the
+--  real expansion ID. A bank holds years of gear, so that misfiles most of it --
+--  here the expansion ID from C_Item.GetItemInfo always wins.
 -------------------------------------------------------------------------------
+local EXPANSION_ID_OVERRIDES = {
+    [180653] = 11,
+}
+
+local function GetItemExpansionIDFromLink(itemLink)
+    if not itemLink then return nil end
+    local itemID = tonumber(itemLink:match("item:(%d+)")) or tonumber(itemLink:match("keystone:(%d+)"))
+    if itemID and EXPANSION_ID_OVERRIDES[itemID] then
+        return EXPANSION_ID_OVERRIDES[itemID]
+    end
+    if C_Item and C_Item.GetItemInfo then
+        local _, _, _, _, _, _, _, _, _, _, _, _, _, _, expID = C_Item.GetItemInfo(itemLink)
+        return expID
+    end
+    return select(15, GetItemInfo(itemLink))
+end
+
+-- sortKey: higher = newer expansion, shown first. Unknown / uncached last.
+local EXP_KEY_UNKNOWN = -999
+local EXP_KEY_EMPTY   = -1000
+
+local function GetExpansionBucketKeyAndLabel(itemLink)
+    local expID = GetItemExpansionIDFromLink(itemLink)
+    if expID == nil then
+        return EXP_KEY_UNKNOWN, (UNKNOWN or "Unknown")
+    end
+    local id = tonumber(expID)
+    if id == nil then
+        return EXP_KEY_UNKNOWN, (UNKNOWN or "Unknown")
+    end
+    -- Classic-era sentinel from some clients / items
+    if id == 254 or id == 255 then
+        local name = _G["EXPANSION_NAME0"] or "Classic"
+        return 0, name
+    end
+    local name = _G["EXPANSION_NAME" .. id]
+    if name and name ~= "" then
+        return id, name
+    end
+    if id == 11 then return id, "Midnight" end
+    return id, "Expansion " .. tostring(id)
+end
+
+-- Sub-bucket by item subclass: Recipe/Profession subclasses are the professions
+-- themselves (Herbalism, Mining, ...), Tradegoods subclasses are the material
+-- families (Herb, Cloth, Metal & Stone), Consumable subclasses are Potion /
+-- Flask / Food. GetItemInfoInstant reads the local client DB, so unlike
+-- GetItemInfo it answers on the first bank open.
+local function GetSubTypeBucket(link)
+    local _, _, _, _, _, classID, subclassID = GetItemInfoInstant(link)
+    if classID == nil then return "__other__", EllesmereUI.L("Other"), true end
+    local name
+    if C_Item and C_Item.GetItemSubClassInfo then
+        name = C_Item.GetItemSubClassInfo(classID, subclassID or 0)
+    end
+    if (not name or name == "") and _G.GetItemSubClassInfo then
+        name = _G.GetItemSubClassInfo(classID, subclassID or 0)
+    end
+    if not name or name == "" then
+        name = select(7, GetItemInfo(link))
+    end
+    if not name or name == "" then
+        return "__other__", EllesmereUI.L("Other"), true
+    end
+    return name, name, false
+end
+
+-- Sub-bucket by equipment slot. Condensed port of GetArmorySlotBucket in
+-- EllesmereUIBags.lua so gear sorts head-to-feet, then weapons, in both windows.
+local ARMORY_SLOT_KEYS = {
+    INVTYPE_HEAD     = { 10,  "INVTYPE_HEAD" },
+    INVTYPE_NECK     = { 20,  "INVTYPE_NECK" },
+    INVTYPE_SHOULDER = { 30,  "INVTYPE_SHOULDER" },
+    INVTYPE_CLOAK    = { 40,  "INVTYPE_CLOAK" },
+    INVTYPE_CHEST    = { 50,  "INVTYPE_CHEST" },
+    INVTYPE_ROBE     = { 50,  "INVTYPE_CHEST" },
+    INVTYPE_BODY     = { 60,  "INVTYPE_BODY" },
+    INVTYPE_TABARD   = { 70,  "INVTYPE_TABARD" },
+    INVTYPE_WRIST    = { 80,  "INVTYPE_WRIST" },
+    INVTYPE_HAND     = { 90,  "INVTYPE_HAND" },
+    INVTYPE_WAIST    = { 100, "INVTYPE_WAIST" },
+    INVTYPE_LEGS     = { 110, "INVTYPE_LEGS" },
+    INVTYPE_FEET     = { 120, "INVTYPE_FEET" },
+    INVTYPE_FINGER   = { 140, "INVTYPE_FINGER" },
+    INVTYPE_TRINKET  = { 150, "INVTYPE_TRINKET" },
+}
+local ARM_WAND     = (Enum.ItemWeaponSubclass and Enum.ItemWeaponSubclass.Wand) or 19
+local ARM_BOW      = (Enum.ItemWeaponSubclass and Enum.ItemWeaponSubclass.Bow) or 2
+local ARM_GUN      = (Enum.ItemWeaponSubclass and Enum.ItemWeaponSubclass.Gun) or 3
+local ARM_CROSSBOW = (Enum.ItemWeaponSubclass and Enum.ItemWeaponSubclass.Crossbow) or 18
+local ARM_COSMETIC = Enum.ItemArmorSubclass and Enum.ItemArmorSubclass.Cosmetic
+
+local function GetSlotBucket(link)
+    local _, _, _, equipSlot, _, classID, subclassID = GetItemInfoInstant(link)
+    if classID == Enum.ItemClass.Armor and ARM_COSMETIC and subclassID == ARM_COSMETIC then
+        return 130, EllesmereUI.L("Cosmetic"), false
+    end
+    equipSlot = equipSlot or ""
+    if equipSlot == "INVTYPE_WEAPONOFFHAND" or equipSlot == "INVTYPE_HOLDABLE" or equipSlot == "INVTYPE_SHIELD" then
+        return 180, EllesmereUI.L("OH"), false
+    end
+    if classID == Enum.ItemClass.Weapon then
+        if subclassID == ARM_WAND then return 170, EllesmereUI.L("1H"), false end
+        if subclassID == ARM_BOW or subclassID == ARM_GUN or subclassID == ARM_CROSSBOW then
+            return 190, _G["INVTYPE_RANGED"] or EllesmereUI.L("Ranged"), false
+        end
+        if equipSlot == "INVTYPE_2HWEAPON" then return 160, EllesmereUI.L("2H"), false end
+        if equipSlot == "INVTYPE_RANGED" or equipSlot == "INVTYPE_RANGEDRIGHT" then
+            return 190, _G["INVTYPE_RANGED"] or EllesmereUI.L("Ranged"), false
+        end
+        if equipSlot == "INVTYPE_WEAPON" or equipSlot == "INVTYPE_WEAPONMAINHAND" then
+            return 170, EllesmereUI.L("1H"), false
+        end
+    end
+    local entry = ARMORY_SLOT_KEYS[equipSlot]
+    if entry then return entry[1], _G[entry[2]] or equipSlot, false end
+    return 999, EllesmereUI.L("Other"), true
+end
+
+-- slotList entries are { bagID, slot, _cachedInfo }. mode is "expansion",
+-- "type" or "slot". Empty slots have no _cachedInfo and always collect into a
+-- single trailing bucket rather than landing under Unknown / Other.
+local function BuildBankBuckets(slotList, mode)
+    local byKey, list = {}, {}
+    for _, s in ipairs(slotList) do
+        local link = s._cachedInfo and s._cachedInfo.hyperlink
+        local k, label, isOther
+        if not link then
+            k, label, isOther = EXP_KEY_EMPTY, EllesmereUI.L("Empty Slots"), false
+        elseif mode == "type" then
+            k, label, isOther = GetSubTypeBucket(link)
+        elseif mode == "slot" then
+            k, label, isOther = GetSlotBucket(link)
+        else
+            k, label = GetExpansionBucketKeyAndLabel(link)
+            isOther = (k == EXP_KEY_UNKNOWN)
+        end
+        local b = byKey[k]
+        if not b then
+            b = { key = k, label = label, isOther = isOther,
+                  isEmpty = (link == nil), slots = {} }
+            byKey[k] = b
+            list[#list + 1] = b
+        end
+        b.slots[#b.slots + 1] = s
+    end
+    -- Empty slots last, then unknown/other, then per-mode order. Keys can be
+    -- numbers or strings depending on mode, so never compare across buckets
+    -- until those two flags have been settled.
+    table.sort(list, function(a, b)
+        if a.isEmpty ~= b.isEmpty then return b.isEmpty end
+        if a.isOther ~= b.isOther then return b.isOther end
+        if a.isEmpty or a.isOther then return a.label < b.label end
+        if mode == "type" then return a.label < b.label end
+        if mode == "slot" then return a.key < b.key end
+        return a.key > b.key   -- expansion: newest first
+    end)
+    return list
+end
+
+-- The deepest level, applied inside a category once expansion and category
+-- headers are already placed. Gear splits by equipment slot, crafting and
+-- consumables by item subclass (which is what separates Herbalism from Mining,
+-- or Potions from Flasks). Categories absent from this table are not split --
+-- expansion is its own top level now, so re-splitting on it would be circular.
+local CATEGORY_DETAIL_MODE = {
+    ["Armor"]              = "slot",
+    ["Weapons / Trinkets"] = "slot",
+    ["Item Set Gear"]      = "slot",
+    ["Professions"]        = "type",
+    ["Trade Goods"]        = "type",
+    ["Gear Enhancements"]  = "type",
+    ["Consumables"]        = "type",
+    ["Miscellaneous"]      = "type",
+}
+
+local function DetailModeForCategory(cat)
+    return CATEGORY_DETAIL_MODE[cat and cat._defaultName or ""]
+end
+
+-- Category buckets in CategoryManager order. Returns nil when that module is
+-- unavailable so callers can fall back. Slots with no item are never passed in.
+local function BuildCategoryBuckets(slotList)
+    local CM = _G.EUI_CategoryManager
+    if not CM or not CM.ClassifyAll or not CM.GetCategories then return nil end
+    local items = {}
+    for _, sl in ipairs(slotList) do
+        local info = sl._cachedInfo
+        items[#items + 1] = {
+            info = info, itemLink = info.hyperlink,
+            bag = sl.bagID, slot = sl.slot, _slotRef = sl,
+        }
+    end
+    CM:ClassifyAll(items)
+    local cats = CM:GetCategories()
+    local byCat = {}
+    for _, d in ipairs(items) do
+        local ci = d.categoryIndex
+        if ci then
+            local t = byCat[ci]
+            if not t then t = {}; byCat[ci] = t end
+            t[#t + 1] = d._slotRef
+        end
+    end
+    local out = {}
+    for ci, cat in ipairs(cats) do
+        local list = byCat[ci]
+        if list and #list > 0 then
+            out[#out + 1] = { cat = cat, label = cat.name or "?", slots = list }
+        end
+    end
+    return out
+end
+
+-- Mark each slot with the bucket it landed in, so a later split by expansion can
+-- regroup the same slots instead of classifying them again. ClassifyAll rebuilds
+-- the equipment-set lookup every call, which is a fixed cost per call rather than
+-- per item -- paying it once per expansion bucket is what this avoids.
+local function ClassifyOnce(slotList)
+    local cbs = BuildCategoryBuckets(slotList)
+    if not cbs then return nil end
+    for ci, cb in ipairs(cbs) do
+        for _, sl in ipairs(cb.slots) do sl._catBucket = ci end
+    end
+    return cbs
+end
+
+-- The categories present in one subset of an already-classified list, kept in the
+-- order ClassifyOnce produced.
+local function RegroupByCategory(cbs, slotList)
+    local byIdx = {}
+    for _, sl in ipairs(slotList) do
+        local ci = sl._catBucket
+        if ci then
+            local t = byIdx[ci]
+            if not t then t = {}; byIdx[ci] = t end
+            t[#t + 1] = sl
+        end
+    end
+    local out = {}
+    for ci, cb in ipairs(cbs) do
+        local list = byIdx[ci]
+        if list and #list > 0 then
+            out[#out + 1] = { cat = cb.cat, label = cb.label, slots = list }
+        end
+    end
+    return out
+end
+
+-- One classification pass per refresh, shared by the sidebar (entry counts) and
+-- the grid (filtered slot lists) so the two can never disagree. Returns nil if
+-- the CategoryManager is unavailable, which makes every caller fall back.
+local function BuildBankCategoryIndex(tabs, passes)
+    local slots = {}
+    for _, tab in ipairs(tabs) do
+        for slot = 1, tab.numSlots do
+            local info = C_Container.GetContainerItemInfo(tab.bagID, slot)
+            if info and info.hyperlink and (not passes or passes(tab.bagID, slot)) then
+                slots[#slots + 1] = { bagID = tab.bagID, slot = slot, _cachedInfo = info }
+            end
+        end
+    end
+    local cbs = ClassifyOnce(slots)
+    if not cbs then return nil end
+    local idx = { list = cbs, byKey = {}, detailByKey = {} }
+    for _, cb in ipairs(cbs) do
+        local key = cb.cat._defaultName
+        if key then
+            idx.byKey[key] = cb
+            local mode = DetailModeForCategory(cb.cat)
+            if mode then
+                local bs = BuildBankBuckets(cb.slots, mode)
+                -- A single bucket is the whole category; no point offering it.
+                if #bs > 1 then idx.detailByKey[key] = bs end
+            end
+        end
+    end
+    return idx
+end
+
+-- Slots behind the current sidebar selection.
+local function GetSelectionSlots()
+    if not _catSel or not _catIndex then return nil end
+    if _catSel.group then
+        local out = {}
+        for _, cb in ipairs(_catIndex.list) do
+            if cb.cat.groupName == _catSel.group then
+                for _, sl in ipairs(cb.slots) do out[#out + 1] = sl end
+            end
+        end
+        return out
+    end
+    local cb = _catIndex.byKey[_catSel.key]
+    if not cb then return {} end
+    if _catSel.detail then
+        local bs = _catIndex.detailByKey[_catSel.key]
+        if bs then
+            for _, b in ipairs(bs) do
+                if b.label == _catSel.detail then return b.slots end
+            end
+        end
+        return {}
+    end
+    return cb.slots
+end
+
 -------------------------------------------------------------------------------
 --  Category Headers
 -------------------------------------------------------------------------------
@@ -1700,6 +2023,167 @@ function EUI_Bank:RefreshBank()
         end
     end
 
+    -- Header depth: 0 = expansion (or the outermost level in use), 1 = category,
+    -- 2 = the detail split inside a category.
+    local function EmitHeader(label, count, depth)
+        headerIdx = headerIdx + 1
+        local indent = depth * 12
+        _layout[#_layout + 1] = {
+            isHeader = true, depth = depth, headerIdx = headerIdx,
+            label = label .. " (" .. count .. ")",
+            x = startX + indent, y = curY, w = gridW - indent,
+        }
+        curY = curY - (depth == 0 and 22 or 18)
+    end
+
+    local function EmitSlots(list)
+        for vi, sl in ipairs(list) do
+            local col = (vi - 1) % COLUMNS
+            local row = math.floor((vi - 1) / COLUMNS)
+            _layout[#_layout + 1] = {
+                bagID = sl.bagID, slot = sl.slot, _cachedInfo = sl._cachedInfo,
+                x = startX + (col * (SLOT_SIZE + SPACING)),
+                y = curY - (row * (SLOT_SIZE + SPACING)),
+            }
+        end
+        local rows = math.ceil(math.max(#list, 1) / COLUMNS)
+        curY = curY - (rows * (SLOT_SIZE + SPACING)) - 6
+    end
+
+    -- One category, plus its detail split when it has one. A split that yields a
+    -- single bucket is collapsed -- "Armor (1) > Chest (1)" is a header for
+    -- nothing, and at three levels deep that noise adds up fast.
+    local function LayoutCategoryBucket(cb, depth)
+        EmitHeader(cb.label, #cb.slots, depth)
+        local mode = DetailModeForCategory(cb.cat)
+        if not mode then
+            EmitSlots(cb.slots)
+            return
+        end
+        local buckets = BuildBankBuckets(cb.slots, mode)
+        if #buckets < 2 then
+            EmitSlots(cb.slots)
+            return
+        end
+        for _, b in ipairs(buckets) do
+            EmitHeader(b.label, #b.slots, depth + 1)
+            EmitSlots(b.slots)
+        end
+    end
+
+    -- classified: an already-stamped list to regroup, when the caller has one.
+    local function LayoutCategoryRun(slotList, depth, classified)
+        local cbs
+        if classified then
+            cbs = RegroupByCategory(classified, slotList)
+        else
+            cbs = BuildCategoryBuckets(slotList)
+        end
+        if not cbs then
+            EmitSlots(slotList)
+            return
+        end
+        for _, cb in ipairs(cbs) do LayoutCategoryBucket(cb, depth) end
+    end
+
+    -- Grouped layout for OneBank / OneWarbank. Expansion is the outer level when
+    -- Nest by Expansion is on, category nests inside it, and the per-category
+    -- detail split sits inside that. Either toggle works on its own.
+    local function LayoutGroupedSlots(slotList, headerLabel)
+        local byExp = BP().bankNestByExpansion
+        local byCat = BP().bankGroupByCategory
+        if not byExp and not byCat then
+            return LayoutFlatSlots(slotList, headerLabel)
+        end
+        if #slotList == 0 and hasSearch then return end
+
+        -- Empty slots cannot be classified and always trail the whole view.
+        local filled, empties = {}, {}
+        for _, sl in ipairs(slotList) do
+            local info = sl._cachedInfo
+            if info and info.hyperlink then
+                filled[#filled + 1] = sl
+            else
+                empties[#empties + 1] = sl
+            end
+        end
+
+        if byExp then
+            local classified = byCat and ClassifyOnce(filled) or nil
+            for _, eb in ipairs(BuildBankBuckets(filled, "expansion")) do
+                EmitHeader(eb.label, #eb.slots, 0)
+                if byCat then
+                    LayoutCategoryRun(eb.slots, 1, classified)
+                else
+                    EmitSlots(eb.slots)
+                end
+            end
+        else
+            LayoutCategoryRun(filled, 0)
+        end
+
+        if #empties > 0 and not BP().bankHideEmptyWhenNested then
+            EmitHeader(EllesmereUI.L("Empty Slots"), #empties, 0)
+            EmitSlots(empties)
+        end
+    end
+
+    -- Grid for a category-sidebar selection. Expansion stays the outer level when
+    -- Nest by Expansion is on; the level below it depends on what was picked --
+    -- a group lists its categories, a category its detail split, a detail split
+    -- entry just its items.
+    local function LayoutSelectionSlots(slotList)
+        if #slotList == 0 then
+            EmitHeader(EllesmereUI.L("No Items"), 0, 0)
+            return
+        end
+        -- A group selection splits by category, and _catIndex.list already carries
+        -- that classification for these very slots.
+        local classified = _catSel.group and _catIndex and _catIndex.list or nil
+        local function Inner(list, depth)
+            if _catSel.group then
+                LayoutCategoryRun(list, depth, classified)
+                return
+            end
+            if _catSel.detail then
+                EmitSlots(list)
+                return
+            end
+            local cb = _catIndex and _catIndex.byKey[_catSel.key]
+            local mode = cb and DetailModeForCategory(cb.cat)
+            if mode then
+                local bs = BuildBankBuckets(list, mode)
+                if #bs > 1 then
+                    for _, b in ipairs(bs) do
+                        EmitHeader(b.label, #b.slots, depth)
+                        EmitSlots(b.slots)
+                    end
+                    return
+                end
+            end
+            EmitSlots(list)
+        end
+        if BP().bankNestByExpansion then
+            for _, eb in ipairs(BuildBankBuckets(slotList, "expansion")) do
+                EmitHeader(eb.label, #eb.slots, 0)
+                Inner(eb.slots, 1)
+            end
+        else
+            -- Without expansion headers a detail selection would render as a
+            -- bare grid, so name what is on screen.
+            if _catSel.detail or _catSel.group then
+                EmitHeader(_catSel.detail or _catSel.group, #slotList, 0)
+                if _catSel.detail then
+                    EmitSlots(slotList)
+                else
+                    LayoutCategoryRun(slotList, 1, classified)
+                end
+            else
+                Inner(slotList, 0)
+            end
+        end
+    end
+
     -- Helper: build per-tab header layout for a set of tabs
     local function LayoutTabHeaders(tabs)
         for _, tab in ipairs(tabs) do
@@ -1709,23 +2193,10 @@ function EUI_Bank:RefreshBank()
                 for slot = 1, tab.numSlots do
                     local info = C_Container.GetContainerItemInfo(tab.bagID, slot)
                     if info then used = used + 1 end
-                    if not hasSearch or info then
+                    -- use native search filter so type keywords work too
+                    if not hasSearch or (info and not info.isFiltered) then
                         visibleSlots[#visibleSlots + 1] = { slot = slot, _cachedInfo = info }
                     end
-                end
-                -- When searching, filter by name
-                if hasSearch then
-                    local filtered = {}
-                    for _, vs in ipairs(visibleSlots) do
-                        if vs._cachedInfo then
-                            local link = C_Container.GetContainerItemLink(tab.bagID, vs.slot)
-                            local itemName = link and GetItemInfo(link)
-                            if itemName and itemName:lower():find(searchQuery, 1, true) then
-                                filtered[#filtered + 1] = vs
-                            end
-                        end
-                    end
-                    visibleSlots = filtered
                 end
                 if not hasSearch or #visibleSlots > 0 then
                     headerIdx = headerIdx + 1
@@ -1767,15 +2238,29 @@ function EUI_Bank:RefreshBank()
         else charTabs[#charTabs + 1] = tab end
     end
 
-    if _selectedView == -1 then
+    local LayoutOneView = LayoutGroupedSlots
+
+    -- Category index spans whatever the sidebar can browse: warband only for
+    -- a portable warbank, otherwise both banks together.
+    if BP().bankCategorySidebar then
+        _catIndex = BuildBankCategoryIndex(_warbandOnly and warbTabs or _allTabs, PassesSearch)
+    else
+        _catIndex = nil
+    end
+    if _catSel and not _catIndex then _catSel = nil end
+
+    if _catSel then
+        LayoutSelectionSlots(GetSelectionSlots() or {})
+
+    elseif _selectedView == -1 then
         -- OneBank: character bank only, flat with "Bank" header
         local slots, filled = BuildOneView(charTabs)
-        LayoutFlatSlots(slots, EllesmereUI.Lf("Bank (%1$d / %2$d)", filled, #slots))
+        LayoutOneView(slots, EllesmereUI.Lf("Bank (%1$d / %2$d)", filled, #slots))
 
     elseif _selectedView == -3 then
         -- OneWarbank: warband bank only, flat with "Warband Bank" header
         local slots, filled = BuildOneView(warbTabs)
-        LayoutFlatSlots(slots, EllesmereUI.Lf("Warband Bank (%1$d / %2$d)", filled, #slots))
+        LayoutOneView(slots, EllesmereUI.Lf("Warband Bank (%1$d / %2$d)", filled, #slots))
 
     elseif _selectedView == -2 then
         -- All Warbank Tabs: per-tab headers for warband only
@@ -1796,14 +2281,11 @@ function EUI_Bank:RefreshBank()
             end
             local visibleSlots = allSlots
             if hasSearch then
+                -- use native search filter so type keywords work too
                 local filtered = {}
                 for _, vs in ipairs(allSlots) do
-                    if vs._cachedInfo then
-                        local link = C_Container.GetContainerItemLink(tab.bagID, vs.slot)
-                        local itemName = link and GetItemInfo(link)
-                        if itemName and itemName:lower():find(searchQuery, 1, true) then
-                            filtered[#filtered + 1] = vs
-                        end
+                    if vs._cachedInfo and not vs._cachedInfo.isFiltered then
+                        filtered[#filtered + 1] = vs
                     end
                 end
                 visibleSlots = filtered
@@ -1909,16 +2391,18 @@ function EUI_Bank:RefreshBank()
             local showBindType = isGear and not info.isBound and BP().bagDisplayBindType
             local showIlvl = isGear and BP().showItemlevelInBags ~= false
             local giIlvl, giBindType
+            local loc
             if showBindType or showIlvl then
-                local _, _, _, i4, _, _, _, _, _, _, _, _, _, b14 = GetItemInfo(itemLink)
-                giIlvl, giBindType = i4, b14
+                local _, _, _, _, _, _, _, _, _, _, _, _, _, b14 = GetItemInfo(itemLink)
+                loc = ItemLocation:CreateFromBagAndSlot(bagID, slot)
+                giIlvl = showIlvl and GetItemLevelAtLocation(loc, itemLink) or nil
+                giBindType = b14
             end
 
             -- Bind Type : BoE / WuE bottom-left (gear only)
             if btn.BindTypeText then
                 if showBindType then
                     local isWuE = false
-                    local loc = ItemLocation:CreateFromBagAndSlot(bagID, slot)
                     if loc and C_Item.DoesItemExist(loc) then
                         isWuE = C_Item.IsBoundToAccountUntilEquip(loc)
                     end
@@ -1973,6 +2457,22 @@ function EUI_Bank:RefreshBank()
                 hdr:ClearAllPoints()
                 hdr:SetPoint("TOPLEFT", child, "TOPLEFT", entry.x, entry.y)
                 hdr:SetWidth(entry.w)
+                -- Headers are pooled and reused across refreshes, so every
+                -- depth must set every property rather than rely on defaults.
+                local d = entry.depth or 0
+                if d >= 2 then
+                    SetBankFont(hdr._label, 10)
+                    hdr._label:SetTextColor(0.45, 0.45, 0.45)
+                    hdr._line:SetColorTexture(0.7, 0.7, 0.7, 0.06)
+                elseif d == 1 then
+                    SetBankFont(hdr._label, 10)
+                    hdr._label:SetTextColor(0.55, 0.55, 0.55)
+                    hdr._line:SetColorTexture(0.7, 0.7, 0.7, 0.10)
+                else
+                    SetBankFont(hdr._label, 11)
+                    hdr._label:SetTextColor(0.7, 0.7, 0.7)
+                    hdr._line:SetColorTexture(0.7, 0.7, 0.7, 0.2)
+                end
                 hdr._label:SetText(entry.label)
                 hdr:Show()
             else
@@ -2035,6 +2535,8 @@ function BuildBankSidebar()
     sidebarSF:SetSize(sidebarW, FIXED_H - HEADER_H - FOOTER_H - SIDEBAR_HDR_H)
     sidebarChild:SetWidth(sidebarW)
     local btnIdx = 0
+    -- While a category is selected no view or tab entry is current.
+    local selView = _catSel and -99 or _selectedView
 
     -- Update sidebar header label visibility
     if collapsed then sidebarHdr._label:Hide()
@@ -2098,7 +2600,17 @@ function BuildBankSidebar()
             end
 
             if button == "LeftButton" then
-                _selectedView = self._viewIdx
+                if self._catSel then
+                    -- Re-clicking a selected category steps back out of it.
+                    if self._isSelected then
+                        _catSel = nil
+                    else
+                        _catSel = self._catSel
+                    end
+                else
+                    _catSel = nil
+                    _selectedView = self._viewIdx
+                end
                 if EUI_Bank._scrollFrame then EUI_Bank._scrollFrame:SetVerticalScroll(0) end
                 EUI_Bank:RefreshBank()
                 -- Refresh bags so warbank dim overlay updates immediately
@@ -2116,6 +2628,7 @@ function BuildBankSidebar()
         local btn = MakeSidebarBtn(btnIdx)
         local locLabel = EllesmereUI.L(label)
         btn._viewIdx = nil
+        btn._catSel = nil
         btn._isPurchaseTab = true
         btn._purchaseBankType = bankType
         btn._isSelected = false
@@ -2161,10 +2674,11 @@ function BuildBankSidebar()
         y = y - SIDEBAR_BTN_H - SIDEBAR_PAD
     end
 
-    local function RenderSidebarEntry(viewIdx, name, icon, count, isSelected)
+    local function RenderSidebarEntry(viewIdx, name, icon, count, isSelected, indent, catSel, isAtlas)
         btnIdx = btnIdx + 1
         local btn = MakeSidebarBtn(btnIdx)
         btn._viewIdx = viewIdx
+        btn._catSel = catSel
         btn._isPurchaseTab = false
         btn._isSelected = isSelected
         btn._entryName = name
@@ -2178,9 +2692,13 @@ function BuildBankSidebar()
         if collapsed then
             btn._icon:SetPoint("CENTER", btn, "CENTER", 0, 0)
         else
-            btn._icon:SetPoint("LEFT", btn, "LEFT", 8, 0)
+            btn._icon:SetPoint("LEFT", btn, "LEFT", 8 + (indent or 0) * 10, 0)
         end
-        btn._icon:SetTexture(icon)
+        if isAtlas and btn._icon.SetAtlas then
+            btn._icon:SetAtlas(icon)
+        else
+            btn._icon:SetTexture(icon)
+        end
         btn._icon:SetAlpha(isSelected and 1 or 0.75)
 
         if collapsed then
@@ -2239,11 +2757,11 @@ function BuildBankSidebar()
     local defaultOneBag = BankDefaultsToOne()
     if not _warbandOnly then
         if defaultOneBag then
-            RenderSidebarEntry(-1, EllesmereUI.L("OneBank"), 1542860, charUsed, _selectedView == -1)
-            RenderSidebarEntry(0, EllesmereUI.L("All Bank Tabs"), 413587, charUsed, _selectedView == 0)
+            RenderSidebarEntry(-1, EllesmereUI.L("OneBank"), 1542860, charUsed, selView == -1)
+            RenderSidebarEntry(0, EllesmereUI.L("All Bank Tabs"), 413587, charUsed, selView == 0)
         else
-            RenderSidebarEntry(0, EllesmereUI.L("All Bank Tabs"), 413587, charUsed, _selectedView == 0)
-            RenderSidebarEntry(-1, EllesmereUI.L("OneBank"), 1542860, charUsed, _selectedView == -1)
+            RenderSidebarEntry(0, EllesmereUI.L("All Bank Tabs"), 413587, charUsed, selView == 0)
+            RenderSidebarEntry(-1, EllesmereUI.L("OneBank"), 1542860, charUsed, selView == -1)
         end
     end
 
@@ -2254,11 +2772,11 @@ function BuildBankSidebar()
     end
     if hasWarband then
         if defaultOneBag then
-            RenderSidebarEntry(-3, EllesmereUI.L("OneWarbank"), 1542854, warbUsed, _selectedView == -3)
-            RenderSidebarEntry(-2, EllesmereUI.L("All Warbank Tabs"), 1542854, warbUsed, _selectedView == -2)
+            RenderSidebarEntry(-3, EllesmereUI.L("OneWarbank"), 1542854, warbUsed, selView == -3)
+            RenderSidebarEntry(-2, EllesmereUI.L("All Warbank Tabs"), 1542854, warbUsed, selView == -2)
         else
-            RenderSidebarEntry(-2, EllesmereUI.L("All Warbank Tabs"), 1542854, warbUsed, _selectedView == -2)
-            RenderSidebarEntry(-3, EllesmereUI.L("OneWarbank"), 1542854, warbUsed, _selectedView == -3)
+            RenderSidebarEntry(-2, EllesmereUI.L("All Warbank Tabs"), 1542854, warbUsed, selView == -2)
+            RenderSidebarEntry(-3, EllesmereUI.L("OneWarbank"), 1542854, warbUsed, selView == -3)
         end
     end
 
@@ -2282,32 +2800,123 @@ function BuildBankSidebar()
         y = y - (div:GetHeight() or 1) - 4
     end
 
-    if not _warbandOnly then
+    -- Category entries, mirroring the bags sidebar: group header, then its
+    -- members indented under it, then the per-category detail split as a third
+    -- level -- shown only for the selected branch, or the sidebar would run to
+    -- fifty-odd entries on a full bank.
+    if _catIndex and BP().bankCategorySidebar then
+        local CM = _G.EUI_CategoryManager
+        local cats = (CM and CM:GetCategories()) or {}
+
+        local function CountFor(cat)
+            local cb = cat._defaultName and _catIndex.byKey[cat._defaultName]
+            return cb and #cb.slots or 0
+        end
+
+        local function EmitDetail(cat, indent)
+            local key = cat._defaultName
+            local bs = key and _catIndex.detailByKey[key]
+            if not bs or collapsed then return end
+            -- Expand only under the selected category, or under a selected group
+            -- that this category belongs to.
+            local open = _catSel and (_catSel.key == key
+                or (_catSel.group and _catSel.group == cat.groupName))
+            if not open then return end
+            for _, b in ipairs(bs) do
+                RenderSidebarEntry(nil, b.label, cat.icon or 134400, #b.slots,
+                    _catSel.key == key and _catSel.detail == b.label,
+                    indent, { key = key, detail = b.label }, cat.isAtlas)
+            end
+        end
+
+        local anyCat = false
+        local renderedGroups = {}
+        for _, cat in ipairs(cats) do
+            -- Pinned / Recent / Reagent Bag are bag-side concepts with no bank
+            -- equivalent; ClassifyItem never routes bank items to them anyway.
+            if not (cat.isPinned or cat.isRecent or cat.isReagentBag) then
+                if cat.groupName then
+                    if not renderedGroups[cat.groupName] then
+                        renderedGroups[cat.groupName] = true
+                        local members = (CM and CM:GetGroupMembers(cat.groupName)) or {}
+                        local total, firstCat = 0, nil
+                        for _, mi in ipairs(members) do
+                            local mc = cats[mi]
+                            if mc then
+                                total = total + CountFor(mc)
+                                if not firstCat then firstCat = mc end
+                            end
+                        end
+                        if total > 0 then
+                            if not anyCat then anyCat = true; ShowDivider("_catDivider") end
+                            RenderSidebarEntry(nil, cat.groupName,
+                                (firstCat and firstCat.icon) or 134400, total,
+                                _catSel and _catSel.group == cat.groupName,
+                                0, { group = cat.groupName },
+                                firstCat and firstCat.isAtlas)
+                            for _, mi in ipairs(members) do
+                                local mc = cats[mi]
+                                local n = mc and CountFor(mc) or 0
+                                if mc and n > 0 then
+                                    RenderSidebarEntry(nil, mc.name, mc.icon or 134400, n,
+                                        _catSel and _catSel.key == mc._defaultName and not _catSel.detail,
+                                        1, { key = mc._defaultName }, mc.isAtlas)
+                                    EmitDetail(mc, 2)
+                                end
+                            end
+                        end
+                    end
+                else
+                    local n = CountFor(cat)
+                    if n > 0 then
+                        if not anyCat then anyCat = true; ShowDivider("_catDivider") end
+                        RenderSidebarEntry(nil, cat.name, cat.icon or 134400, n,
+                            _catSel and _catSel.key == cat._defaultName and not _catSel.detail,
+                            0, { key = cat._defaultName }, cat.isAtlas)
+                        EmitDetail(cat, 1)
+                    end
+                end
+            end
+        end
+        if not anyCat and sidebarChild._catDivider then sidebarChild._catDivider:Hide() end
+    elseif sidebarChild._catDivider then
+        sidebarChild._catDivider:Hide()
+    end
+
+    -- Physical tabs can be hidden once the category list is doing the
+    -- navigating, but only when it is actually on -- otherwise the sidebar
+    -- would have nothing left to click.
+    local showTabs = not (BP().bankHideTabsInSidebar and BP().bankCategorySidebar and _catIndex)
+
+    if not _warbandOnly and showTabs then
         ShowDivider("_bankTabDivider")
 
         -- Character bank tabs
         for ti, tab in ipairs(_allTabs) do
             if not tab.isWarband then
-                RenderSidebarEntry(ti, tab.name, tab.icon or 133652, tab._usedSlots, _selectedView == ti)
+                RenderSidebarEntry(ti, tab.name, tab.icon or 133652, tab._usedSlots, selView == ti)
             end
-        end
-        -- Purchase character bank tab (show one grayed-out entry if more can be bought)
-        if C_Bank and C_Bank.CanPurchaseBankTab and C_Bank.HasMaxBankTabs
-            and C_Bank.CanPurchaseBankTab(Enum.BankType.Character)
-            and not C_Bank.HasMaxBankTabs(Enum.BankType.Character) then
-            RenderPurchaseEntry(Enum.BankType.Character, "Buy Bank Tab")
         end
     else
         if sidebarChild._bankTabDivider then sidebarChild._bankTabDivider:Hide() end
     end
 
+    -- Purchase character bank tab, outside the tab list: hiding the tabs must not
+    -- remove the only way to buy one. Matches the warband entry below.
+    if not _warbandOnly and C_Bank and C_Bank.CanPurchaseBankTab and C_Bank.HasMaxBankTabs
+        and C_Bank.CanPurchaseBankTab(Enum.BankType.Character)
+        and not C_Bank.HasMaxBankTabs(Enum.BankType.Character) then
+        if not showTabs then ShowDivider("_bankTabDivider") end
+        RenderPurchaseEntry(Enum.BankType.Character, "Buy Bank Tab")
+    end
+
     -- Warband individual tabs
-    if hasWarband then
+    if hasWarband and showTabs then
         ShowDivider("_warbandDivider")
 
         for ti, tab in ipairs(_allTabs) do
             if tab.isWarband then
-                RenderSidebarEntry(ti, tab.name, tab.icon or 1542854, tab._usedSlots, _selectedView == ti)
+                RenderSidebarEntry(ti, tab.name, tab.icon or 1542854, tab._usedSlots, selView == ti)
             end
         end
     else

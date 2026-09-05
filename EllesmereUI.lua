@@ -1908,6 +1908,12 @@ EllesmereUI.RESKIN = {
     BRD_ALPHA  = 0.18,   -- border alpha (white)
 }
 
+-- LFG queue accept countdown defaults (shared by the skin and its options)
+EllesmereUI.QUEUE_TIMER = {
+    TEXT_R = 1, TEXT_G = 0.831, TEXT_B = 0,   -- #ffd400
+    TEXT_SIZE = 9, BAR_HEIGHT = 11, TEXT_OFFSET_Y = 0,
+}
+
 -- Unified tooltip background for BOTH the Blizzard tooltip reskin and EUI widget tooltips.
 -- Customizable via Blizz UI Enhanced > Blizzard Tooltip (tooltipBgColor/tooltipBgOpacity in
 -- EllesmereUIDB); unset = RESKIN palette. Returns r,g,b,a (0 is valid: Lua 0 is truthy, so `or` fallback fires on nil only).
@@ -3324,7 +3330,9 @@ do
 
     -- BackdropTemplate does arithmetic on its owner's width/height, so it is unusable for
     -- frames anchored to secret aura geometry. This variant draws the same eight edge-file
-    -- slices manually, keeping the PP path for Solid; `state` is any caller-owned table caching the eight textures (FFD, AuraKit button data).
+    -- slices manually, keeping the PP path for Solid; `state` is any caller-owned table
+    -- caching the eight textures (FFD, AuraKit button data). edgeScale is preview-only
+    -- geometry compensation; live callers leave it nil.
     local SECRET_BORDER_UV = {
         topLeft     = { 0.5078125, 0.0625, 0.5078125, 0.9375, 0.6171875, 0.0625, 0.6171875, 0.9375 },
         topRight    = { 0.6328125, 0.0625, 0.6328125, 0.9375, 0.7421875, 0.0625, 0.7421875, 0.9375 },
@@ -3337,7 +3345,7 @@ do
     }
 
     function EllesmereUI.ApplySecretSafeBorderStyle(borderFrame, state, size, r, g, b, a,
-        textureKey, offsetX, offsetY, shiftX, shiftY, addonKey, sizeKey)
+        textureKey, offsetX, offsetY, shiftX, shiftY, addonKey, sizeKey, edgeScale)
         if not borderFrame or not state then return end
         size, textureKey = size or 0, textureKey or "solid"
         local edges = state._secretBorderEdges
@@ -3364,10 +3372,15 @@ do
             end
             state._secretBorderEdges = edges
         end
-        local edgeSize = EDGE_MAP[size] or EDGE_MAP[1]
+        -- Preview surfaces can cancel their own panel scale without scaling the
+        -- saved 0-4 texture-size key (a fractional key would fall through EDGE_MAP).
+        -- Live aura buttons omit edgeScale and stay byte-for-byte equivalent.
+        edgeScale = edgeScale or 1
+        local edgeSize = (EDGE_MAP[size] or EDGE_MAP[1]) * edgeScale
         local ox, oy, sx, sy = EllesmereUI.GetBorderDefaults(addonKey, textureKey, sizeKey)
         ox = offsetX ~= nil and offsetX or ox; oy = offsetY ~= nil and offsetY or oy
         sx = shiftX ~= nil and shiftX or sx; sy = shiftY ~= nil and shiftY or sy
+        ox, oy, sx, sy = ox * edgeScale, oy * edgeScale, sx * edgeScale, sy * edgeScale
         if EllesmereUI.BorderTextureUsesScaleOffset(textureKey) then
             ox, oy = edgeSize / 2 + ox, edgeSize / 2 + oy
         end
@@ -3593,19 +3606,39 @@ function EllesmereUI.GetDarkModeDB()
     return EllesmereUIDB.darkMode
 end
 
+-- Materialized Dark Mode palette. The fill and background quadruples are read on
+-- every raid-frame and unit-frame health tick, so they are served from this cache
+-- instead of walking to the active profile per read. Rebuilt lazily after an
+-- invalidation; the generation is bumped by InvalidateColorCache, which every
+-- writer reaches: the swatches and darken sliders (RefreshDarkMode), the master
+-- toggle (RefreshDarkMode), every profile repoint (RefreshDarkMode in the profile
+-- apply pass) and ApplyColorsToOUF. Lives on the namespace: this file sits at the
+-- 200-local cap.
+EllesmereUI._dmGen = 0
+EllesmereUI._dmCache = { gen = -1 }
+
+function EllesmereUI._RebuildDarkModeCache()
+    local c = EllesmereUI._dmCache
+    local d = EllesmereUI.GetDarkModeDB()
+    local def = EllesmereUI.DEFAULT_DARK_MODE
+    c.fr, c.fg, c.fb, c.fa = d.fillR or def.fillR, d.fillG or def.fillG, d.fillB or def.fillB, d.fillA or def.fillA
+    c.br, c.bg, c.bb, c.ba = d.bgR or def.bgR, d.bgG or def.bgG, d.bgB or def.bgB, d.bgA or def.bgA
+    c.gen = EllesmereUI._dmGen
+end
+
 -- Dark Mode fill colour (r, g, b, a). Opacity is honoured by Unit Frames and
 -- Raid Frames; Resource Bars ignore the alpha and keep their own.
 function EllesmereUI.GetDarkModeFill()
-    local d = EllesmereUI.GetDarkModeDB()
-    local def = EllesmereUI.DEFAULT_DARK_MODE
-    return d.fillR or def.fillR, d.fillG or def.fillG, d.fillB or def.fillB, d.fillA or def.fillA
+    local c = EllesmereUI._dmCache
+    if c.gen ~= EllesmereUI._dmGen then EllesmereUI._RebuildDarkModeCache() end
+    return c.fr, c.fg, c.fb, c.fa
 end
 
 -- Dark Mode background colour (r, g, b, a). Same opacity rules as the fill.
 function EllesmereUI.GetDarkModeBg()
-    local d = EllesmereUI.GetDarkModeDB()
-    local def = EllesmereUI.DEFAULT_DARK_MODE
-    return d.bgR or def.bgR, d.bgG or def.bgG, d.bgB or def.bgB, d.bgA or def.bgA
+    local c = EllesmereUI._dmCache
+    if c.gen ~= EllesmereUI._dmGen then EllesmereUI._RebuildDarkModeCache() end
+    return c.br, c.bg, c.bb, c.ba
 end
 
 -- Effective-colour cache. Class/power/resource getters run in hot render paths, so the FINAL
@@ -3620,6 +3653,8 @@ EllesmereUI._powerBgDarkenFactor = 1
 
 function EllesmereUI.InvalidateColorCache()
     EllesmereUI._colorCacheDirty = true
+    -- The dark palette cache above shares every invalidation input.
+    EllesmereUI._dmGen = EllesmereUI._dmGen + 1
 end
 
 -- Fill `out` with {r,g,b} per key: defaults overlaid by custom, blackened by darkenPct (0-100); sub-tables are recreated each rebuild (rare) so hot-path reads never allocate.
@@ -4415,6 +4450,23 @@ function EllesmereUI.GetClassColorForRestrictedUnit(unit, secretClassToken)
     return true, r, g, b
 end
 
+-- Group role with the local player's spec as the authority. The role picked
+-- when listing a premade group sticks server-side through spec swaps (list a
+-- key as tank, swap to dps: UnitGroupRolesAssigned still answers TANK for the
+-- life of the group, surviving /reload and a manual role set), so for the
+-- player the spec-derived role wins whenever spec data is readable. Other
+-- units have no readable spec, so they keep the assigned role; call sites
+-- keep their own secret guards on that value (the player's spec role is
+-- never secret).
+function EllesmereUI.UnitEffectiveRole(unit)
+    if UnitIsUnit(unit, "player") then
+        local spec = GetSpecialization and GetSpecialization()
+        local role = spec and GetSpecializationRole and GetSpecializationRole(spec)
+        if role then return role end
+    end
+    return UnitGroupRolesAssigned(unit)
+end
+
 -- Get power color (cached, darken baked in). Returns nil for unknown keys.
 function EllesmereUI.GetPowerColor(powerKey)
     if EllesmereUI._colorCacheDirty then EllesmereUI._RebuildColorCache() end
@@ -4651,606 +4703,6 @@ do
             stacks, expiresAt = 0, nil
         end
         return stacks, MAX
-    end
-end
-
--- Improved Whirlwind tracker (Fury Warrior), required talent 12950. Whirlwind (190411)
--- sets stacks to max; Thunder Clap (6343) / Thunder Blast (435222) also do when Crashing
--- Thunder (436707) is known. Single-target spenders consume 1 each. Buff: 20s, max 4.
-do
-    local stacks, expiresAt = 0, nil
-    local MAX = 4
-    local DURATION = 20
-    local REQUIRED       = 12950
-    local CRASHING       = 436707
-    local UNHINGED       = 386628
-    local BLADESTORM     = 446035
-    local BLADESTORM_DUR = 4  -- Bladestorm base duration in seconds
-
-    local GENERATORS = {
-        [190411] = true,  -- Whirlwind
-        [6343]   = true,  -- Thunder Clap
-        [435222] = true,  -- Thunder Blast
-    }
-
-    local SPENDERS = {
-        [23881]  = true,  -- Bloodthirst
-        [85288]  = true,  -- Raging Blow
-        [280735] = true,  -- Execute
-        [5308]   = true,  -- Execute (base)
-        [202168] = true,  -- Impending Victory
-        [184367] = true,  -- Rampage
-        [335096] = true,  -- Bloodbath
-        [335097] = true,  -- Crushing Blow
-    }
-
-    -- Bloodthirst/Bloodbath do not consume stacks during Bladestorm with Unhinged
-    -- (386628). Tracked via UNIT_SPELLCAST_SUCCEEDED: IsSpellUsable can return secrets.
-    local UNHINGED_EXEMPT = { [23881] = true, [335096] = true }
-    local bladestormEndsAt = 0
-
-    -- Deduplicate cast events via GUID
-    local seenGUID = {}
-    local guidCount = 0
-
-    local CRACKLING = 203201  -- Crackling Thunder: widens Thunder Clap / Thunder Blast
-
-    -- Cached IsSpellKnown flags: GetWhirlwindStacks is polled every 0.1s and
-    -- HandleWhirlwindStacks runs on every player cast for every class; IsSpellKnown is a
-    -- C call and talents cannot change in combat, so resolve once per login/spec/talent
-    -- event. Non-warriors never register the watcher: flags stay false and both entry
-    -- points early-out on a plain upvalue read.
-    local requiredKnown, crashingKnown, unhingedKnown, cracklingKnown = false, false, false, false
-    do
-        local _, cls = UnitClass("player")
-        if cls == "WARRIOR" then
-            local function RefreshKnown()
-                local sb = C_SpellBook
-                requiredKnown  = (sb and sb.IsSpellKnown(REQUIRED)) or false
-                crashingKnown  = (sb and sb.IsSpellKnown(CRASHING)) or false
-                unhingedKnown  = (sb and sb.IsSpellKnown(UNHINGED)) or false
-                cracklingKnown = (sb and sb.IsSpellKnown(CRACKLING)) or false
-            end
-            local watcher = CreateFrame("Frame")
-            watcher:RegisterEvent("PLAYER_LOGIN")
-            watcher:RegisterEvent("PLAYER_ENTERING_WORLD")
-            watcher:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-            watcher:RegisterEvent("TRAIT_CONFIG_UPDATED")
-            watcher:RegisterEvent("PLAYER_TALENT_UPDATE")
-            watcher:SetScript("OnEvent", RefreshKnown)
-        end
-    end
-
-    -- Improved Whirlwind grants stacks only when the swing connects, but
-    -- UNIT_SPELLCAST_SUCCEEDED fires on a whiff too: gate the award on an attackable
-    -- living enemy inside the strike radius. Whirlwind is a ~8 yd self-AoE; the index-2
-    -- probe (~11 yd) is slightly generous and resolves on hostile nameplates; Thunder
-    -- Clap/Blast reach farther with Crackling Thunder. Resolved synchronously at cast
-    -- time so a combat-ending kill still counts; with no hostile target it relies on
-    -- enemy nameplates showing. InReach is block-scoped (no upvalues) so
-    -- EnemyInStrikeRange allocates no closure per cast.
-    local function InReach(u, wide)
-        if not (UnitExists(u) and UnitCanAttack("player", u) and not UnitIsDead(u)) then
-            return false
-        end
-        return CheckInteractDistance(u, 2) or (wide and CheckInteractDistance(u, 1)) or false
-    end
-    local function EnemyInStrikeRange(spellID)
-        local wide = (spellID == 6343 or spellID == 435222) and cracklingKnown
-        if InReach("target", wide) then return true end
-        for i = 1, 40 do
-            if InReach("nameplate" .. i, wide) then return true end
-        end
-        return false
-    end
-
-    -- Deferred award for casts the probe rejected while MOVING: Whirlwind pressed during
-    -- Charge probes while still yards away, but the server resolves the swing at landing
-    -- and grants the real buff (unreadable: 85739 is non-whitelisted, so
-    -- GetPlayerAuraBySpellID returns nil). The landing IS the event edge: re-run the same
-    -- probe once on PLAYER_STOPPED_MOVING inside a short validity window. Registered only
-    -- while an award is pending, so the frame is idle everywhere else.
-    do
-        local _, cls = UnitClass("player")
-        if cls == "WARRIOR" then
-            local pf = CreateFrame("Frame")
-            EllesmereUI._wwPendFrame = pf
-            -- Shared resolver, also driven from the cast handler: a strafing melee can
-            -- go a whole fight without firing PLAYER_STOPPED_MOVING, so the next GCD cast
-            -- is the edge that always exists in combat. A FAILED probe keeps the pending
-            -- award armed until the window closes (burning it on one bad probe lost the
-            -- refresh, and the stale expiry then cleared live stacks).
-            EllesmereUI._wwResolvePend = function()
-                local sid = EllesmereUI._wwPendSid
-                if not sid then return end
-                if GetTime() > (EllesmereUI._wwPendUntil or 0) then
-                    EllesmereUI._wwPendSid = nil
-                    pf:UnregisterEvent("PLAYER_STOPPED_MOVING")
-                    return
-                end
-                if EnemyInStrikeRange(sid) then
-                    EllesmereUI._wwPendSid = nil
-                    pf:UnregisterEvent("PLAYER_STOPPED_MOVING")
-                    stacks = MAX
-                    expiresAt = GetTime() + DURATION
-                end
-                -- Probe still false inside the window: stay armed.
-            end
-            pf:SetScript("OnEvent", EllesmereUI._wwResolvePend)
-        end
-    end
-
-    function EllesmereUI.HandleWhirlwindStacks(event, unit, castGUID, spellID)
-        if event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" then
-            stacks, expiresAt = 0, nil
-            bladestormEndsAt = 0
-            wipe(seenGUID)
-            guidCount = 0
-            if EllesmereUI._wwPendFrame then
-                EllesmereUI._wwPendFrame:UnregisterEvent("PLAYER_STOPPED_MOVING")
-                EllesmereUI._wwPendSid = nil
-            end
-            return
-        end
-        if event == "PLAYER_REGEN_ENABLED" then
-            -- Clean up GUID cache on combat end to prevent unbounded growth
-            wipe(seenGUID)
-            guidCount = 0
-            return
-        end
-        if event ~= "UNIT_SPELLCAST_SUCCEEDED" or unit ~= "player" then return end
-        if not requiredKnown then return end
-
-        -- Resolve any pending landing award BEFORE this cast: by the next GCD press the
-        -- player is at the target so the re-probe sees what the whiffed-looking generator
-        -- hit. Order matters: the pending WW landed first, so a spender drains a fresh 4.
-        if EllesmereUI._wwResolvePend then EllesmereUI._wwResolvePend() end
-
-        if castGUID and seenGUID[castGUID] then return end
-        if castGUID then
-            seenGUID[castGUID] = true
-            guidCount = guidCount + 1
-            -- Safety: flush if table grows too large (shouldn't happen normally)
-            if guidCount > 200 then wipe(seenGUID); guidCount = 0 end
-        end
-
-        -- Track Bladestorm activation for Unhinged interaction
-        if spellID == BLADESTORM then
-            bladestormEndsAt = GetTime() + BLADESTORM_DUR
-            return
-        end
-
-        if GENERATORS[spellID] then
-            -- Thunder Clap / Thunder Blast only count with Crashing Thunder
-            if (spellID == 6343 or spellID == 435222) and not crashingKnown then
-                return
-            end
-            -- Award only if the swing had an enemy to land on; a false probe arms the
-            -- landing re-probe instead of dropping the cast (the mid-Charge case).
-            if not EnemyInStrikeRange(spellID) then
-                local pf = EllesmereUI._wwPendFrame
-                if pf then
-                    EllesmereUI._wwPendSid = spellID
-                    EllesmereUI._wwPendUntil = GetTime() + 1.5
-                    pf:RegisterEvent("PLAYER_STOPPED_MOVING")
-                end
-                return
-            end
-            local pf = EllesmereUI._wwPendFrame
-            if pf then
-                pf:UnregisterEvent("PLAYER_STOPPED_MOVING")
-                EllesmereUI._wwPendSid = nil
-            end
-            stacks = MAX
-            expiresAt = GetTime() + DURATION
-        elseif SPENDERS[spellID] and stacks > 0 then
-            -- Unhinged: Bloodthirst/Bloodbath don't consume during Bladestorm
-            if UNHINGED_EXEMPT[spellID] and unhingedKnown
-               and GetTime() < bladestormEndsAt then
-                return
-            end
-            stacks = max(0, stacks - 1)
-            if stacks == 0 then expiresAt = nil end
-        end
-    end
-
-    -- NO aura validation, same doctrine as Sweeping Strikes below: stack buff 85739 is
-    -- non-whitelisted, so GetPlayerAuraBySpellID returns nil even while it is visibly
-    -- active. Prediction + the duration timer IS the tracker.
-    function EllesmereUI.GetWhirlwindStacks()
-        if not requiredKnown then return 0, 0 end
-        if expiresAt and GetTime() >= expiresAt then
-            stacks, expiresAt = 0, nil
-        end
-        return stacks, MAX
-    end
-end
-
--- Sweeping Strikes tracker (Arms Warrior). 260708 grants 12 charges; single-target
--- damaging abilities spend a charge to strike an extra enemy within ~8 yd, and only when
--- a sweep partner is actually in range. Broad Strokes (1261049): Colossus Smash /
--- Warbreaker grant 6 charges. Buff 30s, cooldown 30s. 12.1: Improved Sweeping Strikes
--- (383155) was REMOVED, so the cap is a flat 18 for everyone; charges from the ability
--- and from Broad Strokes stack normally in any order, so both sources ADD (12 + 6 = the
--- cap) instead of refreshing to max, and either application refreshes the 30s duration.
--- The buff also displays its charge count now, which is what CdmSweepSync reads.
--- Fervor of Battle (202316): Cleave/Whirlwind on 3+ targets also Slams the primary
--- target, and that Slam sweeps and spends a charge.
-do
-    local stacks, expiresAt = 0, nil
-    local MAX_STACKS  = 18    -- 12.1 cap: 12 from the ability + 6 from Broad Strokes
-    local SWEEP_GRANT = 12
-    local BROAD_GRANT = 6
-    local DURATION = 30
-    local SWEEP    = 260708
-    local BROAD    = 1261049  -- Broad Strokes: Colossus Smash grants 6 charges
-    local FERVOR   = 202316   -- Fervor of Battle: Cleave/WW on 3+ targets Slams
-    -- Bladestorm: Slayer's Unhinged auto-casts Mortal Strike during it, but those do NOT
-    -- consume charges. No CHANNEL events and no 227847: pressing Bladestorm fires
-    -- SUCCEEDED 446035 once, then SUCCEEDED 50622 pulses ~every 0.7s with the Unhinged
-    -- 12294 casts between pulses. Each pulse extends the suppression window, which only
-    -- needs to outlive the pulse gap (plus the trailing Unhinged cast) without eating a
-    -- real post-storm Mortal Strike (>= a GCD away).
-    local BLADESTORM_IDS = {
-        [446035] = true,  -- cast on press
-        [50622]  = true,  -- per-pulse tick
-        [227847] = true,  -- talent/base cast id, kept in case a variant reports it
-    }
-    local BLADESTORM_PULSE_GAP = 1.0
-
-    -- Cached IsSpellKnown flags: GetSweepingStrikes is polled every 0.1s and
-    -- HandleSweepingStrikes runs on every player cast for every class; IsSpellKnown is a
-    -- C call and talents cannot change in combat, so resolve once per login/spec/talent
-    -- event. Non-warriors never register the watcher: flags stay false, callers early-out.
-    local sweepKnown, broadKnown, fervorKnown = false, false, false
-    do
-        local _, cls = UnitClass("player")
-        if cls == "WARRIOR" then
-            local function RefreshKnown()
-                local sb = C_SpellBook
-                sweepKnown  = (sb and sb.IsSpellKnown(SWEEP)) or false
-                broadKnown  = (sb and sb.IsSpellKnown(BROAD)) or false
-                fervorKnown = (sb and sb.IsSpellKnown(FERVOR)) or false
-            end
-            local watcher = CreateFrame("Frame")
-            watcher:RegisterEvent("PLAYER_LOGIN")
-            watcher:RegisterEvent("PLAYER_ENTERING_WORLD")
-            watcher:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-            watcher:RegisterEvent("TRAIT_CONFIG_UPDATED")
-            watcher:RegisterEvent("PLAYER_TALENT_UPDATE")
-            watcher:SetScript("OnEvent", RefreshKnown)
-        end
-    end
-
-    -- Broad Strokes generators (only count with the talent known)
-    local CS_GENERATORS = {
-        [167105] = true,  -- Colossus Smash
-        [262161] = true,  -- Warbreaker (replaces Colossus Smash)
-    }
-
-    -- Single-target damaging cast IDs in the Sweeping Strikes affected-spells list,
-    -- mapped to charges consumed. Storm Bolt does NOT sweep: deliberately absent.
-    local SPENDERS = {
-        [12294]   = 1,  -- Mortal Strike
-        [7384]    = 1,  -- Overpower
-        [1464]    = 1,  -- Slam
-        -- Execute: one Arms press fires TWO SUCCEEDED events (260798 + 281000), not
-        -- 163201/5308. All four are listed and share the echo guard below so one press
-        -- only ever consumes one charge.
-        [260798]  = 1,  -- Execute (Arms, real SUCCEEDED id)
-        [281000]  = 1,  -- Execute (Arms, paired SUCCEEDED id)
-        [163201]  = 1,  -- Execute (Arms, legacy id kept as a fallback)
-        [5308]    = 1,  -- Execute (base, kept as a fallback)
-        [260643]  = 1,  -- Skullsplitter
-        [34428]   = 1,  -- Victory Rush
-        [202168]  = 1,  -- Impending Victory
-        [1715]    = 1,  -- Hamstring
-        [1269383] = 1,  -- Heroic Strike (replaces Slam via Master of Warfare)
-        [772]     = 1,  -- Rend: single-target since 12.1, and in 260708's jump-target list
-        [436358]  = 2,  -- Demolish: the channel sweeps twice (damage IDs
-                        -- 440884/440886) -- confirmed in-game, 2 per cast
-    }
-
-    -- Fervor of Battle: the triggered Slam happens on Cleave/Whirlwind casts
-    local FOB_TRIGGERS = {
-        [1680] = true,  -- Whirlwind (Arms)
-        [845]  = true,  -- Cleave
-    }
-    local fobWindow = 0  -- suppress a possibly-echoed Slam cast event
-    -- Execute fires a pair of SUCCEEDED ids per press; the first to spend opens
-    -- EllesmereUI._ssExecWindow so the second is skipped (one charge). A field, not a
-    -- local: this chunk sits at Lua's 200-local cap.
-    local bladestormUntil = 0  -- suppress Sweeping Strikes spends until this time
-
-    -- Deduplicate cast events via GUID
-    local seenGUID = {}
-    local guidCount = 0
-
-    -- A charge is only consumed when the strike can sweep onto a second enemy. `need` =
-    -- enemies required in reach (2 for a sweep partner, 3 for a Fervor of Battle
-    -- trigger); relies on enemy nameplates showing for off-target enemies. InReach is
-    -- block-scoped (no upvalues) so EnemiesInReach allocates nothing on every spender.
-    -- Range gauge: the cleave is player-anchored at ~6 yd (melee), NOT the ~11 yd the
-    -- interact probe measures, so an index-2 probe falsely depleted in the 6-11 yd band.
-    -- C_Spell.IsSpellInRange on Mortal Strike is a ~5 yd nameplate check that tracks the
-    -- cleave (true at 4-5 yd, false past ~6 yd) and is the TIGHTEST primitive resolving
-    -- on nameplate units: IsItemInRange does NOT work on nameplates (always false), so
-    -- 6/7 yd harm-item checks are unavailable, and CheckInteractDistance bottoms out at
-    -- ~9.9 yd. The residual ~1 yd gap is an UNDER-count, the safe direction: the bar
-    -- reads slightly full, never empty, and self-heals via CdmSweepSync at the next lull.
-    -- IsSpellInRange can answer nil, or a secret value inside instanced content. idx
-    -- defaults to the index-2 trade probe.
-    local function InReach(u, idx)
-        if not (UnitExists(u) and UnitCanAttack("player", u) and not UnitIsDead(u)) then
-            return false
-        end
-        -- The rule (field-measured): a charge is consumed when at least TWO enemies
-        -- stand within 8 yd of the PLAYER; the current target is irrelevant. NO legal
-        -- probe measures 8 on non-target units: Charge's 8 yd min range evaluates ONLY
-        -- against the target token (plate units always read "in min range");
-        -- UnitPosition dies in instances (context-dependent fidelity, rejected); the
-        -- duel interact probe reaches ~9.9 and falsely drained charges on 8-9.9 bodies
-        -- the game refused to cleave. So the gauge is the melee-spell probe ALONE:
-        -- hitbox-scaled (~5 yd + combat reach, wider on real mobs than dummies), uniform
-        -- in every secret context, and its only error is UNDER-counting partners between
-        -- melee reach and 8 yd -- it never fabricates a spend.
-        local isr = C_Spell and C_Spell.IsSpellInRange
-        if isr then
-            -- Resolve the live override id (a talent-replaced base id returns nil).
-            local ms = (C_SpellBook and C_SpellBook.FindSpellOverrideByID
-                and C_SpellBook.FindSpellOverrideByID(12294)) or 12294
-            local r = isr(ms, u)
-            if not (issecretvalue and issecretvalue(r)) then
-                return r == true
-            end
-        end
-        return false
-    end
-    local function EnemiesInReach(need, idx)
-        local count, targetPlated = 0, false
-        for i = 1, 40 do
-            local u = "nameplate" .. i
-            if InReach(u, idx) then
-                count = count + 1
-                if UnitIsUnit(u, "target") then targetPlated = true end
-                if count >= need then return true end
-            end
-        end
-        -- Target without a visible nameplate still counts as one body
-        if not targetPlated and InReach("target", idx) then count = count + 1 end
-        return count >= need
-    end
-
-    -- CDM child sync state (see CdmSweepSync). cdmSeenActive gates the zero-on-inactive
-    -- path and must be re-earned after every activation, so a present-but-never-active
-    -- child (buff removed from the tracked set, TBB quirks) can NEVER wipe live stacks.
-    local cdmChild, cdmChildCdID, cdmNextScan = nil, nil, 0
-    local cdmSeenActive, cdmInactiveSince = false, nil
-    local cdmSigDbg, cdmAppsDbg = nil, nil
-    local function dbg(...)
-        if EllesmereUI._SSDEBUG then print("|cff33ff99[SS]|r", ...) end
-    end
-
-    function EllesmereUI.HandleSweepingStrikes(event, unit, castGUID, spellID)
-        if event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" then
-            stacks, expiresAt = 0, nil
-            fobWindow = 0
-            bladestormUntil = 0
-            cdmSeenActive, cdmInactiveSince = false, nil
-            wipe(seenGUID)
-            guidCount = 0
-            return
-        end
-        if event == "PLAYER_REGEN_ENABLED" then
-            -- Clean up GUID cache on combat end to prevent unbounded growth
-            bladestormUntil = 0  -- safety: Bladestorm can't outlive combat
-            wipe(seenGUID)
-            guidCount = 0
-            return
-        end
-        if event ~= "UNIT_SPELLCAST_SUCCEEDED" or unit ~= "player" then return end
-        if not sweepKnown then return end
-
-        -- Before GUID dedup: every Bladestorm pulse must extend the window,
-        -- even if the game reuses a castGUID across pulses.
-        if BLADESTORM_IDS[spellID] then
-            bladestormUntil = GetTime() + BLADESTORM_PULSE_GAP
-            return
-        end
-
-        if castGUID and seenGUID[castGUID] then return end
-        if castGUID then
-            seenGUID[castGUID] = true
-            guidCount = guidCount + 1
-            -- Safety: flush if table grows too large (shouldn't happen normally)
-            if guidCount > 200 then wipe(seenGUID); guidCount = 0 end
-        end
-
-        -- Diagnostic-only (_SSDEBUG) trace of the live reach gauge, regardless of stacks.
-        if EllesmereUI._SSDEBUG then
-            local nm = (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(spellID)) or "?"
-            local cls = (spellID == SWEEP or (CS_GENERATORS[spellID] and broadKnown)) and "ACTIVATE"
-                or (SPENDERS[spellID] and "SPENDER")
-                or (FOB_TRIGGERS[spellID] and "FoB")
-                or "ignored"
-            dbg(("cast %d %s [%s] stacks=%d reach=%s"):format(
-                spellID, nm, cls, stacks, tostring(EnemiesInReach(2))))
-        end
-
-        if spellID == SWEEP
-           or (CS_GENERATORS[spellID] and broadKnown) then
-            -- 12.1: both sources stack in any order, so add and clamp at the cap instead
-            -- of snapping to max. Casting at 12+ overcaps in-game too and reads as 18.
-            local grant = (spellID == SWEEP) and SWEEP_GRANT or BROAD_GRANT
-            stacks = min(MAX_STACKS, stacks + grant)
-            expiresAt = GetTime() + DURATION
-            cdmSeenActive, cdmInactiveSince = false, nil
-            dbg("activated: +" .. grant, "->", stacks, "stacks (cast", spellID .. ")")
-        elseif FOB_TRIGGERS[spellID] and stacks > 0 and fervorKnown then
-            -- Fervor of Battle's triggered Slam is not a player cast event, so it is
-            -- counted off the Cleave/WW cast, gated on 3 enemies in reach (with 3+ up a
-            -- sweep partner necessarily exists).
-            if GetTime() < bladestormUntil then return end
-            if not EnemiesInReach(3) then return end
-            fobWindow = GetTime() + 0.3
-            stacks = max(0, stacks - 1)
-            if stacks == 0 then expiresAt = nil end
-            dbg("FoB spend (cast", spellID .. "):", stacks, "stacks left")
-        elseif SPENDERS[spellID] and stacks > 0 then
-            -- Bladestorm window: Unhinged auto-casts Mortal Strike (12294) but the game
-            -- consumes no charge, so skip all spends until the window closes.
-            if GetTime() < bladestormUntil then return end
-            -- Skip an echoed Fervor-of-Battle Slam: the charge was counted above, and a
-            -- player-pressed Slam cannot land inside the 0.3s window (GCD). 1269383:
-            -- Master of Warfare replaces Slam with Heroic Strike, so the echo uses it.
-            if (spellID == 1464 or spellID == 1269383) and GetTime() < fobWindow then return end
-            -- Execute's paired second id lands the same frame; skip it so one press = one charge.
-            local isExec = spellID == 260798 or spellID == 281000
-                or spellID == 163201 or spellID == 5308
-            if isExec and GetTime() < (EllesmereUI._ssExecWindow or 0) then return end
-            -- No sweep partner in melee range: the game does not cleave, no charge spent.
-            if not EnemiesInReach(2) then
-                dbg("spend BLOCKED (no reach):", spellID)
-                return
-            end
-            stacks = max(0, stacks - SPENDERS[spellID])
-            if stacks == 0 then expiresAt = nil end
-            if isExec then EllesmereUI._ssExecWindow = GetTime() + 0.3 end
-            dbg("spend APPLIED:", spellID, "->", stacks, "stacks left")
-        end
-    end
-
-    -- Blizzard's CooldownViewer tracked-buff child for 260708 caches aura state in plain
-    -- frame fields even though C_UnitAuras refuses this aura: presence via
-    -- wasSetFromAura/auraInstanceID/IsShown, count via auraDataCached.applications
-    -- (plain out of restricted combat, secret inside it). It feeds two fail-open
-    -- corrections prediction cannot make: zero on a confirmed early drop (/cancelaura),
-    -- and drift resync whenever the count reads plain. CDM disabled or buff untracked ->
-    -- no child is ever found and prediction is unchanged.
-
-    local function CdmInfoMatches(info)
-        if not info then return false end
-        if info.spellID == SWEEP or info.overrideSpellID == SWEEP then return true end
-        local linked = info.linkedSpellIDs
-        if linked then
-            for i = 1, #linked do
-                if linked[i] == SWEEP then return true end
-            end
-        end
-        return false
-    end
-    local function FindCdmChild()
-        local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
-        if not gci then return nil end
-        local function ScanViewer(viewer)
-            local pool = viewer and viewer.itemFramePool
-            if not pool then return nil end
-            for frame in pool:EnumerateActive() do
-                local cdID = frame.cooldownID
-                if cdID and CdmInfoMatches(gci(cdID)) then return frame end
-            end
-        end
-        return ScanViewer(_G.BuffIconCooldownViewer) or ScanViewer(_G.BuffBarCooldownViewer)
-    end
-
-    local function CdmSweepSync(now)
-        local child = cdmChild
-        -- Pooled frames get re-acquired for other spells; a moved cooldownID invalidates the cache.
-        if child and child.cooldownID ~= cdmChildCdID then
-            child, cdmChild = nil, nil
-        end
-        if not child then
-            if now < cdmNextScan then return end
-            cdmNextScan = now + 1
-            child = FindCdmChild()
-            if not child then return end
-            cdmChild, cdmChildCdID = child, child.cooldownID
-            dbg("CDM child found:", child:GetName() or tostring(child),
-                "cdID", cdmChildCdID)
-        end
-
-        -- OR of every presence signal on purpose: a stuck-true signal only makes the
-        -- inactive branch unreachable, while trusting one that clears early wipes stacks.
-        local shown = child:IsShown()
-        local wsfa = child.wasSetFromAura == true
-        local iid = child.auraInstanceID ~= nil
-        if EllesmereUI._SSDEBUG then
-            local sig = (shown and "S" or "-") .. (wsfa and "W" or "-")
-                .. (iid and "I" or "-")
-            if sig ~= cdmSigDbg then
-                cdmSigDbg = sig
-                dbg("signals:", sig, "(S=shown W=wasSetFromAura I=auraInstanceID)")
-            end
-        end
-        local active = shown or wsfa or iid
-        if active then
-            cdmInactiveSince = nil
-            if not cdmSeenActive then
-                cdmSeenActive = true
-                dbg("CDM child active: shown=" .. tostring(shown)
-                    .. " wsfa=" .. tostring(child.wasSetFromAura)
-                    .. " iid=" .. tostring(child.auraInstanceID ~= nil))
-            end
-            local ad = child.auraDataCached
-            local apps = ad and ad.applications
-            if EllesmereUI._SSDEBUG then
-                local state
-                if not ad then state = "no-cache"
-                elseif apps == nil then state = "no-apps"
-                elseif issecretvalue(apps) then state = "secret"
-                else state = tostring(apps) end
-                if state ~= cdmAppsDbg then
-                    cdmAppsDbg = state
-                    dbg("apps:", state, "(predicted " .. stacks .. ")")
-                end
-            end
-            if apps and not issecretvalue(apps) and type(apps) == "number"
-               and apps ~= stacks then
-                dbg("snap:", stacks, "->", apps)
-                stacks = apps
-                local exp = ad.expirationTime
-                if exp and not issecretvalue(exp) and type(exp) == "number"
-                   and exp > now then
-                    expiresAt = exp
-                elseif not expiresAt then
-                    expiresAt = now + DURATION
-                end
-            end
-        elseif cdmSeenActive and stacks > 0 then
-            -- Debounce: aura refreshes blink the child inactive for a frame during re-acquire.
-            if not cdmInactiveSince then
-                cdmInactiveSince = now
-            elseif now - cdmInactiveSince > 0.3 then
-                dbg("CDM child inactive -> buff gone, clearing", stacks, "stacks")
-                stacks, expiresAt = 0, nil
-                cdmSeenActive, cdmInactiveSince = false, nil
-            end
-        end
-    end
-
-    -- NO aura validation here, on purpose. Validating drift against the real buff (by
-    -- name or C_UnitAuras.GetPlayerAuraBySpellID) treats a missing aura as "buff gone"
-    -- and wipes the stacks, but 260708 is NOT whitelisted and non-whitelisted player
-    -- buffs are invisible to the aura read surface (with the buff visibly active,
-    -- GetPlayerAuraBySpellID(260708) returns nil and a GetAuraDataByIndex("player", i,
-    -- "HELPFUL") sweep enumerates zero auras), so any validation zeroes the bar (wiped
-    -- in combat, pinned at 0 in M+). Whitelisted buffs ARE readable: see
-    -- GetMaelstromWeapon / GetSoulFragments below and the NON_SECRET_SPELL_IDS catalogue
-    -- + C_Secrets.ShouldSpellAuraBeSecret probe in EllesmereUIAuraBuffReminders. Until
-    -- Blizzard whitelists 260708, cast prediction + the duration timer IS the tracker.
-    -- CdmSweepSync is NOT that validation: it reads Blizzard's own widget, corrects only
-    -- on positive evidence, and degrades to pure prediction when the widget is absent.
-    function EllesmereUI.GetSweepingStrikes()
-        if not sweepKnown then return 0, 0 end
-        local now = GetTime()
-        CdmSweepSync(now)
-        if expiresAt and now >= expiresAt then
-            stacks, expiresAt = 0, nil
-        end
-        -- Clamp: the cap is a flat 18 since 12.1, but a CDM snap reads Blizzard's own
-        -- count, so keep the readout inside the bar's pip count either way.
-        if stacks > MAX_STACKS then stacks = MAX_STACKS end
-        return stacks, MAX_STACKS
     end
 end
 
@@ -10796,6 +10248,11 @@ function EllesmereUI:SelectModule(folderName)
         EllesmereUI:SaveContentHeaderToCache(oldKey)
     end
 
+    -- Notify the module being left (mirrors onReset). No-op if unset.
+    if activeModule and modules[activeModule] and modules[activeModule].onModuleLeave then
+        modules[activeModule].onModuleLeave()
+    end
+
     -- Restore the old module page's inline-search filter and clear the search box BEFORE
     -- switching modules, while activeModule/activePage still point to the filtered page.
     -- SetText("") fires ApplyInlineSearch("") via OnTextChanged; doing this after the switch would target the new module and leave the old page stuck in its filtered layout.
@@ -11271,7 +10728,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "8.9.8"
+EllesmereUI.VERSION = "9.1.6"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -12286,8 +11743,39 @@ initFrame:SetScript("OnEvent", function(self, event)
             -- pcall'd SetCVar and survives any later engine reset.
             local cvarBoot = CreateFrame("Frame")
             cvarBoot:RegisterEvent("PLAYER_ENTERING_WORLD")
+            -- Instance zone-ins also remind once per session about the two
+            -- debug CVars that quietly tax combat performance (taintLog is
+            -- often left on after a bug-report capture; scriptProfile adds
+            -- per-call overhead to every addon and only changes effect on
+            -- reload). Ignore or Esc keeps it quiet until the next reload;
+            -- the flag is set on SHOW, so nothing re-fires on later zones.
+            local perfPromptShown = false
             cvarBoot:SetScript("OnEvent", function()
                 EllesmereUI.SyncAuraSpellIDCVar()
+                if perfPromptShown or not IsInInstance() then return end
+                local taintOn = (tonumber(GetCVar("taintLog") or 0) or 0) > 0
+                local profOn  = (tonumber(GetCVar("scriptProfile") or 0) or 0) > 0
+                if not (taintOn or profOn) then return end
+                perfPromptShown = true
+                local which
+                if taintOn and profOn then
+                    which = EllesmereUI.L("The taintLog and scriptProfile CVars are enabled.")
+                elseif taintOn then
+                    which = EllesmereUI.L("The taintLog CVar is enabled.")
+                else
+                    which = EllesmereUI.L("The scriptProfile CVar is enabled.")
+                end
+                EllesmereUI:ShowConfirmPopup({
+                    title       = EllesmereUI.L("Performance Reminder"),
+                    message     = which .. " " .. EllesmereUI.L("It reduces performance and should be off unless you are capturing a bug report."),
+                    confirmText = EllesmereUI.L("Disable and Reload"),
+                    cancelText  = EllesmereUI.L("Ignore"),
+                    onConfirm   = function()
+                        pcall(C_CVar.SetCVar, "taintLog", "0")
+                        pcall(C_CVar.SetCVar, "scriptProfile", "0")
+                        ReloadUI()
+                    end,
+                })
             end)
         end
 
@@ -12639,6 +12127,22 @@ EllesmereUI.VIS_OPT_ITEMS = {
       tooltip = "This bar will only show if you have an enemy targeted" },
 }
 
+-- Every visibility-option DB field, including the counter-lane keys that have
+-- no row in the legacy VIS_OPT_ITEMS list above (they exist only as Hide/Show lanes
+-- in the unified Visibility row, EllesmereUI.VIS_ROW_ITEMS). Sync copies and equality
+-- checks iterate THIS list so a lane set through the unified row is never dropped by
+-- a module still building the legacy pair of dropdowns.
+EllesmereUI.VIS_OPT_KEYS = {
+    "visOnlyInstances", "visHideInstances",
+    "visHideHousing", "visOnlyHousing",
+    "visHideMounted", "visOnlyMounted",
+    "visHideDragonriding", "visOnlySkyriding",
+    "visHideNoTarget", "visHideWithTarget",
+    "visHideNoEnemy", "visHideWithEnemy",
+    "visOnlyResting", "visHideResting",
+    "visOnlyVehicle", "visHideVehicle",
+}
+
 -- Cache player class once at load time (never changes).
 local _, _playerClass = UnitClass("player")
 
@@ -12652,6 +12156,20 @@ local DRUID_MOUNT_FORM_SPELLS = {
     165962, -- Flight Form (variant)
     210053, -- Mount Form (variant)
 }
+
+-- Instanced-content probe shared by the Instances axis' veto chain and its per-axis
+-- "any" match verdict. A garrison reports a difficulty but is not instanced content
+-- for this axis, which is why the difficulty test alone is not enough.
+function EllesmereUI.IsInInstancedContent()
+    local _, iType, diffID = GetInstanceInfo()
+    diffID = tonumber(diffID) or 0
+    if diffID <= 0 then return false end
+    if C_Garrison and C_Garrison.IsOnGarrisonMap and C_Garrison.IsOnGarrisonMap() then
+        return false
+    end
+    return iType == "party" or iType == "raid" or iType == "scenario"
+        or iType == "arena" or iType == "pvp"
+end
 
 -- Runtime check: returns true if the element should be HIDDEN by visibility options.
 -- `opts` is the settings table containing the vis option booleans.
@@ -12701,22 +12219,36 @@ end
 
 -- Non-macro visibility subset: the options that CAN'T be expressed in a secure [macro] condition
 -- and must be evaluated in Lua. Used by secure action bar frames that delegate the macro-expressible options (target/combat/group) to their state-visibility driver and only need Lua handling for these three.
-function EllesmereUI.CheckVisibilityOptionsNonMacro(opts)
+-- skipMountAxis: the caller's secure state driver already carries [mounted]/[nomounted]
+-- clauses that self-update inside combat. Evaluating the mount axis here too would let
+-- Lua clobber the driver with a literal "hide" that cannot re-evaluate until combat ends
+-- (see BuildVisibilityString in EllesmereUIActionBars.lua). Such callers pass true and
+-- keep their own narrower mount check for the shapeshift forms [mounted] cannot see.
+function EllesmereUI.CheckVisibilityOptionsNonMacro(opts, skipMountAxis)
     if not opts then return false end
+    if EllesmereUI.VisOverrideValue and EllesmereUI.VisOverrideValue(opts) then return false end
 
-    -- Only Show in Instances
-    if opts.visOnlyInstances then
-        local _, iType, diffID = GetInstanceInfo()
-        diffID = tonumber(diffID) or 0
-        local inInstance = false
-        if diffID > 0 then
-            if C_Garrison and C_Garrison.IsOnGarrisonMap and C_Garrison.IsOnGarrisonMap() then
-                inInstance = false
-            elseif iType == "party" or iType == "raid" or iType == "scenario" or iType == "arena" or iType == "pvp" then
-                inInstance = true
-            end
-        end
-        if not inInstance then return true end
+    -- Any match: only the SHOW lanes are disjuncts, owned by EvalVisibilityExtended (or
+    -- the secure driver build path). The HIDE lanes stay vetoes in every match mode, so
+    -- they run here too -- see EllesmereUI.VisOptionHideVeto.
+    -- No live caller: every Action Bars site gates on visibilityMatch ~= "any", and
+    -- CheckVisibilityOptions settles Any before calling in. Kept anyway, because removing
+    -- it would drop an Any store into the All veto chain, where SHOW lanes read as vetoes.
+    -- Divergence on purpose: the All chain flags only the skyriding lanes "mountaxis",
+    -- this one every combatFlip lane. combatFlip is the honest test, a bare "hide" from
+    -- any of them being a constant no driver can re-evaluate in combat, so widen the All
+    -- chain to match if this ever gains a caller; do not narrow this one.
+    if opts.visibilityMatch == "any" then
+        local fired, combatFlip = EllesmereUI.VisOptionHideVeto(opts, "nonMacro", nil, skipMountAxis)
+        if not fired then return false end
+        return combatFlip and "mountaxis" or true
+    end
+
+    -- Instances axis: Only Show in Instances / Hide in Instances share one probe.
+    if opts.visOnlyInstances or opts.visHideInstances then
+        local inInstance = EllesmereUI.IsInInstancedContent()
+        if opts.visOnlyInstances and not inInstance then return true end
+        if opts.visHideInstances and inInstance then return true end
     end
 
     -- Hide in Housing
@@ -12733,20 +12265,46 @@ function EllesmereUI.CheckVisibilityOptionsNonMacro(opts)
         end
     end
 
-    -- Hide when Mounted (includes druid travel/flight/aquatic forms)
-    if opts.visHideMounted then
-        if EllesmereUI.IsPlayerMountedLike and EllesmereUI.IsPlayerMountedLike() then return true end
+    if not skipMountAxis then
+        -- Hide when Mounted (includes druid travel/flight/aquatic forms)
+        if opts.visHideMounted then
+            if EllesmereUI.IsPlayerMountedLike and EllesmereUI.IsPlayerMountedLike() then return true end
+        end
+
+        -- Only Show when Mounted (inverse; druid mount-like forms count as mounted
+        -- here too -- secure action bars carry a [nomounted] clause instead, which
+        -- cannot see forms, see BuildVisibilityString)
+        if opts.visOnlyMounted then
+            if not (EllesmereUI.IsPlayerMountedLike and EllesmereUI.IsPlayerMountedLike()) then return true end
+        end
     end
 
-    -- Only Show when Mounted (inverse; druid mount-like forms count as mounted
-    -- here too -- secure action bars carry a [nomounted] clause instead, which
-    -- cannot see forms, see BuildVisibilityString)
-    if opts.visOnlyMounted then
-        if not (EllesmereUI.IsPlayerMountedLike and EllesmereUI.IsPlayerMountedLike()) then return true end
-    end
-
+    -- Skyriding-mount axis (glide capability, ground included -- NOT the airborne
+    -- show_dragonriding / show_not_dragonriding mode pair, which additionally
+    -- requires IsFlying; see EllesmereUI.IsAirborneSkyriding). No secure macro token
+    -- expresses "ground included", so this stays Lua-only for every caller; it returns
+    -- the truthy marker "mountaxis" so a secure-driver caller can bake a combat escape
+    -- hatch into what it writes (a bare "hide" cannot re-evaluate once combat starts).
     if opts.visHideDragonriding then
-        if EllesmereUI.IsPlayerSkyriding and EllesmereUI.IsPlayerSkyriding() then return true end
+        if EllesmereUI.IsPlayerSkyriding and EllesmereUI.IsPlayerSkyriding() then return "mountaxis" end
+    end
+
+    if opts.visOnlySkyriding then
+        if not (EllesmereUI.IsPlayerSkyriding and EllesmereUI.IsPlayerSkyriding()) then return "mountaxis" end
+    end
+
+    -- Resting axis: Only Show while Resting / Hide while Resting share one probe.
+    if opts.visOnlyResting or opts.visHideResting then
+        local resting = IsResting() and true or false
+        if opts.visOnlyResting and not resting then return true end
+        if opts.visHideResting and resting then return true end
+    end
+
+    -- Vehicle axis: Only Show in Vehicle / Hide in Vehicle share one probe.
+    if opts.visOnlyVehicle or opts.visHideVehicle then
+        local inVehicle = UnitInVehicle("player") and true or false
+        if opts.visOnlyVehicle and not inVehicle then return true end
+        if opts.visHideVehicle and inVehicle then return true end
     end
 
     return false
@@ -12754,21 +12312,134 @@ end
 
 function EllesmereUI.CheckVisibilityOptions(opts)
     if not opts then return false end
+    -- An override replaces the whole Visibility configuration, option lanes included:
+    -- "Always" set on an override means always, whatever the shared value hides.
+    if EllesmereUI.VisOverrideValue and EllesmereUI.VisOverrideValue(opts) then return false end
+
+    -- Any match: only the SHOW lanes are disjuncts; the HIDE lanes veto here as they do
+    -- under All (EllesmereUI.VisOptionHideVeto), which is what makes "Hide when X" mean
+    -- hide for every Lua consumer regardless of the match mode.
+    if opts.visibilityMatch == "any" then
+        return EllesmereUI.VisOptionHideVeto(opts) and true or false
+    end
 
     -- Instances / housing / mounted (shared with secure-frame fast path).
     if EllesmereUI.CheckVisibilityOptionsNonMacro(opts) then return true end
 
-    -- Hide without Target
+    -- Target axis
     if opts.visHideNoTarget then
         if not UnitExists("target") then return true end
     end
+    if opts.visHideWithTarget then
+        if UnitExists("target") then return true end
+    end
 
-    -- Hide without Enemy Target
+    -- Enemy-target axis
     if opts.visHideNoEnemy then
         if not (UnitExists("target") and UnitCanAttack("player", "target")) then return true end
     end
+    if opts.visHideWithEnemy then
+        if UnitExists("target") and UnitCanAttack("player", "target") then return true end
+    end
 
     return false
+end
+
+-- Option-lane axes: one axis per condition (Show lane, Hide lane, probe() = holds now),
+-- read by the "any" match for per-axis verdicts; the "all" veto chain above is untouched.
+-- luaOnly = no macro conditional exists, so the secure driver resolves the axis in Lua.
+-- combatFlip = the probe can change INSIDE combat, where a secure driver cannot be
+-- rewritten, so a hide verdict from this axis must not compile to a bare dead "hide".
+EllesmereUI.VIS_OPT_AXES = {
+    { show = "visOnlyInstances", hide = "visHideInstances", luaOnly = true,
+      probe = function() return EllesmereUI.IsInInstancedContent() end },
+    { show = "visOnlyHousing", hide = "visHideHousing", luaOnly = true,
+      probe = function()
+          return (C_Housing and C_Housing.IsInsideHouseOrPlot
+              and C_Housing.IsInsideHouseOrPlot()) and true or false
+      end },
+    { show = "visOnlyMounted", hide = "visHideMounted", combatFlip = true,
+      probe = function() return EllesmereUI.IsPlayerMountedLike() end },
+    { show = "visOnlySkyriding", hide = "visHideDragonriding", luaOnly = true, combatFlip = true,
+      probe = function() return EllesmereUI.IsPlayerSkyriding() end },
+    { show = "visOnlyResting", hide = "visHideResting", luaOnly = true,
+      probe = function() return IsResting() and true or false end },
+    { show = "visOnlyVehicle", hide = "visHideVehicle", luaOnly = true, combatFlip = true,
+      probe = function() return UnitInVehicle("player") and true or false end },
+    -- needsEdge: [exists]/[harm] re-evaluate on soft-target changes that
+    -- UnitExists("target") ignores; a consumer without those edges resolves the axis in Lua.
+    { show = "visHideNoTarget", hide = "visHideWithTarget", needsEdge = "softTarget",
+      probe = function() return UnitExists("target") and true or false end },
+    { show = "visHideNoEnemy", hide = "visHideWithEnemy", needsEdge = "softTarget",
+      probe = function()
+          return (UnitExists("target") and UnitCanAttack("player", "target")) and true or false
+      end },
+}
+
+-- Whether this axis has to be resolved in Lua for a consumer with these edges.
+-- `edges` is the set of event edges the consumer actually watches, e.g.
+-- { softTarget = true } for Action Bars, which owns that machinery.
+function EllesmereUI.VisAxisIsLuaOnly(ax, edges)
+    if ax.luaOnly then return true end
+    return ax.needsEdge ~= nil and not (edges and edges[ax.needsEdge])
+end
+
+-- Hide-lane veto, evaluated in EVERY match mode: Match Mode governs how the SHOW side
+-- combines, a checked Hide lane always hides. As a disjunct it instead passed whenever
+-- its condition was FALSE, so one Hide lane out-voted every Show condition.
+-- filter/edges follow TallyVisibilityOptionAxes below, plus "nonMacro" for the subset
+-- CheckVisibilityOptionsNonMacro owns; skipMount serves its skipMountAxis contract.
+-- Both lanes checked at once counts as unconstrained here, same as in that tally.
+-- Second return: the firing axis is combatFlip, so a secure-driver caller must bake a
+-- combat escape hatch instead of writing a bare "hide".
+function EllesmereUI.VisOptionHideVeto(opts, filter, edges, skipMount)
+    if not opts then return false end
+    if EllesmereUI.VisOverrideValue and EllesmereUI.VisOverrideValue(opts) then return false end
+    local axes = EllesmereUI.VIS_OPT_AXES
+    for i = 1, #axes do
+        local ax = axes[i]
+        local skip
+        if filter == "nonMacro" then
+            skip = ax.needsEdge == "softTarget"
+        elseif filter then
+            local luaOnly = EllesmereUI.VisAxisIsLuaOnly(ax, edges)
+            skip = (filter == "luaOnly" and not luaOnly) or (filter == "driver" and luaOnly)
+        end
+        if skipMount and ax.hide == "visHideMounted" then skip = true end
+        if not skip and opts[ax.hide] and not opts[ax.show] and ax.probe() then
+            return true, ax.combatFlip or false
+        end
+    end
+    return false
+end
+
+-- Per-axis tally for the "any" match. filter: nil counts every axis, "luaOnly" only
+-- the ones this consumer must resolve in Lua, "driver" only the ones it can compile.
+-- Returns how many axes are constrained and how many of those currently match.
+-- SHOW lanes only: a Hide lane is a veto (VisOptionHideVeto), never a disjunct.
+function EllesmereUI.TallyVisibilityOptionAxes(opts, filter, edges)
+    local constrained, passed = 0, 0
+    if not opts then return constrained, passed end
+    if EllesmereUI.VisOverrideValue and EllesmereUI.VisOverrideValue(opts) then
+        return constrained, passed
+    end
+    local axes = EllesmereUI.VIS_OPT_AXES
+    for i = 1, #axes do
+        local ax = axes[i]
+        local luaOnly = EllesmereUI.VisAxisIsLuaOnly(ax, edges)
+        local skip = (filter == "luaOnly" and not luaOnly)
+                  or (filter == "driver" and luaOnly)
+        if not skip then
+            -- Both lanes at once is the contradiction the row already prevents on
+            -- click; count it as unconstrained rather than as an axis that can never
+            -- match, so a hand-edited store cannot lock an Any selection to hidden.
+            if opts[ax.show] and not opts[ax.hide] then
+                constrained = constrained + 1
+                if ax.probe() then passed = passed + 1 end
+            end
+        end
+    end
+    return constrained, passed
 end
 
 -- Runtime check: returns true if the element should be SHOWN based on the visibility mode

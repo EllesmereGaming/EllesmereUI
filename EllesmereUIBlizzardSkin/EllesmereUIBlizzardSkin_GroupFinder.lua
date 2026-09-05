@@ -175,6 +175,9 @@ local function SkinAtlasPanel(frame)
         local BASE_U, BASE_V = BASE_R - BASE_L, BASE_B - BASE_T
         local function UpdateBgTexCoords()
             local fw, fh = frame:GetSize()
+            -- Secrecy test BEFORE the zero check: that check is itself a
+            -- comparison and throws on a secret size. Matches the engine.
+            if issecretvalue and (issecretvalue(fw) or issecretvalue(fh)) then return end
             if fw == 0 or fh == 0 then return end
             local fa = fw / fh
             if fa > BG_ASPECT then
@@ -187,9 +190,9 @@ local function SkinAtlasPanel(frame)
                 bg:SetTexCoord(BASE_L + trimU, BASE_R - trimU, BASE_T, BASE_B)
             end
         end
-        hooksecurefunc(frame, "SetSize", UpdateBgTexCoords)
-        hooksecurefunc(frame, "SetWidth", UpdateBgTexCoords)
-        hooksecurefunc(frame, "SetHeight", UpdateBgTexCoords)
+        -- One script hook instead of three setter hooks; also fires for
+        -- anchor-driven resizes (same shape as WSkin.Shell).
+        frame:HookScript("OnSizeChanged", UpdateBgTexCoords)
         UpdateBgTexCoords()
     end
     -- Window border: the shared atlas frame border every other reskinned
@@ -1344,8 +1347,14 @@ local _hooksInstalled = false
 local function InstallHooks()
     if _hooksInstalled or not PVEFrame then return end
     _hooksInstalled = true
-    hooksecurefunc(PVEFrame, "Show", RefreshAll)
-    if PVEFrame_ShowFrame then hooksecurefunc("PVEFrame_ShowFrame", function() RefreshAll(); UpdateTabVisuals() end) end
+    -- Deferred so this runs on its own tick, after the click that opened the
+    -- frame has finished, instead of inside that same execution chain.
+    hooksecurefunc(PVEFrame, "Show", function() C_Timer.After(0, RefreshAll) end)
+    if PVEFrame_ShowFrame then
+        hooksecurefunc("PVEFrame_ShowFrame", function()
+            C_Timer.After(0, function() RefreshAll(); UpdateTabVisuals() end)
+        end)
+    end
     if PVEFrame_TabOnClick then hooksecurefunc("PVEFrame_TabOnClick", function() RefreshAll(); UpdateTabVisuals() end) end
     if GroupFinderFrame_SelectGroupButton then
         hooksecurefunc("GroupFinderFrame_SelectGroupButton", function(index)

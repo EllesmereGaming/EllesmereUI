@@ -197,7 +197,7 @@ local function TileActionBars(parent, y, W, tile)
             tile.folder, "Bar Display", "TEXT", "Keybind Text Size")
     else
         _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display), BLANK());  y = y - h
-        y = NoteRow(parent, y, "Enable " .. tile.display .. " to edit its text settings.")
+        y = NoteRow(parent, y, EllesmereUI.Lf("Enable %1$s to edit its text settings.", EllesmereUI.L(tile.display)))
     end
     return y
 end
@@ -207,7 +207,7 @@ local function TileNameplates(parent, y, W, tile)
     local _, h
     if not ns then
         _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display), BLANK());  y = y - h
-        return NoteRow(parent, y, "Enable " .. tile.display .. " to edit its text settings.")
+        return NoteRow(parent, y, EllesmereUI.Lf("Enable %1$s to edit its text settings.", EllesmereUI.L(tile.display)))
     end
     local function db() return ns.db and ns.db.profile end
     local DEF = ns.defaults or {}
@@ -281,7 +281,7 @@ local function TileUnitFrames(parent, y, W, tile)
         y = LinkRow(parent, y, "Player Aura Bars Text (per bar)",
             tile.folder, "Player Aura Bars", nil)
     else
-        y = NoteRow(parent, y, "Enable " .. tile.display .. " to edit its text settings.")
+        y = NoteRow(parent, y, EllesmereUI.Lf("Enable %1$s to edit its text settings.", EllesmereUI.L(tile.display)))
     end
     return y
 end
@@ -291,7 +291,7 @@ local function TileRaidFrames(parent, y, W, tile)
     local _, h
     if not ns then
         _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display), BLANK());  y = y - h
-        return NoteRow(parent, y, "Enable " .. tile.display .. " to edit its text settings.")
+        return NoteRow(parent, y, EllesmereUI.Lf("Enable %1$s to edit its text settings.", EllesmereUI.L(tile.display)))
     end
     local function db() return ns.db and ns.db.profile end
     local function RFApply()
@@ -351,7 +351,7 @@ local function TileCooldownManager(parent, y, W, tile)
         y = LinkRow(parent, y, "Tracking Bar Name, Timer & Stacks Text (per bar)",
             tile.folder, "Tracking Bars", "BAR LAYOUT")
     else
-        y = NoteRow(parent, y, "Enable " .. tile.display .. " to edit its text settings.")
+        y = NoteRow(parent, y, EllesmereUI.Lf("Enable %1$s to edit its text settings.", EllesmereUI.L(tile.display)))
     end
     return y
 end
@@ -361,7 +361,7 @@ local function TileResourceBars(parent, y, W, tile)
     local _, h
     if not ns then
         _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display), BLANK());  y = y - h
-        return NoteRow(parent, y, "Enable " .. tile.display .. " to edit its text settings.")
+        return NoteRow(parent, y, EllesmereUI.Lf("Enable %1$s to edit its text settings.", EllesmereUI.L(tile.display)))
     end
     local function db() return _G._ERB_AceDB and _G._ERB_AceDB.profile end
     local function RBApply() if _G._ERB_Apply then _G._ERB_Apply() end end
@@ -398,7 +398,7 @@ local function TileAuraBuffReminders(parent, y, W, tile)
     local _, h
     if not ns then
         _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display), BLANK());  y = y - h
-        return NoteRow(parent, y, "Enable " .. tile.display .. " to edit its text settings.")
+        return NoteRow(parent, y, EllesmereUI.Lf("Enable %1$s to edit its text settings.", EllesmereUI.L(tile.display)))
     end
     local function db() return _G._EABR_AceDB and _G._EABR_AceDB.profile end
     _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display),
@@ -441,7 +441,7 @@ local function TileQoL(parent, y, W, tile)
     local _, h
     if not ns then
         _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display), BLANK());  y = y - h
-        return NoteRow(parent, y, "Enable " .. tile.display .. " to edit its text settings.")
+        return NoteRow(parent, y, EllesmereUI.Lf("Enable %1$s to edit its text settings.", EllesmereUI.L(tile.display)))
     end
     -- Flat EllesmereUIDB keys with a parent-published apply fn.
     local function gsize(label, key, minV, maxV, def, applyName)
@@ -581,7 +581,7 @@ local function TileChat(parent, y, W, tile)
     local _, h
     if not ns then
         _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display), BLANK());  y = y - h
-        return NoteRow(parent, y, "Enable " .. tile.display .. " to edit its text settings.")
+        return NoteRow(parent, y, EllesmereUI.Lf("Enable %1$s to edit its text settings.", EllesmereUI.L(tile.display)))
     end
     local ECHAT = ns.ECHAT
     local function db()
@@ -705,7 +705,7 @@ local function TileMythicTimer(parent, y, W, tile)
     local _, h
     if not ns then
         _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display), BLANK());  y = y - h
-        return NoteRow(parent, y, "Enable " .. tile.display .. " to edit its text settings.")
+        return NoteRow(parent, y, EllesmereUI.Lf("Enable %1$s to edit its text settings.", EllesmereUI.L(tile.display)))
     end
     local function db() return _G._EMT_AceDB and _G._EMT_AceDB.profile end
     local function MTApply() if _G._EMT_Apply then _G._EMT_Apply() end end
@@ -786,7 +786,7 @@ local function TileDamageMeters(parent, y, W, tile)
     local _, h
     if not ns then
         _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display), BLANK());  y = y - h
-        return NoteRow(parent, y, "Enable " .. tile.display .. " to edit its text settings.")
+        return NoteRow(parent, y, EllesmereUI.Lf("Enable %1$s to edit its text settings.", EllesmereUI.L(tile.display)))
     end
     local function db()
         return _G._EDM_DB and _G._EDM_DB.profile and _G._EDM_DB.profile.dm
@@ -847,7 +847,7 @@ local function TileBags(parent, y, W, tile)
     local _, h
     if not ns then
         _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display), BLANK());  y = y - h
-        return NoteRow(parent, y, "Enable " .. tile.display .. " to edit its text settings.")
+        return NoteRow(parent, y, EllesmereUI.Lf("Enable %1$s to edit its text settings.", EllesmereUI.L(tile.display)))
     end
     local function db()
         return EllesmereUI._bagsDB and EllesmereUI._bagsDB.profile
@@ -886,7 +886,7 @@ local function TileMinimap(parent, y, W, tile)
     local _, h
     if not ns then
         _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display), BLANK());  y = y - h
-        return NoteRow(parent, y, "Enable " .. tile.display .. " to edit its text settings.")
+        return NoteRow(parent, y, EllesmereUI.Lf("Enable %1$s to edit its text settings.", EllesmereUI.L(tile.display)))
     end
     local function db()
         return _G._EMM_DB and _G._EMM_DB.profile and _G._EMM_DB.profile.minimap
@@ -936,7 +936,7 @@ local function TileQuestTracker(parent, y, W, tile)
     local _, h
     if not ns then
         _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display), BLANK());  y = y - h
-        return NoteRow(parent, y, "Enable " .. tile.display .. " to edit its text settings.")
+        return NoteRow(parent, y, EllesmereUI.Lf("Enable %1$s to edit its text settings.", EllesmereUI.L(tile.display)))
     end
     local function db()
         return _G._EQT_DB and _G._EQT_DB.profile and _G._EQT_DB.profile.questTracker
@@ -988,7 +988,7 @@ local function TileBlizzardSkin(parent, y, W, tile)
     local _, h
     if not ns then
         _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display), BLANK());  y = y - h
-        return NoteRow(parent, y, "Enable " .. tile.display .. " to edit its text settings.")
+        return NoteRow(parent, y, EllesmereUI.Lf("Enable %1$s to edit its text settings.", EllesmereUI.L(tile.display)))
     end
     _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display),
         { type = "slider", text = "Tooltip Font Size Scale", min = 0.7, max = 1.5, step = 0.05,
@@ -1033,7 +1033,7 @@ local function TileDataBars(parent, y, W, tile)
         y = LinkRow(parent, y, "Text Scale (per data bar)",
             tile.folder, "DataBars", "BAR SETTINGS", "Text Scale")
     else
-        y = NoteRow(parent, y, "Enable " .. tile.display .. " to edit its text settings.")
+        y = NoteRow(parent, y, EllesmereUI.Lf("Enable %1$s to edit its text settings.", EllesmereUI.L(tile.display)))
     end
     return y
 end

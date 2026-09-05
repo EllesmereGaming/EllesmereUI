@@ -1178,6 +1178,12 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     local function CopyVisibilitySettings(dst, src, dstKey)
+        -- The merged Visibility control owns the option booleans too, so every copy
+        -- carries them alongside the mode selection.
+        local optKeys = EllesmereUI.VIS_OPT_KEYS
+        if optKeys then
+            for i = 1, #optKeys do dst[optKeys[i]] = src[optKeys[i]] or nil end
+        end
         if VisibilityCompat then
             -- Pet Bar ignores group modes: strip them from a copied multi-selection.
             VisibilityCompat.Copy(dst, src, dstKey == "PetBar")
@@ -1186,6 +1192,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         local v = src.barVisibility or "always"
         dst.barVisibility = v
+        dst.visibilityMatch = src.visibilityMatch or nil
         dst.alwaysHidden = src.alwaysHidden
         dst.mouseoverEnabled = src.mouseoverEnabled
         dst.mouseoverAlpha = src.mouseoverAlpha
@@ -1241,10 +1248,11 @@ initFrame:SetScript("OnEvent", function(self)
             GetVisibilityKey(s) -- normalize legacy booleans into barVisibility
             return s.barVisibility == "never" or s.alwaysHidden == true
         end
-        local function BuildVisRow(barKey, leftLabel, disabledFn, disTip, trackNeverFlip)
+        -- Returns the row config rather than building it, so two bars can share one
+        -- row (rightVis) instead of each taking a half-empty one.
+        local function VisOpts(barKey, leftLabel, disabledFn, disTip, trackNeverFlip)
             local wasNever = trackNeverFlip and BarIsNever(barKey)
-            local visRow, visH = EllesmereUI.BuildVisibilityModeRow(W, parent, y,
-                { getStore = function()
+            return  { getStore = function()
                       local s = EAB.db.profile.bars[barKey]
                       -- Normalize first: extra-bar defaults may carry only legacy booleans, no barVisibility key yet.
                       if s then GetVisibilityKey(s) end
@@ -1252,7 +1260,12 @@ initFrame:SetScript("OnEvent", function(self)
                   end,
                   legacyKey = "barVisibility",
                   label = leftLabel,
-                  caps = { partyIncludesRaid = false, luaDragonriding = true },
+                  -- noOverrideMouseover: this module's hover wiring reads the STORED
+                  -- mouseoverEnabled, which an override does not write, so a Mouseover
+                  -- override would silently behave like Always. Offered as locked rather
+                  -- than looking available and doing nothing.
+                  caps = { partyIncludesRaid = false, luaDragonriding = true,
+                           noOverrideMouseover = true },
                   applyScalarFn = function(s, mode) ApplyVisibilityKey(s, mode) end,
                   disabledFn = disabledFn, disabledTooltip = disTip, rawTooltip = disTip and true or nil,
                   onChanged = function()
@@ -1262,33 +1275,23 @@ initFrame:SetScript("OnEvent", function(self)
                       if trackNeverFlip and BarIsNever(barKey) ~= wasNever then
                           EllesmereUI:RefreshPage(true)
                       end
-                  end },
-                { type="dropdown", text="Visibility Options",
-                  values={ __placeholder = "..." }, order={ "__placeholder" },
-                  getValue=function() return "__placeholder" end,
-                  setValue=function() end });  y = y - visH
+                  end,
+                  -- Option axes recompile the secure driver through the same chain the
+                  -- old Visibility Options dropdown used. The gate refresh first: a lane
+                  -- click can be what just armed (or disarmed) the soft-target machinery,
+                  -- and the two calls below must see the current flags, not last click's.
+                  onOptionChanged = function()
+                      EAB:_RefreshSoftTargetGate()
+                      EAB:UpdateHousingVisibility()
+                      EAB:ApplyCombatVisibility()
+                  end }
+        end
 
-            -- Replace the dummy right dropdown with checkbox dropdown
-            local rightRgn = visRow._rightRegion
-            if rightRgn._control then rightRgn._control:Hide() end
-            local PP = EllesmereUI.PanelPP
-            if not EllesmereUI._prebuilding then
-            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                rightRgn, 210, rightRgn:GetFrameLevel() + 2,
-                EllesmereUI.VIS_OPT_ITEMS,
-                function(k) return EAB.db.profile.bars[barKey][k] or false end,
-                function(k, v)
-                    EAB.db.profile.bars[barKey][k] = v
-                    EAB:UpdateHousingVisibility()
-                    EAB:ApplyCombatVisibility()
-                    EllesmereUI:RefreshPage()
-                end)
-            PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
-            rightRgn._control = cbDD
-            rightRgn._lastInline = nil
-            EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
-            end
-
+        -- Single-bar row (data bar sections): one Visibility control, right slot free.
+        local function BuildVisRow(barKey, leftLabel, disabledFn, disTip, trackNeverFlip)
+            local visRow, visH = EllesmereUI.BuildVisibilityRow(W, parent, y,
+                VisOpts(barKey, leftLabel, disabledFn, disTip, trackNeverFlip))
+            y = y - visH
             return visRow
         end
 
@@ -1296,8 +1299,13 @@ initFrame:SetScript("OnEvent", function(self)
         --  MICRO MENU & BAGS
         -------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "MICRO MENU & BAGS", y);  y = y - h
-        BuildVisRow("MicroBar", "Micro Menu Visibility")
-        BuildVisRow("BagBar",   "Bag Bar Visibility")
+        -- Both bars' Visibility in ONE row: same kind of control, and pairing them
+        -- leaves no half-empty slot behind now that Visibility Options is folded in.
+        do
+            local microOpts = VisOpts("MicroBar", "Micro Menu Visibility")
+            microOpts.rightVis = VisOpts("BagBar", "Bag Bar Visibility")
+            _, h = EllesmereUI.BuildVisibilityRow(W, parent, y, microOpts);  y = y - h
+        end
 
         _, h = W:Spacer(parent, y, 12);  y = y - h
 
@@ -1637,6 +1645,9 @@ initFrame:SetScript("OnEvent", function(self)
 
         local visOnly = IsVisOnly()
         local row
+        -- Declared out here, not in the `do` block that builds it: the Toggle Action Bar
+        -- keybind lives past that block's end and anchors into this row's right slot.
+        local visRow1
 
         -- Row / section references for click-navigation
         local iconsSectionHeader, textSectionHeader
@@ -1682,7 +1693,8 @@ initFrame:SetScript("OnEvent", function(self)
             end
 
             -- Pet Bar cannot express group modes: lock them with an explanation instead of offering silent no-ops.
-            local visCaps = { partyIncludesRaid = false }
+            -- noOverrideMouseover: see the caps on the bar row above.
+            local visCaps = { partyIncludesRaid = false, noOverrideMouseover = true }
             if SelectedKey() == "PetBar" then
                 visCaps.noGroupModes = true
                 visCaps.lockedTooltips = {
@@ -1695,8 +1707,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- edge event; secure bars' drivers re-evaluate natively and never lock.
             if IsDataBar() then visCaps.luaDragonriding = true end
 
-            local visRow1
-            visRow1, h = EllesmereUI.BuildVisibilityModeRow(W, parent, y,
+            visRow1, h = EllesmereUI.BuildVisibilityRow(W, parent, y,
                 { getStore = function()
                       local s = SB()
                       GetVisibilityKey(s)
@@ -1713,31 +1724,23 @@ initFrame:SetScript("OnEvent", function(self)
                       EAB:RefreshRuntimeVisibility()
                       EAB:RefreshMouseover()
                       EAB:ApplyCombatVisibility()
+                  end,
+                  -- Option axes recompile the secure driver through the same chain the
+                  -- old Visibility Options dropdown used. The gate refresh first: a lane
+                  -- click can be what just armed (or disarmed) the soft-target machinery,
+                  -- and the two calls below must see the current flags, not last click's.
+                  onOptionChanged = function()
+                      EAB:_RefreshSoftTargetGate()
+                      EAB:UpdateHousingVisibility()
+                      EAB:ApplyCombatVisibility()
                   end },
-                { type="dropdown", text="Visibility Options",
-                  values={ __placeholder = "..." }, order={ "__placeholder" },
-                  getValue=function() return "__placeholder" end,
-                  setValue=function() end });  y = y - h
+                -- Toggle Action Bar moved up into the slot the Visibility Options dropdown
+                -- left behind: the keybind flips this bar shown/hidden, the same question the
+                -- Visibility control answers. It carries the `not visOnly` gate its old row
+                -- had, so visibility-only bars still get no toggle keybind.
+                (not visOnly) and { type="label", text="Toggle Action Bar" }
+                    or { type="label", text="" });  y = y - h
 
-            -- Replace the dummy right dropdown with checkbox dropdown
-            do
-                local rightRgn = visRow1._rightRegion
-                if rightRgn._control then rightRgn._control:Hide() end
-                local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                    rightRgn, 210, rightRgn:GetFrameLevel() + 2,
-                    EllesmereUI.VIS_OPT_ITEMS,
-                    function(k) return SB()[k] or false end,
-                    function(k, v)
-                        SB()[k] = v
-                        EAB:UpdateHousingVisibility()
-                        EAB:ApplyCombatVisibility()
-                        EllesmereUI:RefreshPage()
-                    end)
-                PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
-                rightRgn._control = cbDD
-                rightRgn._lastInline = nil
-                EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
-            end
             do
                 local rgn = visRow1._leftRegion
                 EllesmereUI.BuildSyncIcon({
@@ -1758,7 +1761,7 @@ initFrame:SetScript("OnEvent", function(self)
                         local src = SB()
                         for _, key in ipairs(GROUP_BAR_ORDER) do
                             local dst = EAB.db.profile.bars[key]
-                            if not EllesmereUI.VisSelectionEquals(src, "barVisibility", dst, "barVisibility") then return false end
+                            if not EllesmereUI.VisFullEquals(src, "barVisibility", dst, "barVisibility") then return false end
                             if (src.dragShow or false) ~= (dst.dragShow or false) then return false end
                         end
                         return true
@@ -1833,22 +1836,9 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
+        -- Bar Opacity keeps this row (and its sync icon, now on the left region) with
+        -- Always Show Buttons as its partner; Toggle Action Bar sits in the Visibility row.
         row, h = W:DualRow(parent, y,
-            { type="toggle", text="Always Show Buttons",
-              getValue=function()
-                  local v = SGet("alwaysShowButtons")
-                  if v == nil then return true end
-                  return v
-              end,
-              setValue=function(v)
-                  SSet("alwaysShowButtons", v, function(k)
-                      EAB:ApplyAlwaysShowButtons(k)
-                      EAB:ApplyPaddingForBar(k)
-                      EAB:ApplyBackgroundForBar(k)
-                  end)
-                  SUpdatePreview()
-              end,
-              tooltip="Show button backgrounds even if a spell is not assigned to that slot." },
             { type="slider", text="Bar Opacity", min=0, max=100, step=5,
               getValue=function()
                   local bs = SB()
@@ -1865,9 +1855,24 @@ initFrame:SetScript("OnEvent", function(self)
                       SSet("mouseoverAlpha", v / 100, function(k) EAB:ApplyBarOpacity(k) end)
                   end
                   SUpdatePreview()
-              end });  y = y - h
+              end },
+            { type="toggle", text="Always Show Buttons",
+              getValue=function()
+                  local v = SGet("alwaysShowButtons")
+                  if v == nil then return true end
+                  return v
+              end,
+              setValue=function(v)
+                  SSet("alwaysShowButtons", v, function(k)
+                      EAB:ApplyAlwaysShowButtons(k)
+                      EAB:ApplyPaddingForBar(k)
+                      EAB:ApplyBackgroundForBar(k)
+                  end)
+                  SUpdatePreview()
+              end,
+              tooltip="Show button backgrounds even if a spell is not assigned to that slot." });  y = y - h
         do
-            local rgn = row._rightRegion
+            local rgn = row._leftRegion
             EllesmereUI.BuildSyncIcon({
                 region  = rgn,
                 tooltip = "Apply Bar Opacity to all Bars",
@@ -1909,18 +1914,19 @@ initFrame:SetScript("OnEvent", function(self)
         if not visOnly then
             local ctRow
             ctRow, h = W:DualRow(parent, y,
-                { type="label", text="Toggle Action Bar" },
                 { type="toggle", text="Click Through",
                   getValue=function()
                       return SGet("clickThrough")
                   end,
                   setValue=function(v)
                       SSet("clickThrough", v, function(k) EAB:ApplyClickThroughForBar(k) end)
-                  end });  y = y - h
-            -- "Toggle Action Bar" keybind (left region): bound key flips the bar shown/hidden at
-            -- runtime without writing saved visibility. Enabled only for Always/Never; out of combat only.
+                  end },
+                { type="label", text="" });  y = y - h
+            -- "Toggle Action Bar" keybind: bound key flips the bar shown/hidden at runtime
+            -- without writing saved visibility. Enabled only for Always/Never; out of combat
+            -- only. Its label sits in the Visibility row, so the button goes there too.
             do
-                local rgn = ctRow._leftRegion
+                local rgn = visRow1._rightRegion
                 local kbBtn = CreateFrame("Button", nil, rgn)
                 PP.Size(kbBtn, 126, 29)
                 PP.Point(kbBtn, "RIGHT", rgn, "RIGHT", -20, 0)
@@ -1986,18 +1992,34 @@ initFrame:SetScript("OnEvent", function(self)
                 kbBtn:SetScript("OnKeyDown", function(self, key)
                     if not listening then self:SetPropagateKeyboardInput(true); return end
                     if key == "LSHIFT" or key == "RSHIFT" or key == "LCTRL" or key == "RCTRL"
-                       or key == "LALT" or key == "RALT" then
+                       or key == "LALT" or key == "RALT" or key == "LMETA" or key == "RMETA" then
                         self:SetPropagateKeyboardInput(true); return
                     end
                     self:SetPropagateKeyboardInput(false)
                     if key == "ESCAPE" then
                         listening = false; self:EnableKeyboard(false); RefreshLabel(); return
                     end
-                    local mods = ""
-                    if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
-                    if IsControlKeyDown() then mods = mods .. "CTRL-" end
-                    if IsAltKeyDown() then mods = mods .. "ALT-" end
-                    SB().toggleVisKey = mods .. key
+                    -- Blizzard's canonical chord order is ALT-CTRL-SHIFT-KEY,
+                    -- and CreateKeyChordStringUsingMetaKeyState is what
+                    -- produces it. Hand-rolling the modifiers built
+                    -- SHIFT-CTRL-ALT-KEY, a chord string the engine never
+                    -- generates, so any bind using more than one modifier was
+                    -- stored in a form nothing could match. Single-modifier
+                    -- binds happen to agree, which is why this survived.
+                    local fullKey
+                    if CreateKeyChordStringUsingMetaKeyState then
+                        fullKey = CreateKeyChordStringUsingMetaKeyState(key)
+                    else
+                        local mods = ""
+                        if IsAltKeyDown() then mods = mods .. "ALT-" end
+                        if IsControlKeyDown() then mods = mods .. "CTRL-" end
+                        if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
+                        if IsMetaKeyDown and IsMetaKeyDown() then
+                            mods = mods .. "META-"
+                        end
+                        fullKey = mods .. key
+                    end
+                    SB().toggleVisKey = fullKey
                     EAB:RebuildVisToggleBindings()
                     listening = false
                     self:EnableKeyboard(false)
@@ -2042,7 +2064,7 @@ initFrame:SetScript("OnEvent", function(self)
                 })
             end
             do
-                local rgn = ctRow._rightRegion
+                local rgn = ctRow._leftRegion
                 EllesmereUI.BuildSyncIcon({
                     region  = rgn,
                     tooltip = "Apply Click Through to all Bars",
@@ -5772,6 +5794,73 @@ initFrame:SetScript("OnEvent", function(self)
             glowSwatch:SetMouseClickEnabled(not initOff)
         end
         y = y - h
+
+        -- Assisted Highlight. Blizzard's ring sits on the same button edge as
+        -- the proc glow and has no size control of its own, so we offer two
+        -- ways to tell them apart: push the ring clear with an outset, or drop
+        -- the ring for a flat tint that leaves the edge to the proc glow.
+        -- Values mirror p.assistGlowStyle: 1 = ring, 2 = overlay, 3 = both.
+        local function AssistOff()
+            return not (GetCVarBool and GetCVarBool("assistedCombatHighlight"))
+        end
+        local assistRow
+        assistRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Assisted Highlight",
+              values={ [1]="Glow Ring", [2]="Button Overlay", [3]="Ring + Overlay" },
+              order={ 1, 2, 3 },
+              tooltip="How Blizzard's next-spell suggestion is drawn on the button. Button Overlay replaces the blue ring with a flat tint, leaving the button edge free for the proc glow.",
+              disabled=AssistOff,
+              disabledTooltip="This option requires Blizzard's Assisted Highlight to be enabled",
+              rawTooltip=true,
+              getValue=function() return p.assistGlowStyle or 1 end,
+              setValue=function(v)
+                  p.assistGlowStyle = v
+                  if ns.UpdateAssistHighlights then ns.UpdateAssistHighlights() end
+                  -- Deferred like the proc-glow dropdown above: a synchronous
+                  -- rebuild tears the dropdown down inside its own click handler.
+                  C_Timer.After(0, function() EllesmereUI:RefreshPage() end)
+              end },
+            { type="slider", text="Overlay Opacity", min=0, max=100, step=1,
+              tooltip="Opacity of the Button Overlay tint.",
+              disabled=function() return AssistOff() or (p.assistGlowStyle or 1) == 1 end,
+              disabledTooltip="This option requires the Button Overlay style",
+              rawTooltip=true,
+              getValue=function() return p.assistGlowOverlayAlpha or 30 end,
+              setValue=function(v)
+                  p.assistGlowOverlayAlpha = v
+                  if ns.UpdateAssistHighlights then ns.UpdateAssistHighlights() end
+              end });  y = y - h
+
+        -- Inline swatch: overlay tint color, next to the opacity slider it belongs to.
+        if not EllesmereUI._prebuilding then
+            EllesmereUI.BuildInlineSwatches(assistRow._rightRegion, {
+                { tooltip = "Button Overlay Color", hasAlpha = false,
+                  getValue = function()
+                      local c = p.assistGlowOverlayColor or { r = 0.15, g = 0.5, b = 1 }
+                      return c.r, c.g, c.b
+                  end,
+                  setValue = function(r, g, b)
+                      p.assistGlowOverlayColor = { r = r, g = g, b = b }
+                      if ns.UpdateAssistHighlights then ns.UpdateAssistHighlights() end
+                  end },
+            }, {
+                disabled = function() return AssistOff() or (p.assistGlowStyle or 1) == 1 end,
+                disabledTooltip = "This option requires the Button Overlay style",
+            })
+        end
+
+        _, h = W:DualRow(parent, y,
+            { type="slider", text="Assisted Highlight Outset", min=-10, max=30, step=1,
+              tooltip="Moves the blue Assisted Highlight ring outward (or inward at negative values) so it no longer overlaps the proc glow on the same button. With Ring + Overlay the tint resizes along with it, so the two stay flush.",
+              disabled=function() return AssistOff() or (p.assistGlowStyle or 1) == 2 end,
+              disabledTooltip="This option requires a style that draws the glow ring",
+              rawTooltip=true,
+              getValue=function() return p.assistGlowOutset or 0 end,
+              setValue=function(v)
+                  p.assistGlowOutset = v
+                  if ns.UpdateAssistHighlights then ns.UpdateAssistHighlights() end
+              end },
+            { type="spacer" });  y = y - h
 
         return math.abs(y)
     end
