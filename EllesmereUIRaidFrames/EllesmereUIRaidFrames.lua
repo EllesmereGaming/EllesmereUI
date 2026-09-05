@@ -1987,7 +1987,7 @@ local function ApplyAbsorbStyle(absorbBar, style, settings)
     local alpha = settings and (settings.absorbOpacity or 90) / 100 or (ABSORB_STYLE_ALPHA[style] or 0.8)
     local ac = settings and settings.absorbColor or { r = 1, g = 1, b = 1 }
     absorbBar:SetStatusBarTexture(tex)
-    absorbBar:SetStatusBarColor(ac.r, ac.g, ac.b, alpha)
+    absorbBar:SetStatusBarColor(ac.r or 1, ac.g or 1, ac.b or 1, alpha)
     local tiled = (style == "striped" or style == "stripedReversed" or style == "stripedThick" or style == "stripedThickR" or style == "largeStripes" or style == "largeStripesR" or style == "largeOutlinedStripes" or style == "largeOutlinedStripesR")
     local fill = absorbBar:GetStatusBarTexture()
     if fill then
@@ -2000,7 +2000,7 @@ local function ApplyAbsorbStyle(absorbBar, style, settings)
     ns.RF_ApplyFillRotation(absorbBar)
     if fw then
         fw:SetStatusBarTexture(tex)
-        fw:SetStatusBarColor(ac.r, ac.g, ac.b, alpha)
+        fw:SetStatusBarColor(ac.r or 1, ac.g or 1, ac.b or 1, alpha)
         local fwFill = fw:GetStatusBarTexture()
         if fwFill then
             fwFill:SetDrawLayer("ARTWORK", 1)
@@ -2871,7 +2871,8 @@ local function UpdateAbsorb(button, unit, now)
         -- Re-apply style when style, color, or opacity changes
         local absStyle = s.absorbStyle
         local ac = s.absorbColor or { r = 1, g = 1, b = 1 }
-        local absKey = (absStyle or "") .. (s.absorbOpacity or 90) .. ac.r .. ac.g .. ac.b
+        local acR, acG, acB = ac.r or 1, ac.g or 1, ac.b or 1
+        local absKey = (absStyle or "") .. (s.absorbOpacity or 90) .. acR .. acG .. acB
         if absStyle and absStyle ~= "none" and ab._lastAbsKey ~= absKey then
             ab._lastAbsKey = absKey
             ApplyAbsorbStyle(ab, absStyle, s)
@@ -12722,7 +12723,7 @@ local function ApplyPreviewData(f, index)
 
                 -- Apply style to backfill bar
                 f._absorbBar:SetStatusBarTexture(tex)
-                f._absorbBar:SetStatusBarColor(ac.r, ac.g, ac.b, alpha)
+                f._absorbBar:SetStatusBarColor(ac.r or 1, ac.g or 1, ac.b or 1, alpha)
                 local bfFill = f._absorbBar:GetStatusBarTexture()
                 if bfFill then
                     bfFill:SetDrawLayer("ARTWORK", 1)
@@ -12734,7 +12735,7 @@ local function ApplyPreviewData(f, index)
                 -- Apply style to forward bar
                 if fw then
                     fw:SetStatusBarTexture(tex)
-                    fw:SetStatusBarColor(ac.r, ac.g, ac.b, alpha)
+                    fw:SetStatusBarColor(ac.r or 1, ac.g or 1, ac.b or 1, alpha)
                     local fwFill = fw:GetStatusBarTexture()
                     if fwFill then
                         fwFill:SetDrawLayer("ARTWORK", 1)
