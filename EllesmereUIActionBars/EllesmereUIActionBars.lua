@@ -967,12 +967,16 @@ end
 if ActionBarButtonEventsFrame then ActionBarButtonEventsFrame:UnregisterAllEvents() end
 if ActionBarActionEventsFrame then ActionBarActionEventsFrame:UnregisterAllEvents() end
 do
+    -- ACTIONBAR_UPDATE_COOLDOWN/SPELL_UPDATE_COOLDOWN are deliberately absent:
+    -- Blizzard's dispatch for those runs ActionButton_UpdateCooldown -> SetCooldown,
+    -- the secret-cooldown-under-taint chain already fixed for our own buttons (see
+    -- QuietlyHideBlizzButton's OnShow hook), and registering their shared frame left
+    -- the native call stack tainted for the rest of the tick (ObjectiveTracker
+    -- included). Reproduced in vehicle combat. barFrame below listens instead and
+    -- repaints via the already-safe ForceCooldownPaint.
     local _abefEvents = {
-        "ACTIONBAR_UPDATE_COOLDOWN", "ACTIONBAR_UPDATE_STATE",
+        "ACTIONBAR_UPDATE_STATE",
         "ACTIONBAR_UPDATE_USABLE", "ACTIONBAR_SLOT_CHANGED",
-        -- Spell-typed extra-action buttons (delve abilities) carry no action
-        -- slot, so their cooldown fires SPELL_UPDATE_COOLDOWN not this event.
-        "SPELL_UPDATE_COOLDOWN",
         "UPDATE_SHAPESHIFT_FORM", "PLAYER_ENTERING_WORLD",
     }
     local _aaefEvents = {
@@ -1115,6 +1119,18 @@ do
     -- Exposed for the extra action button's Show-hook refresh in
     -- SetupBlizzardMovableFrame (a reliable trigger for delve entry).
     ns.RefreshBroadcaster = RefreshBroadcasterNeeds
+    -- Cooldown-only repaint for the 7 Blizzard-owned buttons "full" mode used to
+    -- cover via ActionBarButtonEventsFrame's ACTIONBAR_UPDATE_COOLDOWN/
+    -- SPELL_UPDATE_COOLDOWN. ForceCooldownPaint is already the established
+    -- secret-safe path (see its own comment); this just widens its call sites
+    -- to a live event instead of one-shot vehicle-enter/button-reveal moments.
+    local function RepaintVehicleAndExtraCooldowns()
+        if not (_vehNeed or _extraNeed) then return end
+        for i = 1, 6 do
+            ForceCooldownPaint(_G["OverrideActionBarButton" .. i])
+        end
+        ForceCooldownPaint(ExtraActionButton1)
+    end
     local barFrame = ns.TakeShell()
     barFrame:RegisterEvent("UNIT_ENTERED_VEHICLE")
     barFrame:RegisterEvent("UNIT_EXITED_VEHICLE")
@@ -1124,11 +1140,20 @@ do
     barFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     barFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
     barFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    -- Registered on OUR OWN frame, never on Blizzard's shared ActionBarButtonEventsFrame
+    -- (see the comment on _abefEvents above for why that specific registration was
+    -- pulled during vehicle combat).
+    barFrame:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
+    barFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
     barFrame:SetScript("OnEvent", function(_, event, unit)
         if event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
             -- Undeferred: the first slot change of the pull can arrive in the
             -- same frame as the lockdown, and the needs are unchanged anyway.
             ApplyBroadcaster()
+            return
+        end
+        if event == "ACTIONBAR_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_COOLDOWN" then
+            RepaintVehicleAndExtraCooldowns()
             return
         end
         C_Timer.After(0, RefreshBroadcasterNeeds) -- deferred so IsShown reflects post-event state
