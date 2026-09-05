@@ -7766,10 +7766,15 @@ local function OnChannelStop()
     if castBarFrame._channelStopPending then return end
     castBarFrame._channelStopPending = true
     C_Timer.After(0, function()
-        if not castBarFrame then return end
         castBarFrame._channelStopPending = nil
         if not castBarFrame._channeling then return end
-        if UnitChannelInfo("player") then return end
+        local name, _, _, _, _, _, _, _, empowering = UnitChannelInfo("player")
+        if name then
+            -- An empower dispatched in the emptied frame was declined by
+            -- OnEmpowerStart, which has no retry; pick it up here.
+            if empowering then OnEmpowerStart() end
+            return
+        end
         castBarFrame._channeling = false
         castBarFrame._castID = nil
         ns.ShowIdleCastBar()
