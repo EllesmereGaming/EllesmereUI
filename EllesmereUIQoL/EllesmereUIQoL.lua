@@ -1404,6 +1404,7 @@ qolFrame:SetScript("OnEvent", function(self)
     do
         local vanilla = LFGListApplicationDialog_Show
         local patched = false
+        local copyHooked = false
         local copyHelper
         local hidingCopyField = false
 
@@ -1445,6 +1446,7 @@ qolFrame:SetScript("OnEvent", function(self)
         end
 
         local function RefreshCopyHelper(dialog)
+            if not Enabled() or not dialog or not dialog:IsShown() then return end
             local description = dialog and dialog.Description
             local editBox = description and description.EditBox
             if not editBox then return end
@@ -1562,17 +1564,11 @@ qolFrame:SetScript("OnEvent", function(self)
                 end)
             end
             LFGListApplicationDialog_UpdateRoles(self)
-            RefreshCopyHelper(self)
             StaticPopupSpecial_Show(self)
         end
 
         EllesmereUI.GetPersistentSignupNote = function()
             return SavedNote()
-        end
-
-        EllesmereUI.SetPersistentSignupNote = function(note)
-            if not EllesmereUIDB then EllesmereUIDB = {} end
-            EllesmereUIDB.signupNote = LimitNote(note)
         end
 
         local function SyncPatch()
@@ -1581,13 +1577,27 @@ qolFrame:SetScript("OnEvent", function(self)
                     LFGListApplicationDialog_Show = PatchedShow
                     patched = true
                 end
+                -- PGF can replace the show function after login; the dialog hook survives it.
+                if LFGListApplicationDialog and not copyHooked then
+                    LFGListApplicationDialog:HookScript("OnShow", RefreshCopyHelper)
+                    copyHooked = true
+                end
+                RefreshCopyHelper(LFGListApplicationDialog)
             else
                 if patched then
-                    LFGListApplicationDialog_Show = vanilla
+                    if LFGListApplicationDialog_Show == PatchedShow then
+                        LFGListApplicationDialog_Show = vanilla
+                    end
                     patched = false
                 end
                 if copyHelper then copyHelper:Hide() end
             end
+        end
+
+        EllesmereUI.SetPersistentSignupNote = function(note)
+            if not EllesmereUIDB then EllesmereUIDB = {} end
+            EllesmereUIDB.signupNote = LimitNote(note)
+            SyncPatch()
         end
 
         EllesmereUI._applyPersistSignupNote = SyncPatch
