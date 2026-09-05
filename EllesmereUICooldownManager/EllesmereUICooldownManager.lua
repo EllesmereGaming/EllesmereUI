@@ -2458,7 +2458,19 @@ StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
         _G_Glows.StartAutoCastShine(overlay, pW, cr, cg, cb, 1.0, pH)
     else
         if noColor then cr, cg, cb = nil, nil, nil end
-        _G_Glows.StartFlipBookGlow(overlay, pW, entry, cr, cg, cb, pH)
+        -- Classic WoW Glow's entry is texture-based (IconAlertAnts), unlike
+        -- GCD/Modern WoW Glow's atlas entries, which already draw a second
+        -- ants layer via StartFlipBookGlow's atlas-only block. Without an
+        -- equivalent second layer a direct Classic pick here (Buff Glow
+        -- and proc-glow paths both route through this same StartNativeGlow)
+        -- rendered as ants only, no outline -- same gap already fixed for
+        -- Action Bars' own Classic WoW Glow pick; mirrored here since this
+        -- is a separate call site into the same shared engine.
+        local flipOpts
+        if not entry.atlas and entry.texture then
+            flipOpts = { abgHalo = true, haloR = cr, haloG = cg, haloB = cb }
+        end
+        _G_Glows.StartFlipBookGlow(overlay, pW, entry, cr, cg, cb, pH, flipOpts)
     end
 
     -- Threshold gating: bound every texture the style just created with the
