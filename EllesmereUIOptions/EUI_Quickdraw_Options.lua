@@ -1007,6 +1007,15 @@ initFrame:SetScript("OnEvent", function(self)
         return out
     end
 
+    local function OutfitEntries()
+        local out = {}
+        for _, slot in ipairs(ns.OutfitSlots and ns.OutfitSlots() or {}) do
+            local icon, name = ns.SlotDisplay(slot)
+            out[#out + 1] = { icon = icon, name = name, slot = slot }
+        end
+        return out
+    end
+
     -- Every palette this one may open. Not a list of things the game owns, so
     -- it is rebuilt on each use rather than cached: adding a palette or filling
     -- one in has to show up here without reopening the picker.
@@ -1053,6 +1062,8 @@ initFrame:SetScript("OnEvent", function(self)
           keywordHint = true },
         { key = "macro",     label = "Macros",       build = MacroEntries },
         { key = "battlepet", label = "Battle Pets",  build = PetEntries },
+        { key = "outfit",    label = "Outfits",      build = OutfitEntries,
+          keepOrder = true },
         -- keepOrder on both: the markers run star to skull, the order every
         -- marker menu in the game shows. noSearch on both too -- a fixed
         -- handful of rows has nothing worth filtering, and the nav strip
@@ -1754,6 +1765,14 @@ initFrame:SetScript("OnEvent", function(self)
         return out, dropped
     end
 
+    -- Keep Blizzard's order and report anything over the menu cap.
+    local function OutfitSlots()
+        local out = ns.OutfitSlots and ns.OutfitSlots() or {}
+        local dropped = math.max(0, #out - MAX_SLOTS)
+        for i = #out, MAX_SLOTS + 1, -1 do out[i] = nil end
+        return out, dropped
+    end
+
     -- Self-teleports only, keyed by class. Mage portals are deliberately not
     -- here: a palette entry fires for its owner, and the teleport is the spell
     -- an owner wants.
@@ -1963,6 +1982,7 @@ initFrame:SetScript("OnEvent", function(self)
         { label = "World Markers",  build = WorldMarkerSlots },
         { label = "Pings",          build = PingSlots },
         { label = "Hearthstones",   build = HearthstoneSlots },
+        { label = "Outfits",        build = OutfitSlots },
         { label = "Teleports",      build = TeleportSlots },
         { label = "Potions",        build = PotionSlots },
         { label = "Druid Forms",    build = FormSlots },
