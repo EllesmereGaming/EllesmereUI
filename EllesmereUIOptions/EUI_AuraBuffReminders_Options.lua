@@ -1281,14 +1281,14 @@ initFrame:SetScript("OnEvent", function(self)
         local timingRow
         timingRow, h = W:DualRow(parent, y,
             { type="slider", text="Show Below", min=0, max=60, step=1,
-              tooltip="Show reminders when remaining buff time is below this many minutes.\n0 = only when fully expired.\nIgnored in combat and during Mythic+ keys (then only when the buff is gone).",
+              tooltip="Show reminders when remaining buff time is below this many minutes.\n0 = only when fully expired.\nIgnored in combat and during Mythic+ keys (then only when the buff is gone) unless Show Below In Combat is on.",
               getValue=function() local d = DDB(); return d and d.showUnder or 5 end,
               setValue=function(v)
                   local d = DDB(); if not d then return end; d.showUnder = v
                   RefreshAll()
               end },
             { type="slider", text="Show Below Pre-Key", min=0, max=60, step=1,
-              tooltip="Reminder threshold while you are in a dungeon before a Mythic+ key starts (Mythic 0 / keystone lobby). Set it high enough that you top up buffs and food before pulling, so you begin the key with enough duration to last it.\n0 = only when fully expired.\nIgnored once the key is active or you are in combat (then only when the buff is fully gone).",
+              tooltip="Reminder threshold while you are in a dungeon before a Mythic+ key starts (Mythic 0 / keystone lobby). Set it high enough that you top up buffs and food before pulling, so you begin the key with enough duration to last it.\n0 = only when fully expired.\nIgnored once the key is active or you are in combat (then only when the buff is fully gone) unless Show Below In Combat is on.",
               getValue=function() local d = DDB(); return d and d.showUnderMPlus or 40 end,
               setValue=function(v)
                   local d = DDB(); if not d then return end; d.showUnderMPlus = v
@@ -1297,20 +1297,32 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
         AddMinSuffix(timingRow, "Show Below", "Show Below Pre-Key")
 
-        -- Row 5: Show Tooltips | Opacity
+        -- Row 5: Show Below In Combat | Show Tooltips
         _, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Below In Combat",
+              tooltip="Apply the thresholds above while you are in combat and during an active Mythic+ key, instead of reminding only once a buff is fully gone.\nOff by default: reminders shown in combat cannot be clicked, so they are informational only.",
+              getValue=function() local d = DDB(); return d and d.showUnderInCombat == true end,
+              setValue=function(v)
+                  local d = DDB(); if not d then return end; d.showUnderInCombat = v
+                  RefreshAll()
+              end },
             { type="toggle", text="Show Tooltips",
               tooltip="Show item or spell tooltips when hovering reminder icons.",
               getValue=function() local d = DDB(); return not d or d.showTooltips ~= false end,
               setValue=function(v)
                   local d = DDB(); if not d then return end; d.showTooltips = v
-              end },
+              end }
+        );  y = y - h
+
+        -- Row 6: Opacity (last row of the display section)
+        _, h = W:DualRow(parent, y,
             { type="slider", text="Opacity", min=0, max=1, step=0.05,
               getValue=function() local d = DDB(); return d and d.opacity or 1 end,
               setValue=function(v)
                   local d = DDB(); if not d then return end; d.opacity = v
                   RefreshAll(); UpdatePreviewHeader()
-              end }
+              end },
+            { type="label", text="" }
         );  y = y - h
 
         _, h = W:Spacer(parent, y, 20);  y = y - h

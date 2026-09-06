@@ -314,15 +314,23 @@ function EABR.GetShowUnderMinutes()
     return disp.showUnder or 5
 end
 
--- Thresholds apply everywhere except combat and active Mythic+ keys (there a
--- reminder means the buff is fully gone).
+-- Thresholds apply everywhere except combat and active Mythic+ keys, where a
+-- reminder means the buff is fully gone. "Show Below In Combat" opts back in.
 function EABR.ShowUnderThresholdApplies()
-    if InCombat() or InMythicPlusKey() then return false end
+    if InCombat() or InMythicPlusKey() then
+        local disp = db and db.profile and db.profile.display
+        return (disp and disp.showUnderInCombat) == true
+    end
     return true
 end
 
 function EABR.IsUnderDuration(duration, expirationTime, sectionKey)
     if not (db and db.profile and duration and expirationTime and sectionKey) then return false end
+    -- Zero means "no timing info", the same sentinel GetEatingExpirationTime
+    -- rejects, not "about to expire": 0 - GetTime() is hugely negative and would
+    -- clear every threshold below. Restricted aura reads hand back a real
+    -- duration with the expiration withheld this way.
+    if duration <= 0 or expirationTime <= 0 then return false end
     if not EABR.ShowUnderThresholdApplies() then return false end
     local thresholdSeconds = EABR.GetShowUnderMinutes() * 60
     if thresholdSeconds > 0 and duration >= thresholdSeconds then
@@ -1476,28 +1484,42 @@ local function PlayerHasWellFed()
     return false
 end
 
+-- Unlike the other consumables this one attempts the read under restriction
+-- instead of bailing outright, so a flask can be reported missing wherever the
+-- client still answers. Where it does not answer the reminder stays silent:
+-- inside a keystone GetPlayerAuraBySpellID returns nil for the player's own
+-- flask even though the ID is whitelisted and the buff is plainly up (verified
+-- in game 2026-09-04), so an empty read there proves nothing.
 local function PlayerHasFlaskBuff()
     if InPvPInstance() then return true end
-    if EABR.ConsumablePresenceUnverifiable() then return true end
+    local restricted = EABR.ConsumablePresenceUnverifiable()
     -- Direct ID lookup for known flask buff IDs (zero allocation)
     for id in pairs(FLASK_BUFF_ID_SET) do
-        local ok, result = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
-        if ok and result ~= nil then
-            local dur, exp = result.duration, result.expirationTime
-            if dur ~= nil and exp ~= nil and not isSecret(dur) and not isSecret(exp)
-               and IsUnderDuration(dur, exp, "consumable") then
-                return false
+        if not restricted or NON_SECRET_SPELL_IDS[id] or _isRuntimeNonSecret(id) then
+            local ok, result = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
+            if ok and result ~= nil then
+                -- A secret result still means an aura came back: present, but
+                -- its duration cannot be inspected for the threshold.
+                if isSecret(result) then return true end
+                local dur, exp = result.duration, result.expirationTime
+                if dur ~= nil and exp ~= nil and not isSecret(dur) and not isSecret(exp)
+                   and IsUnderDuration(dur, exp, "consumable") then
+                    return false
+                end
+                return true
             end
-            return true
         end
     end
     -- Name-based fallback for flasks not in our ID set (lazy scan)
-    if _AC.valid then
+    if not restricted and _AC.valid then
         _AC.ensureNames()
         for aName in pairs(_AC.byName) do
             if FLASK_NAME_SET[aName] then return true end
         end
     end
+    -- Nothing found. Only meaningful where the reads answer at all: under
+    -- restriction an empty result is indistinguishable from an absent flask.
+    if restricted then return true end
     return false
 end
 
@@ -1855,10 +1877,12 @@ local defaults = {
             frameStrata = "MEDIUM",
             cursorAttach = false,
             -- Global timing pair (minutes). showUnderMPlus is the pre-key
-            -- (Mythic 0 / keystone lobby) threshold; active keys and combat
-            -- ignore thresholds entirely (only fully-missing reminds there).
+            -- (Mythic 0 / keystone lobby) threshold. Active keys and combat
+            -- ignore both (only fully-missing reminds there) until
+            -- showUnderInCombat opts back in.
             showUnder = 5,
             showUnderMPlus = 40,
+            showUnderInCombat = false,
         },
         raidBuffs = {
             enabled = {
