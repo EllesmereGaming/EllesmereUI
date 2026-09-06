@@ -9532,7 +9532,11 @@ function EAB:RefreshRuntimeVisibility()
                     if vis ~= "in_combat" and vis ~= "out_of_combat" and not s.combatShowEnabled then
                         -- Only Show frames without a state-visibility driver.
                         -- Frames with a driver (any _eabLastVisStr) are managed by the driver.
-                        if not info.isBlizzardMovable and not info.blizzOwnedVisibility and not frame._eabLastVisStr then
+                        -- Movable wrappers are ours: restore them when their hide
+                        -- condition clears. Blizzard still owns child visibility.
+                        if not info.blizzOwnedVisibility and not frame._eabLastVisStr
+                           and (not info.isBlizzardMovable
+                                or EAB_VTABLE.ExtraBars.ShouldShowManagedNonSecureBar(s)) then
                             frame:Show()
                         end
                     end
@@ -10024,7 +10028,10 @@ function EAB:UpdateHousingVisibility()
                                 bf:Show()
                             end
                             if bf then EFD(bf).visWasShown = nil end
-                        elseif not info.isBlizzardMovable then
+                        -- Restore our movable wrapper, respecting all remaining
+                        -- visibility gates (including pet battles).
+                        elseif not info.isBlizzardMovable
+                           or EAB_VTABLE.ExtraBars.ShouldShowManagedNonSecureBar(s) then
                             frame:Show()
                         end
                         -- Data bars may need to re-hide (max level, max renown, etc.)
