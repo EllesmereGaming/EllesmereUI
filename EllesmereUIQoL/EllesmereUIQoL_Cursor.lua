@@ -31,7 +31,7 @@ local GetSpellCooldown = C_Spell and C_Spell.GetSpellCooldown or GetSpellCooldow
 local UnitCastingInfo = UnitCastingInfo or CastingInfo
 local UnitChannelInfo = UnitChannelInfo or ChannelInfo
 
-local f, t
+local f, t, reticle
 local lastX, lastY
 
 local lastScale, lastHex, lastTex, lastAlpha
@@ -91,15 +91,34 @@ local UpdateVisibility
 
 local lastUseClassColor
 
+local function CursorSize(p)
+    local size = floor((p.baseSize or DEF_BASESIZE) * (p.scale or DEF_SCALE) + 0.5)
+    if size < 8 then return 8 end
+    if size > 512 then return 512 end
+    return size
+end
+
+local function ApplyReticle(p, size, r, g, b, a)
+    if not reticle then return end
+    if not p.reticle then
+        reticle:Hide()
+        return
+    end
+    -- ~20% of the ring so the mask has enough pixels to stay circular.
+    local dot = max(4, floor(size * 0.2 + 0.5))
+    reticle:SetSize(dot, dot)
+    reticle:SetColorTexture(r, g, b, a)
+    reticle:Show()
+end
+
 local function Apply()
     if not f or not t then return end
     local p = ECL.db.profile
 
     local scale = p.scale or DEF_SCALE
+    local size = CursorSize(p)
     if scale ~= lastScale then
         lastScale = scale
-        local size = floor((p.baseSize or DEF_BASESIZE) * scale + 0.5)
-        if size < 8 then size = 8 elseif size > 512 then size = 512 end
         f:SetSize(size, size)
     end
 
@@ -110,10 +129,11 @@ local function Apply()
     -- changed. Accent mode also needs per-frame re-read since ELLESMERE_GREEN
     -- mutates in place when the user changes their accent color mid-session.
     local a = (p.alpha or 100) / 100
+    local r, g, b
     if hex ~= lastHex or p.useClassColor or p.useAccentColor or colorModeChanged or a ~= lastAlpha then
         lastHex = hex
         lastAlpha = a
-        local r, g, b = ResolveColor(p)
+        r, g, b = ResolveColor(p)
         t:SetVertexColor(r, g, b, a)
     end
 
@@ -125,6 +145,11 @@ local function Apply()
         local path = (ringKey and RING_TEXTURES[ringKey]) or RING_TEXTURES[tex] or TEX_CUSTOM
         t:SetTexture(path)
     end
+
+    -- Reticle is cheap and Apply() only runs on setting changes, so always
+    -- refresh it (toggle, scale, and color all land here).
+    if not r then r, g, b = ResolveColor(p) end
+    ApplyReticle(p, size, r, g, b, a)
 
     UpdateVisibility()
 end
@@ -1275,6 +1300,7 @@ function ECL:OnInitialize()
                     combatOnly = false,
                 },
                 trail = false,
+                reticle = false,
                 visibility       = "always",
                 visOnlyInstances = false,
                 visHideHousing   = false,
@@ -1341,6 +1367,22 @@ function ECL:OnEnable()
     t = f:CreateTexture(nil, "OVERLAY")
     t:SetAllPoints(f)
     t:SetTexture(TEX_CUSTOM)
+
+    -- Center reticle: solid fill through the shared portrait circle mask,
+    -- same construction as the patch-notes sidebar dot.
+    reticle = f:CreateTexture(nil, "OVERLAY", nil, 1)
+    reticle:SetPoint("CENTER")
+    reticle:SetColorTexture(1, 1, 1, 1)
+    if reticle.SetSnapToPixelGrid then
+        reticle:SetSnapToPixelGrid(false)
+        reticle:SetTexelSnappingBias(0)
+    end
+    local reticleMask = f:CreateMaskTexture()
+    reticleMask:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\portraits\\circle_mask.tga",
+        "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    reticleMask:SetAllPoints(reticle)
+    reticle:AddMaskTexture(reticleMask)
+    reticle:Hide()
 
     -- No OnUpdate: the shared cursor service drives positioning. The frame
     -- is SHOWN by default and isVisible initializes TRUE, so the first
