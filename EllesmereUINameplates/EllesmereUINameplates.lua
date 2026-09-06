@@ -5157,7 +5157,13 @@ local function GetReactionColor(unit)
     -- Caster = the unit actually has a mana pool, rather than a class match. Second arg is
     -- typed PowerType (enum NUMBER), not the global MANA (localized "Mana" string, never
     -- matches). hasPower carries no secrecy flag, so it is safe to branch on directly.
-    local _isCaster = not owBasic and UnitHasPowerType(unit, Enum.PowerType.Mana)
+    -- Excludes boss units: _isMiniBoss already skips this step by returning earlier (step 7,
+    -- above Caster's step 8), but _isBossUnit's own color is deferred to step 10b (below the
+    -- threat-color steps, intentionally) -- with no exclusion here, a mana-using boss (e.g. a
+    -- caster-type raid boss) hit step 8's return before step 10b was ever reached, showing the
+    -- Spell Caster color instead of Bosses. Mirrors the mutual exclusivity boss/mini-boss
+    -- already have with each other.
+    local _isCaster = not owBasic and not _isBossUnit and UnitHasPowerType(unit, Enum.PowerType.Mana)
     -- DPS/healer No Aggro override state (mirrors tank has-aggro overrides at 6b). Each
     -- override independently promotes the No Aggro color above one mob-type step (mini-boss 7,
     -- caster 8). Active only for a non-tank without aggro in a group (matches step 10).
