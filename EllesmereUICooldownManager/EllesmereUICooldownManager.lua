@@ -6412,6 +6412,11 @@ do
         if ns._cdmSoundSuppressed and ns._cdmSoundSuppressed() then return end
         local sid = ns.GetCanonicalSpellIDForFrame and ns.GetCanonicalSpellIDForFrame(f)
         if not sid then return end
+        -- The client owns this id's cues (the same spell is an aura-tracked
+        -- custom registered via C_UnitAuras.AddAuraSound, which covers BOTH
+        -- edges whenever either is configured -- same settings entry): record
+        -- nothing or the cue doubles. Empty-table lookup for everyone else.
+        if ns.IsClientAuraSoundOwner and ns.IsClientAuraSoundOwner(sid) then return end
         -- Preferred: the frame's decorated context (fast; ResolveSpellSettings also
         -- handles variant/override spells). Falls back to an id-only lookup for the
         -- FIRST gain after login, whose alert fires before DecorateFrame populates

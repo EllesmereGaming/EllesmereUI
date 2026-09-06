@@ -8661,6 +8661,10 @@ local _presetLossSoundAt = {}
 local PRESET_GAIN_SOUND_GAP = 0.3
 local function PlayPresetBuffGainSound(sd, barKey, sid, now)
     if not ns._cdmAnyBuffSound then return end
+    -- The client owns this id's cues (aura-tracked custom of the same spell on
+    -- another bar, registered via C_UnitAuras.AddAuraSound): playing here too
+    -- would double-cue. Empty-table lookup for every other spell.
+    if ns.IsClientAuraSoundOwner and ns.IsClientAuraSoundOwner(sid) then return end
     -- Loading screen / login settle: cast/edge timers restart across a zone/login,
     -- which would false-fire the gain sound. Drop while suppressed.
     if ns._cdmSoundSuppressed and ns._cdmSoundSuppressed() then return end
@@ -8680,6 +8684,8 @@ end
 -- throttle table so gain/loss never suppress each other.
 local function PlayPresetBuffLossSound(sd, sid, now)
     if not ns._cdmAnyBuffSound then return end
+    -- Client-owned id: see the matching guard in PlayPresetBuffGainSound.
+    if ns.IsClientAuraSoundOwner and ns.IsClientAuraSoundOwner(sid) then return end
     if ns._cdmSoundSuppressed and ns._cdmSoundSuppressed() then return end
     local ss = sd and sd.spellSettings and sd.spellSettings[sid]
     local key = ss and ss.buffLostSoundKey
@@ -9371,6 +9377,10 @@ function ns.UpdateCustomBuffAuraTracking()
             rec.styleSig = nil
         end
     end
+    -- Client-side gain/loss sound registrations track the same id set: re-diff
+    -- them whenever the tracked customs could have changed (coalesced; no-op
+    -- when nothing sound-relevant moved).
+    if ns.QueueCustomAuraSoundSync then ns.QueueCustomAuraSoundSync() end
 end
 
 -- Re-apply a bar's appearance to its custom-aura icons. Called from every CDM
