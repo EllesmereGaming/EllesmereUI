@@ -2804,8 +2804,12 @@ local function CreateBarFrame(info)
         frame:SetAttribute("state-overridebar", true)
 
         -- Propagate page state to actionpage in the restricted environment so
-        -- it stays untainted; buttons with useparent-actionpage=true inherit
-        -- it (SecureButton_GetModifiedAttribute). The secure ChildUpdate is
+        -- it stays untainted. The same write goes to MainActionBar: the native
+        -- ACTIONBUTTONn keys fire Blizzard's ActionButton1-12, which resolve
+        -- their slot from that frame's actionpage at click time, and Blizzard's
+        -- own writer (ActionBarController_UpdateAll) cannot be relied on once
+        -- the stock bars are disposed, so without the mirror a key can fire a
+        -- page the icon does not show. The secure ChildUpdate is
         -- the missing half of the paging contract: each button gets an
         -- attribute change so OnAttributeChanged -> UpdateAction re-evaluates
         -- the derived slot even in combat. NEVER CallMethod here: vehicle/
@@ -2814,23 +2818,12 @@ local function CreateBarFrame(info)
         -- -- Blizzard's ActionBarController drivers in the same pass inherit
         -- it and OverrideActionBar:Show() hits ADDON_ACTION_BLOCKED. Page
         -- sync instead rides ACTIONBAR_PAGE_CHANGED (paging frame OnEvent).
-        --
-        -- Native ACTIONBUTTONn keys fire Blizzard's ActionButton1-12, which read
-        -- MainActionBar's actionpage at click time. Blizzard writes it from
-        -- ActionBarController_UpdateAll, behind the disposed stock stance bar, and
-        -- a stale value there fires a different page than the icon shows
-        -- (reported: Cat Form keys casting the caster page). Mirror the page onto it.
-        if MainActionBar then
-            frame:SetFrameRef("blizzmainbar", MainActionBar)
-        end
+        frame:SetFrameRef("blizzmainbar", MainActionBar)
         frame:SetAttributeNoHandler("_onstate-page", [[
             local page = tonumber(newstate) or 1
             self:SetAttribute("actionpage", page)
-            local blizz = self:GetFrameRef("blizzmainbar")
-            if blizz then
-                blizz:SetAttribute("actionpage", page)
-            end
             self:ChildUpdate("eab-page", page)
+            self:GetFrameRef("blizzmainbar"):SetAttribute("actionpage", page)
         ]])
 
         RegisterStateDriver(frame, "page", pagingConditions)
@@ -8031,7 +8024,8 @@ end
 -------------------------------------------------------------------------------
 --  Main Bar Page Sync: EAB owns MainBar paging via a custom secure parent, so
 --  Blizzard's stock ActionBarController never runs its "set actionpage, then
---  refresh every button" sequence for ActionButton1-12. Restored by tracking
+--  refresh every button" sequence for ActionButton1-12 (the actionpage half is
+--  mirrored onto MainActionBar by the MainBar _onstate-page handler). Restored by tracking
 --  page-sensitive visibility inputs on the buttons, then using a secure
 --  child-update from the MainBar frame to drive the buttons' normal
 --  OnAttributeChanged -> UpdateAction path in combat.
