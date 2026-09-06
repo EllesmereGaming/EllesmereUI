@@ -19030,6 +19030,206 @@ initFrame:SetScript("OnEvent", function(self)
                   end
               end });  y = y - h
 
+        -- Rotation Assist styling is profile-wide (not tied to the selected
+        -- bar). Keeping it on this override-eligible page lets the existing
+        -- spec/conditional override system capture every scalar below.
+        -- Read and write the runtime addon's authoritative profile. The options
+        -- DB reference can lag behind a profile/override proxy swap, which made
+        -- the swatches display Class while the renderer still read Custom.
+        local function RotationBars()
+            local runtime = ns.ECME and ns.ECME.db and ns.ECME.db.profile
+            local fallback = DB()
+            return (runtime and runtime.cdmBars) or (fallback and fallback.cdmBars)
+        end
+
+        local rotStyleRow
+        rotStyleRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Rotation Assist Style",
+              values={
+                  blizzard="Blizzard Default", solid="Solid Border",
+                  pixel="Pixel Glow", shape="Shape Glow",
+                  button="Action Button Glow", autocast="Auto-Cast Shine",
+                  gcd="GCD", modern="Modern WoW Glow", classic="Classic WoW Glow",
+              },
+              order={ "blizzard", "solid", "pixel", "shape", "button", "autocast", "gcd", "modern", "classic" },
+              tooltip="Choose the profile-wide border or glow used for Blizzard's Assisted Combat suggestion.",
+              getValue=function()
+                  local c = RotationBars(); return (c and c.rotationAssistStyle) or "blizzard"
+              end,
+              setValue=function(v)
+                  local c = RotationBars()
+                  if c then
+                      c.rotationAssistStyle = v
+                      if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+                      EllesmereUI:RefreshPage()
+                  end
+              end },
+            { type="label", text="Rotation Assist Color" });  y = y - h
+
+        do
+            local colorRgn = rotStyleRow._rightRegion
+            if colorRgn and EllesmereUI.BuildColorSwatch then
+                -- Keep mode selection separate from custom RGB changes. The shared
+                -- trio helper intentionally selects "custom" from its color setter,
+                -- but color-picker cancellation and panel teardown may replay that
+                -- setter. These independent swatches make an explicit custom-swatch
+                -- click the only path which can select custom mode.
+                colorRgn._noCapture = true
+                local function getMode()
+                    local c = RotationBars()
+                    return (c and c.rotationAssistColorMode) or "default"
+                end
+                local refreshRotColors
+                local function setMode(mode)
+                    local c = RotationBars()
+                    if not c or c.rotationAssistStyle == "blizzard" then return end
+                    c.rotationAssistColorMode = mode
+                    if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+                    if refreshRotColors then refreshRotColors() end
+                    if EllesmereUI._NotifySettingWrite then
+                        EllesmereUI._NotifySettingWrite(colorRgn)
+                    end
+                end
+                local custom, refreshCustom = EllesmereUI.BuildColorSwatch(
+                    colorRgn, rotStyleRow:GetFrameLevel() + 3,
+                    function()
+                        local c = RotationBars()
+                        return (c and c.rotationAssistColorR) or 1,
+                               (c and c.rotationAssistColorG) or 0,
+                               (c and c.rotationAssistColorB) or 0, 1
+                    end,
+                    function(r, g, b)
+                        local c = RotationBars()
+                        if c then
+                            c.rotationAssistColorR = r
+                            c.rotationAssistColorG = g
+                            c.rotationAssistColorB = b
+                        end
+                        if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+                    end)
+                local default = EllesmereUI.BuildColorSwatch(
+                    colorRgn, rotStyleRow:GetFrameLevel() + 3,
+                    function() return 1.0, 0.788, 0.137, 1 end,
+                    function() end)
+                local classSwatch = EllesmereUI.BuildColorSwatch(
+                    colorRgn, rotStyleRow:GetFrameLevel() + 3,
+                    function()
+                        local cc = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
+                        return cc.r, cc.g, cc.b, 1
+                    end,
+                    function() end)
+
+                local customPickerClick = custom:GetScript("OnClick")
+                custom:SetScript("OnClick", function(self)
+                    if getMode() ~= "custom" then
+                        setMode("custom")
+                    elseif customPickerClick then
+                        customPickerClick(self)
+                    end
+                end)
+                default:SetScript("OnClick", function() setMode("default") end)
+                classSwatch:SetScript("OnClick", function() setMode("class") end)
+                custom:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(custom, "Custom Color")
+                end)
+                default:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(default, "Default")
+                end)
+                classSwatch:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(classSwatch, "Class Colored")
+                end)
+                custom:SetScript("OnLeave", EllesmereUI.HideWidgetTooltip)
+                default:SetScript("OnLeave", EllesmereUI.HideWidgetTooltip)
+                classSwatch:SetScript("OnLeave", EllesmereUI.HideWidgetTooltip)
+
+                refreshRotColors = function()
+                    local c = RotationBars()
+                    local disabled = not c or c.rotationAssistStyle == "blizzard"
+                    local mode = getMode()
+                    custom:SetAlpha(disabled and 0.15 or (mode == "custom" and 1 or 0.3))
+                    default:SetAlpha(disabled and 0.15 or (mode == "default" and 1 or 0.3))
+                    classSwatch:SetAlpha(disabled and 0.15 or (mode == "class" and 1 or 0.3))
+                    refreshCustom()
+                end
+                refreshRotColors()
+                if EllesmereUI.RegisterWidgetRefresh then
+                    EllesmereUI.RegisterWidgetRefresh(refreshRotColors)
+                end
+                PP.Point(classSwatch, "RIGHT", colorRgn, "RIGHT", -20, 0)
+                PP.Point(custom, "RIGHT", classSwatch, "LEFT", -8, 0)
+                PP.Point(default, "RIGHT", custom, "LEFT", -8, 0)
+                colorRgn._noCapture = nil
+                colorRgn._captureCfg = {
+                    type = "multi", text = "Rotation Assist Color",
+                    accessors = {
+                        {
+                            type = "dropdown", text = "Rotation Assist Color Mode",
+                            values = { default = "Default", custom = "Custom", class = "Class Color" },
+                            order = { "default", "custom", "class" },
+                            getValue = function()
+                                local c = RotationBars()
+                                return (c and c.rotationAssistColorMode) or "default"
+                            end,
+                            setValue = function(mode)
+                                local c = RotationBars()
+                                if c then c.rotationAssistColorMode = mode end
+                                if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+                            end,
+                        },
+                        {
+                            type = "colorpicker", text = "Rotation Assist Custom Color",
+                            getValue = function()
+                                local c = RotationBars()
+                                return (c and c.rotationAssistColorR) or 1,
+                                       (c and c.rotationAssistColorG) or 0,
+                                       (c and c.rotationAssistColorB) or 0, 1
+                            end,
+                            setValue = function(r, g, b)
+                                local c = RotationBars()
+                                if c then
+                                    c.rotationAssistColorR = r
+                                    c.rotationAssistColorG = g
+                                    c.rotationAssistColorB = b
+                                end
+                                if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+                            end,
+                        },
+                    },
+                }
+            end
+        end
+
+        _, h = W:DualRow(parent, y,
+            { type="slider", text="Rotation Assist Thickness", min=1, max=8, step=1, trackWidth=120,
+              tooltip="Thickness in physical pixels for Solid Border and Pixel Glow.",
+              disabled=function()
+                  local c = RotationBars(); local s = c and c.rotationAssistStyle
+                  return s ~= "solid" and s ~= "pixel"
+              end,
+              disabledTooltip="Thickness applies to Solid Border and Pixel Glow",
+              getValue=function()
+                  local c = RotationBars(); return (c and c.rotationAssistThickness) or 3
+              end,
+              setValue=function(v)
+                  local c = RotationBars()
+                  if c then c.rotationAssistThickness = v end
+                  if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+              end },
+            { type="slider", text="Rotation Assist Outset", min=0, max=12, step=1, trackWidth=120,
+              tooltip="How many pixels the custom effect extends beyond the icon.",
+              disabled=function()
+                  local c = RotationBars(); return not c or c.rotationAssistStyle == "blizzard"
+              end,
+              disabledTooltip="Blizzard Default uses Blizzard's native size",
+              getValue=function()
+                  local c = RotationBars(); return (c and c.rotationAssistOutset) or 1
+              end,
+              setValue=function(v)
+                  local c = RotationBars()
+                  if c then c.rotationAssistOutset = v end
+                  if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+              end });  y = y - h
+
         -- Hide Items if Missing | Mirror Key Presses -- CD/utility bars only.
         -- Buff bars host Hide Items if Missing in the tooltip row above (their
         -- copy of this row would be empty), and Mirror Key Presses is not for
