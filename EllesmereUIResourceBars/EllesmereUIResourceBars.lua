@@ -1250,6 +1250,16 @@ local DEFAULTS = {
             bandReverse = false,
             bands = {},
             staggerCeilingPercent = 100,   -- % required for bar to fill up
+            -- Brewmaster Extended Stagger (opt-in, default off): the stagger bar spans
+            -- brewExtendedStaggerScale steps of 100% max health instead of stopping at
+            -- staggerCeilingPercent. While off nothing below is read, so stock behaviour
+            -- and the stored ceiling are untouched.
+            brewExtendedStaggerBar = false,
+            brewExtendedStaggerScale = 4,        -- 2-6; number of 100% stagger steps
+            brewExtendedStaggerColors = {},      -- per-step fill color {r,g,b} at index 1..6; empty entries fall back to EXT_STAGGER_COLORS
+            brewExtendedStaggerDividers = true,  -- draw a divider line at every 100% step
+            brewExtendedStaggerDividerWidth = 1,
+            brewExtendedStaggerDividerR = 0, brewExtendedStaggerDividerG = 0, brewExtendedStaggerDividerB = 0, brewExtendedStaggerDividerA = 1,
             guardianIronfurBar = true,     -- Guardian Druid: Ironfur duration bar (moving hash lines). New-user default; existing profiles pinned off by migration "resourcebars_guardian_ironfur_existing_off_v1".
             guardianShowHashLines = true,  -- Guardian Ironfur: draw the moving per-cast hash lines
             protIgnorePainBar = true,      -- Prot Warrior: Ignore Pain bar (absorbs vs the IP cap = 30% max health; aura stacks are secret). New-user default; existing profiles pinned off by migration "resourcebars_protwar_ignorepain_existing_off_v1".
@@ -2961,6 +2971,105 @@ function ns.ApplyHashLines(sb, cfg, getMaxFn)
     ApplyResourceBarTicks(sb, maxVal, cfg.hashValues, tickCache,
         cfg.hashWidth, cfg.hashColorR, cfg.hashColorG, cfg.hashColorB, cfg.hashColorA,
         isPercent, nil, vInset)
+end
+
+-- Brewmaster Extended Stagger (opt-in). The stagger bar spans brewExtendedStaggerScale
+-- steps of 100% max health; every step owns a fill color and, optionally, a divider line
+-- at its boundary. Everything here is a pure function of the config and is only reached
+-- from the BREWMASTER_STAGGER branch while the toggle is on -- off means no divider
+-- texture is ever created, no event is registered and no OnUpdate exists. Scoped in a
+-- block with ns entry points: the chunk is at the Lua local limit.
+do
+    local EXT_STAGGER_MIN_SCALE, EXT_STAGGER_MAX_SCALE = 2, 6
+    local EXT_STAGGER_COLORS = {
+        { 0.10, 0.80, 0.10 },
+        { 0.90, 0.90, 0.10 },
+        { 1.00, 0.50, 0.00 },
+        { 1.00, 0.00, 0.00 },
+        { 0.75, 0.00, 0.15 },
+        { 0.45, 0.00, 0.35 },
+    }
+    -- Options reads the same defaults and bounds for its swatches and Scale slider.
+    _G._ERB_EXT_STAGGER_COLORS = EXT_STAGGER_COLORS
+    _G._ERB_EXT_STAGGER_MIN_SCALE = EXT_STAGGER_MIN_SCALE
+    _G._ERB_EXT_STAGGER_MAX_SCALE = EXT_STAGGER_MAX_SCALE
+
+    function ns.ExtStaggerScale(sp)
+        local n = floor((tonumber(sp and sp.brewExtendedStaggerScale) or 4) + 0.5)
+        if n < EXT_STAGGER_MIN_SCALE then n = EXT_STAGGER_MIN_SCALE end
+        if n > EXT_STAGGER_MAX_SCALE then n = EXT_STAGGER_MAX_SCALE end
+        return n
+    end
+    _G._ERB_ExtStaggerScale = ns.ExtStaggerScale
+
+    -- Fill color for a stagger percentage of REAL max health (the same number the bar
+    -- text shows): step 1 covers 0-100%, step 2 covers 100-200%, up to the scale.
+    function ns.ExtStaggerColor(sp, staggerPct, scale)
+        local step = floor((staggerPct or 0) / 100) + 1
+        if step < 1 then step = 1 end
+        if step > scale then step = scale end
+        local c = sp.brewExtendedStaggerColors and sp.brewExtendedStaggerColors[step]
+        if c then return c.r or 1, c.g or 1, c.b or 1 end
+        c = EXT_STAGGER_COLORS[step] or EXT_STAGGER_COLORS[1]
+        return c[1], c[2], c[3]
+    end
+
+    -- Divider positions as percentages OF THE BAR, so they hold for any max health:
+    -- step k sits at k/scale of the bar's length. Cached per scale -- the string is also
+    -- ApplyResourceBarTicks' memo key, so it has to be stable.
+    local dividerTicks, dividerStr = {}, {}
+    local function DividerPositions(scale)
+        local s = dividerStr[scale]
+        if not s then
+            local parts = {}
+            for i = 1, scale - 1 do parts[i] = format("%.4f", i * 100 / scale) end
+            s = table.concat(parts, ",")
+            dividerStr[scale] = s
+        end
+        return s
+    end
+
+    -- Divider lines go through ApplyResourceBarTicks (reusing the bar's existing tick
+    -- overlay) with their own texture pool, so the user's own hash lines keep theirs and
+    -- their own color/width. The state memo is ours rather than the shared
+    -- sb._tickState: UNIT_POWER_FREQUENT drives the caller several times a second and
+    -- the hash-line call overwrites that memo, which would rebuild both pools nonstop.
+    function ns.ApplyExtStaggerDividers(sb, sp, active, scale)
+        if not (active and sp.brewExtendedStaggerDividers ~= false and scale > 1) then
+            if sb._extStagDivState then
+                sb._extStagDivState = nil
+                for i = 1, #dividerTicks do dividerTicks[i]:Hide() end
+            end
+            return
+        end
+        local barW, barH = sb:GetWidth(), sb:GetHeight()
+        if barW <= 0 then return end
+        local dw = sp.brewExtendedStaggerDividerWidth or 1
+        local dr = sp.brewExtendedStaggerDividerR or 0
+        local dg = sp.brewExtendedStaggerDividerG or 0
+        local db = sp.brewExtendedStaggerDividerB or 0
+        local da = sp.brewExtendedStaggerDividerA or 1
+        local oriSb = sb._sb or (sb.GetOrientation and sb)
+        local vert = (oriSb and oriSb.GetOrientation
+            and oriSb:GetOrientation() == "VERTICAL") or false
+        local revFill = (vert and oriSb.GetReverseFill
+            and oriSb:GetReverseFill()) or false
+        local pp = EllesmereUI and EllesmereUI.PP
+        local mult = (pp and pp.mult) or 1
+        local st = sb._extStagDivState
+        if st and st.scale == scale and st.dw == dw and st.r == dr and st.g == dg
+           and st.b == db and st.a == da and st.barW == barW and st.barH == barH
+           and st.vert == vert and st.rev == revFill and st.mult == mult then
+            return
+        end
+        if not st then st = {}; sb._extStagDivState = st end
+        st.scale, st.dw = scale, dw
+        st.r, st.g, st.b, st.a = dr, dg, db, da
+        st.barW, st.barH = barW, barH
+        st.vert, st.rev, st.mult = vert, revFill, mult
+        ApplyResourceBarTicks(sb, 100, DividerPositions(scale), dividerTicks,
+            dw, dr, dg, db, da, true)
+    end
 end
 
 -- Moving-hash overlay for the Guardian Ironfur bar, above the inner StatusBar fill so
@@ -5211,6 +5320,9 @@ local function UpdateSecondaryResource()
         -- Bar-style secondary (e.g. Devourer soul fragments, Elemental maelstrom, Brewmaster stagger)
         if secondaryBar then
             local cur, maxC = 0, maxPts
+            -- Brewmaster Extended Stagger: resolved once in the stagger branch below,
+            -- reused for the bar ceiling and the divider lines.
+            local _esActive, _esScale
             if powerType == "SOUL_FRAGMENTS_DEVOURER" and EllesmereUI and EllesmereUI.GetSoulFragments then
                 cur, maxC = EllesmereUI.GetSoulFragments()
                 if not maxC or maxC <= 0 then maxC = maxPts end
@@ -5237,6 +5349,10 @@ local function UpdateSecondaryResource()
             elseif powerType == "BREWMASTER_STAGGER" then
                 cur = UnitStagger("player") or 0
                 maxC = UnitHealthMax("player") or 1
+                if sp.brewExtendedStaggerBar then
+                    _esActive = true
+                    _esScale = ns.ExtStaggerScale(sp)
+                end
                 local curTainted = issecretvalue and issecretvalue(cur)
                 local maxTainted = issecretvalue and issecretvalue(maxC)
 				-- stagger thresholds
@@ -5259,7 +5375,12 @@ local function UpdateSecondaryResource()
                     end
                 elseif not sp.darkTheme and staggerPct then
                     local trig, tcr, tcg, tcb = false, r, g, b
-                    if _tsBandOn then
+                    if _esActive then
+                        -- Extended Stagger owns the color: one fixed step per 100% of
+                        -- max health, so threshold/band coloring does not apply.
+                        trig = true
+                        tcr, tcg, tcb = ns.ExtStaggerColor(sp, staggerPct, _esScale)
+                    elseif _tsBandOn then
                         local band = FindCountBand(_tsBands, staggerPct, _tsBandReverse)
                         if band then trig, tcr, tcg, tcb = true, band.r or r, band.g or g, band.b or b end
                     elseif _tsEntry then
@@ -5317,9 +5438,13 @@ local function UpdateSecondaryResource()
                     cur = IP.Active() and (UnitGetTotalAbsorbs("player") or 0) or 0
                 end
             end
-            -- Brewmaster stagger ceiling
+            -- Brewmaster stagger ceiling. Extended Stagger derives it from Scale
+            -- (scale * 100% of max health) and never writes staggerCeilingPercent, so
+            -- the stored ceiling applies again the moment the toggle goes off.
             local barMax = maxC
-            if powerType == "BREWMASTER_STAGGER" then
+            if _esActive then
+                barMax = maxC * _esScale
+            elseif powerType == "BREWMASTER_STAGGER" then
                 local ceil = sp.staggerCeilingPercent or 100
                 if ceil < 1 then ceil = 1 end
                 barMax = maxC * ceil / 100
@@ -5527,6 +5652,7 @@ local function UpdateSecondaryResource()
             else
                 secondaryBar:SetValue(cur, ns.EASE)
             end
+            ns.ApplyExtStaggerDividers(secondaryBar, sp, _esActive, _esScale or 0)
             if sp.showText and secondaryFrame._countText then
                 local ct = secondaryFrame._countText
                 local percentSuffix = (sp.showPercent == false) and "" or "%"
