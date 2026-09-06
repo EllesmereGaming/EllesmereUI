@@ -7085,6 +7085,10 @@ function NameplateFrame:RefreshCastIconSideReserve()
     self:UpdateClassification()
     self:UpdateRaidIcon()
     PositionArrowsOutsideAuras(self)
+    -- Without this, a cast bar showing/hiding shoves an already container-hugging
+    -- arrow back out to the coarse fallback position (same gap as the target-swap
+    -- path -- see NameplateFrame's isTarget branch).
+    if ns.NPC_ReanchorArrows then ns.NPC_ReanchorArrows(self) end
 end
 
 function NameplateFrame:RefreshNamePosition(localOnly)
@@ -7300,6 +7304,11 @@ function NameplateFrame:ApplyTarget()
             self.leftArrow:Show()
             self.rightArrow:Show()
             PositionArrowsOutsideAuras(self)
+            -- The coarse pass above only flanks health/name; a plate that already
+            -- has a live aura container needs the hugging override too, or a
+            -- fresh target selection leaves the arrows stuck at the wide fallback
+            -- until an unrelated RAID_TARGET_UPDATE happens to fire afterward.
+            if ns.NPC_ReanchorArrows then ns.NPC_ReanchorArrows(self) end
         elseif self.leftArrow then
             self.leftArrow:Hide()
             self.rightArrow:Hide()
