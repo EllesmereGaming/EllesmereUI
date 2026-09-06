@@ -2814,9 +2814,22 @@ local function CreateBarFrame(info)
         -- -- Blizzard's ActionBarController drivers in the same pass inherit
         -- it and OverrideActionBar:Show() hits ADDON_ACTION_BLOCKED. Page
         -- sync instead rides ACTIONBAR_PAGE_CHANGED (paging frame OnEvent).
+        --
+        -- Native ACTIONBUTTONn keys fire Blizzard's ActionButton1-12, which read
+        -- MainActionBar's actionpage at click time. Blizzard writes it from
+        -- ActionBarController_UpdateAll, behind the disposed stock stance bar, and
+        -- a stale value there fires a different page than the icon shows
+        -- (reported: Cat Form keys casting the caster page). Mirror the page onto it.
+        if MainActionBar then
+            frame:SetFrameRef("blizzmainbar", MainActionBar)
+        end
         frame:SetAttributeNoHandler("_onstate-page", [[
             local page = tonumber(newstate) or 1
             self:SetAttribute("actionpage", page)
+            local blizz = self:GetFrameRef("blizzmainbar")
+            if blizz then
+                blizz:SetAttribute("actionpage", page)
+            end
             self:ChildUpdate("eab-page", page)
         ]])
 
