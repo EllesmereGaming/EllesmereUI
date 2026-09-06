@@ -892,6 +892,26 @@ initFrame:SetScript("OnEvent", function(self)
 
         local ACCENT = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
 
+        -- Small inline gear button anchored to the left of a DualRow half's
+        -- control (mirrors the cog pattern used throughout the options UI,
+        -- e.g. the Name Text cog on BuildCDMBarsPage).
+        local function MakeCogBtn(rgn, showFn, anchorTo, iconPath)
+            local anchor = anchorTo or (rgn and (rgn._lastInline or rgn._control)) or rgn
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", anchor, "LEFT", -8, 0)
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints()
+            cogTex:SetTexture(iconPath or EllesmereUI.RESIZE_ICON)
+            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(self) showFn(self) end)
+            if rgn then rgn._lastInline = cogBtn end
+            return cogBtn
+        end
+
         -------------------------------------------------------------------
         --  Content Header: Live Action Bar Preview (replica of BuildLivePreview)
         -------------------------------------------------------------------
@@ -1533,6 +1553,7 @@ initFrame:SetScript("OnEvent", function(self)
                           setValue = function(v)
                               entry.mode = v
                               Refresh()
+                              EllesmereUI:RefreshPage()
                           end,
                         },
                         { type = "toggle", text = "Only In Combat",
@@ -1562,9 +1583,24 @@ initFrame:SetScript("OnEvent", function(self)
                         ns.StartNativeGlow(ov, style, cr, cg, cb)
                     end
 
-                    -- Row 2: Glow Type (with eyeball) | Glow Color Swatch Selectors
-                    local glowRow
-                    glowRow, h = W:DualRow(parent, y,
+                    -- At Stacks (toggle) + gear (Comparison / Stack Count), paired with
+                    -- Glow Type so every row stays filled. Same operator set and same
+                    -- fail-open bias as the per-icon Glow at Stacks feature (Stack Text
+                    -- and Glows cog): an unknown/secret application count never blocks
+                    -- the glow.
+                    local stackRow
+                    stackRow, h = W:DualRow(parent, y,
+                        { type = "toggle", text = "At Stacks",
+                          tooltip = "Only glow once the buff's stack count matches the comparison set via the gear.",
+                          disabled = function() return entry.mode == "MISSING" end,
+                          disabledTooltip = "Not available in Buff Missing mode",
+                          getValue = function() return entry.stackEnabled == true end,
+                          setValue = function(v)
+                              entry.stackEnabled = v or nil
+                              Refresh()
+                              EllesmereUI:RefreshPage()
+                          end,
+                        },
                         { type = "dropdown", text = "Glow Type",
                           values = glowLabels, order = glowOrder,
                           disabled = function() return BarHasCustomShape(curBar) end,
@@ -1578,15 +1614,60 @@ initFrame:SetScript("OnEvent", function(self)
                               Refresh()
                               RefreshPreviewGlow()
                           end,
-                        },
-                        { type = "label", text = "Glow Color" }
+                        }
                     );  y = y - h
+                    do
+                        local rgn = stackRow._leftRegion
+                        local _, cogShow = EllesmereUI.BuildCogPopup({
+                            title = "At Stacks", noOwnerDim = true,
+                            frameStrata = "FULLSCREEN_DIALOG", frameLevel = 350,
+                            rows = {
+                                { type = "dropdown", label = "Comparison",
+                                  values = { lt = "Below (<)", lte = "At Most (<=)", eq = "Exactly (=)", gte = "At Least (>=)", gt = "Above (>)" },
+                                  order = { "lt", "lte", "eq", "gte", "gt" },
+                                  get = function() return entry.stackOperator or "gte" end,
+                                  set = function(v)
+                                      entry.stackOperator = v ~= "gte" and v or nil
+                                      Refresh()
+                                  end },
+                                { type = "input", label = "Stack Count", inputWidth = 42, commitOnBlur = true,
+                                  get = function() return tostring(tonumber(entry.stackThreshold) or 2) end,
+                                  set = function(v)
+                                      local t = math.floor(tonumber(v) or 2)
+                                      if t < 1 then t = 1 end
+                                      if t > 99 then t = 99 end
+                                      entry.stackThreshold = t
+                                      Refresh()
+                                  end },
+                            },
+                        })
+                        local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.COGS_ICON)
+                        local cogDis = CreateFrame("Frame", nil, rgn)
+                        cogDis:SetAllPoints(cogBtn); cogDis:SetFrameLevel(cogBtn:GetFrameLevel() + 5)
+                        cogDis:EnableMouse(true)
+                        cogDis:SetScript("OnEnter", function()
+                            local tip = entry.mode == "MISSING" and "Not available in Buff Missing mode" or "Enable At Stacks"
+                            EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip(tip))
+                        end)
+                        cogDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                        local function UpdateCogDisStack()
+                            if entry.mode == "MISSING" or not entry.stackEnabled then
+                                cogBtn:SetAlpha(0.4)
+                                cogDis:Show()
+                            else
+                                cogDis:Hide()
+                            end
+                        end
+                        cogBtn:HookScript("OnShow", UpdateCogDisStack)
+                        EllesmereUI.RegisterWidgetRefresh(UpdateCogDisStack)
+                        UpdateCogDisStack()
+                    end
 
-                    -- Eyeball preview toggle (on left region of glow type row)
+                    -- Eyeball preview toggle (on right region of the At Stacks / Glow Type row)
                     if not EllesmereUI._prebuilding then
                         local EYE_VIS   = EllesmereUI.EYE_VISIBLE_ICON
                         local EYE_INVIS = EllesmereUI.EYE_INVISIBLE_ICON
-                        local leftRgn = glowRow._leftRegion
+                        local leftRgn = stackRow._rightRegion
                         if leftRgn and leftRgn._control then
                             local eyeBtn = CreateFrame("Button", nil, leftRgn)
                             eyeBtn:SetSize(26, 26)
@@ -1635,12 +1716,28 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                     end
 
-                    -- Inline color swatch for glow color (on right region of row 2)
+                    -- Row: Glow Color (swatches) | Remove Glow
+                    local colorRow
+                    colorRow, h = W:DualRow(parent, y,
+                        { type = "label", text = "Glow Color" },
+                        { type = "labeledButton", text = "Remove Glow", buttonText = "Remove", width = 150,
+                          onClick = function()
+                              table.remove(buffList, removeAIdx)
+                              if #buffList == 0 then
+                                  bg.assignments[assignKey] = nil
+                              end
+                              Refresh()
+                              EllesmereUI:RefreshPage(true)
+                          end,
+                        }
+                    );  y = y - h
+
+                    -- Inline color swatch for glow color (on left region)
                     if not EllesmereUI._prebuilding then
-                        local rightRgn = glowRow._rightRegion
-                        if rightRgn and EllesmereUI.BuildTrioColorSwatch then
+                        local leftRgn = colorRow._leftRegion
+                        if leftRgn and EllesmereUI.BuildTrioColorSwatch then
                             local glowSwatch, defaultSwatch, classSwatch = EllesmereUI.BuildTrioColorSwatch(
-                                rightRgn, glowRow:GetFrameLevel() + 3,
+                                leftRgn, colorRow:GetFrameLevel() + 3,
                                 {
                                     getMode = function() return entry.colorMode or "default" end,
                                     setMode = function(m) entry.colorMode = m end,
@@ -1655,35 +1752,19 @@ initFrame:SetScript("OnEvent", function(self)
                                     onChange = function() Refresh(); RefreshPreviewGlow(); EllesmereUI:RefreshPage() end,
                                     overrideSize = 20,
                                 })
-                            PP.Point(classSwatch, "RIGHT", rightRgn, "RIGHT", -20, 0)
+                            PP.Point(classSwatch, "RIGHT", leftRgn, "RIGHT", -20, 0)
                             PP.Point(glowSwatch, "RIGHT", classSwatch, "LEFT", -8, 0)
                             PP.Point(defaultSwatch, "RIGHT", glowSwatch, "LEFT", -8, 0)
                         end
                     end
 
-                    -- Row 3: Remove Glow on its own row (left slot), after the glow config.
-                    local removeRow
-                    removeRow, h = W:DualRow(parent, y,
-                        { type = "labeledButton", text = "Remove Glow", buttonText = "Remove", width = 150,
-                          onClick = function()
-                              table.remove(buffList, removeAIdx)
-                              if #buffList == 0 then
-                                  bg.assignments[assignKey] = nil
-                              end
-                              Refresh()
-                              EllesmereUI:RefreshPage(true)
-                          end,
-                        },
-                        { type = "spacer" }
-                    );  y = y - h
-
                     -- Buff icon to the LEFT of the Remove button
                     do
-                        local leftRgn = removeRow._leftRegion
-                        if leftRgn and leftRgn._control then
-                            local btn = leftRgn._control
+                        local rightRgn = colorRow._rightRegion
+                        if rightRgn and rightRgn._control then
+                            local btn = rightRgn._control
                             local btnH = btn:GetHeight()
-                            local ico = leftRgn:CreateTexture(nil, "ARTWORK")
+                            local ico = rightRgn:CreateTexture(nil, "ARTWORK")
                             ico:SetSize(btnH, btnH)
                             PP.Point(ico, "RIGHT", btn, "LEFT", -8, 0)
                             ico:SetTexCoord(0.08, 0.92, 0.08, 0.92)
@@ -5453,6 +5534,31 @@ initFrame:SetScript("OnEvent", function(self)
                           local bd = SelectedTBB(); if not bd then return end
                           bd.chargeHashLineR, bd.chargeHashLineG = r, g
                           bd.chargeHashLineB, bd.chargeHashLineA = b, a
+                          RefreshTBB()
+                      end },
+                    { type = "toggle", label = "Partial Charge Shade",
+                      tooltip = "Darkens the section of the bar that is still recharging the next charge.",
+                      get = function()
+                          local bd = SelectedTBB()
+                          return bd and bd.chargeHashShade == true
+                      end,
+                      set = function(v)
+                          local bd = SelectedTBB(); if not bd then return end
+                          bd.chargeHashShade = v and true or nil
+                          RefreshTBB()
+                      end },
+                    { type = "slider", label = "Shade Darkness", min = 5, max = 95, step = 5,
+                      disabled = function()
+                          local bd = SelectedTBB()
+                          return not bd or bd.chargeHashShade ~= true
+                      end,
+                      get = function()
+                          local bd = SelectedTBB()
+                          return bd and math.floor(((bd.chargeHashShadeAlpha or 0.5) * 100) + 0.5) or 50
+                      end,
+                      set = function(v)
+                          local bd = SelectedTBB(); if not bd then return end
+                          bd.chargeHashShadeAlpha = (v or 50) / 100
                           RefreshTBB()
                       end },
                 },

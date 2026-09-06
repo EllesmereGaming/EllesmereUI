@@ -12018,6 +12018,27 @@ WSkin.RegisterWindow({
     end,
 })
 
+-- Blizzard's button label is auto-sized: the box is exactly the string width,
+-- so it carries no slack. At a fractional effective scale the stored width can
+-- land a float hair UNDER the string it holds (Accept 46.499996 for a 46.5px
+-- string, Decline a clean 48.0) and WoW breaks the last glyph onto a second
+-- line. Which strings land on an unlucky value follows the typeface, not the
+-- word length, so the global font swap decides who is hit. Pinning the label to
+-- the button gives it 118px instead of 47: centered text looks identical and
+-- can no longer wrap. One-shot per label.
+function LP.PinButtonLabel(b)
+    if not b or (b.IsForbidden and b:IsForbidden()) then return end
+    local fs = b.Text or (b.GetFontString and b:GetFontString())
+    if not fs then return end
+    local d = GetFFD(fs)
+    if d.labelPinned then return end
+    d.labelPinned = true
+    fs:ClearAllPoints()
+    fs:SetPoint("LEFT", b, "LEFT", 2, 0)
+    fs:SetPoint("RIGHT", b, "RIGHT", -2, 0)
+    if fs.SetWordWrap then fs:SetWordWrap(false) end
+end
+
 -------------------------------------------------------------------------------
 --  Group invite popups. Two frames, one setting, because they are one thing to
 --  the player: LFGListInviteDialog (premade-group leader accepted your
@@ -12070,6 +12091,7 @@ function LP.SkinInvite(fr, roleChecks)
         if b then
             WSkin.Button(b)
             WSkin.StateButtonLabel(b)
+            LP.PinButtonLabel(b)
         end
     end
     -- Templates naming their buttons globally rather than off the frame (LFGInvitePopupAcceptButton / ...DeclineButton).
@@ -12080,6 +12102,7 @@ function LP.SkinInvite(fr, roleChecks)
             if b then
                 WSkin.Button(b)
                 WSkin.StateButtonLabel(b)
+                LP.PinButtonLabel(b)
             end
         end
     end

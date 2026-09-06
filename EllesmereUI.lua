@@ -3330,7 +3330,9 @@ do
 
     -- BackdropTemplate does arithmetic on its owner's width/height, so it is unusable for
     -- frames anchored to secret aura geometry. This variant draws the same eight edge-file
-    -- slices manually, keeping the PP path for Solid; `state` is any caller-owned table caching the eight textures (FFD, AuraKit button data).
+    -- slices manually, keeping the PP path for Solid; `state` is any caller-owned table
+    -- caching the eight textures (FFD, AuraKit button data). edgeScale is preview-only
+    -- geometry compensation; live callers leave it nil.
     local SECRET_BORDER_UV = {
         topLeft     = { 0.5078125, 0.0625, 0.5078125, 0.9375, 0.6171875, 0.0625, 0.6171875, 0.9375 },
         topRight    = { 0.6328125, 0.0625, 0.6328125, 0.9375, 0.7421875, 0.0625, 0.7421875, 0.9375 },
@@ -3343,7 +3345,7 @@ do
     }
 
     function EllesmereUI.ApplySecretSafeBorderStyle(borderFrame, state, size, r, g, b, a,
-        textureKey, offsetX, offsetY, shiftX, shiftY, addonKey, sizeKey)
+        textureKey, offsetX, offsetY, shiftX, shiftY, addonKey, sizeKey, edgeScale)
         if not borderFrame or not state then return end
         size, textureKey = size or 0, textureKey or "solid"
         local edges = state._secretBorderEdges
@@ -3370,10 +3372,15 @@ do
             end
             state._secretBorderEdges = edges
         end
-        local edgeSize = EDGE_MAP[size] or EDGE_MAP[1]
+        -- Preview surfaces can cancel their own panel scale without scaling the
+        -- saved 0-4 texture-size key (a fractional key would fall through EDGE_MAP).
+        -- Live aura buttons omit edgeScale and stay byte-for-byte equivalent.
+        edgeScale = edgeScale or 1
+        local edgeSize = (EDGE_MAP[size] or EDGE_MAP[1]) * edgeScale
         local ox, oy, sx, sy = EllesmereUI.GetBorderDefaults(addonKey, textureKey, sizeKey)
         ox = offsetX ~= nil and offsetX or ox; oy = offsetY ~= nil and offsetY or oy
         sx = shiftX ~= nil and shiftX or sx; sy = shiftY ~= nil and shiftY or sy
+        ox, oy, sx, sy = ox * edgeScale, oy * edgeScale, sx * edgeScale, sy * edgeScale
         if EllesmereUI.BorderTextureUsesScaleOffset(textureKey) then
             ox, oy = edgeSize / 2 + ox, edgeSize / 2 + oy
         end

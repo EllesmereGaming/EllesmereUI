@@ -141,11 +141,17 @@ local function ApplyStyle(b, style)
         if not b._bdr then
             b._bdr = CreateFrame("Frame", nil, b)
             b._bdr:SetAllPoints()
-            PP.CreateBorder(b._bdr, bd[1] or 0, bd[2] or 0, bd[3] or 0, bd[4] or 1, bd.size or 1)
+            b._bdr:EnableMouse(false)
         end
-        PP.UpdateBorder(b._bdr, bd.size or 1, bd[1] or 0, bd[2] or 0, bd[3] or 0, bd[4] or 1)
-        b._bdr:Show()
+        b._bdr:SetFrameLevel(bd.behind
+            and math.max(0, b:GetFrameLevel() - 1)
+            or (b.cd:GetFrameLevel() + 1))
+        EllesmereUI.ApplyBorderStyle(b._bdr, bd.textureSize or bd.size or 1,
+            bd[1] or 0, bd[2] or 0, bd[3] or 0, bd[4] or 1,
+            bd.texture or "solid", bd.offsetX, bd.offsetY, bd.shiftX, bd.shiftY,
+            bd.addonKey or "unitframes", bd.sizeKey or bd.size or 1)
     elseif b._bdr then
+        if EllesmereUI.HideBorderStyle then EllesmereUI.HideBorderStyle(b._bdr) end
         b._bdr:Hide()
     end
     b.cd:SetReverse(style.cooldownReverse ~= false)

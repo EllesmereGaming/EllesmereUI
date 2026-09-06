@@ -243,6 +243,8 @@ local TBB_DEFAULT_BAR = {
     chargeHashLineWidth = 2,
     chargeHashLineR = 0, chargeHashLineG = 0,
     chargeHashLineB = 0, chargeHashLineA = 1,
+    chargeHashShade = false,      -- darken the partially recharged charge segment
+    chargeHashShadeAlpha = 0.5,   -- darkness of the partial-charge shade (0-1)
     texture   = "none",
     fillR = _classR, fillG = _classG, fillB = _classB, fillA = 1,
     bgR = 0, bgG = 0, bgB = 0, bgA = 0.4,
@@ -1645,6 +1647,7 @@ local TBB_STYLE_KEYS = {
     "height", "width", "verticalOrientation", "reverseFill", "fillUp",
     "chargeHashLines", "chargeHashLineWidth",
     "chargeHashLineR", "chargeHashLineG", "chargeHashLineB", "chargeHashLineA",
+    "chargeHashShade", "chargeHashShadeAlpha",
     "texture", "strata",
     "fillColorMode", "fillR", "fillG", "fillB", "fillA",
     "bgR", "bgG", "bgB", "bgA",
@@ -2366,12 +2369,14 @@ local function ApplyTBBChargeHashLines(bar, cfg, maxCharges)
     local lineA = cfg.chargeHashLineA
     if lineA == nil then lineA = 1 end
     local isVert = cfg.verticalOrientation and true or false
+    local reverse = cfg.reverseFill and true or false
     local effectiveScale = sb:GetEffectiveScale() or 1
     -- Also runs from the shared timer tick, so the cache stays SCALAR: synthesized table/string keys would allocate even on a cache hit.
     if bar._chargeHashLineCacheValid
        and bar._chargeHashLineMaxCharges == maxCharges
        and bar._chargeHashLineWidth == width
        and bar._chargeHashLineVertical == isVert
+       and bar._chargeHashLineReverse == reverse
        and bar._chargeHashLineBarW == barW
        and bar._chargeHashLineBarH == barH
        and bar._chargeHashLineScale == effectiveScale
@@ -2406,21 +2411,66 @@ local function ApplyTBBChargeHashLines(bar, cfg, maxCharges)
         ticks[#ticks + 1] = tick
     end
 
+    -- Divider boundary bars: hidden StatusBars frozen at value i of maxCharges (clean
+    -- constants). Their texture edges come from the same engine math as the charge hash
+    -- fill's live countTexture edge, so ticks centered here leave no sub-pixel sliver
+    -- beside the partial-charge shade at any bar width (a PP.Scale-snapped offset could
+    -- sit up to a physical pixel off that native edge and shimmer at unlucky widths).
+    local divBars = bar._chargeHashDivBars
+    if not divBars then divBars = {}; bar._chargeHashDivBars = divBars end
+    for i = 1, maxCharges - 1 do
+        local db2 = divBars[i]
+        if not db2 then
+            db2 = CreateFrame("StatusBar", nil, sb)
+            db2:SetAllPoints(sb)
+            db2:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+            local dt = db2:GetStatusBarTexture()
+            dt:SetSnapToPixelGrid(false)
+            dt:SetTexelSnappingBias(0)
+            db2:SetAlpha(0)
+            db2:EnableMouse(false)
+            divBars[i] = db2
+        end
+        db2:SetOrientation(isVert and "VERTICAL" or "HORIZONTAL")
+        db2:SetReverseFill(reverse)
+        db2:SetMinMaxValues(0, maxCharges)
+        db2:SetValue(i)
+        db2:Show()
+    end
+    for i = maxCharges, #divBars do divBars[i]:Hide() end
+
     local PP = EllesmereUI and EllesmereUI.PP
     local lineWidth = PP and PP.Scale(width) or width
+    local halfLine = lineWidth / 2
     for i = 1, maxCharges - 1 do
         local tick = ticks[i]
-        local frac = i / maxCharges
+        local divTex = divBars[i] and divBars[i]:GetStatusBarTexture()
         tick:SetColorTexture(lineR, lineG, lineB, lineA)
         tick:ClearAllPoints()
         if isVert then
-            local offset = PP and PP.Scale(barH * frac) or (barH * frac)
             tick:SetSize(barW, lineWidth)
-            tick:SetPoint("CENTER", sb, "BOTTOM", 0, offset)
+            if divTex then
+                if reverse then
+                    tick:SetPoint("TOP", divTex, "BOTTOM", 0, halfLine)
+                else
+                    tick:SetPoint("BOTTOM", divTex, "TOP", 0, -halfLine)
+                end
+            else
+                local offset = PP and PP.Scale(barH * (i / maxCharges)) or (barH * (i / maxCharges))
+                tick:SetPoint("CENTER", sb, "BOTTOM", 0, offset)
+            end
         else
-            local offset = PP and PP.Scale(barW * frac) or (barW * frac)
             tick:SetSize(lineWidth, barH)
-            tick:SetPoint("CENTER", sb, "LEFT", offset, 0)
+            if divTex then
+                if reverse then
+                    tick:SetPoint("RIGHT", divTex, "LEFT", halfLine, 0)
+                else
+                    tick:SetPoint("LEFT", divTex, "RIGHT", -halfLine, 0)
+                end
+            else
+                local offset = PP and PP.Scale(barW * (i / maxCharges)) or (barW * (i / maxCharges))
+                tick:SetPoint("CENTER", sb, "LEFT", offset, 0)
+            end
         end
         tick:Show()
     end
@@ -2429,6 +2479,7 @@ local function ApplyTBBChargeHashLines(bar, cfg, maxCharges)
     bar._chargeHashLineMaxCharges = maxCharges
     bar._chargeHashLineWidth = width
     bar._chargeHashLineVertical = isVert
+    bar._chargeHashLineReverse = reverse
     bar._chargeHashLineBarW = barW
     bar._chargeHashLineBarH = barH
     bar._chargeHashLineScale = effectiveScale
@@ -4277,6 +4328,19 @@ local function _ensureTBBChargeHashFill(bar)
     fill:SetSnapToPixelGrid(false)
     fill:SetTexelSnappingBias(0)
     bar._chargeHashFillTexture = fill
+
+    -- Partial-charge shade: darkens the segment still recharging (the region between the
+    -- full-charge edge and the live progress edge). Its anchors ride the two invisible
+    -- status textures, so the region tracks secret-driven geometry with no Lua computation.
+    -- The hash tick lines center on divider bars whose texture edges come from the same
+    -- engine math as countTexture's edge, so the shade's leading edge always lands under
+    -- its divider line -- no sub-pixel sliver can open beside it at any bar width.
+    local shade = clip:CreateTexture(nil, "ARTWORK", nil, 2)
+    shade:SetColorTexture(0, 0, 0, 0.5)
+    shade:SetSnapToPixelGrid(false)
+    shade:SetTexelSnappingBias(0)
+    shade:Hide()
+    bar._chargeHashShadeTexture = shade
 end
 
 local function _styleTBBChargeHashFill(bar, cfg)
@@ -4394,6 +4458,34 @@ local function _updateTBBChargeHashFill(bar, cfg, maxCharges, currentCharges,
     local reverse = cfg.reverseFill and true or false
     local orientation = isVert and "VERTICAL" or "HORIZONTAL"
     local barW, barH = sb:GetWidth(), sb:GetHeight()
+    -- Divider boundary bars: one per charge boundary, frozen at value i (clean constants).
+    -- Their texture edges come from the SAME engine math as the live countTexture edge, so
+    -- the hash tick lines centered here share one coordinate system with the partial-charge
+    -- shade's leading edge -- the sliver that shimmered beside the divider at some bar
+    -- widths came from the old PP.Scale-snapped tick offset missing that native edge.
+    local divBars = bar._chargeHashDivBars
+    if not divBars then divBars = {}; bar._chargeHashDivBars = divBars end
+    for i = 1, maxCharges - 1 do
+        local db2 = divBars[i]
+        if not db2 then
+            db2 = CreateFrame("StatusBar", nil, sb)
+            db2:SetAllPoints(sb)
+            db2:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+            local dt = db2:GetStatusBarTexture()
+            dt:SetSnapToPixelGrid(false)
+            dt:SetTexelSnappingBias(0)
+            db2:SetAlpha(0)
+            db2:EnableMouse(false)
+            divBars[i] = db2
+        end
+        db2:SetOrientation(orientation)
+        db2:SetReverseFill(reverse)
+        db2:SetMinMaxValues(0, maxCharges)
+        db2:SetValue(i)
+        db2:Show()
+    end
+    for i = maxCharges, #divBars do divBars[i]:Hide() end
+
     -- Direct scalar comparisons name every geometry invalidator while keeping the steady-state update allocation-free.
     if not bar._chargeHashFillGeometryValid
        or bar._chargeHashFillMaxCharges ~= maxCharges
@@ -4447,6 +4539,31 @@ local function _updateTBBChargeHashFill(bar, cfg, maxCharges, currentCharges,
                 clip:SetPoint("BOTTOMRIGHT", progressTexture, "BOTTOMRIGHT", 0, 0)
             end
         end
+
+        -- The shade spans from the full-charge boundary to the moving progress edge,
+        -- mirroring the clip's orientation/reverse geometry.
+        local shade = bar._chargeHashShadeTexture
+        if shade then
+            shade:ClearAllPoints()
+            if isVert then
+                if reverse then
+                    shade:SetPoint("TOPLEFT", countTexture, "BOTTOMLEFT", 0, 0)
+                    shade:SetPoint("BOTTOMRIGHT", progressTexture, "BOTTOMRIGHT", 0, 0)
+                else
+                    shade:SetPoint("BOTTOMLEFT", countTexture, "TOPLEFT", 0, 0)
+                    shade:SetPoint("TOPRIGHT", progressTexture, "TOPRIGHT", 0, 0)
+                end
+            else
+                if reverse then
+                    shade:SetPoint("TOPRIGHT", countTexture, "TOPLEFT", 0, 0)
+                    shade:SetPoint("BOTTOMLEFT", progressTexture, "BOTTOMLEFT", 0, 0)
+                else
+                    shade:SetPoint("TOPLEFT", countTexture, "TOPRIGHT", 0, 0)
+                    shade:SetPoint("BOTTOMRIGHT", progressTexture, "BOTTOMRIGHT", 0, 0)
+                end
+            end
+        end
+
         bar._chargeHashFillGeometryValid = true
         bar._chargeHashFillMaxCharges = maxCharges
         bar._chargeHashFillVertical = isVert
@@ -4474,6 +4591,24 @@ local function _updateTBBChargeHashFill(bar, cfg, maxCharges, currentCharges,
     end
 
     _styleTBBChargeHashFill(bar, cfg)
+
+    -- Partial-charge shade state: scalar-cached so the steady-state tick is a no-op.
+    local shade = bar._chargeHashShadeTexture
+    if shade then
+        local shadeA = cfg.chargeHashShade == true
+            and (tonumber(cfg.chargeHashShadeAlpha) or 0.5) or 0
+        if shadeA > 1 then shadeA = 1 end
+        if shadeA > 0 then
+            if bar._chargeHashShadeAlpha ~= shadeA then
+                shade:SetColorTexture(0, 0, 0, shadeA)
+                bar._chargeHashShadeAlpha = shadeA
+            end
+            if not shade:IsShown() then shade:Show() end
+        elseif shade:IsShown() then
+            shade:Hide()
+        end
+    end
+
     local activating = not bar._chargeHashFillActive
     if activating then
         countBar:Show()

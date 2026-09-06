@@ -802,6 +802,9 @@ L["Charge Hash Line Settings"] = "충전 구분선 설정"
 L["Enable Charge Hash Lines first"] = "충전 구분선을 먼저 켜세요"
 L["Line Width"] = "선 두께"
 L["Line Color"] = "선 색상"
+L["Partial Charge Shade"] = "부분 충전 음영"
+L["Darkens the section of the bar that is still recharging the next charge."] = "다음 충전이 회복 중인 구간을 어둡게 표시합니다."
+L["Shade Darkness"] = "음영 농도"
 L["Stack Based Bar"] = "중첩 기반 바"
 L["Pixel Glow Background"] = "픽셀 반짝임 배경"
 L["Select a bar to broadcast it to other specs"] = "다른 전문화로 전파할 바를 선택하세요"
@@ -7013,9 +7016,24 @@ L["Friendly"] = "아군"
 L["Enemy"] = "적군"
 L["Ping Marker"] = "신호 표시기"
 L["Ping Marker Size"] = "신호 표시기 크기"
+L["Unlimited"] = "제한 없음"
+L["Less Common Filters"] = "기타 필터"
+L["Cast By You"] = "내가 시전함"
+L["From Any Player"] = "모든 플레이어"
+L["Can Apply Aura"] = "내가 시전 가능한 오라"
+L["Shown on Modifier"] = "조합키(Modifier) 사용 시 표시"
 
 --핵심 애드온 - 공격대 /파티 - 툴팁
 L["Shows the ping mark on a member's frame when someone pings them (needs Blizzard's Show Pings on Raid Frames setting on)."] = "누군가 파티원을 지정해 신호를 보내면 해당 파티원 프레임에 신호 표시를 나타냅니다 (블리자드 설정의 '공격대 프레임에 신호 표시' 기능이 켜져 있어야 합니다)."
+L["Only show debuffs whose full duration is at most this many seconds. Combines with the filters; Unlimited applies no cap."] = "전체 지속 시간이 이 초 이하인 디바이스만 표시합니다. 필터와 결합됩니다: '제한 없음'은 상한선을 두지 않습니다."
+L["Debuffs caused by any player or player pet. The opposite of Non-Player Auras; checking one clears the other."] = "모든 플레이어나 플레이어의 소환수가 입힌 디바이스입니다. 비플레이어 오라의 반대 개념이며, 하나를 체크하면 다른 하나는 해제됩니다."
+L["Debuffs applied by you or your pet."] = "나 또는 내 소환수가 적용한 디바이스입니다."
+L["Debuffs with the Magic dispel type."] = "마법 해제 유형의 디바이스입니다."
+L["Debuffs with the Curse dispel type."] = "저주 해제 유형의 디바이스입니다."
+L["Debuffs with the Poison dispel type."] = "독 해제 유형의 디바이스입니다."
+L["Debuffs with the Disease dispel type."] = "질병 해제 유형의 디바이스입니다."
+L["Debuffs with the Bleed dispel type."] = "출혈 해제 유형의 디바이스입니다."
+L["Debuffs your own class is able to apply."] = "내 직업이 적용할 수 있는 디바이스입니다."
 
 --핵심 애드온 - 행동단축바
 L["Skyriding (Airborne)"] = "하늘 경주 (비행 중)"
@@ -7039,6 +7057,10 @@ L["This option requires Blizzard's Assisted Highlight to be enabled"] = "이 옵
 L["Assisted Highlight"] = "보조 강조 효과"
 L["Assisted Highlight Outset"] = "보조 강조 효과 돌출"
 L["This option requires a style that draws the glow ring"] = "이 옵션을 사용하려면 빛나는 고리를 그리는 스타일이 필요합니다"
+
+--핵심 애드온 - 재사용 대기시간 관리자 
+L["Minimum Width"] = "최소 너비"
+L["Icon Slots Wide (0 = Off)"] = "가로 아이콘 칸 수 (0 = 끔)"
 
 --핵심 애드온 - 지원 및 시전바
 L["Queue Timer Style"] = "대기열 타이머 스타일"
@@ -7084,8 +7106,22 @@ L["Shows the debuffs you apply plus important debuffs from anyone."] = "자신�
 --핵심 애드온 - 재사용 대기시간 관리자
 L["ARCANE SOUL (SUNFURY)"]         = "비전의 영혼 (태양격노)"
 L["Arcane Soul Helper"]            = "비전의 영혼 도우미"
+L["Minimum Width"] = "최소 너비"
+L["Icon Slots Wide (0 = Off)"] = "가로 아이콘 칸 수 (0 = 끔)"
+L["Stack Text and Glows"] = "중첩 문자 및 반짝임"
+L["Glow at Stacks"] = "지정 중첩에서 반짝임"
+L["Comparison"] = "비교"
+L["Show Stack Text"] = "중첩 문자 표시"
+L["Below (<)"] = "미만 (<)"
+L["At Most (<=)"] = "이하 (<=)"
+L["Exactly (=)"] = "일치 (=)"
+L["At Least (>=)"] = "이상 (>=)"
+L["Above (>)"] = "초과 (>)"
+L["Speed"] = "속도" 
+L["Spell ID"] = "주문 ID"
+L["Stack Thresholds"] = "중첩 기준값"
 
--- 하우징 방문 메뉴 
+--하우징 방문 메뉴 
 L["House"] = "집"
 L["Leave combat to enable visiting."] = "전투에서 벗어난 후에 방문할 수 있습니다."
 L["Loading houses..."] = "집 목록 불러오는 중…"
@@ -7093,19 +7129,33 @@ L["No houses found."] = "보유한 집이 없습니다."
 L["View Houses"] = "집 보기"
 L["Visit"] = "방문"
 
--- 편의기능 - 편의기능 - 공격대 도구
+--편의 기능 - 오라/강화 효과 알림 - 오라,강화 효과 및 소모품
+L["WARLOCK DEMONS"] = "흑마법사 악마"
+L["Wrong Demon"] = "소환 불가 악마"
+L["Allowed Demons"] = "소환 가능 악마"
+L["Imp"] = "임프"
+L["Voidwalker"] = "공허방랑자"
+L["Sayaad"] = "세이야드"
+L["Felhunter"] = "지옥사냥개"
+L["You have not learned %1$s."] = "%1$s를 배우지 않았습니다."
+
+--편의 기능 - 오라/강화 효과 알림 - 오라,강화 효과 및 소모품 - 툴팁
+L["Show a reminder when your Warlock's active pet isn't one of the demons picked in Allowed Demons. A demon only counts while its summon spell is known, so leaving only Felguard picked stays silent for specs/builds that haven't talented Summon Felguard."] = "현재 소환된 악마가 '소환 가능 악마'에서 선택한 악마가 아닐 때 알림을 표시합니다. 악마는 해당 소환 주문을 배웠을 때만 활성화되므로, '지옥수호병 소환' 특성을 배우지 않은 전문화나 빌드에서는 지옥수호병만 선택해 두어도 알림이 울리지 않습니다."
+L["Pick which demons count as correct for Wrong Demon. A demon only counts while its summon spell is known; with none picked (or everything picked), the reminder never fires."] = "'소환 불가 악마' 알림을 제어하기 위해, 정상 소환으로 간주할 악마들을 선택합니다. 악마는 해당 소환 주문을 배웠을 때만 체크되며, 아무것도 선택하지 않거나 모두 선택하면 알림이 작동하지 않습니다."
+
+--편의기능 - 편의기능 - 공격대 도구
 L["QUICK FIRE"] = "빠른 징표"
 L["Enable Quick Fire"] = "빠른 징표 사용"
 L["Place World Marker"] = "세계 징표 놓기"
 L["Undo Last Marker"] = "마지막 징표 되돌리기"
 L["Clear All Markers"] = "모든 징표 지우기"
 
--- 편의기능 - 편의기능 - 공격대 도구 - 툴팁
+--편의기능 - 편의기능 - 공격대 도구 - 툴팁
 L["Adds three optional world-marker keybinds that remain usable in combat. Place drops the first free marker at the cursor in Star to Skull order; Undo removes the last marker placed through Quick Fire; Clear removes all world markers. Every binding starts empty. Marker changes made elsewhere during combat are picked up afterward."] = "전투 중에도 사용할 수 있는 선택적 세계 징표 단축키 3개를 추가합니다. '놓기(Place)'는 별부터 해골 순서대로 커서 위치에 비어 있는 첫 번째 징표를 배치하고, '되돌리기(Undo)'는 퀵 파이어를 통해 마지막으로 배치한 징표를 제거하며, '지우기(Clear)'는 모든 세계 징표를 제거합니다. 모든 단축키는 처음에는 비어 있습니다. 전투 중에 다른 곳에서 변경된 징표는 전투가 끝난 후 반영됩니다."
 L["Shows the Role Check button in window layouts and enables Right Click: Role Check on Compact Band."] = "창 레이아웃에 역할 확인 버튼을 표시하고, 컴팩트 밴드(Compact Band)에서 우클릭 시 역할 확인 기능을 활성화합니다."
 L["Countdown length in seconds. Compact Band uses First with Ctrl + Left Click, Second with Shift + Left Click, Third with Left Click, and Right Click stops the timer. Set a timer to 0 to disable that shortcut."] = "초 단위의 카운트다운 길이입니다. 컴팩트 밴드(Compact Band)는 Ctrl + 좌클릭 시 첫 번째, Shift + 좌클릭 시 두 번째, 그냥 좌클릭 시 세 번째 타이머가 작동하며, 우클릭하면 타이머가 중지됩니다. 해당 단축키를 비활성화하려면 타이머를 0으로 설정하세요."
 
--- 편의 기능 - 데이터 바
+--편의 기능 - 데이터 바
 L["Combat Status"] = "전투 상태"
 L["Broker Plugin"] = "애드온 단축 아이콘"
 L["Plugin"] = "플러그인"
@@ -7115,7 +7165,7 @@ L["Match Mode"] = "일치 조건 방식"
 L["Match All Conditions"] = "모든 조건 일치"
 L["Match Any Condition"] = "아무 조건이나 일치"
 
--- 편의 기능 - 데이터 바 - 툴팁
+--편의 기능 - 데이터 바 - 툴팁
 L["Every condition you set has to match. The default."] = "설정한 모든 조건이 충족되어야 합니다. (기본값)"
 L["This element shows as soon as ONE condition matches, and a Hide lane then means show while that condition is false."] = "이 요소는 하나의 조건이라도 충족되면 즉시 표시되며, 여기서 '숨기기 라인은 해당 조건이 거짓일 때 표시함을 의미합니다."
 L["Any LibDataBroker plugin registered right now. One block per plugin -- add the block again for a second one."] = "현재 등록된 모든 LibDataBroker 애드온(플러그인)입니다. 플러그인당 하나의 블록이 생성되며, 두 번째 블록을 원하시면 블록을 다시 추가하세요."
@@ -7125,7 +7175,7 @@ L["Holds the block at this width and clips longer text, so a plugin whose text k
 L["Prefixes the plugin's own name to its text."] = "플러그인의 이름을 텍스트 앞에 접두사로 붙입니다."
 L["Shows the plugin's own icon next to its text."] = "텍스트 옆에 플러그인 고유의 아이콘을 표시합니다."
 
--- 전체 설정 - 글꼴 
+--전체 설정 - 글꼴 
 L["Fonts"] = "글꼴"
 L["A quick view of every font setting in one place."] = "모든 글꼴 설정을 한눈에 확인할 수 있습니다."
 L["These are the same settings found on each module's own pages, not separate ones."] = "개별 모듈 페이지에 있는 설정과 동일하며, 별도의 추가 설정이 아닙니다."
@@ -7154,7 +7204,7 @@ L["Enable %1$s to edit its text settings."] = "%1$s이(가) 텍스트 설정을 
 L["Enable %1$s to edit its texture settings."] = "%1$s이(가) 텍스처 설정을 편집할 수 있도록 허용합니다."
 L["Module Disabled"] = "모듈 비활성화됨"
 
--- 전체 설정 - 글꼴 - 옵션
+--전체 설정 - 글꼴 - 옵션
 L["Module Outline"] = "모듈 외곽선"
 L["XP Bar Text Size"] = "경험치 바 텍스트 크기"
 L["Reputation Bar Text Size"] = "평판 바 텍스트 크기"
@@ -7240,7 +7290,7 @@ L["BoE / Warbound Text Size"] = "착용 시 귀속 / 전투부대 귀속 텍스�
 L["Text Scale (per data bar)"] = "텍스트 크기 비율 (데이터 바별)"
 L["Combat Text Font (logout required)"] = "전투 텍스트 글꼴 (재접속 필요)"
 
--- 전체 설정 - 택스처
+--전체 설정 - 택스처
 L["Textures"] = "텍스처"
 L["A quick view of every texture setting in one place."] = "모든 텍스처 설정을 한눈에 확인할 수 있습니다."
 L["MODULE TEXTURES"] = "모듈별 텍스처"
@@ -7258,7 +7308,7 @@ L["Chat background and tab textures"] = "대화창 배경 및 탭 텍스처"
 L["Meter, breakdown and history bar textures"] = "미터기, 상세 분석 및 기록 바 텍스처"
 L["Per-bar background textures"] = "개별 바 배경 텍스처"
 
--- 전체 설정 - 택스처 - 옵션
+--전체 설정 - 택스처 - 옵션
 L["XP Bar Texture"] = "경험치 바 텍스처"
 L["Reputation Bar Texture"] = "평판 바 텍스처"
 L["House Favor Bar Texture"] = "집 경험치 바 텍스처"
@@ -7300,7 +7350,7 @@ L["Spell History Bar Texture"] = "주문 기록 바 텍스처"
 L["Window & Bar Border Styles"] = "창 및 바 테두리 스타일"
 L["Bar Texture (per data bar)"] = "바 텍스처 (데이터 개별 바)"
 
--- 전체 설정 - 글꼴 - 툴팁 
+--전체 설정 - 글꼴 - 툴팁 
 L["Outline style override for all Cooldown Manager text. EUI Global Outline follows the global Outline Mode setting above."] = "모든 쿨다운 관리자 텍스트의 외곽선 스타일을 강제로 설정합니다. EUI 전체 외곽선은 위의 전체 외곽선 모드 설정을 따릅니다."
 L["Outline style override for all AuraBuff Reminders text. EUI Global Outline follows the global Outline Mode setting above."] = "모든 오라/버프 리마인더 텍스트의 외곽선 스타일을 강제로 설정합니다. EUI 전체 외곽선은 위의 전체 외곽선 모드 설정을 따릅니다."
 L["Outline style override for all Quality of Life text. EUI Global Outline follows the global Outline Mode setting above."] = "모든 편의 기능 텍스트의 외곽선 스타일을 강제로 설정합니다. EUI 전체 외곽선은 위의 전체 외곽선 모드 설정을 따릅니다."
@@ -7321,7 +7371,11 @@ L["Outline style override for all Bags text. EUI Global Outline follows the glob
 L["Outline style override for all Quickdraw text. EUI Global Outline follows the global Outline Mode setting above."] = "모든 퀵드로우 텍스트의 외곽선 스타일을 강제로 설정합니다. EUI 전체 외곽선은 위의 전체 외곽선 모드 설정을 따릅니다."
 L["Outline style override for all Resource & Cast Bars text. EUI Global Outline follows the global Outline Mode setting above."] = "모든 자원 및 시전 바 텍스트의 외곽선 스타일을 강제로 설정합니다. EUI 전체 외곽선은 위의 전체 외곽선 모드 설정을 따릅니다."
 
--- UI 모양 변경 - 쐐기돌 도구 
+--UI 모양 변경 -기본 UI 개선 - 블리자드 스킨
+L["Friend Notifications"] = "친구 알림"
+L["The Battle.net popup when a friend comes online or goes offline, plus broadcasts and invites."] = "친구가 접속하거나 오프라인 상태가 될 때 뜨는 배틀넷 팝업과 브로드캐스트, 초대 메시지를 관리합니다."
+
+--UI 모양 변경 - 쐐기돌 도구 
 L["INTERRUPT AND VISIBILITY"] = "차단 및 가시성"
 L["Cast Colors"] = "시전 바 색상"
 L["Fade Out of Interrupt Range"] = "차단 사거리 벗어남 시 흐려짐"
@@ -7330,7 +7384,7 @@ L["Range Fade Settings"] = "사거리 흐려짐 설정"
 L["Raid Target Marker"] = "공격대 징표"
 L["Important Cast Glow Settings"] = "중요 시전 반짝임 설정"
 
--- UI 모양 변경 - 가방
+--UI 모양 변경 - 가방
 L["Show Clear Button"] = "초기화 버튼 표시"
 L["GROUPING"] = "그룹화"
 L["Group by Category"] = "카테고리별 그룹화"
@@ -7338,7 +7392,7 @@ L["Category Sidebar"] = "카테고리 사이드바"
 L["Hide Empty Slots When Grouped"] = "그룹화 시 빈 칸 숨기기"
 L["Hide Bank Tabs in Sidebar"] = "사이드바에서 은행 탭 숨기기"
 
--- UI 모양 변경 -가방 - 툴팁
+--UI 모양 변경 -가방 - 툴팁
 L["Turn on Category Sidebar first, or the sidebar would have nothing left to navigate with."] = "'카테고리 사이드바'를 먼저 켜주세요. 그렇지 않으면 사이드바에서 탐색할 항목이 없"
 L["Right-click a tab in the bank sidebar to rename it or set its deposit filters."] = "은행 사이드바의 탭을 마우스 우클릭하여 이름을 변경하거나 입금 필터를 설정할 수 있습니다."
 L["Window scale, icon zoom and item level settings are shared with the Bags page."] = "창 크기, 아이콘 확대 및 아이템 레벨 설정은 가방 페이지와 공유됩니다."
@@ -7347,10 +7401,10 @@ L["List item categories in the bank sidebar the way the bags sidebar does -- gro
 L["Turn on Nest by Expansion or Group by Category first; the flat view has nowhere to move empty slots to."] = "'확장팩별 중첩' 또는 '카테고리별 그룹화'를 먼저 켜주세요. 기본(평면) 보기에서는 빈 칸을 이동할 공간이 없"
 L["Split items by category -- Armor, Consumables, Professions and so on -- using the same category list, order and renames as the All Items bag view. Nests inside the expansion headers when Nest by Expansion is also on. Categories that split further do so automatically: gear by equipment slot, Professions and Trade Goods by profession and material type."] = "'모든 아이템' 가방 보기와 동일한 카테고리 목록, 순서, 이름을 사용하여 아이템을 카테고리(방어구, 소모품, 전문 기술 등)별로 분류합니다. '확장팩별 중첩'이 켜져 있으면 확장팩 헤더 내부에 중첩됩니다. 세부 분류가 있는 카테고리는 장비 부위별 장비, 전문 기술 및 재질별 전문 기술/무역 상품 등으로 자동 분류됩니다."
 
--- UI 모양 변경 - 기본 ui 개선 - 툴팁,메뉴&팝업
+--UI 모양 변경 - 기본 ui 개선 - 툴팁,메뉴&팝업
 L["Restyles Blizzard's on-screen progress bars (event objectives, nameplate counters) to the EUI look. Requires reload to apply.\n\nThese bars are drawn over rather than modified, so if the game ever reports their contents as protected the original bar is shown instead.\n\nUse the cog to set a minimum size, so bars on shrunken nameplates stay readable."] = "블리자드의 기본 화면 진행 바(이벤트 목표, 이름표 카운터 등)를 EUI 스타일로 재디자인합니다. 적용하려면 애드온을 새로고침(리로드)해야 합니다.\n\n이 바들은 기존 바를 수정하는 게 아니라 그 위에 덧그리는 방식이므로, 게임 내에서 해당 콘텐츠를 보호 항목으로 지정할 경우 원래의 기본 바가 대신 표시됩니다.\n\n톱니바퀴 아이콘을 눌러 최소 크기를 설정하면, 작아진 이름표 위의 바도 가독성을 유지할 수 있습니다."
 
--- UI 모양 변경 - 쐐기돌 도구 - 툴팁
+--UI 모양 변경 - 쐐기돌 도구 - 툴팁
 L["Fade a bar when the enemy is beyond your active interrupt spell's range. Has no effect for specs without an interrupt."] = "적이 현재 활성화된 차단 주문의 사거리를 벗어나면 주문 바를 흐리게 표시합니다. 차단기가 없는 전문화에는 효과가 없습니다."
 L["Show the enemy's raid target marker to the left of the spell name."] = "주문 이름 왼쪽에 적의 공격대 징표를 표시합니다."
 L["Glow the bar when the enemy casts a spell Blizzard flags as important."] = "적이 블리자드에서 '중요'로 지정한 주문을 시전할 때 시전 바를 반짝이게 합니다."

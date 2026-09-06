@@ -675,6 +675,8 @@ local STYLE_DEBUFFS = "playerAuraBars_debuffs"
 -- stackTextSize/stackPosition/stackOffsetX/Y; stackColorR/G/B (same nil=white rule).
 -- Buff/debuff bars additionally: iconZoom (default 0.07, AK's fallback);
 -- borderSize/borderR/G/B/A (base border color, per-dispel-type override is separate);
+-- borderTexture ("solid" or a built-in/LibSharedMedia key), optional
+-- borderTextureOffset/OffsetY/ShiftX/ShiftY, and borderBehind;
 -- padding (single scalar -> all 4 sides); rowSpacing (optional row gap: feeds
 -- lineSpacing/groupLineSpacing only, nil falls back to `padding`; elementSpacing/
 -- groupSpacing, icon-to-icon within a row, always stay tied to `padding`); maxTotal
@@ -889,6 +891,13 @@ local function PAB_ApplyExtraText(button, d, style)
         SetTexturePixelSnap(border._left, d.pabCenteredSnap)
         SetTexturePixelSnap(border._right, d.pabCenteredSnap)
     end
+    -- Textured borders use the secret-safe eight-slice renderer rather than PP.
+    -- Keep its edge art on the same centered-growth snapping policy.
+    if d._secretBorderEdges then
+        for _, tex in pairs(d._secretBorderEdges) do
+            SetTexturePixelSnap(tex, d.pabCenteredSnap)
+        end
+    end
 end
 
 -- Icon-text outline flag for duration/stack text. Default follows the house icon-text
@@ -917,7 +926,21 @@ local function BuildStyle(isBuff, cfg)
     -- size 0 = no border; no separate "Hide Border" toggle.
     local border
     if borderSize > 0 then
-        border = { borderR, borderG, borderB, borderA, size = borderSize }
+        local textureSize = cfg.borderTextureSizeOverride or borderSize
+        border = {
+            borderR, borderG, borderB, borderA,
+            size = borderSize,
+            texture = cfg.borderTexture or "solid",
+            textureSize = textureSize,
+            offsetX = cfg.borderTextureOffset,
+            offsetY = cfg.borderTextureOffsetY,
+            shiftX = cfg.borderTextureShiftX,
+            shiftY = cfg.borderTextureShiftY,
+            behind = cfg.borderBehind == true,
+            addonKey = "unitframes",
+            sizeKey = textureSize,
+            edgeScale = cfg.borderTextureScaleOverride,
+        }
     end
 
     -- Positions may arrive mixed-case ("Bottom") rather than the uppercase anchor
@@ -1574,10 +1597,9 @@ end
 -- SkinAuraButton sized duration AND stack-count font strings from cfg.textSize, NOT
 -- the duration-only/stack-only split the old External Defensives module uses.
 -- noBorderDebuffs -> debuffCfg.borderSize = 0 (debuffs-only override, applied after
--- the shared borderSize above). NOT migrated, no PAB cfg field exists (known gap):
--- borderTexture/borderTextureOffset(Y)/borderTextureShiftX/Y/borderBehind,
--- durationFormat. Old buffIconZoom/debuffIconZoom are also skipped -- PAB has its own
--- per-bar iconZoom.
+-- the shared borderSize above). Border texture/offset/layer fields now map directly;
+-- durationFormat remains unsupported. Old buffIconZoom/debuffIconZoom are skipped --
+-- PAB has its own per-bar iconZoom.
 local function MigratePlayerAuraStyle(buffCfg, debuffCfg)
     local old = ns.db and ns.db.profile and ns.db.profile.playerAuras
     if not (old and old.enabled) then return end
@@ -1588,6 +1610,12 @@ local function MigratePlayerAuraStyle(buffCfg, debuffCfg)
         if old.borderG then cfg.borderG = old.borderG end
         if old.borderB then cfg.borderB = old.borderB end
         if old.borderA then cfg.borderA = old.borderA end
+        if old.borderTexture then cfg.borderTexture = old.borderTexture end
+        if old.borderTextureOffset ~= nil then cfg.borderTextureOffset = old.borderTextureOffset end
+        if old.borderTextureOffsetY ~= nil then cfg.borderTextureOffsetY = old.borderTextureOffsetY end
+        if old.borderTextureShiftX ~= nil then cfg.borderTextureShiftX = old.borderTextureShiftX end
+        if old.borderTextureShiftY ~= nil then cfg.borderTextureShiftY = old.borderTextureShiftY end
+        if old.borderBehind ~= nil then cfg.borderBehind = old.borderBehind end
         if old.showText ~= nil then cfg.durationShow = old.showText end
         if old.textSize then
             cfg.durationTextSize = old.textSize
@@ -1831,6 +1859,12 @@ local function EnsureExtDefCustomBar(s)
         if from.sortDirection then bar.sortDirection = from.sortDirection end
         if from.borderSize then bar.borderSize = from.borderSize end
         if from.borderR then bar.borderR, bar.borderG, bar.borderB, bar.borderA = from.borderR, from.borderG, from.borderB, from.borderA end
+        if from.borderTexture then bar.borderTexture = from.borderTexture end
+        if from.borderTextureOffset ~= nil then bar.borderTextureOffset = from.borderTextureOffset end
+        if from.borderTextureOffsetY ~= nil then bar.borderTextureOffsetY = from.borderTextureOffsetY end
+        if from.borderTextureShiftX ~= nil then bar.borderTextureShiftX = from.borderTextureShiftX end
+        if from.borderTextureShiftY ~= nil then bar.borderTextureShiftY = from.borderTextureShiftY end
+        if from.borderBehind ~= nil then bar.borderBehind = from.borderBehind end
     end
     local pos = s.extDefPos or (legacy and legacy.unlockPos)
     if pos and pos.point then
@@ -2473,6 +2507,37 @@ local function CreateBars()
     SyncCancelCVar()
 end
 
+-- Unlock mode's cog menu only offers "Element Options" for keys in
+-- EllesmereUI._ELEMENT_SETTINGS_MAP; a module adds its own dynamic keys there the
+-- way EllesmereUIDataBars.lua does, so EUI_UnlockMode.lua's static map needs no
+-- PAB branch. barId nil = one of the two built-in bars.
+--
+-- No sectionName/highlightText: NavigateToElementSettings scans the page
+-- wrapper's DIRECT children for section headers, and PABMP_BuildPage builds past
+-- `parent` into its own root on the shared scroll frame, so nothing is scannable.
+local function MapElementSettings(key, kind, barId)
+    if not EllesmereUI then return end
+    EllesmereUI._ELEMENT_SETTINGS_MAP = EllesmereUI._ELEMENT_SETTINGS_MAP or {}
+    EllesmereUI._ELEMENT_SETTINGS_MAP[key] = {
+        module = "EllesmereUIUnitFrames",
+        page = "Player Aura Bars",
+        preSelectFn = function()
+            if not EllesmereUI._setPABSelection then return end
+            if not barId then
+                EllesmereUI._setPABSelection(kind, "default")
+                return
+            end
+            -- Owning bucket resolved at click time, not baked in at registration:
+            -- the tile's "Add To" menu can move a bar to another editing-spec
+            -- bucket long after its key was mapped.
+            local bar, bucket
+            if kind == "buff" then bar, bucket = ns.PAB_GetCustomBuffBar(barId)
+            else bar, bucket = ns.PAB_GetCustomDebuffBar(barId) end
+            if bar then EllesmereUI._setPABSelection(kind, barId, bucket) end
+        end,
+    }
+end
+
 -- Unlock-mode registration, patterned on EllesmereUIDamageMeters.lua's
 -- ns.RegisterDMUnlock/MakeSATimerUnlockElement (observed EUI.MakeUnlockElement field
 -- usage, not a verified schema). Both bars use noResize (AuraKit sizes the container
@@ -2545,6 +2610,8 @@ function RegisterPABUnlock()
         MakeBarElement("PAB_Buffs", buffLabel, 700, true, function() return buffsParent end),
         MakeBarElement("PAB_Debuffs", "Debuffs", 701, false, function() return debuffsParent end),
     }
+    MapElementSettings("PAB_Buffs", "buff")
+    MapElementSettings("PAB_Debuffs", "debuff")
     EllesmereUI:RegisterUnlockElements(elements, "EllesmereUIUnitFrames")
     -- Registration alone only updates the element table; a mover already built
     -- this session keeps the label CreateMover baked into its FontString. No-op
@@ -3451,7 +3518,8 @@ end
 -- Bar objects (both kinds) also carry the same shared+category cfg fields as
 -- DefaultBuffsCfg/DefaultDebuffsCfg (iconSize, durationShow/stackShow,
 -- durationPosition/TextSize/OffsetX/Y/ColorR/G/B, stackPosition/TextSize/OffsetX/
--- Y/ColorR/G/B; buff/debuff bars additionally borderSize/R/G/B/A, iconZoom, padding,
+-- Y/ColorR/G/B; buff/debuff bars additionally borderSize/R/G/B/A, borderTexture and
+-- optional texture offset/shift/layer fields, iconZoom, padding,
 -- iconsPerRow, maxRows, maxTotal; debuff bars additionally dispelColorMagic/Curse/
 -- Disease/Poison/Bleed). NOT pre-populated, same as those two starting as {}:
 -- BuildStyle/ComputeGrid apply the same `or <default>` fallbacks either way, so a
@@ -3775,6 +3843,7 @@ local function RegisterPABCustomUnlock()
 
     local function MakeCustomBarElement(barId, bar, order, isBuff, parents)
         local key = (isBuff and "PAB_CustomBuff_" or "PAB_CustomDebuff_") .. barId
+        MapElementSettings(key, isBuff and "buff" or "debuff", barId)
         return key, MK({
             key = key,
             label = "PAB: " .. (bar.name or (isBuff and "Buff Bar" or "Debuff Bar")),
@@ -3871,15 +3940,24 @@ local function RegisterPABCustomUnlock()
     end
 
     -- Retire keys for bars deleted since the last call -- safe here (unlike TBB)
-    -- because PAB custom-bar ids are permanent, see doc comment above.
+    -- because PAB custom-bar ids are permanent, see doc comment above. The
+    -- element-options map entry is retired with the mover; a leftover entry would
+    -- be harmless (no mover, no cog) but the id is gone for good either way.
+    local elemMap = EllesmereUI._ELEMENT_SETTINGS_MAP
     if prevBuffKeys then
         for key in pairs(prevBuffKeys) do
-            if not pabRegisteredCustomBuffKeys[key] then EllesmereUI:UnregisterUnlockElement(key) end
+            if not pabRegisteredCustomBuffKeys[key] then
+                EllesmereUI:UnregisterUnlockElement(key)
+                if elemMap then elemMap[key] = nil end
+            end
         end
     end
     if prevDebuffKeys then
         for key in pairs(prevDebuffKeys) do
-            if not pabRegisteredCustomDebuffKeys[key] then EllesmereUI:UnregisterUnlockElement(key) end
+            if not pabRegisteredCustomDebuffKeys[key] then
+                EllesmereUI:UnregisterUnlockElement(key)
+                if elemMap then elemMap[key] = nil end
+            end
         end
     end
 end
@@ -4517,6 +4595,7 @@ local function CreatePreviewIcon(box)
     btn.cooldown:SetHideCountdownNumbers(true)
     btn.cooldown:Hide()
     btn.border = CreateFrame("Frame", nil, btn)
+    btn.borderState = {}
     -- Plain preview region, not a real AuraKit button -- masking is unguarded here.
     btn.shapeMask = btn:CreateMaskTexture()
     btn.shapeMask:Hide()
@@ -4570,6 +4649,11 @@ local function ApplyPreviewScale(cfg, comp)
     out.padding = (cfg.padding or 5) * comp
     out.rowSpacing = cfg.rowSpacing and (cfg.rowSpacing * comp) or nil
     out.borderSize = (cfg.borderSize or 1) * comp
+    -- Textured borders use a discrete 0-4 lookup for edge art. Preserve that raw
+    -- key and scale the resolved edge/offset geometry separately; Solid continues
+    -- to use the compensated borderSize above.
+    out.borderTextureSizeOverride = cfg.borderSize or 1
+    out.borderTextureScaleOverride = comp
     -- PabShapeBorderSize is keyed by the raw 0-4 level, so it must run BEFORE scaling
     -- (unlike out.borderSize above) -- resolve the level, then scale the result,
     -- mirroring iconSize's own scale-after-resolve treatment. BuildStyle prefers this
@@ -5157,7 +5241,9 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
             end
 
             btn.border:SetAllPoints(shapeActive and btn or btn.icon)
-            btn.border:SetFrameLevel(btn:GetFrameLevel() + 1)
+            btn.border:SetFrameLevel(style.border and style.border.behind
+                and math.max(0, btn:GetFrameLevel() - 1)
+                or (btn:GetFrameLevel() + 1))
             local PP = EllesmereUI and EllesmereUI.PanelPP
             if PP and style.border then
                 local br, bg, bb, ba = style.border[1], style.border[2], style.border[3], style.border[4]
@@ -5167,24 +5253,29 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
                 end
                 local size = style.border.size or 1
                 if shapeActive and style.shapeBorderPath and PP.ApplyMaskedShapeBorder then
+                    if EllesmereUI.HideBorderStyle then EllesmereUI.HideBorderStyle(btn.border) end
+                    if btn.borderState and btn.borderState._secretBorderEdges then
+                        for _, tex in pairs(btn.borderState._secretBorderEdges) do tex:Hide() end
+                    end
                     PP:ApplyMaskedShapeBorder(btn.border, btn.shapeMask, style.shapeBorderPath, style.shapeBorderSize or size, br, bg, bb, ba)
-                    if PP.ShowBorder then PP.ShowBorder(btn.border) end
                     btn.border:Show()
                 else
                     if PP.HideMaskedShapeBorder then PP:HideMaskedShapeBorder(btn.border)
                     elseif btn.border._shapeBorderTex then btn.border._shapeBorderTex:Hide() end
-                    -- PP.CreateBorder is create-once-only; live size/color changes on an
-                    -- already-created host go through PP.UpdateBorder instead.
-                    if btn.borderMade then
-                        PP.UpdateBorder(btn.border, size, br, bg, bb, ba)
-                    elseif PP.CreateBorder then
-                        PP.CreateBorder(btn.border, br, bg, bb, ba, size, "OVERLAY", 7)
-                        btn.borderMade = true
-                    end
-                    if PP.ShowBorder then PP.ShowBorder(btn.border) else btn.border:Show() end
+                    local b = style.border
+                    local appliedSize = (b.texture and b.texture ~= "" and b.texture ~= "solid")
+                        and (b.textureSize or size) or size
+                    EllesmereUI.ApplySecretSafeBorderStyle(btn.border, btn.borderState,
+                        appliedSize, br, bg, bb, ba, b.texture or "solid",
+                        b.offsetX, b.offsetY, b.shiftX, b.shiftY,
+                        b.addonKey or "unitframes", b.sizeKey or size, b.edgeScale)
+                    btn.borderMade = true
                 end
             else
-                if PP and PP.HideBorder then PP.HideBorder(btn.border) else btn.border:Hide() end
+                if EllesmereUI.ApplySecretSafeBorderStyle then
+                    EllesmereUI.ApplySecretSafeBorderStyle(btn.border, btn.borderState,
+                        0, 0, 0, 0, 0, "solid")
+                elseif PP and PP.HideBorder then PP.HideBorder(btn.border) else btn.border:Hide() end
                 if PP and PP.HideMaskedShapeBorder then PP:HideMaskedShapeBorder(btn.border)
                 elseif btn.border._shapeBorderTex then btn.border._shapeBorderTex:Hide() end
             end

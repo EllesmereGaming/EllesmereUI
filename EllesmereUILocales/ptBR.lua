@@ -4018,6 +4018,9 @@ L["CDM Bars"] = "Barras do CDM"
 L["Charge Hash Lines"] = "Linhas de Marcação de Carga"
 L["Charge Hash Lines already fills as charges recover"] = "As Linhas de Marcação de Carga já preenchem conforme as cargas recuperam"
 L["Charge Hash Line Settings"] = "Configurações de Linha de Marcação de Carga"
+L["Partial Charge Shade"] = "Sombra de Carga Parcial"
+L["Darkens the section of the bar that is still recharging the next charge."] = "Escurece a seção da barra que ainda está recarregando a próxima carga."
+L["Shade Darkness"] = "Intensidade da Sombra"
 L["Charge/Stack Size"] = "Tamanho de Carga/Pilha"
 L["Choose the spec to copy trinkets, pots, racials & buff presets from"] = "Escolha a especialização de onde copiar bugigangas, poções, raciais e predefinições de buff"
 L["Copies this custom spell and its settings to the same bar on the specs you pick. Specs that already have it are skipped."] = "Copia este feitiço personalizado e suas configurações para a mesma barra nas especializações escolhidas. Especializações que já o têm são ignoradas."
@@ -6687,7 +6690,6 @@ L["Glow at Stacks"] = "Brilho por Pilha"
 L["Enable Glow at Stacks"] = "Ativar Brilho por Pilha"
 L["Min Stack Count"] = "Quantidade Mínima de Pilha"
 L["Show Stack Text"] = "Mostrar Texto de Pilha"
-L["Replaces Buff Glow: the icon glows only at the set stacks or higher, using this spell's Buff Glow style (Modern WoW Glow if none is set)."] = "Substitui o Brilho de Buff: o ícone brilha apenas na quantidade de pilha definida ou acima, usando o estilo de Brilho de Buff deste feitiço (Brilho Moderno do WoW, se nenhum estiver definido)."
 
 -- == Mythic+ Timer / Split Compare =================================================
 L["Always Show Split Times"] = "Sempre Mostrar Tempos Parciais"
@@ -6739,3 +6741,40 @@ L["Makes this the override. It replaces the whole Visibility setting, so the con
 L["Not overridable. These conditions are shared and can only be changed while no override is being edited. An override replaces the Visibility setting outright -- Never, Always or Mouseover -- and ignores everything set here while it applies."] = "Não substituível. Estas condições são compartilhadas e só podem ser alteradas enquanto nenhuma substituição estiver sendo editada. Uma substituição troca totalmente a configuração de Visibilidade -- Nunca, Sempre ou Ao Passar o Mouse -- e ignora tudo o que for definido aqui enquanto estiver ativa."
 L["Not overridable. These conditions are shared and can only be changed while no override is being edited. An override replaces the Visibility setting outright -- Never, Always or Mouseover -- and ignores everything set here while it applies. Mouseover is sealed here too for this element: its hover mechanism follows the shared setting, so an override could only leave it shown."] = "Não substituível. Estas condições são compartilhadas e só podem ser alteradas enquanto nenhuma substituição estiver sendo editada. Uma substituição troca totalmente a configuração de Visibilidade -- Nunca, Sempre ou Ao Passar o Mouse -- e ignora tudo o que for definido aqui enquanto estiver ativa. O recurso de passar o mouse também fica bloqueado aqui para este elemento: seu mecanismo de exibição ao passar o mouse segue a configuração compartilhada, então uma substituição só poderia deixá-lo visível."
 L[" Mouseover is sealed here too for this element: its hover mechanism follows the shared setting, so an override could only leave it shown."] = true
+
+-- == Raid Frames / Player Aura Bars -- Less Common Debuff Filters =================
+L["Less Common Filters"] = "Filtros Menos Comuns"
+L["Cast By You"] = "Lançado por Você"
+L["From Any Player"] = "De Qualquer Jogador"
+L["Can Apply Aura"] = "Pode Aplicar Aura"
+L["Debuffs applied by you or your pet."] = "Debuffs aplicados por você ou seu ajudante."
+L["Debuffs caused by any player or player pet. The opposite of Non-Player Auras; checking one clears the other."] = "Debuffs causados por qualquer jogador ou ajudante de jogador. O oposto de Auras de Não-Jogadores; marcar um desmarca o outro."
+L["Debuffs with the Bleed dispel type."] = "Debuffs com o tipo de dissipação Sangramento."
+L["Debuffs with the Curse dispel type."] = "Debuffs com o tipo de dissipação Maldição."
+L["Debuffs with the Disease dispel type."] = "Debuffs com o tipo de dissipação Doença."
+L["Debuffs with the Magic dispel type."] = "Debuffs com o tipo de dissipação Magia."
+L["Debuffs with the Poison dispel type."] = "Debuffs com o tipo de dissipação Veneno."
+L["Debuffs your own class is able to apply."] = "Debuffs que sua própria classe é capaz de aplicar."
+L["Max Duration"] = "Duração Máxima"
+L["Unlimited"] = "Ilimitado"
+L["Enter the maximum debuff duration in seconds:"] = "Insira a duração máxima do debuff em segundos:"
+L["Only show debuffs whose full duration is at most this many seconds. Combines with the filters; Unlimited applies no cap."] = "Mostra apenas debuffs cuja duração total seja de, no máximo, esta quantidade de segundos. Combina-se com os filtros; Ilimitado não impõe limite algum."
+
+-- == BlizzardSkin / Friend Notifications ===========================================
+L["Friend Notifications"] = "Notificações de Amigos"
+L["The Battle.net popup when a friend comes online or goes offline, plus broadcasts and invites."] = "O pop-up do Battle.net quando um amigo fica online ou offline, além de transmissões e convites."
+L["Changing the Friend Notifications reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles."] = "Mudar a aparência de Notificações de Amigos requer recarregar a interface para trocar completamente entre os estilos Blizzard e Ellesmere."
+
+-- == Bags / Bank Category Sidebar disabled hints ===================================
+L["Turn on Category Sidebar first, or the sidebar would have nothing left to navigate with."] = "Ative primeiro a Barra Lateral de Categorias, ou a barra lateral não terá mais nada para navegar."
+L["Turn on Nest by Expansion or Group by Category first; the flat view has nowhere to move empty slots to."] = "Ative primeiro Agrupar por expansão ou Agrupar por categoria; a visão plana não tem para onde mover os espaços vazios."
+
+-- == Cooldown Manager / Glow at Stacks Comparison ==================================
+L["Comparison"] = "Comparação"
+L["Stack Count"] = "Quantidade de Pilha"
+L["Below (<)"] = "Abaixo (<)"
+L["At Most (<=)"] = "No Máximo (<=)"
+L["Exactly (=)"] = "Exatamente (=)"
+L["At Least (>=)"] = "No Mínimo (>=)"
+L["Above (>)"] = "Acima (>)"
+L["Replaces Buff Glow: the icon glows when its stack count matches the comparison below, using this spell's Buff Glow style (Modern WoW Glow if none is set)."] = "Substitui o Brilho de Buff: o ícone brilha quando sua quantidade de pilha corresponde à comparação abaixo, usando o estilo de Brilho de Buff deste feitiço (Brilho Moderno do WoW, se nenhum estiver definido)."

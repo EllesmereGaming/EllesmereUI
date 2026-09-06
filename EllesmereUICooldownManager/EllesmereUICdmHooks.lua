@@ -129,6 +129,9 @@ do
         end
         return nil
     end
+    -- Exported for the aura active-cache below (Bar Glows stack threshold):
+    -- same secret-safe applications read, off whatever pool frame is active.
+    ns._ReadBuffApplications = ReadBuffApplications
 
     local function StartStackGlow(st, width, height)
         ns.StartNativeGlow(st.glow, st.style, st.r, st.g, st.b, {
@@ -1500,6 +1503,14 @@ ns._cdidRouteMap = _cdidRouteMap
 -------------------------------------------------------------------------------
 local _activeCache = {}
 ns._tickBlizzActiveCache = _activeCache
+
+-- Per-spellID application count, same population pass as _activeCache above,
+-- same sid/baseSID/linked resolution (so it matches whatever spellID a Bar
+-- Glow entry was saved against). Value is a plain number, a SECRET number,
+-- or nil (no stack data). Consumed by Bar Glows' stack-threshold gate --
+-- forwarded straight into a StatusBar:SetValue, never compared in Lua.
+local _activeStacksCache = {}
+ns._tickBlizzAuraStacks = _activeStacksCache
 
 -------------------------------------------------------------------------------
 --  IsFrameIncluded
@@ -10137,7 +10148,9 @@ function ns.SetupViewerHooks()
                 ns._acLastFull = _btNow
             do
                 local ac = _activeCache
+                local asc = _activeStacksCache
                 wipe(ac)
+                wipe(asc)
                 for vi = 1, 4 do
                     local vf = GetViewerFrame(vi)
                     -- BuffIcon (3) / BuffBar (4) viewers SHOW a frame only while its
@@ -10159,13 +10172,25 @@ function ns.SetupViewerHooks()
                                 local sid, baseSID = ResolveFrameSpellID(frame)
                                 if sid and sid > 0 then
                                     ac[sid] = true
-                                    if baseSID and baseSID > 0 then ac[baseSID] = true end
+                                    -- Zero At Stacks assignments = zero extra reads here
+                                    -- (ns._anyBarGlowStackGate, maintained by
+                                    -- CdmBarGlows.lua's SetupOverlays).
+                                    local apps = ns._anyBarGlowStackGate and ns._ReadBuffApplications
+                                        and ns._ReadBuffApplications(frame)
+                                    if apps ~= nil then asc[sid] = apps end
+                                    if baseSID and baseSID > 0 then
+                                        ac[baseSID] = true
+                                        if apps ~= nil then asc[baseSID] = apps end
+                                    end
                                     local fc = _ecmeFC[frame]
                                     local linked = fc and fc.linkedSpellIDs
                                     if linked then
                                         for li = 1, #linked do
                                             local lsid = linked[li]
-                                            if lsid and lsid > 0 then ac[lsid] = true end
+                                            if lsid and lsid > 0 then
+                                                ac[lsid] = true
+                                                if apps ~= nil then asc[lsid] = apps end
+                                            end
                                         end
                                     end
                                 end

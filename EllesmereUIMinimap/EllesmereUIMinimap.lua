@@ -4095,8 +4095,9 @@ local function ApplyMinimap()
             minimap:SetAlpha(1)
             minimap:Show()
         elseif vis == "mouseover" then
-            minimap:SetAlpha(0)
-            minimap:Show()
+            -- Idle state is a real Hide(), not alpha 0 -- see UpdateMinimapVisibility.
+            minimap:SetAlpha(1)
+            if minimap:IsMouseOver() then minimap:Show() else minimap:Hide() end
         elseif vis then
             minimap:SetAlpha(1)
             minimap:Show()
@@ -5153,8 +5154,13 @@ local function UpdateMinimapVisibility()
     if InCombatLockdown() then return end
     local vis = EllesmereUI.EvalVisibility(p)
     if vis == "mouseover" then
-        minimap:SetAlpha(0)
-        minimap:Show()
+        -- Mouseover idle is a real Hide(), not alpha 0: frame alpha does not cover
+        -- everything drawn on this frame, so an alpha-0 map still left its icons on
+        -- screen until the first hover. Hide() is also exactly what the shared
+        -- mouseover poll applies, so both ends of the mode agree. Shown (not hidden)
+        -- while the cursor already sits on the map, so a re-apply mid-hover cannot blink.
+        minimap:SetAlpha(1)
+        if minimap:IsMouseOver() then minimap:Show() else minimap:Hide() end
     elseif vis then
         minimap:SetAlpha(1)
         minimap:Show()
