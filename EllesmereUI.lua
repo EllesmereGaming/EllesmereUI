@@ -6389,7 +6389,12 @@ function EllesmereUI:ShowInputPopup(opts)
         popup._placeholder = placeholder
 
         editBox:SetScript("OnTextChanged", function(self)
-            if self:GetText() == "" then placeholder:Show() else placeholder:Hide() end
+            local text = self:GetText() or ""
+            if text == "" then placeholder:Show() else placeholder:Hide() end
+            if popup._maxCount then
+                local count = strlenutf8 and strlenutf8(text) or #text
+                popup._countLabel:SetText(count .. "/" .. popup._maxCount)
+            end
         end)
         popup._editBox = editBox
 
@@ -6510,8 +6515,9 @@ function EllesmereUI:ShowInputPopup(opts)
         WirePopupEscape(popup, dimmer)
 
         editBox:SetScript("OnEnterPressed", function()
+            if popup._multiline then return end
             local txt = editBox:GetText()
-            if txt and txt ~= "" then
+            if txt and (txt ~= "" or popup._allowEmpty) then
                 dimmer:Hide()
                 if popup._onConfirmCb then popup._onConfirmCb(txt) end
             else
@@ -6547,10 +6553,37 @@ function EllesmereUI:ShowInputPopup(opts)
     popup._confirmBtn._lbl:SetText(EllesmereUI.L(opts.confirmText or "Save"))
     popup._onCancel = opts.onDismiss or opts.onCancel or nil
     popup._onConfirmCb = opts.onConfirm or nil
+    popup._allowEmpty = opts.allowEmpty == true
+    popup._multiline = opts.multiline == true
 
     popup._editBox:SetMaxLetters(opts.maxLetters or 30)
+    popup._editBox:SetMultiLine(popup._multiline)
+    popup._editBox:SetJustifyV(popup._multiline and "TOP" or "MIDDLE")
+    popup._inputFrame:SetHeight(opts.inputHeight or 28)
+    popup._editBox:ClearAllPoints()
+    popup._editBox:SetPoint("TOPLEFT", popup._inputFrame, "TOPLEFT", 12, popup._multiline and -8 or -1)
+    popup._editBox:SetPoint("BOTTOMRIGHT", popup._inputFrame, "BOTTOMRIGHT", -12, opts.showCount and 18 or 1)
+    popup._placeholder:ClearAllPoints()
+    if popup._multiline then
+        popup._placeholder:SetPoint("TOPLEFT", popup._editBox, "TOPLEFT", 0, -1)
+    else
+        popup._placeholder:SetPoint("LEFT", popup._editBox, "LEFT", 0, 0)
+    end
+    if opts.showCount and not popup._countLabel then
+        local countLabel = MakeFont(popup._inputFrame, 9, nil, TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
+        countLabel:SetPoint("BOTTOMRIGHT", popup._inputFrame, "BOTTOMRIGHT", -8, 5)
+        popup._countLabel = countLabel
+    end
+    popup._maxCount = opts.showCount and (opts.maxLetters or 0) or nil
+    if popup._countLabel then
+        popup._countLabel:SetShown(popup._maxCount and popup._maxCount > 0)
+    end
     local initText = opts.initialText or ""
     popup._editBox:SetText(initText)
+    if popup._maxCount then
+        local count = strlenutf8 and strlenutf8(initText) or #initText
+        popup._countLabel:SetText(count .. "/" .. popup._maxCount)
+    end
     if initText == "" then popup._placeholder:Show() else popup._placeholder:Hide() end
 
     popup._cancelBtn._resetAnim()
@@ -6600,7 +6633,7 @@ function EllesmereUI:ShowInputPopup(opts)
         popup._scaleWarnLabel:Hide()
     end
 
-    popup:SetHeight(194 + extraH + warnH + scaleWarnH)
+    popup:SetHeight(194 + math.max(0, (opts.inputHeight or 28) - 28) + extraH + warnH + scaleWarnH)
 
     popup._cancelBtn:SetScript("OnClick", function()
         popup._dimmer:Hide()
@@ -6608,7 +6641,7 @@ function EllesmereUI:ShowInputPopup(opts)
     end)
     popup._confirmBtn:SetScript("OnClick", function()
         local txt = popup._editBox:GetText()
-        if txt and txt ~= "" then
+        if txt and (txt ~= "" or opts.allowEmpty) then
             popup._dimmer:Hide()
             if opts.onConfirm then opts.onConfirm(txt) end
         else

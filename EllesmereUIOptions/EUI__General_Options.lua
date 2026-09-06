@@ -4198,7 +4198,7 @@ initFrame:SetScript("OnEvent", function(self)
                             "trainAllButton", "ahCurrentExpansion", "quickLoot",
                             "autoFillDelete", "skipCinematics", "skipCinematicsAuto",
                             "autoInsertKeystone", "quickSignup",
-                            "persistSignupNote", "hideBlizzardPartyFrame",
+                            "persistSignupNote", "signupNote", "hideBlizzardPartyFrame",
                             "instanceResetAnnounce", "instanceResetAnnounceMsg",
                             "healthMacroEnabled", "healthMacroPrio1", "healthMacroPrio2",
                             "healthMacroPrio3", "foodMacroEnabled", "macroFactory",

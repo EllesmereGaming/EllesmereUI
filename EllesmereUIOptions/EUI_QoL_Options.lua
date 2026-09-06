@@ -2597,7 +2597,7 @@ initFrame:SetScript("OnEvent", function(self)
                   end
               end },
             { type="toggle", text="Persistent Signup Note",
-              tooltip="Keeps your note text in the Sign Up dialog instead of clearing it each time you open it.",
+              tooltip="Saves one signup note between reloads and relogs. In Group Finder, choose Copy, press Ctrl+C, then Ctrl+V.",
               getValue=function()
                   return EllesmereUIDB and EllesmereUIDB.persistSignupNote or false
               end,
@@ -2609,6 +2609,67 @@ initFrame:SetScript("OnEvent", function(self)
                   end
               end }
         );  y = y - h
+
+        if not EllesmereUI._prebuilding then
+            local rightRgn = quickSignupRow._rightRegion
+            local function persistOff()
+                return not (EllesmereUIDB and EllesmereUIDB.persistSignupNote)
+            end
+
+            local noteCogBtn = CreateFrame("Button", nil, rightRgn)
+            noteCogBtn:SetSize(26, 26)
+            noteCogBtn:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -9, 0)
+            rightRgn._lastInline = noteCogBtn
+            noteCogBtn:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
+            noteCogBtn:SetAlpha(persistOff() and 0.15 or 0.4)
+            local noteCogTex = noteCogBtn:CreateTexture(nil, "OVERLAY")
+            noteCogTex:SetAllPoints()
+            noteCogTex:SetTexture(EllesmereUI.COGS_ICON)
+            noteCogBtn:SetScript("OnEnter", function(self)
+                self:SetAlpha(0.7)
+                EllesmereUI.ShowWidgetTooltip(self, "Edit the signup note saved between reloads and relogs.")
+            end)
+            noteCogBtn:SetScript("OnLeave", function(self)
+                self:SetAlpha(persistOff() and 0.15 or 0.4)
+                EllesmereUI.HideWidgetTooltip()
+            end)
+            noteCogBtn:SetScript("OnClick", function()
+                EllesmereUI:ShowInputPopup({
+                    title="Signup Note",
+                    message="Saved between reloads and relogs. In Group Finder, choose Copy, press Ctrl+C, then Ctrl+V.",
+                    placeholder="Enter signup note...",
+                    initialText=EllesmereUI.GetPersistentSignupNote
+                        and EllesmereUI.GetPersistentSignupNote() or "",
+                    maxLetters=63,
+                    inputHeight=70,
+                    multiline=true,
+                    showCount=true,
+                    allowEmpty=true,
+                    confirmText="Save",
+                    onConfirm=function(note)
+                        if EllesmereUI.SetPersistentSignupNote then
+                            EllesmereUI.SetPersistentSignupNote(note or "")
+                        end
+                    end,
+                })
+            end)
+
+            local noteCogBlock = CreateFrame("Frame", nil, noteCogBtn)
+            noteCogBlock:SetAllPoints()
+            noteCogBlock:SetFrameLevel(noteCogBtn:GetFrameLevel() + 10)
+            noteCogBlock:EnableMouse(true)
+            noteCogBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(noteCogBtn, EllesmereUI.DisabledTooltip("Persistent Signup Note"))
+            end)
+            noteCogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            EllesmereUI.RegisterWidgetRefresh(function()
+                local off = persistOff()
+                noteCogBtn:SetAlpha(off and 0.15 or 0.4)
+                if off then noteCogBlock:Show() else noteCogBlock:Hide() end
+            end)
+            if persistOff() then noteCogBlock:Show() else noteCogBlock:Hide() end
+        end
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
@@ -2808,6 +2869,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.instanceResetAnnounceMsg = ""
                 EllesmereUIDB.quickSignup = false
                 EllesmereUIDB.persistSignupNote = false
+                EllesmereUIDB.signupNote = nil
                 EllesmereUIDB.ahCurrentExpansion = false
                 EllesmereUIDB.healthMacroEnabled = false
                 EllesmereUIDB.healthMacroPrio1 = 1
