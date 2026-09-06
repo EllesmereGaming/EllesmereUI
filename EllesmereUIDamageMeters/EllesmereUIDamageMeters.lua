@@ -132,6 +132,11 @@ local DM_DEFAULTS = {
             standaloneTimerDesatOOC = false,
             refreshRate = 1,
             hideResetButton = false, -- display the "reset data" button on the damage meter header
+            -- toggleWindowsKey (unset by default) is the hotkey that hides/shows every
+            -- meter window at once. Runtime only: the hidden state is never saved, so a
+            -- reload restores the configured visibility.
+            toggleIncludeTimer        = false, -- also toggle the standalone combat timer
+            toggleIncludeSpellHistory = false, -- also toggle the spell history icon strip and bar window
             hdrBgColor      = { r = 0x1B/255, g = 0x1B/255, b = 0x1B/255 },
             hdrBgAlpha      = 1,
             hdrBottomBorderSize = 0,
@@ -440,6 +445,13 @@ local _inEncounter = false       -- true between ENCOUNTER_START and ENCOUNTER_E
 local _playerGUID
 local _windows = {}  -- array of active window tables
 ns._windows = _windows
+
+-- Hotkey toggle state. Deliberately not persisted: a window hidden by accident would
+-- otherwise stay gone after a reload with nothing on screen explaining why. Every place
+-- that can show one of the toggled frames consults this flag, because the shared
+-- visibility dispatcher, the standalone timer ticker and the spell history rebuild all
+-- re-show their frames on their own schedule. Options mode and unlock mode still win.
+ns._toggleHidden = false
 
 -- Bumped whenever a build of the windows starts or _EDM_Apply() supersedes one. The
 -- login build is staggered across frames, so a rebuild arriving while it is still in
@@ -4393,6 +4405,8 @@ local function CreateDMWindow(winIdx)
         if not frame then return end
         local c = DB()
         if EUI._unlockActive or ns._optionsOpen then frame:SetAlpha(1); frame:EnableMouse(true); frame:Show(); return end
+        -- Hotkey toggle outranks every configured rule but yields to the two modes above
+        if ns._toggleHidden then frame:Hide(); return end
         local vis = EUI.EvalVisibility and EUI.EvalVisibility(c)
         if not vis or vis == false then frame:Hide(); return end
         -- Per-window instance visibility
@@ -4410,6 +4424,9 @@ local function CreateDMWindow(winIdx)
     if EUI.RegisterMouseoverTarget then
         -- Hover-gated sets only reveal while their conditions pass; a legacy single "mouseover" behaves exactly as before
         EUI.RegisterMouseoverTarget(frame, function()
+            -- The mouseover scanner shows the frame without going through UpdateVisibility,
+            -- so the toggle has to be refused here as well
+            if ns._toggleHidden then return false end
             local c = DB()
             return c ~= nil and EUI.VisWantsMouseover(c, "visibility")
         end)
@@ -4757,6 +4774,13 @@ UpdateSATimerText = function()
     if not _saTimer or not _saTimerFS then return end
     local cfg = DB()
     if not cfg.standaloneTimer then return end
+    -- The timer runs on its own ticker and re-shows itself every 0.1s, so the hotkey
+    -- toggle has to be checked here rather than hiding the frame from the outside
+    if ns._toggleHidden and cfg.toggleIncludeTimer and not ns._optionsOpen
+       and not EUI._unlockActive and not _saTimerPreview then
+        if _saTimer:IsShown() then _saTimer:Hide() end
+        return
+    end
     -- Same source as the window's Current timer so the two can never disagree. Visible while
     -- combat is live (or polling a group fight we're not in); out of combat it hides unless Show Out of Combat keeps it up (last fight's frozen duration).
     local live = _inCombat or _needsFinalRefresh
@@ -4952,6 +4976,79 @@ ns.HideSATimerPreview = function()
         return
     end
     if not _inCombat then _saTimer:Hide() end
+end
+
+-------------------------------------------------------------------------------
+--  Show/hide all windows hotkey
+-------------------------------------------------------------------------------
+
+-- Re-applies the current toggle state to every frame it covers. Also used by the
+-- options page when the Combat Timer / Spell History checkboxes change while the
+-- toggle is already active, so the newly included element follows immediately.
+-- includeSpellHistory is read here rather than inside ApplySpellHistory because that
+-- entry point rebuilds the icon strip and the bar window unconditionally; with the
+-- default (Spell History not covered) the hotkey would pay both rebuilds per press.
+ns.ApplyDMToggleState = function(includeSpellHistory)
+    -- The row tooltip is parented to UIParent, not to the window, so it would be
+    -- left floating if the hotkey is pressed while hovering a row
+    if ns._toggleHidden and _ttFrame then _ttFrame:Hide() end
+    for _, w in ipairs(_windows) do w.UpdateVisibility() end
+    if _saTimer then UpdateSATimerText() end
+    if includeSpellHistory == nil then includeSpellHistory = DB().toggleIncludeSpellHistory end
+    if includeSpellHistory and ns.ApplySpellHistory then ns.ApplySpellHistory() end
+end
+
+ns.ToggleDMWindows = function()
+    ns._toggleHidden = not ns._toggleHidden
+    ns.ApplyDMToggleState()
+    -- The mouseover scan caches each target's isActive answer per visibility
+    -- generation, so without a bump it keeps the pre-toggle answer and re-shows a
+    -- hover-gated window on the next pass. Deferred by a frame the way the
+    -- dispatcher defers its own events: this runs from a hardware keypress, and
+    -- other modules' updaters have no business running in that context.
+    if EUI.RequestVisibilityUpdate then C_Timer.After(0, EUI.RequestVisibilityUpdate) end
+end
+
+-- Both damage meter hotkeys live on override bindings, which are protected: a rebind
+-- during combat has to wait for regen (pressing the key itself is a hardware click and
+-- works in combat). UPDATE_BINDINGS matters too -- LoadBindings, which the settings
+-- panel runs on cancel and on a binding-set switch, drops every override, so a
+-- configured key would otherwise stay dead until the next profile change. Our own
+-- writes raise that event as well, hence the short self-write window.
+do
+    local kbFrame = CreateFrame("Frame")
+    local selfWriteUntil = 0
+
+    ns.ApplyDMKeybinds = function()
+        if InCombatLockdown() then
+            kbFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+            return
+        end
+        kbFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
+        local c = DB()
+        selfWriteUntil = GetTime() + 0.5
+        local resetBtn = _G.EllesmereUIDMResetBindBtn
+        if resetBtn then
+            ClearOverrideBindings(resetBtn)
+            if c.resetDataKey and c.resetDataKey ~= "" then
+                SetOverrideBindingClick(resetBtn, true, c.resetDataKey, "EllesmereUIDMResetBindBtn")
+            end
+        end
+        local toggleBtn = _G.EllesmereUIDMToggleBindBtn
+        if toggleBtn then
+            ClearOverrideBindings(toggleBtn)
+            if c.toggleWindowsKey and c.toggleWindowsKey ~= "" then
+                SetOverrideBindingClick(toggleBtn, true, c.toggleWindowsKey, "EllesmereUIDMToggleBindBtn")
+            end
+        end
+    end
+
+    kbFrame:RegisterEvent("UPDATE_BINDINGS")
+    kbFrame:SetScript("OnEvent", function(_, event)
+        -- Ours, echoing back: ignore, or we re-enter forever
+        if event == "UPDATE_BINDINGS" and GetTime() < selfWriteUntil then return end
+        ns.ApplyDMKeybinds()
+    end)
 end
 
 -- Accent color callback for standalone timer
@@ -5312,6 +5409,15 @@ if not _G["EllesmereUIDMResetBindBtn"] then
     end)
 end
 
+-- Show/hide all windows keybind button (hidden, receives override binding click)
+if not _G["EllesmereUIDMToggleBindBtn"] then
+    local btn = CreateFrame("Button", "EllesmereUIDMToggleBindBtn", UIParent)
+    btn:Hide()
+    btn:SetScript("OnClick", function()
+        if ns.ToggleDMWindows then ns.ToggleDMWindows() end
+    end)
+end
+
 -- Init
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
@@ -5329,14 +5435,11 @@ initFrame:SetScript("OnEvent", function(self)
     -- Disable Blizzard's built-in damage meter UI; C_DamageMeter API still works
     SetCVarSafe("damageMeterEnabled", 0)
     AppendDMSharedMedia()
-    local cfg = DB()
 
     _playerGUID = UnitGUID("player")
 
-    -- Restore reset data keybind
-    if cfg.resetDataKey and _G.EllesmereUIDMResetBindBtn then
-        SetOverrideBindingClick(_G.EllesmereUIDMResetBindBtn, true, cfg.resetDataKey, "EllesmereUIDMResetBindBtn")
-    end
+    -- Restore the reset data and show/hide all windows keybinds
+    ns.ApplyDMKeybinds()
 
     -- Defer window creation off the login frame to avoid blocking
     local cfg = DB()
@@ -5390,14 +5493,11 @@ initFrame:SetScript("OnEvent", function(self)
         -- Hide tooltip
         if _ttFrame then _ttFrame:Hide() end
         _activeRow = nil
-        -- Re-apply keybind from new profile
         local c = DB()
-        if _G.EllesmereUIDMResetBindBtn then
-            ClearOverrideBindings(_G.EllesmereUIDMResetBindBtn)
-            if c.resetDataKey then
-                SetOverrideBindingClick(_G.EllesmereUIDMResetBindBtn, true, c.resetDataKey, "EllesmereUIDMResetBindBtn")
-            end
-        end
+        -- Clear the hotkey toggle so a profile swap never lands in a hidden state whose
+        -- cause is no longer visible, then re-apply both keybinds from the new profile
+        ns._toggleHidden = false
+        ns.ApplyDMKeybinds()
         -- Recreate windows from new profile
         if not c.windows then c.windows = {} end
         local wc = math.max(1, c.windowCount or 1)
