@@ -1683,6 +1683,40 @@ end
 
 local function lerp(a, b, t) return a + (b - a) * t end
 
+-- "Name-Realm" whisper/invite target. With realmName it builds (realm wins,
+-- spaces stripped); with a finished name alone it only collapses a stacked realm.
+function EllesmereUI.BuildFullName(charName, realmName)
+    -- type()/issecretvalue() before any comparison: `== ""` on a secret throws.
+    if type(charName) ~= "string" then return nil end
+    if issecretvalue and issecretvalue(charName) then return charName end
+    if charName == "" then return nil end
+
+    -- Character names hold no hyphen, so the first one splits name from realm.
+    local base, suffix = charName:match("^([^%-]+)%-(.+)$")
+    base = base or charName
+
+    if type(realmName) == "string" and not (issecretvalue and issecretvalue(realmName)) then
+        local realm = (realmName:gsub("%s+", ""))
+        if realm ~= "" then return base .. "-" .. realm end
+    end
+    if not suffix then return base end
+
+    -- Collapse proven repetition only -- a realm may hold a hyphen ("Azjol-Nerub").
+    local segs = {}
+    for seg in suffix:gmatch("[^%-]+") do
+        if segs[#segs] ~= seg then segs[#segs + 1] = seg end
+    end
+    suffix = table.concat(segs, "-")
+    -- A doubled multi-word realm has no adjacent repeats; a half-split catches it.
+    local half = (#suffix - 1) / 2
+    if half > 0 and half == math.floor(half)
+        and suffix:sub(half + 1, half + 1) == "-"
+        and suffix:sub(1, half) == suffix:sub(half + 2) then
+        suffix = suffix:sub(1, half)
+    end
+    return base .. "-" .. suffix
+end
+
 -------------------------------------------------------------------------------
 --  Exports  (shared locals EllesmereUI table for split files)
 -------------------------------------------------------------------------------

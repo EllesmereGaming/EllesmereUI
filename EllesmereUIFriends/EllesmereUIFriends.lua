@@ -2350,13 +2350,14 @@ local function SkinFriendsFrame()
                         local charName = cached.gameAccountInfo.characterName
                         local realmName = cached.gameAccountInfo.realmName
                         if charName then
-                            local fullName = realmName and realmName ~= "" and (charName .. "-" .. realmName) or charName
+                            -- Fix "Name-Realm-Realm" to "Name-Realm"
+                            local fullName = EllesmereUI.BuildFullName(charName, realmName)
                             C_PartyInfo.InviteUnit(fullName)
                         end
                     end
                 elseif cached and targetType == FRIENDS_BUTTON_TYPE_WOW then
                     if cached.name and cached.connected then
-                        C_PartyInfo.InviteUnit(cached.name)
+                        C_PartyInfo.InviteUnit(EllesmereUI.BuildFullName(cached.name) or cached.name)
                     end
                 end
                 search:SetText("")
