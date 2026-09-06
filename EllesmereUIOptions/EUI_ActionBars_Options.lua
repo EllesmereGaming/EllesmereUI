@@ -2368,7 +2368,7 @@ initFrame:SetScript("OnEvent", function(self)
                               return val
                           end,
                           set=function(v)
-                              SSet("growDirection", v, function(k) EAB:ApplyIconRowOverrides(k) end)
+                              SSet("growDirection", v, function(k) EAB:SetGrowDirectionForBar(k, v) end)
                               SUpdatePreviewAndResize()
                           end },
                     },

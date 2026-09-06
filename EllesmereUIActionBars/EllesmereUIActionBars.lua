@@ -7355,7 +7355,61 @@ function EAB:SetGrowDirectionForBar(barKey, dir)
     local s = self.db.profile.bars[barKey]
     if not s then return end
     s.growDirection = dir or "up"
+    -- Growth direction alone never changes frame size, so the OnSizeChanged/
+    -- ApplyAnchorPosition fallback never fires and the bar stays parked at
+    -- whatever edge it was last anchored to. Re-derive the edge for the new
+    -- direction here so picking a direction has a visible effect immediately.
+    if EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored(barKey) then
+        -- ReapplyOwnAnchor -> ApplyAnchorPosition already parks itself via
+        -- EllesmereUI._AnchorPark when combat blocks a protected frame's SetPoint,
+        -- so it's safe to call unconditionally here.
+        if EllesmereUI.ReapplyOwnAnchor then
+            EllesmereUI.ReapplyOwnAnchor(barKey)
+        end
+    else
+        local frame = barFrames[barKey]
+        if frame then
+            local point, _, relPoint, x, y = frame:GetPoint(1)
+            if point then
+                local centerPos
+                if point == "CENTER" or point == "LEFT" or point == "RIGHT" or point == "TOP" or point == "BOTTOM" then
+                    centerPos = self:ConvertEdgeToCenter(barKey, { point = point, relPoint = relPoint, x = x, y = y })
+                elseif EllesmereUI.ConvertToCenterPos then
+                    -- Legacy corner-anchored bar (pre-dates the CENTER/CENTER position
+                    -- system): normalize via the general converter, which reads live
+                    -- frame bounds, before pinning the new grow-direction edge.
+                    local cp, crp, cx, cy = EllesmereUI.ConvertToCenterPos(barKey, point, relPoint, x, y)
+                    centerPos = { point = cp, relPoint = crp, x = cx, y = cy }
+                else
+                    centerPos = { point = point, relPoint = relPoint, x = x, y = y }
+                end
+                local sp, sx, sy = self:ConvertCenterToEdge(barKey, centerPos.point, centerPos.x, centerPos.y)
+                local rpt = centerPos.relPoint or relPoint
+                local PPa = EllesmereUI and EllesmereUI.PP
+                if PPa then
+                    local es = frame:GetEffectiveScale()
+                    if sp == "CENTER" and rpt == "CENTER" and PPa.SnapCenterForDim then
+                        sx = PPa.SnapCenterForDim(sx, frame:GetWidth() or 0, es)
+                        sy = PPa.SnapCenterForDim(sy, frame:GetHeight() or 0, es)
+                    elseif PPa.SnapForES then
+                        sx = PPa.SnapForES(sx, es)
+                        sy = PPa.SnapForES(sy, es)
+                    end
+                end
+                self.db.profile.barPositions[barKey] = { point = sp, relPoint = rpt, x = sx, y = sy }
+                if not InCombatLockdown() then
+                    frame:ClearAllPoints()
+                    frame:SetPoint(sp, UIParent, rpt, sx, sy)
+                end
+                -- If in combat, the barPositions write above already stands; the
+                -- unconditional LayoutBar call below sets ns._eabApplyDeferred and
+                -- the existing PLAYER_REGEN_ENABLED -> ApplyAll -> LayoutBar pass
+                -- re-syncs this frame's SetPoint from that entry once combat drops.
+            end
+        end
+    end
     LayoutBar(barKey)
+    self:ApplyAlwaysShowButtons(barKey)
     self:LayoutAnchoredBarsFrom(barKey, 0)
 end
 
