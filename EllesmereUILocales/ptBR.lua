@@ -6778,3 +6778,6 @@ L["Exactly (=)"] = "Exatamente (=)"
 L["At Least (>=)"] = "No Mínimo (>=)"
 L["Above (>)"] = "Acima (>)"
 L["Replaces Buff Glow: the icon glows when its stack count matches the comparison below, using this spell's Buff Glow style (Modern WoW Glow if none is set)."] = "Substitui o Brilho de Buff: o ícone brilha quando sua quantidade de pilha corresponde à comparação abaixo, usando o estilo de Brilho de Buff deste feitiço (Brilho Moderno do WoW, se nenhum estiver definido)."
+
+L["Draw a black 1px divider between the spell icon and the cast bar."] = "Exibe um divisor preto de 1 pixel entre o ícone do feitiço e a barra de lançamento."
+L["Keep the icon inside the cast bar footprint. When detached, the gap reduces the bar width without moving the footprint."] = "Mantém o ícone dentro da largura total da barra de lançamento. Ao separá-lo, o espaçamento reduz a largura da barra sem deslocar o conjunto."

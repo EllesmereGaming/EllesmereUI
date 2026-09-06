@@ -7477,3 +7477,7 @@ if GetLocale() == "koKR" and EllesmereUI then
         ["왕안"] = "왕안",
     }
 end
+
+L["Show Icon Divider"] = "아이콘 구분선 표시"
+L["Draw a black 1px divider between the spell icon and the cast bar."] = "주문 아이콘과 시전 바 사이에 검은색 1픽셀 구분선을 표시합니다."
+L["Keep the icon inside the cast bar footprint. When detached, the gap reduces the bar width without moving the footprint."] = "아이콘을 시전 바의 전체 너비 안에 배치합니다. 아이콘을 분리하면 전체 위치는 그대로 유지되고 간격만큼 바 너비가 줄어듭니다."

@@ -8177,6 +8177,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- Container size: icon (hxh) + bar (only when icon shown)
         local hasIcon = cb.showIcon ~= false
         local iconW = hasIcon and Snap(h) or 0
+        local detached = hasIcon and cb.iconDetached == true
+        local gap = detached and Snap(math.max(5, math.min(20, cb.iconGap or 5))) or 0
         pf.container:SetSize(w + iconW, h)
 
         -- Scale down to fit when the cast bar is wider than the panel
@@ -8192,9 +8194,9 @@ initFrame:SetScript("OnEvent", function(self)
         pf.container:ClearAllPoints(); pf.container:SetPoint("CENTER", hdr, "CENTER", 0, 0)
         -- Bar frame (sits beside the icon; iconOnRight puts the icon on the right)
         local iconOnRight = hasIcon and cb.iconOnRight
-        pf.barFrame:SetSize(w, h)
+        pf.barFrame:SetSize(w - gap, h)
         pf.barFrame:ClearAllPoints()
-        pf.barFrame:SetPoint("LEFT", pf.container, "LEFT", iconOnRight and 0 or iconW, 0)
+        pf.barFrame:SetPoint("LEFT", pf.container, "LEFT", iconOnRight and 0 or (iconW + gap), 0)
 
         -- Background
         local texKey = cb.texture
@@ -8211,11 +8213,13 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Border wraps container (bar + icon) - PP or textured via ApplyBorderStyle
         if pf.container._border then
+            pf.container._border:ClearAllPoints()
+            pf.container._border:SetAllPoints(detached and pf.barFrame or pf.container)
             pf.container._border:SetFrameLevel(cb.borderBehind and math.max(0, pf.container:GetFrameLevel() - 1) or (pf.container:GetFrameLevel() + 5))
             EllesmereUI.ApplyBorderStyle(pf.container._border, cb.borderSize or 0,
                 cb.borderR or 0, cb.borderG or 0, cb.borderB or 0, cb.borderA or 1,
                 cb.borderTexture or "solid", cb.borderTextureOffset, cb.borderTextureOffsetY,
-                cb.borderTextureShiftX, cb.borderTextureShiftY)
+                cb.borderTextureShiftX, cb.borderTextureShiftY, "resourcebars", cb.borderSize or 0)
         end
 
         -- Status bar: full bar frame, no inset
@@ -8284,19 +8288,25 @@ initFrame:SetScript("OnEvent", function(self)
             if hasIcon then pf.iconFrame:Show() else pf.iconFrame:Hide() end
         end
 
-        -- Icon/bar seam divider preview: mirrors the live cast bar's onePixel
-        -- math (PP.perfect / effective scale), NOT the widget-local Snap()
-        -- helper above -- the border itself already renders through that same
-        -- shared PP system (ApplyBorderStyle -> SnapBorderTextures), so the
-        -- divider has to match it, not the panel's own pixel grid.
+        if not pf.iconFrame._border then
+            pf.iconFrame._border = CreateFrame("Frame", nil, pf.iconFrame)
+            pf.iconFrame._border:SetAllPoints(pf.iconFrame)
+        end
+        pf.iconFrame._border:SetFrameLevel(cb.borderBehind and math.max(0, pf.container:GetFrameLevel() - 1) or (pf.container:GetFrameLevel() + 5))
+        EllesmereUI.ApplyBorderStyle(pf.iconFrame._border, detached and (cb.borderSize or 0) or 0,
+            cb.borderR or 0, cb.borderG or 0, cb.borderB or 0, cb.borderA or 1,
+            cb.borderTexture or "solid", cb.borderTextureOffset, cb.borderTextureOffsetY,
+            cb.borderTextureShiftX, cb.borderTextureShiftY, "resourcebars", cb.borderSize or 0)
+
+        -- Match the live divider: one physical pixel on an independent overlay.
         if pf.iconDivider then
-            if hasIcon and cb.showIconDivider then
+            pf.dividerFrame:SetFrameLevel(pf.container:GetFrameLevel() + 6)
+            if hasIcon and not detached and cb.showIconDivider then
                 local PPp = EllesmereUI.PP
                 local des = pf.container:GetEffectiveScale()
                 local onePixel = (PPp and des > 0) and (PPp.perfect / des) or 1
-                local dbs = cb.borderSize or 1
                 pf.iconDivider:ClearAllPoints()
-                pf.iconDivider:SetWidth(math.max(onePixel, math.floor(dbs + 0.5) * onePixel))
+                pf.iconDivider:SetWidth(onePixel)
                 if iconOnRight then
                     pf.iconDivider:SetPoint("TOPRIGHT", pf.iconFrame, "TOPLEFT", 0, 0)
                     pf.iconDivider:SetPoint("BOTTOMRIGHT", pf.iconFrame, "BOTTOMLEFT", 0, 0)
@@ -8304,7 +8314,7 @@ initFrame:SetScript("OnEvent", function(self)
                     pf.iconDivider:SetPoint("TOPLEFT", pf.iconFrame, "TOPRIGHT", 0, 0)
                     pf.iconDivider:SetPoint("BOTTOMLEFT", pf.iconFrame, "BOTTOMRIGHT", 0, 0)
                 end
-                pf.iconDivider:SetColorTexture(cb.borderR or 0, cb.borderG or 0, cb.borderB or 0, cb.borderA or 1)
+                pf.iconDivider:SetColorTexture(0, 0, 0, 1)
                 pf.iconDivider:Show()
             else
                 pf.iconDivider:Hide()
@@ -8469,11 +8479,15 @@ initFrame:SetScript("OnEvent", function(self)
         _castBarPreviewFrames.iconFrame = iconFrame
         _castBarPreviewFrames.icon = icon
 
-        -- Icon/bar seam divider (mirrors the live cast bar's "Show Icon
-        -- Divider"): parented to bdrFrame, same reasoning as the live one --
-        -- a texture on container itself would sit below the icon/bar child
-        -- frames regardless of draw layer.
-        local iconDivider = bdrFrame:CreateTexture(nil, "OVERLAY", nil, 7)
+        -- Keep the divider above the bar even when its border is hidden/behind.
+        local dividerFrame = CreateFrame("Frame", nil, container)
+        dividerFrame:SetAllPoints(container)
+        _castBarPreviewFrames.dividerFrame = dividerFrame
+        local iconDivider = dividerFrame:CreateTexture(nil, "OVERLAY", nil, 7)
+        if iconDivider.SetSnapToPixelGrid then
+            iconDivider:SetSnapToPixelGrid(false)
+            iconDivider:SetTexelSnappingBias(0)
+        end
         iconDivider:Hide()
         _castBarPreviewFrames.iconDivider = iconDivider
 
@@ -8545,6 +8559,7 @@ initFrame:SetScript("OnEvent", function(self)
             _previewHintFS:Hide()
         end
 
+        UpdateCastBarPreview()
         return TOTAL_H
     end
 
@@ -8694,8 +8709,22 @@ initFrame:SetScript("OnEvent", function(self)
                           local p = DB(); if not p then return end
                           p.castBar.iconOnRight = v; RefreshCast()
                       end },
+                    { type = "toggle", label = "Make Icon Part of the Bar",
+                      get = function() local p = DB(); return not (p and p.castBar.iconDetached == true) end,
+                      set = function(v)
+                          local p = DB(); if not p then return end
+                          p.castBar.iconDetached = not v; RefreshCast()
+                      end },
+                    { type = "slider", label = "Icon Spacing", min = 5, max = 20, step = 1,
+                      disabled = function() local p = DB(); return not (p and p.castBar.iconDetached) end,
+                      get = function() local p = DB(); return p and math.max(5, math.min(20, p.castBar.iconGap or 5)) or 5 end,
+                      set = function(v)
+                          local p = DB(); if not p then return end
+                          p.castBar.iconGap = math.max(5, math.min(20, v)); RefreshCast()
+                      end },
                     { type = "toggle", label = "Show Icon Divider",
-                      tooltip = "Draw a 1px divider between the spell icon and the cast bar, matching the border color.",
+                      disabled = function() local p = DB(); return p and p.castBar.iconDetached == true end,
+                      tooltip = "Draw a black 1px divider between the spell icon and the cast bar.",
                       get = function() local p = DB(); return p and p.castBar.showIconDivider end,
                       set = function(v)
                           local p = DB(); if not p then return end

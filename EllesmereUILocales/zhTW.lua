@@ -6737,3 +6737,6 @@ L["AoF"] = "祭壇"
 L["RLP"] = "晶紅"
 L["ToS"] = "神廟"
 L["KR"] = "諸王"
+
+L["Draw a black 1px divider between the spell icon and the cast bar."] = "在法術圖示與施法條之間顯示一條寬度為1像素的黑色分隔線。"
+L["Keep the icon inside the cast bar footprint. When detached, the gap reduces the bar width without moving the footprint."] = "將圖示保留在施法條的總寬度內。分離圖示時，間距會縮短施法條，而不會移動整體位置。"
