@@ -401,7 +401,20 @@ local function TileAuraBuffReminders(parent, y, W, tile)
         return NoteRow(parent, y, EllesmereUI.Lf("Enable %1$s to edit its text settings.", EllesmereUI.L(tile.display)))
     end
     local function db() return _G._EABR_AceDB and _G._EABR_AceDB.profile end
-    _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display),
+    local nameFontValues, nameFontOrder = EllesmereUI.BuildFontDropdownData()
+    _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display), BLANK());  y = y - h
+    _, h = W:DualRow(parent, y,
+        { type = "dropdown", text = "Name Font",
+          values = nameFontValues, order = nameFontOrder,
+          getValue = function()
+              local p = db()
+              return (p and p.display and p.display.nameFont) or "__global"
+          end,
+          setValue = function(v)
+              local p = db(); if not (p and p.display) then return end
+              p.display.nameFont = (v ~= "__global") and v or nil
+              if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
+          end },
         { type = "slider", text = "Name Text Size", min = 6, max = 30, step = 1,
           getValue = function()
               local p = db()
@@ -413,6 +426,17 @@ local function TileAuraBuffReminders(parent, y, W, tile)
               if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
           end });  y = y - h
     _, h = W:DualRow(parent, y,
+        { type = "dropdown", text = "Item Count Font",
+          values = nameFontValues, order = nameFontOrder,
+          getValue = function()
+              local p = db()
+              return (p and p.display and p.display.countFont) or "__global"
+          end,
+          setValue = function(v)
+              local p = db(); if not (p and p.display) then return end
+              p.display.countFont = (v ~= "__global") and v or nil
+              if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
+          end },
         { type = "slider", text = "Item Count Text Size", min = 6, max = 30, step = 1,
           getValue = function()
               local p = db()
@@ -422,6 +446,18 @@ local function TileAuraBuffReminders(parent, y, W, tile)
               local p = db(); if not (p and p.display) then return end
               p.display.countSize = v
               if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
+          end });  y = y - h
+    _, h = W:DualRow(parent, y,
+        { type = "dropdown", text = "Mana Warning Font",
+          values = nameFontValues, order = nameFontOrder,
+          getValue = function()
+              local p = db()
+              return (p and p.consumables and p.consumables.rcManaWarnFont) or "__global"
+          end,
+          setValue = function(v)
+              local p = db(); if not (p and p.consumables) then return end
+              p.consumables.rcManaWarnFont = (v ~= "__global") and v or nil
+              if _G._EABR_RCWarnApply then _G._EABR_RCWarnApply() end
           end },
         { type = "slider", text = "Mana Warning Text Size", min = 10, max = 72, step = 1,
           getValue = function()

@@ -8,6 +8,12 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local L = EllesmereUI.RegisterLocale("koKR")
 if not L then return end
 
+L["WARLOCK"] = "흑마법사"
+L["Soulstone"] = "영혼석"
+L["Show a reminder until your own Soulstone is active on you or another group member."] = "자신의 영혼석이 자신이나 다른 파티원에게 활성화될 때까지 알림을 표시합니다."
+L["Item Count Font"] = "아이템 개수 글꼴"
+L["Mana Warning Font"] = "마나 경고 글꼴"
+
 L["BLIZZARD POPUPS & GAME MENU"] = "블리자드 팝업 및 게임 메뉴"
 
 -- == Common labels (공용 라벨) =============================================
@@ -7130,7 +7136,6 @@ L["View Houses"] = "집 보기"
 L["Visit"] = "방문"
 
 --편의 기능 - 오라/강화 효과 알림 - 오라,강화 효과 및 소모품
-L["WARLOCK DEMONS"] = "흑마법사 악마"
 L["Wrong Demon"] = "소환 불가 악마"
 L["Allowed Demons"] = "소환 가능 악마"
 L["Imp"] = "임프"

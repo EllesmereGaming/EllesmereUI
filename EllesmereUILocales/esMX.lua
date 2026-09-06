@@ -7,6 +7,23 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local L = EllesmereUI.RegisterLocale("esMX")
 if not L then return end
 
+L["WARLOCK"] = "BRUJO"
+L["Soulstone"] = "Piedra de alma"
+L["Show a reminder until your own Soulstone is active on you or another group member."] = "Muestra un recordatorio hasta que tu propia Piedra de alma esté activa en ti o en otro miembro del grupo."
+L["Wrong Demon"] = "Demonio incorrecto"
+L["Allowed Demons"] = "Demonios permitidos"
+L["Show a reminder when your Warlock's active pet isn't one of the demons picked in Allowed Demons. A demon only counts while its summon spell is known, so leaving only Felguard picked stays silent for specs/builds that haven't talented Summon Felguard."] = "Muestra un recordatorio cuando la mascota activa de tu brujo no es uno de los demonios seleccionados en Demonios permitidos. Un demonio solo cuenta si conoces su hechizo de invocación, por lo que dejar seleccionado únicamente al guardia vil no muestra avisos para especializaciones o configuraciones sin el talento Invocar guardia vil."
+L["Pick which demons count as correct for Wrong Demon. A demon only counts while its summon spell is known; with none picked (or everything picked), the reminder never fires."] = "Elige qué demonios se consideran correctos para Demonio incorrecto. Un demonio solo cuenta si conoces su hechizo de invocación; si no eliges ninguno o los eliges todos, el recordatorio nunca se activa."
+L["Name Font"] = "Fuente del nombre"
+L["Font Outline"] = "Contorno de fuente"
+L["EUI Global Default"] = "Predeterminado global de EUI"
+L["Drop Shadow"] = "Sombra paralela"
+L["Item Count Font"] = "Fuente de cantidad de objetos"
+L["Mana Warning Font"] = "Fuente del aviso de maná"
+L["Name Text Size"] = "Tamaño del texto del nombre"
+L["Item Count Text Size"] = "Tamaño del texto de cantidad de objetos"
+L["Mana Warning Text Size"] = "Tamaño del texto del aviso de maná"
+
 L["BLIZZARD POPUPS & GAME MENU"] = "VENTANAS EMERGENTES Y MENÚ DE JUEGO DE BLIZZARD"
 L["Reskin Popups and Menus"] = "Rediseñar ventanas emergentes y menús"
 L["Reskins Blizzard's right-click context menus and pop-up dialogs with the EUI dark style. Requires reload to apply."] = "Rediseña los menús contextuales y los cuadros de diálogo emergentes de Blizzard con el estilo oscuro de EUI. Requiere recargar la interfaz."
