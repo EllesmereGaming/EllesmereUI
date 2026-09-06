@@ -503,6 +503,10 @@ local function PlayerHasAuraByID(spellIDs, sectionKey)
             if _preCombatAuraCache[id] then return true end
         end
     end
+    -- Nothing found. Inside a keystone or raid GetPlayerAuraBySpellID returns
+    -- nil for the player's own whitelisted buff while it is plainly active
+    -- (verified in game), so an empty read there cannot prove absence.
+    if EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted() then return true end
     return false
 end
 
@@ -537,6 +541,10 @@ end
 
 -- Shared helpers for group aura scanning (hoisted to avoid per-call closure allocation)
 local function _unitOk(u) return UnitExists(u) and UnitIsConnected(u) and not UnitIsDeadOrGhost(u) end
+-- Returns hasBuff, readable. On another unit GetUnitAuraBySpellID hands back a
+-- secret while unit auras are restricted (keystones, raids), so absence there
+-- means "unknown", not "missing"; callers must drop unreadable units instead of
+-- scoring them as missing.
 local function _unitHasBuff(u, spellIDs)
     local inCombat = InCombat()
     -- Fast path for player: use GetPlayerAuraBySpellID for whitelisted IDs
@@ -546,38 +554,44 @@ local function _unitHasBuff(u, spellIDs)
             if NON_SECRET_SPELL_IDS[id] then
                 local ok, result = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
                 if ok then
-                    if result ~= nil then return true end
-                    if inCombat and _preCombatAuraCache[id] then return true end
+                    if result ~= nil then return true, true end
+                    if inCombat and _preCombatAuraCache[id] then return true, true end
                 else
-                    if inCombat and _preCombatAuraCache[id] then return true end
+                    if inCombat and _preCombatAuraCache[id] then return true, true end
                 end
             end
         end
-    else
-        -- Non-player units: GetUnitAuraBySpellID for whitelisted IDs; works in combat for non-secret IDs.
-        for j = 1, #spellIDs do
-            local id = spellIDs[j]
-            if NON_SECRET_SPELL_IDS[id] then
-                local ok, result = pcall(C_UnitAuras.GetUnitAuraBySpellID, u, id)
-                if ok and result ~= nil and not isSecret(result) then
-                    return true
-                end
+        if EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted() then
+            return false, false
+        end
+        return false, true
+    end
+
+    -- Non-player units: GetUnitAuraBySpellID for whitelisted IDs; works in combat for non-secret IDs.
+    local readable = false
+    for j = 1, #spellIDs do
+        local id = spellIDs[j]
+        if NON_SECRET_SPELL_IDS[id] then
+            local ok, result = pcall(C_UnitAuras.GetUnitAuraBySpellID, u, id)
+            if ok and not isSecret(result) then
+                readable = true
+                if result ~= nil then return true, true end
             end
         end
     end
     -- Iterate auras for non-whitelisted IDs: OOC and outside restricted content only (scan errors under restriction). Skipped for player (covered above).
-    if not inCombat and not UnitIsUnit(u, "player")
-        and not (EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted()) then
+    if not inCombat and not (EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted()) then
         for i = 1, AURA_SCAN_LIMIT do
             local aura = C_UnitAuras.GetAuraDataByIndex(u, i, "HELPFUL")
             if not aura then break end
             local sid = aura.spellId
             if sid and not isSecret(sid) then
-                for j = 1, #spellIDs do if sid == spellIDs[j] then return true end end
+                for j = 1, #spellIDs do if sid == spellIDs[j] then return true, true end end
             end
         end
+        readable = true
     end
-    return false
+    return false, readable
 end
 
 -- True if the buff's source is the player. Non-player units: OOC iteration only, false in combat (caller uses the snapshot).
@@ -720,15 +734,21 @@ end
 -- Counts how many in-range beneficiaries have the buff vs how many should
 -- (the "12/15" coverage badge). `benefit` is the buff's benefit KEY
 -- ("intellect"/"attackPower"/nil = everyone). EABR.UnitBenefits resolves it
--- spec-aware when comm data exists, class-level otherwise, and skips units
--- whose identity reads come back secret (teardown/restriction edges).
--- Returns have, total.
+-- spec-aware when comm data exists, class-level otherwise, and leaves out any
+-- unit it cannot decide (secret identity reads, or a hybrid whose role spans
+-- both stats). Members whose aura read is secret leave the denominator too:
+-- under a keystone or raid restriction nobody else is readable, so the count
+-- falls back to the player alone rather than reporting the whole group as
+-- missing. Returns have, total.
 local function CountGroupBuffCoverage(spellIDs, benefit)
     local have, total = 0, 0
     if not IsInGroup() then
         if EABR.UnitBenefits("player", benefit) and _unitOk("player") then
-            total = 1
-            if _unitHasBuff("player", spellIDs) then have = 1 end
+            local has, readable = _unitHasBuff("player", spellIDs)
+            if readable then
+                total = 1
+                if has then have = 1 end
+            end
         end
         return have, total
     end
@@ -736,23 +756,34 @@ local function CountGroupBuffCoverage(spellIDs, benefit)
         for i = 1, GetNumGroupMembers() do
             local u = "raid"..i
             if _unitOk(u) and UnitIsPlayer(u) and _unitInRange(u) then
-                if EABR.UnitBenefits(u, benefit) then
-                    total = total + 1
-                    if _unitHasBuff(u, spellIDs) then have = have + 1 end
+                local benefits, decided = EABR.UnitBenefits(u, benefit)
+                if benefits and decided then
+                    local has, readable = _unitHasBuff(u, spellIDs)
+                    if readable then
+                        total = total + 1
+                        if has then have = have + 1 end
+                    end
                 end
             end
         end
     else
         if EABR.UnitBenefits("player", benefit) and _unitOk("player") then
-            total = total + 1
-            if _unitHasBuff("player", spellIDs) then have = have + 1 end
+            local has, readable = _unitHasBuff("player", spellIDs)
+            if readable then
+                total = total + 1
+                if has then have = have + 1 end
+            end
         end
         for i = 1, GetNumSubgroupMembers() do
             local u = "party"..i
             if _unitOk(u) and UnitIsPlayer(u) and _unitInRange(u) then
-                if EABR.UnitBenefits(u, benefit) then
-                    total = total + 1
-                    if _unitHasBuff(u, spellIDs) then have = have + 1 end
+                local benefits, decided = EABR.UnitBenefits(u, benefit)
+                if benefits and decided then
+                    local has, readable = _unitHasBuff(u, spellIDs)
+                    if readable then
+                        total = total + 1
+                        if has then have = have + 1 end
+                    end
                 end
             end
         end
@@ -943,61 +974,62 @@ function EABR.GroupSpecFor(u)
     return EABR._groupSpecs[n]
 end
 
--- Whether a unit benefits from a stat-filtered buff. Resolution ladder:
--- (1) cached spec verdict when known and mapped (unknown/starter spec IDs
--- fall through); (2) assigned-ROLE refinement for combos the role alone
--- decides (no comms needed); (3) the class table. Unreadable class = not
--- counted (coverage skips the unit).
+-- Classes that appear in BOTH beneficiary sets, so the class table alone
+-- cannot answer for them. Maps the roles that do pin the class to one side of
+-- the stat divide; a role absent here leaves the unit undecided (Balance vs
+-- Feral, Elemental vs Enhancement and Havoc vs Devourer all share DAMAGER).
+-- Hung on EABR, not a local: this file sits at the 200-local cap.
+EABR.HYBRID_ROLE_STAT = {
+    PALADIN     = { HEALER = "intellect", DAMAGER = "attackPower", TANK = "attackPower" },
+    MONK        = { HEALER = "intellect", DAMAGER = "attackPower", TANK = "attackPower" },
+    DRUID       = { HEALER = "intellect", TANK = "attackPower" },
+    SHAMAN      = { HEALER = "intellect" },
+    DEMONHUNTER = { TANK = "attackPower" },
+}
+
+-- Whether a unit benefits from a stat-filtered buff. Returns benefits, decided.
+-- Ladder: (1) cached spec verdict when known and mapped (unknown/starter spec
+-- IDs fall through); (2) the class table, which settles every class wanting
+-- only one of the two stats; (3) the assigned ROLE for a hybrid, no comms
+-- needed. Effective role: the player's spec wins over a stale assigned role.
+-- Undecided (unreadable class or role, or a hybrid whose role spans both
+-- stats) reports false, false, and coverage drops the unit rather than guess.
 function EABR.UnitBenefits(u, benefit)
-    if not benefit then return true end
+    if not benefit then return true, true end
     local specSet = EABR.SPEC_BENEFITS[benefit]
     if specSet then
         local spec = EABR.GroupSpecFor(u)
         if spec then
-            if specSet[spec] then return true end
+            if specSet[spec] then return true, true end
             -- A spec listed under any benefit set is a real, mapped spec:
             -- its absence here is a definitive no. Anything else (starter
             -- specs, future IDs) falls back to the checks below.
             for _, set in pairs(EABR.SPEC_BENEFITS) do
-                if set[spec] then return false end
+                if set[spec] then return false, true end
             end
         end
     end
     local classSet = BUFF_BENEFICIARIES[benefit]
-    if not classSet then return true end
+    if not classSet then return true, true end
     local _, class = UnitClass(u)
-    if class == nil or isSecret(class) then return false end
-    if not classSet[class] then return false end
-    -- Role refinement for members with no spec data: some class+benefit
-    -- pairs are decided by the role alone -- Intellect only serves the
-    -- HEALER spec of Paladin/Monk (and never a Druid tank); Attack Power
-    -- never serves the healer spec of these hybrids. Ambiguous combos
-    -- (e.g. a DAMAGER Druid: Balance wants int, Feral wants AP) and
-    -- unassigned ("NONE") or secret roles fall through to the class answer.
-    -- Effective role: the player's spec wins over a stale assigned role.
-    local role = EllesmereUI.UnitEffectiveRole(u)
-    if role ~= nil and not isSecret(role) then
-        if benefit == "intellect" then
-            if (class == "PALADIN" or class == "MONK") and (role == "DAMAGER" or role == "TANK") then
-                return false
-            end
-            if class == "DRUID" and role == "TANK" then
-                return false
-            end
-        elseif benefit == "attackPower" then
-            if role == "HEALER" and (class == "PALADIN" or class == "MONK"
-                or class == "DRUID" or class == "SHAMAN") then
-                return false
-            end
-        end
+    if class == nil or isSecret(class) then return false, false end
+    if not classSet[class] then return false, true end
+    local roleStats = EABR.HYBRID_ROLE_STAT[class]
+    if roleStats then
+        local role = EllesmereUI.UnitEffectiveRole(u)
+        if role == nil or isSecret(role) then return false, false end
+        local stat = roleStats[role]
+        if not stat then return false, false end
+        return stat == benefit, true
     end
-    return true
+    return true, true
 end
 
 -- Whether the local player benefits from a raid buff (spec-aware; class
 -- fallback). Buffs with no benefit key help everyone.
 function EABR.PlayerBenefitsFromBuff(buff)
-    return EABR.UnitBenefits("player", buff.benefit) and true or false
+    local benefits, decided = EABR.UnitBenefits("player", buff.benefit)
+    return (benefits and decided) and true or false
 end
 
 -------------------------------------------------------------------------------
