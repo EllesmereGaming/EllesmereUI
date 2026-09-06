@@ -2078,6 +2078,7 @@ end
 
 local function ShowCombatIcon(iconIdx, m)
     local f = GetOrCreateCombatIcon(iconIdx)
+    f._dismissKey = m.dismissKey or nil
     local spellID = m.spellID or (m.data and m.data.castSpell)
     f._icon:SetTexture(m.texture or (spellID and Tex(spellID)) or 134400)
     local p = db and db.profile.display
@@ -2180,6 +2181,7 @@ end
 
 local function ShowCursorIcon(iconIdx, m)
     local f = GetOrCreateCursorIcon(iconIdx)
+    f._dismissKey = m.dismissKey or nil
     local spellID = m.spellID or (m.data and m.data.castSpell)
     f._icon:SetTexture(m.texture or (spellID and Tex(spellID)) or 134400)
     local p = db and db.profile.display
@@ -2281,9 +2283,6 @@ function EABR.EnsureProviderCastButton()
     btn:SetSize(ICON_SIZE, ICON_SIZE)
     btn:RegisterForClicks("LeftButtonDown", "LeftButtonUp", "MiddleButtonUp")
     securecallfunction(btn.SetPassThroughButtons, btn, "RightButton")
-    -- MiddleButton is the dismiss click: NOOP its action type so it cannot fall
-    -- back to the plain "type" attribute and cast the reminder.
-    btn:SetAttribute("*type3", ATTRIBUTE_NOOP)
     btn:SetAttribute("useOnKeyDown", false)
     btn:SetFrameStrata(GetStrata())
     btn:SetFrameLevel(120)
@@ -2338,11 +2337,11 @@ function EABR.SyncProviderCastSpell()
     end
     EABR._providerCastSpell = spellID
     if spellID then
-        btn:SetAttribute("type", "spell")
-        btn:SetAttribute("spell", spellID)
-        btn:SetAttribute("item", nil)
-        btn:SetAttribute("macrotext", nil)
-        btn:SetAttribute("unit", "player") -- explicit unit so casting doesn't depend on your current target
+        btn:SetAttribute("type1", "spell")
+        btn:SetAttribute("spell1", spellID)
+        btn:SetAttribute("item1", nil)
+        btn:SetAttribute("macrotext1", nil)
+        btn:SetAttribute("unit1", "player") -- explicit unit so casting doesn't depend on your current target
         btn._icon:SetTexture(Tex(spellID) or 134400)
         btn._tooltipSpell = spellID
         btn._tooltipItem = nil
@@ -2537,12 +2536,17 @@ function EABR.NotifyCombatClickDisabled()
     end
 end
 
+-- Middle-click dismisses here too. These are plain frames rather than the OOC
+-- secure buttons, so the click carries no action of its own.
 function EABR.AttachCombatClickHint(f)
     if f._eabrCombatClickHint then return end
     f:EnableMouse(true)
-    f:HookScript("OnMouseUp", function(_, button)
+    f:HookScript("OnMouseUp", function(self, button)
         if button == "LeftButton" then
             EABR.NotifyCombatClickDisabled()
+        elseif button == "MiddleButton" and self._dismissKey then
+            _dismissedUntilLoad[self._dismissKey] = true
+            if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
         end
     end)
     f._eabrCombatClickHint = true
@@ -2761,19 +2765,14 @@ local function GetOrCreateIcon(index)
     btn:SetSize(ICON_SIZE, ICON_SIZE)
     btn:RegisterForClicks("LeftButtonDown", "LeftButtonUp", "MiddleButtonUp", "RightButtonUp")
     securecallfunction(btn.SetPassThroughButtons, btn, "RightButton")
-    -- MiddleButton is the dismiss click, RightButton the pet-cycle-preview
-    -- click: NOOP both action types so neither can fall back to the plain
-    -- "type" attribute and cast the reminder.
-    btn:SetAttribute("*type2", ATTRIBUTE_NOOP)
-    btn:SetAttribute("*type3", ATTRIBUTE_NOOP)
     btn:SetFrameStrata(GetStrata())
     btn:Hide()
 
     -- Middle-click dismiss: hide this reminder until the next loading screen.
     -- Right-click on a multi-pet-cycle reminder previews the next pet without
-    -- casting (RightButton is a permanent NOOP type above; ShowIcon's
-    -- pass-through toggle decides whether this reminder claims the click at
-    -- all, vs letting it fall through like every other reminder does).
+    -- casting (ShowIcon's pass-through toggle decides whether this reminder
+    -- claims the click at all, vs letting it fall through like every other
+    -- reminder does).
     btn:HookScript("PostClick", function(self, button)
         if button == "MiddleButton" and self._dismissKey then
             _dismissedUntilLoad[self._dismissKey] = true
@@ -2806,13 +2805,19 @@ local function GetOrCreateIcon(index)
     return btn
 end
 
+-- The four setters below suffix every action attribute with the "1" button, so
+-- only a left click resolves them. An unsuffixed "type" is equivalent to
+-- "*type*" and is inherited by every button, which is what let a middle-click
+-- dismiss also fire the reminder; "*type2"/"*type3" set to ATTRIBUTE_NOOP did
+-- not reliably outrank it.
+
 -- Sets icon to a plain texture with no click action (clears cast attributes OOC).
 local function SetIconTexture(btn, texture, label)
     if not InCombat() then
-        btn:SetAttribute("type", nil)
-        btn:SetAttribute("spell", nil)
-        btn:SetAttribute("item", nil)
-        btn:SetAttribute("macrotext", nil)
+        btn:SetAttribute("type1", nil)
+        btn:SetAttribute("spell1", nil)
+        btn:SetAttribute("item1", nil)
+        btn:SetAttribute("macrotext1", nil)
     end
     btn._icon:SetTexture(texture or 134400)
     btn._tooltipSpell = nil
@@ -2821,11 +2826,11 @@ end
 
 local function SetIconSpell(btn, spellID, texture, label)
     if not InCombat() then
-        btn:SetAttribute("type", "spell")
-        btn:SetAttribute("spell", spellID)
-        btn:SetAttribute("item", nil)
-        btn:SetAttribute("macrotext", nil)
-        btn:SetAttribute("unit", "player")
+        btn:SetAttribute("type1", "spell")
+        btn:SetAttribute("spell1", spellID)
+        btn:SetAttribute("item1", nil)
+        btn:SetAttribute("macrotext1", nil)
+        btn:SetAttribute("unit1", "player")
     end
     btn._icon:SetTexture(texture or Tex(spellID) or 134400)
     btn._tooltipSpell = spellID
@@ -2834,11 +2839,11 @@ end
 
 local function SetIconItem(btn, itemID, texture, label)
     if not InCombat() then
-        btn:SetAttribute("type", "item")
-        btn:SetAttribute("item", "item:"..itemID)
-        btn:SetAttribute("spell", nil)
-        btn:SetAttribute("macrotext", nil)
-        btn:SetAttribute("unit", nil)
+        btn:SetAttribute("type1", "item")
+        btn:SetAttribute("item1", "item:"..itemID)
+        btn:SetAttribute("spell1", nil)
+        btn:SetAttribute("macrotext1", nil)
+        btn:SetAttribute("unit1", nil)
     end
     btn._icon:SetTexture(texture or GetItemIcon(itemID) or 134400)
     btn._tooltipSpell = nil
@@ -2847,11 +2852,11 @@ end
 
 local function SetIconMacro(btn, macrotext, texture, spellID)
     if not InCombat() then
-        btn:SetAttribute("type", "macro")
-        btn:SetAttribute("macrotext", macrotext)
-        btn:SetAttribute("spell", nil)
-        btn:SetAttribute("item", nil)
-        btn:SetAttribute("unit", nil)
+        btn:SetAttribute("type1", "macro")
+        btn:SetAttribute("macrotext1", macrotext)
+        btn:SetAttribute("spell1", nil)
+        btn:SetAttribute("item1", nil)
+        btn:SetAttribute("unit1", nil)
     end
     btn._icon:SetTexture(texture or 134400)
     btn._tooltipSpell = spellID
@@ -2897,7 +2902,7 @@ do
         if mode == "spell" then
             SetIconSpell(btn, m.spellID, m.texture or Tex(m.spellID), m.label)
             if m.unit and not InCombat() then
-                btn:SetAttribute("unit", m.unit)
+                btn:SetAttribute("unit1", m.unit)
             end
         elseif mode == "item" then
             SetIconItem(btn, m.itemID, m.texture, m.label)
