@@ -64,6 +64,15 @@ local defaults = {
             enabled    = true,
             visibility = "NEVER",  -- MPLUS_AND_RAID | MPLUS | RAID | NEVER
             pos        = nil,      -- { centerX, centerY } stored after first move
+            -- Show Sated / Show Ready: independent toggles. Own keys, never proxied to
+            -- battleRes (which has no ready state). Sated on / Ready off = the
+            -- pre-existing behaviour (countdown only, hidden once it expires).
+            showSated    = true,
+            showReady    = false,
+            readySize    = 12,
+            readyColor   = { r = 1, g = 1, b = 1 },
+            readyOffsetX = 0,
+            readyOffsetY = 0,
         },
     },
 }
@@ -75,6 +84,15 @@ local function P()
 end
 
 local frame, iconTex, borderTex, durationFS, countFS, cooldownFrame, textFS
+
+-- Options-page live preview: forces the icon on screen for as long as the owning
+-- page is. Real charge data is used whenever the brez pool reports any; outside
+-- a raid or key it reports none, so PollCharges falls back to the stand-in below
+-- rather than previewing an icon with no count and no timer.
+local _previewOwner
+local function _previewActive()
+    return _previewOwner ~= nil and _previewOwner:IsVisible() and true or false
+end
 
 local function IsTextMode()
     local p = P()
@@ -143,6 +161,15 @@ local function _resolveBorderColor(p)
     return 0, 0, 0, 1
 end
 
+-- Snap a config-driven layout offset onto the pixel grid. The frame's own edges
+-- and center are snapped already (ApplyShape / ApplyPosition), so snapping the
+-- offset is what keeps the child anchored to it on the grid too.
+local function _snapOff(v)
+    local PP = EllesmereUI and EllesmereUI.PP
+    if PP and PP.Snap then return PP.Snap(v) end
+    return v
+end
+
 local function ApplyShape()
     if not frame then return end
     local p = P()
@@ -157,6 +184,7 @@ local function ApplyShape()
     local size = p.iconSize or 40
     local fw, fh = size, size
     if shape == "cropped" then fh = math.floor(size * 0.80 + 0.5) end
+    if PP and PP.Snap then fw, fh = PP.Snap(fw), PP.Snap(fh) end
     frame:SetSize(fw, fh)
     iconTex:ClearAllPoints()
     iconTex:SetAllPoints(frame)
@@ -172,12 +200,12 @@ local function ApplyShape()
     SetBrezIconFont(durationFS, p.durationSize or 12)
     durationFS:ClearAllPoints()
     durationFS:SetPoint("CENTER", frame, "CENTER",
-        p.durationOffsetX or 0, p.durationOffsetY or 0)
+        _snapOff(p.durationOffsetX or 0), _snapOff(p.durationOffsetY or 0))
 
     SetBrezIconFont(countFS, p.countSize or 11)
     countFS:ClearAllPoints()
     countFS:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT",
-        -2 + (p.countOffsetX or 0), 2 + (p.countOffsetY or 0))
+        _snapOff(-2 + (p.countOffsetX or 0)), _snapOff(2 + (p.countOffsetY or 0)))
 
     -----------------------------------------------------------------------
     --  BASE CASE: "none" or "cropped" -- plain texture, no mask
@@ -264,8 +292,9 @@ local function ApplyShape()
     if borderPath and bs > 0 then
         borderTex:SetTexture(borderPath)
         borderTex:ClearAllPoints()
-        borderTex:SetPoint("TOPLEFT", frame, "TOPLEFT", -bs, bs)
-        borderTex:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", bs, -bs)
+        local bsp = _snapOff(bs)
+        borderTex:SetPoint("TOPLEFT", frame, "TOPLEFT", -bsp, bsp)
+        borderTex:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", bsp, -bsp)
         local r, g, b, a = _resolveBorderColor(p)
         borderTex:SetVertexColor(r, g, b, a)
         borderTex:Show()
@@ -325,7 +354,10 @@ local function ApplyText()
     local h = textFS:GetStringHeight() or 0
     if w < 1 then w = (p.textSize or 14) * 4 end
     if h < 1 then h = p.textSize or 14 end
-    frame:SetSize(math.ceil(w) + 4, math.ceil(h) + 2)
+    local tw, th = math.ceil(w) + 4, math.ceil(h) + 2
+    local PPt = EllesmereUI and EllesmereUI.PP
+    if PPt and PPt.Snap then tw, th = PPt.Snap(tw), PPt.Snap(th) end
+    frame:SetSize(tw, th)
 end
 
 -------------------------------------------------------------------------------
@@ -335,13 +367,16 @@ local function ApplyPosition()
     if not frame then return end
     local p = P()
     if not p then return end
-    local pos = p.pos
     frame:ClearAllPoints()
-    if pos and pos.centerX and pos.centerY then
-        frame:SetPoint("CENTER", UIParent, "CENTER", pos.centerX, pos.centerY)
-    else
-        frame:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
+    local pos = p.pos
+    local cx = (pos and pos.centerX) or 0
+    local cy = (pos and pos.centerY) or 200
+    local PPp = EllesmereUI and EllesmereUI.PP
+    if PPp and PPp.SnapCenterForDim then
+        cx = PPp.SnapCenterForDim(cx, frame:GetWidth())
+        cy = PPp.SnapCenterForDim(cy, frame:GetHeight())
     end
+    frame:SetPoint("CENTER", UIParent, "CENTER", cx, cy)
 end
 
 local function SavePosition()
@@ -351,6 +386,11 @@ local function SavePosition()
     local fw, fh = frame:GetSize()
     local cx = left + fw / 2 - UIParent:GetWidth() / 2
     local cy = bottom + fh / 2 - UIParent:GetHeight() / 2
+    local PPp = EllesmereUI and EllesmereUI.PP
+    if PPp and PPp.SnapCenterForDim then
+        cx = PPp.SnapCenterForDim(cx, fw)
+        cy = PPp.SnapCenterForDim(cy, fh)
+    end
     local p = P(); if p then p.pos = { centerX = cx, centerY = cy } end
 end
 
@@ -382,6 +422,9 @@ local function ShouldShow()
     if not p or not p.enabled then return false end
     local v = p.visibility or "MPLUS_AND_RAID"
     if v == "NEVER" then return false end
+    -- Options preview: forced on screen while the page is up, skipping the instance
+    -- and M+/raid gates below -- the point is to configure it from anywhere.
+    if _previewActive() then return true end
 
     -- Hard gate: must be in a party or raid instance. Prevents any stuck state from
     -- showing the icon in town/open world. Unlock mode relies on the overlay mover for
@@ -430,11 +473,34 @@ local function _setDur(s)
     end
 end
 
+-- Options preview stand-in. The shared brez pool only reports charges inside a
+-- raid or key, and BREZ_SPELL_ID is Rebirth, so for most characters in most
+-- places GetSpellCharges returns nothing and the preview would be a bare icon --
+-- exactly the two texts the Count and Duration options tune. Same placeholder
+-- count ApplyText measures with, plus a looping countdown.
+local _previewExpiry = 0
+local function _showPreviewCharges()
+    if _previewExpiry <= GetTime() then
+        -- Once per cycle: re-setting the SAME values each poll is idempotent, but
+        -- re-setting new ones would restart the swipe animation twice a second.
+        _previewExpiry = GetTime() + 90
+        if cooldownFrame then cooldownFrame:SetCooldown(GetTime(), 90) end
+    end
+    local timeText = FormatTime(_previewExpiry - GetTime())
+    if IsTextMode() then
+        _setTextDisplay("2", timeText, false)
+        return
+    end
+    _setCount("2", false)
+    _setDur(timeText)
+end
+
 local function PollCharges()
     if not frame then return end
     local textMode = IsTextMode()
     local info = C_Spell and C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(BREZ_SPELL_ID)
     if not info or not info.maxCharges then
+        if _previewActive() then return _showPreviewCharges() end
         if textMode then
             _setTextDisplay("", "", false)
         else
@@ -480,9 +546,27 @@ local function UpdateVisibility()
     else
         if frame:IsShown() then frame:Hide() end
         if _ticker then _ticker:Cancel(); _ticker = nil end
+        -- Preview just ended: drop the stand-in swipe and texts so no later path
+        -- can surface them as if they were real charge data.
+        if _previewExpiry ~= 0 and not _previewActive() then
+            _previewExpiry = 0
+            if cooldownFrame then cooldownFrame:Clear() end
+            if IsTextMode() then
+                _setTextDisplay("", "", false)
+            else
+                _setCount("", false); _setDur("")
+            end
+        end
     end
 end
 _G._EUI_BattleRes_UpdateVisibility = UpdateVisibility
+
+-- The options page hands us its frame on build; _previewActive() takes it from there.
+function _G._EUI_BattleRes_SetPreviewOwner(f)
+    _previewOwner = f
+    _previewExpiry = 0  -- every visit starts a fresh stand-in countdown
+    UpdateVisibility()
+end
 
 -------------------------------------------------------------------------------
 --  Frame creation
