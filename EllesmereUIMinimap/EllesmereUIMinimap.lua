@@ -2185,7 +2185,8 @@ local function GatherOnlineFriends()
             if online and name then
                 local short = name:match("^([^%-]+)") or name
                 if short ~= myName then
-                    guild[#guild + 1] = { name = short, full = name, class = classFile, zone = zone or "", level = level, kind = "guild" }
+                    -- Fix "Name-Realm-Realm" to "Name-Realm"
+                    guild[#guild + 1] = { name = short, full = EllesmereUI.BuildFullName(name) or name, class = classFile, zone = zone or "", level = level, kind = "guild" }
                 end
             end
         end
@@ -2204,11 +2205,8 @@ local function GatherOnlineFriends()
                     if ci and ci.classFile then classFile = ci.classFile end
                 end
                 local zone = gameInfo.areaName or ""
-                local realm = gameInfo.realmName
-                local full = charName
-                if charName and realm and realm ~= "" then
-                    full = charName .. "-" .. realm
-                end
+                -- Fix "Name-Realm-Realm" to "Name-Realm"
+                local full = EllesmereUI.BuildFullName(charName, gameInfo.realmName) or charName
                 -- Battle tag without the #discriminator (fall back to accountName/RealID)
                 local rawTag = acct.battleTag or acct.accountName
                 local tagName = rawTag and rawTag:match("^([^#]+)") or rawTag
@@ -2244,7 +2242,7 @@ local function GatherOnlineFriends()
             if charName and not seenBNet[charName] then
                 friends[#friends + 1] = {
                     name = charName:match("^([^%-]+)") or charName,
-                    full = charName,
+                    full = EllesmereUI.BuildFullName(charName) or charName,
                     class = info.className and info.className:upper():gsub(" ", ""),
                     zone = info.area or "",
                     level = info.level,
@@ -2351,7 +2349,9 @@ local function FTTOpenWhisper(charName, bnetName)
     end
     if charName and charName ~= "" then
         local sendTell = (ChatFrameUtil and ChatFrameUtil.SendTell) or ChatFrame_SendTell
-        if sendTell then sendTell(charName, DEFAULT_CHAT_FRAME) end
+        -- Fix "Name-Realm-Realm" to "Name-Realm"
+        local target = EllesmereUI.BuildFullName(charName) or charName
+        if sendTell then sendTell(target, DEFAULT_CHAT_FRAME) end
     end
 end
 
@@ -2398,7 +2398,7 @@ local function GetFTTMenu()
     MakeItem("Whisper", -PAD, FTTOpenWhisper)
     MakeItem("Invite", -PAD - RH, function(target)
         if target and target ~= "" and C_PartyInfo and C_PartyInfo.InviteUnit then
-            C_PartyInfo.InviteUnit(target)
+            C_PartyInfo.InviteUnit(EllesmereUI.BuildFullName(target) or target)
         end
     end)
 
