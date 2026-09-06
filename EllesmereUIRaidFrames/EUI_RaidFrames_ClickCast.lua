@@ -459,7 +459,7 @@ function ns.CC_FilterConflictingBindings(bindings)
     return result
 end
 
--- Merges globals + current spec (spec wins key conflicts); only enabled
+-- Merges globals + current spec (spec wins key conflicts and target/menu actions); only enabled
 -- bindings; gated on the master enable toggle.
 local function GetActiveBindings()
     local cc = GetClickCastDB()
@@ -472,9 +472,20 @@ local function GetActiveBindings()
             usedKeys[b.key] = true
         end
     end
+    -- Only an action which survives the spec's normal conflict resolution can
+    -- replace a global action. A losing spec action must leave the global one.
+    local resolvedSpecBindings = ns.CC_FilterConflictingBindings(ExpandBothPathBindings(specBindings))
+    local specTarget, specMenu = false, false
+    for _, b in ipairs(resolvedSpecBindings) do
+        if b.type == "target" then specTarget = true end
+        if b.type == "menu" then specMenu = true end
+    end
     for _, b in ipairs(cc.globals) do
-        local keepGlobal = not usedKeys[b.key]
-        if not keepGlobal then
+        -- A spec action replaces its global counterpart even on a different key.
+        -- Unbound, disabled, or context-inactive spec actions leave globals intact.
+        local overriddenAction = (b.type == "target" and specTarget) or (b.type == "menu" and specMenu)
+        local keepGlobal = not overriddenAction and not usedKeys[b.key]
+        if not keepGlobal and not overriddenAction then
             for _, specBinding in ipairs(specBindings) do
                 if ns.CC_AreComplementaryReactionBindings(specBinding, b) then
                     keepGlobal = true
@@ -1910,8 +1921,13 @@ local function FindKeyConflicts(keyStr, excludeBinding)
     local conflicts = {}
     local cc = GetClickCastDB()
     if not cc then return conflicts end
+    local activeActions = {}
+    for _, b in ipairs(GetActiveBindings()) do
+        if b.type == "target" or b.type == "menu" then activeActions[b.type] = true end
+    end
     for _, b in ipairs(cc.globals) do
-        if b ~= excludeBinding and IsBindingActive(b) and b.key == keyStr
+        local inactiveAction = (b.type == "target" or b.type == "menu") and not activeActions[b.type]
+        if b ~= excludeBinding and not inactiveAction and IsBindingActive(b) and b.key == keyStr
             and BindingsShareCastPath(excludeBinding, b)
             and not ns.CC_AreComplementaryReactionBindings(excludeBinding, b) then
             conflicts[#conflicts + 1] = ns.CC_GetBindingName(b)
@@ -3303,7 +3319,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         local INSET2 = 15
         local toggleMode = "spell"
         local toggleInner = popupW - INSET2 * 2
-        local toggleBtnW = floor(toggleInner / 3) - 2
+        local toggleBtnW = floor(toggleInner / 4) - 2
 
         local spellToggle = CreateFrame("Button", nil, popup)
         spellToggle:SetSize(toggleBtnW, 26)
@@ -3325,6 +3341,17 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         local itBg = itemToggle:CreateTexture(nil, "BACKGROUND"); itBg:SetAllPoints()
         local itHl = itemToggle:CreateTexture(nil, "HIGHLIGHT"); itHl:SetAllPoints(); itHl:SetColorTexture(1, 1, 1, 0.1)
         local itLbl = MakeFont(itemToggle, 12, 1, 1, 1, 0.9); itLbl:SetPoint("CENTER"); itLbl:SetText(EllesmereUI.L("Items"))
+
+        local actionToggle = CreateFrame("Button", nil, popup)
+        actionToggle:SetSize(toggleBtnW, 26)
+        actionToggle:SetPoint("LEFT", itemToggle, "RIGHT", 3, 0)
+        local atBg = actionToggle:CreateTexture(nil, "BACKGROUND"); atBg:SetAllPoints()
+        local atHl = actionToggle:CreateTexture(nil, "HIGHLIGHT"); atHl:SetAllPoints(); atHl:SetColorTexture(1, 1, 1, 0.1)
+        local atLbl = MakeFont(actionToggle, 12, 1, 1, 1, 0.9); atLbl:SetPoint("CENTER"); atLbl:SetText(EllesmereUI.L("Actions"))
+        actionToggle:SetScript("OnEnter", function(self)
+            EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Bound spec actions replace their global bindings for this specialization. Clear or disable the spec action to use the global binding again."))
+        end)
+        actionToggle:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
         -- Grid scroll area (inset on all sides, below toggle row)
         local gridScroll = CreateFrame("ScrollFrame", nil, popup)
@@ -3354,6 +3381,9 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
 
         local function PopulateGrid(items2, onItemClick)
             for _, c2 in ipairs({gridChild:GetChildren()}) do c2:Hide(); c2:SetParent(nil) end
+
+            local GC2 = toggleMode == "action" and 2 or GC2
+            local CW2 = toggleMode == "action" and floor((innerGridW - CGAP2) / 2) or CW2
 
             local totalRows2 = math.ceil(#items2 / GC2)
             local rht = {}
@@ -3444,6 +3474,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             stBg:SetColorTexture(toggleMode == "spell" and selA[1] or offA[1], toggleMode == "spell" and selA[2] or offA[2], toggleMode == "spell" and selA[3] or offA[3], toggleMode == "spell" and selA[4] or offA[4])
             mtBg:SetColorTexture(toggleMode == "macro" and selA[1] or offA[1], toggleMode == "macro" and selA[2] or offA[2], toggleMode == "macro" and selA[3] or offA[3], toggleMode == "macro" and selA[4] or offA[4])
             itBg:SetColorTexture(toggleMode == "item" and selA[1] or offA[1], toggleMode == "item" and selA[2] or offA[2], toggleMode == "item" and selA[3] or offA[3], toggleMode == "item" and selA[4] or offA[4])
+            atBg:SetColorTexture(toggleMode == "action" and selA[1] or offA[1], toggleMode == "action" and selA[2] or offA[2], toggleMode == "action" and selA[3] or offA[3], toggleMode == "action" and selA[4] or offA[4])
 
             if toggleMode == "spell" then
                 local spells = ns.CC_GetClassSpells()
@@ -3471,6 +3502,21 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                     })
                     ns._ccSelSide = "spec"; ns._ccSelIndex = #(GetSpecBindings()); RebuildPage()
                 end)
+            elseif toggleMode == "action" then
+                PopulateGrid({
+                    { name = EllesmereUI.L("Target Unit"), type = "target", icon = ACTION_ICONS.target },
+                    { name = EllesmereUI.L("Context Menu"), type = "menu", icon = ACTION_ICONS.menu },
+                }, function(item)
+                    -- Re-select an existing spec action instead of adding duplicates.
+                    for i, binding in ipairs(GetSpecBindings()) do
+                        if binding.type == item.type then
+                            ns._ccSelSide = "spec"; ns._ccSelIndex = i; RebuildPage()
+                            return
+                        end
+                    end
+                    ns.CC_AddSpecBinding({ type = item.type, enabled = true, oocOnly = false, hovercast = false })
+                    ns._ccSelSide = "spec"; ns._ccSelIndex = #(GetSpecBindings()); RebuildPage()
+                end)
             else -- "item"
                 local eqItems = ns.CC_GetEquippedItems()
                 PopulateGrid(eqItems, function(item)
@@ -3488,6 +3534,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         spellToggle:SetScript("OnClick", function() toggleMode = "spell"; UpdateToggle() end)
         macroToggle:SetScript("OnClick", function() toggleMode = "macro"; UpdateToggle() end)
         itemToggle:SetScript("OnClick", function() toggleMode = "item"; UpdateToggle() end)
+        actionToggle:SetScript("OnClick", function() toggleMode = "action"; UpdateToggle() end)
 
         -- Auto-close on click outside (dropdown pattern: poll IsMouseButtonDown)
         popup:SetScript("OnShow", function(p)
