@@ -276,6 +276,13 @@ local function HideMinimapButton(name)
             for _, entry in ipairs(minimapButtonMap) do
                 for _, btnName in ipairs(entry.names) do
                     if btnName == name and mp[entry.key] then
+                        -- Alpha alone leaves the button SHOWN (a WoW frame at
+                        -- alpha 0 still receives mouse/tooltip events) -- Hide()
+                        -- it too, matching the initial suppression below, or a
+                        -- later Blizzard-driven Show() (tracking-spell change,
+                        -- login re-eval, etc.) leaves an invisible but fully
+                        -- clickable hotspot at the button's old position.
+                        self:Hide()
                         self:SetAlpha(0)
                         return
                     end
