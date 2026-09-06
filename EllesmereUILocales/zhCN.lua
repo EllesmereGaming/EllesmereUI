@@ -8029,3 +8029,7 @@ L["The scriptProfile CVar is enabled."] = "scriptProfile 控制台变量已启�
 L["The taintLog CVar is enabled."] = "taintLog 控制台变量已启用。"
 L["The taintLog and scriptProfile CVars are enabled."] = "taintLog 和 scriptProfile 这两个控制台变量均已启用。"
 L["Tracking it also makes the fill show Ignore Pain alone; without it the fill shows your total absorb, so other shields can add to it."] = "追踪该效果后，填充会仅显示无视痛苦；未追踪时，填充显示您的总吸收量，因此其他护盾也会计入其中。"
+
+L["Show Icon Divider"] = "显示图标分隔线"
+L["Draw a black 1px divider between the spell icon and the cast bar."] = "在法术图标与施法条之间显示一条宽度为1像素的黑色分隔线。"
+L["Keep the icon inside the cast bar footprint. When detached, the gap reduces the bar width without moving the footprint."] = "将图标保留在施法条的总宽度内。分离图标时，间距会缩短施法条，而不会移动整体位置。"

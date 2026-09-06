@@ -8715,7 +8715,7 @@ initFrame:SetScript("OnEvent", function(self)
                           local p = DB(); if not p then return end
                           p.castBar.iconDetached = not v; RefreshCast()
                       end },
-                    { type = "slider", label = "Icon Gap", min = 5, max = 20, step = 1,
+                    { type = "slider", label = "Icon Spacing", min = 5, max = 20, step = 1,
                       disabled = function() local p = DB(); return not (p and p.castBar.iconDetached) end,
                       get = function() local p = DB(); return p and math.max(5, math.min(20, p.castBar.iconGap or 5)) or 5 end,
                       set = function(v)

@@ -5657,3 +5657,7 @@ L["This bar sizes its blocks itself, so the width is not this block's to choose.
 L["How precise the coordinates read. More decimals make the block wider."] = "Précision d'affichage des coordonnées. Plus il y a de décimales, plus le bloc est large."
 L["Hide in Instance"] = "Masquer en instance"
 L["Removes the block from the bar in instanced content, where player coordinates are unavailable."] = "Retire le bloc de la barre dans le contenu instancié, où les coordonnées du joueur ne sont pas disponibles."
+
+L["Show Icon Divider"] = "Afficher le séparateur de l’icône"
+L["Draw a black 1px divider between the spell icon and the cast bar."] = "Affiche un séparateur noir de 1 pixel entre l’icône du sort et la barre d’incantation."
+L["Keep the icon inside the cast bar footprint. When detached, the gap reduces the bar width without moving the footprint."] = "Garde l’icône dans la largeur totale de la barre d’incantation. Lorsqu’elle est détachée, l’espacement réduit la largeur de la barre sans déplacer l’ensemble."

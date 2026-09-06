@@ -2935,130 +2935,156 @@ function ns.SetUnitFrameSource(unit, source)
     db.profile.enabledFrames[unit] = (source ~= "hidden")
 end
 
--- Cast-bar icon "part of the bar" resolver. True = icon counts inside the cast bar's
--- width (icon inside footprint, fill inset to its right, like Resource Bars). False =
--- icon outside the width. Requires the icon shown; a hidden icon is never "in width".
-local function CastIconInWidth(unit, s)
-    s = s or GetSettingsForUnit(unit)
-    if not s then return true end
-    if unit == "player" then
-        return s.showPlayerCastIcon ~= false and s.playerCastbarIconInWidth ~= false
+-- Shared appearance for player, target, focus and boss cast bars.
+-- Configuration/layout only; casting events stay in the cast engine.
+do
+    local pending = CreateFrame("Frame")
+    pending:SetScript("OnEvent", function(self)
+        if InCombatLockdown() then return end
+        self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+        if ns.ReloadFrames then ns.ReloadFrames() end
+    end)
+    function ns.RequestCastAppearanceUpdate()
+        if InCombatLockdown() then
+            pending:RegisterEvent("PLAYER_REGEN_ENABLED")
+        elseif ns.ReloadFrames then
+            pending:UnregisterEvent("PLAYER_REGEN_ENABLED")
+            ns.ReloadFrames()
+        end
     end
-    return s.showCastIcon ~= false and s.castbarIconInWidth ~= false
-end
 
--- Whether the cast spell icon is shown at all. Independent of "part of the
--- bar" (CastIconInWidth folds this in already for its own purposes, but
--- LayoutCastbarIcon needs the shown state on its own to know whether a
--- disabled icon should suppress the bar's facing border).
-local function CastIconShown(unit, s)
-    s = s or GetSettingsForUnit(unit)
-    if not s then return true end
-    if unit == "player" then
-        return s.showPlayerCastIcon ~= false
+    function ns.HasCastAppearance(unit)
+        return unit == "player" or unit == "target" or unit == "focus"
+            or unit == "boss" or unit == "boss1" or unit == "boss2"
+            or unit == "boss3" or unit == "boss4" or unit == "boss5"
     end
-    return s.showCastIcon ~= false
-end
 
--- Whether the cast spell icon sits on the RIGHT of the bar instead of the
--- default left. Independent of "part of the bar"; defaults off (left).
-local function CastIconOnRight(unit, s)
-    s = s or GetSettingsForUnit(unit)
-    if not s then return false end
-    if unit == "player" then
-        return s.playerCastbarIconRight == true
-    end
-    return s.castbarIconRight == true
-end
-
--- Additive X/Y nudge for the cast spell icon. Applies to the icon frame's anchors
--- only -- the bar fill and footprint never move.
-local function CastIconOffsets(unit, s)
-    s = s or GetSettingsForUnit(unit)
-    if not s then return 0, 0 end
-    if unit == "player" then
-        return s.playerCastIconOffsetX or 0, s.playerCastIconOffsetY or 0
-    end
-    return s.castIconOffsetX or 0, s.castIconOffsetY or 0
-end
-
--- Anchor the cast spell icon and inset the fill based on whether the icon is part of
--- the bar width. inWidth=true -> icon at the bar's edge, fill inset by icon width
--- (castbarBg becomes the full footprint, so unlock mode/width matching count the icon
--- for free). inWidth=false -> icon hangs outside the bar width.
---
--- Icon HEIGHT anchors to the bar bg's top AND bottom so it always equals the bar
--- height: a live bg:GetHeight() read is unreliable during creation/login (bg not yet
--- at final height/scale). iconH is the configured cast bar height (castbarHeight/
--- playerCastbarHeight), used only for the square WIDTH and matching fill inset so
--- those stay deterministic; falls back to bg:GetHeight().
-local function LayoutCastbarIcon(castbar, inWidth, iconH, onRight, offX, offY, iconShown)
-    if not castbar then return end
-    local bg = castbar:GetParent()
-    if not bg then return end
-    local side = iconH or bg:GetHeight()
-    local iconFrame = castbar._iconFrame
-    offX, offY = offX or 0, offY or 0
-    if iconFrame then
-        iconFrame:ClearAllPoints()
-        if inWidth then
-            -- Icon inside the footprint, flush with the chosen edge.
-            if onRight then
-                PP.Point(iconFrame, "TOPRIGHT", bg, "TOPRIGHT", offX, offY)
-                PP.Point(iconFrame, "BOTTOMRIGHT", bg, "BOTTOMRIGHT", offX, offY)
-            else
-                PP.Point(iconFrame, "TOPLEFT", bg, "TOPLEFT", offX, offY)
-                PP.Point(iconFrame, "BOTTOMLEFT", bg, "BOTTOMLEFT", offX, offY)
-            end
+    -- Saved configuration only. Never inspect cast IDs, times, interruptibility,
+    -- status-bar values or spell/target data in the appearance/layout path.
+    function ns.CastAppearanceLayout(unit, s)
+        local player = unit == "player"
+        local shown, joined, right, x, y
+        if player then
+            shown = s.showPlayerCastIcon ~= false
+            joined = s.playerCastbarIconInWidth ~= false
+            right = s.playerCastbarIconRight == true
+            x, y = s.playerCastIconOffsetX or 0, s.playerCastIconOffsetY or 0
         else
-            -- Icon hangs outside the bar, off the chosen edge.
-            if onRight then
-                PP.Point(iconFrame, "TOPLEFT", bg, "TOPRIGHT", offX, offY)
-                PP.Point(iconFrame, "BOTTOMLEFT", bg, "BOTTOMRIGHT", offX, offY)
-            else
-                PP.Point(iconFrame, "TOPRIGHT", bg, "TOPLEFT", offX, offY)
-                PP.Point(iconFrame, "BOTTOMRIGHT", bg, "BOTTOMLEFT", offX, offY)
-            end
+            shown = s.showCastIcon ~= false
+            joined = s.castbarIconInWidth ~= false
+            right = s.castbarIconRight == true
+            x, y = s.castIconOffsetX or 0, s.castIconOffsetY or 0
         end
-        iconFrame:SetWidth(side)
-    end
-    castbar:ClearAllPoints()
-    if inWidth and onRight then
-        -- Bar occupies the left of the footprint; icon takes the right edge.
-        PP.Point(castbar, "TOPLEFT", bg, "TOPLEFT", 0, 0)
-        PP.Point(castbar, "BOTTOMRIGHT", bg, "BOTTOMRIGHT", -side, 0)
-    else
-        PP.Point(castbar, "TOPLEFT", bg, "TOPLEFT", inWidth and side or 0, 0)
-        PP.Point(castbar, "BOTTOMRIGHT", bg, "BOTTOMRIGHT", 0, 0)
+        -- Old detached profiles retain their external icon/offsets until the user
+        -- edits the integration toggle or gap. No migration writes or width changes.
+        local inside = shown and (joined or s.castIconDetachedLayout == true)
+        local gap = shown and not joined and s.castIconDetachedLayout == true
+            and math.max(5, math.min(20, s.castIconGap or 5)) or 0
+        return shown, joined, right, x, y, inside, gap
     end
 
-    -- Icon and bar are separate frames, each with its own full 1px border
-    -- (PP.CreateBorder at creation, on iconFrame and on castbar). In every
-    -- inWidth/onRight combination above they sit flush against each other,
-    -- so both draw a strip at the shared seam -- doubling it to 2px. Suppress
-    -- the facing edge on each side, same _hideLeft/_hideRight pattern as the
-    -- health/power seam elsewhere in this file. Only when truly flush (no
-    -- configured icon offset): with an offset there's a real gap, and hiding
-    -- both edges would leave it with no border on either side. And only when
-    -- the icon is actually shown -- a disabled icon still owns a (hidden)
-    -- iconFrame, so blindly suppressing the bar's facing edge here left the
-    -- bar with no border at all on that side while the icon is off.
-    if iconFrame then
-        local iconEdges = PP.GetBorders(iconFrame)
-        local barEdges = PP.GetBorders(castbar)
-        if iconEdges and barEdges then
-            if iconShown and offX == 0 and offY == 0 then
-                iconEdges._hideRight = (not onRight) or nil
-                iconEdges._hideLeft  = onRight or nil
-                barEdges._hideLeft   = (not onRight) or nil
-                barEdges._hideRight  = onRight or nil
-            else
-                iconEdges._hideLeft, iconEdges._hideRight = nil, nil
-                barEdges._hideLeft, barEdges._hideRight = nil, nil
+    -- Used by the live bars and the options preview. Only addon-owned, plain child
+    -- frames are created; callers keep live layout work outside combat lockdown.
+    function ns.ApplyCastAppearance(bar, icon, s, shown, joined, right, x, y, host)
+        local b = s.castBarBorder or {}
+        local size = b.borderSize or 1
+        if not bar._castBorder then
+            -- Live borders belong to the persistent background container, not the
+            -- status bar/icon that the cast engine hides when a cast ends. Preview
+            -- callers use the preview bar itself as their visibility owner.
+            host = host or bar
+            local iconBackground = host:CreateTexture(nil, "BACKGROUND")
+            iconBackground:SetAllPoints(icon)
+            bar._castIconBackground = iconBackground
+            bar._castBorder = CreateFrame("Frame", nil, host)
+            bar._castIconBorder = CreateFrame("Frame", nil, host)
+            bar._castIconBorder:SetAllPoints(icon)
+            local overlay = CreateFrame("Frame", nil, host)
+            overlay:SetAllPoints(bar)
+            bar._castDividerFrame = overlay
+            local divider = overlay:CreateTexture(nil, "OVERLAY", nil, 7)
+            if divider.SetSnapToPixelGrid then
+                divider:SetSnapToPixelGrid(false)
+                divider:SetTexelSnappingBias(0)
             end
-            PP.SetBorderSize(iconFrame, 1)
-            PP.SetBorderSize(castbar, 1)
+            bar._castDivider = divider
         end
+        -- Same background as the bar, owned by the persistent container so
+        -- hiding the spell icon on cast end does not leave an empty square.
+        local bgColor = s.castBgColor
+        bar._castIconBackground:SetColorTexture(bgColor and bgColor.r or 0,
+            bgColor and bgColor.g or 0, bgColor and bgColor.b or 0, s.castBgAlpha or 0.5)
+        if shown then bar._castIconBackground:Show() else bar._castIconBackground:Hide() end
+        local combined = shown and joined and x == 0 and y == 0
+        local border = bar._castBorder
+        border:ClearAllPoints()
+        if combined then
+            border:SetPoint("TOPLEFT", right and bar or icon, "TOPLEFT", 0, 0)
+            border:SetPoint("BOTTOMRIGHT", right and icon or bar, "BOTTOMRIGHT", 0, 0)
+        else
+            border:SetAllPoints(bar)
+        end
+        local level = bar:GetFrameLevel()
+        for _, f in ipairs({ border, bar._castIconBorder }) do
+            f:SetFrameLevel(b.borderBehind and math.max(0, level - 1) or (level + 5))
+            local bs = f == bar._castIconBorder and (not shown or combined) and 0 or size
+            EllesmereUI.ApplyBorderStyle(f, bs,
+                b.borderR or 0, b.borderG or 0, b.borderB or 0, b.borderA or 1,
+                b.borderTexture or "solid", b.borderTextureOffset, b.borderTextureOffsetY,
+                b.borderTextureShiftX, b.borderTextureShiftY, "resourcebars", size)
+        end
+        -- Full-bleed icon, as on Resource Bars; the selected border draws its edge.
+        local tex = bar.Icon or icon._iconTex
+        if tex then tex:ClearAllPoints(); tex:SetAllPoints(icon) end
+        local divider = bar._castDivider
+        bar._castDividerFrame:SetFrameLevel(level + 6)
+        if combined and s.castIconDivider == true then
+            local es = bar._castDividerFrame:GetEffectiveScale()
+            divider:ClearAllPoints()
+            divider:SetWidth(es > 0 and PP.perfect / es or PP.mult)
+            if right then
+                divider:SetPoint("TOPRIGHT", icon, "TOPLEFT", 0, 0)
+                divider:SetPoint("BOTTOMRIGHT", icon, "BOTTOMLEFT", 0, 0)
+            else
+                divider:SetPoint("TOPLEFT", icon, "TOPRIGHT", 0, 0)
+                divider:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT", 0, 0)
+            end
+            divider:SetColorTexture(0, 0, 0, 1)
+            divider:Show()
+        else
+            divider:Hide()
+        end
+    end
+
+    function ns.LayoutCastbar(bar, unit, s, height)
+        if not ns.HasCastAppearance(unit) then return false end
+        -- The existing ReloadFrames regen path reapplies saved settings after combat.
+        if InCombatLockdown() then return true end
+        local shown, joined, right, x, y, inside, gap = ns.CastAppearanceLayout(unit, s)
+        local bg, icon = bar:GetParent(), bar._iconFrame
+        local side = height or (unit == "player" and s.playerCastbarHeight or s.castbarHeight) or 14
+        icon:ClearAllPoints()
+        if inside then
+            local edge = right and "RIGHT" or "LEFT"
+            PP.Point(icon, "TOP" .. edge, bg, "TOP" .. edge, x, y)
+            PP.Point(icon, "BOTTOM" .. edge, bg, "BOTTOM" .. edge, x, y)
+        elseif right then
+            PP.Point(icon, "TOPLEFT", bg, "TOPRIGHT", x, y)
+            PP.Point(icon, "BOTTOMLEFT", bg, "BOTTOMRIGHT", x, y)
+        else
+            PP.Point(icon, "TOPRIGHT", bg, "TOPLEFT", x, y)
+            PP.Point(icon, "BOTTOMRIGHT", bg, "BOTTOMLEFT", x, y)
+        end
+        PP.Width(icon, side)
+        local inset = inside and (side + gap) or 0
+        bar:ClearAllPoints()
+        PP.Point(bar, "TOPLEFT", bg, "TOPLEFT", right and 0 or inset, 0)
+        PP.Point(bar, "BOTTOMRIGHT", bg, "BOTTOMRIGHT", right and -inset or 0, 0)
+        -- Keep the detached gap transparent, including while the bar sits idle.
+        bg._bgTex:ClearAllPoints()
+        bg._bgTex:SetAllPoints(bar)
+        ns.ApplyCastAppearance(bar, icon, s, shown, joined, right, x, y, bg)
+        return true
     end
 end
 
@@ -4123,17 +4149,12 @@ local function UpdateBordersForScale(frame, unit)
             -- swaps frame._euiUnit to "player", which has no castbarWidth, and the
             -- trim would eat the boss castbar's custom width while previewing.
             local cbW = castbarBg:GetWidth()
-            local hasCustomW = (settings.castbarWidth or 0) > 0
+            local hasCustomW = ((unit == "player" and settings.playerCastbarWidth) or settings.castbarWidth or 0) > 0
             if not hasCustomW and cbW > snappedFrameW + 0.01 then
                 PP.Width(castbarBg, snappedFrameW)
             end
-            -- Re-snap border textures.
-            if PP.GetBorders(castbarBg) then
-                PP.SetBorderSize(castbarBg, 1)
-                frame.Castbar:ClearAllPoints()
-                PP.Point(frame.Castbar, "TOPLEFT", castbarBg, "TOPLEFT", 0, 0)
-                PP.Point(frame.Castbar, "BOTTOMRIGHT", castbarBg, "BOTTOMRIGHT", 0, 0)
-            end
+            -- Shared cast layout owns the fill and border anchors. Changing the
+            -- container width propagates through those anchors automatically.
         end
     end
 
@@ -6250,12 +6271,6 @@ local function CreateCastBar(frame, unit, settings)
     castbar:GetStatusBarTexture():SetHorizTile(false)
     castbar:SetReverseFill(settings.castReverseFill and true or false)
 
-    -- Borders draw on the castbar itself (same frame level as the fill texture) so
-    -- the OVERLAY border sits above the ARTWORK fill. On castbarBg they would land
-    -- BEHIND the fill, since castbar is its child and draws above it.
-    PP.CreateBorder(castbar, 0, 0, 0, 1, 1, "OVERLAY", 0)
-
-
     -- Three-zone cast bar text layout matching nameplates: [spell name LEFT 42%]
     -- [target RIGHT-of-center 42%] [timer RIGHT]. All zones ellipsize (WordWrap off,
     -- MaxLines 1); text overlay sits above the unified border (frame +10).
@@ -6510,30 +6525,21 @@ local function CreateCastBar(frame, unit, settings)
 
     -- Cast spell icon (oUF sets castbar.Icon texture automatically). Size from the
     -- CONFIGURED height (cbHeight), not a live castbarBg:GetHeight() which is
-    -- unreliable this early; LayoutCastbarIcon anchors height to the bar regardless,
+    -- unreliable this early; LayoutCastbar anchors height to the bar regardless,
     -- this is just the initial square.
     local iconSize = cbHeight
     local iconFrame = CreateFrame("Frame", nil, castbarBg)
     iconFrame:SetSize(iconSize, iconSize)
     PP.Point(iconFrame, "TOPRIGHT", castbarBg, "TOPLEFT", 0, 0)
-    local iconBg = iconFrame:CreateTexture(nil, "BACKGROUND")
-    iconBg:SetAllPoints()
-    iconBg:SetColorTexture(0, 0, 0, 1)
-    -- 1px black border via unified PP system
-    PP.CreateBorder(iconFrame, 0, 0, 0, 1)
     local iconTex = iconFrame:CreateTexture(nil, "ARTWORK")
-    iconTex:SetPoint("TOPLEFT", iconFrame, "TOPLEFT", 1, -1)
-    iconTex:SetPoint("BOTTOMRIGHT", iconFrame, "BOTTOMRIGHT", -1, 1)
+    iconTex:SetAllPoints(iconFrame)
     iconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     castbar.Icon = iconTex
     castbar._iconFrame = iconFrame
 
     -- Initial icon/fill layout (re-applied on every reload by the per-unit
     -- update paths and whenever the cast-bar height changes).
-    do
-        local offX, offY = CastIconOffsets(unit, settings)
-        LayoutCastbarIcon(castbar, CastIconInWidth(unit, settings), cbHeight, CastIconOnRight(unit, settings), offX, offY, CastIconShown(unit, settings))
-    end
+    ns.LayoutCastbar(castbar, unit, settings, cbHeight)
 
     return castbar
 end
@@ -9651,8 +9657,7 @@ local function ReloadFrames()
                                     local cbg = settings.castBgColor
                                     castbarBg._bgTex:SetColorTexture(cbg and cbg.r or 0, cbg and cbg.g or 0, cbg and cbg.b or 0, settings.castBgAlpha or 0.5)
                                 end
-                                local pIconOffX, pIconOffY = CastIconOffsets("player", settings)
-                                LayoutCastbarIcon(frame.Castbar, CastIconInWidth("player", settings), nil, CastIconOnRight("player", settings), pIconOffX, pIconOffY, CastIconShown("player", settings))
+                                ns.LayoutCastbar(frame.Castbar, "player", settings)
                                 -- Resize cast icon to match castbar height
                                 if frame.Castbar._iconFrame then
                                     PP.Size(frame.Castbar._iconFrame, cbH, cbH)
@@ -10024,8 +10029,7 @@ local function ReloadFrames()
                                     local cbg = settings.castBgColor
                                     castbarBg._bgTex:SetColorTexture(cbg and cbg.r or 0, cbg and cbg.g or 0, cbg and cbg.b or 0, settings.castBgAlpha or 0.5)
                                 end
-                                local tIconOffX, tIconOffY = CastIconOffsets("target", settings)
-                                LayoutCastbarIcon(frame.Castbar, CastIconInWidth("target", settings), nil, CastIconOnRight("target", settings), tIconOffX, tIconOffY, CastIconShown("target", settings))
+                                ns.LayoutCastbar(frame.Castbar, "target", settings)
                                 if frame.Castbar._iconFrame then
                                     PP.Size(frame.Castbar._iconFrame, cbH2, cbH2)
                                     if not frame.Castbar:IsShown() then
@@ -10298,8 +10302,7 @@ local function ReloadFrames()
                                 local cbg = settings.castBgColor
                                 castbarBg._bgTex:SetColorTexture(cbg and cbg.r or 0, cbg and cbg.g or 0, cbg and cbg.b or 0, settings.castBgAlpha or 0.5)
                             end
-                            local fIconOffX, fIconOffY = CastIconOffsets("focus", settings)
-                            LayoutCastbarIcon(frame.Castbar, CastIconInWidth("focus", settings), nil, CastIconOnRight("focus", settings), fIconOffX, fIconOffY, CastIconShown("focus", settings))
+                            ns.LayoutCastbar(frame.Castbar, "focus", settings)
                             if frame.Castbar._iconFrame then
                                 PP.Size(frame.Castbar._iconFrame, cbH3, cbH3)
                                 if not frame.Castbar:IsShown() then
@@ -10534,8 +10537,7 @@ local function ReloadFrames()
                             local bCbW = settings.castbarWidth or 0
                             if bCbW > 0 and bCbW < 30 then bCbW = 30 end
                             PP.Size(castbarBg, bCbW > 0 and bCbW or totalWidth, settings.castbarHeight or 14)
-                            local bIconOffX, bIconOffY = CastIconOffsets("boss1", settings)
-                            LayoutCastbarIcon(frame.Castbar, CastIconInWidth("boss1", settings), nil, CastIconOnRight("boss1", settings), bIconOffX, bIconOffY, CastIconShown("boss1", settings))
+                            ns.LayoutCastbar(frame.Castbar, "boss1", settings)
                             if frame.Castbar._iconFrame then
                                 local cbH = settings.castbarHeight or 14
                                 PP.Size(frame.Castbar._iconFrame, cbH, cbH)

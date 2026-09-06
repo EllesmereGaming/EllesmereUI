@@ -6342,6 +6342,9 @@ L["warlock gateway"] = "Hexenmeister Dämonentor"
 L["world marker"] = "Weltmarkierung"
 L["yard"] = "Meter"
 L["yards"] = "Meter"
-L["Icon Gap"] = "Symbolabstand"
 
 L["Draw a black 1px divider between the spell icon and the cast bar."] = "Zeigt eine schwarze, 1 Pixel breite Trennlinie zwischen Zaubersymbol und Zauberleiste."
+
+L["Keep the icon inside the cast bar footprint. When detached, the gap reduces the bar width without moving the footprint."] = "Das Symbol bleibt innerhalb der Gesamtbreite. Beim Ablösen verkürzt der Abstand die Leiste, ohne die Gesamtposition zu verschieben."
+
+L["Show Icon Divider"] = "Trennlinie anzeigen"

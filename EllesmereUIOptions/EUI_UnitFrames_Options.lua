@@ -243,6 +243,157 @@ initFrame:SetScript("OnEvent", function(self)
         UpdatePreview()
     end
 
+    -- One options builder for all unit cast bars; each caller supplies its settings.
+    function ns.BuildCastBorderOptions(W, parent, y, getSettings, makeCog)
+        local h
+        local function Border(edit)
+            local s = getSettings()
+            if edit and not s.castBarBorder then s.castBarBorder = {} end
+            return s.castBarBorder or {}
+        end
+        local function RefreshBorder()
+            ns.RequestCastAppearanceUpdate()
+            UpdatePreview()
+            EllesmereUI:RefreshPage()
+        end
+        local values, order = EllesmereUI.GetBorderTextureDropdown()
+        local borderRow
+        borderRow, h = W:DualRow(parent, y,
+            { type = "dropdown", text = "Border Style", values = values, order = order,
+              getValue = function() return Border().borderTexture or "solid" end,
+              setValue = function(v)
+                  local b = Border(true)
+                  b.borderTexture = v
+                  b.borderTextureOffset, b.borderTextureOffsetY = nil, nil
+                  b.borderTextureShiftX, b.borderTextureShiftY = nil, nil
+                  local c, behind = EllesmereUI.GetBorderStyleSelectDefaults(v)
+                  b.borderR, b.borderG, b.borderB, b.borderA = c.r, c.g, c.b, 1
+                  b.borderBehind = behind
+                  local size = EllesmereUI.GetBorderDefaultSize("resourcebars", v)
+                  if size then b.borderSize = size end
+                  RefreshBorder()
+              end },
+            { type = "slider", text = "Border Size", min = 0, max = 4, step = 1,
+              getValue = function() return Border().borderSize or 1 end,
+              setValue = function(v) Border(true).borderSize = v; RefreshBorder() end }); y = y - h
+        if not EllesmereUI._prebuilding then
+            local rgn = borderRow._rightRegion
+            local swatch, update = EllesmereUI.BuildColorSwatch(rgn, borderRow:GetFrameLevel() + 3,
+                function()
+                    local b = Border()
+                    return b.borderR or 0, b.borderG or 0, b.borderB or 0, b.borderA or 1
+                end,
+                function(r, g, b, a)
+                    local c = Border(true)
+                    c.borderR, c.borderG, c.borderB, c.borderA = r, g, b, a
+                    RefreshBorder()
+                end, true, 20)
+            PP.Point(swatch, "RIGHT", rgn._control, "LEFT", -8, 0)
+            local block = CreateFrame("Frame", nil, swatch)
+            block:SetAllPoints(swatch)
+            block:SetFrameLevel(swatch:GetFrameLevel() + 10)
+            block:EnableMouse(true)
+            block:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("This option requires a Border Size above 0."))
+            end)
+            block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            local function UpdateSwatch()
+                update()
+                if (Border().borderSize or 1) == 0 then
+                    swatch:SetAlpha(0.3); block:Show()
+                else
+                    swatch:SetAlpha(1); block:Hide()
+                end
+            end
+            EllesmereUI.RegisterWidgetRefresh(UpdateSwatch)
+            UpdateSwatch()
+            local rows = {}
+            for index, info in ipairs({
+                { "Offset X", "borderTextureOffset" },
+                { "Offset Y", "borderTextureOffsetY" },
+                { "Shift X", "borderTextureShiftX" },
+                { "Shift Y", "borderTextureShiftY" },
+            }) do
+                local key, defaultIndex = info[2], index
+                rows[#rows + 1] = { type = "slider", label = info[1], min = -10, max = 10, step = 1,
+                    get = function()
+                        local b = Border()
+                        if b[key] ~= nil then return b[key] end
+                        local defaults = { EllesmereUI.GetBorderDefaults("resourcebars", b.borderTexture or "solid", b.borderSize or 1) }
+                        return defaults[defaultIndex] or 0
+                    end,
+                    set = function(v)
+                        Border(true)[key] = v
+                        RefreshBorder()
+                    end }
+            end
+            rows[#rows + 1] = { type = "toggle", label = "Show Behind",
+                get = function() return Border().borderBehind == true end,
+                set = function(v) Border(true).borderBehind = v; RefreshBorder() end }
+            local _, show = EllesmereUI.BuildCogPopup({ title = "Border Offset", rows = rows })
+            local cog = makeCog(borderRow._leftRegion, show, EllesmereUI.DIRECTIONS_ICON)
+            local function UpdateCog()
+                if (Border().borderTexture or "solid") == "solid" then cog:Hide() else cog:Show() end
+            end
+            EllesmereUI.RegisterWidgetRefresh(UpdateCog)
+            UpdateCog()
+        end
+        return y
+    end
+
+    function ns.CastIconOptionRows(unit, getSettings)
+        local player = unit == "player"
+        local joinedKey = player and "playerCastbarIconInWidth" or "castbarIconInWidth"
+        local rightKey = player and "playerCastbarIconRight" or "castbarIconRight"
+        local xKey = player and "playerCastIconOffsetX" or "castIconOffsetX"
+        local yKey = player and "playerCastIconOffsetY" or "castIconOffsetY"
+        local function Refresh()
+            ns.RequestCastAppearanceUpdate()
+            UpdatePreview()
+        end
+        local function Hidden()
+            local shown = ns.CastAppearanceLayout(unit, getSettings())
+            return not shown
+        end
+        return {
+            { type = "toggle", label = "Make Icon Part of the Bar",
+              tooltip = "Keep the icon inside the cast bar footprint. When detached, the gap reduces the bar width without moving the footprint.",
+              disabled = Hidden,
+              get = function() return getSettings()[joinedKey] ~= false end,
+              set = function(v)
+                  local s = getSettings()
+                  s[joinedKey], s.castIconDetachedLayout = v, true
+                  Refresh()
+              end },
+            { type = "toggle", label = "Show Icon Divider",
+              tooltip = "Draw a black 1px divider between the spell icon and the cast bar.",
+              disabled = function() return Hidden() or getSettings()[joinedKey] == false end,
+              get = function() return getSettings().castIconDivider == true end,
+              set = function(v) getSettings().castIconDivider = v; Refresh() end },
+            { type = "toggle", label = "Show Icon on Right",
+              tooltip = "Place the cast icon on the right side of the bar instead of the left.",
+              disabled = Hidden,
+              get = function() return getSettings()[rightKey] == true end,
+              set = function(v) getSettings()[rightKey] = v; Refresh() end },
+            { type = "slider", label = "Icon Spacing", min = 5, max = 20, step = 1,
+              disabled = function() return Hidden() or getSettings()[joinedKey] ~= false end,
+              get = function() return math.max(5, math.min(20, getSettings().castIconGap or 5)) end,
+              set = function(v)
+                  local s = getSettings()
+                  s.castIconGap = math.max(5, math.min(20, v))
+                  s.castIconDetachedLayout = true
+                  Refresh()
+              end },
+            { type = "slider", label = "Offset X", min = -50, max = 50, step = 1,
+              disabled = Hidden,
+              get = function() return getSettings()[xKey] or 0 end,
+              set = function(v) getSettings()[xKey] = v; Refresh() end },
+            { type = "slider", label = "Offset Y", min = -50, max = 50, step = 1,
+              disabled = Hidden,
+              get = function() return getSettings()[yKey] or 0 end,
+              set = function(v) getSettings()[yKey] = v; Refresh() end },
+        }
+    end
     EllesmereUI:RegisterOnShow(UpdatePreview)
     ns.UpdatePreview = UpdatePreview
 
@@ -1652,6 +1803,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- icon fills the freed space with the outer edge fixed, as on the real
             -- cast bar. Off = icon hangs outside, bar at full width.
             local pvCastIconW = initCH
+            local pvCastIconGap = 0
             local pvCastIconInWidth, pvCastIconOnRight, pvCastIconOffX, pvCastIconOffY
             if unitKey == "player" then
                 pvCastIconInWidth = settings.showPlayerCastIcon ~= false and settings.playerCastbarIconInWidth ~= false
@@ -1664,6 +1816,10 @@ initFrame:SetScript("OnEvent", function(self)
                 pvCastIconOffX = settings.castIconOffsetX or 0
                 pvCastIconOffY = settings.castIconOffsetY or 0
             end
+            if ns.HasCastAppearance(unitKey) then
+                local _, _, _, _, _, inside, gap = ns.CastAppearanceLayout(unitKey, settings)
+                pvCastIconInWidth, pvCastIconGap = inside, gap
+            end
             -- Boss: castbarWidth > 0 overrides the frame-matched width (0 = match).
             -- Clamped here to frameW + 120 so an extreme value can't spill across the
             -- options panel (pf doesn't clip children); real frames use the true width.
@@ -1671,7 +1827,7 @@ initFrame:SetScript("OnEvent", function(self)
             if unitKey == "boss" and (settings.castbarWidth or 0) > 0 then
                 pvCbBaseW = math.min(math.max(settings.castbarWidth, 30), totalW + 120)
             end
-            local pvBarW = pvCastIconInWidth and math.max(1, pvCbBaseW - pvCastIconW) or pvCbBaseW
+            local pvBarW = pvCastIconInWidth and math.max(1, pvCbBaseW - pvCastIconW - pvCastIconGap) or pvCbBaseW
             castbar = CreateFrame("Frame", nil, pf)
             PP.Size(castbar, pvBarW, initCH)
             local cbAnchor = power or health
@@ -1685,7 +1841,7 @@ initFrame:SetScript("OnEvent", function(self)
             castbar._cbOffset = cbOffset
             -- Icon-in-width shifts the narrowed bar toward the icon-free side by half
             -- the icon width, so the footprint stays where the full bar was.
-            PP.Point(castbar, "TOP", cbAnchor, "BOTTOM", cbOffset + (pvCastIconInWidth and (pvCastIconOnRight and -(pvCastIconW / 2) or (pvCastIconW / 2)) or 0), 0)
+            PP.Point(castbar, "TOP", cbAnchor, "BOTTOM", cbOffset + (pvCastIconInWidth and (pvCastIconOnRight and -((pvCastIconW + pvCastIconGap) / 2) or ((pvCastIconW + pvCastIconGap) / 2)) or 0), 0)
             if castbarH > 0 then
                 totalH = totalH + castbarH
             end
@@ -1697,7 +1853,7 @@ initFrame:SetScript("OnEvent", function(self)
             castbar._previewBgTex = cbBg
 
             -- Black borders via unified PP system
-            PP.CreateBorder(castbar, 0, 0, 0, 1, 1, "OVERLAY", 0)
+            if not ns.HasCastAppearance(unitKey) then PP.CreateBorder(castbar, 0, 0, 0, 1, 1, "OVERLAY", 0) end
 
             -- Cast fill fills the (possibly shortened) bar.
             castFill = castbar:CreateTexture(nil, "ARTWORK")
@@ -1778,21 +1934,31 @@ initFrame:SetScript("OnEvent", function(self)
             -- Icon hangs off the bar's chosen edge; with "part of the bar" the bar is
             -- narrower and shifted, so the icon sits inside the footprint.
             if pvCastIconOnRight then
-                PP.Point(castIconFrame, "TOPLEFT", castbar, "TOPRIGHT", pvCastIconOffX, pvCastIconOffY)
+                PP.Point(castIconFrame, "TOPLEFT", castbar, "TOPRIGHT", pvCastIconOffX + pvCastIconGap, pvCastIconOffY)
             else
-                PP.Point(castIconFrame, "TOPRIGHT", castbar, "TOPLEFT", pvCastIconOffX, pvCastIconOffY)
+                PP.Point(castIconFrame, "TOPRIGHT", castbar, "TOPLEFT", pvCastIconOffX - pvCastIconGap, pvCastIconOffY)
             end
-            local iconBg = castIconFrame:CreateTexture(nil, "BACKGROUND")
-            iconBg:SetAllPoints()
-            iconBg:SetColorTexture(0, 0, 0, 1)
+            if not ns.HasCastAppearance(unitKey) then
+                local iconBg = castIconFrame:CreateTexture(nil, "BACKGROUND")
+                iconBg:SetAllPoints()
+                iconBg:SetColorTexture(0, 0, 0, 1)
+            end
             -- 1px black border via unified PP system
-            PP.CreateBorder(castIconFrame, 0, 0, 0, 1)
+            if not ns.HasCastAppearance(unitKey) then PP.CreateBorder(castIconFrame, 0, 0, 0, 1) end
             local castIconTex = castIconFrame:CreateTexture(nil, "ARTWORK")
             PP.Point(castIconTex, "TOPLEFT", castIconFrame, "TOPLEFT", 1, -1)
             PP.Point(castIconTex, "BOTTOMRIGHT", castIconFrame, "BOTTOMRIGHT", -1, 1)
             castIconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
             castIconTex:SetTexture(castSpellIcon)
             castIconFrame._iconTex = castIconTex
+            if ns.HasCastAppearance(unitKey) then
+                local shown, joined = ns.CastAppearanceLayout(unitKey, settings)
+                ns.ApplyCastAppearance(castbar, castIconFrame, settings, shown, joined, pvCastIconOnRight, pvCastIconOffX, pvCastIconOffY)
+                castFill:ClearAllPoints()
+                PP.Point(castFill, "TOPLEFT", castbar, "TOPLEFT", 0, 0)
+                PP.Point(castFill, "BOTTOMLEFT", castbar, "BOTTOMLEFT", 0, 0)
+                PP.Width(castFill, pvBarW * (_previewCastFill or 0.6))
+            end
 
             -- Hide initially if player castbar not enabled
             if unitKey == "player" and castbarH <= 0 then
@@ -2934,13 +3100,19 @@ initFrame:SetScript("OnEvent", function(self)
                         ciOffY = s.castIconOffsetY or 0
                     end
                     local ciIconW = ch
+                    local styledCast = ns.HasCastAppearance(unitKey)
+                    local ciGap = 0
+                    if styledCast then
+                        local _, _, _, _, _, inside, gap = ns.CastAppearanceLayout(unitKey, s)
+                        ciInWidth, ciGap = inside, gap
+                    end
                     -- Boss castbarWidth > 0 overrides the frame-matched width, clamped
                     -- to tw + 120 (see the creation-time note).
                     local cbBaseW = tw
                     if unitKey == "boss" and (s.castbarWidth or 0) > 0 then
                         cbBaseW = math.min(math.max(s.castbarWidth, 30), tw + 120)
                     end
-                    local ciBarW = ciInWidth and math.max(1, cbBaseW - ciIconW) or cbBaseW
+                    local ciBarW = ciInWidth and math.max(1, cbBaseW - ciIconW - ciGap) or cbBaseW
                     castbar:SetSize(ciBarW, ch)
                     -- Authoritative anchoring happens once below (handles the BTB /
                     -- attached-power cases plus the icon-in-width shift).
@@ -2952,14 +3124,18 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                     if castFill then
                         castFill:ClearAllPoints()
-                        if s.castReverseFill then
+                        if styledCast then
+                            local side = s.castReverseFill and "RIGHT" or "LEFT"
+                            PP.Point(castFill, "TOP" .. side, castbar, "TOP" .. side, 0, 0)
+                            PP.Point(castFill, "BOTTOM" .. side, castbar, "BOTTOM" .. side, 0, 0)
+                        elseif s.castReverseFill then
                             PP.Point(castFill, "TOPRIGHT", castbar, "TOPRIGHT", -1, 0)
                             PP.Point(castFill, "BOTTOMRIGHT", castbar, "BOTTOMRIGHT", -1, 1)
                         else
                             PP.Point(castFill, "TOPLEFT", castbar, "TOPLEFT", 1, 0)
                             PP.Point(castFill, "BOTTOMLEFT", castbar, "BOTTOMLEFT", 1, 1)
                         end
-                        castFill:SetWidth(math.floor(math.max(0, ciBarW - 2) * (_previewCastFill or 0.6) + 0.5))
+                        castFill:SetWidth(math.floor(math.max(0, ciBarW - (styledCast and 0 or 2)) * (_previewCastFill or 0.6) + 0.5))
                         -- Update fill color from per-unit settings (class colored only for player)
                         local fillC
                         if unitKey == "player" and s.castbarClassColored then
@@ -2982,9 +3158,9 @@ initFrame:SetScript("OnEvent", function(self)
                         castIconFrame:SetSize(ch, ch)
                         castIconFrame:ClearAllPoints()
                         if ciOnRight then
-                            PP.Point(castIconFrame, "TOPLEFT", castbar, "TOPRIGHT", ciOffX, ciOffY)
+                            PP.Point(castIconFrame, "TOPLEFT", castbar, "TOPRIGHT", ciOffX + ciGap, ciOffY)
                         else
-                            PP.Point(castIconFrame, "TOPRIGHT", castbar, "TOPLEFT", ciOffX, ciOffY)
+                            PP.Point(castIconFrame, "TOPRIGHT", castbar, "TOPLEFT", ciOffX - ciGap, ciOffY)
                         end
                         local showIcon
                         if unitKey == "player" then
@@ -3069,7 +3245,7 @@ initFrame:SetScript("OnEvent", function(self)
                     -- Icon-in-width: shift the narrowed bar half an icon width toward
                     -- the icon-free side (left icon -> right, right icon -> left) so the
                     -- footprint stays flush under the frame, as on the real frame.
-                    PP.Point(castbar, "TOP", cbAnchorFrame, "BOTTOM", cbAnchorOff + (ciInWidth and (ciOnRight and -(ciIconW / 2) or (ciIconW / 2)) or 0), 0)
+                    PP.Point(castbar, "TOP", cbAnchorFrame, "BOTTOM", cbAnchorOff + (ciInWidth and (ciOnRight and -((ciIconW + ciGap) / 2) or ((ciIconW + ciGap) / 2)) or 0), 0)
                 else
                     castbar:Hide()
                     if castIconFrame then castIconFrame:Hide() end
@@ -3694,7 +3870,16 @@ initFrame:SetScript("OnEvent", function(self)
                 local bTex2 = ds.borderTexture or "solid"
                 EllesmereUI.ApplyBorderStyle(border, bs2, (ds.borderColor or {r=0,g=0,b=0}).r, (ds.borderColor or {r=0,g=0,b=0}).g, (ds.borderColor or {r=0,g=0,b=0}).b, ds.borderAlpha or 1, bTex2, ds.borderTextureOffset, ds.borderTextureOffsetY, ds.borderTextureShiftX, ds.borderTextureShiftY, "unitframes", bs2)
             end
-            if castbar then
+            if castbar and castIconFrame and ns.HasCastAppearance(unitKey) then
+                local shown, joined, right, x, y = ns.CastAppearanceLayout(unitKey, s)
+                ns.ApplyCastAppearance(castbar, castIconFrame, s, shown, joined, right, x, y)
+                if castFill then
+                    local side = s.castReverseFill and "RIGHT" or "LEFT"
+                    castFill:ClearAllPoints()
+                    PP.Point(castFill, "TOP" .. side, castbar, "TOP" .. side, 0, 0)
+                    PP.Point(castFill, "BOTTOM" .. side, castbar, "BOTTOM" .. side, 0, 0)
+                end
+            elseif castbar then
                 if PP.GetBorders(castbar) then PP.SetBorderSize(castbar, 1) end
                 if castFill then
                     castFill:ClearAllPoints()
@@ -3702,7 +3887,7 @@ initFrame:SetScript("OnEvent", function(self)
                     PP.Point(castFill, "BOTTOMLEFT", castbar, "BOTTOMLEFT", 1, 1)
                 end
             end
-            if castIconFrame then
+            if castIconFrame and not ns.HasCastAppearance(unitKey) then
                 PP.SetBorderSize(castIconFrame, 1)
                 if castIconFrame._iconTex then
                     castIconFrame._iconTex:ClearAllPoints()
@@ -4131,6 +4316,10 @@ initFrame:SetScript("OnEvent", function(self)
         showCastbar          = { target=true, focus=true },
         showCastIcon         = { target=true, focus=true },
         castbarIconInWidth   = { target=true, focus=true },
+        castBarBorder       = { player=true, target=true, focus=true },
+        castIconGap         = { player=true, target=true, focus=true },
+        castIconDivider     = { player=true, target=true, focus=true },
+        castIconDetachedLayout = { player=true, target=true, focus=true },
         castbarHeight        = { target=true, focus=true },
         castbarHideWhenInactive = { player=true, target=true, focus=true },
         castSpellNameSize    = { player=true, target=true, focus=true },
@@ -8420,79 +8609,17 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
         end
-        -- Inline cog on Show Icon: "Make Icon Part of the Bar", "Show Icon on Right",
-        -- additive Offset X/Y nudges. Operates on the selected unit.
+        -- Shared icon controls; settings remain specific to the selected unit.
         if not EllesmereUI._prebuilding then
-            local rgn = castRow2._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Cast Icon",
-                rows = {
-                    { type = "toggle", label = "Make Icon Part of the Bar",
-                      tooltip = "This makes it so the width of the cast bar includes the icon, rather than placing it to the left of the cast bars width.",
-                      get = function()
-                          if selectedUnit == "player" then
-                              return UNIT_DB_MAP.player().playerCastbarIconInWidth ~= false
-                          end
-                          return UNIT_DB_MAP[selectedUnit]().castbarIconInWidth ~= false
-                      end,
-                      set = function(v)
-                          if selectedUnit == "player" then
-                              UNIT_DB_MAP.player().playerCastbarIconInWidth = v
-                          else
-                              UNIT_DB_MAP[selectedUnit]().castbarIconInWidth = v
-                          end
-                          ReloadAndUpdate(); UpdatePreview()
-                      end },
-                    { type = "toggle", label = "Show Icon on Right",
-                      tooltip = "Place the cast icon on the right side of the bar instead of the left.",
-                      get = function()
-                          if selectedUnit == "player" then
-                              return UNIT_DB_MAP.player().playerCastbarIconRight == true
-                          end
-                          return UNIT_DB_MAP[selectedUnit]().castbarIconRight == true
-                      end,
-                      set = function(v)
-                          if selectedUnit == "player" then
-                              UNIT_DB_MAP.player().playerCastbarIconRight = v
-                          else
-                              UNIT_DB_MAP[selectedUnit]().castbarIconRight = v
-                          end
-                          ReloadAndUpdate(); UpdatePreview()
-                      end },
-                    { type = "slider", label = "Offset X", min = -50, max = 50, step = 1,
-                      get = function()
-                          if selectedUnit == "player" then
-                              return UNIT_DB_MAP.player().playerCastIconOffsetX or 0
-                          end
-                          return UNIT_DB_MAP[selectedUnit]().castIconOffsetX or 0
-                      end,
-                      set = function(v)
-                          if selectedUnit == "player" then
-                              UNIT_DB_MAP.player().playerCastIconOffsetX = v
-                          else
-                              UNIT_DB_MAP[selectedUnit]().castIconOffsetX = v
-                          end
-                          ReloadAndUpdate(); UpdatePreview()
-                      end },
-                    { type = "slider", label = "Offset Y", min = -50, max = 50, step = 1,
-                      get = function()
-                          if selectedUnit == "player" then
-                              return UNIT_DB_MAP.player().playerCastIconOffsetY or 0
-                          end
-                          return UNIT_DB_MAP[selectedUnit]().castIconOffsetY or 0
-                      end,
-                      set = function(v)
-                          if selectedUnit == "player" then
-                              UNIT_DB_MAP.player().playerCastIconOffsetY = v
-                          else
-                              UNIT_DB_MAP[selectedUnit]().castIconOffsetY = v
-                          end
-                          ReloadAndUpdate(); UpdatePreview()
-                      end },
-                },
+                rows = ns.CastIconOptionRows(selectedUnit, function() return UNIT_DB_MAP[selectedUnit]() end),
             })
-            MakeCogBtn(rgn, cogShow)
+            MakeCogBtn(castRow2._leftRegion, cogShow)
         end
+        y = ns.BuildCastBorderOptions(W, parent, y,
+            function() return UNIT_DB_MAP[selectedUnit]() end,
+            function(rgn, show, icon) return MakeCogBtn(rgn, show, nil, icon) end)
         -- Inline swatch on Bar Background; defaults to the cast bar's hardcoded black.
         if not EllesmereUI._prebuilding then
             local rgn = castRow2._rightRegion
@@ -15419,23 +15546,15 @@ initFrame:SetScript("OnEvent", function(self)
                   -- Custom widths floor at 30 (matches the unlock-mode resize
                   -- minimum): below the cast icon size the bar layout inverts.
                   setValue=function(v) if v > 0 and v < 30 then v = 30 end; B.castbarWidth = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end });  yy = yy - hh
-            -- Icon cog (left): "Make Icon Part of the Bar" / "Show Icon on Right".
+            -- Boss frames use the same controls with their own settings table.
             if not EllesmereUI._prebuilding then
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Cast Icon",
-                    rows = {
-                        { type = "toggle", label = "Make Icon Part of the Bar",
-                          tooltip = "This makes it so the width of the cast bar includes the icon, rather than placing it to the left of the cast bars width.",
-                          get = function() return B.castbarIconInWidth ~= false end,
-                          set = function(v) B.castbarIconInWidth = v; ReloadAndUpdate() end },
-                        { type = "toggle", label = "Show Icon on Right",
-                          tooltip = "Place the cast icon on the right side of the bar instead of the left.",
-                          get = function() return B.castbarIconRight == true end,
-                          set = function(v) B.castbarIconRight = v; ReloadAndUpdate() end },
-                    },
+                    rows = ns.CastIconOptionRows("boss", function() return db.profile.boss end),
                 })
                 CCogBtn(growthRow._leftRegion, cogShow)
             end
+            yy = ns.BuildCastBorderOptions(Ww, pp, yy, function() return db.profile.boss end, CCogBtn)
             -- Row 3: Reverse Fill | Bar Background (opacity slider + color swatch).
             -- Bar Background sits right below the size sliders (mirrors the main
             -- frames' cast bar section, where it follows the Height row).
