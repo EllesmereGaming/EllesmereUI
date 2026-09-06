@@ -107,6 +107,7 @@ function ns._appendDisplayPresetKeys(t)
         "tankHasAggroOverrideBoss",
         "dpsHasAggro", "dpsNearAggro", "offTankAggroEnabled", "offTankAggro",
         "dpsNoAggroEnabled", "dpsNoAggro", "dpsNoAggroOverrideMiniBoss", "dpsNoAggroOverrideCaster",
+        "dpsNoAggroOverrideBoss",
         "targetArrowDouble", "targetArrowStyle", "targetArrowColor", "targetArrowClassColor",
         "auraStackTextSize", "auraStackTextColor",
         "auraStackTextPosition", "auraStackTextX", "auraStackTextY",
@@ -194,6 +195,7 @@ local defaults = {
     dpsNoAggroEnabled = false,
     dpsNoAggroOverrideMiniBoss = false,  -- on: overrides Mini-Boss (above priority step 7); off = stays low
     dpsNoAggroOverrideCaster = false,  -- on: overrides Caster (above priority step 8); off = Casters keep own color
+    dpsNoAggroOverrideBoss = false,  -- on: overrides Boss (step 10b); off (default) = Bosses keep own color
     interruptReady = { r = 0.92, g = 0.35, b = 0.20 },  
     castBar = { r = 0.70, g = 0.40, b = 0.90 },
     interruptMidCastEnabled = false,
@@ -5258,18 +5260,26 @@ local function GetReactionColor(unit)
             end
         end
     end
-    -- 10. Non-tank no aggro (if enabled) below focus/caster/miniboss
+    -- 10. Non-tank no aggro (if enabled) below focus/caster/miniboss. Boss units gated behind
+    -- their own "Override Boss colors" toggle (default off), mirroring tank has-aggro's
+    -- ovrBoss check at step 9 above -- previously unconditional, so a DPS/healer without aggro
+    -- always lost the Bosses color on engage with no way to turn that off (unlike Mini-Boss/
+    -- Caster, which already had their own override toggles here, both off by default).
     if isThreatUnit and not _isTankRole and threatStatus < 2 and IsInGroup() then
         local enabled = defaults.dpsNoAggroEnabled
         if db.dpsNoAggroEnabled ~= nil then enabled = db.dpsNoAggroEnabled end
         if enabled then
-            local c = _C("dpsNoAggro")
-            return c.r, c.g, c.b
+            local ovrBoss = defaults.dpsNoAggroOverrideBoss
+            if db.dpsNoAggroOverrideBoss ~= nil then ovrBoss = db.dpsNoAggroOverrideBoss end
+            if ovrBoss or not _isBossUnit then
+                local c = _C("dpsNoAggro")
+                return c.r, c.g, c.b
+            end
         end
     end
     -- 10b. Boss (intentionally below the low-priority threat colors above, so tank-has-aggro/
     -- dps-no-aggro takes precedence over boss -- unless "Override Boss colors" is disabled, in
-    -- which case the has-aggro step above defers to this boss color for boss units).
+    -- which case the has-aggro/no-aggro step above defers to this boss color for boss units).
     if _isBossUnit then
         local c = _C("boss")
         return MaybeDarken(c.r, c.g, c.b, inCombat)
