@@ -73,7 +73,7 @@ initFrame:SetScript("OnEvent", function(self)
     local EST_LEN = {
         clock = 150, fps = 70, ms = 70, gold = 150, xprep = 140, spec = 130,
         profession = 120, travel = 40, micromenu = 340, currency = 90, spacer = 40,
-        durability = 70, combat = 105, profession2 = 120, greatvault = 100,
+        durability = 70, combat = 105, combatTimer = 70, profession2 = 120, greatvault = 100,
         location = 140, coords = 70, crests = 160, ilvl = 70,
     }
 
@@ -2787,6 +2787,11 @@ initFrame:SetScript("OnEvent", function(self)
                     MkToggle("Show Only In Combat", "onlyInCombat",
                         "Shows the combat status text only while your character is in combat."),
                 }
+            elseif b.type == "combatTimer" then
+                typeRows = {
+                    MkToggle("Show Only In Combat", "onlyInCombat",
+                        "Shows the combat timer only while your character is in combat."),
+    }
             elseif b.type == "ms" then
                 typeRows = {
                     { type = "dropdown", text = "Latency",

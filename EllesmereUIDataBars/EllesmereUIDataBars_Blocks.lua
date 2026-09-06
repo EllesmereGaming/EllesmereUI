@@ -1450,6 +1450,353 @@ ns.BlockFactories.combat = function(blockCfg, slot, content, barCtx)
     return inst
 end
 
+ns.BlockFactories.combatTimer = function(blockCfg, slot, content, barCtx)
+    local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
+    inst.key = InstKey(barCtx, blockCfg)
+
+    inst.events = {
+        "PLAYER_REGEN_DISABLED",
+        "PLAYER_REGEN_ENABLED",
+        "PLAYER_ENTERING_WORLD",
+        "DAMAGE_METER_CURRENT_SESSION_UPDATED",
+        "DAMAGE_METER_COMBAT_SESSION_UPDATED",
+    }
+
+    local mouseOver = false
+    local combatActive = false
+    local frozenDuration = 0
+
+    local function D()
+        return blockCfg.settings or {}
+    end
+
+    local function BC()
+        return barCtx.cfg
+    end
+
+    local function GetCombatDuration()
+        if not C_DamageMeter
+            or not C_DamageMeter.GetSessionDurationSeconds
+            or not Enum
+            or not Enum.DamageMeterSessionType
+        then
+            return frozenDuration or 0
+        end
+
+        local duration = C_DamageMeter.GetSessionDurationSeconds(
+            Enum.DamageMeterSessionType.Current
+        )
+
+        if type(duration) ~= "number" then
+            return frozenDuration or 0
+        end
+
+        return duration
+    end
+
+    local function FormatDuration(seconds)
+        seconds = max(0, floor(seconds or 0))
+
+        if seconds >= 3600 then
+            return format(
+                "%d:%02d:%02d",
+                floor(seconds / 3600),
+                floor(seconds % 3600 / 60),
+                seconds % 60
+            )
+        end
+
+        return format(
+            "%d:%02d",
+            floor(seconds / 60),
+            seconds % 60
+        )
+    end
+
+    local frame = CreateFrame("Button", nil, content)
+    frame:SetSize(60, 20)
+    frame:EnableMouse(true)
+    frame:RegisterForClicks("AnyUp")
+
+    local text = frame:CreateFontString(nil, "OVERLAY")
+    AttachTextOffset(inst, text)
+    text:SetPoint("LEFT")
+
+    local measureFS = frame:CreateFontString(nil, "OVERLAY")
+    measureFS:Hide()
+
+    local fontSize = max(9, floor(CONTENT_BASE * 0.4333 + 0.5))
+
+    local function ApplyColors()
+        local r, g, b
+
+        if mouseOver then
+            r, g, b = ns.GetAccent()
+        else
+            r, g, b = BlockColorOf(blockCfg)
+        end
+
+        text:SetTextColor(r, g, b, 1)
+    end
+
+    function inst:Refresh()
+        local barCfg = BC()
+        local barH = barCtx.GetThickness()
+        local isSide = barCtx.IsVertical()
+
+        local inCombat = UnitAffectingCombat("player")
+
+        if D().onlyInCombat and not inCombat then
+            content:Hide()
+            MaybeRelayout(inst)
+            return
+        end
+
+        if not content:IsShown() then
+            content:Show()
+        end
+
+        local duration
+
+        if combatActive then
+            duration = GetCombatDuration()
+
+            -- Keep the most recent valid value so that a session reset
+            -- cannot overwrite the final duration with a smaller value.
+            if duration >= frozenDuration then
+                frozenDuration = duration
+            end
+        else
+            duration = frozenDuration
+        end
+
+        ns.SetFont(text, fontSize, barCfg)
+
+        text:SetText(FormatDuration(duration))
+        ApplyColors()
+
+        if InCombatLockdown() then
+            MaybeRelayout(inst)
+            return
+        end
+
+        if isSide then
+            local slotW = VSlotW(inst)
+            local innerW = max(36, slotW - 8)
+
+            frame:SetSize(innerW, fontSize + 4)
+            frame:ClearAllPoints()
+            frame:SetPoint("CENTER", content, "CENTER", 0, 0)
+
+            text:ClearAllPoints()
+            text:SetPoint("CENTER", frame, "CENTER", 0, 0)
+
+            ns.SetWrappedText(text, innerW, "CENTER")
+
+            content:SetSize(
+                slotW,
+                max(fontSize + 12, barH)
+            )
+        else
+            local align = blockCfg.align or "CENTER"
+
+            ns.ResetInlineText(text, align)
+            text:ClearAllPoints()
+            text:SetPoint("LEFT", frame, "LEFT", 0, 0)
+
+            ns.SetFont(measureFS, fontSize, barCfg)
+
+            measureFS:SetText("00:00")
+            local width = measureFS:GetStringWidth() or 30
+
+            measureFS:SetText("00:00:00")
+            width = max(width, measureFS:GetStringWidth() or 30)
+
+            width = max(
+                30,
+                ns.SnapToPixelGrid(width) + 2
+            )
+
+            text:SetWidth(width)
+
+            frame:SetSize(width, barH)
+            frame:ClearAllPoints()
+            frame:SetPoint("CENTER", content, "CENTER", 0, 0)
+
+            content:SetSize(width, barH)
+        end
+
+        MaybeRelayout(inst)
+    end
+
+    local function StartTimer()
+        if combatActive then
+            return
+        end
+
+        combatActive = true
+
+        -- Immediately pick up the current Blizzard session duration.
+        local duration = GetCombatDuration()
+        if duration >= frozenDuration then
+            frozenDuration = duration
+        end
+
+        if not inst._heartbeatActive then
+            inst._heartbeatActive = true
+
+            ns.RegisterHeartbeat("combatTimer:" .. inst.key, function()
+                if not inst._dead and combatActive then
+                    inst:Refresh()
+                end
+            end)
+        end
+
+        inst:Refresh()
+    end
+
+    local function StopTimer()
+        if not combatActive then
+            return
+        end
+
+        -- Do one final read before freezing the value.
+        local duration = GetCombatDuration()
+
+        if duration >= frozenDuration then
+            frozenDuration = duration
+        end
+
+        combatActive = false
+
+        if inst._heartbeatActive then
+            ns.UnregisterHeartbeat("combatTimer:" .. inst.key)
+            inst._heartbeatActive = false
+        end
+
+        inst:Refresh()
+    end
+
+    local function RefreshFromEvent(_, event)
+        if event == "PLAYER_REGEN_DISABLED" then
+            StartTimer()
+            return
+        end
+
+        if event == "PLAYER_REGEN_ENABLED" then
+            StopTimer()
+            return
+        end
+
+        if event == "PLAYER_ENTERING_WORLD" then
+            local inCombat = UnitAffectingCombat("player")
+
+            if inCombat then
+                StartTimer()
+            else
+                combatActive = false
+                inst:Refresh()
+            end
+
+            return
+        end
+
+        -- Damage Meter session updates can indicate that the current
+        -- session rolled over. The next refresh reads the new Blizzard
+        -- session duration directly.
+        if combatActive then
+            inst:Refresh()
+        end
+    end
+
+    frame:SetScript("OnEnter", function()
+        mouseOver = true
+        ApplyColors()
+    end)
+
+    frame:SetScript("OnLeave", function()
+        mouseOver = false
+        ApplyColors()
+    end)
+
+    function inst:Enable()
+        if self._enabled then
+            return
+        end
+
+        self._enabled = true
+        self._dead = false
+
+        content:Show()
+
+        if not self.eventFrame then
+            self.eventFrame = MakeEventFrame(self, RefreshFromEvent)
+        end
+
+        RegisterInstEvents(self)
+
+        -- Handle the case where the widget is enabled while already
+        -- in combat.
+        if UnitAffectingCombat("player") then
+            StartTimer()
+        else
+            combatActive = false
+            self:Refresh()
+        end
+    end
+
+    function inst:Disable()
+        if not self._enabled then
+            return
+        end
+
+        self._enabled = false
+
+        if self._heartbeatActive then
+            ns.UnregisterHeartbeat("combatTimer:" .. self.key)
+            self._heartbeatActive = false
+        end
+
+        combatActive = false
+
+        UnregisterInstEvents(self)
+        content:Hide()
+    end
+
+    function inst:GetAutoLength()
+        if D().onlyInCombat and not UnitAffectingCombat("player") then
+            return 0
+        end
+
+        if not content:IsShown() then
+            return 0
+        end
+
+        if barCtx.IsVertical() then
+            return max(content:GetHeight() or 40, 40)
+        end
+
+        return max(content:GetWidth() or 70, 40)
+    end
+
+    function inst:Destroy()
+        self._dead = true
+        self._enabled = false
+
+        if self._heartbeatActive then
+            ns.UnregisterHeartbeat("combatTimer:" .. self.key)
+            self._heartbeatActive = false
+        end
+
+        combatActive = false
+
+        UnregisterInstEvents(self)
+        content:Hide()
+    end
+
+    return inst
+end
+
 -------------------------------------------------------------------------------
 --  LOCATION + COORDINATES (two block types on one text renderer)
 -------------------------------------------------------------------------------
