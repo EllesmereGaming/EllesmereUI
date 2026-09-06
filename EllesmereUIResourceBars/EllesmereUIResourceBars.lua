@@ -1280,6 +1280,8 @@ local DEFAULTS = {
             enabled       = true,
             alwaysShow    = false,  -- keep the bar on screen (sitting empty) while nothing is being cast
             showIcon      = true,
+            iconDetached  = false,
+            iconGap       = 5,
             iconOnRight   = false,  -- attach the spell icon to the right of the bar instead of the left
             showIconDivider = false,  -- draw a 1px divider at the icon/bar seam (interior seam has no border otherwise)
             width         = 220,
@@ -6554,14 +6556,12 @@ BuildCastBar = function()
         castBarFrame._iconFrame = iconFrame
         castBarFrame._icon = icon
 
-        -- Optional 1px divider at the icon/bar seam (opt-in: "Show Icon Divider").
-        -- That seam is otherwise interior with no border by design (see the clip-inset
-        -- comment below). Parented to the border frame (pl+5), not castBarFrame itself
-        -- (pl+15): a texture drawn directly on castBarFrame renders at castBarFrame's
-        -- own frame level, which sits BELOW the icon and bar/clip child frames -- it
-        -- would be invisible under them regardless of draw layer, since draw layer only
-        -- orders content within the SAME frame, not across frames.
-        local iconDivider = castBarFrame._border:CreateTexture(nil, "OVERLAY", nil, 7)
+        -- Independent overlay: border size/visibility and "Show Behind" must
+        -- never hide the icon divider beneath the bar.
+        local dividerFrame = CreateFrame("Frame", nil, castBarFrame)
+        dividerFrame:SetAllPoints(castBarFrame)
+        castBarFrame._dividerFrame = dividerFrame
+        local iconDivider = dividerFrame:CreateTexture(nil, "OVERLAY", nil, 7)
         iconDivider:Hide()
         if iconDivider.SetSnapToPixelGrid then
             iconDivider:SetSnapToPixelGrid(false)
@@ -6609,6 +6609,9 @@ BuildCastBar = function()
     local w, h = cb.width, cb.height
     local hasIcon = cb.showIcon ~= false
     -- Total frame width includes icon (h x h) only when icon is shown
+    local detached = hasIcon and cb.iconDetached == true
+    local gap = detached and math.max(5, math.min(20, cb.iconGap or 5)) or 0
+    -- Detaching consumes bar space; it must not resize/recenter the container.
     local totalW = hasIcon and (w + h) or w
     if EllesmereUI._TryOverrideAnchor and EllesmereUI._TryOverrideAnchor("ERB_CastBar", castBarFrame) then
         -- Override anchor owns position; just set size directly
@@ -6647,10 +6650,23 @@ BuildCastBar = function()
         castBarFrame:SetSize(totalW, h)
         if not EllesmereUI._unlockActive then
             castBarFrame:ClearAllPoints()
-            castBarFrame:SetPoint("CENTER", UIParent, "CENTER", cb.anchorX, cb.anchorY)
+            local sx, sy = SnapXY(cb.anchorX, cb.anchorY, castBarFrame, { point = "CENTER" })
+            castBarFrame:SetPoint("CENTER", UIParent, "CENTER", sx, sy)
         end
     end
 
+    -- Full bar bounds, independent of the fill inset and detached icon gap.
+    if not castBarFrame._barBounds then
+        castBarFrame._barBounds = CreateFrame("Frame", nil, castBarFrame)
+        castBarFrame._iconBorder = CreateFrame("Frame", nil, castBarFrame._iconFrame)
+        castBarFrame._iconBorder:SetAllPoints(castBarFrame._iconFrame)
+    end
+    local bounds = castBarFrame._barBounds
+    bounds:ClearAllPoints()
+    bounds:SetPoint("TOPLEFT", castBarFrame, "TOPLEFT", (hasIcon and not cb.iconOnRight) and (h + gap) or 0, 0)
+    bounds:SetPoint("BOTTOMRIGHT", castBarFrame, "BOTTOMRIGHT", (hasIcon and cb.iconOnRight) and -(h + gap) or 0, 0)
+    castBarFrame._border:ClearAllPoints()
+    castBarFrame._border:SetAllPoints(detached and bounds or castBarFrame)
     -- Border: update the dedicated child border frame (PP or textured)
     if castBarFrame._border then
         local bs = cb.borderSize or 0
@@ -6660,7 +6676,7 @@ BuildCastBar = function()
         castBarFrame._border:SetFrameLevel(cb.borderBehind and math.max(0, pl - 1) or (pl + 5))
         -- Same lost-rect recovery as MakePixelBorder:ApplyStyle -- re-anchoring the bar
         -- stops this child's rect from resolving and the border silently vanishes.
-        if not castBarFrame._border:GetLeft() then castBarFrame._border:SetAllPoints(castBarFrame) end
+        if not castBarFrame._border:GetLeft() then castBarFrame._border:SetAllPoints(detached and bounds or castBarFrame) end
         EllesmereUI.ApplyBorderStyle(castBarFrame._border, bs,
             cb.borderR or 0, cb.borderG or 0, cb.borderB or 0, cb.borderA or 1,
             texKey, cb.borderTextureOffset, cb.borderTextureOffsetY,
@@ -6683,18 +6699,21 @@ BuildCastBar = function()
         iconFrame:Hide()
     end
 
-    -- Optional icon/bar seam divider (opt-in "Show Icon Divider"). Same
-    -- onePixel math as the perimeter border (SnapBorderTextures) so it reads
-    -- as the same thickness. Anchored to iconFrame's inner edge and given
-    -- only a width (both vertical anchor points already match iconFrame's
-    -- own top/bottom, so it inherits the full bar height automatically).
+    local ib = castBarFrame._iconBorder
+    ib:SetFrameLevel(cb.borderBehind and math.max(0, castBarFrame:GetFrameLevel() - 1) or (castBarFrame:GetFrameLevel() + 5))
+    EllesmereUI.ApplyBorderStyle(ib, detached and (cb.borderSize or 0) or 0,
+        cb.borderR or 0, cb.borderG or 0, cb.borderB or 0, cb.borderA or 1,
+        cb.borderTexture or "solid", cb.borderTextureOffset, cb.borderTextureOffsetY,
+        cb.borderTextureShiftX, cb.borderTextureShiftY, "resourcebars", cb.borderSize or 0)
+
+    -- Always one physical pixel, opaque black, independent of border styling.
     local iconDivider = castBarFrame._iconDivider
-    if hasIcon and cb.showIconDivider then
+    castBarFrame._dividerFrame:SetFrameLevel(castBarFrame:GetFrameLevel() + 6)
+    if hasIcon and not detached and cb.showIconDivider then
         local des = castBarFrame:GetEffectiveScale()
         local onePixel = des > 0 and (PP.perfect / des) or PP.mult
-        local dbs = cb.borderSize or 1
         iconDivider:ClearAllPoints()
-        iconDivider:SetWidth(math.max(onePixel, math.floor(dbs + 0.5) * onePixel))
+        iconDivider:SetWidth(onePixel)
         if iconOnRight then
             iconDivider:SetPoint("TOPRIGHT", iconFrame, "TOPLEFT", 0, 0)
             iconDivider:SetPoint("BOTTOMRIGHT", iconFrame, "BOTTOMLEFT", 0, 0)
@@ -6702,7 +6721,7 @@ BuildCastBar = function()
             iconDivider:SetPoint("TOPLEFT", iconFrame, "TOPRIGHT", 0, 0)
             iconDivider:SetPoint("BOTTOMLEFT", iconFrame, "BOTTOMRIGHT", 0, 0)
         end
-        iconDivider:SetColorTexture(cb.borderR or 0, cb.borderG or 0, cb.borderB or 0, cb.borderA or 1)
+        iconDivider:SetColorTexture(0, 0, 0, 1)
         iconDivider:Show()
     else
         iconDivider:Hide()
@@ -6711,17 +6730,11 @@ BuildCastBar = function()
     -- Clip frame + bar: beside the icon (or full width), full height
     local clipFrame = castBarFrame._barClip
     local bar = castBarFrame._bar
-    -- No border, no inset: the bg spans the frame, so an inset with no border
-    -- over it reads as a 1px background ring around the fill.
-    local bdrInset = ((cb.borderSize or 0) > 0 and PP and PP.mult) or 0
+    -- Fill the same rectangle the border wraps, just like the preview and icon.
+    -- The border paints its own edge over the fill. A separate PP.mult inset
+    -- can exceed that edge at another effective scale and expose a thin gap.
     clipFrame:ClearAllPoints()
-    -- The icon-adjacent side sits FLUSH against the icon (no inset): that seam is
-    -- interior with no border, and insetting it exposes a 1px background column
-    -- next to the icon. Outer edges keep the inset so the fill never bleeds out.
-    local clipLeft  = (hasIcon and not iconOnRight) and h or bdrInset
-    local clipRight = (hasIcon and iconOnRight) and h or bdrInset
-    clipFrame:SetPoint("TOPLEFT", castBarFrame, "TOPLEFT", clipLeft, -bdrInset)
-    clipFrame:SetPoint("BOTTOMRIGHT", castBarFrame, "BOTTOMRIGHT", -clipRight, bdrInset)
+    clipFrame:SetAllPoints(bounds)
     clipFrame:SetFrameLevel(castBarFrame:GetFrameLevel() + 1)
     bar:ClearAllPoints()
     bar:SetAllPoints(clipFrame)
@@ -6733,7 +6746,7 @@ BuildCastBar = function()
         bar:GetStatusBarTexture():SetAtlas("UI-CastingBar-Fill", true)
         castBarFrame._bg:SetAtlas("UI-CastingBar-Background", true)
         castBarFrame._bg:ClearAllPoints()
-        castBarFrame._bg:SetAllPoints(castBarFrame)
+        castBarFrame._bg:SetAllPoints((cb.showIcon ~= false and cb.iconDetached) and castBarFrame._barBounds or castBarFrame)
     else
         local texPath = EllesmereUI.ResolveTexturePath(CAST_BAR_TEXTURES, texKey, "Interface\\Buttons\\WHITE8x8")
         bar:SetStatusBarTexture(texPath)
@@ -7543,7 +7556,7 @@ function ns.ApplyCastBgAnchor()
         castBarFrame._bg:SetPoint("TOPLEFT", bar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
         castBarFrame._bg:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 0, 0)
     else
-        castBarFrame._bg:SetAllPoints(castBarFrame)
+        castBarFrame._bg:SetAllPoints((cb.showIcon ~= false and cb.iconDetached) and castBarFrame._barBounds or castBarFrame)
     end
 end
 
