@@ -10755,15 +10755,17 @@ local function ReloadFrames()
 
             if frame.unifiedBorder then
                 frame.unifiedBorder:ClearAllPoints()
-                -- Mini frames (ToT/Focus Target/Pet) may override ONLY the border
-                -- size per frame (settings.borderSizeOverride); color and texture
-                -- still inherit from the donor. nil = inherit the donor size.
-                local bs = settings.borderSizeOverride or donorSettings.borderSize or 1
-                local bc = donorSettings.borderColor or { r = 0, g = 0, b = 0 }
-                local btex = donorSettings.borderTexture or "solid"
+                -- Every mini/boss frame now has its own independent border
+                -- (Frame Border section, options UI) -- read `settings` (the
+                -- unit's own table), not `donorSettings`, which would silently
+                -- overwrite it with the donor's border right after
+                -- UpdateBordersForScale applied the unit's own choice above.
+                local bs = settings.borderSize or 1
+                local bc = settings.borderColor or { r = 0, g = 0, b = 0 }
+                local btex = settings.borderTexture or "solid"
                 PP.Point(frame.unifiedBorder, "TOPLEFT", frame, "TOPLEFT", 0, 0)
                 PP.Point(frame.unifiedBorder, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
-                EllesmereUI.ApplyBorderStyle(frame.unifiedBorder, bs, bc.r, bc.g, bc.b, donorSettings.borderAlpha or 1, btex, donorSettings.borderTextureOffset, donorSettings.borderTextureOffsetY, donorSettings.borderTextureShiftX, donorSettings.borderTextureShiftY, "unitframes", bs)
+                EllesmereUI.ApplyBorderStyle(frame.unifiedBorder, bs, bc.r, bc.g, bc.b, settings.borderAlpha or 1, btex, settings.borderTextureOffset, settings.borderTextureOffsetY, settings.borderTextureShiftX, settings.borderTextureShiftY, "unitframes", bs)
             end
 
             -- Helper: set font on a FontString, using donor font for mini frames
