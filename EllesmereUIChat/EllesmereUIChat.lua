@@ -154,6 +154,36 @@ local CHAT_DEFAULTS = {
             persistChatHistory = true,
             persistChatHistoryMaxLines = 100,
         },
+        -- Chat Bubbles riding on Blizzard's own (EllesmereUIChat_Bubbles.lua). Off by default:
+        -- switching it on also switches Blizzard's own bubbles ON for the channels enabled
+        -- below, so it is opt-in.
+        chatBubbles = {
+            enabled = false,
+            -- No guild key: Blizzard draws no bubble for guild chat, so there is nothing to
+            -- ride on and no position to borrow. party and raid are overwritten from
+            -- Blizzard's live switches the first time the feature is enabled (SeedChannels in
+            -- EllesmereUIChat_Bubbles.lua), so group bubbles are never put in front of a
+            -- player who had them off.
+            say = true, yell = true, party = true, raid = false, npc = true, emote = true,
+            -- Our own bubbles never draw inside an instance, so this decides whether
+            -- Blizzard's are visible there. Off, which leaves the stay exactly as it is now.
+            hideInInstances = false,
+            padding = 8,
+            maxWidth = 260,
+            -- Nudge away from where Blizzard put the bubble we ride on. Zero means exactly
+            -- their position, which the engine already places over the speaker's head.
+            offsetY = 0,
+            background = true,
+            bgColor = { r = 0, g = 0, b = 0 },
+            bgAlpha = 0.5,
+            borderSize = 1,
+            borderColor = { r = 0, g = 0, b = 0, a = 1 },
+            fontSize = 12,
+            textColor = { r = 1, g = 1, b = 1 },
+            -- Off, so the configured textColor above keeps applying. On, the bubble takes the
+            -- colour the engine already gave it, which is per channel.
+            followBlizzardColor = false,
+        },
     },
 }
 
@@ -184,6 +214,43 @@ function ECHAT.DB()
     }
 end
 
+local _bubbleDefaults, _bubblesFallback
+
+-- Never hand back CHAT_DEFAULTS itself: callers write to what they get, and a write into the
+-- defaults table would be merged into every profile created afterwards.
+local function CopyBubbleDefaults()
+    return (EUI.Lite and EUI.Lite.DeepCopy
+        and EUI.Lite.DeepCopy(CHAT_DEFAULTS.profile.chatBubbles)) or {}
+end
+
+-- Reference copy, read only. The single answer to "what is this setting worth when it is
+-- missing", shared by the renderer and the options page so a default cannot drift into three
+-- different values across three files -- bgAlpha was 0.5 here, 0.85 in the renderer, and the
+-- background swatch offered a third colour again. Deliberately NOT the same table BubblesDB
+-- falls back to, which callers do write to.
+function ECHAT.BubbleDefaults()
+    if not _bubbleDefaults then _bubbleDefaults = CopyBubbleDefaults() end
+    return _bubbleDefaults
+end
+
+function ECHAT.BubblesDB()
+    local d = EnsureDB()
+    if d and d.profile then
+        -- Created on demand rather than answered with the shared fallback: callers WRITE to
+        -- what they get, and a write into the fallback is lost without a word. NewDB's default
+        -- merge normally gets here first; this covers any path that re-points db.profile at a
+        -- profile the merge has not run over.
+        if not d.profile.chatBubbles then
+            d.profile.chatBubbles = CopyBubbleDefaults()
+        end
+        return d.profile.chatBubbles
+    end
+    -- No db at all: read-only ground so the renderer and the options page still resolve every
+    -- key. Writes here go nowhere, which is why the branch above exists.
+    if not _bubblesFallback then _bubblesFallback = CopyBubbleDefaults() end
+    return _bubblesFallback
+end
+
 local PP = EUI.PP
 local function GetFont()
     local cfg = ECHAT.DB()
@@ -205,6 +272,12 @@ local function GetOutlineFlag()
     if mode == "thick" then return (EUI.SlugFlag and EUI.SlugFlag("THICKOUTLINE, SLUG")) or "THICKOUTLINE, SLUG" end
     return ""
 end
+
+-- Published for EllesmereUIChat_Bubbles.lua: the bubbles are chat output and have to follow
+-- the Chat page's own font and outline pickers, not just the global "chat" module font. Going
+-- straight to EUI.GetFontPath("chat") skips the cfg.font / cfg.outlineMode overrides above.
+ECHAT.GetFont = GetFont
+ECHAT.GetOutlineFlag = GetOutlineFlag
 
 -- Unified fade system: all alpha changes go through a target + lerp.
 local _visChatVisible = true
@@ -5749,6 +5822,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- The passes above can build panel chrome (borders, the tab-band
         -- extension) that did not exist when the house editor opened.
         ECHAT.ApplyPanelHost()
+        -- A profile swap or import re-points db.profile, so the bubbles feature has to
+        -- re-read enabled/channels and re-assert Blizzard's CVars against the new values.
+        if ns.ChatBubbles then ns.ChatBubbles.Refresh() end
     end
 
     ---------------------------------------------------------------------------
@@ -5983,5 +6059,10 @@ initFrame:SetScript("OnEvent", function(self)
         local f = _G[frameName]
         if f then f:SetAlpha(0); f:EnableMouse(false) end
     end
+
+    ---------------------------------------------------------------------------
+    --  15. Chat Bubbles (EllesmereUIChat_Bubbles.lua)
+    ---------------------------------------------------------------------------
+    if ns.ChatBubbles then ns.ChatBubbles.Refresh() end
 
 end)

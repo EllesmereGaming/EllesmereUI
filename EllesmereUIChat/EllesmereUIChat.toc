@@ -21,6 +21,10 @@ EllesmereUIChat_Engine.lua
 # stays the routing backend; all management via the C config API).
 EllesmereUIChat_Tabs.lua
 
+# Chat bubbles: Blizzard's own bubbles stay on, we blank their chrome and draw a styled
+# frame on the frame that carries their position.
+EllesmereUIChat_Bubbles.lua
+
 # Options
 
 # Session scrollback: bridge-tail capture (formatted lines), replay into our
