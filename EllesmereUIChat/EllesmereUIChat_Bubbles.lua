@@ -118,9 +118,13 @@ local function RawEq()
     _cmpEq = (_cmpA == _cmpB)
 end
 
--- Either side can be a secret string in restricted content, and comparing one raises.
+-- Either side can be a secret string in restricted content, and comparing one raises. That is
+-- exactly why the existence test is type() and not "== nil": comparing a secret to nil is the
+-- operation our own secret rules forbid (EllesmereUIChat.lua's OnEditBoxPreSendText carries
+-- the same note), so a nil belt in front of the guard would itself be the hazard. type()
+-- reports a secret's underlying type, so a secret string still reaches the guarded compare.
 local function SafeEq(a, b)
-    if a == nil or b == nil then return false end
+    if type(a) ~= "string" or type(b) ~= "string" then return false end
     _cmpA, _cmpB, _cmpEq = a, b, false
     local ok = pcall(RawEq)
     _cmpA, _cmpB = nil, nil
@@ -137,7 +141,8 @@ end
 -- as a token the client fills in. A plain-text containment test catches those without
 -- pretending to know Blizzard's exact formatting.
 local function SafeContains(hay, needle)
-    if hay == nil or needle == nil then return false end
+    -- type() rather than "== nil", for the reason spelled out over SafeEq.
+    if type(hay) ~= "string" or type(needle) ~= "string" then return false end
     _findHay, _findNeedle, _findHit = hay, needle, false
     local ok = pcall(RawFind)
     _findHay, _findNeedle = nil, nil
@@ -203,18 +208,32 @@ end
 -- the balloon plus a FontString reachable through the template's "String" parentKey. Both
 -- halves are needed, and neither is forbidden outside instances. The pairing is fixed for the
 -- frame's life, which is what makes the cache below safe.
-local function BlizzParts(outer)
-    if not outer then return nil, nil end
-    local child = childOf[outer]
-    if not child then
+local _partsOuter, _partsChild, _partsFS
+
+-- Both lookups sit INSIDE the guarded call, not just the call itself: reading outer.GetChildren
+-- and reading child.String are each an index into a Blizzard frame, and indexing one that has
+-- been reclassified as forbidden raises right there, before a pcall wrapped around the call
+-- alone could catch it. The child lookup runs on every BlizzParts call, not only on the first.
+local function RawResolveParts()
+    if not _partsChild then
         -- Resolved once: GetChildren hands back every child as varargs and allocates on every
         -- call, and this runs per bubble per sweep plus on every hide.
-        local ok, c = pcall(outer.GetChildren, outer)
-        if not ok or not c then return nil, nil end
-        child = c
-        childOf[outer] = child
+        _partsChild = _partsOuter:GetChildren()
     end
-    return child, child.String
+    if _partsChild then _partsFS = _partsChild.String end
+end
+
+local function BlizzParts(outer)
+    if not outer then return nil, nil end
+    _partsOuter, _partsChild, _partsFS = outer, childOf[outer], nil
+    local ok = pcall(RawResolveParts)
+    local child, fs = _partsChild, _partsFS
+    _partsOuter, _partsChild, _partsFS = nil, nil, nil
+    if not ok or not child then return nil, nil end
+    -- Cached only once the pair actually resolved, so a frame that raised is retried rather
+    -- than remembered as broken.
+    childOf[outer] = child
+    return child, fs
 end
 
 local _readFS, _readOut
@@ -247,7 +266,13 @@ local function BlizzTextColor(fs)
     _colorFS, _colorR, _colorG, _colorB = fs, nil, nil, nil
     local ok = pcall(RawReadColor)
     _colorFS = nil
-    if not ok or _colorR == nil or _colorG == nil or _colorB == nil then return nil end
+    if not ok then return nil end
+    -- type() before IsSecret, and neither of them after a "== nil": comparing a secret to nil
+    -- raises, so the missing-value test has to be the one that cannot. Same ordering rule as
+    -- SafeEq above and as EllesmereUIActionBars' charge count.
+    if type(_colorR) ~= "number" or type(_colorG) ~= "number" or type(_colorB) ~= "number" then
+        return nil
+    end
     if IsSecret(_colorR) or IsSecret(_colorG) or IsSecret(_colorB) then return nil end
     return _colorR, _colorG, _colorB
 end
@@ -428,14 +453,31 @@ local function Layout(f, cfg)
     PP.Size(f, w + padding * 2, h + padding * 2)
 end
 
+local _anchorFrame, _anchorTo, _anchorOff
+
 -- Concentric with Blizzard's frame, not stacked above it: theirs is already where the speaker
 -- is, and the two grow to different sizes around the same text. offsetY is the only nudge the
 -- user gets, and it rides in on PP.Point so it lands on the pixel grid.
+--
+-- Guarded, because PP.Point ends in a plain SetPoint and anchoring to a frame that has been
+-- reclassified as forbidden raises there, not inside PP. The claim proved the frame readable
+-- at the time, but RefreshStyle re-anchors whatever is still in "ours" per slider STEP,
+-- arbitrarily long afterwards.
+local function RawAnchor()
+    PP.Point(_anchorFrame, "CENTER", _anchorTo, "CENTER", 0, _anchorOff)
+end
+
+-- Answers whether the frame ended up anchored. A false here is not cosmetic: ClearAllPoints has
+-- already run, so a caller that carried on would leave a shown frame with no point at all and,
+-- in Claim's case, blank Blizzard's chrome behind it. Both callers hand the bubble back instead.
 local function Anchor(f, cfg)
     local d = (ECHAT.BubbleDefaults and ECHAT.BubbleDefaults()) or cfg
     local off = cfg.offsetY or d.offsetY or 0
     f:ClearAllPoints()
-    PP.Point(f, "CENTER", f.outer, "CENTER", 0, off)
+    _anchorFrame, _anchorTo, _anchorOff = f, f.outer, off
+    local ok = pcall(RawAnchor)
+    _anchorFrame, _anchorTo = nil, nil
+    return ok
 end
 
 -------------------------------------------------------------------------------
@@ -468,7 +510,13 @@ local function Claim(outer, child, fs, text)
     f:SetAlpha(0)
     f:Show()
     Layout(f, cfg)
-    Anchor(f, cfg)
+    -- Before the chrome is blanked, never after: a claim that cannot anchor has to leave
+    -- Blizzard's own bubble drawing. ReleaseBlizz undoes the whole claim and puts the chrome
+    -- back at alpha 1, which also covers a frame that reached here already blanked on sight.
+    if not Anchor(f, cfg) then
+        ReleaseBlizz(outer)
+        return
+    end
     f:SetAlpha(1)
 
     SetBlizzAlpha(child, 0)
@@ -501,7 +549,8 @@ end
 -- fallback for the formats Blizzard fills in itself, and on its own it would let a short line
 -- claim the bubble of a longer one that quotes it.
 local function MatchPending(text, at)
-    if text == nil then return nil end
+    -- type() rather than "== nil", for the reason spelled out over SafeEq.
+    if type(text) ~= "string" then return nil end
     for i = 1, #pending do
         if Ordered(pending[i], at) and SafeEq(text, pending[i].text) then return i end
     end
@@ -528,7 +577,9 @@ local function OnBlizzShow(outer)
     if not child then return end
 
     local text = BlizzText(fs)
-    if text ~= nil then
+    -- type() is the existence test, never "~= nil": GetText answers with a secret string in
+    -- chat messaging lockdown, and comparing one to nil raises. See SafeEq.
+    if type(text) == "string" then
         -- A secret string can be shown but never compared, so it can never be matched to its
         -- chat line. Leaving it to Blizzard beats blanking a bubble we cannot replace.
         if not IsSecret(text) then
@@ -553,11 +604,23 @@ end
 -- frames, so the marker keeps a recycled one from stacking duplicates, and the set converges
 -- after a handful of messages. This is what keeps the feature free of per-frame work: the
 -- engine tells us when a bubble starts and ends instead of us watching for it.
+local _hookTarget
+
+local function RawHookOuter()
+    _hookTarget:HookScript("OnShow", OnBlizzShow)
+    _hookTarget:HookScript("OnHide", OnBlizzHide)
+end
+
 function HookOuter(outer)
     if hooked[outer] then return end
+    -- Marked BEFORE the guarded call, not after: the pair has to stay one-per-frame, and a
+    -- retry that found the first HookScript already installed would stack a second OnShow.
+    -- Nothing is lost by giving up on a frame that raised here -- a frame we cannot hook is
+    -- one we can neither read nor blank, so it was never claimable in the first place.
     hooked[outer] = true
-    outer:HookScript("OnShow", OnBlizzShow)
-    outer:HookScript("OnHide", OnBlizzHide)
+    _hookTarget = outer
+    pcall(RawHookOuter)
+    _hookTarget = nil
 end
 
 -- direct is set only by the chat handler running a pass ahead of the timer. Any timer already
@@ -597,7 +660,9 @@ function Sweep(direct)
                     end
                     local child, fs = BlizzParts(outer)
                     local text = BlizzText(fs)
-                    if text ~= nil and not IsSecret(text) then
+                    -- type() first, then the secret guard, then the compare inside
+                    -- MatchPending. See SafeEq for why the nil test cannot lead here.
+                    if type(text) == "string" and not IsSecret(text) then
                         local idx = MatchPending(text, at)
                         if idx then
                             table.remove(pending, idx)
@@ -795,6 +860,12 @@ local function OnEvent(_, event, ...)
         -- fresh instead of reading our own value back as theirs.
         RestoreCVars()
         ForgetCVars()
+        -- The CVars are only half of what we hold: every claimed bubble also has Blizzard's
+        -- own chrome sitting at alpha 0 under ours. Handing that back costs one pass over a
+        -- handful of frames and makes the logout branch symmetric with SetActive(false), so
+        -- an engine bubble frame that outlives the reload cannot come back invisible for the
+        -- next speaker.
+        ReleaseAll()
         return
     end
 
@@ -825,7 +896,14 @@ local function OnEvent(_, event, ...)
     if not cfg or cfg[channel] ~= true then return end
 
     local text = ...
-    if text == nil or IsSecret(text) then return end
+    -- Every one of the fourteen events above is declared SecretInChatMessagingLockdown in
+    -- Blizzard's own ChatInfoDocumentation, and their "text" payload carries no NeverSecret,
+    -- so arg1 IS a secret string whenever that lockdown is in effect -- which is a state of
+    -- the chat system, not a property of the map, so it can reach us out here in the open
+    -- world where "suspended" is false. type() first for that reason, then the secret guard;
+    -- a "== nil" belt in front of either would raise on exactly the lines it is meant to
+    -- protect. See SafeEq.
+    if type(text) ~= "string" or IsSecret(text) then return end
 
     -- The stamp is read, not advanced: only a bubble APPEARING moves the counter, so every
     -- bubble that shows up from here on compares as newer than this line.
@@ -936,7 +1014,9 @@ function CB.RefreshStyle()
     if not cfg then return end
     for _, f in pairs(ours) do
         Layout(f, cfg)
-        Anchor(f, cfg)
+        -- Same hand-back as in Claim. Clearing the key of the entry we are standing on is
+        -- allowed during a pairs traversal, which is what ReleaseAll has always relied on.
+        if not Anchor(f, cfg) then ReleaseBlizz(f.outer) end
     end
 end
 
