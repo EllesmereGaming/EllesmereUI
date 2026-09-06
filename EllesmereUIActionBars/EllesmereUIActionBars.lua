@@ -10517,7 +10517,19 @@ local function UpdateFlipbook(btn)
 
         _G_Glows.StopAllGlows(wrapper)
         wrapper:Show()
-        _G_Glows.StartFlipBookGlow(wrapper, _ufBtnW, loopEntry, cr, cg, cb, _ufBtnH)
+        -- Classic WoW Glow's own entry is texture-based (IconAlertAnts), unlike
+        -- GCD/Modern WoW Glow's atlas entries, which already draw a second ants
+        -- layer via StartFlipBookGlow's atlas-only block. Without an equivalent
+        -- second layer, a direct Classic pick rendered as ants only -- confirmed
+        -- against real Blizzard proc glow screenshots to visibly lack the outline
+        -- that made it read as "Classic WoW Glow" in the first place. Pass the
+        -- same soft-halo option StartEngineGlow's Action Button Glow stand-in
+        -- already uses for this exact texture, tinted to the user's chosen color.
+        local flipOpts
+        if not loopEntry.atlas and loopEntry.texture then
+            flipOpts = { abgHalo = true, haloR = cr, haloG = cg, haloB = cb }
+        end
+        _G_Glows.StartFlipBookGlow(wrapper, _ufBtnW, loopEntry, cr, cg, cb, _ufBtnH, flipOpts)
         if wfd.ownMask then
             MaskFrameTextures(wrapper, wfd.ownMask)
         end
