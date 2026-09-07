@@ -7555,15 +7555,20 @@ local function StartAddon()
 
     -- A rise flags a new pickup; a drop (sold/used/deleted) lowers the known
     -- total so a later re-acquisition below the old peak still registers as
-    -- new. Frozen entirely at a mailbox or bank/warband bank -- sending,
-    -- receiving, depositing, or withdrawing would otherwise look identical to
-    -- disposing of or looting an item, since bag contents are all this can
-    -- see. MAIL_CLOSED, BANKFRAME_CLOSED, and
+    -- new. Frozen entirely at a bank/warband bank -- depositing and withdrawing
+    -- look identical to disposing of and looting, since bag contents are all
+    -- this can see. MAIL_CLOSED, BANKFRAME_CLOSED, and
     -- PLAYER_INTERACTION_MANAGER_FRAME_HIDE below silently resync once the
     -- mailbox/bank closes, so none of that traffic falsely flags or evicts
     -- anything.
+    --
+    -- A mailbox is only half that problem, so it no longer freezes both ways: a
+    -- RISE there can only be an item arriving (sending lowers a count, never
+    -- raises one), which is what left auction returns landing with no trace.
+    -- Drops stay ignored: sent, sold and deleted are indistinguishable.
     local function DetectNewItems()
-        if not _snapshotReady or MailOpen() or BankOpen() then return end
+        if not _snapshotReady or BankOpen() then return end
+        local atMail = MailOpen()
         local counts, order = TallyItemCounts()
         for _, itemID in ipairs(order) do
             local count = counts[itemID]
@@ -7576,16 +7581,23 @@ local function StartAddon()
                     EUI_Bags._recentItems[old] = nil
                 end
             end
-            _knownItemCounts[itemID] = count
+            if not atMail or count > known then
+                _knownItemCounts[itemID] = count
+            end
         end
         -- Items gone from bags entirely (sold/used/deleted) no longer appear
         -- in `counts`; drop their known peak too. Equipped is not disposed:
         -- without the guard, swapping gear on (peak pruned) and later off
         -- again (count rises from 0) would re-flag every swapped piece as
         -- recent and FIFO-evict genuine loot.
-        for itemID in pairs(_knownItemCounts) do
-            if not counts[itemID] and not C_Item.IsEquippedItem(itemID) then
-                _knownItemCounts[itemID] = nil
+        -- Skipped at the mailbox for the same reason drops are ignored above: an item
+        -- gone from bags there was as likely posted or sent as disposed of, and
+        -- dropping its peak would re-flag it as new the moment it came back.
+        if not atMail then
+            for itemID in pairs(_knownItemCounts) do
+                if not counts[itemID] and not C_Item.IsEquippedItem(itemID) then
+                    _knownItemCounts[itemID] = nil
+                end
             end
         end
     end
