@@ -874,12 +874,19 @@ function _tbbWake.Sleep()
     _tbbWake:RegisterUnitEvent("UNIT_AURA", "player")
     _tbbWake:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
     _tbbWake:RegisterEvent("PLAYER_REGEN_DISABLED")
+    -- A debuff the player left on a new target is live the moment it is selected, and
+    -- none of the player-scoped edges above can see that. Rare enough to wake on
+    -- without a probe.
+    _tbbWake:RegisterEvent("PLAYER_TARGET_CHANGED")
 end
 function _tbbWake.Wake()
     _tbbWake:UnregisterAllEvents()
     -- Stay subscribed to the aura edge while AWAKE: pool composition changes only on a
     -- player aura event or a pool Acquire (hooked separately), retiring the assignment memo.
     _tbbWake:RegisterUnitEvent("UNIT_AURA", "player")
+    -- Target changes rebind which auras the viewer's frames carry, so the awake branch
+    -- of OnEvent retires the assignment memo on this the same as any other non-aura edge.
+    _tbbWake:RegisterEvent("PLAYER_TARGET_CHANGED")
     _tbbWake._idleTicks = 0
     _tbbAssignDirty = true
     _tbbReflowDirty = true
@@ -5204,6 +5211,10 @@ function ns.UpdateTrackedBuffBarTimers()
     -- Liveness for the idle sleeper: set by any branch below that is actually animating or tracking something this tick.
     local tickLive = false
 
+    -- Resolved once per tick, not per bar: the bind-miss fallback below asks the target
+    -- for a debuff the player applied, and there is no point asking with nothing targeted.
+    local hasTarget = UnitExists and UnitExists("target") and true or false
+
     -- Profile-wide smooth-fill switches, resolved once per tick for every fill site (absent buffs key = enabled; absent cooldowns key = OFF).
     local sm
     do
@@ -5313,6 +5324,25 @@ function ns.UpdateTrackedBuffBarTimers()
                 fbAura = C_UnitAuras.GetPlayerAuraBySpellID(cfg.spellID)
                 if not fbAura and cfg.baseSpellID and cfg.baseSpellID > 0 then
                     fbAura = C_UnitAuras.GetPlayerAuraBySpellID(cfg.baseSpellID)
+                end
+                -- Same net for a debuff the player put on the TARGET, which the queries
+                -- above can never see. Blizzard's viewer stalls exactly there after a
+                -- macro that clears and restores the target inside one frame: its
+                -- OnPlayerTargetChanged compares GUIDs, sees the same one it stored, and
+                -- never refreshes, so the item stays inactive until a real target switch.
+                if not fbAura and hasTarget and C_UnitAuras.GetUnitAuraBySpellID then
+                    fbAura = C_UnitAuras.GetUnitAuraBySpellID("target", cfg.spellID)
+                    if not fbAura and cfg.baseSpellID and cfg.baseSpellID > 0 then
+                        fbAura = C_UnitAuras.GetUnitAuraBySpellID("target", cfg.baseSpellID)
+                    end
+                    -- Somebody else's copy of the same debuff must not drive our bar.
+                    -- sourceUnit reads secret on an enemy in restricted content, so only
+                    -- a READABLE mismatch rejects; an unreadable one is left to show.
+                    local src = fbAura and fbAura.sourceUnit
+                    if src and not (issecretvalue and issecretvalue(src))
+                       and src ~= "player" then
+                        fbAura = nil
+                    end
                 end
                 -- Fallback driving means the viewer has not bound this aura yet, and
                 -- Blizzard's late-bind can land WITHOUT a fresh player aura event. Keep

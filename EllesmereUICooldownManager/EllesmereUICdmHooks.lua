@@ -10222,6 +10222,10 @@ function ns.SetupViewerHooks()
         cdmBuffTickFrame:RegisterUnitEvent("UNIT_AURA", "player")
         cdmBuffTickFrame:RegisterEvent("PLAYER_TOTEM_UPDATE")
         cdmBuffTickFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+        -- Target-applied auras bind and release on this edge and on no player-scoped
+        -- one, so without it a tracked debuff's glow could only be picked up by the
+        -- 1s staleness net below, or not at all once the ticker had settled.
+        cdmBuffTickFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
         cdmBuffTickFrame:SetScript("OnEvent", function(_, event, _, updateInfo)
             ns._btDirty = true
             -- Gen bump on anything that can CHANGE which auras are active: additions
