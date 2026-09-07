@@ -2543,8 +2543,31 @@ end
 -- usage, not a verified schema). Both bars use noResize (AuraKit sizes the container
 -- from the active aura count, nothing to drag-resize) and noAnchorTarget (a
 -- dynamically-resizing frame is a bad anchor target for other elements).
+
+-- EllesmereUI's unlock API is published from another file and can arrive after
+-- CreateBars has already run. Both register functions returned silently in that
+-- window and nothing re-drove them, so the bars kept no mover for the session: the
+-- buff frame read as though Blizzard Edit Mode still owned it, and only a live
+-- re-register (toggling Use Blizzard Buffs) brought it back, until the next reload.
+-- Retried the way TryCreateBars retries for ns.db. Giving up stays quiet rather than
+-- erroring, since the API is legitimately absent for the whole session when the
+-- module that publishes it is switched off.
+local UNLOCK_API_RETRY_CAP = 40
+local unlockApiRetries = 0
+local function UnlockApiReady(retry)
+    if EllesmereUI and EllesmereUI.RegisterUnlockElements and EllesmereUI.MakeUnlockElement then
+        unlockApiRetries = 0
+        return true
+    end
+    if unlockApiRetries < UNLOCK_API_RETRY_CAP then
+        unlockApiRetries = unlockApiRetries + 1
+        C_Timer.After(0, retry)
+    end
+    return false
+end
+
 function RegisterPABUnlock()
-    if not (EllesmereUI and EllesmereUI.RegisterUnlockElements and EllesmereUI.MakeUnlockElement) then return end
+    if not UnlockApiReady(RegisterPABUnlock) then return end
     local MK = EllesmereUI.MakeUnlockElement
 
     local function MakeBarElement(key, label, order, isBuff, getParent)
@@ -3835,7 +3858,7 @@ end
 -- bar's key is retired for good and calling UnregisterUnlockElement is correct, not
 -- lossy. Still noResize/noAnchorTarget for the same reason as the default bars.
 local function RegisterPABCustomUnlock()
-    if not (EllesmereUI and EllesmereUI.RegisterUnlockElements and EllesmereUI.MakeUnlockElement) then return end
+    if not UnlockApiReady(RegisterPABCustomUnlock) then return end
     local MK = EllesmereUI.MakeUnlockElement
 
     local prevBuffKeys, prevDebuffKeys = pabRegisteredCustomBuffKeys, pabRegisteredCustomDebuffKeys
