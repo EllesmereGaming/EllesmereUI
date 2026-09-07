@@ -975,6 +975,7 @@ local function CreateHeader()
     SetBagFont(header.itemCount, 11)
     header.itemCount:SetPoint("LEFT", header.title, "RIGHT", 8, 0)
     header.itemCount:SetTextColor(0.6, 0.6, 0.6)
+    header.itemCount:SetJustifyH("LEFT")
 
     local search = CreateFrame("EditBox", "EUI_BagSearchBox", header)
     search:SetSize(160, 22)
@@ -5528,12 +5529,24 @@ function EUI_Bags:RefreshInventory()
     ReleaseAllSlotTables()
     local tempItems = {}
     local emptySlots = {}
+    local regularUsed, regularTotal = 0, 0
+    local reagentUsed, reagentTotal = 0, 0
 
     for bag = 0, 5 do
         local numSlots = C_Container.GetContainerNumSlots(bag)
+        if bag == 5 then
+            reagentTotal = numSlots
+        else
+            regularTotal = regularTotal + numSlots
+        end
         for slot = 1, numSlots do
             local info = C_Container.GetContainerItemInfo(bag, slot)
             if info then
+                if bag == 5 then
+                    reagentUsed = reagentUsed + 1
+                else
+                    regularUsed = regularUsed + 1
+                end
                 local itemLink = C_Container.GetContainerItemLink(bag, slot)
                 local d = AcquireSlotTable()
                 d.bag = bag; d.slot = slot; d.info = info; d.itemLink = itemLink
@@ -7082,12 +7095,12 @@ function EUI_Bags:RefreshInventory()
     end
 
     if EUI_Bags.Header and EUI_Bags.Header.itemCount then
-        if selectedCategoryIndex == 0 or selectedCategoryIndex == -1 or selectedCategoryIndex == -2 then
-            local totalSlots = totalCount + #emptySlots
-            EUI_Bags.Header.itemCount:SetText(EllesmereUI.Lf("%d / %d Items", totalCount, totalSlots))
-        else
-            EUI_Bags.Header.itemCount:SetText(EllesmereUI.Lf("%d Items", totalCount))
+        -- Capacity describes physical slots, independent of categories and merged stacks.
+        local countText = EllesmereUI.Lf("%d / %d Bag slots", regularUsed, regularTotal)
+        if reagentTotal > 0 then
+            countText = countText .. "\n" .. EllesmereUI.Lf("%d / %d Reagent slots", reagentUsed, reagentTotal)
         end
+        EUI_Bags.Header.itemCount:SetText(countText)
     end
 
     -- Dice button: OneBag only (unless hidden by setting), parented to the scroll child and anchored to the first category header.
