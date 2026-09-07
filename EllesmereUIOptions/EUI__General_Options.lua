@@ -5373,6 +5373,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIChat              = "Modern chat enhancements with useful utilities.",
                 EllesmereUIBags              = "A beautiful visual refresh of Blizzard Bags with intuitive organization.",
                 EllesmereUIQuickdraw         = "Hold a key to open a menu of actions; point or scroll to choose, release to fire.",
+                EllesmereUIQuickTravel       = "Hearthstones, class and racial travel, mage teleports and portals, and Hero's Path dungeon teleports.",
             }
 
             local iy = -30
@@ -7057,6 +7058,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIChat              = "Modern chat enhancements with useful utilities.",
                 EllesmereUIBags              = "A beautiful visual refresh of Blizzard Bags with intuitive organization.",
                 EllesmereUIQuickdraw         = "Hold a key to open a menu of actions; point or scroll to choose, release to fire.",
+                EllesmereUIQuickTravel       = "Hearthstones, class and racial travel, mage teleports and portals, and Hero's Path dungeon teleports.",
             }
 
             local SCROLL_MAX_H = 285

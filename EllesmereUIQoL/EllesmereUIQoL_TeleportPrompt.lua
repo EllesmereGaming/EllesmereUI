@@ -375,6 +375,12 @@ _G._EUI_HideTeleportPrompt = function()
     HidePrompt()
 end
 
+-- Read-only: static spell id while the LFG Reminder is showing, else nil.
+_G._EUI_GetTeleportPromptSpellID = function()
+    if popup and popup:IsShown() and pendingSpellID then return pendingSpellID end
+    return nil
+end
+
 -------------------------------------------------------------------------------
 --  Events. No Blizzard frame is ever hooked or SetScript-ed. Heavy events are
 --  only registered when the feature is enabled (zero cost when disabled).
