@@ -130,10 +130,7 @@ local function EUI_GetEnchantText(slotID, unit)
     if cached ~= nil then return cached end
 
     local data = EUI_ScanInventoryItem(slotID, unit)
-    if not (data and data.lines) then
-        _enchantNameCache[enchantID] = ""
-        return ""
-    end
+    if not (data and data.lines) then return "" end
 
     for _, line in ipairs(data.lines) do
         local raw = _stripLineEscapes(line.leftText or "")
@@ -152,7 +149,10 @@ local function EUI_GetEnchantText(slotID, unit)
         end
     end
 
-    _enchantNameCache[enchantID] = ""
+    -- Deliberately not cached. A scan can come back empty because the item's data has
+    -- not arrived yet, and the sheet already re-reads on GET_ITEM_INFO_RECEIVED for
+    -- exactly that -- caching the empty answer made the miss permanent and threw that
+    -- refresh away, leaving an enchanted item flagged as missing for the session.
     return ""
 end
 
