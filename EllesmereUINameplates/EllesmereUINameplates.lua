@@ -5228,8 +5228,19 @@ local function GetReactionColor(unit)
             return MaybeDarken(c.r, c.g, c.b, inCombat)
         end
     end
+    -- A boss the tank is holding is settled at step 9, where "Override Boss colors" decides.
+    -- Step 6b defers bosses here on purpose, but the caster return below fires first for any
+    -- boss carrying a mana pool, so that option could never reach one. Mirrors step 9's test.
+    local bossAggroPending = false
+    if _isBossUnit and isThreatUnit and _isTankRole and threatStatus >= 3 then
+        local hae = defaults.tankHasAggroEnabled
+        if db.tankHasAggroEnabled ~= nil then hae = db.tankHasAggroEnabled end
+        local ovrBoss = defaults.tankHasAggroOverrideBoss
+        if db.tankHasAggroOverrideBoss ~= nil then ovrBoss = db.tankHasAggroOverrideBoss end
+        bossAggroPending = hae and ovrBoss
+    end
     -- 8. Caster
-    if _isCaster then
+    if _isCaster and not bossAggroPending then
         -- DPS/healer No Aggro "Override Caster colors": promotes No Aggro above the caster
         -- color when enabled. Kept separate from the mini-boss override for contrast.
         if dpsNoAggroActive then
