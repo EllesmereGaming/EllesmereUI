@@ -1432,6 +1432,7 @@ function _G._EUI_BuildFontsPage(pageName, parent, yOffset)
 
     _, h = W:DualRow(parent, y,
         { type="dropdown", text="Global Font",
+          tooltip="Sets the font EllesmereUI uses for its own text. Blizzard's own text, such as the quest log and spellbook, keeps the game font until you turn on Apply to All Game Text below.",
           values=fontDropValues, order=fontDropOrder,
           getValue=function()
               local g = EllesmereUI.GetFontsDB().global or "Expressway"
