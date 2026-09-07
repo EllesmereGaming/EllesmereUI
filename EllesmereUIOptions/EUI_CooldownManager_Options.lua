@@ -13424,8 +13424,10 @@ initFrame:SetScript("OnEvent", function(self)
             -- Check if this spell is already on THIS bar (only gray-out we
             -- still do for CD/util/buff custom bars). Spells on OTHER bars
             -- are always claimable -- AddTrackedSpell auto-moves them.
-            local onThisBar = not isDisabled and excludeSet
-                and (excludeSet[sp.cdID] or excludeSet[sp.spellID])
+            local onThisBar = not isDisabled and (
+                (sp.isCdCollision and sp.onEUIBar)
+                or (not sp.isCdCollision and excludeSet
+                    and (excludeSet[sp.cdID] or excludeSet[sp.spellID])))
 
             -- Apply the grayed "already on this bar" appearance and swap the row
             -- to its non-interactive state. Used both for spells already present
@@ -13482,8 +13484,11 @@ initFrame:SetScript("OnEvent", function(self)
                         ShowWrongBarTypePopup(sp.name, sp.cdmCatGroup == "buff")
                         return
                     end
-                    -- Always pass spellID (assignedSpells stores spellIDs)
-                    if onSelect then onSelect(sp.spellID, sp.isExtra) end
+                    -- Collided CD/Utility slots carry cooldownID identity;
+                    -- ordinary entries continue to store their spellID.
+                    if onSelect then
+                        onSelect(sp.spellID, sp.isExtra, sp.cdID, sp.isCdCollision)
+                    end
                     -- Keep the picker open so multiple spells can be added in a
                     -- row; gray this row in place to reflect that it was added.
                     if notLearned then EllesmereUI.HideWidgetTooltip() end
@@ -14916,8 +14921,12 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                     end
                 end
-                ShowSpellPicker(self, bd.key, nil, excl, function(newSpellID, isExtra)
-                    ns.AddTrackedSpell(bd.key, newSpellID, isExtra)
+                ShowSpellPicker(self, bd.key, nil, excl, function(newSpellID, isExtra, newCdID, isCdCollision)
+                    if isCdCollision and newCdID and ns.AddTrackedCooldownByCdID then
+                        ns.AddTrackedCooldownByCdID(bd.key, newCdID)
+                    else
+                        ns.AddTrackedSpell(bd.key, newSpellID, isExtra)
+                    end
                     FinalizeAdd()
                 end)
             end

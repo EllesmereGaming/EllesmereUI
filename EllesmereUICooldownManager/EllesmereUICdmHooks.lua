@@ -961,10 +961,10 @@ local _cdidRouteMap = {}
 
 local _divertedSpellsBuff = {}
 local _divertedSpellsCD   = {}
--- cooldownID-level buff diversions: a collided buff (two viewer slots sharing one
--- canonical spellID) is tracked on a custom bar by cooldownID (cd-claim marker in
--- assignedSpells, ns.CdClaimMarker); checked BEFORE the sid map, so it outranks a pair claim.
-local _divertedBuffCdIDs  = {}
+-- CooldownID-level diversions: collided Buff or CD/Utility viewer slots are
+-- tracked by cooldownID (cd-claim marker in assignedSpells, ns.CdClaimMarker).
+-- Checked before the sid maps so one family claim never captures its sibling.
+local _divertedCdIDs  = {}
 --- Equipment-slot diversions, inventory slot -> barKey. Blizzard's own equipment
 --- cooldown entry carries an equipSlot and NO spell of its own, so the slot is its
 --- only routing key; a bar listing that slot (-13/-14 et al) claims the frame the
@@ -1148,7 +1148,7 @@ function ns.RebuildSpellRouteMap()
     wipe(_divertedDirectCD)
     wipe(_divertedVarBaseBuff)
     wipe(_divertedVarBaseCD)
-    wipe(_divertedBuffCdIDs)
+    wipe(_divertedCdIDs)
     wipe(ns._divertedSlotCD)
     _routeMapBuilt = false
 
@@ -1230,7 +1230,7 @@ function ns.RebuildSpellRouteMap()
             local claims = sd and ns.CollectCdClaimSet(sd)
             if claims then
                 for cdID in pairs(claims) do
-                    _divertedBuffCdIDs[cdID] = bd.key
+                    _divertedCdIDs[cdID] = bd.key
                 end
             end
         end
@@ -1277,12 +1277,12 @@ function ns.RebuildSpellRouteMap()
             end
             -- Cd-claimed hosted buffs (collided slots hosted by cd-claim marker instead
             -- of the sid-keyed hostedBuffSpellIDs flag): claim the cooldownID in
-            -- _divertedBuffCdIDs, same map/priority as Pass 1. ResolveCDIDToBar checks
+            -- _divertedCdIDs, same map/priority as Pass 1. ResolveCDIDToBar checks
             -- it before any sid map, so it works for any target bar type.
             local claims = sd and ns.CollectCdClaimSet(sd)
             if claims then
                 for cdID in pairs(claims) do
-                    _divertedBuffCdIDs[cdID] = bd.key
+                    _divertedCdIDs[cdID] = bd.key
                 end
             end
         end
@@ -1323,6 +1323,11 @@ function ns.RebuildSpellRouteMap()
     for _, bd in ipairs(p.cdmBars.bars) do
         if bd.enabled and bd.isGhostBar then
             CollectDiversionsFor(bd, ghostAliasSkip)
+            local claims = ns.GetBarSpellData(bd.key)
+            claims = claims and ns.CollectCdClaimSet(claims)
+            if claims then
+                for cdID in pairs(claims) do _divertedCdIDs[cdID] = bd.key end
+            end
         end
     end
 
@@ -1349,14 +1354,12 @@ local function ResolveCDIDToBar(cdID, viewerDefaultBar)
     local cached = _cdidRouteMap[cdID]
     if cached then return cached end
 
-    -- cooldownID-level claim first (collided buffs tracked by slot). Needs no
+    -- cooldownID-level claim first (collided Buff or CD/Utility slot). Needs no
     -- cooldownInfo read, so it also works while every sid field is secret.
-    if viewerDefaultBar == "buffs" then
-        local cdRoute = _divertedBuffCdIDs[cdID]
-        if cdRoute then
-            _cdidRouteMap[cdID] = cdRoute
-            return cdRoute
-        end
+    local cdRoute = _divertedCdIDs[cdID]
+    if cdRoute then
+        _cdidRouteMap[cdID] = cdRoute
+        return cdRoute
     end
 
     local RVV = ns.ResolveVariantValue
@@ -8495,6 +8498,16 @@ local function CollectAndReanchor()
         if needsMigration then
             local added = ns.MigrateSpecToBarFilterModelV6()
             if added and added > 0 then
+                if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
+                if ns.QueueReanchor then ns.QueueReanchor() end
+            end
+        end
+        -- Live-only compatibility pass: when two CD/Utility cooldownIDs share
+        -- one spell family, replace a legacy positive family claim with one
+        -- exact slot marker. The sibling then keeps its Blizzard viewer home.
+        if prof and prof._barFilterModelV6 and ns.MigrateCollidedCDAssignments then
+            local migrated = ns.MigrateCollidedCDAssignments()
+            if migrated and migrated > 0 then
                 if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
                 if ns.QueueReanchor then ns.QueueReanchor() end
             end
