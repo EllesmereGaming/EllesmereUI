@@ -88,16 +88,6 @@ do
         return value >= threshold
     end
 
-    local function ApplySecondStackGlowMask(st)
-        if not st.mask2 then return end
-        for _, region in ipairs({ st.glow:GetRegions() }) do
-            if region.AddMaskTexture and region._euiTGMask2 ~= st.mask2 then
-                region._euiTGMask2 = st.mask2
-                region:AddMaskTexture(st.mask2)
-            end
-        end
-    end
-
     -- LIVE-FIRST: the item's auraDataCached is (re)written on aura
     -- ASSIGNMENT, so an update-only stack change can leave it holding the
     -- gain-time count -- a threshold crossing would then wait for the next
@@ -134,13 +124,16 @@ do
     ns._ReadBuffApplications = ReadBuffApplications
 
     local function StartStackGlow(st, width, height)
+        -- Both gate masks go over as data: the combat replay of Show Glows Only
+        -- in Combat restarts from the recorded opts, so a mask bound out here
+        -- would be missing on every texture that replay creates fresh.
         ns.StartNativeGlow(st.glow, st.style, st.r, st.g, st.b, {
             owner = st.icon, width = width, height = height,
             N = st.lines, th = st.thickness, period = st.speed,
             bg = st.background and { r = st.bgR, g = st.bgG, b = st.bgB } or nil,
             maskWith = st.mask,
+            maskWith2 = st.mask2,
         })
-        ApplySecondStackGlowMask(st)
         st.width, st.height = width, height
         st.started = true
     end

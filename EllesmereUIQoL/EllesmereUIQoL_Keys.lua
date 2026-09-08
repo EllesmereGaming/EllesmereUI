@@ -13,40 +13,50 @@ local partyKeys = {}  -- [playerName] = { dungeon = mapID, keyLevel = N, rating 
 -- mapIDs here match what C_ChallengeMode returns and what keystone links store.
 -- Built dynamically from C_ChallengeMode.GetMapTable + spell lookup.
 local MAP_TELEPORT_SPELLS = {}
+local TELEPORT_BY_NAME = {}
 do
-    -- Spell IDs indexed by dungeon name (case-insensitive matching), built
-    -- from the shared season list (EllesmereUI.SEASON_PORTALS) -- one place
-    -- to update per season.
-    local TELEPORT_BY_NAME = {}
-    for _, e in ipairs(EllesmereUI.SEASON_PORTALS) do
-        for _, n in ipairs(e.names) do
-            TELEPORT_BY_NAME[n] = e.spellID
-        end
-        -- Locale-agnostic: GetLFGDungeonInfo returns the dungeon's name in
-        -- whatever locale THIS client is running -- the same source the LFG
-        -- teleport prompt's activity fullName comes from -- so this covers
-        -- every client locale automatically instead of only the languages
-        -- hardcoded in `names` above (English/Russian only, so e.g. a German
-        -- client never got a match and the LFG Reminder popup silently never fired).
-        if e.dungeonID and GetLFGDungeonInfo then
-            local ok, localName = pcall(GetLFGDungeonInfo, e.dungeonID)
-            if ok and type(localName) == "string" and localName ~= "" then
-                TELEPORT_BY_NAME[localName:lower()] = e.spellID
+    -- Rebuildable: on login, C_ChallengeMode/GetLFGDungeonInfo data can still be
+    -- uncached the first time this file runs, leaving both tables empty forever
+    -- since this used to be a one-shot do-block. RebuildTeleportTables() re-runs
+    -- from ShowKeystonePopup() whenever MAP_TELEPORT_SPELLS is still empty, so a
+    -- late-populated cache self-heals instead of leaving every teleport button
+    -- permanently hidden for the session.
+    local function RebuildTeleportTables()
+        -- Spell IDs indexed by dungeon name (case-insensitive matching), built
+        -- from the shared season list (EllesmereUI.SEASON_PORTALS) -- one place
+        -- to update per season.
+        for _, e in ipairs(EllesmereUI.SEASON_PORTALS) do
+            for _, n in ipairs(e.names) do
+                TELEPORT_BY_NAME[n] = e.spellID
+            end
+            -- Locale-agnostic: GetLFGDungeonInfo returns the dungeon's name in
+            -- whatever locale THIS client is running -- the same source the LFG
+            -- teleport prompt's activity fullName comes from -- so this covers
+            -- every client locale automatically instead of only the languages
+            -- hardcoded in `names` above (English/Russian only, so e.g. a German
+            -- client never got a match and the LFG Reminder popup silently never fired).
+            if e.dungeonID and GetLFGDungeonInfo then
+                local ok, localName = pcall(GetLFGDungeonInfo, e.dungeonID)
+                if ok and type(localName) == "string" and localName ~= "" then
+                    TELEPORT_BY_NAME[localName:lower()] = e.spellID
+                end
             end
         end
-    end
-    if C_ChallengeMode and C_ChallengeMode.GetMapTable then
-        local maps = C_ChallengeMode.GetMapTable()
-        for _, mapID in ipairs(maps) do
-            local name = C_ChallengeMode.GetMapUIInfo(mapID)
-            if name then
-                local spellID = TELEPORT_BY_NAME[name:lower()]
-                if spellID then
-                    MAP_TELEPORT_SPELLS[mapID] = spellID
+        if C_ChallengeMode and C_ChallengeMode.GetMapTable then
+            local maps = C_ChallengeMode.GetMapTable()
+            for _, mapID in ipairs(maps) do
+                local name = C_ChallengeMode.GetMapUIInfo(mapID)
+                if name then
+                    local spellID = TELEPORT_BY_NAME[name:lower()]
+                    if spellID then
+                        MAP_TELEPORT_SPELLS[mapID] = spellID
+                    end
                 end
             end
         end
     end
+    EllesmereUI._RebuildTeleportTables = RebuildTeleportTables
+    RebuildTeleportTables()
 
     -- Clean resolver: dungeon display name -> teleport spellID. Returns a plain
     -- integer literal (never a secret value) or nil. Used by the LFG teleport
@@ -431,6 +441,9 @@ end
 
 ShowKeystonePopup = function()
     RecordOwnKey()
+    if not next(MAP_TELEPORT_SPELLS) and EllesmereUI._RebuildTeleportTables then
+        EllesmereUI._RebuildTeleportTables()
+    end
     local p = BuildPopup()
     local body = p._body
     local contentW = POPUP_W - PAD * 2

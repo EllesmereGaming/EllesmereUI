@@ -107,6 +107,7 @@ function ns._appendDisplayPresetKeys(t)
         "tankHasAggroOverrideBoss",
         "dpsHasAggro", "dpsNearAggro", "offTankAggroEnabled", "offTankAggro",
         "dpsNoAggroEnabled", "dpsNoAggro", "dpsNoAggroOverrideMiniBoss", "dpsNoAggroOverrideCaster",
+        "dpsNoAggroOverrideBoss",
         "targetArrowDouble", "targetArrowStyle", "targetArrowColor", "targetArrowClassColor",
         "auraStackTextSize", "auraStackTextColor",
         "auraStackTextPosition", "auraStackTextX", "auraStackTextY",
@@ -194,6 +195,7 @@ local defaults = {
     dpsNoAggroEnabled = false,
     dpsNoAggroOverrideMiniBoss = false,  -- on: overrides Mini-Boss (above priority step 7); off = stays low
     dpsNoAggroOverrideCaster = false,  -- on: overrides Caster (above priority step 8); off = Casters keep own color
+    dpsNoAggroOverrideBoss = false,  -- on: overrides Boss (step 10b); off (default) = Bosses keep own color
     interruptReady = { r = 0.92, g = 0.35, b = 0.20 },  
     castBar = { r = 0.70, g = 0.40, b = 0.90 },
     interruptMidCastEnabled = false,
@@ -5157,7 +5159,13 @@ local function GetReactionColor(unit)
     -- Caster = the unit actually has a mana pool, rather than a class match. Second arg is
     -- typed PowerType (enum NUMBER), not the global MANA (localized "Mana" string, never
     -- matches). hasPower carries no secrecy flag, so it is safe to branch on directly.
-    local _isCaster = not owBasic and UnitHasPowerType(unit, Enum.PowerType.Mana)
+    -- Excludes boss units: _isMiniBoss already skips this step by returning earlier (step 7,
+    -- above Caster's step 8), but _isBossUnit's own color is deferred to step 10b (below the
+    -- threat-color steps, intentionally) -- with no exclusion here, a mana-using boss (e.g. a
+    -- caster-type raid boss) hit step 8's return before step 10b was ever reached, showing the
+    -- Spell Caster color instead of Bosses. Mirrors the mutual exclusivity boss/mini-boss
+    -- already have with each other.
+    local _isCaster = not owBasic and not _isBossUnit and UnitHasPowerType(unit, Enum.PowerType.Mana)
     -- DPS/healer No Aggro override state (mirrors tank has-aggro overrides at 6b). Each
     -- override independently promotes the No Aggro color above one mob-type step (mini-boss 7,
     -- caster 8). Active only for a non-tank without aggro in a group (matches step 10).
@@ -5258,18 +5266,26 @@ local function GetReactionColor(unit)
             end
         end
     end
-    -- 10. Non-tank no aggro (if enabled) below focus/caster/miniboss
+    -- 10. Non-tank no aggro (if enabled) below focus/caster/miniboss. Boss units gated behind
+    -- their own "Override Boss colors" toggle (default off), mirroring tank has-aggro's
+    -- ovrBoss check at step 9 above -- previously unconditional, so a DPS/healer without aggro
+    -- always lost the Bosses color on engage with no way to turn that off (unlike Mini-Boss/
+    -- Caster, which already had their own override toggles here, both off by default).
     if isThreatUnit and not _isTankRole and threatStatus < 2 and IsInGroup() then
         local enabled = defaults.dpsNoAggroEnabled
         if db.dpsNoAggroEnabled ~= nil then enabled = db.dpsNoAggroEnabled end
         if enabled then
-            local c = _C("dpsNoAggro")
-            return c.r, c.g, c.b
+            local ovrBoss = defaults.dpsNoAggroOverrideBoss
+            if db.dpsNoAggroOverrideBoss ~= nil then ovrBoss = db.dpsNoAggroOverrideBoss end
+            if ovrBoss or not _isBossUnit then
+                local c = _C("dpsNoAggro")
+                return c.r, c.g, c.b
+            end
         end
     end
     -- 10b. Boss (intentionally below the low-priority threat colors above, so tank-has-aggro/
     -- dps-no-aggro takes precedence over boss -- unless "Override Boss colors" is disabled, in
-    -- which case the has-aggro step above defers to this boss color for boss units).
+    -- which case the has-aggro/no-aggro step above defers to this boss color for boss units).
     if _isBossUnit then
         local c = _C("boss")
         return MaybeDarken(c.r, c.g, c.b, inCombat)
@@ -7085,6 +7101,10 @@ function NameplateFrame:RefreshCastIconSideReserve()
     self:UpdateClassification()
     self:UpdateRaidIcon()
     PositionArrowsOutsideAuras(self)
+    -- Without this, a cast bar showing/hiding shoves an already container-hugging
+    -- arrow back out to the coarse fallback position (same gap as the target-swap
+    -- path -- see NameplateFrame's isTarget branch).
+    if ns.NPC_ReanchorArrows then ns.NPC_ReanchorArrows(self) end
 end
 
 function NameplateFrame:RefreshNamePosition(localOnly)
@@ -7300,6 +7320,11 @@ function NameplateFrame:ApplyTarget()
             self.leftArrow:Show()
             self.rightArrow:Show()
             PositionArrowsOutsideAuras(self)
+            -- The coarse pass above only flanks health/name; a plate that already
+            -- has a live aura container needs the hugging override too, or a
+            -- fresh target selection leaves the arrows stuck at the wide fallback
+            -- until an unrelated RAID_TARGET_UPDATE happens to fire afterward.
+            if ns.NPC_ReanchorArrows then ns.NPC_ReanchorArrows(self) end
         elseif self.leftArrow then
             self.leftArrow:Hide()
             self.rightArrow:Hide()

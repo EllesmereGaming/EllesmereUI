@@ -171,6 +171,16 @@ local function BuildLadder()
                     and (not C_Spell.IsSpellHarmful or C_Spell.IsSpellHarmful(sid)) then
                     local sinfo = C_Spell.GetSpellInfo(sid)
                     local maxR = sinfo and sinfo.maxRange
+                    -- A charge/leap-style spell with a nonzero minRange answers
+                    -- IsSpellInRange false both beyond maxRange AND inside its
+                    -- own dead zone (e.g. a gap-closer unusable under ~8yd) --
+                    -- the ladder walk below treats any false as "beyond this
+                    -- rung," so such a spell would falsely fade a target
+                    -- standing well inside melee range. Exclude it; other
+                    -- spells sharing its maxRange rung are unaffected.
+                    if sinfo and sinfo.minRange and sinfo.minRange > 0 then
+                        maxR = nil
+                    end
                     if maxR and maxR > 0 and maxR <= 100 then
                         local rung = byRange[maxR]
                         if not rung then
@@ -301,8 +311,12 @@ local function ItemWalk(unit, stopRange)
         elseif res == false then
             answered = true
             minY = entry.range
+            -- Only stop once THIS entry actually answered: an unowned item
+            -- sitting exactly at stopRange answers nil, not false, and must
+            -- not silently truncate the walk before a farther rung the
+            -- player DOES own gets a chance to give a real verdict.
+            if stopRange and entry.range >= stopRange then break end
         end
-        if stopRange and entry.range >= stopRange then break end
     end
     if not answered then return nil end
     return minY, maxY
@@ -325,9 +339,12 @@ end
 
 -- Crosshair support: is the unit beyond `cutoff` yards? Probes the player's
 -- own harmful spells with ranges in [cutoff, cutoff+10] (the window keeps
--- outlier long-range utility spells from widening the answer), longest
--- first, first non-nil answer wins. Returns true/false, or nil when no
--- probe answered -- the caller falls back to the item ladder.
+-- outlier long-range utility spells from widening the answer), CLOSEST to
+-- cutoff first, first non-nil answer wins. Closest-first matters: a spell
+-- wider than cutoff answers in-range out to ITS OWN max and silently widens
+-- the cutoff -- a 40yd spell in a 30yd window answers true all the way to 40.
+-- Returns true/false, or nil when no probe answered -- the caller falls back
+-- to the item ladder.
 function EllesmereUI.Range_BeyondCutoff(unit, cutoff)
     if not unit or not UnitExists(unit) then return nil end
     if not (C_Spell and C_Spell.IsSpellInRange) then return nil end
@@ -337,10 +354,10 @@ function EllesmereUI.Range_BeyondCutoff(unit, cutoff)
         wipe(RG.probes)
         local maxWindow = cutoff + 10
         local ladder = RG.ladder
-        for i = #ladder, 1, -1 do -- ascending ladder walked backwards = longest first
+        for i = 1, #ladder do -- ascending ladder walked forwards = closest-to-cutoff first
             local rung = ladder[i]
-            if rung.range < cutoff then break end
-            if rung.range <= maxWindow then
+            if rung.range >= cutoff then
+                if rung.range > maxWindow then break end
                 local spells = rung.spells
                 for j = 1, #spells do
                     if #RG.probes >= MAX_PROBE_SPELLS then break end

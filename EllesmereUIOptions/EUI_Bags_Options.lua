@@ -962,7 +962,10 @@ initFrame:SetScript("OnEvent", function(self)
                       ResetAndRefreshBagLayout()
                       EllesmereUI:RefreshPage()
                   end },
-                { type="label", text="" }
+                { type="toggle", text="Stack Splitter",
+                  tooltip="Shift-click a stack in the bags or bank to open a split dialog with an Auto Split button, which splits the stack into empty slots repeatedly until only the chosen amount or less remains. Off uses the default split popup.",
+                  getValue=function() return db.profile.bagStackSplitter == true end,
+                  setValue=function(v) db.profile.bagStackSplitter = v and true or false end }
             ); y = y - h
 
             -- Inline cog for Group Armory by Slot: compact layout

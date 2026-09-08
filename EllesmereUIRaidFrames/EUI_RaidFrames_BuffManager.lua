@@ -1069,6 +1069,7 @@ function ns.BM_CreatePreviewIndicators(f, health, PP)
         fr:Hide()
 
         local tex = fr:CreateTexture(nil, "ARTWORK")
+        if PP then PP.DisablePixelSnap(tex) end
         tex:SetAllPoints()
         tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         fr._tex = tex

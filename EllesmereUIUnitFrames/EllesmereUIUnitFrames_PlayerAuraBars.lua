@@ -2637,6 +2637,12 @@ local function RestyleBars()
     AK.styles[STYLE_DEBUFFS] = BuildStyle(false, DefaultDebuffsCfg(s))
     AK.RestyleSoon(STYLE_BUFFS)
     AK.RestyleSoon(STYLE_DEBUFFS)
+    -- RestyleSoon only reaches ENGINE buttons. The weapon-enchant cells
+    -- carry the bar's style too but repaint only from their own Paint, so
+    -- the callers that restyle without ApplyLiveConfig (global font/outline
+    -- changes, profile and spec-override swaps through the
+    -- _EUF_ReloadFrames tail) would leave them on the previous style.
+    if ns.WeaponEnchants_Layout then ns.WeaponEnchants_Layout() end
     SyncCancelCVar()
 end
 ns.PAB_Restyle = RestyleBars

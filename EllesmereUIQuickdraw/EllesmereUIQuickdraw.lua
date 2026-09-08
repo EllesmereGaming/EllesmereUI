@@ -1078,6 +1078,31 @@ ns.ProfessionPositionName = function(index, extra, specialization)
     return base
 end
 
+-- Store the stable outfitID; the secure action uses the reorderable index.
+function ns.OutfitInfo(slot)
+    local id = type(slot) == "table" and slot.id or slot
+    local info = type(id) == "number" and C_TransmogOutfitInfo.GetOutfitInfo(id)
+    return info and not info.isDisabled and info or nil
+end
+
+function ns.OutfitIcon(info)
+    local icon = info and info.icon
+    return icon ~= 0 and icon or nil
+end
+
+function ns.OutfitSlots()
+    local out = {}
+    for _, info in ipairs(C_TransmogOutfitInfo.GetOutfitsInfo() or {}) do
+        if not info.isDisabled then
+            out[#out + 1] = {
+                kind = "outfit", id = info.outfitID, name = info.name,
+                icon = ns.OutfitIcon(info) or { atlas = "poi-transmogrifier" },
+            }
+        end
+    end
+    return out
+end
+
 -------------------------------------------------------------------------------
 --  Interface panels: one entry per Blizzard panel, so the whole micro menu
 --  fits on a ring and costs one keybind. A panel with a micro button fires as
@@ -1480,6 +1505,8 @@ local function SlotUsable(slot)
         return SpellKnownHere(tonumber(slot.id))
     elseif k == "macro" then
         return GetMacroInfo(slot.name or slot.id) ~= nil
+    elseif k == "outfit" then
+        return ns.OutfitInfo(slot) ~= nil
     elseif k == "panel" then
         -- The one kind whose availability is the CLIENT's rather than the
         -- character's: Housing arrived in 12.0 and the Shop is not in every
@@ -1564,6 +1591,11 @@ local function ResolveAction(slot, p)
     elseif k == "toy" then
         if type(slot.id) ~= "number" then return nil end
         return "toy", "toy", slot.id
+
+    elseif k == "outfit" then
+        local info = ns.OutfitInfo(slot)
+        if not info then return nil end
+        return "outfit", "outfit-index", info.playerFacingOutfitIndex
 
     elseif k == "macro" then
         -- Stored by name so reordering the macro list doesn't repoint the
@@ -1840,6 +1872,11 @@ local function SlotDisplay(slot)
         local _, name, icon = C_ToyBox.GetToyInfo(slot.id)
         return icon or QUESTION_MARK, name or slot.name
 
+    elseif k == "outfit" then
+        local info = ns.OutfitInfo(slot)
+        return ns.OutfitIcon(info) or ns.OutfitIcon(slot) or QUESTION_MARK,
+               (info and info.name) or slot.name or "Outfit"
+
     elseif k == "macro" then
         local nameOrIndex = slot.name or slot.id
         local name, icon = GetMacroInfo(nameOrIndex)
@@ -2088,12 +2125,14 @@ local function SlotCooldown(slot)
     if not slot then return nil end
     local k = slot.kind
     if k == "spell" or k == "mount" or k == "dynamicrez"
-       or k == "dynamicprofession" then
+       or k == "dynamicprofession" or k == "outfit" then
         local id
         if k == "mount" then
             -- No falling back to slot.id here: that is a mountID, and looking
             -- a mountID up as a spellID reports some unrelated spell's cooldown.
             id = slot.spellID or select(2, C_MountJournal.GetMountInfoByID(slot.id))
+        elseif k == "outfit" then
+            id = Constants.TransmogOutfitDataConsts.EQUIP_TRANSMOG_OUTFIT_MANUAL_SPELL_ID
         else
             id = SlotSpellID(slot)
         end
@@ -2213,6 +2252,9 @@ local function SlotUsability(slot)
         local usable, noPower = C_Item.IsUsableItem(slot.id)
         if usable then return nil end
         return noPower and "NOPOWER" or "UNUSABLE"
+
+    elseif k == "outfit" then
+        return InCombatLockdown() and "UNUSABLE" or nil
     end
 
     return nil
@@ -2267,6 +2309,12 @@ local function SlotFromCursor()
     elseif cursorType == "battlepet" then
         if not a then return nil end
         return { kind = "battlepet", guid = a }
+
+    elseif cursorType == "outfit" then
+        local info = ns.OutfitInfo(a)
+        if not info then return nil end
+        return { kind = "outfit", id = info.outfitID,
+                 name = info.name, icon = ns.OutfitIcon(info) }
     end
 
     return nil
@@ -7668,6 +7716,7 @@ local SNIPPET_PRE = [==[
     self:SetAttribute("macro", nil)
     self:SetAttribute("macrotext", nil)
     self:SetAttribute("toy", nil)
+    self:SetAttribute("outfit-index", nil)
     -- "action" is the marker sweep's key, and type="raidtarget" falls back to
     -- "toggle" when it is unset -- so a sweep left behind would turn the next
     -- raidtarget slot into a clear-all of the whole group.
@@ -7679,6 +7728,8 @@ local SNIPPET_PRE = [==[
     -- together.
     self:SetAttribute("action", nil)
     self:SetAttribute("marker", nil)
+    -- Do not toggle the active outfit off on a second press.
+    if t == "outfit" then self:SetAttribute("action", "change") end
 
     -- A cycling entry names a different marker on every press, and the position
     -- it has reached has to advance HERE: an insecure SetAttribute is refused
@@ -9426,6 +9477,8 @@ function SetEventsEnabled(on)
         -- PLAYER_REGEN_ENABLED like every other push.
         EQD:RegisterEvent("SPELLS_CHANGED", RequestPush)
         EQD:RegisterEvent("UPDATE_MACROS", RequestPush)
+        -- Re-resolve player-facing indexes after outfits change order.
+        EQD:RegisterEvent("TRANSMOG_OUTFITS_CHANGED", RequestPush)
         -- Which world markers are down, for a menu that is open while they
         -- move. That is SOMEBODY ELSE's doing: firing an entry closes the menu,
         -- so the presser never sees their own pip change. It is worth the one
@@ -9490,6 +9543,7 @@ function SetEventsEnabled(on)
         EQD:UnregisterEvent("PLAYER_ENTERING_WORLD")
         EQD:UnregisterEvent("SPELLS_CHANGED")
         EQD:UnregisterEvent("UPDATE_MACROS")
+        EQD:UnregisterEvent("TRANSMOG_OUTFITS_CHANGED")
         EQD:UnregisterEvent("RAID_TARGET_UPDATE")
         EQD:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
     end
