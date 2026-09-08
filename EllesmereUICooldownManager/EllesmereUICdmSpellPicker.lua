@@ -456,6 +456,70 @@ local function EnumerateCDMViewerSpells(includeBuffViewer)
 end
 ns.EnumerateCDMViewerSpells = EnumerateCDMViewerSpells
 
+-- A separately claimed replacement makes its overridden base slot redundant.
+-- Keep the saved claims intact so the base returns to its own bar on talent swap.
+-- Only clean CD/Utility metadata participates; buff slots remain independent.
+function ns.GetRedundantOverrideClaims(claims)
+    local inCombat = InCombatLockdown and InCombatLockdown()
+    local infoByID = ns._overrideClaimInfo or {}
+    if inCombat and not ns._overrideClaimInfo then ns._overrideClaimRefreshPending = true end
+    if not inCombat then
+        ns._overrideClaimRefreshPending = nil
+        infoByID = {}
+        local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+        for cdID in pairs(claims) do
+            local info = gci and gci(cdID)
+            if not info then ns._overrideClaimRefreshPending = true end
+            if info and _IsUsableSID(info.spellID) and _IsUsableSID(info.overrideSpellID)
+               and type(info.category) == "number"
+               and not (issecretvalue and issecretvalue(info.category))
+               and ns.CDM_ICON_CD_CATS[info.category]
+               and not (issecretvalue and issecretvalue(info.isInvisible))
+               and info.isInvisible ~= true
+               and not (issecretvalue and issecretvalue(info.isKnown))
+               and info.isKnown == true then
+                infoByID[cdID] = { spellID = info.spellID, overrideSpellID = info.overrideSpellID }
+            end
+        end
+        ns._overrideClaimInfo = infoByID
+    end
+
+    -- Match the intake pool membership on every reanchor. A catalog entry
+    -- alone does not prove that a replacement frame exists to show instead.
+    local present = {}
+    for _, viewerName in ipairs({ "EssentialCooldownViewer", "UtilityCooldownViewer" }) do
+        local viewer = _G[viewerName]
+        local pool = viewer and viewer.itemFramePool
+        if pool and pool.EnumerateActive then
+            for frame in pool:EnumerateActive() do
+                if (frame:IsShown() or frame.cooldownInfo) and _IsUsableSID(frame.cooldownID) then
+                    present[frame.cooldownID] = true
+                end
+            end
+        end
+    end
+    local replacements = {}
+    for cdID, barKey in pairs(claims) do
+        local bd = barDataByKey[barKey]
+        local info = infoByID[cdID]
+        if bd and bd.enabled and not bd.isGhostBar and info and present[cdID]
+           and info.spellID == info.overrideSpellID then
+            replacements[info.spellID] = cdID
+        end
+    end
+    local hidden = {}
+    for cdID, barKey in pairs(claims) do
+        local bd = barDataByKey[barKey]
+        local info = infoByID[cdID]
+        if bd and bd.enabled and not bd.isGhostBar and info
+           and info.spellID ~= info.overrideSpellID
+           and replacements[info.overrideSpellID] then
+            hidden[cdID] = true
+        end
+    end
+    return hidden
+end
+
 function ns.IsBuffViewerCdID(cdID)
     if type(cdID) ~= "number" then return false end
     for _, e in ipairs(EnumerateCDMViewerSpells(true)) do

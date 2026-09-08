@@ -1140,8 +1140,22 @@ local _routeMapBuilt = false
 --- overwrite via preserveExisting=false. Family split: each bar writes
 --- _divertedSpellsBuff or _divertedSpellsCD so buff/CD bars claiming the same
 --- spellID (e.g. Divine Shield 642) never clobber each other.
+function ns.RefreshRedundantOverrideClaims()
+    local updated = ns.GetRedundantOverrideClaims
+        and ns.GetRedundantOverrideClaims(_divertedCdIDs) or {}
+    local previous = ns._redundantOverrideClaims or {}
+    local changed = false
+    for cdID in pairs(updated) do if not previous[cdID] then changed = true; break end end
+    if not changed then
+        for cdID in pairs(previous) do if not updated[cdID] then changed = true; break end end
+    end
+    ns._redundantOverrideClaims = updated
+    if changed then wipe(_cdidRouteMap) end
+end
+
 function ns.RebuildSpellRouteMap()
     wipe(_cdidRouteMap)
+    ns._redundantOverrideClaims = nil
     wipe(_divertedSpellsBuff)
     wipe(_divertedSpellsCD)
     wipe(_divertedDirectBuff)
@@ -1331,6 +1345,7 @@ function ns.RebuildSpellRouteMap()
         end
     end
 
+    ns.RefreshRedundantOverrideClaims()
     _routeMapBuilt = true
 end
 
@@ -1353,6 +1368,14 @@ local function ResolveCDIDToBar(cdID, viewerDefaultBar)
     if not cdID then return viewerDefaultBar end
     local cached = _cdidRouteMap[cdID]
     if cached then return cached end
+
+    -- Transiently suppress only the overridden base. Its saved bar and order
+    -- remain intact, and rebuilding after a talent swap restores its route.
+    if ns._redundantOverrideClaims and ns._redundantOverrideClaims[cdID] then
+        local hiddenBar = ns.GHOST_CD_BAR_KEY or "__ghost_cd"
+        _cdidRouteMap[cdID] = hiddenBar
+        return hiddenBar
+    end
 
     -- cooldownID-level claim first (collided Buff or CD/Utility slot). Needs no
     -- cooldownInfo read, so it also works while every sid field is secret.
@@ -6534,6 +6557,8 @@ local function CollectAndReanchor()
     -- diversions) and NOT _cdidRouteMap (lazy cache, empty post-build).
     if not _routeMapBuilt and ns.RebuildSpellRouteMap then
         ns.RebuildSpellRouteMap()
+    else
+        ns.RefreshRedundantOverrideClaims()
     end
 
     wipe(_scratch_usedFrames)

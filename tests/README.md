@@ -10,3 +10,10 @@ overrides, absent siblings, ghosting and restoration, hosted buffs, and repopula
 The mocks represent distinct Blizzard cooldownIDs in one base/override family.
 They do not establish the live Beacon cooldownIDs, secret-value behavior, visual
 ordering, or persistence across actual WoW reloads and talent swaps.
+
+Redundant-override cases use supplied live metadata for native Virtue (29265)
+and Light overridden by Virtue (90506). Suppression applies only to explicit
+cooldownID claims when a known native replacement also exists in a live viewer
+pool. Saved assignments stay intact. Plain spell-ID assignments are outside this
+rule. Tests cover missing/invisible replacements, combat metadata caching, talent
+changes, and route cache invalidation; actual in-game rendering remains manual.

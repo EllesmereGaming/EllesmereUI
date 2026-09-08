@@ -10574,6 +10574,10 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
             -- Buffer combat exit: brief out-of-combat blips (mob dies, re-aggro) shouldn't flash visibility changes.
             C_Timer.After(0.1, function()
                 if not InCombatLockdown() then
+                    if ns._overrideClaimRefreshPending then
+                        ns.RebuildSpellRouteMap()
+                        if ns.QueueReanchor then ns.QueueReanchor() end
+                    end
                     _inCombat = false
                     _CDMApplyVisibility()
                     ns.RefreshItemCountOOCBars()

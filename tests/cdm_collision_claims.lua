@@ -173,11 +173,14 @@ if arg and arg[1] then
     stores.utility.assignedSpells = { ns.CdClaimMarker(66), 53563 }
     ns.RebuildSpellRouteMap()
     -- Claims must resolve before any spell-info query, including secret states.
+    local routeInfoReads = 0
     C_CooldownViewer = { GetCooldownViewerCooldownInfo = function()
-        error("claimed slot must not read spell info")
+        routeInfoReads = routeInfoReads + 1
+        return nil
     end }
     equal(ns.ResolveCDIDToBar(65, "utility"), "cooldowns", "exact slot outranks family")
     equal(ns.ResolveCDIDToBar(66, "cooldowns"), "utility", "sibling route is independent")
+    equal(routeInfoReads, 0, "claimed routes do not read spell info")
     equal(ns.RemoveTrackedSpell("cooldowns", 1), true, "remove routed slot")
     equal(ns.ResolveCDIDToBar(65, "cooldowns"), "__ghost_cd", "ghost routing invalidates cache")
     equal(ns.ResolveCDIDToBar(66, "cooldowns"), "utility", "ghost leaves sibling visible")
@@ -240,5 +243,100 @@ stores.__ghost_cd.assignedSpells = {}
 C_CooldownViewer = { GetCooldownViewerCooldownInfo = function() return nil end }
 equal(ns.RemoveTrackedSpell("cooldowns", 1), true, "remove unavailable legacy buff")
 equal(#stores.__ghost_cd.assignedSpells, 0, "unavailable legacy buff is never ghosted")
+
+if arg and arg[1] then
+    -- User-provided live Beacon metadata, with the exact saved placement.
+    for _, sd in pairs(stores) do sd.assignedSpells = {} end
+    stores.cooldowns.assignedSpells = { ns.CdClaimMarker(29265) }
+    stores.utility.assignedSpells = { ns.CdClaimMarker(90506), 156910 }
+    stores.__ghost_cd.assignedSpells = { 53563 }
+    EssentialCooldownViewer.itemFramePool = Pool({ Frame(29265, 200025, 1) })
+    UtilityCooldownViewer.itemFramePool = Pool({ Frame(90506, 53563, 1) })
+    local info = {
+        [29265] = { spellID = 200025, overrideSpellID = 200025, isKnown = true, category = 0, flags = 0 },
+        [90506] = { spellID = 53563, overrideSpellID = 200025, isKnown = true, category = 0, flags = 2 },
+    }
+    local combat, reads = false, 0
+    InCombatLockdown = function() return combat end
+    C_CooldownViewer.GetCooldownViewerCooldownInfo = function(cdID)
+        reads = reads + 1
+        assert(not combat, "combat rebuild must use clean cached metadata")
+        return info[cdID]
+    end
+    ns.RebuildSpellRouteMap()
+    equal(ns.ResolveCDIDToBar(29265, "cooldowns"), "cooldowns", "native Virtue remains above")
+    equal(ns.ResolveCDIDToBar(90506, "cooldowns"), "__ghost_cd", "overridden Light duplicate is hidden")
+    equal(stores.utility.assignedSpells[1], ns.CdClaimMarker(90506), "hidden Light keeps Utility slot")
+    equal(stores.utility.assignedSpells[2], 156910, "Faith assignment unchanged")
+    info[777] = { spellID = 888, overrideSpellID = 888, isKnown = true, category = 0 }
+    equal(ns.ResolveCDIDToBar(777, "utility"), "utility", "unrelated route is cached")
+    ns.RefreshRedundantOverrideClaims()
+    equal(ns._cdidRouteMap[777], "utility", "unchanged suppression preserves unrelated route cache")
+    local cachedReads = reads
+    ns.ResolveCDIDToBar(777, "utility")
+    equal(reads, cachedReads, "unchanged refresh avoids another route metadata query")
+    EssentialCooldownViewer.itemFramePool = Pool({})
+    ns.RefreshRedundantOverrideClaims()
+    equal(ns.ResolveCDIDToBar(90506, "cooldowns"), "utility", "absent native frame restores Light on reanchor")
+    EssentialCooldownViewer.itemFramePool = Pool({ Frame(29265, 200025, 1) })
+    ns.RefreshRedundantOverrideClaims()
+    equal(ns.ResolveCDIDToBar(90506, "cooldowns"), "__ghost_cd", "returning native frame clears cached fallback")
+    info[29265].isInvisible = true
+    ns.RebuildSpellRouteMap()
+    equal(ns.ResolveCDIDToBar(90506, "cooldowns"), "utility", "invisible native cannot suppress Light")
+    info[29265].isInvisible = false
+    bars[1].enabled = false
+    ns.RebuildSpellRouteMap()
+    equal(ns.ResolveCDIDToBar(90506, "cooldowns"), "utility", "disabled native bar cannot suppress Light")
+    bars[1].enabled = true
+    local secretCategory = 123456789
+    issecretvalue = function(value) return value == secretCategory end
+    info[29265].category = secretCategory
+    ns.RebuildSpellRouteMap()
+    equal(ns.ResolveCDIDToBar(90506, "cooldowns"), "utility", "secret-tagged metadata is rejected")
+    issecretvalue = function() return false end
+    info[29265].category = 0
+    ns.RebuildSpellRouteMap()
+    combat = true
+    local beforeReads = reads
+    ns.RebuildSpellRouteMap()
+    equal(reads, beforeReads, "combat rebuild makes no metadata calls")
+    equal(ns.ResolveCDIDToBar(90506, "cooldowns"), "__ghost_cd", "duplicate stays hidden in combat")
+    ns._overrideClaimInfo = nil
+    ns.RebuildSpellRouteMap()
+    equal(ns._overrideClaimRefreshPending, true, "combat login requests refresh")
+    equal(ns.ResolveCDIDToBar(90506, "cooldowns"), "utility", "combat login fails open without metadata")
+    combat = false
+    ns.RebuildSpellRouteMap()
+    equal(ns._overrideClaimRefreshPending, nil, "post-combat rebuild clears request")
+    equal(ns.ResolveCDIDToBar(90506, "cooldowns"), "__ghost_cd", "post-combat rebuild suppresses duplicate")
+    info[29265].isKnown = false
+    info[90506].overrideSpellID = 53563
+    ns.RebuildSpellRouteMap()
+    equal(ns.ResolveCDIDToBar(90506, "cooldowns"), "utility", "Light returns after removing Virtue talent")
+    info[29265].isKnown = true
+    info[90506].overrideSpellID = 200025
+    ns.RebuildSpellRouteMap()
+    equal(ns.ResolveCDIDToBar(90506, "cooldowns"), "__ghost_cd", "retalenting Virtue hides duplicate again")
+    stores.cooldowns.assignedSpells = {}
+    ns.RebuildSpellRouteMap()
+    equal(ns.ResolveCDIDToBar(90506, "cooldowns"), "utility", "unclaimed native Virtue leaves sole claimed icon visible")
+    stores.__ghost_cd.assignedSpells = { ns.CdClaimMarker(29265) }
+    ns.RebuildSpellRouteMap()
+    equal(ns.ResolveCDIDToBar(90506, "cooldowns"), "utility", "hidden native Virtue does not suppress Light slot")
+    stores.__ghost_cd.assignedSpells = {}
+    stores.cooldowns.assignedSpells = { ns.CdClaimMarker(29265) }
+    info[29265].category = 2
+    ns.RebuildSpellRouteMap()
+    equal(ns.ResolveCDIDToBar(90506, "cooldowns"), "utility", "buff entry cannot suppress cooldown")
+    info[29265].category = 0
+    info[29265].isKnown = false
+    ns.RebuildSpellRouteMap()
+    equal(ns.ResolveCDIDToBar(90506, "cooldowns"), "utility", "unknown replacement cannot suppress cooldown")
+    info[29265] = nil
+    ns.RebuildSpellRouteMap()
+    equal(ns.ResolveCDIDToBar(90506, "cooldowns"), "utility", "unavailable metadata keeps icon visible")
+    equal(ns._overrideClaimRefreshPending, true, "transient missing metadata requests post-combat retry")
+end
 
 print("cdm collision claim harness: PASS")
