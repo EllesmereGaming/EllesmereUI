@@ -15277,14 +15277,12 @@ initFrame:SetScript("OnEvent", function(self)
                         local hostedSid = (not cdClaim) and ns.HostedBuffMarkerToSpell
                             and ns.HostedBuffMarkerToSpell(id)
                         if cdClaim then
-                            -- Cd-claimed collided-buff slot on a CD/util bar
-                            -- (Diabolist Demonic Art vs Diabolic Ritual): here
-                            -- `tracked` ALIASES sd.assignedSpells (the buff-bar
-                            -- branch above builds a fresh dedup list), so resolve
-                            -- the marker to a display sid IN THIS RENDER STEP
-                            -- ONLY -- never write back into `id`/`tracked[i]`
-                            -- (that corrupts the saved marker). Same clean-cache
-                            -- + cooldownInfo fallback as the buff-bar preview.
+                            -- Resolve slot claims for display without changing the
+                            -- saved marker. Only buff-family claims use buff settings.
+                            local claimData = ns.GetBarSpellData(bd.key)
+                            slot._previewHostedBuff = (claimData and claimData.hostedBuffCdIDs
+                                and claimData.hostedBuffCdIDs[cdClaim])
+                                or (ns.IsBuffViewerCdID and ns.IsBuffViewerCdID(cdClaim))
                             local csid = ns._cdmCleanSidByCDID and ns._cdmCleanSidByCDID[cdClaim]
                             if not (type(csid) == "number" and csid > 0) then
                                 local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
@@ -15309,7 +15307,6 @@ initFrame:SetScript("OnEvent", function(self)
                                 end
                                 slot._previewSpellID = csid
                                 slot._previewCdID = cdClaim
-                                slot._previewHostedBuff = true
                             end
                         elseif hostedSid then
                             -- Hosted-buff marker: previews as its spell, flagged so

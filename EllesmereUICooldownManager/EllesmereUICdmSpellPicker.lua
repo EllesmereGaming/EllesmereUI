@@ -2057,8 +2057,6 @@ function ns.RemoveHostedBuffByCdID(barKey, cdID)
     -- RemoveSpellFromBar doesn't itself trigger route/reanchor; caller must.
     local removed = ns.RemoveSpellFromBar(barKey, ns.CdClaimMarker(cdID))
     if not removed then return false end
-    local sd = ns.GetBarSpellData(barKey)
-    if sd and sd.hostedBuffCdIDs then sd.hostedBuffCdIDs[cdID] = nil end
     if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
     if ns.QueueReanchor then ns.QueueReanchor() end
     return true
