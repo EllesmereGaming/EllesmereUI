@@ -480,6 +480,47 @@ local function PositionStrip()
 end
 
 -------------------------------------------------------------------------------
+--  Align Tabs to Full Panel: shared edge-selection helper. On the sidebar's
+--  side, stretches to the sidebar's outer edge (only when the toggle is on
+--  and the sidebar is actually shown there); otherwise falls back to the
+--  chat panel's own edge -- unconditionally on the left (matching Blizzard's
+--  natural panel-edge gap that was always filled here) and only when the
+--  toggle is on for the right (there is no natural gap to fill by default).
+--  Returns a signed delta: negative (left) or positive (right) extension
+--  amount, or 0 when there is nothing to fill. No fixed-number cap: the
+--  frames involved (bg1, sidebar, tab) are always real, laid-out Blizzard/
+--  EUI frames by the time this runs, so the raw measured gap is trusted
+--  the same way the rest of this module already trusts GetLeft/GetRight.
+-------------------------------------------------------------------------------
+local function ComputeEdgeExtend(tab, isLeft, cfg, cf1)
+    if not tab then return 0 end
+    local sidebarOnThisSide = isLeft ~= (cfg.sidebarRight == true)
+    local edgeFrame
+    if cfg.alignTabsToPanel and not cfg.extendBgBehindTabs and sidebarOnThisSide then
+        local sb = cf1 and CFD(cf1).sidebar
+        if sb and sb:IsShown() then edgeFrame = sb end
+    end
+    if not edgeFrame and (isLeft or (cfg.alignTabsToPanel and not cfg.extendBgBehindTabs)) then
+        edgeFrame = cf1 and CFD(cf1).bg
+    end
+    if not edgeFrame then return 0 end
+    if isLeft then
+        local edgeLeft, tabLeft = edgeFrame:GetLeft(), tab:GetLeft()
+        if edgeLeft and tabLeft then
+            local delta = edgeLeft - tabLeft
+            if delta < 0 then return delta end
+        end
+    else
+        local edgeRight, tabRight = edgeFrame:GetRight(), tab:GetRight()
+        if edgeRight and tabRight then
+            local delta = edgeRight - tabRight
+            if delta > 0 then return delta end
+        end
+    end
+    return 0
+end
+
+-------------------------------------------------------------------------------
 --  Refresh: enumerate the dock (reads only), anchor one ghost per docked tab.
 --  Geometry is entirely Blizzard's; a ghost follows its tab through every
 --  move, resize, drag, and scroll in the same render pass.
@@ -492,30 +533,42 @@ local function RefreshNow()
     local fontPath = TabFontPath()
     local fontSize = cfg.tabFontSize or 11
     local padX = cfg.tabInnerPaddingX or 12
+    local cf1 = _G.ChatFrame1
 
     -- The chat panel extends left of ChatFrame1 by its inset while Blizzard's
     -- dock starts at the frame edge; the FIRST ghost (and the strip's clip
-    -- rect) stretch left to the panel edge so the row lines up with the
-    -- panel. Visual-only: the extra pixels have no tab under them. Deferred
+    -- rect) stretch left to the panel edge (or the sidebar's outer edge,
+    -- under Align Tabs to Full Panel) so the row lines up with the panel.
+    -- Visual-only: the extra pixels have no tab under them. Deferred
     -- numeric rect reads, the module's shipped-safe class.
-    local leftExtend = 0
-    do
-        local cf1 = _G.ChatFrame1
-        local bg1 = cf1 and CFD(cf1).bg
-        local firstCF = GENERAL_CHAT_DOCK and GENERAL_CHAT_DOCK.DOCKED_CHAT_FRAMES
-            and GENERAL_CHAT_DOCK.DOCKED_CHAT_FRAMES[1]
-        local firstTab = firstCF and _G[firstCF:GetName() .. "Tab"]
-        local bgLeft = bg1 and bg1:GetLeft()
-        local tabLeft = firstTab and firstTab:GetLeft()
-        if bgLeft and tabLeft then
-            local delta = bgLeft - tabLeft
-            if delta < 0 and delta > -60 then leftExtend = delta end
-        end
-    end
+    local firstCF = GENERAL_CHAT_DOCK and GENERAL_CHAT_DOCK.DOCKED_CHAT_FRAMES
+        and GENERAL_CHAT_DOCK.DOCKED_CHAT_FRAMES[1]
+    local firstTab = firstCF and _G[firstCF:GetName() .. "Tab"]
+    local leftExtend = ComputeEdgeExtend(firstTab, true, cfg, cf1)
     if leftExtend ~= 0 then
         local gdm = _G.GeneralDockManager
         if gdm then
             strip:SetPoint("TOPLEFT", gdm, "TOPLEFT", leftExtend, 0)
+        end
+    end
+
+    -- Align Tabs to Full Panel (right side): stretch the trailing ghost,
+    -- strip, and dynClip to the outer edge -- the sidebar's edge when the
+    -- sidebar is on the right, otherwise the chat panel's own right edge.
+    -- Anchored from the LAST TAB itself (not gdm/scrollFrame): gdm's right
+    -- edge reserves space for the overflow button and does not reliably
+    -- coincide with the last tab's right edge.
+    local lastRightTab
+    do
+        local list = GENERAL_CHAT_DOCK and GENERAL_CHAT_DOCK.DOCKED_CHAT_FRAMES
+        local lastCF = list and list[#list]
+        lastRightTab = lastCF and _G[lastCF:GetName() .. "Tab"]
+    end
+    local rightExtend = ComputeEdgeExtend(lastRightTab, false, cfg, cf1)
+    if rightExtend ~= 0 and lastRightTab then
+        strip:SetPoint("BOTTOMRIGHT", lastRightTab, "BOTTOMRIGHT", rightExtend, 0)
+        if EnsureDynClip() then
+            dynClip:SetPoint("RIGHT", lastRightTab, "RIGHT", rightExtend, 0)
         end
     end
 
@@ -568,6 +621,10 @@ local function RefreshNow()
                     leftInset = tabGap - nativeGap
                 end
 
+                -- Align Tabs to Full Panel: only the LAST tab's ghost gets
+                -- the right-side stretch.
+                local rightInset = (tab == lastRightTab) and rightExtend or 0
+
                 g:ClearAllPoints()
                 local band = ns._chatBgExt
                 if band and band:IsShown() then
@@ -586,12 +643,16 @@ local function RefreshNow()
                     g:SetPoint("TOP", band, "TOP", 0, -onePx)
                     g:SetPoint("BOTTOM", band, "BOTTOM", 0, 0)
                     g:SetPoint("LEFT", tab, "LEFT", count == 1 and leftExtend or 0, 0)
-                    g:SetPoint("RIGHT", tab, "RIGHT", 0, 0)
+                    g:SetPoint("RIGHT", tab, "RIGHT", rightInset, 0)
                 else
-                    -- Island tabs: bottom-aligned to the tab, our height.
-                    g:SetPoint("BOTTOMLEFT", tab, "BOTTOMLEFT", leftInset, 0)
-                    g:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", 0, 0)
+                    -- Island tabs: bottom-aligned to the tab, our height,
+                    -- lifted off the panel below by Bottom Spacing to Panel
+                    -- (padY).
+                    local padY = cfg.tabPadding or 0
+                    g:SetPoint("BOTTOMLEFT", tab, "BOTTOMLEFT", leftInset, padY)
+                    g:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", rightInset, padY)
                     g:SetHeight(height)
+
                 end
 
                 local fs = g._fs
