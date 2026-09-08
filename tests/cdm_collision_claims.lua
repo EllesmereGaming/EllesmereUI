@@ -204,4 +204,41 @@ if arg and arg[1] then
     equal(stores["buff-extra"].assignedSpells[1], ns.CdClaimMarker(203), "unavailable claim preserved conservatively")
 end
 
+-- Duplicate views and base-only API ties must not migrate unrelated assignments.
+for _, sd in pairs(stores) do sd.assignedSpells = {} end
+EssentialCooldownViewer.itemFramePool = Pool({ Frame(301, 8001, 1) })
+UtilityCooldownViewer.itemFramePool = Pool({ Frame(302, 8001, 1) })
+stores.cooldowns.assignedSpells = { 8001 }
+equal(#ns.EnumerateCDMViewerSpells(false), 1, "same spell in two viewers remains deduplicated")
+equal(ns.MigrateCollidedCDAssignments(), 0, "duplicate views do not migrate")
+bases[8002] = 8001
+UtilityCooldownViewer.itemFramePool = Pool({ Frame(302, 8002, 1) })
+equal(ns.EnumerateCDMViewerSpells(false)[1].isCdCollision, false, "base-only tie does not collide")
+equal(ns.MigrateCollidedCDAssignments(), 0, "base-only tie does not migrate")
+
+-- Distinct source spells remain separable even when both show Virtue.
+local light = Frame(65, 53563, 1)
+light.cooldownInfo.overrideSpellID = 200025
+light.GetSpellID = function() return 200025 end
+EssentialCooldownViewer.itemFramePool = Pool({ light })
+UtilityCooldownViewer.itemFramePool = Pool({ Frame(66, 200025, 1) })
+equal(#ns.EnumerateCDMViewerSpells(false), 2, "same displayed override retains distinct source slots")
+stores.cooldowns.assignedSpells = { 53563 }
+ns.AddTrackedCooldownByCdID("cooldowns", 65)
+equal(#stores.cooldowns.assignedSpells, 1, "early picker click leaves one assignment")
+equal(stores.cooldowns.assignedSpells[1], ns.CdClaimMarker(65), "early picker settles legacy identity")
+equal(ns.MigrateCollidedCDAssignments(), 0, "early click cannot capture sibling later")
+stores.cooldowns.assignedSpells = { ns.CdClaimMarker(65), ns.CdClaimMarker(66), 156910 }
+ns.MoveTrackedSpell("cooldowns", 1, 3)
+equal(stores.cooldowns.assignedSpells[3], ns.CdClaimMarker(65), "index move retains slot marker")
+ns.SwapTrackedSpells("cooldowns", 1, 3)
+equal(stores.cooldowns.assignedSpells[1], ns.CdClaimMarker(65), "index swap retains first slot")
+equal(stores.cooldowns.assignedSpells[3], ns.CdClaimMarker(66), "index swap retains sibling")
+
+stores.cooldowns.assignedSpells = { ns.CdClaimMarker(999) }
+stores.__ghost_cd.assignedSpells = {}
+C_CooldownViewer = { GetCooldownViewerCooldownInfo = function() return nil end }
+equal(ns.RemoveTrackedSpell("cooldowns", 1), true, "remove unavailable legacy buff")
+equal(#stores.__ghost_cd.assignedSpells, 0, "unavailable legacy buff is never ghosted")
+
 print("cdm collision claim harness: PASS")

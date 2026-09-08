@@ -383,8 +383,11 @@ local function EnumerateCDMViewerSpells(includeBuffViewer)
                 if frame:IsShown() or frame.cooldownInfo then
                     local sid = GetCanonicalSpellIDForFrame(frame)
                     if _IsUsableSID(sid) then
+                        local info = frame.cooldownInfo
                         entries[#entries + 1] = {
                             sid          = sid,
+                            identitySID  = info and _IsUsableSID(info.spellID) and info.spellID or sid,
+                            overrideSID  = info and _IsUsableSID(info.overrideSpellID) and info.overrideSpellID or nil,
                             cdID         = frame.cooldownID,
                             viewerName   = vName,
                             viewerOrder  = viewerOrder,
@@ -422,8 +425,15 @@ local function EnumerateCDMViewerSpells(includeBuffViewer)
             if type(a.cdID) == "number" then
                 for j = i + 1, #entries do
                     local b = entries[j]
+                    -- A base-only tie can join unrelated abilities. Require
+                    -- distinct source spells with a direct override link.
+                    -- Source IDs also distinguish slots displaying the same
+                    -- override, while duplicate views of one spell stay merged.
                     if type(b.cdID) == "number" and a.cdID ~= b.cdID
-                       and IsVariantOf(a.sid, b.sid) then
+                       and a.identitySID ~= b.identitySID
+                       and (a.overrideSID == b.identitySID or b.overrideSID == a.identitySID
+                            or _GetOverride(a.identitySID) == b.identitySID
+                            or _GetOverride(b.identitySID) == a.identitySID) then
                         collided[a.cdID] = true
                         collided[b.cdID] = true
                     end
@@ -1903,6 +1913,12 @@ end
 --- spells continue through AddTrackedSpell and retain talent-stable identity.
 function ns.AddTrackedCooldownByCdID(barKey, cdID)
     if type(cdID) ~= "number" or cdID <= 0 or IsBarBuffFamily(barKey) then return false end
+    -- Settle legacy assignments before a picker click can create a second
+    -- representation of the same slot ahead of the first reanchor.
+    if ns.MigrateCollidedCDAssignments() > 0 then
+        if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
+        if ns.QueueReanchor then ns.QueueReanchor() end
+    end
     return ns.AddTrackedSpell(barKey, ns.CdClaimMarker(cdID))
 end
 
@@ -2022,6 +2038,7 @@ function ns.RemoveTrackedSpell(barKey, idx)
     elseif removedHostedCd then
         if sd.hostedBuffCdIDs then sd.hostedBuffCdIDs[removedCdClaim] = nil end
     elseif removedCdClaim and not IsBarBuffFamily(barKey)
+       and ns.IsBuffViewerCdID(removedCdClaim) == false
        and barKey ~= (ns.GHOST_CD_BAR_KEY or "__ghost_cd") then
         -- A removed collided CD/Utility slot must ghost by cooldownID. Ghosting
         -- its shared positive spell family would hide its sibling too.
