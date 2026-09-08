@@ -2357,8 +2357,14 @@ initFrame:SetScript("OnEvent", function(self)
             local scrollChild = popup._scrollChild
             local curY = 0
             local ENTRY_W = POPUP_W - POPUP_PAD * 2
-            local ENTRY_H = (cfg.singleSpec and not formMode) and 40 or (cfg.showHash and 89 or 60)
+            -- Buff colors get their own row under the threshold row, so the entry
+            -- card grows by exactly that row where the caller opts in.
+            local BUFF_ROW_H = 26
+            local wantBuffRow = cfg.showBuffColors and true or false
+            local ENTRY_H = ((cfg.singleSpec and not formMode) and 40 or (cfg.showHash and 89 or 60))
+                + (wantBuffRow and BUFF_ROW_H or 0)
             local effThreshY = (cfg.singleSpec and not formMode) and -8 or (cfg.showHash and -61 or -33)
+            local effBuffY = effThreshY - BUFF_ROW_H
 
             for i = 1, #_entryFrames do
                 if _entryFrames[i] then _entryFrames[i]:Hide() end
@@ -2659,6 +2665,69 @@ initFrame:SetScript("OnEvent", function(self)
                     multiLbl:SetPoint("RIGHT", multiToggle, "LEFT", -4, 0)
                     ef._multiLbl = multiLbl
 
+                    -- Buff colors row: per-entry list of { spellID, r,g,b,a }. The
+                    -- bar takes the first active buff's color, overriding threshold
+                    -- coloring. Same editor the class-resource bar uses.
+                    if wantBuffRow then
+                        local buffLbl = EllesmereUI.MakeFont(ef, 12, nil, 1, 1, 1)
+                        buffLbl:SetAlpha(0.75)
+                        buffLbl:SetText(EllesmereUI.L("Buff Colors"))
+                        buffLbl:SetPoint("LEFT", ef, "TOPLEFT", 8, effBuffY - 11)
+                        ef._buffLbl = buffLbl
+
+                        local buffsBtn = CreateFrame("Button", nil, ef)
+                        buffsBtn:SetSize(58, 22)
+                        buffsBtn:SetPoint("RIGHT", ef, "TOPRIGHT", -8, effBuffY - 11)
+                        buffsBtn:SetFrameLevel(ef:GetFrameLevel() + 4)
+                        local fbBg = buffsBtn:CreateTexture(nil, "BACKGROUND")
+                        fbBg:SetAllPoints()
+                        fbBg:SetColorTexture(0.12, 0.12, 0.12, 0.8)
+                        buffsBtn._border = EllesmereUI.MakeBorder(buffsBtn, 1, 1, 1, 0.08, PP)
+                        local fbLbl = EllesmereUI.MakeFont(buffsBtn, 12, nil, 1, 1, 1)
+                        fbLbl:SetAlpha(0.8)
+                        fbLbl:SetPoint("CENTER")
+                        fbLbl:SetText(EllesmereUI.L("Buffs"))
+                        buffsBtn:SetScript("OnEnter", function(self)
+                            fbBg:SetColorTexture(0.16, 0.16, 0.16, 0.9)
+                            EllesmereUI.ShowWidgetTooltip(self, BUFF_HELP_TIP)
+                        end)
+                        buffsBtn:SetScript("OnLeave", function(self)
+                            fbBg:SetColorTexture(0.12, 0.12, 0.12, 0.8)
+                            EllesmereUI.HideWidgetTooltip()
+                        end)
+                        buffsBtn:SetScript("OnClick", function(self)
+                            if not ef._entryIdx then return end
+                            ShowBuffEditor({
+                                getBarData = cfg.getBarData, refreshFn = cfg.refreshFn,
+                                entryIdx = ef._entryIdx, anchor = self,
+                            })
+                        end)
+                        ef._buffsBtn = buffsBtn
+
+                        local buffToggle, _, buffSnap = EllesmereUI.BuildToggleControl(
+                            ef, ef:GetFrameLevel() + 4,
+                            function()
+                                if not ef._entryIdx then return false end
+                                local bd2 = cfg.getBarData(); if not bd2 then return false end
+                                local ent = bd2.thresholdSpecs and bd2.thresholdSpecs[ef._entryIdx]
+                                return ent and ent.buffColorEnabled or false
+                            end,
+                            function(v)
+                                if not ef._entryIdx then return end
+                                local bd2 = cfg.getBarData(); if not bd2 then return end
+                                local ent = bd2.thresholdSpecs and bd2.thresholdSpecs[ef._entryIdx]
+                                if ent then ent.buffColorEnabled = v; cfg.refreshFn() end
+                                if RefreshPopupEntries_L then RefreshPopupEntries_L() end
+                            end,
+                            { sizeRatio = 0.95 }
+                        )
+                        buffToggle:SetPoint("RIGHT", buffsBtn, "LEFT", -8, 0)
+                        ef._buffToggle = buffToggle
+                        ef._buffSnap = buffSnap
+                        buffToggle:HookScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, BUFF_HELP_TIP) end)
+                        buffToggle:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                    end
+
                     -- Disabled overlay (excludes toggle)
                     local threshDis = CreateFrame("Frame", nil, ef)
                     threshDis:SetPoint("TOPLEFT", threshLbl2, "TOPLEFT", -2, 4)
@@ -2689,6 +2758,12 @@ initFrame:SetScript("OnEvent", function(self)
                 if ef._bandsBtn then
                     ef._bandsBtn:ClearAllPoints()
                     ef._bandsBtn:SetPoint("RIGHT", ef, "TOPRIGHT", -8, effThreshY - 11)
+                end
+                if ef._buffLbl then
+                    ef._buffLbl:ClearAllPoints()
+                    ef._buffLbl:SetPoint("LEFT", ef, "TOPLEFT", 8, effBuffY - 11)
+                    ef._buffsBtn:ClearAllPoints()
+                    ef._buffsBtn:SetPoint("RIGHT", ef, "TOPRIGHT", -8, effBuffY - 11)
                 end
 
                 if formMode then
@@ -2779,6 +2854,15 @@ initFrame:SetScript("OnEvent", function(self)
                 if ef._entrySnap then ef._entrySnap() end
                 if ef._entrySwatchSnap then ef._entrySwatchSnap() end
                 if ef._multiSnap then ef._multiSnap() end
+                if ef._buffSnap then ef._buffSnap() end
+                -- "Buffs" opens the list; the toggle decides whether it applies.
+                -- Editing the list with the feature off is pointless, so the
+                -- button follows the toggle (same rule as Bands/Multi).
+                if ef._buffsBtn then
+                    local buffOn = entry.buffColorEnabled and true or false
+                    ef._buffsBtn:SetAlpha(buffOn and 1 or 0.35)
+                    ef._buffsBtn:SetEnabled(buffOn)
+                end
 
                 -- Multi-band on: bands replace the single-threshold input + swatch
                 local entEnabled = entry.thresholdEnabled
@@ -4436,6 +4520,7 @@ initFrame:SetScript("OnEvent", function(self)
             disabledTip = "Power Bar",
             showHash = false,
             showPartialCog = true,
+            showBuffColors = true,
             thresholdLabel = "Threshold %",
             threshMin = 1, threshMax = 99,
             popupTitle = "Power Bar Threshold",
