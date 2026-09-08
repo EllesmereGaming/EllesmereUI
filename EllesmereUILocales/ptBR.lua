@@ -7,6 +7,12 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local L = EllesmereUI.RegisterLocale("ptBR")
 if not L then return end
 
+L["WARLOCK"] = "BRUXO"
+L["Soulstone"] = "Pedra da Alma"
+L["Show a reminder until your own Soulstone is active on you or another group member."] = "Exibe um lembrete até que sua própria Pedra da Alma esteja ativa em você ou em outro membro do grupo."
+L["Item Count Font"] = "Fonte da Contagem de Itens"
+L["Mana Warning Font"] = "Fonte do Aviso de Mana"
+
 L["BLIZZARD POPUPS & GAME MENU"] = "POP-UPS DA BLIZZARD E MENU DO JOGO"
 L["Reskin Popups and Menus"] = "Reestilizar pop-ups e menus"
 L["Reskins Blizzard's right-click context menus and pop-up dialogs with the EUI dark style. Requires reload to apply."] = "Reestiliza os menus de contexto e as janelas pop-up da Blizzard com o estilo escuro da EUI. Requer recarregar a interface."
@@ -4018,6 +4024,9 @@ L["CDM Bars"] = "Barras do CDM"
 L["Charge Hash Lines"] = "Linhas de Marcação de Carga"
 L["Charge Hash Lines already fills as charges recover"] = "As Linhas de Marcação de Carga já preenchem conforme as cargas recuperam"
 L["Charge Hash Line Settings"] = "Configurações de Linha de Marcação de Carga"
+L["Partial Charge Shade"] = "Sombra de Carga Parcial"
+L["Darkens the section of the bar that is still recharging the next charge."] = "Escurece a seção da barra que ainda está recarregando a próxima carga."
+L["Shade Darkness"] = "Intensidade da Sombra"
 L["Charge/Stack Size"] = "Tamanho de Carga/Pilha"
 L["Choose the spec to copy trinkets, pots, racials & buff presets from"] = "Escolha a especialização de onde copiar bugigangas, poções, raciais e predefinições de buff"
 L["Copies this custom spell and its settings to the same bar on the specs you pick. Specs that already have it are skipped."] = "Copia este feitiço personalizado e suas configurações para a mesma barra nas especializações escolhidas. Especializações que já o têm são ignoradas."
@@ -4963,7 +4972,6 @@ L["GROUP FINDER"] = "BUSCADOR DE GRUPO"
 L["Quick Signup"] = "Inscrição Rápida"
 L["Double-click a group listing to instantly sign up without pressing the Sign Up button. Hold Shift to keep the dialog open, e.g. to type a signup note."] = "Clique duas vezes em um grupo listado para se inscrever instantaneamente sem pressionar o botão Inscrever-se. Segure Shift para manter a caixa de diálogo aberta, por exemplo, para digitar uma nota de inscrição."
 L["Persistent Signup Note"] = "Nota de Inscrição Persistente"
-L["Keeps your note text in the Sign Up dialog instead of clearing it each time you open it."] = "Mantém o texto da sua nota na caixa de diálogo de Inscrição em vez de limpá-lo toda vez que você a abre."
 
 -- Shifter unlock-mode mover labels / misc single labels
 L["Bonus Roll"] = "Rolagem Bônus"
@@ -5209,8 +5217,7 @@ L["Show a reminder when you don't have an active pet summoned. Only applies to p
 L["Wrong Demon"] = "Demônio Errado"
 L["Show a reminder when your Warlock's active pet isn't one of the demons picked in Allowed Demons. A demon only counts while its summon spell is known, so leaving only Felguard picked stays silent for specs/builds that haven't talented Summon Felguard."] = "Exibe um lembrete quando o ajudante ativo do seu Bruxo não é um dos demônios escolhidos em Demônios Permitidos. Um demônio só conta enquanto seu feitiço de invocação for conhecido, então deixar apenas o Guarda Vil escolhido mantém o lembrete em silêncio para especializações ou configurações que não talentaram Evocar Guarda Vil."
 
--- Warlock demons (Allowed Demons)
-L["WARLOCK DEMONS"] = "DEMÔNIOS DO BRUXO"
+-- Warlock (Allowed Demons)
 L["Allowed Demons"] = "Demônios Permitidos"
 L["Pick which demons count as correct for Wrong Demon. A demon only counts while its summon spell is known; with none picked (or everything picked), the reminder never fires."] = "Escolha quais demônios contam como corretos para o Demônio Errado. Um demônio só conta enquanto seu feitiço de invocação for conhecido; com nenhum escolhido (ou todos escolhidos), o lembrete nunca é ativado."
 L["You have not learned %1$s."] = "Você não aprendeu %1$s."
@@ -6687,7 +6694,6 @@ L["Glow at Stacks"] = "Brilho por Pilha"
 L["Enable Glow at Stacks"] = "Ativar Brilho por Pilha"
 L["Min Stack Count"] = "Quantidade Mínima de Pilha"
 L["Show Stack Text"] = "Mostrar Texto de Pilha"
-L["Replaces Buff Glow: the icon glows only at the set stacks or higher, using this spell's Buff Glow style (Modern WoW Glow if none is set)."] = "Substitui o Brilho de Buff: o ícone brilha apenas na quantidade de pilha definida ou acima, usando o estilo de Brilho de Buff deste feitiço (Brilho Moderno do WoW, se nenhum estiver definido)."
 
 -- == Mythic+ Timer / Split Compare =================================================
 L["Always Show Split Times"] = "Sempre Mostrar Tempos Parciais"
@@ -6739,3 +6745,101 @@ L["Makes this the override. It replaces the whole Visibility setting, so the con
 L["Not overridable. These conditions are shared and can only be changed while no override is being edited. An override replaces the Visibility setting outright -- Never, Always or Mouseover -- and ignores everything set here while it applies."] = "Não substituível. Estas condições são compartilhadas e só podem ser alteradas enquanto nenhuma substituição estiver sendo editada. Uma substituição troca totalmente a configuração de Visibilidade -- Nunca, Sempre ou Ao Passar o Mouse -- e ignora tudo o que for definido aqui enquanto estiver ativa."
 L["Not overridable. These conditions are shared and can only be changed while no override is being edited. An override replaces the Visibility setting outright -- Never, Always or Mouseover -- and ignores everything set here while it applies. Mouseover is sealed here too for this element: its hover mechanism follows the shared setting, so an override could only leave it shown."] = "Não substituível. Estas condições são compartilhadas e só podem ser alteradas enquanto nenhuma substituição estiver sendo editada. Uma substituição troca totalmente a configuração de Visibilidade -- Nunca, Sempre ou Ao Passar o Mouse -- e ignora tudo o que for definido aqui enquanto estiver ativa. O recurso de passar o mouse também fica bloqueado aqui para este elemento: seu mecanismo de exibição ao passar o mouse segue a configuração compartilhada, então uma substituição só poderia deixá-lo visível."
 L[" Mouseover is sealed here too for this element: its hover mechanism follows the shared setting, so an override could only leave it shown."] = true
+
+-- == Raid Frames / Player Aura Bars -- Less Common Debuff Filters =================
+L["Less Common Filters"] = "Filtros Menos Comuns"
+L["Cast By You"] = "Lançado por Você"
+L["From Any Player"] = "De Qualquer Jogador"
+L["Can Apply Aura"] = "Pode Aplicar Aura"
+L["Debuffs applied by you or your pet."] = "Debuffs aplicados por você ou seu ajudante."
+L["Debuffs caused by any player or player pet. The opposite of Non-Player Auras; checking one clears the other."] = "Debuffs causados por qualquer jogador ou ajudante de jogador. O oposto de Auras de Não-Jogadores; marcar um desmarca o outro."
+L["Debuffs with the Bleed dispel type."] = "Debuffs com o tipo de dissipação Sangramento."
+L["Debuffs with the Curse dispel type."] = "Debuffs com o tipo de dissipação Maldição."
+L["Debuffs with the Disease dispel type."] = "Debuffs com o tipo de dissipação Doença."
+L["Debuffs with the Magic dispel type."] = "Debuffs com o tipo de dissipação Magia."
+L["Debuffs with the Poison dispel type."] = "Debuffs com o tipo de dissipação Veneno."
+L["Debuffs your own class is able to apply."] = "Debuffs que sua própria classe é capaz de aplicar."
+L["Max Duration"] = "Duração Máxima"
+L["Unlimited"] = "Ilimitado"
+L["Enter the maximum debuff duration in seconds:"] = "Insira a duração máxima do debuff em segundos:"
+L["Only show debuffs whose full duration is at most this many seconds. Combines with the filters; Unlimited applies no cap."] = "Mostra apenas debuffs cuja duração total seja de, no máximo, esta quantidade de segundos. Combina-se com os filtros; Ilimitado não impõe limite algum."
+
+-- == BlizzardSkin / Friend Notifications ===========================================
+L["Friend Notifications"] = "Notificações de Amigos"
+L["The Battle.net popup when a friend comes online or goes offline, plus broadcasts and invites."] = "O pop-up do Battle.net quando um amigo fica online ou offline, além de transmissões e convites."
+L["Changing the Friend Notifications reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles."] = "Mudar a aparência de Notificações de Amigos requer recarregar a interface para trocar completamente entre os estilos Blizzard e Ellesmere."
+
+-- == Bags / Bank Category Sidebar disabled hints ===================================
+L["Turn on Category Sidebar first, or the sidebar would have nothing left to navigate with."] = "Ative primeiro a Barra Lateral de Categorias, ou a barra lateral não terá mais nada para navegar."
+L["Turn on Nest by Expansion or Group by Category first; the flat view has nowhere to move empty slots to."] = "Ative primeiro Agrupar por expansão ou Agrupar por categoria; a visão plana não tem para onde mover os espaços vazios."
+
+-- == Cooldown Manager / Glow at Stacks Comparison ==================================
+L["Comparison"] = "Comparação"
+L["Stack Count"] = "Quantidade de Pilha"
+L["Below (<)"] = "Abaixo (<)"
+L["At Most (<=)"] = "No Máximo (<=)"
+L["Exactly (=)"] = "Exatamente (=)"
+L["At Least (>=)"] = "No Mínimo (>=)"
+L["Above (>)"] = "Acima (>)"
+L["Replaces Buff Glow: the icon glows when its stack count matches the comparison below, using this spell's Buff Glow style (Modern WoW Glow if none is set)."] = "Substitui o Brilho de Buff: o ícone brilha quando sua quantidade de pilha corresponde à comparação abaixo, usando o estilo de Brilho de Buff deste feitiço (Brilho Moderno do WoW, se nenhum estiver definido)."
+
+-- == Cooldown Manager / Bar Glow at Stacks Toggle ==================================
+L["At Stacks"] = "Por Pilha"
+L["Enable At Stacks"] = "Ativar Por Pilha"
+L["Not available in Buff Missing mode"] = "Não disponível no modo Buff Ausente"
+L["Only glow once the buff's stack count matches the comparison set via the gear."] = "Só brilha quando a quantidade de pilha do buff corresponder à comparação definida na engrenagem."
+
+-- == Player Aura Bars / Less Common Filters (reworded, no trailing period) =========
+L["Debuffs applied by you or your pet"] = "Debuffs aplicados por você ou seu ajudante"
+L["Debuffs caused by any player or player pet. The opposite of Non-Player Auras; checking one clears the other"] = "Debuffs causados por qualquer jogador ou ajudante de jogador. O oposto de Auras de Não-Jogadores; marcar um desmarca o outro"
+L["Debuffs with the Bleed dispel type"] = "Debuffs com o tipo de dissipação Sangramento"
+L["Debuffs with the Curse dispel type"] = "Debuffs com o tipo de dissipação Maldição"
+L["Debuffs with the Disease dispel type"] = "Debuffs com o tipo de dissipação Doença"
+L["Debuffs with the Magic dispel type"] = "Debuffs com o tipo de dissipação Magia"
+L["Debuffs with the Poison dispel type"] = "Debuffs com o tipo de dissipação Veneno"
+L["Debuffs your own class is able to apply"] = "Debuffs que sua própria classe é capaz de aplicar"
+
+-- == Bags / Auto Split and Stack Splitter ==========================================
+L["Auto Split"] = "Divisão Automática"
+L["Shift-click a stack in the bags or bank to open a split dialog with an Auto Split button, which splits the stack into empty slots repeatedly until only the chosen amount or less remains. Off uses the default split popup."] = "Shift + clique em uma pilha nas bolsas ou no banco para abrir uma caixa de diálogo de divisão com um botão de Divisão Automática, que divide a pilha em espaços vazios repetidamente até restar apenas a quantidade escolhida ou menos. Desativado usa o pop-up de divisão padrão."
+L["Split Stack"] = "Dividir Pilha"
+L["Split this stack into empty slots repeatedly until only the chosen amount or less remains. Alt+Enter does the same."] = "Divide esta pilha em espaços vazios repetidamente até restar apenas a quantidade escolhida ou menos. Alt+Enter faz o mesmo."
+L["Stack Splitter"] = "Divisor de Pilha"
+
+-- == Cooldown Manager / Show Glows Only in Combat (global) =========================
+L["Hide every Cooldown Manager glow while you are out of combat: proc glows, active state, max stacks, buff and pandemic glows, cooldown ready glows and bar glows.\n\nThey come back the moment you enter combat, including a glow that started before the pull.\n\nApplies to every CDM bar and to the Tracking Bars at once. Glows from other EllesmereUI modules are not affected.\n\nThe Bar Glows page keeps its own per-mapping Only In Combat toggle; this one applies on top of it."] = "Oculta todo brilho do Gerenciador de Recarga enquanto você está fora de combate: brilhos de proc, estado ativo, pilhas máximas, brilhos de buff e de pandemia, brilhos de recarga pronta e brilhos de barra.\n\nEles voltam no momento em que você entra em combate, incluindo um brilho que começou antes do pull.\n\nAplica-se a todas as barras do CDM e às Barras de Status de uma vez. Brilhos de outros módulos da EllesmereUI não são afetados.\n\nA página de Brilhos de Barra mantém seu próprio alternador de Somente em Combate por mapeamento; este se aplica por cima dele."
+L["Show Glows Only in Combat (global)"] = "Mostrar Brilhos Somente em Combate (global)"
+
+-- == Damage Meters / Show/Hide Windows Keybind =====================================
+L["Hide and show every damage meter window at once. The state is not saved; a reload restores the configured visibility.\n\nThe bound key is taken over while it is set. Use the cog to include the combat timer and Spell History.\n\nLeft-click to set a keybind.\nRight-click to unbind."] = "Oculta e mostra toda janela de medidor de dano de uma vez. O estado não é salvo; um recarregamento restaura a visibilidade configurada.\n\nA tecla vinculada é assumida enquanto estiver definida. Use a engrenagem para incluir o cronômetro de combate e o Histórico de feitiços.\n\nClique esquerdo para definir um atalho.\nClique direito para remover."
+L["Include Combat Timer"] = "Incluir Cronômetro de Combate"
+L["Include Spell History"] = "Incluir Histórico de feitiços"
+L["Keybind Scope"] = "Escopo do Atalho"
+L["Show/Hide Windows Keybind"] = "Atalho de Mostrar/Ocultar Janelas"
+
+-- == QoL / Battle Res Ready Icon ====================================================
+L["Once the lockout expires, show a Ready label on the icon in place of the countdown. The visibility rule above still applies."] = "Quando o bloqueio expirar, mostra um rótulo de Pronto no ícone no lugar da contagem regressiva. A regra de visibilidade acima ainda se aplica."
+L["Ready Position"] = "Posição de Pronto"
+L["Ready Size"] = "Tamanho de Pronto"
+L["Show Icon when Sated"] = "Mostrar Ícone quando Saciado"
+L["Show Icon with Ready Text"] = "Mostrar Ícone com Texto de Pronto"
+L["Show the Sated/Exhaustion lockout countdown on the icon."] = "Mostra a contagem regressiva de bloqueio de Saciado/Exaustão no ícone."
+
+-- == Quickdraw / Outfits Category ===================================================
+L["Outfit"] = "Roupa"
+L["Outfits"] = "Roupas"
+
+-- == Quality of Life / Group Finder Signup Note ======================================
+L["Edit the signup note saved between reloads and relogs."] = "Edita a nota de inscrição salva entre recarregar a interface e relogar."
+L["Enter signup note..."] = "Insira a nota de inscrição..."
+L["Saved between reloads and relogs. In Group Finder, choose Copy, press Ctrl+C, then Ctrl+V."] = "Salva entre recarregar a interface e relogar. No Buscador de Grupo, escolha Copiar, pressione Ctrl+C e depois Ctrl+V."
+L["Saves one signup note between reloads and relogs. In Group Finder, choose Copy, press Ctrl+C, then Ctrl+V."] = "Salva uma nota de inscrição entre recarregar a interface e relogar. No Buscador de Grupo, escolha Copiar, pressione Ctrl+C e depois Ctrl+V."
+L["Signup Note"] = "Nota de Inscrição"
+
+-- == Quality of Life / Cursor Options =================================================
+L["Adds a small filled dot at the center of the cursor circle. Uses the same color and opacity as the circle."] = "Adiciona um pequeno ponto preenchido no centro do círculo do cursor. Usa a mesma cor e opacidade do círculo."
+L["Center Reticle"] = "Retículo Central"
+
+-- == Resource Bars / Whirlwind & Sweeping Strikes Thresholds =========================
+L["Always on for Whirlwind and Sweeping Strikes charges: range coloring at/above the threshold is the only way these bars can display thresholds."] = "Sempre ativo para cargas de Redemoinho e Golpes a Esmo: colorir no limite ou acima dele é a única forma de essas barras exibirem limites."
+L["Whirlwind and Sweeping Strikes thresholds only support the 'From' direction."] = "Limites de Redemoinho e Golpes a Esmo só suportam a direção 'De'."

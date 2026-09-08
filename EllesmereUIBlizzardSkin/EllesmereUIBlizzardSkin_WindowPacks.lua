@@ -2463,14 +2463,8 @@ end
 -- Guild dialog popouts (member detail, request-to-join): chrome lives in child
 -- FRAMES ("BG"/"Border" wrappers holding the bg + nine-slice), invisible to
 -- the keyed art sweeps, so flatten to a house panel.
-local function SkinGuildPopup(pop)
-    -- Frames only: some same-named globals are FUNCTIONS (the create-dialog
-    -- name resolves to one).
-    if type(pop) ~= "table" or not pop.IsForbidden or pop:IsForbidden() then return end
-    local d = GetFFD(pop)
-    if d.popupSkinned then return end
-    d.popupSkinned = true
-    WSkin.FadeRegions(pop)
+local function ApplyGuildPopup(pop, d)
+    WSkin.FadeRegions(pop, d.bg and { [d.bg] = true })
     if pop.NineSlice then WSkin.FadeNineSlice(pop.NineSlice) end
     for _, k in ipairs({ "BG", "Border" }) do
         local piece = pop[k]
@@ -2484,10 +2478,13 @@ local function SkinGuildPopup(pop)
             end
         end
     end
-    local bg = pop:CreateTexture(nil, "BACKGROUND", nil, -6)
+    local bg = d.bg
+    if not bg then
+        bg = pop:CreateTexture(nil, "BACKGROUND", nil, -6)
+        d.bg = bg
+    end
     bg:SetColorTexture(0.05, 0.05, 0.05, 0.95)
     bg:SetAllPoints(pop)
-    d.bg = bg
     WSkin.AddBorder(pop)
     WSkin.Register(pop, true)
     if pop.CloseButton then WSkin.CloseButton(pop.CloseButton) end
@@ -2498,6 +2495,12 @@ local function SkinGuildPopup(pop)
             WSkin.White(r)
         end
     end
+end
+
+local function SkinGuildPopup(pop)
+    -- Some same-named globals are functions until their dialog exists.
+    if type(pop) ~= "table" or not pop.IsForbidden or pop:IsForbidden() then return end
+    WSkin.CompleteSetup(pop, "popupSkinned", ApplyGuildPopup)
 end
 
 -- Popup inputs get 6px of left padding: the BOX edge moves left (left-edge
@@ -2547,13 +2550,175 @@ local function PopupEditBox(eb)
     PadPopupInput(eb)
 end
 
+do
 local _guildNewsHook = false
+
+-- Only named controls belong to this skin. In particular, never discover
+-- buttons by walking the member ScrollBox or its pooled rows.
+local GUILD_CONTROL_HOSTS = {
+    "CommunitiesControlFrame", "GuildMemberDetailFrame", "InvitationFrame",
+    "ClubFinderInvitationFrame", "TicketFrame", "GuildFinderFrame",
+    "CommunityFinderFrame", "NotificationSettingsDialog",
+}
+local GUILD_BUTTON_KEYS = {
+    "InviteButton", "GuildLogButton", "GuildControlButton", "GuildRecruitmentButton",
+    "CommunitiesSettingsButton", "RemoveButton", "GroupInviteButton",
+    "AcceptButton", "DeclineButton", "ApplyButton", "FindAGuildButton",
+    "OkayButton", "AllButton", "NoneButton",
+}
+local GUILD_TAB_KEYS = { "ChatTab", "RosterTab", "GuildBenefitsTab", "GuildInfoTab" }
+local function SkinGuildControlHost(host)
+    if not host then return end
+    for _, key in ipairs(GUILD_BUTTON_KEYS) do
+        if host[key] then WSkin.Button(host[key]) end
+    end
+    if host.ScrollBar then WSkin.ScrollBar(host.ScrollBar) end
+    if host.RankDropdown then WSkin.Dropdown(host.RankDropdown) end
+    if host.InsetFrame then WSkin.Inset(host.InsetFrame) end
+end
+local function SkinGuildControls(f)
+    SkinGuildControlHost(f)
+    for _, key in ipairs(GUILD_CONTROL_HOSTS) do SkinGuildControlHost(f[key]) end
+    if f.Chat then SkinGuildControlHost(f.Chat) end
+    if f.MemberList and f.MemberList.ScrollBar then WSkin.ScrollBar(f.MemberList.ScrollBar) end
+    if f.CommunitiesList and f.CommunitiesList.ScrollBar then WSkin.ScrollBar(f.CommunitiesList.ScrollBar) end
+end
+
+local function SkinGuildDialogs(f)
+    SkinGuildPopup(f.GuildMemberDetailFrame)
+    SkinGuildPopup(_G.CommunitiesAddDialog)
+    SkinGuildPopup(_G.CommunitiesCreateCommunityDialog)
+    -- Add/Create Community dialogs: their globals are NOT live frames at addon
+    -- load (the real frame appears when the dialog first opens), so catch it
+    -- from StaticPopupSpecial_Show, which receives the frame itself. The BG is
+    -- a layout-KIT frame whose chrome pieces are not plain regions, so
+    -- container alpha suppresses all of it at once.
+    if type(_G.StaticPopupSpecial_Show) == "function" and not GetFFD(f).addDlgHook then
+        GetFFD(f).addDlgHook = true
+        local wanted = {
+            CommunitiesAddDialog = true,
+            CommunitiesCreateCommunityDialog = true,
+        }
+        hooksecurefunc("StaticPopupSpecial_Show", WSkin.WindowCallback("guild", function(dlg)
+            if type(dlg) ~= "table" or not dlg.GetName then return end
+            local ok, nm2 = pcall(dlg.GetName, dlg)
+            if not ok or not nm2 or not wanted[nm2] then return end
+            SkinGuildPopup(dlg)
+            local d2 = GetFFD(dlg)
+            if dlg.BG and not d2.bgKilled then
+                d2.bgKilled = true
+                pcall(dlg.BG.SetAlpha, dlg.BG, 0)
+            end
+            for _, k in ipairs({ "InviteLinkBox", "NameEdit", "ShortNameEdit" }) do
+                if dlg[k] then PopupEditBox(dlg[k]) end
+            end
+            if dlg.JoinButton then
+                WSkin.Button(dlg.JoinButton)
+                local jfs = dlg.JoinButton.Text
+                    or (dlg.JoinButton.GetFontString and dlg.JoinButton:GetFontString())
+                if jfs then WSkin.White(jfs) end
+            end
+        end))
+    end
+    -- Community settings dialog (name/description/MOTD editor).
+    local csd = _G.CommunitiesSettingsDialog
+    if csd and type(csd) == "table" and not GetFFD(csd).csdSkinned then
+        GetFFD(csd).csdSkinned = true
+        SkinGuildPopup(csd)
+        for _, k in ipairs({ "Accept", "AcceptButton", "Cancel", "CancelButton",
+                             "Delete", "DeleteButton", "ChangeAvatarButton" }) do
+            local b = csd[k]
+            if b and b.GetObjectType and b:GetObjectType() == "Button" then
+                WSkin.Button(b)
+                local bfs = b.GetFontString and b:GetFontString()
+                if bfs then WSkin.White(bfs) end
+            end
+        end
+        for _, k in ipairs({ "NameEdit", "ShortNameEdit" }) do
+            if csd[k] then PopupEditBox(csd[k]) end
+        end
+        for _, k in ipairs({ "ClubFocusDropdown", "LookingForDropdown", "LanguageDropdown" }) do
+            if csd[k] then WSkin.Dropdown(csd[k]) end
+        end
+        WSkin.ScrollBarsIn(csd)
+    end
+    -- Guild recruitment settings dialog ("List My Guild in Guild Finder"):
+    -- parented INSIDE CommunitiesFrame like EditStreamDialog, so the art sweeps strip
+    -- its DialogBorderDark BG and it renders see-through without the house popup pass.
+    local rd = f.RecruitmentDialog
+    if rd and not GetFFD(rd).rdSkinned then
+        GetFFD(rd).rdSkinned = true
+        SkinGuildPopup(rd)
+        -- Blizzard pins this to the SCREEN (UIParent), nowhere near a
+        -- repositioned Communities window; dock it to the panel's right edge
+        -- instead (nothing re-anchors it at runtime). 38 = the 32px side tabs
+        -- riding that edge + a 6px gap.
+        rd:ClearAllPoints()
+        rd:SetPoint("TOPLEFT", f, "TOPRIGHT", 38, 0)
+        -- Docked to the panel it can leave the screen, so clamp.
+        rd:SetClampedToScreen(true)
+        for _, k in ipairs({ "Accept", "Cancel" }) do
+            local b = rd[k]
+            if b and b.GetObjectType and b:GetObjectType() == "Button" then
+                WSkin.Button(b)
+                local bfs = b.GetFontString and b:GetFontString()
+                if bfs then WSkin.White(bfs) end
+            end
+        end
+        for _, k in ipairs({ "ClubFocusDropdown", "LookingForDropdown", "LanguageDropdown" }) do
+            if rd[k] then WSkin.Dropdown(rd[k]) end
+        end
+        WSkin.ScrollBarsIn(rd)
+    end
+    -- Create/Edit Channel dialog: parented INSIDE CommunitiesFrame, so the recursive
+    -- Bg-family art sweeps reach it and strip its fill (standalone UIParent dialogs are
+    -- untouched). The house popup pass restores a backdrop.
+    local esd = f.EditStreamDialog
+    if esd and not GetFFD(esd).esdSkinned then
+        GetFFD(esd).esdSkinned = true
+        SkinGuildPopup(esd)
+        for _, k in ipairs({ "Accept", "AcceptButton", "Cancel", "CancelButton",
+                             "Delete", "DeleteButton" }) do
+            local b = esd[k]
+            if b and b.GetObjectType and b:GetObjectType() == "Button" then
+                WSkin.Button(b)
+                local bfs = b.GetFontString and b:GetFontString()
+                if bfs then WSkin.White(bfs) end
+            end
+        end
+        if esd.NameEdit then PopupEditBox(esd.NameEdit) end
+        if esd.Description then PopupEditBox(esd.Description) end
+        local modCheck = esd.TypeCheckBox or esd.ModeratorsOnlyCheckBox
+            or esd.ModeratorsOnlyCheckbox
+        if modCheck then SkinGuildCheck(modCheck) end
+    end
+    -- Notification settings dialog (chat bell): house popup + its extras.
+    local nsd = f.NotificationSettingsDialog
+    if nsd then
+        SkinGuildPopup(nsd)
+        if nsd.Selector then
+            WSkin.FadeRegions(nsd.Selector)
+            WSkin.Register(nsd.Selector, true)
+            for _, k in ipairs({ "OkayButton", "AllButton", "NoneButton" }) do
+                if nsd.Selector[k] then WSkin.Button(nsd.Selector[k]) end
+            end
+        end
+        for _, k in ipairs({ "OkayButton", "AllButton", "NoneButton" }) do
+            if nsd[k] then WSkin.Button(nsd[k]) end
+        end
+        if nsd.CommunitiesListDropdown then WSkin.Dropdown(nsd.CommunitiesListDropdown) end
+        WSkin.ScrollBarsIn(nsd)
+    end
+end
+
 local function Skin_Guild()
     local f = _G.CommunitiesFrame
     if not f then return end
+    local state = GetFFD(f)
+    if state.refreshGuild then state.refreshGuild(); return end
     WSkin.Shell("guild", f)
     WSkin.RemovePortrait(f)
-    WSkin.CommonChrome(f)
+    WSkin.CommonChrome(f, nil, true)
     if f.NineSlice then WSkin.FadeNineSlice(f.NineSlice) end
     if f.PortraitOverlay then
         WSkin.FadeRegions(f.PortraitOverlay)
@@ -2585,7 +2750,7 @@ local function Skin_Guild()
     -- along wherever Blizzard's display-mode layout seats the tab. Tab size,
     -- icon anchors and the native tab chain are never touched. Only the root
     -- tab re-anchors (flush to the window edge); the others chain to it.
-    for _, k in ipairs({ "ChatTab", "RosterTab", "GuildBenefitsTab", "GuildInfoTab" }) do
+    for _, k in ipairs(GUILD_TAB_KEYS) do
         local tab = f[k]
         if tab and not tab:IsForbidden() then
             SquareTabIcon(tab)
@@ -2609,8 +2774,7 @@ local function Skin_Guild()
             -- Tighter icon zoom than the standard crop, re-applied per pass:
             -- SquareTabIcon resets it to the 0.08 standard above.
             if icon and icon.SetTexCoord then icon:SetTexCoord(0.12, 0.88, 0.12, 0.88) end
-            local enabled = not tab.IsEnabled or tab:IsEnabled()
-            tab:SetAlpha(enabled and 1 or 0.5)
+            tab:SetAlphaFromBoolean(tab:IsEnabled(), 1, 0.5)
             -- Chain gap 10px tighter (one-shot): the native anchor to the
             -- previous tab is kept, only its y offset closes.
             if k ~= "ChatTab" and not td.gapAdj then
@@ -2859,6 +3023,7 @@ local function Skin_Guild()
                 end
             end
         end
+        SkinCommunityEntry = WSkin.WindowCallback("guild", SkinCommunityEntry)
         local sb = list.ScrollBox
         if sb then
             if sb.ForEachFrame then pcall(sb.ForEachFrame, sb, SkinCommunityEntry) end
@@ -2937,130 +3102,7 @@ local function Skin_Guild()
         end
     end
     if ml and ml.ShowOfflineButton then SkinGuildCheck(ml.ShowOfflineButton) end
-    SkinGuildPopup(f.GuildMemberDetailFrame)
-    SkinGuildPopup(_G.CommunitiesAddDialog)
-    SkinGuildPopup(_G.CommunitiesCreateCommunityDialog)
-    -- Add/Create Community dialogs: their globals are NOT live frames at addon
-    -- load (the real frame appears when the dialog first opens), so catch it
-    -- from StaticPopupSpecial_Show, which receives the frame itself. The BG is
-    -- a layout-KIT frame whose chrome pieces are not plain regions, so
-    -- container alpha suppresses all of it at once.
-    if type(_G.StaticPopupSpecial_Show) == "function" and not GetFFD(f).addDlgHook then
-        GetFFD(f).addDlgHook = true
-        local wanted = {
-            CommunitiesAddDialog = true,
-            CommunitiesCreateCommunityDialog = true,
-        }
-        hooksecurefunc("StaticPopupSpecial_Show", function(dlg)
-            if type(dlg) ~= "table" or not dlg.GetName then return end
-            local ok, nm2 = pcall(dlg.GetName, dlg)
-            if not ok or not nm2 or not wanted[nm2] then return end
-            SkinGuildPopup(dlg)
-            local d2 = GetFFD(dlg)
-            if dlg.BG and not d2.bgKilled then
-                d2.bgKilled = true
-                pcall(dlg.BG.SetAlpha, dlg.BG, 0)
-            end
-            for _, k in ipairs({ "InviteLinkBox", "NameEdit", "ShortNameEdit" }) do
-                if dlg[k] then PopupEditBox(dlg[k]) end
-            end
-            if dlg.JoinButton then
-                WSkin.Button(dlg.JoinButton)
-                local jfs = dlg.JoinButton.Text
-                    or (dlg.JoinButton.GetFontString and dlg.JoinButton:GetFontString())
-                if jfs then WSkin.White(jfs) end
-            end
-        end)
-    end
-    -- Community settings dialog (name/description/MOTD editor).
-    local csd = _G.CommunitiesSettingsDialog
-    if csd and type(csd) == "table" and not GetFFD(csd).csdSkinned then
-        GetFFD(csd).csdSkinned = true
-        SkinGuildPopup(csd)
-        for _, k in ipairs({ "Accept", "AcceptButton", "Cancel", "CancelButton",
-                             "Delete", "DeleteButton", "ChangeAvatarButton" }) do
-            local b = csd[k]
-            if b and b.GetObjectType and b:GetObjectType() == "Button" then
-                WSkin.Button(b)
-                local bfs = b.GetFontString and b:GetFontString()
-                if bfs then WSkin.White(bfs) end
-            end
-        end
-        for _, k in ipairs({ "NameEdit", "ShortNameEdit" }) do
-            if csd[k] then PopupEditBox(csd[k]) end
-        end
-        for _, k in ipairs({ "ClubFocusDropdown", "LookingForDropdown", "LanguageDropdown" }) do
-            if csd[k] then WSkin.Dropdown(csd[k]) end
-        end
-        WSkin.ScrollBarsIn(csd)
-    end
-    -- Guild recruitment settings dialog ("List My Guild in Guild Finder"):
-    -- parented INSIDE CommunitiesFrame like EditStreamDialog, so the art sweeps strip
-    -- its DialogBorderDark BG and it renders see-through without the house popup pass.
-    local rd = f.RecruitmentDialog
-    if rd and not GetFFD(rd).rdSkinned then
-        GetFFD(rd).rdSkinned = true
-        SkinGuildPopup(rd)
-        -- Blizzard pins this to the SCREEN (UIParent), nowhere near a
-        -- repositioned Communities window; dock it to the panel's right edge
-        -- instead (nothing re-anchors it at runtime). 38 = the 32px side tabs
-        -- riding that edge + a 6px gap.
-        rd:ClearAllPoints()
-        rd:SetPoint("TOPLEFT", f, "TOPRIGHT", 38, 0)
-        -- Docked to the panel it can leave the screen, so clamp.
-        rd:SetClampedToScreen(true)
-        for _, k in ipairs({ "Accept", "Cancel" }) do
-            local b = rd[k]
-            if b and b.GetObjectType and b:GetObjectType() == "Button" then
-                WSkin.Button(b)
-                local bfs = b.GetFontString and b:GetFontString()
-                if bfs then WSkin.White(bfs) end
-            end
-        end
-        for _, k in ipairs({ "ClubFocusDropdown", "LookingForDropdown", "LanguageDropdown" }) do
-            if rd[k] then WSkin.Dropdown(rd[k]) end
-        end
-        WSkin.ScrollBarsIn(rd)
-    end
-    -- Create/Edit Channel dialog: parented INSIDE CommunitiesFrame, so the recursive
-    -- Bg-family art sweeps reach it and strip its fill (standalone UIParent dialogs are
-    -- untouched). The house popup pass restores a backdrop.
-    local esd = f.EditStreamDialog
-    if esd and not GetFFD(esd).esdSkinned then
-        GetFFD(esd).esdSkinned = true
-        SkinGuildPopup(esd)
-        for _, k in ipairs({ "Accept", "AcceptButton", "Cancel", "CancelButton",
-                             "Delete", "DeleteButton" }) do
-            local b = esd[k]
-            if b and b.GetObjectType and b:GetObjectType() == "Button" then
-                WSkin.Button(b)
-                local bfs = b.GetFontString and b:GetFontString()
-                if bfs then WSkin.White(bfs) end
-            end
-        end
-        if esd.NameEdit then PopupEditBox(esd.NameEdit) end
-        if esd.Description then PopupEditBox(esd.Description) end
-        local modCheck = esd.TypeCheckBox or esd.ModeratorsOnlyCheckBox
-            or esd.ModeratorsOnlyCheckbox
-        if modCheck then SkinGuildCheck(modCheck) end
-    end
-    -- Notification settings dialog (chat bell): house popup + its extras.
-    local nsd = f.NotificationSettingsDialog
-    if nsd then
-        SkinGuildPopup(nsd)
-        if nsd.Selector then
-            WSkin.FadeRegions(nsd.Selector)
-            WSkin.Register(nsd.Selector, true)
-            for _, k in ipairs({ "OkayButton", "AllButton", "NoneButton" }) do
-                if nsd.Selector[k] then WSkin.Button(nsd.Selector[k]) end
-            end
-        end
-        for _, k in ipairs({ "OkayButton", "AllButton", "NoneButton" }) do
-            if nsd[k] then WSkin.Button(nsd[k]) end
-        end
-        if nsd.CommunitiesListDropdown then WSkin.Dropdown(nsd.CommunitiesListDropdown) end
-        WSkin.ScrollBarsIn(nsd)
-    end
+    SkinGuildDialogs(f)
     -- Ticket frame (community invite ticket pane): inset chrome off.
     local tkf = f.TicketFrame
     if tkf then
@@ -3114,6 +3156,7 @@ local function Skin_Guild()
             end
         end
     end
+    SkinRosterColumns = WSkin.WindowCallback("guild", SkinRosterColumns)
     SkinRosterColumns()
     -- Re-skin roster columns on Blizzard's rebuild (per club / view change) via
     -- hooksecurefunc on the list refresh. NEVER HookScript the secure ColumnDisplay: an
@@ -3229,6 +3272,7 @@ local function Skin_Guild()
                 end
             end
         end
+        SkinBenefitRow = WSkin.WindowCallback("guild", SkinBenefitRow)
         for _, sec in ipairs({ gb.Perks, gb.Rewards }) do
             if sec then
                 WSkin.FadeRegions(sec)
@@ -3288,6 +3332,7 @@ local function Skin_Guild()
                 end
             end
         end
+        FlattenRepBar = WSkin.WindowCallback("guild", FlattenRepBar)
         FlattenRepBar()
         if not GetFFD(gb).repHook then
             GetFFD(gb).repHook = true
@@ -3399,6 +3444,7 @@ local function Skin_Guild()
             end
         end
     end
+    SkinGuildLog = WSkin.WindowCallback("guild", SkinGuildLog)
     SkinGuildLog()
     if logBtn and not GetFFD(logBtn).logHook then
         GetFFD(logBtn).logHook = true
@@ -3557,20 +3603,37 @@ local function Skin_Guild()
     for _, k in ipairs({ "Inset", "LeftInset", "RightInset" }) do
         if f[k] then WSkin.Inset(f[k]) end
     end
-    WSkin.FadeKeyedArt(f)
-    WSkin.ButtonsIn(f)
-    WSkin.ScrollBarsIn(f)
-    WSkin.PagingIn(f)
-    WSkin.HookShow(f, WSkin.Debounce(function()
-        if f:IsVisible() then Skin_Guild(); WSkin.Restrip(); WSkin.UpdateAllTabs() end
-    end))
+    SkinGuildControls(f)
+    local function RefreshGuild()
+        if not f:IsVisible() then return end
+        SkinGuildDialogs(f)
+        SkinGuildLog()
+        SkinGuildControls(f)
+        SkinRosterColumns()
+        -- State-dependent tab opacity remains Blizzard-driven. Do not branch
+        -- on the enabled state: it can be secret under forced restrictions.
+        for _, key in ipairs(GUILD_TAB_KEYS) do
+            local tab = f[key]
+            if tab then tab:SetAlphaFromBoolean(tab:IsEnabled(), 1, 0.5) end
+        end
+        WSkin.Restrip("guild")
+        -- The guild tabs are display-mode buttons, not PanelTemplates tabs, so
+        -- the engine's SetTab/UpdateTabs hooks never refresh their active
+        -- visual; the reopen pass has to (O(skinned tabs), one pass per show).
+        WSkin.UpdateAllTabs()
+    end
+    state.refreshGuild = WSkin.WindowCallback("guild", RefreshGuild)
+    WSkin.HookShow(f, WSkin.Debounce(state.refreshGuild))
 end
+
+Skin_Guild = WSkin.WindowCallback("guild", Skin_Guild)
 
 WSkin.RegisterWindow({
     key = "guild",
     addons = { Blizzard_Communities = true },
     apply = Skin_Guild,
 })
+end
 
 -------------------------------------------------------------------------------
 --  Calendar (CalendarFrame)
@@ -9485,6 +9548,12 @@ local function Skin_AuctionHouse()
     -- engine's checks all miss and no tab reads as active. Sync the FFD
     -- selection override from the display mode instead (tab.displayMode
     -- compared by reference), refreshed on every SetDisplayMode.
+    -- Reassert Buy's own anchor before chaining Sell/Auctions off it below --
+    -- another addon can leave it repositioned after closing its own AH skin.
+    if _G.AuctionHouseFrameBuyTab then
+        _G.AuctionHouseFrameBuyTab:ClearAllPoints()
+        _G.AuctionHouseFrameBuyTab:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 20, -28)
+    end
     local ahTabs = {}
     for _, n in ipairs({ "AuctionHouseFrameBuyTab", "AuctionHouseFrameSellTab",
                          "AuctionHouseFrameAuctionsTab" }) do
@@ -12018,6 +12087,27 @@ WSkin.RegisterWindow({
     end,
 })
 
+-- Blizzard's button label is auto-sized: the box is exactly the string width,
+-- so it carries no slack. At a fractional effective scale the stored width can
+-- land a float hair UNDER the string it holds (Accept 46.499996 for a 46.5px
+-- string, Decline a clean 48.0) and WoW breaks the last glyph onto a second
+-- line. Which strings land on an unlucky value follows the typeface, not the
+-- word length, so the global font swap decides who is hit. Pinning the label to
+-- the button gives it 118px instead of 47: centered text looks identical and
+-- can no longer wrap. One-shot per label.
+function LP.PinButtonLabel(b)
+    if not b or (b.IsForbidden and b:IsForbidden()) then return end
+    local fs = b.Text or (b.GetFontString and b:GetFontString())
+    if not fs then return end
+    local d = GetFFD(fs)
+    if d.labelPinned then return end
+    d.labelPinned = true
+    fs:ClearAllPoints()
+    fs:SetPoint("LEFT", b, "LEFT", 2, 0)
+    fs:SetPoint("RIGHT", b, "RIGHT", -2, 0)
+    if fs.SetWordWrap then fs:SetWordWrap(false) end
+end
+
 -------------------------------------------------------------------------------
 --  Group invite popups. Two frames, one setting, because they are one thing to
 --  the player: LFGListInviteDialog (premade-group leader accepted your
@@ -12070,6 +12160,7 @@ function LP.SkinInvite(fr, roleChecks)
         if b then
             WSkin.Button(b)
             WSkin.StateButtonLabel(b)
+            LP.PinButtonLabel(b)
         end
     end
     -- Templates naming their buttons globally rather than off the frame (LFGInvitePopupAcceptButton / ...DeclineButton).
@@ -12080,6 +12171,7 @@ function LP.SkinInvite(fr, roleChecks)
             if b then
                 WSkin.Button(b)
                 WSkin.StateButtonLabel(b)
+                LP.PinButtonLabel(b)
             end
         end
     end

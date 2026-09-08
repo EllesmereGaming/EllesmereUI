@@ -1683,6 +1683,40 @@ end
 
 local function lerp(a, b, t) return a + (b - a) * t end
 
+-- "Name-Realm" whisper/invite target. With realmName it builds (realm wins,
+-- spaces stripped); with a finished name alone it only collapses a stacked realm.
+function EllesmereUI.BuildFullName(charName, realmName)
+    -- type()/issecretvalue() before any comparison: `== ""` on a secret throws.
+    if type(charName) ~= "string" then return nil end
+    if issecretvalue and issecretvalue(charName) then return charName end
+    if charName == "" then return nil end
+
+    -- Character names hold no hyphen, so the first one splits name from realm.
+    local base, suffix = charName:match("^([^%-]+)%-(.+)$")
+    base = base or charName
+
+    if type(realmName) == "string" and not (issecretvalue and issecretvalue(realmName)) then
+        local realm = (realmName:gsub("%s+", ""))
+        if realm ~= "" then return base .. "-" .. realm end
+    end
+    if not suffix then return base end
+
+    -- Collapse proven repetition only -- a realm may hold a hyphen ("Azjol-Nerub").
+    local segs = {}
+    for seg in suffix:gmatch("[^%-]+") do
+        if segs[#segs] ~= seg then segs[#segs + 1] = seg end
+    end
+    suffix = table.concat(segs, "-")
+    -- A doubled multi-word realm has no adjacent repeats; a half-split catches it.
+    local half = (#suffix - 1) / 2
+    if half > 0 and half == math.floor(half)
+        and suffix:sub(half + 1, half + 1) == "-"
+        and suffix:sub(1, half) == suffix:sub(half + 2) then
+        suffix = suffix:sub(1, half)
+    end
+    return base .. "-" .. suffix
+end
+
 -------------------------------------------------------------------------------
 --  Exports  (shared locals EllesmereUI table for split files)
 -------------------------------------------------------------------------------
@@ -2140,6 +2174,7 @@ do
             if _G._ERB_Apply then _G._ERB_Apply() end
             if _G._EAB_Apply then _G._EAB_Apply() end
             if _G._ECME_Apply then _G._ECME_Apply() end
+            if _G._EDM_Rescale then _G._EDM_Rescale() end
             -- Re-sync width/height matches against the new grid. UIParent:SetScale()
             -- does NOT fire UI_SCALE_CHANGED (that event is CVar-tied), so no listener
             -- catches this path. Debounced: the Options slider calls this repeatedly
@@ -2399,17 +2434,14 @@ do
     HookPixelSnap(hookFrame:CreateFontString())
     HookPixelSnap(hookFrame:CreateMaskTexture())
 
-    -- Enumerate all existing frame types to catch any we missed
-    local hookedTypes = { Frame = true }
-    local enumObj = EnumerateFrames()
-    while enumObj do
-        local objType = enumObj:GetObjectType()
-        if not enumObj:IsForbidden() and not hookedTypes[objType] then
-            HookPixelSnap(enumObj)
-            hookedTypes[objType] = true
-        end
-        enumObj = EnumerateFrames(enumObj)
-    end
+    -- No frame-tree enumeration here, deliberately. An EnumerateFrames() walk
+    -- used to run at this point "to catch any type we missed": 11,305 frames,
+    -- 248 ms of a 419 ms load, and its only new metatable was StatusBar, which
+    -- the explicit hook below already covers (measured 2026-09-07, identical in
+    -- open world and in a M+ key). It also never saw ItemButton,
+    -- ScrollingMessageFrame or AuraContainer, which this suite creates later, so
+    -- it was not the net it claimed to be. HookPixelSnap dedupes by metatable,
+    -- so every type sharing one hooked here is covered anyway.
 
     -- Also hook ScrollFrame and StatusBar metatables
     HookPixelSnap(CreateFrame("ScrollFrame"))
@@ -2712,11 +2744,15 @@ do
         SnapBorderTextures(container, frame, borderSize)
 
         -- Re-snap for 2 frames to catch final effective scale after layout.
+        -- The stop is pcall'd: a container under a tooltip that a nameplate owns
+        -- inherits its forbidden layout aspect inside these two frames (Snap probes
+        -- and returns; a bare SetScript raises). Refused = keep ticking; the stop
+        -- lands once the restriction lifts, and a hidden container never ticks.
         local ticks = 0
         container:SetScript("OnUpdate", function(self)
             ticks = ticks + 1
             SnapBorderTextures(self, frame, bd.borderSize or 1)
-            if ticks >= 2 then self:SetScript("OnUpdate", nil) end
+            if ticks >= 2 then pcall(self.SetScript, self, "OnUpdate", nil) end
         end)
 
         RegisterBorder(container, frame)
@@ -3330,7 +3366,9 @@ do
 
     -- BackdropTemplate does arithmetic on its owner's width/height, so it is unusable for
     -- frames anchored to secret aura geometry. This variant draws the same eight edge-file
-    -- slices manually, keeping the PP path for Solid; `state` is any caller-owned table caching the eight textures (FFD, AuraKit button data).
+    -- slices manually, keeping the PP path for Solid; `state` is any caller-owned table
+    -- caching the eight textures (FFD, AuraKit button data). edgeScale is preview-only
+    -- geometry compensation; live callers leave it nil.
     local SECRET_BORDER_UV = {
         topLeft     = { 0.5078125, 0.0625, 0.5078125, 0.9375, 0.6171875, 0.0625, 0.6171875, 0.9375 },
         topRight    = { 0.6328125, 0.0625, 0.6328125, 0.9375, 0.7421875, 0.0625, 0.7421875, 0.9375 },
@@ -3343,7 +3381,7 @@ do
     }
 
     function EllesmereUI.ApplySecretSafeBorderStyle(borderFrame, state, size, r, g, b, a,
-        textureKey, offsetX, offsetY, shiftX, shiftY, addonKey, sizeKey)
+        textureKey, offsetX, offsetY, shiftX, shiftY, addonKey, sizeKey, edgeScale)
         if not borderFrame or not state then return end
         size, textureKey = size or 0, textureKey or "solid"
         local edges = state._secretBorderEdges
@@ -3370,10 +3408,15 @@ do
             end
             state._secretBorderEdges = edges
         end
-        local edgeSize = EDGE_MAP[size] or EDGE_MAP[1]
+        -- Preview surfaces can cancel their own panel scale without scaling the
+        -- saved 0-4 texture-size key (a fractional key would fall through EDGE_MAP).
+        -- Live aura buttons omit edgeScale and stay byte-for-byte equivalent.
+        edgeScale = edgeScale or 1
+        local edgeSize = (EDGE_MAP[size] or EDGE_MAP[1]) * edgeScale
         local ox, oy, sx, sy = EllesmereUI.GetBorderDefaults(addonKey, textureKey, sizeKey)
         ox = offsetX ~= nil and offsetX or ox; oy = offsetY ~= nil and offsetY or oy
         sx = shiftX ~= nil and shiftX or sx; sy = shiftY ~= nil and shiftY or sy
+        ox, oy, sx, sy = ox * edgeScale, oy * edgeScale, sx * edgeScale, sy * edgeScale
         if EllesmereUI.BorderTextureUsesScaleOffset(textureKey) then
             ox, oy = edgeSize / 2 + ox, edgeSize / 2 + oy
         end
@@ -6382,7 +6425,12 @@ function EllesmereUI:ShowInputPopup(opts)
         popup._placeholder = placeholder
 
         editBox:SetScript("OnTextChanged", function(self)
-            if self:GetText() == "" then placeholder:Show() else placeholder:Hide() end
+            local text = self:GetText() or ""
+            if text == "" then placeholder:Show() else placeholder:Hide() end
+            if popup._maxCount then
+                local count = strlenutf8 and strlenutf8(text) or #text
+                popup._countLabel:SetText(count .. "/" .. popup._maxCount)
+            end
         end)
         popup._editBox = editBox
 
@@ -6503,8 +6551,9 @@ function EllesmereUI:ShowInputPopup(opts)
         WirePopupEscape(popup, dimmer)
 
         editBox:SetScript("OnEnterPressed", function()
+            if popup._multiline then return end
             local txt = editBox:GetText()
-            if txt and txt ~= "" then
+            if txt and (txt ~= "" or popup._allowEmpty) then
                 dimmer:Hide()
                 if popup._onConfirmCb then popup._onConfirmCb(txt) end
             else
@@ -6540,10 +6589,37 @@ function EllesmereUI:ShowInputPopup(opts)
     popup._confirmBtn._lbl:SetText(EllesmereUI.L(opts.confirmText or "Save"))
     popup._onCancel = opts.onDismiss or opts.onCancel or nil
     popup._onConfirmCb = opts.onConfirm or nil
+    popup._allowEmpty = opts.allowEmpty == true
+    popup._multiline = opts.multiline == true
 
     popup._editBox:SetMaxLetters(opts.maxLetters or 30)
+    popup._editBox:SetMultiLine(popup._multiline)
+    popup._editBox:SetJustifyV(popup._multiline and "TOP" or "MIDDLE")
+    popup._inputFrame:SetHeight(opts.inputHeight or 28)
+    popup._editBox:ClearAllPoints()
+    popup._editBox:SetPoint("TOPLEFT", popup._inputFrame, "TOPLEFT", 12, popup._multiline and -8 or -1)
+    popup._editBox:SetPoint("BOTTOMRIGHT", popup._inputFrame, "BOTTOMRIGHT", -12, opts.showCount and 18 or 1)
+    popup._placeholder:ClearAllPoints()
+    if popup._multiline then
+        popup._placeholder:SetPoint("TOPLEFT", popup._editBox, "TOPLEFT", 0, -1)
+    else
+        popup._placeholder:SetPoint("LEFT", popup._editBox, "LEFT", 0, 0)
+    end
+    if opts.showCount and not popup._countLabel then
+        local countLabel = MakeFont(popup._inputFrame, 9, nil, TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
+        countLabel:SetPoint("BOTTOMRIGHT", popup._inputFrame, "BOTTOMRIGHT", -8, 5)
+        popup._countLabel = countLabel
+    end
+    popup._maxCount = opts.showCount and (opts.maxLetters or 0) or nil
+    if popup._countLabel then
+        popup._countLabel:SetShown(popup._maxCount and popup._maxCount > 0)
+    end
     local initText = opts.initialText or ""
     popup._editBox:SetText(initText)
+    if popup._maxCount then
+        local count = strlenutf8 and strlenutf8(initText) or #initText
+        popup._countLabel:SetText(count .. "/" .. popup._maxCount)
+    end
     if initText == "" then popup._placeholder:Show() else popup._placeholder:Hide() end
 
     popup._cancelBtn._resetAnim()
@@ -6593,7 +6669,7 @@ function EllesmereUI:ShowInputPopup(opts)
         popup._scaleWarnLabel:Hide()
     end
 
-    popup:SetHeight(194 + extraH + warnH + scaleWarnH)
+    popup:SetHeight(194 + math.max(0, (opts.inputHeight or 28) - 28) + extraH + warnH + scaleWarnH)
 
     popup._cancelBtn:SetScript("OnClick", function()
         popup._dimmer:Hide()
@@ -6601,7 +6677,7 @@ function EllesmereUI:ShowInputPopup(opts)
     end)
     popup._confirmBtn:SetScript("OnClick", function()
         local txt = popup._editBox:GetText()
-        if txt and txt ~= "" then
+        if txt and (txt ~= "" or opts.allowEmpty) then
             popup._dimmer:Hide()
             if opts.onConfirm then opts.onConfirm(txt) end
         else
@@ -10721,7 +10797,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.1.6"
+EllesmereUI.VERSION = "9.1.7"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end

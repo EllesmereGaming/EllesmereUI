@@ -5477,7 +5477,18 @@ initFrame:SetScript("OnEvent", function(self)
                   else db.profile.partyFlipGrowth = false end
                   PartyReloadAndUpdate()
               end },
-            { type="label", text="" });  y = y - h
+            { type="toggle", text="Party Frames in Small Raids",
+              tooltip="In raid groups under 10 players, show group 1 as party frames and hide everyone else.",
+              getValue=function() return db.profile.partySmallRaid or false end,
+              setValue=function(v)
+                  db.profile.partySmallRaid = v
+                  -- Both visibility passes re-read the mode; the raid one runs
+                  -- first so its hidden branch never races the party show.
+                  if not InCombatLockdown() then
+                      if ns.UpdateVisibility then ns.UpdateVisibility() end
+                      if ns._UpdatePartyVisibility then ns._UpdatePartyVisibility() end
+                  end
+              end });  y = y - h
 
         -------------------------------------------------------------------
         --  ALL VISUAL SECTIONS

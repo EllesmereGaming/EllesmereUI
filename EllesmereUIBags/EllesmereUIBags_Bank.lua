@@ -1210,6 +1210,22 @@ function EUI_Bank:GetSelectedTabBagID()
     return tab and tab.bagID or nil
 end
 
+--- Bags an Auto Split from srcBag may fill: the source tab first, then the
+--- other tabs of the same bank type. Character and warband slots never mix.
+function EUI_Bank:GetSplitTargetBags(srcBag)
+    local targets = { srcBag }
+    local isWarband = false
+    for _, tab in ipairs(_allTabs) do
+        if tab.bagID == srcBag then isWarband = tab.isWarband end
+    end
+    for _, tab in ipairs(_allTabs) do
+        if tab.bagID ~= srcBag and tab.isWarband == isWarband then
+            targets[#targets + 1] = tab.bagID
+        end
+    end
+    return targets
+end
+
 --- Returns true if the current view is any warband view (all warbank,
 --- onewarbank, or an individual warband tab).
 function EUI_Bank:IsWarbandView()
@@ -1459,6 +1475,10 @@ local function GetOrCreateBankSlot(idx)
     btn:SetAllPoints(slotParent)
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     btn:RegisterForDrag("LeftButton")
+
+    btn:HookScript("PostClick", function(self)
+        EUI_Bags.ShowStackSplitter(self, EUI_Bank:GetSplitTargetBags(self:GetParent():GetID()), EUI_Bank)
+    end)
 
     -- OnReceiveDrag: handles native Blizzard drags (shift-click pickup etc.)
     btn:SetScript("OnReceiveDrag", function(self)

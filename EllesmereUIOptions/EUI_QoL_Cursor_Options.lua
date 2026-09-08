@@ -298,7 +298,7 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
-        -- Combat Only
+        -- Combat Only ---- Center Reticle
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Combat Only",
               tooltip="Only shows the cursor circle while you are in combat.",
@@ -309,7 +309,14 @@ initFrame:SetScript("OnEvent", function(self)
                 if _G._ECL_ApplyCombatOnlyEvents then _G._ECL_ApplyCombatOnlyEvents() end
                 if _G._ECL_UpdateVisibility then _G._ECL_UpdateVisibility() end
               end },
-            { type="label", text="" }
+            { type="toggle", text="Center Reticle",
+              tooltip="Adds a small filled dot at the center of the cursor circle. Uses the same color and opacity as the circle.",
+              getValue=function() local p = DB(); return p and p.reticle or false end,
+              setValue=function(v)
+                local p = DB(); if not p then return end
+                p.reticle = v
+                RefreshAddon()
+              end }
         );  y = y - h
         end   -- close Cursor Circle hidden-while-disabled gate
 

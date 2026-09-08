@@ -1099,10 +1099,14 @@ function ECHAT.SyncChatFrameState()
         if cf then
             local shown = cf:IsShown()
             if shown then
+                -- GetAlpha reads secret on chat-roleset widgets in lockdown;
+                -- a secret skips the compare and re-asserts.
                 local bf = _G["ChatFrame" .. i .. "ButtonFrame"]
-                if bf and bf:GetAlpha() ~= 0 then bf:SetAlpha(0) end
+                local bfA = bf and bf:GetAlpha()
+                if bfA and ((issecretvalue and issecretvalue(bfA)) or bfA ~= 0) then bf:SetAlpha(0) end
                 local sb = cf.ScrollToBottomButton
-                if sb and sb:GetAlpha() ~= 0 then sb:SetAlpha(0) end
+                local sbA = sb and sb:GetAlpha()
+                if sbA and ((issecretvalue and issecretvalue(sbA)) or sbA ~= 0) then sb:SetAlpha(0) end
             end
             local bg = CFD(cf).bg
             if bg and not ns._chatStackHidden then
@@ -1793,7 +1797,10 @@ end
 -- would write Edit Mode's size store behind the size lane's back.
 local function SuppressEditModeChild(f)
     if not f then return end
-    if f:GetAlpha() ~= 0 then f:SetAlpha(0) end
+    -- GetAlpha reads secret on chat-roleset widgets in lockdown; a secret
+    -- skips the compare and re-asserts.
+    local a = f:GetAlpha()
+    if (issecretvalue and issecretvalue(a)) or a ~= 0 then f:SetAlpha(0) end
     if f.SetMouseClickEnabled then
         if f:IsMouseClickEnabled() then f:SetMouseClickEnabled(false) end
         if f:IsMouseMotionEnabled() then f:SetMouseMotionEnabled(false) end

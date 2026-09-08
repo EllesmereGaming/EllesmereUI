@@ -6,8 +6,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  from the display engine's bridge tail: the FINAL formatted string
 --  (player links, class colors, channel prefix included), after Blizzard's
 --  secure pipeline produced it. Capture happens in the open world only and
---  never stores secret values; restore replays into OUR message frames, so
---  no Blizzard frame is ever touched. Saved format is compatible with the
+--  never stores secret values; restore replays into both message surfaces
+--  through the engine, so replayed lines keep working links and stay inside
+--  the range the wheel scrolls. Saved format is compatible with the
 --  previous sessionLog schema (message body without timestamp prefix;
 --  the prefix is re-applied on restore from serverTime with the current
 --  timestamp format).
@@ -418,8 +419,8 @@ function ECHAT.SnapshotChatSessionHistory()
 end
 
 -------------------------------------------------------------------------------
---  Restore: replay saved lines into OUR message frames (oldest lines end up
---  above everything already displayed). No Blizzard frame is involved.
+--  Restore: replay saved lines through the engine's backfill (oldest lines
+--  end up above everything already displayed).
 -------------------------------------------------------------------------------
 UnarmDeferredRestore = function()
     deferFrame:UnregisterAllEvents()
