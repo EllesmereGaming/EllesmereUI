@@ -1948,6 +1948,7 @@ end
 --  Refresh
 -------------------------------------------------------------------------------
 function EUI_Bank:RefreshBank()
+    COLUMNS = BP().bankColumns or 14
     if not EUI_Bank:IsVisible() then return end
     NotifyBankTypeForTSM()
 
@@ -3022,6 +3023,7 @@ eventFrame:SetScript("OnEvent", function(_, event)
             end
         end
         -- Set initial size so frame is visible immediately
+        COLUMNS = BP().bankColumns or 14
         local gridW = COLUMNS * (SLOT_SIZE + SPACING)
         EUI_Bank:SetWidth(GetBankSidebarWidth() + gridW + 10 * 2 + SCROLLBAR_HIT_W + 2)
         EUI_Bank:SetHeight(FIXED_H)
