@@ -10511,6 +10511,51 @@ initFrame:SetScript("OnEvent", function(self)
         -----------------------------------------------------------------------
         _, h = W:SectionHeader(parent, SECTION_THREAT, y);  y = y - h
 
+        -- Row 0: which surfaces carry the threat color. Health Bar is the historical
+        -- single channel (on by default); Border and Text are independent second signals,
+        -- so the bar can keep its Enemy Types color (Caster / Mini-Boss / Boss) while the
+        -- border and the name show aggro at the same time.
+        local threatChanRow
+        threatChanRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Threat Colors",
+              values={ __placeholder = "..." }, order={ "__placeholder" },
+              getValue=function() return "__placeholder" end,
+              setValue=function() end },
+            { type="label", text="" });  y = y - h
+
+        -- Replace the placeholder dropdown with a multi-select checkbox dropdown.
+        if not EllesmereUI._prebuilding then
+            local leftRgn = threatChanRow._leftRegion
+            if leftRgn._control then leftRgn._control:Hide() end
+            local chanItems = {
+                { key = "health", label = "Health Bar" },
+                { key = "border", label = "Border" },
+                { key = "name",   label = "Texts" },
+            }
+            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                leftRgn, 170, leftRgn:GetFrameLevel() + 2,
+                chanItems,
+                function(k)
+                    if k == "health" then return ns.GetThreatColorHealth() end
+                    if k == "border" then return ns.GetThreatColorBorder() end
+                    if k == "name"   then return ns.GetThreatColorName() end
+                    return false
+                end,
+                function(k, v)
+                    if k == "health" then DB().threatColorHealth = v
+                    elseif k == "border" then DB().threatColorBorder = v
+                    elseif k == "name" then DB().threatColorName = v end
+                    RefreshAllPlates()
+                end)
+            PP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
+            leftRgn._control = cbDD
+            cbDD:HookScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(cbDD, "Chooses which parts of the nameplate carry the threat colors below. Turn Health Bar off and Border or Texts on to read aggro and mob type at the same time: the bar keeps its Enemy Types color while the border or the name turns red.")
+            end)
+            cbDD:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+        end
+
         -- Row 1: Tank Threat (left) ---- Non-Tank Threat (right)
         local threatRow
         threatRow, h = W:DualRow(parent, y,
