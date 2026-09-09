@@ -1241,8 +1241,8 @@ local function ShamanShieldCastSpell()
 end
 
 local SHAMAN_SHIELDS = {
-    { key="es_orbit", name="Earth Shield (Self)",
-      castSpell=974, buffIDs={383648}, requireTalent=383010,
+    { key="earth_shield", name="Earth Shield",
+      castSpell=974, buffIDs={974, 383648}, requireTalent=383010,
       check="player" },
     { key="ls_ws_orbit", name="Lightning/Water Shield",
       castSpellFn=ShamanShieldCastSpell, buffIDs={192106, 52127}, requireTalent=383010,
@@ -3647,8 +3647,8 @@ local specialsActive = EABR.SectionShows(co.specialsWhereToShow, inInstance)
                         local ok = true
                         if shield.requireTalent and not Known(shield.requireTalent) then ok = false end
                         if shield.excludeTalent and Known(shield.excludeTalent) then ok = false end
-                        -- es_orbit is combat-safe, handled below
-                        if shield.key == "es_orbit" then ok = false end
+                        -- earth_shield custom handler below
+                        if shield.key == "earth_shield" then ok = false end
                         if inCombat or inKeystone then ok = false end
                         if ok and not PlayerHasAuraByID(shield.buffIDs, "special") then
                             local e = AcquireEntry()
@@ -3775,24 +3775,21 @@ local specialsActive = EABR.SectionShows(co.specialsWhereToShow, inInstance)
         end
     end -- consumables block
 
-    -- Earth Shield self-buff (383648), only with Elemental Orbit. NOT
-    -- actually combat-safe despite being whitelisted in NON_SECRET_SPELL_IDS:
-    -- confirmed in-game that GetPlayerAuraBySpellID(383648) returns nothing
-    -- readable in combat even while the buff is genuinely active, so a
-    -- reminder already up when combat starts would get stuck (neither the
-    -- live read nor the pre-combat snapshot can clear it) until combat ends.
-    -- Suppress in combat/keystone instead, same as its ls_ws_orbit/
-    -- shield_basic siblings just above.
+    -- Earth Shield handler.
+    -- With Elemental Orbit: requires both self-buff (383648) and group member buff (974)
+    -- Without Elemental Orbit: requires group member buff (974) only
     if specialsActive and playerClass == "SHAMAN" and not (inCombat or inKeystone) then
-        local esOrbit = SHAMAN_SHIELDS[1]  -- es_orbit entry
-        if co.enabled[esOrbit.key] ~= false and Known(esOrbit.castSpell)
-           and esOrbit.requireTalent and Known(esOrbit.requireTalent) then
-            if not PlayerHasAuraByID(esOrbit.buffIDs) then
+        local earthShield = SHAMAN_SHIELDS[1]  -- earth_shield entry
+        if co.enabled[earthShield.key] ~= false and Known(earthShield.castSpell) then
+            local hasOrbit = Known(earthShield.requireTalent)
+            local hasGroupBuff = BuffExistsOnAnyGroupMember({earthShield.buffIDs[1]})
+            local hasSelfBuff = PlayerHasAuraByID({earthShield.buffIDs[2]})
+            if (not hasGroupBuff and (IsInGroup() or IsInRaid())) or (hasOrbit and not hasSelfBuff) then
                 local e = AcquireEntry()
-                e.mode = "spell"; e.spellID = esOrbit.castSpell
-                e.label = ShortLabel(esOrbit.name, "SHAMAN_SHIELD")
-                e.cat = "consumable"; e.data = esOrbit
-                e.dismissKey = "consumable:" .. esOrbit.key
+                e.mode = "spell"; e.spellID = earthShield.castSpell
+                e.label = ShortLabel(earthShield.name, "SHAMAN_SHIELD")
+                e.cat = "consumable"; e.data = earthShield
+                e.dismissKey = "consumable:" .. earthShield.key
                 missing[#missing+1] = e
             end
         end
