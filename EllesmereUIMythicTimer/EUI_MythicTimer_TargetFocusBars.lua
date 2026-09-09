@@ -200,15 +200,29 @@ local function BuildBar(which)
     SetFSFont(bar.timer, 11)
 
     -- 10Hz cast timer text (engine-slept between fires; self-stops when the
-    -- cast ends). Remaining time from the duration object only.
+    -- cast ends). Remaining time from the duration object only. bar.durKind
+    -- (set by ArmFill, which already knows which getter applies) picks the
+    -- one matching API instead of probing all three every tick; falls back to
+    -- the full chain on a transient miss or before any kind is cached.
     bar._timerTick = function(force)
         if not bar.isCasting and not force then return end
         local cfg = BarCfg(bar.which)
         if not cfg or cfg.showTimer == false then return true end
         if UnitCastingDuration then
-            local durObj = UnitCastingDuration(bar.unit)
-                or (UnitEmpoweredChannelDuration and UnitEmpoweredChannelDuration(bar.unit, true))
-                or (UnitChannelDuration and UnitChannelDuration(bar.unit))
+            local durObj
+            local kind = bar.durKind
+            if kind == "cast" then
+                durObj = UnitCastingDuration(bar.unit)
+            elseif kind == "empowered" then
+                durObj = UnitEmpoweredChannelDuration and UnitEmpoweredChannelDuration(bar.unit, true)
+            elseif kind == "channel" then
+                durObj = UnitChannelDuration and UnitChannelDuration(bar.unit)
+            end
+            if not durObj then
+                durObj = UnitCastingDuration(bar.unit)
+                    or (UnitEmpoweredChannelDuration and UnitEmpoweredChannelDuration(bar.unit, true))
+                    or (UnitChannelDuration and UnitChannelDuration(bar.unit))
+            end
             if durObj then
                 bar.timer:SetFormattedText("%.1f", durObj:GetRemainingDuration())
             else
@@ -549,12 +563,27 @@ end
 --------------------------------------------------------------------------------
 --  Target text (nameplate port: UnitShouldDisplaySpellTargetName gate).
 --------------------------------------------------------------------------------
+-- StyleBar's 48% name width assumes the target zone is in use; most casts (any
+-- self-cast, or a unit with target text off) never populate it, so name stays
+-- needlessly capped and clips into "..." with room to spare. Hand that zone back
+-- to the name whenever this cast has no target text to show.
+local function SizeNameForTarget(bar, hasTarget)
+    local cfg = BarCfg(bar.which)
+    if not cfg then return end
+    local w = cfg.width or 260
+    local h = cfg.height or 22
+    local reserve = (cfg.showTimer ~= false) and ((cfg.timerSize or 11) * 2.2) or 0
+    local shared = (w - h) * 0.48
+    bar.name:SetWidth(hasTarget and shared or math.max(shared, (w - h) - 8 - reserve))
+end
+
 local function PaintTarget(bar)
     local tf = TF()
     local fs = bar.target
     if not tf or tf.showTarget == false then
         fs:SetText("")
         fs:Hide()
+        SizeNameForTarget(bar, false)
         return
     end
     local spellTarget, spellTargetClass
@@ -568,6 +597,7 @@ local function PaintTarget(bar)
     if type(spellTarget) == "nil" then
         fs:SetText("")
         fs:Hide()
+        SizeNameForTarget(bar, false)
         return
     end
     if tf.targetClassColor ~= false and type(spellTargetClass) ~= "nil" and C_ClassColor then
@@ -579,6 +609,7 @@ local function PaintTarget(bar)
     end
     fs:SetText(spellTarget)
     fs:Show()
+    SizeNameForTarget(bar, true)
 end
 
 --------------------------------------------------------------------------------
@@ -599,12 +630,14 @@ local function ArmFill(bar, isChannel)
             local dirn = isEmp and Enum.StatusBarTimerDirection.ElapsedTime
                 or Enum.StatusBarTimerDirection.RemainingTime
             sb:SetTimerDuration(dur, nil, dirn)
+            bar.durKind = isEmp and "empowered" or "channel"
         end
     else
         dur = UnitCastingDuration(bar.unit)
         if dur then
             sb:SetReverseFill(false)
             sb:SetTimerDuration(dur, nil, Enum.StatusBarTimerDirection.ElapsedTime)
+            bar.durKind = "cast"
         end
     end
     return dur ~= nil, isEmp
@@ -681,10 +714,13 @@ local function UpdateCast(bar)
                 bar.icon:SetTexture(nil)
             end
         end
+        -- PaintTarget first: it sizes bar.name for whether this cast has target
+        -- text to share the row with, and SetWidth after SetText does not
+        -- reliably re-truncate an already-laid-out FontString.
+        PaintTarget(bar)
         if cfg.showSpellName ~= false then
             bar.name:SetText(name)
         end
-        PaintTarget(bar)
         bar.timer:SetText("")
 
         if type(kickProtected) == "nil" then kickProtected = false end

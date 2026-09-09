@@ -326,9 +326,12 @@ initFrame:SetScript("OnEvent", function(self)
         glowOvr:SetAllPoints(iconFrame)
         glowOvr:SetFrameLevel(iconFrame:GetFrameLevel() + 2)
         glowOvr:EnableMouse(false)
+        glowOvr._euiGlowPreview = true  -- exempt from Show Glows Only in Combat
 
         local function RefreshPreview()
-            EllesmereUI.Glows.StopAllGlows(glowOvr)
+            -- Through the CDM wrapper, not Glows directly: it also clears this
+            -- overlay's glow record, so a preview left off keeps no stale one.
+            ns.StopNativeGlow(glowOvr)
             if isOffFn() then
                 iconFrame:SetAlpha(0.3)
                 return
@@ -891,6 +894,26 @@ initFrame:SetScript("OnEvent", function(self)
         local curBtn = _glowSelectedButton  -- nil = no selection
 
         local ACCENT = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
+
+        -- Small inline gear button anchored to the left of a DualRow half's
+        -- control (mirrors the cog pattern used throughout the options UI,
+        -- e.g. the Name Text cog on BuildCDMBarsPage).
+        local function MakeCogBtn(rgn, showFn, anchorTo, iconPath)
+            local anchor = anchorTo or (rgn and (rgn._lastInline or rgn._control)) or rgn
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", anchor, "LEFT", -8, 0)
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints()
+            cogTex:SetTexture(iconPath or EllesmereUI.RESIZE_ICON)
+            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(self) showFn(self) end)
+            if rgn then rgn._lastInline = cogBtn end
+            return cogBtn
+        end
 
         -------------------------------------------------------------------
         --  Content Header: Live Action Bar Preview (replica of BuildLivePreview)
@@ -1533,6 +1556,7 @@ initFrame:SetScript("OnEvent", function(self)
                           setValue = function(v)
                               entry.mode = v
                               Refresh()
+                              EllesmereUI:RefreshPage()
                           end,
                         },
                         { type = "toggle", text = "Only In Combat",
@@ -1562,9 +1586,24 @@ initFrame:SetScript("OnEvent", function(self)
                         ns.StartNativeGlow(ov, style, cr, cg, cb)
                     end
 
-                    -- Row 2: Glow Type (with eyeball) | Glow Color Swatch Selectors
-                    local glowRow
-                    glowRow, h = W:DualRow(parent, y,
+                    -- At Stacks (toggle) + gear (Comparison / Stack Count), paired with
+                    -- Glow Type so every row stays filled. Same operator set and same
+                    -- fail-open bias as the per-icon Glow at Stacks feature (Stack Text
+                    -- and Glows cog): an unknown/secret application count never blocks
+                    -- the glow.
+                    local stackRow
+                    stackRow, h = W:DualRow(parent, y,
+                        { type = "toggle", text = "At Stacks",
+                          tooltip = "Only glow once the buff's stack count matches the comparison set via the gear.",
+                          disabled = function() return entry.mode == "MISSING" end,
+                          disabledTooltip = "Not available in Buff Missing mode",
+                          getValue = function() return entry.stackEnabled == true end,
+                          setValue = function(v)
+                              entry.stackEnabled = v or nil
+                              Refresh()
+                              EllesmereUI:RefreshPage()
+                          end,
+                        },
                         { type = "dropdown", text = "Glow Type",
                           values = glowLabels, order = glowOrder,
                           disabled = function() return BarHasCustomShape(curBar) end,
@@ -1578,15 +1617,60 @@ initFrame:SetScript("OnEvent", function(self)
                               Refresh()
                               RefreshPreviewGlow()
                           end,
-                        },
-                        { type = "label", text = "Glow Color" }
+                        }
                     );  y = y - h
+                    do
+                        local rgn = stackRow._leftRegion
+                        local _, cogShow = EllesmereUI.BuildCogPopup({
+                            title = "At Stacks", noOwnerDim = true,
+                            frameStrata = "FULLSCREEN_DIALOG", frameLevel = 350,
+                            rows = {
+                                { type = "dropdown", label = "Comparison",
+                                  values = { lt = "Below (<)", lte = "At Most (<=)", eq = "Exactly (=)", gte = "At Least (>=)", gt = "Above (>)" },
+                                  order = { "lt", "lte", "eq", "gte", "gt" },
+                                  get = function() return entry.stackOperator or "gte" end,
+                                  set = function(v)
+                                      entry.stackOperator = v ~= "gte" and v or nil
+                                      Refresh()
+                                  end },
+                                { type = "input", label = "Stack Count", inputWidth = 42, commitOnBlur = true,
+                                  get = function() return tostring(tonumber(entry.stackThreshold) or 2) end,
+                                  set = function(v)
+                                      local t = math.floor(tonumber(v) or 2)
+                                      if t < 1 then t = 1 end
+                                      if t > 99 then t = 99 end
+                                      entry.stackThreshold = t
+                                      Refresh()
+                                  end },
+                            },
+                        })
+                        local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.COGS_ICON)
+                        local cogDis = CreateFrame("Frame", nil, rgn)
+                        cogDis:SetAllPoints(cogBtn); cogDis:SetFrameLevel(cogBtn:GetFrameLevel() + 5)
+                        cogDis:EnableMouse(true)
+                        cogDis:SetScript("OnEnter", function()
+                            local tip = entry.mode == "MISSING" and "Not available in Buff Missing mode" or "Enable At Stacks"
+                            EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip(tip))
+                        end)
+                        cogDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                        local function UpdateCogDisStack()
+                            if entry.mode == "MISSING" or not entry.stackEnabled then
+                                cogBtn:SetAlpha(0.4)
+                                cogDis:Show()
+                            else
+                                cogDis:Hide()
+                            end
+                        end
+                        cogBtn:HookScript("OnShow", UpdateCogDisStack)
+                        EllesmereUI.RegisterWidgetRefresh(UpdateCogDisStack)
+                        UpdateCogDisStack()
+                    end
 
-                    -- Eyeball preview toggle (on left region of glow type row)
+                    -- Eyeball preview toggle (on right region of the At Stacks / Glow Type row)
                     if not EllesmereUI._prebuilding then
                         local EYE_VIS   = EllesmereUI.EYE_VISIBLE_ICON
                         local EYE_INVIS = EllesmereUI.EYE_INVISIBLE_ICON
-                        local leftRgn = glowRow._leftRegion
+                        local leftRgn = stackRow._rightRegion
                         if leftRgn and leftRgn._control then
                             local eyeBtn = CreateFrame("Button", nil, leftRgn)
                             eyeBtn:SetSize(26, 26)
@@ -1606,6 +1690,7 @@ initFrame:SetScript("OnEvent", function(self)
                                     local ov = CreateFrame("Frame", nil, previewBtn)
                                     ov:SetAllPoints(previewBtn)
                                     ov:SetFrameLevel(previewBtn:GetFrameLevel() + 10)
+                                    ov._euiGlowPreview = true  -- exempt from Show Glows Only in Combat
                                     _bgPreviewGlowOverlays[pvKey] = ov
                                 end
                                 local ov = _bgPreviewGlowOverlays[pvKey]
@@ -1635,12 +1720,28 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                     end
 
-                    -- Inline color swatch for glow color (on right region of row 2)
+                    -- Row: Glow Color (swatches) | Remove Glow
+                    local colorRow
+                    colorRow, h = W:DualRow(parent, y,
+                        { type = "label", text = "Glow Color" },
+                        { type = "labeledButton", text = "Remove Glow", buttonText = "Remove", width = 150,
+                          onClick = function()
+                              table.remove(buffList, removeAIdx)
+                              if #buffList == 0 then
+                                  bg.assignments[assignKey] = nil
+                              end
+                              Refresh()
+                              EllesmereUI:RefreshPage(true)
+                          end,
+                        }
+                    );  y = y - h
+
+                    -- Inline color swatch for glow color (on left region)
                     if not EllesmereUI._prebuilding then
-                        local rightRgn = glowRow._rightRegion
-                        if rightRgn and EllesmereUI.BuildTrioColorSwatch then
+                        local leftRgn = colorRow._leftRegion
+                        if leftRgn and EllesmereUI.BuildTrioColorSwatch then
                             local glowSwatch, defaultSwatch, classSwatch = EllesmereUI.BuildTrioColorSwatch(
-                                rightRgn, glowRow:GetFrameLevel() + 3,
+                                leftRgn, colorRow:GetFrameLevel() + 3,
                                 {
                                     getMode = function() return entry.colorMode or "default" end,
                                     setMode = function(m) entry.colorMode = m end,
@@ -1655,35 +1756,19 @@ initFrame:SetScript("OnEvent", function(self)
                                     onChange = function() Refresh(); RefreshPreviewGlow(); EllesmereUI:RefreshPage() end,
                                     overrideSize = 20,
                                 })
-                            PP.Point(classSwatch, "RIGHT", rightRgn, "RIGHT", -20, 0)
+                            PP.Point(classSwatch, "RIGHT", leftRgn, "RIGHT", -20, 0)
                             PP.Point(glowSwatch, "RIGHT", classSwatch, "LEFT", -8, 0)
                             PP.Point(defaultSwatch, "RIGHT", glowSwatch, "LEFT", -8, 0)
                         end
                     end
 
-                    -- Row 3: Remove Glow on its own row (left slot), after the glow config.
-                    local removeRow
-                    removeRow, h = W:DualRow(parent, y,
-                        { type = "labeledButton", text = "Remove Glow", buttonText = "Remove", width = 150,
-                          onClick = function()
-                              table.remove(buffList, removeAIdx)
-                              if #buffList == 0 then
-                                  bg.assignments[assignKey] = nil
-                              end
-                              Refresh()
-                              EllesmereUI:RefreshPage(true)
-                          end,
-                        },
-                        { type = "spacer" }
-                    );  y = y - h
-
                     -- Buff icon to the LEFT of the Remove button
                     do
-                        local leftRgn = removeRow._leftRegion
-                        if leftRgn and leftRgn._control then
-                            local btn = leftRgn._control
+                        local rightRgn = colorRow._rightRegion
+                        if rightRgn and rightRgn._control then
+                            local btn = rightRgn._control
                             local btnH = btn:GetHeight()
-                            local ico = leftRgn:CreateTexture(nil, "ARTWORK")
+                            local ico = rightRgn:CreateTexture(nil, "ARTWORK")
                             ico:SetSize(btnH, btnH)
                             PP.Point(ico, "RIGHT", btn, "LEFT", -8, 0)
                             ico:SetTexCoord(0.08, 0.92, 0.08, 0.92)
@@ -2597,9 +2682,17 @@ initFrame:SetScript("OnEvent", function(self)
         local function MakeSpellItem(sp)
             -- Every spell here came from BuffBarCooldownViewer enumeration, so it's by definition tracked -- no popup needed.
             local usedOnBar = ns.SpellUsedOnAnyOtherTBB and ns.SpellUsedOnAnyOtherTBB(sp.spellID, nil)
-            local isSelected = not barCfg.popularKey and not barCfg.spellIDs
+            -- A family bar (Roll the Bones) is selected by its base id OR any member,
+            -- since the row resolves to the active outcome while one is up.
+            local isSelected = not barCfg.popularKey
                              and barCfg.trackType ~= "cooldown"
                              and barCfg.spellID and barCfg.spellID > 0 and barCfg.spellID == sp.spellID
+            if not isSelected and barCfg.spellIDs and not barCfg.popularKey
+               and barCfg.trackType ~= "cooldown" then
+                for _, sid in ipairs(barCfg.spellIDs) do
+                    if sid == sp.spellID then isSelected = true; break end
+                end
+            end
             local item = CreateFrame("Button", nil, inner)
             item:SetHeight(ITEM_H)
             item:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
@@ -2676,8 +2769,33 @@ initFrame:SetScript("OnEvent", function(self)
                 barCfg.baseSpellID = nil
                 if sp.cdID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
                     local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(sp.cdID)
-                    if info and info.spellID and info.spellID > 0 and info.spellID ~= sp.spellID then
-                        barCfg.baseSpellID = info.spellID
+                    local RTB_BASE_SPELL_ID = 1214909
+                    local isSec = issecretvalue
+                    local baseSID = info and info.spellID
+                    if baseSID and (isSec and isSec(baseSID)) then baseSID = nil end
+                    if baseSID and baseSID > 0 and baseSID ~= sp.spellID then
+                        barCfg.baseSpellID = baseSID
+                    end
+                    -- Roll the Bones: ONE tracked-bar slot cycles through mutually
+                    -- exclusive outcome buffs, listed only in the raw linkedSpellIDs.
+                    -- The row resolves to whichever outcome is up at pick time, so a
+                    -- single id matches nothing else after a re-roll: store the whole
+                    -- family as the want-set and key the config on the stable base.
+                    if baseSID == RTB_BASE_SPELL_ID and type(info.linkedSpellIDs) == "table" then
+                        local ids = {}
+                        for i = 1, #info.linkedSpellIDs do
+                            local lid = info.linkedSpellIDs[i]
+                            if type(lid) == "number" and not (isSec and isSec(lid)) and lid > 0 then
+                                ids[#ids + 1] = lid
+                            end
+                        end
+                        if #ids >= 2 then
+                            barCfg.spellIDs    = ids
+                            barCfg.spellID     = baseSID
+                            barCfg.baseSpellID = nil
+                            local nm = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(baseSID)
+                            if nm and nm ~= "" then barCfg.name = nm end
+                        end
                     end
                 end
                 Refresh()
@@ -4611,7 +4729,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local _, cogShow = EllesmereUI.BuildCogPopup({
                     title = "Shift Offset",
                     rows = {
-                        { type = "slider", label = "Extra Y Offset", min = -50, max = 50, step = 1,
+                        { type = "slider", pixel = true, label = "Extra Y Offset", min = -50, max = 50, step = 1,
                           get = function()
                               local e = GlobalEntry()
                               return (e and e.shiftNoBarExtraY) or 0
@@ -5422,6 +5540,31 @@ initFrame:SetScript("OnEvent", function(self)
                           bd.chargeHashLineB, bd.chargeHashLineA = b, a
                           RefreshTBB()
                       end },
+                    { type = "toggle", label = "Partial Charge Shade",
+                      tooltip = "Darkens the section of the bar that is still recharging the next charge.",
+                      get = function()
+                          local bd = SelectedTBB()
+                          return bd and bd.chargeHashShade == true
+                      end,
+                      set = function(v)
+                          local bd = SelectedTBB(); if not bd then return end
+                          bd.chargeHashShade = v and true or nil
+                          RefreshTBB()
+                      end },
+                    { type = "slider", label = "Shade Darkness", min = 5, max = 95, step = 5,
+                      disabled = function()
+                          local bd = SelectedTBB()
+                          return not bd or bd.chargeHashShade ~= true
+                      end,
+                      get = function()
+                          local bd = SelectedTBB()
+                          return bd and math.floor(((bd.chargeHashShadeAlpha or 0.5) * 100) + 0.5) or 50
+                      end,
+                      set = function(v)
+                          local bd = SelectedTBB(); if not bd then return end
+                          bd.chargeHashShadeAlpha = (v or 50) / 100
+                          RefreshTBB()
+                      end },
                 },
             })
             local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.COGS_ICON)
@@ -5482,53 +5625,30 @@ initFrame:SetScript("OnEvent", function(self)
         local displayHeader
         displayHeader, h = W:SectionHeader(parent, "Display", y);  y = y - h
 
-        -- Visibility (mode dropdown) | Visibility Options (checkbox dropdown, CDM-Bars-style
-        -- plus the TBB-only Hide When Inactive cap; Only In Combat lives in the Visibility
-        -- mode dropdown itself now, In Combat).
-        local tbbVisRow, tbbVisH = EllesmereUI.BuildVisibilityModeRow(W, parent, y,
+        -- Visibility: one control, the shared axis list plus the TBB-only Hide When
+        -- Inactive row (single-lane, so it rides in as an extraItem). No mouseover for
+        -- CDM-family bars; "Only In Combat" is the In Combat axis.
+        local _, tbbVisH = EllesmereUI.BuildVisibilityRow(W, parent, y,
             { getStore = SelectedTBB, legacyKey = "barVisibility",
               caps = { partyIncludesRaid = false, noMouseover = true, luaDragonriding = true },
-              onChanged = function() RefreshTBB() end },
-            { type="dropdown", text="Visibility Options",
-              values={ __placeholder = "..." }, order={ "__placeholder" },
-              getValue=function() return "__placeholder" end,
-              setValue=function() end });  y = y - tbbVisH
-
-        -- Replace the dummy right dropdown with the checkbox dropdown (same technique CDM
-        -- Bars uses -- BuildVisibilityModeRow only knows how to build a plain dropdown slot).
-        if not EllesmereUI._prebuilding then
-            local rightRgn = tbbVisRow._rightRegion
-            if rightRgn._control then rightRgn._control:Hide() end
-            -- The shared list (skyriding included) plus the TBB-only Hide When Inactive cap.
-            local tbbVisItems = {}
-            for _, item in ipairs(EllesmereUI.VIS_OPT_ITEMS) do
-                tbbVisItems[#tbbVisItems + 1] = item
-            end
-            tbbVisItems[#tbbVisItems + 1] = { key = "hideWhenInactive", label = "Hide When Inactive",
-                tooltip = "Only show this bar while the tracked buff/cooldown is active. Unchecked keeps an empty bar on screen at all times." }
-            local tbbCbDD, tbbCbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                rightRgn, 210, rightRgn:GetFrameLevel() + 2,
-                tbbVisItems,
-                function(k)
-                    local bd = SelectedTBB(); if not bd then return false end
-                    -- hideWhenInactive predates this dropdown and is nil-means-on everywhere
-                    -- it is read, so it cannot go through the plain truthiness path.
-                    if k == "hideWhenInactive" then return bd.hideWhenInactive ~= false end
-                    return bd[k] or false
-                end,
-                function(k, v)
-                    local bd = SelectedTBB(); if not bd then return end
-                    bd[k] = v; RefreshTBB()
-                end)
-            PP.Point(tbbCbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
-            rightRgn._control = tbbCbDD
-            rightRgn._lastInline = nil
-            EllesmereUI.RegisterWidgetRefresh(tbbCbDDRefresh)
-        end
-
-        -- Show Icon | Opacity
-        local iconRow
-        iconRow, h = W:DualRow(parent, y,
+              onChanged = function() RefreshTBB() end,
+              onOptionChanged = function() RefreshTBB() end,
+              extraItems = {
+                  { key = "hideWhenInactive", label = "Hide When Inactive",
+                    tooltip = "Only show this bar while the tracked buff/cooldown is active. Unchecked keeps an empty bar on screen at all times.",
+                    -- nil means ON everywhere this is read, so it cannot go through a
+                    -- plain truthiness path.
+                    get = function()
+                        local bd = SelectedTBB()
+                        return bd and bd.hideWhenInactive ~= false
+                    end,
+                    -- No refresh here: the row fires onOptionChanged after every write.
+                    set = function(v)
+                        local bd = SelectedTBB(); if not bd then return end
+                        bd.hideWhenInactive = v
+                    end },
+              } },
+            -- Show Icon moved up into the slot the Visibility Options dropdown left behind.
             { type = "dropdown", text = "Show Icon",
               values = { none = "None", left = "Left (Top)", right = "Right (Bottom)" },
               order = { "none", "left", "right" },
@@ -5536,7 +5656,11 @@ initFrame:SetScript("OnEvent", function(self)
               setValue = function(v)
                   local bd = SelectedTBB(); if not bd then return end
                   bd.iconDisplay = v; RefreshTBB()
-              end },
+              end });  y = y - tbbVisH
+
+        -- Opacity | Background Color (moved up from its old trailing half-row below)
+        local iconRow
+        iconRow, h = W:DualRow(parent, y,
             { type = "slider", text = "Opacity",
               min = 0, max = 100, step = 1,
               getValue = function()
@@ -5546,7 +5670,19 @@ initFrame:SetScript("OnEvent", function(self)
               setValue = function(v)
                   local bd = SelectedTBB(); if not bd then return end
                   bd.opacity = v / 100; RefreshTBB()
-              end }
+              end },
+            { type = "multiSwatch", text = "Background Color",
+              swatches = {
+                  { tooltip = "Background Color", hasAlpha = true,
+                    getValue = function()
+                        local bd = SelectedTBB()
+                        return (bd and bd.bgR or 0), (bd and bd.bgG or 0), (bd and bd.bgB or 0), (bd and bd.bgA or 0.4)
+                    end,
+                    setValue = function(r, g, b, a)
+                        local bd = SelectedTBB(); if not bd then return end
+                        bd.bgR, bd.bgG, bd.bgB, bd.bgA = r, g, b, a; RefreshTBB()
+                    end },
+              } }
         );  y = y - h
 
         -- Fill Color (dropdown: auto/custom + gradient mode + 2 inline swatches) | Show Spark
@@ -5775,24 +5911,6 @@ initFrame:SetScript("OnEvent", function(self)
                 UpdateCogVis()
             end
         end
-
-        -- Background Color | empty
-        local borderRow
-        borderRow, h = W:DualRow(parent, y,
-            { type = "multiSwatch", text = "Background Color",
-              swatches = {
-                  { tooltip = "Background Color", hasAlpha = true,
-                    getValue = function()
-                        local bd = SelectedTBB()
-                        return (bd and bd.bgR or 0), (bd and bd.bgG or 0), (bd and bd.bgB or 0), (bd and bd.bgA or 0.4)
-                    end,
-                    setValue = function(r, g, b, a)
-                        local bd = SelectedTBB(); if not bd then return end
-                        bd.bgR, bd.bgG, bd.bgB, bd.bgA = r, g, b, a; RefreshTBB()
-                    end },
-              } },
-            { type = "label", text = "" }
-        );  y = y - h
 
         -----------------------------------------------------------------------
         --  EXTRAS
@@ -6312,6 +6430,7 @@ initFrame:SetScript("OnEvent", function(self)
             ov:SetAllPoints(slot)
             ov:SetFrameLevel(slot:GetFrameLevel() + 3)
             ov:SetAlpha(0)
+            ov._euiGlowPreview = true  -- exempt from Show Glows Only in Combat
             slot._glowOverlay = ov
         end
         _cdmActivePreviewOverlay = slot._glowOverlay
@@ -6402,6 +6521,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- Only the art moves; identity stays untouched.
     local function ResolveIconArt(sid, cdID)
         if not sid or sid <= 0 then return sid end
+        if ns.LustPresetIconSpellID then sid = ns.LustPresetIconSpellID(sid) end
         if ns.ResolvePlaceholderIconSID then
             local live = ns.ResolvePlaceholderIconSID(sid, cdID)
             if type(live) == "number" and live > 0 then return live end
@@ -7464,17 +7584,11 @@ initFrame:SetScript("OnEvent", function(self)
         -- custom buffs via AddPresetToBar; the buff phase injects an own-frame so
         -- they render alongside Blizzard-tracked buffs.
         do
-            local alreadyTracked = {}
-            local sdPS = ns.GetBarSpellData(targetBarKey)
-            if sdPS and sdPS.assignedSpells then
-                for _, sid in ipairs(sdPS.assignedSpells) do alreadyTracked[sid] = true end
-            end
             local _, _pClass = UnitClass("player")
             for _, preset in ipairs(ns.BUFF_BAR_PRESETS or {}) do
                 if (not preset.class or preset.class == _pClass)
                    and (not preset.tbbOnly or preset.customAuraToo) then
-                    local primaryID = preset.spellIDs and preset.spellIDs[1]
-                    local isAdded = primaryID and alreadyTracked[primaryID]
+                    local isAdded = ns.IsPresetOnBar(targetBarKey, preset)
                     local si = CreateFrame("Button", nil, inner)
                     si:SetHeight(ITEM_H)
                     si:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
@@ -7648,7 +7762,11 @@ initFrame:SetScript("OnEvent", function(self)
     -- Lists the class's CDM-trackable buffs plus a Custom Spell ID entry. No
     -- durations (aura-driven, never cast-timed) and no item/preset rows (those are
     -- cast-timer / CD-utility concepts that do not belong on an aura tracker).
-    local function ShowBuffToCDPicker(anchorFrame, targetBarKey, onChanged)
+    -- onPicked(spellID, collidedCdID) = selection mode ("Replace with Buff"): every
+    -- catalog buff is listed, a "None" row clears, one click picks and closes;
+    -- nothing is hosted and no Custom Spell ID row (a replacement needs a
+    -- Blizzard viewer frame to route). Absent = the hosting picker below.
+    local function ShowBuffToCDPicker(anchorFrame, targetBarKey, onChanged, onPicked)
         if _spellPickerMenu and _spellPickerMenu:IsShown() then
             _spellPickerMenu:Hide()
             if _spellPickerMenu._anchorFrame == anchorFrame then return end
@@ -7684,6 +7802,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- cooldownID, not by the shared spellID in `already` -- filter those out
         -- per-slot so only the specific claimed slot disappears, not both.
         local alreadyCd = sdCur and ns.CollectCdClaimSet(sdCur)
+        -- Both modes skip buffs already HOSTED on this bar: a hosted buff owns a
+        -- slot of its own, and doubling it as a replacement would leave that
+        -- slot empty while the aura is active (Pass 3b and 3c would both route it).
         local knownSpells = {}
         for _, sp in ipairs(allSpells) do
             if sp.cdmCatGroup == "buff" and sp.spellID and not already[sp.spellID]
@@ -7717,7 +7838,8 @@ initFrame:SetScript("OnEvent", function(self)
             if onChanged then onChanged() end
         end
 
-        -- Custom Spell ID (no duration -- aura-driven).
+        -- Custom Spell ID (no duration -- aura-driven). Selection mode gets a
+        -- "None" row in this seat instead.
         do
             local csItem = CreateFrame("Button", nil, inner)
             csItem:SetHeight(ITEM_H)
@@ -7729,12 +7851,16 @@ initFrame:SetScript("OnEvent", function(self)
             local csLbl = csItem:CreateFontString(nil, "OVERLAY")
             csLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
             csLbl:SetPoint("LEFT", 10, 0); csLbl:SetJustifyH("LEFT")
-            csLbl:SetText(EllesmereUI.L("Custom Spell ID"))
+            csLbl:SetText(onPicked and EllesmereUI.L("None (use cooldown icon)") or EllesmereUI.L("Custom Spell ID"))
             csLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
             csItem:SetScript("OnEnter", function() csLbl:SetTextColor(1, 1, 1, 1); csHl:SetColorTexture(1, 1, 1, hlA); csHl:SetAlpha(1) end)
             csItem:SetScript("OnLeave", function() csLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA); csHl:SetAlpha(0) end)
             csItem:SetScript("OnClick", function()
                 menu:Hide()
+                if onPicked then
+                    onPicked(nil, nil)
+                    return
+                end
                 ShowCustomSpellIDPopup(targetBarKey, false, function(sid)
                     ns.AddBuffToCDUtilBar(targetBarKey, sid)
                     AfterAdd()
@@ -7784,6 +7910,15 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             item:SetScript("OnClick", function()
                 if notLearned then EllesmereUI.HideWidgetTooltip() end
+                if onPicked then
+                    -- Selection mode: hand back the identity the runtime routes by
+                    -- (cooldownID only for a collided pair, else the spellID) and close.
+                    local cdPick = sp.cdID and ns.IsCollidedBuffSid
+                        and ns.IsCollidedBuffSid(sp.spellID) and sp.cdID or nil
+                    menu:Hide()
+                    onPicked(sp.spellID, cdPick)
+                    return
+                end
                 -- Collided pair (two viewer slots, one shared spellID): claim by cooldownID
                 -- so each slot is hostable on its own; non-collided buffs keep the sid path (identity survives talent swaps, cooldownIDs drift).
                 if sp.cdID and ns.IsCollidedBuffSid and ns.IsCollidedBuffSid(sp.spellID)
@@ -8930,6 +9065,15 @@ initFrame:SetScript("OnEvent", function(self)
                     AB.RunBarApply = function(applyKeys, applyWrite, val, allSpecs)
                         if not applyWrite then return end
                         local keys = applyKeys or {}
+                        -- Resolve the value ONCE, before anything below clears a thing. A payload
+                        -- writer (custom colour, Threshold Seconds) reads the source spell's own keys
+                        -- back out of its entry, and the sweeps clear exactly those keys -- re-running
+                        -- it per tier and per stamp would make the result depend on sweep order.
+                        local temp = {}
+                        applyWrite(temp, val)
+                        local function stamp(t)
+                            for _, k in ipairs(keys) do t[k] = temp[k] end
+                        end
                         local touchesCas = false
                         for _, k in ipairs(keys) do
                             if AB.CAS_KEYS[k] then touchesCas = true; break end
@@ -8952,10 +9096,10 @@ initFrame:SetScript("OnEvent", function(self)
                                 end
                             end)
                             if touchesCas then
-                                AB.StampMemberCas(bsX, applyWrite, val, keys)
+                                AB.StampMemberCas(bsX, stamp, val, keys)
                             end
                             if touchesHosted then
-                                AB.StampHostedBuffs(prof, bsX, applyWrite, val, keys)
+                                AB.StampHostedBuffs(prof, bsX, stamp, val, keys)
                             end
                         end
                         if allSpecs then
@@ -8966,7 +9110,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 -- New tier table: chained results are stale.
                                 ns._cdmResGen = (ns._cdmResGen or 0) + 1
                             end
-                            applyWrite(abs, val)
+                            stamp(abs)
                             AB.FlipSessionGates(abs)
                             local spAll = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
                             if spAll then
@@ -8986,7 +9130,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 ns._cdmResGen = (ns._cdmResGen or 0) + 1
                             end
                             ns.ChainSettings(bs, bdSel and bdSel.barSpellSettings)
-                            applyWrite(bs, val)
+                            stamp(bs)
                             AB.FlipSessionGates(bs)
                             local spAll = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
                             local specKeyA = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
@@ -10701,10 +10845,10 @@ initFrame:SetScript("OnEvent", function(self)
                             })
                         end)
 
-                        MakeCogRow("Charge/Stack Text", function()
+                        MakeCogRow("Stack Text and Glows", function()
                             local b = cdmBd
-                            return valChanged(ss.showItemCount, (b and b.showItemCount) ~= false)
-                                or valChanged(ss.showChargeStackText, (b and b.showChargeStackText) ~= false)
+                            return valChanged(ss.showChargeStackText, (b and b.showChargeStackText) ~= false)
+                                or ss.buffGlowStackEnabled == true
                                 or valChanged(ss.stackCountSize, (b and b.stackCountSize) or 11)
                                 or colChanged(ss.stackCountR, ss.stackCountG, ss.stackCountB,
                                     (b and b.stackCountR) or 1, (b and b.stackCountG) or 1, (b and b.stackCountB) or 1)
@@ -10713,13 +10857,37 @@ initFrame:SetScript("OnEvent", function(self)
                                 or valChanged(ss.stackCountY, (b and b.stackCountY) or 0)
                         end, function(row)
                             return EllesmereUI.BuildCogPopup({
-                                title = "Charge/Stack Text", noOwnerDim = true,
+                                title = "Stack Text and Glows", noOwnerDim = true,
                                 frameStrata = "FULLSCREEN_DIALOG", frameLevel = 350,
                                 rows = {
-                                    { type="toggle", label="Show Item Count",
-                                      get=function() if ss.showItemCount ~= nil then return ss.showItemCount end return (cdmBd and cdmBd.showItemCount) ~= false end,
-                                      set=function(v) EnsureSS(); ss.showItemCount = v; if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end if row._updateLabel then row._updateLabel() end end },
-                                    { type="toggle", label="Show Charge/Stack Text",
+                                    { type="toggle", label="Glow at Stacks",
+                                      tooltip="Replaces Buff Glow: the icon glows when its stack count matches the comparison below, using this spell's Buff Glow style (Modern WoW Glow if none is set).",
+                                      get=function() return ss.buffGlowStackEnabled == true end,
+                                      set=function(v) EnsureSS(); ss.buffGlowStackEnabled = v or nil; if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end if row._updateLabel then row._updateLabel() end end },
+                                    { type="dropdown", label="Comparison",
+                                      values={ lt="Below (<)", lte="At Most (<=)", eq="Exactly (=)", gte="At Least (>=)", gt="Above (>)" },
+                                      order={ "lt", "lte", "eq", "gte", "gt" },
+                                      disabled=function() return not ss.buffGlowStackEnabled end,
+                                      disabledTooltip="Enable Glow at Stacks",
+                                      get=function() return ss.buffGlowStackOperator or "gte" end,
+                                      set=function(v)
+                                          EnsureSS(); ss.buffGlowStackOperator = v ~= "gte" and v or nil
+                                          if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
+                                          if row._updateLabel then row._updateLabel() end
+                                      end },
+                                    { type="input", label="Stack Count", inputWidth=42, commitOnBlur=true,
+                                      disabled=function() return not ss.buffGlowStackEnabled end,
+                                      disabledTooltip="Enable Glow at Stacks",
+                                      get=function() return tostring(tonumber(ss.buffGlowStackThreshold) or 2) end,
+                                      set=function(v)
+                                          local t = math.floor(tonumber(v) or 0)
+                                          if t < 1 then t = 1 end
+                                          if t > 99 then t = 99 end
+                                          EnsureSS(); ss.buffGlowStackThreshold = t
+                                          if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
+                                          if row._updateLabel then row._updateLabel() end
+                                      end },
+                                    { type="toggle", label="Show Stack Text",
                                       get=function() if ss.showChargeStackText ~= nil then return ss.showChargeStackText end return (cdmBd and cdmBd.showChargeStackText) ~= false end,
                                       set=function(v) EnsureSS(); ss.showChargeStackText = v; if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end if row._updateLabel then row._updateLabel() end end },
                                     { type="slider", label="Size", min=6, max=30, step=1,
@@ -10744,7 +10912,7 @@ initFrame:SetScript("OnEvent", function(self)
                         end)
 
                         -- Border: per-icon override of the bar's border SIZE + COLOR (never style).
-                        -- Mirrors the Charge/Stack Text cog exactly; the render side reads (ssb and ssb.border*) or the bar value in ApplyShapeToCDMIcon.
+                        -- Mirrors the Charges/Stacks cog exactly; the render side reads (ssb and ssb.border*) or the bar value in ApplyShapeToCDMIcon.
                         MakeCogRow("Border", function()
                             local b = cdmBd
                             return valChanged(ss.borderSize, (b and b.borderSize) or 1)
@@ -11269,6 +11437,13 @@ initFrame:SetScript("OnEvent", function(self)
                                 { apply = { keys = { "activeSwipeMode", "activeSwipeClassColor",
                                                      "activeSwipeR", "activeSwipeG", "activeSwipeB", "activeSwipeA" },
                                             write = function(t, v)
+                                                -- Read the source colour BEFORE the clear below: a bar
+                                                -- apply stamps every preset member's cas entry, this icon's included, so clearing first would wipe the colour this write then reads back.
+                                                local pr, pg, pb, pa
+                                                if cas then
+                                                    pr, pg, pb, pa = cas.activeSwipeR, cas.activeSwipeG,
+                                                                     cas.activeSwipeB, cas.activeSwipeA
+                                                end
                                                 -- Colour keys belong to Custom only; clear them for
                                                 -- class/none so a stale colour from an earlier Custom
                                                 -- apply can't linger in the tier. Leftover R/G/B/A
@@ -11287,10 +11462,10 @@ initFrame:SetScript("OnEvent", function(self)
                                                     -- Custom: push this icon's current color.
                                                     t.activeSwipeMode = "custom"
                                                     t.activeSwipeClassColor = false
-                                                    t.activeSwipeR = (cas and cas.activeSwipeR) or 1
-                                                    t.activeSwipeG = (cas and cas.activeSwipeG) or 0.776
-                                                    t.activeSwipeB = (cas and cas.activeSwipeB) or 0.376
-                                                    t.activeSwipeA = (cas and cas.activeSwipeA) or 0.7
+                                                    t.activeSwipeR = pr or 1
+                                                    t.activeSwipeG = pg or 0.776
+                                                    t.activeSwipeB = pb or 0.376
+                                                    t.activeSwipeA = pa or 0.7
                                                 end
                                             end } })
 
@@ -11556,6 +11731,10 @@ initFrame:SetScript("OnEvent", function(self)
                         { apply = { keys = { "activeSwipeMode", "activeSwipeClassColor",
                                              "activeSwipeR", "activeSwipeG", "activeSwipeB", "activeSwipeA" },
                                     write = function(t, v)
+                                        -- Read the source colour BEFORE the clear below: "Apply to This
+                                        -- Spell" passes ss itself, so clearing first would wipe the picked colour this write then reads back, resetting it to the default.
+                                        local pr, pg, pb, pa = ss.activeSwipeR, ss.activeSwipeG,
+                                                               ss.activeSwipeB, ss.activeSwipeA
                                         -- Colour keys belong to Custom only; clear them for class/none so a
                                         -- stale colour from an earlier Custom apply can't linger in the tier and make valuesMatch always fail (perpetual overwrite popup, no change).
                                         t.activeSwipeR = nil; t.activeSwipeG = nil
@@ -11570,10 +11749,10 @@ initFrame:SetScript("OnEvent", function(self)
                                             -- Custom: push this spell's effective color.
                                             t.activeSwipeMode = "custom"
                                             t.activeSwipeClassColor = false
-                                            t.activeSwipeR = ss.activeSwipeR or 1
-                                            t.activeSwipeG = ss.activeSwipeG or 0.776
-                                            t.activeSwipeB = ss.activeSwipeB or 0.376
-                                            t.activeSwipeA = ss.activeSwipeA or 0.7
+                                            t.activeSwipeR = pr or 1
+                                            t.activeSwipeG = pg or 0.776
+                                            t.activeSwipeB = pb or 0.376
+                                            t.activeSwipeA = pa or 0.7
                                         end
                                     end } })
                     if isCustomInjected and activeRow then
@@ -11951,6 +12130,51 @@ initFrame:SetScript("OnEvent", function(self)
 
                     -- (The per-setting "Apply to Bar / (All Specs)" strip superseded
                     -- "Sync All Bar Buttons"; cdm_spell_settings_tiers_v1 migrated it.)
+
+                    -- Replace with Buff (cd/util family, real spells only; per-spell ONLY like
+                    -- Custom Icon -- a slot identity choice, no tiers, no apply strip). Picks a
+                    -- tracked buff whose viewer frame takes this cooldown's slot while the aura
+                    -- is active; the cooldown returns when it ends. Closes the menu (popup flow).
+                    if not isBuffBar and not isHostedBuff and not (bd and bd.isGhostBar)
+                       and type(spellID) == "number" and spellID > 0
+                       and not ((ns._myRacialsSet and ns._myRacialsSet[spellID])
+                                or (sd.customSpellIDs and sd.customSpellIDs[spellID])) then
+                        local repSID = rawget(ss, "replaceBuffID")
+                        local repName = repSID and C_Spell.GetSpellName(repSID)
+                        local rbRow = CreateFrame("Button", nil, inner)
+                        rbRow:SetHeight(ITEM_H)
+                        rbRow:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+                        rbRow:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+                        rbRow:SetFrameLevel(menu:GetFrameLevel() + 2)
+                        local rbLbl = rbRow:CreateFontString(nil, "OVERLAY")
+                        rbLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                        rbLbl:SetPoint("LEFT", 10, 0); rbLbl:SetPoint("RIGHT", -10, 0)
+                        rbLbl:SetJustifyH("LEFT"); rbLbl:SetWordWrap(false); rbLbl:SetMaxLines(1)
+                        rbLbl:SetText(EllesmereUI.L("Replace with Buff") .. ": " .. (repName or EllesmereUI.L("None")))
+                        rbLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                        local rbHl = rbRow:CreateTexture(nil, "ARTWORK")
+                        rbHl:SetAllPoints(); rbHl:SetColorTexture(1, 1, 1, 0); rbHl:SetAlpha(0)
+                        rbRow:SetScript("OnEnter", function()
+                            rbLbl:SetTextColor(1, 1, 1, 1)
+                            rbHl:SetColorTexture(1, 1, 1, hlA); rbHl:SetAlpha(1)
+                            EllesmereUI.ShowWidgetTooltip(rbRow, EllesmereUI.L("Show a tracked buff in this slot while it is active."))
+                        end)
+                        rbRow:SetScript("OnLeave", function()
+                            rbLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA); rbHl:SetAlpha(0)
+                            EllesmereUI.HideWidgetTooltip()
+                        end)
+                        rbRow:SetScript("OnClick", function()
+                            EllesmereUI.HideWidgetTooltip()
+                            menu:Hide()
+                            ShowBuffToCDPicker(rbRow, barKey, nil, function(buffSID, buffCdID)
+                                if ns.SetCooldownBuffReplacement then
+                                    ns.SetCooldownBuffReplacement(barKey, spellID, buffSID, buffCdID)
+                                end
+                                RefreshCDPreview()
+                            end)
+                        end)
+                        mH = mH + ITEM_H
+                    end
 
                     -- Custom Icon (per-spell ONLY -- deliberately outside the Apply-to-Bar
                     -- tiers: an icon replacement is a per-slot identity choice, so no tiers, no
@@ -13156,12 +13380,6 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Presets (Heroism, potions, etc.) -- flat list in custom buff bar picker
         if isCustomBuff then
-            local alreadyTracked = {}
-            local sdPS = bd and ns.GetBarSpellData(bd.key)
-            if sdPS and sdPS.assignedSpells then
-                for _, sid in ipairs(sdPS.assignedSpells) do alreadyTracked[sid] = true end
-            end
-
             -- Divider before presets
             local psDiv = inner:CreateTexture(nil, "ARTWORK")
             psDiv:SetHeight(1)
@@ -13177,8 +13395,7 @@ initFrame:SetScript("OnEvent", function(self)
                 -- self-timed icon, armed off the Sated edge instead of a cast).
                 if (not preset.class or preset.class == _pClass)
                     and (not preset.tbbOnly or preset.customAuraToo) then
-                    local primaryID = preset.spellIDs and preset.spellIDs[1]
-                    local isAdded = primaryID and alreadyTracked[primaryID]
+                    local isAdded = ns.IsPresetOnBar(barKey, preset)
 
                     local si = CreateFrame("Button", nil, inner)
                     si:SetHeight(ITEM_H)
@@ -16415,40 +16632,57 @@ initFrame:SetScript("OnEvent", function(self)
         if not isFocusKick then
         _, h = W:SectionHeader(parent, "BAR LAYOUT", y);  y = y - h
 
-        -- Row 1: (Sync) Visibility | Visibility Options (checkbox dropdown). Mouseover stays
-        -- structurally absent for CDM bars (noMouseover), matching the old VIS_VALUES_CDM list.
-        local visRow, visH = EllesmereUI.BuildVisibilityModeRow(W, parent, y,
+        -- Row 1: (Sync) Visibility. Mouseover stays structurally absent for CDM bars
+        -- (noMouseover), matching the old VIS_VALUES_CDM list.
+        local visRow, visH = EllesmereUI.BuildVisibilityRow(W, parent, y,
             { getStore = BD, legacyKey = "barVisibility",
               caps = { partyIncludesRaid = false, noMouseover = true, luaDragonriding = true },
+              -- The three built-in bars ship visHideHousing = true in DEFAULTS, so an
+              -- explicit uncheck must persist false or DeepMergeDefaults re-fills it to
+              -- true on next login. Harmless for other bars: they never go through that
+              -- merge, so the checkbox reads store[k] == true either way.
+              trueDefaultOpts = { visHideHousing = true },
               onChanged = function()
                   ns.CDMApplyVisibility()
+              end,
+              onOptionChanged = function()
+                  ns.CDMApplyVisibility()
               end },
-            { type="dropdown", text="Visibility Options",
-              values={ __placeholder = "..." }, order={ "__placeholder" },
-              getValue=function() return "__placeholder" end,
-              setValue=function() end });  y = y - visH
+            -- Number of Rows moved up into the slot the Visibility Options dropdown
+            -- left behind; its Row Icons cog moved with it.
+            { type="slider", text="Number of Rows",
+              min=1, max=6, step=1,
+              getValue=function() return BD().numRows or 1 end,
+              setValue=function(v)
+                  local bd = BD()
+                  bd.numRows = v
+                  if v ~= 2 then
+                      bd.topRowCount = nil; bd.customTopRowEnabled = nil
+                      bd.bottomRowCount = nil; bd.customBottomRowEnabled = nil
+                      bd.topRowSizeOffset = nil; bd.customTopRowSizeEnabled = nil
+                      bd.bottomRowSizeOffset = nil; bd.customBottomRowSizeEnabled = nil
+                      if bd.rowGrowDirection then
+                          -- The row growth pin rides on the 2-row custom split (the
+                          -- only layout whose row count changes at runtime). Clear it
+                          -- with the rest of the split settings and re-store the
+                          -- position in plain edge format from the bar's current spot.
+                          bd.rowGrowDirection = nil
+                          if ns.RecaptureBarAnchor then ns.RecaptureBarAnchor(bd.key) end
+                      end
+                  end
+                  -- numRows change invalidates cached match dims (rows is one
+                  -- of the inputs to the matched-axis dim calculation).
+                  bd._matchIconPhys = nil
+                  bd._matchExtraPixels = nil
+                  bd._matchStride = nil
+                  bd._matchExtraPixelsH = nil
+                  bd._matchStrideH = nil
+                  ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
+                  EllesmereUI:RefreshPage()
+              end });  y = y - visH
 
-        -- Replace the dummy right dropdown with our checkbox dropdown
-        if not EllesmereUI._prebuilding then
-            local rightRgn = visRow._rightRegion
-            if rightRgn._control then rightRgn._control:Hide() end
-            local visItems = EllesmereUI.VIS_OPT_ITEMS
-            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                rightRgn, 210, rightRgn:GetFrameLevel() + 2,
-                visItems,
-                function(k) return BD()[k] or false end,
-                function(k, v)
-                    BD()[k] = v
-                    ns.CDMApplyVisibility()
-                    EllesmereUI:RefreshPage()
-                end)
-            PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
-            rightRgn._control = cbDD
-            rightRgn._lastInline = nil
-            EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
-        end
-
-        -- Sync icon on Visibility (left) -- set-aware so multi-selections compare and copy correctly (uniform caps across CDM bars).
+        -- ONE sync icon now that both halves share a control: VisFullCopy / VisFullEquals
+        -- carry the mode selection and every option boolean together.
         if not EllesmereUI._prebuilding then
             local rgn = visRow._leftRegion
             EllesmereUI.BuildSyncIcon({
@@ -16458,43 +16692,15 @@ initFrame:SetScript("OnEvent", function(self)
                     local src = BD()
                     local synced = true
                     ForEachSyncBar(function(b)
-                        if not EllesmereUI.VisSelectionEquals(src, "barVisibility", b, "barVisibility") then synced = false end
+                        if not EllesmereUI.VisFullEquals(src, "barVisibility", b, "barVisibility") then synced = false end
                     end)
                     return synced
                 end,
                 onClick = function()
                     local src = BD()
                     ForEachSyncBar(function(b)
-                        if b ~= src then EllesmereUI.VisCopySelection(b, src, "barVisibility") end
+                        if b ~= src then EllesmereUI.VisFullCopy(b, src, "barVisibility") end
                     end)
-                    ns.CDMApplyVisibility(); EllesmereUI:RefreshPage()
-                end,
-            })
-        end
-
-        -- Sync icon on Visibility Options (right)
-        if not EllesmereUI._prebuilding then
-            local rgn = visRow._rightRegion
-            EllesmereUI.BuildSyncIcon({
-                region  = rgn,
-                tooltip = "Apply Visibility Options to all Bars",
-                isSynced = function()
-                    local bd = BD()
-                    local synced = true
-                    for _, item in ipairs(EllesmereUI.VIS_OPT_ITEMS) do
-                        local k = item.key
-                        local cur = bd[k] or false
-                        ForEachSyncBar(function(b) if (b[k] or false) ~= cur then synced = false end end)
-                    end
-                    return synced
-                end,
-                onClick = function()
-                    local bd = BD()
-                    for _, item in ipairs(EllesmereUI.VIS_OPT_ITEMS) do
-                        local k = item.key
-                        local v = bd[k] or false
-                        ForEachSyncBar(function(b) b[k] = v end)
-                    end
                     ns.CDMApplyVisibility(); EllesmereUI:RefreshPage()
                 end,
             })
@@ -16514,6 +16720,22 @@ initFrame:SetScript("OnEvent", function(self)
             y = y - cursorH
         end
 
+        -- Bar Opacity is offered for cooldown/utility/buff bars only (excl. focuskick);
+        -- other bar types leave the slot blank, as before.
+        local isCDOrUtilityRow3 = (barData.barType == "cooldowns" or barData.barType == "utility" or barData.barType == "buffs") and not isFocusKick
+        local row3Right
+        if isCDOrUtilityRow3 then
+            row3Right = { type="slider", text="Bar Opacity",
+                min=0, max=100, step=1,
+                getValue=function() return math.floor((BD().barOpacity or 1) * 100 + 0.5) end,
+                setValue=function(v)
+                    BD().barOpacity = v / 100
+                    if ns.ApplyBarOpacity then ns.ApplyBarOpacity(BD().key) end
+                    UpdateCDMPreview()
+                end }
+        else
+            row3Right = { type="label", text="" }
+        end
         local opacityRow
         opacityRow, h = W:DualRow(parent, y,
             { type="toggle", text="Bar Background",
@@ -16523,23 +16745,7 @@ initFrame:SetScript("OnEvent", function(self)
                   ns.BuildAllCDMBars(); Refresh()
                   UpdateCDMPreview(); EllesmereUI:RefreshPage()
               end },
-            { type="toggle", text="Vertical Orientation",
-              getValue=function() return BD().verticalOrientation end,
-              setValue=function(v)
-                  local bd = BD()
-                  bd.verticalOrientation = v
-                  bd.growDirection = v and "DOWN" or "RIGHT"
-                  -- Orientation flip invalidates the row growth direction too (UP/DOWN are
-                  -- horizontal-bar values, LEFT/RIGHT vertical).
-                  bd.rowGrowDirection = nil
-                  -- Orientation flip swaps the meaning of width-axis vs height-axis, so width/height match caches no longer apply.
-                  bd._matchIconPhys = nil
-                  bd._matchExtraPixels = nil
-                  bd._matchStride = nil
-                  bd._matchExtraPixelsH = nil
-                  bd._matchStrideH = nil
-                  ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
-              end });  y = y - h
+            row3Right);  y = y - h
 
         -- Inline color swatch on Bar Background (left)
         if not EllesmereUI._prebuilding then
@@ -16573,58 +16779,10 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        -- Row 3: Number of Rows | Bar Opacity (cd/utility/buff, excl. focuskick)
-        local isCDOrUtilityRow3 = (barData.barType == "cooldowns" or barData.barType == "utility" or barData.barType == "buffs") and not isFocusKick
-        local row3Right
-        if isCDOrUtilityRow3 then
-            row3Right = { type="slider", text="Bar Opacity",
-                min=0, max=100, step=1,
-                getValue=function() return math.floor((BD().barOpacity or 1) * 100 + 0.5) end,
-                setValue=function(v)
-                    BD().barOpacity = v / 100
-                    if ns.ApplyBarOpacity then ns.ApplyBarOpacity(BD().key) end
-                    UpdateCDMPreview()
-                end }
-        else
-            row3Right = { type="label", text="" }
-        end
-        local numRowsRow
-        numRowsRow, h = W:DualRow(parent, y,
-            { type="slider", text="Number of Rows",
-              min=1, max=6, step=1,
-              getValue=function() return BD().numRows or 1 end,
-              setValue=function(v)
-                  local bd = BD()
-                  bd.numRows = v
-                  if v ~= 2 then
-                      bd.topRowCount = nil; bd.customTopRowEnabled = nil
-                      bd.bottomRowCount = nil; bd.customBottomRowEnabled = nil
-                      bd.topRowSizeOffset = nil; bd.customTopRowSizeEnabled = nil
-                      bd.bottomRowSizeOffset = nil; bd.customBottomRowSizeEnabled = nil
-                      if bd.rowGrowDirection then
-                          -- The row growth pin rides on the 2-row custom split (the
-                          -- only layout whose row count changes at runtime). Clear it
-                          -- with the rest of the split settings and re-store the
-                          -- position in plain edge format from the bar's current spot.
-                          bd.rowGrowDirection = nil
-                          if ns.RecaptureBarAnchor then ns.RecaptureBarAnchor(bd.key) end
-                      end
-                  end
-                  -- numRows change invalidates cached match dims (rows is one
-                  -- of the inputs to the matched-axis dim calculation).
-                  bd._matchIconPhys = nil
-                  bd._matchExtraPixels = nil
-                  bd._matchStride = nil
-                  bd._matchExtraPixelsH = nil
-                  bd._matchStrideH = nil
-                  ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
-                  EllesmereUI:RefreshPage()
-              end },
-            row3Right);  y = y - h
-
-        -- Inline cog on Number of Rows: Row Icons settings (only relevant when numRows == 2)
+        -- Inline cog on Number of Rows (now in the Visibility row's right slot):
+        -- Row Icons settings (only relevant when numRows == 2)
         if not EllesmereUI._prebuilding then
-            local leftRgn = numRowsRow._leftRegion
+            local leftRgn = visRow._rightRegion
             local ctrl = leftRgn._control
             local function customTopOff()
                 local bd = BD()
@@ -16799,9 +16957,10 @@ initFrame:SetScript("OnEvent", function(self)
             MakeCogBtn(leftRgn, topRowCogShow, ctrl, EllesmereUI.COGS_ICON)
         end
 
-        -- Inline cog on Bar Opacity: fade the bar to a chosen alpha while out of combat. Off by default.
+        -- Inline cog on Bar Opacity (now in the Bar Background row): fade the bar to a
+        -- chosen alpha while out of combat. Off by default.
         if isCDOrUtilityRow3 then
-            local rgn = numRowsRow._rightRegion
+            local rgn = opacityRow._rightRegion
             local ctrl = rgn and rgn._control
             local _, oocCogShow = EllesmereUI.BuildCogPopup({
                 title = "Out of Combat Alpha",
@@ -16946,6 +17105,29 @@ initFrame:SetScript("OnEvent", function(self)
                   end });  y = y - h
         end
 
+        -- Vertical Orientation shares a row with Keep Buffs in Same Place on buff bars
+        -- (both apply there), and stands alone -- last row of the section -- otherwise.
+        -- Moved down here, after Max Icons/Overflow To; shown for every non-focuskick bar
+        -- regardless of overflow capability, same as before the move (this section's outer
+        -- gate is `not isFocusKick`, not isOverflowBar).
+        local vertOrientCfg = { type="toggle", text="Vertical Orientation",
+            getValue=function() return BD().verticalOrientation end,
+            setValue=function(v)
+                local bd = BD()
+                bd.verticalOrientation = v
+                bd.growDirection = v and "DOWN" or "RIGHT"
+                -- Orientation flip invalidates the row growth direction too (UP/DOWN are
+                -- horizontal-bar values, LEFT/RIGHT vertical).
+                bd.rowGrowDirection = nil
+                -- Orientation flip swaps the meaning of width-axis vs height-axis, so width/height match caches no longer apply.
+                bd._matchIconPhys = nil
+                bd._matchExtraPixels = nil
+                bd._matchStride = nil
+                bd._matchExtraPixelsH = nil
+                bd._matchStrideH = nil
+                ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
+            end }
+
         if ns.IsBarBuffFamily(barData) then
             local prof = ns.ECME and ns.ECME.db and ns.ECME.db.profile
             -- (Hide Buffs When Inactive toggle removed: always forced ON.)
@@ -16969,7 +17151,9 @@ initFrame:SetScript("OnEvent", function(self)
                       ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
                       EllesmereUI:RefreshPage()
                   end },
-                { type="label", text="" }); y = y - h
+                vertOrientCfg); y = y - h
+        else
+            _, h = W:DualRow(parent, y, vertOrientCfg, { type="label", text="" });  y = y - h
         end
 
         end -- not isFocusKick (Bar Layout section)
@@ -18451,7 +18635,7 @@ initFrame:SetScript("OnEvent", function(self)
             if on then scBlock:Hide() else scBlock:Show() end
 
             local scPopupSpec = {
-                title = "Charge/Stack Text",
+                title = "Charges/Stacks",
                 rows = {
                     -- View over the legacy showItemCount boolean (Never = false,
                     -- Always = true/nil) plus the itemCountOOC flag for the new
@@ -18917,6 +19101,206 @@ initFrame:SetScript("OnEvent", function(self)
                   end
               end });  y = y - h
 
+        -- Rotation Assist styling is profile-wide (not tied to the selected
+        -- bar). Keeping it on this override-eligible page lets the existing
+        -- spec/conditional override system capture every scalar below.
+        -- Read and write the runtime addon's authoritative profile. The options
+        -- DB reference can lag behind a profile/override proxy swap, which made
+        -- the swatches display Class while the renderer still read Custom.
+        local function RotationBars()
+            local runtime = ns.ECME and ns.ECME.db and ns.ECME.db.profile
+            local fallback = DB()
+            return (runtime and runtime.cdmBars) or (fallback and fallback.cdmBars)
+        end
+
+        local rotStyleRow
+        rotStyleRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Rotation Assist Style",
+              values={
+                  blizzard="Blizzard Default", solid="Solid Border",
+                  pixel="Pixel Glow", shape="Shape Glow",
+                  button="Action Button Glow", autocast="Auto-Cast Shine",
+                  gcd="GCD", modern="Modern WoW Glow", classic="Classic WoW Glow",
+              },
+              order={ "blizzard", "solid", "pixel", "shape", "button", "autocast", "gcd", "modern", "classic" },
+              tooltip="Choose the profile-wide border or glow used for Blizzard's Assisted Combat suggestion.",
+              getValue=function()
+                  local c = RotationBars(); return (c and c.rotationAssistStyle) or "blizzard"
+              end,
+              setValue=function(v)
+                  local c = RotationBars()
+                  if c then
+                      c.rotationAssistStyle = v
+                      if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+                      EllesmereUI:RefreshPage()
+                  end
+              end },
+            { type="label", text="Rotation Assist Color" });  y = y - h
+
+        do
+            local colorRgn = rotStyleRow._rightRegion
+            if colorRgn and EllesmereUI.BuildColorSwatch then
+                -- Keep mode selection separate from custom RGB changes. The shared
+                -- trio helper intentionally selects "custom" from its color setter,
+                -- but color-picker cancellation and panel teardown may replay that
+                -- setter. These independent swatches make an explicit custom-swatch
+                -- click the only path which can select custom mode.
+                colorRgn._noCapture = true
+                local function getMode()
+                    local c = RotationBars()
+                    return (c and c.rotationAssistColorMode) or "default"
+                end
+                local refreshRotColors
+                local function setMode(mode)
+                    local c = RotationBars()
+                    if not c or c.rotationAssistStyle == "blizzard" then return end
+                    c.rotationAssistColorMode = mode
+                    if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+                    if refreshRotColors then refreshRotColors() end
+                    if EllesmereUI._NotifySettingWrite then
+                        EllesmereUI._NotifySettingWrite(colorRgn)
+                    end
+                end
+                local custom, refreshCustom = EllesmereUI.BuildColorSwatch(
+                    colorRgn, rotStyleRow:GetFrameLevel() + 3,
+                    function()
+                        local c = RotationBars()
+                        return (c and c.rotationAssistColorR) or 1,
+                               (c and c.rotationAssistColorG) or 0,
+                               (c and c.rotationAssistColorB) or 0, 1
+                    end,
+                    function(r, g, b)
+                        local c = RotationBars()
+                        if c then
+                            c.rotationAssistColorR = r
+                            c.rotationAssistColorG = g
+                            c.rotationAssistColorB = b
+                        end
+                        if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+                    end)
+                local default = EllesmereUI.BuildColorSwatch(
+                    colorRgn, rotStyleRow:GetFrameLevel() + 3,
+                    function() return 1.0, 0.788, 0.137, 1 end,
+                    function() end)
+                local classSwatch = EllesmereUI.BuildColorSwatch(
+                    colorRgn, rotStyleRow:GetFrameLevel() + 3,
+                    function()
+                        local cc = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
+                        return cc.r, cc.g, cc.b, 1
+                    end,
+                    function() end)
+
+                local customPickerClick = custom:GetScript("OnClick")
+                custom:SetScript("OnClick", function(self)
+                    if getMode() ~= "custom" then
+                        setMode("custom")
+                    elseif customPickerClick then
+                        customPickerClick(self)
+                    end
+                end)
+                default:SetScript("OnClick", function() setMode("default") end)
+                classSwatch:SetScript("OnClick", function() setMode("class") end)
+                custom:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(custom, "Custom Color")
+                end)
+                default:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(default, "Default")
+                end)
+                classSwatch:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(classSwatch, "Class Colored")
+                end)
+                custom:SetScript("OnLeave", EllesmereUI.HideWidgetTooltip)
+                default:SetScript("OnLeave", EllesmereUI.HideWidgetTooltip)
+                classSwatch:SetScript("OnLeave", EllesmereUI.HideWidgetTooltip)
+
+                refreshRotColors = function()
+                    local c = RotationBars()
+                    local disabled = not c or c.rotationAssistStyle == "blizzard"
+                    local mode = getMode()
+                    custom:SetAlpha(disabled and 0.15 or (mode == "custom" and 1 or 0.3))
+                    default:SetAlpha(disabled and 0.15 or (mode == "default" and 1 or 0.3))
+                    classSwatch:SetAlpha(disabled and 0.15 or (mode == "class" and 1 or 0.3))
+                    refreshCustom()
+                end
+                refreshRotColors()
+                if EllesmereUI.RegisterWidgetRefresh then
+                    EllesmereUI.RegisterWidgetRefresh(refreshRotColors)
+                end
+                PP.Point(classSwatch, "RIGHT", colorRgn, "RIGHT", -20, 0)
+                PP.Point(custom, "RIGHT", classSwatch, "LEFT", -8, 0)
+                PP.Point(default, "RIGHT", custom, "LEFT", -8, 0)
+                colorRgn._noCapture = nil
+                colorRgn._captureCfg = {
+                    type = "multi", text = "Rotation Assist Color",
+                    accessors = {
+                        {
+                            type = "dropdown", text = "Rotation Assist Color Mode",
+                            values = { default = "Default", custom = "Custom", class = "Class Color" },
+                            order = { "default", "custom", "class" },
+                            getValue = function()
+                                local c = RotationBars()
+                                return (c and c.rotationAssistColorMode) or "default"
+                            end,
+                            setValue = function(mode)
+                                local c = RotationBars()
+                                if c then c.rotationAssistColorMode = mode end
+                                if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+                            end,
+                        },
+                        {
+                            type = "colorpicker", text = "Rotation Assist Custom Color",
+                            getValue = function()
+                                local c = RotationBars()
+                                return (c and c.rotationAssistColorR) or 1,
+                                       (c and c.rotationAssistColorG) or 0,
+                                       (c and c.rotationAssistColorB) or 0, 1
+                            end,
+                            setValue = function(r, g, b)
+                                local c = RotationBars()
+                                if c then
+                                    c.rotationAssistColorR = r
+                                    c.rotationAssistColorG = g
+                                    c.rotationAssistColorB = b
+                                end
+                                if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+                            end,
+                        },
+                    },
+                }
+            end
+        end
+
+        _, h = W:DualRow(parent, y,
+            { type="slider", text="Rotation Assist Thickness", min=1, max=8, step=1, trackWidth=120,
+              tooltip="Thickness in physical pixels for Solid Border and Pixel Glow.",
+              disabled=function()
+                  local c = RotationBars(); local s = c and c.rotationAssistStyle
+                  return s ~= "solid" and s ~= "pixel"
+              end,
+              disabledTooltip="Thickness applies to Solid Border and Pixel Glow",
+              getValue=function()
+                  local c = RotationBars(); return (c and c.rotationAssistThickness) or 3
+              end,
+              setValue=function(v)
+                  local c = RotationBars()
+                  if c then c.rotationAssistThickness = v end
+                  if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+              end },
+            { type="slider", text="Rotation Assist Outset", min=0, max=12, step=1, trackWidth=120,
+              tooltip="How many pixels the custom effect extends beyond the icon.",
+              disabled=function()
+                  local c = RotationBars(); return not c or c.rotationAssistStyle == "blizzard"
+              end,
+              disabledTooltip="Blizzard Default uses Blizzard's native size",
+              getValue=function()
+                  local c = RotationBars(); return (c and c.rotationAssistOutset) or 1
+              end,
+              setValue=function(v)
+                  local c = RotationBars()
+                  if c then c.rotationAssistOutset = v end
+                  if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+              end });  y = y - h
+
         -- Hide Items if Missing | Mirror Key Presses -- CD/utility bars only.
         -- Buff bars host Hide Items if Missing in the tooltip row above (their
         -- copy of this row would be empty), and Mirror Key Presses is not for
@@ -18969,6 +19353,38 @@ initFrame:SetScript("OnEvent", function(self)
                   end
               end });  y = y - h
 
+        -- Global, not per-bar: one gate for every glow the Cooldown Manager
+        -- draws, hence the label. Same hosting trick as Hide Items if Missing
+        -- above -- it takes the cooldown edge row's free slot where that row
+        -- exists, and closes the section on its own for buff-family bars.
+        local glowCombatCfg = { type="toggle", text="Show Glows Only in Combat (global)",
+              tooltip = "Hide every Cooldown Manager glow out of combat and bring them all back the moment you enter combat.",
+              getValue=function()
+                  local p = DB()
+                  return (p and p.cdmBars and p.cdmBars.glowsOnlyInCombat) == true
+              end,
+              setValue=function(v)
+                  local p = DB()
+                  if not p or not p.cdmBars then return end
+                  p.cdmBars.glowsOnlyInCombat = v and true or false
+                  -- Re-read the cached gate, then let the sweep take the running
+                  -- glows down (or bring the suppressed ones back) right away
+                  -- instead of waiting for the next combat edge.
+                  local first = v and ns._cdmGlowGateEverOn ~= true
+                  if ns.RefreshGlowCombatGate then ns.RefreshGlowCombatGate() end
+                  if ns.CDMGlowCombatSync then ns.CDMGlowCombatSync() end
+                  -- First enable of the session: glows lit before this point carry
+                  -- no record (StartNativeGlow records only once the gate has been
+                  -- on), so re-issue the bar and buff glows now -- they restart
+                  -- suppressed. Proc, CD-ready and preset glows already lit follow
+                  -- on their own next edge; every later login is exact from the start.
+                  if first then
+                      if ns.RequestBarGlowUpdate then ns.RequestBarGlowUpdate() end
+                      if ns.RefreshBuffGlows then ns.RefreshBuffGlows() end
+                  end
+                  EllesmereUI:RefreshPage()
+              end }
+
         -- Cooldown/utility bars only: buff bars have no cooldown edge.
         if barData.barType == "cooldowns" or barData.barType == "utility" then
         _, h = W:DualRow(parent, y,
@@ -18979,7 +19395,9 @@ initFrame:SetScript("OnEvent", function(self)
                   BD().showCooldownEdge = v and true or nil
                   ns.BuildAllCDMBars(); Refresh()
               end },
-            { type="label", text="" });  y = y - h
+            glowCombatCfg);  y = y - h
+        else
+        _, h = W:DualRow(parent, y, glowCombatCfg, { type="label", text="" });  y = y - h
         end
 
         end -- custom_buff extras guard
@@ -19017,11 +19435,11 @@ initFrame:SetScript("OnEvent", function(self)
                 Refresh()
             end
             _, h = W:DualRow(parent, y,
-                { type = "slider", text = "Offset X", min = -500, max = 500, step = 1, trackWidth = 120,
+                { type = "slider", pixel = true, text = "Offset X", min = -500, max = 500, step = 1, trackWidth = 120,
                   tooltip = "Extra horizontal shift stacked on top of this bar's normal position. Unlock mode shows the base position; the offset re-applies when you exit.",
                   getValue = function() local b = BD(); return (b and b.addOffsetX) or 0 end,
                   setValue = function(v) SetAddOffset("addOffsetX", v) end },
-                { type = "slider", text = "Offset Y", min = -500, max = 500, step = 1, trackWidth = 120,
+                { type = "slider", pixel = true, text = "Offset Y", min = -500, max = 500, step = 1, trackWidth = 120,
                   tooltip = "Extra vertical shift stacked on top of this bar's normal position. Unlock mode shows the base position; the offset re-applies when you exit.",
                   getValue = function() local b = BD(); return (b and b.addOffsetY) or 0 end,
                   setValue = function(v) SetAddOffset("addOffsetY", v) end }

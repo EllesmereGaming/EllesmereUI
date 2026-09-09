@@ -33,15 +33,17 @@ local TYPE_NAMES = { icons = "Icon", glow = "Frame Glow", square = "Square",
 -- Grid types above the divider, frame effects below (BM dropdown parity).
 local TYPE_ORDER = { "icons", "square", "---", "glow", "healthcolor", "bar" }
 
--- 4-state aura tooltip mode stored on the legacy hide-tooltips keys:
+-- 5-state aura tooltip mode stored on the legacy hide-tooltips keys:
 -- true/nil = hidden, false = shown, "cursor" = shown at the cursor,
--- "combat" = shown but hidden during combat.
+-- "combat" = shown but hidden during combat, "modifier" = shown only while
+-- the Use Modifier cog's key is held.
 local TIP_VALUES = { hidden = "Hidden", shown = "Shown",
-    cursor = "Shown At Cursor", combat = "Hidden In Combat" }
-local TIP_ORDER = { "hidden", "shown", "cursor", "combat" }
+    cursor = "Shown At Cursor", modifier = "Shown on Modifier",
+    combat = "Hidden In Combat" }
+local TIP_ORDER = { "hidden", "shown", "cursor", "modifier", "combat" }
 local function TipModeKey(v)
     if v == false then return "shown" end
-    if v == "cursor" or v == "combat" then return v end
+    if v == "cursor" or v == "combat" or v == "modifier" then return v end
     return "hidden"
 end
 local function TipModeStore(k)
@@ -721,6 +723,18 @@ local TILE_LANE_ITEMS = {
       tooltip = "Debuffs you can dispel." },
     { key = "dispel_typed", label = "Dispels", dual = true,
       tooltip = "Any debuff with a dispel type (Magic, Curse, Disease, Poison, Bleed), even if you cannot remove it." },
+    { isHeader = true, label = "Less Common Filters" },
+    { key = "castbyme", label = "Cast By You", dual = true,
+      tooltip = "Debuffs applied by you or your pet." },
+    { key = "anyplayer", label = "From Any Player", dual = true,
+      tooltip = "Debuffs caused by any player or player pet. The opposite of Non-Player Auras; checking one clears the other." },
+    { key = "magic", label = "Magic", dual = true, tooltip = "Debuffs with the Magic dispel type." },
+    { key = "curse", label = "Curse", dual = true, tooltip = "Debuffs with the Curse dispel type." },
+    { key = "poison", label = "Poison", dual = true, tooltip = "Debuffs with the Poison dispel type." },
+    { key = "disease", label = "Disease", dual = true, tooltip = "Debuffs with the Disease dispel type." },
+    { key = "bleed", label = "Bleed", dual = true, tooltip = "Debuffs with the Bleed dispel type." },
+    { key = "canapply", label = "Can Apply Aura", dual = true,
+      tooltip = "Debuffs your own class is able to apply." },
 }
 local function BuildTileFiltersDD(rgn, t, dm)
     local PP = EllesmereUI.PP or EllesmereUI.PanelPP
@@ -749,6 +763,12 @@ local function BuildTileFiltersDD(rgn, t, dm)
             elseif k == "dispel_typed" then
                 if neg then return NegHas("dispel") and dm.dispelMode == "typed" end
                 return (claim.dispel and true or false) and dm.dispelMode == "typed"
+            end
+            -- Two flavors of ONE nonplayer category (global dm.nonplayerMode).
+            if k == "nonplayer" or k == "anyplayer" then
+                if ((dm.nonplayerMode == "any") ~= (k == "anyplayer")) then return false end
+                if neg then return NegHas("nonplayer") end
+                return claim.nonplayer and true or false
             end
             if neg then return NegHas(k) end
             return claim[k] and true or false
@@ -781,6 +801,28 @@ local function BuildTileFiltersDD(rgn, t, dm)
                     if v then
                         SetNeg("dispel", false)
                         dm.dispelMode = (k == "dispel_typed") and "typed" or "you"
+                    end
+                end
+                DmApply()
+                EllesmereUI:RefreshPage()
+                return
+            end
+            if k == "nonplayer" or k == "anyplayer" then
+                -- ONE nonplayer category, one global flavor (shared with the base
+                -- grid): any checked lane owns both the lane and dm.nonplayerMode;
+                -- checking one lane/flavor clears the other.
+                local mode = (k == "anyplayer") and "any" or nil
+                if neg then
+                    SetNeg("nonplayer", v and true or false)
+                    if v then
+                        claim.nonplayer = nil
+                        dm.nonplayerMode = mode
+                    end
+                else
+                    claim.nonplayer = v and true or nil
+                    if v then
+                        SetNeg("nonplayer", false)
+                        dm.nonplayerMode = mode
                     end
                 end
                 DmApply()
@@ -1048,7 +1090,10 @@ local function BuildBaseDetailDM(frame, fontPath)
           values = { __placeholder = "..." }, order = { "__placeholder" },
           getValue = function() return "__placeholder" end,
           setValue = function() end },
-        { type = "label", text = "" }); sy = sy - hh
+        EllesmereUI.MaxDurationDropdown(
+            function() return dm.maxDurSec end,
+            function(v) dm.maxDurSec = v end,
+            DmApply)); sy = sy - hh
     do
         local PPl = EllesmereUI.PP or EllesmereUI.PanelPP
         local rgn = safRow._leftRegion
@@ -1083,6 +1128,25 @@ local function BuildBaseDetailDM(frame, fontPath)
               tooltip = "Debuffs you can dispel." },
             { key = "dispel_typed", label = "Dispels", dual = true, showLockedFn = AllOn,
               tooltip = "Any debuff with a dispel type (Magic, Curse, Disease, Poison, Bleed), even if you cannot remove it." },
+            -- Less common filters: same two-lane rows, engine-evaluated like the
+            -- rest. From Any Player is the other flavor of Non-Player Auras.
+            { isHeader = true, label = "Less Common Filters" },
+            { key = "castbyme", label = "Cast By You", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs applied by you or your pet." },
+            { key = "anyplayer", label = "From Any Player", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs caused by any player or player pet. The opposite of Non-Player Auras; checking one clears the other." },
+            { key = "magic", label = "Magic", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs with the Magic dispel type." },
+            { key = "curse", label = "Curse", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs with the Curse dispel type." },
+            { key = "poison", label = "Poison", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs with the Poison dispel type." },
+            { key = "disease", label = "Disease", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs with the Disease dispel type." },
+            { key = "bleed", label = "Bleed", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs with the Bleed dispel type." },
+            { key = "canapply", label = "Can Apply Aura", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs your own class is able to apply." },
         }
         -- Hovering a dimmed Show box explains the dim (the lane is inert
         -- while All Debuffs already shows everything). Has Duration is an
@@ -1113,6 +1177,9 @@ local function BuildBaseDetailDM(frame, fontPath)
             return dm.boss == true or dm.role == true or dm.priority == true
                 or dm.cc == true or dm.raid == true or dm.raidcombat == true
                 or dm.dispel == true or dm.nonplayer == true
+                or dm.castbyme == true or dm.magic == true or dm.curse == true
+                or dm.poison == true or dm.disease == true or dm.bleed == true
+                or dm.canapply == true
         end
         -- Empty selections are LEGAL here (user directive 2026-08-16, the
         -- same reversal PAB got): any content source can be unchecked,
@@ -1155,6 +1222,12 @@ local function BuildBaseDetailDM(frame, fontPath)
                     if neg then return NegHas("dispel") and dm.dispelMode == "typed" end
                     return dm.dispel == true and dm.dispelMode == "typed"
                 end
+                -- Two flavors of ONE nonplayer category (dm.nonplayerMode).
+                if k == "nonplayer" or k == "anyplayer" then
+                    if ((dm.nonplayerMode == "any") ~= (k == "anyplayer")) then return false end
+                    if neg then return NegHas("nonplayer") end
+                    return dm.nonplayer == true
+                end
                 if neg then return NegHas(k) end
                 return dm[k] == true
             end,
@@ -1195,6 +1268,28 @@ local function BuildBaseDetailDM(frame, fontPath)
                     DmApply()
                     -- Non-force: re-evaluates the empty-selection warning (and
                     -- any other widget refreshers) without closing the menu.
+                    EllesmereUI:RefreshPage()
+                    return
+                end
+                if k == "nonplayer" or k == "anyplayer" then
+                    -- ONE nonplayer category, one flavor (shared with tiles): any
+                    -- checked lane owns both the lane and dm.nonplayerMode;
+                    -- checking one lane/flavor clears the other.
+                    local mode = (k == "anyplayer") and "any" or nil
+                    if neg then
+                        SetNeg("nonplayer", v and true or false)
+                        if v then
+                            dm.nonplayer = nil
+                            dm.nonplayerMode = mode
+                        end
+                    else
+                        dm.nonplayer = v and true or nil
+                        if v then
+                            SetNeg("nonplayer", false)
+                            dm.nonplayerMode = mode
+                        end
+                    end
+                    DmApply()
                     EllesmereUI:RefreshPage()
                     return
                 end
@@ -1430,13 +1525,89 @@ local function BuildBaseDetailDM(frame, fontPath)
     -- Row: Tooltips | Show Duration Swipe. The swipe toggle was not in
     -- the requested layout but silently orphaning a stored setting is
     -- worse -- parked here pending a call on removing it outright.
-    _, hh = W:DualRow(frame, sy,
+    local tipRow
+    tipRow, hh = W:DualRow(frame, sy,
         { type = "dropdown", text = "Tooltips", values = TIP_VALUES, order = TIP_ORDER,
           getValue = function() return TipModeKey(p.debuffHideTooltips) end,
-          setValue = function(k) p.debuffHideTooltips = TipModeStore(k); DmApply() end },
+          setValue = function(k)
+              p.debuffHideTooltips = TipModeStore(k); DmApply()
+              EllesmereUI:RefreshPage()  -- update the Use Modifier cog disabled state
+          end },
         { type = "toggle", text = "Show Duration Swipe",
           getValue = function() return p.debuffShowSwipe ~= false end,
           setValue = function(v) p.debuffShowSwipe = v; DmApply() end }); sy = sy - hh
+
+    -- "Use Modifier" cog on Tooltips (left region): picks the key for the
+    -- "Shown on Modifier" mode, so it is only available there. While that
+    -- mode is selected with the key still at None, the cog hover warns that
+    -- tooltips will always show (the runtime degrades to plain Shown).
+    do
+        local leftRgn = tipRow._leftRegion
+        local function tipOff()
+            return TipModeKey(p.debuffHideTooltips) ~= "modifier"
+        end
+        local _, tipModShow = EllesmereUI.BuildCogPopup({
+            title = "Tooltips",
+            rows = {
+                { type = "dropdown", label = "Use Modifier",
+                  values = { none = "None", shift = "Shift", control = "Control", alt = "Alt" },
+                  order = { "none", "shift", "control", "alt" },
+                  get = function() return p.debuffTooltipModifier or "none" end,
+                  set = function(v)
+                      p.debuffTooltipModifier = v; DmApply()
+                      EllesmereUI:RefreshPage()  -- clear/raise the no-key warning bubble
+                  end },
+            },
+        })
+        local tipModBtn = CreateFrame("Button", nil, leftRgn)
+        tipModBtn:SetSize(26, 26)
+        tipModBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
+        leftRgn._lastInline = tipModBtn
+        tipModBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
+        tipModBtn:SetAlpha(tipOff() and 0.15 or 0.4)
+        local tipModTex = tipModBtn:CreateTexture(nil, "OVERLAY")
+        tipModTex:SetAllPoints()
+        tipModTex:SetTexture(EllesmereUI.COGS_ICON)
+        tipModBtn:SetScript("OnEnter", function(self)
+            self:SetAlpha(0.7)
+            if (p.debuffTooltipModifier or "none") == "none" then
+                EllesmereUI.ShowWidgetTooltip(self,
+                    "Select a modifier key here, or tooltips will always be shown")
+            end
+        end)
+        tipModBtn:SetScript("OnLeave", function(self)
+            self:SetAlpha(tipOff() and 0.15 or 0.4)
+            EllesmereUI.HideWidgetTooltip()
+        end)
+        tipModBtn:SetScript("OnClick", function(self) tipModShow(self) end)
+
+        -- Blocking overlay + disabled tooltip while the mode is Hidden
+        local tipModBlock = CreateFrame("Frame", nil, tipModBtn)
+        tipModBlock:SetAllPoints()
+        tipModBlock:SetFrameLevel(tipModBtn:GetFrameLevel() + 10)
+        tipModBlock:EnableMouse(true)
+        tipModBlock:SetScript("OnEnter", function()
+            -- Whole sentence: DisabledTooltip passes "This option..." strings
+            -- through verbatim (still localized).
+            EllesmereUI.ShowWidgetTooltip(tipModBtn,
+                EllesmereUI.DisabledTooltip("This option requires Tooltips to be set to Shown on Modifier"))
+        end)
+        tipModBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+        local function UpdateTipModState()
+            local off = tipOff()
+            tipModBtn:SetAlpha(off and 0.15 or 0.4)
+            if off then tipModBlock:Show() else tipModBlock:Hide() end
+        end
+        UpdateTipModState(); EllesmereUI.RegisterWidgetRefresh(UpdateTipModState)
+
+        -- Persistent red bubble above the cog while Shown on Modifier is
+        -- selected with no key picked (the standard empty-selection warning);
+        -- the hover tooltip above keeps the explanation.
+        EllesmereUI.AttachEmptyFilterWarn(leftRgn, tipModBtn, L("Select a Modifier"),
+            function()
+                return tipOff() or (p.debuffTooltipModifier or "none") ~= "none"
+            end)
+    end
 
     sy = BuildFxEffects(frame, sy, dm)
     return sy
@@ -1480,7 +1651,10 @@ local function BuildTileDetail(frame, fontPath, t)
               values = { __placeholder = "..." }, order = { "__placeholder" },
               getValue = function() return "__placeholder" end,
               setValue = function() end },
-            { type = "label", text = "" }); sy = sy - hh
+            EllesmereUI.MaxDurationDropdown(
+                function() return t.maxDurSec end,
+                function(v) t.maxDurSec = v end,
+                DmApply)); sy = sy - hh
         BuildTileFiltersDD(fRow._leftRegion, t, dm)
 
         _, hh = W:SectionHeader(frame, "CORE", sy); sy = sy - hh
@@ -3876,7 +4050,8 @@ function ns.BMP_ShowFilterEditor()
                 local onFilter = (f.spells and f.spells[id] ~= nil)
                     or (f.custom and f.custom[id])
                 if not onFilter then
-                    local nm = C_Spell.GetSpellName and C_Spell.GetSpellName(id)
+                    local nm = (ns.SPELL_NAME_BY_ID and ns.SPELL_NAME_BY_ID[id])
+                        or (C_Spell.GetSpellName and C_Spell.GetSpellName(id))
                     out[#out + 1] = {
                         key = id, label = nm or tostring(id), noCheck = true,
                         icon = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id),
@@ -3953,7 +4128,8 @@ function ns.BMP_ShowFilterEditor()
     end
     -- Alphabetical by spell name (id tiebreak for identical names).
     local function NameOf(id)
-        return (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)) or tostring(id)
+        return (ns.SPELL_NAME_BY_ID and ns.SPELL_NAME_BY_ID[id])
+            or (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)) or tostring(id)
     end
     local function ByName(a, b)
         local na, nb = NameOf(a), NameOf(b)
@@ -3991,7 +4167,8 @@ function ns.BMP_ShowFilterEditor()
         local tex = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id)
         if tex then ico:SetTexture(tex) end
         ico:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        local name = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)
+        local name = (ns.SPELL_NAME_BY_ID and ns.SPELL_NAME_BY_ID[id])
+            or (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id))
         local lr, lg2, lb2 = 1, 1, 1
         if classColor then lr, lg2, lb2 = classColor.r, classColor.g, classColor.b end
         local lbl = EllesmereUI.MakeFont(srow, 13, nil, lr, lg2, lb2)
@@ -4211,8 +4388,11 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
         -- (adding them as extras would be redundant); direct picks always show under
         -- Selected so they can be unchecked.
         local function SpellEntry(id)
-            local name = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)
-            return { key = id, label = (name or ("Spell " .. tostring(id))),
+            local name = (ns.SPELL_NAME_BY_ID and ns.SPELL_NAME_BY_ID[id])
+                or (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id))
+            local label = name or ("Spell " .. tostring(id))
+            -- Truncated rows (long/duplicate names) still need to be told apart on hover.
+            return { key = id, label = label, tooltip = label,
                 icon = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id) }
         end
         local function ByLabel(a, b) return a.label < b.label end
@@ -4342,7 +4522,8 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
                 local present, seen, out = {}, {}, {}
                 for i = 1, #resolved do present[resolved[i]] = true end
                 local function Add(id)
-                    local nm = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)
+                    local nm = (ns.SPELL_NAME_BY_ID and ns.SPELL_NAME_BY_ID[id])
+                        or (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id))
                     out[#out + 1] = { key = id, label = nm or ("Spell " .. tostring(id)) }
                 end
                 local so = ind.spellOrder

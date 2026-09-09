@@ -562,18 +562,18 @@ function ns.EnumerateCDMSettingsCatalog(wantSet)
     if not settings or type(settings.GetDataProvider) ~= "function" then return nil end
     local okP, provider = pcall(settings.GetDataProvider, settings)
     if not okP or type(provider) ~= "table" then return nil end
-    if type(provider.GetOrderedCooldownIDs) ~= "function"
-       or type(provider.GetCooldownInfoForID) ~= "function" then return nil end
-    local okO, ordered = pcall(provider.GetOrderedCooldownIDs, provider)
-    if not okO or type(ordered) ~= "table" then return nil end
+    -- Read the already-built display table, never the getters that would
+    -- build it (see ns.CDMGetProviderDisplayData, EllesmereUICooldownManager.lua).
+    local ordered, infoByID = ns.CDMGetProviderDisplayData(provider)
+    if not ordered then return nil end
     local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
     if not gci then return nil end
 
     local result = {}
     for _, cdID in ipairs(ordered) do
-        local okI, pInfo = pcall(provider.GetCooldownInfoForID, provider, cdID)
+        local pInfo = _IsUsableSID(cdID) and infoByID[cdID]
         local category
-        if okI and type(pInfo) == "table" then category = pInfo.category end
+        if type(pInfo) == "table" then category = pInfo.category end
         if category ~= nil and wantSet[category] then
             -- Same shape the migration and spell caches use. Prefer override
             -- only when the player actually has it -- CDM info can report a
@@ -1674,6 +1674,22 @@ function ns.AddPresetToBar(barKey, preset)
     return true
 end
 
+--- Is any member of this preset already on the bar? The inverse of the "exists"
+--- guard above, so the picker greys exactly what an add would reject: a preset
+--- with variant ids (the invisibility potions, the two faction lust ids) counts
+--- as present no matter which member is stored.
+function ns.IsPresetOnBar(barKey, preset)
+    local sd = ns.GetBarSpellData(barKey)
+    local spellList = sd and sd.assignedSpells
+    if not spellList or type(preset.spellIDs) ~= "table" then return false end
+    for _, sid in ipairs(preset.spellIDs) do
+        for _, existing in ipairs(spellList) do
+            if existing == sid then return true end
+        end
+    end
+    return false
+end
+
 --- Add a tracked spell (spellID) to a bar. Picker-driven add: always treated
 --- as "claim this spell for the target bar" -- auto-removed from EVERY other
 --- bar in the same family (default + custom + matching ghost) first. One
@@ -1796,6 +1812,54 @@ function ns.AddBuffToCDUtilBar(barKey, spellID)
     -- Host flip changes resolution routing: retire memoized results.
     ns._cdmResGen = (ns._cdmResGen or 0) + 1
     if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
+    if ns.QueueReanchor then ns.QueueReanchor() end
+    return true
+end
+
+--- "Replace with Buff": name a tracked buff whose viewer frame takes this
+--- cooldown's slot while the aura is active (nil buffSID clears it). Per-spell
+--- only, in the cooldown family store, so it rides the spec/override capture
+--- like every other per-spell key. No marker and no hosted flag: the route
+--- map's Pass 3c diverts the buff and the collect pass swaps the frames. One
+--- buff may stand in for one cooldown per bar; the same buff on another entry
+--- is cleared here. buffCdID names a cd-claimed collided slot.
+function ns.SetCooldownBuffReplacement(barKey, targetSID, buffSID, buffCdID)
+    if type(targetSID) ~= "number" or targetSID <= 0 then return false end
+    if buffSID ~= nil and (type(buffSID) ~= "number" or buffSID <= 0) then return false end
+    local store = ns.GetSpellSettingsStore(barKey, true)
+    if not store then return false end
+    if buffSID then
+        for key, other in pairs(store) do
+            if key ~= targetSID and type(other) == "table" then
+                local oSid = rawget(other, "replaceBuffID")
+                local oCd = rawget(other, "replaceBuffCdID")
+                local same = (buffCdID and oCd == buffCdID)
+                    or (not buffCdID and not oCd and oSid and IsVariantOf(oSid, buffSID))
+                if same then
+                    other.replaceBuffID = nil
+                    other.replaceBuffCdID = nil
+                    if next(other) == nil then store[key] = nil end
+                end
+            end
+        end
+    end
+    local ss = store[targetSID]
+    if not ss then
+        if not buffSID then return true end
+        ss = {}
+        store[targetSID] = ss
+    end
+    ss.replaceBuffID = buffSID
+    ss.replaceBuffCdID = buffSID and buffCdID or nil
+    if next(ss) == nil then store[targetSID] = nil end
+    if buffSID then ns._cdmAnyBuffReplace = true end
+    ns._cdmResGen = (ns._cdmResGen or 0) + 1
+    ns._spellOrderDirty = true
+    if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
+    -- User-settings edge: the BuffIcon viewer's alpha vote now includes this
+    -- bar (BarUsesBuffViewer), so re-apply visibility here rather than wait
+    -- for the next combat/zone edge.
+    if ns.CDMApplyVisibility then ns.CDMApplyVisibility() end
     if ns.QueueReanchor then ns.QueueReanchor() end
     return true
 end

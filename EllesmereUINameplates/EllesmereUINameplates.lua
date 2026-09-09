@@ -107,6 +107,7 @@ function ns._appendDisplayPresetKeys(t)
         "tankHasAggroOverrideBoss",
         "dpsHasAggro", "dpsNearAggro", "offTankAggroEnabled", "offTankAggro",
         "dpsNoAggroEnabled", "dpsNoAggro", "dpsNoAggroOverrideMiniBoss", "dpsNoAggroOverrideCaster",
+        "dpsNoAggroOverrideBoss",
         "targetArrowDouble", "targetArrowStyle", "targetArrowColor", "targetArrowClassColor",
         "auraStackTextSize", "auraStackTextColor",
         "auraStackTextPosition", "auraStackTextX", "auraStackTextY",
@@ -194,6 +195,7 @@ local defaults = {
     dpsNoAggroEnabled = false,
     dpsNoAggroOverrideMiniBoss = false,  -- on: overrides Mini-Boss (above priority step 7); off = stays low
     dpsNoAggroOverrideCaster = false,  -- on: overrides Caster (above priority step 8); off = Casters keep own color
+    dpsNoAggroOverrideBoss = true,  -- on (default, the pre-toggle behaviour): overrides Boss (step 10b); off = Bosses keep own color
     interruptReady = { r = 0.92, g = 0.35, b = 0.20 },  
     castBar = { r = 0.70, g = 0.40, b = 0.90 },
     interruptMidCastEnabled = false,
@@ -220,7 +222,10 @@ local defaults = {
     classColorFriendly = true,
     friendlyBarColor = { r = 0.314, g = 0.800, b = 0.408 },
     friendlyNPCColor = { r = 0, g = 1, b = 0 },
+    friendlyNPCNameColor = { r = 0, g = 1, b = 0 },
+    friendlyNPCTitleColor = { r = 0, g = 1, b = 0, a = 0.7 },
     friendlyNPCNameSize = 13,
+    friendlyNPCTitleSize = 10,
     friendlyNameTextSize = 12,
     friendlyBelowName = "none",
     friendlyBelowNameSize = 12,
@@ -387,7 +392,10 @@ local defaults = {
     hideBloodPlagueCopies = true,  -- Extras (Blood DK only): collapse the Blood Plague copies to one debuff icon
     dispelGlow = false,
     dispelGlowStyle = 2,
-    dispelGlowColor = { r = 1.0, g = 1.0, b = 1.0 },
+    -- Swatch display only: the getter returns nil while the user has never
+    -- customized the color, and the engines render their own default (this
+    -- same gold on the ABG halo). Keep the two in step.
+    dispelGlowColor = { r = 1.0, g = 0.788, b = 0.137 },
     dispelGlowUseTypeColor = false,
     castScale = 100,
     focusCastHeight = 100,
@@ -595,7 +603,8 @@ function ns.ApplyAbsorbStyle(plate)
     local r, g, b = 1, 1, 1
     if style ~= "blizzard" then
         local c = (p and p.absorbColor) or defaults.absorbColor
-        if c then r, g, b = c.r, c.g, c.b end
+        -- Per-component default: a partial colour table would throw downstream.
+        if c then r, g, b = c.r or 1, c.g or 1, c.b or 1 end
     end
     local mask = plate._absorbMask
     for _, bar in ipairs({ plate.absorb, plate.absorbForward, plate.absorbOverflow }) do
@@ -676,6 +685,13 @@ ns.PANDEMIC_GLOW_STYLES = PANDEMIC_GLOW_STYLES
 -- Exposed cross-addon (e.g. CDM "Apply Pandemic Glow to all" sync) so styles translate by NAME,
 -- never raw index: this list omits "Custom Shape Glow", so the same index differs per side.
 if EllesmereUI then EllesmereUI.NameplatePandemicGlowStyles = PANDEMIC_GLOW_STYLES end
+
+-- PANDEMIC_GLOW_STYLES index -> shared EllesmereUI.Glows.STYLES index. The NP
+-- list omits Shape Glow (shared index 4), so every flipbook entry sits one lower
+-- here. Lives beside the list it translates FROM on purpose: a second copy is how
+-- the two drift the first time a style is inserted into either one. On ns, not
+-- a file local: this chunk sits at the Lua 5.1 200-local cap.
+ns.NP_TO_SHARED_GLOW = { 1, 2, 3, 5, 6, 7 }
 
 local function GetPandemicGlowStyle()
     local raw = p and p.pandemicGlowStyle
@@ -826,7 +842,12 @@ do
             local c = TYPE_COLOR[dispelType]
             if c then return c.r, c.g, c.b end
         end
-        local c = (p and p.dispelGlowColor) or defaults.dispelGlowColor
+        -- Never customized = no tint request (nil): the glow engines render
+        -- their default look -- gold ABG halo over white ants -- matching how
+        -- the suite's other glow features treat an unset color. An explicit
+        -- swatch pick (even white) is stored and honored.
+        local c = p and p.dispelGlowColor
+        if not c then return nil, nil, nil end
         return c.r, c.g, c.b
     end
 end
@@ -1485,12 +1506,16 @@ local StartButtonGlow     = _G_Glows.StartButtonGlow
 local StopButtonGlow      = _G_Glows.StopButtonGlow
 local StartAutoCastShine  = _G_Glows.StartAutoCastShine
 local StopAutoCastShine   = _G_Glows.StopAutoCastShine
+local StartGlow           = _G_Glows.StartGlow
+local StopAllGlows        = _G_Glows.StopAllGlows
 ns.StartProceduralAnts = StartProceduralAnts
 ns.StopProceduralAnts  = StopProceduralAnts
 ns.StartButtonGlow     = StartButtonGlow
 ns.StopButtonGlow      = StopButtonGlow
 ns.StartAutoCastShine  = StartAutoCastShine
 ns.StopAutoCastShine   = StopAutoCastShine
+ns.StartGlow           = StartGlow
+ns.StopAllGlows        = StopAllGlows
 
 -------------------------------------------------------------------------------
 --  Dispellable buff glow: highlights enemy buffs the player can purge/soothe
@@ -1500,9 +1525,9 @@ local function StopDispelGlow(slot)
     if not dg or not dg.active then return end
     if dg.animGroup then dg.animGroup:Stop() end
     if dg.flipTex then dg.flipTex:Hide() end
-    StopProceduralAnts(dg.wrapper)
-    StopButtonGlow(dg.wrapper)
-    StopAutoCastShine(dg.wrapper)
+    -- One unified stop: pixel/ABG/autocast plus the ABG preview's engine
+    -- substitute (flipbook + halo) on the wrapper.
+    _G_Glows.StopAllGlows(dg.wrapper)
     dg.wrapper:Hide()
     dg.active = false
 end
@@ -1554,19 +1579,22 @@ local function StartDispelGlow(slot, slotSize, dispelType)
         local lineLen = math.floor((sz + sz) * (2 / N - 0.1))
         lineLen = min(lineLen, sz)
         if lineLen < 1 then lineLen = 1 end
-        StartProceduralAnts(dg.wrapper, N, th, period, lineLen, cr, cg, cb, sz)
+        StartProceduralAnts(dg.wrapper, N, th, period, lineLen, cr or 1, cg or 1, cb or 1, sz)
     elseif entry.buttonGlow then
         dg.flipTex:Hide()
         dg.animGroup:Stop()
         StopProceduralAnts(dg.wrapper)
         StopAutoCastShine(dg.wrapper)
-        StartButtonGlow(dg.wrapper, sz, cr, cg, cb, entry.scale or 1.36)
+        -- Preview exactly what the live path renders: the engine substitute
+        -- (white ants + colored halo, gold when no color is chosen), not the
+        -- driver ABG -- shared STYLES index 2 = Action Button Glow.
+        _G_Glows.StartEngineGlow(dg.wrapper, 2, sz, cr, cg, cb)
     elseif entry.autocast then
         dg.flipTex:Hide()
         dg.animGroup:Stop()
         StopProceduralAnts(dg.wrapper)
         StopButtonGlow(dg.wrapper)
-        StartAutoCastShine(dg.wrapper, sz, cr, cg, cb)
+        StartAutoCastShine(dg.wrapper, sz, cr or 1, cg or 0.788, cb or 0.137)
     else
         -- FlipBook-based glow (GCD, Modern, Classic); matches the pandemic pattern
         StopProceduralAnts(dg.wrapper)
@@ -1591,7 +1619,7 @@ local function StartDispelGlow(slot, slotSize, dispelType)
         flipAnim:SetFlipBookFrameHeight(entry.frameH or 0)
 
         flipTex:SetDesaturated(true)
-        flipTex:SetVertexColor(cr, cg, cb)
+        flipTex:SetVertexColor(cr or 1, cg or 1, cb or 1)
         flipTex:Show()
         animGroup:Play()
     end
@@ -2127,10 +2155,14 @@ function ns.ApplyLowHpGlow(plate)
             plate.lowHpGlowPulse:Stop()
             plate.lowHpGlowFrame:Hide()
         end
+        -- Own flag mirrors the frame's shown state (this function is its only
+        -- toggler) so the per-tick health paint reads a field, not IsShown().
+        plate._lowHpGlowOn = nil
         return
     end
     ns.EnsureLowHpGlow(plate)
     plate.lowHpGlowFrame:Show()
+    plate._lowHpGlowOn = true
     if not plate.lowHpGlowPulse:IsPlaying() then plate.lowHpGlowPulse:Play() end
 end
 
@@ -2730,6 +2762,14 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
             local hb = PP.GetBorders(plate.health)
             if hb then
                 local sz = (p and p.borderSize) or defaults.borderSize
+                -- The target border-size effect (ApplyTarget) already resized the health
+                -- border before the cast bar showed; carry that size into the wrap instead
+                -- of falling back to the base size, or starting a cast on your target visibly
+                -- shrinks the border back to normal until the next target change.
+                if plate._targetBorderSized then
+                    local tbsz = ns.GetTargetBorderSizeValue()
+                    if tbsz then sz = tbsz end
+                end
                 local col = hb._bdColor
                 local r, g, b, a = 0, 0, 0, 1
                 if col then r, g, b, a = col[1], col[2], col[3], col[4] or 1 end
@@ -2794,7 +2834,12 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
             local hb = PP.GetBorders(plate.health)
             if hb then
                 hb._hideBottom = nil
-                PP.SetBorderSize(plate.health, (p and p.borderSize) or defaults.borderSize)
+                local sz = (p and p.borderSize) or defaults.borderSize
+                if plate._targetBorderSized then
+                    local tbsz = ns.GetTargetBorderSizeValue()
+                    if tbsz then sz = tbsz end
+                end
+                PP.SetBorderSize(plate.health, sz)
             end
             if plate.castWrapRegion then
                 local crb = PP.GetBorders(plate.castWrapRegion)
@@ -3915,6 +3960,7 @@ local function UpdateClassPowerOnPlate(plate)
             if plate._cpPips[i]._bg then plate._cpPips[i]._bg:Hide() end
         end
         if plate._cpBar then plate._cpBar:Hide() end
+        if _G._EWC then _G._EWC.Gate("np") end
         return
     end
 
@@ -4106,6 +4152,7 @@ local function UpdateClassPowerOnPlate(plate)
 
     local cur, maxP
     local isSecret = false
+    local npEngine = false
     if classPowerType == "SOUL_FRAGMENTS_VENGEANCE" then
         cur = C_Spell and C_Spell.GetSpellCastCount and C_Spell.GetSpellCastCount(228477) or 0
         maxP = 6
@@ -4114,18 +4161,17 @@ local function UpdateClassPowerOnPlate(plate)
         cur, maxP = EllesmereUI.GetMaelstromWeapon()
     elseif classPowerType == "TIP_OF_THE_SPEAR" then
         cur, maxP = EllesmereUI.GetTipOfTheSpear()
-    elseif classPowerType == "WHIRLWIND_STACKS" then
-        cur, maxP = EllesmereUI.GetWhirlwindStacks()
-        if not maxP or maxP <= 0 then
-            for i = 1, #plate._cpPips do
-                plate._cpPips[i]:Hide()
-                if plate._cpPips[i]._bg then plate._cpPips[i]._bg:Hide() end
-            end
-            return
-        end
-    elseif classPowerType == "SWEEPING_STRIKES" then
-        cur, maxP = EllesmereUI.GetSweepingStrikes()
-        if not maxP or maxP <= 0 then
+    elseif classPowerType == "WHIRLWIND_STACKS" or classPowerType == "SWEEPING_STRIKES" then
+        -- Engine-slot display only (the cast-count simulator is retired):
+        -- shared geometry below sizes the overlay, the pre-loop handoff
+        -- positions it. Shaped/icon pip styles render the rectangle overlay
+        -- for these two powers. Until the deferred build lands, Arm queues
+        -- it and the row shows empty.
+        if _G._EWC and _G._EWC.EngineOn("np", classPowerType) then
+            npEngine = true
+            cur, maxP = 0, _G._EWC.MaxApps(classPowerType)
+        else
+            if _G._EWC and ns._WCNP_Arm then ns._WCNP_Arm(classPowerType) end
             for i = 1, #plate._cpPips do
                 plate._cpPips[i]:Hide()
                 if plate._cpPips[i]._bg then plate._cpPips[i]._bg:Hide() end
@@ -4200,6 +4246,24 @@ local function UpdateClassPowerOnPlate(plate)
     local emptyCol = ns.GetClassPowerEmptyColor()
 
     local leftAnchor = (anchorPoint == "BOTTOM") and "BOTTOMLEFT" or "TOPLEFT"
+
+    -- Engine-owned warrior charge fill: size and anchor the shared overlay
+    -- from the same math the pips would use, hand over the resolved color,
+    -- park the legacy pips, and stop before any value work.
+    if npEngine and ns._WCNP_Attach then
+        ns._WCNP_Attach(anchorFrame, anchorRelPoint, leftAnchor,
+            cpXOff - halfGroup, yDir * cpYOff, groupW, scaledH, scaledW,
+            scaledGap, plateES, cpColor, emptyCol, bgCol, classPowerType)
+        for i = 1, #plate._cpPips do
+            local pip = plate._cpPips[i]
+            pip:Hide()
+            if pip._bg then pip._bg:Hide() end
+            if pip._secretBar then pip._secretBar:Hide() end
+            ns.HidePipDecor(pip)
+        end
+        if plate._cpBar then plate._cpBar:Hide() end
+        return
+    end
 
     for i = 1, #plate._cpPips do
         local pip = plate._cpPips[i]
@@ -4311,6 +4375,101 @@ local function HideClassPowerOnPlate(plate)
         ns.HidePipDecor(plate._cpPips[i])
     end
     if plate._cpBar then plate._cpBar:Hide() end
+    -- Park the engine-slot overlay with the pips (target lost, form-hidden,
+    -- watcher teardown all route through here).
+    if _G._EWC then _G._EWC.Gate("np") end
+end
+
+-- Engine-slot warrior charge overlay on the target plate (see
+-- EUI_ResourceBars_WarriorCharges.lua; guarded on _G._EWC so a disabled
+-- ResourceBars addon leaves the simulator pips in charge). The proxy is
+-- UIParent-parented and ANCHORED onto plate regions: anchor-derived geometry
+-- needs no rect reads, so it stays legal in combat where the plate subtree
+-- is unmeasurable. Sizes convert plate-local pixels into proxy units via the
+-- two effective scales. Everything is change-gated on the proxy's own
+-- fields, so the 10 Hz class-power poll pays a handful of compares while
+-- nothing moves.
+
+-- Arm: queue the deferred container build with belt colors (the handoff's
+-- Recolor stash wins once armed). Runs per poll tick until built: Sync
+-- early-outs on queued/built/latched-error, so it stays a few field tests.
+ns._WCNP_Arm = function(powerKey)
+    local ewc = _G._EWC
+    if not ewc then return end
+    local o = ns._wcnpOpts
+    if not o then
+        o = { texPath = "Interface\\Buttons\\WHITE8x8", ori = "HORIZONTAL",
+              manualAttach = true, sep = {} }
+        ns._wcnpOpts = o
+    end
+    if GetClassPowerClassColors() then
+        local c = GetClassPipColor(PLAYER_CLASS) or CP_DEFAULT_COLOR
+        o.r, o.g, o.b = c[1], c[2], c[3]
+    else
+        local cc = GetClassPowerCustomColor()
+        o.r, o.g, o.b = cc.r, cc.g, cc.b
+    end
+    o.a = 1
+    ewc.Sync("np", ewc.GetProxy("np"), powerKey, o)
+end
+
+ns._WCNP_Attach = function(anchorFrame, anchorRelPoint, leftAnchor, xOff,
+        yOff, groupW, scaledH, cellW, gapW, plateES, cpColor, emptyCol,
+        bgCol, powerKey)
+    local ewc = _G._EWC
+    if not ewc then return end
+    local o = ns._wcnpOpts
+    if not o then
+        ns._WCNP_Arm(powerKey)
+        o = ns._wcnpOpts
+        if not o then return end
+    end
+    local p = ewc.GetProxy("np")
+    local pES = p:GetEffectiveScale()
+    local k = (pES and pES > 0 and plateES) and (plateES / pES) or 1
+    local w, h = groupW * k, scaledH * k
+    local dirty = not p:IsShown() or p._npPK ~= powerKey
+    -- Geometry gate: reposition only when the layout actually moved (anchor
+    -- frame swap on cast-bar avoidance, offsets, scale, cap changes).
+    if p._npAF ~= anchorFrame or p._npLA ~= leftAnchor
+       or p._npRP ~= anchorRelPoint or p._npX ~= xOff or p._npY ~= yOff
+       or p._npW ~= w or p._npH ~= h then
+        p._npAF, p._npLA, p._npRP = anchorFrame, leftAnchor, anchorRelPoint
+        p._npX, p._npY, p._npW, p._npH = xOff, yOff, w, h
+        p:SetSize(w, h)
+        p:ClearAllPoints()
+        -- SetPoint offsets apply in the POSITIONED frame's own scale: convert
+        -- the plate-local offsets too.
+        p:SetPoint(leftAnchor, anchorFrame, anchorRelPoint, xOff * k, yOff * k)
+        dirty = true
+    end
+    -- Style gate: separator/empty/fill colors from the live settings.
+    if p._npSR ~= bgCol.r or p._npSG ~= bgCol.g or p._npSB ~= bgCol.b
+       or p._npSA ~= bgCol.a or p._npER ~= emptyCol.r or p._npEG ~= emptyCol.g
+       or p._npEB ~= emptyCol.b or p._npEA ~= emptyCol.a
+       or p._npCR ~= cpColor[1] or p._npCG ~= cpColor[2] or p._npCB ~= cpColor[3] then
+        p._npSR, p._npSG, p._npSB, p._npSA = bgCol.r, bgCol.g, bgCol.b, bgCol.a
+        p._npER, p._npEG, p._npEB, p._npEA = emptyCol.r, emptyCol.g, emptyCol.b, emptyCol.a
+        p._npCR, p._npCG, p._npCB = cpColor[1], cpColor[2], cpColor[3]
+        dirty = true
+    end
+    if dirty then
+        p._npPK = powerKey
+        o.r, o.g, o.b, o.a = cpColor[1], cpColor[2], cpColor[3], 1
+        local s = o.sep
+        s.r, s.g, s.b, s.a = bgCol.r, bgCol.g, bgCol.b, bgCol.a
+        s.w = gapW * k
+        s.cellW = cellW * k
+        s.gap = gapW * k
+        s.pad = 0
+        s.stretch = nil
+        local e = s.empty
+        if not e then e = {}; s.empty = e end
+        e.r, e.g, e.b, e.a = emptyCol.r, emptyCol.g, emptyCol.b, emptyCol.a
+        s.emptyInset = 0
+        ewc.Sync("np", p, powerKey, o)
+    end
+    ewc.Recolor("np", powerKey, cpColor[1], cpColor[2], cpColor[3], 1)
 end
 
 -- Return the extra Y offset that elements above the health bar need to clear
@@ -4433,12 +4592,6 @@ local function EnableClassPowerWatcher()
                     if EllesmereUI.HandleTipOfTheSpear then
                         EllesmereUI.HandleTipOfTheSpear(event, unit, castGUID, spellID)
                     end
-                    if EllesmereUI.HandleWhirlwindStacks then
-                        EllesmereUI.HandleWhirlwindStacks(event, unit, castGUID, spellID)
-                    end
-                    if EllesmereUI.HandleSweepingStrikes then
-                        EllesmereUI.HandleSweepingStrikes(event, unit, castGUID, spellID)
-                    end
                 end
                 RefreshClassPower()
             elseif event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" then
@@ -4446,23 +4599,9 @@ local function EnableClassPowerWatcher()
                     if EllesmereUI.HandleTipOfTheSpear then
                         EllesmereUI.HandleTipOfTheSpear(event)
                     end
-                    if EllesmereUI.HandleWhirlwindStacks then
-                        EllesmereUI.HandleWhirlwindStacks(event)
-                    end
-                    if EllesmereUI.HandleSweepingStrikes then
-                        EllesmereUI.HandleSweepingStrikes(event)
-                    end
                 end
                 RefreshClassPower()
             elseif event == "PLAYER_REGEN_ENABLED" then
-                if not _G._ERB_AceDB and EllesmereUI then
-                    if EllesmereUI.HandleWhirlwindStacks then
-                        EllesmereUI.HandleWhirlwindStacks(event)
-                    end
-                    if EllesmereUI.HandleSweepingStrikes then
-                        EllesmereUI.HandleSweepingStrikes(event)
-                    end
-                end
                 RefreshClassPower()
             else
                 RefreshClassPower()
@@ -5021,7 +5160,13 @@ local function GetReactionColor(unit)
     -- Caster = the unit actually has a mana pool, rather than a class match. Second arg is
     -- typed PowerType (enum NUMBER), not the global MANA (localized "Mana" string, never
     -- matches). hasPower carries no secrecy flag, so it is safe to branch on directly.
-    local _isCaster = not owBasic and UnitHasPowerType(unit, Enum.PowerType.Mana)
+    -- Excludes boss units: _isMiniBoss already skips this step by returning earlier (step 7,
+    -- above Caster's step 8), but _isBossUnit's own color is deferred to step 10b (below the
+    -- threat-color steps, intentionally) -- with no exclusion here, a mana-using boss (e.g. a
+    -- caster-type raid boss) hit step 8's return before step 10b was ever reached, showing the
+    -- Spell Caster color instead of Bosses. Mirrors the mutual exclusivity boss/mini-boss
+    -- already have with each other.
+    local _isCaster = not owBasic and not _isBossUnit and UnitHasPowerType(unit, Enum.PowerType.Mana)
     -- DPS/healer No Aggro override state (mirrors tank has-aggro overrides at 6b). Each
     -- override independently promotes the No Aggro color above one mob-type step (mini-boss 7,
     -- caster 8). Active only for a non-tank without aggro in a group (matches step 10).
@@ -5122,18 +5267,27 @@ local function GetReactionColor(unit)
             end
         end
     end
-    -- 10. Non-tank no aggro (if enabled) below focus/caster/miniboss
+    -- 10. Non-tank no aggro (if enabled) below focus/caster/miniboss. Boss units gated behind
+    -- their own "Override Boss colors" toggle (default ON = the behaviour before the toggle
+    -- existed, so nothing changes for users who did not touch it), mirroring tank has-aggro's
+    -- ovrBoss check at step 9 above -- previously unconditional, so a DPS/healer without aggro
+    -- always lost the Bosses color on engage with no way to turn that off (unlike Mini-Boss/
+    -- Caster, which already had their own override toggles here, both off by default).
     if isThreatUnit and not _isTankRole and threatStatus < 2 and IsInGroup() then
         local enabled = defaults.dpsNoAggroEnabled
         if db.dpsNoAggroEnabled ~= nil then enabled = db.dpsNoAggroEnabled end
         if enabled then
-            local c = _C("dpsNoAggro")
-            return c.r, c.g, c.b
+            local ovrBoss = defaults.dpsNoAggroOverrideBoss
+            if db.dpsNoAggroOverrideBoss ~= nil then ovrBoss = db.dpsNoAggroOverrideBoss end
+            if ovrBoss or not _isBossUnit then
+                local c = _C("dpsNoAggro")
+                return c.r, c.g, c.b
+            end
         end
     end
     -- 10b. Boss (intentionally below the low-priority threat colors above, so tank-has-aggro/
     -- dps-no-aggro takes precedence over boss -- unless "Override Boss colors" is disabled, in
-    -- which case the has-aggro step above defers to this boss color for boss units).
+    -- which case the has-aggro/no-aggro step above defers to this boss color for boss units).
     if _isBossUnit then
         local c = _C("boss")
         return MaybeDarken(c.r, c.g, c.b, inCombat)
@@ -6152,6 +6306,7 @@ function NameplateFrame:ClearUnit()
     self.nameplate = nil
     self._absorbHidden = nil
     self._maxHPValid = nil
+    self._absMode = nil
     self._lastHCr, self._lastHCg, self._lastHCb = nil, nil, nil
     self._mirrorPending = nil
     -- Health-text value memo (UpdateHealthValues): a recycled plate must
@@ -6247,6 +6402,7 @@ function NameplateFrame:UpdateHealthValues()
             -- cached max belongs to the old unit, drop it too.
             self._absorbHidden = nil
             self._maxHPValid = nil
+            self._absMode = nil
             -- Only refresh auras for the lockout when one was actually active
             -- (zero cost when the Cast Lockout feature is off / no lockout).
             if self._castLockout then
@@ -6328,22 +6484,41 @@ function NameplateFrame:UpdateHealthValues()
             maxWithAbsorbs = self.hpCalculator:GetMaximumHealth()
             self.hpCalculator:SetMaximumHealthMode(Enum.UnitMaximumHealthMode.Default)
         end
-        self.absorb:ClearAllPoints()
-        if self.absorbForward then self.absorbForward:ClearAllPoints() end
+        -- Geometry, fill direction and sibling visibility are SHAPE, not value:
+        -- pushed once on entering this branch (stamped _absMode), never per
+        -- tick. Only the range/value pushes below carry secrets. The stamp is
+        -- cleared by the zero branch, ClearUnit and both token-swap sites.
+        if self._absMode ~= "secret" then
+            self._absMode = "secret"
+            self.absorb:ClearAllPoints()
+            if self.absorbForward then self.absorbForward:ClearAllPoints() end
+            self.absorb:SetReverseFill(false)
+            self.absorb:SetPoint("TOPLEFT", self.health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+            self.absorb:SetPoint("BOTTOMLEFT", self.health:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
+            self.absorb:Show()
+            if self.absorbForward then self.absorbForward:Hide() end
+            if self.absorbOverflow then self.absorbOverflow:Hide(); self.absorbOverflow:SetWidth(0) end
+            if self.absorbOverflowDivider then self.absorbOverflowDivider:Hide() end
+        end
         self.health:SetMinMaxValues(0, maxWithAbsorbs or maxHealth)
         self.health:SetValue(curHealth)
         self.absorb:SetMinMaxValues(0, maxWithAbsorbs or maxHealth)
-        self.absorb:SetReverseFill(false)
-        self.absorb:SetPoint("TOPLEFT", self.health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
-        self.absorb:SetPoint("BOTTOMLEFT", self.health:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
         self.absorb:SetValue(absorbAmt)
-        self.absorb:Show()
-        if self.absorbForward then self.absorbForward:Hide() end
-        if self.absorbOverflow then self.absorbOverflow:Hide(); self.absorbOverflow:SetWidth(0) end
-        if self.absorbOverflowDivider then self.absorbOverflowDivider:Hide() end
     else
-        self.absorb:ClearAllPoints()
-        if self.absorbForward then self.absorbForward:ClearAllPoints() end
+        -- Plain absorb shape (same stamp discipline as the secret branch).
+        if self._absMode ~= "plain" then
+            self._absMode = "plain"
+            self.absorb:ClearAllPoints()
+            self.absorb:SetReverseFill(true)
+            self.absorb:SetPoint("TOPRIGHT", self.health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+            self.absorb:SetPoint("BOTTOMRIGHT", self.health:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
+            if self.absorbForward then
+                self.absorbForward:ClearAllPoints()
+                self.absorbForward:SetReverseFill(false)
+                self.absorbForward:SetPoint("TOPLEFT", self.health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+                self.absorbForward:SetPoint("BOTTOMLEFT", self.health:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
+            end
+        end
         self.health:SetMinMaxValues(0, maxHealth)
         self.health:SetValue(curHealth)
         self.absorb:SetMinMaxValues(0, maxHealth)
@@ -6355,6 +6530,9 @@ function NameplateFrame:UpdateHealthValues()
             -- Entering the lean path: the bar bounds may still be an absorb-
             -- extended max from the secret branch -- force one clean re-push.
             self._maxHPValid = nil
+            -- The bars go hidden here; whichever branch re-shows them must
+            -- re-push its shape, so the stamp is dropped.
+            self._absMode = nil
             self.absorb:Hide()
             if self.absorbForward then self.absorbForward:Hide() end
             if self.absorbOverflow then self.absorbOverflow:Hide(); self.absorbOverflow:SetWidth(0) end
@@ -6371,15 +6549,9 @@ function NameplateFrame:UpdateHealthValues()
             if overflowAbsorb < 0 then overflowAbsorb = 0 end
 
             if self.absorbForward then
-                self.absorbForward:SetReverseFill(false)
-                self.absorbForward:SetPoint("TOPLEFT", self.health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
-                self.absorbForward:SetPoint("BOTTOMLEFT", self.health:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
                 self.absorbForward:SetValue(forwardAbsorb)
                 if forwardAbsorb > 0 then self.absorbForward:Show() else self.absorbForward:Hide() end
             end
-            self.absorb:SetReverseFill(true)
-            self.absorb:SetPoint("TOPRIGHT", self.health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
-            self.absorb:SetPoint("BOTTOMRIGHT", self.health:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
             self.absorb:SetValue(backfillAbsorb)
             if backfillAbsorb > 0 then self.absorb:Show() else self.absorb:Hide() end
 
@@ -6497,7 +6669,9 @@ function NameplateFrame:UpdateHealthValues()
             pctText = string.format("%d%%", pctVal)
             -- No-sign variant only when a slot actually renders it.
             if ca._anyNoSign then pctNoSignText = string.format("%d", pctVal) end
-            numText = AbbreviateNumbers(curHealth)
+            -- Number text only when a number/combo slot renders it (percent-only
+            -- layouts were paying the abbreviation call + string every tick).
+            if anyNum then numText = AbbreviateNumbers(curHealth) end
             -- Decimal variants computed only when at least one slot opts in.
             if anyDec then
                 pctTextDec = string.format("%.1f%%", pctVal)
@@ -6530,7 +6704,7 @@ function NameplateFrame:UpdateHealthValues()
     -- straight into the glow textures (alpha 1 below threshold, 0 above -- never branched on in
     -- Lua). Parent frame's pulse multiplies on top. No-execute specs never build textures.
     local lg = self.lowHpGlowTextures
-    if lg and self.lowHpGlowFrame:IsShown() then
+    if lg and self._lowHpGlowOn then
         local curve = ns.GetLowHpGlowCurve()
         if curve then
             if UnitIsDeadOrGhost(unit) then
@@ -6763,6 +6937,7 @@ function NameplateFrame:UpdateName()
             -- belongs to the old unit, drop it too.
             self._absorbHidden = nil
             self._maxHPValid = nil
+            self._absMode = nil
         end
     end
     -- Standalone level renders on its own FontString and can share the plate with a
@@ -6928,6 +7103,10 @@ function NameplateFrame:RefreshCastIconSideReserve()
     self:UpdateClassification()
     self:UpdateRaidIcon()
     PositionArrowsOutsideAuras(self)
+    -- Without this, a cast bar showing/hiding shoves an already container-hugging
+    -- arrow back out to the coarse fallback position (same gap as the target-swap
+    -- path -- see NameplateFrame's isTarget branch).
+    if ns.NPC_ReanchorArrows then ns.NPC_ReanchorArrows(self) end
 end
 
 function NameplateFrame:RefreshNamePosition(localOnly)
@@ -7143,6 +7322,11 @@ function NameplateFrame:ApplyTarget()
             self.leftArrow:Show()
             self.rightArrow:Show()
             PositionArrowsOutsideAuras(self)
+            -- The coarse pass above only flanks health/name; a plate that already
+            -- has a live aura container needs the hugging override too, or a
+            -- fresh target selection leaves the arrows stuck at the wide fallback
+            -- until an unrelated RAID_TARGET_UPDATE happens to fire afterward.
+            if ns.NPC_ReanchorArrows then ns.NPC_ReanchorArrows(self) end
         elseif self.leftArrow then
             self.leftArrow:Hide()
             self.rightArrow:Hide()
@@ -7263,12 +7447,14 @@ function NameplateFrame:UpdateImportantCastGlow(spellID)
     if not Glows then return end
 
     local style = cfg.importantCastGlowStyle or defaults.importantCastGlowStyle or 1
-    if style ~= 1 and style ~= 4 then style = 1 end
+    if type(style) ~= "number" or style < 1 or style > #PANDEMIC_GLOW_STYLES then style = 1 end
     local c = cfg.importantCastGlowColor or defaults.importantCastGlowColor or { r = 1, g = 0.2, b = 0.2 }
     local bgColor = cfg.importantCastGlowBackgroundColor or defaults.importantCastGlowBackgroundColor or { r = 0, g = 0, b = 0 }
     local bgOn = cfg.importantCastGlowBackground == true
+    -- Lines/thickness/speed and the background are Pixel Glow's own knobs; every
+    -- other style ignores them, so they stay nil and out of the cache key below.
     local impN, impTh, impPeriod
-    if style ~= 4 then
+    if style == 1 then
         impN = cfg.importantCastGlowLines or defaults.importantCastGlowLines or 8
         impTh = cfg.importantCastGlowThickness or defaults.importantCastGlowThickness or 2
         impPeriod = cfg.importantCastGlowSpeed or defaults.importantCastGlowSpeed or 4
@@ -7285,15 +7471,15 @@ function NameplateFrame:UpdateImportantCastGlow(spellID)
         local pW, pH = self.cast:GetWidth(), self.cast:GetHeight()
         if pW < 5 then pW = 100 end
         if pH < 5 then pH = 14 end
-        if style == 4 then
-            (StartAutoCastShine or Glows.StartAutoCastShine)(self._importantCastOverlay, pW, c.r, c.g, c.b, 1.0, pH)
-        else
-            local lineLen = math.floor((pW + pH) * (2 / impN - 0.1))
-            lineLen = math.min(lineLen, math.min(pW, pH))
-            if lineLen < 1 then lineLen = 1 end
-            (StartProceduralAnts or Glows.StartProceduralAnts)(self._importantCastOverlay, impN, impTh, impPeriod, lineLen, c.r, c.g, c.b, pW, pH,
-                bgOn and (bgColor.r or 0) or nil, bgColor.g or 0, bgColor.b or 0)
-        end
+        -- StartGlow owns the per-style engine pick. Its Pixel Glow path reproduces
+        -- the old direct call exactly: same lineLen formula, and an unset bg alpha
+        -- resolves to 1 there, which is what omitting the argument used to do.
+        local Start = StartGlow or Glows.StartGlow
+        Start(self._importantCastOverlay, ns.NP_TO_SHARED_GLOW[style] or 1, pW, c.r, c.g, c.b,
+            style == 1 and {
+                N = impN, th = impTh, period = impPeriod,
+                bg = bgOn and { r = bgColor.r or 0, g = bgColor.g or 0, b = bgColor.b or 0 } or nil,
+            } or nil, pH)
         self._importantGlowActive = true
         self._importantGlowStyle = style
         self._importantGlowR, self._importantGlowG, self._importantGlowB = c.r, c.g, c.b
@@ -7956,20 +8142,43 @@ function NameplateFrame:UNIT_HEALTH()
         self.cast:Hide()
         self:ApplyNameVisibility()
     end
-    self:UpdateHealthValues()
+    self:MarkHealthDirty()
 end
 -- Max health changed: drop the cached max so the next paint re-derives it and
 -- re-pushes the bar bounds (per-paint SetMinMaxValues is gone from the lean
 -- path; bounds ride this event, exactly like Blizzard's CompactUnitFrame).
 function NameplateFrame:UNIT_MAXHEALTH()
     self._maxHPValid = nil
-    self:UpdateHealthValues()
+    self:MarkHealthDirty()
 end
 function NameplateFrame:UNIT_ABSORB_AMOUNT_CHANGED()
     -- The dedicated absorb edge: force the next paint onto the full absorb
     -- path so the lean-gate flag re-derives from a fresh read.
     self._absorbEdge = true
-    self:UpdateHealthValues()
+    self:MarkHealthDirty()
+end
+-- Health paint coalescer (Blizzard's CompactUnitFrame shape: healthDirty is
+-- drained once per frame at most). Health, max and absorb edges for one mob
+-- land together in a server batch, and only the last paint of a frame ever
+-- renders. Marks are a set write; the drain frame is hidden whenever the set
+-- is empty (zero cost idle) and paints inside the same frame the events
+-- arrived in, so nothing is displayed later than before. On ns (200-cap).
+ns._npHvDirty = ns._npHvDirty or {}
+ns._npHvFlush = ns._npHvFlush or CreateFrame("Frame")
+ns._npHvFlush:Hide()
+ns._npHvFlush:SetScript("OnUpdate", function(self)
+    local dirty = ns._npHvDirty
+    for plate in pairs(dirty) do
+        dirty[plate] = nil
+        -- A plate recycled between mark and drain has no unit; the paint's
+        -- own guard returns. A re-acquired one paints its new occupant.
+        if plate.unit then plate:UpdateHealthValues() end
+    end
+    if next(dirty) == nil then self:Hide() end
+end)
+function NameplateFrame:MarkHealthDirty()
+    ns._npHvDirty[self] = true
+    ns._npHvFlush:Show()
 end
 function NameplateFrame:UNIT_NAME_UPDATE()
     self:UpdateName()

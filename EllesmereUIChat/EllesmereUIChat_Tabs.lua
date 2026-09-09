@@ -277,7 +277,10 @@ end
 local function SuppressTabRegions(tab)
     for i = 1, select("#", tab:GetRegions()) do
         local region = select(i, tab:GetRegions())
-        if region and region.SetAlpha and region:GetAlpha() ~= 0 then
+        -- GetAlpha reads secret on chat-roleset widgets in lockdown; a
+        -- secret skips the compare and re-asserts.
+        local a = region and region.SetAlpha and region:GetAlpha()
+        if a and ((issecretvalue and issecretvalue(a)) or a ~= 0) then
             region:SetAlpha(0)
         end
     end
@@ -530,6 +533,8 @@ local function RefreshNow()
 
     local dockList = GENERAL_CHAT_DOCK and GENERAL_CHAT_DOCK.DOCKED_CHAT_FRAMES
     local count = 0
+    local seenScrolling = false
+    local tabGap = (cfg.tabSpacing or 1) * ((EUI.PP and EUI.PP.mult) or 1)
     if type(dockList) == "table" then
         for i = 1, #dockList do
             local cf = dockList[i]
@@ -550,11 +555,21 @@ local function RefreshNow()
                 -- discriminator is the tab's REAL parent (the scroll
                 -- child), never the temporary flag.
                 local wantParent = strip
-                if scrollChild and tab:GetParent() == scrollChild
-                    and EnsureDynClip() then
+                local isScrolling = scrollChild and tab:GetParent() == scrollChild
+                if isScrolling and EnsureDynClip() then
                     wantParent = dynClip
                 end
                 if g:GetParent() ~= wantParent then g:SetParent(wantParent) end
+
+                -- FCFDock_UpdateTabs leaves one UI unit between tabs in each
+                -- group, but none before the first scrolling tab. Compensate
+                -- on our visual only; never re-anchor Blizzard's click targets.
+                local nativeGap = isScrolling and not seenScrolling and 0 or 1
+                if isScrolling then seenScrolling = true end
+                local leftInset = count == 1 and leftExtend or 0
+                if count > 1 and cfg.extendBgBehindTabs ~= true then
+                    leftInset = tabGap - nativeGap
+                end
 
                 g:ClearAllPoints()
                 local band = ns._chatBgExt
@@ -577,7 +592,7 @@ local function RefreshNow()
                     g:SetPoint("RIGHT", tab, "RIGHT", 0, 0)
                 else
                     -- Island tabs: bottom-aligned to the tab, our height.
-                    g:SetPoint("BOTTOMLEFT", tab, "BOTTOMLEFT", count == 1 and leftExtend or 0, 0)
+                    g:SetPoint("BOTTOMLEFT", tab, "BOTTOMLEFT", leftInset, 0)
                     g:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", 0, 0)
                     g:SetHeight(height)
                 end
@@ -712,7 +727,16 @@ function ECHAT.TabsSweepBlizzard()
             -- in lockdown; a refused heal retries on the next sweep.
             if InCombatLockdown() then pcall(gdm.Show, gdm) else gdm:Show() end
         end
-        if gdm:GetAlpha() ~= 0 then gdm:SetAlpha(0) end
+        -- GetAlpha can return a secret number mid-combat in a raid (same
+        -- class as the cursor-position guards elsewhere in this file); a
+        -- secret result can't be safely compared for the ~= 0 skip-optimization,
+        -- so just re-assert 0 unconditionally in that case.
+        local gdmAlpha = gdm:GetAlpha()
+        if issecretvalue and issecretvalue(gdmAlpha) then
+            gdm:SetAlpha(0)
+        elseif gdmAlpha ~= 0 then
+            gdm:SetAlpha(0)
+        end
         local ob = gdm.overflowButton
         if ob then
             if ob.SetIgnoreParentAlpha and not ob:IsIgnoringParentAlpha() then

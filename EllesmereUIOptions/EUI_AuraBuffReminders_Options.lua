@@ -20,7 +20,12 @@ local SECTION_CONSUMABLES  = "CONSUMABLES"
 local SECTION_ROGUE        = "ROGUE POISONS"
 local SECTION_PALADIN      = "PALADIN RITES"
 local SECTION_SHAMAN       = "SHAMAN IMBUES & SHIELDS"
+local SECTION_WARLOCK      = "WARLOCK"
 local SPECIAL_WHERE_TIP    = "Pick which content the class-special reminders (poisons/rites/imbues/shields) appear in.\nRested areas (cities and inns) always stay hidden."
+local BORDER_SIZE_ORDER    = { "none", "thin", "normal", "heavy", "strong" }
+local BORDER_SIZE_VALUES   = { none="None", thin="Thin", normal="Normal", heavy="Heavy", strong="Strong" }
+local BORDER_SIZE_NUM      = { none=0, thin=1, normal=2, heavy=3, strong=4 }
+local BORDER_SIZE_KEY      = { [0]="none", [1]="thin", [2]="normal", [3]="heavy", [4]="strong" }
 
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
@@ -31,10 +36,7 @@ initFrame:SetScript("OnEvent", function(self)
     local PP = EllesmereUI.PanelPP
 
     local function GetABROptOutline()
-        return (EllesmereUI and EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag()) or ""
-    end
-    local function GetABROptUseShadow()
-        return not EllesmereUI or not EllesmereUI.GetFontUseShadow or EllesmereUI.GetFontUseShadow()
+        return (EllesmereUI and EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("auraBuff")) or ""
     end
     local function SetPVFont(fs, font, size)
         if not (fs and fs.SetFont) then return end
@@ -54,6 +56,16 @@ initFrame:SetScript("OnEvent", function(self)
         return db and db.profile
     end
     local function DDB()  local p = DB(); return p and p.display end
+
+    local function GetNameFontPath()
+        local d = DDB()
+        local fontName = d and d.nameFont
+        if fontName and fontName ~= "__global" and EllesmereUI.ResolveFontName then
+            local path = EllesmereUI.ResolveFontName(fontName)
+            if path and path ~= "" then return path end
+        end
+        return (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("auraBuff")) or "Fonts\\ARIALN.TTF"
+    end
 
     local PREVIEW_TEXT_ANCHORS = _G._EABR_TEXT_ANCHORS
     local function GetPreviewTextAnchor(d)
@@ -260,6 +272,10 @@ initFrame:SetScript("OnEvent", function(self)
             local startX = -(totalW / 2) + (sz / 2)
             btn:SetPoint("TOP", btn:GetParent(), "TOP", startX + (i - 1) * (sz + spacing), 0)
 
+            if _G._EABR_ApplyIconBorder then
+                _G._EABR_ApplyIconBorder(btn, false)
+            end
+
             -- Glow
             if not btn._glowWrapper then
                 local w = CreateFrame("Frame", nil, btn)
@@ -291,7 +307,7 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Text
             if showText then
-                local fontPath = (EllesmereUI and EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("auraBuff")) or "Fonts\\ARIALN.TTF"
+                local fontPath = GetNameFontPath()
                 local textSize = d and d.textSize or 11
                 local textXOff = d and d.textXOffset or 0
                 local textYOff = d and d.textYOffset or -2
@@ -326,6 +342,12 @@ initFrame:SetScript("OnEvent", function(self)
             -- scroll compensation (the height rarely changes here).
             EllesmereUI:SetContentHeaderHeightSilent(TOTAL_H + hintH)
         end
+    end
+
+    local function RefreshBorders()
+        if _G._EABR_ApplyAllIconBorders then _G._EABR_ApplyAllIconBorders() end
+        RefreshAll()
+        UpdatePreviewHeader()
     end
 
     ---------------------------------------------------------------------------
@@ -558,11 +580,27 @@ initFrame:SetScript("OnEvent", function(self)
             if icon.SetSnapToPixelGrid then icon:SetSnapToPixelGrid(false); icon:SetTexelSnappingBias(0) end
             btn._icon = icon
 
-            -- Pixel-perfect 1px black border
-            EllesmereUI.MakeBorder(btn, 0, 0, 0, 1, EllesmereUI.PanelPP)
+            -- The live border helper owns the preview border too, keeping the
+            -- header byte-for-byte aligned with reminder icons.
+            if _G._EABR_ApplyIconBorder then
+                _G._EABR_ApplyIconBorder(btn, false)
+            else
+                local border = CreateFrame("Frame", nil, btn)
+                border:SetAllPoints(); border:EnableMouse(false)
+                btn._eabrBorderFrame = border
+                local pd = DDB()
+                local borderSize = (pd and pd.borderSize) or 1
+                EllesmereUI.ApplyBorderStyle(border, borderSize,
+                    (pd and pd.borderR) or 0, (pd and pd.borderG) or 0,
+                    (pd and pd.borderB) or 0, (pd and pd.borderA) or 1,
+                    (pd and pd.borderTexture) or "solid",
+                    pd and pd.borderTextureOffset, pd and pd.borderTextureOffsetY,
+                    pd and pd.borderTextureShiftX, pd and pd.borderTextureShiftY,
+                    "aurabuffreminders", borderSize)
+            end
 
             -- Text label below icon
-            local fontPath = (EllesmereUI and EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("auraBuff")) or "Fonts\\ARIALN.TTF"
+            local fontPath = GetNameFontPath()
             local textSize = d and d.textSize or 11
             local textXOff = d and d.textXOffset or 0
             local textYOff = d and d.textYOffset or -2
@@ -695,6 +733,7 @@ initFrame:SetScript("OnEvent", function(self)
     local function AWhere() local a = ADB(); if not a then return nil end; a.whereToShow = a.whereToShow or {}; return a.whereToShow end
     local function CWhere() local c = CDB(); if not c then return nil end; c.whereToShow = c.whereToShow or {}; return c.whereToShow end
     local function CSpecialWhere() local c = CDB(); if not c then return nil end; c.specialsWhereToShow = c.specialsWhereToShow or {}; return c.specialsWhereToShow end
+    local function CWarlockWhere() local c = CDB(); if not c then return nil end; c.warlockWhereToShow = c.warlockWhereToShow or {}; return c.warlockWhereToShow end
     local function RShowWhen() local r = RDB(); if not r then return nil end; r.showWhen = r.showWhen or {}; return r.showWhen end
 
     -- Shared reminder-sound catalogue (built + LSM-populated by the QoL
@@ -1016,7 +1055,112 @@ initFrame:SetScript("OnEvent", function(self)
         local displaySection
         displaySection, h = W:SectionHeader(parent, SECTION_DISPLAY, y);  y = y - h
 
-        -- Row 1: Show Name (+ inline swatch + cog) | Show Item Count (+ cog)
+        -- Row 1: Border Style (+ offset cog) | Border Size (+ color swatch)
+        local borderTextureValues, borderTextureOrder = EllesmereUI.GetBorderTextureDropdown()
+        local borderRow
+        borderRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Border Style",
+              values=borderTextureValues, order=borderTextureOrder,
+              getValue=function() local d = DDB(); return d and d.borderTexture or "solid" end,
+              setValue=function(v)
+                  local d = DDB(); if not d then return end
+                  d.borderTexture = v
+                  d.borderTextureOffset = nil
+                  d.borderTextureOffsetY = nil
+                  d.borderTextureShiftX = nil
+                  d.borderTextureShiftY = nil
+                  local color, behind = EllesmereUI.GetBorderStyleSelectDefaults(v)
+                  d.borderR, d.borderG, d.borderB, d.borderA = color.r, color.g, color.b, 1
+                  d.borderBehind = behind
+                  local defaultSize = EllesmereUI.GetBorderDefaultSize("aurabuffreminders", v)
+                  if defaultSize then d.borderSize = defaultSize end
+                  RefreshBorders()
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="dropdown", text="Border Size",
+              values=BORDER_SIZE_VALUES, order=BORDER_SIZE_ORDER,
+              getValue=function()
+                  local d = DDB()
+                  return BORDER_SIZE_KEY[(d and d.borderSize) or 1] or "thin"
+              end,
+              setValue=function(v)
+                  local d = DDB(); if not d then return end
+                  d.borderSize = BORDER_SIZE_NUM[v] or 1
+                  RefreshBorders()
+              end }
+        );  y = y - h
+
+        if not EllesmereUI._prebuilding then
+            do
+                local rgn = borderRow._leftRegion
+                local _, cogShow = EllesmereUI.BuildCogPopup({
+                    title = "Border Offset",
+                    rows = {
+                        { type="slider", label="Offset X", min=-10, max=10, step=1,
+                          get=function()
+                              local d = DDB(); if not d then return 0 end
+                              if d.borderTextureOffset ~= nil then return d.borderTextureOffset end
+                              return EllesmereUI.GetBorderDefaults("aurabuffreminders", d.borderTexture or "solid", d.borderSize or 1)
+                          end,
+                          set=function(v) local d=DDB(); if d then d.borderTextureOffset=v; RefreshBorders() end end },
+                        { type="slider", label="Offset Y", min=-10, max=10, step=1,
+                          get=function()
+                              local d = DDB(); if not d then return 0 end
+                              if d.borderTextureOffsetY ~= nil then return d.borderTextureOffsetY end
+                              local _, value = EllesmereUI.GetBorderDefaults("aurabuffreminders", d.borderTexture or "solid", d.borderSize or 1)
+                              return value
+                          end,
+                          set=function(v) local d=DDB(); if d then d.borderTextureOffsetY=v; RefreshBorders() end end },
+                        { type="slider", label="Shift X", min=-10, max=10, step=1,
+                          get=function()
+                              local d = DDB(); if not d then return 0 end
+                              if d.borderTextureShiftX ~= nil then return d.borderTextureShiftX end
+                              local _, _, value = EllesmereUI.GetBorderDefaults("aurabuffreminders", d.borderTexture or "solid", d.borderSize or 1)
+                              return value
+                          end,
+                          set=function(v) local d=DDB(); if d then d.borderTextureShiftX=(v ~= 0) and v or nil; RefreshBorders() end end },
+                        { type="slider", label="Shift Y", min=-10, max=10, step=1,
+                          get=function()
+                              local d = DDB(); if not d then return 0 end
+                              if d.borderTextureShiftY ~= nil then return d.borderTextureShiftY end
+                              local _, _, _, value = EllesmereUI.GetBorderDefaults("aurabuffreminders", d.borderTexture or "solid", d.borderSize or 1)
+                              return value
+                          end,
+                          set=function(v) local d=DDB(); if d then d.borderTextureShiftY=(v ~= 0) and v or nil; RefreshBorders() end end },
+                        { type="toggle", label="Show Behind",
+                          get=function() local d=DDB(); return d and d.borderBehind == true end,
+                          set=function(v) local d=DDB(); if d then d.borderBehind=v; RefreshBorders() end end },
+                    },
+                })
+                local cogBtn = MakeCogBtn(rgn, cogShow)
+                local function UpdateBorderCogVisibility()
+                    local d = DDB()
+                    cogBtn:SetShown(d and (d.borderTexture or "solid") ~= "solid")
+                end
+                UpdateBorderCogVisibility()
+                EllesmereUI.RegisterWidgetRefresh(UpdateBorderCogVisibility)
+            end
+
+            do
+                local rgn = borderRow._rightRegion
+                local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel()+5,
+                    function()
+                        local d = DDB()
+                        return (d and d.borderR) or 0, (d and d.borderG) or 0,
+                            (d and d.borderB) or 0, (d and d.borderA) or 1
+                    end,
+                    function(r, g, b, a)
+                        local d = DDB(); if not d then return end
+                        d.borderR, d.borderG, d.borderB, d.borderA = r, g, b, a or 1
+                        RefreshBorders()
+                    end, true, 20)
+                swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
+                rgn._lastInline = swatch
+                EllesmereUI.RegisterWidgetRefresh(updateSwatch)
+            end
+        end
+
+        -- Row 2: Show Name (+ inline swatch + cog) | Show Item Count (+ cog)
         local rowText
         rowText, h = W:DualRow(parent, y,
             { type="toggle", text="Show Name",
@@ -1037,12 +1181,21 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
-        -- Inline cog on Show Item Count (right of row 1): size + offsets
+        -- Inline cog on Show Item Count (right of row 2): size + offsets
         if not EllesmereUI._prebuilding then
             local rgn = rowText._rightRegion
+            local countFontValues, countFontOrder = EllesmereUI.BuildFontDropdownData()
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Item Count Settings",
                 rows = {
+                    { type="dropdown", label="Item Count Font",
+                      values=countFontValues, order=countFontOrder,
+                      get=function() local d = DDB(); return (d and d.countFont) or "__global" end,
+                      set=function(v)
+                          local d = DDB(); if not d then return end
+                          d.countFont = (v ~= "__global") and v or nil
+                          RefreshAll()
+                      end },
                     { type="slider", label="Text Size", min=6, max=30, step=1,
                       get=function() local d = DDB(); return d and d.countSize or 16 end,
                       set=function(v) local d = DDB(); if not d then return end; d.countSize = v; RefreshAll(); UpdatePreviewHeader() end },
@@ -1078,7 +1231,7 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(UpdateCountCogDisabled)
         end
 
-        -- Row 2: Glow Type (+ inline trio swatch) | Attach Important Buffs to Cursor
+        -- Row 3: Glow Type (+ inline trio swatch) | Attach Important Buffs to Cursor
         local rowGlow
         rowGlow, h = W:DualRow(parent, y,
             { type="dropdown", text="Glow Type",
@@ -1096,7 +1249,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) local d = DDB(); if not d then return end; d.cursorAttach = v; RefreshAll() end }
         );  y = y - h
 
-        -- Inline color swatch on Glow Type (left of row 2)
+        -- Inline color swatch on Glow Type (left of row 3)
         if not EllesmereUI._prebuilding then
             local rgn = rowGlow._leftRegion
             local isNone = function()
@@ -1160,7 +1313,7 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(UpdateSwatchBlock)
         end
 
-        -- Inline color swatch + cog on Show Name (left of row 1)
+        -- Inline color swatch + cog on Show Name (left of row 2)
         if not EllesmereUI._prebuilding then
             local rgn = rowText._leftRegion
             local swatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel()+5,
@@ -1187,10 +1340,19 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             swatchBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
-            -- Inline cog for name settings (size, anchor, x/y offset)
+            -- Inline cog for name settings (font, size, anchor, x/y offset)
+            local nameFontValues, nameFontOrder = EllesmereUI.BuildFontDropdownData()
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Name Settings",
                 rows = {
+                    { type="dropdown", label="Name Font",
+                      values=nameFontValues, order=nameFontOrder,
+                      get=function() local d = DDB(); return (d and d.nameFont) or "__global" end,
+                      set=function(v)
+                          local d = DDB(); if not d then return end
+                          d.nameFont = (v ~= "__global") and v or nil
+                          RefreshAll(); UpdatePreviewHeader()
+                      end },
                     { type="slider", label="Text Size", min=6, max=30, step=1,
                       get=function() local d = DDB(); return d and d.textSize or 11 end,
                       set=function(v) local d = DDB(); if not d then return end; d.textSize = v; RefreshAll(); UpdatePreviewHeader() end },
@@ -1242,7 +1404,7 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(UpdateTextInlinesDisabled)
         end
 
-        -- Row 3: Icon Spacing (+ directions cog) | Frame Strata
+        -- Row 4: Icon Spacing (+ directions cog) | Frame Strata
         local rowSliders
         rowSliders, h = W:DualRow(parent, y,
             { type="slider", pixel=true, text="Icon Spacing", min=0, max=50, step=1,
@@ -1277,7 +1439,7 @@ initFrame:SetScript("OnEvent", function(self)
             MakeCogBtn(rgn, cogShow, nil, EllesmereUI.DIRECTIONS_ICON)
         end
 
-        -- Row 4: Show Below | Show Below Pre-Key (global timing, minutes)
+        -- Row 5: Show Below | Show Below Pre-Key (global timing, minutes)
         local timingRow
         timingRow, h = W:DualRow(parent, y,
             { type="slider", text="Show Below", min=0, max=60, step=1,
@@ -1297,7 +1459,7 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
         AddMinSuffix(timingRow, "Show Below", "Show Below Pre-Key")
 
-        -- Row 5: Show Tooltips | Opacity
+        -- Row 6: Show Tooltips | Opacity
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Show Tooltips",
               tooltip="Show item or spell tooltips when hovering reminder icons.",
@@ -1370,15 +1532,22 @@ initFrame:SetScript("OnEvent", function(self)
             local AURAS = _G._EABR_AURAS or {}
             local gridItems = {}
             for _, aura in ipairs(AURAS) do
-                gridItems[#gridItems+1] = {
-                    label = _G._EABR_SpellName(aura.castSpell, aura.name),
-                    classToken = aura.class,
-                    key = aura.key,
-                    getVal = function() local a = ADB(); return a and a.enabled and a.enabled[aura.key] end,
-                    setVal = function(v) local a = ADB(); if a and a.enabled then a.enabled[aura.key] = v end end,
-                }
+                -- Soulstone is a Warlock-specific group utility reminder and
+                -- is configured in the Warlock section below.
+                if aura.key ~= "soulstone" then
+                    gridItems[#gridItems+1] = {
+                        label = _G._EABR_SpellName(aura.castSpell, aura.name),
+                        classToken = aura.class,
+                        key = aura.key,
+                        getVal = function() local a = ADB(); return a and a.enabled and a.enabled[aura.key] end,
+                        setVal = function(v) local a = ADB(); if a and a.enabled then a.enabled[aura.key] = v end end,
+                    }
+                end
             end
-            h = BuildCheckboxGrid(parent, y, gridItems, function() RefreshAll(); RebuildPreviewHeader() end, _gridCellRefs)
+            h = BuildCheckboxGrid(parent, y, gridItems, function()
+                if _G._EABR_UpdateGroupAuraRegistration then _G._EABR_UpdateGroupAuraRegistration() end
+                RefreshAll(); RebuildPreviewHeader()
+            end, _gridCellRefs)
             y = y - h
         end
 
@@ -1488,23 +1657,101 @@ initFrame:SetScript("OnEvent", function(self)
         petHdr, h = W:SectionHeader(parent, "PETS", y);  y = y - h
 
         local petFirstRow
-        petFirstRow, h = W:TripleRow(parent, y,
+        petFirstRow, h = W:DualRow(parent, y,
             { type="toggle", text="Missing Pet",
               tooltip="Show a reminder when you don't have an active pet summoned. Only applies to pet classes (Hunter, Warlock, Death Knight, Mage).",
               getValue=function() local c = CDB(); return c and c.enabled and c.enabled.pet ~= false end,
               setValue=function(v) local c = CDB(); if c and c.enabled then c.enabled.pet = v; RefreshAll(); RebuildPreviewHeader() end end },
-            { type="toggle", text="Wrong Pet (Demo Lock)",
-              tooltip="Show a reminder when your Demonology Warlock has the wrong pet summoned (not Felguard).",
-              getValue=function() local c = CDB(); return c and c.enabled and c.enabled.wrong_pet ~= false end,
-              setValue=function(v) local c = CDB(); if c and c.enabled then c.enabled.wrong_pet = v; RefreshAll(); RebuildPreviewHeader() end end },
             { type="toggle", text="Passive Pet",
               tooltip="Show a reminder when your active pet is set to Passive stance. Only applies to pet classes (Hunter, Warlock, Death Knight, Mage).",
               getValue=function() local c = CDB(); return c and c.enabled and c.enabled.pet_passive ~= false end,
-              setValue=function(v) local c = CDB(); if c and c.enabled then c.enabled.pet_passive = v; RefreshAll(); RebuildPreviewHeader() end end },
-            { 0.34, 0.33, 0.33 }
+              setValue=function(v) local c = CDB(); if c and c.enabled then c.enabled.pet_passive = v; RefreshAll(); RebuildPreviewHeader() end end }
         );  y = y - h
 
         _eabrClickMappings.pet = { section = petHdr, target = petFirstRow }
+
+        _, h = W:Spacer(parent, y, 10);  y = y - h
+
+        -----------------------------------------------------------------------
+        --  WARLOCK section
+        -----------------------------------------------------------------------
+        local warlockHdr
+        warlockHdr, h = W:SectionHeader(parent, SECTION_WARLOCK, y);  y = y - h
+
+        _, h = SectionControlRow(parent, y, {
+            whereStore = CWarlockWhere,
+            whereTooltip = "Pick which content these Warlock reminders appear in.\nRested areas (cities and inns) always stay hidden.",
+            onChange = RefreshAll,
+        });  y = y - h
+
+        local WARLOCK_PET_ITEMS = {}
+        for _, pet in ipairs(_G._EABR_WARLOCK_PETS or {}) do
+            local unlearned = function() return not (_G._EABR_Known and _G._EABR_Known(pet.castSpell)) end
+            WARLOCK_PET_ITEMS[#WARLOCK_PET_ITEMS+1] = {
+                key = pet.key, label = pet.name,
+                lockedFn = unlearned,
+                excludeFromSummaryFn = unlearned,
+                lockedTooltip = function()
+                    local spellName = _G._EABR_SpellName and _G._EABR_SpellName(pet.castSpell, pet.name) or pet.name
+                    return EllesmereUI.Lf("You have not learned %1$s.", spellName)
+                end,
+            }
+        end
+        local warlockRow
+        warlockRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Wrong Demon",
+              tooltip="Show a reminder when your Warlock's active pet isn't one of the demons picked in Allowed Demons. A demon only counts while its summon spell is known, so leaving only Felguard picked stays silent for specs/builds that haven't talented Summon Felguard.",
+              getValue=function() local c = CDB(); return c and c.enabled and c.enabled.wrong_pet ~= false end,
+              setValue=function(v) local c = CDB(); if c and c.enabled then c.enabled.wrong_pet = v; RefreshAll(); RebuildPreviewHeader() end end },
+            { type="dropdown", text="Allowed Demons",
+              tooltip="Pick which demons count as correct for Wrong Demon. A demon only counts while its summon spell is known; with none picked (or everything picked), the reminder never fires.",
+              values={ _placeholder="..." }, order={ "_placeholder" },
+              getValue=function() return "_placeholder" end, setValue=function() end }
+        );  y = y - h
+
+        local soulstoneRow
+        soulstoneRow, h = W:DualRow(parent, y,
+            { type="toggle", text=_G._EABR_SpellName(20707, "Soulstone"),
+              tooltip="Show a reminder until your own Soulstone is active on you or another group member.",
+              getValue=function() local a = ADB(); return a and a.enabled and a.enabled.soulstone ~= false end,
+              setValue=function(v)
+                  local a = ADB()
+                  if a and a.enabled then a.enabled.soulstone = v end
+                  if _G._EABR_UpdateGroupAuraRegistration then _G._EABR_UpdateGroupAuraRegistration() end
+                  RefreshAll(); RebuildPreviewHeader()
+              end },
+            { type="label", text="" }
+        );  y = y - h
+
+        local wcc = RAID_CLASS_COLORS and RAID_CLASS_COLORS.WARLOCK
+        if wcc then
+            if warlockRow._leftRegion._label then warlockRow._leftRegion._label:SetTextColor(wcc.r, wcc.g, wcc.b, 1) end
+            if warlockRow._rightRegion._label then warlockRow._rightRegion._label:SetTextColor(wcc.r, wcc.g, wcc.b, 1) end
+            if soulstoneRow._leftRegion._label then soulstoneRow._leftRegion._label:SetTextColor(wcc.r, wcc.g, wcc.b, 1) end
+        end
+
+        if not EllesmereUI._prebuilding then
+            local rrgn = warlockRow._rightRegion
+            if rrgn._control then rrgn._control:Hide() end
+            local petDD, petDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                rrgn, 220, rrgn:GetFrameLevel() + 2, WARLOCK_PET_ITEMS,
+                function(k) local c = CDB(); return c and c.wrongPetAllowed and c.wrongPetAllowed[k] end,
+                function(k, v)
+                    local c = CDB()
+                    if c then
+                        c.wrongPetAllowed = c.wrongPetAllowed or {}
+                        c.wrongPetAllowed[k] = v
+                    end
+                    RefreshAll(); RebuildPreviewHeader()
+                end,
+                nil, nil, nil, nil, nil, { emptyLabel = "All" })
+            PP.Point(petDD, "RIGHT", rrgn, "RIGHT", -20, 0)
+            rrgn._control = petDD
+            rrgn._lastInline = nil
+            EllesmereUI.RegisterWidgetRefresh(petDDRefresh)
+        end
+
+        _eabrClickMappings.warlock_demons = { section = warlockHdr, target = warlockRow }
 
         _, h = W:Spacer(parent, y, 10);  y = y - h
 
@@ -1714,7 +1961,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Show Without Item in Bags | Ready Check Mana Warning (eye | cog | swatch inline)
         row, h = W:DualRow(parent, y,
             { type="toggle", text="Show Without Item in Bags",
-              tooltip="When on, flask/food/weapon reminders still show (dimmed) when you have no matching item in your bags, as a prompt to restock.\nWhen off, they are hidden entirely if you don't carry the item.",
+              tooltip="When on, augment rune/flask/food/weapon reminders still show (dimmed) when you have no matching item in your bags, as a prompt to restock.\nWhen off, they are hidden entirely if you don't carry the item.",
               getValue=function() local c = CDB(); return not c or c.showWithoutItem ~= false end,
               setValue=function(v) local c = CDB(); if c then c.showWithoutItem = v; RefreshAll() end end },
             { type="toggle", text="Ready Check Mana Warning",
@@ -1775,9 +2022,19 @@ initFrame:SetScript("OnEvent", function(self)
                 if RefreshRcwEye then RefreshRcwEye() end
                 if _G._EABR_RCWarnPreview then _G._EABR_RCWarnPreview() end
             end
+            leftRgn._rcwFontValues, leftRgn._rcwFontOrder = EllesmereUI.BuildFontDropdownData()
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Mana Warning Settings",
                 rows = {
+                    { type="dropdown", label="Mana Warning Font",
+                      values=leftRgn._rcwFontValues, order=leftRgn._rcwFontOrder,
+                      get=function() local c = CDB(); return (c and c.rcManaWarnFont) or "__global" end,
+                      set=function(v)
+                          local c = CDB(); if not c then return end
+                          c.rcManaWarnFont = (v ~= "__global") and v or nil
+                          if _G._EABR_RCWarnApply then _G._EABR_RCWarnApply() end
+                          ShowPreviewFromCog()
+                      end },
                     { type="slider", label="Text Size", min=10, max=72, step=1,
                       get=function() local c = CDB(); return c and c.rcManaWarnSize or 48 end,
                       set=function(v) local c = CDB(); if not c then return end; c.rcManaWarnSize = v
@@ -1865,15 +2122,14 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(UpdateRcwInlinesDisabled)
         end
 
-        -- Wire up click mappings for preview hit overlays. Both display-level
-        -- targets are rowText -- the first DISPLAY row, which also hosts the
-        -- Show Name toggle.
+        -- Wire up click mappings for preview hit overlays.
         wipe(_eabrClickMappings)
-        _eabrClickMappings.display = { section = displaySection, target = rowText }
+        _eabrClickMappings.display = { section = displaySection, target = borderRow }
         _eabrClickMappings.showText = { section = displaySection, target = rowText }
         _eabrClickMappings.raidbuff = { section = raidBufHdr, target = raidBufHdr }
         _eabrClickMappings.aura = { section = auraHdr, target = auraHdr }
         _eabrClickMappings.consumable = { section = consumHdr, target = consumFirstRow }
+        _eabrClickMappings["item:soulstone"] = { section = warlockHdr, target = soulstoneRow }
 
         -- Per-item mappings: grid cells for individual raid buffs / auras
         for k, cell in pairs(_gridCellRefs) do
@@ -3069,6 +3325,10 @@ initFrame:SetScript("OnEvent", function(self)
                 _G._EABR_AceDB:ResetProfile()
             end
             if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
+        end,
+        -- Tears down the Ready Check Mana Warning preview on module switch.
+        onModuleLeave = function()
+            if _G._EABR_RCWarnHidePreview then _G._EABR_RCWarnHidePreview() end
         end,
     })
 

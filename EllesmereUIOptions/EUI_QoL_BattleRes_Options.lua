@@ -244,6 +244,29 @@ _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
 
     _, h = W:SectionHeader(parent, "BATTLE RES", y); y = y - h
 
+    -- Live preview: forces the icon on screen for as long as this page is (mirrors
+    -- the Bloodlust Tracker section below). PollCharges falls back to stand-in
+    -- charge data wherever the brez pool reports none, so it previews from anywhere.
+    -- The OnSHOW hook is what makes revisits work: the options panel caches built
+    -- pages and re-shows the wrapper without re-running this builder, so without it
+    -- the preview would arm on the first visit only.
+    if not EllesmereUI._prebuilding and _G._EUI_BattleRes_SetPreviewOwner then
+        _G._EUI_BattleRes_SetPreviewOwner(parent)
+        if not parent._brPreviewHooked then
+            parent._brPreviewHooked = true
+            parent:HookScript("OnShow", function()
+                if _G._EUI_BattleRes_SetPreviewOwner then
+                    _G._EUI_BattleRes_SetPreviewOwner(parent)
+                end
+            end)
+            parent:HookScript("OnHide", function()
+                if _G._EUI_BattleRes_UpdateVisibility then
+                    _G._EUI_BattleRes_UpdateVisibility()
+                end
+            end)
+        end
+    end
+
     row, h = W:DualRow(parent, y,
         { type="dropdown", text="Enable BattleRes Icon",
           values=VIS_VALUES, order=VIS_ORDER,
@@ -471,7 +494,11 @@ local function BL_BR()
 end
 
 -- Keys stored independently on the bloodlust profile (everything else proxies).
-local BL_OWN_KEYS = { visibility = true, enabled = true, pos = true }
+local BL_OWN_KEYS = {
+    visibility = true, enabled = true, pos = true,
+    showSated = true, showReady = true, readySize = true, readyColor = true,
+    readyOffsetX = true, readyOffsetY = true,
+}
 
 local function BL_Cfg(key, fallback)
     local bl = BL_P()
@@ -549,6 +576,30 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
 
     _, h = W:SectionHeader(parent, "BLOODLUST TRACKER", y); y = y - h
 
+    -- Live preview: the icon is forced on screen for as long as this page is, so the
+    -- ready label, sizes and offsets can be judged without waiting for a real lust.
+    -- The runtime keys off the page's own visibility, so the OnHide hook only has to
+    -- poke it; a hidden search pre-build never owns the preview.
+    -- The OnSHOW hook is what makes revisits work: the options panel caches built
+    -- pages and re-shows the wrapper without re-running this builder, so without it
+    -- the preview would arm on the first visit only.
+    if not EllesmereUI._prebuilding and _G._EUI_Bloodlust_SetPreviewOwner then
+        _G._EUI_Bloodlust_SetPreviewOwner(parent)
+        if not parent._blPreviewHooked then
+            parent._blPreviewHooked = true
+            parent:HookScript("OnShow", function()
+                if _G._EUI_Bloodlust_SetPreviewOwner then
+                    _G._EUI_Bloodlust_SetPreviewOwner(parent)
+                end
+            end)
+            parent:HookScript("OnHide", function()
+                if _G._EUI_Bloodlust_UpdateVisibility then
+                    _G._EUI_Bloodlust_UpdateVisibility()
+                end
+            end)
+        end
+    end
+
     row, h = W:DualRow(parent, y,
         { type="dropdown", text="Enable Bloodlust Icon",
           values=VIS_VALUES, order=VIS_ORDER,
@@ -613,7 +664,13 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
     y = y - h
 
     do
-        local function _attachOffsetCog(rgn, popupTitle, xKey, yKey)
+        -- disabledFn/disabledText: optional, block the popup + grey the cog while
+        -- the row it belongs to is disabled (Duration/Count Position pass neither
+        -- and stay always-on, unchanged). anchorTo: optional, anchor the cog to
+        -- something other than the row's own control while keeping rgn as parent
+        -- (parenting it to the anchor instead would multiply the cog's disabled
+        -- alpha by that anchor's, greying it into invisibility).
+        local function _attachOffsetCog(rgn, popupTitle, xKey, yKey, disabledFn, disabledText, anchorTo)
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = popupTitle,
                 rows = {
@@ -627,18 +684,109 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
             })
             local cogBtn = CreateFrame("Button", nil, rgn)
             cogBtn:SetSize(26, 26)
-            PP.Point(cogBtn, "RIGHT", rgn._control or rgn, "LEFT", -6, 0)
+            PP.Point(cogBtn, "RIGHT", anchorTo or rgn._control or rgn, "LEFT", -6, 0)
             cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
             local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
             cogTex:SetAllPoints()
             cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
             cogBtn:SetAlpha(0.4)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.75) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(self)
+                if disabledFn and disabledFn() then return end
+                cogShow(self)
+            end)
+            cogBtn:SetScript("OnEnter", function(self)
+                if disabledFn and disabledFn() then
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip(disabledText))
+                    return
+                end
+                self:SetAlpha(0.75)
+            end)
+            cogBtn:SetScript("OnLeave", function(self)
+                if disabledFn and disabledFn() then EllesmereUI.HideWidgetTooltip(); return end
+                self:SetAlpha(0.4)
+            end)
+            if disabledFn then
+                EllesmereUI.RegisterWidgetRefresh(function()
+                    cogBtn:SetAlpha(disabledFn() and 0.15 or 0.4)
+                end)
+            end
         end
         _attachOffsetCog(row._leftRegion,  "Duration Position", "durationOffsetX", "durationOffsetY")
         _attachOffsetCog(row._rightRegion, "Count Position",    "countOffsetX",    "countOffsetY")
+
+        -- Show Sated / Show Ready: independent toggles. Sated gates the real lockout
+        -- countdown, Ready gates the label shown once that lockout is gone -- either,
+        -- both or neither can be on.
+        -- Toggle controls don't self-trigger a refresh pass (unlike sliders/
+        -- dropdowns), so without the explicit RefreshPage() the Ready row below
+        -- stays stale (not greyed/ungreyed) until something else repaints the page.
+        row, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Icon when Sated",
+              tooltip="Show the Sated/Exhaustion lockout countdown on the icon.",
+              getValue=function() return BL_Cfg("showSated") ~= false end,
+              setValue=function(v)
+                  BL_Set("showSated", v); BL_Refresh(); EllesmereUI:RefreshPage()
+              end },
+            { type="toggle", text="Show Icon with Ready Text",
+              tooltip="Once the lockout expires, show a Ready label on the icon in place of the countdown. The visibility rule above still applies.",
+              getValue=function() return BL_Cfg("showReady") == true end,
+              setValue=function(v)
+                  BL_Set("showReady", v); BL_Refresh(); EllesmereUI:RefreshPage()
+              end })
+        y = y - h
+
+        -- Ready appearance: offset cog, colour swatch and size slider on one row,
+        -- disabled (not hidden) while Show Ready is off so the layout never
+        -- reshuffles on the toggle.
+        local function readyOff() return BL_Cfg("showReady") ~= true end
+        row, h = W:DualRow(parent, y,
+            { type="slider", text="Ready Size",
+              disabled=readyOff,
+              disabledTooltip="Show Icon with Ready Text",
+              min=8, max=30, step=1, isPercent=false,
+              getValue=function() return BL_Cfg("readySize") or 12 end,
+              setValue=function(v) BL_Set("readySize", v); BL_Refresh() end },
+            { type="label", text="" })
+        y = y - h
+        do
+            local leftRgn = row._leftRegion
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5,
+                function()
+                    local c = BL_Cfg("readyColor")
+                    if c then return c.r or 1, c.g or 1, c.b or 1 end
+                    return 1, 1, 1
+                end,
+                function(r, g, b)
+                    BL_Set("readyColor", { r = r, g = g, b = b })
+                    BL_Refresh()
+                end, false, 20)
+            PP.Point(swatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
+            EllesmereUI.RegisterWidgetRefresh(function()
+                local off = readyOff()
+                swatch:SetAlpha(off and 0.3 or 1)
+                updateSwatch()
+            end)
+            -- The slider's own "disabled" already blocks clicks on itself; the
+            -- swatch is a manual inline extra, so it needs the same click-block
+            -- overlay the ActionBars range-colour swatch uses.
+            local readyColorBlock = CreateFrame("Frame", nil, swatch)
+            readyColorBlock:SetAllPoints()
+            readyColorBlock:SetFrameLevel(swatch:GetFrameLevel() + 10)
+            readyColorBlock:EnableMouse(true)
+            readyColorBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("Show Icon with Ready Text"))
+            end)
+            readyColorBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            EllesmereUI.RegisterWidgetRefresh(function()
+                readyColorBlock:SetShown(readyOff())
+            end)
+            readyColorBlock:SetShown(readyOff())
+            -- Cog anchors LEFT of the swatch (not the slider) so it lands in the
+            -- empty gap instead of stacking both on the slider's left edge, while
+            -- staying parented to the row region like the other two.
+            _attachOffsetCog(leftRgn, "Ready Position", "readyOffsetX", "readyOffsetY",
+                readyOff, "Show Icon with Ready Text", swatch)
+        end
     end
     end   -- close Bloodlust hidden-while-Never gate
 

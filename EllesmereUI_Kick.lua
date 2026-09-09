@@ -94,29 +94,36 @@ EllesmereUI.ComputeCastBarTint = ComputeCastBarTint
 -- its protected items (Set Focus -> FocusUnit, Follow, etc.) throw
 -- ADDON_ACTION_FORBIDDEN. The only way the protected items work is a SECURE open.
 --
--- Fix: route right-click through the UN-gated "click" secure action to a hidden
--- child SecureActionButton, whose own SecureActionButton_OnClick (NOT gated -- only
--- SecureUnitButton_OnClick is) runs "togglemenu" securely. "useparent-unit" makes
--- the proxy resolve the unit from the parent unit button, so it works for static
--- frames AND header-managed (party/raid) frames whose unit changes. Call
--- AttachSecureUnitMenu(frame) on any unit button that needs a right-click menu
--- instead of setting *type2 = "togglemenu".
--- 12.1 zoned-out raid member -> PET menu misclassification fix. The proxy's
--- "togglemenu" secure action classifies the menu through a UnitIsUnit chain
--- that checks "pet" BEFORE UnitIsPlayer, and its token special-cases cover
--- party/boss/focus/arena but NOT raid (SecureTemplates.lua SECURE_ACTIONS.
--- togglemenu, marked "Unused by Blizzard code" -- the default UI never runs
--- it, which is why base frames don't show the bug; party frames are immune
--- via the token special-case, matching the raid-only field report). For a
--- raid member whose unit data has not streamed (zoned elsewhere), the
--- engine-side UnitIsUnit(raidN, "pet") comparison can misfire and the whole
--- chain resolves PET. Post-hook the opener: a PET-family menu opening for a
--- raid/party token whose GUID is a Player is that exact misfire -- re-open
--- the correct player menu. The re-open runs from this (tainted) hook, so
--- protected items (Set Focus/Follow) can throw for THAT menu instance only;
--- the trade for not showing a pet menu on a player. Legitimate pet menus
--- (unit "pet"/"partypetN"/"raidpetN") never match the signature, and the
--- correct which comes from the TOKEN (no unit APIs -- UnitInRaid/identity
+-- Fix: route right-click through a hidden child SecureActionButton, whose own
+-- SecureActionButton_OnClick (NOT gated -- only SecureUnitButton_OnClick is) runs
+-- the menu action securely. "useparent-unit" makes the proxy resolve the unit
+-- from the parent unit button, so it works for static frames AND header-managed
+-- (party/raid) frames whose unit changes. Call AttachSecureUnitMenu(frame) on any
+-- unit button that needs a right-click menu instead of setting *type2 = "togglemenu".
+--
+-- The proxy runs the "togglemenu" secure action (SecureTemplates.lua, "Unused
+-- by Blizzard code"). Its classifier walks a UnitIsUnit /
+-- UnitIsOtherPlayersBattlePet chain that misfires for a raid member whose unit
+-- data has not streamed (zoned elsewhere) and opens a pet menu; only
+-- boss/arena/party/focus tokens are special-cased ahead of that chain.
+-- The "menu" action (what Blizzard's own unit buttons use: SECURE_ACTIONS.menu
+-- -> ExecuteAttribute("menu-function"), with an opener such as
+-- CompactUnitFrame_OpenMenu that has no battle-pet probe) is NOT usable from an
+-- addon: ExecuteAttribute runs the function with the taint of the execution
+-- that SET the attribute -- a menu-function written from our Lua opens a
+-- tainted menu (Set Focus throws), unlike string attributes such as macrotext
+-- -- and writing it from a secure click instead (a leading "/click <proxy>
+-- Button4" line driving the "attribute" secure action) never landed the
+-- attribute at all (menu-function stayed nil; no menu opened). Both
+-- field-tested 2026-08-26; do not re-attempt without new engine facts.
+--
+-- Backstop: a PET-family menu opening for a raid/party token whose GUID is a
+-- Player is the classifier misfire above -- re-open the correct player menu.
+-- The re-open runs from this (tainted) hook, so protected items and secure
+-- follow-on panels (View Houses -> Visit House) fail for THAT menu instance
+-- only; the trade for not showing a pet menu on a player. Legitimate
+-- pet menus (unit "pet"/"partypetN"/"raidpetN") never match the signature, and
+-- the correct which comes from the TOKEN (no unit APIs -- UnitInRaid/identity
 -- reads can be SECRET for exactly these unstreamed units). Installed lazily
 -- with the first menu proxy; zero cost until a menu actually opens.
 local menuFixHooked = false
@@ -136,17 +143,25 @@ local function InstallMenuClassifierFix()
         if issecretvalue and issecretvalue(guid) then return end
         if type(guid) ~= "string" or not guid:find("^Player%-") then return end
         reopening = true
+        -- Menu.ModifyMenu callbacks run synchronously inside this call; the
+        -- flag lets EllesmereUI_MenuFallbacks.lua swap the protected items of
+        -- THIS (tainted) menu only for its secure replacements, and the call
+        -- after the open docks its Set Focus / Follow strip to the menu.
+        EllesmereUI._menuReopenUnit = unit
         -- FRESH context table, never the inbound one: OpenMenu ENRICHES its
         -- contextData in place (playerLocation/accountInfo) and asserts those
         -- fields are nil on entry -- re-passing the first open's table throws
         -- "assertion failed" at UnitPopupShared:53 (field-caught 2026-08-14;
         -- the live misfire classifies as OTHERBATTLEPET, same field capture).
         UnitPopup_OpenMenu(isRaidToken and "RAID_PLAYER" or "PARTY", { unit = unit })
+        EllesmereUI._menuReopenUnit = nil
         reopening = false
+        if EllesmereUI._ShowReopenedMenuExtras then EllesmereUI._ShowReopenedMenuExtras(unit) end
     end)
 end
 
 local menuProxies = setmetatable({}, { __mode = "k" })
+local menuMacros = setmetatable({}, { __mode = "k" })  -- proxy -> its macrotext
 -- 12.1: proxies are GLOBALLY NAMED so bindings can reach them via "/click
 -- <name>" (macro transport). 12.1 broke the "click" secure action outright
 -- (a typo: SecureTemplates.lua:564 calls HasAnyForbiddenAspects on the
@@ -174,6 +189,7 @@ function EllesmereUI.GetSecureMenuProxy(frame)
         -- The secure resolver looks up type by BUTTON SUFFIX (RightButton -> type2);
         -- the bare "type" may not fall back, so set every button explicitly.
         for i = 1, 5 do proxy:SetAttribute("type" .. i, "togglemenu") end
+        menuMacros[proxy] = "/click " .. proxyName
         proxy:SetAttribute("useparent-unit", true)
         -- Act on mouse-up regardless of the "cast on key down" CVar. Without this,
         -- SecureActionButton_OnClick's clickAction gate skips the menu action on the
@@ -215,16 +231,23 @@ function EllesmereUI.GetSecureTargetProxy(frame)
     return proxy
 end
 
+-- The macrotext that opens a unit button's secure menu (every binding that
+-- routes to the menu must use this, never a hand-built "/click <proxy>").
+function EllesmereUI.GetSecureMenuMacro(frame)
+    local proxy = EllesmereUI.GetSecureMenuProxy(frame)
+    return proxy and menuMacros[proxy]
+end
+
 -- Route a unit button's default RIGHT-CLICK to the secure menu proxy via the
--- ungated "click" action. Clears any specific type2 so the wildcard governs.
+-- macro transport. Clears any specific type2 so the wildcard governs.
 function EllesmereUI.AttachSecureUnitMenu(frame)
     if not frame then return end
     local proxy = EllesmereUI.GetSecureMenuProxy(frame)
     frame:SetAttribute("type2", nil)
-    -- Macro transport ("/click <proxy>") instead of the "click" action:
-    -- the 12.1 click action crashes on a Blizzard typo (see above).
+    -- Macro transport instead of the "click" action: the 12.1 click action
+    -- crashes on a Blizzard typo (see above).
     frame:SetAttribute("*type2", "macro")
-    frame:SetAttribute("*macrotext2", "/click " .. proxy:GetName())
+    frame:SetAttribute("*macrotext2", menuMacros[proxy])
     frame:SetAttribute("*clickbutton2", nil)
     return proxy
 end

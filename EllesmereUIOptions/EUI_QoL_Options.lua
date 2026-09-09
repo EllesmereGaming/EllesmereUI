@@ -1307,7 +1307,7 @@ initFrame:SetScript("OnEvent", function(self)
                     return
                 end
                 if key == "LSHIFT" or key == "RSHIFT" or key == "LCTRL" or key == "RCTRL"
-                   or key == "LALT" or key == "RALT" then
+                   or key == "LALT" or key == "RALT" or key == "LMETA" or key == "RMETA" then
                     self:SetPropagateKeyboardInput(true)
                     return
                 end
@@ -1318,11 +1318,26 @@ initFrame:SetScript("OnEvent", function(self)
                     RefreshLabel()
                     return
                 end
-                local mods = ""
-                if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
-                if IsControlKeyDown() then mods = mods .. "CTRL-" end
-                if IsAltKeyDown() then mods = mods .. "ALT-" end
-                local fullKey = mods .. key
+                -- Blizzard's canonical chord order is ALT-CTRL-SHIFT-KEY, and
+                -- CreateKeyChordStringUsingMetaKeyState is what produces it.
+                -- Hand-rolling the modifiers built SHIFT-CTRL-ALT-KEY, a chord
+                -- string the engine never generates, so any bind using more
+                -- than one modifier was stored in a form nothing could match.
+                -- Single-modifier binds happen to agree, which is why this
+                -- survived.
+                local fullKey
+                if CreateKeyChordStringUsingMetaKeyState then
+                    fullKey = CreateKeyChordStringUsingMetaKeyState(key)
+                else
+                    local mods = ""
+                    if IsAltKeyDown() then mods = mods .. "ALT-" end
+                    if IsControlKeyDown() then mods = mods .. "CTRL-" end
+                    if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
+                    if IsMetaKeyDown and IsMetaKeyDown() then
+                        mods = mods .. "META-"
+                    end
+                    fullKey = mods .. key
+                end
 
                 if not EllesmereUIDB then EllesmereUIDB = {} end
                 local bindBtn = _G["EUI_FPSBindBtn"]
@@ -2104,6 +2119,18 @@ initFrame:SetScript("OnEvent", function(self)
                         EllesmereUIDB.targetDistanceTextSize = v
                         if EllesmereUI._applyTargetDistanceFrame then EllesmereUI._applyTargetDistanceFrame() end
                       end },
+                    { type="dropdown", label="Frame Strata",
+                      tooltip="Controls the order that overlapping elements display in. Set higher to show above other elements.",
+                      values = EllesmereUI.FRAME_STRATA_LABELS,
+                      order = EllesmereUI.FRAME_STRATA_ORDER_BASE,
+                      get=function()
+                        return (EllesmereUIDB and EllesmereUIDB.targetDistanceStrata) or "HIGH"
+                      end,
+                      set=function(v)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.targetDistanceStrata = v
+                        if EllesmereUI._applyTargetDistanceFrame then EllesmereUI._applyTargetDistanceFrame() end
+                      end },
                 },
                 footer = { unlockKey = "EUI_TargetDistance" },
             })
@@ -2407,6 +2434,12 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="slider", label="Y Offset", min=-200, max=200, step=1,
                       get=function() return cget("crosshairYOffset") or 0 end,
                       set=function(v) dbset("crosshairYOffset", v) end },
+                    { type="dropdown", label="Frame Strata",
+                      tooltip="Controls the order that overlapping elements display in. Set higher to show above other elements.",
+                      values = EllesmereUI.FRAME_STRATA_LABELS,
+                      order = EllesmereUI.FRAME_STRATA_ORDER_BASE,
+                      get=function() return cget("crosshairStrata") or "MEDIUM" end,
+                      set=function(v) dbset("crosshairStrata", v) end },
             }
             -- Holy Paladin uses a 40yd out-of-range cutoff by default; let
             -- paladins opt into a melee (5yd) cutoff. Shown only for Paladins.
@@ -2564,7 +2597,7 @@ initFrame:SetScript("OnEvent", function(self)
                   end
               end },
             { type="toggle", text="Persistent Signup Note",
-              tooltip="Keeps your note text in the Sign Up dialog instead of clearing it each time you open it.",
+              tooltip="Keeps a saved signup note you can copy into the Sign Up dialog with the Copy button.",
               getValue=function()
                   return EllesmereUIDB and EllesmereUIDB.persistSignupNote or false
               end,
@@ -2574,8 +2607,70 @@ initFrame:SetScript("OnEvent", function(self)
                   if EllesmereUI._applyPersistSignupNote then
                       EllesmereUI._applyPersistSignupNote()
                   end
+                  EllesmereUI:RefreshPage()
               end }
         );  y = y - h
+
+        if not EllesmereUI._prebuilding then
+            local rightRgn = quickSignupRow._rightRegion
+            local function persistOff()
+                return not (EllesmereUIDB and EllesmereUIDB.persistSignupNote)
+            end
+
+            local noteCogBtn = CreateFrame("Button", nil, rightRgn)
+            noteCogBtn:SetSize(26, 26)
+            noteCogBtn:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -9, 0)
+            rightRgn._lastInline = noteCogBtn
+            noteCogBtn:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
+            noteCogBtn:SetAlpha(persistOff() and 0.15 or 0.4)
+            local noteCogTex = noteCogBtn:CreateTexture(nil, "OVERLAY")
+            noteCogTex:SetAllPoints()
+            noteCogTex:SetTexture(EllesmereUI.COGS_ICON)
+            noteCogBtn:SetScript("OnEnter", function(self)
+                self:SetAlpha(0.7)
+                EllesmereUI.ShowWidgetTooltip(self, "Edit the saved signup note.")
+            end)
+            noteCogBtn:SetScript("OnLeave", function(self)
+                self:SetAlpha(persistOff() and 0.15 or 0.4)
+                EllesmereUI.HideWidgetTooltip()
+            end)
+            noteCogBtn:SetScript("OnClick", function()
+                EllesmereUI:ShowInputPopup({
+                    title="Signup Note",
+                    message="Saved between reloads and relogs. In Group Finder, choose Copy, press Ctrl+C, then Ctrl+V.",
+                    placeholder="Enter signup note...",
+                    initialText=EllesmereUI.GetPersistentSignupNote
+                        and EllesmereUI.GetPersistentSignupNote() or "",
+                    maxLetters=63,
+                    inputHeight=70,
+                    multiline=true,
+                    showCount=true,
+                    allowEmpty=true,
+                    confirmText="Save",
+                    onConfirm=function(note)
+                        if EllesmereUI.SetPersistentSignupNote then
+                            EllesmereUI.SetPersistentSignupNote(note or "")
+                        end
+                    end,
+                })
+            end)
+
+            local noteCogBlock = CreateFrame("Frame", nil, noteCogBtn)
+            noteCogBlock:SetAllPoints()
+            noteCogBlock:SetFrameLevel(noteCogBtn:GetFrameLevel() + 10)
+            noteCogBlock:EnableMouse(true)
+            noteCogBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(noteCogBtn, EllesmereUI.DisabledTooltip("Persistent Signup Note"))
+            end)
+            noteCogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            EllesmereUI.RegisterWidgetRefresh(function()
+                local off = persistOff()
+                noteCogBtn:SetAlpha(off and 0.15 or 0.4)
+                if off then noteCogBlock:Show() else noteCogBlock:Hide() end
+            end)
+            if persistOff() then noteCogBlock:Show() else noteCogBlock:Hide() end
+        end
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
@@ -2775,6 +2870,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.instanceResetAnnounceMsg = ""
                 EllesmereUIDB.quickSignup = false
                 EllesmereUIDB.persistSignupNote = false
+                EllesmereUIDB.signupNote = nil
                 EllesmereUIDB.ahCurrentExpansion = false
                 EllesmereUIDB.healthMacroEnabled = false
                 EllesmereUIDB.healthMacroPrio1 = 1
@@ -2841,6 +2937,13 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._ShutdownShifter then EllesmereUI._ShutdownShifter() end
             if _G._EUI_AutoLogging_Check then _G._EUI_AutoLogging_Check() end
             EllesmereUI:InvalidatePageCache()
+        end,
+        -- Tears down Duration Warning, Raid Tools, and Movement Alert
+        -- previews on module switch (Movement Alert also stops its ticker).
+        onModuleLeave = function()
+            if EllesmereUI._durWarnHidePreview then EllesmereUI._durWarnHidePreview() end
+            if _G._EUI_RaidTools_Preview then _G._EUI_RaidTools_Preview(false) end
+            if EllesmereUI._MovementAlertPreview then EllesmereUI._MovementAlertPreview(false) end
         end,
     })
 
