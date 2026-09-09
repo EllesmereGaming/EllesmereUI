@@ -964,12 +964,34 @@ end
 -- dispatcher handles the needed events with HasAction() filtering (GCD swipes
 -- ride its ACTIONBAR_UPDATE_COOLDOWN); re-registered during vehicle/override
 -- so Blizzard's OverrideActionBar buttons (not replaced by us) still get cooldowns.
-if ActionBarButtonEventsFrame then ActionBarButtonEventsFrame:UnregisterAllEvents() end
+--
+-- Named one by one rather than UnregisterAllEvents, to leave exactly one behind:
+-- ACTIONBAR_SLOT_CHANGED stays on BLIZZARD's registration. It is the only event
+-- reaching Update() -> UpdatePressAndHoldAction -> SetAttribute, and a dispatch we
+-- own makes that a tainted write the client blocks in combat -- which forced the
+-- in-combat gate below and left press-and-hold stale all pull against an assist
+-- slot re-picking ~11x/sec. List mirrors ActionBarButtonEventsFrameMixin:OnLoad.
+-- do-end scoped, ns-exposed: this file is at Lua's 200-local main-chunk cap.
+do
+    local suppress = {
+        "PLAYER_ENTERING_WORLD", "UPDATE_BINDINGS", "GAME_PAD_ACTIVE_CHANGED",
+        "UPDATE_SHAPESHIFT_FORM", "ACTIONBAR_UPDATE_COOLDOWN", "PET_BAR_UPDATE",
+        "UNIT_FLAGS", "UNIT_AURA", "PLAYER_MOUNT_DISPLAY_CHANGED",
+    }
+    ns.SuppressBlizzButtonEvents = function()
+        if not ActionBarButtonEventsFrame then return end
+        for i = 1, #suppress do
+            ActionBarButtonEventsFrame:UnregisterEvent(suppress[i])
+        end
+    end
+end
+ns.SuppressBlizzButtonEvents()
 if ActionBarActionEventsFrame then ActionBarActionEventsFrame:UnregisterAllEvents() end
 do
     local _abefEvents = {
+        -- No ACTIONBAR_SLOT_CHANGED: Blizzard's registration is never taken over.
         "ACTIONBAR_UPDATE_COOLDOWN", "ACTIONBAR_UPDATE_STATE",
-        "ACTIONBAR_UPDATE_USABLE", "ACTIONBAR_SLOT_CHANGED",
+        "ACTIONBAR_UPDATE_USABLE",
         -- Spell-typed extra-action buttons (delve abilities) carry no action
         -- slot, so their cooldown fires SPELL_UPDATE_COOLDOWN not this event.
         "SPELL_UPDATE_COOLDOWN",
@@ -1030,13 +1052,13 @@ do
         return _classPH
     end
     -- ACTIONBAR_SLOT_CHANGED is the only event in either set that reaches
-    -- Blizzard's Update() -> UpdatePressAndHoldAction -> SetAttribute. The
-    -- registration is ours, so the dispatch runs under our taint and that write
-    -- is BLOCKED in combat, on Blizzard's own ActionButtonN and reported as
-    -- EllesmereUI. An assisted-combat action dirties its slot ~11x/sec, so a
-    -- raid pull spams it (Jera, 9.0.1). Registered out of combat only, both
-    -- edges driven by the REGEN events; PLAYER_ENTERING_WORLD, the other
-    -- Update() path, cannot fire under lockdown.
+    -- Blizzard's Update() -> UpdatePressAndHoldAction -> SetAttribute, so a
+    -- dispatch WE own makes that a tainted write the client blocks in combat, on
+    -- Blizzard's own ActionButtonN and reported as EllesmereUI (Jera, 9.0.1).
+    -- We no longer own it: SuppressBlizzButtonEvents leaves Blizzard's own
+    -- registration alone, so it keeps arriving under lockdown and press-and-hold
+    -- stays current against a Single Button Assist slot re-picking ~11x/sec.
+    -- slotOK stays in the mode key so the REGEN edges still re-derive the rest.
     local function ApplyBroadcaster()
         local want = (_vehNeed or _extraNeed) and "full"
             or ((_phNeed or ClassMayPressHold()) and "ph" or "off")
@@ -1046,14 +1068,14 @@ do
         -- Always drop to a known state first: "full" and "ph" are different
         -- registration sets, so switching between them directly would leave the
         -- wider set's events behind.
-        if ActionBarButtonEventsFrame then ActionBarButtonEventsFrame:UnregisterAllEvents() end
+        -- Targeted, so Blizzard's own ACTIONBAR_SLOT_CHANGED registration survives
+        -- every mode switch (see SuppressBlizzButtonEvents).
+        SuppressBlizzButtonEvents()
         if ActionBarActionEventsFrame then ActionBarActionEventsFrame:UnregisterAllEvents() end
         if want == "full" then
             if ActionBarButtonEventsFrame then
                 for _, ev in ipairs(_abefEvents) do
-                    if slotOK or ev ~= "ACTIONBAR_SLOT_CHANGED" then
-                        ActionBarButtonEventsFrame:RegisterEvent(ev)
-                    end
+                    ActionBarButtonEventsFrame:RegisterEvent(ev)
                 end
             end
             if ActionBarActionEventsFrame then
@@ -1063,9 +1085,8 @@ do
             end
         elseif want == "ph" then
             if ActionBarButtonEventsFrame then
-                if slotOK then
-                    ActionBarButtonEventsFrame:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
-                end
+                -- No ACTIONBAR_SLOT_CHANGED here any more: Blizzard's own registration
+                -- is left in place and never taken over, so it keeps arriving in combat.
                 -- PLAYER_ENTERING_WORLD as well, because SLOT_CHANGED alone
                 -- cannot seed a login. Blizzard gates that one on
                 -- "arg1 == 0 or arg1 == tonumber(self.action)", so a button only
@@ -14780,7 +14801,10 @@ function EAB:FinishSetup()
         end
         -- Both event broadcasters are killed at file-load time (top of file).
         -- Redundant kill here as safety net in case Blizzard re-creates them.
-        if _G.ActionBarButtonEventsFrame then _G.ActionBarButtonEventsFrame:UnregisterAllEvents() end
+        -- Targeted, so Blizzard's ACTIONBAR_SLOT_CHANGED survives this kill too:
+        -- a wholesale wipe here would strand press-and-hold, and the resync below
+        -- never re-registers that event any more.
+        if ns.SuppressBlizzButtonEvents then ns.SuppressBlizzButtonEvents() end
         if _G.ActionBarActionEventsFrame then _G.ActionBarActionEventsFrame:UnregisterAllEvents() end
         -- ...then hand control back to the mode machine. This safety net runs
         -- after the press-and-hold mode may already have registered, so without
