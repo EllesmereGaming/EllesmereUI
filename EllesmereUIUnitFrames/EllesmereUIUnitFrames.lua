@@ -414,6 +414,7 @@ local defaults = {
             showInParty = true,
             showSolo = true,
             barVisibility = "always",
+            showWhenHealthMissing = false,
             oocFadeEnabled = false,  -- "Fade Out of Combat" toggle (off by default)
             oocAlpha       = 0.5,    -- whole-frame alpha while out of combat
             visHideHousing = false,
@@ -598,6 +599,7 @@ local defaults = {
             showInParty = true,
             showSolo = true,
             barVisibility = "always",
+            showWhenHealthMissing = false,
             oocFadeEnabled = false,  -- "Fade Out of Combat" toggle (off by default)
             oocAlpha       = 0.5,    -- whole-frame alpha while out of combat
             visHideHousing = false,
@@ -929,6 +931,7 @@ local defaults = {
             showInParty = true,
             showSolo = true,
             barVisibility = "always",
+            showWhenHealthMissing = false,
             oocFadeEnabled = false,  -- "Fade Out of Combat" toggle (off by default)
             oocAlpha       = 0.5,    -- whole-frame alpha while out of combat
             visHideHousing = false,
@@ -11018,6 +11021,11 @@ function ns.ResolveVisResting(s, frame, ext, hiddenByOpts, inCombat)
     if vis == "never" then return 0, false end
     if vis == "in_combat" then return inCombat and shownAlpha or 0, false end
     if vis == "out_of_combat" then return (not inCombat) and shownAlpha or 0, false end
+    if s.showWhenHealthMissing then
+        if vis == "in_raid" then return IsInRaid() and shownAlpha or 0, false end
+        if vis == "in_party" then return (IsInGroup() and not IsInRaid()) and shownAlpha or 0, false end
+        if vis == "solo" then return (not IsInGroup()) and shownAlpha or 0, false end
+    end
     if vis == "mouseover" then
         -- Legacy single mouseover: a configured "Hide if" override that is NOT currently
         -- triggering counts as a positive show, so the frame does not require hover
@@ -11052,11 +11060,86 @@ function ns.VisMouseoverWired(s)
     return (EllesmereUI.VisOverrideValue and EllesmereUI.VisOverrideValue(s)) == "mouseover"
 end
 
+-- Health visibility is a display-only reveal. The curve result may be secret:
+-- hand it directly to alpha setters, never use it as a Lua condition.
+function ns.HealthVisibilityEnabled(s, frame)
+    if not s or not s.showWhenHealthMissing or not frame then return false end
+    local unit = frame._euiUnit
+    if unit ~= "player" and unit ~= "target" and unit ~= "focus" then return false end
+    if ns.VisUnitDisabled(db.profile, unit) then return false end
+    local override = EllesmereUI.VisOverrideValue(s)
+    return (override or s.barVisibility or "always") ~= "never"
+end
+
+function ns.HealthVisibilityAlpha(s, frame, baseAlpha, hoverGated, inCombat)
+    if not ns.HealthVisibilityEnabled(s, frame) then return baseAlpha end
+    -- A visibility refresh must preserve an active mouseover reveal. Keep
+    -- this decision on clean UI state, before evaluating the health curve.
+    if hoverGated and frame._healthVisHovered then
+        baseAlpha = ns.ResolveFrameAlpha(s, inCombat)
+    end
+    frame._healthVisBaseAlpha = baseAlpha
+    if not frame._healthVisCurve then
+        frame._healthVisCurve = C_CurveUtil.CreateCurve()
+        frame._healthVisCurve:SetType(Enum.LuaCurveType.Step)
+    end
+    if frame._healthVisCurveAlpha ~= baseAlpha then
+        frame._healthVisCurve:ClearPoints()
+        frame._healthVisCurve:AddPoint(0, 1)
+        frame._healthVisCurve:AddPoint(1, baseAlpha)
+        frame._healthVisCurveAlpha = baseAlpha
+    end
+    return UnitHealthPercent(frame._euiUnit, false, frame._healthVisCurve)
+end
+
+function ns.UpdateHealthVisibilityUnit(unit)
+    local frame = frames[unit]
+    local s = db.profile[unit]
+    if not ns.HealthVisibilityEnabled(s, frame) then return end
+    local baseAlpha, hoverGated = ns.ResolveVisRestingLive(s, frame)
+    local alpha = ns.HealthVisibilityAlpha(s, frame, baseAlpha, hoverGated, InCombatLockdown())
+    ;(frame._visWrap or frame):SetAlpha(alpha)
+    local model = frame.Portrait and frame.Portrait.backdrop and frame.Portrait.backdrop._3d
+    if model then model:SetAlpha(alpha) end
+    local mini = ns.UF_MINI_OF and frames[ns.UF_MINI_OF[unit]]
+    if mini and not (unit == "player" and db.profile.pet and db.profile.pet.alwaysShow) then
+        mini:SetAlpha(alpha)
+    end
+end
+
+function ns.SyncHealthVisibilityEvents()
+    local player = ns.HealthVisibilityEnabled(db.profile.player, frames.player)
+    local target = ns.HealthVisibilityEnabled(db.profile.target, frames.target)
+    local focus = ns.HealthVisibilityEnabled(db.profile.focus, frames.focus)
+    if not player and not target and not focus and not ns.healthVisibilityEvents then return end
+    if not ns.healthVisibilityEvents then
+        ns.healthVisibilityEvents = CreateFrame("Frame")
+        ns.healthVisibilityEvents:SetScript("OnEvent", function(_, event, unit)
+            if event == "PLAYER_FOCUS_CHANGED" then unit = "focus" end
+            ns.UpdateHealthVisibilityUnit(unit)
+        end)
+    end
+    local eventFrame = ns.healthVisibilityEvents
+    eventFrame:UnregisterAllEvents()
+    if player or target or focus then
+        local units = eventFrame.units or {}
+        eventFrame.units = units
+        wipe(units)
+        if player then units[#units + 1] = "player" end
+        if target then units[#units + 1] = "target" end
+        if focus then units[#units + 1] = "focus" end
+        eventFrame:RegisterUnitEvent("UNIT_HEALTH", unpack(units))
+        eventFrame:RegisterUnitEvent("UNIT_MAXHEALTH", unpack(units))
+        if focus then eventFrame:RegisterEvent("PLAYER_FOCUS_CHANGED") end
+    end
+end
+
 local function UnitFrame_OnEnter(self)
     local unit = self._euiUnit
     if not unit then return end
     local unitKey = unit:match("^boss%d$") and "boss" or unit
     local s = db and db.profile and db.profile[unitKey]
+    if s and s.showWhenHealthMissing then self._healthVisHovered = true end
     if ns.VisMouseoverWired(s) then
         -- Reveal only what is actually hover-gated right now. Under Any the frame may
         -- already be shown on another passing disjunct, in which case there is nothing to
@@ -11065,6 +11148,7 @@ local function UnitFrame_OnEnter(self)
         local _, hoverGated = ns.ResolveVisRestingLive(s, self)
         if hoverGated then
             local a = ns.ResolveFrameAlpha(s, InCombatLockdown())
+            if s.showWhenHealthMissing then a = ns.HealthVisibilityAlpha(s, self, a) end
             ;(self._visWrap or self):SetAlpha(a)
             -- 3D models don't inherit parent alpha: reveal the portrait too
             local bd3d = self.Portrait and self.Portrait.backdrop and self.Portrait.backdrop._3d
@@ -11101,6 +11185,7 @@ local function UnitFrame_OnEnter(self)
 end
 
 local function UnitFrame_OnLeave(self)
+    self._healthVisHovered = nil
     local unit = self._euiUnit
     if not unit then return end
     local unitKey = unit:match("^boss%d$") and "boss" or unit
@@ -11110,6 +11195,7 @@ local function UnitFrame_OnLeave(self)
         -- 0: under Any a passing disjunct keeps the frame visible with no hover involved,
         -- and hiding it here would leave it wrong until the next visibility event fires.
         local leaveAlpha = ns.ResolveVisRestingLive(s, self)
+        if s.showWhenHealthMissing then leaveAlpha = ns.HealthVisibilityAlpha(s, self, leaveAlpha) end
         ;(self._visWrap or self):SetAlpha(leaveAlpha)
         -- 3D models don't inherit parent alpha: hide/dim the portrait too
         local bd3d = self.Portrait and self.Portrait.backdrop and self.Portrait.backdrop._3d
@@ -12497,6 +12583,9 @@ function InitializeFrames()
                 -- must not pin anything, and an override of "never" must pin even though
                 -- the stored scalar says otherwise.
                 local visNever = (visOv or vis) == "never"
+                -- Health cannot be a secure macro condition. Keep the unit watch
+                -- active and let the secret-safe alpha curve reveal injured units.
+                if ns.HealthVisibilityEnabled(s, frame) then visTail = nil end
                 local wantDriver
                 if visNever then
                     -- Never is terminal, so it pins the secure driver instead of
@@ -12529,7 +12618,10 @@ function InitializeFrames()
                 -- so the frame looks hidden while the secure bucket below stays untouched:
                 -- a dismount inside a lockdown would otherwise hide it permanently.
                 -- _ufInCombat leads InCombatLockdown() on regen, so the ooc fade is instant.
-                local bodyAlpha = ns.ResolveVisResting(s, frame, ext, hiddenByOpts, _ufInCombat)
+                local bodyAlpha, hoverGated = ns.ResolveVisResting(s, frame, ext, hiddenByOpts, _ufInCombat)
+                if s.showWhenHealthMissing then
+                    bodyAlpha = ns.HealthVisibilityAlpha(s, frame, bodyAlpha, hoverGated, _ufInCombat)
+                end
                 alphaTarget:SetAlpha(bodyAlpha)
 
                 -- 3D PlayerModel frames don't inherit parent alpha, so the model must
@@ -12567,6 +12659,8 @@ function InitializeFrames()
                         -- answers false rather than nil, which would keep the frame
                         -- secure-Shown at alpha 0 and still eating clicks.
                         shouldShow = false
+                    elseif ns.HealthVisibilityEnabled(s, frame) then
+                        shouldShow = true
                     elseif ext ~= nil then
                         -- Engine-owned: frame stays secure-Shown; the alpha
                         -- bucket above drives visibility.
@@ -12677,7 +12771,13 @@ function InitializeFrames()
                 -- (unit existence); alpha never conflicts with it. Hover reveals mirror
                 -- in the OnEnter/OnLeave handlers.
                 if mini then
-                    mini:SetAlpha(miniAlways and 1 or (frame:IsShown() and bodyAlpha or 0))
+                    if miniAlways then
+                        mini:SetAlpha(1)
+                    elseif frame:IsShown() then
+                        mini:SetAlpha(bodyAlpha)
+                    else
+                        mini:SetAlpha(0)
+                    end
                 end
             elseif frame then
                 -- Parent disabled (the "Enable X Frame" toggles): a leftover condition
@@ -12712,6 +12812,7 @@ function InitializeFrames()
                 end
             end
         end
+        ns.SyncHealthVisibilityEvents()
     end
     ns.UpdateFrameVisibility = UpdateFrameVisibility
 
