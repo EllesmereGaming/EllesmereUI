@@ -3541,7 +3541,7 @@ local specialsActive = EABR.SectionShows(co.specialsWhereToShow, inInstance)
             local hasOrbit = Known(earthShield.requireTalent)
             local hasGroupBuff = BuffExistsOnAnyGroupMember({earthShield.buffIDs[1]})
             local hasSelfBuff = PlayerHasAuraByID({earthShield.buffIDs[2]})
-            if not hasGroupBuff or (hasOrbit and not hasSelfBuff) then
+            if (not hasGroupBuff and (IsInGroup() or IsInRaid())) or (hasOrbit and not hasSelfBuff) then
                 local e = AcquireEntry()
                 e.mode = "spell"; e.spellID = earthShield.castSpell
                 e.label = ShortLabel(earthShield.name, "SHAMAN_SHIELD")
