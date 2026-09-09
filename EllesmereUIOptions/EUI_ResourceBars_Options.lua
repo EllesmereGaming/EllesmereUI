@@ -4623,6 +4623,160 @@ initFrame:SetScript("OnEvent", function(self)
                     { type = "label", text = "" }
                 );  y = y - h
             end
+            local function _IsBrewmasterMonk()
+                if ctx.advanced then return ctx.specID == 268 end
+                local _, cf = UnitClass("player")
+                if cf ~= "MONK" then return false end
+                local s = GetSpecialization()
+                local sid = s and GetSpecializationInfo(s)
+                return sid == 268
+            end
+            if _IsBrewmasterMonk() then
+                local ES_LABEL = "Brewmaster Monk Extended Stagger Bar"
+                local ES_MIN = _G._ERB_EXT_STAGGER_MIN_SCALE or 2
+                local ES_MAX = _G._ERB_EXT_STAGGER_MAX_SCALE or 6
+                local esBarTip = "Lets the stagger bar run past 100% of your max health. The bar spans Scale steps of 100%, each step has its own fill color, and divider lines can mark the step boundaries. While this is on the step colors replace threshold and multi-band coloring, and Scale replaces \"Stagger Full %\" in Threshold Settings."
+                local esScaleTip = "How many 100% stagger steps the bar spans. Scale 4 fills the bar at 400% and puts divider lines at 100%, 200% and 300%."
+                local esColorsTip = "Fill color per 100% stagger step, from the lowest step to the highest. Steps above the current Scale are unused."
+                local function esOff() local p = DB(); return not (p and p.secondary.brewExtendedStaggerBar) end
+                local function esScale()
+                    local p = DB(); if not p then return 4 end
+                    local f = _G._ERB_ExtStaggerScale
+                    if f then return f(p.secondary) end
+                    return p.secondary.brewExtendedStaggerScale or 4
+                end
+                local esRow
+                esRow, h = W:DualRow(parent, y,
+                    { type = "toggle", text = ES_LABEL,
+                      tooltip = esBarTip,
+                      getValue = function() local p = DB(); return p and p.secondary.brewExtendedStaggerBar end,
+                      setValue = function(v)
+                          local p = DB(); if not p then return end
+                          p.secondary.brewExtendedStaggerBar = v; RebuildClass()
+                          local tc = ns._thrCtx
+                          if tc and tc.page and tc.page:IsShown() and tc.refreshDetail then
+                              tc.refreshDetail()
+                          end
+                          EllesmereUI:RefreshPage()
+                      end },
+                    { type = "slider", text = "Scale", min = ES_MIN, max = ES_MAX, step = 1,
+                      tooltip = esScaleTip,
+                      disabled = esOff,
+                      disabledTooltip = ES_LABEL,
+                      getValue = esScale,
+                      setValue = function(v)
+                          local p = DB(); if not p then return end
+                          p.secondary.brewExtendedStaggerScale = v; RefreshClass()
+                          EllesmereUI:RefreshPage()
+                      end }
+                );  y = y - h
+                -- Divider lines sit in a cog on the Scale slider: they are positioned by
+                -- Scale, so they belong to the same slot.
+                if not EllesmereUI._prebuilding then
+                    local rgn = esRow._rightRegion
+                    local function divOff()
+                        local p = DB()
+                        return esOff() or not (p and p.secondary.brewExtendedStaggerDividers ~= false)
+                    end
+                    local _, cogShow = EllesmereUI.BuildCogPopup({
+                        title = "Scale Dividers",
+                        rows = {
+                            { type = "toggle", label = "Show Divider Lines",
+                              get = function() local p = DB(); return p and p.secondary.brewExtendedStaggerDividers ~= false end,
+                              set = function(v)
+                                  local p = DB(); if not p then return end
+                                  p.secondary.brewExtendedStaggerDividers = v; RefreshClass()
+                              end },
+                            { type = "slider", label = "Line Thickness", min = 1, max = 4, step = 1,
+                              disabled = divOff,
+                              disabledTooltip = "Show Divider Lines",
+                              get = function() local p = DB(); return p and p.secondary.brewExtendedStaggerDividerWidth or 1 end,
+                              set = function(v)
+                                  local p = DB(); if not p then return end
+                                  p.secondary.brewExtendedStaggerDividerWidth = v; RefreshClass()
+                              end },
+                            { type = "colorpicker", label = "Line Color", hasAlpha = true,
+                              disabled = divOff,
+                              disabledTooltip = "Show Divider Lines",
+                              get = function()
+                                  local p = DB(); if not p then return 0, 0, 0, 1 end
+                                  local c = p.secondary
+                                  return c.brewExtendedStaggerDividerR or 0, c.brewExtendedStaggerDividerG or 0,
+                                         c.brewExtendedStaggerDividerB or 0, c.brewExtendedStaggerDividerA or 1
+                              end,
+                              set = function(r, g, b, a)
+                                  local p = DB(); if not p then return end
+                                  local c = p.secondary
+                                  c.brewExtendedStaggerDividerR, c.brewExtendedStaggerDividerG = r, g
+                                  c.brewExtendedStaggerDividerB, c.brewExtendedStaggerDividerA = b, a
+                                  RefreshClass()
+                              end },
+                        },
+                    })
+                    local cogBtn = MakeCogBtn(rgn, cogShow)
+                    local cogDis = CreateFrame("Frame", nil, rgn)
+                    cogDis:SetAllPoints(cogBtn)
+                    cogDis:SetFrameLevel(cogBtn:GetFrameLevel() + 5)
+                    cogDis:EnableMouse(true)
+                    cogDis:SetScript("OnEnter", function()
+                        EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip(ES_LABEL))
+                    end)
+                    cogDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                    local function UpdateEsCogDis()
+                        if esOff() then cogDis:Show() else cogDis:Hide() end
+                    end
+                    cogBtn:HookScript("OnShow", UpdateEsCogDis)
+                    EllesmereUI.RegisterWidgetRefresh(UpdateEsCogDis)
+                    UpdateEsCogDis()
+                end
+                -- One swatch per step; the ranges are fixed 100% bands, so the labels are
+                -- static and steps beyond the current Scale simply lock.
+                local esStepTips = {
+                    "Step 1: 0% - 100%", "Step 2: 100% - 200%", "Step 3: 200% - 300%",
+                    "Step 4: 300% - 400%", "Step 5: 400% - 500%", "Step 6: 500%+",
+                }
+                local esSwatches = {}
+                for i = 1, ES_MAX do
+                    -- Lua 5.1 reuses the numeric-for control variable. Capture a
+                    -- per-iteration copy so every swatch keeps its own step index.
+                    local step = i
+                    esSwatches[step] = {
+                        tooltip = esStepTips[step], hasAlpha = false,
+                        disabled = function() return step > esScale() end,
+                        -- Two reasons a swatch locks: the feature is off (standard
+                        -- requirement wrapper) or the step is past the current Scale.
+                        disabledTooltip = function()
+                            if esOff() then return ES_LABEL end
+                            return "This step is above the current Scale."
+                        end,
+                        rawTooltip = function() return not esOff() end,
+                        getValue = function()
+                            local p = DB()
+                            local t = p and p.secondary.brewExtendedStaggerColors
+                            local c = t and t[step]
+                            if c then return c.r or 1, c.g or 1, c.b or 1 end
+                            local d = _G._ERB_EXT_STAGGER_COLORS and _G._ERB_EXT_STAGGER_COLORS[step]
+                            if d then return d[1], d[2], d[3] end
+                            return 1, 1, 1
+                        end,
+                        setValue = function(r, g, b)
+                            local p = DB(); if not p then return end
+                            local t = p.secondary.brewExtendedStaggerColors
+                            if not t then t = {}; p.secondary.brewExtendedStaggerColors = t end
+                            t[step] = { r = r, g = g, b = b }
+                            RefreshClass()
+                        end,
+                    }
+                end
+                _, h = W:DualRow(parent, y,
+                    { type = "multiSwatch", text = "Scale Colors",
+                      tooltip = esColorsTip,
+                      disabled = esOff,
+                      disabledTooltip = ES_LABEL,
+                      swatches = esSwatches },
+                    { type = "label", text = "" }
+                );  y = y - h
+            end
         end
 
         -- Row 1: Show Class Resource | Orientation
@@ -6519,6 +6673,20 @@ initFrame:SetScript("OnEvent", function(self)
 				ceilingInput:SetScript("OnEditFocusLost", CeilingCommit)
 				ceilingInput:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
 				ceilingInput:SetScript("OnEscapePressed", function(self) self._cancelCommit = true; self:ClearFocus(); ceilingSnap() end)
+				-- Extended Stagger derives the ceiling from its own Scale, so lock this input while it is on. The stored value is never overwritten and applies again once Extended Stagger goes off.
+				local ES_CEILING_TIP = "Extended Stagger is on; its Scale decides how far the bar fills. Turn Extended Stagger off in the Class Resource section to use Stagger Full % again."
+				local ceilingDis = CreateFrame("Frame", nil, ceilingRow)
+				ceilingDis:SetPoint("TOPLEFT", ceilingRow, "TOPLEFT", -2, 3)
+				ceilingDis:SetPoint("BOTTOMRIGHT", ceilingInput, "BOTTOMRIGHT", 3, -3)
+				ceilingDis:SetFrameLevel(ceilingRow:GetFrameLevel() + 6)
+				ceilingDis:EnableMouse(true)
+				local ceilingDisTex = ceilingDis:CreateTexture(nil, "OVERLAY")
+				ceilingDisTex:SetAllPoints()
+				ceilingDisTex:SetColorTexture(0.06, 0.08, 0.10, 0.7)
+				ceilingDis:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(ceilingDis, EllesmereUI.L(ES_CEILING_TIP)) end)
+				ceilingDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+				ceilingDis:Hide()
+				ceilingRow._dis = ceilingDis
 
 				-- RefreshDetail: repaint the pane for the selected entry
 				RefreshDetail = function()
@@ -6686,7 +6854,13 @@ initFrame:SetScript("OnEvent", function(self)
 					place(buffRow)
 					-- Bar-wide text-instead toggle always gets a row (no visible effect for pip resources / Ignore Pain, whose render path keeps its own coloring)
 					place(textInsteadRow)
-					if isStagger then place(ceilingRow) end
+					if isStagger then
+						local _esPP = DB()
+						local _esOn = (_esPP and _esPP.secondary.brewExtendedStaggerBar) and true or false
+						ceilingRow._dis:SetShown(_esOn)
+						if ceilingRow._lbl then ceilingRow._lbl:SetAlpha(_esOn and 0.3 or 0.6) end
+						place(ceilingRow)
+					end
 				end
 				thrPage:Hide();
             end -- BuildFrame
@@ -6981,7 +7155,16 @@ initFrame:SetScript("OnEvent", function(self)
             local function ToggleFrame(anchor)
                 -- Nothing to configure with no config (Advanced, no spec selected/customised). The disabled overlay already blocks this, but the open path is guarded too.
                 if not DB() then return end
-                if not thrPage then BuildFrame({topY = _advTop, botY = y}) end
+                if not thrPage then
+                    BuildFrame({topY = _advTop, botY = y})
+                    -- BuildFrame lazily assigns the popup and detail refresher after
+                    -- _thrCtx was initially stamped below. Refresh the singleton so
+                    -- option toggles and spec events can update an already-open popup.
+                    if ns._thrCtx then
+                        ns._thrCtx.page = thrPage
+                        ns._thrCtx.refreshDetail = RefreshDetail
+                    end
+                end
 				if thrPage:IsShown() then
 					-- Unlock cycle: forces a correct redraw
 					if thrPage:GetLeft() ~= nil then
