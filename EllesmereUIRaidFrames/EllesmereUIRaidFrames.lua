@@ -7385,7 +7385,12 @@ ns._LayoutGroupsImpl = function()
             or ns._flatHeader:GetAttribute("xOffset") ~= hdrXOff
             or ns._flatHeader:GetAttribute("yOffset") ~= hdrYOff
             or ns._flatHeader:GetAttribute("columnAnchorPoint") ~= colAnchor then
-                -- Clear child anchors before changing layout direction
+                -- Attribute changes normally relayout visible children immediately.
+                -- Suppress those intermediate passes: changing point before the
+                -- column anchor can leave both old and new points on column starts.
+                -- The Hide/Show below rebuilds once with the complete layout.
+                local oldIgnore = ns._flatHeader:GetAttribute("_ignore")
+                ns._flatHeader:SetAttribute("_ignore", true)
                 local ci, child = 1, ns._flatHeader:GetAttribute("child1")
                 while child do
                     child:ClearAllPoints()
@@ -7396,6 +7401,7 @@ ns._LayoutGroupsImpl = function()
                 ns._flatHeader:SetAttribute("xOffset", hdrXOff)
                 ns._flatHeader:SetAttribute("yOffset", hdrYOff)
                 ns._flatHeader:SetAttribute("columnAnchorPoint", colAnchor)
+                ns._flatHeader:SetAttribute("_ignore", oldIgnore)
                 layoutChanged = true
             end
             if ns._flatHeader:GetAttribute("columnSpacing") ~= gs then
