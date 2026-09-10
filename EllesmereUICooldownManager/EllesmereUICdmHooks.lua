@@ -88,16 +88,6 @@ do
         return value >= threshold
     end
 
-    local function ApplySecondStackGlowMask(st)
-        if not st.mask2 then return end
-        for _, region in ipairs({ st.glow:GetRegions() }) do
-            if region.AddMaskTexture and region._euiTGMask2 ~= st.mask2 then
-                region._euiTGMask2 = st.mask2
-                region:AddMaskTexture(st.mask2)
-            end
-        end
-    end
-
     -- LIVE-FIRST: the item's auraDataCached is (re)written on aura
     -- ASSIGNMENT, so an update-only stack change can leave it holding the
     -- gain-time count -- a threshold crossing would then wait for the next
@@ -134,13 +124,16 @@ do
     ns._ReadBuffApplications = ReadBuffApplications
 
     local function StartStackGlow(st, width, height)
+        -- Both gate masks go over as data: the combat replay of Show Glows Only
+        -- in Combat restarts from the recorded opts, so a mask bound out here
+        -- would be missing on every texture that replay creates fresh.
         ns.StartNativeGlow(st.glow, st.style, st.r, st.g, st.b, {
             owner = st.icon, width = width, height = height,
             N = st.lines, th = st.thickness, period = st.speed,
             bg = st.background and { r = st.bgR, g = st.bgG, b = st.bgB } or nil,
             maskWith = st.mask,
+            maskWith2 = st.mask2,
         })
-        ApplySecondStackGlowMask(st)
         st.width, st.height = width, height
         st.started = true
     end
@@ -978,6 +971,17 @@ local _divertedBuffCdIDs  = {}
 --- same way listing a spellID claims a spell. On ns, not a local: this file is at
 --- the 200-local cap.
 ns._divertedSlotCD = {}
+-- "Replace with Buff" (per-spell cd/util setting): buff identity -> the cooldown
+-- spellID whose slot the buff's viewer frame takes while the aura is active.
+-- Spell-keyed map is variant-expanded on write; the cooldownID map serves
+-- cd-claimed collided slots (numeric keys, so the collect pass never concats).
+-- Read only while ns._cdmAnyBuffReplace is set. On ns: 200-local cap.
+ns._buffReplaceTarget = {}
+ns._buffReplaceTargetCd = {}
+-- Bars holding at least one replacement: the viewer-alpha vote in
+-- _CDMApplyVisibility reads it (a replacement frame stays parented to the
+-- BuffIcon viewer, like a hosted buff, so its bar must keep that viewer lit).
+ns._buffReplaceBars = {}
 -- EXACT assigned ids, split from the maps above (which also hold variant-family
 -- derived keys). One cooldown slot can carry several family members on different
 -- bars (Divine Toll/override Holy Bulwark share cooldownID 29342, base 375576);
@@ -1157,6 +1161,9 @@ function ns.RebuildSpellRouteMap()
     wipe(_divertedVarBaseCD)
     wipe(_divertedBuffCdIDs)
     wipe(ns._divertedSlotCD)
+    wipe(ns._buffReplaceTarget)
+    wipe(ns._buffReplaceTargetCd)
+    wipe(ns._buffReplaceBars)
     _routeMapBuilt = false
 
     local p = ECME.db and ECME.db.profile
@@ -1290,6 +1297,48 @@ function ns.RebuildSpellRouteMap()
             if claims then
                 for cdID in pairs(claims) do
                     _divertedBuffCdIDs[cdID] = bd.key
+                end
+            end
+        end
+    end
+    -- Pass 3c: "Replace with Buff". A cd/util entry can name a tracked buff
+    -- whose viewer frame takes the cooldown's slot while the aura is active.
+    -- Divert the buff exactly like a hosted buff (same map, same variant
+    -- expansion) and remember which cooldown it stands in for; the collect
+    -- pass swaps the frames. Gated: a profile with no mapping skips the pass.
+    if ns._cdmAnyBuffReplace then
+        for _, bd in ipairs(p.cdmBars.bars) do
+            if bd.enabled and not bd.isGhostBar
+               and bd.barType ~= "buffs" and bd.barType ~= "custom_buff" then
+                local sd = ns.GetBarSpellData(bd.key)
+                local store = sd and sd.assignedSpells and ns.GetSpellSettingsStore(bd.key)
+                if store then
+                    -- One buff frame can stand in for ONE cooldown per bar; the
+                    -- setter enforces it on write, this guards data that arrived
+                    -- by copy (spec/RPT sync). First assigned entry wins.
+                    local seenBuff
+                    for _, sid in ipairs(sd.assignedSpells) do
+                        if type(sid) == "number" and sid > 0 then
+                            local ss = store[sid]
+                            local buffSid = ss and rawget(ss, "replaceBuffID")
+                            if type(buffSid) == "number" and buffSid > 0 then
+                                local buffCd = rawget(ss, "replaceBuffCdID")
+                                local ident = (type(buffCd) == "number" and buffCd > 0) and -buffCd or buffSid
+                                seenBuff = seenBuff or {}
+                                if not seenBuff[ident] then
+                                    seenBuff[ident] = true
+                                    ns._buffReplaceBars[bd.key] = true
+                                    if ident < 0 then
+                                        _divertedBuffCdIDs[buffCd] = bd.key
+                                        ns._buffReplaceTargetCd[buffCd] = sid
+                                    else
+                                        StoreDirect(_divertedSpellsBuff, buffSid, bd.key)
+                                        SVV(ns._buffReplaceTarget, buffSid, sid, false)
+                                    end
+                                end
+                            end
+                        end
+                    end
                 end
             end
         end
@@ -2029,6 +2078,12 @@ local function EvalCdReadySound(frame, fd, primeOnly)
     if not ns._cdmAnyCdReadySound then return end
     if not fd then return end
     if fd._isProcessingOverride then return end
+    -- Buff-family frames never play (see WatchCdReadySoundIfEnabled); held here too so
+    -- a frame watched before its decoration flagged it stays silent.
+    if fd._isBuffViewerFrame or frame._isCustomBuffFrame or frame._isPlaceholderFrame then
+        fd._cdReadyArmed = false
+        return
+    end
     local fc2 = _ecmeFC[frame]
     local sid2 = fc2 and fc2.spellID
     local bk2 = fc2 and fc2.barKey
@@ -2113,6 +2168,8 @@ local function HookCdReadyAvailableAlert(frame, fd)
     hooksecurefunc(frame, "TriggerAvailableAlert", function(f)
         if not ns._cdmAnyCdReadySound then return end
         if fd._isProcessingOverride then return end
+        -- A buff frame's alert fires on AURA gain, not readiness (see the watch below).
+        if fd._isBuffViewerFrame or f._isCustomBuffFrame or f._isPlaceholderFrame then return end
         local fca = _ecmeFC[f]
         local sida = fca and fca.spellID
         local bka = fca and fca.barKey
@@ -2141,6 +2198,14 @@ function ns.WatchCdReadySoundIfEnabled(frame)
     if not frame then return end
     local fd = hookFrameData[frame]
     if not fd then return end
+    -- Buff-family frames never watch: a hosted or custom buff frame resolves the
+    -- ABILITY's per-spell entry through the linked-id union, and its
+    -- TriggerAvailableAlert fires on aura gain (no readiness check in the hook), so
+    -- the cd-ready cue played at buff gain. Same exclusion as the charge hooks.
+    if fd._isBuffViewerFrame or frame._isCustomBuffFrame or frame._isPlaceholderFrame then
+        if ns._cdReadySoundWatch[frame] then ns._cdReadySoundWatch[frame] = nil end
+        return
+    end
     local fcw = _ecmeFC[frame]
     local sidw = fcw and fcw.spellID
     local bkw = fcw and fcw.barKey
@@ -2181,6 +2246,24 @@ end
 --  Glow), catching the topping-off edge the cooldown-widget hooks miss. Gated on
 --  ns._cdmAnyChargeHideCdText (~0 cost when unused).
 -------------------------------------------------------------------------------
+
+-- Per-spell Duration Text layered onto a bar-derived hide flag, for the paths that hold only
+-- barData: the reanchor assign loop and the Only Show Numbers restore tail. The appearance
+-- pass does not call this -- it resolves ssb itself, and re-resolving there would replace a
+-- correct value with a worse one. Keyed on the DISPLAYED id, never fc.spellID: for a buff
+-- whose base is a shared spec spell the base misses the entry and lets one icon's setting
+-- shadow another's, the same rule the appearance pass documents at its own resolve.
+-- ~= nil, not truthiness: a per-spell ON must beat a bar that is OFF.
+function ns.CdmDurationHideFor(frame, barKey, baseHide)
+    if not ns._cdmAnySpellDurationText then return baseHide end
+    local fcd = _ecmeFC[frame]
+    local sidD = (ns.GetCanonicalSpellIDForFrame and ns.GetCanonicalSpellIDForFrame(frame))
+        or (fcd and fcd.spellID)
+    if not (sidD and barKey and ns.ResolveSpellSettings) then return baseHide end
+    local ssD = ns.ResolveSpellSettings(frame, sidD, ns.GetBarSpellData(barKey), barKey)
+    if ssD and ssD.showCooldownText ~= nil then return not ssD.showCooldownText end
+    return baseHide
+end
 
 -- Effective SetHideCountdownNumbers value: layers the per-spell "Hide CD Text
 -- (Charges)" toggle on the caller's baseHide (numbers already hidden by the bar
@@ -2593,7 +2676,7 @@ local function EvalCdStateChargeFrame(frame, fd)
         return
     end
     local ssw = ResolveSpellSettings(frame, sidw, ns.GetBarSpellData(bkw))
-    local csew = ssw and ssw.cdStateEffect
+    local csew = ns.GetSpellCdStateEffect(frame, ssw)
     if csew ~= "hiddenReady" and csew ~= "hiddenReadyShift" then
         -- Effect changed or cleared: the desat hook owns every other mode.
         ns._cdStateChargeWatch[frame] = nil
@@ -2808,7 +2891,10 @@ local function ApplyOnlyNumbers(frame, fd, barData)
         local cd = fd.cooldown or frame.Cooldown or frame._cooldown
         if cd then
             if cd.SetDrawSwipe then cd:SetDrawSwipe(true) end
-            if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(not ns.CdmDurationTextOn(barData)) end
+            if cd.SetHideCountdownNumbers then
+                cd:SetHideCountdownNumbers(
+                    ns.CdmDurationHideFor(frame, barData.key, not ns.CdmDurationTextOn(barData)))
+            end
         end
         -- Square border / shape ring re-apply on the next style pass
         -- (DecorateFrame / RefreshCDMIconAppearance via BuildAllCDMBars).
@@ -3204,6 +3290,7 @@ local function DecorateFrame(frame, barData)
                 if ss2 and ss2.maxStacksGlow and ss2.maxStacksGlow > 0 then ns._cdmAnyMaxStacksGlow = true end
                 if ss2 and ss2.activeGlow and ss2.activeGlow > 0 then ns._cdmAnyActiveGlow = true end
                 if ss2 and ss2.chargeHideCdText then ns._cdmAnyChargeHideCdText = true end
+                if ss2 and ss2.showCooldownText ~= nil then ns._cdmAnySpellDurationText = true end
                 if ss2 and ss2.hideChargeText then ns._cdmAnyHideChargeText = true end
                 if ss2 and ss2.suppressGCD then ns._cdmAnySuppressGcd = true end
                 if ss2 and ss2.reverseSwipe then ns._cdmAnyReverseSwipe = true end
@@ -3984,7 +4071,7 @@ local function DecorateFrame(frame, barData)
                     return
                 end
                 local ss2 = ResolveSpellSettings(frame, sid2, false)
-                local cse = ss2 and ss2.cdStateEffect
+                local cse = ns.GetSpellCdStateEffect(frame, ss2)
                 -- Shift-Icons variants = base hidden mode + a bar-relayout
                 -- flag; normalize here so every comparison below is unchanged.
                 local cseShift = (cse == "hiddenOnCDShift" or cse == "hiddenReadyShift")
@@ -4391,9 +4478,15 @@ local function UpdateTrinketFrame(slotID)
     _trinketItemCache[slotID] = itemID
     if not itemID then
         f._slotScanPending = nil
+        -- An empty read is also what the login window returns before the inventory
+        -- has synced: flag it so the PLAYER_ENTERING_WORLD retry sweep re-reads the
+        -- slot (SlotScanIncomplete) instead of leaving the frame hidden until the next
+        -- equipment change.
+        f._slotEmptyRead = true
         f:Hide()
         return
     end
+    f._slotEmptyRead = nil
     -- Item data not in the client cache yet (cold cache at login): GetItemSpell
     -- reads nil for an on-use item, which the passive test below would take as
     -- conclusive and nothing would ever re-scan. Keep the previous state,
@@ -4586,7 +4679,7 @@ _trinketEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 -- item has a spell the tooltip scan couldn't confirm yet, and user-added slots
 -- whose instance tooltip wasn't cached (enchant/tinker lines).
 local function SlotScanIncomplete(f)
-    return (f._trinketSpellID and not f._trinketIsOnUse) or f._slotScanPending
+    return (f._trinketSpellID and not f._trinketIsOnUse) or f._slotScanPending or f._slotEmptyRead
 end
 
 _trinketEventFrame:SetScript("OnEvent", function(_, event, arg1, arg2)
@@ -4755,7 +4848,7 @@ do
             if fd and fd.glowOverlay and sid2 and bk2
                and not (ns.PresetHasCdState and ns.PresetHasCdState(frame)) then
                 local ss2 = RSP(frame, sid2, ns.GetBarSpellData(bk2))
-                local cse2 = ss2 and ss2.cdStateEffect
+                local cse2 = ns.GetSpellCdStateEffect(frame, ss2)
                 local plainGlow = cse2 == "pixelGlowReady" or cse2 == "buttonGlowReady"
                 local usableGlow = cse2 == "pixelGlowReadyUsable" or cse2 == "buttonGlowReadyUsable"
                 if plainGlow or usableGlow then
@@ -4934,6 +5027,13 @@ function _AC.Anchor(barKey, rec)
     local holder = rec and rec.holder
     if not (barFrame and holder) then return end
     holder:SetShown(barFrame:IsShown())
+    -- Visibility rules and bar opacity hide the bar through ALPHA on the bar
+    -- frame and its own icons; this holder is UIParent-parented and inherits
+    -- none of it, so mirror the bar's effective alpha here: 0 while the bar
+    -- is visibility-hidden, else its opacity / out-of-combat fade.
+    local bdA = (ns.barDataByKey and ns.barDataByKey[barKey]) or rec.bdRef
+    holder:SetAlpha(barFrame._visHidden and 0
+        or ((ns.EffectiveBarAlpha and ns.EffectiveBarAlpha(bdA)) or 1))
     holder:ClearAllPoints()
     local ok, bl, bb, bw, bh = pcall(barFrame.GetRect, barFrame)
     if not (ok and bl) then
@@ -6567,6 +6667,18 @@ local function CollectAndReanchor()
     local cdFrames = _scratch_cdFrames
     for k, list in pairs(cdFrames) do wipe(list) end
 
+    -- "Replace with Buff": per-bar set of cooldown ids whose slot an active buff
+    -- frame took this pass (read by the compaction after Phase 1). Per-bar
+    -- tables are wiped, never recreated. Untouched for profiles without a mapping.
+    if ns._cdmAnyBuffReplace then
+        local rb = ns._replacedByBar
+        if rb then
+            for _, t in pairs(rb) do wipe(t) end
+        else
+            ns._replacedByBar = {}
+        end
+    end
+
     local _FindOverride = C_SpellBook and C_SpellBook.FindSpellOverrideByID
 
     ---------------------------------------------------------------------------
@@ -6589,6 +6701,15 @@ local function CollectAndReanchor()
                             local barSeen = seenSpell[targetBar]
                             if not barSeen then barSeen = {}; seenSpell[targetBar] = barSeen end
                             local dedupKey = frame.cooldownID
+                            -- "Replace with Buff": the cooldown this buff stands in for on
+                            -- the bar it routes to, or nil. Table reads only, and only
+                            -- when a mapping exists anywhere (nil for everyone else).
+                            local repSID
+                            if ns._cdmAnyBuffReplace then
+                                repSID = (dedupKey and ns._buffReplaceTargetCd[dedupKey])
+                                    or ns._buffReplaceTarget[displaySID]
+                                    or (baseSID and ns._buffReplaceTarget[baseSID]) or nil
+                            end
                             if dedupKey and not barSeen[dedupKey] then
                                 if frame:IsShown() then
                                     -- Active buff: route Blizzard's real frame.
@@ -6605,11 +6726,25 @@ local function CollectAndReanchor()
                                         cf[#cf + 1] = frame
                                         local fc = FC(frame)
                                         fc.barKey = targetBar
-                                        fc.spellID = baseSID or displaySID
-                                        -- Hosted buff: Phase 3 ranks it by its hosted
-                                        -- MARKER slot, independent of the same spell's
-                                        -- cooldown entry on this bar.
-                                        fc.isHostedBuff = true
+                                        if repSID then
+                                            -- Replacement: takes the COOLDOWN's identity, so Phase 3
+                                            -- ranks it in that slot and the claim set covers the
+                                            -- cooldown; the cooldown's own frame is dropped from this
+                                            -- pass by the compaction after Phase 1.
+                                            fc.spellID = repSID
+                                            fc.isHostedBuff = nil
+                                            fc.replacesCd = repSID
+                                            local rb = ns._replacedByBar[targetBar]
+                                            if not rb then rb = {}; ns._replacedByBar[targetBar] = rb end
+                                            rb[repSID] = true
+                                        else
+                                            fc.spellID = baseSID or displaySID
+                                            fc.replacesCd = nil
+                                            -- Hosted buff: Phase 3 ranks it by its hosted
+                                            -- MARKER slot, independent of the same spell's
+                                            -- cooldown entry on this bar.
+                                            fc.isHostedBuff = true
+                                        end
                                     else
                                         if not barLists[targetBar] then barLists[targetBar] = {} end
                                         barLists[targetBar][#barLists[targetBar] + 1] =
@@ -6721,7 +6856,9 @@ local function CollectAndReanchor()
                                     -- its placeholder routes through the CD pipeline (Phase 3), not barLists.
                                     local hostCD = bd and bd.barType ~= "buffs" and bd.barType ~= "custom_buff"
                                     local showInactive = bd and (bd.showInactiveBuffIcons or bd.hidePlaceholderIcon) and true or false
-                                    if hostCD then showInactive = true end
+                                    -- A replacement buff never reserves a slot of its own: while it
+                                    -- is missing, the cooldown it stands in for owns the slot.
+                                    if hostCD and not repSID then showInactive = true end
                                     -- Hosted "Visibility When Missing" (per-spell, BUFF family
                                     -- store; hosted entries never chain to bar tiers, so this can
                                     -- never come from Apply-to-Bar). Resolved via the pooled
@@ -6734,7 +6871,7 @@ local function CollectAndReanchor()
                                     -- gap (HideAllPlaceholders at the top of every collect already
                                     -- hid the pooled frame -- same outcome as Hidden on CD (Shift Icons) for cooldowns).
                                     local hostedMissingVis
-                                    if hostCD then
+                                    if hostCD and not repSID then
                                         local phMV = GetOrCreatePlaceholderFrame(targetBar, realSID, nil, phIdent)
                                         local ssMV = ns.ResolveSpellSettings(phMV, realSID, ns.GetBarSpellData(targetBar), targetBar)
                                         local mv = ssMV and ssMV.hostedMissingVis
@@ -6762,6 +6899,7 @@ local function CollectAndReanchor()
                                             elseif ssAS.alwaysShow == "missing" then showInactive = true end
                                         end
                                     end
+                                    if repSID then showInactive = false end
                                     if bd and bd.enabled and (bd.barType == "buffs" or hostCD)
                                        and showInactive and hostedMissingVis ~= "hiddenShift"
                                        and targetBar ~= ns.FOCUSKICK_BAR_KEY
@@ -7438,6 +7576,31 @@ local function CollectAndReanchor()
         end
     end
 
+    -- "Replace with Buff": an active replacement frame and the cooldown it stands
+    -- in for share one slot identity, so drop the cooldown's own frame from this
+    -- pass. It takes the unclaimed park in Phase 4 and returns on the reanchor
+    -- the buff frame's own OnActiveStateChanged already queues at falloff.
+    if ns._cdmAnyBuffReplace and ns._replacedByBar then
+        for bk, targets in pairs(ns._replacedByBar) do
+            local frames = next(targets) and cdFrames[bk]
+            if frames then
+                for i = #frames, 1, -1 do
+                    local fc = _ecmeFC[frames[i]]
+                    if fc and not fc.replacesCd and fc.spellID then
+                        local hit = targets[fc.spellID]
+                            or (fc.baseSpellID and targets[fc.baseSpellID])
+                        if not hit then
+                            for t in pairs(targets) do
+                                if ns.IsVariantOf(fc.spellID, t) then hit = true; break end
+                            end
+                        end
+                        if hit then table.remove(frames, i) end
+                    end
+                end
+            end
+        end
+    end
+
     -- Pre-build claim set for racial/custom spell checks: collect all spellIDs already
     -- claimed by Blizzard frames across all bars. This replaces the O(frames *
     -- FindSpellOverrideByID) inner loop with a set lookup.
@@ -8105,7 +8268,7 @@ local function CollectAndReanchor()
                                 if fcS then
                                     if fcS._cdStateShiftHidden then blocked = true; break end
                                     local ssS = ResolveSpellSettings(srcList[i], fcS.spellID, sdS, bd.key)
-                                    local effS = ssS and ssS.cdStateEffect
+                                    local effS = ns.GetSpellCdStateEffect(srcList[i], ssS)
                                     if effS == "hiddenOnCDShift" or effS == "hiddenReadyShift" then
                                         blocked = true; break
                                     end
@@ -8194,7 +8357,7 @@ local function CollectAndReanchor()
                             fdRv._revKind = wantRev
                             frame.Cooldown:SetReverse(wantRev)
                         end
-                        local hcd = hideCDText
+                        local hcd = ns.CdmDurationHideFor(frame, barKey, hideCDText)
                         if ns.CdmShouldHideCountdown then hcd = ns.CdmShouldHideCountdown(frame, hcd) end
                         frame.Cooldown:SetHideCountdownNumbers(hcd)
                     end
@@ -9207,6 +9370,11 @@ local function UpdateCustomBuffBars()
                                     f._cooldown:Clear()
                                 end
                                 DecorateFrame(f, barData); f:Show()
+                                -- A frame (re)shown while its bar is visibility-hidden must not
+                                -- come back at its last alpha: only listed icons get the hide
+                                -- pass, and this one may have been unlisted (inactive) then.
+                                f:SetAlpha(container._visHidden and 0
+                                    or ((ns.EffectiveBarAlpha and ns.EffectiveBarAlpha(barData)) or 1))
                                 f:EnableMouse(false)
                                 if f.Cooldown and f.Cooldown.SetDrawSwipe then
                                     -- Only Show Numbers hides the swipe with the icon art.
@@ -10172,24 +10340,44 @@ function ns.SetupViewerHooks()
                                 local sid, baseSID = ResolveFrameSpellID(frame)
                                 if sid and sid > 0 then
                                     ac[sid] = true
-                                    -- Zero At Stacks assignments = zero extra reads here
-                                    -- (ns._anyBarGlowStackGate, maintained by
-                                    -- CdmBarGlows.lua's SetupOverlays).
-                                    local apps = ns._anyBarGlowStackGate and ns._ReadBuffApplications
-                                        and ns._ReadBuffApplications(frame)
-                                    if apps ~= nil then asc[sid] = apps end
-                                    if baseSID and baseSID > 0 then
-                                        ac[baseSID] = true
-                                        if apps ~= nil then asc[baseSID] = apps end
-                                    end
+                                    local hasBase = baseSID and baseSID > 0
+                                    if hasBase then ac[baseSID] = true end
                                     local fc = _ecmeFC[frame]
                                     local linked = fc and fc.linkedSpellIDs
                                     if linked then
                                         for li = 1, #linked do
                                             local lsid = linked[li]
-                                            if lsid and lsid > 0 then
-                                                ac[lsid] = true
-                                                if apps ~= nil then asc[lsid] = apps end
+                                            if lsid and lsid > 0 then ac[lsid] = true end
+                                        end
+                                    end
+                                    -- Stack counts for Bar Glows' At Stacks gate: read
+                                    -- ONLY for frames a gated entry names by sid, base
+                                    -- or linked id (ns._barGlowStackSids, maintained by
+                                    -- CdmBarGlows.lua's SetupOverlays; nil with no gated
+                                    -- entry). The live read allocates a data table per
+                                    -- call, so it never runs for unrelated frames.
+                                    local sids = ns._barGlowStackSids
+                                    if sids then
+                                        local want = sids[sid] or (hasBase and sids[baseSID])
+                                        if not want and linked then
+                                            for li = 1, #linked do
+                                                local lsid = linked[li]
+                                                if lsid and sids[lsid] then want = true; break end
+                                            end
+                                        end
+                                        if want and ns._ReadBuffApplications then
+                                            local apps = ns._ReadBuffApplications(frame)
+                                            -- Secret probe FIRST: a nil test on a secret
+                                            -- value hard-errors.
+                                            if (issecretvalue and issecretvalue(apps)) or apps ~= nil then
+                                                asc[sid] = apps
+                                                if hasBase then asc[baseSID] = apps end
+                                                if linked then
+                                                    for li = 1, #linked do
+                                                        local lsid = linked[li]
+                                                        if lsid and lsid > 0 then asc[lsid] = apps end
+                                                    end
+                                                end
                                             end
                                         end
                                     end
@@ -10229,6 +10417,10 @@ function ns.SetupViewerHooks()
         cdmBuffTickFrame:RegisterUnitEvent("UNIT_AURA", "player")
         cdmBuffTickFrame:RegisterEvent("PLAYER_TOTEM_UPDATE")
         cdmBuffTickFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+        -- Target-applied auras bind and release on this edge and on no player-scoped
+        -- one, so without it a tracked debuff's glow could only be picked up by the
+        -- 1s staleness net below, or not at all once the ticker had settled.
+        cdmBuffTickFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
         cdmBuffTickFrame:SetScript("OnEvent", function(_, event, _, updateInfo)
             ns._btDirty = true
             -- Gen bump on anything that can CHANGE which auras are active: additions

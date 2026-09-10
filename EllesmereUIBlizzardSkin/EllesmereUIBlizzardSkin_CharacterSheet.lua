@@ -130,10 +130,7 @@ local function EUI_GetEnchantText(slotID, unit)
     if cached ~= nil then return cached end
 
     local data = EUI_ScanInventoryItem(slotID, unit)
-    if not (data and data.lines) then
-        _enchantNameCache[enchantID] = ""
-        return ""
-    end
+    if not (data and data.lines) then return "" end
 
     for _, line in ipairs(data.lines) do
         local raw = _stripLineEscapes(line.leftText or "")
@@ -152,7 +149,10 @@ local function EUI_GetEnchantText(slotID, unit)
         end
     end
 
-    _enchantNameCache[enchantID] = ""
+    -- Deliberately not cached. A scan can come back empty because the item's data has
+    -- not arrived yet, and the sheet already re-reads on GET_ITEM_INFO_RECEIVED for
+    -- exactly that -- caching the empty answer made the miss permanent and threw that
+    -- refresh away, leaving an enchanted item flagged as missing for the session.
     return ""
 end
 
@@ -1206,6 +1206,7 @@ local function SkinCharacterSheet()
 
     _ComputeBetterInventoryItems = function()
         local betterItems = {}
+        local canDualWield = CanDualWield()
 
         -- A 2H main-hand leaves slot 17 empty, so GetEquippedItemLevel(17)=0 and any
         -- off-hand/holdable/shield in bags reads as a false upgrade. Suppress slot-17
@@ -1256,10 +1257,12 @@ local function SkinCharacterSheet()
                             if slotInfo then
                                 local isBetter = false
                                 local compareSlots = slotInfo.slots or {slotInfo.slot}
+                                local offHandWeaponBlocked = not canDualWield
+                                    and (equipSlot == "INVTYPE_WEAPON" or equipSlot == "INVTYPE_WEAPONOFFHAND")
 
                                 for _, slot in ipairs(compareSlots) do
-                                    -- Skip empty off-hand slot behind a 2H weapon (offHandBlocked, above).
-                                    if not (offHandBlocked and slot == 17) then
+                                    -- A one-hander cannot replace a shield/held item without dual wield.
+                                    if not (slot == 17 and (offHandBlocked or offHandWeaponBlocked)) then
                                         local equippedLevel = GetEquippedItemLevel(slot)
                                         if itemLevel > equippedLevel then
                                             isBetter = true

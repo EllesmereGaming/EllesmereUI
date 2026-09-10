@@ -689,6 +689,7 @@ local defaults = {
         partyFrameWidth   = 125,
         partyFrameHeight  = 60,
         partyShowWhenSolo = false,
+        partySmallRaid    = false,  -- raid under 10 players: group 1 as party frames, others hidden
         partyCenterWhenSolo = false,  -- center the lone player frame in the container when solo
         partySyncSections = nil,  -- nil = all synced; { healthBar=false } = healthBar custom
         partySortMode     = "ROLE",
@@ -1987,7 +1988,7 @@ local function ApplyAbsorbStyle(absorbBar, style, settings)
     local alpha = settings and (settings.absorbOpacity or 90) / 100 or (ABSORB_STYLE_ALPHA[style] or 0.8)
     local ac = settings and settings.absorbColor or { r = 1, g = 1, b = 1 }
     absorbBar:SetStatusBarTexture(tex)
-    absorbBar:SetStatusBarColor(ac.r, ac.g, ac.b, alpha)
+    absorbBar:SetStatusBarColor(ac.r or 1, ac.g or 1, ac.b or 1, alpha)
     local tiled = (style == "striped" or style == "stripedReversed" or style == "stripedThick" or style == "stripedThickR" or style == "largeStripes" or style == "largeStripesR" or style == "largeOutlinedStripes" or style == "largeOutlinedStripesR")
     local fill = absorbBar:GetStatusBarTexture()
     if fill then
@@ -2000,7 +2001,7 @@ local function ApplyAbsorbStyle(absorbBar, style, settings)
     ns.RF_ApplyFillRotation(absorbBar)
     if fw then
         fw:SetStatusBarTexture(tex)
-        fw:SetStatusBarColor(ac.r, ac.g, ac.b, alpha)
+        fw:SetStatusBarColor(ac.r or 1, ac.g or 1, ac.b or 1, alpha)
         local fwFill = fw:GetStatusBarTexture()
         if fwFill then
             fwFill:SetDrawLayer("ARTWORK", 1)
@@ -2871,7 +2872,8 @@ local function UpdateAbsorb(button, unit, now)
         -- Re-apply style when style, color, or opacity changes
         local absStyle = s.absorbStyle
         local ac = s.absorbColor or { r = 1, g = 1, b = 1 }
-        local absKey = (absStyle or "") .. (s.absorbOpacity or 90) .. ac.r .. ac.g .. ac.b
+        local acR, acG, acB = ac.r or 1, ac.g or 1, ac.b or 1
+        local absKey = (absStyle or "") .. (s.absorbOpacity or 90) .. acR .. acG .. acB
         if absStyle and absStyle ~= "none" and ab._lastAbsKey ~= absKey then
             ab._lastAbsKey = absKey
             ApplyAbsorbStyle(ab, absStyle, s)
@@ -5853,7 +5855,7 @@ FB.Anchor = function(owner)
         -- stack on, the way "before first / after last group" reads in a raid. Extra Frames is raid
         -- only and keeps the raid path. Party frames off screen leaves nothing to attach to: this
         -- branch anchors nothing and the free position below takes over.
-        if owner == FB and not anchorHdr and not IsInRaid()
+        if owner == FB and not anchorHdr and (not IsInRaid() or ns._PartyInRaid())
            and fb.showInDungeons == true then
             local pc = ns._partyContainerFrame
             if pc and pc:IsShown() then
@@ -6583,6 +6585,7 @@ function ns.XF_Apply()
         -- The boss group may have been chained behind this container;
         -- re-anchor it back onto the raid (no-op when FB is not built).
         FB.Anchor()
+        if ns._NotifyTrackerProviders then ns._NotifyTrackerProviders() end
         return
     end
 
@@ -6636,6 +6639,10 @@ function ns.XF_Apply()
     -- Re-evaluate the boss group's chain now that this container is shown
     -- and (re)positioned: same-side boss frames hop behind it.
     FB.Anchor()
+    -- Extra frames are excluded from _CollectTrackerFrames (duplicates), but
+    -- name-scanning trackers do index them, and PLAYER_ROLES_ASSIGNED reshuffles
+    -- them with no event those trackers listen for.
+    if ns._NotifyTrackerProviders then ns._NotifyTrackerProviders() end
 end
 
 function ns.XF_IsMoverShown()
@@ -6752,6 +6759,26 @@ function ns._GetPlayerSubgroup()
     return nil
 end
 
+-- A nameList is a FILTER as much as an order: the secure header re-matches
+-- every member's CURRENT name against the list on its own, in combat too,
+-- and a member whose name is not listed is hidden outright. Names are not
+-- stable: the UNKNOWNOBJECT placeholder stands in while a roster entry has
+-- not populated yet (zoning, mid-loadscreen join) AND whenever a rename
+-- effect resolves a unit to it mid-fight, when the attribute cannot be
+-- rewritten. Every list therefore ends with the placeholder token, so a
+-- member carrying it stays visible (sorted last) until the next rebuild
+-- re-lists them under their real name. Builders skip in-set placeholders
+-- (the token covers them) and bail to nil when a placeholder exists OUTSIDE
+-- their set: the token would pull that member into a header that must not
+-- show them, so the engine path (everyone visible, native order) runs until
+-- names resolve. Pass the sorted member entries (each carrying .name).
+function ns._FinishNameList(members)
+    local names = {}
+    for _, m in ipairs(members) do names[#names + 1] = m.name end
+    names[#names + 1] = UNKNOWNOBJECT
+    return table.concat(names, ",")
+end
+
 -- Build a "player first" nameList for the player's raid subgroup. Names come from
 -- GetRaidRosterInfo (same source the secure header matches against, range-independent),
 -- so nothing can vanish. Others follow the active sort: role order (ROLE mode, via
@@ -6767,21 +6794,23 @@ function ns._BuildSelfFirstNameList(playerGroup, sortByRole, roleOrder, selfLast
     local n = GetNumGroupMembers()
     for i = 1, n do
         local name, _, subgroup = GetRaidRosterInfo(i)
-        -- A nil/placeholder name = roster not fully populated (zoning,
-        -- mid-loadscreen join); the subgroup is not trustworthy either, and an
-        -- omitted member's frame would be HIDDEN by the header. Bail to nil
-        -- (index-order fallback, everyone visible) until names resolve.
-        if not name or name == UNKNOWNOBJECT then return nil end
+        -- A nil name = roster not populated at all; the subgroup is not
+        -- trustworthy either. Bail (see ns._FinishNameList).
+        if not name then return nil end
         if subgroup == playerGroup then
-            local unit = "raid" .. i
-            local rp = 99
-            if pri then rp = pri[EllesmereUI.UnitEffectiveRole(unit)] or 99 end
-            members[#members + 1] = {
-                name = name,
-                isPlayer = UnitIsUnit(unit, "player"),
-                rolePri = rp,
-                index = i,
-            }
+            if name ~= UNKNOWNOBJECT then
+                local unit = "raid" .. i
+                local rp = 99
+                if pri then rp = pri[EllesmereUI.UnitEffectiveRole(unit)] or 99 end
+                members[#members + 1] = {
+                    name = name,
+                    isPlayer = UnitIsUnit(unit, "player"),
+                    rolePri = rp,
+                    index = i,
+                }
+            end
+        elseif name == UNKNOWNOBJECT then
+            return nil
         end
     end
     if #members == 0 then return nil end
@@ -6792,9 +6821,7 @@ function ns._BuildSelfFirstNameList(playerGroup, sortByRole, roleOrder, selfLast
         if sortByRole and a.rolePri ~= b.rolePri then return a.rolePri < b.rolePri end
         return a.index < b.index
     end)
-    local names = {}
-    for _, m in ipairs(members) do names[#names + 1] = m.name end
-    return table.concat(names, ",")
+    return ns._FinishNameList(members)
 end
 
 -- Default class sort order: real player classes only, alphabetical by
@@ -6841,18 +6868,18 @@ function ns._BuildPartyClassNameList(includePlayer, sortByRole, roleOrder, class
     for _, unit in ipairs(units) do
         if UnitExists(unit) then
             local name, server = UnitName(unit)
-            -- An unpopulated name (zoning, mid-loadscreen join) cannot be
-            -- listed: a nameList missing a member HIDES that frame. Bail to
-            -- nil so the caller falls back to the groupFilter path (everyone
-            -- visible) until UNIT_NAME_UPDATE rebuilds with real names.
-            if not name or name == UNKNOWNOBJECT then return nil end
-            if server and server ~= "" then name = name .. "-" .. server end
-            local _, classToken = UnitClass(unit)
-            members[#members + 1] = {
-                name = name,
-                rolePri = (rolePri and rolePri[EllesmereUI.UnitEffectiveRole(unit)]) or 99,
-                classPri = classPri[classToken] or 99,
-            }
+            if not name then return nil end
+            -- Every unit here is in the header's set: a placeholder name is
+            -- covered by the trailing token (see ns._FinishNameList).
+            if name ~= UNKNOWNOBJECT then
+                if server and server ~= "" then name = name .. "-" .. server end
+                local _, classToken = UnitClass(unit)
+                members[#members + 1] = {
+                    name = name,
+                    rolePri = (rolePri and rolePri[EllesmereUI.UnitEffectiveRole(unit)]) or 99,
+                    classPri = classPri[classToken] or 99,
+                }
+            end
         end
     end
     if #members == 0 then return nil end
@@ -6861,18 +6888,16 @@ function ns._BuildPartyClassNameList(includePlayer, sortByRole, roleOrder, class
         if a.classPri ~= b.classPri then return a.classPri < b.classPri end
         return a.name < b.name
     end)
-    local names = {}
-    for _, m in ipairs(members) do names[#names + 1] = m.name end
-    return table.concat(names, ",")
+    return ns._FinishNameList(members)
 end
 
 -- Party header nameList for ARENA, where the header is bound to raid1-5.
 -- showPlayer cannot exclude the player in a raid group and the static self
 -- button cannot reorder them; a NAMELIST does both (Hide Self; Self
 -- First/Last). Rest follow role order (ROLE mode) else raid index. Names come
--- from GetRaidRosterInfo (what the header matches against). Bails to nil
--- (index-order fallback, everyone visible) while any name is unresolved.
-function ns._BuildArenaNameList(hideSelf, selfFirst, selfLast, sortByRole, roleOrder)
+-- from GetRaidRosterInfo (what the header matches against). Placeholder
+-- names follow the ns._FinishNameList rules (a hidden self is out of set).
+function ns._BuildArenaNameList(hideSelf, selfFirst, selfLast, sortByRole, roleOrder, onlyGroup)
     if not IsInRaid() then return nil end
     local pri
     if sortByRole then
@@ -6882,19 +6907,27 @@ function ns._BuildArenaNameList(hideSelf, selfFirst, selfLast, sortByRole, roleO
     local members = {}
     local n = GetNumGroupMembers()
     for i = 1, n do
-        local name = GetRaidRosterInfo(i)
-        if not name or name == UNKNOWNOBJECT then return nil end
-        local unit = "raid" .. i
-        local isPlayer = UnitIsUnit(unit, "player")
-        if not (hideSelf and isPlayer) then
-            local rp = 99
-            if pri then rp = pri[EllesmereUI.UnitEffectiveRole(unit)] or 99 end
-            members[#members + 1] = {
-                name = name,
-                isPlayer = isPlayer,
-                rolePri = rp,
-                index = i,
-            }
+        local name, _, subgroup = GetRaidRosterInfo(i)
+        if not name then return nil end
+        -- Small Raid mode: members outside the kept subgroup are simply not
+        -- listed (the header hides them); the player included.
+        if not (onlyGroup and subgroup ~= onlyGroup) then
+            local unit = "raid" .. i
+            local isPlayer = UnitIsUnit(unit, "player")
+            if not (hideSelf and isPlayer) then
+                if name ~= UNKNOWNOBJECT then
+                    local rp = 99
+                    if pri then rp = pri[EllesmereUI.UnitEffectiveRole(unit)] or 99 end
+                    members[#members + 1] = {
+                        name = name,
+                        isPlayer = isPlayer,
+                        rolePri = rp,
+                        index = i,
+                    }
+                end
+            elseif name == UNKNOWNOBJECT then
+                return nil
+            end
         end
     end
     if #members == 0 then return nil end
@@ -6907,17 +6940,15 @@ function ns._BuildArenaNameList(hideSelf, selfFirst, selfLast, sortByRole, roleO
         if sortByRole and a.rolePri ~= b.rolePri then return a.rolePri < b.rolePri end
         return a.index < b.index
     end)
-    local names = {}
-    for _, m in ipairs(members) do names[#names + 1] = m.name end
-    return table.concat(names, ",")
+    return ns._FinishNameList(members)
 end
 
 -- Whole-raid nameList for Merge Groups + Self Position: player pinned first
 -- (or last), everyone else in the active sort (role blocks in ROLE mode, raid
 -- index otherwise). Replaces the flat header's groupFilter, so members of
--- groups hidden via Show Groups are simply not listed. Bails to nil while any
--- name is unresolved (a nameList missing a member HIDES that frame); the
--- caller falls back to the engine path until names resolve.
+-- groups hidden via Show Groups are simply not listed. Placeholder names
+-- follow the ns._FinishNameList rules (hidden groups are out of set); the
+-- caller falls back to the engine path on a bail.
 function ns._BuildMergedSelfNameList(sortByRole, roleOrder, selfLast, visibleGroups)
     if not IsInRaid() then return nil end
     local pri
@@ -6929,17 +6960,21 @@ function ns._BuildMergedSelfNameList(sortByRole, roleOrder, selfLast, visibleGro
     local n = GetNumGroupMembers()
     for i = 1, n do
         local name, _, subgroup = GetRaidRosterInfo(i)
-        if not name or name == UNKNOWNOBJECT then return nil end
+        if not name then return nil end
         if not visibleGroups or visibleGroups[subgroup] ~= false then
-            local unit = "raid" .. i
-            local rp = 99
-            if pri then rp = pri[EllesmereUI.UnitEffectiveRole(unit)] or 99 end
-            members[#members + 1] = {
-                name = name,
-                isPlayer = UnitIsUnit(unit, "player"),
-                rolePri = rp,
-                index = i,
-            }
+            if name ~= UNKNOWNOBJECT then
+                local unit = "raid" .. i
+                local rp = 99
+                if pri then rp = pri[EllesmereUI.UnitEffectiveRole(unit)] or 99 end
+                members[#members + 1] = {
+                    name = name,
+                    isPlayer = UnitIsUnit(unit, "player"),
+                    rolePri = rp,
+                    index = i,
+                }
+            end
+        elseif name == UNKNOWNOBJECT then
+            return nil
         end
     end
     if #members == 0 then return nil end
@@ -6950,9 +6985,7 @@ function ns._BuildMergedSelfNameList(sortByRole, roleOrder, selfLast, visibleGro
         if sortByRole and a.rolePri ~= b.rolePri then return a.rolePri < b.rolePri end
         return a.index < b.index
     end)
-    local names = {}
-    for _, m in ipairs(members) do names[#names + 1] = m.name end
-    return table.concat(names, ",")
+    return ns._FinishNameList(members)
 end
 
 -------------------------------------------------------------------------------
@@ -8542,6 +8575,23 @@ ns._InArena = function()
     return instanceType == "arena"
 end
 
+-- Party frames while IsInRaid() is true: arena (the whole team, above) or the
+-- opt-in Small Raid setting, which shows group 1 as party frames and hides
+-- every other member while the raid holds fewer than 10 players. Every
+-- "party or raid frames" decision reads this, never ns._InArena directly;
+-- the group-1 filter itself lives in _LayoutPartyFrames (ns._SmallRaidGroup).
+ns._PartyInRaid = function()
+    if ns._InArena() then return true end
+    return db.profile.partySmallRaid == true and IsInRaid() and GetNumGroupMembers() < 10
+end
+
+-- The subgroup the party header is limited to in Small Raid mode; nil in
+-- arena (whole team) and outside party-in-raid mode.
+ns._SmallRaidGroup = function()
+    if ns._InArena() or not ns._PartyInRaid() then return nil end
+    return 1
+end
+
 local function UpdateVisibility()
     if not containerFrame then return end
     if InCombatLockdown() then return end
@@ -8559,15 +8609,16 @@ local function UpdateVisibility()
     if not ns._sizePreviewTier and not ns._partyPvActive then containerFrame:SetAlpha(1) end
 
     local s = db.profile
-    -- Arena hides the raid frames. The player is in a raid group there, but
-    -- arena shows our party frames instead (see _UpdatePartyVisibility), so the
-    -- raid container must stay hidden even though IsInRaid() returns true.
-    local inArena = ns._InArena()
+    -- Arena and Small Raid mode hide the raid frames. The player is in a raid
+    -- group there, but we show our party frames instead (see
+    -- _UpdatePartyVisibility), so the raid container must stay hidden even
+    -- though IsInRaid() returns true.
+    local partyMode = ns._PartyInRaid()
     local visible = false
-    if IsInRaid() and not inArena then
+    if IsInRaid() and not partyMode then
         visible = true
     elseif IsInGroup() then
-        visible = false  -- party frames handle group visibility (incl. arena)
+        visible = false  -- party frames handle group visibility (incl. party-in-raid)
     else
         visible = s.showWhenSolo
     end
@@ -8809,7 +8860,7 @@ local function OnEvent(self, event, arg1, ...)
         -- role-aware, so a role change must rebuild them (native role sort
         -- updates itself; these do not).
         if not inCombat and ns._partyFramesVisible
-            and (db.profile.partyPrioritizeClass or ns._InArena())
+            and (db.profile.partyPrioritizeClass or ns._PartyInRaid())
             and ns._LayoutPartyFrames then
             ns._LayoutPartyFrames()
         end
@@ -9007,12 +9058,11 @@ local function OnEvent(self, event, arg1, ...)
         if btn then GetFFD(btn)._clsTok = nil; UpdateButton(btn) end
         -- NAMELIST-driven headers (party Prioritize Class, raid Show Self
         -- First) are built from member names. A member whose name populated
-        -- late was unListable when the list was built -- the secure header
-        -- hides their frame entirely, which is also why btn is nil for them
-        -- here. Rebuild the lists now that the real name exists (debounced:
-        -- names resolve in bursts after a loading screen). The builders bail
-        -- to the groupFilter fallback while any name is still unresolved, so
-        -- this also restores the proper order once the last name lands.
+        -- late, or changed since the build, sits under the trailing
+        -- placeholder token (sorted last) or, when the builder bailed, in
+        -- native order. Rebuild the lists now that the real name exists
+        -- (debounced: names resolve in bursts after a loading screen) so the
+        -- proper order returns once the last name lands.
         if inCombat then
             ns._rosterDirtyInCombat = true
         else
@@ -9024,7 +9074,7 @@ local function OnEvent(self, event, arg1, ...)
                     return
                 end
                 if ns._partyFramesVisible
-                    and (db.profile.partyPrioritizeClass or ns._InArena())
+                    and (db.profile.partyPrioritizeClass or ns._PartyInRaid())
                     and ns._LayoutPartyFrames then
                     ns._LayoutPartyFrames()
                 end
@@ -9179,7 +9229,7 @@ local function OnEvent(self, event, arg1, ...)
                 ns._ApplySortToHeaders()
             end
             if ns._partyFramesVisible
-                and (db.profile.partyPrioritizeClass or ns._InArena())
+                and (db.profile.partyPrioritizeClass or ns._PartyInRaid())
                 and ns._LayoutPartyFrames then
                 ns._LayoutPartyFrames()
             end
@@ -9336,6 +9386,7 @@ do
             "showReadyCheck", "showSummonPending", "showIncomingRez",
             "readyCheckSize", "readyCheckPosition", "readyCheckOffsetX", "readyCheckOffsetY",
             "statusTextPosition", "statusTextOffsetX", "statusTextOffsetY", "statusTextSize", "statusTextColor",
+            "statusShowAFK",
             "showLeaderIcon", "showLeaderIconInCombat", "leaderIconPosition", "leaderIconSize", "leaderIconOffsetX", "leaderIconOffsetY",
             "showCombatIndicator", "combatIndicatorStyle", "combatIndicatorColor", "combatIndicatorCustomColor",
             "combatIndicatorSize", "combatIndicatorPosition", "combatIndicatorOffsetX", "combatIndicatorOffsetY",
@@ -9708,11 +9759,13 @@ ns._CreatePartyHeader = function()
     hdr:SetAttribute("xOffset", 0)
     hdr:SetAttribute("yOffset", -cs)
     hdr:SetAttribute("groupFilter", "1,2,3,4,5,6,7,8")
-    -- showRaid=true so the header binds raid1-5 inside an arena, where the team
-    -- is a raid group. Inert in a normal 5-man party (no raid units exist), so
-    -- it only takes effect when the header is actually shown in a raid group --
-    -- which we do only for arena (see _UpdatePartyVisibility). Outside arena the
-    -- header is hidden in a real raid, so this never shows 40 raid units.
+    -- showRaid=true so the header binds raid units inside an arena, where the
+    -- team is a raid group, and in Small Raid mode (group 1 only, via the
+    -- groupFilter / nameList set in _LayoutPartyFrames). Inert in a normal
+    -- 5-man party (no raid units exist), so it only takes effect when the
+    -- header is actually shown in a raid group -- which we do only for those
+    -- two modes (see _UpdatePartyVisibility). Otherwise the header is hidden
+    -- in a real raid, so this never shows 40 raid units.
     hdr:SetAttribute("showRaid", true)
     hdr:SetAttribute("showParty", true)
     hdr:SetAttribute("showPlayer", true)
@@ -9800,13 +9853,13 @@ ns._PositionPartySlots = function(bw, bh, cs, unitGrowth)
     local pSelfLast = s.partySelfLast
     if pSelfLast == nil then pSelfLast = s.showSelfLast end
     local hideSelf = s.partyHideSelf
-    -- Arena binds the header to raid1-5, which always includes the player, and
-    -- showPlayer=false cannot exclude the player in a raid group. The static
-    -- self button would then duplicate the player, so disable it in arena and
-    -- let the header show the player natively (in arena showPlayer reduces to
-    -- "not hideSelf" in _LayoutPartyFrames; the arena nameList -- not showPlayer
-    -- -- is what omits the player when Hide Self is on).
-    local useSelf = (pSelfFirst or pSelfLast) and not hideSelf and IsInGroup() and not ns._InArena()
+    -- Party-in-raid mode (arena, Small Raid) binds the header to raid units,
+    -- which include the player, and showPlayer=false cannot exclude the player
+    -- in a raid group. The static self button would then duplicate the player,
+    -- so disable it there and let the header show the player natively (there
+    -- showPlayer reduces to "not hideSelf" in _LayoutPartyFrames; the raid
+    -- nameList -- not showPlayer -- is what omits the player when Hide Self is on).
+    local useSelf = (pSelfFirst or pSelfLast) and not hideSelf and IsInGroup() and not ns._PartyInRaid()
 
     -- The header's own size feeds the first child's centered anchor
     -- (point=TOP centers on header width; point=LEFT centers on height).
@@ -9965,17 +10018,20 @@ ns._LayoutPartyFrames = function()
         -- groupFilter is cleared, so we clear it and let showParty/showPlayer pick
         -- members. When off, fall back to the native groupBy/sortMethod path.
         local wantGroupBy, wantSortMethod, wantGroupingOrder, wantNameList, wantGroupFilter
-        if ns._InArena() then
-            -- Arena runs on raid1-5, where Prioritize Class cannot work (it
-            -- iterates party1-4) and neither the self button nor showPlayer can
-            -- order or hide the player. A raid-token nameList does both: it
-            -- honors Show Self First / Self Last / Hide Self and still shows
-            -- every teammate (bailing to native order until names resolve).
+        local smallRaidGroup = ns._SmallRaidGroup()
+        if ns._PartyInRaid() then
+            -- Party-in-raid runs on raid units, where Prioritize Class cannot
+            -- work (it iterates party1-4) and neither the self button nor
+            -- showPlayer can order or hide the player. A raid-token nameList
+            -- does both: it honors Show Self First / Self Last / Hide Self and
+            -- still shows every teammate -- the whole team in arena, group 1
+            -- only in Small Raid mode (bailing to native order until names
+            -- resolve; the fallback groupFilter below keeps the group limit).
             local pSelfFirst = s.partyShowSelfFirst
             if pSelfFirst == nil then pSelfFirst = s.showSelfFirst end
             local pSelfLast = s.partySelfLast
             if pSelfLast == nil then pSelfLast = s.showSelfLast end
-            wantNameList = ns._BuildArenaNameList(hideSelf, pSelfFirst, pSelfLast, sortByRole, roleOrder)
+            wantNameList = ns._BuildArenaNameList(hideSelf, pSelfFirst, pSelfLast, sortByRole, roleOrder, smallRaidGroup)
         elseif s.partyPrioritizeClass then
             wantNameList = ns._BuildPartyClassNameList(wantShowPlayer, sortByRole, roleOrder, s.partyClassOrder)
         end
@@ -9989,7 +10045,7 @@ ns._LayoutPartyFrames = function()
             wantGroupBy = sortByRole and "ASSIGNEDROLE" or nil
             wantSortMethod = sortByRole and "NAME" or "INDEX"
             wantGroupingOrder = sortByRole and (table.concat(roleOrder, ",") .. ",NONE") or ""
-            wantGroupFilter = "1,2,3,4,5,6,7,8"
+            wantGroupFilter = smallRaidGroup and tostring(smallRaidGroup) or "1,2,3,4,5,6,7,8"
         end
 
         local function ApplyAttrs()
@@ -10023,7 +10079,7 @@ ns._LayoutPartyFrames = function()
     -- while not in a raid, so every layout pass -- Horizontal Frames, Flip Growth, party size,
     -- cell spacing -- has to move it too. OOC only (this function bails in combat). In a raid the
     -- boss group hangs off the raid headers instead, so skip the re-anchor scan there.
-    if not IsInRaid() and ns.FB_ReAnchor then ns.FB_ReAnchor() end
+    if (not IsInRaid() or ns._PartyInRaid()) and ns.FB_ReAnchor then ns.FB_ReAnchor() end
 end
 
 -- Party visibility: show/hide based on group state.
@@ -10037,12 +10093,12 @@ ns._UpdatePartyVisibility = function()
     if not ns._sizePreviewTier and ns._partyContainerFrame then ns._partyContainerFrame:SetAlpha(1) end
 
     local s = db.profile
-    -- Arena shows party frames even though IsInRaid() is true (the team is a
-    -- raid group). The header binds raid1-5 via showRaid=true; the raid
-    -- container is hidden in arena by UpdateVisibility.
-    local inArena = ns._InArena()
+    -- Arena and Small Raid mode show party frames even though IsInRaid() is
+    -- true. The header binds raid units via showRaid=true; the raid container
+    -- is hidden there by UpdateVisibility.
+    local partyMode = ns._PartyInRaid()
     local visible = false
-    if IsInGroup() and (inArena or not IsInRaid()) then
+    if IsInGroup() and (partyMode or not IsInRaid()) then
         visible = true
     elseif not IsInGroup() then
         visible = s.partyShowWhenSolo
@@ -10847,7 +10903,9 @@ do
                         local liveChild = liveT[k]
                         if type(liveChild) ~= "table" then ok = false; break end
                         local dstChild = dstParent[k]
-                        if type(dstChild) ~= "table" then
+                        -- A shallow parent copy still shares its live children.
+                        -- Detach each shared child before writing preview values.
+                        if type(dstChild) ~= "table" or dstChild == liveChild then
                             dstChild = {}
                             for ck, cv in pairs(liveChild) do dstChild[ck] = cv end
                             dstParent[k] = dstChild
@@ -12722,7 +12780,7 @@ local function ApplyPreviewData(f, index)
 
                 -- Apply style to backfill bar
                 f._absorbBar:SetStatusBarTexture(tex)
-                f._absorbBar:SetStatusBarColor(ac.r, ac.g, ac.b, alpha)
+                f._absorbBar:SetStatusBarColor(ac.r or 1, ac.g or 1, ac.b or 1, alpha)
                 local bfFill = f._absorbBar:GetStatusBarTexture()
                 if bfFill then
                     bfFill:SetDrawLayer("ARTWORK", 1)
@@ -12734,7 +12792,7 @@ local function ApplyPreviewData(f, index)
                 -- Apply style to forward bar
                 if fw then
                     fw:SetStatusBarTexture(tex)
-                    fw:SetStatusBarColor(ac.r, ac.g, ac.b, alpha)
+                    fw:SetStatusBarColor(ac.r or 1, ac.g or 1, ac.b or 1, alpha)
                     local fwFill = fw:GetStatusBarTexture()
                     if fwFill then
                         fwFill:SetDrawLayer("ARTWORK", 1)
@@ -15143,6 +15201,16 @@ local function RefreshPartyPreview()
             else -- DOWN
                 stepY = -(h + spacing)
             end
+            -- Centered growth: mirror _PositionPartySlots, which shifts the stack by
+            -- (5 - shown)/2 slots so the shown frames sit centered in the 5-slot
+            -- container. The preview always shows a full party, so shown is 5, or 4
+            -- with Hide Self (the real layout subtracts the hidden self the same way).
+            local centerShift = 0
+            if s.partyFlipGrowth == "centered" then
+                centerShift = (5 - shownCount) / 2
+            end
+            local cShiftX = PixelSnap(stepX * centerShift)
+            local cShiftY = PixelSnap(stepY * centerShift)
             local idx = 0  -- running position; skips the hidden player frame
             for i = 1, 5 do
                 local f = ns._partyPvFrames[i]
@@ -15152,7 +15220,7 @@ local function RefreshPartyPreview()
                     else
                         f:ClearAllPoints()
                         f:SetPoint(basePoint, anchorTo, basePoint,
-                            PixelSnap(stepX * idx), PixelSnap(stepY * idx))
+                            PixelSnap(stepX * idx) + cShiftX, PixelSnap(stepY * idx) + cShiftY)
                         idx = idx + 1
                     end
                 end
@@ -15288,8 +15356,9 @@ end
 -- frames, found via a hardcoded addon list or a public provider API. EUI
 -- frames are custom, so where a provider API exists we hand it our buttons;
 -- the unit lives on the secure "unit" attribute (GetAttribute), so no plain
--- field on the button is needed. Name-scanning trackers (LibGetFrame) need
--- nothing from us: our name patterns are already in that library's default priority list.
+-- field on the button is needed. Name-scanning trackers (LibGetFrame) match our
+-- button names from that library's default priority list, but the match only runs
+-- against a frame list it caches (see ns._NotifyTrackerProviders).
 
 -- Currently-visible EUI unit buttons with a unit assigned (party AND raid). Both sets
 -- are pre-created once (the startingIndex -4 / Show / 1 trick) and never destroyed or
@@ -15316,16 +15385,68 @@ ns._CollectTrackerFrames = function()
     return out
 end
 
+-- Public unit -> frame lookup for any addon wanting our raid or party frame.
+-- LibGetFrame cannot answer on an addon-restricted map: it keeps a cached frame
+-- only when UnitIsUnit(frameUnit, target) is non-secret, and that call is
+-- SecretWhenUnitComparisonRestricted, so every frame is skipped there however
+-- fresh the cache. This compares nothing -- it reads the secure "unit"
+-- attribute the header wrote. Extra frames answer last: they duplicate a unit
+-- already on a real raid button.
+function EllesmereUI.GetUnitFrame(unit)
+    if type(unit) ~= "string" then return nil end
+    local function Find(list)
+        if not list then return nil end
+        for _, btn in ipairs(list) do
+            if btn:IsVisible() then
+                local u = btn:GetAttribute("unit")
+                -- type() reports a secret's underlying type, so a secret
+                -- attribute would pass as a string and the compare would throw:
+                -- probe for secrecy first, never compare a secret.
+                if type(u) == "string" and not (issecretvalue and issecretvalue(u)) then
+                    if u == unit then return btn end
+                    -- The header gives the player's own button a raidN token, so
+                    -- a literal compare never finds "player". UnitIsUnit answers
+                    -- a SECRET boolean for a restricted pairing (or nil when the
+                    -- compare is refused); only a plain true counts, and a secret
+                    -- is never looked at.
+                    if unit == "player" then
+                        local ok, same = pcall(UnitIsUnit, u, "player")
+                        if ok and not (issecretvalue and issecretvalue(same)) and same == true then
+                            return btn
+                        end
+                    end
+                end
+            end
+        end
+        return nil
+    end
+    return Find(ns._partyAllButtons) or Find(allButtons) or ns._xfUnitToButton[unit]
+end
+
 -- Notifies subscribed providers that our frame set changed, debounced to one
 -- refresh per frame. Driven from the visibility paths -- the one change a
 -- provider cannot learn from its own roster events.
+--
+-- LibGetFrame resolves units against a frame list it caches, rebuilt only on its
+-- own six events and recording only buttons visible at that instant. Our header
+-- set builds lazily and defers combat-time changes to regen, so the cache can
+-- miss the whole set with no event left to correct it; consumers then read nil
+-- and silently do nothing. ScanForUnitFrames is its public invalidation (queued
+-- and time-sliced). Resolved per call, not cached: either provider may load late.
+-- Never asked for in combat: the library's walk reads every frame bare and our
+-- aura containers deny tainted reads while auras are secret, so a mid-fight
+-- scan can drop every EUI frame for the rest of the fight. The library
+-- rescans on its own at PLAYER_REGEN_ENABLED, so the regen pass covers it.
 ns._NotifyTrackerProviders = function()
+    if ns._trackerRefreshPending then return end
     local cb = ns._trackerRefreshCb
-    if not cb or ns._trackerRefreshPending then return end
+    local lgf = LibStub and LibStub("LibGetFrame-1.0", true)
+    if not cb and not (lgf and lgf.ScanForUnitFrames) then return end
     ns._trackerRefreshPending = true
     C_Timer.After(0, function()
         ns._trackerRefreshPending = false
-        pcall(cb)
+        if cb then pcall(cb) end
+        if lgf and not InCombatLockdown() then pcall(lgf.ScanForUnitFrames) end
     end)
 end
 

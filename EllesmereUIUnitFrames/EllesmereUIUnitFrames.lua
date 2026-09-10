@@ -2045,10 +2045,19 @@ do
             element._maxSet = true
             element:SetMinMaxValues(0, UnitHealthMax(unit))
         end
-        if UnitIsConnected(unit) then
-            element:SetValue(UnitHealth(unit), element.smoothing)
-        else
+        -- A corpse fires no further UNIT_HEALTH, so the death tick's paint is the
+        -- last one the bar gets: zero it from the dead flag (a plain boolean in
+        -- restricted content, where the value is secret) instead of the value,
+        -- and without the interpolation, which otherwise eases toward zero and
+        -- leaves a sliver standing on a bar that gets no further ticks.
+        -- UnitIsDead, not UnitIsDeadOrGhost: a ghost is at full health, and
+        -- Blizzard's own bar reads it the same way (CompactUnitFrame_UpdateHealthColor).
+        if not UnitIsConnected(unit) then
             element:SetValue(UnitHealthMax(unit), element.smoothing)
+        elseif UnitIsDead(unit) then
+            element:SetValue(0)
+        else
+            element:SetValue(UnitHealth(unit), element.smoothing)
         end
         -- Color inputs (class/reaction/dark/disconnect/tap) change via their
         -- own events or identity repaints -- a pure health tick re-runs the
@@ -2266,6 +2275,11 @@ do
   -- Health percent under the decimal options. "Hide Trailing Zeros" reads the percent
   -- through a scaling curve so AbbreviateNumbers can drop the zero "%.1f" would pad.
   local function PercentHP(unit)
+    -- Predicted percent (incoming heals) can outlive the unit: a corpse fires no
+    -- further UNIT_HEALTH and the text channel never hears UNIT_HEAL_PREDICTION.
+    -- Corpses only, like Blizzard's health paths: a ghost is at full health, and
+    -- the neighbouring DEAD zone is the piece that speaks for dead-or-ghost.
+    if UnitIsDead(unit) then return "0" end
     local boss = _G._EUI_BossExtraDecimal and string.sub(unit, 1, 4) == "boss"
     local trim = _G._EUI_PctTrim
     if boss then trim = _G._EUI_PctTrim2 end
@@ -2525,7 +2539,10 @@ _G._EUF_RefreshUnitNames = ns.RefreshAllUnitNames
 do
     local function ForceTextRepaint()
         for _, f in pairs(frames) do
-            if type(f) == "table" and f._euiTextZones then
+            -- The painter refuses an empty token, so a frame between units must
+            -- not be blanked here either -- it would never get the value back.
+            if type(f) == "table" and f._euiTextZones
+               and f._euiUnit and UnitExists(f._euiUnit) then
                 local zones = f._euiTextZones
                 for i = 1, #zones do
                     local fs = zones[i].fs
@@ -2806,6 +2823,10 @@ do
     local function PaintText(frame, unit, event)
         local zones = frame._euiTextZones
         if not zones then return end
+        -- An empty token renders every zone blank, and a boss frame outlives the
+        -- gap: the unit watch is a 0.2s poll, so the frame is still shown while
+        -- its slot sits between units. Same probe the health painter pays.
+        if not (unit and UnitExists(unit)) then return end
         local valueOnly = event ~= nil and VALUE_EVENTS[event]
         for i = 1, #zones do
             local z = zones[i]
@@ -4346,7 +4367,8 @@ local function ApplyAbsorbStyle(absorbBar, style, settings)
     local tiled = (style == "stripedReversed" or style == "stripedThick" or style == "stripedThickR" or style == "largeStripes" or style == "largeStripesR" or style == "largeOutlinedStripes" or style == "largeOutlinedStripesR")
     local mask = absorbBar._absorbMask
     absorbBar:SetStatusBarTexture(tex)
-    absorbBar:SetStatusBarColor(ac.r, ac.g, ac.b, alpha)
+    -- Per-component default: a partial colour table would throw here.
+    absorbBar:SetStatusBarColor(ac.r or 1, ac.g or 1, ac.b or 1, alpha)
     local fill = absorbBar:GetStatusBarTexture()
     if fill then
         fill:SetDrawLayer("ARTWORK", 1)
@@ -9310,9 +9332,16 @@ local function ReloadFrames()
     end
 
     for unit, frame in pairs(frames) do
-        if type(unit) == "string" and unit:sub(1,1) ~= "_" then
+        if type(unit) == "string" and unit:sub(1,1) ~= "_" and not unit:match("^boss%d$") then
             ToggleFrame(unit, frame)
         end
+    end
+    -- Boss frames: the unit watch registered at spawn is their show/hide authority.
+    -- ToggleFrame's Hide() left that watch armed, so a profile switch that disables
+    -- them had the next boss re-show all five. The watch owner unregisters (or
+    -- re-registers) the watch and parks a regen one-shot when this runs in combat.
+    if ns.UF_SetBossFramesActive and frames.boss1 then
+        ns.UF_SetBossFramesActive(enabled.boss ~= false)
     end
 
     for unit, frame in pairs(frames) do
@@ -12709,6 +12738,10 @@ function InitializeFrames()
         frames._visFrame:RegisterUnitEvent("UNIT_EXITED_VEHICLE", "player")
         frames._visFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
         frames._visFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
+        -- The focus-target mini mirrors the focus frame's alpha below, so a
+        -- focus set while the pass last saw that frame hidden left the mini at
+        -- alpha 0 until some other trigger ran. Same deferral as target changes.
+        frames._visFrame:RegisterEvent("PLAYER_FOCUS_CHANGED")
         -- Dragonriding visibility modes: capability edge plus the airborne
         -- edge (probed at load in EllesmereUI_Visibility.lua)
         frames._visFrame:RegisterEvent("PLAYER_CAN_GLIDE_CHANGED")

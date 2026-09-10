@@ -1236,6 +1236,8 @@ local function ApplyBmIconExtra(button, dd, style)
     -- uninstall): Show post-hook re-hides, alpha 0 covers engine paths that
     -- re-show outside the hooked Lua method. Hook installs lazily on first hide.
     if dd.icon then
+        -- Match the unsnapped border strips at fractional icon edges.
+        if EllesmereUI.PP then EllesmereUI.PP.DisablePixelSnap(dd.icon) end
         dd.bmHideIcon = style.hideIcon == true
         dd.icon:SetShown(not dd.bmHideIcon)
         if dd.bmHideIcon and not dd.bmIconHooked then

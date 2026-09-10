@@ -1028,7 +1028,12 @@ ns.BlockFactories.fps = function(blockCfg, slot, content, barCtx)
 
         local now = GetTime()
         -- UpdateAddOnMemoryUsage() iterates every loaded addon and is a noticeable spike; amortise the rescan to once per 30s.
-        if not skipMemoryScan and (now - sysLastMemScanTime) >= 30 then
+        -- Skipped entirely in combat: on a busy pull that spike can push the
+        -- hovered tooltip's whole script past the "script ran too long" watchdog
+        -- (field report: Murder Row, adds casting Felfire Orb). The data is
+        -- already tolerated at up to 30s stale, so holding it longer is not a
+        -- new behaviour; the next out-of-combat hover rescans normally.
+        if not skipMemoryScan and not InCombatLockdown() and (now - sysLastMemScanTime) >= 30 then
             sysLastMemScanTime = now
             UpdateAddOnMemoryUsage()
             local count = 0
@@ -4673,7 +4678,9 @@ local function MMOpenWhisper(charName, bnetName)
     end
     if charName and charName ~= "" then
         local sendTell = (ChatFrameUtil and ChatFrameUtil.SendTell) or ChatFrame_SendTell
-        if sendTell then sendTell(charName, DEFAULT_CHAT_FRAME) end
+        -- Fix "Name-Realm-Realm" to "Name-Realm"
+        local target = EllesmereUI.BuildFullName(charName) or charName
+        if sendTell then sendTell(target, DEFAULT_CHAT_FRAME) end
     end
 end
 
@@ -4706,7 +4713,8 @@ local function MMBuildSocialTip()
             local right = format("|cffecd672%s|r %s", charName or "?", ga.areaName or "")
             local bnetName   = acc.accountName
             local sameFaction = (not faction) or (faction == playerFaction)
-            local inviteName  = (charName and realmName) and (charName .. "-" .. realmName) or charName
+            -- Fix "Name-Realm-Realm" to "Name-Realm"
+            local inviteName  = EllesmereUI.BuildFullName(charName, realmName)
             ns.Tip_AddClickable(left, right, function(mouseButton)
                 if mouseButton == "LeftButton" then
                     if IsShiftKeyDown() and sameFaction and inviteName then
@@ -4791,7 +4799,7 @@ local function MMBuildGuildTip()
             ns.Tip_AddClickable(left, zone or "", function(mouseButton)
                 if not fname then return end
                 if mouseButton == "LeftButton" then
-                    if IsShiftKeyDown() then C_PartyInfo.InviteUnit(fname)
+                    if IsShiftKeyDown() then C_PartyInfo.InviteUnit(EllesmereUI.BuildFullName(fname) or fname)
                     else MMOpenWhisper(fname, nil) end
                 end
             end, clr, clg, clb, 1, 1, 1)

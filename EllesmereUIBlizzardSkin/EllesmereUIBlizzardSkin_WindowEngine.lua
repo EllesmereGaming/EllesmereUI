@@ -44,6 +44,19 @@ end
 WSkin.GetFFD = GetFFD
 WSkin.FFD = FFD
 
+-- Completion is separate from reentrancy: a failed setup can retry, while
+-- a synchronous hook cannot enter the same control's unfinished setup.
+local setupInProgress = setmetatable({}, { __mode = "k" })
+function WSkin.CompleteSetup(frame, key, apply, ...)
+    local d = GetFFD(frame)
+    if d[key] or setupInProgress[frame] then return end
+    setupInProgress[frame] = true
+    local ok, err = pcall(apply, frame, d, ...)
+    setupInProgress[frame] = nil
+    if not ok then error(err, 0) end
+    d[key] = true
+end
+
 -------------------------------------------------------------------------------
 --  Theme tokens. Matches the dungeons-and-raids reskin so every window reads
 --  as one family. Accent tracks the user's live accent color.
@@ -147,14 +160,42 @@ WSkin.FadeNineSlice = FadeNineSlice
 --  texture the engine itself created is protected via the frame's FFD entry.
 -------------------------------------------------------------------------------
 local _restrip = {}
+local _windowRestrips = {}
+local registrationWindow
+
+-- Attribute registrations to a window while running its setup or a late
+-- control callback. Restore the previous owner even when a callback fails.
+function WSkin.WindowCallback(winKey, fn)
+    return function(...)
+        if WSkin.GetStyle(winKey) == "off" then return end
+        local previous = registrationWindow
+        registrationWindow = winKey
+        local ok, err = pcall(fn, ...)
+        registrationWindow = previous
+        if not ok then error(err, 0) end
+    end
+end
+
 local function Register(frame, keep)
-    if frame then _restrip[frame] = keep or true end
+    if not frame then return end
+    _restrip[frame] = keep or true
+    if registrationWindow then
+        local frames = _windowRestrips[registrationWindow]
+        if not frames then
+            frames = {}
+            _windowRestrips[registrationWindow] = frames
+        end
+        frames[frame] = true
+    end
 end
 WSkin.Register = Register
 
 local PROTECT_KEYS = { "bg", "bgOverlay", "modernBg", "hover", "selBar", "rightShade", "fill", "x", "topBar", "bottomBar", "arrow", "caret" }
-local function Restrip()
-    for frame, keep in pairs(_restrip) do
+local function Restrip(winKey)
+    local frames = winKey and _windowRestrips[winKey] or _restrip
+    if winKey and not _windowRestrips[winKey] then return end
+    for frame in pairs(frames) do
+        local keep = _restrip[frame]
         if frame and not frame:IsForbidden() then
             local k = (type(keep) == "table") and keep or nil
             local d = FFD[frame]
@@ -411,13 +452,10 @@ end
 
 -- Generic action button -> flat dark block with a subtle white hover.
 -- keepKeys preserves named regions (e.g. {"Icon"}).
-function WSkin.Button(btn, keepKeys)
-    if not btn or btn:IsForbidden() then return end
-    local d = GetFFD(btn)
-    if d.skinned then return end
-    d.skinned = true
-
+local function ApplyButton(btn, d, keepKeys)
     local keep = {}
+    if d.bg then keep[d.bg] = true end
+    if d.hover then keep[d.hover] = true end
     if keepKeys then
         for _, k in ipairs(keepKeys) do
             local r = btn[k]; if r then keep[r] = true end
@@ -433,17 +471,30 @@ function WSkin.Button(btn, keepKeys)
         local r = btn[k]; if r and not keep[r] and r.SetAlpha then r:SetAlpha(0) end
     end
 
-    local fill = SolidTex(btn, "BACKGROUND", Theme.bgR, Theme.bgG, Theme.bgB, Theme.bgA)
+    local fill = d.bg
+    if not fill then
+        fill = btn:CreateTexture(nil, "BACKGROUND")
+        d.bg = fill
+    end
+    fill:SetColorTexture(Theme.bgR, Theme.bgG, Theme.bgB, Theme.bgA)
     fill:SetAllPoints(btn)
-    d.bg = fill
     AddBorder(btn)
 
-    local hover = SolidTex(btn, "HIGHLIGHT", 1, 1, 1, 0.1)
+    local hover = d.hover
+    if not hover then
+        hover = btn:CreateTexture(nil, "HIGHLIGHT")
+        d.hover = hover
+    end
+    hover:SetColorTexture(1, 1, 1, 0.1)
     hover:SetAllPoints(btn)
-    d.hover = hover
 
     -- Label font stays Blizzard's (color-only text policy).
     Register(btn, keep)
+end
+
+function WSkin.Button(btn, keepKeys)
+    if not btn or btn:IsForbidden() then return end
+    WSkin.CompleteSetup(btn, "skinned", ApplyButton, keepKeys)
 end
 
 -- Force a button's label white (color only, font untouched). Many action
@@ -1250,7 +1301,9 @@ function WSkin.NormalizeTabRow(tabs)
             if prev then
                 local gap = (PP and PP.mult) or 1
                 local es = t.GetEffectiveScale and t:GetEffectiveScale()
-                if PP and PP.perfect and es and es > 0 then
+                -- Bound-check es: a corrupted near-zero scale (left behind by
+                -- another addon) would blow this up into a huge, wrong gap.
+                if PP and PP.perfect and es and es > 0.1 and es < 10 then
                     gap = PP.perfect / es
                 end
                 t:ClearAllPoints()
@@ -1545,7 +1598,7 @@ end
 
 -- Common chrome for a framed panel: close button, search/filter controls,
 -- page nav, scroll bars.
-function WSkin.CommonChrome(frame, prefix)
+function WSkin.CommonChrome(frame, prefix, explicitControls)
     if frame.CloseButton then WSkin.CloseButton(frame.CloseButton) end
     -- Newer templates hang the X off the title bar (or name it ClosePanelButton)
     -- instead of putting it on the frame -- the loot window is one of them, and
@@ -1558,9 +1611,11 @@ function WSkin.CommonChrome(frame, prefix)
         local cb = _G[prefix .. "CloseButton"]
         if cb then WSkin.CloseButton(cb) end
     end
-    WSkin.ControlsIn(frame)
-    WSkin.PagingIn(frame)
-    WSkin.ScrollBarsIn(frame)
+    if not explicitControls then
+        WSkin.ControlsIn(frame)
+        WSkin.PagingIn(frame)
+        WSkin.ScrollBarsIn(frame)
+    end
     -- Re-center the title: PortraitFrameTemplate anchors it relative to the
     -- (removed) portrait + close button, so it lands a few px off the frame's
     -- true center. Center it on the shell top bar instead. One-shot.
@@ -1588,6 +1643,7 @@ end
 
 -- Debounce: collapse many hook fires in one frame into a single pass.
 function WSkin.Debounce(fn)
+    if registrationWindow then fn = WSkin.WindowCallback(registrationWindow, fn) end
     local pending = false
     return function()
         if pending then return end

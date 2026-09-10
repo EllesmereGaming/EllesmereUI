@@ -10651,7 +10651,7 @@ initFrame:SetScript("OnEvent", function(self)
             swatch:SetAlpha(off and 0.15 or 1)
             swatch:EnableMouse(not off)
 
-            -- Inline cog: independent "Override Mini-Boss colors" / "Override Caster colors" toggles promote the DPS No Aggro color above that single mob-type color (kept separate for contrast); dimmed while off.
+            -- Inline cog: independent "Override Mini-Boss colors" / "Override Caster colors" / "Override Boss colors" toggles promote the DPS No Aggro color above that single mob-type color (kept separate for contrast); dimmed while off.
             local _, dpsNoAggroCogShow = EllesmereUI.BuildCogPopup({
                 title = "No Aggro",
                 rows = {
@@ -10669,6 +10669,13 @@ initFrame:SetScript("OnEvent", function(self)
                         return defaults.dpsNoAggroOverrideCaster
                       end,
                       set=function(v) DB().dpsNoAggroOverrideCaster = v; RefreshAllPlates() end },
+                    { type="toggle", label="Override Boss colors",
+                      get=function()
+                        local db = DB()
+                        if db and db.dpsNoAggroOverrideBoss ~= nil then return db.dpsNoAggroOverrideBoss end
+                        return defaults.dpsNoAggroOverrideBoss
+                      end,
+                      set=function(v) DB().dpsNoAggroOverrideBoss = v; RefreshAllPlates() end },
                 },
             })
             local dpsNoAggroCogBtn = CreateFrame("Button", nil, leftRgn)

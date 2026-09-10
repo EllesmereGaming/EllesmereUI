@@ -597,6 +597,19 @@ local DEFAULTS = {
             -- seeds it into existing profiles at login, and an explicit
             -- false (user turned it off) survives the logout default-strip.
             stableKeybinds = true,
+            -- Suppress every CDM glow while out of combat (global, all bars).
+            -- Off by default: opt-in, and off means the gate in StartNativeGlow
+            -- is a single boolean test that never fires.
+            glowsOnlyInCombat = false,
+            -- Rotation Assist uses Blizzard's native highlight until the user
+            -- explicitly opts into a custom style.
+            rotationAssistStyle = "blizzard",
+            rotationAssistColorMode = "default",
+            rotationAssistColorR = 1,
+            rotationAssistColorG = 0,
+            rotationAssistColorB = 0,
+            rotationAssistThickness = 3,
+            rotationAssistOutset = 1,
             -- The 3 default bars (match Blizzard CDM)
             bars = {
                 {
@@ -1287,6 +1300,13 @@ function ns.GetEffectiveCustomActiveState(frameKey)
     return store[frameKey]
 end
 
+-- Preset menus store cooldown effects in customActiveStates, including None.
+-- Never revive an old spell-family/bar-tier effect behind that menu's back.
+function ns.GetSpellCdStateEffect(frame, settings)
+    if frame and ns.CdmIsInjectedFrame and ns.CdmIsInjectedFrame(frame) then return nil end
+    return settings and settings.cdStateEffect
+end
+
 -- Does this icon have a custom Cooldown State Effect (preset cd-state)? Appearance refresh
 -- uses this so it doesn't clear a preset's _cdStateHidden flag: presets store cdState in customActiveStates, not per-bar spellSettings.
 function ns.PresetHasCdState(frame)
@@ -1394,6 +1414,22 @@ function ns.RescanCdReadySoundFlag()
     end)
 end
 
+-- "Replace with Buff" gate: set ns._cdmAnyBuffReplace once if any saved cd/utility
+-- icon (any spec) names a replacement buff, so the route map's Pass 3c and the
+-- collect pass's identity swap and compaction stay skipped for non-users. Same
+-- scanned-once contract as RescanCdReadySoundFlag.
+function ns.RescanBuffReplaceFlag()
+    if ns._cdmAnyBuffReplace or ns._buffReplaceFlagScanned then return end
+    if not EllesmereUIDB then return end
+    ns._buffReplaceFlagScanned = true
+    ns.ForEachSavedSettingsBlock(function(ss)
+        if type(ss.replaceBuffID) == "number" and ss.replaceBuffID > 0 then
+            ns._cdmAnyBuffReplace = true
+            return true
+        end
+    end)
+end
+
 -- "Hide CD Text (Charges)" gate: set ns._cdmAnyChargeHideCdText once if any saved spell
 -- (any spec) has the toggle on; RefreshCDMIconAppearance then skips its per-icon watch
 -- check for non-users. Same contract as RescanMaxStacksGlowFlag.
@@ -1404,6 +1440,21 @@ function ns.RescanChargeCdTextFlag()
     ns.ForEachSavedSettingsBlock(function(ss)
         if ss.chargeHideCdText then
             ns._cdmAnyChargeHideCdText = true
+            return true
+        end
+    end)
+end
+
+-- Per-spell Duration Text gate: set ns._cdmAnySpellDurationText once if any saved spell
+-- (any spec) overrides showCooldownText either way. ~= nil, not truthiness: a per-spell
+-- ON must beat a bar that is OFF, same as the options resolver reads it.
+function ns.RescanSpellDurationTextFlag()
+    if ns._cdmAnySpellDurationText or ns._spellDurationTextFlagScanned then return end
+    if not EllesmereUIDB then return end
+    ns._spellDurationTextFlagScanned = true
+    ns.ForEachSavedSettingsBlock(function(ss)
+        if ss.showCooldownText ~= nil then
+            ns._cdmAnySpellDurationText = true
             return true
         end
     end)
@@ -2384,6 +2435,29 @@ function EllesmereUI.IsPandemicGlowSyncedToAll(payload, opts)
     return true
 end
 
+-- Show Glows Only in Combat (global). Bar Glows and the Tracking Bars gate
+-- their own "Only In Combat" toggles at the decision site, which works because
+-- a ticker re-evaluates them. This one gates the renderer: the proc glow and
+-- the CD ready flush are pure edges with no re-assert, so a suppressed request
+-- can only come back by being replayed from here.
+-- overlay -> its last StartNativeGlow request. Weak keys: the options preview
+-- overlays are rebuilt per page build and would otherwise pile up here for the
+-- combat sweep to walk; a live overlay is held by its owner's frame data.
+-- The rec.active filter keeps the sweep below short.
+ns._cdmGlowRec = setmetatable({}, { __mode = "k" })
+
+-- Cached toggle: StartNativeGlow tests it on every glow start, so it must not
+-- walk the DB there. Re-read on apply/profile change, at world entry, and from
+-- the option itself.
+function ns.RefreshGlowCombatGate()
+    local p = ECME and ECME.db and ECME.db.profile
+    local on = (p and p.cdmBars and p.cdmBars.glowsOnlyInCombat) and true or false
+    ns._cdmGlowOOCGate = on
+    -- Sticky: once the gate has been on there may be suppressed glows left to
+    -- release, so the sweep has to stay reachable after it goes off again.
+    if on then ns._cdmGlowGateEverOn = true end
+end
+
 StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
     if not overlay then return end
     local styleIdx = tonumber(style) or 1
@@ -2395,6 +2469,42 @@ StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
     -- Threshold glows pass the owning icon and its size explicitly so every
     -- style sizes exactly like the normal buff-glow path.
     local parent = (opts and opts.owner) or overlay:GetParent()
+
+    -- Show Glows Only in Combat. Recorded only once the gate has ever been on
+    -- this session, so a session that never switches it on pays one boolean
+    -- here and nothing else. The record is what the combat sweep takes down
+    -- and replays: the proc glow and CD ready glow are edge-driven, so a
+    -- suppressed request can only ever come back by being replayed from it.
+    -- Glows already lit at the very first enable of a session have no record
+    -- until their own next edge; the option setter re-issues the bar and buff
+    -- glows right away and everything is exact from the next login.
+    -- Stored verbatim, pre-defaulting, so a nil colour stays nil. The owner and
+    -- its resolved spellID ride along so the replay can tell a record that is
+    -- still current from one whose pooled icon has since been handed a
+    -- different spell (fc.spellID is our cached plain identity, never secret).
+    if ns._cdmGlowGateEverOn then
+        local rec = ns._cdmGlowRec[overlay]
+        if not rec then rec = {}; ns._cdmGlowRec[overlay] = rec end
+        local ownerFC = parent and _ecmeFC[parent]
+        rec.style, rec.r, rec.g, rec.b, rec.opts = styleIdx, cr, cg, cb, opts
+        rec.owner, rec.sid = parent, ownerFC and ownerFC.spellID or nil
+        rec.active = true
+        -- Suppressed overlays keep _glowActive = true: the buff ticker's
+        -- active-glow integrity pass and the preset cd-state re-assert restart
+        -- any glow whose overlay reads dark, so the truth would churn every
+        -- tick for exactly the users who asked for less work out of combat.
+        -- Options previews opt out on their own overlay rather than through
+        -- opts: three overlays serve the four preview call sites, and a
+        -- non-nil opts flips the pixel-glow branch off the bar's settings.
+        if ns._cdmGlowOOCGate and not _inCombat and not overlay._euiGlowPreview then
+            rec.suppressed = true
+            overlay._glowActive = true
+            overlay:SetAlpha(0)
+            return
+        end
+        rec.suppressed = false
+    end
+
     if not parent then return end
     local pW = (opts and opts.width) or parent:GetWidth()
     local pH = (opts and opts.height) or parent:GetHeight()
@@ -2430,10 +2540,13 @@ StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
             anchorFrame = (opts and opts.maskWith) and overlay or nil,
         })
     elseif entry.procedural then
-        -- Pixel Glow params. Pandemic glow passes explicit opts; per-button glows (active-state,
-        -- CD-ready, bar glows) pass none, so resolve the owning CD/utility bar's settings, defaulting for action-bar overlays and bars that never set the values.
+        -- Pixel Glow params. Pandemic glow and the buff ticker pass explicit opts; per-button
+        -- glows (active-state, CD-ready, bar glows) pass none or only their gate masks, so
+        -- resolve the owning bar's settings: a buff-family bar keeps them under buffGlow*
+        -- (the Bars page writes those keys for buff bars), every other bar under pixelGlow*,
+        -- defaulting for action-bar overlays and bars that never set the values.
         local N, th, period, bgR, bgG, bgB, bgA
-        if opts then
+        if opts and (opts.N or opts.th or opts.period or opts.bg) then
             N = opts.N or 8; th = opts.th or 2; period = opts.period or 4
             if opts.bg then
                 bgR, bgG, bgB, bgA = opts.bg.r or 0, opts.bg.g or 0, opts.bg.b or 0, opts.bg.a or 1
@@ -2441,11 +2554,24 @@ StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
         else
             local pfc = _ecmeFC[parent]
             local pbd = pfc and pfc.barKey and ns.GetBarData and ns.GetBarData(pfc.barKey)
-            N = (pbd and pbd.pixelGlowLines) or 8
-            th = (pbd and pbd.pixelGlowThickness) or 2
-            period = (pbd and pbd.pixelGlowSpeed) or 4
-            if pbd and pbd.pixelGlowBackground then
-                bgR, bgG, bgB, bgA = pbd.pixelGlowBackgroundR or 0, pbd.pixelGlowBackgroundG or 0, pbd.pixelGlowBackgroundB or 0, 1
+            if pbd and ns.IsBarBuffFamily and ns.IsBarBuffFamily(pbd) then
+                -- pixelGlow* second: a buff bar that only ever held the old keys keeps
+                -- rendering exactly as before.
+                N = pbd.buffGlowLines or pbd.pixelGlowLines or 8
+                th = pbd.buffGlowThickness or pbd.pixelGlowThickness or 2
+                period = pbd.buffGlowSpeed or pbd.pixelGlowSpeed or 4
+                if pbd.buffGlowBackground then
+                    bgR, bgG, bgB, bgA = pbd.buffGlowBackgroundR or 0, pbd.buffGlowBackgroundG or 0, pbd.buffGlowBackgroundB or 0, 1
+                elseif pbd.pixelGlowBackground then
+                    bgR, bgG, bgB, bgA = pbd.pixelGlowBackgroundR or 0, pbd.pixelGlowBackgroundG or 0, pbd.pixelGlowBackgroundB or 0, 1
+                end
+            else
+                N = (pbd and pbd.pixelGlowLines) or 8
+                th = (pbd and pbd.pixelGlowThickness) or 2
+                period = (pbd and pbd.pixelGlowSpeed) or 4
+                if pbd and pbd.pixelGlowBackground then
+                    bgR, bgG, bgB, bgA = pbd.pixelGlowBackgroundR or 0, pbd.pixelGlowBackgroundG or 0, pbd.pixelGlowBackgroundB or 0, 1
+                end
             end
         end
         local lineLen = math.floor((pW + pH) * (2 / N - 0.1))
@@ -2466,6 +2592,19 @@ StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
     if opts and opts.maskWith and _G_Glows.ApplyMaskWith then
         _G_Glows.ApplyMaskWith(overlay, opts.maskWith)
     end
+    -- Second gate mask (two-gate threshold glows). ApplyMaskWith dedupes on one
+    -- key per region, so a second mask needs a key of its own and cannot go
+    -- through the core helper. Data rather than a callback, so the combat replay
+    -- below re-binds it on the textures that replay creates fresh.
+    local mask2 = opts and opts.maskWith2
+    if mask2 then
+        for _, r in ipairs({ overlay:GetRegions() }) do
+            if r.AddMaskTexture and r._euiTGMask2 ~= mask2 then
+                r._euiTGMask2 = mask2
+                r:AddMaskTexture(mask2)
+            end
+        end
+    end
 
     overlay._glowActive = true
     overlay:SetAlpha(1)
@@ -2478,10 +2617,66 @@ StopNativeGlow = function(overlay)
     _G_Glows.StopAllGlows(overlay)
     overlay._glowActive = false
     overlay:SetAlpha(0)
+    local rec = ns._cdmGlowRec[overlay]
+    if rec then rec.active = false; rec.suppressed = false end
     -- No Hide() -- just alpha 0. Same reason as above.
 end
 ns.StartNativeGlow = StartNativeGlow
 ns.StopNativeGlow = StopNativeGlow
+
+-- Combat edges for Show Glows Only in Combat. Entering combat replays what was
+-- suppressed; leaving combat takes the running glows down but keeps their
+-- records, so the next pull lights them again without waiting for their owners
+-- to re-fire. The option, a profile apply and world entry call it after
+-- re-reading the gate, so a change takes effect at once. Never having had the
+-- gate on makes this two reads and a return for the whole session.
+function ns.CDMGlowCombatSync()
+    if not ns._cdmGlowOOCGate and not ns._cdmGlowGateEverOn then return end
+    local show = _inCombat or not ns._cdmGlowOOCGate
+    -- Replays are collected here and run after the traversal: StartNativeGlow
+    -- writes into _cdmGlowRec, and inserting a key during pairs() is undefined
+    -- in Lua 5.1. It only ever rewrites an existing key today, but that is not
+    -- a property this loop should rest on.
+    local queue = ns._cdmGlowSyncScratch
+    if not queue then queue = {}; ns._cdmGlowSyncScratch = queue end
+    local n = 0
+    for overlay, rec in pairs(ns._cdmGlowRec) do
+        if rec.active and not overlay._euiGlowPreview then
+            if not show then
+                if not rec.suppressed then
+                    _G_Glows.StopAllGlows(overlay)
+                    overlay:SetAlpha(0)
+                    rec.suppressed = true
+                    -- _glowActive deliberately stays true (see StartNativeGlow).
+                end
+            elseif rec.suppressed then
+                n = n + 1
+                queue[n] = overlay
+            end
+        end
+    end
+    for i = 1, n do
+        local overlay = queue[i]
+        queue[i] = nil
+        local rec = ns._cdmGlowRec[overlay]
+        if rec and rec.suppressed then
+            local fc = rec.owner and _ecmeFC[rec.owner]
+            if rec.sid and fc and fc.spellID ~= rec.sid then
+                -- Pooled onto a different spell while suppressed: drop the
+                -- request instead of lighting the new spell in the old style.
+                -- Only the active-state integrity pass and the preset cd-state
+                -- re-assert read _glowActive, so clearing it wakes those two;
+                -- every other owner keeps its own memo and re-decides on its
+                -- own next edge.
+                rec.active = false
+                rec.suppressed = false
+                overlay._glowActive = false
+            else
+                StartNativeGlow(overlay, rec.style, rec.r, rec.g, rec.b, rec.opts)
+            end
+        end
+    end
+end
 
 -- Our bar frames (keyed by bar key)
 local cdmBarFrames = {}
@@ -5795,7 +5990,7 @@ local function RefreshCDMIconAppearance(barKey)
                 local sd = ns.GetBarSpellData(bk)
                 -- Shared resolver: direct hit + full identity/override matching against the family store, with bar-tier fallback.
                 local ss = ns.ResolveSpellSettings and ns.ResolveSpellSettings(icon, sid, sd, bk)
-                local cse = ss and ss.cdStateEffect
+                local cse = ns.GetSpellCdStateEffect(icon, ss)
                 if (cse == "pixelGlowReady" or cse == "buttonGlowReady"
                     or cse == "pixelGlowReadyUsable" or cse == "buttonGlowReadyUsable") and glowOv then
                     local glowUsable = (cse == "pixelGlowReadyUsable" or cse == "buttonGlowReadyUsable")
@@ -5848,7 +6043,7 @@ local function RefreshCDMIconAppearance(barKey)
             -- Shared resolver: direct hit + full identity/override matching
             -- against the family store, with bar-tier fallback.
             local csSs = ns.ResolveSpellSettings and ns.ResolveSpellSettings(icon, csSid, csSd, csBk)
-            local cse = csSs and csSs.cdStateEffect
+            local cse = ns.GetSpellCdStateEffect(icon, csSs)
             -- Shift-Icons variants behave exactly like their base hidden mode plus the layout flag; normalize so the branches below stay as-is.
             local cseShift = (cse == "hiddenOnCDShift" or cse == "hiddenReadyShift")
             if cse == "hiddenOnCDShift" then cse = "hiddenOnCD"
@@ -6243,12 +6438,13 @@ end
 function ns.ResolveCastableInterrupt(sid)
     if type(sid) ~= "number" or sid <= 0 then return nil end
     local knownInBook = ns.IsSpellInPlayerBook
-    if knownInBook(sid) then return sid end
-    -- Talented into a replacement, stored id is the base form.
+    -- Resolve replacements first: Command Demon can remain known while its
+    -- active pet command has the cooldown we need to check.
     if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
         local ovr = C_SpellBook.FindSpellOverrideByID(sid)
         if ovr and ovr > 0 and ovr ~= sid and knownInBook(ovr) then return ovr end
     end
+    if knownInBook(sid) then return sid end
     -- Talented back out, stored id is the replacement form.
     if C_Spell and C_Spell.GetBaseSpell then
         local base = C_Spell.GetBaseSpell(sid)
@@ -6905,6 +7101,11 @@ local function UpdateAllCDMBars(dt) end
 -- case where nothing is hosted. On ns, not a file local: this file sits at
 -- Lua's 200-local cap.
 function ns.BarUsesBuffViewer(barKey)
+    -- "Replace with Buff" frames come out of the BuffIcon pool too (route map
+    -- Pass 3c records the bars); gated so non-users pay one boolean.
+    if ns._cdmAnyBuffReplace and ns._buffReplaceBars and ns._buffReplaceBars[barKey] then
+        return true
+    end
     local sd = ns.GetBarSpellData and ns.GetBarSpellData(barKey)
     if not sd then return false end
     if sd.hostedBuffSpellIDs and next(sd.hostedBuffSpellIDs) then return true end
@@ -7049,6 +7250,10 @@ _CDMApplyVisibility = function()
             end
 
             end -- unlockActive else
+            -- Aura-tracked custom buffs render on a UIParent holder that mirrors
+            -- the bar's alpha in its anchor pass; alpha edges fire no frame
+            -- hooks, so poke it (no-op for bars without such buffs).
+            if ns._AuraCustomPoke then ns._AuraCustomPoke(barData.key) end
         end
     end
 
@@ -7120,6 +7325,8 @@ local function ApplyBarOpacity(barKey)
             end
         end
     end
+    -- The aura-tracked custom buff holder mirrors this opacity in its anchor pass.
+    if ns._AuraCustomPoke then ns._AuraCustomPoke(barKey) end
 end
 ns.ApplyBarOpacity = ApplyBarOpacity
 
@@ -7284,8 +7491,20 @@ local function _RegisterMacroTarget(token, formatted, rank)
         _SetSpellKeybind(tonumber(sid), formatted, rank)
         return
     end
-    -- A bare number is ambiguous in macro syntax (inventory slot vs itemID),
-    -- so it is left alone rather than guessed at.
+    -- A bare number is ambiguous in macro syntax (inventory slot vs itemID). The
+    -- equipment slots are 1..19 and no usable item carries an id that low, so a
+    -- number in that range is the slot form ("/use 13"): bind the item equipped
+    -- there (the cache rebuilds with the bars on every equipment change). Any
+    -- other number is left alone rather than guessed at.
+    local slotNum = token:match("^(%d+)$")
+    if slotNum then
+        slotNum = tonumber(slotNum)
+        if slotNum >= 1 and slotNum <= 19 then
+            local slotItem = GetInventoryItemID("player", slotNum)
+            if slotItem then _SetKeybind(-slotItem, formatted, rank) end
+        end
+        return
+    end
     if tonumber(token) then return end
     -- Leftover bracket means the body had an unbalanced [condition] that the
     -- %b[] strip could not remove. Whatever is left is not a usable name.
@@ -7346,6 +7565,14 @@ local function _RegisterLegacyMacroItem(macroIndex, formatted, rank)
     itemID = itemID and tonumber(itemID)
     if not itemID and not tonumber(target) then
         itemID = C_Item and C_Item.GetItemInfoInstant and C_Item.GetItemInfoInstant(target)
+    end
+    -- Bare 1..19 is the equipment-slot form (see _RegisterMacroTarget).
+    if not itemID then
+        local slotNum = target:match("^(%d+)$")
+        slotNum = slotNum and tonumber(slotNum)
+        if slotNum and slotNum >= 1 and slotNum <= 19 then
+            itemID = GetInventoryItemID("player", slotNum)
+        end
     end
     if itemID then _SetKeybind(-itemID, formatted, rank) end
 end
@@ -7563,11 +7790,13 @@ BuildAllCDMBars = function()
     EnsureFocusKickBar()
     ns.RescanMaxStacksGlowFlag()  -- set the Max Stacks Glow gate (once) before refresh
     ns.RescanChargeCdTextFlag()   -- set the Hide CD Text (Charges) gate (once) before refresh
+    ns.RescanSpellDurationTextFlag()  -- and the per-spell Duration Text gate
     ns.RescanHideChargeTextFlag() -- set the Hide Charge Text gate (once) before refresh
     ns.RescanSuppressGcdFlag()    -- set the per-spell Suppress GCD gate (once) before refresh
     ns.RescanChargeStyleFlag()    -- set the Hide Swipe (Charges) gate (once) before refresh
     ns.RescanBuffSoundFlag()      -- set the Audio on Buff Gain/Loss gate (once) before refresh
     ns.RescanCdReadySoundFlag()   -- set the Audio Effect on CD Ready gate (once) before refresh
+    ns.RescanBuffReplaceFlag()    -- set the Replace with Buff gate (once) before the route map
     ns.RescanCustomItemFlag()     -- set the custom-item buff-injection gate (once)
     ns.RescanCustomForceCountFlag() -- set the "Show Charges" custom-spell gate (once)
     ns.RescanReverseSwipeFlag()   -- set the Reverse Swipe gate (once) before refresh
@@ -9417,7 +9646,13 @@ function ECME:OnInitialize()
 
     -- Expose for options
     _G._ECME_AceDB = self.db
+    -- First read of the glow gate: without it the cached value stays nil until
+    -- the first PLAYER_ENTERING_WORLD and only works because nil is falsy.
+    ns.RefreshGlowCombatGate()
     _G._ECME_Apply = function()
+        -- Profile switches land here, so the cached glow gate is re-read before
+        -- the rebuild restarts any glow under the new profile's setting.
+        ns.RefreshGlowCombatGate()
         if ns._skipNextApplyRebuild then
             ns._skipNextApplyRebuild = false
         elseif ns._specChangeJustRan then
@@ -9437,6 +9672,10 @@ function ECME:OnInitialize()
         end
         if ns.UpdateCustomBuffAuraTracking then ns.UpdateCustomBuffAuraTracking() end
         if ns.UpdateCustomBuffBars then ns.UpdateCustomBuffBars() end
+        -- A profile that switches the gate off has to release the glows the old
+        -- profile suppressed: the edge-driven ones (proc, cd ready) have no
+        -- ticker to bring them back on their own.
+        ns.CDMGlowCombatSync()
     end
 
     -- Append SharedMedia textures to TBB runtime tables
@@ -9772,21 +10011,35 @@ end
 
 -------------------------------------------------------------------------------
 --  Rotation Helper Integration (Blizzard C_AssistedCombat)
---  Highlights the currently suggested spell on its CDM icon using Blizzard's
---  native ActionBarButtonAssistedCombatHighlightTemplate -- same shine as the
---  stock action bars. Gated purely by Blizzard's "assistedCombatHighlight"
---  CVar; we don't carry a second toggle of our own.
+--  Highlights the currently suggested spell on its CDM icon. The default is
+--  Blizzard's ActionBarButtonAssistedCombatHighlightTemplate; profile settings
+--  can opt into a custom glow or a static solid border.
 -------------------------------------------------------------------------------
+do
 ns._rotationGlowedIcons = {}
 ns._rotationHookInstalled = false
 ns._rotationInCombat = false
 
 local ROT_GLOW_RATIO = 0.33
+local ROT_STYLE_TO_GLOW = {
+    pixel = 1,
+    shape = 2,
+    button = 3,
+    autocast = 4,
+    gcd = 5,
+    modern = 6,
+    classic = 7,
+}
+
+local function _rotConfig()
+    local p = ECME.db and ECME.db.profile
+    return p and p.cdmBars
+end
 
 local function _rotCVarOn()
     -- User can force-hide via our own toggle, overriding Blizzard's CVar
-    local p = ECME.db and ECME.db.profile
-    if p and p.cdmBars and p.cdmBars.hideRotationHelper then return false end
+    local cfg = _rotConfig()
+    if cfg and cfg.hideRotationHelper then return false end
     return GetCVarBool and GetCVarBool("assistedCombatHighlight")
 end
 
@@ -9804,17 +10057,132 @@ local function _rotCreateHighlight(icon)
     return hf
 end
 
+local function _rotCreateCustom(icon)
+    local overlay = CreateFrame("Frame", nil, icon)
+    overlay:SetFrameLevel(icon:GetFrameLevel() + 15)
+    overlay:SetAlpha(0)
+    return overlay
+end
+
+local function _rotSolidBorder(overlay, thickness, r, g, b)
+    local t = overlay._rotSolid
+    if not t then
+        t = {}
+        for i = 1, 4 do
+            t[i] = overlay:CreateTexture(nil, "OVERLAY", nil, 7)
+        end
+        t[1]:SetPoint("TOPLEFT"); t[1]:SetPoint("TOPRIGHT")
+        t[2]:SetPoint("BOTTOMLEFT"); t[2]:SetPoint("BOTTOMRIGHT")
+        t[3]:SetPoint("TOPLEFT"); t[3]:SetPoint("BOTTOMLEFT")
+        t[4]:SetPoint("TOPRIGHT"); t[4]:SetPoint("BOTTOMRIGHT")
+        overlay._rotSolid = t
+    end
+    local px = SnapForScale(thickness)
+    t[1]:SetHeight(px); t[2]:SetHeight(px)
+    t[3]:SetWidth(px);  t[4]:SetWidth(px)
+    for i = 1, 4 do
+        t[i]:SetColorTexture(r, g, b, 1)
+        t[i]:Show()
+    end
+end
+
+local function _rotHideSolid(overlay)
+    local t = overlay and overlay._rotSolid
+    if not t then return end
+    for i = 1, 4 do t[i]:Hide() end
+end
+
+local function _rotResolveColor(cfg)
+    local mode = cfg and cfg.rotationAssistColorMode or "default"
+    if mode == "class" then
+        local c = EllesmereUI.GetClassColor and EllesmereUI.GetClassColor(EllesmereUI._playerClass)
+        if c then return c.r, c.g, c.b end
+    elseif mode == "custom" then
+        return cfg.rotationAssistColorR or 1,
+               cfg.rotationAssistColorG or 0,
+               cfg.rotationAssistColorB or 0
+    end
+    return 1.0, 0.788, 0.137
+end
+
 local function _rotHide(icon)
     local rfc = icon and _ecmeFC[icon]
     local hf = rfc and rfc.rotationHighlight
-    if not hf then return end
-    if hf.Flipbook and hf.Flipbook.Anim then hf.Flipbook.Anim:Stop() end
-    hf:Hide()
+    if hf then
+        if hf.Flipbook and hf.Flipbook.Anim then hf.Flipbook.Anim:Stop() end
+        hf:Hide()
+    end
+    local custom = rfc and rfc.rotationCustomHighlight
+    if custom then
+        StopNativeGlow(custom)
+        _rotHideSolid(custom)
+        custom._rotCfgKey = nil
+    end
 end
 
 local function _rotShow(icon)
     if not icon then return end
     local rfc = FC(icon)
+    local cfg = _rotConfig()
+    local style = cfg and cfg.rotationAssistStyle or "blizzard"
+    if style ~= "solid" and not ROT_STYLE_TO_GLOW[style] then style = "blizzard" end
+
+    if style ~= "blizzard" then
+        local hf0 = rfc.rotationHighlight
+        if hf0 then
+            if hf0.Flipbook and hf0.Flipbook.Anim then hf0.Flipbook.Anim:Stop() end
+            hf0:Hide()
+        end
+        local overlay = rfc.rotationCustomHighlight
+        if not overlay then
+            overlay = _rotCreateCustom(icon)
+            rfc.rotationCustomHighlight = overlay
+        end
+        local outset = cfg.rotationAssistOutset or 1
+        if outset < 0 then outset = 0 elseif outset > 12 then outset = 12 end
+        overlay:ClearAllPoints()
+        overlay:SetPoint("TOPLEFT", icon, "TOPLEFT", -outset, outset)
+        overlay:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", outset, -outset)
+        overlay:SetFrameLevel(icon:GetFrameLevel() + 15)
+        local thickness = cfg.rotationAssistThickness or 3
+        if thickness < 1 then thickness = 1 elseif thickness > 8 then thickness = 8 end
+        local cr, cg, cb = _rotResolveColor(cfg)
+        local glowStyle = ROT_STYLE_TO_GLOW[style]
+        if glowStyle and rfc.isReplacementBuff then
+            -- Blizzard aura hosts: driver-ticked styles freeze under secret
+            -- visibility, so the glow engine's own remap picks the FlipBook
+            -- twin (pixel -> classic, the rest -> modern).
+            local safe = EllesmereUI.Glows and EllesmereUI.Glows.RestrictionSafeStyle
+            if safe then glowStyle = safe(glowStyle) end
+        end
+        local cfgKey = table.concat({ style, cr, cg, cb, thickness, outset, glowStyle or 0 }, ":")
+        if overlay._rotCfgKey ~= cfgKey or not overlay._glowActive then
+            overlay._rotCfgKey = cfgKey
+            if style == "solid" then
+                StopNativeGlow(overlay)
+                _rotSolidBorder(overlay, thickness, cr, cg, cb)
+                overlay._glowActive = true
+                overlay:SetAlpha(1)
+            else
+                _rotHideSolid(overlay)
+                local w = (icon:GetWidth() or 36) + outset * 2
+                local h = (icon:GetHeight() or 36) + outset * 2
+                StartNativeGlow(overlay, glowStyle, cr, cg, cb, {
+                    th = thickness,
+                    width = w,
+                    height = h,
+                })
+            end
+        end
+        return
+    end
+
+    local custom = rfc.rotationCustomHighlight
+    if custom then
+        StopNativeGlow(custom)
+        _rotHideSolid(custom)
+        custom._rotCfgKey = nil
+    end
     local hf = rfc.rotationHighlight
     if not hf then
         hf = _rotCreateHighlight(icon)
@@ -9837,7 +10205,7 @@ local function _rotShow(icon)
     end
 end
 
-local function UpdateRotationHighlights()
+local function UpdateRotationHighlightsNow()
     if not _rotCVarOn() then
         for icon in pairs(ns._rotationGlowedIcons) do
             _rotHide(icon)
@@ -9847,6 +10215,8 @@ local function UpdateRotationHighlights()
     end
 
     local suggestedSpell = C_AssistedCombat and C_AssistedCombat.GetNextCastSpell and C_AssistedCombat.GetNextCastSpell()
+    if type(suggestedSpell) ~= "number"
+        or (issecretvalue and issecretvalue(suggestedSpell)) then suggestedSpell = nil end
 
     local newSet = {}
     if suggestedSpell then
@@ -9855,16 +10225,23 @@ local function UpdateRotationHighlights()
         -- directions so "icon=base, suggested=override" and "icon=override, suggested=base" both match. Strictly a superset of exact-id match, so anything that highlighted before still does.
         local GetBaseSpell = C_Spell and C_Spell.GetBaseSpell
         local suggestedBase = (GetBaseSpell and GetBaseSpell(suggestedSpell)) or suggestedSpell
+        if type(suggestedBase) ~= "number"
+            or (issecretvalue and issecretvalue(suggestedBase)) then suggestedBase = suggestedSpell end
         for _, icons in pairs(cdmBarIcons) do
             for _, icon in ipairs(icons) do
                 local ifc = _ecmeFC[icon]
                 local sid = ifc and ifc.spellID
+                if type(sid) ~= "number" or (issecretvalue and issecretvalue(sid)) then sid = nil end
                 if sid and icon:IsShown() then
                     -- Direct/base match first (cheap); only resolve the icon's own base if those
                     -- miss, to keep the common path light. sid > 0: item/trinket icons store -itemID/-13/-14, which must not be fed to GetBaseSpell.
                     local match = (sid == suggestedSpell) or (sid == suggestedBase)
                     if not match and GetBaseSpell and sid > 0 then
-                        match = GetBaseSpell(sid) == suggestedBase
+                        local sidBase = GetBaseSpell(sid)
+                        if type(sidBase) == "number"
+                            and not (issecretvalue and issecretvalue(sidBase)) then
+                            match = sidBase == suggestedBase
+                        end
                     end
                     if match then
                         _rotShow(icon)
@@ -9880,15 +10257,22 @@ local function UpdateRotationHighlights()
     end
     ns._rotationGlowedIcons = newSet
 end
-ns.UpdateRotationHighlights = UpdateRotationHighlights
 
--- One-frame defer after a bar rebuild: icon frames may have just been recycled or re-shown, so we want to re-run the match after the layout settles (dirty-frame pattern).
+-- Coalesce Blizzard's overlapping assisted-combat callbacks and bar rebuilds
+-- into one pass on the next frame. A suggestion change normally fires both an
+-- EventRegistry callback and UpdateAllAssistedHighlightFramesForSpell; running
+-- the full icon scan for each notification needlessly doubles the hot path.
 local _rotDirty = CreateFrame("Frame")
 _rotDirty:Hide()
 _rotDirty:SetScript("OnUpdate", function(self)
     self:Hide()
-    UpdateRotationHighlights()
+    UpdateRotationHighlightsNow()
 end)
+
+local function QueueRotationHighlightUpdate()
+    _rotDirty:Show()
+end
+ns.UpdateRotationHighlights = QueueRotationHighlightUpdate
 
 local function _rotSyncCombat()
     local inCombat = InCombatLockdown() or UnitAffectingCombat("player")
@@ -9907,7 +10291,7 @@ local function _rotSyncCombat()
 end
 ns._syncRotationCombatState = _rotSyncCombat
 
-local function InstallRotationHook()
+function ns.InstallRotationHook()
     if ns._rotationHookInstalled then return end
     ns._rotationHookInstalled = true
 
@@ -9915,26 +10299,27 @@ local function InstallRotationHook()
 
     if EventRegistry and EventRegistry.RegisterCallback then
         EventRegistry:RegisterCallback("AssistedCombatManager.OnAssistedHighlightSpellChange", function()
-            UpdateRotationHighlights()
+            QueueRotationHighlightUpdate()
         end, "ECME_CDM_RotationHelper")
         -- Clear highlights if the user flips Blizzard's CVar off at runtime.
         EventRegistry:RegisterCallback("AssistedCombatManager.OnSetUseAssistedHighlight", function()
-            UpdateRotationHighlights()
+            QueueRotationHighlightUpdate()
         end, "ECME_CDM_RotationHelper_CVar")
     end
 
     if AssistedCombatManager and AssistedCombatManager.UpdateAllAssistedHighlightFramesForSpell then
         hooksecurefunc(AssistedCombatManager, "UpdateAllAssistedHighlightFramesForSpell", function()
-            UpdateRotationHighlights()
+            QueueRotationHighlightUpdate()
         end)
     end
 
     -- Re-run after bar rebuilds so the shine follows icon recycling.
     if ns.CollectAndReanchor then
-        hooksecurefunc(ns, "CollectAndReanchor", function() _rotDirty:Show() end)
+        hooksecurefunc(ns, "CollectAndReanchor", QueueRotationHighlightUpdate)
     end
 
-    UpdateRotationHighlights()
+    QueueRotationHighlightUpdate()
+end
 end
 
 -- Show Item Count "Out of Combat" mode: re-run the icon restyle for bars using it whenever combat starts or ends (the gate inside the restyle reads the event-tracked combat flag). No-ops instantly when no bar uses the mode.
@@ -10421,6 +10806,10 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
             _inCombat = true
             _CDMApplyVisibility()
             ns.RefreshItemCountOOCBars()
+            -- Straight through, same as the exit edge below: the sweep only
+            -- touches our own overlays, so it needs nothing from the visibility
+            -- pass above, and a deferral would leave the pull one frame dark.
+            ns.CDMGlowCombatSync()
         elseif event == "PLAYER_REGEN_ENABLED" then
             -- Buffer combat exit: brief out-of-combat blips (mob dies, re-aggro) shouldn't flash visibility changes.
             C_Timer.After(0.1, function()
@@ -10428,6 +10817,7 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
                     _inCombat = false
                     _CDMApplyVisibility()
                     ns.RefreshItemCountOOCBars()
+                    ns.CDMGlowCombatSync()
                 end
             end)
         else
@@ -10454,6 +10844,12 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
     end
     if event == "PLAYER_ENTERING_WORLD" then
         _inCombat = InCombatLockdown and InCombatLockdown() or false
+        -- Re-read the gate (a profile may have loaded), then reconcile against
+        -- the combat state sampled just above: the regen events never fire for
+        -- a zone-in that lands mid-combat. At the very first world entry nothing
+        -- is recorded yet, so only the gate read matters there.
+        ns.RefreshGlowCombatGate()
+        ns.CDMGlowCombatSync()
         -- PvP instance transition backstop: entering or leaving a PvP instance rebuilds viewer pools (PvP talents activate/deactivate). Rebuild + reanchor so the new pool frames are claimed.
         local _, instType = IsInInstance()
         local wasPvP = ns._cdmWasInPvP
@@ -10467,7 +10863,7 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         end
         -- Install rotation helper hook after CDM frames have been built
         C_Timer.After(1, function()
-            InstallRotationHook()
+            ns.InstallRotationHook()
         end)
         -- Safety: re-apply visibility after loading screen settles. Two passes to catch both fast and late viewer pool rebuilds.
         C_Timer.After(1.5, _CDMApplyVisibility)

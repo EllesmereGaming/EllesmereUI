@@ -303,7 +303,6 @@ local function CreateWindowSMF(cf)
     -- altitude never affects input routing.
     smf:SetFrameLevel(d.bg:GetFrameLevel() + 4)
 
-    win.extraLines = 0
     WINS[cf] = win
     BuildScrollbar(win)
     smf:SetOnScrollChangedCallback(function() UpdateScrollbar(win) end)
@@ -838,9 +837,7 @@ local function EngineTail(cf, msg, r, g, b, chatTypeID, accessID, typeID, event,
         -- (window reset, a third-party Clear call, temp-window pool reuse),
         -- its count falls below ours the moment the next line lands. Both
         -- counts are cheap reads; the rebuild is deferred + coalesced.
-        -- extraLines is the session-history allowance: replayed lines exist
-        -- only on our side and must never read as divergence.
-        if cf:GetNumMessages() + (win.extraLines or 0) < win.smf:GetNumMessages() then
+        if cf:GetNumMessages() < win.smf:GetNumMessages() then
             if QueueDivergedRebuild then QueueDivergedRebuild(cf) end
         end
     end
@@ -904,9 +901,24 @@ local function ChatFrameWheel(cf, delta)
     end
 end
 
+-- Blizzard opens a new permanent window (ChatFrameUtil.PopOutChat) or a
+-- temporary whisper window by taking one it considers unopened and seeding it
+-- from the source frame inside its own copy loop: GetMessageInfo, compare the
+-- line's accessID, AddMessage, next line. An AddMessage hook taints the rest of
+-- that loop, so the NEXT GetMessageInfo answers with a secret accessID and the
+-- compare throws (ChatFrameUtil.lua:711) with the pop-out half done. Unopened
+-- frames therefore stay unbridged; the first integrate pass after Blizzard
+-- opens one installs the bridge and backfills our window from its buffer.
+local function IsChatFrameOpen(cf)
+    if cf.isTemporary then return cf.inUse == true end
+    local id = cf:GetID()
+    return id > 0 and FCF_IsChatWindowIndexActive(id)
+end
+
 local function InstallBridge(cf)
     local d = CFD(cf)
-    if d.bridged then return end
+    if d.bridged then return false end
+    if not IsChatFrameOpen(cf) then return false end
     d.bridged = true
     -- EngineTail's signature matches the hook's (self arrives as its cf);
     -- the trailing MessageFormatter argument is dropped by arity.
@@ -921,6 +933,7 @@ local function InstallBridge(cf)
     end
     cf:SetScript("OnMouseWheel", ChatFrameWheel)
     cf:EnableMouseWheel(true)
+    return true
 end
 
 -------------------------------------------------------------------------------
@@ -936,7 +949,6 @@ local function RebuildWindowFromBuffer(cf)
     if not win then return end
     local smf = win.smf
     smf:Clear()
-    win.extraLines = 0
     local n = cf:GetNumMessages()
     -- Stamp-all rebuilds stamp with each line's true arrival time: the SMF
     -- entry timestamp is GetTime()-domain (PackageEntry), converted here to
@@ -1000,13 +1012,16 @@ local function IntegrateChatFrame(cf)
         RebuildWindowFromBuffer(cf)
         return
     end
-    InstallBridge(cf)
-    -- extraLines allowance, same as the bridge tail's check: replayed
-    -- session-history lines exist only on our side, and the login full
-    -- passes re-integrate every frame right after the restore -- without
-    -- the allowance that read as a cleared buffer and wiped the replay.
+    -- A frame bridged only now was opened since the last pass (a pop-out, a
+    -- reused temporary window): its lines were copied in behind our back. The
+    -- empty check keeps a late bridge on a window we already render from
+    -- rebuilding it out from under the lines it is already showing.
+    if InstallBridge(cf) and win.smf:GetNumMessages() == 0 then
+        RebuildWindowFromBuffer(cf)
+        return
+    end
     local theirs = cf:GetNumMessages()
-    if theirs + (win.extraLines or 0) < win.smf:GetNumMessages() then
+    if theirs < win.smf:GetNumMessages() then
         RebuildWindowFromBuffer(cf)
     end
 end
@@ -1065,10 +1080,8 @@ function ECHAT.EngineUpdateCombatLogHost()
         end
         if win then
             win.smf:Show()
-            -- Same extraLines allowance as IntegrateChatFrame: replayed
-            -- lines on our side are not a cleared Blizzard buffer.
             local theirs = cf2:GetNumMessages()
-            if theirs + (win.extraLines or 0) < win.smf:GetNumMessages() then
+            if theirs < win.smf:GetNumMessages() then
                 RebuildWindowFromBuffer(cf2)
             end
         end
@@ -1198,26 +1211,33 @@ function ECHAT.EngineGetMessageLines(cf, out)
     return n
 end
 
--- Backfilled lines have no matching entry in the real chat frame, so a
--- click on one can't resolve to a real hyperlink target. Strip link escape
--- codes down to plain text to avoid handing a bad link to the click handler.
-local function StripHyperlinks(text)
+-- Battle.net links carry a session-scoped presence id, so a replayed one
+-- resolves against the NEW session's table and can act on a different friend
+-- (same trap as the |K protected-name tokens capture already substitutes).
+-- Every other link type -- items, spells, achievements, players -- resolves
+-- from stable ids and is replayed intact.
+local function StripBNetLinks(text)
     if type(text) ~= "string" then return text end
-    return text:gsub("|H.-|h(.-)|h", "%1")
+    return (text:gsub("|HBNplayer:.-|h(.-)|h", "%1"))
 end
 
--- Session history replay: push one restored line into a window's display.
--- The extraLines allowance keeps the divergence check from reading replayed
--- lines (which exist only on our side) as a cleared Blizzard buffer.
+-- Session history replay: push one restored line into BOTH surfaces.
+-- Blizzard's frame is not optional here: it owns the hyperlink hit-zones and
+-- it is the scroll authority the wheel drives, so a row missing from it had
+-- no working links and sat above the range the wheel can reach.
+-- BackFillMessage is one of the ScrollingMessageFrame methods Blizzard
+-- exposes to addons through the secure mixin, which elevates the call, so the
+-- replayed line is stored exactly as one of its own.
 function ECHAT.EngineBackfillLine(cf, text, r, g, b, id)
     local win = WINS[cf]
     if not win then return false end
     -- DisplayText keeps replayed history consistent with the current
     -- abbreviation setting; the scanner is idempotent on stored lines that
-    -- were captured already shortened.
-    local display = StripHyperlinks(DisplayText(text))
+    -- were captured already shortened. The SAME string lands on both
+    -- surfaces, which is what keeps the zones under the rendered glyphs.
+    local display = StripBNetLinks(DisplayText(text))
+    cf:BackFillMessage(display, r, g, b, id)
     win.smf:BackFillMessage(display, r, g, b, id)
-    win.extraLines = (win.extraLines or 0) + 1
     return true
 end
 
