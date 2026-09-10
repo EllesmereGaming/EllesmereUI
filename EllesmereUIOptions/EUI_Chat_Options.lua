@@ -1069,6 +1069,17 @@ initFrame:SetScript("OnEvent", function(self)
             end
             y = y - h
 
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Use Tab's Background Color",
+                  tooltip="Follow each chat window's own right-click > Background Color instead of the swatches above.",
+                  getValue=function() return Cfg("tabUseNativeBgColor") or false end,
+                  setValue=function(v)
+                      Set("tabUseNativeBgColor", v)
+                      if ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
+                  end },
+                { type="label", text="" })
+            y = y - h
+
             local function UnderlineMode()
                 local mode = Cfg("activeUnderlineColorMode") or "accent"
                 -- Legacy "border" profiles render and display as Custom,

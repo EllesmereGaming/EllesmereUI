@@ -113,6 +113,7 @@ local CHAT_DEFAULTS = {
             scrollButtonOnChat = false,
             tabBackgroundColor = { r=0.03, g=0.045, b=0.05, a=0.44 },
             tabBackgroundColorActive = { r=0.03, g=0.045, b=0.05, a=0.65 },
+            tabUseNativeBgColor = false,  -- follow each window's own right-click Background Color
             activeUnderline = true,
             activeUnderlineColorMode = "accent",
             activeUnderlineColor = { r=0.05, g=0.82, b=0.61, a=1 },
@@ -3884,6 +3885,15 @@ hooksecurefunc("SetItemRef", function(link)
     local url = link:match("^" .. addonName .. "url:(.+)$")
     if url then
         ShowUrlPopup(url)
+    end
+end)
+
+-- Live-follow a tab's right-click Background Color when tabUseNativeBgColor is
+-- on; no-op (cheap) otherwise.
+hooksecurefunc("SetChatWindowColor", function()
+    local p = ECHAT.DB()
+    if p and p.tabUseNativeBgColor and ECHAT.ApplyTabAppearance then
+        ECHAT.ApplyTabAppearance()
     end
 end)
 
