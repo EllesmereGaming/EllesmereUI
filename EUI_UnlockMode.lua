@@ -7422,30 +7422,37 @@ local function CreateMover(barKey)
                     end
 
                     -- Restore the bar's visual center so it doesn't jump,
-                    -- then re-anchor based on the new growth direction.
-                    if barFrame and preCX and preCY then
-                        local postCX, postCY = barFrame:GetCenter()
-                        if postCX and postCY then
-                            local dx = preCX - postCX
-                            local dy = preCY - postCY
-                            if math.abs(dx) > 0.5 or math.abs(dy) > 0.5 then
-                                local pt, relTo, relPt, offX, offY = barFrame:GetPoint(1)
-                                if pt then
-                                    barFrame:ClearAllPoints()
-                                    barFrame:SetPoint(pt, relTo, relPt, offX + dx, offY + dy)
+                    -- then re-anchor based on the new growth direction. Skipped in
+                    -- combat: a protected bar's SetPoint is blocked there, so the
+                    -- frame never actually moved -- capturing its (unchanged) point
+                    -- into pendingPositions would let Save & Exit commit the stale
+                    -- pre-change position over the already-correct combat-deferred
+                    -- write the bar's own module just made.
+                    if not InCombatLockdown() then
+                        if barFrame and preCX and preCY then
+                            local postCX, postCY = barFrame:GetCenter()
+                            if postCX and postCY then
+                                local dx = preCX - postCX
+                                local dy = preCY - postCY
+                                if math.abs(dx) > 0.5 or math.abs(dy) > 0.5 then
+                                    local pt, relTo, relPt, offX, offY = barFrame:GetPoint(1)
+                                    if pt then
+                                        barFrame:ClearAllPoints()
+                                        barFrame:SetPoint(pt, relTo, relPt, offX + dx, offY + dy)
+                                    end
                                 end
                             end
                         end
-                    end
-                    EllesmereUI.RecenterBarAnchor(barKey)
-                    -- Store in pending (committed on Save & Exit)
-                    if barFrame then
-                        local pt2, relTo2, relPt2, offX2, offY2 = barFrame:GetPoint(1)
-                        if pt2 then
-                            pendingPositions[barKey] = {
-                                point = pt2, relPoint = relPt2, x = offX2, y = offY2,
-                            }
-                            hasChanges = true
+                        EllesmereUI.RecenterBarAnchor(barKey)
+                        -- Store in pending (committed on Save & Exit)
+                        if barFrame then
+                            local pt2, relTo2, relPt2, offX2, offY2 = barFrame:GetPoint(1)
+                            if pt2 then
+                                pendingPositions[barKey] = {
+                                    point = pt2, relPoint = relPt2, x = offX2, y = offY2,
+                                }
+                                hasChanges = true
+                            end
                         end
                     end
 
