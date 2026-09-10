@@ -88,6 +88,14 @@ local function ResolveModeColor(mode, stored, fallback)
     return c.r or 1, c.g or 1, c.b or 1, a
 end
 
+-- Reads the window's own right-click Background Color; normalizes 0-255 (legacy API range) to 0-1.
+local function ResolveNativeTabColor(id)
+    local ok, _, _, r, g, b = pcall(GetChatWindowInfo, id)
+    if not ok or not r then return nil end
+    if r > 1 or g > 1 or b > 1 then r, g, b = r / 255, g / 255, b / 255 end
+    return r, g, b
+end
+
 local function SelectedWindow()
     return GENERAL_CHAT_DOCK and FCFDock_GetSelectedWindow
         and FCFDock_GetSelectedWindow(GENERAL_CHAT_DOCK)
@@ -321,16 +329,24 @@ local function StyleGhost(g, isActive)
     -- The alert glow wears the tab's text color (desaturated art + tint).
     g._glow:SetVertexColor(tr, tg, tb)
 
-    -- Background: color or texture, active/inactive variants.
+    -- Background: color or texture, active/inactive variants. Native mode keeps
+    -- each state's own opacity but swaps in the window's right-click color.
+    local nr, ng, nb
+    if cfg.tabUseNativeBgColor and state.id and not state.isTemp then
+        nr, ng, nb = ResolveNativeTabColor(state.id)
+    end
     local bgc
     if isActive then
         local stored = cfg.tabBackgroundColorActive or { r = .03, g = .045, b = .05, a = .65 }
         local br, bgc2, bb, ba = ResolveModeColor(cfg.tabBackgroundColorActiveMode or "custom",
             stored, { r = .03, g = .045, b = .05, a = .65 })
+        if nr then br, bgc2, bb = nr, ng, nb end
         bgc = { r = br, g = bgc2, b = bb, a = ba }
     else
         local c = cfg.tabBackgroundColor or { r = .03, g = .045, b = .05, a = .44 }
-        bgc = { r = c.r or .03, g = c.g or .045, b = c.b or .05, a = c.a == nil and .44 or c.a }
+        local br, bgc2, bb, ba = c.r or .03, c.g or .045, c.b or .05, (c.a == nil and .44 or c.a)
+        if nr then br, bgc2, bb = nr, ng, nb end
+        bgc = { r = br, g = bgc2, b = bb, a = ba }
     end
     local texKey = cfg.tabBackgroundTexture or "none"
     local texPath
