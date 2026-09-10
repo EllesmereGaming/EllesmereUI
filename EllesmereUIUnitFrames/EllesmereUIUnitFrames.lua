@@ -9358,7 +9358,8 @@ local function ReloadFrames()
                 local gap = 10
                 -- Prefer the user-configured Vertical Spacing slider; fall back to
                 -- the computed barHeight+gap so an uninitialized profile is sane.
-                local bossSpacing = db.profile.bossSpacing or (barHeight + gap)
+                -- abs(): a negative slider value would flip Stack Direction's sign.
+                local bossSpacing = math.abs(db.profile.bossSpacing or (barHeight + gap))
                 local bossIdx = tonumber(unit:match("(%d+)$"))
                 local bossAnchored = EllesmereUI and EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored("boss")
                 local canRepoBoss1 = bossPos
@@ -12216,7 +12217,8 @@ function InitializeFrames()
     local bossSettings = db.profile.boss or {}
     local barHeight = (bossSettings.healthHeight or 34) + (bossSettings.powerHeight or 6) + (bossSettings.castbarHeight or 14)
     local gap = 10
-    local spacing = db.profile.bossSpacing or (barHeight + gap)
+    -- abs(): a negative slider value would flip Stack Direction's sign.
+    local spacing = math.abs(db.profile.bossSpacing or (barHeight + gap))
     local bossStackDir = db.profile.boss and db.profile.boss.bossStackDirection or "down"
     for i = 1, 5 do
         local bossUnit = "boss" .. i
@@ -13763,7 +13765,8 @@ local function RegisterUFUnlockElements()
                     db.profile.positions[k] = { point = point, relPoint = relPoint, x = x, y = y }
                     if EllesmereUI._unlockActive then return end
                     if k == "boss" then
-                        local spacing = db.profile.bossSpacing or 60
+                        -- abs(): a negative slider value would flip Stack Direction's sign.
+                        local spacing = math.abs(db.profile.bossSpacing or 60)
                         local bossStackDir = db.profile.boss and db.profile.boss.bossStackDirection or "down"
                         -- boss1 to UIParent; chain 2..5 from the previous boss.
                         if frames.boss1 then
@@ -13829,7 +13832,8 @@ local function RegisterUFUnlockElements()
                         return x, y
                     end
                     if k == "boss" then
-                        local spacing = db.profile.bossSpacing or 60
+                        -- abs(): a negative slider value would flip Stack Direction's sign.
+                        local spacing = math.abs(db.profile.bossSpacing or 60)
                         local bossStackDir = db.profile.boss and db.profile.boss.bossStackDirection or "down"
                         if frames.boss1 and not (anchored and frames.boss1:GetLeft()) then
                             local bx, by = SnapForFrame(frames.boss1, pos.x, pos.y)
