@@ -698,6 +698,7 @@ initFrame:SetScript("OnEvent", function(self)
         { key="dungeon_nonmythic", label="Non-Mythic Dungeons" },
         { key="timewalking",       label="Timewalking" },
         { key="delve",             label="Delve" },
+        { key="lair",              label="Lair" },
         -- Orthogonal state gate (not a location): unchecking hides this
         -- section while in combat.
         { key="in_combat",         label="In Combat" },
