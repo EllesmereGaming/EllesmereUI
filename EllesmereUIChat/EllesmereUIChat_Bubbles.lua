@@ -41,10 +41,9 @@ local BLIZZ_CVARS = { "chatBubbles", "chatBubblesParty", "chatBubblesRaid" }
 
 -- Chat event -> the setting key that decides whether we draw it. Guild is absent on purpose:
 -- Blizzard draws no bubble for guild chat, so there is no frame to ride and no position to
--- borrow. Instance chat sits with party because an instance group is party-shaped and
--- chatBubblesParty is the switch Blizzard ships on; which of the two actually governs it is
--- Blizzard's own mapping and was not verified. Getting that wrong costs nothing visible: a
--- line whose bubble never appears expires on its own.
+-- borrow. Instance chat sits with party: an instance group is party-shaped and
+-- chatBubblesParty is the switch Blizzard ships on. A line whose bubble never appears
+-- expires on its own.
 local EVENT_CHANNEL = {
     CHAT_MSG_SAY                  = "say",
     CHAT_MSG_YELL                 = "yell",
@@ -778,11 +777,10 @@ local function AssertCVars()
     if not cfg then return end
 
     local inInst = InInstance()
-    -- Absolute, not an opt-in. Measured in a dungeon on 12.1: GetAllChatBubbles() lists none
-    -- while GetAllChatBubbles(true) lists one, so the engine draws a bubble that is forbidden
-    -- to us, and a forbidden frame can be neither read nor blanked. Blizzard's own bubbles
-    -- keep working there, which is strictly better than the silence the previous design
-    -- produced.
+    -- Absolute, not an opt-in. Inside an instance GetAllChatBubbles() lists none while
+    -- GetAllChatBubbles(true) lists one: the engine draws a bubble that is forbidden to us,
+    -- and a forbidden frame can be neither read nor blanked. Blizzard's own bubbles keep
+    -- working there.
     suspended = cfg.enabled == true and inInst
 
     if InCombatLockdown() then

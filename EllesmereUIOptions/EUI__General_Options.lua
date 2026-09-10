@@ -623,7 +623,7 @@ end
 --    staff      : grouped team sections ({ group, members } tables)
 -------------------------------------------------------------------------------
 EllesmereUI._LEGENDS = {
-    monthLabel = "August 2026",
+    monthLabel = "Summer 2026",
     topMonthly = { "Thias", "StickyMittens", "Xeno" },
     donors = {
         "Thias", "StickyMittens", "Xeno",
@@ -962,6 +962,62 @@ end
 --  deep-links via NavigateToElementSettings(module, page, section, preSelect, highlight).
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
+    {
+        version = "9.1.8",
+        heroes = {
+            {
+                module = "Chat",
+                title  = "Chat Bubbles",
+                desc   = "Restyle the chat bubbles over players' and NPCs' heads with your own background, border, font and colors for the channels you pick. Inside instances the game's own bubbles stay, with an option to hide them there; the whole feature is off by default.",
+                nav    = { module = "EllesmereUIChat", page = "Chat Bubbles",
+                           section = "DISPLAY", highlight = "Enable Chat Bubbles Customization" },
+            },
+        },
+        features = {
+            {
+                module = "Cooldown Manager",
+                title  = "Rotation Assist Style",
+                desc   = "Pick a solid border or any glow style, color mode, thickness and outset for the Assisted Combat suggestion on your CDM icons",
+                nav    = { module = "EllesmereUICooldownManager", page = "CDM Bars",
+                           section = "EXTRAS", highlight = "Rotation Assist Style",
+                           preSelect = function() if EllesmereUI._setCDMBar then EllesmereUI._setCDMBar("cooldowns") end end },
+            },
+        },
+        fixes = {
+            { module = "Action Bars", text = "Swapping a talent loadout while action bars use Mouseover visibility no longer causes a stall or a script execution error." },
+            { module = "Action Bars", text = "The stance bar's active highlight now follows the game's form state, so Shadowform shows as active again after Voidform ends." },
+            { module = "Action Bars", text = "Inside dungeons and raids, showing an Extra Action Button or a vehicle bar no longer produces repeated cooldown errors in the error log." },
+            { module = "Bags", text = "Looting or selling many items in a row with the bag window open no longer rebuilds the bag contents over and over, which could cause FPS drops during loot and vendor bursts." },
+            { module = "Bags", text = "Item tooltips now refresh when the item under the cursor changes during a sale or sort." },
+            { module = "Blizz UI Enhanced", text = "Socketing several gems in a row from the character sheet's socket strip no longer leaves an empty socketing window open after the first swap, and the socketing window no longer pushes the character sheet aside." },
+            { module = "Blizz UI Enhanced", text = "Hovering world objects and NPCs no longer throws a Lua error when the tooltip uses a fixed position or a forced growth direction." },
+            { module = "Chat", text = "Chat tab labels now use the chat outline style." },
+            { module = "Chat", text = "Moving a channel to a new window from the chat link menu no longer errors and leaves the new tab empty." },
+            { module = "Cooldown Manager", text = "Preset and trinket icons no longer glow when their Cooldown State Effect is set to None, and a Class Color or Custom color picked for a preset's ready glow now shows in that color instead of cyan." },
+            { module = "Cooldown Manager", text = "A buff's per-icon Show Duration setting now survives every bar re-layout, so a duration you switched off no longer reappears when the bar reflows." },
+            { module = "Cooldown Manager", text = "Buffs added by spell ID now follow their bar's visibility rules and opacity, so a buff bar hidden while mounted or out of combat no longer keeps showing those buffs." },
+            { module = "Cooldown Manager", text = "Bar Glows now use the bar's Pixel Glow thickness, lines and speed for stack-gated entries and on buff bars." },
+            { module = "Cooldown Manager", text = "The CD Ready sound no longer plays when a tracked buff of the same ability is gained." },
+            { module = "Cooldown Manager", text = "Trinket slots no longer stay invisible after a login or reload until the trinket is re-equipped." },
+            { module = "Cooldown Manager", text = "Macros using an equipment slot number (such as /use 13) now show their hotkey on the trinket icon." },
+            { module = "Cooldown Manager", text = "A Tracking Bar now picks up a debuff you applied to your target when the game's own viewer misses it, such as after a macro that clears and restores your target." },
+            { module = "Damage Meters", text = "Hovering another player's bar in combat no longer shows the secrecy notice when Show Breakdown on Hover is off." },
+            { module = "General", text = "Searching the options no longer loses the results when a section toggle rebuilds the page." },
+            { module = "Nameplates", text = "Friendly player nameplates set to Name Only no longer regain their health bars inside instances or after a fight starts." },
+            { module = "Nameplates", text = "Nameplates no longer stay at the cast scale after an enemy's cast ends in combat." },
+            { module = "QoL", text = "The Brez tracker's text size no longer changes when unlock mode is cancelled." },
+            { module = "QoL", text = "The Target Distance Text now shows whole yards." },
+            { module = "Raid Frames", text = "Custom raid-size width and height no longer snap back to a spec override's values while editing with Real preview on." },
+            { module = "Raid Frames", text = "The Debuff Manager preview now shows a tile's own Display settings (duration text, stacks, swipe, border, zoom) instead of always drawing the Base Icons values, so what you see on the page matches the frames." },
+            { module = "Raid Frames", text = "Raid and Party Show When Solo can both be switched off again when a profile has both enabled." },
+            { module = "Raid Frames", text = "The party preview now centers a Hide Self layout like the live frames." },
+            { module = "Resource Bars", text = "Centered cast-bar spell names now use the bar's full width instead of truncating at 60 percent." },
+            { module = "Unit Frames", text = "The Focus Target frame now appears as soon as your focus picks a target, instead of staying invisible until you changed your own target." },
+            { module = "Unit Frames", text = "Boss frames disabled by a profile switch no longer reappear on the next boss." },
+            { module = "Unit Frames", text = "The Player Aura Bars preview now draws the dispel-type icon above the duration swipe." },
+            { module = "Localization", text = "Traditional Chinese, Korean and Brazilian Portuguese caught up on the latest strings." },
+        },
+    },
     {
         version = "9.1.7",
         heroes = {

@@ -1445,6 +1445,21 @@ function ns.RescanChargeCdTextFlag()
     end)
 end
 
+-- Per-spell Duration Text gate: set ns._cdmAnySpellDurationText once if any saved spell
+-- (any spec) overrides showCooldownText either way. ~= nil, not truthiness: a per-spell
+-- ON must beat a bar that is OFF, same as the options resolver reads it.
+function ns.RescanSpellDurationTextFlag()
+    if ns._cdmAnySpellDurationText or ns._spellDurationTextFlagScanned then return end
+    if not EllesmereUIDB then return end
+    ns._spellDurationTextFlagScanned = true
+    ns.ForEachSavedSettingsBlock(function(ss)
+        if ss.showCooldownText ~= nil then
+            ns._cdmAnySpellDurationText = true
+            return true
+        end
+    end)
+end
+
 -- "Hide Charge Text" gate: set ns._cdmAnyHideChargeText once if any saved spell
 -- (any spec) has the toggle on. The appearance pass consults it to reach
 -- WatchZeroChargeTextIfEnabled for users of neither the bar-level zero-charge
@@ -2525,10 +2540,13 @@ StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
             anchorFrame = (opts and opts.maskWith) and overlay or nil,
         })
     elseif entry.procedural then
-        -- Pixel Glow params. Pandemic glow passes explicit opts; per-button glows (active-state,
-        -- CD-ready, bar glows) pass none, so resolve the owning CD/utility bar's settings, defaulting for action-bar overlays and bars that never set the values.
+        -- Pixel Glow params. Pandemic glow and the buff ticker pass explicit opts; per-button
+        -- glows (active-state, CD-ready, bar glows) pass none or only their gate masks, so
+        -- resolve the owning bar's settings: a buff-family bar keeps them under buffGlow*
+        -- (the Bars page writes those keys for buff bars), every other bar under pixelGlow*,
+        -- defaulting for action-bar overlays and bars that never set the values.
         local N, th, period, bgR, bgG, bgB, bgA
-        if opts then
+        if opts and (opts.N or opts.th or opts.period or opts.bg) then
             N = opts.N or 8; th = opts.th or 2; period = opts.period or 4
             if opts.bg then
                 bgR, bgG, bgB, bgA = opts.bg.r or 0, opts.bg.g or 0, opts.bg.b or 0, opts.bg.a or 1
@@ -2536,11 +2554,24 @@ StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
         else
             local pfc = _ecmeFC[parent]
             local pbd = pfc and pfc.barKey and ns.GetBarData and ns.GetBarData(pfc.barKey)
-            N = (pbd and pbd.pixelGlowLines) or 8
-            th = (pbd and pbd.pixelGlowThickness) or 2
-            period = (pbd and pbd.pixelGlowSpeed) or 4
-            if pbd and pbd.pixelGlowBackground then
-                bgR, bgG, bgB, bgA = pbd.pixelGlowBackgroundR or 0, pbd.pixelGlowBackgroundG or 0, pbd.pixelGlowBackgroundB or 0, 1
+            if pbd and ns.IsBarBuffFamily and ns.IsBarBuffFamily(pbd) then
+                -- pixelGlow* second: a buff bar that only ever held the old keys keeps
+                -- rendering exactly as before.
+                N = pbd.buffGlowLines or pbd.pixelGlowLines or 8
+                th = pbd.buffGlowThickness or pbd.pixelGlowThickness or 2
+                period = pbd.buffGlowSpeed or pbd.pixelGlowSpeed or 4
+                if pbd.buffGlowBackground then
+                    bgR, bgG, bgB, bgA = pbd.buffGlowBackgroundR or 0, pbd.buffGlowBackgroundG or 0, pbd.buffGlowBackgroundB or 0, 1
+                elseif pbd.pixelGlowBackground then
+                    bgR, bgG, bgB, bgA = pbd.pixelGlowBackgroundR or 0, pbd.pixelGlowBackgroundG or 0, pbd.pixelGlowBackgroundB or 0, 1
+                end
+            else
+                N = (pbd and pbd.pixelGlowLines) or 8
+                th = (pbd and pbd.pixelGlowThickness) or 2
+                period = (pbd and pbd.pixelGlowSpeed) or 4
+                if pbd and pbd.pixelGlowBackground then
+                    bgR, bgG, bgB, bgA = pbd.pixelGlowBackgroundR or 0, pbd.pixelGlowBackgroundG or 0, pbd.pixelGlowBackgroundB or 0, 1
+                end
             end
         end
         local lineLen = math.floor((pW + pH) * (2 / N - 0.1))
@@ -7219,6 +7250,10 @@ _CDMApplyVisibility = function()
             end
 
             end -- unlockActive else
+            -- Aura-tracked custom buffs render on a UIParent holder that mirrors
+            -- the bar's alpha in its anchor pass; alpha edges fire no frame
+            -- hooks, so poke it (no-op for bars without such buffs).
+            if ns._AuraCustomPoke then ns._AuraCustomPoke(barData.key) end
         end
     end
 
@@ -7290,6 +7325,8 @@ local function ApplyBarOpacity(barKey)
             end
         end
     end
+    -- The aura-tracked custom buff holder mirrors this opacity in its anchor pass.
+    if ns._AuraCustomPoke then ns._AuraCustomPoke(barKey) end
 end
 ns.ApplyBarOpacity = ApplyBarOpacity
 
@@ -7454,8 +7491,20 @@ local function _RegisterMacroTarget(token, formatted, rank)
         _SetSpellKeybind(tonumber(sid), formatted, rank)
         return
     end
-    -- A bare number is ambiguous in macro syntax (inventory slot vs itemID),
-    -- so it is left alone rather than guessed at.
+    -- A bare number is ambiguous in macro syntax (inventory slot vs itemID). The
+    -- equipment slots are 1..19 and no usable item carries an id that low, so a
+    -- number in that range is the slot form ("/use 13"): bind the item equipped
+    -- there (the cache rebuilds with the bars on every equipment change). Any
+    -- other number is left alone rather than guessed at.
+    local slotNum = token:match("^(%d+)$")
+    if slotNum then
+        slotNum = tonumber(slotNum)
+        if slotNum >= 1 and slotNum <= 19 then
+            local slotItem = GetInventoryItemID("player", slotNum)
+            if slotItem then _SetKeybind(-slotItem, formatted, rank) end
+        end
+        return
+    end
     if tonumber(token) then return end
     -- Leftover bracket means the body had an unbalanced [condition] that the
     -- %b[] strip could not remove. Whatever is left is not a usable name.
@@ -7516,6 +7565,14 @@ local function _RegisterLegacyMacroItem(macroIndex, formatted, rank)
     itemID = itemID and tonumber(itemID)
     if not itemID and not tonumber(target) then
         itemID = C_Item and C_Item.GetItemInfoInstant and C_Item.GetItemInfoInstant(target)
+    end
+    -- Bare 1..19 is the equipment-slot form (see _RegisterMacroTarget).
+    if not itemID then
+        local slotNum = target:match("^(%d+)$")
+        slotNum = slotNum and tonumber(slotNum)
+        if slotNum and slotNum >= 1 and slotNum <= 19 then
+            itemID = GetInventoryItemID("player", slotNum)
+        end
     end
     if itemID then _SetKeybind(-itemID, formatted, rank) end
 end
@@ -7733,6 +7790,7 @@ BuildAllCDMBars = function()
     EnsureFocusKickBar()
     ns.RescanMaxStacksGlowFlag()  -- set the Max Stacks Glow gate (once) before refresh
     ns.RescanChargeCdTextFlag()   -- set the Hide CD Text (Charges) gate (once) before refresh
+    ns.RescanSpellDurationTextFlag()  -- and the per-spell Duration Text gate
     ns.RescanHideChargeTextFlag() -- set the Hide Charge Text gate (once) before refresh
     ns.RescanSuppressGcdFlag()    -- set the per-spell Suppress GCD gate (once) before refresh
     ns.RescanChargeStyleFlag()    -- set the Hide Swipe (Charges) gate (once) before refresh
@@ -9972,7 +10030,6 @@ local ROT_STYLE_TO_GLOW = {
     modern = 6,
     classic = 7,
 }
-local ROT_RESTRICTED_STYLE = { [1] = 7, [2] = 6, [3] = 6, [4] = 6 }
 
 local function _rotConfig()
     local p = ECME.db and ECME.db.profile
@@ -10092,7 +10149,11 @@ local function _rotShow(icon)
         local cr, cg, cb = _rotResolveColor(cfg)
         local glowStyle = ROT_STYLE_TO_GLOW[style]
         if glowStyle and rfc.isReplacementBuff then
-            glowStyle = ROT_RESTRICTED_STYLE[glowStyle] or glowStyle
+            -- Blizzard aura hosts: driver-ticked styles freeze under secret
+            -- visibility, so the glow engine's own remap picks the FlipBook
+            -- twin (pixel -> classic, the rest -> modern).
+            local safe = EllesmereUI.Glows and EllesmereUI.Glows.RestrictionSafeStyle
+            if safe then glowStyle = safe(glowStyle) end
         end
         local cfgKey = table.concat({ style, cr, cg, cb, thickness, outset, glowStyle or 0 }, ":")
         if overlay._rotCfgKey ~= cfgKey or not overlay._glowActive then

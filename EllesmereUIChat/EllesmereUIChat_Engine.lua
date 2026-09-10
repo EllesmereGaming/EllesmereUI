@@ -901,9 +901,24 @@ local function ChatFrameWheel(cf, delta)
     end
 end
 
+-- Blizzard opens a new permanent window (ChatFrameUtil.PopOutChat) or a
+-- temporary whisper window by taking one it considers unopened and seeding it
+-- from the source frame inside its own copy loop: GetMessageInfo, compare the
+-- line's accessID, AddMessage, next line. An AddMessage hook taints the rest of
+-- that loop, so the NEXT GetMessageInfo answers with a secret accessID and the
+-- compare throws (ChatFrameUtil.lua:711) with the pop-out half done. Unopened
+-- frames therefore stay unbridged; the first integrate pass after Blizzard
+-- opens one installs the bridge and backfills our window from its buffer.
+local function IsChatFrameOpen(cf)
+    if cf.isTemporary then return cf.inUse == true end
+    local id = cf:GetID()
+    return id > 0 and FCF_IsChatWindowIndexActive(id)
+end
+
 local function InstallBridge(cf)
     local d = CFD(cf)
-    if d.bridged then return end
+    if d.bridged then return false end
+    if not IsChatFrameOpen(cf) then return false end
     d.bridged = true
     -- EngineTail's signature matches the hook's (self arrives as its cf);
     -- the trailing MessageFormatter argument is dropped by arity.
@@ -918,6 +933,7 @@ local function InstallBridge(cf)
     end
     cf:SetScript("OnMouseWheel", ChatFrameWheel)
     cf:EnableMouseWheel(true)
+    return true
 end
 
 -------------------------------------------------------------------------------
@@ -996,7 +1012,14 @@ local function IntegrateChatFrame(cf)
         RebuildWindowFromBuffer(cf)
         return
     end
-    InstallBridge(cf)
+    -- A frame bridged only now was opened since the last pass (a pop-out, a
+    -- reused temporary window): its lines were copied in behind our back. The
+    -- empty check keeps a late bridge on a window we already render from
+    -- rebuilding it out from under the lines it is already showing.
+    if InstallBridge(cf) and win.smf:GetNumMessages() == 0 then
+        RebuildWindowFromBuffer(cf)
+        return
+    end
     local theirs = cf:GetNumMessages()
     if theirs < win.smf:GetNumMessages() then
         RebuildWindowFromBuffer(cf)

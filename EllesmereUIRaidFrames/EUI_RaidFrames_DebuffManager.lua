@@ -275,6 +275,9 @@ local function TileStyleView(s, t)
     if not o then return s end
     return setmetatable(o, { __index = s })
 end
+-- The options preview renders tile runs through this same view, so what the
+-- page shows for a tile's Display values is what the live frames resolve.
+ns.DM_TileStyleView = TileStyleView
 -- Sorted fingerprint of one tile's style overrides (part of DM_CfgFP).
 local function TileStyleFP(t)
     local o = {}

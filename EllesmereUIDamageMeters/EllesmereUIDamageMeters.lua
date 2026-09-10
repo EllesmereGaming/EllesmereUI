@@ -2446,7 +2446,10 @@ local function CreateDMWindow(winIdx)
             -- own breakdown, death recaps, and group rows resolvable through
             -- the identity-exempt token channel all fall through to the
             -- normal hover path, whose builders are secret-safe.
-            if InCombatLockdown() and not IsOwnRow(bar._src)
+            -- Gated on Show Breakdown on Hover like ShowBarTooltip: with the option off
+            -- this branch still showed the disclaimer for ally rows.
+            if InCombatLockdown() and DB().showHoverTooltip ~= false
+               and not IsOwnRow(bar._src)
                and W.curDMType ~= Enum.DamageMeterType.Deaths
                and not ns._ResolveGroupGUID(bar._src) then
                 EnsureTooltipFrame()

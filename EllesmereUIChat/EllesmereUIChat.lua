@@ -224,10 +224,8 @@ local function CopyBubbleDefaults()
 end
 
 -- Reference copy, read only. The single answer to "what is this setting worth when it is
--- missing", shared by the renderer and the options page so a default cannot drift into three
--- different values across three files -- bgAlpha was 0.5 here, 0.85 in the renderer, and the
--- background swatch offered a third colour again. Deliberately NOT the same table BubblesDB
--- falls back to, which callers do write to.
+-- missing", shared by the renderer and the options page so a default cannot drift between
+-- files. Deliberately NOT the same table BubblesDB falls back to, which callers do write to.
 function ECHAT.BubbleDefaults()
     if not _bubbleDefaults then _bubbleDefaults = CopyBubbleDefaults() end
     return _bubbleDefaults

@@ -4851,7 +4851,10 @@ initFrame:SetScript("OnEvent", function(self)
         local hoverBordersRow
         hoverBordersRow, h = W:DualRow(parent, y,
             { type="toggle", text="Show When Solo",
-              disabled=function() return db.profile.partyShowWhenSolo end,
+              -- Disabled only while Party's is the ONE that is on: a profile holding both
+              -- flags (older profile, override swap, import) shows the player twice, and
+              -- each toggle must stay clickable to switch itself off.
+              disabled=function() return db.profile.partyShowWhenSolo and not db.profile.showWhenSolo end,
               disabledTooltip="Party Frames Show When Solo", requireState="disabled",
               getValue=function() return SVal("showWhenSolo", false) end,
               setValue=function(v)
@@ -5208,7 +5211,8 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return "_placeholder" end,
               setValue=function() end },
             { type="toggle", text="Show When Solo",
-              disabled=function() return db.profile.showWhenSolo end,
+              -- Same rule as the Raid toggle: both flags on must leave both clickable.
+              disabled=function() return db.profile.showWhenSolo and not db.profile.partyShowWhenSolo end,
               disabledTooltip="Raid Frames Show When Solo", requireState="disabled",
               getValue=function() return SVal("partyShowWhenSolo", false) end,
               setValue=function(v)
@@ -5251,8 +5255,9 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             cogDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdateSoloCogDis()
-                -- Disabled whenever Raid Frames Show When Solo is on: that means party never shows solo.
-                if db.profile.showWhenSolo then cogDis:Show() else cogDis:Hide() end
+                -- Disabled whenever Raid Frames Show When Solo is the one that is on: that means
+                -- party never shows solo (both on = party does show, so its cog stays usable).
+                if db.profile.showWhenSolo and not db.profile.partyShowWhenSolo then cogDis:Show() else cogDis:Hide() end
             end
             cogBtn:HookScript("OnShow", UpdateSoloCogDis)
             EllesmereUI.RegisterWidgetRefresh(UpdateSoloCogDis)

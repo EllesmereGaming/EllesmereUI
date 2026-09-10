@@ -874,12 +874,18 @@ function _tbbWake.Sleep()
     _tbbWake:RegisterUnitEvent("UNIT_AURA", "player")
     _tbbWake:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
     _tbbWake:RegisterEvent("PLAYER_REGEN_DISABLED")
+    -- A debuff the player left on a new target is live the moment it is selected, and
+    -- none of the player-scoped edges above can see that. Probe before waking.
+    _tbbWake:RegisterEvent("PLAYER_TARGET_CHANGED")
 end
 function _tbbWake.Wake()
     _tbbWake:UnregisterAllEvents()
     -- Stay subscribed to the aura edge while AWAKE: pool composition changes only on a
     -- player aura event or a pool Acquire (hooked separately), retiring the assignment memo.
     _tbbWake:RegisterUnitEvent("UNIT_AURA", "player")
+    -- Target changes rebind which auras the viewer's frames carry, so the awake branch
+    -- of OnEvent retires the assignment memo on this the same as any other non-aura edge.
+    _tbbWake:RegisterEvent("PLAYER_TARGET_CHANGED")
     _tbbWake._idleTicks = 0
     _tbbAssignDirty = true
     _tbbReflowDirty = true
@@ -889,6 +895,33 @@ end
 -- ticking, so this probe answers "could any bar be live?" WITHOUT waking: an active
 -- viewer frame, or a live player aura for a fallback-class config. Casts and combat
 -- entry skip the probe (rare at idle; the legitimate start edges the probe can't see).
+-- Cache names by configuration, retiring entries when their configuration is dropped.
+_tbbWake._targetNames = setmetatable({}, { __mode = "k" })
+function _tbbWake.GetTargetAura(cfg)
+    if not UnitExists("target") then return nil end
+    local names = _tbbWake._targetNames[cfg]
+    if not names then
+        names = {}
+        _tbbWake._targetNames[cfg] = names
+    end
+    if names.spellID ~= cfg.spellID then
+        names.spellID, names.name = cfg.spellID, nil
+    end
+    if names.baseSpellID ~= cfg.baseSpellID then
+        names.baseSpellID, names.baseName = cfg.baseSpellID, nil
+    end
+    if not names.name then names.name = C_Spell.GetSpellName(cfg.spellID) end
+    if not names.baseName and cfg.baseSpellID and cfg.baseSpellID > 0 then
+        names.baseName = C_Spell.GetSpellName(cfg.baseSpellID)
+    end
+    -- Ownership is filtered by the engine; never inspect a secret sourceUnit.
+    local filter = UnitIsFriend("player", "target") and "HELPFUL|PLAYER" or "HARMFUL|PLAYER"
+    local aura = names.name and C_UnitAuras.GetAuraDataBySpellName("target", names.name, filter)
+    if not aura and names.baseName and names.baseName ~= names.name then
+        aura = C_UnitAuras.GetAuraDataBySpellName("target", names.baseName, filter)
+    end
+    return aura
+end
 function _tbbWake.Probe()
     if ns._tbbPlaceholderMode then return true end
     local viewer = _G["BuffBarCooldownViewer"]
@@ -907,7 +940,8 @@ function _tbbWake.Probe()
                and cfg.spellID and cfg.spellID > 0 then
                 if C_UnitAuras.GetPlayerAuraBySpellID(cfg.spellID)
                    or (cfg.baseSpellID and cfg.baseSpellID > 0
-                       and C_UnitAuras.GetPlayerAuraBySpellID(cfg.baseSpellID)) then
+                       and C_UnitAuras.GetPlayerAuraBySpellID(cfg.baseSpellID))
+                   or _tbbWake.GetTargetAura(cfg) then
                     return true
                 end
             end
@@ -938,7 +972,8 @@ function _tbbWake.OnEvent(_, event, _, updateInfo)
         end
         return
     end
-    if event == "UNIT_AURA" and not _tbbWake.Probe() then return end
+    if (event == "UNIT_AURA" or event == "PLAYER_TARGET_CHANGED")
+       and not _tbbWake.Probe() then return end
     _tbbWake.Wake()
 end
 _tbbWake:SetScript("OnEvent", _tbbWake.OnEvent)
@@ -5180,6 +5215,10 @@ function ns.UpdateTrackedBuffBarTimers()
     -- Liveness for the idle sleeper: set by any branch below that is actually animating or tracking something this tick.
     local tickLive = false
 
+    -- Resolved once per tick, not per bar: the bind-miss fallback below asks the target
+    -- for a debuff the player applied, and there is no point asking with nothing targeted.
+    local hasTarget = UnitExists and UnitExists("target") and true or false
+
     -- Profile-wide smooth-fill switches, resolved once per tick for every fill site (absent buffs key = enabled; absent cooldowns key = OFF).
     local sm
     do
@@ -5289,6 +5328,14 @@ function ns.UpdateTrackedBuffBarTimers()
                 fbAura = C_UnitAuras.GetPlayerAuraBySpellID(cfg.spellID)
                 if not fbAura and cfg.baseSpellID and cfg.baseSpellID > 0 then
                     fbAura = C_UnitAuras.GetPlayerAuraBySpellID(cfg.baseSpellID)
+                end
+                -- Same net for a debuff the player put on the TARGET, which the queries
+                -- above can never see. Blizzard's viewer stalls exactly there after a
+                -- macro that clears and restores the target inside one frame: its
+                -- OnPlayerTargetChanged compares GUIDs, sees the same one it stored, and
+                -- never refreshes, so the item stays inactive until a real target switch.
+                if not fbAura and hasTarget then
+                    fbAura = _tbbWake.GetTargetAura(cfg)
                 end
                 -- Fallback driving means the viewer has not bound this aura yet, and
                 -- Blizzard's late-bind can land WITHOUT a fresh player aura event. Keep
