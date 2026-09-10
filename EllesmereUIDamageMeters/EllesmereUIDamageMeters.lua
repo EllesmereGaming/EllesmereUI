@@ -996,24 +996,22 @@ local function PhysicalPixels(userValue)
     return value
 end
 
--- Row geometry with both terms on ONE pixel grid. barHeight is stored as a
--- physical pixel count (plain slider), barSpacing in coordinate units (pixel
--- slider), so it carries the UI scale it was set at. Snapping only the height
--- left the stride between two grids and -((i-1) * stride) drifted down the
--- list: a spacing of 1 then rendered as 0px on some rows and 2px on others, at
--- a fractional UI scale and equally at a pixel-perfect one whenever the value
--- had been saved at another scale.
+-- Row geometry with both terms on ONE pixel grid. barHeight and barSpacing are
+-- both coordinate units, like the window width and fonts, so bars keep their
+-- proportion to the window at any UI scale and a shared profile renders the
+-- same relative size for everyone. Both are snapped against the same effective
+-- scale: a stride between two grids drifts down the list (-((i-1) * stride)),
+-- rendering a spacing of 1 as 0px on some rows and 2px on others.
 -- Returns barH, barSp, stride and one physical pixel, in coordinate units.
-local function RowMetrics(heightPx, spacingCoord, es)
+local function RowMetrics(height, spacingCoord, es)
     local PP = EUI and EUI.PP
     if PP and PP.perfect and PP.SnapForES then
         if not es or es <= 0 then es = (UIParent and UIParent:GetEffectiveScale()) or 1 end
-        local onePixel = PP.perfect / es
-        local barH = PP.SnapForES((heightPx or 18) * onePixel, es)
+        local barH = PP.SnapForES(height or 18, es)
         local barSp = PP.SnapForES(spacingCoord or 2, es)
-        return barH, barSp, barH + barSp, onePixel
+        return barH, barSp, barH + barSp, PP.perfect / es
     end
-    local barH, barSp = PhysicalPixels(heightPx or 18), spacingCoord or 2
+    local barH, barSp = height or 18, spacingCoord or 2
     return barH, barSp, barH + barSp, (PP and PP.mult) or 1
 end
 -- On ns as well: CreateDMWindow sits at Lua 5.1's 60-upvalue cap, so its call
