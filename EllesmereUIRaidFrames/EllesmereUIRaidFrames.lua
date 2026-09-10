@@ -539,13 +539,14 @@ local defaults = {
         groupNumberColor   = { r = 1, g = 1, b = 1, a = 0.75 },
         groupNumberOffsetX = 0,
         groupNumberOffsetY = 0,
+        -- Gold, not white: a white highlight is invisible against most border styles' own white default.
         hoverBorderEnabled = true,
         hoverBorderSize  = 1,
-        hoverBorderColor = { r = 1, g = 1, b = 1 },
+        hoverBorderColor = { r = 1, g = 0.82, b = 0 },
         hoverBorderAlpha = 1,
         targetBorderEnabled = true,
         targetBorderSize = 1,
-        targetBorderColor = { r = 1, g = 1, b = 1 },
+        targetBorderColor = { r = 1, g = 0.82, b = 0 },
         targetBorderAlpha = 1,
 
         -- Dispels
@@ -3287,14 +3288,10 @@ do
     end
 end
 
--- Hover/target highlight on a BORDERLESS frame (Border Size 0): the highlight recolors the
--- frame's own border, and with none drawn there is nothing to recolor, so it draws its own at
--- hoverBorderSize/targetBorderSize in the configured border style. `size` nil/0 = not
--- highlighted. The drawn size is cached on the border frame so a group-wide target swap is a
--- color write per button rather than a restyle; callers clear it when the base border returns.
+-- Draws the borderless-case highlight on `bf`, always in the Solid style. size nil/0 = hidden.
 function ns.ApplyHighlightBorder(bf, s, size, r, g, b, a)
     if not (PP and bf) then return end
-    local texKey = s.borderTexture or "solid"
+    local texKey = "solid"
     if not size or size <= 0 then
         if bf._hlBorderSize then
             EllesmereUI.ApplyBorderStyle(bf, 0, r, g, b, a, texKey)
@@ -3314,6 +3311,15 @@ function ns.ApplyHighlightBorder(bf, s, size, r, g, b, a)
         s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", size)
     bf._hlBorderSize = size
 end
+
+-- Falls back to the inverted color when the highlight would be too close to the border's own.
+local function ContrastHighlight(hr, hg, hb, br, bg, bb)
+    if math.abs(hr - br) + math.abs(hg - bg) + math.abs(hb - bb) < 0.15 then
+        return 1 - br, 1 - bg, 1 - bb
+    end
+    return hr, hg, hb
+end
+ns.ContrastHighlight = ContrastHighlight
 
 -------------------------------------------------------------------------------
 --  Style a single button (called once per button at creation time)
@@ -3776,52 +3782,83 @@ local function StyleButton(button)
     AnchorNameText()
     d.AnchorNameText = AnchorNameText
 
-    -- Raise the border above neighbors while hovered/targeted: buttons share a frame level, so with
-    -- small/negative Frame Spacing a neighbor's border would cover this frame's highlight.
-    -- Highlight states bump it up, normal restores the base level. The PP container's level is
-    -- fixed at creation, so it must be moved explicitly (borderFrame alone won't move it).
-    local function ApplyBorderLevel(raised)
+    -- Borderless-only highlight: a separate always-Solid frame (see ns.ApplyHighlightBorder).
+    local function EnsureHighlightFrame()
+        local hl = d.hlBorderFrame
+        if hl then return hl end
+        hl = CreateFrame("Frame", nil, button)
+        hl:SetAllPoints(d.borderFrame)
+        d.hlBorderFrame = hl
+        return hl
+    end
+
+    -- Raise the highlight above neighboring frames' borders while shown.
+    local function ApplyHighlightLevel()
+        local hl = d.hlBorderFrame
+        if not (PP and hl) then return end
+        local pl = button:GetFrameLevel()
+        local lvl = s.borderBehind and math.max(0, pl - 1) or (pl + ns.LVL_RAISE)
+        local container = PP.GetBorders(hl)
+        if hl:GetFrameLevel() == lvl and (not container or container:GetFrameLevel() == lvl + 1) then
+            return
+        end
+        hl:SetFrameLevel(lvl)
+        if container then container:SetFrameLevel(lvl + 1) end
+    end
+
+    -- Raises the real border (and its PP/textured child frames) above neighbors while highlighted.
+    local function ApplyRecolorLevel(raised)
         if not (PP and d.borderFrame) then return end
         local pl = button:GetFrameLevel()
         local lvl = s.borderBehind and math.max(0, pl - 1) or (pl + (raised and ns.LVL_RAISE or 8))
-        -- Hot path (every UpdateButton): skip the SetFrameLevel calls unless the level actually
-        -- changes (hover/target transition or borderBehind toggle) -- common case is two getters.
         local container = PP.GetBorders(d.borderFrame)
+        local bdFrame = EllesmereUI._bdBorderData and EllesmereUI._bdBorderData[d.borderFrame]
         if d.borderFrame:GetFrameLevel() == lvl
-           and (not container or container:GetFrameLevel() == lvl + 1) then
+           and (not container or container:GetFrameLevel() == lvl + 1)
+           and (not bdFrame or bdFrame:GetFrameLevel() == lvl) then
             return
         end
         d.borderFrame:SetFrameLevel(lvl)
         if container then container:SetFrameLevel(lvl + 1) end
+        if bdFrame then bdFrame:SetFrameLevel(lvl) end
     end
 
-    -- Recolor the single border for the current state: hover > target > normal. A borderless
-    -- frame has nothing to recolor, so the highlight draws its own (ns.ApplyHighlightBorder).
+    -- Hover > target > nothing. Recolors the real border; the overlay only covers borderless.
     local function ApplyBorderColor()
         if not (PP and d.borderFrame) then return end
         -- Re-called long after StyleButton: resolve LIVE (see LiveS note) so party overrides and profile swaps are honored.
         local s = LiveS()
-        local r, g, b, a
-        local raised, hlSize = false, nil
+        local hlSize, r, g, b, a
         if d._hovered and s.hoverBorderEnabled ~= false then
-            local c = s.hoverBorderColor or { r = 1, g = 1, b = 1 }
+            local c = s.hoverBorderColor or { r = 1, g = 0.82, b = 0 }
             r, g, b, a = c.r, c.g, c.b, s.hoverBorderAlpha or 1
-            raised, hlSize = true, s.hoverBorderSize or 1
+            hlSize = s.hoverBorderSize or 1
         elseif d._isTarget and s.targetBorderEnabled ~= false then
-            local c = s.targetBorderColor or { r = 1, g = 1, b = 1 }
+            local c = s.targetBorderColor or { r = 1, g = 0.82, b = 0 }
             r, g, b, a = c.r, c.g, c.b, s.targetBorderAlpha or 1
-            raised, hlSize = true, s.targetBorderSize or 1
-        else
-            local c = s.borderColor or { r = 0, g = 0, b = 0 }
-            r, g, b, a = c.r, c.g, c.b, s.borderAlpha or 1
+            hlSize = s.targetBorderSize or 1
         end
-        ApplyBorderLevel(raised)
-        if (s.borderSize or 1) <= 0 then
-            ns.ApplyHighlightBorder(d.borderFrame, s, hlSize, r, g, b, a)
+        if (s.borderSize or 1) > 0 then
+            if d.hlBorderFrame then ns.ApplyHighlightBorder(d.hlBorderFrame, s, nil) end
+            local bc = s.borderColor or { r = 0, g = 0, b = 0 }
+            if hlSize then
+                r, g, b = ContrastHighlight(r, g, b, bc.r, bc.g, bc.b)
+                ApplyRecolorLevel(true)
+                d.borderFrame._hlBorderSize = nil
+                EllesmereUI.SetBorderStyleColor(d.borderFrame, r, g, b, a)
+            else
+                ApplyRecolorLevel(false)
+                EllesmereUI.SetBorderStyleColor(d.borderFrame, bc.r, bc.g, bc.b, s.borderAlpha or 1)
+            end
             return
         end
-        d.borderFrame._hlBorderSize = nil
-        EllesmereUI.SetBorderStyleColor(d.borderFrame, r, g, b, a)
+        if hlSize then
+            local hl = EnsureHighlightFrame()
+            ns.ApplyHighlightBorder(hl, s, hlSize, r, g, b, a)
+            ApplyHighlightLevel()
+        elseif d.hlBorderFrame then
+            ns.ApplyHighlightBorder(d.hlBorderFrame, s, nil)
+        end
     end
     d.ApplyBorderColor = ApplyBorderColor
 
@@ -5439,39 +5476,69 @@ FB.AnchorText = function(fs, health, pos, ox, oy)
     fs:SetText(txt or "")
 end
 
--- Recolor the border for the current state. Mirrors the raid buttons' single recolored border:
--- hover (raised) > target (raised) > normal, using the raid border settings -- nothing separate.
+-- Raises the real border above neighbors while highlighted (mirrors the raid buttons).
+local function FBApplyRecolorLevel(b, s, raised)
+    if not PP or not b._borderFrame then return end
+    local pl = b:GetFrameLevel()
+    local lvl = s.borderBehind and math.max(0, pl - 1) or (pl + (raised and ns.LVL_RAISE or 8))
+    local container = PP.GetBorders(b._borderFrame)
+    local bdFrame = EllesmereUI._bdBorderData and EllesmereUI._bdBorderData[b._borderFrame]
+    if b._borderFrame:GetFrameLevel() == lvl
+       and (not container or container:GetFrameLevel() == lvl + 1)
+       and (not bdFrame or bdFrame:GetFrameLevel() == lvl) then
+        return
+    end
+    b._borderFrame:SetFrameLevel(lvl)
+    if container then container:SetFrameLevel(lvl + 1) end
+    if bdFrame then bdFrame:SetFrameLevel(lvl) end
+end
+
 FB.ApplyBorderColor = function(b)
     if not PP or not b._borderFrame or not db then return end
     local s = ns._scaledProfile or db.profile
-    local r, g, bcol, a
-    local raised, hlSize = false, nil
+    local hlSize, r, g, bcol, a
     if b._fbHovered and s.hoverBorderEnabled ~= false then
-        local c = s.hoverBorderColor or { r = 1, g = 1, b = 1 }
+        local c = s.hoverBorderColor or { r = 1, g = 0.82, b = 0 }
         r, g, bcol, a = c.r, c.g, c.b, s.hoverBorderAlpha or 1
-        raised, hlSize = true, s.hoverBorderSize or 1
+        hlSize = s.hoverBorderSize or 1
     elseif UnitIsUnit(FB.UnitOf(b), "target") and s.targetBorderEnabled ~= false then
-        local c = s.targetBorderColor or { r = 1, g = 1, b = 1 }
+        local c = s.targetBorderColor or { r = 1, g = 0.82, b = 0 }
         r, g, bcol, a = c.r, c.g, c.b, s.targetBorderAlpha or 1
-        raised, hlSize = true, s.targetBorderSize or 1
-    else
-        local c = s.borderColor or { r = 0, g = 0, b = 0 }
-        r, g, bcol, a = c.r, c.g, c.b, s.borderAlpha or 1
+        hlSize = s.targetBorderSize or 1
     end
-    -- Raise above neighbors while highlighted (as the raid buttons: overlapping frames would cover it).
-    local pl = b:GetFrameLevel()
-    local lvl = s.borderBehind and math.max(0, pl - 1) or (pl + (raised and ns.LVL_RAISE or 8))
-    if b._borderFrame:GetFrameLevel() ~= lvl then
-        b._borderFrame:SetFrameLevel(lvl)
-        local container = PP.GetBorders(b._borderFrame)
-        if container then container:SetFrameLevel(lvl + 1) end
-    end
-    if (s.borderSize or 1) <= 0 then
-        ns.ApplyHighlightBorder(b._borderFrame, s, hlSize, r, g, bcol, a)
+    if (s.borderSize or 1) > 0 then
+        if b._hlBorderFrame then ns.ApplyHighlightBorder(b._hlBorderFrame, s, nil) end
+        local bc = s.borderColor or { r = 0, g = 0, b = 0 }
+        if hlSize then
+            r, g, bcol = ns.ContrastHighlight(r, g, bcol, bc.r, bc.g, bc.b)
+            FBApplyRecolorLevel(b, s, true)
+            b._borderFrame._hlBorderSize = nil
+            EllesmereUI.SetBorderStyleColor(b._borderFrame, r, g, bcol, a)
+        else
+            FBApplyRecolorLevel(b, s, false)
+            EllesmereUI.SetBorderStyleColor(b._borderFrame, bc.r, bc.g, bc.b, s.borderAlpha or 1)
+        end
         return
     end
-    b._borderFrame._hlBorderSize = nil
-    EllesmereUI.SetBorderStyleColor(b._borderFrame, r, g, bcol, a)
+    if not hlSize then
+        if b._hlBorderFrame then ns.ApplyHighlightBorder(b._hlBorderFrame, s, nil) end
+        return
+    end
+    local hl = b._hlBorderFrame
+    if not hl then
+        hl = CreateFrame("Frame", nil, b)
+        hl:SetAllPoints(b._borderFrame)
+        b._hlBorderFrame = hl
+    end
+    ns.ApplyHighlightBorder(hl, s, hlSize, r, g, bcol, a)
+    -- Raise above neighbors while shown (as the raid buttons: overlapping frames would cover it).
+    local pl = b:GetFrameLevel()
+    local lvl = s.borderBehind and math.max(0, pl - 1) or (pl + ns.LVL_RAISE)
+    if hl:GetFrameLevel() ~= lvl then
+        hl:SetFrameLevel(lvl)
+        local container = PP.GetBorders(hl)
+        if container then container:SetFrameLevel(lvl + 1) end
+    end
 end
 
 -- Apply the raid border style (size/color/texture/offsets) to one button.
@@ -12078,43 +12145,70 @@ local function CreatePreviewFrame(index)
     bdrFrame:SetAllPoints(f)
     bdrFrame:SetFrameLevel(f:GetFrameLevel() + 8)
 
+    -- Borderless-only highlight, mirrors the real frames.
+    local hlFrame = CreateFrame("Frame", nil, f)
+    hlFrame:SetAllPoints(bdrFrame)
+
+    -- Raises the real border above neighbors while highlighted.
+    local function PvApplyRecolorLevel(s, raised)
+        if not PP then return end
+        local pl = f:GetFrameLevel()
+        local lvl = s.borderBehind and math.max(0, pl - 1) or (pl + (raised and ns.LVL_RAISE or 8))
+        local container = PP.GetBorders(bdrFrame)
+        local bdFrame = EllesmereUI._bdBorderData and EllesmereUI._bdBorderData[bdrFrame]
+        if bdrFrame:GetFrameLevel() == lvl
+           and (not container or container:GetFrameLevel() == lvl + 1)
+           and (not bdFrame or bdFrame:GetFrameLevel() == lvl) then
+            return
+        end
+        bdrFrame:SetFrameLevel(lvl)
+        if container then container:SetFrameLevel(lvl + 1) end
+        if bdFrame then bdFrame:SetFrameLevel(lvl) end
+    end
+
     local function PvApplyBorderColor()
         if not PP then return end
         -- Overlay ahead of _scaledProfile: border/hover/target keys are not
         -- tier-scaled, so the effective overlay may shadow them safely.
         local s = ns._previewSettingsOverride or (ns._partyPvActive and ns._scaledPartyProxy)
             or ns._pvOverlayProxy or ns._scaledProfile
-        local r, g, b, a
-        local raised, hlSize = false, nil
+        local hlSize, r, g, b, a
         if f._hovered and s.hoverBorderEnabled ~= false then
-            local c = s.hoverBorderColor or { r = 1, g = 1, b = 1 }
+            local c = s.hoverBorderColor or { r = 1, g = 0.82, b = 0 }
             r, g, b, a = c.r, c.g, c.b, s.hoverBorderAlpha or 1
-            raised, hlSize = true, s.hoverBorderSize or 1
+            hlSize = s.hoverBorderSize or 1
         elseif f._isTarget and s.targetBorderEnabled ~= false then
-            local c = s.targetBorderColor or { r = 1, g = 1, b = 1 }
+            local c = s.targetBorderColor or { r = 1, g = 0.82, b = 0 }
             r, g, b, a = c.r, c.g, c.b, s.targetBorderAlpha or 1
-            raised, hlSize = true, s.targetBorderSize or 1
-        else
-            local c = s.borderColor or { r = 0, g = 0, b = 0 }
-            r, g, b, a = c.r, c.g, c.b, s.borderAlpha or 1
+            hlSize = s.targetBorderSize or 1
         end
-        -- Match real frames: raise the inset border above overlapping neighbors
-        -- while highlighted (handles negative Frame Spacing in the preview too).
-        -- Guard the level writes so a refresh only touches them on a real change.
-        local pl = f:GetFrameLevel()
-        local lvl = s.borderBehind and math.max(0, pl - 1) or (pl + (raised and ns.LVL_RAISE or 8))
-        local container = PP.GetBorders(bdrFrame)
-        if bdrFrame:GetFrameLevel() ~= lvl
-           or (container and container:GetFrameLevel() ~= lvl + 1) then
-            bdrFrame:SetFrameLevel(lvl)
-            if container then container:SetFrameLevel(lvl + 1) end
-        end
-        if (s.borderSize or 1) <= 0 then
-            ns.ApplyHighlightBorder(bdrFrame, s, hlSize, r, g, b, a)
+        if (s.borderSize or 1) > 0 then
+            ns.ApplyHighlightBorder(hlFrame, s, nil)
+            local bc = s.borderColor or { r = 0, g = 0, b = 0 }
+            if hlSize then
+                r, g, b = ns.ContrastHighlight(r, g, b, bc.r, bc.g, bc.b)
+                PvApplyRecolorLevel(s, true)
+                bdrFrame._hlBorderSize = nil
+                EllesmereUI.SetBorderStyleColor(bdrFrame, r, g, b, a)
+            else
+                PvApplyRecolorLevel(s, false)
+                EllesmereUI.SetBorderStyleColor(bdrFrame, bc.r, bc.g, bc.b, s.borderAlpha or 1)
+            end
             return
         end
-        bdrFrame._hlBorderSize = nil
-        EllesmereUI.SetBorderStyleColor(bdrFrame, r, g, b, a)
+        if not hlSize then
+            ns.ApplyHighlightBorder(hlFrame, s, nil)
+            return
+        end
+        ns.ApplyHighlightBorder(hlFrame, s, hlSize, r, g, b, a)
+        -- Raise above overlapping neighbors while shown (mirrors the real frames).
+        local pl = f:GetFrameLevel()
+        local lvl = s.borderBehind and math.max(0, pl - 1) or (pl + ns.LVL_RAISE)
+        local container = PP.GetBorders(hlFrame)
+        if hlFrame:GetFrameLevel() ~= lvl or (container and container:GetFrameLevel() ~= lvl + 1) then
+            hlFrame:SetFrameLevel(lvl)
+            if container then container:SetFrameLevel(lvl + 1) end
+        end
     end
     f._ApplyBorderColor = PvApplyBorderColor
 

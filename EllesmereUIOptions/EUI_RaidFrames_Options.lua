@@ -4901,7 +4901,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end, true, 20)
             hoverSwatch:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
             rightRgn._lastInline = hoverSwatch
-            hoverSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(hoverSwatch, "Hover") end)
+            hoverSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(hoverSwatch, "Hover. Automatically switched to a contrasting color if this is too close to the border's own color to be visible.") end)
             hoverSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
             local targetSwatch, updTarget = EllesmereUI.BuildColorSwatch(
@@ -4915,7 +4915,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end, true, 20)
             targetSwatch:SetPoint("RIGHT", rightRgn._lastInline, "LEFT", -8, 0)
             rightRgn._lastInline = targetSwatch
-            targetSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(targetSwatch, "Target") end)
+            targetSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(targetSwatch, "Target. Automatically switched to a contrasting color if this is too close to the border's own color to be visible.") end)
             targetSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
             -- Highlight thickness. Shown only while the frame is borderless (Border Size 0):
