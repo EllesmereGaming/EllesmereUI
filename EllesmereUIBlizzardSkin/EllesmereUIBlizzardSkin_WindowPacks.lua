@@ -12265,12 +12265,33 @@ end
 --     bearing (centering the message runs it under the artwork), with it hidden
 --     it is a lopsided hole on the left. So all three keep Blizzard's own offset
 --     while the glyph is up and go dead center once it is gone.
+-- ReadyCheckFrame is protected: a ready check performed while already in
+-- combat (a wipe/repull mid-fight) fires this via the SetText hook and hits
+-- SetWidth on a protected frame, which the engine hard-blocks with
+-- ADDON_ACTION_BLOCKED (field report). Deferred once to PLAYER_REGEN_ENABLED
+-- so this actually re-runs once combat clears instead of leaving the popup
+-- permanently unfit; the one-shot flag collapses repeat text-hook fires
+-- while still in combat into a single retry.
+local _rcRetryQueued = false
 function LP.FitReadyCheck()
     local fr = _G.ReadyCheckFrame
     if not fr or fr:IsForbidden() then return end
     local d = FFD[fr]
     local fs = d and d.rcText
     if not fs then return end
+    if InCombatLockdown() then
+        if not _rcRetryQueued then
+            _rcRetryQueued = true
+            local w = CreateFrame("Frame")
+            w:RegisterEvent("PLAYER_REGEN_ENABLED")
+            w:SetScript("OnEvent", function(self)
+                self:UnregisterAllEvents()
+                _rcRetryQueued = false
+                LP.FitReadyCheck()
+            end)
+        end
+        return
+    end
 
     if not d.rcBaseW then
         local w = fr:GetWidth()
