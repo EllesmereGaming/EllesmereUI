@@ -1,6 +1,6 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
---  EllesmereUIMythicTimer.lua  —  M+ Timer overlay for EllesmereUI
+--  EllesmereUIMythicTimer.lua  --  M+ Timer overlay for EllesmereUI
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
@@ -66,7 +66,7 @@ end
 -- Outer host = border/geometry anchor. Inner clip = bg+fill parent, inset so the
 -- texture cannot sample past the border. Host clips its children so any residual
 -- filter fringe from the clip's textures is still cut off at the host edge
--- (SetClipsChildren only affects child frames, not a frame's own textures — so the
+-- (SetClipsChildren only affects child frames, not a frame's own textures -- so the
 -- fill must live on `clip`, not on `host`).
 local function EnsureBarShell(parent, hostKey)
     local host = parent[hostKey]
@@ -1230,7 +1230,7 @@ ns.ApplyBorder = function()
     if p.borderApplyToForces == false then forcesSize = 0 end
     ApplyBorderTo(f, f._enemyBarHost or f._enemyBarBg, "_emtEnemyBorderFrame", p, forcesSize, texKey, r, g, b, a)
 
-    -- Segment bars (timer bar SEGMENTS mode) — border each segment host.
+    -- Segment bars (timer bar SEGMENTS mode) -- border each segment host.
     if f._timerSegHosts then
         for i, host in ipairs(f._timerSegHosts) do
             local segSize = isSegmented and size or 0

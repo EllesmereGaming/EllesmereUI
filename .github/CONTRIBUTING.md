@@ -72,3 +72,9 @@ will make changes to it myself.
 - Screenshots (before/after) for anything visual.
 - Fill in the PR template checklist honestly - "not applicable" is a fine
   answer, silence is not.
+
+## Contribution license
+
+By submitting a PR, you retain copyright to your contribution but grant
+EllesmereUI a perpetual, worldwide, royalty-free license to use, modify,
+incorporate, and distribute that contribution as part of EllesmereUI.

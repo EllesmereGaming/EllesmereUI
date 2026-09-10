@@ -2446,7 +2446,10 @@ local function CreateDMWindow(winIdx)
             -- own breakdown, death recaps, and group rows resolvable through
             -- the identity-exempt token channel all fall through to the
             -- normal hover path, whose builders are secret-safe.
-            if InCombatLockdown() and not IsOwnRow(bar._src)
+            -- Gated on Show Breakdown on Hover like ShowBarTooltip: with the option off
+            -- this branch still showed the disclaimer for ally rows.
+            if InCombatLockdown() and DB().showHoverTooltip ~= false
+               and not IsOwnRow(bar._src)
                and W.curDMType ~= Enum.DamageMeterType.Deaths
                and not ns._ResolveGroupGUID(bar._src) then
                 EnsureTooltipFrame()
@@ -5065,35 +5068,58 @@ end
 -- panel runs on cancel and on a binding-set switch, drops every override, so a
 -- configured key would otherwise stay dead until the next profile change. Our own
 -- writes raise that event as well, hence the short self-write window.
+-- Zero cost with no key: the event is registered only while a key is laid down, and a
+-- pass that finds nothing configured and nothing applied never touches the binding API.
 do
     local kbFrame = CreateFrame("Frame")
     local selfWriteUntil = 0
+    -- The key each button currently carries (nil = none). Tracked apart from the
+    -- configured key so that clearing a key still gets its one ClearOverrideBindings,
+    -- and so a key dropped by LoadBindings is re-laid from the configured value.
+    local appliedReset, appliedToggle
+
+    local function WantKey(key)
+        if key == nil or key == "" then return nil end
+        return key
+    end
 
     ns.ApplyDMKeybinds = function()
+        local c = DB()
+        local wantReset, wantToggle = WantKey(c.resetDataKey), WantKey(c.toggleWindowsKey)
+        if not wantReset and not wantToggle and not appliedReset and not appliedToggle then
+            kbFrame:UnregisterEvent("UPDATE_BINDINGS")
+            kbFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
+            return
+        end
         if InCombatLockdown() then
             kbFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
             return
         end
         kbFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
-        local c = DB()
         selfWriteUntil = GetTime() + 0.5
         local resetBtn = _G.EllesmereUIDMResetBindBtn
         if resetBtn then
             ClearOverrideBindings(resetBtn)
-            if c.resetDataKey and c.resetDataKey ~= "" then
-                SetOverrideBindingClick(resetBtn, true, c.resetDataKey, "EllesmereUIDMResetBindBtn")
+            if wantReset then
+                SetOverrideBindingClick(resetBtn, true, wantReset, "EllesmereUIDMResetBindBtn")
             end
+            appliedReset = wantReset
         end
         local toggleBtn = _G.EllesmereUIDMToggleBindBtn
         if toggleBtn then
             ClearOverrideBindings(toggleBtn)
-            if c.toggleWindowsKey and c.toggleWindowsKey ~= "" then
-                SetOverrideBindingClick(toggleBtn, true, c.toggleWindowsKey, "EllesmereUIDMToggleBindBtn")
+            if wantToggle then
+                SetOverrideBindingClick(toggleBtn, true, wantToggle, "EllesmereUIDMToggleBindBtn")
             end
+            appliedToggle = wantToggle
+        end
+        if wantReset or wantToggle then
+            kbFrame:RegisterEvent("UPDATE_BINDINGS")
+        else
+            kbFrame:UnregisterEvent("UPDATE_BINDINGS")
         end
     end
 
-    kbFrame:RegisterEvent("UPDATE_BINDINGS")
     kbFrame:SetScript("OnEvent", function(_, event)
         -- Ours, echoing back: ignore, or we re-enter forever
         if event == "UPDATE_BINDINGS" and GetTime() < selfWriteUntil then return end

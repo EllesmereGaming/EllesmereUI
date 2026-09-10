@@ -1893,7 +1893,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- profile an alt shares -- and the only preset here whose slots would
     -- otherwise all go dead on arrival.
     --
-    -- No dropped count: four positions against a sixteen-slot menu, so unlike
+    -- No dropped count: four positions against a twenty-slot menu, so unlike
     -- the collection presets this one can never be the thing that does not
     -- fit. Empty is the stale-module case, and leaves the preset unoffered.
     local function SpecSlots()
@@ -1958,7 +1958,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- By position rather than by identity, the same reasoning as SpecSlots
     -- above and for the same reason: a preset is the palette most likely to
     -- be copied to an alt, and only a position survives that trip. Ten
-    -- positions against a sixteen-slot menu, so no dropped count either --
+    -- positions against a twenty-slot menu, so no dropped count either --
     -- see DynamicProfessionEntries for what each position means.
     local function ProfessionSlots()
         local slots = {}

@@ -2374,7 +2374,13 @@ do
         if not af then return end
         local corner = CornerFor(af)
         local point, relTo = tooltip:GetPoint(1)
-        if tooltip:GetNumPoints() == 1 and point == corner and relTo == af then return end
+        -- GetPoint can hand back a SECRET point: Blizzard anchors the world cursor
+        -- tooltip (SetWorldCursor -> GameTooltip_SetDefaultAnchor) from restricted
+        -- code, and comparing a secret raises, so the classification MUST short-circuit
+        -- ahead of the compares. A secret anchor is by definition not ours: treat it as
+        -- a deviation and re-point. Our own write reads back clean, so the early-out works again from the next call on.
+        local secretPt = issecretvalue and (issecretvalue(point) or issecretvalue(relTo))
+        if not secretPt and tooltip:GetNumPoints() == 1 and point == corner and relTo == af then return end
         _fixedEnforcing = true
         tooltip:ClearAllPoints()
         tooltip:SetPoint(corner, af, corner, 0, 0)
@@ -2536,6 +2542,10 @@ do
         if not dir then return end
         if tooltip:IsForbidden() then return end
         local point, relTo, _, x, y = tooltip:GetPoint(1)
+        -- A point written by restricted code (world cursor tooltip) is SECRET:
+        -- find() and == on it raise, and the forced corner cannot be derived from it
+        -- at all. Skip this pass; the next one, after a clean re-anchor, enforces normally.
+        if issecretvalue and (issecretvalue(point) or issecretvalue(x) or issecretvalue(y)) then return end
         if not point then return end
         relTo = relTo or GameTooltipDefaultContainer
         if not relTo then return end

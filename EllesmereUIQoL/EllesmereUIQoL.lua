@@ -801,8 +801,11 @@ qolFrame:SetScript("OnEvent", function(self)
                 if not (Enum and Enum.AuctionHouseFilter and Enum.AuctionHouseFilter.CurrentExpansionOnly) then return end
                 local filterEnum = Enum.AuctionHouseFilter.CurrentExpansionOnly
                 local filters = fb:GetFilters()
-                -- Direct fb.filters[...] mutation never reaches the search query;
-                -- ToggleFilter is the only path that actually re-runs the AH search.
+                -- The filter state is Blizzard's per-character saved table,
+                -- reached only through the button's accessors (the button
+                -- carries no filters field of its own). ToggleFilter flips the
+                -- entry for the next query; toggling an already-set filter
+                -- would switch it off, hence the read first.
                 if not (filters and filters[filterEnum]) then
                     fb:ToggleFilter(filterEnum)
                 end
@@ -3140,14 +3143,17 @@ do
                 macro = macro .. (inInstance and "[@mouseover,harm,nodead]1;"
                     or "[@mouseover,harm,nodead,combat]1;")
             end
-            -- "group" restricts the match to actual party/raid members -- this
-            -- feature exists to stop a stray right-click from targeting/
-            -- interacting with an ally UNIT FRAME during combat, but plain
-            -- [help] also matches any friendly-classified summoned object
-            -- (e.g. a Warlock's Demonic Gateway), which blocked right-clicking
-            -- the gateway itself to use it. A gateway is never a group member,
-            -- so this excludes it while leaving the party/raid protection intact.
-            if allyCombat then macro = macro .. "[@mouseover,help,group,nodead,combat]1;" end
+            -- Ally arm = party/raid MEMBERS only. Plain [help] also matches any
+            -- friendly-classified world object (a Warlock's Demonic Gateway),
+            -- which captured the right-click that would have used it. The
+            -- UNIT-relative conditionals [party]/[raid] test the @mouseover unit
+            -- itself; [group] would test whether the PLAYER is grouped (the
+            -- visibility-driver sense) and would neither free the gateway in a
+            -- group nor guard anything solo. Both clauses so a 5-man and a raid
+            -- read the same. Accepted: non-grouped friendlies are not guarded.
+            if allyCombat then
+                macro = macro .. "[@mouseover,help,party,nodead,combat]1;[@mouseover,help,raid,nodead,combat]1;"
+            end
             macro = macro .. "0"
             SecureStateDriverManager:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
             -- [combat] arms re-evaluate on combat edges even when the mouseover
@@ -4342,6 +4348,9 @@ do
     end
 
     local function FormatDistance(fmt, minY, maxY)
+        -- Ladder rungs carry the spell's raw range (a float for some spells); the text shows whole yards.
+        if minY then minY = math.floor(minY) end
+        if maxY then maxY = math.floor(maxY) end
         if fmt == "plus" then
             if not minY or minY <= 0 then return nil end
             return minY .. "+"

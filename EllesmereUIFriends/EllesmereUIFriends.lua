@@ -2350,8 +2350,9 @@ local function SkinFriendsFrame()
                         local charName = cached.gameAccountInfo.characterName
                         local realmName = cached.gameAccountInfo.realmName
                         if charName then
-                            -- Fix "Name-Realm-Realm" to "Name-Realm"
-                            local fullName = EllesmereUI.BuildFullName(charName, realmName)
+                            -- Canonical "Name-Realm" (the helper returns nil for an
+                            -- empty name; fall back rather than invite nil).
+                            local fullName = EllesmereUI.BuildFullName(charName, realmName) or charName
                             C_PartyInfo.InviteUnit(fullName)
                         end
                     end

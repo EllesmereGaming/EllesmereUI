@@ -926,21 +926,24 @@ local function BuildStyle(isBuff, cfg)
     -- size 0 = no border; no separate "Hide Border" toggle.
     local border
     if borderSize > 0 then
-        local textureSize = cfg.borderTextureSizeOverride or borderSize
-        border = {
-            borderR, borderG, borderB, borderA,
-            size = borderSize,
-            texture = cfg.borderTexture or "solid",
-            textureSize = textureSize,
-            offsetX = cfg.borderTextureOffset,
-            offsetY = cfg.borderTextureOffsetY,
-            shiftX = cfg.borderTextureShiftX,
-            shiftY = cfg.borderTextureShiftY,
-            behind = cfg.borderBehind == true,
-            addonKey = "unitframes",
-            sizeKey = textureSize,
-            edgeScale = cfg.borderTextureScaleOverride,
-        }
+        border = { borderR, borderG, borderB, borderA, size = borderSize }
+        -- Texture fields ride only on a textured pick: a border table with a
+        -- texture key sends AuraKit down its explicit-size eight-slice lane,
+        -- and Solid must keep the plain PP path it always had.
+        local texture = cfg.borderTexture
+        if texture and texture ~= "" and texture ~= "solid" then
+            local textureSize = cfg.borderTextureSizeOverride or borderSize
+            border.texture = texture
+            border.textureSize = textureSize
+            border.offsetX = cfg.borderTextureOffset
+            border.offsetY = cfg.borderTextureOffsetY
+            border.shiftX = cfg.borderTextureShiftX
+            border.shiftY = cfg.borderTextureShiftY
+            border.behind = cfg.borderBehind == true
+            border.addonKey = "unitframes"
+            border.sizeKey = textureSize
+            border.edgeScale = cfg.borderTextureScaleOverride
+        end
     end
 
     -- Positions may arrive mixed-case ("Bottom") rather than the uppercase anchor
@@ -4602,6 +4605,12 @@ local function CreatePreviewIcon(box)
     btn.cooldown:Hide()
     btn.border = CreateFrame("Frame", nil, btn)
     btn.borderState = {}
+    -- Dispel-type icon host: a child frame created after the cooldown and the border,
+    -- so the icon draws above the swipe and the border like the live button's holder.
+    -- A texture on the button itself sits under every child frame whatever its layer,
+    -- so the frozen preview swipe covered it.
+    btn.typeHost = CreateFrame("Frame", nil, btn)
+    btn.typeHost:SetAllPoints()
     -- Plain preview region, not a real AuraKit button -- masking is unguarded here.
     btn.shapeMask = btn:CreateMaskTexture()
     btn.shapeMask:Hide()
@@ -5250,6 +5259,9 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
             btn.border:SetFrameLevel(style.border and style.border.behind
                 and math.max(0, btn:GetFrameLevel() - 1)
                 or (btn:GetFrameLevel() + 1))
+            -- Type-icon host above the border's strip container (+1) and the fx
+            -- border/glow hosts (+1/+2), like the live dispel holder clears them.
+            btn.typeHost:SetFrameLevel(btn.border:GetFrameLevel() + 3)
             local PP = EllesmereUI and EllesmereUI.PanelPP
             if PP and style.border then
                 local br, bg, bb, ba = style.border[1], style.border[2], style.border[3], style.border[4]
@@ -5288,11 +5300,11 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
 
             -- Dispel-type indicator icon (style.dispelTypeIcon): the live bar's
             -- engine channel picks the art per aura; here the fake entry's own
-            -- dispel token does. Drawn above the border on the button itself.
+            -- dispel token does. Drawn on its own host above the swipe and border.
             local ti = style.dispelTypeIcon
             if ti and dispel and PV_DISPEL_ICON_ATLAS[dispel] then
                 if not btn.typeIcon then
-                    btn.typeIcon = btn:CreateTexture(nil, "OVERLAY", nil, 3)
+                    btn.typeIcon = btn.typeHost:CreateTexture(nil, "OVERLAY", nil, 3)
                 end
                 btn.typeIcon:SetAtlas(PV_DISPEL_ICON_ATLAS[dispel])
                 -- Geometry from the (panel-scaled) cfg, like iconSize above --

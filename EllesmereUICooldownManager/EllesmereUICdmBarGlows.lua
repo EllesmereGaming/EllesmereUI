@@ -271,14 +271,6 @@ local function ConfigureStackGate(overlay, key, threshold, operator)
     return st
 end
 
--- Equality needs a SECOND mask (lower + upper gate intersect). StartNativeGlow's
--- opts.maskWith already applies gateSt.mask; this adds gateSt.mask2 on top of
--- the same fresh textures (must run right after the Start call).
-local function ApplySecondStackGateMask(overlay, gateSt)
-    if not (gateSt and gateSt.mask2 and EllesmereUI.Glows and EllesmereUI.Glows.ApplyMaskWith) then return end
-    EllesmereUI.Glows.ApplyMaskWith(overlay, gateSt.mask2)
-end
-
 --- Rebuild overlay frames from assignments
 local function SetupOverlays()
     local bg = ns.GetBarGlows()
@@ -288,14 +280,15 @@ local function SetupOverlays()
             StopNativeGlow(overlay)
             overlay:Hide()
         end
-        ns._anyBarGlowStackGate = false
+        ns._barGlowStackSids = nil
         return
     end
 
     -- Whether the buff-tick's aura pool-walk should bother reading applications
-    -- at all (EllesmereUICdmHooks.lua). Zero At Stacks assignments means zero
-    -- extra work there -- no ReadBuffApplications call, no stack cache writes.
-    local anyStack = false
+    -- at all (EllesmereUICdmHooks.lua): the set of spellIDs stack-gated
+    -- entries name, nil when there are none. Only frames resolving to one of
+    -- these ids pay the applications read; no gated entry = no reads at all.
+    local stackSids
 
     local activeKeys = {}
     for assignKey, buffList in pairs(bg.assignments) do
@@ -335,12 +328,16 @@ local function SetupOverlays()
                     overlay._assignEntry = entry
                     overlay:Show()
                     activeKeys[key] = true
-                    if entry.stackEnabled then anyStack = true end
+                    local sid = entry.stackEnabled and entry.spellID
+                    if sid and sid > 0 then
+                        stackSids = stackSids or {}
+                        stackSids[sid] = true
+                    end
                 end
             end
         end
     end
-    ns._anyBarGlowStackGate = anyStack
+    ns._barGlowStackSids = stackSids
 
     -- Hide overlays that are no longer assigned
     for key, overlay in pairs(overlayFrames) do
@@ -394,7 +391,6 @@ local function UpdateOverlayVisuals()
             -- cheap); an UNKNOWN/SECRET count never blocks it -- the gate's
             -- open value / the engine-side clamp decide instead.
             local gateSt
-            local applyMask2 = false
             if shouldGlow and mode ~= "MISSING" and entry.stackEnabled and spellID and spellID > 0 then
                 local threshold = tonumber(entry.stackThreshold) or 2
                 local operator = entry.stackOperator or "gte"
@@ -420,9 +416,14 @@ local function UpdateOverlayVisuals()
                 if shouldGlow then
                     gateSt.gate:SetValue(feedValue)
                     if gateSt.gate2 then
-                        gateSt.gate2:SetValue(operator == "eq" and feedValue or 1)
+                        -- Explicit branch: an `and feedValue or 1` form would test
+                        -- a secret feedValue's truthiness and hard-error.
+                        if operator == "eq" then
+                            gateSt.gate2:SetValue(feedValue)
+                        else
+                            gateSt.gate2:SetValue(1)
+                        end
                     end
-                    applyMask2 = gateSt.mask2 ~= nil
                 end
             end
 
@@ -449,8 +450,12 @@ local function UpdateOverlayVisuals()
                         cb = entry.glowColor.b or 0.137
                     end
                     if gateSt then
-                        StartNativeGlow(overlay, style, cr, cg, cb, { maskWith = gateSt.mask })
-                        if applyMask2 then ApplySecondStackGateMask(overlay, gateSt) end
+                        -- Both gate masks travel as data (mask2 is nil unless the
+                        -- operator needs the upper gate): the Show Glows Only in
+                        -- Combat replay restarts from the recorded opts, so a mask
+                        -- bound out here would be missing on every texture that
+                        -- replay creates fresh.
+                        StartNativeGlow(overlay, style, cr, cg, cb, { maskWith = gateSt.mask, maskWith2 = gateSt.mask2 })
                     else
                         StartNativeGlow(overlay, style, cr, cg, cb)
                     end

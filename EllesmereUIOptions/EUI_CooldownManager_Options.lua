@@ -7762,7 +7762,11 @@ initFrame:SetScript("OnEvent", function(self)
     -- Lists the class's CDM-trackable buffs plus a Custom Spell ID entry. No
     -- durations (aura-driven, never cast-timed) and no item/preset rows (those are
     -- cast-timer / CD-utility concepts that do not belong on an aura tracker).
-    local function ShowBuffToCDPicker(anchorFrame, targetBarKey, onChanged)
+    -- onPicked(spellID, collidedCdID) = selection mode ("Replace with Buff"): every
+    -- catalog buff is listed, a "None" row clears, one click picks and closes;
+    -- nothing is hosted and no Custom Spell ID row (a replacement needs a
+    -- Blizzard viewer frame to route). Absent = the hosting picker below.
+    local function ShowBuffToCDPicker(anchorFrame, targetBarKey, onChanged, onPicked)
         if _spellPickerMenu and _spellPickerMenu:IsShown() then
             _spellPickerMenu:Hide()
             if _spellPickerMenu._anchorFrame == anchorFrame then return end
@@ -7798,6 +7802,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- cooldownID, not by the shared spellID in `already` -- filter those out
         -- per-slot so only the specific claimed slot disappears, not both.
         local alreadyCd = sdCur and ns.CollectCdClaimSet(sdCur)
+        -- Both modes skip buffs already HOSTED on this bar: a hosted buff owns a
+        -- slot of its own, and doubling it as a replacement would leave that
+        -- slot empty while the aura is active (Pass 3b and 3c would both route it).
         local knownSpells = {}
         for _, sp in ipairs(allSpells) do
             if sp.cdmCatGroup == "buff" and sp.spellID and not already[sp.spellID]
@@ -7831,7 +7838,8 @@ initFrame:SetScript("OnEvent", function(self)
             if onChanged then onChanged() end
         end
 
-        -- Custom Spell ID (no duration -- aura-driven).
+        -- Custom Spell ID (no duration -- aura-driven). Selection mode gets a
+        -- "None" row in this seat instead.
         do
             local csItem = CreateFrame("Button", nil, inner)
             csItem:SetHeight(ITEM_H)
@@ -7843,12 +7851,16 @@ initFrame:SetScript("OnEvent", function(self)
             local csLbl = csItem:CreateFontString(nil, "OVERLAY")
             csLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
             csLbl:SetPoint("LEFT", 10, 0); csLbl:SetJustifyH("LEFT")
-            csLbl:SetText(EllesmereUI.L("Custom Spell ID"))
+            csLbl:SetText(onPicked and EllesmereUI.L("None (use cooldown icon)") or EllesmereUI.L("Custom Spell ID"))
             csLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
             csItem:SetScript("OnEnter", function() csLbl:SetTextColor(1, 1, 1, 1); csHl:SetColorTexture(1, 1, 1, hlA); csHl:SetAlpha(1) end)
             csItem:SetScript("OnLeave", function() csLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA); csHl:SetAlpha(0) end)
             csItem:SetScript("OnClick", function()
                 menu:Hide()
+                if onPicked then
+                    onPicked(nil, nil)
+                    return
+                end
                 ShowCustomSpellIDPopup(targetBarKey, false, function(sid)
                     ns.AddBuffToCDUtilBar(targetBarKey, sid)
                     AfterAdd()
@@ -7898,6 +7910,15 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             item:SetScript("OnClick", function()
                 if notLearned then EllesmereUI.HideWidgetTooltip() end
+                if onPicked then
+                    -- Selection mode: hand back the identity the runtime routes by
+                    -- (cooldownID only for a collided pair, else the spellID) and close.
+                    local cdPick = sp.cdID and ns.IsCollidedBuffSid
+                        and ns.IsCollidedBuffSid(sp.spellID) and sp.cdID or nil
+                    menu:Hide()
+                    onPicked(sp.spellID, cdPick)
+                    return
+                end
                 -- Collided pair (two viewer slots, one shared spellID): claim by cooldownID
                 -- so each slot is hostable on its own; non-collided buffs keep the sid path (identity survives talent swaps, cooldownIDs drift).
                 if sp.cdID and ns.IsCollidedBuffSid and ns.IsCollidedBuffSid(sp.spellID)
@@ -10803,7 +10824,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 rows = {
                                     { type="toggle", label="Show Duration",
                                       get=function() if ss.showCooldownText ~= nil then return ss.showCooldownText end return (cdmBd and cdmBd.showCooldownText) ~= false end,
-                                      set=function(v) EnsureSS(); ss.showCooldownText = v; if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end if row._updateLabel then row._updateLabel() end end },
+                                      set=function(v) EnsureSS(); ss.showCooldownText = v; ns._cdmAnySpellDurationText = true; if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end if row._updateLabel then row._updateLabel() end end },
                                     { type="slider", label="Size", min=6, max=30, step=1,
                                       get=function() return ss.cooldownFontSize or (cdmBd and cdmBd.cooldownFontSize) or 12 end,
                                       set=function(v) EnsureSS(); ss.cooldownFontSize = v; if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end if row._updateLabel then row._updateLabel() end end },
@@ -12109,6 +12130,51 @@ initFrame:SetScript("OnEvent", function(self)
 
                     -- (The per-setting "Apply to Bar / (All Specs)" strip superseded
                     -- "Sync All Bar Buttons"; cdm_spell_settings_tiers_v1 migrated it.)
+
+                    -- Replace with Buff (cd/util family, real spells only; per-spell ONLY like
+                    -- Custom Icon -- a slot identity choice, no tiers, no apply strip). Picks a
+                    -- tracked buff whose viewer frame takes this cooldown's slot while the aura
+                    -- is active; the cooldown returns when it ends. Closes the menu (popup flow).
+                    if not isBuffBar and not isHostedBuff and not (bd and bd.isGhostBar)
+                       and type(spellID) == "number" and spellID > 0
+                       and not ((ns._myRacialsSet and ns._myRacialsSet[spellID])
+                                or (sd.customSpellIDs and sd.customSpellIDs[spellID])) then
+                        local repSID = rawget(ss, "replaceBuffID")
+                        local repName = repSID and C_Spell.GetSpellName(repSID)
+                        local rbRow = CreateFrame("Button", nil, inner)
+                        rbRow:SetHeight(ITEM_H)
+                        rbRow:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+                        rbRow:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+                        rbRow:SetFrameLevel(menu:GetFrameLevel() + 2)
+                        local rbLbl = rbRow:CreateFontString(nil, "OVERLAY")
+                        rbLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                        rbLbl:SetPoint("LEFT", 10, 0); rbLbl:SetPoint("RIGHT", -10, 0)
+                        rbLbl:SetJustifyH("LEFT"); rbLbl:SetWordWrap(false); rbLbl:SetMaxLines(1)
+                        rbLbl:SetText(EllesmereUI.L("Replace with Buff") .. ": " .. (repName or EllesmereUI.L("None")))
+                        rbLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                        local rbHl = rbRow:CreateTexture(nil, "ARTWORK")
+                        rbHl:SetAllPoints(); rbHl:SetColorTexture(1, 1, 1, 0); rbHl:SetAlpha(0)
+                        rbRow:SetScript("OnEnter", function()
+                            rbLbl:SetTextColor(1, 1, 1, 1)
+                            rbHl:SetColorTexture(1, 1, 1, hlA); rbHl:SetAlpha(1)
+                            EllesmereUI.ShowWidgetTooltip(rbRow, EllesmereUI.L("Show a tracked buff in this slot while it is active."))
+                        end)
+                        rbRow:SetScript("OnLeave", function()
+                            rbLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA); rbHl:SetAlpha(0)
+                            EllesmereUI.HideWidgetTooltip()
+                        end)
+                        rbRow:SetScript("OnClick", function()
+                            EllesmereUI.HideWidgetTooltip()
+                            menu:Hide()
+                            ShowBuffToCDPicker(rbRow, barKey, nil, function(buffSID, buffCdID)
+                                if ns.SetCooldownBuffReplacement then
+                                    ns.SetCooldownBuffReplacement(barKey, spellID, buffSID, buffCdID)
+                                end
+                                RefreshCDPreview()
+                            end)
+                        end)
+                        mH = mH + ITEM_H
+                    end
 
                     -- Custom Icon (per-spell ONLY -- deliberately outside the Apply-to-Bar
                     -- tiers: an icon replacement is a per-slot identity choice, so no tiers, no
@@ -19035,6 +19101,188 @@ initFrame:SetScript("OnEvent", function(self)
                   end
               end });  y = y - h
 
+        -- Rotation Assist styling is profile-wide (not tied to the selected
+        -- bar). Keeping it on this override-eligible page lets the existing
+        -- spec/conditional override system capture every scalar below.
+        -- Read and write the runtime addon's authoritative profile. The options
+        -- DB reference can lag behind a profile/override proxy swap, which made
+        -- the swatches display Class while the renderer still read Custom.
+        local function RotationBars()
+            local runtime = ns.ECME and ns.ECME.db and ns.ECME.db.profile
+            local fallback = DB()
+            return (runtime and runtime.cdmBars) or (fallback and fallback.cdmBars)
+        end
+        -- Which of the Thickness / Outset rows the current style reads (the renderer
+        -- uses thickness for Solid Border and Pixel Glow, outset for every style but
+        -- Blizzard Default): 0 = neither, 1 = outset only, 3 = both. The rows below
+        -- exist only for the styles that read them, so the Style dropdown forces a
+        -- rebuild when this key flips.
+        local function RotRowsKey()
+            local c = RotationBars()
+            local s = (c and c.rotationAssistStyle) or "blizzard"
+            local key = 0
+            if s ~= "blizzard" then key = 1 end
+            if s == "solid" or s == "pixel" then key = key + 2 end
+            return key
+        end
+
+        local rotStyleRow
+        rotStyleRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Rotation Assist Style",
+              values={
+                  blizzard="Blizzard Default", solid="Solid Border",
+                  pixel="Pixel Glow", shape="Shape Glow",
+                  button="Action Button Glow", autocast="Auto-Cast Shine",
+                  gcd="GCD", modern="Modern WoW Glow", classic="Classic WoW Glow",
+              },
+              order={ "blizzard", "solid", "pixel", "shape", "button", "autocast", "gcd", "modern", "classic" },
+              tooltip="Choose the profile-wide border or glow used for Blizzard's Assisted Combat suggestion.",
+              getValue=function()
+                  local c = RotationBars(); return (c and c.rotationAssistStyle) or "blizzard"
+              end,
+              setValue=function(v)
+                  local c = RotationBars()
+                  if c then
+                      local before = RotRowsKey()
+                      c.rotationAssistStyle = v
+                      if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+                      -- Full rebuild only when the Thickness / Outset row set changes;
+                      -- the in-place refresh otherwise.
+                      EllesmereUI:RefreshPage(RotRowsKey() ~= before)
+                  end
+              end },
+            { type="label", text="Rotation Assist Color" });  y = y - h
+
+        do
+            local colorRgn = rotStyleRow._rightRegion
+            if colorRgn and EllesmereUI.BuildTrioColorSwatch then
+                -- Same trio as the Pandemic Glow row above. The helper opens the
+                -- picker only while custom mode is already active, so a picker
+                -- cancel can never flip the mode. Dimmed while Blizzard Default
+                -- owns the highlight; clicks are ignored there.
+                local function rotColorOff()
+                    local c = RotationBars()
+                    return not c or c.rotationAssistStyle == "blizzard"
+                end
+                local swatch, defaultSwatch, classSwatch = EllesmereUI.BuildTrioColorSwatch(
+                    colorRgn, rotStyleRow:GetFrameLevel() + 3,
+                    {
+                        getMode = function()
+                            local c = RotationBars()
+                            return (c and c.rotationAssistColorMode) or "default"
+                        end,
+                        setMode = function(mode)
+                            local c = RotationBars()
+                            if not c or c.rotationAssistStyle == "blizzard" then return end
+                            c.rotationAssistColorMode = mode
+                            if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+                            if EllesmereUI._NotifySettingWrite then
+                                EllesmereUI._NotifySettingWrite(colorRgn)
+                            end
+                        end,
+                        getCustomRGB = function()
+                            local c = RotationBars()
+                            return (c and c.rotationAssistColorR) or 1,
+                                   (c and c.rotationAssistColorG) or 0,
+                                   (c and c.rotationAssistColorB) or 0
+                        end,
+                        setCustomRGB = function(r, g, b)
+                            local c = RotationBars()
+                            if c then
+                                c.rotationAssistColorR = r
+                                c.rotationAssistColorG = g
+                                c.rotationAssistColorB = b
+                            end
+                            if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+                        end,
+                        hasClassColor = true,
+                        onChange = function() EllesmereUI:RefreshPage() end,
+                        disabled = rotColorOff,
+                        disabledAlpha = 0.15,
+                    })
+                PP.Point(classSwatch, "RIGHT", colorRgn, "RIGHT", -20, 0)
+                PP.Point(swatch, "RIGHT", classSwatch, "LEFT", -8, 0)
+                PP.Point(defaultSwatch, "RIGHT", swatch, "LEFT", -8, 0)
+
+                local function UpdateRotSwatchMouse()
+                    local off = rotColorOff()
+                    swatch:EnableMouse(not off)
+                    defaultSwatch:EnableMouse(not off)
+                    classSwatch:EnableMouse(not off)
+                end
+                EllesmereUI.RegisterWidgetRefresh(UpdateRotSwatchMouse)
+                UpdateRotSwatchMouse()
+                colorRgn._captureCfg = {
+                    type = "multi", text = "Rotation Assist Color",
+                    accessors = {
+                        {
+                            type = "dropdown", text = "Rotation Assist Color Mode",
+                            values = { default = "Default", custom = "Custom", class = "Class Color" },
+                            order = { "default", "custom", "class" },
+                            getValue = function()
+                                local c = RotationBars()
+                                return (c and c.rotationAssistColorMode) or "default"
+                            end,
+                            setValue = function(mode)
+                                local c = RotationBars()
+                                if c then c.rotationAssistColorMode = mode end
+                                if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+                            end,
+                        },
+                        {
+                            type = "colorpicker", text = "Rotation Assist Custom Color",
+                            getValue = function()
+                                local c = RotationBars()
+                                return (c and c.rotationAssistColorR) or 1,
+                                       (c and c.rotationAssistColorG) or 0,
+                                       (c and c.rotationAssistColorB) or 0, 1
+                            end,
+                            setValue = function(r, g, b)
+                                local c = RotationBars()
+                                if c then
+                                    c.rotationAssistColorR = r
+                                    c.rotationAssistColorG = g
+                                    c.rotationAssistColorB = b
+                                end
+                                if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+                            end,
+                        },
+                    },
+                }
+            end
+        end
+
+        -- Thickness | Outset: built only for the styles that read them (see
+        -- RotRowsKey). Outset alone takes the left slot with a blank right slot.
+        local rotRows = RotRowsKey()
+        if rotRows > 0 then
+            local thicknessCfg = { type="slider", text="Rotation Assist Thickness", min=1, max=8, step=1, trackWidth=120,
+              tooltip="Thickness in physical pixels for Solid Border and Pixel Glow.",
+              getValue=function()
+                  local c = RotationBars(); return (c and c.rotationAssistThickness) or 3
+              end,
+              setValue=function(v)
+                  local c = RotationBars()
+                  if c then c.rotationAssistThickness = v end
+                  if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+              end }
+            local outsetCfg = { type="slider", text="Rotation Assist Outset", min=0, max=12, step=1, trackWidth=120,
+              tooltip="How many pixels the custom effect extends beyond the icon.",
+              getValue=function()
+                  local c = RotationBars(); return (c and c.rotationAssistOutset) or 1
+              end,
+              setValue=function(v)
+                  local c = RotationBars()
+                  if c then c.rotationAssistOutset = v end
+                  if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+              end }
+            if rotRows >= 2 then
+                _, h = W:DualRow(parent, y, thicknessCfg, outsetCfg);  y = y - h
+            else
+                _, h = W:DualRow(parent, y, outsetCfg, { type="label", text="" });  y = y - h
+            end
+        end
+
         -- Hide Items if Missing | Mirror Key Presses -- CD/utility bars only.
         -- Buff bars host Hide Items if Missing in the tooltip row above (their
         -- copy of this row would be empty), and Mirror Key Presses is not for
@@ -19092,7 +19340,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- above -- it takes the cooldown edge row's free slot where that row
         -- exists, and closes the section on its own for buff-family bars.
         local glowCombatCfg = { type="toggle", text="Show Glows Only in Combat (global)",
-              tooltip = "Hide every Cooldown Manager glow while you are out of combat: proc glows, active state, max stacks, buff and pandemic glows, cooldown ready glows and bar glows.\n\nThey come back the moment you enter combat, including a glow that started before the pull.\n\nApplies to every CDM bar and to the Tracking Bars at once. Glows from other EllesmereUI modules are not affected.\n\nThe Bar Glows page keeps its own per-mapping Only In Combat toggle; this one applies on top of it.",
+              tooltip = "Hide every Cooldown Manager glow out of combat and bring them all back the moment you enter combat.",
               getValue=function()
                   local p = DB()
                   return (p and p.cdmBars and p.cdmBars.glowsOnlyInCombat) == true
@@ -19104,8 +19352,18 @@ initFrame:SetScript("OnEvent", function(self)
                   -- Re-read the cached gate, then let the sweep take the running
                   -- glows down (or bring the suppressed ones back) right away
                   -- instead of waiting for the next combat edge.
+                  local first = v and ns._cdmGlowGateEverOn ~= true
                   if ns.RefreshGlowCombatGate then ns.RefreshGlowCombatGate() end
                   if ns.CDMGlowCombatSync then ns.CDMGlowCombatSync() end
+                  -- First enable of the session: glows lit before this point carry
+                  -- no record (StartNativeGlow records only once the gate has been
+                  -- on), so re-issue the bar and buff glows now -- they restart
+                  -- suppressed. Proc, CD-ready and preset glows already lit follow
+                  -- on their own next edge; every later login is exact from the start.
+                  if first then
+                      if ns.RequestBarGlowUpdate then ns.RequestBarGlowUpdate() end
+                      if ns.RefreshBuffGlows then ns.RefreshBuffGlows() end
+                  end
                   EllesmereUI:RefreshPage()
               end }
 
