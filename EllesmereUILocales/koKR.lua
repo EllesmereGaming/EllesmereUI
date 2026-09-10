@@ -7328,6 +7328,11 @@ L["Enable At Stacks"] = "중첩 도달 시 활성화"
 L["At Stacks"] = "설정 중첩"
 L["Glow at Stacks Comparisons"] = "중첩 시 반짝임 비교 조건"
 L["Select Talent"] = "특성 선택"
+L["Rotation Assist Style"] = "딜사이클 보조 스타일"
+L["Solid Border"] = "단색 테두리"
+L["Rotation Assist Thickness"] = "딜사이클 보조 두께"
+L["Rotation Assist Color"] = "딜사이클 보조 색상"
+L["Rotation Assist Outset"] = "딜사이클 보조 바깥쪽 여백"
 
 --핵심 애드온 - 재사용 대기시간 관리자 - 툴팁
 L["Hide every Cooldown Manager glow out of combat and bring them all back the moment you enter combat."] = "비전투 중에는 모든 쿨다운 관리자 반짝임 효과를 숨기고, 전투에 돌입하는 순간 모두 다시 표시합니다."
@@ -7335,6 +7340,9 @@ L["Replaces Buff Glow: the icon glows when its stack count matches the compariso
 L["Not available in Buff Missing mode"] = "강화 효과 누락 모드에서는 사용할 수 없습니다."
 L["Only glow once the buff's stack count matches the comparison set via the gear."] = "톱니바퀴 아이콘을 통해 설정한 비교 조건과 강화 효과의 중첩 수가 일치할 때만 반짝입니다."
 L["Hide every Cooldown Manager glow while you are out of combat: proc glows, active state, max stacks, buff and pandemic glows, cooldown ready glows and bar glows.\n\nThey come back the moment you enter combat, including a glow that started before the pull.\n\nApplies to every CDM bar and to the Tracking Bars at once. Glows from other EllesmereUI modules are not affected.\n\nThe Bar Glows page keeps its own per-mapping Only In Combat toggle; this one applies on top of it."] = "비전투 중일 때 재사용 대기시간 관리장치의 모든 반짝임 효과를 숨깁니다 (발동 반짝임, 활성 상태, 최대 중첩, 강화 효과 및 전염성 지속시간 반짝임, 재사용 대기시간 완료 반짝임, 바 반짝임).\n\n전투에 돌입하는 순간 전투 시작 전에 시작된 반짝임을 포함하여 다시 표시됩니다.\n\n모든 CDM 바와 추적 바에 일괄 적용됩니다. 다른 EllesmereUI 모듈의 반짝임은 영향을 받지 않습니다.\n\n'바 반짝임' 페이지에는 개별 매핑별 '전투 중에만 표시' 토글이 따로 유지되며, 이 설정은 그 위에 추가로 적용됩니다."
+L["How many pixels the custom effect extends beyond the icon."] = "사용자 지정 효과가 아이콘 바깥쪽으로 확장되는 픽셀 크기입니다."
+L["Thickness in physical pixels for Solid Border and Pixel Glow."] = "단색 테두리 및 픽셀 반짝임 효과의 물리적 픽셀 두께입니다."
+L["Choose the profile-wide border or glow used for Blizzard's Assisted Combat suggestion."] = "블리자드의 전투 보조 제안에 사용할, 프로필 전체에 적용될 테두리 또는 반짝임 효과를 선택합니다."
 
 --하우징 방문 메뉴 
 L["House"] = "집"
@@ -7433,6 +7441,34 @@ L["Include Spell History"] = "주문 사용 기록 포함"
 
 -- UI 모양 변경 - 대미지 미터기 - 툴팁
 L["Hide and show every damage meter window at once. The state is not saved; a reload restores the configured visibility.\n\nThe bound key is taken over while it is set. Use the cog to include the combat timer and Spell History.\n\nLeft-click to set a keybind.\nRight-click to unbind."] = "모든 미터기 창을 한 번에 숨기거나 표시합니다. 상태는 저장되지 않으며, UI를 재시작하면 설정된 표시 상태로 돌아갑니다.\n\n단축키가 설정되어 있는 동안에는 해당 키가 전용으로 사용됩니다. 톱니바퀴 아이콘을 눌러 전투 시간과 주문 기록을 포함하세요.\n\n좌클릭하여 단축키를 설정합니다.\n우클릭하여 단축키를 해제합니다."
+
+-- UI 모양 변경 - 대화 - 대화 말풍선
+L["Only works outside of Instances"] = "인스턴스 외부에서만 작동"
+L["Enable Chat Bubbles Customization"] = "대화 말풍선 사용자 설정 활성화"
+L["Chat Bubbles"] = "대화 말풍선"
+L["ollow Blizzard Default Color"] = "블리자드 기본 색상 따르기"
+L["Channels"] = "채널"
+L["Say"] = "일반"
+L["Yell"] = "외치기"
+L["Raid"] = "레이드"
+L["NPCs"] = "NPC"
+L["Emotes"] = "감정표현"
+L["Hide Chat Bubbles in Instances"] = "인스턴스 내부에서 말풍선 숨기기"
+L["Padding"] = "여백"
+L["Maximum Width"] = "최대 너비"
+L["Vertical Offset"] = "수직 위치 조정"
+
+-- UI 모양 변경 - 대화 - 대화 말풍선  - 툴팁
+L["Uses Blizzard's own raid switch, which it ships off. Ticking this turns that switch on, and it is put back the way you had it when you untick it or switch the feature off."] = "블리자드 자체 공격대 설정을 사용하며, 기본값은 꺼져 있습니다. 체크 시 해당 설정이 켜지며, 체크를 해제하거나 기능을 끄면 이전 설정 상태로 되돌아갑니다."
+L["Uses Blizzard's own party switch, independent of the other channels. Instance chat, the one an LFG or LFR group talks in, is covered here too."] = "다른 채널과 별개로 블리자드 자체 파티 설정을 사용합니다. 던전 찾기(LFG)나 공격대 찾기(LFR) 파티가 사용하는 인스턴스 대화도 이 설정의 적용을 받습니다."
+L["Restyle Blizzard's chat bubbles for the channels you pick beside this.\n\nEllesmereUI keeps Blizzard's bubbles switched on and draws over them, so every bubble stays where the game put it, including the one over your own head. Nameplates are not involved and do not need to be visible.\n\nChannels you leave off keep Blizzard's own look."] = "이 항목 옆에서 선택한 채널의 블리자드 대화 말풍선을 새롭게 꾸밉니다.\n\nEllesmereUI는 블리자드 말풍선을 켠 상태에서 그 위에 덧그리는 방식으로 작동하므로, 캐릭터 머리 위에 뜨는 말풍선을 포함해 게임이 배치한 원래 위치 그대로 유지됩니다. 이름표(네임플레이트)는 사용되지 않으며 표시될 필요도 없습니다.\n\n체크 해제한 채널은 블리자드 기본 외형을 유지합니다."
+L["Choose which channels get a bubble.\n\nSay, Yell, NPCs and Emotes share one Blizzard switch. It is turned on while at least one of the four is ticked, and put back the way you had it once you clear the last one. Party and Raid have switches of their own and start out matching what you already had, so no group bubbles turn up in a chat that had none.\n\nGuild is not offered: Blizzard draws no bubble for guild chat, and there is nothing for us to restyle."] = "말풍선을 표시할 채널을 선택합니다.\n\n일반, 외치기, NPC, 감정표현은 블리자드의 단일 스위치를 공유합니다. 넷 중 하나라도 체크되어 있으면 켜지고, 마지막 체크를 해제하면 원래 상태로 돌아갑니다. 파티와 공격대는 각각 개별 스위치가 있으며 기존 설정과 일치하는 상태로 시작되므로, 원래 없던 파티 채팅에 갑자기 말풍선이 나타나지 않습니다.\n\n길드 채널은 지원되지 않습니다. 블리자드가 길드 대화에는 말풍선을 만들지 않기 때문에 꾸밀 대상이 없습니다."
+L["Switch Blizzard's chat bubbles off for as long as you are inside a dungeon, raid, scenario or battleground, and back on the way out.\n\nEllesmereUI never restyles bubbles inside an instance: the game's bubble frames are off limits to addons there. This decides whether Blizzard's own are visible at all."] = "던전, 공격대, 시나리오 또는 전장에 있는 동안 블리자드 대화 말풍선을 끄고, 나올 때 다시 켭니다.\n\nEllesmereUI는 인스턴스 내부의 말풍선을 절대 꾸미지 않습니다. 인스턴스 안에서는 게임의 말풍선 프레임에 애드온이 접근할 수 없기 때문입니다. 이 설정은 인스턴스 안에서 블리자드 기본 말풍선을 아예 숨길지 여부를 결정합니다."
+L["Space between the text and the edge of the bubble."] = "텍스트와 말풍선 테두리 사이의 여백."
+L["Font size."] = "글꼴 크기."
+L["Draw a filled background behind the text and border. Off draws the text and border on their own."] = "텍스트와 테두리 뒤에 채워진 배경을 그립니다. 끄면 배경 없이 텍스트와 테두리만 표시됩니다."
+L["Border size. Set to 0 for no border."] = "테두리 크기입니다. 테두리를 없애려면 0으로 설정하세요."
+L["Nudge the bubble up or down from where the game put it. Zero sits exactly on Blizzard's own position, which is already over the speaker's head."] = "게임이 지정한 위치에서 말풍선을 위아래로 미세 조정합니다. 0으로 설정하면 화자의 머리 위에 위치하는 블리자드의 기본 위치에 정확히 고정됩니다."
 
 --UI 모양 변경 - 가방
 L["Show Clear Button"] = "초기화 버튼 표시"
