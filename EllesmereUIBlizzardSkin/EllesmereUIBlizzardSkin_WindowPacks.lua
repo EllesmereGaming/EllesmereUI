@@ -3756,6 +3756,10 @@ local function Skin_Guild()
             if tab then tab:SetAlphaFromBoolean(tab:IsEnabled(), 1, 0.5) end
         end
         WSkin.Restrip("guild")
+        -- The guild tabs are display-mode buttons, not PanelTemplates tabs, so
+        -- the engine's SetTab/UpdateTabs hooks never refresh their active
+        -- visual; the reopen pass has to (O(skinned tabs), one pass per show).
+        WSkin.UpdateAllTabs()
     end
     state.refreshGuild = WSkin.WindowCallback("guild", RefreshGuild)
     WSkin.HookShow(f, WSkin.Debounce(state.refreshGuild))

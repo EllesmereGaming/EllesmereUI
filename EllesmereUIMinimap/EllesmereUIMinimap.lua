@@ -3115,7 +3115,13 @@ end
 -- Hide the Blizzard originals so they never render or intercept clicks
 local function HideBlizzardIndicators()
     local tracking = MinimapCluster and MinimapCluster.Tracking
-    if tracking then tracking:SetAlpha(0); tracking:EnableMouse(false) end
+    if tracking then
+        tracking:SetAlpha(0); tracking:EnableMouse(false)
+        -- The click and tooltip scripts live on the child button, and a
+        -- parent's mouse state does not reach it: left enabled it is an
+        -- invisible hotspot at the cluster's corner.
+        if tracking.Button then tracking.Button:EnableMouse(false) end
+    end
     local gameTime = _G.GameTimeFrame
     if gameTime then gameTime:SetAlpha(0); gameTime:EnableMouse(false) end
     local indicator = MinimapCluster and MinimapCluster.IndicatorFrame
@@ -3632,7 +3638,10 @@ local function RestoreIndicatorFrames()
     end
     -- Restore Blizzard originals
     local tracking = MinimapCluster and MinimapCluster.Tracking
-    if tracking then tracking:SetAlpha(1); tracking:EnableMouse(true) end
+    if tracking then
+        tracking:SetAlpha(1); tracking:EnableMouse(true)
+        if tracking.Button then tracking.Button:EnableMouse(true) end
+    end
     local gameTime = _G.GameTimeFrame
     if gameTime then gameTime:SetAlpha(1); gameTime:EnableMouse(true) end
     local indicator = MinimapCluster and MinimapCluster.IndicatorFrame

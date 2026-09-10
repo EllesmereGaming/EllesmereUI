@@ -2597,7 +2597,7 @@ initFrame:SetScript("OnEvent", function(self)
                   end
               end },
             { type="toggle", text="Persistent Signup Note",
-              tooltip="Saves one signup note between reloads and relogs. In Group Finder, choose Copy, press Ctrl+C, then Ctrl+V.",
+              tooltip="Keeps a saved signup note you can copy into the Sign Up dialog with the Copy button.",
               getValue=function()
                   return EllesmereUIDB and EllesmereUIDB.persistSignupNote or false
               end,
@@ -2628,7 +2628,7 @@ initFrame:SetScript("OnEvent", function(self)
             noteCogTex:SetTexture(EllesmereUI.COGS_ICON)
             noteCogBtn:SetScript("OnEnter", function(self)
                 self:SetAlpha(0.7)
-                EllesmereUI.ShowWidgetTooltip(self, "Edit the signup note saved between reloads and relogs.")
+                EllesmereUI.ShowWidgetTooltip(self, "Edit the saved signup note.")
             end)
             noteCogBtn:SetScript("OnLeave", function(self)
                 self:SetAlpha(persistOff() and 0.15 or 0.4)

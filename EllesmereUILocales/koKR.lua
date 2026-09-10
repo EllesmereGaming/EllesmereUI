@@ -463,7 +463,6 @@ L["Soul Shard"] = "영혼의 조각"
 L["Source"] = "원천"   -- ShortLabel first word only <- Source of Magic (ShortLabel 첫 단어)
 L["Source of Magic"] = "마법의 원천"
 L["Spec"] = "전문화"
-L["Speed"] = "이동 속도"
 L["Spell"] = "주문"
 L["Spell Name"] = "주문 이름"
 L["Spell Target"] = "주문 대상"
@@ -3575,7 +3574,6 @@ L["Show Item Count"] = "아이템 개수 표시"
 L["Show Non-On Use Trinkets"] = "사용 효과 없는 장신구 표시"
 L["Show on Target"] = "대상에 표시"
 L["Silvermoon Health Potion"] = "실버문 생명력 물약"
-L["Spell ID"] = "주문 ID"
 L["Stack Count"] = "중첩 수"
 L["Stacks Text Settings"] = "중첩 글자 설정"
 L["Suppress GCD"] = "GCD 숨김"
@@ -3815,7 +3813,6 @@ L["GLOBAL"] = "전역"
 L["Icon ID always shown for this spell (empty removes)"] = "이 주문에 항상 표시할 아이콘 ID (비우면 제거)"
 L["Maximum of 5 thresholds."] = "임계값은 최대 5개입니다."
 L["Slot ID"] = "칸 ID"
-L["Stack Thresholds"] = "중첩 임계값"
 L["Syncing generic CDs/buffs across %d specs. Icon order is not synced -- each spec keeps its own arrangement."] = "전문화 %d개에서 공용 재사용 대기시간/강화 효과를 동기화합니다. 아이콘 순서는 동기화되지 않으며 전문화마다 배치를 유지합니다."
 L["The single stack threshold is off while Multiple Thresholds is on."] = "다중 임계값이 켜져 있으면 단일 중첩 임계값은 꺼집니다."
 L["This setting's active Apply to Bar (All Specs) value will be replaced."] = "이 설정의 현재 바에 적용 (모든 전문화) 값이 교체됩니다."
@@ -4270,7 +4267,6 @@ L["Ruins of Lordaeron"] = "로데론의 폐허"
 L["Seething Shore"] = "들끓는 해안"
 L["Select a talent..."] = "특성을 선택하세요..."
 L["Select Dungeon/Raid/PvP Zone"] = "던전/공격대/PvP 지역 선택"
-L["Select Talent"] = "특성 선택"
 L["Shadowform"] = "암흑의 형상"
 L["Shout"] = "외침"
 L["Show 'Not Needed' Reminder"] = "'필요 없음' 알림 표시"
@@ -7224,6 +7220,7 @@ L["Cast By You"] = "내가 시전함"
 L["From Any Player"] = "모든 플레이어"
 L["Can Apply Aura"] = "내가 시전 가능한 오라"
 L["Shown on Modifier"] = "조합키(Modifier) 사용 시 표시"
+L["Party Frames in Small Raids"] = "소규모 공격대 파티 프레임"
 
 --핵심 애드온 - 공격대 /파티 - 툴팁
 L["Shows the ping mark on a member's frame when someone pings them (needs Blizzard's Show Pings on Raid Frames setting on)."] = "누군가 파티원을 지정해 신호를 보내면 해당 파티원 프레임에 신호 표시를 나타냅니다 (블리자드 설정의 '공격대 프레임에 신호 표시' 기능이 켜져 있어야 합니다)."
@@ -7236,6 +7233,7 @@ L["Debuffs with the Poison dispel type."] = "독 해제 유형의 디바이스�
 L["Debuffs with the Disease dispel type."] = "질병 해제 유형의 디바이스입니다."
 L["Debuffs with the Bleed dispel type."] = "출혈 해제 유형의 디바이스입니다."
 L["Debuffs your own class is able to apply."] = "내 직업이 적용할 수 있는 디바이스입니다."
+L["In raid groups under 10 players, show group 1 as party frames and hide everyone else."] = "10인 미만 공격대에서 파티 1을 파티 프레임으로 표시하고 나머지는 숨깁니다."
 
 --핵심 애드온 - 행동단축바
 L["Skyriding (Airborne)"] = "하늘 경주 (비행 중)"
@@ -7332,6 +7330,7 @@ L["Glow at Stacks Comparisons"] = "중첩 시 반짝임 비교 조건"
 L["Select Talent"] = "특성 선택"
 
 --핵심 애드온 - 재사용 대기시간 관리자 - 툴팁
+L["Hide every Cooldown Manager glow out of combat and bring them all back the moment you enter combat."] = "비전투 중에는 모든 쿨다운 관리자 반짝임 효과를 숨기고, 전투에 돌입하는 순간 모두 다시 표시합니다."
 L["Replaces Buff Glow: the icon glows when its stack count matches the comparison below, using this spell's Buff Glow style (Modern WoW Glow if none is set)."] = "강화 효과 반짝임을 대체합니다. 지정한 주문의 강화 효과 반짝임 스타일(지정된 바가 없는 경우 최신 와우 반짝임 스타일 사용)을 활용하여, 중첩 수가 아래 비교 조건과 일치할 때 아이콘이 반짝입니다."
 L["Not available in Buff Missing mode"] = "강화 효과 누락 모드에서는 사용할 수 없습니다."
 L["Only glow once the buff's stack count matches the comparison set via the gear."] = "톱니바퀴 아이콘을 통해 설정한 비교 조건과 강화 효과의 중첩 수가 일치할 때만 반짝입니다."
@@ -7375,9 +7374,13 @@ L["Undo Last Marker"] = "마지막 징표 되돌리기"
 L["Clear All Markers"] = "모든 징표 지우기"
 
 --편의기능 - 편의기능 - 공격대 도구 - 툴팁
+L["Keeps a saved signup note you can copy into the Sign Up dialog with the Copy button."] = "복사 버튼을 눌러 신청 대화상자에 붙여넣을 수 있는 저장된 신청 메모를 유지합니다."
 L["Adds three optional world-marker keybinds that remain usable in combat. Place drops the first free marker at the cursor in Star to Skull order; Undo removes the last marker placed through Quick Fire; Clear removes all world markers. Every binding starts empty. Marker changes made elsewhere during combat are picked up afterward."] = "전투 중에도 사용할 수 있는 선택적 세계 징표 단축키 3개를 추가합니다. '놓기(Place)'는 별부터 해골 순서대로 커서 위치에 비어 있는 첫 번째 징표를 배치하고, '되돌리기(Undo)'는 퀵 파이어를 통해 마지막으로 배치한 징표를 제거하며, '지우기(Clear)'는 모든 세계 징표를 제거합니다. 모든 단축키는 처음에는 비어 있습니다. 전투 중에 다른 곳에서 변경된 징표는 전투가 끝난 후 반영됩니다."
 L["Shows the Role Check button in window layouts and enables Right Click: Role Check on Compact Band."] = "창 레이아웃에 역할 확인 버튼을 표시하고, 컴팩트 밴드(Compact Band)에서 우클릭 시 역할 확인 기능을 활성화합니다."
 L["Countdown length in seconds. Compact Band uses First with Ctrl + Left Click, Second with Shift + Left Click, Third with Left Click, and Right Click stops the timer. Set a timer to 0 to disable that shortcut."] = "초 단위의 카운트다운 길이입니다. 컴팩트 밴드(Compact Band)는 Ctrl + 좌클릭 시 첫 번째, Shift + 좌클릭 시 두 번째, 그냥 좌클릭 시 세 번째 타이머가 작동하며, 우클릭하면 타이머가 중지됩니다. 해당 단축키를 비활성화하려면 타이머를 0으로 설정하세요."
+
+-- 편의기능 - 빠른 실행
+L["Interface Panels"] = "인터페이스 패널"
 
 --편의 기능 - 데이터 바
 L["Combat Status"] = "전투 상태"
@@ -7389,7 +7392,7 @@ L["Match Mode"] = "일치 조건 방식"
 L["Match All Conditions"] = "모든 조건 일치"
 L["Match Any Condition"] = "아무 조건이나 일치"
 
---편의 기능 - 커서
+--편의 기능 -  편의기능 - 커서
 L["Center Reticle"] = "중앙 십자선 점"
 L["Adds a small filled dot at the center of the cursor circle. Uses the same color and opacity as the circle."] = "커서 원 중앙에 작은 채워진 점을 추가합니다. 원과 동일한 색상 및 투명도가 적용됩니다."
 L["Crosshair Frame Strata"] = "십자선 프레임 레이어 층"
@@ -7421,12 +7424,15 @@ L["Range Fade Settings"] = "사거리 흐려짐 설정"
 L["Raid Target Marker"] = "공격대 징표"
 L["Important Cast Glow Settings"] = "중요 시전 반짝임 설정"
 
---UI 모양 변경 - 데미지창
+--UI 모양 변경 - 데미지 미터기
 L["Outfits"] = "복장"
 L["Show/Hide Windows Keybind"] = "창 표시/숨기기 단축키"
 L["Keybind Scope"] = "단축키 적용 범위"
 L["Include Combat Timer"] = "전투 시간 포함"
 L["Include Spell History"] = "주문 사용 기록 포함"
+
+-- UI 모양 변경 - 대미지 미터기 - 툴팁
+L["Hide and show every damage meter window at once. The state is not saved; a reload restores the configured visibility.\n\nThe bound key is taken over while it is set. Use the cog to include the combat timer and Spell History.\n\nLeft-click to set a keybind.\nRight-click to unbind."] = "모든 미터기 창을 한 번에 숨기거나 표시합니다. 상태는 저장되지 않으며, UI를 재시작하면 설정된 표시 상태로 돌아갑니다.\n\n단축키가 설정되어 있는 동안에는 해당 키가 전용으로 사용됩니다. 톱니바퀴 아이콘을 눌러 전투 시간과 주문 기록을 포함하세요.\n\n좌클릭하여 단축키를 설정합니다.\n우클릭하여 단축키를 해제합니다."
 
 --UI 모양 변경 - 가방
 L["Show Clear Button"] = "초기화 버튼 표시"

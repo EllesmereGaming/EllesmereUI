@@ -6866,7 +6866,7 @@ end
         nameText:SetJustifyH(jh)
         nameText:SetPoint(pt, bar, pt, xb + (cb.spellTextX or 0), cb.spellTextY or 0)
         if spellSide == "center" then
-            nameText:SetWidth(barW * 0.6)
+            nameText:SetWidth(barW - 8 - (cb.showTimer and 2 * timerW or 0))
         else
             nameText:SetWidth(barW - 8 - (cb.showTimer and timerW or 0))
         end
@@ -6998,7 +6998,11 @@ ShowChannelTicks = function(spellID)
         --                       a recast begun BEFORE the old channel ended
         --                       (proc-driven chaining) inherits the outgoing
         --                       cast's rhythm: its first mark lands where the
-        --                       old cadence's next tick was due. Haste and
+        --                       old cadence's next tick was due, and the
+        --                       channel runs carry + N intervals, so the
+        --                       interval is the window AFTER the carry over N
+        --                       (dividing the whole window stretches every
+        --                       later mark late by carry/N). Haste and
         --                       whole-cast talents are absorbed by working in
         --                       fractions of the ACTUAL duration; only
         --                       interval-only modifiers change N.
@@ -7010,7 +7014,6 @@ ShowChannelTicks = function(spellID)
                 if tickData.modSpell and IsPlayerSpell(tickData.modSpell) then
                     N = tickData.modIntervalCount or N
                 end
-                local interval = dur / N
                 local startT = castBarFrame._startTime
                 -- Chain carry is computed ONCE per cast and cached: duration
                 -- updates re-enter here for the same cast, and re-starts
@@ -7028,11 +7031,19 @@ ShowChannelTicks = function(spellID)
                     castBarFrame._cadCarry = carry
                     castBarFrame._cadStart = startT
                 end
-                -- Bank this cast's cadence for a possible chain into the next.
+                local carry = castBarFrame._cadCarry or 0
+                local interval = (dur - carry) / N
+                if interval <= 0.01 then
+                    carry = 0
+                    interval = dur / N
+                end
+                -- Bank this cast's TRUE cadence for a possible chain into the
+                -- next: a chained cast's whole window over N is not its
+                -- interval, and banking it would misplace a chain of chains.
                 castBarFrame._cadPrevEnd = castBarFrame._endTime
                 castBarFrame._cadPrevInterval = interval
                 positions = {}
-                local t = castBarFrame._cadCarry or 0
+                local t = carry
                 if t < 0.01 then t = interval end
                 while t < dur - interval * 0.05 and #positions < 12 do
                     positions[#positions + 1] = t / dur

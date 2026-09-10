@@ -733,6 +733,7 @@ initFrame:SetScript("OnEvent", function(self)
     local function AWhere() local a = ADB(); if not a then return nil end; a.whereToShow = a.whereToShow or {}; return a.whereToShow end
     local function CWhere() local c = CDB(); if not c then return nil end; c.whereToShow = c.whereToShow or {}; return c.whereToShow end
     local function CSpecialWhere() local c = CDB(); if not c then return nil end; c.specialsWhereToShow = c.specialsWhereToShow or {}; return c.specialsWhereToShow end
+    local function CWarlockWhere() local c = CDB(); if not c then return nil end; c.warlockWhereToShow = c.warlockWhereToShow or {}; return c.warlockWhereToShow end
     local function RShowWhen() local r = RDB(); if not r then return nil end; r.showWhen = r.showWhen or {}; return r.showWhen end
 
     -- Shared reminder-sound catalogue (built + LSM-populated by the QoL
@@ -1676,6 +1677,12 @@ initFrame:SetScript("OnEvent", function(self)
         -----------------------------------------------------------------------
         local warlockHdr
         warlockHdr, h = W:SectionHeader(parent, SECTION_WARLOCK, y);  y = y - h
+
+        _, h = SectionControlRow(parent, y, {
+            whereStore = CWarlockWhere,
+            whereTooltip = "Pick which content these Warlock reminders appear in.\nRested areas (cities and inns) always stay hidden.",
+            onChange = RefreshAll,
+        });  y = y - h
 
         local WARLOCK_PET_ITEMS = {}
         for _, pet in ipairs(_G._EABR_WARLOCK_PETS or {}) do

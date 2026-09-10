@@ -2306,11 +2306,13 @@ function ns.DMP_RefreshPreview()
         return fr
     end
 
-    -- One icon run (the base grid or an icon-container tile). Base style
-    -- (zoom/border/swipe/duration/stacks) applies to both, matching the
-    -- live renderer where icon tiles inherit the base debuff style.
+    -- One icon run (the base grid or an icon-container tile). Display keys
+    -- (zoom/border/swipe/duration/stacks) resolve through cfg.sv: the base
+    -- profile for the base grid, the tile's inherit-until-set view for a
+    -- tile -- the same view the live renderer styles that tile with.
     local function RenderRun(cfg)
         if cfg.count <= 0 then return end
+        local sv = cfg.sv or p
         local anchor = string.upper(cfg.pos or "center")
         local sz = cfg.size or 18
         local gap = cfg.spacing or 1
@@ -2370,14 +2372,14 @@ function ns.DMP_RefreshPreview()
                     cfg.color.b or 0.35, cfg.color.a or 1)
             else
                 fr._tex:SetTexture(SampleDebuffTexture(i))
-                local z = p.debuffIconZoom or 0.08
+                local z = sv.debuffIconZoom or 0.08
                 fr._tex:SetTexCoord(z, 1 - z, z, 1 - z)
             end
             fr:SetAlpha(cfg.alpha)
             if fr._borderFrame and PP then
-                local bsz = p.debuffBorderSize or 1
+                local bsz = sv.debuffBorderSize or 1
                 if bsz > 0 then
-                    local bc = p.debuffBorderColor or { r = 0, g = 0, b = 0 }
+                    local bc = sv.debuffBorderColor or { r = 0, g = 0, b = 0 }
                     PP.UpdateBorder(fr._borderFrame, bsz, bc.r or 0, bc.g or 0, bc.b or 0, 1)
                     fr._borderFrame:Show()
                 else
@@ -2386,8 +2388,8 @@ function ns.DMP_RefreshPreview()
             end
             local cd = fr._cooldown
             if cd then
-                local wantSwipe = p.debuffShowSwipe ~= false
-                local wantDurText = p.debuffShowDurText and true or false
+                local wantSwipe = sv.debuffShowSwipe ~= false
+                local wantDurText = sv.debuffShowDurText and true or false
                 if wantSwipe or wantDurText then
                     -- Randomized FROZEN sweep: stable per-slot fraction on an hour-long
                     -- cooldown, so the preview shows varied mid-flight states without
@@ -2406,12 +2408,12 @@ function ns.DMP_RefreshPreview()
                     end
                     if wantDurText then
                         local dt = fr._pvDurText
-                        local dtc = p.debuffDurTextColor or { r = 1, g = 1, b = 1 }
-                        EllesmereUI.ApplyIconTextFont(dt, fontPath, p.debuffDurTextSize or 10, "raidFrames")
+                        local dtc = sv.debuffDurTextColor or { r = 1, g = 1, b = 1 }
+                        EllesmereUI.ApplyIconTextFont(dt, fontPath, sv.debuffDurTextSize or 10, "raidFrames")
                         dt:SetTextColor(dtc.r or 1, dtc.g or 1, dtc.b or 1)
                         dt:ClearAllPoints()
                         dt:SetPoint("CENTER", fr, "CENTER",
-                            p.debuffDurTextOffsetX or 0, p.debuffDurTextOffsetY or 0)
+                            sv.debuffDurTextOffsetX or 0, sv.debuffDurTextOffsetY or 0)
                         dt:SetText(tostring(math.floor(3 + seed * 17)))
                         dt:Show()
                     else
@@ -2423,13 +2425,13 @@ function ns.DMP_RefreshPreview()
                 end
             end
             if fr._count then
-                if p.debuffShowStacks ~= false then
-                    local sc = p.debuffStacksTextColor or { r = 1, g = 1, b = 1 }
-                    EllesmereUI.ApplyIconTextFont(fr._count, fontPath, p.debuffStacksTextSize or 11, "raidFrames")
+                if sv.debuffShowStacks ~= false then
+                    local sc = sv.debuffStacksTextColor or { r = 1, g = 1, b = 1 }
+                    EllesmereUI.ApplyIconTextFont(fr._count, fontPath, sv.debuffStacksTextSize or 11, "raidFrames")
                     fr._count:SetTextColor(sc.r or 1, sc.g or 1, sc.b or 1)
                     fr._count:ClearAllPoints()
                     fr._count:SetPoint("BOTTOMRIGHT", fr, "BOTTOMRIGHT",
-                        p.debuffStacksOffsetX or -1, p.debuffStacksOffsetY or 2)
+                        sv.debuffStacksOffsetX or -1, sv.debuffStacksOffsetY or 2)
                     fr._count:SetText("3")
                 else
                     -- Only the stacks-on branch ever fonts this FontString: a
@@ -2499,6 +2501,8 @@ function ns.DMP_RefreshPreview()
             if t.type == "icons" or t.type == "square" then
                 RenderRun({
                     selKey = t.id,
+                    -- Tile Display values: the tile's own keys over the base (nil = inherit).
+                    sv = (ns.DM_TileStyleView and ns.DM_TileStyleView(p, t)) or p,
                     count = math.min(t.cap or 3, (sel or allVis) and 4 or 2),
                     size = t.size or 18,
                     spacing = t.spacing or 1,
