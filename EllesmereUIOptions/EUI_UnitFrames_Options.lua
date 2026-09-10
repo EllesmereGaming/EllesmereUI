@@ -360,6 +360,126 @@ initFrame:SetScript("OnEvent", function(self)
         boss         = "Boss",
     }
 
+    ---------------------------------------------------------------------------
+    --  Frame Border for the units without one of their own: Player/Target/Focus
+    --  get theirs in BuildSharedSettings, whose dropdown only offers those
+    --  three. Boss/Pet/ToT/Focus Target write straight into their own data
+    --  table rather than through selectedUnit-bound SGet/SSet, matching how the
+    --  rest of those pages already read and write db.profile.
+    ---------------------------------------------------------------------------
+    local function BuildMainBorderSection(W, parent, y, dataTable)
+        local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
+        local h
+        local borderRow
+        borderRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Border Style", values=texValues, order=texOrder,
+              getValue=function() return dataTable.borderTexture or "solid" end,
+              setValue=function(v)
+                  dataTable.borderTexture = v
+                  dataTable.borderTextureOffset = nil
+                  dataTable.borderTextureOffsetY = nil
+                  dataTable.borderTextureShiftX = nil
+                  dataTable.borderTextureShiftY = nil
+                  local color, behind = EllesmereUI.GetBorderStyleSelectDefaults(v)
+                  dataTable.borderColor = color
+                  dataTable.borderAlpha = 1
+                  dataTable.borderBehind = behind
+                  local defSz = EllesmereUI.GetBorderDefaultSize("unitframes", v)
+                  if defSz then dataTable.borderSize = defSz end
+                  ReloadAndUpdate()
+              end },
+            { type="slider", text="Border Size",
+              min=0, max=4, step=1, trackWidth=120,
+              getValue=function() return dataTable.borderSize or 1 end,
+              setValue=function(v) dataTable.borderSize = v; ReloadAndUpdate() end })
+        y = y - h
+
+        if not EllesmereUI._prebuilding then
+            local rgn = borderRow._leftRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Border Offset",
+                rows = {
+                    { type = "slider", label = "Offset X", min = -10, max = 10, step = 1,
+                      get = function()
+                          local v = dataTable.borderTextureOffset
+                          if v then return v end
+                          local dox = EllesmereUI.GetBorderDefaults("unitframes", dataTable.borderTexture or "solid", dataTable.borderSize or 1)
+                          return dox
+                      end,
+                      set = function(v) dataTable.borderTextureOffset = v; ReloadAndUpdate() end },
+                    { type = "slider", label = "Offset Y", min = -10, max = 10, step = 1,
+                      get = function()
+                          local v = dataTable.borderTextureOffsetY
+                          if v then return v end
+                          local _, doy = EllesmereUI.GetBorderDefaults("unitframes", dataTable.borderTexture or "solid", dataTable.borderSize or 1)
+                          return doy
+                      end,
+                      set = function(v) dataTable.borderTextureOffsetY = v; ReloadAndUpdate() end },
+                    { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
+                      get = function()
+                          local v = dataTable.borderTextureShiftX
+                          if v then return v end
+                          local _, _, dsx = EllesmereUI.GetBorderDefaults("unitframes", dataTable.borderTexture or "solid", dataTable.borderSize or 1)
+                          return dsx
+                      end,
+                      set = function(v) dataTable.borderTextureShiftX = v == 0 and nil or v; ReloadAndUpdate() end },
+                    { type = "slider", label = "Shift Y", min = -10, max = 10, step = 1,
+                      get = function()
+                          local v = dataTable.borderTextureShiftY
+                          if v then return v end
+                          local _, _, _, dsy = EllesmereUI.GetBorderDefaults("unitframes", dataTable.borderTexture or "solid", dataTable.borderSize or 1)
+                          return dsy
+                      end,
+                      set = function(v) dataTable.borderTextureShiftY = v == 0 and nil or v; ReloadAndUpdate() end },
+                    { type = "toggle", label = "Show Behind",
+                      get = function() return dataTable.borderBehind or false end,
+                      set = function(v) dataTable.borderBehind = v; ReloadAndUpdate(); EllesmereUI:RefreshPage() end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints()
+            cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
+            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+            cogBtn:SetAlpha(0.4)
+            local function UpdateCogVis()
+                local tex = dataTable.borderTexture or "solid"
+                if tex == "solid" then cogBtn:Hide() else cogBtn:Show() end
+            end
+            EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
+            UpdateCogVis()
+        end
+
+        if not EllesmereUI._prebuilding then
+            local rgn = borderRow._rightRegion
+            local ctrl = rgn._control
+            local PP = EllesmereUI.PP
+            local borderSwatch, updateBorderSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, borderRow:GetFrameLevel() + 3,
+                function()
+                    local c = dataTable.borderColor or { r = 0, g = 0, b = 0 }
+                    return c.r, c.g, c.b, dataTable.borderAlpha or 1
+                end,
+                function(r, g, b, a)
+                    dataTable.borderColor = { r=r, g=g, b=b }
+                    dataTable.borderAlpha = a
+                    ReloadAndUpdate()
+                end,
+                true, 20)
+            PP.Point(borderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            borderSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(borderSwatch, "Border") end)
+            borderSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
+        end
+
+        return borderRow, y
+    end
 
     ---------------------------------------------------------------------------
     --  Health display dropdown values
@@ -2387,9 +2507,10 @@ initFrame:SetScript("OnEvent", function(self)
                 for i = 1, #debuffIcons do ApplyPreviewAuraBorder(debuffIcons[i]) end
             end
 
-            -- Donor settings for mini frames (border/texture inherit from
-            -- focus/target/player; text SIZES are the unit's own -- see
-            -- ApplyPreviewTextPositions)
+            -- Donor settings for mini frames (health bar texture inherits from
+            -- focus/target/player, no per-unit control for that; text SIZES and
+            -- border are the unit's own -- see ApplyPreviewTextPositions and the
+            -- border application below)
             local isMini = (unitKey == "pet" or unitKey == "boss" or unitKey == "targettarget" or unitKey == "focustarget")
             local ds = s
             if isMini then
@@ -2681,7 +2802,8 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Text sizes deliberately NOT donor-sourced (see the function):
             -- live frames read the unit's own size keys, and these pages all
-            -- carry their own size cogs. ds keeps serving border/texture.
+            -- carry their own size cogs. ds still serves health bar texture
+            -- (no per-unit control for that); border now reads `s` directly.
             ApplyPreviewTextPositions(s)
 
             -- Resize barArea to health+power area (+ above pips if active)
@@ -3076,16 +3198,19 @@ initFrame:SetScript("OnEvent", function(self)
                 end
             end
 
-            -- Border size and color (encompasses health+power+BTB+above pips)
-            local bs = ds.borderSize or 1
-            local bc = ds.borderColor or { r = 0, g = 0, b = 0 }
-            local bTexKey = ds.borderTexture or "solid"
+            -- Border size and color (encompasses health+power+BTB+above pips).
+            -- The unit's own settings, not the mini-frame donor (`ds`) -- border
+            -- is no longer donor-only now that Boss/Pet/ToT/FoT have their own
+            -- Frame Border section.
+            local bs = s.borderSize or 1
+            local bc = s.borderColor or { r = 0, g = 0, b = 0 }
+            local bTexKey = s.borderTexture or "solid"
             local borderH = bh2 + (s.bottomTextBar and btbIsAtt and (s.bottomTextBarHeight or 16) or 0)
             border:ClearAllPoints()
             border:SetPoint("TOPLEFT", barArea, "TOPLEFT", 0, 0)
             border:SetPoint("TOPRIGHT", barArea, "TOPRIGHT", 0, 0)
             border:SetHeight(borderH)
-            EllesmereUI.ApplyBorderStyle(border, bs, bc.r, bc.g, bc.b, ds.borderAlpha or 1, bTexKey, ds.borderTextureOffset, ds.borderTextureOffsetY, ds.borderTextureShiftX, ds.borderTextureShiftY, "unitframes", bs)
+            EllesmereUI.ApplyBorderStyle(border, bs, bc.r, bc.g, bc.b, s.borderAlpha or 1, bTexKey, s.borderTextureOffset, s.borderTextureOffsetY, s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", bs)
 
             -- Class Power Pips update (player only)
             if cpPipContainer and cpPips then
@@ -3688,11 +3813,13 @@ initFrame:SetScript("OnEvent", function(self)
             local combinedScale = baseScale * fitScale
             pf:SetScale(combinedScale)
 
-            -- Recalculate border sizes after scale change so they stay pixel-perfect
+            -- Recalculate border sizes after scale change so they stay pixel-perfect.
+            -- Unit's own settings, not the mini-frame donor (`ds`) -- see the
+            -- matching note on the first border application above.
             if border then
-                local bs2 = ds.borderSize or 1
-                local bTex2 = ds.borderTexture or "solid"
-                EllesmereUI.ApplyBorderStyle(border, bs2, (ds.borderColor or {r=0,g=0,b=0}).r, (ds.borderColor or {r=0,g=0,b=0}).g, (ds.borderColor or {r=0,g=0,b=0}).b, ds.borderAlpha or 1, bTex2, ds.borderTextureOffset, ds.borderTextureOffsetY, ds.borderTextureShiftX, ds.borderTextureShiftY, "unitframes", bs2)
+                local bs2 = s.borderSize or 1
+                local bTex2 = s.borderTexture or "solid"
+                EllesmereUI.ApplyBorderStyle(border, bs2, (s.borderColor or {r=0,g=0,b=0}).r, (s.borderColor or {r=0,g=0,b=0}).g, (s.borderColor or {r=0,g=0,b=0}).b, s.borderAlpha or 1, bTex2, s.borderTextureOffset, s.borderTextureOffsetY, s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", bs2)
             end
             if castbar then
                 if PP.GetBorders(castbar) then PP.SetBorderSize(castbar, 1) end
@@ -12840,22 +12967,19 @@ initFrame:SetScript("OnEvent", function(self)
                 { type="label", text="" });  y = y - h
         end
 
-        -- DISPLAY bottom row: per-frame Border Size override for ToT/Focus Target/Pet.
-        -- Size only, no color/texture (those still inherit from main frames);
-        -- borderSizeOverride nil = inherit donor size until set. Boss frames excluded (not mini frames).
+        -- DISPLAY bottom row: this unit's own Frame Border (Style/Size/etc) --
+        -- shared across every caller of BuildMiniTextAndSize (Boss included),
+        -- so it always lands right under DISPLAY, before Health Bar or
+        -- Buffs and Debuffs, instead of at the end of the page.
+        _, y = BuildMainBorderSection(W, parent, y, settingsTable)
+
         if unitKey ~= "boss" then
             _, h = W:DualRow(parent, y,
-                { type="slider", text="Border Size", min=0, max=4, step=1,
-                  tooltip="Overrides the border size from the main frames for this frame only. Border color and texture still follow the main frames.",
-                  getValue=function()
-                      local donor = GetMiniDonorSettings()
-                      return settingsTable.borderSizeOverride or (donor and donor.borderSize) or 1
-                  end,
-                  setValue=function(v) settingsTable.borderSizeOverride = v; ReloadAndUpdate() end },
                 { type="toggle", text="Show Highlight Border",
                   tooltip="Show the main frames' hover highlight border on this frame. Turn off so this frame never recolors on mouseover. No effect when Highlight is off in the main frames' Hover Borders.",
                   getValue=function() return settingsTable.showHighlightBorder ~= false end,
-                  setValue=function(v) settingsTable.showHighlightBorder = v end });  y = y - h
+                  setValue=function(v) settingsTable.showHighlightBorder = v end },
+                { type="label", text="" });  y = y - h
         end
 
         -- Optional extra rows after enable (e.g. portrait, cast icon, indicators)
@@ -14282,7 +14406,8 @@ initFrame:SetScript("OnEvent", function(self)
                 if disabledFn then EllesmereUI.RegisterWidgetRefresh(applyCogState) end
                 return cogBtn
             end
-            -- BUFFS AND DEBUFFS section (below DISPLAY)
+            -- BUFFS AND DEBUFFS section (below DISPLAY; Frame Border already
+            -- built by BuildMiniTextAndSize's shared DISPLAY-bottom row)
             bossAuraHeader, hh = Ww:SectionHeader(pp, "Buffs and Debuffs", yy);  yy = yy - hh
 
             -- Effective boss aura locations: Simple display overrides the stored
