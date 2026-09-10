@@ -762,11 +762,12 @@ local function StartFlipBookGlow(wrapper, szOrW, entry, cr, cg, cb, szH, opts)
     end
 
     -- Soft outer halo: matches the halo StartButtonGlow draws behind its ants.
-    -- Keyed on the CALL (opts.abgHalo -- set only by StartEngineGlow's Action
-    -- Button Glow substitution), never on the shared style entry: a direct
-    -- Classic WoW Glow pick and the RestrictionSafeStyle Pixel remap keep
-    -- their own bare-ants look, while the ABG stand-in matches the real
-    -- thing instead of rendering visibly thinner.
+    -- Keyed on the CALL (opts.abgHalo), never on the shared style entry, so
+    -- each caller of this IconAlertAnts texture opts in independently: the two
+    -- direct Classic WoW Glow picks now pass it (bare ants did not match real
+    -- proc glow) and the Action Button Glow stand-in always has.
+    -- RestrictionSafeStyle's Pixel remap never sets it and stays bare -- it is
+    -- a fallback for a driver-based style, not Classic WoW Glow.
     if opts and opts.abgHalo then
         if not d.halo then
             local haloTex = wrapper:CreateTexture(nil, "OVERLAY", nil, 6)
