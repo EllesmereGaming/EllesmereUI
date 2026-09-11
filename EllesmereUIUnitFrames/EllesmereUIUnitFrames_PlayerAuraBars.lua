@@ -2337,7 +2337,7 @@ local function CreateBars()
     if not AK then return end -- 12.1 gated at file top; defensive only
 
     local s = PAB()
-    if not s then return end -- ns.db not ready yet; TryCreateBars() below retries
+    if not s then return end -- ns.db not ready yet; SetupOptionsPanel calls back once it is
 
     -- Master enable, default OFF: nothing below runs while disabled -- Blizzard's
     -- BuffFrame/DebuffFrame stay untouched, no containers, no unlock elements, options
@@ -2723,7 +2723,7 @@ end
 -- spec-level (class toggles, grid: iconsPerRow/maxRows/padding/maxBuffs-or-Debuffs,
 -- grow direction). Applies to ONE polarity's container; callers touching a shared
 -- field (iconSize) call it for both. No-op before the container exists
--- (TryCreateBars calls CreateBars() once ns.db is ready).
+-- (SetupOptionsPanel calls CreateBars() once ns.db is ready).
 local function ApplyLiveConfig(isBuff)
     local s = PAB()
     if not (AK and s) then return end
@@ -4205,7 +4205,7 @@ function ns.PAB_ReloadCustomDebuffBar(barId)
     if PAB_MaybeRefreshPreview then PAB_MaybeRefreshPreview("debuff", barId) end
 end
 
--- Rebuilds every persisted custom bar's engine state. Called once from TryCreateBars
+-- Rebuilds every persisted custom bar's engine state. Called once from CreateBars
 -- alongside the default bars, and safe to call again any time (profile switch, spec
 -- change): both reload functions above are idempotent no-ops when nothing changed.
 -- Iterates the legacy arrays AND every editing-spec bucket -- each per-bar reload
@@ -5558,36 +5558,11 @@ end
 --  Lifecycle
 -------------------------------------------------------------------------------
 
--- ns.db is set by EllesmereUIUnitFrames.lua's SetupOptionsPanel(), which
--- EnableBody() only schedules via C_Timer.After(0, SetupOptionsPanel) -- one frame
--- AFTER PLAYER_LOGIN's handlers finish. A single PLAYER_LOGIN listener here would run
--- BEFORE ns.db exists (confirmed: PAB() returned nil at that point). Rather than
--- depend on the exact relative timing between two independent C_Timer.After(0, ...)
--- calls in different files, retry with a capped, gently backing-off timer until ns.db
--- is actually populated.
-local RETRY_CAP = 40 -- ~ a few seconds worst case at the backed-off interval; then give up loudly
-local retryCount = 0
-
-local function TryCreateBars()
-    -- Module-disabled stand-down: EnableBody stamps ns._eufEnabled before this
-    -- handler can run (same PLAYER_LOGIN dispatch, parent enable-drain first,
-    -- module router second, this file's handler third). No stamp = the Unit
-    -- Frames module is off this session, ns.db will never arrive, and erroring
-    -- would spam every login for users who simply disabled the module.
-    if not ns._eufEnabled then return end
-    if PAB() then
-        CreateBars()
-        return
-    end
-    retryCount = retryCount + 1
-    if retryCount > RETRY_CAP then
-        geterrorhandler()("EllesmereUIUnitFrames_PlayerAuraBars: ns.db never became "
-            .. "available after " .. RETRY_CAP .. " retries -- Player Aura Bars did not load.")
-        return
-    end
-    C_Timer.After(0, TryCreateBars)
-end
-
+-- Login build: EllesmereUIUnitFrames.lua's SetupOptionsPanel() calls this once it
+-- has set ns.db. A PLAYER_LOGIN listener here needed EnableBody's handler to run
+-- first and stood down silently otherwise (field: Blizzard buffs up, no custom
+-- bars until an options change). A disabled Unit Frames module never runs
+-- SetupOptionsPanel, so PAB stays down with no extra check.
 ns.PAB_CreateBars = CreateBars
 
 function ns.PAB_Enabled()
@@ -5873,20 +5848,10 @@ local function ReapplyAllAfterCinematic()
     end)
 end
 
+-- Registers nothing itself: CreateBars calls ns.PAB_ArmRecovery() once it has
+-- confirmed the module is enabled -- login build and live enable both.
 local initFrame = CreateFrame("Frame")
-initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self, event)
-    if event == "PLAYER_LOGIN" then
-        self:UnregisterEvent("PLAYER_LOGIN")
-        TryCreateBars()
-        -- NOTE: recovery events are NOT registered here. ns.db is routinely
-        -- absent during this same PLAYER_LOGIN dispatch (that is what
-        -- TryCreateBars' retry loop exists for), so an enabled check taken
-        -- synchronously reads nil and skips registration for enabled users.
-        -- CreateBars calls ns.PAB_ArmRecovery() once it has confirmed the
-        -- module is enabled -- login retry path and live enable both.
-        return
-    end
     if event == "PLAYER_ENTERING_WORLD" then
         if vehicleHidden then
             local probe = UnitUsingVehicle or UnitInVehicle
@@ -5925,9 +5890,8 @@ initFrame:SetScript("OnEvent", function(self, event)
 end)
 
 -- Called by CreateBars once it has passed its own enabled check -- the only
--- point where "PAB is actually running" is known to be true (at PLAYER_LOGIN
--- ns.db may not exist yet; see the login handler note above). Idempotent:
--- CreateBars can run more than once per session (login retry, live enable).
+-- point where "PAB is actually running" is known to be true. Idempotent:
+-- CreateBars can run more than once per session (login build, live enable).
 local recoveryArmed = false
 function ns.PAB_ArmRecovery()
     if recoveryArmed then return end
