@@ -18,5 +18,6 @@ EllesmereUICdmBuffBars.lua
 EllesmereUICdmTbbDecimals.lua
 EllesmereUICdmFakeActive.lua
 EllesmereUICdmRPTSync.lua
+EllesmereUICdmAuraSounds.lua
 
 # Options
