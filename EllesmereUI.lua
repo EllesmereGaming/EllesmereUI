@@ -10251,6 +10251,23 @@ function EllesmereUI:RefreshPage(force)
         scrollFrame:SetVerticalScroll(restored)
         UpdateScrollThumb()
     end
+    -- The rebuilt wrapper is unfiltered while the search box still holds its text (a
+    -- section-gate toggle clicked under a live search): re-apply the query so the page
+    -- stays filtered. Highlights are skipped, like the box's own immediate pass.
+    local sbox = tabBar and tabBar._searchBox
+    local sq = sbox and sbox:GetText() or ""
+    if sq ~= "" then
+        EllesmereUI:ApplyInlineSearch(sq, true)
+        -- The filter pass scrolls to the top (its keystroke behaviour); put the user
+        -- back where the click happened, clamped to the filtered range.
+        if scrollFrame then
+            local maxFiltered = EllesmereUI.SafeScrollRange(scrollFrame)
+            local back = math.min(savedScroll, maxFiltered)
+            scrollTarget = back
+            scrollFrame:SetVerticalScroll(back)
+            UpdateScrollThumb()
+        end
+    end
 end
 
 -- Consume a rebuild that was requested while the panel was hidden (see the deferral
@@ -10802,7 +10819,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.1.7"
+EllesmereUI.VERSION = "9.1.8"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end

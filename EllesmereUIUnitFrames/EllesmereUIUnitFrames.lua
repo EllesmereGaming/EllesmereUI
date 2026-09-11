@@ -9332,9 +9332,16 @@ local function ReloadFrames()
     end
 
     for unit, frame in pairs(frames) do
-        if type(unit) == "string" and unit:sub(1,1) ~= "_" then
+        if type(unit) == "string" and unit:sub(1,1) ~= "_" and not unit:match("^boss%d$") then
             ToggleFrame(unit, frame)
         end
+    end
+    -- Boss frames: the unit watch registered at spawn is their show/hide authority.
+    -- ToggleFrame's Hide() left that watch armed, so a profile switch that disables
+    -- them had the next boss re-show all five. The watch owner unregisters (or
+    -- re-registers) the watch and parks a regen one-shot when this runs in combat.
+    if ns.UF_SetBossFramesActive and frames.boss1 then
+        ns.UF_SetBossFramesActive(enabled.boss ~= false)
     end
 
     for unit, frame in pairs(frames) do
@@ -12731,6 +12738,10 @@ function InitializeFrames()
         frames._visFrame:RegisterUnitEvent("UNIT_EXITED_VEHICLE", "player")
         frames._visFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
         frames._visFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
+        -- The focus-target mini mirrors the focus frame's alpha below, so a
+        -- focus set while the pass last saw that frame hidden left the mini at
+        -- alpha 0 until some other trigger ran. Same deferral as target changes.
+        frames._visFrame:RegisterEvent("PLAYER_FOCUS_CHANGED")
         -- Dragonriding visibility modes: capability edge plus the airborne
         -- edge (probed at load in EllesmereUI_Visibility.lua)
         frames._visFrame:RegisterEvent("PLAYER_CAN_GLIDE_CHANGED")

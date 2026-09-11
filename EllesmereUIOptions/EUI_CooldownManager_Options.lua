@@ -10824,7 +10824,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 rows = {
                                     { type="toggle", label="Show Duration",
                                       get=function() if ss.showCooldownText ~= nil then return ss.showCooldownText end return (cdmBd and cdmBd.showCooldownText) ~= false end,
-                                      set=function(v) EnsureSS(); ss.showCooldownText = v; if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end if row._updateLabel then row._updateLabel() end end },
+                                      set=function(v) EnsureSS(); ss.showCooldownText = v; ns._cdmAnySpellDurationText = true; if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end if row._updateLabel then row._updateLabel() end end },
                                     { type="slider", label="Size", min=6, max=30, step=1,
                                       get=function() return ss.cooldownFontSize or (cdmBd and cdmBd.cooldownFontSize) or 12 end,
                                       set=function(v) EnsureSS(); ss.cooldownFontSize = v; if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end if row._updateLabel then row._updateLabel() end end },
@@ -19112,6 +19112,19 @@ initFrame:SetScript("OnEvent", function(self)
             local fallback = DB()
             return (runtime and runtime.cdmBars) or (fallback and fallback.cdmBars)
         end
+        -- Which of the Thickness / Outset rows the current style reads (the renderer
+        -- uses thickness for Solid Border and Pixel Glow, outset for every style but
+        -- Blizzard Default): 0 = neither, 1 = outset only, 3 = both. The rows below
+        -- exist only for the styles that read them, so the Style dropdown forces a
+        -- rebuild when this key flips.
+        local function RotRowsKey()
+            local c = RotationBars()
+            local s = (c and c.rotationAssistStyle) or "blizzard"
+            local key = 0
+            if s ~= "blizzard" then key = 1 end
+            if s == "solid" or s == "pixel" then key = key + 2 end
+            return key
+        end
 
         local rotStyleRow
         rotStyleRow, h = W:DualRow(parent, y,
@@ -19130,106 +19143,75 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   local c = RotationBars()
                   if c then
+                      local before = RotRowsKey()
                       c.rotationAssistStyle = v
                       if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
-                      EllesmereUI:RefreshPage()
+                      -- Full rebuild only when the Thickness / Outset row set changes;
+                      -- the in-place refresh otherwise.
+                      EllesmereUI:RefreshPage(RotRowsKey() ~= before)
                   end
               end },
             { type="label", text="Rotation Assist Color" });  y = y - h
 
         do
             local colorRgn = rotStyleRow._rightRegion
-            if colorRgn and EllesmereUI.BuildColorSwatch then
-                -- Keep mode selection separate from custom RGB changes. The shared
-                -- trio helper intentionally selects "custom" from its color setter,
-                -- but color-picker cancellation and panel teardown may replay that
-                -- setter. These independent swatches make an explicit custom-swatch
-                -- click the only path which can select custom mode.
-                colorRgn._noCapture = true
-                local function getMode()
+            if colorRgn and EllesmereUI.BuildTrioColorSwatch then
+                -- Same trio as the Pandemic Glow row above. The helper opens the
+                -- picker only while custom mode is already active, so a picker
+                -- cancel can never flip the mode. Dimmed while Blizzard Default
+                -- owns the highlight; clicks are ignored there.
+                local function rotColorOff()
                     local c = RotationBars()
-                    return (c and c.rotationAssistColorMode) or "default"
+                    return not c or c.rotationAssistStyle == "blizzard"
                 end
-                local refreshRotColors
-                local function setMode(mode)
-                    local c = RotationBars()
-                    if not c or c.rotationAssistStyle == "blizzard" then return end
-                    c.rotationAssistColorMode = mode
-                    if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
-                    if refreshRotColors then refreshRotColors() end
-                    if EllesmereUI._NotifySettingWrite then
-                        EllesmereUI._NotifySettingWrite(colorRgn)
-                    end
-                end
-                local custom, refreshCustom = EllesmereUI.BuildColorSwatch(
+                local swatch, defaultSwatch, classSwatch = EllesmereUI.BuildTrioColorSwatch(
                     colorRgn, rotStyleRow:GetFrameLevel() + 3,
-                    function()
-                        local c = RotationBars()
-                        return (c and c.rotationAssistColorR) or 1,
-                               (c and c.rotationAssistColorG) or 0,
-                               (c and c.rotationAssistColorB) or 0, 1
-                    end,
-                    function(r, g, b)
-                        local c = RotationBars()
-                        if c then
-                            c.rotationAssistColorR = r
-                            c.rotationAssistColorG = g
-                            c.rotationAssistColorB = b
-                        end
-                        if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
-                    end)
-                local default = EllesmereUI.BuildColorSwatch(
-                    colorRgn, rotStyleRow:GetFrameLevel() + 3,
-                    function() return 1.0, 0.788, 0.137, 1 end,
-                    function() end)
-                local classSwatch = EllesmereUI.BuildColorSwatch(
-                    colorRgn, rotStyleRow:GetFrameLevel() + 3,
-                    function()
-                        local cc = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
-                        return cc.r, cc.g, cc.b, 1
-                    end,
-                    function() end)
-
-                local customPickerClick = custom:GetScript("OnClick")
-                custom:SetScript("OnClick", function(self)
-                    if getMode() ~= "custom" then
-                        setMode("custom")
-                    elseif customPickerClick then
-                        customPickerClick(self)
-                    end
-                end)
-                default:SetScript("OnClick", function() setMode("default") end)
-                classSwatch:SetScript("OnClick", function() setMode("class") end)
-                custom:SetScript("OnEnter", function()
-                    EllesmereUI.ShowWidgetTooltip(custom, "Custom Color")
-                end)
-                default:SetScript("OnEnter", function()
-                    EllesmereUI.ShowWidgetTooltip(default, "Default")
-                end)
-                classSwatch:SetScript("OnEnter", function()
-                    EllesmereUI.ShowWidgetTooltip(classSwatch, "Class Colored")
-                end)
-                custom:SetScript("OnLeave", EllesmereUI.HideWidgetTooltip)
-                default:SetScript("OnLeave", EllesmereUI.HideWidgetTooltip)
-                classSwatch:SetScript("OnLeave", EllesmereUI.HideWidgetTooltip)
-
-                refreshRotColors = function()
-                    local c = RotationBars()
-                    local disabled = not c or c.rotationAssistStyle == "blizzard"
-                    local mode = getMode()
-                    custom:SetAlpha(disabled and 0.15 or (mode == "custom" and 1 or 0.3))
-                    default:SetAlpha(disabled and 0.15 or (mode == "default" and 1 or 0.3))
-                    classSwatch:SetAlpha(disabled and 0.15 or (mode == "class" and 1 or 0.3))
-                    refreshCustom()
-                end
-                refreshRotColors()
-                if EllesmereUI.RegisterWidgetRefresh then
-                    EllesmereUI.RegisterWidgetRefresh(refreshRotColors)
-                end
+                    {
+                        getMode = function()
+                            local c = RotationBars()
+                            return (c and c.rotationAssistColorMode) or "default"
+                        end,
+                        setMode = function(mode)
+                            local c = RotationBars()
+                            if not c or c.rotationAssistStyle == "blizzard" then return end
+                            c.rotationAssistColorMode = mode
+                            if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+                            if EllesmereUI._NotifySettingWrite then
+                                EllesmereUI._NotifySettingWrite(colorRgn)
+                            end
+                        end,
+                        getCustomRGB = function()
+                            local c = RotationBars()
+                            return (c and c.rotationAssistColorR) or 1,
+                                   (c and c.rotationAssistColorG) or 0,
+                                   (c and c.rotationAssistColorB) or 0
+                        end,
+                        setCustomRGB = function(r, g, b)
+                            local c = RotationBars()
+                            if c then
+                                c.rotationAssistColorR = r
+                                c.rotationAssistColorG = g
+                                c.rotationAssistColorB = b
+                            end
+                            if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+                        end,
+                        hasClassColor = true,
+                        onChange = function() EllesmereUI:RefreshPage() end,
+                        disabled = rotColorOff,
+                        disabledAlpha = 0.15,
+                    })
                 PP.Point(classSwatch, "RIGHT", colorRgn, "RIGHT", -20, 0)
-                PP.Point(custom, "RIGHT", classSwatch, "LEFT", -8, 0)
-                PP.Point(default, "RIGHT", custom, "LEFT", -8, 0)
-                colorRgn._noCapture = nil
+                PP.Point(swatch, "RIGHT", classSwatch, "LEFT", -8, 0)
+                PP.Point(defaultSwatch, "RIGHT", swatch, "LEFT", -8, 0)
+
+                local function UpdateRotSwatchMouse()
+                    local off = rotColorOff()
+                    swatch:EnableMouse(not off)
+                    defaultSwatch:EnableMouse(not off)
+                    classSwatch:EnableMouse(not off)
+                end
+                EllesmereUI.RegisterWidgetRefresh(UpdateRotSwatchMouse)
+                UpdateRotSwatchMouse()
                 colorRgn._captureCfg = {
                     type = "multi", text = "Rotation Assist Color",
                     accessors = {
@@ -19270,14 +19252,12 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        _, h = W:DualRow(parent, y,
-            { type="slider", text="Rotation Assist Thickness", min=1, max=8, step=1, trackWidth=120,
+        -- Thickness | Outset: built only for the styles that read them (see
+        -- RotRowsKey). Outset alone takes the left slot with a blank right slot.
+        local rotRows = RotRowsKey()
+        if rotRows > 0 then
+            local thicknessCfg = { type="slider", text="Rotation Assist Thickness", min=1, max=8, step=1, trackWidth=120,
               tooltip="Thickness in physical pixels for Solid Border and Pixel Glow.",
-              disabled=function()
-                  local c = RotationBars(); local s = c and c.rotationAssistStyle
-                  return s ~= "solid" and s ~= "pixel"
-              end,
-              disabledTooltip="Thickness applies to Solid Border and Pixel Glow",
               getValue=function()
                   local c = RotationBars(); return (c and c.rotationAssistThickness) or 3
               end,
@@ -19285,13 +19265,9 @@ initFrame:SetScript("OnEvent", function(self)
                   local c = RotationBars()
                   if c then c.rotationAssistThickness = v end
                   if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
-              end },
-            { type="slider", text="Rotation Assist Outset", min=0, max=12, step=1, trackWidth=120,
+              end }
+            local outsetCfg = { type="slider", text="Rotation Assist Outset", min=0, max=12, step=1, trackWidth=120,
               tooltip="How many pixels the custom effect extends beyond the icon.",
-              disabled=function()
-                  local c = RotationBars(); return not c or c.rotationAssistStyle == "blizzard"
-              end,
-              disabledTooltip="Blizzard Default uses Blizzard's native size",
               getValue=function()
                   local c = RotationBars(); return (c and c.rotationAssistOutset) or 1
               end,
@@ -19299,7 +19275,13 @@ initFrame:SetScript("OnEvent", function(self)
                   local c = RotationBars()
                   if c then c.rotationAssistOutset = v end
                   if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
-              end });  y = y - h
+              end }
+            if rotRows >= 2 then
+                _, h = W:DualRow(parent, y, thicknessCfg, outsetCfg);  y = y - h
+            else
+                _, h = W:DualRow(parent, y, outsetCfg, { type="label", text="" });  y = y - h
+            end
+        end
 
         -- Hide Items if Missing | Mirror Key Presses -- CD/utility bars only.
         -- Buff bars host Hide Items if Missing in the tooltip row above (their

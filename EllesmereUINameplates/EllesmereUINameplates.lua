@@ -6315,6 +6315,7 @@ function NameplateFrame:ClearUnit()
     self._ovFocShown, self._ovTgtShown = nil, nil
     self._focusLetterShown = nil
     self._kickIsChannel = nil
+    self._castIsChannel = nil
     self._kickIsEmpowered = nil
     self._kickGeoDirty = nil
     self._castTex = nil
@@ -7648,6 +7649,9 @@ function NameplateFrame:UpdateCast()
             NotifyCastStarted(self)
         end
     end
+    -- Cast kind for the STOP handler (UNIT_SPELLCAST_STOP): cached here rather than
+    -- read back, since the read is what can go stale/secret at the stop edge.
+    self._castIsChannel = isChannel
     if isFullSetup then
         self._kickGeoDirty = nil
         self:ApplyScale()
@@ -8206,6 +8210,34 @@ function NameplateFrame:UNIT_SPELLCAST_CHANNEL_UPDATE()
 end
 function NameplateFrame:UNIT_SPELLCAST_STOP()
     self:UpdateCast()
+    -- Same hole CHANNEL_STOP and EMPOWER_STOP close directly: under restricted
+    -- execution UnitCastingInfo can still hand UpdateCast a SECRET (non-nil) tuple
+    -- for the cast that just stopped, so the ended branch never runs, isCasting stays
+    -- true and ApplyScale keeps the cast multiplier on the plate after the cast (and
+    -- after untargeting). A unit has one cast-time cast at a time, so a STOP landing
+    -- while a non-channel cast is still flagged means that cast is over; a live
+    -- channel (a STOP from an instant mid-channel) is left to CHANNEL_STOP.
+    if self.isCasting and not self._castIsChannel then
+        self.isCasting = false
+        self:HideKickTick()
+        self:ClearImportantCastGlow()
+        self:ApplyScale()
+        if not self._interrupted then
+            self.cast:Hide()
+        end
+        self:ApplyNameVisibility()
+        self.castTimer:SetText("")
+        if self._castFallback then
+            self._castFallback = nil
+            _fallbackPlates[self] = nil
+            fallbackCastCount = math.max(0, fallbackCastCount - 1)
+            if fallbackCastCount == 0 then castFallbackFrame:Hide() end
+        end
+        NotifyCastEnded(self)
+        if GetShowClassPower() and classPowerType and self._cpPips and self.unit and UnitIsUnit(self.unit, "target") then
+            UpdateClassPowerOnPlate(self)
+        end
+    end
 end
 function NameplateFrame:UNIT_SPELLCAST_CHANNEL_STOP()
     -- Directly hide instead of UpdateCast: in restricted execution, UnitCastingInfo can

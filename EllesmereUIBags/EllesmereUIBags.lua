@@ -3249,6 +3249,14 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
 
     end
     UpdatePawnArrow(btn, data.itemLink)
+    -- Same requery the native container update does after re-assigning a slot: the
+    -- cursor can be resting on this button while the repaint moves another item under
+    -- it, and nothing re-reads the tooltip until the mouse moves (it kept showing the
+    -- sold item, or stayed hidden for the one that slid in). Presence comes from our
+    -- own render data: the template's HasItem() reads a field only its own update writes.
+    if GameTooltip:IsOwned(btn) then
+        if data.info and btn.UpdateTooltip then btn:UpdateTooltip() else GameTooltip:Hide() end
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -7197,6 +7205,10 @@ function EUI_BagsReagent:RefreshInventory()
             else SetInsetBorderColor(btn, 0.25, 0.25, 0.25, 1) end
         end
         UpdatePawnArrow(btn, itemLink)
+        -- Tooltip requery after the slot re-assignment (see RenderButton).
+        if GameTooltip:IsOwned(btn) then
+            if data.info and btn.UpdateTooltip then btn:UpdateTooltip() else GameTooltip:Hide() end
+        end
 
         local col = (i - 1) % REAGENT_COLUMNS
         local row = math.floor((i - 1) / REAGENT_COLUMNS)
@@ -7627,20 +7639,34 @@ local function StartAddon()
 
     C_Timer.After(1, function() SnapshotKnownIDs() end)
 
-    -- Debounced full refresh: one code path, no stale state.
-    local refreshPending = false
+    -- Debounced full refresh: one code path, no stale state. The first paint of a
+    -- window stays at 0.1 s. When events kept landing during that window a burst is
+    -- under way, so the NEXT windows re-arm on the trailing edge instead (at most
+    -- four 0.1 s deferrals): a loot or vendor burst that fires BAG_UPDATE every few
+    -- frames rebuilds about twice a second and once more after it settles, instead
+    -- of ten times a second for the whole burst. An isolated event is untouched.
+    local refreshPending, refreshAgain, refreshDefers, refreshBurst = false, false, 0, false
     EUI_Bags.refreshEnabled = true
+    local function FireRefresh()
+        if refreshBurst and refreshAgain and refreshDefers < 4 then
+            refreshAgain = false
+            refreshDefers = refreshDefers + 1
+            C_Timer.After(0.1, FireRefresh)
+            return
+        end
+        refreshBurst = refreshAgain
+        if EUI_Bags:IsVisible() then
+            EUI_Bags:RefreshInventory()
+            local detach = BP().detachReagentBag or false
+            if detach and EUI_BagsReagent:IsVisible() then EUI_BagsReagent:RefreshInventory() end
+        end
+        refreshPending, refreshAgain, refreshDefers = false, false, 0
+    end
     local function ScheduleRefresh()
-        if not EUI_Bags.refreshEnabled or refreshPending then return end
-        refreshPending = true
-        C_Timer.After(0.1, function()
-            if EUI_Bags:IsVisible() then
-                EUI_Bags:RefreshInventory()
-                local detach = BP().detachReagentBag or false
-                if detach and EUI_BagsReagent:IsVisible() then EUI_BagsReagent:RefreshInventory() end
-            end
-            refreshPending = false
-        end)
+        if not EUI_Bags.refreshEnabled then return end
+        if refreshPending then refreshAgain = true; return end
+        refreshPending, refreshAgain, refreshDefers = true, false, 0
+        C_Timer.After(0.1, FireRefresh)
     end
 
     EUI_Bags:RegisterEvent("BAG_UPDATE")

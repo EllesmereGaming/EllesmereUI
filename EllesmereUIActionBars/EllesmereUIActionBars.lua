@@ -1037,9 +1037,31 @@ do
     -- raid pull spams it (Jera, 9.0.1). Registered out of combat only, both
     -- edges driven by the REGEN events; PLAYER_ENTERING_WORLD, the other
     -- Update() path, cannot fire under lockdown.
+    -- Cooldowns read SECRET in restricted content, and every dispatch this
+    -- registration drives runs under OUR taint, so Blizzard's own
+    -- ActionButton_ApplyCooldown -> SetCooldown is rejected on every Blizzard
+    -- button the broadcaster still reaches. Live raid report: 511k errors.
+    -- InCombatLockdown() alone was the wrong gate -- it was chosen for the BLOCKED
+    -- SetAttribute, and secrecy is instance-gated, so the whole out-of-combat
+    -- window inside an instance stayed open. Under secrecy "full" drops to the
+    -- press-and-hold subset when that need exists, else the frame goes bare: the
+    -- cooldown ticks (~11/s at idle) are the flood, while SLOT_CHANGED and PEW are
+    -- the only way Blizzard's twin buttons ever learn pressAndHoldAction, and a
+    -- twin only raises there when its own cooldown is running.
+    local function CooldownsSecret()
+        if not (C_Secrets and C_Secrets.ShouldCooldownsBeSecret) then return false end
+        local ok, secret = pcall(C_Secrets.ShouldCooldownsBeSecret)
+        return (ok and secret) and true or false
+    end
     local function ApplyBroadcaster()
         local want = (_vehNeed or _extraNeed) and "full"
             or ((_phNeed or ClassMayPressHold()) and "ph" or "off")
+        -- Folded into `want`, not into slotOK, so the mode comparison below sees the
+        -- change and re-applies; PLAYER_ENTERING_WORLD and the REGEN edges already
+        -- re-run this, which are the edges secrecy turns on and off.
+        if want == "full" and CooldownsSecret() then
+            want = (_phNeed or ClassMayPressHold()) and "ph" or "off"
+        end
         local slotOK = not InCombatLockdown()
         if want == _broadcasterMode and slotOK == _broadcasterSlot then return end
         _broadcasterMode, _broadcasterSlot = want, slotOK

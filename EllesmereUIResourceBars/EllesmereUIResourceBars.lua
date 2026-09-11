@@ -6866,7 +6866,7 @@ end
         nameText:SetJustifyH(jh)
         nameText:SetPoint(pt, bar, pt, xb + (cb.spellTextX or 0), cb.spellTextY or 0)
         if spellSide == "center" then
-            nameText:SetWidth(barW * 0.6)
+            nameText:SetWidth(barW - 8 - (cb.showTimer and 2 * timerW or 0))
         else
             nameText:SetWidth(barW - 8 - (cb.showTimer and timerW or 0))
         end
