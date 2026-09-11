@@ -2984,6 +2984,15 @@ function EUI_Bags.SetBindTypeText(fs, isWuE, bindType, quality)
 end
 
 -------------------------------------------------------------------------------
+--  Third-party item overlay icons (opt-in extension point for compatibility bridges with addons like CanIMogIt)
+-------------------------------------------------------------------------------
+EUI_Bags.itemOverlayIcons = EUI_Bags.itemOverlayIcons or {}
+
+function EUI_Bags.RegisterItemOverlayIcon(name, updateFn)
+    EUI_Bags.itemOverlayIcons[name] = updateFn
+end
+
+-------------------------------------------------------------------------------
 --  RenderButton
 -------------------------------------------------------------------------------
 local function RenderButton(btn, data, _, col, row, startX, currentY, _, interactiveEmpties)
@@ -3249,6 +3258,12 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
 
     end
     UpdatePawnArrow(btn, data.itemLink)
+
+    -- Allows drawing overlays for external addons
+    for _, fn in pairs(EUI_Bags.itemOverlayIcons) do
+        fn(btn, data)
+    end
+
     -- Same requery the native container update does after re-assigning a slot: the
     -- cursor can be resting on this button while the repaint moves another item under
     -- it, and nothing re-reads the tooltip until the mouse moves (it kept showing the
