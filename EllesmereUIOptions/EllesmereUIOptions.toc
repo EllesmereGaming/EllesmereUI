@@ -32,6 +32,7 @@ EUI_Nameplates_Options.lua
 EUI_QoL_Options.lua
 EUI_QoL_Cursor_Options.lua
 EUI_QoL_BattleRes_Options.lua
+EUI_QoL_GearDurability_Options.lua
 EUI_QoL_AutoLogging_Options.lua
 EUI_QoL_Shifter_Options.lua
 EUI_QoL_MovementAlert_Options.lua
