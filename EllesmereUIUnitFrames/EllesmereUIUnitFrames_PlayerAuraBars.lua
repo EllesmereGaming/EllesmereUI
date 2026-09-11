@@ -285,6 +285,16 @@ local function PabShapedSize(rawSize, shape)
     return rawSize
 end
 
+-- Nearest physical pixel at UIParent scale, for every PAB grid number (icon size,
+-- padding, row gap). Not PP.Scale: it truncates, and the per-icon loss adds up
+-- along a row, so a bar measured a different number of UI units per resolution.
+-- Same rounding as EllesmereUIActionBars.lua's ComputeBarLayout.
+local function PabSnap(x)
+    local m = EllesmereUI.PP.mult
+    if x == 0 or m == 1 then return x end
+    return math.floor(x / m + 0.5) * m
+end
+
 local function PAB_ApplyDmFx(button, d, style)
     local cat = d.dmCat
     local e = style.fxList and PAB_FxBlockFor(style.fxList, cat) or nil
@@ -955,8 +965,7 @@ local function BuildStyle(isBuff, cfg)
     -- Snapped to the physical pixel grid (like MaxIconSizeFor and ApplyGroupConfig's
     -- gap snap) so the rendered size agrees with the container's cross-axis extent
     -- math at any UIParent scale.
-    local PP = EllesmereUI.PP
-    local iconSize = PP.Scale(PabShapedSize(cfg.iconSize or 32, cfg.iconShape))
+    local iconSize = PabSnap(PabShapedSize(cfg.iconSize or 32, cfg.iconShape))
 
     local style = {
         width = iconSize,
@@ -1072,7 +1081,7 @@ local function BuildStyle(isBuff, cfg)
                 pos = dip,
                 -- Scaled like iconSize (button-geometry class); offsets stay raw
                 -- like durationX (fine-tune class).
-                size = PP.Scale(cfg.dispelIconSize or 16),
+                size = PabSnap(cfg.dispelIconSize or 16),
                 offX = cfg.dispelIconOffsetX or 0,
                 offY = cfg.dispelIconOffsetY or 0,
             }
@@ -1264,20 +1273,18 @@ local function EnsurePabSizedStyle(baseKey, size, shape)
     -- keyed by the raw size. Shape-expand applies the same as BuildStyle's own
     -- iconSize -- base already carries iconShape/shapeMaskPath/etc via the shallow
     -- copy above, only width/height need recomputing for this variant's own size.
-    local PP = EllesmereUI.PP
-    v.width = PP.Scale(PabShapedSize(size, shape))
-    v.height = PP.Scale(PabShapedSize(size, shape))
+    v.width = PabSnap(PabShapedSize(size, shape))
+    v.height = PabSnap(PabShapedSize(size, shape))
     AK.styles[variantKey] = v
     AK.RestyleSoon(variantKey)
     return variantKey
 end
 
 local function BuildGroupLayout(cfg, gap, rowGap, size)
-    local PP = EllesmereUI.PP
     rowGap = rowGap or gap
-    size = PP.Scale(PabShapedSize(size or cfg.iconSize or 32, cfg.iconShape))
-    gap = PP.Scale(gap)
-    rowGap = PP.Scale(rowGap)
+    size = PabSnap(PabShapedSize(size or cfg.iconSize or 32, cfg.iconShape))
+    gap = PabSnap(gap)
+    rowGap = PabSnap(rowGap)
     return {
         elementWidth = size,
         elementHeight = size,
@@ -1444,16 +1451,17 @@ local function MaxIconSizeFor(isBuff, cfg)
     -- snap): a raw iconSize also feeds the container's cross-axis extent math
     -- (ComputeGrid) at a non-pixel-perfect UIParent scale. Shape-expand applied last so
     -- the bar frame's footprint (ComputeGrid) always matches the buttons' real size.
-    local PP = EllesmereUI.PP
-    return PP.Scale(PabShapedSize(size, cfg.iconShape))
+    -- Second value: the unsnapped size, for ComputeGrid's design extent.
+    local shaped = PabShapedSize(size, cfg.iconShape)
+    return PabSnap(shaped), shaped
 end
 
 local function ComputeGrid(isBuff, cfg)
-    local iconSize = MaxIconSizeFor(isBuff, cfg)
+    local iconSize, rawIconSize = MaxIconSizeFor(isBuff, cfg)
     local pad = cfg.padding or 5
     local rowGap = cfg.rowSpacing or 12
-    local layoutPad = EllesmereUI.PP.Scale(pad)
-    local layoutRowGap = EllesmereUI.PP.Scale(rowGap)
+    local layoutPad = PabSnap(pad)
+    local layoutRowGap = PabSnap(rowGap)
     local cols = math.max(1, cfg.iconsPerRow or (isBuff and 11 or 8))
     local rows = math.max(1, cfg.maxRows or (isBuff and 3 or 2))
     local configuredMax = cfg.maxTotal or (isBuff and 32 or 16)
@@ -1479,11 +1487,17 @@ local function ComputeGrid(isBuff, cfg)
     local vertical = (cfg.growDirection == "UP" or cfg.growDirection == "DOWN" or cfg.growDirection == "CENTER_VERTICAL")
     local width = vertical and crossExtent or lineExtent
     local height = vertical and lineExtent or crossExtent
+    -- Design extent: the same box from the raw config numbers, identical at every
+    -- resolution. Stored bar positions refer to this box (see OriginShift).
+    local designLine = cols * rawIconSize + (cols - 1) * pad
+    local designCross = usedRows * rawIconSize + (usedRows - 1) * rowGap
     return {
         effectiveMax = effectiveMax,
         rowWidth = rowWidth,
         width = width,
         height = height,
+        designWidth = vertical and designCross or designLine,
+        designHeight = vertical and designLine or designCross,
         rowGap = rowGap,
     }
 end
@@ -2102,7 +2116,7 @@ local function ApplyContainerAnchorAndGrowth(container, parent, cfg, grid)
     containerDirections[container] = direction
     if directionChanged then container:Hide() end
 
-    local size = EllesmereUI.PP.Scale(cfg.iconSize or 32)
+    local size = PabSnap(cfg.iconSize or 32)
     container:ClearAllPoints()
     container:SetSize(size, size)
     container:SetPoint(containerAnchor, parent, containerAnchor, 0, 0)
@@ -2153,6 +2167,29 @@ local function SnapBarPos(frame, point, relPoint, x, y)
     return PP.SnapForES(x, es), PP.SnapForES(y, es)
 end
 
+-- Pixel-rounding compensation. A stored position places the DESIGN-size frame
+-- (ComputeGrid's designWidth/designHeight); the live frame is the snapped grid,
+-- slightly larger or smaller per resolution. Returns the SetPoint offset that keeps
+-- the growth origin (the parent corner the container is pinned to, the center for
+-- centered growth) where the design frame puts it, for a frame anchored at `point`.
+-- dw/dh are (design - snapped) at apply time; ApplyLiveConfig also passes a design
+-- size change to move a stored center with its origin.
+local OriginShift
+do
+    local FRAC_X = { TOPLEFT = 0, LEFT = 0, BOTTOMLEFT = 0, TOP = 0.5, CENTER = 0.5,
+        BOTTOM = 0.5, TOPRIGHT = 1, RIGHT = 1, BOTTOMRIGHT = 1 }
+    local FRAC_Y = { BOTTOMLEFT = 0, BOTTOM = 0, BOTTOMRIGHT = 0, LEFT = 0.5, CENTER = 0.5,
+        RIGHT = 0.5, TOPLEFT = 1, TOP = 1, TOPRIGHT = 1 }
+    function OriginShift(cfg, point, dw, dh)
+        local dir = cfg.growDirection or "LEFT"
+        local origin = (dir == "CENTER_HORIZONTAL" or dir == "CENTER_VERTICAL") and "CENTER"
+            or CornerFor(dir, cfg.iconWrapDirection or "LEFT")
+        point = point or "CENTER"
+        return (FRAC_X[origin] - (FRAC_X[point] or 0.5)) * dw,
+            (FRAC_Y[origin] - (FRAC_Y[point] or 0.5)) * dh
+    end
+end
+
 -- Centered growth needs a position whose meaning does not change with the mover's
 -- configured grid size. Rebase any edge-anchored saved position to CENTER/CENTER at
 -- the frame's current visual center before resizing it.
@@ -2170,21 +2207,23 @@ end
 
 -- Applies the saved position (if any) or the default to the given parent frame.
 -- Shared between initial creation and the unlock-mode applyPos callback so the two
--- never drift into different SetPoint logic.
-local function ApplyBarPosition(parent, isBuff)
+-- never drift into different SetPoint logic. `grid` is optional (computed when nil).
+local function ApplyBarPosition(parent, isBuff, grid)
     local s = PAB()
     local posKey = BarPositionKey(isBuff)
     local pos = s and s[posKey]
     local def = isBuff and DEFAULT_POS.buffs or DEFAULT_POS.debuffs
-    parent:ClearAllPoints()
-    if pos and pos.point then
-        local x, y = SnapBarPos(parent, pos.point, pos.relPoint or pos.point, pos.x, pos.y)
-        parent:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, x, y)
-    else
-        local x, y = SnapBarPos(parent, def.point, def.relPoint, def.x, def.y)
-        parent:SetPoint(def.point, UIParent, def.relPoint, x, y)
-    end
     local cfg = s and (isBuff and DefaultBuffsCfg(s) or DefaultDebuffsCfg(s))
+    local p = (pos and pos.point) and pos or def
+    local x, y = p.x, p.y
+    if cfg and x and y then
+        grid = grid or ComputeGrid(isBuff, cfg)
+        local dx, dy = OriginShift(cfg, p.point, grid.designWidth - grid.width, grid.designHeight - grid.height)
+        x, y = x + dx, y + dy
+    end
+    parent:ClearAllPoints()
+    x, y = SnapBarPos(parent, p.point, p.relPoint or p.point, x, y)
+    parent:SetPoint(p.point, UIParent, p.relPoint or p.point, x, y)
     if cfg and (cfg.growDirection == "CENTER_HORIZONTAL" or cfg.growDirection == "CENTER_VERTICAL") then
         s[posKey] = RebaseBarPositionToCenter(parent, pos)
     end
@@ -2261,7 +2300,7 @@ local function ShiftBuffsForEnchants(container, parent, cfg, grid)
     local n = (cfg.showWeaponEnchants == true and ns.WeaponEnchants_Count and ns.WeaponEnchants_Count()) or 0
     local containerAnchor = BuildContainerSpec(parent, cfg, grid)
     local dir = cfg.growDirection or "LEFT"
-    local cell = EllesmereUI.PP.Scale(cfg.iconSize or 32) + EllesmereUI.PP.Scale(cfg.padding or 5)
+    local cell = PabSnap(cfg.iconSize or 32) + PabSnap(cfg.padding or 5)
     container:ClearAllPoints()
     -- Centered modes: the enchant cells must hug the RUN's moving edge, which
     -- only the container's live rect knows. rec.parent must stay the PLAIN bar
@@ -2296,7 +2335,7 @@ local function ShiftBuffsForEnchants(container, parent, cfg, grid)
             ns._weaponEnchPAB.point = "BOTTOM"
             ns._weaponEnchPAB.relativePoint = "TOP"
             ns._weaponEnchPAB.x = 0
-            ns._weaponEnchPAB.y = math.max(0, n - 1) * cell + EllesmereUI.PP.Scale(cfg.padding or 5)
+            ns._weaponEnchPAB.y = math.max(0, n - 1) * cell + PabSnap(cfg.padding or 5)
             ns._weaponEnchPAB.dir = "DOWN"
         end
         return
@@ -2399,13 +2438,13 @@ local function CreateBars()
 
     buffsParent = buffsParent or CreateFrame("Frame", "EllesmereUIPlayerAuraBars_Buffs", UIParent)
     buffsParent:SetSize(buffGrid.width, buffGrid.height)
-    ApplyBarPosition(buffsParent, true)
-    lastSize.buffs = { w = buffGrid.width, h = buffGrid.height }
+    ApplyBarPosition(buffsParent, true, buffGrid)
+    lastSize.buffs = { w = buffGrid.width, h = buffGrid.height, dw = buffGrid.designWidth, dh = buffGrid.designHeight }
 
     debuffsParent = debuffsParent or CreateFrame("Frame", "EllesmereUIPlayerAuraBars_Debuffs", UIParent)
     debuffsParent:SetSize(debuffGrid.width, debuffGrid.height)
-    ApplyBarPosition(debuffsParent, false)
-    lastSize.debuffs = { w = debuffGrid.width, h = debuffGrid.height }
+    ApplyBarPosition(debuffsParent, false, debuffGrid)
+    lastSize.debuffs = { w = debuffGrid.width, h = debuffGrid.height, dw = debuffGrid.designWidth, dh = debuffGrid.designHeight }
 
     -- Enable toggles (cfg.enabled, nil = enabled): containers and groups still
     -- build below so a live re-enable needs no reload; a disabled bar just
@@ -2441,7 +2480,7 @@ local function CreateBars()
             -- Snapped like the shift's own cell stride above: the buttons add
             -- this to an already-snapped style.width, so a raw gap would place
             -- them off the engine's grid at a non-native UI scale.
-            pad = EllesmereUI.PP.Scale(buffPad), styleKey = STYLE_BUFFS, canCancel = true }
+            pad = PabSnap(buffPad), styleKey = STYLE_BUFFS, canCancel = true }
     else
         ns._weaponEnchPAB = nil
     end
@@ -2551,6 +2590,12 @@ function RegisterPABUnlock()
     local MK = EllesmereUI.MakeUnlockElement
 
     local function MakeBarElement(key, label, order, isBuff, getParent)
+        -- Stored (design-frame) position -> visual offset, see OriginShift.
+        local function Shift(s, point)
+            local cfg = isBuff and DefaultBuffsCfg(s) or DefaultDebuffsCfg(s)
+            local grid = ComputeGrid(isBuff, cfg)
+            return OriginShift(cfg, point, grid.designWidth - grid.width, grid.designHeight - grid.height)
+        end
         return MK({
             key = key,
             label = label,
@@ -2578,16 +2623,28 @@ function RegisterPABUnlock()
                 local grid = ComputeGrid(isBuff, isBuff and DefaultBuffsCfg(s) or DefaultDebuffsCfg(s))
                 return grid.width, grid.height
             end,
+            -- The mover works in VISUAL positions (the snapped live frame), the store
+            -- in design-frame positions. Both directions apply the same shift, so a
+            -- load/save round trip (RevertPositions) is exact.
             savePos = function(_, point, relPoint, x, y)
                 local s = PAB()
                 if not s then return end
+                if x and y then
+                    local dx, dy = Shift(s, point)
+                    x, y = x - dx, y - dy
+                end
                 s[BarPositionKey(isBuff)] = { point = point, relPoint = relPoint or point, x = x, y = y }
             end,
             loadPos = function()
                 local s = PAB()
                 local pos = s and s[BarPositionKey(isBuff)]
                 if not pos then return nil end
-                return { point = pos.point, relPoint = pos.relPoint, x = pos.x, y = pos.y }
+                local x, y = pos.x, pos.y
+                if x and y then
+                    local dx, dy = Shift(s, pos.point)
+                    x, y = x + dx, y + dy
+                end
+                return { point = pos.point, relPoint = pos.relPoint, x = x, y = y }
             end,
             clearPos = function()
                 local s = PAB()
@@ -2772,7 +2829,8 @@ local function ApplyLiveConfig(isBuff)
     -- still sees the real last-applied size (the fixed-corner compensation needs it),
     -- and the stored pos is not mutated for a resize that never landed.
     if InCombatLockdown() then
-        local sizeChanged = not (prev and prev.w == grid.width and prev.h == grid.height)
+        local sizeChanged = not (prev and prev.w == grid.width and prev.h == grid.height
+            and prev.dw == grid.designWidth and prev.dh == grid.designHeight)
         local rebasePending = centered
             and not (pos and pos.point == "CENTER" and (pos.relPoint or pos.point) == "CENTER")
         if sizeChanged or rebasePending then
@@ -2783,23 +2841,23 @@ local function ApplyLiveConfig(isBuff)
             pos = RebaseBarPositionToCenter(parent, pos)
             s[posKey] = pos
         end
-        if not centered and pos and pos.point == "CENTER"
-            and prev and (prev.w ~= grid.width or prev.h ~= grid.height) then
-            pos.x = pos.x + (prev.w - grid.width) / 2
-            pos.y = pos.y + (prev.h - grid.height) / 2
-            -- Snap against the NEW grid.width/height (what parent:SetSize is about to
-            -- apply), not parent:GetWidth/GetHeight -- those still read the OLD size, the
-            -- resize hasn't run yet. The STORED pos keeps the raw accumulation; only the
-            -- SetPoint values are snapped.
-            local PP = EllesmereUI.PP
-            local es = parent:GetEffectiveScale()
-            local sx = PP.SnapCenterForDim(pos.x, grid.width, es)
-            local sy = PP.SnapCenterForDim(pos.y, grid.height, es)
-            parent:ClearAllPoints()
-            parent:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, sx, sy)
+        local resized = not centered and prev
+            and (prev.w ~= grid.width or prev.h ~= grid.height
+                or prev.dw ~= grid.designWidth or prev.dh ~= grid.designHeight)
+        if resized and pos and pos.point == "CENTER" then
+            -- The stored center belongs to the design-size frame, so it moves by the
+            -- DESIGN delta, toward whichever side the growth origin is on.
+            local dx, dy = OriginShift(cfg, pos.point, prev.dw - grid.designWidth, prev.dh - grid.designHeight)
+            pos.x = pos.x + dx
+            pos.y = pos.y + dy
         end
-        lastSize[sizeKey] = { w = grid.width, h = grid.height }
+        lastSize[sizeKey] = { w = grid.width, h = grid.height, dw = grid.designWidth, dh = grid.designHeight }
         parent:SetSize(grid.width, grid.height)
+        -- Re-seated AFTER SetSize so SnapBarPos snaps against the new size and the
+        -- rounding shift follows the new grid. The STORED pos keeps the raw
+        -- accumulation. Only on a real change, so an anchor-linked bar is not pulled
+        -- back to its stored position on every slider tick.
+        if resized then ApplyBarPosition(parent, isBuff, grid) end
     end
 
     local pad = cfg.padding or 5
@@ -2814,7 +2872,7 @@ local function ApplyLiveConfig(isBuff)
             ns._weaponEnchPAB = { parent = parent, corner = liveCorner,
                 dir = cfg.growDirection or "LEFT",
                 -- Snapped, as in CreateBars' publish above.
-                pad = EllesmereUI.PP.Scale(pad), styleKey = STYLE_BUFFS, canCancel = true }
+                pad = PabSnap(pad), styleKey = STYLE_BUFFS, canCancel = true }
         else
             ns._weaponEnchPAB = nil
         end
@@ -3816,10 +3874,16 @@ end
 -- Applies bar.pos (or the default) to a custom bar's parent frame. Same SetPoint
 -- logic as ApplyBarPosition, kept separate only because custom bars key off bar.pos
 -- on the bar object, not a fixed s[BarPositionKey] slot.
-local function ApplyCustomBarPosition(parent, bar, barId)
+local function ApplyCustomBarPosition(parent, bar, barId, isBuff, grid)
     local pos = bar.pos or DefaultCustomPos(barId)
+    local x, y = pos.x, pos.y
+    if x and y then
+        grid = grid or ComputeGrid(isBuff, bar)
+        local dx, dy = OriginShift(bar, pos.point, grid.designWidth - grid.width, grid.designHeight - grid.height)
+        x, y = x + dx, y + dy
+    end
     parent:ClearAllPoints()
-    local x, y = SnapBarPos(parent, pos.point, pos.relPoint or pos.point, pos.x, pos.y)
+    x, y = SnapBarPos(parent, pos.point, pos.relPoint or pos.point, x, y)
     parent:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, x, y)
     if bar.growDirection == "CENTER_HORIZONTAL" or bar.growDirection == "CENTER_VERTICAL" then
         local centeredPos = RebaseBarPositionToCenter(parent, pos)
@@ -3853,6 +3917,11 @@ local function RegisterPABCustomUnlock()
     local function MakeCustomBarElement(barId, bar, order, isBuff, parents)
         local key = (isBuff and "PAB_CustomBuff_" or "PAB_CustomDebuff_") .. barId
         MapElementSettings(key, isBuff and "buff" or "debuff", barId)
+        -- Stored (design-frame) position -> visual offset, see OriginShift.
+        local function Shift(b, point)
+            local grid = ComputeGrid(isBuff, b)
+            return OriginShift(b, point, grid.designWidth - grid.width, grid.designHeight - grid.height)
+        end
         return key, MK({
             key = key,
             label = "PAB: " .. (bar.name or (isBuff and "Buff Bar" or "Debuff Bar")),
@@ -3875,14 +3944,26 @@ local function RegisterPABCustomUnlock()
                 local grid = ComputeGrid(isBuff, b)
                 return grid.width, grid.height
             end,
+            -- Visual <-> stored conversion, as in RegisterPABUnlock's MakeBarElement.
             savePos = function(_, point, relPoint, x, y)
                 local b = isBuff and ns.PAB_GetCustomBuffBar(barId) or ns.PAB_GetCustomDebuffBar(barId)
                 if not b then return end
+                if x and y then
+                    local dx, dy = Shift(b, point)
+                    x, y = x - dx, y - dy
+                end
                 b.pos = { point = point, relPoint = relPoint or point, x = x, y = y }
             end,
             loadPos = function()
                 local b = isBuff and ns.PAB_GetCustomBuffBar(barId) or ns.PAB_GetCustomDebuffBar(barId)
-                return b and b.pos or nil
+                local pos = b and b.pos
+                if not pos then return nil end
+                local x, y = pos.x, pos.y
+                if x and y then
+                    local dx, dy = Shift(b, pos.point)
+                    x, y = x + dx, y + dy
+                end
+                return { point = pos.point, relPoint = pos.relPoint, x = x, y = y }
             end,
             clearPos = function()
                 local b = isBuff and ns.PAB_GetCustomBuffBar(barId) or ns.PAB_GetCustomDebuffBar(barId)
@@ -3891,7 +3972,7 @@ local function RegisterPABCustomUnlock()
             applyPos = function()
                 local b = isBuff and ns.PAB_GetCustomBuffBar(barId) or ns.PAB_GetCustomDebuffBar(barId)
                 local parent = parents[barId]
-                if b and parent then ApplyCustomBarPosition(parent, b, barId) end
+                if b and parent then ApplyCustomBarPosition(parent, b, barId, isBuff) end
             end,
         })
     end
@@ -4029,7 +4110,7 @@ local function ReloadCustomBuffBarImpl(barId)
     if geomLocked then
         QueuePABRegenApply("custom-buff-" .. barId, function() ns.PAB_ReloadCustomBuffBar(barId) end)
     else
-        ApplyCustomBarPosition(parent, bar, barId)
+        ApplyCustomBarPosition(parent, bar, barId, true, grid)
     end
     -- Effective render verdict: the bar's own toggle AND its editing-spec
     -- bucket's applicability to the current spec AND this spec's per-spec
@@ -4169,7 +4250,7 @@ local function ReloadCustomDebuffBarImpl(barId)
     if geomLocked then
         QueuePABRegenApply("custom-debuff-" .. barId, function() ns.PAB_ReloadCustomDebuffBar(barId) end)
     else
-        ApplyCustomBarPosition(parent, bar, barId)
+        ApplyCustomBarPosition(parent, bar, barId, false, grid)
     end
     -- Same effective-render verdict as the custom buff reload above.
     local barActive = ns.PAB_BarActive(bar, barBucket)
@@ -5308,7 +5389,7 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
                 end
                 btn.typeIcon:SetAtlas(PV_DISPEL_ICON_ATLAS[dispel])
                 -- Geometry from the (panel-scaled) cfg, like iconSize above --
-                -- style carries the live PP.Scale'd size, wrong units here.
+                -- style carries the live pixel-snapped size, wrong units here.
                 local tiSz = cfg.dispelIconSize or 16
                 btn.typeIcon:SetSize(tiSz, tiSz)
                 btn.typeIcon:ClearAllPoints()
