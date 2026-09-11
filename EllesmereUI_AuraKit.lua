@@ -1420,6 +1420,14 @@ local loginStamp = -LOGIN_WINDOW_S
 -- hold-lane/oocOnly regime -- jobs run in FIFO order whenever the worker
 -- ticks, and the only pacing is the per-frame budget (combat-clamped).
 local buildQueue, buildHead, buildTail = {}, 1, 0
+-- Per-label cost estimate, so the budget below can be checked BEFORE a job runs.
+-- Without it a frame costs the budget PLUS one whole job: the check sat after
+-- RunJob, so a 5.9ms job that fit was followed by an 8.9ms one that did not and
+-- the frame landed at 14.8ms (measured 2026-09-07, plate aura pool growth).
+-- Rises to a new maximum at once and decays slowly: a cheap sample must not
+-- license a spike on the next frame. Jobs sharing a label share an estimate,
+-- which is the intended granularity; unlabelled jobs share one bucket.
+local jobCost = {}
 
 -- Job verdicts: nil = done; "again" = the job is a multi-atom stepper with
 -- more bounded work left (front-requeued so it finishes before newer work,
@@ -1457,13 +1465,36 @@ buildWorker:SetScript("OnUpdate", function(self)
         budget = BUILD_BUDGET_LOGIN_MS
     end
     local t0 = debugprofilestop()
+    local now, ran = t0, false
 
     while buildHead <= buildTail do
         local entry = buildQueue[buildHead]
+        -- The first job of a frame ALWAYS runs whatever it costs: np:buffs
+        -- measures 8.9ms against the 8ms combat budget, so a strict check would
+        -- leave it at the head forever. That escape also rules out starvation --
+        -- ran resets every frame, so the head is one frame from running at most.
+        -- A label with no estimate counts as "might be expensive" and waits for a
+        -- fresh frame: letting it through was tried first and left the very first
+        -- occurrence at the full 14.8ms, the exact case this fix exists for.
+        if entry and ran then
+            local est = jobCost[entry.label or "?"]
+            if not est or (now - t0) + est > budget then return end
+        end
         buildQueue[buildHead] = nil
         buildHead = buildHead + 1
         if entry then
+            local key = entry.label or "?"
+            local jt = now
             local verdict = RunJob(entry)
+            now = debugprofilestop()
+            -- jt is the previous loop's timestamp rather than a fresh one, so the
+            -- sample carries the pre-check with it. That overstates by a table
+            -- read, which is the safe direction, and keeps the call count per job
+            -- exactly what it was before this change.
+            local cost, prev = now - jt, jobCost[key]
+            if not prev or cost > prev then jobCost[key] = cost
+            else jobCost[key] = prev + (cost - prev) * 0.25 end
+            ran = true
             if verdict == "again" then
                 buildHead = buildHead - 1
                 buildQueue[buildHead] = entry
@@ -1473,7 +1504,7 @@ buildWorker:SetScript("OnUpdate", function(self)
                 return
             end
         end
-        if debugprofilestop() - t0 >= budget then return end
+        if now - t0 >= budget then return end
     end
     buildQueue, buildHead, buildTail = {}, 1, 0
     self:Hide()
