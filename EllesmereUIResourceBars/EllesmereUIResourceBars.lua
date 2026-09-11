@@ -79,15 +79,6 @@ end
 
 local floor, ceil, abs, min, max = math.floor, math.ceil, math.abs, math.min, math.max
 local format = string.format
-local UnitHealth, UnitHealthMax = UnitHealth, UnitHealthMax
-local UnitPower, UnitPowerMax = UnitPower, UnitPowerMax
-local UnitClass = UnitClass
-local GetSpecialization = GetSpecialization
-local InCombatLockdown = InCombatLockdown
-local GetShapeshiftFormID = GetShapeshiftFormID
-local IsPlayerSpell = IsPlayerSpell
-local UnitSpellHaste = UnitSpellHaste
-local GetInventoryItemID = GetInventoryItemID
 
 -------------------------------------------------------------------------------
 --  Constants
@@ -1197,6 +1188,7 @@ local DEFAULTS = {
             hashWidth   = 1,
             hashColorR  = 1, hashColorG = 1, hashColorB = 1, hashColorA = 0.7,
             expandIfNoResource = false,
+            bossPacingEnabled = false,
             -- Shift elements anchored to the power bar when the spec has no primary
             -- power (e.g. BM/MM Hunter, Focus shows as class resource). "None"/"Up"/
             -- "Down", visual-only.
@@ -3879,6 +3871,8 @@ local function BuildBars()
         end
     end
 
+    ns.UpdateBossPacingEventRegistration()
+
     ReapplyInternalBarAnchors()
 
     -- "Shift Elements if No Resource": re-cascade the class resource bar so
@@ -4065,6 +4059,98 @@ local function UpdateHealthBar()
         healthBar._text:Show()
     else
         healthBar._text:Hide()
+    end
+end
+
+-------------------------------------------------------------------------------
+--  Boss Health Pacing Spark (Power / Mana Bar)
+-------------------------------------------------------------------------------
+do
+    local _bossPacingFrame = nil
+
+    function ns.UpdateBossPacing()
+        local pp = _G._ERB_ResolvePowerCfg()
+        if not pp or not pp.bossPacingEnabled or not primaryBar or not primaryBar:IsShown() then
+            if primaryBar and primaryBar._bossPacingBar then
+                primaryBar._bossPacingBar:Hide()
+            end
+            return
+        end
+
+        if not UnitExists("boss1") or UnitIsDead("boss1") then
+            if primaryBar._bossPacingBar then
+                primaryBar._bossPacingBar:Hide()
+            end
+            return
+        end
+
+        local bp = primaryBar._bossPacingBar
+        if not bp then
+            bp = CreateFrame("StatusBar", "ERB_BossPacingBar", primaryBar)
+            bp:SetAllPoints(primaryBar)
+            bp:SetFrameLevel(primaryBar:GetFrameLevel() + 6)
+            bp:SetStatusBarTexture("Interface\\BUTTONS\\WHITE8X8")
+            local tex = bp:GetStatusBarTexture()
+            if tex then
+                tex:SetColorTexture(0, 0, 0, 0)
+            end
+
+            local spark = bp:CreateTexture(nil, "OVERLAY", nil, 7)
+            spark:SetColorTexture(1, 0.25, 0.25, 0.95)
+            spark:SetSize(2, primaryBar:GetHeight() or 14)
+            spark:SetPoint("CENTER", bp:GetStatusBarTexture(), "RIGHT", 0, 0)
+            bp._spark = spark
+
+            primaryBar._bossPacingBar = bp
+        end
+
+        local gOri = ERB.db and ERB.db.profile and ERB.db.profile.general and ERB.db.profile.general.orientation
+        local ppOri = pp.orientation or gOri or "HORIZONTAL"
+        if ppOri == "HORIZONTAL" then
+            bp:SetOrientation("HORIZONTAL")
+            bp._spark:SetSize(2, primaryBar:GetHeight() or 14)
+            bp._spark:ClearAllPoints()
+            bp._spark:SetPoint("CENTER", bp:GetStatusBarTexture(), "RIGHT", 0, 0)
+        else
+            bp:SetOrientation(ppOri == "VERTICAL_DOWN" and "VERTICAL_DOWN" or "VERTICAL")
+            bp._spark:SetSize(primaryBar:GetWidth() or 214, 2)
+            bp._spark:ClearAllPoints()
+            bp._spark:SetPoint("CENTER", bp:GetStatusBarTexture(), ppOri == "VERTICAL_DOWN" and "BOTTOM" or "TOP", 0, 0)
+        end
+
+        bp:SetMinMaxValues(0, UnitHealthMax("boss1"))
+        bp:SetValue(UnitHealth("boss1"))
+        bp:Show()
+    end
+
+    function ns.UpdateBossPacingEventRegistration()
+        local pp = _G._ERB_ResolvePowerCfg()
+        local enabled = pp and (pp.bossPacingEnabled == true)
+        if enabled then
+            if not _bossPacingFrame then
+                _bossPacingFrame = CreateFrame("Frame")
+                _bossPacingFrame:SetScript("OnEvent", function(self, event, unit)
+                    if event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
+                        if unit == "boss1" then ns.UpdateBossPacing() end
+                    else
+                        ns.UpdateBossPacing()
+                    end
+                end)
+            end
+            _bossPacingFrame:RegisterUnitEvent("UNIT_HEALTH", "boss1")
+            _bossPacingFrame:RegisterUnitEvent("UNIT_MAXHEALTH", "boss1")
+            _bossPacingFrame:RegisterEvent("INSTANCE_ENCOUNTER_ENGAGE_UNIT")
+            _bossPacingFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+            _bossPacingFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+            ns.UpdateBossPacing()
+        else
+            if _bossPacingFrame then
+                _bossPacingFrame:UnregisterAllEvents()
+            end
+            if primaryBar and primaryBar._bossPacingBar then
+                primaryBar._bossPacingBar:Hide()
+            end
+        end
     end
 end
 
@@ -6217,8 +6303,12 @@ local function UpdateVisibility()
             primaryBar:Show()
             EllesmereUI.SetElementVisibility(primaryBar, true)
             primaryBar:SetAlpha(ns.ResolveBarAlpha(pp))
+            ns.UpdateBossPacing()
         else
             EllesmereUI.SetElementVisibility(primaryBar, false)
+            if primaryBar._bossPacingBar then
+                primaryBar._bossPacingBar:Hide()
+            end
         end
     end
 
