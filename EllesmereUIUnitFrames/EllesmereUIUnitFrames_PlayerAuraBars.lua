@@ -1487,10 +1487,15 @@ local function ComputeGrid(isBuff, cfg)
     local vertical = (cfg.growDirection == "UP" or cfg.growDirection == "DOWN" or cfg.growDirection == "CENTER_VERTICAL")
     local width = vertical and crossExtent or lineExtent
     local height = vertical and lineExtent or crossExtent
-    -- Design extent: the same box from the raw config numbers, identical at every
-    -- resolution. Stored bar positions refer to this box (see OriginShift).
+    -- Reference boxes for stored positions (see BarAnchorOffset): the design extent
+    -- from the raw config numbers, identical at every resolution, and the legacy
+    -- extent the pre-fix PP.Scale truncation produced at this resolution.
+    local PP = EllesmereUI.PP
+    local legacyIcon, legacyPad, legacyRowGap = PP.Scale(rawIconSize), PP.Scale(pad), PP.Scale(rowGap)
     local designLine = cols * rawIconSize + (cols - 1) * pad
     local designCross = usedRows * rawIconSize + (usedRows - 1) * rowGap
+    local legacyLine = cols * legacyIcon + (cols - 1) * legacyPad
+    local legacyCross = usedRows * legacyIcon + (usedRows - 1) * legacyRowGap
     return {
         effectiveMax = effectiveMax,
         rowWidth = rowWidth,
@@ -1498,6 +1503,8 @@ local function ComputeGrid(isBuff, cfg)
         height = height,
         designWidth = vertical and designCross or designLine,
         designHeight = vertical and designLine or designCross,
+        legacyWidth = vertical and legacyCross or legacyLine,
+        legacyHeight = vertical and legacyLine or legacyCross,
         rowGap = rowGap,
     }
 end
@@ -2154,26 +2161,27 @@ end
 -- dimension handling keeps both edges on whole pixels, while plain SnapForES would
 -- round the center itself and push edges onto half pixels; every other anchor point
 -- uses SnapForES.
-local function SnapBarPos(frame, point, relPoint, x, y)
+local function SnapBarPos(frame, point, relPoint, x, y, w, h)
     if not (x and y) then return x, y end
     local PP = EllesmereUI.PP
     local es = frame:GetEffectiveScale()
     local isCenterAnchor = (point == "CENTER" or point == nil)
         and (relPoint == "CENTER" or relPoint == nil)
+    -- w/h replace the frame's own size when given (legacy positions, BarAnchorOffset).
     if isCenterAnchor then
-        return PP.SnapCenterForDim(x, frame:GetWidth() or 0, es),
-            PP.SnapCenterForDim(y, frame:GetHeight() or 0, es)
+        return PP.SnapCenterForDim(x, w or frame:GetWidth() or 0, es),
+            PP.SnapCenterForDim(y, h or frame:GetHeight() or 0, es)
     end
     return PP.SnapForES(x, es), PP.SnapForES(y, es)
 end
 
--- Pixel-rounding compensation. A stored position places the DESIGN-size frame
--- (ComputeGrid's designWidth/designHeight); the live frame is the snapped grid,
--- slightly larger or smaller per resolution. Returns the SetPoint offset that keeps
--- the growth origin (the parent corner the container is pinned to, the center for
--- centered growth) where the design frame puts it, for a frame anchored at `point`.
--- dw/dh are (design - snapped) at apply time; ApplyLiveConfig also passes a design
--- size change to move a stored center with its origin.
+-- Pixel-rounding compensation. A stored position places a reference frame (see
+-- BarAnchorOffset); the live frame is the snapped grid, slightly larger or smaller.
+-- Returns the SetPoint offset that keeps the growth origin (the parent corner the
+-- container is pinned to, the center for centered growth) where the reference frame
+-- puts it, for a frame anchored at `point`. dw/dh are (reference - snapped) at apply
+-- time; ApplyLiveConfig also passes a reference size change to move a stored center
+-- with its origin.
 local OriginShift
 do
     local FRAC_X = { TOPLEFT = 0, LEFT = 0, BOTTOMLEFT = 0, TOP = 0.5, CENTER = 0.5,
@@ -2188,6 +2196,38 @@ do
         return (FRAC_X[origin] - (FRAC_X[point] or 0.5)) * dw,
             (FRAC_Y[origin] - (FRAC_Y[point] or 0.5)) * dh
     end
+end
+
+-- Pre-snap SetPoint offsets for a stored bar position. A position saved by an
+-- unlock-mode move since the rounding fix (pos.design) refers to the design frame.
+-- Any other position, defaults included, keeps the placement it had before the fix:
+-- its growth origin stays where the truncated legacy frame, snapped as before, put
+-- it at this resolution, until the bar is moved.
+local function BarAnchorOffset(frame, cfg, grid, pos)
+    local x, y = pos.x, pos.y
+    if not (x and y) then return x, y end
+    local rw, rh = grid.designWidth, grid.designHeight
+    if not pos.design then
+        rw, rh = grid.legacyWidth, grid.legacyHeight
+        x, y = SnapBarPos(frame or UIParent, pos.point, pos.relPoint or pos.point, x, y, rw, rh)
+    end
+    local dx, dy = OriginShift(cfg, pos.point, rw - grid.width, rh - grid.height)
+    return x + dx, y + dy
+end
+
+-- Unlock-mode savePos: x/y is the VISUAL position the mover hands over, `cur` the
+-- stored one. An unchanged position (a discard or an untouched commit writes back
+-- what loadPos returned) keeps `cur` as it is, so a legacy position only converts
+-- on a real move. Anything else is stored as a design position.
+local function MoverStorePos(frame, cfg, grid, cur, point, relPoint, x, y)
+    relPoint = relPoint or point
+    if not (x and y) then return { point = point, relPoint = relPoint, x = x, y = y } end
+    if cur and cur.point == point and (cur.relPoint or cur.point) == relPoint then
+        local cx, cy = BarAnchorOffset(frame, cfg, grid, cur)
+        if cx and cy and math.abs(x - cx) < 0.001 and math.abs(y - cy) < 0.001 then return cur end
+    end
+    local dx, dy = OriginShift(cfg, point, grid.designWidth - grid.width, grid.designHeight - grid.height)
+    return { point = point, relPoint = relPoint, x = x - dx, y = y - dy, design = true }
 end
 
 -- Centered growth needs a position whose meaning does not change with the mover's
@@ -2216,11 +2256,7 @@ local function ApplyBarPosition(parent, isBuff, grid)
     local cfg = s and (isBuff and DefaultBuffsCfg(s) or DefaultDebuffsCfg(s))
     local p = (pos and pos.point) and pos or def
     local x, y = p.x, p.y
-    if cfg and x and y then
-        grid = grid or ComputeGrid(isBuff, cfg)
-        local dx, dy = OriginShift(cfg, p.point, grid.designWidth - grid.width, grid.designHeight - grid.height)
-        x, y = x + dx, y + dy
-    end
+    if cfg then x, y = BarAnchorOffset(parent, cfg, grid or ComputeGrid(isBuff, cfg), p) end
     parent:ClearAllPoints()
     x, y = SnapBarPos(parent, p.point, p.relPoint or p.point, x, y)
     parent:SetPoint(p.point, UIParent, p.relPoint or p.point, x, y)
@@ -2439,12 +2475,14 @@ local function CreateBars()
     buffsParent = buffsParent or CreateFrame("Frame", "EllesmereUIPlayerAuraBars_Buffs", UIParent)
     buffsParent:SetSize(buffGrid.width, buffGrid.height)
     ApplyBarPosition(buffsParent, true, buffGrid)
-    lastSize.buffs = { w = buffGrid.width, h = buffGrid.height, dw = buffGrid.designWidth, dh = buffGrid.designHeight }
+    lastSize.buffs = { w = buffGrid.width, h = buffGrid.height, dw = buffGrid.designWidth,
+        dh = buffGrid.designHeight, lw = buffGrid.legacyWidth, lh = buffGrid.legacyHeight }
 
     debuffsParent = debuffsParent or CreateFrame("Frame", "EllesmereUIPlayerAuraBars_Debuffs", UIParent)
     debuffsParent:SetSize(debuffGrid.width, debuffGrid.height)
     ApplyBarPosition(debuffsParent, false, debuffGrid)
-    lastSize.debuffs = { w = debuffGrid.width, h = debuffGrid.height, dw = debuffGrid.designWidth, dh = debuffGrid.designHeight }
+    lastSize.debuffs = { w = debuffGrid.width, h = debuffGrid.height, dw = debuffGrid.designWidth,
+        dh = debuffGrid.designHeight, lw = debuffGrid.legacyWidth, lh = debuffGrid.legacyHeight }
 
     -- Enable toggles (cfg.enabled, nil = enabled): containers and groups still
     -- build below so a live re-enable needs no reload; a disabled bar just
@@ -2590,12 +2628,6 @@ function RegisterPABUnlock()
     local MK = EllesmereUI.MakeUnlockElement
 
     local function MakeBarElement(key, label, order, isBuff, getParent)
-        -- Stored (design-frame) position -> visual offset, see OriginShift.
-        local function Shift(s, point)
-            local cfg = isBuff and DefaultBuffsCfg(s) or DefaultDebuffsCfg(s)
-            local grid = ComputeGrid(isBuff, cfg)
-            return OriginShift(cfg, point, grid.designWidth - grid.width, grid.designHeight - grid.height)
-        end
         return MK({
             key = key,
             label = label,
@@ -2623,27 +2655,22 @@ function RegisterPABUnlock()
                 local grid = ComputeGrid(isBuff, isBuff and DefaultBuffsCfg(s) or DefaultDebuffsCfg(s))
                 return grid.width, grid.height
             end,
-            -- The mover works in VISUAL positions (the snapped live frame), the store
-            -- in design-frame positions. Both directions apply the same shift, so a
-            -- load/save round trip (RevertPositions) is exact.
+            -- The mover works in VISUAL positions (the snapped live frame): loadPos
+            -- converts the stored one (BarAnchorOffset), savePos goes back through
+            -- MoverStorePos, which leaves an unchanged position untouched.
             savePos = function(_, point, relPoint, x, y)
                 local s = PAB()
                 if not s then return end
-                if x and y then
-                    local dx, dy = Shift(s, point)
-                    x, y = x - dx, y - dy
-                end
-                s[BarPositionKey(isBuff)] = { point = point, relPoint = relPoint or point, x = x, y = y }
+                local posKey = BarPositionKey(isBuff)
+                local cfg = isBuff and DefaultBuffsCfg(s) or DefaultDebuffsCfg(s)
+                s[posKey] = MoverStorePos(getParent(), cfg, ComputeGrid(isBuff, cfg), s[posKey], point, relPoint, x, y)
             end,
             loadPos = function()
                 local s = PAB()
                 local pos = s and s[BarPositionKey(isBuff)]
                 if not pos then return nil end
-                local x, y = pos.x, pos.y
-                if x and y then
-                    local dx, dy = Shift(s, pos.point)
-                    x, y = x + dx, y + dy
-                end
+                local cfg = isBuff and DefaultBuffsCfg(s) or DefaultDebuffsCfg(s)
+                local x, y = BarAnchorOffset(getParent(), cfg, ComputeGrid(isBuff, cfg), pos)
                 return { point = pos.point, relPoint = pos.relPoint, x = x, y = y }
             end,
             clearPos = function()
@@ -2845,13 +2872,20 @@ local function ApplyLiveConfig(isBuff)
             and (prev.w ~= grid.width or prev.h ~= grid.height
                 or prev.dw ~= grid.designWidth or prev.dh ~= grid.designHeight)
         if resized and pos and pos.point == "CENTER" then
-            -- The stored center belongs to the design-size frame, so it moves by the
-            -- DESIGN delta, toward whichever side the growth origin is on.
-            local dx, dy = OriginShift(cfg, pos.point, prev.dw - grid.designWidth, prev.dh - grid.designHeight)
+            -- The stored center belongs to its reference frame (design or legacy, see
+            -- BarAnchorOffset), so it moves by that frame's delta, toward whichever
+            -- side the growth origin is on.
+            local dx, dy
+            if pos.design then
+                dx, dy = OriginShift(cfg, pos.point, prev.dw - grid.designWidth, prev.dh - grid.designHeight)
+            else
+                dx, dy = OriginShift(cfg, pos.point, prev.lw - grid.legacyWidth, prev.lh - grid.legacyHeight)
+            end
             pos.x = pos.x + dx
             pos.y = pos.y + dy
         end
-        lastSize[sizeKey] = { w = grid.width, h = grid.height, dw = grid.designWidth, dh = grid.designHeight }
+        lastSize[sizeKey] = { w = grid.width, h = grid.height, dw = grid.designWidth,
+            dh = grid.designHeight, lw = grid.legacyWidth, lh = grid.legacyHeight }
         parent:SetSize(grid.width, grid.height)
         -- Re-seated AFTER SetSize so SnapBarPos snaps against the new size and the
         -- rounding shift follows the new grid. The STORED pos keeps the raw
@@ -3876,12 +3910,7 @@ end
 -- on the bar object, not a fixed s[BarPositionKey] slot.
 local function ApplyCustomBarPosition(parent, bar, barId, isBuff, grid)
     local pos = bar.pos or DefaultCustomPos(barId)
-    local x, y = pos.x, pos.y
-    if x and y then
-        grid = grid or ComputeGrid(isBuff, bar)
-        local dx, dy = OriginShift(bar, pos.point, grid.designWidth - grid.width, grid.designHeight - grid.height)
-        x, y = x + dx, y + dy
-    end
+    local x, y = BarAnchorOffset(parent, bar, grid or ComputeGrid(isBuff, bar), pos)
     parent:ClearAllPoints()
     x, y = SnapBarPos(parent, pos.point, pos.relPoint or pos.point, x, y)
     parent:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, x, y)
@@ -3917,11 +3946,6 @@ local function RegisterPABCustomUnlock()
     local function MakeCustomBarElement(barId, bar, order, isBuff, parents)
         local key = (isBuff and "PAB_CustomBuff_" or "PAB_CustomDebuff_") .. barId
         MapElementSettings(key, isBuff and "buff" or "debuff", barId)
-        -- Stored (design-frame) position -> visual offset, see OriginShift.
-        local function Shift(b, point)
-            local grid = ComputeGrid(isBuff, b)
-            return OriginShift(b, point, grid.designWidth - grid.width, grid.designHeight - grid.height)
-        end
         return key, MK({
             key = key,
             label = "PAB: " .. (bar.name or (isBuff and "Buff Bar" or "Debuff Bar")),
@@ -3948,21 +3972,13 @@ local function RegisterPABCustomUnlock()
             savePos = function(_, point, relPoint, x, y)
                 local b = isBuff and ns.PAB_GetCustomBuffBar(barId) or ns.PAB_GetCustomDebuffBar(barId)
                 if not b then return end
-                if x and y then
-                    local dx, dy = Shift(b, point)
-                    x, y = x - dx, y - dy
-                end
-                b.pos = { point = point, relPoint = relPoint or point, x = x, y = y }
+                b.pos = MoverStorePos(parents[barId], b, ComputeGrid(isBuff, b), b.pos, point, relPoint, x, y)
             end,
             loadPos = function()
                 local b = isBuff and ns.PAB_GetCustomBuffBar(barId) or ns.PAB_GetCustomDebuffBar(barId)
                 local pos = b and b.pos
                 if not pos then return nil end
-                local x, y = pos.x, pos.y
-                if x and y then
-                    local dx, dy = Shift(b, pos.point)
-                    x, y = x + dx, y + dy
-                end
+                local x, y = BarAnchorOffset(parents[barId], b, ComputeGrid(isBuff, b), pos)
                 return { point = pos.point, relPoint = pos.relPoint, x = x, y = y }
             end,
             clearPos = function()
