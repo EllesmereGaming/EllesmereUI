@@ -243,6 +243,8 @@ local TBB_DEFAULT_BAR = {
     chargeHashLineWidth = 2,
     chargeHashLineR = 0, chargeHashLineG = 0,
     chargeHashLineB = 0, chargeHashLineA = 1,
+    chargeHashShade = false,      -- darken the partially recharged charge segment
+    chargeHashShadeAlpha = 0.5,   -- darkness of the partial-charge shade (0-1)
     texture   = "none",
     fillR = _classR, fillG = _classG, fillB = _classB, fillA = 1,
     bgR = 0, bgG = 0, bgB = 0, bgA = 0.4,
@@ -872,12 +874,18 @@ function _tbbWake.Sleep()
     _tbbWake:RegisterUnitEvent("UNIT_AURA", "player")
     _tbbWake:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
     _tbbWake:RegisterEvent("PLAYER_REGEN_DISABLED")
+    -- A debuff the player left on a new target is live the moment it is selected, and
+    -- none of the player-scoped edges above can see that. Probe before waking.
+    _tbbWake:RegisterEvent("PLAYER_TARGET_CHANGED")
 end
 function _tbbWake.Wake()
     _tbbWake:UnregisterAllEvents()
     -- Stay subscribed to the aura edge while AWAKE: pool composition changes only on a
     -- player aura event or a pool Acquire (hooked separately), retiring the assignment memo.
     _tbbWake:RegisterUnitEvent("UNIT_AURA", "player")
+    -- Target changes rebind which auras the viewer's frames carry, so the awake branch
+    -- of OnEvent retires the assignment memo on this the same as any other non-aura edge.
+    _tbbWake:RegisterEvent("PLAYER_TARGET_CHANGED")
     _tbbWake._idleTicks = 0
     _tbbAssignDirty = true
     _tbbReflowDirty = true
@@ -887,6 +895,33 @@ end
 -- ticking, so this probe answers "could any bar be live?" WITHOUT waking: an active
 -- viewer frame, or a live player aura for a fallback-class config. Casts and combat
 -- entry skip the probe (rare at idle; the legitimate start edges the probe can't see).
+-- Cache names by configuration, retiring entries when their configuration is dropped.
+_tbbWake._targetNames = setmetatable({}, { __mode = "k" })
+function _tbbWake.GetTargetAura(cfg)
+    if not UnitExists("target") then return nil end
+    local names = _tbbWake._targetNames[cfg]
+    if not names then
+        names = {}
+        _tbbWake._targetNames[cfg] = names
+    end
+    if names.spellID ~= cfg.spellID then
+        names.spellID, names.name = cfg.spellID, nil
+    end
+    if names.baseSpellID ~= cfg.baseSpellID then
+        names.baseSpellID, names.baseName = cfg.baseSpellID, nil
+    end
+    if not names.name then names.name = C_Spell.GetSpellName(cfg.spellID) end
+    if not names.baseName and cfg.baseSpellID and cfg.baseSpellID > 0 then
+        names.baseName = C_Spell.GetSpellName(cfg.baseSpellID)
+    end
+    -- Ownership is filtered by the engine; never inspect a secret sourceUnit.
+    local filter = UnitIsFriend("player", "target") and "HELPFUL|PLAYER" or "HARMFUL|PLAYER"
+    local aura = names.name and C_UnitAuras.GetAuraDataBySpellName("target", names.name, filter)
+    if not aura and names.baseName and names.baseName ~= names.name then
+        aura = C_UnitAuras.GetAuraDataBySpellName("target", names.baseName, filter)
+    end
+    return aura
+end
 function _tbbWake.Probe()
     if ns._tbbPlaceholderMode then return true end
     local viewer = _G["BuffBarCooldownViewer"]
@@ -905,7 +940,8 @@ function _tbbWake.Probe()
                and cfg.spellID and cfg.spellID > 0 then
                 if C_UnitAuras.GetPlayerAuraBySpellID(cfg.spellID)
                    or (cfg.baseSpellID and cfg.baseSpellID > 0
-                       and C_UnitAuras.GetPlayerAuraBySpellID(cfg.baseSpellID)) then
+                       and C_UnitAuras.GetPlayerAuraBySpellID(cfg.baseSpellID))
+                   or _tbbWake.GetTargetAura(cfg) then
                     return true
                 end
             end
@@ -913,13 +949,31 @@ function _tbbWake.Probe()
     end
     return false
 end
-function _tbbWake.OnEvent(_, event)
-    -- Awake: this is the composition edge that retires the assignment memo. Mark and let the next tick re-pair; no probe, no state change.
+function _tbbWake.OnEvent(_, event, _, updateInfo)
+    -- Awake: this is the composition edge that retires the assignment memo. Mark and
+    -- let the next tick re-pair; no probe, no state change. Pairing keys on frame
+    -- identity only (pool membership, cooldown slot, aura spell variant), and an
+    -- update-only payload (refresh / stack change on auras already bound) moves none
+    -- of those, so only additions, removals, full updates, or an unreadable payload
+    -- retire the memo -- the same secret guard as the buff ticker's UNIT_AURA writer:
+    -- the table and each field can arrive secret in instanced content, and a secret
+    -- can never be boolean-tested, so unreadable means assume churn.
     if tbbTickFrame and tbbTickFrame:IsShown() then
-        _tbbAssignDirty = true
+        if event ~= "UNIT_AURA" or not updateInfo or issecretvalue(updateInfo) then
+            _tbbAssignDirty = true
+        else
+            local full    = updateInfo.isFullUpdate
+            local removed = updateInfo.removedAuraInstanceIDs
+            local added   = updateInfo.addedAuras
+            if issecretvalue(full) or issecretvalue(removed) or issecretvalue(added)
+               or full or removed or added then
+                _tbbAssignDirty = true
+            end
+        end
         return
     end
-    if event == "UNIT_AURA" and not _tbbWake.Probe() then return end
+    if (event == "UNIT_AURA" or event == "PLAYER_TARGET_CHANGED")
+       and not _tbbWake.Probe() then return end
     _tbbWake.Wake()
 end
 _tbbWake:SetScript("OnEvent", _tbbWake.OnEvent)
@@ -1628,6 +1682,7 @@ local TBB_STYLE_KEYS = {
     "height", "width", "verticalOrientation", "reverseFill", "fillUp",
     "chargeHashLines", "chargeHashLineWidth",
     "chargeHashLineR", "chargeHashLineG", "chargeHashLineB", "chargeHashLineA",
+    "chargeHashShade", "chargeHashShadeAlpha",
     "texture", "strata",
     "fillColorMode", "fillR", "fillG", "fillB", "fillA",
     "bgR", "bgG", "bgB", "bgA",
@@ -2349,12 +2404,14 @@ local function ApplyTBBChargeHashLines(bar, cfg, maxCharges)
     local lineA = cfg.chargeHashLineA
     if lineA == nil then lineA = 1 end
     local isVert = cfg.verticalOrientation and true or false
+    local reverse = cfg.reverseFill and true or false
     local effectiveScale = sb:GetEffectiveScale() or 1
     -- Also runs from the shared timer tick, so the cache stays SCALAR: synthesized table/string keys would allocate even on a cache hit.
     if bar._chargeHashLineCacheValid
        and bar._chargeHashLineMaxCharges == maxCharges
        and bar._chargeHashLineWidth == width
        and bar._chargeHashLineVertical == isVert
+       and bar._chargeHashLineReverse == reverse
        and bar._chargeHashLineBarW == barW
        and bar._chargeHashLineBarH == barH
        and bar._chargeHashLineScale == effectiveScale
@@ -2389,21 +2446,66 @@ local function ApplyTBBChargeHashLines(bar, cfg, maxCharges)
         ticks[#ticks + 1] = tick
     end
 
+    -- Divider boundary bars: hidden StatusBars frozen at value i of maxCharges (clean
+    -- constants). Their texture edges come from the same engine math as the charge hash
+    -- fill's live countTexture edge, so ticks centered here leave no sub-pixel sliver
+    -- beside the partial-charge shade at any bar width (a PP.Scale-snapped offset could
+    -- sit up to a physical pixel off that native edge and shimmer at unlucky widths).
+    local divBars = bar._chargeHashDivBars
+    if not divBars then divBars = {}; bar._chargeHashDivBars = divBars end
+    for i = 1, maxCharges - 1 do
+        local db2 = divBars[i]
+        if not db2 then
+            db2 = CreateFrame("StatusBar", nil, sb)
+            db2:SetAllPoints(sb)
+            db2:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+            local dt = db2:GetStatusBarTexture()
+            dt:SetSnapToPixelGrid(false)
+            dt:SetTexelSnappingBias(0)
+            db2:SetAlpha(0)
+            db2:EnableMouse(false)
+            divBars[i] = db2
+        end
+        db2:SetOrientation(isVert and "VERTICAL" or "HORIZONTAL")
+        db2:SetReverseFill(reverse)
+        db2:SetMinMaxValues(0, maxCharges)
+        db2:SetValue(i)
+        db2:Show()
+    end
+    for i = maxCharges, #divBars do divBars[i]:Hide() end
+
     local PP = EllesmereUI and EllesmereUI.PP
     local lineWidth = PP and PP.Scale(width) or width
+    local halfLine = lineWidth / 2
     for i = 1, maxCharges - 1 do
         local tick = ticks[i]
-        local frac = i / maxCharges
+        local divTex = divBars[i] and divBars[i]:GetStatusBarTexture()
         tick:SetColorTexture(lineR, lineG, lineB, lineA)
         tick:ClearAllPoints()
         if isVert then
-            local offset = PP and PP.Scale(barH * frac) or (barH * frac)
             tick:SetSize(barW, lineWidth)
-            tick:SetPoint("CENTER", sb, "BOTTOM", 0, offset)
+            if divTex then
+                if reverse then
+                    tick:SetPoint("TOP", divTex, "BOTTOM", 0, halfLine)
+                else
+                    tick:SetPoint("BOTTOM", divTex, "TOP", 0, -halfLine)
+                end
+            else
+                local offset = PP and PP.Scale(barH * (i / maxCharges)) or (barH * (i / maxCharges))
+                tick:SetPoint("CENTER", sb, "BOTTOM", 0, offset)
+            end
         else
-            local offset = PP and PP.Scale(barW * frac) or (barW * frac)
             tick:SetSize(lineWidth, barH)
-            tick:SetPoint("CENTER", sb, "LEFT", offset, 0)
+            if divTex then
+                if reverse then
+                    tick:SetPoint("RIGHT", divTex, "LEFT", halfLine, 0)
+                else
+                    tick:SetPoint("LEFT", divTex, "RIGHT", -halfLine, 0)
+                end
+            else
+                local offset = PP and PP.Scale(barW * (i / maxCharges)) or (barW * (i / maxCharges))
+                tick:SetPoint("CENTER", sb, "LEFT", offset, 0)
+            end
         end
         tick:Show()
     end
@@ -2412,6 +2514,7 @@ local function ApplyTBBChargeHashLines(bar, cfg, maxCharges)
     bar._chargeHashLineMaxCharges = maxCharges
     bar._chargeHashLineWidth = width
     bar._chargeHashLineVertical = isVert
+    bar._chargeHashLineReverse = reverse
     bar._chargeHashLineBarW = barW
     bar._chargeHashLineBarH = barH
     bar._chargeHashLineScale = effectiveScale
@@ -4000,10 +4103,24 @@ local function _UpdateSelfTimedBar(bar, cfg, expiry, duration)
         if cfg.showSpark and bar._spark then bar._spark:Show() end
     end
     if cfg.showTimer and bar._timerText then
+        -- The string changes only when its displayed bucket does (rounded tenths
+        -- under 10s, whole seconds above), so stamp the bucket and skip the
+        -- per-tick format + SetText otherwise. A fresh appearance always writes
+        -- (wasShown false) and the placeholder exit clears the stamp, so no other
+        -- writer of this FontString can strand it.
+        local key
         if remaining < 10 then
-            bar._timerText:SetText(string.format("%.1f", remaining))
+            key = math.floor(remaining * 10 + 0.5)
         else
-            bar._timerText:SetText(string.format("%d", remaining))
+            key = math.floor(remaining)
+        end
+        if not wasShown or bar._stTxtKey ~= key then
+            bar._stTxtKey = key
+            if remaining < 10 then
+                bar._timerText:SetText(string.format("%.1f", remaining))
+            else
+                bar._timerText:SetText(string.format("%d", remaining))
+            end
         end
         bar._timerText:Show()
     elseif bar._timerText then
@@ -4246,6 +4363,19 @@ local function _ensureTBBChargeHashFill(bar)
     fill:SetSnapToPixelGrid(false)
     fill:SetTexelSnappingBias(0)
     bar._chargeHashFillTexture = fill
+
+    -- Partial-charge shade: darkens the segment still recharging (the region between the
+    -- full-charge edge and the live progress edge). Its anchors ride the two invisible
+    -- status textures, so the region tracks secret-driven geometry with no Lua computation.
+    -- The hash tick lines center on divider bars whose texture edges come from the same
+    -- engine math as countTexture's edge, so the shade's leading edge always lands under
+    -- its divider line -- no sub-pixel sliver can open beside it at any bar width.
+    local shade = clip:CreateTexture(nil, "ARTWORK", nil, 2)
+    shade:SetColorTexture(0, 0, 0, 0.5)
+    shade:SetSnapToPixelGrid(false)
+    shade:SetTexelSnappingBias(0)
+    shade:Hide()
+    bar._chargeHashShadeTexture = shade
 end
 
 local function _styleTBBChargeHashFill(bar, cfg)
@@ -4363,6 +4493,10 @@ local function _updateTBBChargeHashFill(bar, cfg, maxCharges, currentCharges,
     local reverse = cfg.reverseFill and true or false
     local orientation = isVert and "VERTICAL" or "HORIZONTAL"
     local barW, barH = sb:GetWidth(), sb:GetHeight()
+    -- The divider boundary bars the hash ticks anchor to are built and cache-gated
+    -- by ApplyTBBChargeHashLines, which runs earlier on the same tick; nothing here
+    -- reads them, so this per-tick path never touches them.
+
     -- Direct scalar comparisons name every geometry invalidator while keeping the steady-state update allocation-free.
     if not bar._chargeHashFillGeometryValid
        or bar._chargeHashFillMaxCharges ~= maxCharges
@@ -4416,6 +4550,31 @@ local function _updateTBBChargeHashFill(bar, cfg, maxCharges, currentCharges,
                 clip:SetPoint("BOTTOMRIGHT", progressTexture, "BOTTOMRIGHT", 0, 0)
             end
         end
+
+        -- The shade spans from the full-charge boundary to the moving progress edge,
+        -- mirroring the clip's orientation/reverse geometry.
+        local shade = bar._chargeHashShadeTexture
+        if shade then
+            shade:ClearAllPoints()
+            if isVert then
+                if reverse then
+                    shade:SetPoint("TOPLEFT", countTexture, "BOTTOMLEFT", 0, 0)
+                    shade:SetPoint("BOTTOMRIGHT", progressTexture, "BOTTOMRIGHT", 0, 0)
+                else
+                    shade:SetPoint("BOTTOMLEFT", countTexture, "TOPLEFT", 0, 0)
+                    shade:SetPoint("TOPRIGHT", progressTexture, "TOPRIGHT", 0, 0)
+                end
+            else
+                if reverse then
+                    shade:SetPoint("TOPRIGHT", countTexture, "TOPLEFT", 0, 0)
+                    shade:SetPoint("BOTTOMLEFT", progressTexture, "BOTTOMLEFT", 0, 0)
+                else
+                    shade:SetPoint("TOPLEFT", countTexture, "TOPRIGHT", 0, 0)
+                    shade:SetPoint("BOTTOMRIGHT", progressTexture, "BOTTOMRIGHT", 0, 0)
+                end
+            end
+        end
+
         bar._chargeHashFillGeometryValid = true
         bar._chargeHashFillMaxCharges = maxCharges
         bar._chargeHashFillVertical = isVert
@@ -4443,6 +4602,24 @@ local function _updateTBBChargeHashFill(bar, cfg, maxCharges, currentCharges,
     end
 
     _styleTBBChargeHashFill(bar, cfg)
+
+    -- Partial-charge shade state: scalar-cached so the steady-state tick is a no-op.
+    local shade = bar._chargeHashShadeTexture
+    if shade then
+        local shadeA = cfg.chargeHashShade == true
+            and (tonumber(cfg.chargeHashShadeAlpha) or 0.5) or 0
+        if shadeA > 1 then shadeA = 1 end
+        if shadeA > 0 then
+            if bar._chargeHashShadeAlpha ~= shadeA then
+                shade:SetColorTexture(0, 0, 0, shadeA)
+                bar._chargeHashShadeAlpha = shadeA
+            end
+            if not shade:IsShown() then shade:Show() end
+        elseif shade:IsShown() then
+            shade:Hide()
+        end
+    end
+
     local activating = not bar._chargeHashFillActive
     if activating then
         countBar:Show()
@@ -5038,6 +5215,10 @@ function ns.UpdateTrackedBuffBarTimers()
     -- Liveness for the idle sleeper: set by any branch below that is actually animating or tracking something this tick.
     local tickLive = false
 
+    -- Resolved once per tick, not per bar: the bind-miss fallback below asks the target
+    -- for a debuff the player applied, and there is no point asking with nothing targeted.
+    local hasTarget = UnitExists and UnitExists("target") and true or false
+
     -- Profile-wide smooth-fill switches, resolved once per tick for every fill site (absent buffs key = enabled; absent cooldowns key = OFF).
     local sm
     do
@@ -5066,6 +5247,12 @@ function ns.UpdateTrackedBuffBarTimers()
             if ns.HideTBBPlaceholders then ns.HideTBBPlaceholders() end
             -- Auras may have moved while the preview was up: re-pair on the first real mirror tick.
             _tbbAssignDirty = true
+            -- The preview may have written the self-timed bars' timer text: drop
+            -- their bucket stamps so the next live tick rewrites it.
+            for bi = 1, #tbbFrames do
+                local b = tbbFrames[bi]
+                if b then b._stTxtKey = nil end
+            end
         end
     end
 
@@ -5141,6 +5328,14 @@ function ns.UpdateTrackedBuffBarTimers()
                 fbAura = C_UnitAuras.GetPlayerAuraBySpellID(cfg.spellID)
                 if not fbAura and cfg.baseSpellID and cfg.baseSpellID > 0 then
                     fbAura = C_UnitAuras.GetPlayerAuraBySpellID(cfg.baseSpellID)
+                end
+                -- Same net for a debuff the player put on the TARGET, which the queries
+                -- above can never see. Blizzard's viewer stalls exactly there after a
+                -- macro that clears and restores the target inside one frame: its
+                -- OnPlayerTargetChanged compares GUIDs, sees the same one it stored, and
+                -- never refreshes, so the item stays inactive until a real target switch.
+                if not fbAura and hasTarget then
+                    fbAura = _tbbWake.GetTargetAura(cfg)
                 end
                 -- Fallback driving means the viewer has not bound this aura yet, and
                 -- Blizzard's late-bind can land WITHOUT a fresh player aura event. Keep

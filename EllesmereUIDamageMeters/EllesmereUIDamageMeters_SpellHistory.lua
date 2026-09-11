@@ -455,6 +455,9 @@ end
 local function ShouldHide(hideInDungeon, hideInRaid, hideInDelve, hideInPvP, hideOutOfInstance)
     -- Always visible while configuring or positioning the element.
     if ns._optionsOpen or EUI._unlockActive then return false end
+    -- Show/hide all windows hotkey. Both displays rebuild themselves on every cast, so
+    -- the check belongs here rather than in a one-off hide from the main file.
+    if ns._toggleHidden and ns.EDM.DB().toggleIncludeSpellHistory then return true end
     local _, iType = IsInInstance()
     if hideInDungeon and iType == "party" then return true end
     if hideInRaid and iType == "raid" then return true end
@@ -1274,9 +1277,8 @@ local function BuildBarWindow()
     -- Size: width from DB, height auto-calculated from maxBars
     local hdrH = hideTop and 0 or 22
     local maxBars = sh.maxBars or 5
-    local barH = PhysicalPixels(sh.shBarHeight or 18)
-    local barSp = dmCfg.barSpacing or 2
-    local autoH = hdrH + maxBars * (barH + barSp)
+    local _, _, stride = ns._RowMetrics(sh.shBarHeight or 18, dmCfg.barSpacing or 2, _barWin:GetEffectiveScale())
+    local autoH = hdrH + maxBars * stride
     _barWin:SetSize(sh.barWidth or 300, autoH)
     _barWin._locked = sh.barLocked or false
     local pos = sh.barPos
@@ -1302,9 +1304,7 @@ RefreshBarWindow = function()
 
     local dmCfg = ns.EDM.DB()
     local sh = DB()
-    local barH = PhysicalPixels(sh.shBarHeight or 18)
-    local barSp = dmCfg.barSpacing or 2
-    local stride = barH + barSp
+    local barH, barSp, stride = ns._RowMetrics(sh.shBarHeight or 18, dmCfg.barSpacing or 2, _barWin:GetEffectiveScale())
     local texPath = GetBarTexturePath()
     local fontSize = sh.textSize or 11
     local content = _barWin._content

@@ -487,6 +487,11 @@ lifecycleFrame:SetScript("OnEvent", function(self, event, arg1)
             if IS_STANDALONE then
                 _svLoaded = true
                 RerootPreSVDBs()
+                -- Runtime files can cache default fonts before this addon's
+                -- SavedVariables load. Resolve the saved choice when frames init.
+                if EllesmereUI.InvalidateFontCache then
+                    EllesmereUI.InvalidateFontCache()
+                end
             end
         elseif _dbGuardArmed and _parentDBRef and EllesmereUIDB ~= _parentDBRef then
             -- A stale SavedVariables copy from a child's WTF file replaced the central

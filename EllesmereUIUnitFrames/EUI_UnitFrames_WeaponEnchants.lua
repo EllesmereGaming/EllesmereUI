@@ -120,6 +120,21 @@ local function MakeButton(host, index)
     return b
 end
 
+-- Duration swipe gate. SetShown alone does not stick: PaintContent's
+-- SetCooldown implicitly re-Shows the frame (documented in AK's
+-- ApplyStyleToRegions), and a cooldown started while it was hidden comes back
+-- as a swipe that never advances -- a frozen wedge on some passes, nothing on
+-- others. SetDrawSwipe is persistent cooldown STYLE (SetCooldown never resets
+-- it, AllowedWhenTainted) and alpha survives any re-show; the texts ride their
+-- own frame above the cooldown, so the alpha misses them. Show/Hide stays in
+-- ApplyStyle: it is combat-blocked on the secure trio's descendants.
+local function ApplySwipeGate(b, hide)
+    if b._hideSwipe == hide then return end
+    b._hideSwipe = hide
+    if b.cd.SetDrawSwipe then b.cd:SetDrawSwipe(not hide) end
+    b.cd:SetAlpha(hide and 0 or 1)
+end
+
 -- Mirrors the display's live style onto one of our buttons; the texcoord
 -- cascade is AK ApplyStyleToRegions' exact order. Called out of combat only
 -- for the secure trio (SetSize is geometry).
@@ -141,16 +156,24 @@ local function ApplyStyle(b, style)
         if not b._bdr then
             b._bdr = CreateFrame("Frame", nil, b)
             b._bdr:SetAllPoints()
-            PP.CreateBorder(b._bdr, bd[1] or 0, bd[2] or 0, bd[3] or 0, bd[4] or 1, bd.size or 1)
+            b._bdr:EnableMouse(false)
         end
-        PP.UpdateBorder(b._bdr, bd.size or 1, bd[1] or 0, bd[2] or 0, bd[3] or 0, bd[4] or 1)
-        b._bdr:Show()
+        b._bdr:SetFrameLevel(bd.behind
+            and math.max(0, b:GetFrameLevel() - 1)
+            or (b.cd:GetFrameLevel() + 1))
+        EllesmereUI.ApplyBorderStyle(b._bdr, bd.textureSize or bd.size or 1,
+            bd[1] or 0, bd[2] or 0, bd[3] or 0, bd[4] or 1,
+            bd.texture or "solid", bd.offsetX, bd.offsetY, bd.shiftX, bd.shiftY,
+            bd.addonKey or "unitframes", bd.sizeKey or bd.size or 1)
     elseif b._bdr then
+        if EllesmereUI.HideBorderStyle then EllesmereUI.HideBorderStyle(b._bdr) end
         b._bdr:Hide()
     end
     b.cd:SetReverse(style.cooldownReverse ~= false)
     b.cd:SetDrawEdge(style.cooldownDrawEdge == true)
-    b.cd:SetShown(style.hideSwipe ~= true)
+    local hideSwipe = style.hideSwipe == true
+    ApplySwipeGate(b, hideSwipe)
+    b.cd:SetShown(not hideSwipe)
 
     local path = style.fontPath or STANDARD_TEXT_FONT
     local flag = style.fontFlag or "OUTLINE"
@@ -240,11 +263,14 @@ local function ReadEnchants()
 end
 
 -- Fills one button's CONTENT (legal on protected frames in combat).
-local function PaintContent(b, slot, info)
+local function PaintContent(b, slot, info, hideSwipe)
     b.icon:SetTexture(GetInventoryItemTexture("player", slot))
     local remaining = (info.remainingTimeMs or 0) / 1000
     b._expire = GetTime() + remaining
     b.cd:SetCooldown(GetTime(), remaining)
+    -- Combat-legal half of the gate: ApplyStyle cannot run for the secure
+    -- trio in lockdown, so a swipe toggle flipped there lands here.
+    ApplySwipeGate(b, hideSwipe)
     local ch = info.chargesRemaining or 0
     if ch > 1 then b.charges:SetText(ch); b.charges:Show()
     else b.charges:Hide() end
@@ -307,7 +333,7 @@ local function Paint()
                         b:EnableMouse(info and true or false)
                     end
                     if info then
-                        PaintContent(b, SLOTS[i], info)
+                        PaintContent(b, SLOTS[i], info, style.hideSwipe == true)
                         -- In combat positions are frozen: a button whose
                         -- last-packed cell now belongs to the shifted engine
                         -- run (or to another enchant) goes alpha 0 instead
@@ -339,7 +365,8 @@ local function Paint()
                 b:ClearAllPoints()
                 b:SetPoint(rec.ia, rec.frame, rec.fp,
                     rec.x + sign * idx * cell, rec.y)
-                PaintContent(b, activeInfos[i].slot, activeInfos[i].info)
+                PaintContent(b, activeInfos[i].slot, activeInfos[i].info,
+                    style.hideSwipe == true)
                 b._noTooltip = style.noTooltips == true
                 b:EnableMouse(not b._noTooltip)
                 b:SetAlpha(1)
@@ -415,16 +442,38 @@ local function LayoutHost(key, rec)
         hosts[key] = host
     end
     host.rec = rec
-    if not (host.secure and InCombatLockdown()) then
-        -- Parent from rec.parent ONLY -- rec.anchorTo can be an engine aura
-        -- container, which carries forbidden aspects
-        -- (UntrustedLayoutScriptExecution): SetParent into it hard-errors for
-        -- the secure host ("child object would inherit forbidden aspects").
-        -- Anchoring is legal, so the host RIDES the container's rect while
-        -- living in the plain bar frame's tree.
-        host.frame:SetParent(rec.parent or rec.frame)
+    if host.secure and InCombatLockdown() then return end
+    -- Parent from rec.parent ONLY -- rec.anchorTo can be an engine aura
+    -- container, which carries forbidden aspects
+    -- (UntrustedLayoutScriptExecution): SetParent into it hard-errors for
+    -- the secure host ("child object would inherit forbidden aspects").
+    -- Anchoring is legal, so the host RIDES the container's rect while
+    -- living in the plain bar frame's tree.
+    local function DoAnchor()
+        local r = host.rec
+        -- Cleared-rec guard, plus the outer skip mirrored: AuraKit jobs are
+        -- combat-runnable, so a job enqueued OOC can drain in lockdown and
+        -- these writes on the SECURE host would be blocked actions there.
+        -- The rec stays, and the regen relayout heals it like the old skip.
+        if not r or (host.secure and InCombatLockdown()) then return end
+        host.frame:SetParent(r.parent or r.frame)
         host.frame:ClearAllPoints()
-        host.frame:SetAllPoints(rec.anchorTo or rec.parent or rec.frame)
+        host.frame:SetAllPoints(r.anchorTo or r.parent or r.frame)
+    end
+    if host.secure then
+        -- Some callers (e.g. Unlock Mode's grow-direction dropdown) reach
+        -- here from a live, insecure OnClick handler; anchoring the secure
+        -- host straight onto an engine aura container from that stack throws
+        -- UntrustedLayoutScriptExecution. AuraKit's own job queue gives the
+        -- anchor write a fresh, untainted execution context instead.
+        local AK = EllesmereUI.AuraKit
+        if AK and AK.QueueLiveBuildJob then
+            AK.QueueLiveBuildJob(DoAnchor, "uf:weaponench-anchor")
+        else
+            DoAnchor()
+        end
+    else
+        DoAnchor()
     end
 end
 

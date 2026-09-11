@@ -4384,11 +4384,14 @@ local function BuildCogPopup(opts)
                     cpLblBlock:SetScript("OnLeave", function() if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end end)
                 end
 
-                rowWidgets[#rowWidgets + 1] = { type = 'colorpicker', updateSwatch = cpUpdate, swatch = cpSwatch, swBlock = cpSwBlock, lblBlock = cpLblBlock, disCheck = row.disabled }
+                rowWidgets[#rowWidgets + 1] = { type = 'colorpicker', updateSwatch = cpUpdate, swatch = cpSwatch, lbl = lbl, swBlock = cpSwBlock, lblBlock = cpLblBlock, disCheck = row.disabled }
 
                 if row.disabled then
                     local initDis = type(row.disabled) == "function" and row.disabled() or row.disabled
                     cpSwatch:SetAlpha(initDis and 0.3 or 1)
+                    -- Label dims by alpha rather than the dark row overlay the other
+                    -- types use: that overlay would tint the swatch's own color.
+                    lbl:SetAlpha(initDis and 0.2 or 0.6)
                     if cpSwBlock then if initDis then cpSwBlock:Show() else cpSwBlock:Hide() end end
                     if cpLblBlock then if initDis then cpLblBlock:Show() else cpLblBlock:Hide() end end
                 end
@@ -4903,6 +4906,7 @@ local function BuildCogPopup(opts)
                         local dis
                         if type(rw.disCheck) == "function" then dis = rw.disCheck() else dis = rw.disCheck end
                         if rw.swatch then rw.swatch:SetAlpha(dis and 0.3 or 1) end
+                        if rw.lbl then rw.lbl:SetAlpha(dis and 0.2 or 0.6) end
                         if rw.swBlock then if dis then rw.swBlock:Show() else rw.swBlock:Hide() end end
                         if rw.lblBlock then if dis then rw.lblBlock:Show() else rw.lblBlock:Hide() end end
                     end
@@ -7438,10 +7442,23 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         local names = {}
         local total = 0
         local hiddenCount = 0
+        -- A LIVE override replaces the whole setting, whether it is being edited or just
+        -- applied, so the summary is what it holds and nothing else. Mixing it with the
+        -- rows below reads as one selection that exists nowhere ("Always or Solo"), and
+        -- it is also the only place that still tells the truth while the rows underneath
+        -- show the shared value they edit.
+        local held = opts.ovHeldFn and opts.ovHeldFn()
+        if held then
+            for _, item in ipairs(items) do
+                if item.key == held then return EllesmereUI.L(item.label) end
+            end
+        end
         for _, item in ipairs(items) do
             -- isModifier rows (the Visibility match toggle) are not conditions: excluded
-            -- from the summary and from the "All" shortcut.
-            if not item.isHeader and not item.isTopAction and not item.isModifier then
+            -- from the summary and from the "All" shortcut. item.excludeFromSummaryFn
+            -- opts a row out the same way (e.g. locked behind an unlearned talent).
+            if not item.isHeader and not item.isTopAction and not item.isModifier
+               and not (item.excludeFromSummaryFn and item.excludeFromSummaryFn()) then
                 total = total + 1
                 if getFn(item.key) then names[#names + 1] = EllesmereUI.L(item.label) end
                 -- Dual-lane rows: the hide lane reads through getFn(key, true).
@@ -7682,6 +7699,9 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
 
         local yOff = -4
         local _allRows = {}  -- { frame, isHeader, label(string), height }
+        -- Published for the refreshers below: the rows are parented to the SCROLL CHILD,
+        -- so a menu:GetChildren() walk never reaches them.
+        menu._rows = _allRows
         for _, item in ipairs(items) do
             -- Top-action items render above the search box, never here.
             if item.isTopAction then -- luacheck: ignore (intentional empty)
@@ -7862,6 +7882,21 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             local function ShowLaneLocked()
                 return item.showLockedFn and item.showLockedFn() or false
             end
+            -- item.ovLockedFn is the override-session lock: it blocks the click like any
+            -- other lock, but is painted and explained differently, because the row is not
+            -- merely unavailable here -- it cannot be captured into an override at all.
+            local function OvLocked()
+                return (item.ovLockedFn and item.ovLockedFn()) and true or false
+            end
+            local function RowLocked()
+                if OvLocked() or item.locked then return true end
+                return (item.lockedFn and item.lockedFn()) and true or false
+            end
+            local function LockedTip()
+                local lt = (OvLocked() and item.ovLockedTooltip) or item.lockedTooltip
+                if type(lt) == "function" then lt = lt() end
+                return lt
+            end
             local function UpdateCheck()
                 if chk then
                     if getFn(item.key) then
@@ -7902,8 +7937,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             row:SetScript("OnEnter", function()
                 if row._isLocked then
                     -- Locked rows keep the gray look (no highlight); if the item explains its lock, show that instead of the normal tooltip.
-                    local lt = item.lockedTooltip
-                    if type(lt) == "function" then lt = lt() end
+                    local lt = LockedTip()
                     if lt then
                         EllesmereUI.ShowWidgetTooltip(row, lt)
                     end
@@ -7919,7 +7953,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             end)
             row:SetScript("OnLeave", function()
                 if row._isLocked then
-                    if item.lockedTooltip then
+                    if item.lockedTooltip or item.ovLockedTooltip then
                         EllesmereUI.HideWidgetTooltip()
                     end
                     return
@@ -7931,7 +7965,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 end
             end)
             local function UpdateLocked()
-                local isLocked = item.locked or (item.lockedFn and item.lockedFn())
+                local isLocked = RowLocked()
                 -- Mouse stays enabled so locked rows can explain themselves on hover; clicks are guarded independently in OnClick.
                 row._isLocked = isLocked and true or false
                 if isLocked then
@@ -7943,6 +7977,16 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             row._updateLocked = UpdateLocked
             UpdateLocked()
             local function AfterToggle()
+                -- opts.notifyWrites: join the primary capture path every other widget's
+                -- setter uses. Without it a checklist has only the polling fallback,
+                -- whose mouse attribution is CLEARED while the menu (a UIParent child
+                -- with no popup marker) holds focus, so an override session never sees
+                -- the write when it happens. ddBtn's parent carries the row's
+                -- _captureCfg, so the slot is attributed exactly. Opt-in: every other
+                -- checklist keeps the behaviour it has always had.
+                if opts.notifyWrites and EllesmereUI._NotifySettingWrite then
+                    EllesmereUI._NotifySettingWrite(ddBtn)
+                end
                 UpdateLabel()
                 -- Refresh checkbox visuals + dynamic action labels, so items whose checked state depends on others (e.g. "Always" in crosshair) update live. Locked visuals refresh too, so rows whose lockedFn depends on the current selection never show a stale gray/active state.
                 for _, r in ipairs(_allRows) do
@@ -7963,7 +8007,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 end
             end
             row:SetScript("OnClick", function()
-                if item.locked or (item.lockedFn and item.lockedFn()) then return end
+                if RowLocked() then return end
                 if negBox and ShowLaneLocked() then
                     setFn(item.key, not getFn(item.key, true), true)
                 else
@@ -7973,16 +8017,20 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             end)
             if negBox then
                 negBox:SetScript("OnClick", function()
-                    if item.locked or (item.lockedFn and item.lockedFn()) then return end
+                    if RowLocked() then return end
                     setFn(item.key, not getFn(item.key, true), true)
                     AfterToggle()
                 end)
                 negBox:SetScript("OnEnter", function()
-                    if row._isLocked then return end
+                    if row._isLocked then
+                        local lt = LockedTip()
+                        if lt then EllesmereUI.ShowWidgetTooltip(negBox, lt) end
+                        return
+                    end
                     lbl:SetTextColor(1, 1, 1, 1)
                     hl:SetColorTexture(1, 1, 1, 0.04)
                     local hlt = opts.hideLaneTooltip
-                    if type(hlt) == "function" then hlt = hlt() end
+                    if type(hlt) == "function" then hlt = hlt(item.key) end
                     EllesmereUI.ShowWidgetTooltip(negBox,
                         hlt and EllesmereUI.L(hlt)
                         or EllesmereUI.L("Hide these instead of showing them"))
@@ -8011,10 +8059,72 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                     end)
                 end
             end
+            -- Marks the contiguous run the override overlay below seals off.
+            row._ovBlock = item.ovLockedFn and true or nil
             _allRows[#_allRows + 1] = { frame = row, isHeader = false, label = item.label, height = ITEM_H }
             yOff = yOff - ITEM_H
 
             end -- isHeader else
+        end
+
+        -- Override session: the excluded rows are sealed off as ONE block rather than
+        -- marked one by one -- 1px red border, a 5% red wash, a lock glyph with a caption
+        -- and a click blocker holding the explanation, the same treatment SetSlotMark
+        -- gives an override-red slot in the panel.
+        -- Parented to the scroll child so it travels with the rows.
+        if opts.ovLockedFn then
+            local first, last
+            for i = 1, #_allRows do
+                if _allRows[i].frame._ovBlock then
+                    -- A header sitting directly on top of the run introduces it.
+                    if not first then
+                        first = (i > 1 and _allRows[i - 1].isHeader) and (i - 1) or i
+                    end
+                    last = i
+                end
+            end
+            if first and last then
+                local seal = CreateFrame("Button", nil, itemParent)
+                seal:SetPoint("TOPLEFT", _allRows[first].frame, "TOPLEFT", 1, 0)
+                -- The 4px scrollbar track sits 4px off the right edge, ON the scroll
+                -- frame rather than in here, so the seal stops short of it instead of
+                -- running underneath and having the bar cut through its border.
+                seal:SetPoint("BOTTOMRIGHT", _allRows[last].frame, "BOTTOMRIGHT", -9, 0)
+                seal:SetFrameLevel(menu:GetFrameLevel() + 8)
+                local wash = seal:CreateTexture(nil, "BACKGROUND")
+                wash:SetAllPoints()
+                wash:SetColorTexture(0.9, 0.2, 0.2, 0.05)
+                if PP and PP.CreateBorder then
+                    PP.CreateBorder(seal, 0.9, 0.2, 0.2, 0.9, 1, "OVERLAY", 7)
+                end
+                -- Caption on the block's top edge rather than across its middle: the wash
+                -- is deliberately faint, so a centred label would land on readable rows.
+                local sealLbl = seal:CreateFontString(nil, "OVERLAY", nil, 7)
+                sealLbl:SetFont(fontPath, 11, "")
+                sealLbl:SetTextColor(1, 0.35, 0.35, 1)
+                sealLbl:SetPoint("TOPRIGHT", seal, "TOPRIGHT", -6, -5)
+                sealLbl:SetText(EllesmereUI.L("Not overridable"))
+                -- The section header's divider line runs straight THROUGH the caption at
+                -- this height. A plate in the menu's own background colour cuts the line
+                -- for the width of the text: the seal sits at a higher frame level than
+                -- the header, so anything it draws covers that line.
+                local plate = seal:CreateTexture(nil, "ARTWORK", nil, 6)
+                plate:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G,
+                    EllesmereUI.DD_BG_B, 1)
+                plate:SetPoint("TOPLEFT", sealLbl, "TOPLEFT", -5, 2)
+                plate:SetPoint("BOTTOMRIGHT", sealLbl, "BOTTOMRIGHT", 5, -2)
+                seal:EnableMouse(true)
+                seal:SetScript("OnEnter", function(self)
+                    if opts.ovLockedTooltip then
+                        EllesmereUI.ShowWidgetTooltip(self, opts.ovLockedTooltip)
+                    end
+                end)
+                seal:SetScript("OnLeave", function()
+                    EllesmereUI.HideWidgetTooltip()
+                end)
+                menu._ovSeal = seal
+                seal:SetShown(opts.ovLockedFn())
+            end
         end
 
         -- Close button at bottom of dropdown (optional)
@@ -8092,6 +8202,15 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 end
                 -- Hide trailing header with no visible children
                 if lastHdr and not hdrHasVisible then lastHdr:Hide() end
+                -- The override seal is anchored to the FIRST and LAST row of its run,
+                -- which this filter hides and repositions without touching the seal. Drop
+                -- it while a filter is active rather than re-deriving the run: with rows
+                -- missing there is no contiguous block left to mark, and a stale seal is a
+                -- mouse-enabled frame parked over whatever rows did survive.
+                if menu._ovSeal then
+                    menu._ovSeal:SetShown(t == "" and opts.ovLockedFn
+                        and opts.ovLockedFn() or false)
+                end
                 child:SetHeight(math.max(1, math.abs(visY)))
                 sf:SetVerticalScroll(0)
                 UpdateCBThumb()
@@ -8153,6 +8272,14 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             menu:Hide()
             return
         end
+        -- A static menu is built once and reused, so anything that changed while it was
+        -- closed would show stale: refresh checked state AND locks on every open. The
+        -- case that matters is an override session starting between two opens.
+        for _, r in ipairs(menu._rows or {}) do
+            if r.frame._updateCheck then r.frame._updateCheck() end
+            if r.frame._updateLocked then r.frame._updateLocked() end
+        end
+        if menu._ovSeal then menu._ovSeal:SetShown(opts.ovLockedFn()) end
         -- Match the panel's effective scale since menu lives on UIParent
         local btnScale = ddBtn:GetEffectiveScale()
         local uiScale = UIParent:GetEffectiveScale()
@@ -8210,9 +8337,11 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
     local function RefreshAll()
         UpdateLabel()
         if menu then
-            for _, child in pairs({menu:GetChildren()}) do
-                if child._updateCheck then child._updateCheck() end
+            for _, r in ipairs(menu._rows or {}) do
+                if r.frame._updateCheck then r.frame._updateCheck() end
+                if r.frame._updateLocked then r.frame._updateLocked() end
             end
+            if menu._ovSeal then menu._ovSeal:SetShown(opts.ovLockedFn()) end
         end
     end
     return ddBtn, RefreshAll
@@ -8444,7 +8573,13 @@ end
 --  prior counterpart use a new key (EllesmereUI.VIS_OPT_KEYS).
 --  opts = {
 --      getStore/legacyKey  = store accessor + scalar key (required)
---      caps                = { noMouseover, noGroupModes, luaDragonriding, lockedTooltips }
+--      getStores           = optional fn() -> array of every store this control writes the
+--                            override marker to, getStore()'s first (Resource Bars drives
+--                            health/primary/secondary from one row). Defaults to that one
+--                            store; the marker replaces the shared value, so it has to
+--                            reach exactly the stores that value does.
+--      caps                = { noMouseover, noGroupModes, noOverrideMouseover,
+--                              luaDragonriding, lockedTooltips }
 --      applyScalarFn       = optional fn(store, mode) for scalar side effects
 --      getOption/setOption = optional fn(key)/fn(key, value) when option booleans live
 --                            outside getStore() (Resource Bars writes three stores)
@@ -8466,7 +8601,7 @@ EllesmereUI.VIS_ROW_ITEMS = {
     { key = "always",    label = "Always" },
     { key = "mouseover", label = "Mouseover",
       tooltip = "Reveal on hover only. Combines with the conditions below: hover-reveals while they all pass, stays hidden while any fails.",
-      tooltipAny = "Reveal on hover only. Combines with the conditions below: hover-reveals while at least ONE passes, stays hidden while none does." },
+      tooltipAny = "Combines with the conditions below: shows outright once at least one passes, otherwise still reveals on hover. A checked Hide state still hides it, hover included." },
     -- Modifiers, not conditions: they decide how the rows below combine, so they stay
     -- out of the summary and the Show/Hide lane pairs. Radio pair (matchValue) over one
     -- scalar: picking one unpicks the other, there is no "neither" state.
@@ -8474,16 +8609,24 @@ EllesmereUI.VIS_ROW_ITEMS = {
     { key = "matchAll", label = "Match All Conditions", modifier = true, matchValue = "all",
       tooltip = "Every condition you set has to match. The default." },
     { key = "matchAny", label = "Match Any Condition", modifier = true, matchValue = "any",
-      tooltip = "This element shows as soon as ONE condition matches, and a Hide lane then means show while that condition is false." },
+      tooltip = "This element shows as soon as ONE Show condition matches. Hide keeps its meaning in both match modes: a checked Hide always hides, on every row." },
     { isHeader = true, label = "Show", rightLabel = "Hide" },
+    -- Every condition gets its own row, the inverse ones included, because a Hide lane is
+    -- a veto rather than "show while this is false": without an "Out of Combat" row there
+    -- would be no way left to say "show while out of combat" as one Any disjunct.
     { key = "combat", label = "In Combat", axis = "mode",
-      show = "in_combat", hide = "out_of_combat" },
-    { key = "in_raid",  label = "In Raid Group", axis = "group" },
-    { key = "in_party", label = "In Party",      axis = "group" },
-    { key = "solo",     label = "Solo",          axis = "group" },
+      show = "in_combat", hide = "hide_in_combat" },
+    { key = "outOfCombat", label = "Out of Combat", axis = "mode",
+      show = "out_of_combat", hide = "hide_out_of_combat" },
+    { key = "in_raid",  label = "In Raid Group", axis = "group", hide = "hide_in_raid" },
+    { key = "in_party", label = "In Party",      axis = "group", hide = "hide_in_party" },
+    { key = "solo",     label = "Solo",          axis = "group", hide = "hide_solo" },
     { key = "skyAirborne", label = "Skyriding (Airborne)", axis = "mode",
-      show = "show_dragonriding", hide = "show_not_dragonriding",
+      show = "show_dragonriding", hide = "hide_dragonriding",
       tooltip = "Only while AIRBORNE on a glide-capable mount or flight form. For the mount itself, ground included, use Skyriding Mount." },
+    { key = "notSkyAirborne", label = "Not Skyriding (Airborne)", axis = "mode",
+      show = "show_not_dragonriding", hide = "hide_not_dragonriding",
+      tooltip = "The exact inverse of Skyriding (Airborne): anything that is not airborne on a glide-capable mount or flight form, standing on the ground included." },
     { key = "skyMount", label = "Skyriding Mount", axis = "opt",
       show = "visOnlySkyriding", hide = "visHideDragonriding",
       tooltip = "While on a glide-capable mount, ground included, where Blizzard shows its vigor HUD. Skyriding (Airborne) additionally requires you to be flying." },
@@ -8502,6 +8645,12 @@ EllesmereUI.VIS_ROW_ITEMS = {
     { key = "enemyTarget", label = "Enemy Target", axis = "opt",
       show = "visHideNoEnemy", hide = "visHideWithEnemy",
       tooltip = "A target you can attack." },
+    { key = "resting", label = "Resting", axis = "opt",
+      show = "visOnlyResting", hide = "visHideResting",
+      tooltip = "While resting, in a city or at an inn." },
+    { key = "vehicle", label = "In Vehicle", axis = "opt",
+      show = "visOnlyVehicle", hide = "visHideVehicle",
+      tooltip = "While seated in a vehicle." },
 }
 
 -------------------------------------------------------------------------------
@@ -8518,6 +8667,26 @@ function EllesmereUI.AttachVisibilityChecklist(region, opts)
     local GROUP_KEYS = (EllesmereUI.VIS_AXES and EllesmereUI.VIS_AXES.group)
         or { "in_raid", "in_party", "solo" }
 
+    -- Only the two exclusive states survive an override: the checklist writes them to
+    -- the legacy scalar, which the value system can hold. Everything else lives in the
+    -- mode SET, the match mode or an option lane, all excluded from it, so a session
+    -- locks those rows instead of letting a click land that would be dropped.
+    -- SlotOverridable, not EditSessionActive: the session flag is global, but this row
+    -- also sits on pages that are excluded from the override systems (Quest Tracker,
+    -- Damage Meters, the CDM Tracking Bars tab). There a picked state would write a
+    -- marker the capture gates drop as blacklisted, leaving it stranded in the shared
+    -- profile with nothing owning it. On those pages the row simply behaves as it does
+    -- outside a session.
+    local function OvSessionActive()
+        return (EllesmereUI.SpecOverrides_SlotOverridable
+            and EllesmereUI.SpecOverrides_SlotOverridable()) and true or false
+    end
+    local OV_LOCK_TIP = "Not overridable. These conditions are shared and can only be changed while no override is being edited. An override replaces the Visibility setting outright -- Never, Always or Mouseover -- and ignores everything set here while it applies."
+    local OV_PICK_TIP = "Makes this the override. It replaces the whole Visibility setting, so the conditions below no longer apply while it does. Click it again to remove the override."
+    -- The block carries ONE tooltip, so the module that also has to seal Mouseover
+    -- says why right there instead of losing the reason to the shared text.
+    local OV_LOCK_TIP_MO = OV_LOCK_TIP .. " Mouseover is sealed here too for this element: its hover mechanism follows the shared setting, so an override could only leave it shown."
+
     -- Per-module row list. `listed` collects the legacy SCALAR values this row can
     -- actually reach, so the orphan rule below only fires for genuinely foreign ones.
     local items, defs, listed = {}, {}, {}
@@ -8531,7 +8700,9 @@ function EllesmereUI.AttachVisibilityChecklist(region, opts)
     local function OrphanScalar()
         local store = opts.getStore()
         if not store then return nil end
-        local sel, isMulti = EllesmereUI.GetVisibilitySelection(store, legacyKey)
+        -- Shared value (ignoreOverride): an orphan is a stored SCALAR this row cannot
+        -- express, and an applied override neither creates nor cures one.
+        local sel, isMulti = EllesmereUI.GetVisibilitySelection(store, legacyKey, true)
         if isMulti then return nil end
         local cur = next(sel)
         if cur and not listed[cur] then return cur end
@@ -8545,14 +8716,27 @@ function EllesmereUI.AttachVisibilityChecklist(region, opts)
             local item = { key = def.key, label = def.label, tooltip = def.tooltip,
                            dual = def.axis and true or nil,
                            isModifier = def.modifier }
+            -- Never / Always / Mouseover are the exclusive states: each one writes the
+            -- legacy scalar on its own, which an override CAN hold. Everything else is
+            -- the compound half.
+            if def.key ~= "never" and def.key ~= "always" and def.key ~= "mouseover" then
+                item.ovLockedFn = OvSessionActive
+                item.ovLockedTooltip = OV_LOCK_TIP
+            elseif def.key == "mouseover" and caps.noOverrideMouseover then
+                -- Joins the sealed run: this row sits directly above the section header
+                -- the block starts at, so it simply grows by one and stays contiguous,
+                -- with Never and Always left outside it.
+                item.ovLockedFn = OvSessionActive
+                item.ovLockedTooltip = OV_LOCK_TIP_MO
+            end
             if caps.noGroupModes and def.axis == "group" then
                 item.locked = true
                 item.lockedTooltip = (caps.lockedTooltips and caps.lockedTooltips[def.key])
                     or "This element cannot use group-based visibility."
             end
-            -- Only the airborne row needs the takeoff/landing edge; the mount row
+            -- Only the two airborne rows need the takeoff/landing edge; the mount row
             -- rides PLAYER_CAN_GLIDE_CHANGED, which is always registered.
-            if caps.luaDragonriding and def.key == "skyAirborne" then
+            if caps.luaDragonriding and (def.key == "skyAirborne" or def.key == "notSkyAirborne") then
                 item.lockedFn = function() return not EllesmereUI._hasGlidingEvent end
                 item.lockedTooltip = "Requires a client with gliding events."
             end
@@ -8564,6 +8748,16 @@ function EllesmereUI.AttachVisibilityChecklist(region, opts)
             if def.tooltipAny then
                 item.tooltip = function()
                     return GetMatchAny() and def.tooltipAny or def.tooltip
+                end
+            end
+            -- The three exclusive states behave differently inside a session, so they
+            -- say so instead of showing their normal text.
+            if def.key == "never" or def.key == "always" or def.key == "mouseover" then
+                local baseTip = item.tooltip
+                item.tooltip = function()
+                    if OvSessionActive() then return OV_PICK_TIP end
+                    if type(baseTip) == "function" then return baseTip() end
+                    return baseTip
                 end
             end
             items[#items + 1] = item
@@ -8597,16 +8791,117 @@ function EllesmereUI.AttachVisibilityChecklist(region, opts)
         end
     end
 
+    -- Legacy group Hide encoding: before the Hide lanes had keys of their own, "Hide: In
+    -- Raid Group" was stored as the other two Show lanes. Under Match All the two are
+    -- equivalent, so the row keeps presenting it as the Hide lane and the next write
+    -- persists the normalized form through WriteSel. Under Any they are NOT equivalent
+    -- (two Show lanes are two disjuncts, a Hide lane is a veto), so those stores are left
+    -- exactly as they are. Hide keys are "hide_" .. the show key, per VIS_MODE_AXES.
+    local function NormalizeGroupHide(sel)
+        if GetMatchAny() then return sel end
+        local missing, shown = nil, 0
+        for i = 1, #GROUP_KEYS do
+            local k = GROUP_KEYS[i]
+            if sel["hide_" .. k] then return sel end
+            if sel[k] then shown = shown + 1 else missing = k end
+        end
+        if missing and shown == #GROUP_KEYS - 1 then
+            for i = 1, #GROUP_KEYS do sel[GROUP_KEYS[i]] = nil end
+            sel["hide_" .. missing] = true
+        end
+        return sel
+    end
+
+    -- Every store the override marker has to reach. One by default; a module that drives
+    -- several stores from ONE control (Resource Bars writes health/primary/secondary in
+    -- lockstep) lists them all through opts.getStores, with the store opts.getStore
+    -- returns first. The marker replaces the shared value, so it has to travel exactly as
+    -- far as that value does, or the mirrored elements keep obeying what it took over.
+    local function OvStores()
+        if opts.getStores then return opts.getStores() or {} end
+        local store = opts.getStore()
+        if not store then return {} end
+        return { store }
+    end
+
+    -- The SHARED selection, which is what every row below edits. Read with ignoreOverride
+    -- on purpose: while an override applies, the evaluator-facing read hides the stored
+    -- set, and taking that view here rendered the rows as the bare legacy scalar and let
+    -- the next click write that rump back over the set. The override itself is reported by
+    -- the summary (ovHeldFn) and by GetChecked's exclusive-row branch, never from here.
     local function Sel()
         local store = opts.getStore()
         if not store then return nil end
-        return EllesmereUI.GetVisibilitySelection(store, legacyKey), store
+        return NormalizeGroupHide(EllesmereUI.GetVisibilitySelection(store, legacyKey, true)), store
+    end
+
+    -- Read-only view for GetChecked, memoized. Every refresh sweep and every menu open
+    -- calls GetChecked twice per condition row, and each call allocated a fresh selection
+    -- table. The key is everything Sel()'s answer depends on, and SetVisibilitySelection
+    -- assigns a NEW visibilityModes table on every write, so an identity compare catches
+    -- this row's writes and everyone else's alike (an override applying, a profile switch,
+    -- a sync copy). Callers that MUTATE the selection keep using Sel().
+    local _selCache, _selStore, _selModes, _selScalar, _selMatch, _selOv
+    local function SelRead()
+        local store = opts.getStore()
+        if not store then return nil, nil end
+        if _selCache and store == _selStore
+            and store.visibilityModes == _selModes
+            and store[legacyKey] == _selScalar
+            and store.visibilityMatch == _selMatch
+            and store.visibilityOverride == _selOv then
+            return _selCache, store
+        end
+        _selStore, _selModes = store, store.visibilityModes
+        _selScalar, _selMatch = store[legacyKey], store.visibilityMatch
+        _selOv = store.visibilityOverride
+        _selCache = NormalizeGroupHide(
+            EllesmereUI.GetVisibilitySelection(store, legacyKey, true))
+        return _selCache, store
     end
 
     local function WriteSel(sel, store)
         -- Never-empty invariant: clearing the last condition means Always.
         if not next(sel) then sel.always = true end
+        -- A shared edit outside a session also clears a STRANDED override marker. Two
+        -- ways one can be left behind: the management list's Remove drops the entry but
+        -- deliberately leaves live values alone, and a profile exported while an override
+        -- applied carries the key into every import of it. Either way nothing owns the
+        -- key any more and the element would be stuck on it; a real applied override
+        -- simply writes it back on its next apply.
+        if not OvSessionActive() and store.visibilityOverride ~= nil then
+            local stores = OvStores()
+            for i = 1, #stores do stores[i].visibilityOverride = nil end
+        end
         EllesmereUI.SetVisibilitySelection(store, legacyKey, sel, opts.applyScalarFn)
+    end
+
+    -- Stranded-marker heal, once per page build. A live override marker nothing owns any
+    -- more pins the element on that state with no path back: the management list's Remove
+    -- drops the entry but deliberately leaves applied values alone, and a profile exported
+    -- while an override applied carries the marker into every import that did not also
+    -- take the overrides. Never inside a session -- the marker being edited is exactly the
+    -- one no map holds yet -- and never for a marker a real override still owns, which
+    -- simply gets written back on its next apply. WriteSel's clear stays as the belt.
+    if not EllesmereUI._prebuilding
+        and not (EllesmereUI.SpecOverrides_EditSessionActive
+            and EllesmereUI.SpecOverrides_EditSessionActive()) then
+        local stores, healed = OvStores(), false
+        for i = 1, #stores do
+            local st = stores[i]
+            if st.visibilityOverride ~= nil and EllesmereUI.SpecOverrides_KeyIsOwned
+                and not EllesmereUI.SpecOverrides_KeyIsOwned(st, "visibilityOverride") then
+                st.visibilityOverride = nil
+                healed = true
+            end
+        end
+        -- The element is sitting on the state the marker pinned it to, so it needs the
+        -- module's visibility pass to catch up. onOptionChanged, not onChanged: the light
+        -- re-apply chain, none of whose callers rebuild the page. Deferred a frame anyway,
+        -- so nothing runs a module refresh from inside the page build that started it.
+        if healed and opts.onOptionChanged then
+            C_Timer.After(0, opts.onOptionChanged)
+        end
     end
 
     local function GetOpt(k)
@@ -8649,6 +8944,18 @@ function EllesmereUI.AttachVisibilityChecklist(region, opts)
     -- Option axes live outside the selection, so Always vs. an active Show lane (which
     -- narrows what Always claims is unrestricted) is reconciled in GetChecked/SetChecked.
     -- Same under Any: always is not a tallied axis, so a lone Show lane narrows the same way.
+    -- A selection whose only members are Hide lanes reads as Always: nothing restricts
+    -- where the element shows, a veto just carves out where it does not. Same shape the
+    -- option Hide lanes have always had (they live outside the selection entirely).
+    local function OnlyHideLanes(sel)
+        local hasHide = false
+        for k in pairs(sel) do
+            if not EllesmereUI.VIS_MODE_HIDE_KEYS[k] then return false end
+            hasHide = true
+        end
+        return hasHide
+    end
+
     local function AnyShowOptActive()
         for _, d in pairs(defs) do
             if d.axis == "opt" and GetOpt(d.show) then return true end
@@ -8685,26 +8992,57 @@ function EllesmereUI.AttachVisibilityChecklist(region, opts)
         end
         if def.axis == "extra" then return def.get() == true end
         if def.axis == "opt" then return GetOpt(neg and def.hide or def.show) end
-        local sel = Sel()
+        local sel, store = SelRead()
         if not sel then return k == "always" end
-        if def.axis == "mode" then return sel[neg and def.hide or def.show] == true end
-        if def.axis == "group" then
-            if not neg then return sel[def.key] == true end
-            -- Hide-lane sugar: in a three-way OR-group, "not in a raid" IS "in a party
-            -- or solo". No key of its own, no evaluator branch, no driver change.
-            if sel[def.key] then return false end
-            for i = 1, #GROUP_KEYS do
-                if GROUP_KEYS[i] ~= def.key and not sel[GROUP_KEYS[i]] then return false end
-            end
-            return true
+        -- While an override is being EDITED the three exclusive rows show what it holds.
+        -- Outside a session they show the shared value again, because that is what these
+        -- rows edit -- an applied override is announced by the summary and the panel's
+        -- own gold marker, not by checking a row the click would not change. Read from
+        -- the store Sel() just resolved rather than calling opts.getStore() again: a
+        -- getter is not guaranteed free (CDM's tracked buff bars CREATE their table on
+        -- read), and inside a session such a write becomes a capture of its own.
+        if OvSessionActive() and (k == "never" or k == "always" or k == "mouseover") then
+            local ov = store and EllesmereUI.VisOverrideValue
+                and EllesmereUI.VisOverrideValue(store)
+            if ov then return (not neg) and (k == ov) end
         end
-        if k == "always" then return sel.always == true and not AnyShowOptActive() end
+        if def.axis == "mode" then return sel[neg and def.hide or def.show] == true end
+        if def.axis == "group" then return sel[neg and def.hide or def.key] == true end
+        if k == "always" then
+            return (sel.always == true or OnlyHideLanes(sel)) and not AnyShowOptActive()
+        end
         return sel[k] == true
     end
 
     local function SetChecked(k, checked, neg)
         local def = defs[k]
         if not def then return end
+
+        -- Inside an override session the three exclusive states are the only thing an
+        -- override can carry, and they REPLACE the configuration instead of editing it.
+        -- Exactly ONE key is written and nothing else: the shared scalar, the stored
+        -- selection, the match mode and the option lanes stay untouched, so nothing
+        -- underneath can be lost or swept into the override by accident. Picking the
+        -- state the override already holds clears it again.
+        if (k == "never" or k == "always" or k == "mouseover") and OvSessionActive() then
+            local stores = OvStores()
+            local store = stores[1]
+            if not store then return end
+            local held = EllesmereUI.VisOverrideValue and EllesmereUI.VisOverrideValue(store)
+            if held == k then
+                -- Cleared on every store first, so the re-snapshot ClearStoreKey takes
+                -- at the end already sees the finished state and nothing diffs back into
+                -- a capture of its own.
+                for i = 1, #stores do stores[i].visibilityOverride = nil end
+                if EllesmereUI.SpecOverrides_ClearStoreKey then
+                    EllesmereUI.SpecOverrides_ClearStoreKey(stores, "visibilityOverride")
+                end
+            else
+                for i = 1, #stores do stores[i].visibilityOverride = k end
+            end
+            AfterChange(true)
+            return
+        end
 
         -- Modifier: a radio pair over one scalar; picking one unpicks the other and
         -- deliberately clears nothing else.
@@ -8761,18 +9099,10 @@ function EllesmereUI.AttachVisibilityChecklist(region, opts)
         end
 
         if def.axis == "group" then
-            if not neg then
-                sel[def.key] = checked or nil
-            elseif checked then
-                sel[def.key] = nil
-                for i = 1, #GROUP_KEYS do
-                    if GROUP_KEYS[i] ~= def.key then sel[GROUP_KEYS[i]] = true end
-                end
-            else
-                -- Unchecking Hide drops the whole group constraint: the state it
-                -- encoded (the other two checked) has no other representation.
-                for i = 1, #GROUP_KEYS do sel[GROUP_KEYS[i]] = nil end
-            end
+            local lane, other = def.key, def.hide
+            if neg then lane, other = def.hide, def.key end
+            sel[lane] = checked or nil
+            if checked then sel[other] = nil end
             WriteSel(sel, store)
             AfterChange(false)
             return
@@ -8786,8 +9116,14 @@ function EllesmereUI.AttachVisibilityChecklist(region, opts)
         end
 
         if k == "never" or k == "always" then
-            -- Exclusive and terminal, like a plain single-select.
-            for key in pairs(sel) do sel[key] = nil end
+            -- Exclusive and terminal, like a plain single-select. Always clears the SHOW
+            -- side only -- a Hide lane survives it, exactly as an option Hide lane does.
+            -- Never is terminal for everything, vetoes included.
+            for key in pairs(sel) do
+                if k == "never" or not EllesmereUI.VIS_MODE_HIDE_KEYS[key] then
+                    sel[key] = nil
+                end
+            end
             if checked then sel[k] = true end
             WriteSel(sel, store)
             -- Always clears the Show lanes (else GetChecked keeps its box unchecked and the
@@ -8827,13 +9163,25 @@ function EllesmereUI.AttachVisibilityChecklist(region, opts)
         leftRgn, opts.width or 210, leftRgn:GetFrameLevel() + 2,
         items, GetChecked, SetChecked, nil, 12, nil, nil, OnMenuClosed,
         { emptyLabel = "Always",
-          -- Both of these read the match live: under Any the conditions are OR'd, and
-          -- a Hide lane stops being a veto and becomes a disjunct of its own.
+          -- Override sessions have to see each click as it happens: parts of this
+          -- control are excluded from them and the session says so per write.
+          notifyWrites = true,
+          -- Seals the excluded rows off as one block while a session is live, announced
+          -- once instead of by every row.
+          ovLockedFn = OvSessionActive,
+          ovLockedTooltip = caps.noOverrideMouseover and OV_LOCK_TIP_MO or OV_LOCK_TIP,
+          -- The value a live override holds, applied or edited: the summary shows it
+          -- instead of the shared selection it replaces.
+          ovHeldFn = function()
+              local _, store = SelRead()
+              return store and EllesmereUI.VisOverrideValue
+                  and EllesmereUI.VisOverrideValue(store) or nil
+          end,
+          -- The separator reads the match live: under Any the conditions are OR'd.
           separatorFn = function() return GetMatchAny() and " or " or ", " end,
-          hideLaneTooltip = function()
-              return GetMatchAny() and "Show while this condition is false"
-                  or "Hide while this condition is true"
-          end })
+          -- Every row follows the same rule now: a checked Hide lane hides while its
+          -- condition holds, in both match modes.
+          hideLaneTooltip = "Hide while this condition is true" })
     PP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
     leftRgn._control = cbDD
     leftRgn._lastInline = nil
@@ -8846,11 +9194,30 @@ function EllesmereUI.AttachVisibilityChecklist(region, opts)
         type = "dropdown", text = opts.label or "Visibility",
         getValue = function()
             local s = opts.getStore()
-            return s and (s[legacyKey] or "always") or "always"
+            if not s then return "always" end
+            -- Both are read on purpose, and unconditionally: the gold walk traces what a
+            -- getter READS, so a row whose override lives in either key has to touch both
+            -- or it never marks itself as overridden. The override wins as the value,
+            -- being the effective one this is meant to report.
+            local ov, base = s.visibilityOverride, s[legacyKey]
+            return ov or base or "always"
         end,
         setValue = function(v)
             local s = opts.getStore()
             if not s then return end
+            -- Round-trip with getValue above: while a marker is live the value this slot
+            -- REPORTS is the override, so a value handed back belongs there too. Writing
+            -- it into the shared scalar instead would replace a setting the override was
+            -- only standing in front of. A value no override can hold falls through and
+            -- edits the shared side, exactly as every other slot does under an override.
+            local ovIn = EllesmereUI.VisOverrideValue and EllesmereUI.VisOverrideValue(s)
+                and EllesmereUI.VisOverrideNormalize and EllesmereUI.VisOverrideNormalize(v)
+            if ovIn then
+                local stores = OvStores()
+                for i = 1, #stores do stores[i].visibilityOverride = ovIn end
+                if opts.onChanged then opts.onChanged() end
+                return
+            end
             if EllesmereUI.VIS_CONDITION_KEYS[v] or v == "never" or v == "always" or v == "mouseover" then
                 local one = {}
                 one[v] = true
@@ -9334,4 +9701,55 @@ function EllesmereUI.BuildUnlockPlaceholder(opts)
     end)
 
     return f
+end
+
+-- Debuff "Max Duration" dropdown spec for a DualRow slot: Unlimited (nil, the
+-- consumer adds nothing to its candidate filters) or Custom, which opens the
+-- standard input popup for a whole number of seconds and then reads back as
+-- "Custom (Ns)". get/set move the stored seconds (nil = unlimited); apply
+-- re-drives the display. Shared by the Raid Frames Debuff Manager (base grid
+-- and grid tiles) and Player Aura Bars debuff bars.
+function EllesmereUI.MaxDurationDropdown(get, set, apply)
+    local L = EllesmereUI.L
+    local cur = get()
+    local values = {
+        unlimited = L("Unlimited"),
+        custom = cur and (L("Custom") .. " (" .. tostring(cur) .. "s)") or (L("Custom") .. "..."),
+    }
+    return {
+        type = "dropdown", text = "Max Duration",
+        tooltip = "Only show debuffs whose full duration is at most this many seconds. Combines with the filters; Unlimited applies no cap.",
+        values = values, order = { "unlimited", "custom" },
+        getValue = function() return get() and "custom" or "unlimited" end,
+        setValue = function(v)
+            if v == "unlimited" then
+                if get() ~= nil then
+                    set(nil)
+                    if apply then apply() end
+                end
+                EllesmereUI:RefreshPage(true)
+                return
+            end
+            local now = get()
+            EllesmereUI:ShowInputPopup({
+                title = L("Max Duration"),
+                message = L("Enter the maximum debuff duration in seconds:"),
+                placeholder = now and tostring(now) or "30",
+                confirmText = L("Apply"),
+                cancelText = L("Cancel"),
+                onConfirm = function(text)
+                    local n = tonumber(text or "")
+                    if n and n > 0 then
+                        n = math.floor(n)
+                        if n ~= get() then
+                            set(n)
+                            if apply then apply() end
+                        end
+                    end
+                    EllesmereUI:RefreshPage(true)
+                end,
+                onCancel = function() EllesmereUI:RefreshPage(true) end,
+            })
+        end,
+    }
 end

@@ -37,6 +37,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --   ns.SolveLayout(barCfg, L, measureFn) -> segments (pure)
 --   ns.GetLiveAutoLength(barId, blockId) -> px | nil
 --   ns.BuildCurrencyList() -> values, order
+--   ns.BuildLDBList() -> values, order      LibDataBroker sources, by name
+--   ns.GetLDB() -> LibDataBroker-1.1 | nil
 --   ns.LocationWidthMode(blockSettings) -> "auto" | "manual"
 --   ns.LOC_MAX_WIDTH_DEFAULT               Manual-mode width before one is set
 --   ns.BlockTextDynamic(blockType) -> r, g, b   state-driven Text Color swatch
@@ -134,6 +136,7 @@ local L = {
     DELVE_JOURNEY        = "Delver's Journey",
     COMPANION_LEVEL      = "Companion Level",
     SELECT_CURRENCY      = "Select a currency",
+    SELECT_PLUGIN        = "Select a plugin",
     OPEN_SETTINGS        = "Open Settings",
     CRESTS               = "Crests",
     SEASON_MAXIMUM       = "Current Season Maximum",
@@ -168,6 +171,7 @@ local wipe              = wipe
 local format            = string.format
 local tinsert, tremove  = table.insert, table.remove
 local tconcat           = table.concat
+local tsort             = table.sort
 local floor             = math.floor
 local max, min, abs     = math.max, math.min, math.abs
 
@@ -209,6 +213,7 @@ ns.BLOCK_TYPES = {
     { key = "ilvl",       label = "Item Level" },
     { key = "greatvault", label = "Great Vault" },
     { key = "audio",      label = "Audio" },
+    { key = "ldb",        label = "Broker Plugin" },
     { key = "spacer",     label = "Spacer" },
 }
 
@@ -241,6 +246,12 @@ ns.BLOCK_DEFAULTS = {
     ilvl       = { prefix = "short", value = "equipped", precision = 0 },
     greatvault = {},
     audio      = { channel = "master" },
+    -- Broker plugin: one block type for every LibDataBroker data source, picked
+    -- by name (source). stripColors defaults ON -- broker text arrives full of
+    -- the plugin's own |cff.. codes, which would silently beat this block's Text
+    -- Color and its accent hover. maxWidth nil = size from the live string.
+    ldb        = { source = nil, showIcon = true, showLabel = false, showText = true,
+                   stripColors = true, maxWidth = nil },
     spacer     = {},
 }
 
@@ -357,62 +368,11 @@ local function CoinMarker(i, coinIcons, coloured)
     return d.symbol
 end
 
--- Gold abbreviation (SI units): 284208 -> "284.2K". CJK clients group by the
--- ten-thousand unit (wan) instead of K/M, matching the Damage Meters number
--- formatting. The gold cap is 99,999,999, under the hundred-million (yi)
--- rollover, so there is no "B"/yi breakpoint to carry.
-local CJK_GOLD = ({
-    zhCN = { wan = "万" },
-    zhTW = { wan = "萬" },
-    koKR = { wan = "만" },
-})[GetLocale()]
-
-local function BuildGoldAbbrevOpts(forceEnglish)
-    if CJK_GOLD and not forceEnglish then
-        return {
-            { breakpoint = 10000, abbreviation = CJK_GOLD.wan, significandDivisor = 100, fractionDivisor = 100, abbreviationIsGlobal = false },
-            { breakpoint = 1,     abbreviation = "",           significandDivisor = 1,   fractionDivisor = 1,   abbreviationIsGlobal = false },
-        }
-    end
-    return {
-        { breakpoint = 1000000, abbreviation = "M", significandDivisor = 10000, fractionDivisor = 100, abbreviationIsGlobal = false },
-        { breakpoint = 1000,    abbreviation = "K", significandDivisor = 100,   fractionDivisor = 10,  abbreviationIsGlobal = false },
-        { breakpoint = 1,       abbreviation = "",  significandDivisor = 1,     fractionDivisor = 1,   abbreviationIsGlobal = false },
-    }
-end
-
--- Two cached configs: the locale's own (CJK wan, or K/M if not CJK) and the
--- English-forced one (Force English Units option). Non-CJK clients never
--- differ between the two, so the second build is skipped for them.
-local _goldAbbrevCfgLocal, _goldAbbrevCfgEnglish
-if CreateAbbreviateConfig then
-    _goldAbbrevCfgLocal = { config = CreateAbbreviateConfig(BuildGoldAbbrevOpts(false)) }
-    _goldAbbrevCfgEnglish = CJK_GOLD
-        and { config = CreateAbbreviateConfig(BuildGoldAbbrevOpts(true)) }
-        or _goldAbbrevCfgLocal
-end
-
--- Fallback for clients missing AbbreviateNumbers/CreateAbbreviateConfig.
-local function AbbrevGoldFallback(gold, forceEnglish)
-    if CJK_GOLD and not forceEnglish then
-        if gold >= 1e4 then return format("%.2f%s", gold / 1e4, CJK_GOLD.wan)
-        else return tostring(gold) end
-    end
-    if gold >= 1e6 then return format("%.2fM", gold / 1e6)
-    elseif gold >= 1e3 then return format("%.1fK", gold / 1e3)
-    else return tostring(gold) end
-end
-
-local function AbbrevGold(gold, forceEnglish)
-    if AbbreviateNumbers then
-        local cfg = forceEnglish and _goldAbbrevCfgEnglish or _goldAbbrevCfgLocal
-        return AbbreviateNumbers(gold, cfg) or tostring(gold)
-    end
-    return AbbrevGoldFallback(gold, forceEnglish)
-end
-
+-- Gold abbreviation (SI units): 284208 -> "284.2K". The breakpoint table and
+-- any locale-specific algorithm (e.g. CJK wan/yi grouping) live in the
+-- shared EllesmereUI_NumberFormat.lua, so every module abbreviates the same way.
 local function GoldDisplay(val, abbreviate, forceEnglish)
-    if abbreviate then return AbbrevGold(val, forceEnglish) end
+    if abbreviate then return EllesmereUI.AbbreviateNumber(val, forceEnglish) end
     return BreakUpLargeNumbers and BreakUpLargeNumbers(val) or tostring(val)
 end
 
@@ -2193,6 +2153,17 @@ ApplyLayout = function(id)
     end
 end
 
+--- "Never" is this module's only disable channel, so every gate that asks it has to ask
+--- the EFFECTIVE value: an applied Visibility override replaces the whole setting, the
+--- scalar included, so Always or Mouseover has to keep a bar alive whose stored scalar
+--- reads never, and an override of Never disables one whose scalar does not.
+function ns.VisIsNever(cfg)
+    if not cfg then return true end
+    local ov = EllesmereUI.VisOverrideValue and EllesmereUI.VisOverrideValue(cfg)
+    if ov then return ov == "never" end
+    return cfg.visibility == "never"
+end
+
 -- Idempotent create-or-update of one bar from its cfg.
 function ns.ApplyBar(id)
     local profile = ns.GetProfile()
@@ -2213,7 +2184,7 @@ function ns.ApplyBar(id)
     -- instances, no events, no ticks). A stray cfg.enabled key may still
     -- exist in old stored data -- it is deliberately IGNORED everywhere;
     -- visibility is the only disable channel.
-    if not cfg or cfg.visibility == "never" then
+    if ns.VisIsNever(cfg) then
         if rec and rec.enabled then
             for _, inst in pairs(rec.insts) do
                 if inst.Disable then inst:Disable() end
@@ -2484,7 +2455,8 @@ do
         "PLAYER_TARGET_CHANGED", "GROUP_ROSTER_UPDATE",
         "PLAYER_MOUNT_DISPLAY_CHANGED", "PLAYER_CAN_GLIDE_CHANGED",
         "ZONE_CHANGED_NEW_AREA", "UPDATE_SHAPESHIFT_FORM",
-        "PLAYER_ENTERING_WORLD",
+        "PLAYER_ENTERING_WORLD", "PLAYER_UPDATE_RESTING",
+        "UNIT_ENTERED_VEHICLE", "UNIT_EXITED_VEHICLE",
     }
 
     -- Legacy scalar evaluation for the modes the multi engine declines.
@@ -2556,7 +2528,7 @@ do
         if not profile then return false end
         local bars = profile.bars
         for i = 1, #bars do
-            if bars[i].visibility ~= "never" then
+            if not ns.VisIsNever(bars[i]) then
                 return true
             end
         end
@@ -2633,7 +2605,7 @@ do
         if not profile then return false end
         local bars = profile.bars
         for i = 1, #bars do
-            if bars[i].visibility ~= "never"
+            if not ns.VisIsNever(bars[i])
                and bars[i].lengthMode == "full" then
                 return true
             end
@@ -3127,6 +3099,50 @@ function ns.BuildCurrencyList()
     for i = #collapsed, 1, -1 do
         C_CurrencyInfo.ExpandCurrencyList(collapsed[i], false)
     end
+    return values, order
+end
+
+-------------------------------------------------------------------------------
+--  LibDataBroker access (the "ldb" block type)
+-------------------------------------------------------------------------------
+-- The suite ships the library itself (EllesmereUI parent, beside the
+-- CallbackHandler it needs) rather than borrowing it from whichever broker addon
+-- happens to load: every broker we read sorts after EllesmereUIDataBars, so
+-- borrowing would hand back nil at our load time. Resolved lazily all the same --
+-- a half-updated install must go quiet here, not error.
+local _ldb
+function ns.GetLDB()
+    if _ldb then return _ldb end
+    if not LibStub then return nil end
+    _ldb = LibStub:GetLibrary("LibDataBroker-1.1", true)
+    return _ldb
+end
+
+-- Display label for one data object. The registered NAME is what the block
+-- stores, so it always leads; a self-declared label that differs rides along in
+-- grey, so a plugin that calls itself something other than its name is still
+-- findable in the picker.
+function ns.LDBLabel(name, obj)
+    if not obj then return name end
+    local lbl = obj.label
+    if type(lbl) == "string" and lbl ~= "" and lbl ~= name then
+        return name .. " |cff808080(" .. lbl .. ")|r"
+    end
+    return name
+end
+
+-- Every data source registered right now, sorted case-insensitively. Rebuilt at
+-- each dropdown open (never cached): plugins register on their own schedule, and
+-- some appear only after their addon finishes loading.
+function ns.BuildLDBList()
+    local values, order = {}, {}
+    local LDB = ns.GetLDB()
+    if not LDB then return values, order end
+    for name, obj in LDB:DataObjectIterator() do
+        values[name] = ns.LDBLabel(name, obj)
+        order[#order + 1] = name
+    end
+    tsort(order, function(a, b) return a:lower() < b:lower() end)
     return values, order
 end
 

@@ -173,6 +173,51 @@ local function IsGearItem(itemLink)
     local _, _, _, _, _, classID = GetItemInfoInstant(itemLink)
     return classID == ITEM_CLASS_WEAPON or classID == ITEM_CLASS_ARMOR
 end
+-- Pin identity: bare itemID can't distinguish two different upgrade tracks
+-- (e.g. Mythic vs Hero) of the same base item -- those share one itemID and
+-- only differ in the bonus IDs encoded on the item LINK. The RAW link is not
+-- a safe persistent key either: it also embeds linkLevel, specializationID,
+-- enchant and gem fields, so the same item's link drifts on level-up, spec
+-- swap or re-gem -- a raw-link pin would silently stop matching AND leak its
+-- stale entry in the account-global store forever (unpin only removes the
+-- current key). The pin key is therefore itemID + the bonus ID list: bonus
+-- IDs carry the upgrade track (the exact thing being distinguished) and hold
+-- steady across spec, level, enchants and gems. Cached per link string, the
+-- same shape as the sort cache -- IsItemPinned runs per item per refresh.
+-- itemID stays supported read-only as a legacy fallback: entries written
+-- before the link-era fix are itemID-keyed and still match every track, same
+-- as before, until the middle-click self-heal clears them.
+local pinKeyCache = {}
+local function NormalizePinKey(itemLink, itemID)
+    if type(itemLink) ~= "string" then return itemID end
+    local cached = pinKeyCache[itemLink]
+    if cached then return cached end
+    local key
+    local payload = itemLink:match("|Hitem:([^|]*)|h")
+    if payload then
+        -- Split keeping empty fields. After "item:": 1 itemID, 2 enchant,
+        -- 3-6 gems, 7 suffix, 8 uniqueID, 9 linkLevel, 10 specID,
+        -- 11 modifiersMask, 12 itemContext, 13 numBonusIDs, 14.. bonusIDs.
+        local f = {}
+        for field in (payload .. ":"):gmatch("([^:]*):") do f[#f + 1] = field end
+        local id = f[1]
+        if id and id ~= "" then
+            local n = tonumber(f[13]) or 0
+            key = "p" .. id
+            for i = 1, n do
+                key = key .. ":" .. (f[13 + i] or "")
+            end
+        end
+    end
+    key = key or itemID
+    if key then pinKeyCache[itemLink] = key end
+    return key
+end
+local function IsItemPinned(pinnedSet, itemLink, itemID)
+    if not pinnedSet then return nil end
+    local nk = itemLink and NormalizePinKey(itemLink, nil)
+    return (nk and pinnedSet[nk]) or (itemID and pinnedSet[itemID])
+end
 local function GetItemLevelAtLocation(loc, itemLink)
     if loc and loc:IsValid() and C_Item.DoesItemExist(loc) then
         local level = C_Item.GetCurrentItemLevel(loc)
@@ -643,11 +688,18 @@ local function MergeDuplicates(items)
     -- the state changed while they were hidden and repaint (see OnShow).
     _paintedPanelOpen = _anyItemPanelOpen
     if _anyItemPanelOpen or BP().bagMergeDuplicates == false then return items end
+    -- Session-only unmerge marks (EUI_Bags._unmergedLinks: set by the split
+    -- dialog, wiped when the bags close, never persisted): a marked item keeps
+    -- its real stacks apart so a split's pieces are visible in these views.
+    local unmerged = EUI_Bags._unmergedLinks
+    -- Painted-with-marks state, the same job _paintedPanelOpen does: the bags
+    -- OnShow repaints when the marks were wiped by the close that hid them.
+    EUI_Bags._paintedUnmerged = (unmerged ~= nil and next(unmerged) ~= nil) or nil
     local seen = {}
     local out = {}
     for _, data in ipairs(items) do
         local key = data.itemLink
-        if key and not IsGearCategory(data.categoryIndex or 0) then
+        if key and not IsGearCategory(data.categoryIndex or 0) and not (unmerged and unmerged[key]) then
             local idx = seen[key]
             if idx then
                 local prev = out[idx]
@@ -2163,6 +2215,331 @@ end
 local QUEST_BORDER_COLOR = { r = 1.0, g = 0.82, b = 0.0 }
 
 -------------------------------------------------------------------------------
+--  Stack splitter: replaces Blizzard's StackSplitFrame on our bag/bank slots
+--  and on the guild bank's (opt-in) with a house dialog that adds Auto Split --
+--  repeated splits into empty slots until the remainder is at most the chosen size.
+-------------------------------------------------------------------------------
+do
+    local dialog
+    local job          -- { bag, slot, itemID, size, targets, window, ops, pending, issuedAt }
+    local StepJob
+
+    -- Container and guild bank slots share the dialog and job; only the API differs.
+    local containerOps = {
+        ownerBag = function(owner) return owner:GetParent():GetID() end,
+        info     = C_Container.GetContainerItemInfo,
+        numSlots = C_Container.GetContainerNumSlots,
+        split    = C_Container.SplitContainerItem,
+        pickup   = C_Container.PickupContainerItem,
+    }
+    local guildOps = {
+        ownerBag = function() return GetCurrentGuildBankTab() end,
+        -- A tab that is no longer viewed reads as empty so a running job stops there.
+        info = function(tab, slot)
+            if tab ~= GetCurrentGuildBankTab() then return nil end
+            local texture, count, locked = GetGuildBankItemInfo(tab, slot)
+            if not texture then return nil end
+            local link = GetGuildBankItemLink(tab, slot)
+            return { stackCount = count, isLocked = locked, itemID = link and GetItemInfoInstant(link) or 0 }
+        end,
+        numSlots = function() return 98 end,
+        split    = SplitGuildBankItem,
+        pickup   = PickupGuildBankItem,
+    }
+
+    local function StopJob()
+        job = nil
+    end
+
+    -- Polled on a short timer. The new stack's slot can still read empty for a
+    -- moment after the source count has updated, so slots already used as a
+    -- destination are skipped for the rest of the job.
+    local function Later()
+        local this = job
+        C_Timer.After(0.05, function() if job == this then StepJob() end end)
+    end
+
+    -- One split per server round trip: issue, wait for the source stack to
+    -- settle at the expected count, repeat.
+    StepJob = function()
+        if not job then return end
+        if not job.window:IsVisible() then StopJob(); return end
+        local ops = job.ops
+        local info = ops.info(job.bag, job.slot)
+        if not info or info.itemID ~= job.itemID then StopJob(); return end
+        if info.isLocked or (job.pending and info.stackCount ~= job.pending) then
+            if GetTime() - job.issuedAt > 2 then ClearCursor(); StopJob() else Later() end
+            return
+        end
+        job.pending = nil
+        if info.stackCount <= job.size then StopJob(); return end
+        for _, bagID in ipairs(job.targets) do
+            for s = 1, ops.numSlots(bagID) do
+                local key = bagID * 1000 + s
+                if not job.used[key] and not ops.info(bagID, s) then
+                    job.used[key] = true
+                    ClearCursor()
+                    ops.split(job.bag, job.slot, job.size)
+                    ops.pickup(bagID, s)
+                    -- Single placed split: one issue, no settle polling.
+                    if job.once then StopJob(); return end
+                    job.pending = info.stackCount - job.size
+                    job.issuedAt = GetTime()
+                    Later()
+                    return
+                end
+            end
+        end
+        StopJob()
+    end
+
+    -- once = a single split placed into the first empty target slot (the views
+    -- that draw no empty slots have nowhere to drop a cursor stack).
+    local function StartJob(bag, slot, itemID, size, targets, window, ops, once)
+        job = { bag = bag, slot = slot, itemID = itemID, size = size, targets = targets, window = window,
+                ops = ops, used = {}, issuedAt = GetTime(), once = once }
+        StepJob()
+    end
+
+    -- Closing the window a dialog or job belongs to ends it; other windows are unaffected.
+    local function WindowHidden(win)
+        if dialog and dialog._window == win then dialog:Hide() end
+        if job and job.window == win then StopJob() end
+        -- Closing the bags ends every session unmerge; the next open merges again.
+        if win == EUI_Bags and EUI_Bags._unmergedLinks then wipe(EUI_Bags._unmergedLinks) end
+    end
+
+    local function Clamp(n)
+        if n < 1 then return 1 end
+        if n > dialog._max then return dialog._max end
+        return n
+    end
+
+    local function Current()
+        return Clamp(dialog._eb:GetNumber())
+    end
+
+    local function SetValue(n)
+        n = Clamp(n)
+        dialog._eb:SetText(tostring(n))
+        dialog._eb:SetCursorPosition(#dialog._eb:GetText())
+    end
+
+    -- Re-checks the slot the dialog was opened on after every repaint: pooled
+    -- buttons get repurposed, and the count can change under us.
+    local function Validate()
+        if not dialog or not dialog:IsShown() then return end
+        local owner = dialog._owner
+        if not owner:IsVisible() or dialog._ops.ownerBag(owner) ~= dialog._bag or owner:GetID() ~= dialog._slot then
+            dialog:Hide(); return
+        end
+        local info = dialog._ops.info(dialog._bag, dialog._slot)
+        if not info or info.itemID ~= dialog._itemID or not info.stackCount or info.stackCount < 2 then
+            dialog:Hide(); return
+        end
+        if info.stackCount ~= dialog._max then
+            dialog._max = info.stackCount
+            dialog._maxLbl:SetText("/ " .. info.stackCount)
+            SetValue(Current())
+        end
+    end
+
+    local function MakeButton(parent, w, h, label, PP)
+        local b = CreateFrame("Button", nil, parent)
+        b:SetSize(w, h)
+        local bg = b:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetColorTexture(0.15, 0.15, 0.15, 1)
+        if PP and PP.CreateBorder then PP.CreateBorder(b, 0.25, 0.25, 0.25, 1) end
+        local fs = b:CreateFontString(nil, "OVERLAY")
+        SetBagFont(fs, 12)
+        fs:SetPoint("CENTER", 0, 0)
+        fs:SetTextColor(1, 1, 1, 0.9)
+        fs:SetText(label)
+        b:SetScript("OnEnter", function() bg:SetColorTexture(0.2, 0.2, 0.2, 1) end)
+        b:SetScript("OnLeave", function() bg:SetColorTexture(0.15, 0.15, 0.15, 1) end)
+        return b
+    end
+
+    local function DoSplit(auto)
+        local d = dialog
+        local bag, slot, n, ops = d._bag, d._slot, Current(), d._ops
+        d:Hide()
+        local info = ops.info(bag, slot)
+        if not info or info.isLocked or info.itemID ~= d._itemID or not info.stackCount or n >= info.stackCount then return end
+        -- Session unmerge mark, written BEFORE the split so the refresh it
+        -- triggers already renders the pieces apart. Same link form the slot
+        -- tables key on; bags and reagent window only (bank items never merge here).
+        if d._window == EUI_Bags or d._window == EUI_BagsReagent then
+            local link = C_Container.GetContainerItemLink(bag, slot)
+            if link then
+                local set = EUI_Bags._unmergedLinks
+                if not set then set = {}; EUI_Bags._unmergedLinks = set end
+                set[link] = true
+            end
+        end
+        if auto or d._placeOnce then
+            StartJob(bag, slot, info.itemID, n, d._targets, d._window, ops, not auto)
+        else
+            ClearCursor()
+            ops.split(bag, slot, n)
+        end
+    end
+
+    local function CreateDialog()
+        local PP = EUI and EUI.PP
+        local d = CreateFrame("Frame", "EUI_BagsStackSplitFrame", UIParent)
+        d:SetFrameStrata("DIALOG")
+        d:SetSize(206, 94)
+        d:SetClampedToScreen(true)
+        d:EnableMouse(true)
+        d:EnableMouseWheel(true)
+        d:Hide()
+        local bg = d:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
+        if PP and PP.CreateBorder then PP.CreateBorder(d, 0.2, 0.2, 0.2, 1) end
+
+        local title = d:CreateFontString(nil, "OVERLAY")
+        SetBagFont(title, 13)
+        title:SetPoint("TOPLEFT", d, "TOPLEFT", 10, -9)
+        title:SetTextColor(1, 1, 1, 0.9)
+        title:SetText(EllesmereUI.L("Split Stack"))
+
+        local close = CreateFrame("Button", nil, d)
+        close:SetSize(12, 12)
+        close:SetPoint("TOPRIGHT", d, "TOPRIGHT", -9, -9)
+        close.icon = close:CreateTexture(nil, "OVERLAY")
+        close.icon:SetAllPoints()
+        close.icon:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png")
+        close.icon:SetAlpha(0.7)
+        close:SetScript("OnEnter", function() close.icon:SetAlpha(0.9) end)
+        close:SetScript("OnLeave", function() close.icon:SetAlpha(0.7) end)
+        close:SetScript("OnClick", function() d:Hide() end)
+
+        local minus = MakeButton(d, 22, 22, "-", PP)
+        minus:SetPoint("TOPLEFT", d, "TOPLEFT", 10, -30)
+        minus:SetScript("OnClick", function() SetValue(Current() - 1) end)
+
+        local eb = CreateFrame("EditBox", nil, d)
+        eb:SetSize(56, 22)
+        eb:SetPoint("LEFT", minus, "RIGHT", 4, 0)
+        eb:SetAutoFocus(false)
+        eb:SetNumeric(true)
+        eb:SetMaxLetters(5)
+        eb:SetFont(GetFont(), 12, "")
+        eb:SetTextColor(1, 1, 1, 1)
+        eb:SetJustifyH("CENTER")
+        eb:SetTextInsets(4, 4, 0, 0)
+        local ebBg = eb:CreateTexture(nil, "BACKGROUND")
+        ebBg:SetAllPoints()
+        ebBg:SetColorTexture(0.1, 0.1, 0.1, 1)
+        if PP and PP.CreateBorder then PP.CreateBorder(eb, 0.15, 0.15, 0.15, 1) end
+        eb:SetScript("OnTextChanged", function(self, userInput)
+            if userInput and self:GetNumber() > d._max then SetValue(d._max) end
+        end)
+        eb:SetScript("OnEditFocusLost", function() SetValue(Current()) end)
+        eb:SetScript("OnEnterPressed", function() DoSplit(IsAltKeyDown()) end)
+        eb:SetScript("OnEscapePressed", function() d:Hide() end)
+        d._eb = eb
+
+        local plus = MakeButton(d, 22, 22, "+", PP)
+        plus:SetPoint("LEFT", eb, "RIGHT", 4, 0)
+        plus:SetScript("OnClick", function() SetValue(Current() + 1) end)
+
+        local maxLbl = d:CreateFontString(nil, "OVERLAY")
+        SetBagFont(maxLbl, 12)
+        maxLbl:SetPoint("LEFT", plus, "RIGHT", 8, 0)
+        maxLbl:SetTextColor(0.7, 0.7, 0.7, 1)
+        d._maxLbl = maxLbl
+
+        local split = MakeButton(d, 88, 24, EllesmereUI.L("Split"), PP)
+        split:SetPoint("BOTTOMLEFT", d, "BOTTOMLEFT", 10, 10)
+        split:SetScript("OnClick", function() DoSplit(false) end)
+
+        local auto = MakeButton(d, 88, 24, EllesmereUI.L("Auto Split"), PP)
+        auto:SetPoint("BOTTOMRIGHT", d, "BOTTOMRIGHT", -10, 10)
+        auto:SetScript("OnClick", function() DoSplit(true) end)
+        auto:HookScript("OnEnter", function()
+            if EUI.ShowWidgetTooltip then
+                EUI.ShowWidgetTooltip(auto, EllesmereUI.L("Split this stack into empty slots repeatedly until only the chosen amount or less remains. Alt+Enter does the same."))
+            end
+        end)
+        auto:HookScript("OnLeave", function() if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end end)
+
+        d:SetScript("OnMouseWheel", function(_, delta) SetValue(Current() + (delta > 0 and 1 or -1)) end)
+        d:SetScript("OnHide", function() eb:ClearFocus() end)
+
+        hooksecurefunc(EUI_Bags, "RefreshInventory", Validate)
+        EUI_Bags:HookScript("OnHide", function() WindowHidden(EUI_Bags) end)
+        hooksecurefunc(EUI_BagsReagent, "RefreshInventory", Validate)
+        EUI_BagsReagent:HookScript("OnHide", function() WindowHidden(EUI_BagsReagent) end)
+        local bankFrame = _G.EUI_BankFrame
+        if bankFrame then
+            hooksecurefunc(bankFrame, "RefreshBank", Validate)
+            bankFrame:HookScript("OnHide", function() WindowHidden(bankFrame) end)
+        end
+        EllesmereUI.RegisterEscapeClose(d)
+        return d
+    end
+
+    -- Runs from the slot PostClick hooks, after Blizzard's OnModifiedClick has
+    -- opened StackSplitFrame on this button (its lock/count/cursor checks passed).
+    -- targets: bagIDs Auto Split may fill, in order; window: closing it aborts a job.
+    function EUI_Bags.ShowStackSplitter(owner, targets, window, ops)
+        -- Always on in the bags window's All Items (0) and category (> 0) views:
+        -- they draw no empty slots, so Blizzard's cursor split has nowhere to
+        -- land and a plain Split places its stack instead. Everywhere else the
+        -- Stack Splitter setting decides whether the dialog replaces the popup.
+        local placeOnce = (window == EUI_Bags and selectedCategoryIndex >= 0)
+        if not placeOnce and BP().bagStackSplitter ~= true then return end
+        local ssf = StackSplitFrame
+        if not ssf:IsShown() or ssf.owner ~= owner then return end
+        local maxStack = ssf.maxStack
+        -- Hide only: no field writes on Blizzard's popup. Its OnHide leaves .owner
+        -- pointing at our permanent pooled button, which is harmless; the flag it
+        -- writes onto that button is read by nothing on a click path.
+        ssf:Hide()
+        ops = ops or containerOps
+        local bag, slot = ops.ownerBag(owner), owner:GetID()
+        local info = ops.info(bag, slot)
+        if not info or not info.itemID then return end
+        dialog = dialog or CreateDialog()
+        StopJob()
+        dialog._owner, dialog._bag, dialog._slot, dialog._itemID = owner, bag, slot, info.itemID
+        dialog._targets, dialog._window, dialog._ops = targets, window, ops
+        dialog._placeOnce = placeOnce
+        dialog._max = maxStack
+        dialog._maxLbl:SetText("/ " .. maxStack)
+        SetValue(1)
+        dialog:ClearAllPoints()
+        dialog:SetPoint("BOTTOMLEFT", owner, "TOPLEFT", -4, 6)
+        dialog:Show()
+        dialog._eb:SetFocus()
+        dialog._eb:HighlightText()
+    end
+
+    -- Blizzard's guild bank buttons open StackSplitFrame the same way ours do,
+    -- so the same PostClick takeover applies. Auto Split stays on the viewed tab.
+    local function HookGuildBank()
+        local gb = GuildBankFrame
+        if not gb or not gb.Columns then return end
+        for _, column in ipairs(gb.Columns) do
+            for _, b in ipairs(column.Buttons) do
+                b:HookScript("PostClick", function(self)
+                    EUI_Bags.ShowStackSplitter(self, { GetCurrentGuildBankTab() }, gb, guildOps)
+                end)
+            end
+        end
+        hooksecurefunc(gb, "Update", Validate)
+        gb:HookScript("OnHide", function() WindowHidden(gb) end)
+    end
+    if EventUtil and EventUtil.ContinueOnAddOnLoaded then
+        EventUtil.ContinueOnAddOnLoaded("Blizzard_GuildBankUI", HookGuildBank)
+    end
+end
+
+-------------------------------------------------------------------------------
 --  Drag-to-drop: template handles pickup, we handle drop on mouse release
 -------------------------------------------------------------------------------
 local _itemDragFrame = CreateFrame("Frame")
@@ -2276,45 +2653,45 @@ local function GetOrCreateSlot(idx)
         local pinned = EllesmereUIDB.bagPinnedItems
         local itemLink = C_Container.GetContainerItemLink(bagID, slotID)
         local isGear = IsGearItem(itemLink)
-        local cur = pinned[info.itemID] or 0
+        -- Pin key is the normalized itemID+bonusIDs identity (distinguishes
+        -- upgrade tracks -- see NormalizePinKey above); pinKey == info.itemID
+        -- when no link is available. A legacy itemID-keyed pin (written before
+        -- this fix, conflating every track) is adopted into `cur` once and
+        -- then always cleared here, regardless of which specific track was
+        -- clicked -- there's no way to know which track a legacy entry
+        -- originally meant, so the honest self-heal is "this interaction
+        -- resolves the ambiguity," not "this interaction guesses which track
+        -- it was." Re-pin afterward to set a precise, track-specific entry.
+        local pinKey = NormalizePinKey(itemLink, info.itemID)
+        local legacyCur = pinned[info.itemID] or 0
+        local cur = pinned[pinKey] or 0
+        if legacyCur > 0 and cur == 0 then cur = legacyCur end
+        pinned[info.itemID] = nil
         if isGear then
             -- Gear: per-stack count toggle
             if cur > 0 then
                 cur = cur - 1
-                pinned[info.itemID] = cur > 0 and cur or nil
+                pinned[pinKey] = cur > 0 and cur or nil
             else
-                pinned[info.itemID] = cur + 1
+                pinned[pinKey] = cur + 1
             end
         else
             -- Non-gear: pin/unpin all stacks at once
             if cur > 0 then
-                pinned[info.itemID] = nil
+                pinned[pinKey] = nil
             else
-                pinned[info.itemID] = 999
+                pinned[pinKey] = 999
             end
         end
         if EUI_Bags.RefreshInventory then EUI_Bags:RefreshInventory() end
     end)
 
-    -- Shift-click hint in category views: stacks auto-merge there, split in OneBag.
-    btn:HookScript("PostClick", function(self, button)
-        if button ~= "LeftButton" and button ~= "RightButton" then return end
-        if not IsShiftKeyDown() then return end
-        if selectedCategoryIndex == -1 or selectedCategoryIndex == -2 then return end
-        if _anyItemPanelOpen or BP().bagMergeDuplicates == false then return end
-        local bagID = self:GetParent():GetID()
-        local slotID = self:GetID()
-        if not bagID or not slotID or slotID == 0 then return end
-        local itemInfo = C_Container.GetContainerItemInfo(bagID, slotID)
-        if not itemInfo or not itemInfo.stackCount or itemInfo.stackCount <= 1 then return end
-        if not EUI.ShowWidgetTooltip then return end
-        EUI.ShowWidgetTooltip(self,
-            "Items in categories auto-merge,\nsplit stacks in OneBag", { anchor = "TOP", scale = 1.25 })
-        if EUI_Bags._splitHintTimer then EUI_Bags._splitHintTimer:Cancel() end
-        EUI_Bags._splitHintTimer = C_Timer.NewTimer(4, function()
-            if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
-            EUI_Bags._splitHintTimer = nil
-        end)
+    -- Shift-click on a stack: the split dialog. Always on in the All Items and
+    -- category views (they draw no empty slots, so Blizzard's cursor split has
+    -- nowhere to land there); the Stack Splitter setting extends it to the rest.
+    btn:HookScript("PostClick", function(self)
+        local bag = self:GetParent():GetID()
+        EUI_Bags.ShowStackSplitter(self, bag == 5 and { 5, 0, 1, 2, 3, 4 } or { 0, 1, 2, 3, 4 }, EUI_Bags)
     end)
 
     -- Methods only: writing properties onto Blizzard template sub-objects taints
@@ -2503,6 +2880,10 @@ local function GetOrCreateReagentSlot(idx)
     local fontSize = BP().itemlevelFontSize or 12
     btn.ItemLevelText:SetFont(STANDARD_TEXT_FONT, fontSize, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     btn.ItemLevelText:SetText("")
+
+    btn:HookScript("PostClick", function(self)
+        EUI_Bags.ShowStackSplitter(self, { 5, 0, 1, 2, 3, 4 }, EUI_BagsReagent)
+    end)
 
     reagentSlots[idx] = btn
     return btn
@@ -2868,6 +3249,14 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
 
     end
     UpdatePawnArrow(btn, data.itemLink)
+    -- Same requery the native container update does after re-assigning a slot: the
+    -- cursor can be resting on this button while the repaint moves another item under
+    -- it, and nothing re-reads the tooltip until the mouse moves (it kept showing the
+    -- sold item, or stayed hidden for the one that slid in). Presence comes from our
+    -- own render data: the template's HasItem() reads a field only its own update writes.
+    if GameTooltip:IsOwned(btn) then
+        if data.info and btn.UpdateTooltip then btn:UpdateTooltip() else GameTooltip:Hide() end
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -2901,29 +3290,33 @@ local function GetOrCreatePinOverlay()
     end)
     ov:RegisterForDrag("LeftButton")
     ov:SetScript("OnReceiveDrag", function()
-        local cursorType, itemID = GetCursorInfo()
+        -- select(3, ...), not select(2, ...): GetCursorInfo() for "item" returns
+        -- type, itemID, itemLink -- select(2, ...) into a single local re-grabs
+        -- itemID, not the link (see the correct 3-value capture at line ~6988).
+        -- Needed here for a real link now that pins are link-keyed.
+        local cursorType, itemID, cursorLink = GetCursorInfo()
         if cursorType == "item" and itemID then
             if not EllesmereUIDB then EllesmereUIDB = {} end
             if not EllesmereUIDB.bagPinnedItems then EllesmereUIDB.bagPinnedItems = {} end
             local pinned = EllesmereUIDB.bagPinnedItems
-            if not pinned[itemID] or pinned[itemID] == 0 then
-                local itemLink = select(2, GetCursorInfo())
-                pinned[itemID] = IsGearItem(itemLink) and 1 or 999
+            local pinKey = NormalizePinKey(cursorLink, itemID)
+            if not IsItemPinned(pinned, cursorLink, itemID) then
+                pinned[pinKey] = IsGearItem(cursorLink) and 1 or 999
             end
             ClearCursor()
             if EUI_Bags.RefreshInventory then EUI_Bags:RefreshInventory() end
         end
     end)
     ov:SetScript("OnClick", function()
-        local cursorType, itemID = GetCursorInfo()
+        local cursorType, itemID, cursorLink = GetCursorInfo()
         if cursorType == "item" and itemID then
             -- Click-to-place also pins
             if not EllesmereUIDB then EllesmereUIDB = {} end
             if not EllesmereUIDB.bagPinnedItems then EllesmereUIDB.bagPinnedItems = {} end
             local pinned = EllesmereUIDB.bagPinnedItems
-            if not pinned[itemID] or pinned[itemID] == 0 then
-                local itemLink = select(2, GetCursorInfo())
-                pinned[itemID] = IsGearItem(itemLink) and 1 or 999
+            local pinKey = NormalizePinKey(cursorLink, itemID)
+            if not IsItemPinned(pinned, cursorLink, itemID) then
+                pinned[pinKey] = IsGearItem(cursorLink) and 1 or 999
             end
             ClearCursor()
             if EUI_Bags.RefreshInventory then EUI_Bags:RefreshInventory() end
@@ -3299,7 +3692,9 @@ EnterPinSelectMode = function()
                     if info and info.itemID then
                         if not EllesmereUIDB then EllesmereUIDB = {} end
                         if not EllesmereUIDB.bagPinnedItems then EllesmereUIDB.bagPinnedItems = {} end
-                        EllesmereUIDB.bagPinnedItems[info.itemID] = (EllesmereUIDB.bagPinnedItems[info.itemID] or 0) + 1
+                        local itemLink = C_Container.GetContainerItemLink(bagID, slotID)
+                        local pinKey = NormalizePinKey(itemLink, info.itemID)
+                        EllesmereUIDB.bagPinnedItems[pinKey] = (EllesmereUIDB.bagPinnedItems[pinKey] or 0) + 1
                         ClearPinHover()
                         ExitPinSelectMode()
                         EUI_Bags:RefreshInventory()
@@ -4915,6 +5310,40 @@ local function GetOrCreateCatHeader(idx)
     return f
 end
 
+-- "Clear" link on a Recent Items header, sitting just left of its "Hide" link.
+-- Opt-in (bagShowRecentClear, default off): callers gate on the setting, so a
+-- user who never enables it never has the button built. Pooled on the header
+-- like _hideBtn; hidden by the per-refresh header reset.
+local function ShowRecentClearButton(hdr, hideBtn)
+    if not hdr._clearBtn then
+        local cb = CreateFrame("Button", nil, hdr)
+        cb:SetSize(34, 16)
+        cb._fs = cb:CreateFontString(nil, "OVERLAY")
+        SetBagFont(cb._fs, 9)
+        cb._fs:SetAllPoints()
+        cb._fs:SetText(EllesmereUI.L("Clear"))
+        cb._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
+        cb:SetScript("OnEnter", function(self)
+            self._fs:SetTextColor(1, 1, 1, 0.9)
+            if EUI.ShowWidgetTooltip then
+                EUI.ShowWidgetTooltip(self, "Clears the Recent Items list.")
+            end
+        end)
+        cb:SetScript("OnLeave", function(self)
+            self._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
+            if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+        end)
+        cb:SetScript("OnClick", function()
+            if EUI_Bags.ClearRecentItems then EUI_Bags:ClearRecentItems() end
+        end)
+        hdr._clearBtn = cb
+    end
+    hdr._clearBtn:ClearAllPoints()
+    hdr._clearBtn:SetPoint("RIGHT", hideBtn, "LEFT", -6, 0)
+    hdr._clearBtn:Show()
+    return hdr._clearBtn
+end
+
 -- Indented subheaders under a category (expansion names) for All Items nesting
 local _expSubHeaders = {}
 
@@ -5245,7 +5674,7 @@ function EUI_Bags:RefreshInventory()
     if pinnedCatIdx and pinnedSet and showPinned then
         local pinnedCount = 0
         for _, data in ipairs(tempItems) do
-            if data.info and data.info.itemID and pinnedSet[data.info.itemID] then
+            if data.info and data.info.itemID and IsItemPinned(pinnedSet, data.itemLink, data.info.itemID) then
                 pinnedCount = pinnedCount + 1
             end
         end
@@ -5293,7 +5722,7 @@ function EUI_Bags:RefreshInventory()
         if isRecentView then
             show = data.info and data.info.itemID and EUI_Bags._recentItems and EUI_Bags._recentItems[data.info.itemID]
         elseif isPinnedView then
-            show = data.info and data.info.itemID and pinnedSet and pinnedSet[data.info.itemID]
+            show = data.info and data.info.itemID and pinnedSet and IsItemPinned(pinnedSet, data.itemLink, data.info.itemID)
         elseif filterSet then
             show = data.categoryIndex and filterSet[data.categoryIndex]
         end
@@ -5348,6 +5777,7 @@ function EUI_Bags:RefreshInventory()
     for _, hdr in pairs(_catHeaders) do
         hdr:Hide(); hdr._hint:SetText("")
         if hdr._hideBtn then hdr._hideBtn:Hide() end
+        if hdr._clearBtn then hdr._clearBtn:Hide() end
         hdr._line:ClearAllPoints()
         hdr._line:SetPoint("LEFT", hdr._hint, "RIGHT", 6, 0)
         hdr._line:SetPoint("RIGHT", hdr, "RIGHT", -SPACING, 0)
@@ -5738,7 +6168,7 @@ function EUI_Bags:RefreshInventory()
             local pinItems = {}
             if pinnedSet then
                 for _, d in ipairs(tempItems) do
-                    if d.info and d.info.itemID and pinnedSet[d.info.itemID] then
+                    if d.info and d.info.itemID and IsItemPinned(pinnedSet, d.itemLink, d.info.itemID) then
                         pinItems[#pinItems + 1] = d
                     end
                 end
@@ -5871,9 +6301,14 @@ function EUI_Bags:RefreshInventory()
                 EUI_Bags:RefreshInventory()
             end)
             recHdr._hideBtn:Show()
+            local recLineAnchor = recHdr._hideBtn
+            if BP().bagShowRecentClear == true
+               and EUI_Bags._recentItems and next(EUI_Bags._recentItems) then
+                recLineAnchor = ShowRecentClearButton(recHdr, recHdr._hideBtn)
+            end
             recHdr._line:ClearAllPoints()
             recHdr._line:SetPoint("LEFT", recHdr._hint, "RIGHT", 6, 0)
-            recHdr._line:SetPoint("RIGHT", recHdr._hideBtn, "LEFT", -6, 0)
+            recHdr._line:SetPoint("RIGHT", recLineAnchor, "LEFT", -6, 0)
             recHdr:Show()
             curY = curY - 22
 
@@ -6093,9 +6528,17 @@ function EUI_Bags:RefreshInventory()
                 hdr._hideBtn:ClearAllPoints()
                 hdr._hideBtn:SetPoint("RIGHT", hdr, "RIGHT", 0, 0)
                 hdr._hideBtn:Show()
+                -- Recent Items only, opt-in: "Clear" left of "Hide", and only when
+                -- there is something to clear.
+                local lineAnchor = hdr._hideBtn
+                if alwaysShow and not showPinAdd
+                   and BP().bagShowRecentClear == true
+                   and EUI_Bags._recentItems and next(EUI_Bags._recentItems) then
+                    lineAnchor = ShowRecentClearButton(hdr, hdr._hideBtn)
+                end
                 hdr._line:ClearAllPoints()
                 hdr._line:SetPoint("LEFT", hdr._hint, "RIGHT", 6, 0)
-                hdr._line:SetPoint("RIGHT", hdr._hideBtn, "LEFT", -6, 0)
+                hdr._line:SetPoint("RIGHT", lineAnchor, "LEFT", -6, 0)
             end
             hdr:Show()
             curY = curY - 22
@@ -6253,7 +6696,7 @@ function EUI_Bags:RefreshInventory()
                 if pinnedSet and showPinned then
                     local pinItems = {}
                     for _, data in ipairs(displayItems) do
-                        if data.info and data.info.itemID and pinnedSet[data.info.itemID] then
+                        if data.info and data.info.itemID and IsItemPinned(pinnedSet, data.itemLink, data.info.itemID) then
                             pinItems[#pinItems + 1] = data
                         end
                     end
@@ -6762,6 +7205,10 @@ function EUI_BagsReagent:RefreshInventory()
             else SetInsetBorderColor(btn, 0.25, 0.25, 0.25, 1) end
         end
         UpdatePawnArrow(btn, itemLink)
+        -- Tooltip requery after the slot re-assignment (see RenderButton).
+        if GameTooltip:IsOwned(btn) then
+            if data.info and btn.UpdateTooltip then btn:UpdateTooltip() else GameTooltip:Hide() end
+        end
 
         local col = (i - 1) % REAGENT_COLUMNS
         local row = math.floor((i - 1) / REAGENT_COLUMNS)
@@ -6942,7 +7389,9 @@ local function StartAddon()
         CaptureTrackedGold()
         -- Repaint if the unmerge state changed while hidden: the flag-flip refresh is gated on
         -- IsVisible, and closing a mailbox hides bags in the same breath so that repaint is thrown away (costs one boolean compare when already matching).
-        if _paintedPanelOpen ~= _anyItemPanelOpen then
+        -- Same for session unmerge marks: the close that hid the bags wiped
+        -- them, so a layout painted with marks must merge again on show.
+        if _paintedPanelOpen ~= _anyItemPanelOpen or EUI_Bags._paintedUnmerged then
             EUI_Bags:RefreshInventory()
         end
     end)
@@ -7087,17 +7536,29 @@ local function StartAddon()
     end)
 
     -- Recent Items: session-only tracking (resets on login/reload)
-    local RECENT_MAX = 12
+    -- Raised from 12 to 15.
+    local RECENT_MAX = 15
     EUI_Bags._recentItems = {}      -- itemID -> true (set of recent item IDs)
     EUI_Bags._recentOrder = {}      -- ordered list of itemIDs (oldest first)
-    local _knownItemCounts = {} -- itemID -> highest stack count seen this session
+    local _knownItemCounts = {} -- itemID -> highest bag-visible count since the last bank/mail resync
     local _snapshotReady = false
 
-    -- Track the highest count ever seen per itemID, not current presence: a stack
-    -- merge (already have 3, loot 1 more) must register as a new pickup, and a
-    -- plain presence set can't see that. Tracking the max instead of the live
-    -- count (and never lowering it) also means unequipping/re-equipping, banking,
-    -- or mailing an item back to yourself doesn't re-flag it as new.
+    -- Both are interaction state, not frame visibility -- a third-party bank/mail
+    -- addon can hide the stock frame, but the server-tracked interaction stays
+    -- accurate. Bank/warband bank contents are only queryable while physically
+    -- there (or via a Personal Distance Inhibitor), so unlike mail there's no
+    -- way to count them from a distance -- detection just freezes at the bank
+    -- instead, the same as it does for mail.
+    local function MailOpen()
+        return (C_PlayerInteractionManager and C_PlayerInteractionManager.IsInteractingWithNpcOfType
+            and C_PlayerInteractionManager.IsInteractingWithNpcOfType(Enum.PlayerInteractionType.MailInfo)) and true or false
+    end
+    local function BankOpen()
+        if not (C_PlayerInteractionManager and C_PlayerInteractionManager.IsInteractingWithNpcOfType) then return false end
+        return (C_PlayerInteractionManager.IsInteractingWithNpcOfType(Enum.PlayerInteractionType.Banker)
+            or C_PlayerInteractionManager.IsInteractingWithNpcOfType(Enum.PlayerInteractionType.AccountBanker)) and true or false
+    end
+
     local function TallyItemCounts()
         local counts, order = {}, {}
         for bag = 0, 5 do
@@ -7118,47 +7579,115 @@ local function StartAddon()
         _snapshotReady = true
     end
 
+    -- A rise flags a new pickup; a drop (sold/used/deleted) lowers the known
+    -- total so a later re-acquisition below the old peak still registers as
+    -- new. Frozen entirely at a bank/warband bank -- depositing and withdrawing
+    -- look identical to disposing of and looting, since bag contents are all
+    -- this can see. MAIL_CLOSED, BANKFRAME_CLOSED, and
+    -- PLAYER_INTERACTION_MANAGER_FRAME_HIDE below silently resync once the
+    -- mailbox/bank closes, so none of that traffic falsely flags or evicts
+    -- anything.
+    --
+    -- A mailbox is only half that problem, so it no longer freezes both ways: a
+    -- RISE there can only be an item arriving (sending lowers a count, never
+    -- raises one), which is what left auction returns landing with no trace.
+    -- Drops stay ignored: sent, sold and deleted are indistinguishable.
     local function DetectNewItems()
-        if not _snapshotReady then return end
+        if not _snapshotReady or BankOpen() then return end
+        local atMail = MailOpen()
         local counts, order = TallyItemCounts()
         for _, itemID in ipairs(order) do
             local count = counts[itemID]
-            if count > (_knownItemCounts[itemID] or 0) then
+            local known = _knownItemCounts[itemID] or 0
+            if count > known and not EUI_Bags._recentItems[itemID] then
+                EUI_Bags._recentItems[itemID] = true
+                EUI_Bags._recentOrder[#EUI_Bags._recentOrder + 1] = itemID
+                while #EUI_Bags._recentOrder > RECENT_MAX do
+                    local old = table.remove(EUI_Bags._recentOrder, 1)
+                    EUI_Bags._recentItems[old] = nil
+                end
+            end
+            if not atMail or count > known then
                 _knownItemCounts[itemID] = count
-                if not EUI_Bags._recentItems[itemID] then
-                    EUI_Bags._recentItems[itemID] = true
-                    EUI_Bags._recentOrder[#EUI_Bags._recentOrder + 1] = itemID
-                    while #EUI_Bags._recentOrder > RECENT_MAX do
-                        local old = table.remove(EUI_Bags._recentOrder, 1)
-                        EUI_Bags._recentItems[old] = nil
-                    end
+            end
+        end
+        -- Items gone from bags entirely (sold/used/deleted) no longer appear
+        -- in `counts`; drop their known peak too. Equipped is not disposed:
+        -- without the guard, swapping gear on (peak pruned) and later off
+        -- again (count rises from 0) would re-flag every swapped piece as
+        -- recent and FIFO-evict genuine loot.
+        -- Skipped at the mailbox for the same reason drops are ignored above: an item
+        -- gone from bags there was as likely posted or sent as disposed of, and
+        -- dropping its peak would re-flag it as new the moment it came back.
+        if not atMail then
+            for itemID in pairs(_knownItemCounts) do
+                if not counts[itemID] and not C_Item.IsEquippedItem(itemID) then
+                    _knownItemCounts[itemID] = nil
                 end
             end
         end
     end
 
+    -- "Clear" link on the Recent Items headers. Only the tracked set is dropped --
+    -- _knownItemCounts already holds each item's current bag total, so nothing
+    -- sitting in bags re-flags as new on the next DetectNewItems pass.
+    function EUI_Bags:ClearRecentItems()
+        wipe(EUI_Bags._recentItems)
+        wipe(EUI_Bags._recentOrder)
+        if EUI_Bags:IsVisible() then EUI_Bags:RefreshInventory() end
+    end
+
     C_Timer.After(1, function() SnapshotKnownIDs() end)
 
-    -- Debounced full refresh: one code path, no stale state.
-    local refreshPending = false
+    -- Debounced full refresh: one code path, no stale state. The first paint of a
+    -- window stays at 0.1 s. When events kept landing during that window a burst is
+    -- under way, so the NEXT windows re-arm on the trailing edge instead (at most
+    -- four 0.1 s deferrals): a loot or vendor burst that fires BAG_UPDATE every few
+    -- frames rebuilds about twice a second and once more after it settles, instead
+    -- of ten times a second for the whole burst. An isolated event is untouched.
+    local refreshPending, refreshAgain, refreshDefers, refreshBurst = false, false, 0, false
     EUI_Bags.refreshEnabled = true
+    local function FireRefresh()
+        if refreshBurst and refreshAgain and refreshDefers < 4 then
+            refreshAgain = false
+            refreshDefers = refreshDefers + 1
+            C_Timer.After(0.1, FireRefresh)
+            return
+        end
+        refreshBurst = refreshAgain
+        if EUI_Bags:IsVisible() then
+            EUI_Bags:RefreshInventory()
+            local detach = BP().detachReagentBag or false
+            if detach and EUI_BagsReagent:IsVisible() then EUI_BagsReagent:RefreshInventory() end
+        end
+        refreshPending, refreshAgain, refreshDefers = false, false, 0
+    end
     local function ScheduleRefresh()
-        if not EUI_Bags.refreshEnabled or refreshPending then return end
-        refreshPending = true
-        C_Timer.After(0.1, function()
-            if EUI_Bags:IsVisible() then
-                EUI_Bags:RefreshInventory()
-                local detach = BP().detachReagentBag or false
-                if detach and EUI_BagsReagent:IsVisible() then EUI_BagsReagent:RefreshInventory() end
-            end
-            refreshPending = false
-        end)
+        if not EUI_Bags.refreshEnabled then return end
+        if refreshPending then refreshAgain = true; return end
+        refreshPending, refreshAgain, refreshDefers = true, false, 0
+        C_Timer.After(0.1, FireRefresh)
     end
 
     EUI_Bags:RegisterEvent("BAG_UPDATE")
     EUI_Bags:RegisterEvent("PLAYER_MONEY")
     EUI_Bags:RegisterEvent("ITEM_LOCK_CHANGED")
     EUI_Bags:RegisterEvent("CURRENCY_DISPLAY_UPDATE")
+    -- A keystone's encoded level changing (downgrade on completion, or on reset)
+    -- doesn't reliably fire BAG_UPDATE for its slot, so the keystone level text
+    -- painted by RefreshInventory goes stale while bags stay open across the
+    -- run -- GameTooltip looks correct because it re-queries fresh on every
+    -- hover, independent of our repaint cycle. Force a refresh on these too.
+    EUI_Bags:RegisterEvent("CHALLENGE_MODE_COMPLETED")
+    EUI_Bags:RegisterEvent("CHALLENGE_MODE_RESET")
+    -- Lindormi's NPC-dialogue keystone downgrade is the same in-place encoded-
+    -- level change as above, just triggered outside any dungeon run -- neither
+    -- CHALLENGE_MODE event applies (both are scoped to an active M+ run's
+    -- lifecycle). GOSSIP_CLOSED is the generic "an NPC dialogue just ended"
+    -- signal and fires reliably around her interaction; it also fires for every
+    -- unrelated NPC gossip close, but ScheduleRefresh below is cheap and gated
+    -- on bags being visible, so that's a harmless no-op rather than a real cost.
+    EUI_Bags:RegisterEvent("GOSSIP_CLOSED")
     -- Set created/renamed/deleted: rebuild split categories / refresh name labels.
     -- Registered only while a set feature is on: zero event cost when disabled
     -- (merged-mode routing stays correct without it -- the lookup rebuilds per
@@ -7173,6 +7702,10 @@ local function StartAddon()
     EUI_Bags.UpdateSetEventRegistration()
     -- Replays a refresh that was deferred during combat (secure-button taint guard).
     EUI_Bags:RegisterEvent("PLAYER_REGEN_ENABLED")
+    -- Drives the post-mailbox/bank Recent Items resync (see MailOpen/BankOpen/DetectNewItems above).
+    if C_PlayerInteractionManager then
+        EUI_Bags:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_HIDE")
+    end
 
     -- Panels that move items one bag slot at a time (see SetItemPanelOpen).
     local ITEM_PANEL_EVENTS = {
@@ -7296,10 +7829,16 @@ local function StartAddon()
         end, EUI_Bags)
     end
 
-    -- DetectNewItems: run synchronously but at most once per frame (zone changes fire many BAG_UPDATEs)
-    local _lastDetectFrame = 0
+    -- DetectNewItems: one deferred pass per BAG_UPDATE burst, on the next
+    -- frame. Same-frame dedupe alone stranded misses: the first event of a
+    -- loot burst can tally before every bag involved is readable, and the
+    -- skipped duplicates never re-ran the scan -- an item consumed before the
+    -- next bag change (KP studies, planted seeds, learned cosmetics) was then
+    -- missed forever. The deferred flush scans once, with the burst settled.
+    local _detectQueued = false
+    local function _DetectFlush() _detectQueued = false; DetectNewItems() end
 
-    EUI_Bags:SetScript("OnEvent", function(self, event)
+    EUI_Bags:SetScript("OnEvent", function(self, event, interactionType)
         if event == "PLAYER_REGEN_ENABLED" then
             -- Combat ended: replay any refresh deferred during combat, and top up the pre-warmed pool in case bag count grew while locked.
             if EUI_Bags._refreshPendingCombat then
@@ -7308,6 +7847,28 @@ local function StartAddon()
                 if EUI_BagsReagent:IsVisible() and EUI_BagsReagent.RefreshInventory then
                     EUI_BagsReagent:RefreshInventory()
                 end
+            end
+            return
+        end
+        if event == "MAIL_CLOSED" or event == "BANKFRAME_CLOSED" then
+            -- Legacy belt, doesn't reliably fire on retail; the interaction-
+            -- manager HIDE below is the live driver. Settle first: mail's own
+            -- delivery, or a bank auto-deposit, can still be landing items just
+            -- after close -- and hold detection down through the settle window
+            -- too (_snapshotReady gates DetectNewItems), or those in-flight
+            -- items would flag against the stale frozen baselines the moment
+            -- the interaction check reads closed.
+            _snapshotReady = false
+            C_Timer.After(0.5, SnapshotKnownIDs)
+            -- No return: falls through to the ITEM_PANEL_EVENTS handling below.
+        end
+        if event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then
+            if interactionType == Enum.PlayerInteractionType.MailInfo
+                or interactionType == Enum.PlayerInteractionType.Banker
+                or interactionType == Enum.PlayerInteractionType.AccountBanker then
+                -- Same settle-window hold as the legacy branch above.
+                _snapshotReady = false
+                C_Timer.After(0.5, SnapshotKnownIDs)
             end
             return
         end
@@ -7326,12 +7887,17 @@ local function StartAddon()
             if EUI_Bags:IsVisible() then ScheduleRefresh() end
             return
         end
-        if event == "BAG_UPDATE" and EUI_Bags.refreshEnabled ~= false then
-            local now = GetTime()
-            if now ~= _lastDetectFrame then
-                _lastDetectFrame = now
-                DetectNewItems()
-            end
+        if event == "CHALLENGE_MODE_COMPLETED" or event == "CHALLENGE_MODE_RESET"
+           or event == "GOSSIP_CLOSED" then
+            -- A keystone downgrade here doesn't need a hidden-side invalidation:
+            -- the next manual open already forces a full RefreshInventory
+            -- (ToggleEUI). This only matters while bags are already visible.
+            if EUI_Bags:IsVisible() then ScheduleRefresh() end
+            return
+        end
+        if event == "BAG_UPDATE" and EUI_Bags.refreshEnabled ~= false and not _detectQueued then
+            _detectQueued = true
+            C_Timer.After(0, _DetectFlush)
         end
         if not EUI_Bags:IsVisible() then return end
         if event == "BAG_UPDATE" then

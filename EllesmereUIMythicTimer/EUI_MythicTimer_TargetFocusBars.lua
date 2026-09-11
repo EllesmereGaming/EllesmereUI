@@ -563,12 +563,27 @@ end
 --------------------------------------------------------------------------------
 --  Target text (nameplate port: UnitShouldDisplaySpellTargetName gate).
 --------------------------------------------------------------------------------
+-- StyleBar's 48% name width assumes the target zone is in use; most casts (any
+-- self-cast, or a unit with target text off) never populate it, so name stays
+-- needlessly capped and clips into "..." with room to spare. Hand that zone back
+-- to the name whenever this cast has no target text to show.
+local function SizeNameForTarget(bar, hasTarget)
+    local cfg = BarCfg(bar.which)
+    if not cfg then return end
+    local w = cfg.width or 260
+    local h = cfg.height or 22
+    local reserve = (cfg.showTimer ~= false) and ((cfg.timerSize or 11) * 2.2) or 0
+    local shared = (w - h) * 0.48
+    bar.name:SetWidth(hasTarget and shared or math.max(shared, (w - h) - 8 - reserve))
+end
+
 local function PaintTarget(bar)
     local tf = TF()
     local fs = bar.target
     if not tf or tf.showTarget == false then
         fs:SetText("")
         fs:Hide()
+        SizeNameForTarget(bar, false)
         return
     end
     local spellTarget, spellTargetClass
@@ -582,6 +597,7 @@ local function PaintTarget(bar)
     if type(spellTarget) == "nil" then
         fs:SetText("")
         fs:Hide()
+        SizeNameForTarget(bar, false)
         return
     end
     if tf.targetClassColor ~= false and type(spellTargetClass) ~= "nil" and C_ClassColor then
@@ -593,6 +609,7 @@ local function PaintTarget(bar)
     end
     fs:SetText(spellTarget)
     fs:Show()
+    SizeNameForTarget(bar, true)
 end
 
 --------------------------------------------------------------------------------
@@ -697,10 +714,13 @@ local function UpdateCast(bar)
                 bar.icon:SetTexture(nil)
             end
         end
+        -- PaintTarget first: it sizes bar.name for whether this cast has target
+        -- text to share the row with, and SetWidth after SetText does not
+        -- reliably re-truncate an already-laid-out FontString.
+        PaintTarget(bar)
         if cfg.showSpellName ~= false then
             bar.name:SetText(name)
         end
-        PaintTarget(bar)
         bar.timer:SetText("")
 
         if type(kickProtected) == "nil" then kickProtected = false end

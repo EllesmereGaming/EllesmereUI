@@ -407,7 +407,17 @@ local function ApplyStyleToRegions(button, style)
         local b = style.border
         if PP and b then
             if shapeActive and style.shapeBorderPath then
-                if d.borderMade then PP.HideBorder(d.borderHost) end
+                -- A previous non-shaped style may have left either PP strips or
+                -- the secret-safe eight-slice texture set on this owned host.
+                -- Clear both before the shape ring takes over.
+                if d.borderMade then
+                    if EllesmereUI.ApplySecretSafeBorderStyle then
+                        EllesmereUI.ApplySecretSafeBorderStyle(d.borderHost, d, 0,
+                            0, 0, 0, 0, "solid")
+                    else
+                        PP.HideBorder(d.borderHost)
+                    end
+                end
                 PP:ApplyMaskedShapeBorder(d.borderHost, d.shapeMask, style.shapeBorderPath,
                     style.shapeBorderSize or b.size or 1, b[1] or 0, b[2] or 0, b[3] or 0, b[4] or 1)
             else
@@ -427,22 +437,34 @@ local function ApplyStyleToRegions(button, style)
                         d.borderHost:SetFrameLevel(math.max(0, (b.unitFrameLevel or 1) - 1))
                     else
                         d.borderHost:SetFrameLevel(b.behind
-                            and math.max(0, button:GetFrameLevel() - 1)
+                            and math.max(0, (d.buttonFrameLevel or 1) - 1)
                             or (d.cooldown:GetFrameLevel() + 1))
                     end
                     -- addonKey/sizeKey pick the per-module texture offset defaults a
                     -- style leaves nil; CDM passes its own so a textured border sits
                     -- where the module's other icons put theirs.
-                    EllesmereUI.ApplySecretSafeBorderStyle(d.borderHost, d, b.size or 1,
+                    local appliedSize = (b.texture and b.texture ~= "" and b.texture ~= "solid")
+                        and (b.textureSize or b.size or 1) or (b.size or 1)
+                    EllesmereUI.ApplySecretSafeBorderStyle(d.borderHost, d, appliedSize,
                         b[1] or 0, b[2] or 0, b[3] or 0, b[4] or 1,
                         b.texture or "solid", b.offsetX, b.offsetY, b.shiftX, b.shiftY,
-                        b.addonKey or "unitframes", b.sizeKey or b.size or 1)
+                        b.addonKey or "unitframes", b.sizeKey or b.size or 1, b.edgeScale)
                     d.borderMade = true
-                elseif d.borderMade then
-                    PP.UpdateBorder(d.borderHost, b.size or 1, b[1] or 0, b[2] or 0, b[3] or 0, b[4] or 1)
                 else
-                    PP.CreateBorder(d.borderHost, b[1] or 0, b[2] or 0, b[3] or 0, b[4] or 1,
-                        b.size or 1, "OVERLAY", 7)
+                    -- Solid border on the plain PP path. A style that came back
+                    -- from a textured pick leaves the eight-slice edges on this
+                    -- host and may never have built PP strips (the textured lane
+                    -- only hides them), so presence is decided by the strips
+                    -- themselves, not by borderMade.
+                    local edges = d._secretBorderEdges
+                    if edges then for _, tex in pairs(edges) do tex:Hide() end end
+                    if PP.GetBorders(d.borderHost) then
+                        PP.UpdateBorder(d.borderHost, b.size or 1, b[1] or 0, b[2] or 0, b[3] or 0, b[4] or 1)
+                        PP.ShowBorder(d.borderHost)
+                    else
+                        PP.CreateBorder(d.borderHost, b[1] or 0, b[2] or 0, b[3] or 0, b[4] or 1,
+                            b.size or 1, "OVERLAY", 7)
+                    end
                     d.borderMade = true
                 end
             end
@@ -1003,6 +1025,10 @@ function AK.MakeInitializer(styleKey, extra)
         d.borderHost:SetAllPoints(button)
         d.borderHost:SetFrameLevel(d.cooldown:GetFrameLevel() + 1)
         d.borderHost:EnableMouse(false)
+        -- Cache while initializeFrame still has legal button access. A textured
+        -- Shadow selected later must never call button:GetFrameLevel() after the
+        -- engine has applied DenyTaintedAccessWhenAurasAreSecret.
+        d.buttonFrameLevel = button:GetFrameLevel()
 
         -- Dispel-ring holder: its own frame between the border host and the text
         -- carrier so the engine-tinted ring ALWAYS WINS over every border AND the DM

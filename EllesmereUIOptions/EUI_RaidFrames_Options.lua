@@ -715,6 +715,8 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                 end
             end
+            -- Exposed for onModuleLeave below.
+            ns.StopHealthAnim = StopHealthAnim
 
             local function StartHealthAnim()
                 if ns._healthAnimTicker then return end
@@ -1784,6 +1786,8 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                 end
             end
+            -- Exposed for onModuleLeave below.
+            ns.StopPowerAnim = StopPowerAnim
 
             local function StartPowerAnim()
                 if ns._powerAnimTicker then return end
@@ -3810,7 +3814,7 @@ initFrame:SetScript("OnEvent", function(self)
                         return
                     end
                     if key == "LSHIFT" or key == "RSHIFT" or key == "LCTRL" or key == "RCTRL"
-                       or key == "LALT" or key == "RALT" then
+                       or key == "LALT" or key == "RALT" or key == "LMETA" or key == "RMETA" then
                         self:SetPropagateKeyboardInput(true)
                         return
                     end
@@ -3821,11 +3825,26 @@ initFrame:SetScript("OnEvent", function(self)
                         RefreshLabel()
                         return
                     end
-                    local mods = ""
-                    if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
-                    if IsControlKeyDown() then mods = mods .. "CTRL-" end
-                    if IsAltKeyDown() then mods = mods .. "ALT-" end
-                    local fullKey = mods .. key
+                    -- Blizzard's canonical chord order is ALT-CTRL-SHIFT-KEY,
+                    -- and CreateKeyChordStringUsingMetaKeyState is what
+                    -- produces it. Hand-rolling the modifiers built
+                    -- SHIFT-CTRL-ALT-KEY, a chord string the engine never
+                    -- generates, so any bind using more than one modifier was
+                    -- stored in a form nothing could match. Single-modifier
+                    -- binds happen to agree, which is why this survived.
+                    local fullKey
+                    if CreateKeyChordStringUsingMetaKeyState then
+                        fullKey = CreateKeyChordStringUsingMetaKeyState(key)
+                    else
+                        local mods = ""
+                        if IsAltKeyDown() then mods = mods .. "ALT-" end
+                        if IsControlKeyDown() then mods = mods .. "CTRL-" end
+                        if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
+                        if IsMetaKeyDown and IsMetaKeyDown() then
+                            mods = mods .. "META-"
+                        end
+                        fullKey = mods .. key
+                    end
 
                     if not EllesmereUIDB then EllesmereUIDB = {} end
                     local bindBtn = _G["ERFExtraFramesBindBtn"]
@@ -4840,7 +4859,10 @@ initFrame:SetScript("OnEvent", function(self)
         local hoverBordersRow
         hoverBordersRow, h = W:DualRow(parent, y,
             { type="toggle", text="Show When Solo",
-              disabled=function() return db.profile.partyShowWhenSolo end,
+              -- Disabled only while Party's is the ONE that is on: a profile holding both
+              -- flags (older profile, override swap, import) shows the player twice, and
+              -- each toggle must stay clickable to switch itself off.
+              disabled=function() return db.profile.partyShowWhenSolo and not db.profile.showWhenSolo end,
               disabledTooltip="Party Frames Show When Solo", requireState="disabled",
               getValue=function() return SVal("showWhenSolo", false) end,
               setValue=function(v)
@@ -4903,6 +4925,36 @@ initFrame:SetScript("OnEvent", function(self)
             rightRgn._lastInline = targetSwatch
             targetSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(targetSwatch, "Target") end)
             targetSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            -- Highlight thickness. Shown only while the frame is borderless (Border Size 0):
+            -- with a border drawn the highlight recolors THAT and these sizes do nothing.
+            local _, hlCogShow = EllesmereUI.BuildCogPopup({
+                title = "Highlight Border",
+                rows = {
+                    { type="slider", label="Hover Border Size", min=1, max=4, step=1,
+                      get=function() return SVal("hoverBorderSize", 1) end,
+                      set=function(v) SSet("hoverBorderSize", v) end },
+                    { type="slider", label="Target Border Size", min=1, max=4, step=1,
+                      get=function() return SVal("targetBorderSize", 1) end,
+                      set=function(v) SSet("targetBorderSize", v) end },
+                },
+            })
+            local hlCog = CreateFrame("Button", nil, rightRgn)
+            hlCog:SetSize(26, 26)
+            hlCog:SetPoint("RIGHT", rightRgn._lastInline, "LEFT", -8, 0)
+            rightRgn._lastInline = hlCog
+            hlCog:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
+            hlCog:SetAlpha(0.4)
+            local hlCogTex = hlCog:CreateTexture(nil, "OVERLAY")
+            hlCogTex:SetAllPoints(); hlCogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
+            hlCog:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
+            hlCog:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
+            hlCog:SetScript("OnClick", function(s) hlCogShow(s) end)
+            local function UpdateHLCogVis()
+                if SVal("borderSize", 1) > 0 then hlCog:Hide() else hlCog:Show() end
+            end
+            EllesmereUI.RegisterWidgetRefresh(UpdateHLCogVis)
+            UpdateHLCogVis()
 
             -- Gray a swatch when its border state is off but keep it clickable so the color can be pre-set (matches the Heal Prediction swatch).
             UpdateHBSwatchVis = function()
@@ -5167,7 +5219,8 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return "_placeholder" end,
               setValue=function() end },
             { type="toggle", text="Show When Solo",
-              disabled=function() return db.profile.showWhenSolo end,
+              -- Same rule as the Raid toggle: both flags on must leave both clickable.
+              disabled=function() return db.profile.showWhenSolo and not db.profile.partyShowWhenSolo end,
               disabledTooltip="Raid Frames Show When Solo", requireState="disabled",
               getValue=function() return SVal("partyShowWhenSolo", false) end,
               setValue=function(v)
@@ -5210,8 +5263,9 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             cogDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdateSoloCogDis()
-                -- Disabled whenever Raid Frames Show When Solo is on: that means party never shows solo.
-                if db.profile.showWhenSolo then cogDis:Show() else cogDis:Hide() end
+                -- Disabled whenever Raid Frames Show When Solo is the one that is on: that means
+                -- party never shows solo (both on = party does show, so its cog stays usable).
+                if db.profile.showWhenSolo and not db.profile.partyShowWhenSolo then cogDis:Show() else cogDis:Hide() end
             end
             cogBtn:HookScript("OnShow", UpdateSoloCogDis)
             EllesmereUI.RegisterWidgetRefresh(UpdateSoloCogDis)
@@ -5436,7 +5490,18 @@ initFrame:SetScript("OnEvent", function(self)
                   else db.profile.partyFlipGrowth = false end
                   PartyReloadAndUpdate()
               end },
-            { type="label", text="" });  y = y - h
+            { type="toggle", text="Party Frames in Small Raids",
+              tooltip="In raid groups under 10 players, show group 1 as party frames and hide everyone else.",
+              getValue=function() return db.profile.partySmallRaid or false end,
+              setValue=function(v)
+                  db.profile.partySmallRaid = v
+                  -- Both visibility passes re-read the mode; the raid one runs
+                  -- first so its hidden branch never races the party show.
+                  if not InCombatLockdown() then
+                      if ns.UpdateVisibility then ns.UpdateVisibility() end
+                      if ns._UpdatePartyVisibility then ns._UpdatePartyVisibility() end
+                  end
+              end });  y = y - h
 
         -------------------------------------------------------------------
         --  ALL VISUAL SECTIONS
@@ -6159,6 +6224,17 @@ initFrame:SetScript("OnEvent", function(self)
             if db.sv then db.sv._capturedOnce_RF = nil end
             db:ResetProfile()
             ReloadUI()
+        end,
+        -- Tears down all 6 Raid Frames preview mechanisms on cross-module
+        -- switch (Real/Party/Size/HealthAnim/PowerAnim/HM previews).
+        onModuleLeave = function()
+            if ns.HidePreview then ns.HidePreview() end
+            if ns.HidePartyPreview then ns.HidePartyPreview() end
+            ns._sizePreviewTier = nil
+            if ns._HideSizePreview then ns._HideSizePreview() end
+            if ns._healthAnimActive and ns.StopHealthAnim then ns.StopHealthAnim() end
+            if ns._powerAnimActive and ns.StopPowerAnim then ns.StopPowerAnim() end
+            if ns._hmPreview and ns.HM_SetPreview then ns.HM_SetPreview(false) end
         end,
     })
 

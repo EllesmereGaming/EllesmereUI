@@ -8,6 +8,20 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local L = EllesmereUI.RegisterLocale("ruRU")
 if not L then return end
 
+L["WARLOCK"] = "ЧЕРНОКНИЖНИК"
+L["Soulstone"] = "Камень души"
+L["Show a reminder until your own Soulstone is active on you or another group member."] = "Показывать напоминание, пока ваш собственный камень души не действует на вас или другого участника группы."
+L["Wrong Demon"] = "Неверный демон"
+L["Allowed Demons"] = "Разрешённые демоны"
+L["Show a reminder when your Warlock's active pet isn't one of the demons picked in Allowed Demons. A demon only counts while its summon spell is known, so leaving only Felguard picked stays silent for specs/builds that haven't talented Summon Felguard."] = "Показывать напоминание, если активный питомец чернокнижника не входит в список разрешённых демонов. Демон учитывается только тогда, когда изучено заклинание его призыва, поэтому выбор только Стража Скверны не вызывает напоминание для специализаций или сборок без таланта «Призыв Стража Скверны»."
+L["Pick which demons count as correct for Wrong Demon. A demon only counts while its summon spell is known; with none picked (or everything picked), the reminder never fires."] = "Выберите демонов, которые считаются правильными для напоминания «Неверный демон». Демон учитывается только тогда, когда изучено заклинание его призыва; если не выбран ни один или выбраны все, напоминание никогда не срабатывает."
+L["Name Font"] = "Шрифт имени"
+L["Font Outline"] = "Контур шрифта"
+L["Item Count Font"] = "Шрифт количества предметов"
+L["Mana Warning Font"] = "Шрифт предупреждения о мане"
+L["Name Text Size"] = "Размер текста имени"
+L["Mana Warning Text Size"] = "Размер текста предупреждения о мане"
+
 L["BLIZZARD POPUPS & GAME MENU"] = "ОКНА BLIZZARD И ИГРОВОЕ МЕНЮ"
 L["Reskin Popups and Menus"] = "Изменить оформление окон и меню"
 L["Reskins Blizzard's right-click context menus and pop-up dialogs with the EUI dark style. Requires reload to apply."] = "Оформляет контекстные меню и всплывающие окна Blizzard в тёмном стиле EUI. Для применения требуется перезагрузка интерфейса."
