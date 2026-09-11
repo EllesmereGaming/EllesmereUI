@@ -182,6 +182,7 @@ local function BuildModuleAliases()
         EllesmereUIMythicTimer     = { "m+ timer", "m+", "m+ tools", "mythic+ timer" },
         EllesmereUICooldownManager = { "cdm" },
         EllesmereUIQuickdraw       = { "radial", "wheel", "ring menu", "palette", "grid", "arc", "fan", "action wheel", "action palette", "action menu" },
+        EllesmereUIQuickTravel     = { "hearth", "hearthstone", "teleport", "portal", "eht" },
     }
     for folder, list in pairs(EXTRA_ALIASES) do
         if EllesmereUI._modules and EllesmereUI._modules[folder] then
