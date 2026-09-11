@@ -2678,6 +2678,22 @@ function RegisterPABUnlock()
                 local x, y = BarAnchorOffset(getParent(), cfg, ComputeGrid(isBuff, cfg), pos)
                 return { point = pos.point, relPoint = pos.relPoint, x = x, y = y }
             end,
+            -- Spec-override unlock layers bank and restore the STORED table through
+            -- these, not the visual position loadPos returns: a layer harvested at
+            -- one resolution stays valid at another and keeps the design flag.
+            loadRawPosition = function()
+                local s = PAB()
+                local pos = s and s[BarPositionKey(isBuff)]
+                if not pos then return nil end
+                return { point = pos.point, relPoint = pos.relPoint, x = pos.x, y = pos.y,
+                    design = pos.design }
+            end,
+            saveRawPosition = function(_, p)
+                local s = PAB()
+                if not (s and p and p.point) then return end
+                s[BarPositionKey(isBuff)] = { point = p.point, relPoint = p.relPoint or p.point,
+                    x = p.x, y = p.y, design = p.design }
+            end,
             clearPos = function()
                 local s = PAB()
                 if s then s[BarPositionKey(isBuff)] = nil end
@@ -3991,6 +4007,20 @@ local function RegisterPABCustomUnlock()
                 if not pos then return nil end
                 local x, y = BarAnchorOffset(parents[barId], b, ComputeGrid(isBuff, b), pos)
                 return { point = pos.point, relPoint = pos.relPoint, x = x, y = y }
+            end,
+            -- Raw stored position for spec-override layers, as in MakeBarElement.
+            loadRawPosition = function()
+                local b = isBuff and ns.PAB_GetCustomBuffBar(barId) or ns.PAB_GetCustomDebuffBar(barId)
+                local pos = b and b.pos
+                if not pos then return nil end
+                return { point = pos.point, relPoint = pos.relPoint, x = pos.x, y = pos.y,
+                    design = pos.design }
+            end,
+            saveRawPosition = function(_, p)
+                local b = isBuff and ns.PAB_GetCustomBuffBar(barId) or ns.PAB_GetCustomDebuffBar(barId)
+                if not (b and p and p.point) then return end
+                b.pos = { point = p.point, relPoint = p.relPoint or p.point,
+                    x = p.x, y = p.y, design = p.design }
             end,
             clearPos = function()
                 local b = isBuff and ns.PAB_GetCustomBuffBar(barId) or ns.PAB_GetCustomDebuffBar(barId)
