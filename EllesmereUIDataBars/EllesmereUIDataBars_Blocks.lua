@@ -340,7 +340,8 @@ ns.BlockFactories.clock = function(blockCfg, slot, content, barCtx)
     local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
     inst.key = InstKey(barCtx, blockCfg)
     inst.events = { "PLAYER_UPDATE_RESTING", "PLAYER_REGEN_ENABLED",
-                    "MAIL_INBOX_UPDATE", "UPDATE_PENDING_MAIL" }
+                    "MAIL_INBOX_UPDATE", "UPDATE_PENDING_MAIL",
+                    "UPDATE_INSTANCE_INFO", "ENCOUNTER_END", "BOSS_KILL" }
 
     local infoTimer, infoIndex = 0, 1
     local lastTimeStr
@@ -637,17 +638,24 @@ ns.BlockFactories.clock = function(blockCfg, slot, content, barCtx)
         end
     end
 
-    inst.eventFrame = MakeEventFrame(inst, function(self, event)
-        if event == "PLAYER_REGEN_ENABLED" then
-            if needsResize then needsResize = false; self:Refresh() end
-        else
-            self:Refresh()
+    local function ShortenDifficulty(diffName)
+        if not diffName or diffName == "" then return "" end
+        local lower = diffName:lower()
+        if lower:find("mythic") then return "M"
+        elseif lower:find("heroic") then return "H"
+        elseif lower:find("looking for raid") or lower:find("raid finder") or lower:find("lfr") then return "LFR"
+        elseif lower:find("normal") then return "N"
+        elseif lower:find("timewalking") then return "TW"
+        elseif lower:find("story") then return "Story"
+        elseif lower:find("world") then return "W"
+        elseif lower:find("delve") then return "DLV"
         end
-    end)
+        return diffName
+    end
 
-    clockTextFrame:SetScript("OnEnter", function()
-        isMouseOver = true
-        ApplyClockColor()
+    local function ShowClockTooltip()
+        if not isMouseOver then return end
+        if RequestRaidInfo then RequestRaidInfo() end
         -- Tooltips are all-white by design (no accent tinting).
         local ar, ag, ab = 1, 1, 1
         ns.Tip_Begin(clockTextFrame)
@@ -664,10 +672,25 @@ ns.BlockFactories.clock = function(blockCfg, slot, content, barCtx)
         if numInstances > 0 then
             ns.Tip_AddLine(" ")
             ns.Tip_AddLine(L["SAVED_INSTANCES"], 1, 0.82, 0)
+            local d = D()
+            local showDetails = (d.lockoutDetails == true)
             for i = 1, numInstances do
-                local name, _, reset, _, locked, extended = GetSavedInstanceInfo(i)
+                local name, _, reset, _, locked, extended, _, _, _, difficultyName, numEncounters, encounterProgress = GetSavedInstanceInfo(i)
                 if locked or extended then
-                    ns.Tip_AddDouble(name, ns.FormatTimeLeft(reset), 1, 1, 1, 0.6, 0.6, 0.6)
+                    local displayName = name
+                    if showDetails then
+                        local total = tonumber(numEncounters) or 0
+                        local progress = tonumber(encounterProgress) or 0
+                        local diffShort = ShortenDifficulty(difficultyName)
+                        if total > 0 and diffShort ~= "" then
+                            displayName = format("%s (%s %d/%d)", name, diffShort, progress, total)
+                        elseif total > 0 then
+                            displayName = format("%s (%d/%d)", name, progress, total)
+                        elseif diffShort ~= "" then
+                            displayName = format("%s (%s)", name, diffShort)
+                        end
+                    end
+                    ns.Tip_AddDouble(displayName, ns.FormatTimeLeft(reset), 1, 1, 1, 0.6, 0.6, 0.6)
                 end
             end
         end
@@ -694,6 +717,26 @@ ns.BlockFactories.clock = function(blockCfg, slot, content, barCtx)
         ns.Tip_AddDouble(L["RIGHT_CLICK"], L["TOGGLE_CLOCK"], 1, 1, 1, r, g, b)
         ns.Tip_AddDouble(L["SHIFT_MIDDLE_CLICK"], L["RELOAD_UI"], 1, 1, 1, r, g, b)
         ns.Tip_Show()
+    end
+
+    inst.eventFrame = MakeEventFrame(inst, function(self, event)
+        if event == "PLAYER_REGEN_ENABLED" then
+            if needsResize then needsResize = false; self:Refresh() end
+        elseif event == "ENCOUNTER_END" or event == "BOSS_KILL" then
+            if RequestRaidInfo then RequestRaidInfo() end
+        elseif event == "UPDATE_INSTANCE_INFO" then
+            if isMouseOver then
+                ShowClockTooltip()
+            end
+        else
+            self:Refresh()
+        end
+    end)
+
+    clockTextFrame:SetScript("OnEnter", function()
+        isMouseOver = true
+        ApplyClockColor()
+        ShowClockTooltip()
     end)
     clockTextFrame:SetScript("OnLeave", function()
         isMouseOver = false
