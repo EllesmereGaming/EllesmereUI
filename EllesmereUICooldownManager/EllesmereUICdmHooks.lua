@@ -1179,6 +1179,33 @@ function ns.RebuildSpellRouteMap()
 
     local IsBuffFamily = ns.IsBarBuffFamily
 
+    -- Curated buff alt ids, not talent overrides (GetBaseSpell is blind to
+    -- them). Any id in one curated group finds every other id in it.
+    local _buffPresetFamily
+    local function BuffPresetAltsFor(sid)
+        if not (EllesmereUI and EllesmereUI.BUFF_PRESETS) then return nil end
+        if not _buffPresetFamily then
+            _buffPresetFamily = {}
+            for _, spells in pairs(EllesmereUI.BUFF_PRESETS.spells) do
+                for id, info in pairs(spells) do
+                    if info.alts then
+                        local group = { id }
+                        for i = 1, #info.alts do group[#group + 1] = info.alts[i] end
+                        for i = 1, #group do
+                            local a = group[i]
+                            _buffPresetFamily[a] = _buffPresetFamily[a] or {}
+                            for j = 1, #group do
+                                local b = group[j]
+                                if b ~= a then _buffPresetFamily[a][b] = true end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        return _buffPresetFamily[sid]
+    end
+
     -- Record an exact assignment plus its base when the assigned id is a variant
     -- form; same overwrite semantics as the direct sets (later pass wins).
     -- Assigned ids come from stored config (plain numbers), so no secret gating here -- the resolve side gates.
@@ -1202,6 +1229,14 @@ function ns.RebuildSpellRouteMap()
         if base and base ~= sid then
             local varMap = isBuff and _divertedVarBaseBuff or _divertedVarBaseCD
             varMap[base] = barKey
+        end
+        if isBuff then
+            local family = BuffPresetAltsFor(sid)
+            if family then
+                for altSid in pairs(family) do
+                    SVV(targetMap, altSid, barKey, false, _divertedDirectBuff)
+                end
+            end
         end
     end
 
@@ -1334,6 +1369,12 @@ function ns.RebuildSpellRouteMap()
                                     else
                                         StoreDirect(_divertedSpellsBuff, buffSid, bd.key)
                                         SVV(ns._buffReplaceTarget, buffSid, sid, false)
+                                        local family = BuffPresetAltsFor(buffSid)
+                                        if family then
+                                            for altSid in pairs(family) do
+                                                SVV(ns._buffReplaceTarget, altSid, sid, false)
+                                            end
+                                        end
                                     end
                                 end
                             end
