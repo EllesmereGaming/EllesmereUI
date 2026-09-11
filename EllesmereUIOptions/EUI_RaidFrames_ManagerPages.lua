@@ -1,4 +1,4 @@
-﻿if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -- EUI_RaidFrames_ManagerPages.lua
 -- 12.1 redesigned manager options: the Debuff Manager page (sidebar of
 -- tiles with the undeletable Base Icons tile first) and the Buff Manager page's Base
@@ -1962,7 +1962,10 @@ local function BuildTileDetail(frame, fontPath, t)
             { type = "slider", text = "Thickness", min = 1, max = 4, step = 1,
               getValue = function() return t.glowThickness or 2 end,
               setValue = function(v) TSet("glowThickness", v) end },
-            { type = "label", text = "" }); sy = sy - hh
+            EllesmereUI.MaxDurationDropdown(
+                function() return t.maxDurSec end,
+                function(v) TSet("maxDurSec", v) end,
+                DmApply)); sy = sy - hh
     elseif t.type == "bar" then
         -- BM bar indicator CORE + DISPLAY 1:1 (minus Own Only and the
         -- 12.1-removed Max Duration / Threshold).
@@ -2084,7 +2087,10 @@ local function BuildTileDetail(frame, fontPath, t)
             { type = "slider", text = "Opacity", min = 5, max = 100, step = 1,
               getValue = function() return t.opacity or 45 end,
               setValue = function(v) TSet("opacity", v) end },
-            { type = "label", text = "" }); sy = sy - hh
+            EllesmereUI.MaxDurationDropdown(
+                function() return t.maxDurSec end,
+                function(v) TSet("maxDurSec", v) end,
+                DmApply)); sy = sy - hh
     end
     return sy
 end
