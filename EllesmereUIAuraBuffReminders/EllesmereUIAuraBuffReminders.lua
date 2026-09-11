@@ -1384,6 +1384,7 @@ local FOOD_ITEMS = {
     { key="foragers_medley",       itemID=242306, name="Forager's Medley" },
     { key="farstrider_rations",    itemID=242309, name="Farstrider Rations" },
     { key="bloom_skewers",         itemID=242302, name="Bloom Skewers" },
+    { key="feast_of_knowledge",    itemID=275266, name="Feast of Knowledge" },
     -- Hearty Food Items
     { key="hearty_royal_roast",            itemID=242747, name="Hearty Royal Roast" },
     { key="hearty_impossibly_royal_roast",  itemID=268679, name="Hearty Impossibly Royal Roast" },
@@ -1421,6 +1422,7 @@ local FOOD_ITEMS = {
     { key="hearty_foragers_medley",         itemID=242773, name="Hearty Forager's Medley" },
     { key="hearty_farstrider_rations",      itemID=242776, name="Hearty Farstrider Rations" },
     { key="hearty_bloom_skewers",           itemID=242769, name="Hearty Bloom Skewers" },
+    { key="hearty_feast_of_knowledge",      itemID=275269, name="Hearty Feast of Knowledge" },
 }
 
 -- Weapon Enchant dropdown choices (name best itemID lookup at runtime)
