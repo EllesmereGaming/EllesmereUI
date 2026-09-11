@@ -288,11 +288,12 @@ end
 -- Nearest physical pixel at UIParent scale, for every PAB grid number (icon size,
 -- padding, row gap). Not PP.Scale: it truncates, and the per-icon loss adds up
 -- along a row, so a bar measured a different number of UI units per resolution.
--- Same rounding as EllesmereUIActionBars.lua's ComputeBarLayout.
+-- Rounds like EllesmereUIActionBars.lua's ComputeBarLayout, plus the 0.001 tie
+-- guard PP.SnapForES uses, so an exact half pixel cannot flip between sessions.
 local function PabSnap(x)
     local m = EllesmereUI.PP.mult
     if x == 0 or m == 1 then return x end
-    return math.floor(x / m + 0.5) * m
+    return math.floor(x / m + 0.5 + 0.001) * m
 end
 
 local function PAB_ApplyDmFx(button, d, style)
@@ -2242,7 +2243,9 @@ local function RebaseBarPositionToCenter(frame, pos)
     local sx, sy = SnapBarPos(frame, "CENTER", "CENTER", x, y)
     frame:ClearAllPoints()
     frame:SetPoint("CENTER", UIParent, "CENTER", sx, sy)
-    return { point = "CENTER", relPoint = "CENTER", x = x, y = y }
+    -- design: centered growth has no rounding shift at CENTER, so the measured
+    -- center already is the design center (BarAnchorOffset).
+    return { point = "CENTER", relPoint = "CENTER", x = x, y = y, design = true }
 end
 
 -- Applies the saved position (if any) or the default to the given parent frame.
@@ -2476,13 +2479,15 @@ local function CreateBars()
     buffsParent:SetSize(buffGrid.width, buffGrid.height)
     ApplyBarPosition(buffsParent, true, buffGrid)
     lastSize.buffs = { w = buffGrid.width, h = buffGrid.height, dw = buffGrid.designWidth,
-        dh = buffGrid.designHeight, lw = buffGrid.legacyWidth, lh = buffGrid.legacyHeight }
+        dh = buffGrid.designHeight, lw = buffGrid.legacyWidth, lh = buffGrid.legacyHeight,
+        gd = buffCfg.growDirection, wd = buffCfg.iconWrapDirection }
 
     debuffsParent = debuffsParent or CreateFrame("Frame", "EllesmereUIPlayerAuraBars_Debuffs", UIParent)
     debuffsParent:SetSize(debuffGrid.width, debuffGrid.height)
     ApplyBarPosition(debuffsParent, false, debuffGrid)
     lastSize.debuffs = { w = debuffGrid.width, h = debuffGrid.height, dw = debuffGrid.designWidth,
-        dh = debuffGrid.designHeight, lw = debuffGrid.legacyWidth, lh = debuffGrid.legacyHeight }
+        dh = debuffGrid.designHeight, lw = debuffGrid.legacyWidth, lh = debuffGrid.legacyHeight,
+        gd = debuffCfg.growDirection, wd = debuffCfg.iconWrapDirection }
 
     -- Enable toggles (cfg.enabled, nil = enabled): containers and groups still
     -- build below so a live re-enable needs no reload; a disabled bar just
@@ -2857,7 +2862,8 @@ local function ApplyLiveConfig(isBuff)
     -- and the stored pos is not mutated for a resize that never landed.
     if InCombatLockdown() then
         local sizeChanged = not (prev and prev.w == grid.width and prev.h == grid.height
-            and prev.dw == grid.designWidth and prev.dh == grid.designHeight)
+            and prev.dw == grid.designWidth and prev.dh == grid.designHeight
+            and prev.gd == cfg.growDirection and prev.wd == cfg.iconWrapDirection)
         local rebasePending = centered
             and not (pos and pos.point == "CENTER" and (pos.relPoint or pos.point) == "CENTER")
         if sizeChanged or rebasePending then
@@ -2884,14 +2890,19 @@ local function ApplyLiveConfig(isBuff)
             pos.x = pos.x + dx
             pos.y = pos.y + dy
         end
+        local turned = prev and (prev.gd ~= cfg.growDirection or prev.wd ~= cfg.iconWrapDirection)
         lastSize[sizeKey] = { w = grid.width, h = grid.height, dw = grid.designWidth,
-            dh = grid.designHeight, lw = grid.legacyWidth, lh = grid.legacyHeight }
+            dh = grid.designHeight, lw = grid.legacyWidth, lh = grid.legacyHeight,
+            gd = cfg.growDirection, wd = cfg.iconWrapDirection }
         parent:SetSize(grid.width, grid.height)
         -- Re-seated AFTER SetSize so SnapBarPos snaps against the new size and the
-        -- rounding shift follows the new grid. The STORED pos keeps the raw
-        -- accumulation. Only on a real change, so an anchor-linked bar is not pulled
-        -- back to its stored position on every slider tick.
-        if resized then ApplyBarPosition(parent, isBuff, grid) end
+        -- rounding shift follows the new grid, or the new origin after a grow/wrap
+        -- direction change. The STORED pos keeps the raw accumulation. Never for an
+        -- unlock-anchored bar: the anchor owns its placement and re-applies itself on
+        -- a size change.
+        local anchored = EllesmereUI.IsUnlockAnchored
+            and EllesmereUI.IsUnlockAnchored(isBuff and "PAB_Buffs" or "PAB_Debuffs")
+        if (resized or turned) and not anchored then ApplyBarPosition(parent, isBuff, grid) end
     end
 
     local pad = cfg.padding or 5
