@@ -7596,6 +7596,11 @@ local function _ResolveSlotBinding(slot, key, tier)
             -- through to the body scan, which is the whole point: that answer
             -- is state-dependent and hides the other branches.
             if not _stableMode then return end
+        elseif subType == "item" and id then
+            -- Same contract, item side (e.g. "/use 13" trinket macros): `id`
+            -- is the actual itemID, straight from Blizzard, not the body scan.
+            _SetKeybind(-id, formatted, macroRank)
+            if not _stableMode then return end
         end
         -- For everything else `id` from GetActionInfo is NOT a reliable
         -- identifier -- resolve the real macro index via its name instead
