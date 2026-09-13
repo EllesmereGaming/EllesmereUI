@@ -3806,7 +3806,7 @@ initFrame:SetScript("OnEvent", function(self)
                         return
                     end
                     if key == "LSHIFT" or key == "RSHIFT" or key == "LCTRL" or key == "RCTRL"
-                       or key == "LALT" or key == "RALT" then
+                       or key == "LALT" or key == "RALT" or key == "LMETA" or key == "RMETA" then
                         self:SetPropagateKeyboardInput(true)
                         return
                     end
@@ -3817,11 +3817,26 @@ initFrame:SetScript("OnEvent", function(self)
                         RefreshLabel()
                         return
                     end
-                    local mods = ""
-                    if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
-                    if IsControlKeyDown() then mods = mods .. "CTRL-" end
-                    if IsAltKeyDown() then mods = mods .. "ALT-" end
-                    local fullKey = mods .. key
+                    -- Blizzard's canonical chord order is ALT-CTRL-SHIFT-KEY,
+                    -- and CreateKeyChordStringUsingMetaKeyState is what
+                    -- produces it. Hand-rolling the modifiers built
+                    -- SHIFT-CTRL-ALT-KEY, a chord string the engine never
+                    -- generates, so any bind using more than one modifier was
+                    -- stored in a form nothing could match. Single-modifier
+                    -- binds happen to agree, which is why this survived.
+                    local fullKey
+                    if CreateKeyChordStringUsingMetaKeyState then
+                        fullKey = CreateKeyChordStringUsingMetaKeyState(key)
+                    else
+                        local mods = ""
+                        if IsAltKeyDown() then mods = mods .. "ALT-" end
+                        if IsControlKeyDown() then mods = mods .. "CTRL-" end
+                        if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
+                        if IsMetaKeyDown and IsMetaKeyDown() then
+                            mods = mods .. "META-"
+                        end
+                        fullKey = mods .. key
+                    end
 
                     if not EllesmereUIDB then EllesmereUIDB = {} end
                     local bindBtn = _G["ERFExtraFramesBindBtn"]
@@ -4836,7 +4851,10 @@ initFrame:SetScript("OnEvent", function(self)
         local hoverBordersRow
         hoverBordersRow, h = W:DualRow(parent, y,
             { type="toggle", text="Show When Solo",
-              disabled=function() return db.profile.partyShowWhenSolo end,
+              -- Disabled only while Party's is the ONE that is on: a profile holding both
+              -- flags (older profile, override swap, import) shows the player twice, and
+              -- each toggle must stay clickable to switch itself off.
+              disabled=function() return db.profile.partyShowWhenSolo and not db.profile.showWhenSolo end,
               disabledTooltip="Party Frames Show When Solo", requireState="disabled",
               getValue=function() return SVal("showWhenSolo", false) end,
               setValue=function(v)
@@ -5193,7 +5211,8 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return "_placeholder" end,
               setValue=function() end },
             { type="toggle", text="Show When Solo",
-              disabled=function() return db.profile.showWhenSolo end,
+              -- Same rule as the Raid toggle: both flags on must leave both clickable.
+              disabled=function() return db.profile.showWhenSolo and not db.profile.partyShowWhenSolo end,
               disabledTooltip="Raid Frames Show When Solo", requireState="disabled",
               getValue=function() return SVal("partyShowWhenSolo", false) end,
               setValue=function(v)
@@ -5236,8 +5255,9 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             cogDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdateSoloCogDis()
-                -- Disabled whenever Raid Frames Show When Solo is on: that means party never shows solo.
-                if db.profile.showWhenSolo then cogDis:Show() else cogDis:Hide() end
+                -- Disabled whenever Raid Frames Show When Solo is the one that is on: that means
+                -- party never shows solo (both on = party does show, so its cog stays usable).
+                if db.profile.showWhenSolo and not db.profile.partyShowWhenSolo then cogDis:Show() else cogDis:Hide() end
             end
             cogBtn:HookScript("OnShow", UpdateSoloCogDis)
             EllesmereUI.RegisterWidgetRefresh(UpdateSoloCogDis)
@@ -5462,13 +5482,28 @@ initFrame:SetScript("OnEvent", function(self)
                   else db.profile.partyFlipGrowth = false end
                   PartyReloadAndUpdate()
               end },
+            { type="toggle", text="Party Frames in Small Raids",
+              tooltip="In raid groups under 10 players, show group 1 as party frames and hide everyone else.",
+              getValue=function() return db.profile.partySmallRaid or false end,
+              setValue=function(v)
+                  db.profile.partySmallRaid = v
+                  -- Both visibility passes re-read the mode; the raid one runs
+                  -- first so its hidden branch never races the party show.
+                  if not InCombatLockdown() then
+                      if ns.UpdateVisibility then ns.UpdateVisibility() end
+                      if ns._UpdatePartyVisibility then ns._UpdatePartyVisibility() end
+                  end
+              end });  y = y - h
+
+        _, h = W:DualRow(parent, y,
             { type="toggle", text="Enable Party Targets",
               tooltip="Show a small clickable frame next to each party member with that member's current target. Left-click a target to select it.",
               getValue=function() return db.profile.partyShowTargets or false end,
               setValue=function(v)
                   db.profile.partyShowTargets = v
                   if ns.PT_SetEnabled then ns.PT_SetEnabled(v) end
-              end });  y = y - h
+              end },
+            { type="label", text="" });  y = y - h
 
         -------------------------------------------------------------------
         --  ALL VISUAL SECTIONS

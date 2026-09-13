@@ -41,6 +41,7 @@ local WINDOW_ENABLE_KEYS = {
     itemupgrade     = "reskinItemUpgrade",
     loot            = "reskinLoot",
     loottoast       = "reskinLootToast",
+    bnettoast       = "reskinBNetToast",
     lootroll        = "reskinLootRoll",
     loothistory     = "reskinLootHistory",
     groupinvite     = "reskinGroupInvite",
@@ -98,6 +99,7 @@ do
         { marker = "readyCheckStyleSeeded", keys = { "readycheck" } },
         { marker = "queueChoiceTradeStyleSeeded",
           keys = { "queuestatus", "delvepicker", "playerchoice", "trade" } },
+        { marker = "bnetToastStyleSeeded", keys = { "bnettoast" } },
     }
     local function SeedBatch(marker, newKeys)
         if EllesmereUIDB[marker] then return end
@@ -1380,6 +1382,45 @@ end
 
         local timerBorder, timerBg
 
+        -- True once the user has touched ANY Queue Timer Style setting. Gates the
+        -- unified style below off the Blizzard-style branch: reskin-off users chose
+        -- the stock look, so an untouched profile keeps the legacy rendering
+        -- byte-identically; the first setting they touch activates the unified
+        -- style in both modes (and a section reset returns them to legacy).
+        local function QueueTimerCustomized()
+            local db = EllesmereUIDB
+            return (db and (db.queueTimerTextColor ~= nil or db.queueTimerTextSize ~= nil
+                or db.queueTimerBarHeight ~= nil or db.queueTimerTextOffsetY ~= nil))
+                and true or false
+        end
+
+        -- Applied after either style branch, so the look holds with the reskin on or off.
+        local function ApplyTimerStyle()
+            if not timerBar then return end
+            if GetFFD(timerBar).style == false and not QueueTimerCustomized() then
+                -- Legacy stock rendering, exactly as before the style controls existed.
+                timerText:SetFontObject("GameFontHighlight")
+                timerText:ClearAllPoints()
+                timerText:SetPoint("CENTER", timerBar, "CENTER", 0, 0)
+                timerBar:SetHeight(9)
+                return
+            end
+            local db = EllesmereUIDB or {}
+            local QT = EllesmereUI.QUEUE_TIMER
+            local c = db.queueTimerTextColor
+            local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras"))
+                or "Fonts\\FRIZQT__.TTF"
+            if EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(timerText, true) end
+            timerText:SetFont(fontPath, db.queueTimerTextSize or QT.TEXT_SIZE, "")
+            timerText:SetTextColor((c and c.r) or QT.TEXT_R, (c and c.g) or QT.TEXT_G,
+                (c and c.b) or QT.TEXT_B, 1)
+            timerText:ClearAllPoints()
+            timerText:SetPoint("CENTER", timerBar, "CENTER", 0,
+                db.queueTimerTextOffsetY or QT.TEXT_OFFSET_Y)
+            timerBar:SetHeight(db.queueTimerBarHeight or QT.BAR_HEIGHT)
+        end
+        EllesmereUI.RefreshQueueTimerStyle = ApplyTimerStyle
+
         local function ShowQueueTimer(useEuiStyle)
             local popup = LFGDungeonReadyPopup
             if not popup then return end
@@ -1400,7 +1441,6 @@ end
                 timerBorder:SetPoint("TOP", timerBar, 0, 28)
 
                 timerText = timerBar:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-                timerText:SetPoint("CENTER", timerBar, "CENTER", 0, 0)
 
                 if EllesmereUI.RegAccent then
                     EllesmereUI.RegAccent({ type = "callback", fn = function()
@@ -1416,11 +1456,13 @@ end
             local dialog = LFGDungeonReadyDialog
             local anchorFrame = dialog or popup
 
+            -- The bar's parent sits a level below the dialog so its backdrop draws under the dialog art; a raised countdown must not.
+            timerBar:SetFrameLevel(anchorFrame:GetFrameLevel() + 5)
+
             timerBar:ClearAllPoints()
             if useEuiStyle then
                 timerBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
                 local mult = (_PP and _PP.mult) or 1
-                timerBar:SetHeight(11)
                 timerBar:SetPoint("BOTTOMLEFT", anchorFrame, "BOTTOMLEFT", mult, mult)
                 timerBar:SetPoint("BOTTOMRIGHT", anchorFrame, "BOTTOMRIGHT", -mult, mult)
                 local ar, ag, ab = EllesmereUI.GetAccentColor()
@@ -1428,23 +1470,19 @@ end
                 timerBg:SetColorTexture(0, 0, 0, 0.5)
                 timerBorder:Hide()
                 timerBg:Show()
-                local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras"))
-                    or "Fonts\\FRIZQT__.TTF"
-                if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(timerText, true) end
-                timerText:SetFont(fontPath, 9, "")
-                timerText:SetTextColor(1, 0.831, 0, 1) -- #ffd400
                 GetFFD(timerBar).style = true
             else
                 -- Blizzard style: stock bar texture + casting-bar border art.
                 timerBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
                 timerBar:SetPoint("TOP", anchorFrame, "BOTTOM", 0, -5)
-                timerBar:SetSize(190, 9)
+                timerBar:SetWidth(190)
                 timerBar:SetStatusBarColor(1, 0.1, 0)
                 timerBorder:Show()
                 timerBg:Show()
-                timerText:SetFontObject("GameFontHighlight")
                 GetFFD(timerBar).style = false
             end
+
+            ApplyTimerStyle()
 
             -- Hide any other addon's timer bar parented to the popup.
             for _, child in ipairs({ popup:GetChildren() }) do
@@ -2336,7 +2374,13 @@ do
         if not af then return end
         local corner = CornerFor(af)
         local point, relTo = tooltip:GetPoint(1)
-        if tooltip:GetNumPoints() == 1 and point == corner and relTo == af then return end
+        -- GetPoint can hand back a SECRET point: Blizzard anchors the world cursor
+        -- tooltip (SetWorldCursor -> GameTooltip_SetDefaultAnchor) from restricted
+        -- code, and comparing a secret raises, so the classification MUST short-circuit
+        -- ahead of the compares. A secret anchor is by definition not ours: treat it as
+        -- a deviation and re-point. Our own write reads back clean, so the early-out works again from the next call on.
+        local secretPt = issecretvalue and (issecretvalue(point) or issecretvalue(relTo))
+        if not secretPt and tooltip:GetNumPoints() == 1 and point == corner and relTo == af then return end
         _fixedEnforcing = true
         tooltip:ClearAllPoints()
         tooltip:SetPoint(corner, af, corner, 0, 0)
@@ -2498,6 +2542,10 @@ do
         if not dir then return end
         if tooltip:IsForbidden() then return end
         local point, relTo, _, x, y = tooltip:GetPoint(1)
+        -- A point written by restricted code (world cursor tooltip) is SECRET:
+        -- find() and == on it raise, and the forced corner cannot be derived from it
+        -- at all. Skip this pass; the next one, after a clean re-anchor, enforces normally.
+        if issecretvalue and (issecretvalue(point) or issecretvalue(x) or issecretvalue(y)) then return end
         if not point then return end
         relTo = relTo or GameTooltipDefaultContainer
         if not relTo then return end

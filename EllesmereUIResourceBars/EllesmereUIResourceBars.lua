@@ -3591,9 +3591,9 @@ local function BuildBars()
                 if not runeFrames[i] then
                     runeFrames[i] = CreatePip(secondaryFrame, 20, pipH, i,
                         0, 0, 0, 0, 0)
-                    -- Countdown number on its own overlay ABOVE the bar border. Rune
-                    -- pips use per-pip border size 0, so the VISIBLE border is the
-                    -- outer secondaryFrame._barBorder at level +5 -- the number must
+                    -- Countdown number on its own overlay ABOVE the bar border (whichever
+                    -- one is visible: per-pip when Border on Individual Pips is on, else
+                    -- the outer secondaryFrame._barBorder at level +5) -- the number must
                     -- clear that (not just the pip) while staying below the
                     -- count/value text overlay (level 25). Recharge fill stays
                     -- framed by the border, matching the ready-rune fill.
@@ -3639,7 +3639,13 @@ local function BuildBars()
                 rf["_barAnim_x1"] = x1 - x0
                 rf["_barAnim_ph"] = pipH
                 ApplyRunePos()
-                runeFrames[i]:ApplyBorder(0, 0, 0, 0, 0)
+                if sp.borderOnPips then
+                    runeFrames[i]:ApplyBorder(sp.borderSize, sp.borderR, sp.borderG, sp.borderB, sp.borderA,
+                        sp.borderTexture, sp.borderTextureOffset, sp.borderTextureOffsetY,
+                        sp.borderTextureShiftX, sp.borderTextureShiftY, "resourcebars", sp.borderSize)
+                else
+                    runeFrames[i]:ApplyBorder(0, 0, 0, 0, 0)
+                end
                 runeFrames[i]:ApplyTexture(g.barTexture or "none")
                 runeFrames[i]._bg:SetColorTexture(ERB.PipBgColor(sp))
                 -- Fill Opacity: same stamp as regular pips (consumed by
@@ -3748,7 +3754,7 @@ local function BuildBars()
             local pl = secondaryFrame:GetFrameLevel()
             secondaryFrame._barBorder._frame:SetFrameLevel(sp.borderBehind and math.max(0, pl - 1) or (pl + 5))
         end
-        if sp.borderOnPips and cachedSecondary.type ~= "runes" and not isBarType then
+        if sp.borderOnPips and not isBarType then
             secondaryFrame._barBorder:ApplyStyle(0,0,0,0,0)
         else
             secondaryFrame._barBorder:ApplyStyle(sp.borderSize, sp.borderR, sp.borderG, sp.borderB, sp.borderA,
@@ -3796,13 +3802,6 @@ local function BuildBars()
             secondaryFrame._barBg:SetColorTexture(sp.barBgR or 0, sp.barBgG or 0, sp.barBgB or 0, sp.barBgA or 0.5)
         end
 
-        -- Warrior charge buffs: hand the engine-slot module the resolved build
-        -- (it parks itself for every other power type and non-warriors; see
-        -- EUI_ResourceBars_WarriorCharges.lua).
-        if ns.WC_Sync then
-            ns.WC_Sync(secondaryFrame, sp, cachedSecondary and cachedSecondary.power, g)
-        end
-
         if sp.showText then
             if not secondaryFrame._countText then
                 -- Parent to a high-level overlay so text renders above pip fills and borders
@@ -3834,6 +3833,15 @@ local function BuildBars()
             end
         elseif secondaryFrame._countText then
             secondaryFrame._countText:Hide()
+        end
+
+        -- Warrior charge buffs: hand the engine-slot module the resolved build
+        -- (it parks itself for every other power type and non-warriors; see
+        -- EUI_ResourceBars_WarriorCharges.lua). Must run after _countText is
+        -- created and styled above -- the engine bakes its count-text font from
+        -- this fontstring at slot-creation time and never re-reads it.
+        if ns.WC_Sync then
+            ns.WC_Sync(secondaryFrame, sp, cachedSecondary and cachedSecondary.power, g)
         end
 
         secondaryFrame:Show()
@@ -5643,6 +5651,17 @@ local function UpdateSecondaryResource()
         -- value read.
         if ns.WC_Recolor and (powerType == "WHIRLWIND_STACKS" or powerType == "SWEEPING_STRIKES") then
             ns.WC_Recolor(powerType, r, g, b, a)
+            -- Threshold/band settings ride along raw (already resolved above
+            -- at this pass's existing cost); the engine module change-gates
+            -- and renders them as fill-masked range strips -- no Lua count
+            -- exists for these two powers, so this is the only threshold
+            -- renderer they have.
+            if ns.WC_Thresholds then
+                ns.WC_Thresholds(powerType,
+                    (_tsEntry and _tsEntry.thresholdMode) or sp.thresholdMode,
+                    _tsEntry and _tsThreshCount or nil, _tsR, _tsG, _tsB, _tsA,
+                    _tsBandOn, _tsBands, _tsBandReverse, _tsReverse)
+            end
         end
         if _wcEngine then
             for i = 1, #pips do if pips[i] then pips[i]:Hide() end end
@@ -6847,7 +6866,7 @@ end
         nameText:SetJustifyH(jh)
         nameText:SetPoint(pt, bar, pt, xb + (cb.spellTextX or 0), cb.spellTextY or 0)
         if spellSide == "center" then
-            nameText:SetWidth(barW * 0.6)
+            nameText:SetWidth(barW - 8 - (cb.showTimer and 2 * timerW or 0))
         else
             nameText:SetWidth(barW - 8 - (cb.showTimer and timerW or 0))
         end
@@ -6979,7 +6998,11 @@ ShowChannelTicks = function(spellID)
         --                       a recast begun BEFORE the old channel ended
         --                       (proc-driven chaining) inherits the outgoing
         --                       cast's rhythm: its first mark lands where the
-        --                       old cadence's next tick was due. Haste and
+        --                       old cadence's next tick was due, and the
+        --                       channel runs carry + N intervals, so the
+        --                       interval is the window AFTER the carry over N
+        --                       (dividing the whole window stretches every
+        --                       later mark late by carry/N). Haste and
         --                       whole-cast talents are absorbed by working in
         --                       fractions of the ACTUAL duration; only
         --                       interval-only modifiers change N.
@@ -6991,7 +7014,6 @@ ShowChannelTicks = function(spellID)
                 if tickData.modSpell and IsPlayerSpell(tickData.modSpell) then
                     N = tickData.modIntervalCount or N
                 end
-                local interval = dur / N
                 local startT = castBarFrame._startTime
                 -- Chain carry is computed ONCE per cast and cached: duration
                 -- updates re-enter here for the same cast, and re-starts
@@ -7009,11 +7031,19 @@ ShowChannelTicks = function(spellID)
                     castBarFrame._cadCarry = carry
                     castBarFrame._cadStart = startT
                 end
-                -- Bank this cast's cadence for a possible chain into the next.
+                local carry = castBarFrame._cadCarry or 0
+                local interval = (dur - carry) / N
+                if interval <= 0.01 then
+                    carry = 0
+                    interval = dur / N
+                end
+                -- Bank this cast's TRUE cadence for a possible chain into the
+                -- next: a chained cast's whole window over N is not its
+                -- interval, and banking it would misplace a chain of chains.
                 castBarFrame._cadPrevEnd = castBarFrame._endTime
                 castBarFrame._cadPrevInterval = interval
                 positions = {}
-                local t = castBarFrame._cadCarry or 0
+                local t = carry
                 if t < 0.01 then t = interval end
                 while t < dur - interval * 0.05 and #positions < 12 do
                     positions[#positions + 1] = t / dur
@@ -7734,14 +7764,32 @@ end
 -- what OnEmpowerStop below already does. Instead the live channel is re-queried:
 -- an instantly restarted channel (Clearcasting Arcane Missiles) can deliver the
 -- OLD channel's STOP after the NEW channel's START, and that late stop must not
--- tear down the bar that is still channeling.
+-- tear down the bar that is still channeling. The opposite order happens too:
+-- a channel re-issued mid-flight (Hover cast during Disintegrate) can deliver
+-- its STOP in a frame where UnitChannelInfo is already empty and the re-issuing
+-- START has not landed, so going idle here blanks the bar for that frame and
+-- the retry in OnChannelStart rebuilds it from scratch. Re-check next frame;
+-- a real channel end reads empty both times.
 local function OnChannelStop()
     if not castBarFrame then return end
     if not castBarFrame._channeling then return end
     if UnitChannelInfo("player") then return end
-    castBarFrame._channeling = false
-    castBarFrame._castID = nil
-    ns.ShowIdleCastBar()
+    if castBarFrame._channelStopPending then return end
+    castBarFrame._channelStopPending = true
+    C_Timer.After(0, function()
+        castBarFrame._channelStopPending = nil
+        if not castBarFrame._channeling then return end
+        local name, _, _, _, _, _, _, _, empowering = UnitChannelInfo("player")
+        if name then
+            -- An empower dispatched in the emptied frame was declined by
+            -- OnEmpowerStart, which has no retry; pick it up here.
+            if empowering then OnEmpowerStart() end
+            return
+        end
+        castBarFrame._channeling = false
+        castBarFrame._castID = nil
+        ns.ShowIdleCastBar()
+    end)
 end
 
 -- Undo the per-stage empower tint and put the configured fill back. Shared by

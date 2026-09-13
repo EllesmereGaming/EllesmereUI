@@ -566,7 +566,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
             pc._barBorderFrame:SetFrameLevel(sp.borderBehind and math.max(0, pc:GetFrameLevel() - 1) or (pc:GetFrameLevel() + 2))
 
-            if sp.borderOnPips and cf ~= "DEATHKNIGHT" and not isBar then
+            if sp.borderOnPips and not isBar then
                 pc._barBorderFrame:Hide()
             else
                 EllesmereUI.ApplyBorderStyle(pc._barBorderFrame, sp.borderSize or 1,
@@ -6222,6 +6222,21 @@ initFrame:SetScript("OnEvent", function(self)
 				local function _thrOptUsable() return _thrEnabled() and not _thrMultiOn() end
 				local function _thrOffTip() if _thrMultiOn() then return BAND_REPLACES_TIP end return "Enable the Threshold toggle to use these options." end
 				local function _thrIsUpTo() local e=_thrEnt(); return (e and e.thresholdReverse) and true or false end
+				local function _thrIsWarrCharge()
+					-- Arms/Fury class-bar thresholds render on the engine-fed
+					-- Whirlwind/Sweeping Strikes charge bar, whose only
+					-- threshold display is range coloring at/above the count
+					-- (no Lua count exists to flip the whole fill).
+					if (select(2, UnitClass("player"))) ~= "WARRIOR" then return false end
+					local e = _thrEnt()
+					local ids = e and e.specIDs
+					if not ids then return false end
+					for i = 1, #ids do
+						local id = ids[i]
+						if id == 0 or id == 71 or id == 72 then return true end
+					end
+					return false
+				end
 				local threshCog, threshCogShow = EllesmereUI.BuildCogPopup({
 					title = "Threshold Options", bgAlpha = 1, frameStrata = "FULLSCREEN_DIALOG", frameLevel = 500, minWidth = 320,
 					rows = {
@@ -6237,18 +6252,22 @@ initFrame:SetScript("OnEvent", function(self)
 							set = function(v) local e=_thrEnt(); if not e then return end e.thresholdMode=v; RefreshClass(); if RefreshDetail then RefreshDetail() end end },
 						{ type = "segmented", label = "Direction",
 							keys = { "upto", "from" }, labels = { upto = "Up to", from = "From" }, rawTooltip = true,
-							disabled = function() return not _thrOptUsable() end,
-							disabledTooltip = function() return _thrOffTip() end,
-							get = function() local e=_thrEnt(); return (e and e.thresholdReverse) and "upto" or "from" end,
+							disabled = function() return (not _thrOptUsable()) or _thrIsWarrCharge() end,
+							disabledTooltip = function()
+								if _thrIsWarrCharge() and _thrOptUsable() then return "Whirlwind and Sweeping Strikes thresholds only support the 'From' direction." end
+								return _thrOffTip()
+							end,
+							get = function() if _thrIsWarrCharge() then return "from" end local e=_thrEnt(); return (e and e.thresholdReverse) and "upto" or "from" end,
 							set = function(v) local e=_thrEnt(); if not e then return end e.thresholdReverse=(v=="upto"); RefreshClass(); if RefreshDetail then RefreshDetail() end end },
 						{ type = "toggle", label = "Only color at/above threshold", rawTooltip = true,
-							disabled = function() return (not _thrOptUsable()) or _thrIsBar() or _thrIsUpTo() end,
+							disabled = function() return (not _thrOptUsable()) or _thrIsBar() or _thrIsUpTo() or _thrIsWarrCharge() end,
 							disabledTooltip = function()
+								if _thrIsWarrCharge() and _thrOptUsable() then return "Always on for Whirlwind and Sweeping Strikes charges: range coloring at/above the threshold is the only way these bars can display thresholds." end
 								if not _thrOptUsable() then return _thrOffTip() end
 								if _thrIsBar() then return "This option applies to pip-type resources only." end
 								return "Only available with the 'From' direction -- it highlights the pips at/above the threshold."
 							end,
-							get = function() local e=_thrEnt(); return (e and e.thresholdPartialOnly) and true or false end,
+							get = function() if _thrIsWarrCharge() then return true end local e=_thrEnt(); return (e and e.thresholdPartialOnly) and true or false end,
 							set = function(v) local e=_thrEnt(); if not e then return end e.thresholdPartialOnly=v; RefreshClass(); if RefreshDetail then RefreshDetail() end end },
 					},
 				})
@@ -6583,7 +6602,7 @@ initFrame:SetScript("OnEvent", function(self)
 
 					-- Threshold input bounds (Enhance five-bar minimum). Bar-type reads the threshold as % (max 100) or an absolute value (higher cap)
 					local threshIsValue = isBar and not isStagger and ent.thresholdMode == "value"
-					local threshMax = isStagger and 500 or (isBar and (threshIsValue and 1000 or 100) or 10)
+					local threshMax = isStagger and 500 or (isBar and (threshIsValue and 1000 or 100) or 20)
 					local entryIsEnhance = false
 					local pp = DB()
 					if pp and pp.secondary.enhanceFiveBar == true then
@@ -7278,6 +7297,18 @@ initFrame:SetScript("OnEvent", function(self)
         local visRow
         visRow, h = EllesmereUI.BuildVisibilityRow(W, parent, y,
             { getStore = function() local p = DB(); return p and p.secondary end,
+              -- The override marker fans out like the scalar and the option lanes do;
+              -- secondary leads, matching getStore above.
+              getStores = function()
+                  local p = DB(); if not p then return nil end
+                  -- Built by presence, never as a literal triple: a nil in the middle
+                  -- would leave a hole the # operator reads past.
+                  local out = {}
+                  if p.secondary then out[#out + 1] = p.secondary end
+                  if p.health    then out[#out + 1] = p.health    end
+                  if p.primary   then out[#out + 1] = p.primary   end
+                  return out
+              end,
               legacyKey = "visibility",
               caps = { partyIncludesRaid = false, luaDragonriding = true },
               applyScalarFn = ApplyVisScalarAll,
@@ -8311,7 +8342,7 @@ initFrame:SetScript("OnEvent", function(self)
             pf.spellText:SetJustifyH(jh)
             pf.spellText:SetPoint(pt, pf.bar, pt, xb + (cb.spellTextX or 0), cb.spellTextY or 0)
             if cbSpellSide == "center" then
-                pf.spellText:SetWidth(cbBarW * 0.6)
+                pf.spellText:SetWidth(cbBarW - 8 - (cb.showTimer and 2 * cbTimerW or 0))
             elseif cbBarW > 0 then
                 pf.spellText:SetWidth(cbBarW - 8 - (cb.showTimer and cbTimerW or 0))
             end

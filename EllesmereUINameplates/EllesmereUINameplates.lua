@@ -107,6 +107,7 @@ function ns._appendDisplayPresetKeys(t)
         "tankHasAggroOverrideBoss",
         "dpsHasAggro", "dpsNearAggro", "offTankAggroEnabled", "offTankAggro",
         "dpsNoAggroEnabled", "dpsNoAggro", "dpsNoAggroOverrideMiniBoss", "dpsNoAggroOverrideCaster",
+        "dpsNoAggroOverrideBoss",
         "targetArrowDouble", "targetArrowStyle", "targetArrowColor", "targetArrowClassColor",
         "auraStackTextSize", "auraStackTextColor",
         "auraStackTextPosition", "auraStackTextX", "auraStackTextY",
@@ -194,6 +195,7 @@ local defaults = {
     dpsNoAggroEnabled = false,
     dpsNoAggroOverrideMiniBoss = false,  -- on: overrides Mini-Boss (above priority step 7); off = stays low
     dpsNoAggroOverrideCaster = false,  -- on: overrides Caster (above priority step 8); off = Casters keep own color
+    dpsNoAggroOverrideBoss = true,  -- on (default, the pre-toggle behaviour): overrides Boss (step 10b); off = Bosses keep own color
     interruptReady = { r = 0.92, g = 0.35, b = 0.20 },  
     castBar = { r = 0.70, g = 0.40, b = 0.90 },
     interruptMidCastEnabled = false,
@@ -220,7 +222,10 @@ local defaults = {
     classColorFriendly = true,
     friendlyBarColor = { r = 0.314, g = 0.800, b = 0.408 },
     friendlyNPCColor = { r = 0, g = 1, b = 0 },
+    friendlyNPCNameColor = { r = 0, g = 1, b = 0 },
+    friendlyNPCTitleColor = { r = 0, g = 1, b = 0, a = 0.7 },
     friendlyNPCNameSize = 13,
+    friendlyNPCTitleSize = 10,
     friendlyNameTextSize = 12,
     friendlyBelowName = "none",
     friendlyBelowNameSize = 12,
@@ -598,7 +603,8 @@ function ns.ApplyAbsorbStyle(plate)
     local r, g, b = 1, 1, 1
     if style ~= "blizzard" then
         local c = (p and p.absorbColor) or defaults.absorbColor
-        if c then r, g, b = c.r, c.g, c.b end
+        -- Per-component default: a partial colour table would throw downstream.
+        if c then r, g, b = c.r or 1, c.g or 1, c.b or 1 end
     end
     local mask = plate._absorbMask
     for _, bar in ipairs({ plate.absorb, plate.absorbForward, plate.absorbOverflow }) do
@@ -2149,10 +2155,14 @@ function ns.ApplyLowHpGlow(plate)
             plate.lowHpGlowPulse:Stop()
             plate.lowHpGlowFrame:Hide()
         end
+        -- Own flag mirrors the frame's shown state (this function is its only
+        -- toggler) so the per-tick health paint reads a field, not IsShown().
+        plate._lowHpGlowOn = nil
         return
     end
     ns.EnsureLowHpGlow(plate)
     plate.lowHpGlowFrame:Show()
+    plate._lowHpGlowOn = true
     if not plate.lowHpGlowPulse:IsPlaying() then plate.lowHpGlowPulse:Play() end
 end
 
@@ -2752,6 +2762,14 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
             local hb = PP.GetBorders(plate.health)
             if hb then
                 local sz = (p and p.borderSize) or defaults.borderSize
+                -- The target border-size effect (ApplyTarget) already resized the health
+                -- border before the cast bar showed; carry that size into the wrap instead
+                -- of falling back to the base size, or starting a cast on your target visibly
+                -- shrinks the border back to normal until the next target change.
+                if plate._targetBorderSized then
+                    local tbsz = ns.GetTargetBorderSizeValue()
+                    if tbsz then sz = tbsz end
+                end
                 local col = hb._bdColor
                 local r, g, b, a = 0, 0, 0, 1
                 if col then r, g, b, a = col[1], col[2], col[3], col[4] or 1 end
@@ -2816,7 +2834,12 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
             local hb = PP.GetBorders(plate.health)
             if hb then
                 hb._hideBottom = nil
-                PP.SetBorderSize(plate.health, (p and p.borderSize) or defaults.borderSize)
+                local sz = (p and p.borderSize) or defaults.borderSize
+                if plate._targetBorderSized then
+                    local tbsz = ns.GetTargetBorderSizeValue()
+                    if tbsz then sz = tbsz end
+                end
+                PP.SetBorderSize(plate.health, sz)
             end
             if plate.castWrapRegion then
                 local crb = PP.GetBorders(plate.castWrapRegion)
@@ -5137,7 +5160,13 @@ local function GetReactionColor(unit)
     -- Caster = the unit actually has a mana pool, rather than a class match. Second arg is
     -- typed PowerType (enum NUMBER), not the global MANA (localized "Mana" string, never
     -- matches). hasPower carries no secrecy flag, so it is safe to branch on directly.
-    local _isCaster = not owBasic and UnitHasPowerType(unit, Enum.PowerType.Mana)
+    -- Excludes boss units: _isMiniBoss already skips this step by returning earlier (step 7,
+    -- above Caster's step 8), but _isBossUnit's own color is deferred to step 10b (below the
+    -- threat-color steps, intentionally) -- with no exclusion here, a mana-using boss (e.g. a
+    -- caster-type raid boss) hit step 8's return before step 10b was ever reached, showing the
+    -- Spell Caster color instead of Bosses. Mirrors the mutual exclusivity boss/mini-boss
+    -- already have with each other.
+    local _isCaster = not owBasic and not _isBossUnit and UnitHasPowerType(unit, Enum.PowerType.Mana)
     -- DPS/healer No Aggro override state (mirrors tank has-aggro overrides at 6b). Each
     -- override independently promotes the No Aggro color above one mob-type step (mini-boss 7,
     -- caster 8). Active only for a non-tank without aggro in a group (matches step 10).
@@ -5238,18 +5267,27 @@ local function GetReactionColor(unit)
             end
         end
     end
-    -- 10. Non-tank no aggro (if enabled) below focus/caster/miniboss
+    -- 10. Non-tank no aggro (if enabled) below focus/caster/miniboss. Boss units gated behind
+    -- their own "Override Boss colors" toggle (default ON = the behaviour before the toggle
+    -- existed, so nothing changes for users who did not touch it), mirroring tank has-aggro's
+    -- ovrBoss check at step 9 above -- previously unconditional, so a DPS/healer without aggro
+    -- always lost the Bosses color on engage with no way to turn that off (unlike Mini-Boss/
+    -- Caster, which already had their own override toggles here, both off by default).
     if isThreatUnit and not _isTankRole and threatStatus < 2 and IsInGroup() then
         local enabled = defaults.dpsNoAggroEnabled
         if db.dpsNoAggroEnabled ~= nil then enabled = db.dpsNoAggroEnabled end
         if enabled then
-            local c = _C("dpsNoAggro")
-            return c.r, c.g, c.b
+            local ovrBoss = defaults.dpsNoAggroOverrideBoss
+            if db.dpsNoAggroOverrideBoss ~= nil then ovrBoss = db.dpsNoAggroOverrideBoss end
+            if ovrBoss or not _isBossUnit then
+                local c = _C("dpsNoAggro")
+                return c.r, c.g, c.b
+            end
         end
     end
     -- 10b. Boss (intentionally below the low-priority threat colors above, so tank-has-aggro/
     -- dps-no-aggro takes precedence over boss -- unless "Override Boss colors" is disabled, in
-    -- which case the has-aggro step above defers to this boss color for boss units).
+    -- which case the has-aggro/no-aggro step above defers to this boss color for boss units).
     if _isBossUnit then
         local c = _C("boss")
         return MaybeDarken(c.r, c.g, c.b, inCombat)
@@ -6268,6 +6306,7 @@ function NameplateFrame:ClearUnit()
     self.nameplate = nil
     self._absorbHidden = nil
     self._maxHPValid = nil
+    self._absMode = nil
     self._lastHCr, self._lastHCg, self._lastHCb = nil, nil, nil
     self._mirrorPending = nil
     -- Health-text value memo (UpdateHealthValues): a recycled plate must
@@ -6276,6 +6315,7 @@ function NameplateFrame:ClearUnit()
     self._ovFocShown, self._ovTgtShown = nil, nil
     self._focusLetterShown = nil
     self._kickIsChannel = nil
+    self._castIsChannel = nil
     self._kickIsEmpowered = nil
     self._kickGeoDirty = nil
     self._castTex = nil
@@ -6363,6 +6403,7 @@ function NameplateFrame:UpdateHealthValues()
             -- cached max belongs to the old unit, drop it too.
             self._absorbHidden = nil
             self._maxHPValid = nil
+            self._absMode = nil
             -- Only refresh auras for the lockout when one was actually active
             -- (zero cost when the Cast Lockout feature is off / no lockout).
             if self._castLockout then
@@ -6444,22 +6485,41 @@ function NameplateFrame:UpdateHealthValues()
             maxWithAbsorbs = self.hpCalculator:GetMaximumHealth()
             self.hpCalculator:SetMaximumHealthMode(Enum.UnitMaximumHealthMode.Default)
         end
-        self.absorb:ClearAllPoints()
-        if self.absorbForward then self.absorbForward:ClearAllPoints() end
+        -- Geometry, fill direction and sibling visibility are SHAPE, not value:
+        -- pushed once on entering this branch (stamped _absMode), never per
+        -- tick. Only the range/value pushes below carry secrets. The stamp is
+        -- cleared by the zero branch, ClearUnit and both token-swap sites.
+        if self._absMode ~= "secret" then
+            self._absMode = "secret"
+            self.absorb:ClearAllPoints()
+            if self.absorbForward then self.absorbForward:ClearAllPoints() end
+            self.absorb:SetReverseFill(false)
+            self.absorb:SetPoint("TOPLEFT", self.health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+            self.absorb:SetPoint("BOTTOMLEFT", self.health:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
+            self.absorb:Show()
+            if self.absorbForward then self.absorbForward:Hide() end
+            if self.absorbOverflow then self.absorbOverflow:Hide(); self.absorbOverflow:SetWidth(0) end
+            if self.absorbOverflowDivider then self.absorbOverflowDivider:Hide() end
+        end
         self.health:SetMinMaxValues(0, maxWithAbsorbs or maxHealth)
         self.health:SetValue(curHealth)
         self.absorb:SetMinMaxValues(0, maxWithAbsorbs or maxHealth)
-        self.absorb:SetReverseFill(false)
-        self.absorb:SetPoint("TOPLEFT", self.health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
-        self.absorb:SetPoint("BOTTOMLEFT", self.health:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
         self.absorb:SetValue(absorbAmt)
-        self.absorb:Show()
-        if self.absorbForward then self.absorbForward:Hide() end
-        if self.absorbOverflow then self.absorbOverflow:Hide(); self.absorbOverflow:SetWidth(0) end
-        if self.absorbOverflowDivider then self.absorbOverflowDivider:Hide() end
     else
-        self.absorb:ClearAllPoints()
-        if self.absorbForward then self.absorbForward:ClearAllPoints() end
+        -- Plain absorb shape (same stamp discipline as the secret branch).
+        if self._absMode ~= "plain" then
+            self._absMode = "plain"
+            self.absorb:ClearAllPoints()
+            self.absorb:SetReverseFill(true)
+            self.absorb:SetPoint("TOPRIGHT", self.health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+            self.absorb:SetPoint("BOTTOMRIGHT", self.health:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
+            if self.absorbForward then
+                self.absorbForward:ClearAllPoints()
+                self.absorbForward:SetReverseFill(false)
+                self.absorbForward:SetPoint("TOPLEFT", self.health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+                self.absorbForward:SetPoint("BOTTOMLEFT", self.health:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
+            end
+        end
         self.health:SetMinMaxValues(0, maxHealth)
         self.health:SetValue(curHealth)
         self.absorb:SetMinMaxValues(0, maxHealth)
@@ -6471,6 +6531,9 @@ function NameplateFrame:UpdateHealthValues()
             -- Entering the lean path: the bar bounds may still be an absorb-
             -- extended max from the secret branch -- force one clean re-push.
             self._maxHPValid = nil
+            -- The bars go hidden here; whichever branch re-shows them must
+            -- re-push its shape, so the stamp is dropped.
+            self._absMode = nil
             self.absorb:Hide()
             if self.absorbForward then self.absorbForward:Hide() end
             if self.absorbOverflow then self.absorbOverflow:Hide(); self.absorbOverflow:SetWidth(0) end
@@ -6487,15 +6550,9 @@ function NameplateFrame:UpdateHealthValues()
             if overflowAbsorb < 0 then overflowAbsorb = 0 end
 
             if self.absorbForward then
-                self.absorbForward:SetReverseFill(false)
-                self.absorbForward:SetPoint("TOPLEFT", self.health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
-                self.absorbForward:SetPoint("BOTTOMLEFT", self.health:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
                 self.absorbForward:SetValue(forwardAbsorb)
                 if forwardAbsorb > 0 then self.absorbForward:Show() else self.absorbForward:Hide() end
             end
-            self.absorb:SetReverseFill(true)
-            self.absorb:SetPoint("TOPRIGHT", self.health:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
-            self.absorb:SetPoint("BOTTOMRIGHT", self.health:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
             self.absorb:SetValue(backfillAbsorb)
             if backfillAbsorb > 0 then self.absorb:Show() else self.absorb:Hide() end
 
@@ -6613,7 +6670,9 @@ function NameplateFrame:UpdateHealthValues()
             pctText = string.format("%d%%", pctVal)
             -- No-sign variant only when a slot actually renders it.
             if ca._anyNoSign then pctNoSignText = string.format("%d", pctVal) end
-            numText = AbbreviateNumbers(curHealth)
+            -- Number text only when a number/combo slot renders it (percent-only
+            -- layouts were paying the abbreviation call + string every tick).
+            if anyNum then numText = AbbreviateNumbers(curHealth) end
             -- Decimal variants computed only when at least one slot opts in.
             if anyDec then
                 pctTextDec = string.format("%.1f%%", pctVal)
@@ -6646,7 +6705,7 @@ function NameplateFrame:UpdateHealthValues()
     -- straight into the glow textures (alpha 1 below threshold, 0 above -- never branched on in
     -- Lua). Parent frame's pulse multiplies on top. No-execute specs never build textures.
     local lg = self.lowHpGlowTextures
-    if lg and self.lowHpGlowFrame:IsShown() then
+    if lg and self._lowHpGlowOn then
         local curve = ns.GetLowHpGlowCurve()
         if curve then
             if UnitIsDeadOrGhost(unit) then
@@ -6879,6 +6938,7 @@ function NameplateFrame:UpdateName()
             -- belongs to the old unit, drop it too.
             self._absorbHidden = nil
             self._maxHPValid = nil
+            self._absMode = nil
         end
     end
     -- Standalone level renders on its own FontString and can share the plate with a
@@ -7044,6 +7104,10 @@ function NameplateFrame:RefreshCastIconSideReserve()
     self:UpdateClassification()
     self:UpdateRaidIcon()
     PositionArrowsOutsideAuras(self)
+    -- Without this, a cast bar showing/hiding shoves an already container-hugging
+    -- arrow back out to the coarse fallback position (same gap as the target-swap
+    -- path -- see NameplateFrame's isTarget branch).
+    if ns.NPC_ReanchorArrows then ns.NPC_ReanchorArrows(self) end
 end
 
 function NameplateFrame:RefreshNamePosition(localOnly)
@@ -7259,6 +7323,11 @@ function NameplateFrame:ApplyTarget()
             self.leftArrow:Show()
             self.rightArrow:Show()
             PositionArrowsOutsideAuras(self)
+            -- The coarse pass above only flanks health/name; a plate that already
+            -- has a live aura container needs the hugging override too, or a
+            -- fresh target selection leaves the arrows stuck at the wide fallback
+            -- until an unrelated RAID_TARGET_UPDATE happens to fire afterward.
+            if ns.NPC_ReanchorArrows then ns.NPC_ReanchorArrows(self) end
         elseif self.leftArrow then
             self.leftArrow:Hide()
             self.rightArrow:Hide()
@@ -7580,6 +7649,9 @@ function NameplateFrame:UpdateCast()
             NotifyCastStarted(self)
         end
     end
+    -- Cast kind for the STOP handler (UNIT_SPELLCAST_STOP): cached here rather than
+    -- read back, since the read is what can go stale/secret at the stop edge.
+    self._castIsChannel = isChannel
     if isFullSetup then
         self._kickGeoDirty = nil
         self:ApplyScale()
@@ -8074,20 +8146,43 @@ function NameplateFrame:UNIT_HEALTH()
         self.cast:Hide()
         self:ApplyNameVisibility()
     end
-    self:UpdateHealthValues()
+    self:MarkHealthDirty()
 end
 -- Max health changed: drop the cached max so the next paint re-derives it and
 -- re-pushes the bar bounds (per-paint SetMinMaxValues is gone from the lean
 -- path; bounds ride this event, exactly like Blizzard's CompactUnitFrame).
 function NameplateFrame:UNIT_MAXHEALTH()
     self._maxHPValid = nil
-    self:UpdateHealthValues()
+    self:MarkHealthDirty()
 end
 function NameplateFrame:UNIT_ABSORB_AMOUNT_CHANGED()
     -- The dedicated absorb edge: force the next paint onto the full absorb
     -- path so the lean-gate flag re-derives from a fresh read.
     self._absorbEdge = true
-    self:UpdateHealthValues()
+    self:MarkHealthDirty()
+end
+-- Health paint coalescer (Blizzard's CompactUnitFrame shape: healthDirty is
+-- drained once per frame at most). Health, max and absorb edges for one mob
+-- land together in a server batch, and only the last paint of a frame ever
+-- renders. Marks are a set write; the drain frame is hidden whenever the set
+-- is empty (zero cost idle) and paints inside the same frame the events
+-- arrived in, so nothing is displayed later than before. On ns (200-cap).
+ns._npHvDirty = ns._npHvDirty or {}
+ns._npHvFlush = ns._npHvFlush or CreateFrame("Frame")
+ns._npHvFlush:Hide()
+ns._npHvFlush:SetScript("OnUpdate", function(self)
+    local dirty = ns._npHvDirty
+    for plate in pairs(dirty) do
+        dirty[plate] = nil
+        -- A plate recycled between mark and drain has no unit; the paint's
+        -- own guard returns. A re-acquired one paints its new occupant.
+        if plate.unit then plate:UpdateHealthValues() end
+    end
+    if next(dirty) == nil then self:Hide() end
+end)
+function NameplateFrame:MarkHealthDirty()
+    ns._npHvDirty[self] = true
+    ns._npHvFlush:Show()
 end
 function NameplateFrame:UNIT_NAME_UPDATE()
     self:UpdateName()
@@ -8115,6 +8210,34 @@ function NameplateFrame:UNIT_SPELLCAST_CHANNEL_UPDATE()
 end
 function NameplateFrame:UNIT_SPELLCAST_STOP()
     self:UpdateCast()
+    -- Same hole CHANNEL_STOP and EMPOWER_STOP close directly: under restricted
+    -- execution UnitCastingInfo can still hand UpdateCast a SECRET (non-nil) tuple
+    -- for the cast that just stopped, so the ended branch never runs, isCasting stays
+    -- true and ApplyScale keeps the cast multiplier on the plate after the cast (and
+    -- after untargeting). A unit has one cast-time cast at a time, so a STOP landing
+    -- while a non-channel cast is still flagged means that cast is over; a live
+    -- channel (a STOP from an instant mid-channel) is left to CHANNEL_STOP.
+    if self.isCasting and not self._castIsChannel then
+        self.isCasting = false
+        self:HideKickTick()
+        self:ClearImportantCastGlow()
+        self:ApplyScale()
+        if not self._interrupted then
+            self.cast:Hide()
+        end
+        self:ApplyNameVisibility()
+        self.castTimer:SetText("")
+        if self._castFallback then
+            self._castFallback = nil
+            _fallbackPlates[self] = nil
+            fallbackCastCount = math.max(0, fallbackCastCount - 1)
+            if fallbackCastCount == 0 then castFallbackFrame:Hide() end
+        end
+        NotifyCastEnded(self)
+        if GetShowClassPower() and classPowerType and self._cpPips and self.unit and UnitIsUnit(self.unit, "target") then
+            UpdateClassPowerOnPlate(self)
+        end
+    end
 end
 function NameplateFrame:UNIT_SPELLCAST_CHANNEL_STOP()
     -- Directly hide instead of UpdateCast: in restricted execution, UnitCastingInfo can

@@ -132,6 +132,11 @@ local DM_DEFAULTS = {
             standaloneTimerDesatOOC = false,
             refreshRate = 1,
             hideResetButton = false, -- display the "reset data" button on the damage meter header
+            -- toggleWindowsKey (unset by default) is the hotkey that hides/shows every
+            -- meter window at once. Runtime only: the hidden state is never saved, so a
+            -- reload restores the configured visibility.
+            toggleIncludeTimer        = false, -- also toggle the standalone combat timer
+            toggleIncludeSpellHistory = false, -- also toggle the spell history icon strip and bar window
             hdrBgColor      = { r = 0x1B/255, g = 0x1B/255, b = 0x1B/255 },
             hdrBgAlpha      = 1,
             hdrBottomBorderSize = 0,
@@ -249,6 +254,21 @@ local function EnsureDB()
     if not EUI or not EUI.Lite then return nil end
     _dmDB = EUI.Lite.NewDB("EllesmereUIDamageMetersDB", DM_DEFAULTS)
     _G._EDM_DB = _dmDB
+    -- Refresh Rate floor raised to 0.5s: each tick fetches a full session
+    -- snapshot per window, so sub-0.5 rates multiply allocation churn far
+    -- past any visual gain. Clamp every stored profile once per session
+    -- (idempotent; imports of old exports are caught by the ticker clamp
+    -- until their next login).
+    local sv = _G.EllesmereUIDamageMetersDB
+    if type(sv) == "table" and type(sv.profiles) == "table" then
+        for _, p in pairs(sv.profiles) do
+            local dm = type(p) == "table" and p.dm
+            if type(dm) == "table" and type(dm.refreshRate) == "number"
+               and dm.refreshRate < 0.5 then
+                dm.refreshRate = 0.5
+            end
+        end
+    end
     return _dmDB
 end
 
@@ -426,6 +446,13 @@ local _playerGUID
 local _windows = {}  -- array of active window tables
 ns._windows = _windows
 
+-- Hotkey toggle state. Deliberately not persisted: a window hidden by accident would
+-- otherwise stay gone after a reload with nothing on screen explaining why. Every place
+-- that can show one of the toggled frames consults this flag, because the shared
+-- visibility dispatcher, the standalone timer ticker and the spell history rebuild all
+-- re-show their frames on their own schedule. Options mode and unlock mode still win.
+ns._toggleHidden = false
+
 -- Bumped whenever a build of the windows starts or _EDM_Apply() supersedes one. The
 -- login build is staggered across frames, so a rebuild arriving while it is still in
 -- flight would otherwise let the pending steps assign _windows[i] over entries the
@@ -545,6 +572,14 @@ local _curViewFrozenDur = 0    -- final Current-session duration, pinned when co
 -- deathRecapID > 0 filter would treat as a real death. Cleared at combat/encounter start and on
 -- 0 HP (confirmed real death); UnitIsFeignDeath can remain true through a feign-then-die transition so it can't be used to clear safely.
 local _feignDeathGUIDs = {}
+
+-- In-combat death time placeholders, keyed by deathRecapID (NeverSecret, unique
+-- per death). deathTimeSeconds is SECRET while in combat, so a Deaths row read
+-- 0:00 until combat ended; the row's first appearance is stamped with the plain
+-- live session duration instead (accurate to one refresh interval) and the
+-- engine's exact value replaces it as soon as it reads plain. Wiped at every
+-- combat start with the feign cache.
+local _deathStamps = {}
 
 -- Switch a window to a segment (sessionID) or session type (Current/Overall); windows with
 -- syncSegments switch together. On ns not local: CreateDMWindow is at Lua 5.1's 60-upvalue limit.
@@ -961,6 +996,30 @@ local function PhysicalPixels(userValue)
     return value
 end
 
+-- Row geometry with both terms on ONE pixel grid. barHeight is stored as a
+-- physical pixel count (plain slider), barSpacing in coordinate units (pixel
+-- slider), so it carries the UI scale it was set at. Snapping only the height
+-- left the stride between two grids and -((i-1) * stride) drifted down the
+-- list: a spacing of 1 then rendered as 0px on some rows and 2px on others, at
+-- a fractional UI scale and equally at a pixel-perfect one whenever the value
+-- had been saved at another scale.
+-- Returns barH, barSp, stride and one physical pixel, in coordinate units.
+local function RowMetrics(heightPx, spacingCoord, es)
+    local PP = EUI and EUI.PP
+    if PP and PP.perfect and PP.SnapForES then
+        if not es or es <= 0 then es = (UIParent and UIParent:GetEffectiveScale()) or 1 end
+        local onePixel = PP.perfect / es
+        local barH = PP.SnapForES((heightPx or 18) * onePixel, es)
+        local barSp = PP.SnapForES(spacingCoord or 2, es)
+        return barH, barSp, barH + barSp, onePixel
+    end
+    local barH, barSp = PhysicalPixels(heightPx or 18), spacingCoord or 2
+    return barH, barSp, barH + barSp, (PP and PP.mult) or 1
+end
+-- On ns as well: CreateDMWindow sits at Lua 5.1's 60-upvalue cap, so its call
+-- sites reach the helper through ns (already one of its upvalues).
+ns._RowMetrics = RowMetrics
+
 -- Number formatting: delegates to the shared EllesmereUI_NumberFormat.lua engine
 -- (breakpoint tables, the CJK wan/yi grouping tables and the
 -- AbbreviateNumbers/CreateAbbreviateConfig plumbing all live there now,
@@ -1038,7 +1097,18 @@ ns._IsSecret, ns._IsOwnRow = IsSecret, IsOwnRow
 -- pre-combat snapshots stay correct all fight; sources first seen only
 -- mid-combat resolve after it ends.
 local _srcKeyGuid = {}
+-- The group-row resolve channel runs in DUNGEONS ONLY (user rule). Raids
+-- mostly ambiguous-block anyway (duplicate specs collapse the class:spec
+-- key), while the Overall harvest walk and its session fetch scale with
+-- source count; outside instanced parties there is no group audience worth
+-- the fetches. Own-row breakdowns and death recaps are separate lanes and
+-- keep working everywhere (every caller checks IsOwnRow first).
+local function AllyResolveZone()
+    local _, instType = IsInInstance()
+    return instType == "party"
+end
 local function SnapshotSourceKeys()
+    if not AllyResolveZone() then return end
     -- Declassification LAGS regen (field-confirmed: a post-combat snapshot
     -- banked only the own row): while the Combat addon-restriction is still
     -- active the source list reads partially secret. Skip WITHOUT wiping so
@@ -1077,6 +1147,7 @@ end
 ns._SnapshotSourceKeys = SnapshotSourceKeys
 local function ResolveGroupGUID(src)
     if not src then return nil end
+    if not AllyResolveZone() then return nil end
     -- Out of combat the callers' row guids are plain and the gates never
     -- fire, so a resolve call here is a cheap chance to refresh the
     -- snapshot instead (one session fetch at hover edge cadence).
@@ -1093,6 +1164,30 @@ ns._ResolveGroupGUID = ResolveGroupGUID
 local function FormatTimer(seconds)
     if not seconds or (issecretvalue and issecretvalue(seconds)) then return "0:00" end
     return format("%d:%02d", math.floor(seconds / 60), math.floor(seconds % 60))
+end
+
+-- Deaths row time text. Plain deathTimeSeconds wins; a secret one (in combat)
+-- falls back to the placeholder stamped when the row first appeared. Published
+-- on ns: CreateDMWindow sits at the 60-upvalue cap and already holds ns.
+function ns._DeathTimeText(src, live)
+    local t = src.deathTimeSeconds
+    if t ~= nil and not (issecretvalue and issecretvalue(t)) then
+        return FormatTimer(t)
+    end
+    local rid = src.deathRecapID
+    if not rid or (issecretvalue and issecretvalue(rid)) then return "0:00" end
+    local st = _deathStamps[rid]
+    if not st then
+        -- Only the LIVE Current view may stamp: a past segment viewed during
+        -- the next pull is secret too, and its deaths must not borrow this
+        -- pull's clock.
+        if not (_inCombat and live) then return "0:00" end
+        st = GetCurrentViewDuration()
+        -- 0 = no live duration yet; leave unstamped so a later refresh can.
+        if not st or st <= 0 then return "0:00" end
+        _deathStamps[rid] = st
+    end
+    return FormatTimer(st)
 end
 
 local function FormatTimerDecimal(seconds)
@@ -1367,6 +1462,17 @@ local function TTPhysicalPixels(userValue)
     return PP.SnapForES((userValue or 0) * onePixel, es)
 end
 
+-- Row stride for the tooltip list. TT_BAR_H is a raw coordinate height while the
+-- gap is snapped to whole pixels, so their sum sits between two pixel rows and
+-- -((i-1) * stride) drifts down the list, the same defect the main bars had.
+-- Snap the sum; the row height itself keeps its current size.
+local function TTStride()
+    local sp = TTPhysicalPixels(1)
+    local PP = EUI and EUI.PP
+    if not PP or not PP.SnapForES or not _ttFrame then return TT_BAR_H + sp end
+    return PP.SnapForES(TT_BAR_H + sp, _ttFrame:GetEffectiveScale())
+end
+
 local function BlizzardSkinBordersAvailable()
     return C_AddOns and C_AddOns.IsAddOnLoaded
         and C_AddOns.IsAddOnLoaded("EllesmereUIBlizzardSkin")
@@ -1436,12 +1542,12 @@ end
 local function EnsureTTBar(i)
     if _ttBars[i] then return _ttBars[i] end
     EnsureTooltipFrame()
-    local ttSp = TTPhysicalPixels(1)
+    local ttStride = TTStride()
     local b = {}
     b.row = CreateFrame("Frame", nil, _ttFrame)
     b.row:SetHeight(TT_BAR_H)
-    b.row:SetPoint("TOPLEFT", _ttFrame, "TOPLEFT", 0, -(TT_HDR_H + (i-1) * (TT_BAR_H + ttSp)))
-    b.row:SetPoint("TOPRIGHT", _ttFrame, "TOPRIGHT", 0, -(TT_HDR_H + (i-1) * (TT_BAR_H + ttSp)))
+    b.row:SetPoint("TOPLEFT", _ttFrame, "TOPLEFT", 0, -(TT_HDR_H + (i-1) * ttStride))
+    b.row:SetPoint("TOPRIGHT", _ttFrame, "TOPRIGHT", 0, -(TT_HDR_H + (i-1) * ttStride))
     b.fill = CreateFrame("StatusBar", nil, b.row)
     b.fill:SetAllPoints(); b.fill:SetMinMaxValues(0, 1); b.fill:SetValue(0); b.fill:SetStatusBarTexture(BAR_TEX)
     b.spellIcon = b.row:CreateTexture(nil, "OVERLAY")
@@ -1459,7 +1565,7 @@ local function EnsureTTBar(i)
     return b
 end
 
-local _ttLastSp = -1
+local _ttLastStride = -1
 local _ttSorted = {}
 
 local function PopulatePreview(bar, curSession, curSessionID, curDMType)
@@ -1474,11 +1580,11 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
     if not bar._srcGUID and not bar._src.sourceCreatureID then return false end
     if not C_DamageMeter then return false end
 
-    -- Reposition tooltip bars with physical-pixel spacing (only when spacing changes)
+    -- Reposition tooltip bars with physical-pixel spacing (only when the stride changes)
     local ttSp = TTPhysicalPixels(1)
-    local ttStride = TT_BAR_H + ttSp
-    if ttSp ~= _ttLastSp then
-        _ttLastSp = ttSp
+    local ttStride = TTStride()
+    if ttStride ~= _ttLastStride then
+        _ttLastStride = ttStride
         for ti = 1, #_ttBars do
             local b = _ttBars[ti]
             if b then
@@ -2340,7 +2446,10 @@ local function CreateDMWindow(winIdx)
             -- own breakdown, death recaps, and group rows resolvable through
             -- the identity-exempt token channel all fall through to the
             -- normal hover path, whose builders are secret-safe.
-            if InCombatLockdown() and not IsOwnRow(bar._src)
+            -- Gated on Show Breakdown on Hover like ShowBarTooltip: with the option off
+            -- this branch still showed the disclaimer for ally rows.
+            if InCombatLockdown() and DB().showHoverTooltip ~= false
+               and not IsOwnRow(bar._src)
                and W.curDMType ~= Enum.DamageMeterType.Deaths
                and not ns._ResolveGroupGUID(bar._src) then
                 EnsureTooltipFrame()
@@ -3022,7 +3131,7 @@ local function CreateDMWindow(winIdx)
     local _scrollRefreshPending = false
     viewport:EnableMouseWheel(true)
     viewport:SetScript("OnMouseWheel", function(_, delta)
-        local c = DB(); local step = (PhysicalPixels(c.barHeight or 18) + (c.barSpacing or 2)) * 2
+        local c = DB(); local _, _, step = ns._RowMetrics(c.barHeight or 18, c.barSpacing or 2, frame:GetEffectiveScale()); step = step * 2
         local cur = viewport:GetVerticalScroll() or 0
         local newVal = math.max(0, math.min(_scrollMax, cur - delta * step))
         viewport:SetVerticalScroll(newVal)
@@ -3068,7 +3177,7 @@ local function CreateDMWindow(winIdx)
     local _srcScrollMax = 0
     W.srcViewport:EnableMouseWheel(true)
     W.srcViewport:SetScript("OnMouseWheel", function(_, delta)
-        local c = DB(); local step = (PhysicalPixels(c.barHeight or 18) + (c.barSpacing or 2)) * 2
+        local c = DB(); local _, _, step = ns._RowMetrics(c.barHeight or 18, c.barSpacing or 2, frame:GetEffectiveScale()); step = step * 2
         local cur = W.srcViewport:GetVerticalScroll() or 0
         W.srcViewport:SetVerticalScroll(math.max(0, math.min(_srcScrollMax, cur - delta * step)))
     end)
@@ -3300,8 +3409,8 @@ local function CreateDMWindow(winIdx)
 
     local function RecalcViewport(dataCount)
         if not viewport or not content then return end
-        local c = DB(); local barH = PhysicalPixels(c.barHeight or 18); local barSp = c.barSpacing or 2
-        local totalH = dataCount * (barH + barSp)
+        local c = DB(); local _, _, stride = ns._RowMetrics(c.barHeight or 18, c.barSpacing or 2, frame:GetEffectiveScale())
+        local totalH = dataCount * stride
         content:SetHeight(math.max(10, totalH))
         local viewH = viewport:GetHeight(); if viewH < 1 then viewH = 1 end
         _scrollMax = math.max(0, totalH - viewH)
@@ -3326,11 +3435,10 @@ local function CreateDMWindow(winIdx)
         local playerIdx
         for i, src in ipairs(sources) do if src.isLocalPlayer then playerIdx = i; break end end
         if not playerIdx then W.stickyPlayer.row:Hide(); W.stickySep:Hide(); ResetScrollAnchors(); W.stickyAtTop = false; return end
-        local barH = PhysicalPixels(c.barHeight or 18); local barSp = c.barSpacing or 2; local stride = barH + barSp
+        local barH, _, stride, pxMult = ns._RowMetrics(c.barHeight or 18, c.barSpacing or 2, frame:GetEffectiveScale())
         local scrollVal = viewport:GetVerticalScroll() or 0
         local fullViewH = frame:GetHeight() - GetHeaderH()
         if fullViewH < 1 then fullViewH = 1 end
-        local pxMult = (PP and PP.mult) or 1
         local barTop = (playerIdx - 1) * stride
         local barBot = barTop + barH
         -- Unpin the instant the player bar is fully within the viewport (1px tolerance for float drift)
@@ -3435,7 +3543,8 @@ local function CreateDMWindow(winIdx)
         end
         if isDeaths then
             local isOverall = (not W.curSessionID and W.curSession == Enum.DamageMeterSessionType.Overall)
-            bar.amount:SetText(isOverall and "" or FormatTimer(src.deathTimeSeconds))
+            bar.amount:SetText(isOverall and "" or ns._DeathTimeText(src,
+                not W.curSessionID and W.curSession == Enum.DamageMeterSessionType.Current))
         elseif isCount then
             bar.amount:SetText(AbbrevNumber(src.totalAmount))
         else
@@ -3456,7 +3565,7 @@ local function CreateDMWindow(winIdx)
         if session and session.combatSources then
 
             local sources = session.combatSources
-            local c = DB(); local barH = PhysicalPixels(c.barHeight or 18); local barSp = c.barSpacing or 2; local stride = barH + barSp
+            local c = DB(); local barH, barSp, stride = ns._RowMetrics(c.barHeight or 18, c.barSpacing or 2, frame:GetEffectiveScale())
             local leftFS = c.leftFontSize or c.fontSize or 11; local rightFS = c.rightFontSize or c.fontSize or 11
             local fontSize = leftFS -- compat for cacheKey
             local showIcon = (c.iconStyle or "spec") ~= "none"
@@ -3616,7 +3725,8 @@ local function CreateDMWindow(winIdx)
                         local fmtVal
                         if isDeaths then
                             local isOverall = (not W.curSessionID and W.curSession == Enum.DamageMeterSessionType.Overall)
-                            fmtVal = isOverall and "" or FormatTimer(src.deathTimeSeconds)
+                            fmtVal = isOverall and "" or ns._DeathTimeText(src,
+                                not W.curSessionID and W.curSession == Enum.DamageMeterSessionType.Current)
                         elseif isCount then
                             fmtVal = AbbrevNumber(src.totalAmount)
                         else
@@ -3758,8 +3868,7 @@ local function CreateDMWindow(winIdx)
             -- Events come newest-first from API; reverse to oldest-first
             local reversed = {}
             for ri = #events, 1, -1 do reversed[#reversed + 1] = events[ri] end
-            local c = DB(); local barH = PhysicalPixels(c.barHeight or 18)
-            local barSp = c.barSpacing or 2; local stride = barH + barSp
+            local c = DB(); local barH, _, stride = ns._RowMetrics(c.barHeight or 18, c.barSpacing or 2, frame:GetEffectiveScale())
             local leftFS = c.leftFontSize or c.fontSize or 11; local rightFS = c.rightFontSize or c.fontSize or 11
             local texPath, texKey = GetBarTexturePath()
             local deathTime = reversed[#reversed] and reversed[#reversed].timestamp
@@ -3866,13 +3975,12 @@ local function CreateDMWindow(winIdx)
                 local ok, sd = pcall(C_DamageMeter.GetCombatSessionSourceFromType, W.curSession, W.curDMType, guid, cid)
                 if ok then srcData = sd end
             end
-            local c = DB(); local barH = PhysicalPixels(c.barHeight or 18)
+            local c = DB(); local barH, _, stride = ns._RowMetrics(c.barHeight or 18, c.barSpacing or 2, frame:GetEffectiveScale())
             local players = AggregateEnemyPlayers(srcData, GetBreakdownDuration(W.curSession, W.curSessionID))
             if not players then
                 if W.spellPool then for i = 1, BAR_POOL_SIZE do W.spellPool[i].row:Hide() end end
                 return
             end
-            local barSp = c.barSpacing or 2; local stride = barH + barSp
             local leftFS = c.leftFontSize or c.fontSize or 11; local rightFS = c.rightFontSize or c.fontSize or 11
             local texPath, texKey = GetBarTexturePath()
             local maxAmt = players[1].total
@@ -3923,8 +4031,8 @@ local function CreateDMWindow(winIdx)
             if W.spellPool then for i = 1, BAR_POOL_SIZE do W.spellPool[i].row:Hide() end end
             return
         end
-        local spells = srcData.combatSpells; local c = DB(); local barH = PhysicalPixels(c.barHeight or 18)
-        local barSp = c.barSpacing or 2; local stride = barH + barSp; local leftFS = c.leftFontSize or c.fontSize or 11; local rightFS = c.rightFontSize or c.fontSize or 11; local texPath, texKey = GetBarTexturePath()
+        local spells = srcData.combatSpells; local c = DB(); local barH, barSp, stride = ns._RowMetrics(c.barHeight or 18, c.barSpacing or 2, frame:GetEffectiveScale())
+        local leftFS = c.leftFontSize or c.fontSize or 11; local rightFS = c.rightFontSize or c.fontSize or 11; local texPath, texKey = GetBarTexturePath()
         local sorted = {}
         for _, spell in ipairs(spells) do local ok, amt = pcall(function() return spell.totalAmount end); sorted[#sorted + 1] = { spell = spell, amount = (ok and amt) or 0 } end
         -- API returns combatSpells pre-sorted; no table.sort needed
@@ -4332,6 +4440,8 @@ local function CreateDMWindow(winIdx)
         if not frame then return end
         local c = DB()
         if EUI._unlockActive or ns._optionsOpen then frame:SetAlpha(1); frame:EnableMouse(true); frame:Show(); return end
+        -- Hotkey toggle outranks every configured rule but yields to the two modes above
+        if ns._toggleHidden then frame:Hide(); return end
         local vis = EUI.EvalVisibility and EUI.EvalVisibility(c)
         if not vis or vis == false then frame:Hide(); return end
         -- Per-window instance visibility
@@ -4349,6 +4459,9 @@ local function CreateDMWindow(winIdx)
     if EUI.RegisterMouseoverTarget then
         -- Hover-gated sets only reveal while their conditions pass; a legacy single "mouseover" behaves exactly as before
         EUI.RegisterMouseoverTarget(frame, function()
+            -- The mouseover scanner shows the frame without going through UpdateVisibility,
+            -- so the toggle has to be refused here as well
+            if ns._toggleHidden then return false end
             local c = DB()
             return c ~= nil and EUI.VisWantsMouseover(c, "visibility")
         end)
@@ -4399,6 +4512,24 @@ end
 ns.RefreshMeter = function()
     for _, w in ipairs(_windows) do w.Refresh() end
 end
+
+-- Re-lay out every row after a UI scale change. The row stride is derived from
+-- the frame's effective scale, so a new scale invalidates the cached row
+-- anchors; busting _barCacheKey makes the next refresh re-anchor them. Rows are
+-- otherwise only re-anchored on a settings change or from the in-combat ticker,
+-- so out of combat the old grid would survive until the next fight. Deliberately
+-- not _EDM_Apply (a full teardown and rebuild): the core scale slider calls this
+-- on every drag step.
+ns.Rescale = function()
+    for _, w in ipairs(_windows) do
+        w._barCacheKey = nil
+        w.Refresh()
+        if w.sourceOpen and w.RefreshBreakdown then w.RefreshBreakdown() end
+    end
+    if ns.ApplySpellHistory then ns.ApplySpellHistory() end
+end
+-- Called by the core right after PP.SetUIScale, alongside the other modules' re-apply hooks
+_G._EDM_Rescale = ns.Rescale
 
 -- Bust per-class color caches and repaint when global custom class colors change, so bars/text
 -- recolor live without a /reload (color is cached keyed only on classFile, which the palette edit doesn't change).
@@ -4696,6 +4827,13 @@ UpdateSATimerText = function()
     if not _saTimer or not _saTimerFS then return end
     local cfg = DB()
     if not cfg.standaloneTimer then return end
+    -- The timer runs on its own ticker and re-shows itself every 0.1s, so the hotkey
+    -- toggle has to be checked here rather than hiding the frame from the outside
+    if ns._toggleHidden and cfg.toggleIncludeTimer and not ns._optionsOpen
+       and not EUI._unlockActive and not _saTimerPreview then
+        if _saTimer:IsShown() then _saTimer:Hide() end
+        return
+    end
     -- Same source as the window's Current timer so the two can never disagree. Visible while
     -- combat is live (or polling a group fight we're not in); out of combat it hides unless Show Out of Combat keeps it up (last fight's frozen duration).
     local live = _inCombat or _needsFinalRefresh
@@ -4893,6 +5031,102 @@ ns.HideSATimerPreview = function()
     if not _inCombat then _saTimer:Hide() end
 end
 
+-------------------------------------------------------------------------------
+--  Show/hide all windows hotkey
+-------------------------------------------------------------------------------
+
+-- Re-applies the current toggle state to every frame it covers. Also used by the
+-- options page when the Combat Timer / Spell History checkboxes change while the
+-- toggle is already active, so the newly included element follows immediately.
+-- includeSpellHistory is read here rather than inside ApplySpellHistory because that
+-- entry point rebuilds the icon strip and the bar window unconditionally; with the
+-- default (Spell History not covered) the hotkey would pay both rebuilds per press.
+ns.ApplyDMToggleState = function(includeSpellHistory)
+    -- The row tooltip is parented to UIParent, not to the window, so it would be
+    -- left floating if the hotkey is pressed while hovering a row
+    if ns._toggleHidden and _ttFrame then _ttFrame:Hide() end
+    for _, w in ipairs(_windows) do w.UpdateVisibility() end
+    if _saTimer then UpdateSATimerText() end
+    if includeSpellHistory == nil then includeSpellHistory = DB().toggleIncludeSpellHistory end
+    if includeSpellHistory and ns.ApplySpellHistory then ns.ApplySpellHistory() end
+end
+
+ns.ToggleDMWindows = function()
+    ns._toggleHidden = not ns._toggleHidden
+    ns.ApplyDMToggleState()
+    -- The mouseover scan caches each target's isActive answer per visibility
+    -- generation, so without a bump it keeps the pre-toggle answer and re-shows a
+    -- hover-gated window on the next pass. Deferred by a frame the way the
+    -- dispatcher defers its own events: this runs from a hardware keypress, and
+    -- other modules' updaters have no business running in that context.
+    if EUI.RequestVisibilityUpdate then C_Timer.After(0, EUI.RequestVisibilityUpdate) end
+end
+
+-- Both damage meter hotkeys live on override bindings, which are protected: a rebind
+-- during combat has to wait for regen (pressing the key itself is a hardware click and
+-- works in combat). UPDATE_BINDINGS matters too -- LoadBindings, which the settings
+-- panel runs on cancel and on a binding-set switch, drops every override, so a
+-- configured key would otherwise stay dead until the next profile change. Our own
+-- writes raise that event as well, hence the short self-write window.
+-- Zero cost with no key: the event is registered only while a key is laid down, and a
+-- pass that finds nothing configured and nothing applied never touches the binding API.
+do
+    local kbFrame = CreateFrame("Frame")
+    local selfWriteUntil = 0
+    -- The key each button currently carries (nil = none). Tracked apart from the
+    -- configured key so that clearing a key still gets its one ClearOverrideBindings,
+    -- and so a key dropped by LoadBindings is re-laid from the configured value.
+    local appliedReset, appliedToggle
+
+    local function WantKey(key)
+        if key == nil or key == "" then return nil end
+        return key
+    end
+
+    ns.ApplyDMKeybinds = function()
+        local c = DB()
+        local wantReset, wantToggle = WantKey(c.resetDataKey), WantKey(c.toggleWindowsKey)
+        if not wantReset and not wantToggle and not appliedReset and not appliedToggle then
+            kbFrame:UnregisterEvent("UPDATE_BINDINGS")
+            kbFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
+            return
+        end
+        if InCombatLockdown() then
+            kbFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+            return
+        end
+        kbFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
+        selfWriteUntil = GetTime() + 0.5
+        local resetBtn = _G.EllesmereUIDMResetBindBtn
+        if resetBtn then
+            ClearOverrideBindings(resetBtn)
+            if wantReset then
+                SetOverrideBindingClick(resetBtn, true, wantReset, "EllesmereUIDMResetBindBtn")
+            end
+            appliedReset = wantReset
+        end
+        local toggleBtn = _G.EllesmereUIDMToggleBindBtn
+        if toggleBtn then
+            ClearOverrideBindings(toggleBtn)
+            if wantToggle then
+                SetOverrideBindingClick(toggleBtn, true, wantToggle, "EllesmereUIDMToggleBindBtn")
+            end
+            appliedToggle = wantToggle
+        end
+        if wantReset or wantToggle then
+            kbFrame:RegisterEvent("UPDATE_BINDINGS")
+        else
+            kbFrame:UnregisterEvent("UPDATE_BINDINGS")
+        end
+    end
+
+    kbFrame:SetScript("OnEvent", function(_, event)
+        -- Ours, echoing back: ignore, or we re-enter forever
+        if event == "UPDATE_BINDINGS" and GetTime() < selfWriteUntil then return end
+        ns.ApplyDMKeybinds()
+    end)
+end
+
 -- Accent color callback for standalone timer
 if EUI.RegAccent then
     EUI.RegAccent({ type = "callback", fn = function()
@@ -5001,6 +5235,9 @@ end
 StartSharedTicker = function()
     if _sharedTicker then _sharedTicker:Cancel() end
     local rate = DB().refreshRate or TICK_COMBAT
+    -- Belt for values the login clamp has not seen yet (a profile imported
+    -- mid-session from an old export can carry a sub-floor rate).
+    if rate < 0.5 then rate = 0.5 end
     _sharedTicker = C_Timer.NewTicker(rate, SharedRefreshTick)
     StopTimerTicker()
     _timerTicker = C_Timer.NewTicker(0.5, TimerTick)
@@ -5109,6 +5346,7 @@ combatFrame:SetScript("OnEvent", function(_, event, ...)
         -- the timer pin. No clock anchored here -- the timer derives from the live "Current" session so it self-resets on the roll; a synchronous read here would race it and show the stale pre-pull duration.
         _combatGen = _combatGen + 1
         if next(_feignDeathGUIDs) then wipe(_feignDeathGUIDs) end -- new segment: stale feign tags would mis-filter real deaths
+        if next(_deathStamps) then wipe(_deathStamps) end
         _inCombat = true
         _combatEndTime = 0
         _curViewFrozenDur = 0
@@ -5155,6 +5393,7 @@ combatFrame:SetScript("OnEvent", function(_, event, ...)
         if _G._EUIDM_PvpBlocked and _G._EUIDM_PvpBlocked() then return end
         _combatGen = _combatGen + 1
         if next(_feignDeathGUIDs) then wipe(_feignDeathGUIDs) end -- new segment: stale feign tags would mis-filter real deaths
+        if next(_deathStamps) then wipe(_deathStamps) end
         _inCombat = true
         _combatEndTime = 0
         _curViewFrozenDur = 0
@@ -5246,6 +5485,15 @@ if not _G["EllesmereUIDMResetBindBtn"] then
     end)
 end
 
+-- Show/hide all windows keybind button (hidden, receives override binding click)
+if not _G["EllesmereUIDMToggleBindBtn"] then
+    local btn = CreateFrame("Button", "EllesmereUIDMToggleBindBtn", UIParent)
+    btn:Hide()
+    btn:SetScript("OnClick", function()
+        if ns.ToggleDMWindows then ns.ToggleDMWindows() end
+    end)
+end
+
 -- Init
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
@@ -5263,14 +5511,11 @@ initFrame:SetScript("OnEvent", function(self)
     -- Disable Blizzard's built-in damage meter UI; C_DamageMeter API still works
     SetCVarSafe("damageMeterEnabled", 0)
     AppendDMSharedMedia()
-    local cfg = DB()
 
     _playerGUID = UnitGUID("player")
 
-    -- Restore reset data keybind
-    if cfg.resetDataKey and _G.EllesmereUIDMResetBindBtn then
-        SetOverrideBindingClick(_G.EllesmereUIDMResetBindBtn, true, cfg.resetDataKey, "EllesmereUIDMResetBindBtn")
-    end
+    -- Restore the reset data and show/hide all windows keybinds
+    ns.ApplyDMKeybinds()
 
     -- Defer window creation off the login frame to avoid blocking
     local cfg = DB()
@@ -5324,14 +5569,11 @@ initFrame:SetScript("OnEvent", function(self)
         -- Hide tooltip
         if _ttFrame then _ttFrame:Hide() end
         _activeRow = nil
-        -- Re-apply keybind from new profile
         local c = DB()
-        if _G.EllesmereUIDMResetBindBtn then
-            ClearOverrideBindings(_G.EllesmereUIDMResetBindBtn)
-            if c.resetDataKey then
-                SetOverrideBindingClick(_G.EllesmereUIDMResetBindBtn, true, c.resetDataKey, "EllesmereUIDMResetBindBtn")
-            end
-        end
+        -- Clear the hotkey toggle so a profile swap never lands in a hidden state whose
+        -- cause is no longer visible, then re-apply both keybinds from the new profile
+        ns._toggleHidden = false
+        ns.ApplyDMKeybinds()
         -- Recreate windows from new profile
         if not c.windows then c.windows = {} end
         local wc = math.max(1, c.windowCount or 1)

@@ -2153,6 +2153,17 @@ ApplyLayout = function(id)
     end
 end
 
+--- "Never" is this module's only disable channel, so every gate that asks it has to ask
+--- the EFFECTIVE value: an applied Visibility override replaces the whole setting, the
+--- scalar included, so Always or Mouseover has to keep a bar alive whose stored scalar
+--- reads never, and an override of Never disables one whose scalar does not.
+function ns.VisIsNever(cfg)
+    if not cfg then return true end
+    local ov = EllesmereUI.VisOverrideValue and EllesmereUI.VisOverrideValue(cfg)
+    if ov then return ov == "never" end
+    return cfg.visibility == "never"
+end
+
 -- Idempotent create-or-update of one bar from its cfg.
 function ns.ApplyBar(id)
     local profile = ns.GetProfile()
@@ -2173,7 +2184,7 @@ function ns.ApplyBar(id)
     -- instances, no events, no ticks). A stray cfg.enabled key may still
     -- exist in old stored data -- it is deliberately IGNORED everywhere;
     -- visibility is the only disable channel.
-    if not cfg or cfg.visibility == "never" then
+    if ns.VisIsNever(cfg) then
         if rec and rec.enabled then
             for _, inst in pairs(rec.insts) do
                 if inst.Disable then inst:Disable() end
@@ -2517,7 +2528,7 @@ do
         if not profile then return false end
         local bars = profile.bars
         for i = 1, #bars do
-            if bars[i].visibility ~= "never" then
+            if not ns.VisIsNever(bars[i]) then
                 return true
             end
         end
@@ -2594,7 +2605,7 @@ do
         if not profile then return false end
         local bars = profile.bars
         for i = 1, #bars do
-            if bars[i].visibility ~= "never"
+            if not ns.VisIsNever(bars[i])
                and bars[i].lengthMode == "full" then
                 return true
             end

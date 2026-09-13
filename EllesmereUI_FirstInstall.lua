@@ -100,7 +100,7 @@ local function SetAddonEnabled(folder, enabled)
 end
 
 local function ShowFirstInstallPopup()
-    local FONT   = EllesmereUI._font or ("Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf")
+    local FONT   = EllesmereUI.GetFontPath()
     local NUM_COLS = #GROUPS
     local COL_W         = 210
     local COL_GAP       = 18
