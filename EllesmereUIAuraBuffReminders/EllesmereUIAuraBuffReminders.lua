@@ -3482,9 +3482,11 @@ end
 function EABR.EmitWeaponEnchantReminders(missing, co)
     local hasMH, mhExpire, _, _, hasOH, ohExpire = EABR.WeaponEnchants()
     for i = 1, 2 do
-        local slot = (i == 1) and 16 or 17
-        local has = (i == 1) and hasMH or hasOH
-        local expire = (i == 1) and mhExpire or ohExpire
+        local slot, has, expire
+        -- Plain if/else, not "cond and a or b": that idiom silently falls
+        -- through to b whenever a (hasMH) is false, corrupting slot 16.
+        if i == 1 then slot, has, expire = 16, hasMH, mhExpire
+        else slot, has, expire = 17, hasOH, ohExpire end
         local r = EABR._resolved.we[slot]
         local cat = r.cat
         local shouldRemind = false
