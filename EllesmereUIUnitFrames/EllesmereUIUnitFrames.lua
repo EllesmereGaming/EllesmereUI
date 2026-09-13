@@ -13112,6 +13112,17 @@ function SetupOptionsPanel()
     end
     _G._EUF_ReloadFrames = ns.ReloadFrames
 
+    -- Rebuild frames on resolution/scale changes. Without this, a window resize
+    -- (DISPLAY_SIZE_CHANGED with no UI-scale change) leaves health fills at stale
+    -- pixel-snapped geometry until /reload. ReloadFrames is throttled and
+    -- combat-safe; C_Timer.After(0) lets the new screen size settle first.
+    local resizeWatcher = CreateFrame("Frame")
+    resizeWatcher:RegisterEvent("DISPLAY_SIZE_CHANGED")
+    resizeWatcher:RegisterEvent("UI_SCALE_CHANGED")
+    resizeWatcher:SetScript("OnEvent", function()
+        C_Timer.After(0, ns.ReloadFrames)
+    end)
+
     -- Fake debuff icons for the boss preview. Three square icons anchored where the
     -- real Debuffs frame would live, sized to match the Simple Debuff Display layout
     -- (frame bar height, growing right-to-left off the frame's left edge). Created on
