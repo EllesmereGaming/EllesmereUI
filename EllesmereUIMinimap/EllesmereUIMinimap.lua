@@ -1452,12 +1452,6 @@ end
 local _greatVaultBtn = nil
 local GREAT_VAULT_WHOLE_ATLAS = "greatVault-whole-normal"
 
-local function RegisterVaultEscClose()
-    local wrf = _G.WeeklyRewardsFrame
-    if not wrf or not EllesmereUI.RegisterEscapeClose then return end
-    EllesmereUI.RegisterEscapeClose(wrf)
-end
-
 local function ColorizeVaultText(text, r, g, b)
     r = math.floor(math.max(0, math.min(1, r or 1)) * 255 + 0.5)
     g = math.floor(math.max(0, math.min(1, g or 1)) * 255 + 0.5)
@@ -1679,7 +1673,6 @@ local function ToggleGreatVault()
     if Load and IsLoaded and not IsLoaded("Blizzard_WeeklyRewards") then
         Load("Blizzard_WeeklyRewards")
     end
-    RegisterVaultEscClose()
     if WeeklyRewardsFrame then
         WeeklyRewardsFrame:SetShown(not WeeklyRewardsFrame:IsShown())
     end

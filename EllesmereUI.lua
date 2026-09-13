@@ -11526,6 +11526,24 @@ initFrame:SetScript("OnEvent", function(self, event)
             frame:HookScript("OnShow", RefreshProxy)
             frame:HookScript("OnHide", RefreshProxy)
         end
+
+        -- Register the Vault once, regardless of which shortcut opens it.
+        local function RegisterVaultEscapeClose()
+            if not WeeklyRewardsFrame then return false end
+            EllesmereUI.RegisterEscapeClose(WeeklyRewardsFrame)
+            RefreshProxy()
+            return true
+        end
+
+        if not RegisterVaultEscapeClose() then
+            local vaultLoader = CreateFrame("Frame")
+            vaultLoader:RegisterEvent("ADDON_LOADED")
+            vaultLoader:SetScript("OnEvent", function(self, event, addonName)
+                if addonName == "Blizzard_WeeklyRewards" and RegisterVaultEscapeClose() then
+                    self:UnregisterEvent("ADDON_LOADED")
+                end
+            end)
+        end
     end
 
     -- Create native minimap button
