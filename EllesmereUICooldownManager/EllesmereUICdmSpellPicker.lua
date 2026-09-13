@@ -373,7 +373,6 @@ local function EnumerateCDMViewerSpells(includeBuffViewer)
     end
 
     local result = {}
-    local seen = {}
     local viewerOrder = 0
     local entries = {}
 
@@ -383,19 +382,12 @@ local function EnumerateCDMViewerSpells(includeBuffViewer)
             for frame in viewer.itemFramePool:EnumerateActive() do
                 if frame:IsShown() or frame.cooldownInfo then
                     local sid = GetCanonicalSpellIDForFrame(frame)
-                    -- Dedup identity: BUFF viewer can have two cooldownIDs share
-                    -- one spellID (e.g. Diabolist: Demonic Art vs Diabolic
-                    -- Ritual), so key on cooldownID there (sid-dedup would
-                    -- wrongly merge them); CD/util viewers keep sid-dedup to
-                    -- collapse a spell shown in two viewers. Non-colliding specs
-                    -- are unaffected: a unique sid there implies a unique cooldownID.
-                    local cd = frame.cooldownID
-                    local dkey = (includeBuffViewer and type(cd) == "number")
-                        and ("c" .. cd) or sid
-                    if _IsUsableSID(sid) and dkey ~= nil and not seen[dkey] then
-                        seen[dkey] = true
+                    if _IsUsableSID(sid) then
+                        local info = frame.cooldownInfo
                         entries[#entries + 1] = {
                             sid          = sid,
+                            identitySID  = info and _IsUsableSID(info.spellID) and info.spellID or sid,
+                            overrideSID  = info and _IsUsableSID(info.overrideSpellID) and info.overrideSpellID or nil,
                             cdID         = frame.cooldownID,
                             viewerName   = vName,
                             viewerOrder  = viewerOrder,
@@ -414,12 +406,214 @@ local function EnumerateCDMViewerSpells(includeBuffViewer)
         return a.sid < b.sid
     end)
 
-    for i, e in ipairs(entries) do
-        result[i] = e  -- preserve metadata for picker
+    -- Blizzard can expose two distinct CD/Utility slots whose spell IDs belong
+    -- to one base/override family. Those slots must retain cooldownID identity;
+    -- ordinary single-slot families stay spell-keyed so talent swaps remain
+    -- stable. Buff entries have always been cooldownID-keyed for the same reason.
+    local collided = {}
+    if not includeBuffViewer then
+        -- A saved slot claim keeps its identity while its sibling is untalented
+        -- or absent from the live pool. Re-adding must move the existing marker.
+        local p = ECME and ECME.db and ECME.db.profile
+        for _, bd in ipairs(p and p.cdmBars and p.cdmBars.bars or {}) do
+            local sd = ns.GetBarSpellData and ns.GetBarSpellData(bd.key)
+            local claims = sd and ns.CollectCdClaimSet and ns.CollectCdClaimSet(sd)
+            for cdID in pairs(claims or {}) do collided[cdID] = true end
+        end
+        for i = 1, #entries do
+            local a = entries[i]
+            if type(a.cdID) == "number" then
+                for j = i + 1, #entries do
+                    local b = entries[j]
+                    -- A base-only tie can join unrelated abilities. Require
+                    -- distinct source spells with a direct override link.
+                    -- Source IDs also distinguish slots displaying the same
+                    -- override, while duplicate views of one spell stay merged.
+                    if type(b.cdID) == "number" and a.cdID ~= b.cdID
+                       and a.identitySID ~= b.identitySID
+                       and (a.overrideSID == b.identitySID or b.overrideSID == a.identitySID
+                            or _GetOverride(a.identitySID) == b.identitySID
+                            or _GetOverride(b.identitySID) == a.identitySID) then
+                        collided[a.cdID] = true
+                        collided[b.cdID] = true
+                    end
+                end
+            end
+        end
+    end
+
+    local seen = {}
+    for _, e in ipairs(entries) do
+        local cdKeyed = includeBuffViewer or (e.cdID and collided[e.cdID])
+        local dkey = cdKeyed and type(e.cdID) == "number" and ("c" .. e.cdID) or e.sid
+        if dkey ~= nil and not seen[dkey] then
+            seen[dkey] = true
+            e.isCdCollision = not includeBuffViewer and collided[e.cdID] == true
+            result[#result + 1] = e
+        end
     end
     return result
 end
 ns.EnumerateCDMViewerSpells = EnumerateCDMViewerSpells
+
+-- A separately claimed replacement makes its overridden base slot redundant.
+-- Keep the saved claims intact so the base returns to its own bar on talent swap.
+-- Only clean CD/Utility metadata participates; buff slots remain independent.
+function ns.GetRedundantOverrideClaims(claims)
+    local inCombat = InCombatLockdown and InCombatLockdown()
+    local infoByID = ns._overrideClaimInfo or {}
+    if inCombat and not ns._overrideClaimInfo then ns._overrideClaimRefreshPending = true end
+    if not inCombat then
+        ns._overrideClaimRefreshPending = nil
+        infoByID = {}
+        local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+        for cdID in pairs(claims) do
+            local info = gci and gci(cdID)
+            if not info then ns._overrideClaimRefreshPending = true end
+            if info and _IsUsableSID(info.spellID) and _IsUsableSID(info.overrideSpellID)
+               and type(info.category) == "number"
+               and not (issecretvalue and issecretvalue(info.category))
+               and ns.CDM_ICON_CD_CATS[info.category]
+               and not (issecretvalue and issecretvalue(info.isInvisible))
+               and info.isInvisible ~= true
+               and not (issecretvalue and issecretvalue(info.isKnown))
+               and info.isKnown == true then
+                infoByID[cdID] = { spellID = info.spellID, overrideSpellID = info.overrideSpellID }
+            end
+        end
+        ns._overrideClaimInfo = infoByID
+    end
+
+    -- Match the intake pool membership on every reanchor. A catalog entry
+    -- alone does not prove that a replacement frame exists to show instead.
+    local present = {}
+    for _, viewerName in ipairs({ "EssentialCooldownViewer", "UtilityCooldownViewer" }) do
+        local viewer = _G[viewerName]
+        local pool = viewer and viewer.itemFramePool
+        if pool and pool.EnumerateActive then
+            for frame in pool:EnumerateActive() do
+                if (frame:IsShown() or frame.cooldownInfo) and _IsUsableSID(frame.cooldownID) then
+                    present[frame.cooldownID] = true
+                end
+            end
+        end
+    end
+    local replacements = {}
+    for cdID, barKey in pairs(claims) do
+        local bd = barDataByKey[barKey]
+        local info = infoByID[cdID]
+        if bd and bd.enabled and not bd.isGhostBar and info and present[cdID]
+           and info.spellID == info.overrideSpellID then
+            replacements[info.spellID] = cdID
+        end
+    end
+    local hidden = {}
+    for cdID, barKey in pairs(claims) do
+        local bd = barDataByKey[barKey]
+        local info = infoByID[cdID]
+        if bd and bd.enabled and not bd.isGhostBar and info
+           and info.spellID ~= info.overrideSpellID
+           and replacements[info.overrideSpellID] then
+            hidden[cdID] = true
+        end
+    end
+    return hidden
+end
+
+function ns.IsBuffViewerCdID(cdID)
+    if type(cdID) ~= "number" then return false end
+    for _, e in ipairs(EnumerateCDMViewerSpells(true)) do
+        if e.cdID == cdID then return true end
+    end
+    for _, e in ipairs(EnumerateCDMViewerSpells(false)) do
+        if e.cdID == cdID then return false end
+    end
+    -- Untalented slots can lack a live frame. Static family membership is
+    -- sufficient here; the arranged category is only needed for bar placement.
+    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+    local info = gci and gci(cdID)
+    local cat = info and info.category
+    if type(cat) == "number" and not (issecretvalue and issecretvalue(cat)) then
+        if ns.CDM_BUFF_CATS[cat] then return true end
+        if ns.CDM_ICON_CD_CATS[cat] then return false end
+    end
+    return nil  -- Unavailable metadata does not prove a legacy buff is a cooldown.
+end
+
+--- Convert legacy positive spell-family assignments into cooldownID claims when
+--- the live CD/Utility viewers prove that multiple slots currently collide.
+--- Idempotent and deliberately unflagged: a collision may appear only after a
+--- talent swap. Exact stored spell matches win, then the slot already shown in
+--- the bar's Blizzard viewer, preserving the old layout with minimum movement.
+function ns.MigrateCollidedCDAssignments()
+    local p = ECME and ECME.db and ECME.db.profile
+    local bars = p and p.cdmBars and p.cdmBars.bars
+    if type(bars) ~= "table" then return 0 end
+
+    local entries = EnumerateCDMViewerSpells(false)
+    local collided = {}
+    for _, e in ipairs(entries) do
+        if e.isCdCollision and type(e.cdID) == "number" then
+            collided[#collided + 1] = e
+        end
+    end
+    if #collided == 0 then return 0 end
+
+    local usedCd = {}
+    for _, bd in ipairs(bars) do
+        local sd = bd.key and ns.GetBarSpellData(bd.key)
+        local claims = sd and ns.CollectCdClaimSet and ns.CollectCdClaimSet(sd)
+        if claims then
+            for cdID in pairs(claims) do usedCd[cdID] = true end
+        end
+    end
+
+    local changed = 0
+    for _, bd in ipairs(bars) do
+        local isCdFamily = bd.key == "__ghost_cd"
+            or (not (ns.IsBarBuffFamily and ns.IsBarBuffFamily(bd))
+                and bd.barType ~= "custom_buff")
+        local sd = isCdFamily and bd.key and ns.GetBarSpellData(bd.key)
+        local list = sd and sd.assignedSpells
+        if list then
+            for i = 1, #list do
+                local sid = list[i]
+                if type(sid) == "number" and sid > 0
+                   and not (sd.customSpellIDs and sd.customSpellIDs[sid])
+                   and not (sd.spellDurations and sd.spellDurations[sid])
+                   and not (sd.customSpellDurations and sd.customSpellDurations[sid])
+                   and not (sd.hostedBuffSpellIDs and sd.hostedBuffSpellIDs[sid]) then
+                    local best, bestRank
+                    for _, e in ipairs(collided) do
+                        if not usedCd[e.cdID] and IsVariantOf(sid, e.sid) then
+                            local exact = sid == e.sid
+                            local barType = ns.GetBarType and ns.GetBarType(bd)
+                            local viewerMatch = (barType == "cooldowns"
+                                    and e.viewerName == "EssentialCooldownViewer")
+                                or (barType == "utility"
+                                    and e.viewerName == "UtilityCooldownViewer")
+                            local rank = (exact and viewerMatch) and 1
+                                or (exact and 2)
+                                or (viewerMatch and 3)
+                                or 4
+                            if not best or rank < bestRank
+                               or (rank == bestRank and (e.layoutIndex or 0) < (best.layoutIndex or 0)) then
+                                best, bestRank = e, rank
+                            end
+                        end
+                    end
+                    if best then
+                        list[i] = ns.CdClaimMarker(best.cdID)
+                        usedCd[best.cdID] = true
+                        changed = changed + 1
+                    end
+                end
+            end
+        end
+    end
+    if changed > 0 then ns._spellOrderDirty = true end
+    return changed
+end
 
 -- Unified spell list helpers: ONE add path and ONE remove path for every CDM
 -- bar's assignedSpells list (default/custom/ghost bars). Variant-aware via
@@ -487,6 +681,8 @@ function ns.RemoveSpellFromBar(barKey, spellID)
     if not idx then return nil end
     local removed = table.remove(sd.assignedSpells, idx)
     ns._spellOrderDirty = true
+    local removedCd = ns.CdClaimMarkerToCdID and ns.CdClaimMarkerToCdID(removed)
+    if removedCd and sd.hostedBuffCdIDs then sd.hostedBuffCdIDs[removedCd] = nil end
     -- Clean up auxiliary per-spell metadata for the removed entry
     if sd.customSpellDurations then sd.customSpellDurations[removed] = nil end
     if sd.spellDurations       then sd.spellDurations[removed]       = nil end
@@ -610,6 +806,7 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
     -- Variant-keyed lookup of spells already on THIS bar (for onEUIBar flag).
     local ourPool = {}
     local sd = ns.GetBarSpellData(barKey)
+    local ourCdClaims = sd and ns.CollectCdClaimSet and ns.CollectCdClaimSet(sd)
     if sd and sd.assignedSpells then
         for _, sid in ipairs(sd.assignedSpells) do
             if sid and sid ~= 0 then
@@ -627,7 +824,9 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
         local name = C_Spell.GetSpellName(sid)
         local tex  = C_Spell.GetSpellTexture(sid)
         if name then
-            local isOnThisBar = (ResolveVariantValue(ourPool, sid) == true)
+            local isOnThisBar = e.isCdCollision and e.cdID and ourCdClaims
+                and ourCdClaims[e.cdID] == true
+                or (not e.isCdCollision and ResolveVariantValue(ourPool, sid) == true)
             spells[#spells + 1] = {
                 cdID        = e.cdID,
                 spellID     = sid,
@@ -637,6 +836,7 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
                 cdmCatGroup = isBuffType and "buff" or "cooldown",
                 onEUIBar    = isOnThisBar,
                 isKnown     = true,  -- live viewer pool members are always learned
+                isCdCollision = e.isCdCollision,
             }
         end
     end
@@ -1772,6 +1972,20 @@ function ns.AddTrackedBuffByCdID(barKey, cdID)
     return ns.AddTrackedSpell(barKey, ns.CdClaimMarker(cdID))
 end
 
+--- Track one collided CD/Utility viewer slot by cooldownID. Callers use this
+--- only for entries marked isCdCollision by live viewer enumeration; ordinary
+--- spells continue through AddTrackedSpell and retain talent-stable identity.
+function ns.AddTrackedCooldownByCdID(barKey, cdID)
+    if type(cdID) ~= "number" or cdID <= 0 or IsBarBuffFamily(barKey) then return false end
+    -- Settle legacy assignments before a picker click can create a second
+    -- representation of the same slot ahead of the first reanchor.
+    if ns.MigrateCollidedCDAssignments() > 0 then
+        if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
+        if ns.QueueReanchor then ns.QueueReanchor() end
+    end
+    return ns.AddTrackedSpell(barKey, ns.CdClaimMarker(cdID))
+end
+
 function ns.RemoveTrackedBuffCdID(barKey, cdID)
     if type(cdID) ~= "number" then return false end
     -- RemoveSpellFromBar doesn't itself trigger route/reanchor; caller must.
@@ -1881,6 +2095,8 @@ function ns.AddHostedBuffByCdID(barKey, cdID)
     -- skip pricier frame-flag checks. A cd-claimed hosted buff resolves its
     -- own "c"..cooldownID key independently -- only the table's existence matters.
     sd.hostedBuffSpellIDs = sd.hostedBuffSpellIDs or {}
+    sd.hostedBuffCdIDs = sd.hostedBuffCdIDs or {}
+    sd.hostedBuffCdIDs[cdID] = true
     return ns.AddTrackedSpell(barKey, ns.CdClaimMarker(cdID))
 end
 
@@ -1905,6 +2121,11 @@ function ns.RemoveTrackedSpell(barKey, idx)
     local removedID = list[idx]
     table.remove(list, idx)
     ns._spellOrderDirty = true
+    local removedCdClaim = removedID and ns.CdClaimMarkerToCdID
+        and ns.CdClaimMarkerToCdID(removedID)
+    local removedHostedCd = removedCdClaim and (
+        (sd.hostedBuffCdIDs and sd.hostedBuffCdIDs[removedCdClaim])
+        or (ns.IsBuffViewerCdID and ns.IsBuffViewerCdID(removedCdClaim)))
 
     -- Hosted-buff removal? Entry is a MARKER, or a legacy plain entry
     -- representing the buff (flag set, no marker in list). A plain entry
@@ -1924,6 +2145,14 @@ function ns.RemoveTrackedSpell(barKey, idx)
             -- Host flip changes resolution routing: retire memoized results.
             ns._cdmResGen = (ns._cdmResGen or 0) + 1
         end
+    elseif removedHostedCd then
+        if sd.hostedBuffCdIDs then sd.hostedBuffCdIDs[removedCdClaim] = nil end
+    elseif removedCdClaim and not IsBarBuffFamily(barKey)
+       and ns.IsBuffViewerCdID(removedCdClaim) == false
+       and barKey ~= (ns.GHOST_CD_BAR_KEY or "__ghost_cd") then
+        -- A removed collided CD/Utility slot must ghost by cooldownID. Ghosting
+        -- its shared positive spell family would hide its sibling too.
+        ns.AddTrackedSpell(ns.GHOST_CD_BAR_KEY or "__ghost_cd", removedID)
     else
         -- Auxiliary metadata cleanup, mirroring RemoveSpellFromBar's side
         -- effects for symmetry with index-based removal.

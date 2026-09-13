@@ -13490,8 +13490,10 @@ initFrame:SetScript("OnEvent", function(self)
             -- Check if this spell is already on THIS bar (only gray-out we
             -- still do for CD/util/buff custom bars). Spells on OTHER bars
             -- are always claimable -- AddTrackedSpell auto-moves them.
-            local onThisBar = not isDisabled and excludeSet
-                and (excludeSet[sp.cdID] or excludeSet[sp.spellID])
+            local onThisBar = not isDisabled and (
+                (sp.isCdCollision and sp.onEUIBar)
+                or (not sp.isCdCollision and excludeSet
+                    and (excludeSet[sp.cdID] or excludeSet[sp.spellID])))
 
             -- Apply the grayed "already on this bar" appearance and swap the row
             -- to its non-interactive state. Used both for spells already present
@@ -13548,8 +13550,11 @@ initFrame:SetScript("OnEvent", function(self)
                         ShowWrongBarTypePopup(sp.name, sp.cdmCatGroup == "buff")
                         return
                     end
-                    -- Always pass spellID (assignedSpells stores spellIDs)
-                    if onSelect then onSelect(sp.spellID, sp.isExtra) end
+                    -- Collided CD/Utility slots carry cooldownID identity;
+                    -- ordinary entries continue to store their spellID.
+                    if onSelect then
+                        onSelect(sp.spellID, sp.isExtra, sp.cdID, sp.isCdCollision)
+                    end
                     -- Keep the picker open so multiple spells can be added in a
                     -- row; gray this row in place to reflect that it was added.
                     if notLearned then EllesmereUI.HideWidgetTooltip() end
@@ -14982,8 +14987,12 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                     end
                 end
-                ShowSpellPicker(self, bd.key, nil, excl, function(newSpellID, isExtra)
-                    ns.AddTrackedSpell(bd.key, newSpellID, isExtra)
+                ShowSpellPicker(self, bd.key, nil, excl, function(newSpellID, isExtra, newCdID, isCdCollision)
+                    if isCdCollision and newCdID and ns.AddTrackedCooldownByCdID then
+                        ns.AddTrackedCooldownByCdID(bd.key, newCdID)
+                    else
+                        ns.AddTrackedSpell(bd.key, newSpellID, isExtra)
+                    end
                     FinalizeAdd()
                 end)
             end
@@ -15334,14 +15343,12 @@ initFrame:SetScript("OnEvent", function(self)
                         local hostedSid = (not cdClaim) and ns.HostedBuffMarkerToSpell
                             and ns.HostedBuffMarkerToSpell(id)
                         if cdClaim then
-                            -- Cd-claimed collided-buff slot on a CD/util bar
-                            -- (Diabolist Demonic Art vs Diabolic Ritual): here
-                            -- `tracked` ALIASES sd.assignedSpells (the buff-bar
-                            -- branch above builds a fresh dedup list), so resolve
-                            -- the marker to a display sid IN THIS RENDER STEP
-                            -- ONLY -- never write back into `id`/`tracked[i]`
-                            -- (that corrupts the saved marker). Same clean-cache
-                            -- + cooldownInfo fallback as the buff-bar preview.
+                            -- Resolve slot claims for display without changing the
+                            -- saved marker. Only buff-family claims use buff settings.
+                            local claimData = ns.GetBarSpellData(bd.key)
+                            slot._previewHostedBuff = (claimData and claimData.hostedBuffCdIDs
+                                and claimData.hostedBuffCdIDs[cdClaim])
+                                or (ns.IsBuffViewerCdID and ns.IsBuffViewerCdID(cdClaim))
                             local csid = ns._cdmCleanSidByCDID and ns._cdmCleanSidByCDID[cdClaim]
                             if not (type(csid) == "number" and csid > 0) then
                                 local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
@@ -15366,7 +15373,6 @@ initFrame:SetScript("OnEvent", function(self)
                                 end
                                 slot._previewSpellID = csid
                                 slot._previewCdID = cdClaim
-                                slot._previewHostedBuff = true
                             end
                         elseif hostedSid then
                             -- Hosted-buff marker: previews as its spell, flagged so

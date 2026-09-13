@@ -925,10 +925,10 @@ function ns.ListHasHostedMarker(list, spellID)
 end
 
 -------------------------------------------------------------------------------
---  Cd-claim markers: a collided buff (two Blizzard buff-viewer slots sharing one canonical
---  spellID, e.g. Diabolist Demonic Art vs Diabolic Ritual) can't be told apart by spellID, so
---  a claimed slot is tracked by its cooldownID instead, using the same marker-in-assignedSpells
---  pattern as hosted-buff markers (add/remove/drag/reorder reuse the existing machinery).
+--  Cd-claim markers: collided Blizzard viewer slots sharing one canonical/base/
+--  override family can't be told apart by spellID, so a claimed Buff or CD/Utility
+--  slot is tracked by cooldownID. The marker-in-assignedSpells pattern lets
+--  add/remove/drag/reorder reuse the existing machinery.
 --
 --  Encoding: -(BASE + cooldownID). BASE sits beyond HOSTED_BUFF_MARKER_BASE (+ max plausible
 --  spellID), so every hosted-buff-marker check (bounded at HOSTED_BUFF_MARKER_BASE) already excludes cd-claim markers.
@@ -9199,6 +9199,15 @@ function ns.RepopulateFromBlizzard()
     -- A spell ID is "user-added" (preserved across repopulate) if it's a negative preset marker, a custom spell ID added via the picker, or a racial belonging to this character.
     local function IsUserAdded(sd, id)
         if type(id) ~= "number" or id == 0 then return false end
+        -- CD/Utility collision claims represent ordinary Blizzard viewer slots
+        -- and repopulate releases them. Hosted collided Buff claims remain a
+        -- deliberate user-added diversion and must survive.
+        local claimCd = ns.CdClaimMarkerToCdID and ns.CdClaimMarkerToCdID(id)
+        if claimCd then
+            return (sd.hostedBuffCdIDs and sd.hostedBuffCdIDs[claimCd])
+                or not ns.IsBuffViewerCdID
+                or ns.IsBuffViewerCdID(claimCd) ~= false
+        end
         if id < 0 then return true end
         if sd.customSpellIDs and sd.customSpellIDs[id] then return true end
         if _myRacialsSet and _myRacialsSet[id] then return true end
@@ -10814,6 +10823,10 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
             -- Buffer combat exit: brief out-of-combat blips (mob dies, re-aggro) shouldn't flash visibility changes.
             C_Timer.After(0.1, function()
                 if not InCombatLockdown() then
+                    if ns._overrideClaimRefreshPending then
+                        ns.RebuildSpellRouteMap()
+                        if ns.QueueReanchor then ns.QueueReanchor() end
+                    end
                     _inCombat = false
                     _CDMApplyVisibility()
                     ns.RefreshItemCountOOCBars()
