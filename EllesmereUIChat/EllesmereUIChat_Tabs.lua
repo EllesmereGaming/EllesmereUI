@@ -62,6 +62,14 @@ local function TabFontPath()
     return (EUI.ResolveFontName and EUI.ResolveFontName(fontKey)) or STANDARD_TEXT_FONT
 end
 
+-- Outline flag for the tab labels: the chat module's own resolver first (the Chat
+-- page's Outline Mode picker overrides the module/global mode, same as the bubbles),
+-- then the module font entry, then none.
+local function TabFontFlag()
+    return (ECHAT.GetOutlineFlag and ECHAT.GetOutlineFlag())
+        or (EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("chat")) or ""
+end
+
 -- Resolve a color table honoring the shared custom/accent/class mode keys.
 local function ResolveModeColor(mode, stored, fallback)
     if mode == "accent" and EUI.GetAccentColor then
@@ -191,7 +199,7 @@ local function BuildGhost()
     fs:SetWordWrap(false)
     fs:SetJustifyH("CENTER")
     -- A bare fontstring has NO font: SetText before a SetFont is a hard error.
-    fs:SetFont(TabFontPath(), DB().tabFontSize or 11, "")
+    fs:SetFont(TabFontPath(), DB().tabFontSize or 11, TabFontFlag())
     g._fs = fs
 
     local PP = EUI.PP
@@ -277,7 +285,10 @@ end
 local function SuppressTabRegions(tab)
     for i = 1, select("#", tab:GetRegions()) do
         local region = select(i, tab:GetRegions())
-        if region and region.SetAlpha and region:GetAlpha() ~= 0 then
+        -- GetAlpha reads secret on chat-roleset widgets in lockdown; a
+        -- secret skips the compare and re-asserts.
+        local a = region and region.SetAlpha and region:GetAlpha()
+        if a and ((issecretvalue and issecretvalue(a)) or a ~= 0) then
             region:SetAlpha(0)
         end
     end
@@ -292,7 +303,7 @@ local function StyleGhost(g, isActive)
     local state = g.state
     local fs = g._fs
 
-    fs:SetFont(TabFontPath(), cfg.tabFontSize or 11, "")
+    fs:SetFont(TabFontPath(), cfg.tabFontSize or 11, TabFontFlag())
     local tr, tg, tb, ta
     if state.isTemp then
         -- Conversation tabs keep the whisper chat color as their marker,
@@ -441,7 +452,7 @@ local function RefreshFloatGhost(cf, height, fontPath, fontSize, padX, seen)
     g:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", 0, 0)
     g:SetHeight(height)
     local fs = g._fs
-    fs:SetFont(fontPath, fontSize, "")
+    fs:SetFont(fontPath, fontSize, TabFontFlag())
     fs:ClearAllPoints()
     fs:SetPoint("LEFT", g, "LEFT", padX, 0)
     fs:SetPoint("RIGHT", g, "RIGHT", -padX, 0)
@@ -491,6 +502,7 @@ local function RefreshNow()
     local height = TabHeight()
     local fontPath = TabFontPath()
     local fontSize = cfg.tabFontSize or 11
+    local fontFlag = TabFontFlag()
     local padX = cfg.tabInnerPaddingX or 12
 
     -- The chat panel extends left of ChatFrame1 by its inset while Blizzard's
@@ -530,6 +542,8 @@ local function RefreshNow()
 
     local dockList = GENERAL_CHAT_DOCK and GENERAL_CHAT_DOCK.DOCKED_CHAT_FRAMES
     local count = 0
+    local seenScrolling = false
+    local tabGap = (cfg.tabSpacing or 1) * ((EUI.PP and EUI.PP.mult) or 1)
     if type(dockList) == "table" then
         for i = 1, #dockList do
             local cf = dockList[i]
@@ -550,11 +564,21 @@ local function RefreshNow()
                 -- discriminator is the tab's REAL parent (the scroll
                 -- child), never the temporary flag.
                 local wantParent = strip
-                if scrollChild and tab:GetParent() == scrollChild
-                    and EnsureDynClip() then
+                local isScrolling = scrollChild and tab:GetParent() == scrollChild
+                if isScrolling and EnsureDynClip() then
                     wantParent = dynClip
                 end
                 if g:GetParent() ~= wantParent then g:SetParent(wantParent) end
+
+                -- FCFDock_UpdateTabs leaves one UI unit between tabs in each
+                -- group, but none before the first scrolling tab. Compensate
+                -- on our visual only; never re-anchor Blizzard's click targets.
+                local nativeGap = isScrolling and not seenScrolling and 0 or 1
+                if isScrolling then seenScrolling = true end
+                local leftInset = count == 1 and leftExtend or 0
+                if count > 1 and cfg.extendBgBehindTabs ~= true then
+                    leftInset = tabGap - nativeGap
+                end
 
                 g:ClearAllPoints()
                 local band = ns._chatBgExt
@@ -577,13 +601,13 @@ local function RefreshNow()
                     g:SetPoint("RIGHT", tab, "RIGHT", 0, 0)
                 else
                     -- Island tabs: bottom-aligned to the tab, our height.
-                    g:SetPoint("BOTTOMLEFT", tab, "BOTTOMLEFT", count == 1 and leftExtend or 0, 0)
+                    g:SetPoint("BOTTOMLEFT", tab, "BOTTOMLEFT", leftInset, 0)
                     g:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", 0, 0)
                     g:SetHeight(height)
                 end
 
                 local fs = g._fs
-                fs:SetFont(fontPath, fontSize, "")
+                fs:SetFont(fontPath, fontSize, fontFlag)
                 fs:ClearAllPoints()
                 fs:SetPoint("LEFT", g, "LEFT", padX, 0)
                 fs:SetPoint("RIGHT", g, "RIGHT", -padX, 0)
@@ -712,7 +736,16 @@ function ECHAT.TabsSweepBlizzard()
             -- in lockdown; a refused heal retries on the next sweep.
             if InCombatLockdown() then pcall(gdm.Show, gdm) else gdm:Show() end
         end
-        if gdm:GetAlpha() ~= 0 then gdm:SetAlpha(0) end
+        -- GetAlpha can return a secret number mid-combat in a raid (same
+        -- class as the cursor-position guards elsewhere in this file); a
+        -- secret result can't be safely compared for the ~= 0 skip-optimization,
+        -- so just re-assert 0 unconditionally in that case.
+        local gdmAlpha = gdm:GetAlpha()
+        if issecretvalue and issecretvalue(gdmAlpha) then
+            gdm:SetAlpha(0)
+        elseif gdmAlpha ~= 0 then
+            gdm:SetAlpha(0)
+        end
         local ob = gdm.overflowButton
         if ob then
             if ob.SetIgnoreParentAlpha and not ob:IsIgnoringParentAlpha() then

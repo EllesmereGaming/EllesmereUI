@@ -1755,7 +1755,15 @@ function ns.UpdateFriendlyNameplateSystem()
             -- follower dungeon still has to be handed back: zoning straight
             -- from a delve into a dungeon never touches the open-world branch
             -- below, and the plates would stay hidden for the whole run.
-            if euiManagesPlayers then RestoreFriendlyVis() end
+            if euiManagesPlayers then
+                RestoreFriendlyVis()
+                -- Name-only is presentation, not visibility, so it is asserted here as
+                -- well as in the open-world branch. Leaving it out let the health bars
+                -- return on zone-in and stay for the whole instance, since nothing else
+                -- rewrites this CVar until the player is back outside.
+                pcall(SetCVar, "nameplateShowOnlyNameForFriendlyPlayerUnits",
+                    (fp and fp.friendlyNameOnly ~= false) and 1 or 0)
+            end
             pcall(SetCVar, "nameplateShowFriendlyNPCs", 0)
             pcall(SetCVar, "nameplateShowFriendlyNpcs", 0)
         else

@@ -1277,9 +1277,8 @@ local function BuildBarWindow()
     -- Size: width from DB, height auto-calculated from maxBars
     local hdrH = hideTop and 0 or 22
     local maxBars = sh.maxBars or 5
-    local barH = PhysicalPixels(sh.shBarHeight or 18)
-    local barSp = dmCfg.barSpacing or 2
-    local autoH = hdrH + maxBars * (barH + barSp)
+    local _, _, stride = ns._RowMetrics(sh.shBarHeight or 18, dmCfg.barSpacing or 2, _barWin:GetEffectiveScale())
+    local autoH = hdrH + maxBars * stride
     _barWin:SetSize(sh.barWidth or 300, autoH)
     _barWin._locked = sh.barLocked or false
     local pos = sh.barPos
@@ -1305,9 +1304,7 @@ RefreshBarWindow = function()
 
     local dmCfg = ns.EDM.DB()
     local sh = DB()
-    local barH = PhysicalPixels(sh.shBarHeight or 18)
-    local barSp = dmCfg.barSpacing or 2
-    local stride = barH + barSp
+    local barH, barSp, stride = ns._RowMetrics(sh.shBarHeight or 18, dmCfg.barSpacing or 2, _barWin:GetEffectiveScale())
     local texPath = GetBarTexturePath()
     local fontSize = sh.textSize or 11
     local content = _barWin._content

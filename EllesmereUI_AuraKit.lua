@@ -450,11 +450,21 @@ local function ApplyStyleToRegions(button, style)
                         b.texture or "solid", b.offsetX, b.offsetY, b.shiftX, b.shiftY,
                         b.addonKey or "unitframes", b.sizeKey or b.size or 1, b.edgeScale)
                     d.borderMade = true
-                elseif d.borderMade then
-                    PP.UpdateBorder(d.borderHost, b.size or 1, b[1] or 0, b[2] or 0, b[3] or 0, b[4] or 1)
                 else
-                    PP.CreateBorder(d.borderHost, b[1] or 0, b[2] or 0, b[3] or 0, b[4] or 1,
-                        b.size or 1, "OVERLAY", 7)
+                    -- Solid border on the plain PP path. A style that came back
+                    -- from a textured pick leaves the eight-slice edges on this
+                    -- host and may never have built PP strips (the textured lane
+                    -- only hides them), so presence is decided by the strips
+                    -- themselves, not by borderMade.
+                    local edges = d._secretBorderEdges
+                    if edges then for _, tex in pairs(edges) do tex:Hide() end end
+                    if PP.GetBorders(d.borderHost) then
+                        PP.UpdateBorder(d.borderHost, b.size or 1, b[1] or 0, b[2] or 0, b[3] or 0, b[4] or 1)
+                        PP.ShowBorder(d.borderHost)
+                    else
+                        PP.CreateBorder(d.borderHost, b[1] or 0, b[2] or 0, b[3] or 0, b[4] or 1,
+                            b.size or 1, "OVERLAY", 7)
+                    end
                     d.borderMade = true
                 end
             end

@@ -983,7 +983,7 @@ initFrame:SetScript("OnEvent", function(self)
                       EllesmereUI:RefreshPage()
                   end },
                 { type="toggle", text="Stack Splitter",
-                  tooltip="Shift-click a stack in the bags or bank to open a split dialog with an Auto Split button, which splits the stack into empty slots repeatedly until only the chosen amount or less remains. Off uses the default split popup.",
+                  tooltip="Also use the split dialog with Auto Split in OneBag, MultiBag, the reagent bag, the bank and the guild bank, replacing Blizzard's split popup there. All Items and category views always use it.",
                   getValue=function() return db.profile.bagStackSplitter == true end,
                   setValue=function(v) db.profile.bagStackSplitter = v and true or false end }
             ); y = y - h

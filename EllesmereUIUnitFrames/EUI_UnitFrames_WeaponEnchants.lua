@@ -120,6 +120,21 @@ local function MakeButton(host, index)
     return b
 end
 
+-- Duration swipe gate. SetShown alone does not stick: PaintContent's
+-- SetCooldown implicitly re-Shows the frame (documented in AK's
+-- ApplyStyleToRegions), and a cooldown started while it was hidden comes back
+-- as a swipe that never advances -- a frozen wedge on some passes, nothing on
+-- others. SetDrawSwipe is persistent cooldown STYLE (SetCooldown never resets
+-- it, AllowedWhenTainted) and alpha survives any re-show; the texts ride their
+-- own frame above the cooldown, so the alpha misses them. Show/Hide stays in
+-- ApplyStyle: it is combat-blocked on the secure trio's descendants.
+local function ApplySwipeGate(b, hide)
+    if b._hideSwipe == hide then return end
+    b._hideSwipe = hide
+    if b.cd.SetDrawSwipe then b.cd:SetDrawSwipe(not hide) end
+    b.cd:SetAlpha(hide and 0 or 1)
+end
+
 -- Mirrors the display's live style onto one of our buttons; the texcoord
 -- cascade is AK ApplyStyleToRegions' exact order. Called out of combat only
 -- for the secure trio (SetSize is geometry).
@@ -156,7 +171,9 @@ local function ApplyStyle(b, style)
     end
     b.cd:SetReverse(style.cooldownReverse ~= false)
     b.cd:SetDrawEdge(style.cooldownDrawEdge == true)
-    b.cd:SetShown(style.hideSwipe ~= true)
+    local hideSwipe = style.hideSwipe == true
+    ApplySwipeGate(b, hideSwipe)
+    b.cd:SetShown(not hideSwipe)
 
     local path = style.fontPath or STANDARD_TEXT_FONT
     local flag = style.fontFlag or "OUTLINE"
@@ -246,11 +263,14 @@ local function ReadEnchants()
 end
 
 -- Fills one button's CONTENT (legal on protected frames in combat).
-local function PaintContent(b, slot, info)
+local function PaintContent(b, slot, info, hideSwipe)
     b.icon:SetTexture(GetInventoryItemTexture("player", slot))
     local remaining = (info.remainingTimeMs or 0) / 1000
     b._expire = GetTime() + remaining
     b.cd:SetCooldown(GetTime(), remaining)
+    -- Combat-legal half of the gate: ApplyStyle cannot run for the secure
+    -- trio in lockdown, so a swipe toggle flipped there lands here.
+    ApplySwipeGate(b, hideSwipe)
     local ch = info.chargesRemaining or 0
     if ch > 1 then b.charges:SetText(ch); b.charges:Show()
     else b.charges:Hide() end
@@ -313,7 +333,7 @@ local function Paint()
                         b:EnableMouse(info and true or false)
                     end
                     if info then
-                        PaintContent(b, SLOTS[i], info)
+                        PaintContent(b, SLOTS[i], info, style.hideSwipe == true)
                         -- In combat positions are frozen: a button whose
                         -- last-packed cell now belongs to the shifted engine
                         -- run (or to another enchant) goes alpha 0 instead
@@ -345,7 +365,8 @@ local function Paint()
                 b:ClearAllPoints()
                 b:SetPoint(rec.ia, rec.frame, rec.fp,
                     rec.x + sign * idx * cell, rec.y)
-                PaintContent(b, activeInfos[i].slot, activeInfos[i].info)
+                PaintContent(b, activeInfos[i].slot, activeInfos[i].info,
+                    style.hideSwipe == true)
                 b._noTooltip = style.noTooltips == true
                 b:EnableMouse(not b._noTooltip)
                 b:SetAlpha(1)

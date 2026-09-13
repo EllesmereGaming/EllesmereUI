@@ -797,10 +797,21 @@ qolFrame:SetScript("OnEvent", function(self)
             if not AuctionHouseFrame or not AuctionHouseFrame.SearchBar then return end
             C_Timer.After(0, function()
                 local fb = AuctionHouseFrame.SearchBar.FilterButton
-                if not fb or not fb.filters then return end
+                if not fb or not fb.GetFilters or not fb.ToggleFilter then return end
                 if not (Enum and Enum.AuctionHouseFilter and Enum.AuctionHouseFilter.CurrentExpansionOnly) then return end
-                fb.filters[Enum.AuctionHouseFilter.CurrentExpansionOnly] = true
-                AuctionHouseFrame.SearchBar:UpdateClearFiltersButton()
+                local filterEnum = Enum.AuctionHouseFilter.CurrentExpansionOnly
+                local filters = fb:GetFilters()
+                -- The filter state is Blizzard's per-character saved table,
+                -- reached only through the button's accessors (the button
+                -- carries no filters field of its own). ToggleFilter flips the
+                -- entry for the next query; toggling an already-set filter
+                -- would switch it off, hence the read first.
+                if not (filters and filters[filterEnum]) then
+                    fb:ToggleFilter(filterEnum)
+                end
+                if AuctionHouseFrame.SearchBar.UpdateClearFiltersButton then
+                    AuctionHouseFrame.SearchBar:UpdateClearFiltersButton()
+                end
             end)
         end)
     end
@@ -1404,6 +1415,145 @@ qolFrame:SetScript("OnEvent", function(self)
     do
         local vanilla = LFGListApplicationDialog_Show
         local patched = false
+        local copyHooked = false
+        local copyHelper
+        local hidingCopyField = false
+
+        local function LimitNote(text)
+            if type(text) ~= "string" then return "" end
+            text = text:gsub("[\r\n]+", " ")
+            local bytes, position, count, last = #text, 1, 0, 0
+            while position <= bytes and count < 63 do
+                local byte = text:byte(position)
+                local width = byte < 128 and 1 or byte < 224 and 2 or byte < 240 and 3 or 4
+                if position + width - 1 > bytes then break end
+                last = position + width - 1
+                position = last + 1
+                count = count + 1
+            end
+            return text:sub(1, last)
+        end
+
+        local function SavedNote()
+            return LimitNote(EllesmereUIDB and EllesmereUIDB.signupNote)
+        end
+
+        local function Enabled()
+            return EllesmereUIDB and EllesmereUIDB.persistSignupNote
+        end
+
+        local function HideCopyField(focusTarget)
+            if not copyHelper then return end
+            copyHelper.buttonText:SetText(EllesmereUI.L("Copy"))
+            if copyHelper.copyBox:IsShown() then
+                hidingCopyField = true
+                copyHelper.copyBox:Hide()
+                copyHelper.copyBox:ClearFocus()
+                hidingCopyField = false
+            end
+            if focusTarget and copyHelper.targetEditBox then
+                copyHelper.targetEditBox:SetFocus()
+            end
+        end
+
+        local function RefreshCopyHelper(dialog)
+            if not Enabled() or not dialog or not dialog:IsShown() then return end
+            local description = dialog and dialog.Description
+            local editBox = description and description.EditBox
+            if not editBox then return end
+            if SavedNote() == "" then
+                if copyHelper then copyHelper:Hide() end
+                return
+            end
+
+            if not copyHelper then
+                local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
+                local FONT = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("main")
+                    or EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF"
+                local PP = EllesmereUI.PP
+
+                local helper = CreateFrame("Frame", nil, dialog)
+                helper:SetAllPoints(dialog)
+                helper:EnableMouse(false)
+
+                local button = CreateFrame("Button", nil, helper)
+                button:SetSize(42, 20)
+                button:SetPoint("LEFT", description, "RIGHT", 4, 0)
+                button:EnableMouse(true)
+
+                local buttonBg = button:CreateTexture(nil, "BACKGROUND")
+                buttonBg:SetAllPoints()
+                buttonBg:SetColorTexture(0.02, 0.03, 0.04, 0.92)
+                local buttonBorder = EllesmereUI.MakeBorder(button, EG.r, EG.g, EG.b, 0.72, PP)
+
+                local buttonText = button:CreateFontString(nil, "OVERLAY")
+                buttonText:SetFont(FONT, 9, "")
+                buttonText:SetPoint("CENTER", 0, 0)
+                buttonText:SetText(EllesmereUI.L("Copy"))
+                buttonText:SetTextColor(EG.r, EG.g, EG.b, 0.92)
+
+                local copyBox = CreateFrame("EditBox", nil, helper)
+                copyBox:SetPoint("TOPLEFT", description, "TOPLEFT", 0, 0)
+                copyBox:SetPoint("BOTTOMRIGHT", description, "BOTTOMRIGHT", 0, 0)
+                copyBox:SetAutoFocus(false)
+                copyBox:SetFont(FONT, 11, "")
+                copyBox:SetTextColor(1, 1, 1, 0.96)
+                copyBox:SetTextInsets(5, 5, 0, 0)
+                copyBox:SetJustifyH("LEFT")
+                copyBox:SetHighlightColor(EG.r, EG.g, EG.b, 0.45)
+                copyBox:EnableMouse(true)
+                local copyBg = copyBox:CreateTexture(nil, "BACKGROUND")
+                copyBg:SetAllPoints()
+                copyBg:SetColorTexture(0.02, 0.03, 0.04, 1)
+                EllesmereUI.MakeBorder(copyBox, EG.r, EG.g, EG.b, 0.9, PP)
+                copyBox:Hide()
+
+                copyBox:SetScript("OnEditFocusLost", function()
+                    if not hidingCopyField and not button:IsMouseOver() then
+                        HideCopyField(false)
+                    end
+                end)
+                copyBox:SetScript("OnKeyUp", function(_, key)
+                    if key == "C" and IsControlKeyDown() then
+                        HideCopyField(true)
+                    end
+                end)
+
+                button:SetScript("OnEnter", function()
+                    buttonBorder:SetColor(EG.r, EG.g, EG.b, 1)
+                    buttonText:SetTextColor(EG.r, EG.g, EG.b, 1)
+                end)
+                button:SetScript("OnLeave", function()
+                    buttonBorder:SetColor(EG.r, EG.g, EG.b, 0.72)
+                    buttonText:SetTextColor(EG.r, EG.g, EG.b, 0.92)
+                end)
+                button:SetScript("OnClick", function()
+                    if copyBox:IsShown() then
+                        HideCopyField(false)
+                        return
+                    end
+                    local note = SavedNote()
+                    if note == "" then return end
+                    copyBox:SetText(note)
+                    copyBox:Show()
+                    copyBox:SetFocus()
+                    copyBox:HighlightText()
+                    buttonText:SetText("Ctrl+C")
+                end)
+
+                helper.button = button
+                helper.buttonText = buttonText
+                helper.copyBox = copyBox
+                copyHelper = helper
+            end
+
+            copyHelper.targetEditBox = editBox
+            copyHelper:SetFrameLevel(dialog:GetFrameLevel() + 20)
+            copyHelper.button:SetFrameLevel(copyHelper:GetFrameLevel() + 1)
+            copyHelper.copyBox:SetFrameLevel(copyHelper:GetFrameLevel() + 2)
+            HideCopyField()
+            copyHelper:Show()
+        end
 
         local function PatchedShow(self, resultID)
             if resultID then
@@ -1428,18 +1578,37 @@ qolFrame:SetScript("OnEvent", function(self)
             StaticPopupSpecial_Show(self)
         end
 
+        EllesmereUI.GetPersistentSignupNote = function()
+            return SavedNote()
+        end
+
         local function SyncPatch()
-            if EllesmereUIDB and EllesmereUIDB.persistSignupNote then
+            if Enabled() then
                 if not patched then
                     LFGListApplicationDialog_Show = PatchedShow
                     patched = true
                 end
+                -- PGF can replace the show function after login; the dialog hook survives it.
+                if LFGListApplicationDialog and not copyHooked then
+                    LFGListApplicationDialog:HookScript("OnShow", RefreshCopyHelper)
+                    copyHooked = true
+                end
+                RefreshCopyHelper(LFGListApplicationDialog)
             else
                 if patched then
-                    LFGListApplicationDialog_Show = vanilla
+                    if LFGListApplicationDialog_Show == PatchedShow then
+                        LFGListApplicationDialog_Show = vanilla
+                    end
                     patched = false
                 end
+                if copyHelper then copyHelper:Hide() end
             end
+        end
+
+        EllesmereUI.SetPersistentSignupNote = function(note)
+            if not EllesmereUIDB then EllesmereUIDB = {} end
+            EllesmereUIDB.signupNote = LimitNote(note)
+            SyncPatch()
         end
 
         EllesmereUI._applyPersistSignupNote = SyncPatch
@@ -2844,10 +3013,29 @@ end
 --  Disable Right Click Targeting
 -------------------------------------------------------------------------------
 do
+    -- Safety net for a mouselook we started: the BUTTON2 override can vanish
+    -- between the down and the up click (combat edge, or the engine dropping
+    -- the mouseover while the button is held), and the up would then never
+    -- reach this button, leaving mouselook on until a /reload. The registration
+    -- itself is the "we own this mouselook" flag, so it can only undo our own
+    -- start, never a toggle-mouselook addon's, and costs nothing when idle.
+    local mlookGuard = CreateFrame("Frame")
+    mlookGuard:SetScript("OnEvent", function(self)
+        if IsMouseButtonDown("RightButton") then return end
+        self:UnregisterEvent("GLOBAL_MOUSE_UP")
+        if IsMouselooking() then MouselookStop() end
+    end)
+
     local mlookBtn = CreateFrame("Button", "EUI_MouseLookBtn", UIParent)
     mlookBtn:RegisterForClicks("AnyDown", "AnyUp")
     mlookBtn:SetScript("OnClick", function(_, _, down)
-        if down then MouselookStart() else MouselookStop() end
+        if down then
+            mlookGuard:RegisterEvent("GLOBAL_MOUSE_UP")
+            MouselookStart()
+        else
+            mlookGuard:UnregisterEvent("GLOBAL_MOUSE_UP")
+            MouselookStop()
+        end
     end)
 
     local stateFrame = CreateFrame("Frame", "EUI_NoRightClickState", UIParent, "SecureHandlerStateTemplate")
@@ -2866,6 +3054,14 @@ do
     -- SetAttribute on this protected frame in lockdown, and a stale rc=1
     -- (pulled while hovering an enemy) would otherwise pin the bind on allies
     -- for the whole fight.
+    -- "rcclear" zeroes rc the same way when the engine reports no harmful
+    -- mouseover at all. UPDATE_MOUSEOVER_UNIT fires when a mouseover STARTS but
+    -- never when it clears, so the Lua lane alone stays pinned at 1 after the
+    -- last enemy hover and keeps BUTTON2 bound over quest objects and terrain
+    -- until something else is hovered or the UI is reloaded. This rides
+    -- SecureStateDriverManager's existing 0.2s sweep (it re-resolves every
+    -- driver on a timer, not only on its registered events), so the clear costs
+    -- no Lua per frame and needs no ticker of our own.
     local ONSTATE_MOV = [[
         if newstate == 1 then
             self:SetBindingClick(1, "BUTTON2", "EUI_MouseLookBtn")
@@ -2885,18 +3081,24 @@ do
             self:SetAttribute("state-rc", 0)
         end
     ]]
+    local ONSTATE_RCCLEAR = [[
+        if newstate ~= 1 then
+            self:SetAttribute("state-rc", 0)
+        end
+    ]]
 
     -- OOC enemy-arm verdict, edge-memoed: one attribute push per verdict CHANGE,
-    -- not per hover. All reads are clean out of combat.
-    local rcLast
+    -- not per hover. The memo reads the live attribute rather than a Lua cache,
+    -- because the two secure snippets above also write it -- a private cache
+    -- would go stale against them and swallow the next arming push. All reads
+    -- are clean out of combat.
     local function PushRCState()
         local match = (UnitExists("mouseover")
             and not UnitIsDeadOrGhost("mouseover")
             and UnitCanAttack("player", "mouseover")
             and not UnitIsWildBattlePet("mouseover")
             and not UnitIsBattlePetCompanion("mouseover")) and 1 or 0
-        if match == rcLast then return end
-        rcLast = match
+        if match == (stateFrame:GetAttribute("state-rc") or 0) then return end
         stateFrame:SetAttribute("state-rc", match)
     end
 
@@ -2908,7 +3110,6 @@ do
             PushRCState()
         elseif event == "PLAYER_REGEN_DISABLED" then
             self:UnregisterEvent("UPDATE_MOUSEOVER_UNIT")
-            rcLast = nil
         elseif event == "PLAYER_REGEN_ENABLED" then
             self:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
             PushRCState()
@@ -2942,14 +3143,17 @@ do
                 macro = macro .. (inInstance and "[@mouseover,harm,nodead]1;"
                     or "[@mouseover,harm,nodead,combat]1;")
             end
-            -- "group" restricts the match to actual party/raid members -- this
-            -- feature exists to stop a stray right-click from targeting/
-            -- interacting with an ally UNIT FRAME during combat, but plain
-            -- [help] also matches any friendly-classified summoned object
-            -- (e.g. a Warlock's Demonic Gateway), which blocked right-clicking
-            -- the gateway itself to use it. A gateway is never a group member,
-            -- so this excludes it while leaving the party/raid protection intact.
-            if allyCombat then macro = macro .. "[@mouseover,help,group,nodead,combat]1;" end
+            -- Ally arm = party/raid MEMBERS only. Plain [help] also matches any
+            -- friendly-classified world object (a Warlock's Demonic Gateway),
+            -- which captured the right-click that would have used it. The
+            -- UNIT-relative conditionals [party]/[raid] test the @mouseover unit
+            -- itself; [group] would test whether the PLAYER is grouped (the
+            -- visibility-driver sense) and would neither free the gateway in a
+            -- group nor guard anything solo. Both clauses so a 5-man and a raid
+            -- read the same. Accepted: non-grouped friendlies are not guarded.
+            if allyCombat then
+                macro = macro .. "[@mouseover,help,party,nodead,combat]1;[@mouseover,help,raid,nodead,combat]1;"
+            end
             macro = macro .. "0"
             SecureStateDriverManager:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
             -- [combat] arms re-evaluate on combat edges even when the mouseover
@@ -2960,24 +3164,27 @@ do
             stateFrame:SetAttribute("_onstate-mov", ONSTATE_MOV)
             stateFrame:SetAttribute("_onstate-rc", ONSTATE_RC)
             stateFrame:SetAttribute("_onstate-combatclear", ONSTATE_COMBATCLEAR)
+            stateFrame:SetAttribute("_onstate-rcclear", ONSTATE_RCCLEAR)
             RegisterStateDriver(stateFrame, "mov", macro)
             RegisterStateDriver(stateFrame, "combatclear", "[combat]1;0")
             if ruleLaneOn then
                 rcHoverFrame:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
                 rcHoverFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
                 rcHoverFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-                rcLast = nil
+                -- Registered with the lane it clears, so the extra driver only
+                -- exists where the Lua lane does.
+                RegisterStateDriver(stateFrame, "rcclear", "[@mouseover,harm,nodead]1;0")
                 PushRCState()
             else
                 rcHoverFrame:UnregisterAllEvents()
-                rcLast = nil
+                UnregisterStateDriver(stateFrame, "rcclear")
                 stateFrame:SetAttribute("state-rc", 0)
             end
         else
             UnregisterStateDriver(stateFrame, "mov")
             UnregisterStateDriver(stateFrame, "combatclear")
+            UnregisterStateDriver(stateFrame, "rcclear")
             rcHoverFrame:UnregisterAllEvents()
-            rcLast = nil
             stateFrame:SetAttribute("state-rc", 0)
             ClearOverrideBindings(stateFrame)
         end
@@ -4141,6 +4348,9 @@ do
     end
 
     local function FormatDistance(fmt, minY, maxY)
+        -- Ladder rungs carry the spell's raw range (a float for some spells); the text shows whole yards.
+        if minY then minY = math.floor(minY) end
+        if maxY then maxY = math.floor(maxY) end
         if fmt == "plus" then
             if not minY or minY <= 0 then return nil end
             return minY .. "+"
