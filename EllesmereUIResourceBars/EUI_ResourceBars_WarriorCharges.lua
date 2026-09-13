@@ -58,6 +58,17 @@ function ns.WC_Recolor(powerKey, r, g, b, a)
     if ewc then ewc.Recolor("erb", powerKey, r, g, b, a) end
 end
 
+-- Threshold/band inputs, handed raw each paint pass; the core change-gates
+-- with alloc-free compares and renders them as engine-masked range strips.
+function ns.WC_Thresholds(powerKey, mode, count, r, g, b, a,
+                          bandOn, bands, bandReverse, reverse)
+    local ewc = _G._EWC
+    if ewc and ewc.Thresholds then
+        ewc.Thresholds("erb", powerKey, mode, count, r, g, b, a,
+            bandOn, bands, bandReverse, reverse)
+    end
+end
+
 -- Called from BuildBars with the resolved secondary build in hand (race-free:
 -- the frame is created, sized and styled by the time this runs). Any power
 -- type other than the two warrior charge buffs parks the overlay.

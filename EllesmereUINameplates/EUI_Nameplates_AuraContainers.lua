@@ -1321,7 +1321,19 @@ local function ReanchorArrows(plate)
     local ds, bs, cs = ns.GetAuraSlots()
     local leftC, rightC, leftKey, rightKey
     local function consider(slotVal, c, key)
-        if not c then return end
+        -- The buffs container hides itself (AnchorNPContainer) for non-attackable
+        -- units, but stays a live, non-nil frame -- anchoring an arrow to a hidden
+        -- container's geometry pins it to whatever stale layout it had before being
+        -- hidden, instead of collapsing with it. Skip anything not actually shown.
+        if not c or not c:IsShown() then return end
+        -- A settings change (e.g. moving this row to a different slot) doesn't
+        -- retroactively re-anchor every already-visible plate's container --
+        -- AnchorNPContainer stamps container._npcSlotVal with whatever slot it
+        -- was ACTUALLY last anchored at, which can lag behind the live slotVal
+        -- this function just read from GetAuraSlots() for a plate that hasn't
+        -- been re-attached since. Trusting a stale container's geometry here
+        -- anchors the arrow to wherever the row used to be, not where it is.
+        if c._npcSlotVal ~= slotVal then return end
         if slotVal == "left" and not leftC then leftC = c; leftKey = key end
         if slotVal == "right" and not rightC then rightC = c; rightKey = key end
     end

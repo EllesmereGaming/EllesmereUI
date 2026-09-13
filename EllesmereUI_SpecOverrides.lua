@@ -100,7 +100,7 @@ local REFRESH_FNS = {
     EllesmereUIDamageMeters      = { "_EDM_Apply" },
     EllesmereUIDataBars          = { "_EDB_Apply" },
     EllesmereUIQuickdraw         = { "_EQD_Apply" },
-    EllesmereUIAuraBuffReminders = { "_EABR_RequestRefresh", "_EABR_ApplyUnlockPos" },
+    EllesmereUIAuraBuffReminders = { "_EABR_UpdateGroupAuraRegistration", "_EABR_ApplyAllIconBorders", "_EABR_RequestRefresh", "_EABR_ApplyUnlockPos" },
     -- Capture/apply-blacklisted (see FOLDER_BLACKLIST); insurance so a leaked
     -- key can never hit the unmapped-folder fallback's full RefreshAllAddons.
     EllesmereUIDragonRiding      = { "_EDR_Rebuild" },
@@ -343,9 +343,48 @@ local SETTING_BLACKLIST = {
     },
 }
 
+-- Only the COMPOUND half of the unified Visibility row is excluded: the mode SET
+-- (a table this system cannot bank), the match mode and the option lanes, which
+-- only mean anything while they agree with the scalar and which a per-leaf capture
+-- can therefore only ever hold part of. The legacy scalar stays capturable on
+-- purpose, so Never / Always / a single legacy mode keep overriding exactly as they
+-- did before the unified row existed. Only override-ELIGIBLE folders hosting the
+-- row are listed; the rest already sit in FOLDER_BLACKLIST above.
+local VIS_OV_FOLDERS = {
+    "EllesmereUIActionBars", "EllesmereUIChat", "EllesmereUICooldownManager",
+    "EllesmereUIDataBars", "EllesmereUIMinimap", "EllesmereUIResourceBars",
+    "EllesmereUIUnitFrames",
+}
+
+-- visibilityModes covers the mode set and its hide lanes at once: the gate below
+-- tests every path segment, so the leaves under it never need naming.
+for i = 1, #VIS_OV_FOLDERS do
+    local folder = VIS_OV_FOLDERS[i]
+    local set = SETTING_BLACKLIST[folder]
+    if not set then set = {}; SETTING_BLACKLIST[folder] = set end
+    set.visibilityModes = true
+    set.visibilityMatch = true
+end
+
+-- The lanes come from the shared VIS_OPT_KEYS, never a copy, so one added later
+-- cannot silently become capturable again. Lazy because this file can load first;
+-- the loop above already guaranteed every folder has a set. Idempotent.
+local _visLanesDone = false
+local function EnsureVisLaneBlacklist()
+    if _visLanesDone then return end
+    local keys = EllesmereUI.VIS_OPT_KEYS
+    if not keys then return end
+    for i = 1, #VIS_OV_FOLDERS do
+        local set = SETTING_BLACKLIST[VIS_OV_FOLDERS[i]]
+        for k = 1, #keys do set[keys[k]] = true end
+    end
+    _visLanesDone = true
+end
+
 -- The one predicate every capture/apply/prune gate uses: folder-blacklisted
 -- OR setting-blacklisted. Enforced in BOTH directions plus prune.
 local function BlacklistedFKey(fkey)
+    EnsureVisLaneBlacklist()
     local folder, path = SplitFKey(fkey)
     if not folder then return false end
     if FOLDER_BLACKLIST[folder] then return true end
@@ -4374,6 +4413,18 @@ local function IsExcludedContext(section)
     return false
 end
 
+--- True while a session is live AND the page in front of the user can actually bank a
+--- value into it. A bespoke control that writes its own key on click (the Visibility
+--- row's override marker) must gate on THIS, not on SpecOverrides_EditSessionActive:
+--- session state is global, so on an excluded page that write would land in the shared
+--- profile, be dropped by every capture gate as blacklisted, and strand there with
+--- nothing owning it. The editing-as overlay is decoration only (EnableMouse(false)),
+--- so nothing else stops such a click.
+function EllesmereUI.SpecOverrides_SlotOverridable()
+    if not EllesmereUI.SpecOverrides_EditSessionActive() then return false end
+    return not IsExcludedContext()
+end
+
 -------------------------------------------------------------------------------
 --  Golden borders: slots with an active override get a 1px gold PP border. Slots
 --  match entries by READ-TRACING: getters are side-effect-free by convention (the
@@ -5028,6 +5079,149 @@ local function AutoCapture(changes)
         local sessName = condSession and condSession.name or (_editGroup and _editGroup.name) or "?"
         SetEditStatus(string.format(L("'%s' is now customized for %s."), slotLabel, sessName), 0.35, 1, 0.35)
     end
+end
+
+-- The table an fkey's leaf lives in, plus that leaf's key, or nil when the path does
+-- not resolve (module not loaded, array entry deleted). Same walk ReadLive does.
+local function OwnerOf(fkey)
+    local folder, path = SplitFKey(fkey)
+    local t = folder and DBFor(folder)
+    if type(t) ~= "table" or not path then return nil end
+    local segs = { strsplit(PS, path) }
+    for i = 1, #segs - 1 do
+        t = t[SegKey(t, segs[i])]
+        if type(t) ~= "table" then return nil end
+    end
+    return t, SegKey(t, segs[#segs])
+end
+
+-- do ... end: this file sits at Lua 5.1's ~200-local-per-chunk ceiling, so the helper
+-- below is released at `end` instead of taking a top-level slot. The global it wires up
+-- stays, as always.
+do
+-- Does any entry in `sStore` hold a VALUE (not just a recorded default) for `key` of
+-- `store`? Attribution by table identity, the same rule ClearStoreKey uses.
+local function StoreHoldsKey(sStore, store, key)
+    for _, e in ipairs(sStore or {}) do
+        local def = e.values and e.values.default
+        if def then
+            for fkey in pairs(def) do
+                local owner, leaf = OwnerOf(fkey)
+                if owner == store and leaf == key then
+                    for mapKey, m in pairs(e.values) do
+                        if mapKey ~= "default" and type(m) == "table" and m[fkey] ~= nil then
+                            return true
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
+--- True while SOME override -- spec or conditional -- still holds a value for `key` of
+--- `store`. A control that writes its own marker key (the Visibility row's override)
+--- asks before trusting a live one: removing an entry from the management list leaves
+--- its applied value in place on purpose, and a profile exported while an override
+--- applied carries the marker into every import that does not also take the overrides.
+--- In both cases nothing owns the key any more and the element would stay pinned on it
+--- with no path back.
+function EllesmereUI.SpecOverrides_KeyIsOwned(store, key)
+    if type(store) ~= "table" or type(key) ~= "string" then return false end
+    return StoreHoldsKey(GetStore(), store, key)
+        or StoreHoldsKey(Cond.GetStore(), store, key)
+end
+end
+
+--- Drop what the CURRENT session captured for ONE key across the given settings TABLES
+--- and put the recorded pre-override values back live. `stores` is an ARRAY so a control
+--- writing one key to several tables (Resource Bars mirrors the Visibility row onto
+--- health/primary/secondary) clears them in one pass: the finalization below re-snapshots
+--- every module profile, far too expensive to repeat once per table. Attribution is by
+--- TABLE IDENTITY: AutoCapture attributes an entry by slot label, the exit sweep mints
+--- entries from the fkey alone with no slot fields, and only identity matches both
+--- shapes. Returns true when something was cleared.
+function EllesmereUI.SpecOverrides_ClearStoreKey(stores, key)
+    if type(stores) ~= "table" or type(key) ~= "string" then return false end
+    local condSession = Cond._edit
+    if not (_editGroup or condSession) then return false end
+    local sStore = condSession and Cond.GetStore() or GetStore()
+    if not sStore then return false end
+
+    -- The value maps this session owns. A conditional session keeps one map per GROUP;
+    -- the spec side keeps one per SPEC and a group covers every member spec, which is
+    -- also how HarvestGroup banks into all of them.
+    local owned = {}
+    if condSession then
+        owned[1] = condSession.id
+    else
+        for _, specID in ipairs(_editGroup.specs or {}) do owned[#owned + 1] = specID end
+    end
+
+    local cleared = false
+    for i = #sStore, 1, -1 do
+        local e = sStore[i]
+        local def = e.values and e.values.default
+        -- One entry can hold the key for SEVERAL of the stores (a mirrored row banks all
+        -- of them into the same slot), so every hit is collected rather than the first.
+        local hits
+        if def then
+            for fkey in pairs(def) do
+                local owner, leaf = OwnerOf(fkey)
+                if leaf == key and owner ~= nil then
+                    for si = 1, #stores do
+                        if owner == stores[si] then
+                            hits = hits or {}
+                            hits[#hits + 1] = fkey
+                            break
+                        end
+                    end
+                end
+            end
+        end
+        for h = 1, (hits and #hits or 0) do
+            local hit = hits[h]
+            -- Only the maps the EDITED session owns are cleared. One entry is shared by
+            -- every group that customized the same slot (AutoCapture looks it up by slot,
+            -- not by group, and adds a per-group value map), so wiping all of them would
+            -- delete other groups' overrides along with this one.
+            for _, mapKey in ipairs(owned) do
+                local m = e.values[mapKey]
+                if type(m) == "table" then m[hit] = nil end
+            end
+            -- The recorded default only goes once nobody holds a value for the key any
+            -- more; until then the entry stays alive for the groups that still do.
+            local stillHeld = false
+            for mapKey, m in pairs(e.values) do
+                if mapKey ~= "default" and type(m) == "table" and m[hit] ~= nil then
+                    stillHeld = true
+                    break
+                end
+            end
+            local dv = def[hit]
+            if dv == NIL_SENT then dv = nil end
+            -- Same guard the apply sites use: a stored removal is never honored for a
+            -- key the module registers a default for. Written either way: the session
+            -- has to show the value it just gave up.
+            if dv ~= nil or not HasRegisteredDefault(hit) then WriteLive(hit, dv) end
+            if not stillHeld then def[hit] = nil end
+            cleared = true
+        end
+        -- Hoisted out of the hits loop: removing inside it would delete a DIFFERENT entry
+        -- on the second pass, index i no longer being this one.
+        if hits and def and not next(def) then table.remove(sStore, i) end
+    end
+
+    if cleared then
+        if condSession then Cond.RebuildIndex() else RebuildFKeyIndex() end
+        -- The restore write is ours, not the user's: re-snapshot so neither the ticker
+        -- nor the queued notified pass can diff it straight back into a capture.
+        _watchSnap = SnapshotProfiles()
+        _watchResync = true
+        RequestGoldWalk()
+    end
+    return cleared
 end
 
 local function WatchTick()

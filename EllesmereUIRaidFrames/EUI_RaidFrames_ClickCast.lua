@@ -97,10 +97,10 @@ local EXTERNAL_SPELLS = {
 -- line naming a spell they have not got matches its condition and then casts
 -- nothing, eating the fallback the next line was there to be, so an unavailable
 -- entry has to be dropped rather than ordered last. Empty falls back to the
--- unfiltered list: bindings rebuild on spec change but not on a talent or
--- loadout swap, so "nothing available" is as likely stale as true, and an
--- all-unknown list shadows nothing anyway. Singe Magic is exempt -- the pet book
--- holds only the summoned demon's spells.
+-- unfiltered list: the book can lag the first apply at login, so "nothing
+-- available" is as likely stale as true, and an all-unknown list shadows
+-- nothing anyway. Singe Magic is exempt -- the pet book holds only the
+-- summoned demon's spells.
 local function ClassPresetSpells(spellList, class)
     local bank = Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player
     local canCheck = C_SpellBook.IsSpellInSpellBook and bank
@@ -327,6 +327,41 @@ local function IsBindingActive(binding)
         and (not IsReactionBinding(binding) or ns.CC_GetBindingUnitType(binding) ~= "none")
 end
 
+-- A spell binding the character cannot cast right now (the other options of a
+-- choice node, a talent swapped out, a loadout without it) stays saved -- the
+-- next loadout may bring it back -- but it cannot own a key against a spell
+-- they do have, raises no conflict warning, and its tile dims. Pet-book spells
+-- read as unknown from the player book, so the preset pet spells are exempt,
+-- and a binding with no stored id cannot be judged, so it counts as known.
+local PET_SPELL_IDS = {}
+for _, sp in ipairs(DISPEL_SPELLS) do
+    if sp.pet then PET_SPELL_IDS[sp.id] = true end
+end
+
+local function IsSpellIDKnown(id)
+    if type(id) ~= "number" or id <= 0 or PET_SPELL_IDS[id] then return true end
+    local bank = Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player
+    if not (C_SpellBook.IsSpellInSpellBook and bank) then return true end
+    if C_SpellBook.IsSpellInSpellBook(id, bank, true) then return true end
+    -- The saved id may be an override of a base spell the book lists instead.
+    local baseId = C_Spell.GetBaseSpell and C_Spell.GetBaseSpell(id)
+    if type(baseId) == "number" and baseId > 0 and baseId ~= id then
+        return C_SpellBook.IsSpellInSpellBook(baseId, bank, true) and true or false
+    end
+    return false
+end
+
+local function IsBindingKnown(binding)
+    if not binding then return false end
+    if binding.type == "spell" then
+        if IsSpellIDKnown(binding.spellID) then return true end
+        return binding.harmfulSpellID ~= nil and IsSpellIDKnown(binding.harmfulSpellID)
+    elseif binding.type == "reaction" then
+        return IsBindingKnown(binding.friendlyAction) or IsBindingKnown(binding.harmfulAction)
+    end
+    return true
+end
+
 function ns.CC_AreComplementaryReactionBindings(a, b)
     if not IsReactionBinding(a) or not IsReactionBinding(b)
         or a.key ~= b.key or a.harmfulSpell or b.harmfulSpell then return false end
@@ -428,29 +463,24 @@ local function ExpandBothPathBindings(bindings)
 end
 
 -- A warning may remain for two same-reaction bindings, but only one secure
--- action can own a key. Keep the first resolved action so a later conflict
--- cannot overwrite a valid complementary spell pair.
+-- action can own a key. Mergeable opposite-reaction spell/item pairs have
+-- already become one macro; any remaining same-key action would overwrite the
+-- secure attribute, so keep the first resolved action so a later conflict
+-- cannot overwrite a valid complementary spell pair. The one exception: a
+-- spell the character has not got casts nothing, so a same-key action they do
+-- have takes the key off it.
 function ns.CC_FilterConflictingBindings(bindings)
     local result = {}
     for _, binding in ipairs(bindings) do
         local conflicts = false
-        for _, previous in ipairs(result) do
+        for i, previous in ipairs(result) do
             if binding.key == previous.key
                 and ((IsFrameBinding(binding) and IsFrameBinding(previous))
                     or (IsHoverBinding(binding) and IsHoverBinding(previous))) then
-                local sameOOC = (binding.oocOnly or false) == (previous.oocOnly or false)
-                if not sameOOC then
-                    conflicts = true
-                    break
-                end
-                if not IsReactionBinding(binding) or not IsReactionBinding(previous) then
-                    conflicts = true
-                    break
-                end
-                -- Mergeable opposite-reaction spell/item pairs have already
-                -- become one macro. Any remaining same-key action would
-                -- overwrite the secure attribute, so keep the earlier action.
                 conflicts = true
+                if not IsBindingKnown(previous) and IsBindingKnown(binding) then
+                    result[i] = binding
+                end
                 break
             end
         end
@@ -459,8 +489,10 @@ function ns.CC_FilterConflictingBindings(bindings)
     return result
 end
 
--- Merges globals + current spec (spec wins key conflicts); only enabled
--- bindings; gated on the master enable toggle.
+-- Merges globals + current spec (spec wins key conflicts, unless the spec
+-- spell is one the character has not got: the global then competes for the key
+-- and the conflict filter hands it over); only enabled bindings; gated on the
+-- master enable toggle.
 local function GetActiveBindings()
     local cc = GetClickCastDB()
     if not cc or not cc.enabled then return {} end
@@ -469,7 +501,7 @@ local function GetActiveBindings()
         if IsBindingActive(b) and b.key and MatchesGroupCtx(b) then
             result[#result + 1] = b
             specBindings[#specBindings + 1] = b
-            usedKeys[b.key] = true
+            if IsBindingKnown(b) then usedKeys[b.key] = true end
         end
     end
     for _, b in ipairs(cc.globals) do
@@ -490,6 +522,30 @@ local function GetActiveBindings()
     result = ns.CC_MergeComplementarySpellBindings(result)
     result = ns.CC_MergeComplementaryItemSpellBindings(result)
     return ns.CC_FilterConflictingBindings(result)
+end
+
+-- Talent and loadout swaps change which saved spells the character has got,
+-- and SPELLS_CHANGED is their edge (it also fires on every zone-in and spell
+-- learn). Only the known/unknown pattern of the enabled spell bindings decides
+-- a key, so an event that leaves the pattern as applied re-applies nothing,
+-- and the event is listened for only while an enabled spell binding exists.
+local knownSig = ""
+local sigParts = {}
+local function ComputeKnownSignature()
+    local cc = GetClickCastDB()
+    if not cc or not cc.enabled then return "" end
+    wipe(sigParts)
+    for _, b in ipairs(GetSpecBindings()) do
+        if b.type == "spell" and b.key and IsBindingActive(b) then
+            sigParts[#sigParts + 1] = IsBindingKnown(b) and "1" or "0"
+        end
+    end
+    for _, b in ipairs(cc.globals) do
+        if b.type == "spell" and b.key and IsBindingActive(b) then
+            sigParts[#sigParts + 1] = IsBindingKnown(b) and "1" or "0"
+        end
+    end
+    return table.concat(sigParts)
 end
 
 -------------------------------------------------------------------------------
@@ -1660,6 +1716,13 @@ function ns.CC_ApplyBindings()
     -- reads the post-write set.
     burst.at, burst.list = GetTime(), bindings
 
+    knownSig = ComputeKnownSignature()
+    if knownSig ~= "" then
+        ccEventFrame:RegisterEvent("SPELLS_CHANGED")
+    else
+        ccEventFrame:UnregisterEvent("SPELLS_CHANGED")
+    end
+
     local frameBindings = {}
     local hoverBindings = {}
     -- A "both" binding lands in BOTH lists: frame attributes for clicks on the
@@ -1903,34 +1966,52 @@ local function BindingsShareCastPath(a, b)
         or (IsHoverBinding(a) and IsHoverBinding(b))
 end
 
--- Finds all bindings (excluding the given one) sharing a key and a cast path;
--- returns a list of names or an empty table.
-local function FindKeyConflicts(keyStr, excludeBinding)
-    if not keyStr then return {} end
-    local conflicts = {}
-    local cc = GetClickCastDB()
-    if not cc then return conflicts end
+-- Calls fn for every OTHER active binding sharing the key and cast path, over
+-- the globals and the active spec only (other specs are never active at the
+-- same time). fn returning true stops the walk; returns whether it stopped.
+local function ForEachKeySharer(excludeBinding, fn)
+    local keyStr = excludeBinding.key
+    local cc = keyStr and GetClickCastDB()
+    if not cc then return false end
     for _, b in ipairs(cc.globals) do
         if b ~= excludeBinding and IsBindingActive(b) and b.key == keyStr
-            and BindingsShareCastPath(excludeBinding, b)
-            and not ns.CC_AreComplementaryReactionBindings(excludeBinding, b) then
-            conflicts[#conflicts + 1] = ns.CC_GetBindingName(b)
+            and BindingsShareCastPath(excludeBinding, b) and fn(b) then
+            return true
         end
     end
-    -- Only check the active spec's bindings (other specs are never active simultaneously)
     local specIdx = GetSpecialization and GetSpecialization()
     local specID = specIdx and select(1, GetSpecializationInfo(specIdx))
     local activeList = specID and cc.specs[specID]
     if activeList then
         for _, b in ipairs(activeList) do
             if b ~= excludeBinding and IsBindingActive(b) and b.key == keyStr
-                and BindingsShareCastPath(excludeBinding, b)
-                and not ns.CC_AreComplementaryReactionBindings(excludeBinding, b) then
-                conflicts[#conflicts + 1] = ns.CC_GetBindingName(b)
+                and BindingsShareCastPath(excludeBinding, b) and fn(b) then
+                return true
             end
         end
     end
+    return false
+end
+
+-- Finds all bindings (excluding the given one) sharing a key and a cast path;
+-- returns a list of names or an empty table. A spell the character has not got
+-- never owns the key, so it neither raises nor receives a conflict.
+local function FindKeyConflicts(keyStr, excludeBinding)
+    if not keyStr or not IsBindingKnown(excludeBinding) then return {} end
+    local conflicts = {}
+    ForEachKeySharer(excludeBinding, function(b)
+        if not ns.CC_AreComplementaryReactionBindings(excludeBinding, b) and IsBindingKnown(b) then
+            conflicts[#conflicts + 1] = ns.CC_GetBindingName(b)
+        end
+    end)
     return conflicts
+end
+
+-- An untalented spell only dims when another binding shares its key: that is
+-- the one that lost its key. Alone on a key it looks like any other binding.
+local function AnyTrue() return true end
+local function IsShadowedBinding(binding)
+    return not IsBindingKnown(binding) and ForEachKeySharer(binding, AnyTrue)
 end
 
 -------------------------------------------------------------------------------
@@ -2091,6 +2172,12 @@ local function OnCCEvent(self, event)
         if pendingApply then pendingApply = false; ns.CC_ApplyBindings() end
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
         if not InCombatLockdown() then ns.CC_ApplyBindings() else pendingApply = true end
+    elseif event == "SPELLS_CHANGED" then
+        -- A talent or loadout swap that moved a bound spell in or out of the
+        -- book; the apply re-resolves which binding owns each key.
+        if ComputeKnownSignature() ~= knownSig then
+            if not InCombatLockdown() then ns.CC_ApplyBindings() else pendingApply = true end
+        end
     elseif event == "GROUP_ROSTER_UPDATE" then
         -- Solo <-> party <-> raid transitions change which bindings are active.
         -- GROUP_ROSTER_UPDATE fires every join, leave, promote and zone-in, so
@@ -2434,6 +2521,15 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         keySub:SetJustifyH("LEFT"); keySub:SetWordWrap(false)
         keySub:SetText(binding.key and ns.CC_FormatKey(binding.key) or EllesmereUI.L("Not Bound"))
 
+        -- A spell the character has not got right now dims when another binding
+        -- took its key; the binding stays for the loadout that has it.
+        local untalented = (side == "spec" or side == "global") and IsShadowedBinding(binding)
+        if untalented then
+            iconTex:SetAlpha(0.35)
+            title:SetAlpha(0.45)
+            keySub:SetAlpha(0.45)
+        end
+
         -- Complementary Friendly/Harmful spell pairs may share a key. Mark only
         -- real collisions, positioned in the sidebar action area so the marker
         -- never obscures the spell icon.
@@ -2492,8 +2588,16 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         sep:SetColorTexture(1, 1, 1, 0.04)
 
         tile:SetScript("OnClick", function() onSelect(side, idx) end)
-        tile:SetScript("OnEnter", function() if not isSelected then tileBg:SetColorTexture(1, 1, 1, 0.04) end end)
-        tile:SetScript("OnLeave", function() if not isSelected then tileBg:SetColorTexture(1, 1, 1, 0) end end)
+        tile:SetScript("OnEnter", function(self)
+            if not isSelected then tileBg:SetColorTexture(1, 1, 1, 0.04) end
+            if untalented then
+                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Not currently talented"), { width = 250 })
+            end
+        end)
+        tile:SetScript("OnLeave", function()
+            if not isSelected then tileBg:SetColorTexture(1, 1, 1, 0) end
+            if untalented then EllesmereUI.HideWidgetTooltip() end
+        end)
 
         return tile
     end

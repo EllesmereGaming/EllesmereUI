@@ -1683,6 +1683,40 @@ end
 
 local function lerp(a, b, t) return a + (b - a) * t end
 
+-- "Name-Realm" whisper/invite target. With realmName it builds (realm wins,
+-- spaces stripped); with a finished name alone it only collapses a stacked realm.
+function EllesmereUI.BuildFullName(charName, realmName)
+    -- type()/issecretvalue() before any comparison: `== ""` on a secret throws.
+    if type(charName) ~= "string" then return nil end
+    if issecretvalue and issecretvalue(charName) then return charName end
+    if charName == "" then return nil end
+
+    -- Character names hold no hyphen, so the first one splits name from realm.
+    local base, suffix = charName:match("^([^%-]+)%-(.+)$")
+    base = base or charName
+
+    if type(realmName) == "string" and not (issecretvalue and issecretvalue(realmName)) then
+        local realm = (realmName:gsub("%s+", ""))
+        if realm ~= "" then return base .. "-" .. realm end
+    end
+    if not suffix then return base end
+
+    -- Collapse proven repetition only -- a realm may hold a hyphen ("Azjol-Nerub").
+    local segs = {}
+    for seg in suffix:gmatch("[^%-]+") do
+        if segs[#segs] ~= seg then segs[#segs + 1] = seg end
+    end
+    suffix = table.concat(segs, "-")
+    -- A doubled multi-word realm has no adjacent repeats; a half-split catches it.
+    local half = (#suffix - 1) / 2
+    if half > 0 and half == math.floor(half)
+        and suffix:sub(half + 1, half + 1) == "-"
+        and suffix:sub(1, half) == suffix:sub(half + 2) then
+        suffix = suffix:sub(1, half)
+    end
+    return base .. "-" .. suffix
+end
+
 -------------------------------------------------------------------------------
 --  Exports  (shared locals EllesmereUI table for split files)
 -------------------------------------------------------------------------------
@@ -1906,6 +1940,12 @@ EllesmereUI.RESKIN = {
     CTX_ALPHA  = 0.95,   -- blizzard context menu background alpha
     QT_ALPHA   = 0.97,   -- quest tracker right-click menu alpha
     BRD_ALPHA  = 0.18,   -- border alpha (white)
+}
+
+-- LFG queue accept countdown defaults (shared by the skin and its options)
+EllesmereUI.QUEUE_TIMER = {
+    TEXT_R = 1, TEXT_G = 0.831, TEXT_B = 0,   -- #ffd400
+    TEXT_SIZE = 9, BAR_HEIGHT = 11, TEXT_OFFSET_Y = 0,
 }
 
 -- Unified tooltip background for BOTH the Blizzard tooltip reskin and EUI widget tooltips.
@@ -2134,6 +2174,7 @@ do
             if _G._ERB_Apply then _G._ERB_Apply() end
             if _G._EAB_Apply then _G._EAB_Apply() end
             if _G._ECME_Apply then _G._ECME_Apply() end
+            if _G._EDM_Rescale then _G._EDM_Rescale() end
             -- Re-sync width/height matches against the new grid. UIParent:SetScale()
             -- does NOT fire UI_SCALE_CHANGED (that event is CVar-tied), so no listener
             -- catches this path. Debounced: the Options slider calls this repeatedly
@@ -2393,17 +2434,14 @@ do
     HookPixelSnap(hookFrame:CreateFontString())
     HookPixelSnap(hookFrame:CreateMaskTexture())
 
-    -- Enumerate all existing frame types to catch any we missed
-    local hookedTypes = { Frame = true }
-    local enumObj = EnumerateFrames()
-    while enumObj do
-        local objType = enumObj:GetObjectType()
-        if not enumObj:IsForbidden() and not hookedTypes[objType] then
-            HookPixelSnap(enumObj)
-            hookedTypes[objType] = true
-        end
-        enumObj = EnumerateFrames(enumObj)
-    end
+    -- No frame-tree enumeration here, deliberately. An EnumerateFrames() walk
+    -- used to run at this point "to catch any type we missed": 11,305 frames,
+    -- 248 ms of a 419 ms load, and its only new metatable was StatusBar, which
+    -- the explicit hook below already covers (measured 2026-09-07, identical in
+    -- open world and in a M+ key). It also never saw ItemButton,
+    -- ScrollingMessageFrame or AuraContainer, which this suite creates later, so
+    -- it was not the net it claimed to be. HookPixelSnap dedupes by metatable,
+    -- so every type sharing one hooked here is covered anyway.
 
     -- Also hook ScrollFrame and StatusBar metatables
     HookPixelSnap(CreateFrame("ScrollFrame"))
@@ -2706,11 +2744,15 @@ do
         SnapBorderTextures(container, frame, borderSize)
 
         -- Re-snap for 2 frames to catch final effective scale after layout.
+        -- The stop is pcall'd: a container under a tooltip that a nameplate owns
+        -- inherits its forbidden layout aspect inside these two frames (Snap probes
+        -- and returns; a bare SetScript raises). Refused = keep ticking; the stop
+        -- lands once the restriction lifts, and a hidden container never ticks.
         local ticks = 0
         container:SetScript("OnUpdate", function(self)
             ticks = ticks + 1
             SnapBorderTextures(self, frame, bd.borderSize or 1)
-            if ticks >= 2 then self:SetScript("OnUpdate", nil) end
+            if ticks >= 2 then pcall(self.SetScript, self, "OnUpdate", nil) end
         end)
 
         RegisterBorder(container, frame)
@@ -3324,7 +3366,9 @@ do
 
     -- BackdropTemplate does arithmetic on its owner's width/height, so it is unusable for
     -- frames anchored to secret aura geometry. This variant draws the same eight edge-file
-    -- slices manually, keeping the PP path for Solid; `state` is any caller-owned table caching the eight textures (FFD, AuraKit button data).
+    -- slices manually, keeping the PP path for Solid; `state` is any caller-owned table
+    -- caching the eight textures (FFD, AuraKit button data). edgeScale is preview-only
+    -- geometry compensation; live callers leave it nil.
     local SECRET_BORDER_UV = {
         topLeft     = { 0.5078125, 0.0625, 0.5078125, 0.9375, 0.6171875, 0.0625, 0.6171875, 0.9375 },
         topRight    = { 0.6328125, 0.0625, 0.6328125, 0.9375, 0.7421875, 0.0625, 0.7421875, 0.9375 },
@@ -3337,7 +3381,7 @@ do
     }
 
     function EllesmereUI.ApplySecretSafeBorderStyle(borderFrame, state, size, r, g, b, a,
-        textureKey, offsetX, offsetY, shiftX, shiftY, addonKey, sizeKey)
+        textureKey, offsetX, offsetY, shiftX, shiftY, addonKey, sizeKey, edgeScale)
         if not borderFrame or not state then return end
         size, textureKey = size or 0, textureKey or "solid"
         local edges = state._secretBorderEdges
@@ -3364,10 +3408,15 @@ do
             end
             state._secretBorderEdges = edges
         end
-        local edgeSize = EDGE_MAP[size] or EDGE_MAP[1]
+        -- Preview surfaces can cancel their own panel scale without scaling the
+        -- saved 0-4 texture-size key (a fractional key would fall through EDGE_MAP).
+        -- Live aura buttons omit edgeScale and stay byte-for-byte equivalent.
+        edgeScale = edgeScale or 1
+        local edgeSize = (EDGE_MAP[size] or EDGE_MAP[1]) * edgeScale
         local ox, oy, sx, sy = EllesmereUI.GetBorderDefaults(addonKey, textureKey, sizeKey)
         ox = offsetX ~= nil and offsetX or ox; oy = offsetY ~= nil and offsetY or oy
         sx = shiftX ~= nil and shiftX or sx; sy = shiftY ~= nil and shiftY or sy
+        ox, oy, sx, sy = ox * edgeScale, oy * edgeScale, sx * edgeScale, sy * edgeScale
         if EllesmereUI.BorderTextureUsesScaleOffset(textureKey) then
             ox, oy = edgeSize / 2 + ox, edgeSize / 2 + oy
         end
@@ -3593,19 +3642,39 @@ function EllesmereUI.GetDarkModeDB()
     return EllesmereUIDB.darkMode
 end
 
+-- Materialized Dark Mode palette. The fill and background quadruples are read on
+-- every raid-frame and unit-frame health tick, so they are served from this cache
+-- instead of walking to the active profile per read. Rebuilt lazily after an
+-- invalidation; the generation is bumped by InvalidateColorCache, which every
+-- writer reaches: the swatches and darken sliders (RefreshDarkMode), the master
+-- toggle (RefreshDarkMode), every profile repoint (RefreshDarkMode in the profile
+-- apply pass) and ApplyColorsToOUF. Lives on the namespace: this file sits at the
+-- 200-local cap.
+EllesmereUI._dmGen = 0
+EllesmereUI._dmCache = { gen = -1 }
+
+function EllesmereUI._RebuildDarkModeCache()
+    local c = EllesmereUI._dmCache
+    local d = EllesmereUI.GetDarkModeDB()
+    local def = EllesmereUI.DEFAULT_DARK_MODE
+    c.fr, c.fg, c.fb, c.fa = d.fillR or def.fillR, d.fillG or def.fillG, d.fillB or def.fillB, d.fillA or def.fillA
+    c.br, c.bg, c.bb, c.ba = d.bgR or def.bgR, d.bgG or def.bgG, d.bgB or def.bgB, d.bgA or def.bgA
+    c.gen = EllesmereUI._dmGen
+end
+
 -- Dark Mode fill colour (r, g, b, a). Opacity is honoured by Unit Frames and
 -- Raid Frames; Resource Bars ignore the alpha and keep their own.
 function EllesmereUI.GetDarkModeFill()
-    local d = EllesmereUI.GetDarkModeDB()
-    local def = EllesmereUI.DEFAULT_DARK_MODE
-    return d.fillR or def.fillR, d.fillG or def.fillG, d.fillB or def.fillB, d.fillA or def.fillA
+    local c = EllesmereUI._dmCache
+    if c.gen ~= EllesmereUI._dmGen then EllesmereUI._RebuildDarkModeCache() end
+    return c.fr, c.fg, c.fb, c.fa
 end
 
 -- Dark Mode background colour (r, g, b, a). Same opacity rules as the fill.
 function EllesmereUI.GetDarkModeBg()
-    local d = EllesmereUI.GetDarkModeDB()
-    local def = EllesmereUI.DEFAULT_DARK_MODE
-    return d.bgR or def.bgR, d.bgG or def.bgG, d.bgB or def.bgB, d.bgA or def.bgA
+    local c = EllesmereUI._dmCache
+    if c.gen ~= EllesmereUI._dmGen then EllesmereUI._RebuildDarkModeCache() end
+    return c.br, c.bg, c.bb, c.ba
 end
 
 -- Effective-colour cache. Class/power/resource getters run in hot render paths, so the FINAL
@@ -3620,6 +3689,8 @@ EllesmereUI._powerBgDarkenFactor = 1
 
 function EllesmereUI.InvalidateColorCache()
     EllesmereUI._colorCacheDirty = true
+    -- The dark palette cache above shares every invalidation input.
+    EllesmereUI._dmGen = EllesmereUI._dmGen + 1
 end
 
 -- Fill `out` with {r,g,b} per key: defaults overlaid by custom, blackened by darkenPct (0-100); sub-tables are recreated each rebuild (rare) so hot-path reads never allocate.
@@ -6354,7 +6425,12 @@ function EllesmereUI:ShowInputPopup(opts)
         popup._placeholder = placeholder
 
         editBox:SetScript("OnTextChanged", function(self)
-            if self:GetText() == "" then placeholder:Show() else placeholder:Hide() end
+            local text = self:GetText() or ""
+            if text == "" then placeholder:Show() else placeholder:Hide() end
+            if popup._maxCount then
+                local count = strlenutf8 and strlenutf8(text) or #text
+                popup._countLabel:SetText(count .. "/" .. popup._maxCount)
+            end
         end)
         popup._editBox = editBox
 
@@ -6475,8 +6551,9 @@ function EllesmereUI:ShowInputPopup(opts)
         WirePopupEscape(popup, dimmer)
 
         editBox:SetScript("OnEnterPressed", function()
+            if popup._multiline then return end
             local txt = editBox:GetText()
-            if txt and txt ~= "" then
+            if txt and (txt ~= "" or popup._allowEmpty) then
                 dimmer:Hide()
                 if popup._onConfirmCb then popup._onConfirmCb(txt) end
             else
@@ -6512,10 +6589,37 @@ function EllesmereUI:ShowInputPopup(opts)
     popup._confirmBtn._lbl:SetText(EllesmereUI.L(opts.confirmText or "Save"))
     popup._onCancel = opts.onDismiss or opts.onCancel or nil
     popup._onConfirmCb = opts.onConfirm or nil
+    popup._allowEmpty = opts.allowEmpty == true
+    popup._multiline = opts.multiline == true
 
     popup._editBox:SetMaxLetters(opts.maxLetters or 30)
+    popup._editBox:SetMultiLine(popup._multiline)
+    popup._editBox:SetJustifyV(popup._multiline and "TOP" or "MIDDLE")
+    popup._inputFrame:SetHeight(opts.inputHeight or 28)
+    popup._editBox:ClearAllPoints()
+    popup._editBox:SetPoint("TOPLEFT", popup._inputFrame, "TOPLEFT", 12, popup._multiline and -8 or -1)
+    popup._editBox:SetPoint("BOTTOMRIGHT", popup._inputFrame, "BOTTOMRIGHT", -12, opts.showCount and 18 or 1)
+    popup._placeholder:ClearAllPoints()
+    if popup._multiline then
+        popup._placeholder:SetPoint("TOPLEFT", popup._editBox, "TOPLEFT", 0, -1)
+    else
+        popup._placeholder:SetPoint("LEFT", popup._editBox, "LEFT", 0, 0)
+    end
+    if opts.showCount and not popup._countLabel then
+        local countLabel = MakeFont(popup._inputFrame, 9, nil, TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
+        countLabel:SetPoint("BOTTOMRIGHT", popup._inputFrame, "BOTTOMRIGHT", -8, 5)
+        popup._countLabel = countLabel
+    end
+    popup._maxCount = opts.showCount and (opts.maxLetters or 0) or nil
+    if popup._countLabel then
+        popup._countLabel:SetShown(popup._maxCount and popup._maxCount > 0)
+    end
     local initText = opts.initialText or ""
     popup._editBox:SetText(initText)
+    if popup._maxCount then
+        local count = strlenutf8 and strlenutf8(initText) or #initText
+        popup._countLabel:SetText(count .. "/" .. popup._maxCount)
+    end
     if initText == "" then popup._placeholder:Show() else popup._placeholder:Hide() end
 
     popup._cancelBtn._resetAnim()
@@ -6565,7 +6669,7 @@ function EllesmereUI:ShowInputPopup(opts)
         popup._scaleWarnLabel:Hide()
     end
 
-    popup:SetHeight(194 + extraH + warnH + scaleWarnH)
+    popup:SetHeight(194 + math.max(0, (opts.inputHeight or 28) - 28) + extraH + warnH + scaleWarnH)
 
     popup._cancelBtn:SetScript("OnClick", function()
         popup._dimmer:Hide()
@@ -6573,7 +6677,7 @@ function EllesmereUI:ShowInputPopup(opts)
     end)
     popup._confirmBtn:SetScript("OnClick", function()
         local txt = popup._editBox:GetText()
-        if txt and txt ~= "" then
+        if txt and (txt ~= "" or opts.allowEmpty) then
             popup._dimmer:Hide()
             if opts.onConfirm then opts.onConfirm(txt) end
         else
@@ -10142,6 +10246,23 @@ function EllesmereUI:RefreshPage(force)
         scrollFrame:SetVerticalScroll(restored)
         UpdateScrollThumb()
     end
+    -- The rebuilt wrapper is unfiltered while the search box still holds its text (a
+    -- section-gate toggle clicked under a live search): re-apply the query so the page
+    -- stays filtered. Highlights are skipped, like the box's own immediate pass.
+    local sbox = tabBar and tabBar._searchBox
+    local sq = sbox and sbox:GetText() or ""
+    if sq ~= "" then
+        EllesmereUI:ApplyInlineSearch(sq, true)
+        -- The filter pass scrolls to the top (its keystroke behaviour); put the user
+        -- back where the click happened, clamped to the filtered range.
+        if scrollFrame then
+            local maxFiltered = EllesmereUI.SafeScrollRange(scrollFrame)
+            local back = math.min(savedScroll, maxFiltered)
+            scrollTarget = back
+            scrollFrame:SetVerticalScroll(back)
+            UpdateScrollThumb()
+        end
+    end
 end
 
 -- Consume a rebuild that was requested while the panel was hidden (see the deferral
@@ -10693,7 +10814,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.1.2"
+EllesmereUI.VERSION = "9.1.8"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -12191,10 +12312,23 @@ end
 -- keep their own narrower mount check for the shapeshift forms [mounted] cannot see.
 function EllesmereUI.CheckVisibilityOptionsNonMacro(opts, skipMountAxis)
     if not opts then return false end
+    if EllesmereUI.VisOverrideValue and EllesmereUI.VisOverrideValue(opts) then return false end
 
-    -- Any match: the lanes are disjuncts, not vetoes; EvalVisibilityExtended (or the
-    -- secure driver build path) owns the combined verdict.
-    if opts.visibilityMatch == "any" then return false end
+    -- Any match: only the SHOW lanes are disjuncts, owned by EvalVisibilityExtended (or
+    -- the secure driver build path). The HIDE lanes stay vetoes in every match mode, so
+    -- they run here too -- see EllesmereUI.VisOptionHideVeto.
+    -- No live caller: every Action Bars site gates on visibilityMatch ~= "any", and
+    -- CheckVisibilityOptions settles Any before calling in. Kept anyway, because removing
+    -- it would drop an Any store into the All veto chain, where SHOW lanes read as vetoes.
+    -- Divergence on purpose: the All chain flags only the skyriding lanes "mountaxis",
+    -- this one every combatFlip lane. combatFlip is the honest test, a bare "hide" from
+    -- any of them being a constant no driver can re-evaluate in combat, so widen the All
+    -- chain to match if this ever gains a caller; do not narrow this one.
+    if opts.visibilityMatch == "any" then
+        local fired, combatFlip = EllesmereUI.VisOptionHideVeto(opts, "nonMacro", nil, skipMountAxis)
+        if not fired then return false end
+        return combatFlip and "mountaxis" or true
+    end
 
     -- Instances axis: Only Show in Instances / Hide in Instances share one probe.
     if opts.visOnlyInstances or opts.visHideInstances then
@@ -12264,10 +12398,16 @@ end
 
 function EllesmereUI.CheckVisibilityOptions(opts)
     if not opts then return false end
+    -- An override replaces the whole Visibility configuration, option lanes included:
+    -- "Always" set on an override means always, whatever the shared value hides.
+    if EllesmereUI.VisOverrideValue and EllesmereUI.VisOverrideValue(opts) then return false end
 
-    -- Any match: the lanes are disjuncts, not vetoes; EvalVisibilityExtended (or the
-    -- secure driver build path) owns the combined verdict.
-    if opts.visibilityMatch == "any" then return false end
+    -- Any match: only the SHOW lanes are disjuncts; the HIDE lanes veto here as they do
+    -- under All (EllesmereUI.VisOptionHideVeto), which is what makes "Hide when X" mean
+    -- hide for every Lua consumer regardless of the match mode.
+    if opts.visibilityMatch == "any" then
+        return EllesmereUI.VisOptionHideVeto(opts) and true or false
+    end
 
     -- Instances / housing / mounted (shared with secure-frame fast path).
     if EllesmereUI.CheckVisibilityOptionsNonMacro(opts) then return true end
@@ -12294,6 +12434,8 @@ end
 -- Option-lane axes: one axis per condition (Show lane, Hide lane, probe() = holds now),
 -- read by the "any" match for per-axis verdicts; the "all" veto chain above is untouched.
 -- luaOnly = no macro conditional exists, so the secure driver resolves the axis in Lua.
+-- combatFlip = the probe can change INSIDE combat, where a secure driver cannot be
+-- rewritten, so a hide verdict from this axis must not compile to a bare dead "hide".
 EllesmereUI.VIS_OPT_AXES = {
     { show = "visOnlyInstances", hide = "visHideInstances", luaOnly = true,
       probe = function() return EllesmereUI.IsInInstancedContent() end },
@@ -12302,13 +12444,13 @@ EllesmereUI.VIS_OPT_AXES = {
           return (C_Housing and C_Housing.IsInsideHouseOrPlot
               and C_Housing.IsInsideHouseOrPlot()) and true or false
       end },
-    { show = "visOnlyMounted", hide = "visHideMounted",
+    { show = "visOnlyMounted", hide = "visHideMounted", combatFlip = true,
       probe = function() return EllesmereUI.IsPlayerMountedLike() end },
-    { show = "visOnlySkyriding", hide = "visHideDragonriding", luaOnly = true,
+    { show = "visOnlySkyriding", hide = "visHideDragonriding", luaOnly = true, combatFlip = true,
       probe = function() return EllesmereUI.IsPlayerSkyriding() end },
     { show = "visOnlyResting", hide = "visHideResting", luaOnly = true,
       probe = function() return IsResting() and true or false end },
-    { show = "visOnlyVehicle", hide = "visHideVehicle", luaOnly = true,
+    { show = "visOnlyVehicle", hide = "visHideVehicle", luaOnly = true, combatFlip = true,
       probe = function() return UnitInVehicle("player") and true or false end },
     -- needsEdge: [exists]/[harm] re-evaluate on soft-target changes that
     -- UnitExists("target") ignores; a consumer without those edges resolves the axis in Lua.
@@ -12328,12 +12470,45 @@ function EllesmereUI.VisAxisIsLuaOnly(ax, edges)
     return ax.needsEdge ~= nil and not (edges and edges[ax.needsEdge])
 end
 
+-- Hide-lane veto, evaluated in EVERY match mode: Match Mode governs how the SHOW side
+-- combines, a checked Hide lane always hides. As a disjunct it instead passed whenever
+-- its condition was FALSE, so one Hide lane out-voted every Show condition.
+-- filter/edges follow TallyVisibilityOptionAxes below, plus "nonMacro" for the subset
+-- CheckVisibilityOptionsNonMacro owns; skipMount serves its skipMountAxis contract.
+-- Both lanes checked at once counts as unconstrained here, same as in that tally.
+-- Second return: the firing axis is combatFlip, so a secure-driver caller must bake a
+-- combat escape hatch instead of writing a bare "hide".
+function EllesmereUI.VisOptionHideVeto(opts, filter, edges, skipMount)
+    if not opts then return false end
+    if EllesmereUI.VisOverrideValue and EllesmereUI.VisOverrideValue(opts) then return false end
+    local axes = EllesmereUI.VIS_OPT_AXES
+    for i = 1, #axes do
+        local ax = axes[i]
+        local skip
+        if filter == "nonMacro" then
+            skip = ax.needsEdge == "softTarget"
+        elseif filter then
+            local luaOnly = EllesmereUI.VisAxisIsLuaOnly(ax, edges)
+            skip = (filter == "luaOnly" and not luaOnly) or (filter == "driver" and luaOnly)
+        end
+        if skipMount and ax.hide == "visHideMounted" then skip = true end
+        if not skip and opts[ax.hide] and not opts[ax.show] and ax.probe() then
+            return true, ax.combatFlip or false
+        end
+    end
+    return false
+end
+
 -- Per-axis tally for the "any" match. filter: nil counts every axis, "luaOnly" only
 -- the ones this consumer must resolve in Lua, "driver" only the ones it can compile.
 -- Returns how many axes are constrained and how many of those currently match.
+-- SHOW lanes only: a Hide lane is a veto (VisOptionHideVeto), never a disjunct.
 function EllesmereUI.TallyVisibilityOptionAxes(opts, filter, edges)
     local constrained, passed = 0, 0
     if not opts then return constrained, passed end
+    if EllesmereUI.VisOverrideValue and EllesmereUI.VisOverrideValue(opts) then
+        return constrained, passed
+    end
     local axes = EllesmereUI.VIS_OPT_AXES
     for i = 1, #axes do
         local ax = axes[i]
@@ -12341,16 +12516,12 @@ function EllesmereUI.TallyVisibilityOptionAxes(opts, filter, edges)
         local skip = (filter == "luaOnly" and not luaOnly)
                   or (filter == "driver" and luaOnly)
         if not skip then
-            local wantShow, wantHide = opts[ax.show], opts[ax.hide]
             -- Both lanes at once is the contradiction the row already prevents on
             -- click; count it as unconstrained rather than as an axis that can never
             -- match, so a hand-edited store cannot lock an Any selection to hidden.
-            if wantShow and not wantHide then
+            if opts[ax.show] and not opts[ax.hide] then
                 constrained = constrained + 1
                 if ax.probe() then passed = passed + 1 end
-            elseif wantHide and not wantShow then
-                constrained = constrained + 1
-                if not ax.probe() then passed = passed + 1 end
             end
         end
     end

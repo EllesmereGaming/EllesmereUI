@@ -7,6 +7,20 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local L = EllesmereUI.RegisterLocale("frFR")
 if not L then return end
 
+L["WARLOCK"] = "DÉMONISTE"
+L["Soulstone"] = "Pierre d'âme"
+L["Show a reminder until your own Soulstone is active on you or another group member."] = "Affiche un rappel jusqu'à ce que votre propre Pierre d'âme soit active sur vous ou un autre membre du groupe."
+L["Wrong Demon"] = "Mauvais démon"
+L["Allowed Demons"] = "Démons autorisés"
+L["Show a reminder when your Warlock's active pet isn't one of the demons picked in Allowed Demons. A demon only counts while its summon spell is known, so leaving only Felguard picked stays silent for specs/builds that haven't talented Summon Felguard."] = "Affiche un rappel lorsque le familier actif de votre démoniste ne fait pas partie des démons choisis dans Démons autorisés. Un démon ne compte que si son sort d'invocation est connu ; ainsi, ne sélectionner que le gangregarde n'affiche aucun rappel pour les spécialisations ou configurations sans le talent Invocation d'un gangregarde."
+L["Pick which demons count as correct for Wrong Demon. A demon only counts while its summon spell is known; with none picked (or everything picked), the reminder never fires."] = "Choisissez les démons considérés comme corrects pour Mauvais démon. Un démon ne compte que si son sort d'invocation est connu ; si aucun ou tous sont sélectionnés, le rappel ne se déclenche jamais."
+L["Name Font"] = "Police du nom"
+L["Font Outline"] = "Contour de police"
+L["Item Count Font"] = "Police du nombre d'objets"
+L["Mana Warning Font"] = "Police de l'alerte de mana"
+L["Name Text Size"] = "Taille du texte du nom"
+L["Mana Warning Text Size"] = "Taille du texte de l'alerte de mana"
+
 L["BLIZZARD POPUPS & GAME MENU"] = "FENÊTRES BLIZZARD ET MENU DU JEU"
 L["Resurrect Accept Glow"] = "Lueur d’acceptation de résurrection"
 L["Adds a glowing, pulsating border around the Accept button of resurrection popups so a pending resurrect is hard to miss. Follows the Element & Text Color setting. Applies instantly, no reload needed."] = "Ajoute une bordure lumineuse et pulsante autour du bouton Accepter des fenêtres de résurrection afin de ne pas manquer une résurrection. Utilise le réglage de couleur des éléments et du texte. Application immédiate sans rechargement."

@@ -310,13 +310,21 @@ end
 --  Name anchoring: shared by StyleBar and the raid-marker paint pass, since
 --  the name has to shift right while a marker is shown.
 --------------------------------------------------------------------------------
-local function AnchorName(holder, cfg, markerShown)
+-- hasTarget: whether the target zone is actually in use for the current cast.
+-- Most casts never populate it (no target, or Show Target off), so the plain
+-- 48% split needlessly caps -- and truncates -- names that have the room.
+local function AnchorName(holder, cfg, markerShown, hasTarget)
     local w = cfg.width or 240
     local h = cfg.height or 20
     local markerReserve = markerShown and ((cfg.raidMarkerSize or 14) + 2) or 0
     holder.name:ClearAllPoints()
     holder.name:SetPoint("LEFT", holder.sb, "LEFT", 4 + markerReserve + (cfg.nameX or 0), cfg.nameY or 0)
-    local nameWidth = (w - h) * 0.48 - markerReserve
+    local shared = (w - h) * 0.48 - markerReserve
+    local nameWidth = shared
+    if not hasTarget then
+        local timerReserve = (cfg.showTimer ~= false) and ((cfg.timerSize or 10) * 2.2) or 0
+        nameWidth = math.max(shared, (w - h) - 8 - markerReserve - timerReserve)
+    end
     if nameWidth < 1 then nameWidth = 1 end
     holder.name:SetWidth(nameWidth)
 end
@@ -418,7 +426,7 @@ local function StyleBar(holder, cfg)
 
     local showTimer = cfg.showTimer ~= false
     local timerReserve = showTimer and ((cfg.timerSize or 10) * 2.2) or 0
-    AnchorName(holder, cfg, holder.marker:IsShown())
+    AnchorName(holder, cfg, holder.marker:IsShown(), holder.target:IsShown())
     holder.timer:ClearAllPoints()
     holder.timer:SetPoint("RIGHT", holder.sb, "RIGHT", -3 + (cfg.timerX or 0), cfg.timerY or 0)
     holder.target:ClearAllPoints()
@@ -603,7 +611,7 @@ local function ApplyRaidMarker(e, cfg)
     if not cfg.showRaidMarker then
         if holder.marker:IsShown() then
             holder.marker:Hide()
-            AnchorName(holder, cfg, false)
+            AnchorName(holder, cfg, false, holder.target:IsShown())
         end
         return
     end
@@ -611,7 +619,7 @@ local function ApplyRaidMarker(e, cfg)
     if type(idx) == "nil" then -- type() is the taint-safe existence check
         if holder.marker:IsShown() then
             holder.marker:Hide()
-            AnchorName(holder, cfg, false)
+            AnchorName(holder, cfg, false, holder.target:IsShown())
         end
         return
     end
@@ -624,7 +632,7 @@ local function ApplyRaidMarker(e, cfg)
         if tc then holder.marker:SetTexCoord(tc[1], tc[2], tc[3], tc[4]) end
     end
     holder.marker:Show()
-    AnchorName(holder, cfg, true)
+    AnchorName(holder, cfg, true, holder.target:IsShown())
 end
 
 --------------------------------------------------------------------------------
@@ -773,10 +781,12 @@ local function ArmFill(e, isChannel)
 end
 
 local function PaintTarget(e, cfg)
-    local fs = e.bar.target
+    local holder = e.bar
+    local fs = holder.target
     if cfg.showTarget == false then
         fs:SetText("")
         fs:Hide()
+        AnchorName(holder, cfg, holder.marker:IsShown(), false)
         return
     end
     local spellTarget, spellTargetClass
@@ -792,6 +802,7 @@ local function PaintTarget(e, cfg)
     if type(spellTarget) == "nil" then
         fs:SetText("")
         fs:Hide()
+        AnchorName(holder, cfg, holder.marker:IsShown(), false)
         return
     end
     if cfg.targetClassColor ~= false and type(spellTargetClass) ~= "nil" and C_ClassColor then
@@ -803,6 +814,7 @@ local function PaintTarget(e, cfg)
     end
     fs:SetText(spellTarget)
     fs:Show()
+    AnchorName(holder, cfg, holder.marker:IsShown(), true)
 end
 
 local function Release(unit)
@@ -904,11 +916,14 @@ local function StartCast(unit)
             e.bar.icon:SetTexture(nil)
         end
     end
+    -- PaintTarget/ApplyRaidMarker first: they size bar.name for this cast's
+    -- target/marker state, and SetWidth after SetText does not reliably
+    -- re-truncate an already-laid-out FontString.
+    PaintTarget(e, cfg)
+    ApplyRaidMarker(e, cfg)
     if cfg.showSpellName ~= false then
         e.bar.name:SetText(name)
     end
-    PaintTarget(e, cfg)
-    ApplyRaidMarker(e, cfg)
     ApplyCastColor(e, cfg)
     ApplyImportantGlow(e, cfg)
     e.bar.timer:SetText("")
@@ -1187,8 +1202,8 @@ local function ShowPreview()
         PositionBar(e.bar, i, cfg)
         e.bar:SetAlpha(1)
         e.bar.icon:SetTexture(134400)
-        if cfg.showSpellName ~= false then e.bar.name:SetText(sample.name) end
-        if cfg.showTarget ~= false then
+        local hasTarget = cfg.showTarget ~= false
+        if hasTarget then
             local tc = cfg.targetColor
             if cfg.targetClassColor ~= false and C_ClassColor and UnitClassBase then
                 local col = C_ClassColor.GetClassColor(UnitClassBase("player"))
@@ -1202,6 +1217,20 @@ local function ShowPreview()
             e.bar.target:SetText("")
             e.bar.target:Hide()
         end
+
+        -- Raid marker sample: static, non-secret index.
+        if cfg.showRaidMarker and sample.marker then
+            local tc = RAID_MARKER_TEXCOORDS[sample.marker]
+            if tc then e.bar.marker:SetTexCoord(tc[1], tc[2], tc[3], tc[4]) end
+            e.bar.marker:Show()
+            AnchorName(e.bar, cfg, true, hasTarget)
+        else
+            e.bar.marker:Hide()
+            AnchorName(e.bar, cfg, false, hasTarget)
+        end
+        -- Name sized/anchored above; SetWidth after SetText does not reliably
+        -- re-truncate an already-laid-out FontString.
+        if cfg.showSpellName ~= false then e.bar.name:SetText(sample.name) end
         e.bar.timer:SetText(cfg.showTimer ~= false and sample.timer or "")
         e.bar.sb:SetValue(sample.fill)
 
@@ -1214,17 +1243,6 @@ local function ShowPreview()
             e.bar.overlay:SetAlpha(0)
             local c = cfg.barColor
             if c then e.bar.sb:GetStatusBarTexture():SetVertexColor(c.r, c.g, c.b) end
-        end
-
-        -- Raid marker sample: static, non-secret index.
-        if cfg.showRaidMarker and sample.marker then
-            local tc = RAID_MARKER_TEXCOORDS[sample.marker]
-            if tc then e.bar.marker:SetTexCoord(tc[1], tc[2], tc[3], tc[4]) end
-            e.bar.marker:Show()
-            AnchorName(e.bar, cfg, true)
-        else
-            e.bar.marker:Hide()
-            AnchorName(e.bar, cfg, false)
         end
 
         -- Important sample: tint and/or glow, both driven by a plain (never

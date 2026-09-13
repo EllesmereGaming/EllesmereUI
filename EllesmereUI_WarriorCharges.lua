@@ -219,6 +219,31 @@ local function BuildHostPhase(H, powerKey, opts)
             st.bft = bft
             st.regMax = maxApps
 
+            -- Threshold apparatus, baked IN-WINDOW (the only moment subtree
+            -- creation is always legal): one mask riding the fill texture's
+            -- rect (SetAllPoints here, NEVER re-anchored -- an outside mask
+            -- SetPoint'ing to bft is denied as a forbidden-aspect dependent,
+            -- field-proven) plus five generic strip textures (settings cap
+            -- thresholds at 5), hidden until styled. Post-window styling
+            -- (position/color/shown) is plain-texture work: legal while
+            -- unrestricted, pcall'd with a lift re-apply under restriction.
+            -- ARTWORK on the bar draws above the fill; the separator ticks
+            -- live at +4 above all of it.
+            st.thMask = bar:CreateMaskTexture()
+            st.thMask:SetTexture("Interface\\Buttons\\WHITE8x8",
+                "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE", "NEAREST")
+            st.thMask:SetAllPoints(bft)
+            st.thStrips = {}
+            for i = 1, 5 do
+                -- Sublevels +1..+5: the StatusBar fill texture draws at
+                -- ARTWORK sublevel 0, and strips below it never render
+                -- (field-proven). Ticks stay above on the +4 sepHost frame.
+                local strip = bar:CreateTexture(nil, "ARTWORK", nil, i)
+                strip:AddMaskTexture(st.thMask)
+                strip:Hide()
+                st.thStrips[i] = strip
+            end
+
             -- Count text (opt-in per host): engine-stamped true count via
             -- SetApplicationCount. Look baked from the host's live count
             -- fontstring when one exists by job time, else the opts fields.
@@ -392,6 +417,144 @@ local function StyleSeparators(H, frame, sp, n)
 end
 
 -------------------------------------------------------------------------------
+--  Threshold strips (proxy-side, engine-driven): threshold/band coloring with
+--  ZERO Lua count reads. A static color strip spans [start-1, cap] of the
+--  row; a mask anchored to the ENGINE fill texture's rect clips it to the
+--  filled region, so the visible part is exactly [start-1, cur] -- the fill
+--  edge performs the comparison C-side. Everything lives on sepHost (outside
+--  the slot subtree): creation, recolor and retire stay legal at any time in
+--  any restriction state; only ANCHORS touch the subtree (legal). SEMANTIC
+--  NOTE: the legacy pips flipped the WHOLE fill to the topmost reached band
+--  color; a continuous bar renders bands as RANGES instead, matching the
+--  Ignore Pain bar's range coloring -- the continuous-bar convention.
+--  "Up to" (reverse) modes have no engine expression and render nothing.
+-------------------------------------------------------------------------------
+
+local function StyleThresholds(H, frame, sp, n)
+    local st = H.armed and H.ph[H.armed]
+    local strips = st and st.thStrips
+    if not strips then return end
+    local spec = H.thSpec
+    -- Every write below touches the slot subtree post-window (the strips and
+    -- mask were BAKED in the creation window; an outside mask anchored to
+    -- bft is denied as a forbidden-aspect dependent -- field-proven): legal
+    -- while unrestricted, denied under restriction. ONE pcall covers the
+    -- whole restyle; a denial rides the host dirty flag so the lift's Sync
+    -- re-run restyles, and a throw can never abort the caller's paint pass again
+    local ok = pcall(function()
+        if not spec or n <= 0 then
+            for i = 1, #strips do strips[i]:Hide() end
+            return
+        end
+        local ori = sp.pipOrientation or "HORIZONTAL"
+        local vertical = ori ~= "HORIZONTAL"
+        local len = (vertical and frame:GetHeight() or frame:GetWidth()) or 0
+        local used = 0
+        for k = 1, #spec do
+            local band = spec[k]
+            if band.start and band.start >= 1 and band.start <= n
+               and used < #strips then
+                used = used + 1
+                local t = strips[used]
+                t:SetColorTexture(band.r, band.g, band.b, band.a)
+                -- Strip origin measured from the FILL ORIGIN (left; top for
+                -- reversed vertical; bottom for VERTICAL_UP), the separator
+                -- ticks' fractions.
+                local off = len * (band.start - 1) / n
+                t:ClearAllPoints()
+                if vertical then
+                    t:SetPoint("LEFT", st.bar, "LEFT", 0, 0)
+                    t:SetPoint("RIGHT", st.bar, "RIGHT", 0, 0)
+                    if ori == "VERTICAL_UP" then
+                        t:SetPoint("BOTTOM", st.bar, "BOTTOM", 0, off)
+                        t:SetPoint("TOP", st.bar, "TOP", 0, 0)
+                    else
+                        t:SetPoint("TOP", st.bar, "TOP", 0, -off)
+                        t:SetPoint("BOTTOM", st.bar, "BOTTOM", 0, 0)
+                    end
+                else
+                    t:SetPoint("TOP", st.bar, "TOP", 0, 0)
+                    t:SetPoint("BOTTOM", st.bar, "BOTTOM", 0, 0)
+                    t:SetPoint("LEFT", st.bar, "LEFT", off, 0)
+                    t:SetPoint("RIGHT", st.bar, "RIGHT", 0, 0)
+                end
+                t:Show()
+            end
+        end
+        for i = used + 1, #strips do strips[i]:Hide() end
+    end)
+    if not ok then
+        H.dirty = true
+        EnsureLift()
+    end
+end
+
+-- Threshold inputs, handed raw from the consumer's paint pass and
+-- change-gated here with ALLOC-FREE field compares (the pass cadence is the
+-- class bar tick; a rebuild only runs on a real settings/spec/cap change).
+local function HostThresholds(H, powerKey, mode, count, r, g, b, a,
+                              bandOn, bands, bandReverse, reverse)
+    if H.armed ~= powerKey then return end
+    local st = H.ph[powerKey]
+    local n = (st and st.regMax) or 0
+    -- v1: "Up to" modes render nothing (no engine expression).
+    if reverse then count = nil end
+    if bandReverse then bandOn = false end
+    local inp = H.thIn
+    if not inp then inp = { bands = {} }; H.thIn = inp end
+    local bn = (bandOn and bands and #bands) or 0
+    local changed = inp.mode ~= mode or inp.count ~= count or inp.n ~= n
+        or inp.r ~= r or inp.g ~= g or inp.b ~= b or inp.a ~= a or inp.bn ~= bn
+    if not changed and bn > 0 then
+        for k = 1, bn do
+            local sb, b2 = inp.bands[k], bands[k]
+            if not sb or sb.to ~= b2.to or sb.r ~= b2.r or sb.g ~= b2.g
+               or sb.b ~= b2.b or sb.a ~= b2.a then
+                changed = true
+                break
+            end
+        end
+    end
+    if not changed then return end
+    inp.mode, inp.count, inp.n = mode, count, n
+    inp.r, inp.g, inp.b, inp.a, inp.bn = r, g, b, a, bn
+    local spec = H.thSpecStore
+    if not spec then spec = {}; H.thSpecStore = spec end
+    local used = 0
+    if bn > 0 then
+        local prev = 0
+        for k = 1, bn do
+            local b2 = bands[k]
+            local sb = inp.bands[k]
+            if not sb then sb = {}; inp.bands[k] = sb end
+            sb.to, sb.r, sb.g, sb.b, sb.a = b2.to, b2.r, b2.g, b2.b, b2.a
+            used = used + 1
+            local e = spec[used]
+            if not e then e = {}; spec[used] = e end
+            e.start = prev + 1
+            e.r, e.g, e.b = b2.r or 1, b2.g or 1, b2.b or 1
+            e.a = b2.a or a or 1
+            prev = b2.to or prev
+        end
+    elseif count and count > 0 and n > 0 then
+        -- Pip-class thresholds are ABSOLUTE stack counts (field round:
+        -- mode arrives nil and a percent fallback turned "6 stacks" into
+        -- start=1). The value|percent mode split belongs to the value
+        -- bars, never these two powers.
+        local start = count
+        used = 1
+        local e = spec[1]
+        if not e then e = {}; spec[1] = e end
+        e.start, e.r, e.g, e.b, e.a = start, r or 1, g or 1, b or 1, a or 1
+    end
+    for i = used + 1, #spec do spec[i] = nil end
+    H.thSpec = (used > 0) and spec or nil
+    if H.lastStyleFrame then
+        StyleThresholds(H, H.lastStyleFrame, H.lastStyleOpts, H.lastStyleN)
+    end
+end
+
+-------------------------------------------------------------------------------
 --  Host sync / gate (generic core)
 -------------------------------------------------------------------------------
 
@@ -455,6 +618,12 @@ HostSyncByKey = function(H, frame, powerKey, opts)
         end
     end
     StyleSeparators(H, opts.manualAttach and H.proxy or frame, opts, st.regMax or wantMax)
+    -- Stashed for mid-session threshold restyles (settings edit between
+    -- Syncs); NOT a resize-heal mechanism.
+    H.lastStyleFrame = opts.manualAttach and H.proxy or frame
+    H.lastStyleOpts = opts
+    H.lastStyleN = st.regMax or wantMax
+    StyleThresholds(H, H.lastStyleFrame, opts, H.lastStyleN)
     -- +4, not +1..+3: the engine subtree stacks container(+1) -> slot button
     -- -> fill bar, so the fill paints around +2/+3 (its exact level cannot be
     -- read back; the Ebon Might driver clears it with the same margin).
@@ -494,6 +663,14 @@ _G._EWC = {
     -- (gapColorEnabled/darkTheme/barBg*/pipOrientation/pipSpacing).
     Sync = function(hostKey, frame, powerKey, opts)
         HostSyncByKey(Host(hostKey), frame, powerKey, opts)
+    end,
+    Thresholds = function(hostKey, powerKey, mode, count, r, g, b, a,
+                          bandOn, bands, bandReverse, reverse)
+        local H = S.hosts[hostKey]
+        if H then
+            HostThresholds(H, powerKey, mode, count, r, g, b, a,
+                bandOn, bands, bandReverse, reverse)
+        end
     end,
     Gate = function(hostKey)
         local H = S.hosts[hostKey]

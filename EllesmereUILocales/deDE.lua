@@ -7,6 +7,18 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local L = EllesmereUI.RegisterLocale("deDE")
 if not L then return end
 
+L["WARLOCK"] = "HEXENMEISTER"
+L["Soulstone"] = "Seelenstein"
+L["Show a reminder until your own Soulstone is active on you or another group member."] = "Zeigt eine Erinnerung an, bis Euer eigener Seelenstein auf Euch oder einem anderen Gruppenmitglied aktiv ist."
+L["Wrong Demon"] = "Falscher Dämon"
+L["Allowed Demons"] = "Erlaubte Dämonen"
+L["Show a reminder when your Warlock's active pet isn't one of the demons picked in Allowed Demons. A demon only counts while its summon spell is known, so leaving only Felguard picked stays silent for specs/builds that haven't talented Summon Felguard."] = "Zeigt eine Erinnerung an, wenn der aktive Begleiter Eures Hexenmeisters keiner der unter „Erlaubte Dämonen“ ausgewählten Dämonen ist. Ein Dämon zählt nur, wenn sein Beschwörungszauber bekannt ist. Ist ausschließlich die Teufelswache ausgewählt, bleibt die Erinnerung daher für Spezialisierungen oder Konfigurationen ohne das Talent „Teufelswache beschwören“ stumm."
+L["Pick which demons count as correct for Wrong Demon. A demon only counts while its summon spell is known; with none picked (or everything picked), the reminder never fires."] = "Legt fest, welche Dämonen für „Falscher Dämon“ als korrekt gelten. Ein Dämon zählt nur, wenn sein Beschwörungszauber bekannt ist; ist keiner oder sind alle ausgewählt, wird die Erinnerung nie ausgelöst."
+L["Item Count Font"] = "Schriftart der Gegenstandsanzahl"
+L["Mana Warning Font"] = "Schriftart der Mana-Warnung"
+L["Name Text Size"] = "Textgröße des Namens"
+L["Mana Warning Text Size"] = "Textgröße der Mana-Warnung"
+
 L["    Enemy Units"] = "    Feindliche Einheiten"
 L["    Friendly Units"] = "    Freundliche Einheiten"
 L["  ... and %d more"]  = "  ... und %d weitere"

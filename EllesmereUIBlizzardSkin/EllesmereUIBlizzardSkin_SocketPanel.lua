@@ -25,6 +25,7 @@ local ClickSocketBtn   = (CIS and CIS.ClickSocketButton) or _G.ClickSocketButton
 local AcceptSocketsFn  = (CIS and CIS.AcceptSockets)   or _G.AcceptSockets
 local CloseSocketFn    = (CIS and CIS.CloseSocketInfo) or _G.CloseSocketInfo
 local SocketInvItem    = (CIS and CIS.SocketInventoryItem) or _G.SocketInventoryItem
+local GetNewSocketInfoFn = (CIS and CIS.GetNewSocketInfo) or _G.GetNewSocketInfo
 local GetItemNumSockets = C_Item and C_Item.GetItemNumSockets
 local GetItemGemFn     = C_Item and C_Item.GetItemGem
 local GetItemStatsFn   = C_Item and C_Item.GetItemStats
@@ -189,16 +190,38 @@ end
 --  Socket action sequence (event-driven, no timers)
 --------------------------------------------------------------------------------
 
-local function SafeCloseSession()
-    if CloseSocketFn then CloseSocketFn() end
-    -- Fallback for a missing/renamed close API (the probed name is a silent no-op then,
-    -- which left the session window lingering open and empty after a strip replace):
-    -- hide the panel; the window's own OnHide handler ends the session. The window
-    -- itself stays fully visible/interactive while it exists -- an invisible live
-    -- session would block gem clicks with no way for the user to close it.
+-- Seat the socketing window beside the sheet. It is registered as a "left"
+-- panel that outranks the character sheet (pushable 0 against the sheet's 3),
+-- so showing it shoves the sheet into the center slot and back again on
+-- close: a whole-screen shuffle for every strip action. Ranked equal to the
+-- sheet, the panel manager seats it in the center slot next to the sheet
+-- instead, for strip actions and manual sessions alike. Panel attributes are
+-- the sanctioned insecure-to-secure channel, so this taints nothing.
+local socketWindowSeated = false
+local function SeatSocketWindow()
+    if socketWindowSeated then return true end
     local f = _G.ItemSocketingFrame
-    if f and f:IsShown() and not InCombatLockdown() and HideUIPanel then
-        HideUIPanel(f)
+    if not (f and _G.SetUIPanelAttribute) then return false end
+    socketWindowSeated = true
+    _G.SetUIPanelAttribute(f, "pushable", 3)
+    return true
+end
+
+-- End a socketing session the way the player does: hide the window. Its own
+-- OnHide handler closes the session, which is the one and only CloseSocketInfo
+-- call and SOCKET_INFO_CLOSE for it; calling CloseSocketInfo here as well ends
+-- the session a second time, nested inside that handler. The window is never
+-- made invisible: when it cannot be hidden (combat) it stays on screen so the
+-- player can close it by hand.
+local function SafeCloseSession()
+    local f = _G.ItemSocketingFrame
+    if f and f:IsShown() then
+        if not InCombatLockdown() and HideUIPanel then
+            HideUIPanel(f)
+        end
+    elseif CloseSocketFn then
+        -- No window on screen: close the bare session directly.
+        CloseSocketFn()
     end
 end
 
@@ -217,12 +240,18 @@ local function DoSocket(targetSlot, socketIndex, gemItemID)
     end
     if CHasItem and CHasItem() then return end            -- don't hijack a held item
     if ItemSocketingFrame and ItemSocketingFrame:IsShown() then
+        if pending then
+            -- Our previous action is still completing (waiting for its result);
+            -- it closes the window itself. Ending it now would cut the
+            -- socketing short.
+            return
+        end
         if ourSession then
-            -- Leftover window from our own previous action (the accept event never
-            -- closed it): end it now so socketing is not silently dead until the user
-            -- closes it by hand. Never reopen in the same click -- the old session's
-            -- SOCKET_INFO_CLOSE would wipe the new pending mid-flight. The flyout stays
-            -- open; the next gem click goes through cleanly.
+            -- Leftover window from our own completed action (its result event
+            -- never closed it): end it now so socketing is not silently dead
+            -- until the user closes it by hand. Never reopen in the same click --
+            -- the old session's SOCKET_INFO_CLOSE would wipe the new pending
+            -- mid-flight. The flyout stays open; the next gem click goes through.
             SafeCloseSession()
         end
         return   -- manual session: never hijack
@@ -234,21 +263,25 @@ local function DoSocket(targetSlot, socketIndex, gemItemID)
     CloseFlyout()
 end
 
--- Runs once inside SOCKET_INFO_UPDATE after the session is ready.
+-- Accept exactly once, and only after the session reports the placed gem as
+-- the socket's new gem (the same condition that enables the window's own
+-- Apply button); an accept issued before that does nothing. Updates after the
+-- accept (the refresh that follows the result) change nothing here.
+local function AcceptPlacedGem()
+    if not pending or pending.accepted then return end
+    local name = GetNewSocketInfoFn and GetNewSocketInfoFn(pending.socketIndex)
+    if name then
+        pending.accepted = true
+        if AcceptSocketsFn then AcceptSocketsFn() end
+    end
+end
+
+-- Runs inside SOCKET_INFO_UPDATE: places the gem once the session is ready,
+-- then accepts once the placement is reported.
 local function OnSocketInfoUpdate()
     if not pending then return end
     if pending.acted then
-        -- Session updates keep firing after we act (notably when the picked-up
-        -- gem lands in the socket UI). If the first AcceptSockets raced ahead
-        -- of the gem registering, no SOCKET_INFO_ACCEPT ever comes and the
-        -- window sits open waiting for a manual Socket click -- re-issue the
-        -- accept (a no-op when nothing is pending in the UI), bounded so a
-        -- genuinely unacceptable state cannot loop.
-        local n = pending.reaccepts or 0
-        if n < 3 and AcceptSocketsFn then
-            pending.reaccepts = n + 1
-            AcceptSocketsFn()
-        end
+        AcceptPlacedGem()
         return
     end
     local nSock = GetNumSockets and GetNumSockets()
@@ -270,8 +303,10 @@ local function OnSocketInfoUpdate()
     end
     if ClickSocketBtn then ClickSocketBtn(pending.socketIndex) end
     if CClear then CClear() end
-    if AcceptSocketsFn then AcceptSocketsFn() end
-    -- Do not force-close: let Blizzard own success/confirmation dialogs.
+    -- The placement may already be reported (an update fired inside the
+    -- click); otherwise the next SOCKET_INFO_UPDATE accepts it. Confirmation
+    -- dialogs (binding, refunds) stay Blizzard's: the window is open for them.
+    AcceptPlacedGem()
 end
 
 --------------------------------------------------------------------------------
@@ -843,6 +878,8 @@ local SHOWN_EVENTS = {
     "SOCKET_INFO_UPDATE",
     "SOCKET_INFO_ACCEPT",
     "SOCKET_INFO_CLOSE",
+    "SOCKET_INFO_SUCCESS",
+    "SOCKET_INFO_FAILURE",
     "BAG_UPDATE_DELAYED",
     "ITEM_DATA_LOAD_RESULT",
 }
@@ -876,17 +913,23 @@ local function OnEvent(self, event, arg1)
         RebuildSockets()
     elseif event == "SOCKET_INFO_UPDATE" then
         OnSocketInfoUpdate()
-    elseif event == "SOCKET_INFO_ACCEPT" or event == "SOCKET_INFO_CLOSE" then
+    elseif event == "SOCKET_INFO_ACCEPT" then
+        -- The accept is in flight: the window disables its sockets and the
+        -- result follows as SOCKET_INFO_SUCCESS or SOCKET_INFO_FAILURE. The
+        -- session stays open until then.
+    elseif event == "SOCKET_INFO_SUCCESS" or event == "SOCKET_INFO_FAILURE" then
+        -- Our action is complete either way: close the window the way the
+        -- player would (its OnHide ends the session). A manual session is never
+        -- touched. The strip repaints on ITEM_CHANGED / BAG_UPDATE_DELAYED.
         local ours = pending ~= nil
         pending = nil
-        if event == "SOCKET_INFO_CLOSE" then ourSession = false end
+        gemDirty = true
+        if ours then SafeCloseSession() end
+    elseif event == "SOCKET_INFO_CLOSE" then
+        pending = nil
+        ourSession = false
         gemDirty = true
         RebuildSockets()
-        -- End the session we opened once the gem is applied; the socketing
-        -- window hides itself in response (never touch a manual session).
-        if event == "SOCKET_INFO_ACCEPT" and ours then
-            SafeCloseSession()
-        end
     elseif event == "BAG_UPDATE_DELAYED" then
         gemDirty = true
         -- The socketed gem just left the bags; refresh the equipped row too,
@@ -911,6 +954,12 @@ local function OnEvent(self, event, arg1)
         end
     elseif event == "PLAYER_REGEN_DISABLED" then
         CloseFlyout()
+    elseif event == "ADDON_LOADED" then
+        -- The socketing UI just loaded: seat its window before its first show.
+        if arg1 == "Blizzard_ItemSocketingUI" then
+            SeatSocketWindow()
+            self:UnregisterEvent("ADDON_LOADED")
+        end
     end
 end
 
@@ -934,6 +983,12 @@ local function BuildPanel()
     if not evtFrame then
         evtFrame = CreateFrame("Frame")
         evtFrame:SetScript("OnEvent", OnEvent)
+    end
+
+    -- The socketing UI loads on demand: seat its window now if it is already
+    -- here, otherwise the moment it loads (one event, dropped once it fires).
+    if _G.SetUIPanelAttribute and not SeatSocketWindow() then
+        evtFrame:RegisterEvent("ADDON_LOADED")
     end
 
     built = true
