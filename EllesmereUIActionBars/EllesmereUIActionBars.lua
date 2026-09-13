@@ -940,6 +940,12 @@ hiddenParent:Hide()
 function ns.QuietlyHideBlizzButton(btn)
     btn:UnregisterAllEvents()
     btn:SetAttributeNoHandler("statehidden", true)
+    -- Blizzard's own re-init re-registers events (incl. cooldown) on this
+    -- already-tainted button; re-strip them on its next OnShow.
+    if not btn._eabReassertHide then
+        btn._eabReassertHide = true
+        btn:HookScript("OnShow", function(self) self:UnregisterAllEvents() end)
+    end
 end
 
 -- Re-hide a stock bar Blizzard just re-Show()'d, without calling Hide() or
