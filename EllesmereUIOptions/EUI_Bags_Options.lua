@@ -647,6 +647,26 @@ initFrame:SetScript("OnEvent", function(self)
                 end
             end
 
+            -- Slot count format | Separate reagent slots
+            _, h = W:DualRow(parent, y,
+                { type="dropdown", text="Slot count format",
+                  tooltip="Choose how the inventory header shows occupied or free bag slots. Each item stack occupies one slot.",
+                  values={ used_total="Used/total", free_total="Free/total", free="Free only" },
+                  order={ "used_total", "free_total", "free" },
+                  getValue=function() return db.profile.bagSlotCountFormat or "used_total" end,
+                  setValue=function(v)
+                      db.profile.bagSlotCountFormat = v
+                      if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                  end },
+                { type="toggle", text="Separate reagent slots",
+                  tooltip="Show regular bag and reagent bag capacity separately in the inventory header. Turn this off to combine them; reagent slots still only accept reagents.",
+                  getValue=function() return db.profile.bagSeparateReagentSlots ~= false end,
+                  setValue=function(v)
+                      db.profile.bagSeparateReagentSlots = v
+                      if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                  end }
+            ); y = y - h
+
             -- Item Count Text Size | Item Level Text Size
             _, h = W:DualRow(parent, y,
                 { type="slider", text="Item Count Text Size", min=8, max=16, step=1,
