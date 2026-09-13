@@ -206,11 +206,12 @@ local function ApplySubtitleFont()
 end
 ApplySubtitleFont()
 
-local _ffFile, _ffSize
+local _ffFile, _ffSize, _ffFlags
 local function ApplyFriendlyFontOverride(force)
     SaveOriginalFonts()
     local font = GetFont()
     local size = GetFriendlyNameSize()
+    local flags = GetNPOutline()
     -- Blizzard never rewrites the shared font OBJECTS (its plate setup only
     -- SetFontObjects the name strings onto them), so once they carry our
     -- file + size they keep it: an unchanged pair means nothing to restore
@@ -220,7 +221,7 @@ local function ApplyFriendlyFontOverride(force)
     -- (instanced content) the per-string SetTextHeight re-stamp is denied,
     -- and this relayout is the only lever that clears Blizzard's per-instance
     -- height, so the deferred re-apply forces it there (once per burst).
-    if not force and fontOverrideApplied and font == _ffFile and size == _ffSize then return end
+    if not force and fontOverrideApplied and font == _ffFile and size == _ffSize and flags == _ffFlags then return end
     -- Restore to known-good originals first so we read the correct height
     -- even if Blizzard reset the font objects after a CVar change.
     if fontOverrideApplied then
@@ -232,15 +233,17 @@ local function ApplyFriendlyFontOverride(force)
         end
         fontOverrideApplied = false
     end
+    -- Stamp the configured outline directly. The stock font objects always
+    -- carry non-nil flags, so reading them back and only falling through to
+    -- GetNPOutline() when nil never reached the setting: friendly player
+    -- names kept Blizzard's flags while the NPC overlays honoured it.
     if SystemFont_NamePlate and SystemFont_NamePlate.SetFont then
-        local _, _, flags = SystemFont_NamePlate:GetFont()
-        SystemFont_NamePlate:SetFont(font, size, flags or GetNPOutline())
+        SystemFont_NamePlate:SetFont(font, size, flags)
     end
     if SystemFont_NamePlate_Outlined and SystemFont_NamePlate_Outlined.SetFont then
-        local _, _, flags = SystemFont_NamePlate_Outlined:GetFont()
-        SystemFont_NamePlate_Outlined:SetFont(font, size, flags or GetNPOutline())
+        SystemFont_NamePlate_Outlined:SetFont(font, size, flags)
     end
-    _ffFile, _ffSize = font, size
+    _ffFile, _ffSize, _ffFlags = font, size, flags
     fontOverrideApplied = true
 end
 
