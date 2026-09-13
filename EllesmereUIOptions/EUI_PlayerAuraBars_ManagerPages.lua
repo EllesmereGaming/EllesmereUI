@@ -1214,14 +1214,20 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
                       local _, _, x = EllesmereUI.GetBorderDefaults("unitframes", cfg.borderTexture or "solid", cfg.borderSize or 1)
                       return x
                   end,
-                  set = function(v) cfg.borderTextureShiftX = v == 0 and nil or v; apply() end },
+                  set = function(v)
+                      if v == 0 then v = nil end
+                      cfg.borderTextureShiftX = v; apply()
+                  end },
                 { type = "slider", label = "Shift Y", min = -10, max = 10, step = 1,
                   get = function()
                       if cfg.borderTextureShiftY ~= nil then return cfg.borderTextureShiftY end
                       local _, _, _, y = EllesmereUI.GetBorderDefaults("unitframes", cfg.borderTexture or "solid", cfg.borderSize or 1)
                       return y
                   end,
-                  set = function(v) cfg.borderTextureShiftY = v == 0 and nil or v; apply() end },
+                  set = function(v)
+                      if v == 0 then v = nil end
+                      cfg.borderTextureShiftY = v; apply()
+                  end },
                 { type = "toggle", label = "Show Behind",
                   get = function() return cfg.borderBehind == true end,
                   set = function(v) cfg.borderBehind = v; apply() end },

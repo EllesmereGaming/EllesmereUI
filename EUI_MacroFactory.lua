@@ -377,10 +377,6 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
     local DRUID_RESTO = {
         { name="EUI_Ironbark", icon="Interface\\Icons\\spell_druid_ironbark", label="Ironbark\n(Focus)", spells={102342}, fixedBody="/cast [@focus,help,nodead][] {1}", fixedTooltip="{1}" }, -- Ironbark
         { name="EUI_InnervateSelf", icon="Interface\\Icons\\spell_nature_lightning", label="Innervate\n(Player)", spells={29166}, fixedBody="/cast [@player] {1}" }, -- Innervate
-        -- Nature's Swiftness / Convoke was offered here until it stopped being worth
-        -- macroing: Nature's Swiftness no longer buffs the Regrowths a Convoke casts, and
-        -- with Overgrowth taken the channel's first Regrowth moves Lifebloom off its
-        -- target. Pairing them now costs more than it gives.
     }
 
     -- Evoker (1467=Devastation, 1468=Preservation, 1473=Augmentation)

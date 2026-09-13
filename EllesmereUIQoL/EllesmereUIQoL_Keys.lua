@@ -14,14 +14,16 @@ local partyKeys = {}  -- [playerName] = { dungeon = mapID, keyLevel = N, rating 
 -- Built dynamically from C_ChallengeMode.GetMapTable + spell lookup.
 local MAP_TELEPORT_SPELLS = {}
 local TELEPORT_BY_NAME = {}
+local RebuildTeleportTables
 do
     -- Rebuildable: on login, C_ChallengeMode/GetLFGDungeonInfo data can still be
     -- uncached the first time this file runs, leaving both tables empty forever
     -- since this used to be a one-shot do-block. RebuildTeleportTables() re-runs
-    -- from ShowKeystonePopup() whenever MAP_TELEPORT_SPELLS is still empty, so a
-    -- late-populated cache self-heals instead of leaving every teleport button
-    -- permanently hidden for the session.
-    local function RebuildTeleportTables()
+    -- from ShowKeystonePopup() and from a resolver miss whenever
+    -- MAP_TELEPORT_SPELLS is still empty, so a late-populated cache self-heals
+    -- instead of leaving every teleport button (and the LFG teleport prompt's
+    -- localized names) dead for the session. Idempotent: same keys rewritten.
+    function RebuildTeleportTables()
         -- Spell IDs indexed by dungeon name (case-insensitive matching), built
         -- from the shared season list (EllesmereUI.SEASON_PORTALS) -- one place
         -- to update per season.
@@ -55,17 +57,23 @@ do
             end
         end
     end
-    EllesmereUI._RebuildTeleportTables = RebuildTeleportTables
     RebuildTeleportTables()
 
     -- Clean resolver: dungeon display name -> teleport spellID. Returns a plain
     -- integer literal (never a secret value) or nil. Used by the LFG teleport
     -- prompt to map an accepted dungeon's name to its teleport spell without
     -- touching any secret LFG field. Strips a trailing parenthetical suffix.
+    -- A miss while the map table is still empty means the localized names never
+    -- loaded either: rebuild once and look again (the popup path heals the same way).
     EllesmereUI.ResolveTeleportSpellByName = function(displayName)
         if type(displayName) ~= "string" then return nil end
         local n = displayName:lower():gsub("%s*%b()%s*$", "")
-        return TELEPORT_BY_NAME[n]
+        local spellID = TELEPORT_BY_NAME[n]
+        if not spellID and not next(MAP_TELEPORT_SPELLS) then
+            RebuildTeleportTables()
+            spellID = TELEPORT_BY_NAME[n]
+        end
+        return spellID
     end
 end
 local guildKeys = {}  -- [playerName] = { dungeon = mapID, keyLevel = N, rating = N }
@@ -441,9 +449,7 @@ end
 
 ShowKeystonePopup = function()
     RecordOwnKey()
-    if not next(MAP_TELEPORT_SPELLS) and EllesmereUI._RebuildTeleportTables then
-        EllesmereUI._RebuildTeleportTables()
-    end
+    if not next(MAP_TELEPORT_SPELLS) then RebuildTeleportTables() end
     local p = BuildPopup()
     local body = p._body
     local contentW = POPUP_W - PAD * 2

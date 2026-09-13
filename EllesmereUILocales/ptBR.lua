@@ -4972,7 +4972,6 @@ L["GROUP FINDER"] = "BUSCADOR DE GRUPO"
 L["Quick Signup"] = "Inscrição Rápida"
 L["Double-click a group listing to instantly sign up without pressing the Sign Up button. Hold Shift to keep the dialog open, e.g. to type a signup note."] = "Clique duas vezes em um grupo listado para se inscrever instantaneamente sem pressionar o botão Inscrever-se. Segure Shift para manter a caixa de diálogo aberta, por exemplo, para digitar uma nota de inscrição."
 L["Persistent Signup Note"] = "Nota de Inscrição Persistente"
-L["Keeps your note text in the Sign Up dialog instead of clearing it each time you open it."] = "Mantém o texto da sua nota na caixa de diálogo de Inscrição em vez de limpá-lo toda vez que você a abre."
 
 -- Shifter unlock-mode mover labels / misc single labels
 L["Bonus Roll"] = "Rolagem Bônus"
@@ -5781,7 +5780,6 @@ L["Changing the Delve Tier Picker reskin requires a UI reload to fully swap betw
 L["Changing the Queue Status reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles."] = "Alterar o skin do Status da Fila requer um recarregamento da UI para trocar completamente entre os estilos Blizzard e Ellesmere."
 L["Changing the Ready Check reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles."] = "Alterar o skin da Confirmação de Pronto requer um recarregamento da UI para trocar completamente entre os estilos Blizzard e Ellesmere."
 L["Changing the Trade reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles."] = "Alterar o skin do Comércio requer um recarregamento da UI para trocar completamente entre os estilos Blizzard e Ellesmere."
-L["chat tabs border spacing background sidebar friends voice url copy whisper channel abbreviate shortened class color names timestamps timestamp all messages font size"] = "chat abas borda espaçamento fundo barra lateral amigos voz url copiar sussurro canal abreviar encurtado cor de classe nomes marcações de tempo todas as mensagens fonte tamanho de fonte"
 L["check"] = "verificação"
 L["chef's hat"] = "chapéu de chef"
 L["Choice Windows"] = "Janelas de Escolha"
@@ -6829,3 +6827,82 @@ L["Show the Sated/Exhaustion lockout countdown on the icon."] = "Mostra a contag
 -- == Quickdraw / Outfits Category ===================================================
 L["Outfit"] = "Roupa"
 L["Outfits"] = "Roupas"
+
+-- == Quality of Life / Group Finder Signup Note ======================================
+L["Enter signup note..."] = "Insira a nota de inscrição..."
+L["Saved between reloads and relogs. In Group Finder, choose Copy, press Ctrl+C, then Ctrl+V."] = "Salva entre recarregar a interface e relogar. No Buscador de Grupo, escolha Copiar, pressione Ctrl+C e depois Ctrl+V."
+L["Signup Note"] = "Nota de Inscrição"
+
+-- == Quality of Life / Cursor Options =================================================
+L["Adds a small filled dot at the center of the cursor circle. Uses the same color and opacity as the circle."] = "Adiciona um pequeno ponto preenchido no centro do círculo do cursor. Usa a mesma cor e opacidade do círculo."
+L["Center Reticle"] = "Retículo Central"
+
+-- == Resource Bars / Whirlwind & Sweeping Strikes Thresholds =========================
+L["Always on for Whirlwind and Sweeping Strikes charges: range coloring at/above the threshold is the only way these bars can display thresholds."] = "Sempre ativo para cargas de Redemoinho e Golpes a Esmo: colorir no limite ou acima dele é a única forma de essas barras exibirem limites."
+L["Whirlwind and Sweeping Strikes thresholds only support the 'From' direction."] = "Limites de Redemoinho e Golpes a Esmo só suportam a direção 'De'."
+
+-- == Quality of Life / Group Finder Signup Note =======================================
+L["Edit the saved signup note."] = "Edita a nota de inscrição salva."
+L["Keeps a saved signup note you can copy into the Sign Up dialog with the Copy button."] = "Mantém uma nota de inscrição salva que você pode copiar para a caixa de diálogo Inscrever-se usando o botão Copiar."
+
+-- == Cooldown Manager / Replace with Buff =============================================
+L["None (use cooldown icon)"] = "Nenhum (usar ícone de recarga)"
+L["Replace with Buff"] = "Substituir por Buff"
+L["Show a tracked buff in this slot while it is active."] = "Mostra um buff rastreado neste espaço enquanto ele estiver ativo."
+L["Hide every Cooldown Manager glow out of combat and bring them all back the moment you enter combat."] = "Oculta todo brilho do Gerenciador de Recarga fora de combate e os traz de volta assim que você entra em combate."
+
+-- == Bags / Stack Splitter ============================================================
+L["Also use the split dialog with Auto Split in OneBag, MultiBag, the reagent bag, the bank and the guild bank, replacing Blizzard's split popup there. All Items and category views always use it."] = "Também usa a caixa de diálogo de divisão com Divisão Automática na Bolsa Única, na MultiBolsa, na bolsa de reagentes, no banco e no banco da guilda, substituindo o pop-up de divisão da Blizzard nesses locais. As visões \"Todos os Itens\" e de categoria sempre a utilizam."
+
+-- == Raid Frames / Party Frames in Small Raids ========================================
+L["Party Frames in Small Raids"] = "Quadros de Grupo em Raides Pequenas"
+L["In raid groups under 10 players, show group 1 as party frames and hide everyone else."] = "Em grupos de raide com menos de 10 jogadores, mostra o grupo 1 como quadros de grupo e oculta todos os outros."
+
+-- == Aura/Buff Reminders / Warlock Section ============================================
+L["Pick which content these Warlock reminders appear in.\nRested areas (cities and inns) always stay hidden."] = "Escolha em quais conteúdos estes lembretes de Bruxo aparecem.\nÁreas de descanso (cidades e estalagens) sempre ficam ocultas."
+
+-- == Aura/Buff Reminders / Class-Special Section =======================================
+L["Pick which content the class-special reminders (poisons/rites/imbues/shields) appear in.\nRested areas (cities and inns) always stay hidden."] = "Escolha em quais conteúdos os lembretes especiais de classe (venenos/ritos/imbuições/escudos) aparecem.\nÁreas de descanso (cidades e estalagens) sempre ficam ocultas."
+
+-- == Chat / Chat Bubbles =============================================================
+L["chat tabs border spacing background sidebar friends voice url copy whisper channel abbreviate shortened class color names timestamps timestamp all messages font size bubbles bubble speech balloon nameplate"] = "chat abas borda espaçamento fundo barra lateral amigos voz url copiar sussurro canal abreviar encurtado cor de classe nomes marcações de tempo todas as mensagens fonte tamanho de fonte balões balão fala placa de nome"
+L["Only works outside of Instances"] = "Só funciona fora de Instâncias"
+L["Chat Bubbles"] = "Balões de Bate-Papo"
+L["Enable Chat Bubbles Customization"] = "Ativar Personalização de Balões de Bate-Papo"
+L["Channels"] = "Canais"
+L["Restyle Blizzard's chat bubbles for the channels you pick beside this.\n\nEllesmereUI keeps Blizzard's bubbles switched on and draws over them, so every bubble stays where the game put it, including the one over your own head. Nameplates are not involved and do not need to be visible.\n\nChannels you leave off keep Blizzard's own look."] = "Reestiliza os balões de bate-papo da Blizzard para os canais escolhidos ao lado.\n\nA EllesmereUI mantém os balões da Blizzard ativados e desenha por cima deles, então cada balão permanece onde o jogo o colocou, incluindo o que fica sobre sua própria cabeça. Placas de nome não estão envolvidas e não precisam estar visíveis.\n\nCanais que você deixar desmarcados mantêm a aparência original da Blizzard."
+L["EllesmereUI restyles Blizzard's chat bubbles and turns on the switches it needs. Party and Raid keep your current setting, and everything is put back when you turn this off."] = "A EllesmereUI reestiliza os balões de bate-papo da Blizzard e ativa as opções necessárias. Grupo e Raide mantêm sua configuração atual, e tudo é restaurado quando você desativa isto."
+L["Choose which channels get a bubble.\n\nSay, Yell, NPCs and Emotes share one Blizzard switch. It is turned on while at least one of the four is ticked, and put back the way you had it once you clear the last one. Party and Raid have switches of their own and start out matching what you already had, so no group bubbles turn up in a chat that had none.\n\nGuild is not offered: Blizzard draws no bubble for guild chat, and there is nothing for us to restyle."] = "Escolha quais canais recebem um balão.\n\nDizer, Gritar, NPCs e Expressões compartilham uma única opção da Blizzard. Ela é ativada enquanto pelo menos um dos quatro estiver marcado, e restaurada ao estado anterior assim que você desmarcar o último. Grupo e Raide têm opções próprias e começam já correspondendo ao que você já tinha, então nenhum balão de grupo aparece em um bate-papo que não tinha nenhum.\n\nGuilda não é oferecida: a Blizzard não desenha balão para o bate-papo de guilda, e não há nada para reestilizarmos."
+L["Say"] = "Dizer"
+L["Yell"] = "Gritar"
+L["NPCs"] = true
+L["Emotes"] = "Expressões"
+L["Uses Blizzard's own party switch, independent of the other channels. Instance chat, the one an LFG or LFR group talks in, is covered here too."] = "Usa a própria opção de grupo da Blizzard, independente dos outros canais. O bate-papo de instância, usado por um grupo de LFG ou LFR, também é coberto aqui."
+L["Uses Blizzard's own raid switch, which it ships off. Ticking this turns that switch on, and it is put back the way you had it when you untick it or switch the feature off."] = "Usa a própria opção de raide da Blizzard, que vem desativada por padrão. Marcar isto ativa essa opção, e ela é restaurada ao estado anterior quando você desmarcar ou desativar o recurso."
+L["Hide Chat Bubbles in Instances"] = "Ocultar Balões de Bate-Papo em Instâncias"
+L["Switch Blizzard's chat bubbles off for as long as you are inside a dungeon, raid, scenario or battleground, and back on the way out.\n\nEllesmereUI never restyles bubbles inside an instance: the game's bubble frames are off limits to addons there. This decides whether Blizzard's own are visible at all."] = "Desativa os balões de bate-papo da Blizzard enquanto você estiver dentro de uma masmorra, raide, cenário ou campo de batalha, e os reativa ao sair.\n\nA EllesmereUI nunca reestiliza balões dentro de uma instância: ali, os quadros de balão do jogo ficam fora do alcance de addons. Isto decide apenas se os balões originais da Blizzard ficam visíveis ou não."
+L["Padding"] = "Preenchimento"
+L["Space between the text and the edge of the bubble."] = "Espaço entre o texto e a borda do balão."
+L["Maximum Width"] = "Largura Máxima"
+L["Font size."] = "Tamanho da fonte."
+L["Border size. Set to 0 for no border."] = "Tamanho da borda. Defina como 0 para nenhuma borda."
+L["Draw a filled background behind the text and border. Off draws the text and border on their own."] = "Desenha um fundo preenchido atrás do texto e da borda. Desativado desenha apenas o texto e a borda, sem fundo."
+L["Vertical Offset"] = "Deslocamento Vertical"
+L["Nudge the bubble up or down from where the game put it. Zero sits exactly on Blizzard's own position, which is already over the speaker's head."] = "Move o balão para cima ou para baixo em relação à posição definida pelo jogo. Zero mantém exatamente a posição original da Blizzard, que já fica sobre a cabeça de quem fala."
+L["Follow Blizzard Default Color"] = "Seguir Cor Padrão da Blizzard"
+L["Blizzard's own color is in use. Turn Follow Blizzard Default Color off in the cog to pick your own."] = "A cor padrão da Blizzard está em uso. Desative Seguir Cor Padrão da Blizzard na engrenagem para escolher a sua."
+L["Turn Background on to set a color."] = "Ative o Fundo para definir uma cor."
+
+-- == Cooldown Manager / Rotation Assist ================================================
+L["Rotation Assist Style"] = "Estilo de Assistência de Rotação"
+L["Rotation Assist Color"] = "Cor de Assistência de Rotação"
+L["Rotation Assist Color Mode"] = "Modo de Cor de Assistência de Rotação"
+L["Rotation Assist Custom Color"] = "Cor Personalizada de Assistência de Rotação"
+L["Rotation Assist Thickness"] = "Espessura de Assistência de Rotação"
+L["Rotation Assist Outset"] = "Deslocamento Externo de Assistência de Rotação"
+L["Choose the profile-wide border or glow used for Blizzard's Assisted Combat suggestion."] = "Escolhe a borda ou o brilho, válido para todo o perfil, usado na sugestão de Combate Assistido da Blizzard."
+L["Thickness in physical pixels for Solid Border and Pixel Glow."] = "Espessura em pixels físicos para Borda Sólida e Brilho em Pixel."
+L["How many pixels the custom effect extends beyond the icon."] = "Quantos pixels o efeito personalizado se estende além do ícone."
+L["Solid Border"] = "Borda Sólida"
+L["Thickness applies to Solid Border and Pixel Glow"] = "A espessura se aplica a Borda Sólida e Brilho em Pixel"
+L["Blizzard Default uses Blizzard's native size"] = "Padrão da Blizzard usa o tamanho nativo da Blizzard"

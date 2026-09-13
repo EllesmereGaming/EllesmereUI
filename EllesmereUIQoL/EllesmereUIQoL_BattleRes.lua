@@ -756,11 +756,13 @@ local function RegisterUnlock()
             setWidth = function(_, w)
                 local p = P(); if not p then return end
                 if p.displayMode == "text" then
-                    p.textSize = math.max(8, math.min(40, math.floor(w + 0.5)))
-                else
-                    local PPb = EllesmereUI and EllesmereUI.PP
-                    p.iconSize = math.max(16, PPb and PPb.Snap(w) or math.floor(w + 0.5))
+                    -- Text display: the box width is measured from the rendered string
+                    -- (ApplyText), never an input. Writing it into textSize turned the
+                    -- unlock Cancel round-trip (getSize -> setWidth) into a 40-point font.
+                    return
                 end
+                local PPb = EllesmereUI and EllesmereUI.PP
+                p.iconSize = math.max(16, PPb and PPb.Snap(w) or math.floor(w + 0.5))
                 Apply()
                 if EllesmereUI._unlockActive and EllesmereUI.RepositionBarToMover then
                     EllesmereUI.RepositionBarToMover("EUI_BattleRes")
@@ -769,7 +771,12 @@ local function RegisterUnlock()
             setHeight = function(_, h)
                 local p = P(); if not p then return end
                 if p.displayMode == "text" then
-                    p.textSize = math.max(8, math.min(40, math.floor(h + 0.5)))
+                    -- Text display: getSize reports the measured box, so a height equal
+                    -- to the current one is the unlock round-trip (Cancel feeds the open
+                    -- snapshot back) and leaves textSize alone; a different height is a
+                    -- real resize, mapped back through ApplyText's box padding.
+                    if frame and math.abs(h - frame:GetHeight()) < 0.5 then return end
+                    p.textSize = math.max(8, math.min(40, math.floor(h + 0.5) - 2))
                 else
                     local PPb = EllesmereUI and EllesmereUI.PP
                     p.iconSize = math.max(16, PPb and PPb.Snap(h) or math.floor(h + 0.5))

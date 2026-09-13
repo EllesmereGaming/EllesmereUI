@@ -191,6 +191,16 @@ local function BuildModuleAliases()
     table.sort(_moduleAliases, function(a, b) return #a.alias > #b.alias end)
 end
 
+-- Alternate spellings a query may use for a feature whose option labels
+-- name it differently; see the synonym pass in SearchIndex. Terms are
+-- plain lowercase words (no pattern characters) and engage from their
+-- first SYNONYM_MIN_PREFIX letters.
+local QUERY_SYNONYMS = {
+    { "skyriding",  { "dragon riding", "dragonriding" } },
+    { "sky riding", { "dragon riding", "dragonriding" } },
+}
+local SYNONYM_MIN_PREFIX = 3
+
 local function SearchIndex(query, maxResults)
     maxResults = maxResults or 30
     local needle = (query or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
@@ -277,20 +287,61 @@ local function SearchIndex(query, maxResults)
     -- (trailing "b" = a Bags/Blizz UI prefix) must not drop QoL's "Hide
     -- Blizzard Party Panel", which still matches the plain query.
     local scored = ScorePass(nil, needle)
-    if filterSet then
-        local seenEntries = {}
-        for _, sc in ipairs(scored) do seenEntries[sc.entry] = sc end
-        for _, sc in ipairs(ScorePass(filterSet, subNeedle)) do
-            local boosted = sc.score + 20000
+    local seenEntries = {}
+    for _, sc in ipairs(scored) do seenEntries[sc.entry] = sc end
+    -- Merge a further pass by entry: an entry already present keeps its
+    -- best score, a new one joins the list.
+    local function Merge(list, boost)
+        for _, sc in ipairs(list) do
+            local s = sc.score + boost
             local existing = seenEntries[sc.entry]
             if existing then
-                if boosted > existing.score then existing.score = boosted end
+                if s > existing.score then existing.score = s end
             else
-                sc.score = boosted
+                sc.score = s
                 seenEntries[sc.entry] = sc
                 scored[#scored + 1] = sc
             end
         end
+    end
+    -- Query synonyms: a term players type for a feature whose labels still
+    -- carry another name. The term engages while it is still being TYPED:
+    -- the longest prefix of it (at least SYNONYM_MIN_PREFIX letters) that
+    -- sits in the query on word boundaries, or runs to the end of the
+    -- query, is swapped for each alternate spelling and that variant runs
+    -- as one more plain pass at the same score -- "sky", "skyr" and
+    -- "skyriding" all surface every "Dragon Riding" control. Variants are
+    -- deduped so two terms sharing a prefix do not score twice.
+    local altNeedles
+    for _, syn in ipairs(QUERY_SYNONYMS) do
+        local term = syn[1]
+        local matched = false
+        for len = #term, SYNONYM_MIN_PREFIX, -1 do
+            local pre = term:sub(1, len)
+            local s, e = needle:find(pre, 1, true)
+            while s do
+                local beforeOk = s == 1 or needle:sub(s - 1, s - 1) == " "
+                local afterOk = e == #needle or needle:sub(e + 1, e + 1) == " "
+                if beforeOk and afterOk then
+                    altNeedles = altNeedles or {}
+                    for _, alt in ipairs(syn[2]) do
+                        altNeedles[needle:sub(1, s - 1) .. alt .. needle:sub(e + 1)] = true
+                    end
+                    matched = true
+                    break
+                end
+                s, e = needle:find(pre, s + 1, true)
+            end
+            if matched then break end
+        end
+    end
+    if altNeedles then
+        for altNeedle in pairs(altNeedles) do
+            Merge(ScorePass(nil, altNeedle), 0)
+        end
+    end
+    if filterSet then
+        Merge(ScorePass(filterSet, subNeedle), 20000)
     end
 
     table.sort(scored, function(a, b) return a.score > b.score end)

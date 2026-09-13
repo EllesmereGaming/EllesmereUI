@@ -996,6 +996,30 @@ local function PhysicalPixels(userValue)
     return value
 end
 
+-- Row geometry with both terms on ONE pixel grid. barHeight is stored as a
+-- physical pixel count (plain slider), barSpacing in coordinate units (pixel
+-- slider), so it carries the UI scale it was set at. Snapping only the height
+-- left the stride between two grids and -((i-1) * stride) drifted down the
+-- list: a spacing of 1 then rendered as 0px on some rows and 2px on others, at
+-- a fractional UI scale and equally at a pixel-perfect one whenever the value
+-- had been saved at another scale.
+-- Returns barH, barSp, stride and one physical pixel, in coordinate units.
+local function RowMetrics(heightPx, spacingCoord, es)
+    local PP = EUI and EUI.PP
+    if PP and PP.perfect and PP.SnapForES then
+        if not es or es <= 0 then es = (UIParent and UIParent:GetEffectiveScale()) or 1 end
+        local onePixel = PP.perfect / es
+        local barH = PP.SnapForES((heightPx or 18) * onePixel, es)
+        local barSp = PP.SnapForES(spacingCoord or 2, es)
+        return barH, barSp, barH + barSp, onePixel
+    end
+    local barH, barSp = PhysicalPixels(heightPx or 18), spacingCoord or 2
+    return barH, barSp, barH + barSp, (PP and PP.mult) or 1
+end
+-- On ns as well: CreateDMWindow sits at Lua 5.1's 60-upvalue cap, so its call
+-- sites reach the helper through ns (already one of its upvalues).
+ns._RowMetrics = RowMetrics
+
 -- Number formatting: delegates to the shared EllesmereUI_NumberFormat.lua engine
 -- (breakpoint tables, the CJK wan/yi grouping tables and the
 -- AbbreviateNumbers/CreateAbbreviateConfig plumbing all live there now,
@@ -1438,6 +1462,17 @@ local function TTPhysicalPixels(userValue)
     return PP.SnapForES((userValue or 0) * onePixel, es)
 end
 
+-- Row stride for the tooltip list. TT_BAR_H is a raw coordinate height while the
+-- gap is snapped to whole pixels, so their sum sits between two pixel rows and
+-- -((i-1) * stride) drifts down the list, the same defect the main bars had.
+-- Snap the sum; the row height itself keeps its current size.
+local function TTStride()
+    local sp = TTPhysicalPixels(1)
+    local PP = EUI and EUI.PP
+    if not PP or not PP.SnapForES or not _ttFrame then return TT_BAR_H + sp end
+    return PP.SnapForES(TT_BAR_H + sp, _ttFrame:GetEffectiveScale())
+end
+
 local function BlizzardSkinBordersAvailable()
     return C_AddOns and C_AddOns.IsAddOnLoaded
         and C_AddOns.IsAddOnLoaded("EllesmereUIBlizzardSkin")
@@ -1507,12 +1542,12 @@ end
 local function EnsureTTBar(i)
     if _ttBars[i] then return _ttBars[i] end
     EnsureTooltipFrame()
-    local ttSp = TTPhysicalPixels(1)
+    local ttStride = TTStride()
     local b = {}
     b.row = CreateFrame("Frame", nil, _ttFrame)
     b.row:SetHeight(TT_BAR_H)
-    b.row:SetPoint("TOPLEFT", _ttFrame, "TOPLEFT", 0, -(TT_HDR_H + (i-1) * (TT_BAR_H + ttSp)))
-    b.row:SetPoint("TOPRIGHT", _ttFrame, "TOPRIGHT", 0, -(TT_HDR_H + (i-1) * (TT_BAR_H + ttSp)))
+    b.row:SetPoint("TOPLEFT", _ttFrame, "TOPLEFT", 0, -(TT_HDR_H + (i-1) * ttStride))
+    b.row:SetPoint("TOPRIGHT", _ttFrame, "TOPRIGHT", 0, -(TT_HDR_H + (i-1) * ttStride))
     b.fill = CreateFrame("StatusBar", nil, b.row)
     b.fill:SetAllPoints(); b.fill:SetMinMaxValues(0, 1); b.fill:SetValue(0); b.fill:SetStatusBarTexture(BAR_TEX)
     b.spellIcon = b.row:CreateTexture(nil, "OVERLAY")
@@ -1530,7 +1565,7 @@ local function EnsureTTBar(i)
     return b
 end
 
-local _ttLastSp = -1
+local _ttLastStride = -1
 local _ttSorted = {}
 
 local function PopulatePreview(bar, curSession, curSessionID, curDMType)
@@ -1545,11 +1580,11 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
     if not bar._srcGUID and not bar._src.sourceCreatureID then return false end
     if not C_DamageMeter then return false end
 
-    -- Reposition tooltip bars with physical-pixel spacing (only when spacing changes)
+    -- Reposition tooltip bars with physical-pixel spacing (only when the stride changes)
     local ttSp = TTPhysicalPixels(1)
-    local ttStride = TT_BAR_H + ttSp
-    if ttSp ~= _ttLastSp then
-        _ttLastSp = ttSp
+    local ttStride = TTStride()
+    if ttStride ~= _ttLastStride then
+        _ttLastStride = ttStride
         for ti = 1, #_ttBars do
             local b = _ttBars[ti]
             if b then
@@ -2411,7 +2446,10 @@ local function CreateDMWindow(winIdx)
             -- own breakdown, death recaps, and group rows resolvable through
             -- the identity-exempt token channel all fall through to the
             -- normal hover path, whose builders are secret-safe.
-            if InCombatLockdown() and not IsOwnRow(bar._src)
+            -- Gated on Show Breakdown on Hover like ShowBarTooltip: with the option off
+            -- this branch still showed the disclaimer for ally rows.
+            if InCombatLockdown() and DB().showHoverTooltip ~= false
+               and not IsOwnRow(bar._src)
                and W.curDMType ~= Enum.DamageMeterType.Deaths
                and not ns._ResolveGroupGUID(bar._src) then
                 EnsureTooltipFrame()
@@ -3093,7 +3131,7 @@ local function CreateDMWindow(winIdx)
     local _scrollRefreshPending = false
     viewport:EnableMouseWheel(true)
     viewport:SetScript("OnMouseWheel", function(_, delta)
-        local c = DB(); local step = (PhysicalPixels(c.barHeight or 18) + (c.barSpacing or 2)) * 2
+        local c = DB(); local _, _, step = ns._RowMetrics(c.barHeight or 18, c.barSpacing or 2, frame:GetEffectiveScale()); step = step * 2
         local cur = viewport:GetVerticalScroll() or 0
         local newVal = math.max(0, math.min(_scrollMax, cur - delta * step))
         viewport:SetVerticalScroll(newVal)
@@ -3139,7 +3177,7 @@ local function CreateDMWindow(winIdx)
     local _srcScrollMax = 0
     W.srcViewport:EnableMouseWheel(true)
     W.srcViewport:SetScript("OnMouseWheel", function(_, delta)
-        local c = DB(); local step = (PhysicalPixels(c.barHeight or 18) + (c.barSpacing or 2)) * 2
+        local c = DB(); local _, _, step = ns._RowMetrics(c.barHeight or 18, c.barSpacing or 2, frame:GetEffectiveScale()); step = step * 2
         local cur = W.srcViewport:GetVerticalScroll() or 0
         W.srcViewport:SetVerticalScroll(math.max(0, math.min(_srcScrollMax, cur - delta * step)))
     end)
@@ -3371,8 +3409,8 @@ local function CreateDMWindow(winIdx)
 
     local function RecalcViewport(dataCount)
         if not viewport or not content then return end
-        local c = DB(); local barH = PhysicalPixels(c.barHeight or 18); local barSp = c.barSpacing or 2
-        local totalH = dataCount * (barH + barSp)
+        local c = DB(); local _, _, stride = ns._RowMetrics(c.barHeight or 18, c.barSpacing or 2, frame:GetEffectiveScale())
+        local totalH = dataCount * stride
         content:SetHeight(math.max(10, totalH))
         local viewH = viewport:GetHeight(); if viewH < 1 then viewH = 1 end
         _scrollMax = math.max(0, totalH - viewH)
@@ -3397,11 +3435,10 @@ local function CreateDMWindow(winIdx)
         local playerIdx
         for i, src in ipairs(sources) do if src.isLocalPlayer then playerIdx = i; break end end
         if not playerIdx then W.stickyPlayer.row:Hide(); W.stickySep:Hide(); ResetScrollAnchors(); W.stickyAtTop = false; return end
-        local barH = PhysicalPixels(c.barHeight or 18); local barSp = c.barSpacing or 2; local stride = barH + barSp
+        local barH, _, stride, pxMult = ns._RowMetrics(c.barHeight or 18, c.barSpacing or 2, frame:GetEffectiveScale())
         local scrollVal = viewport:GetVerticalScroll() or 0
         local fullViewH = frame:GetHeight() - GetHeaderH()
         if fullViewH < 1 then fullViewH = 1 end
-        local pxMult = (PP and PP.mult) or 1
         local barTop = (playerIdx - 1) * stride
         local barBot = barTop + barH
         -- Unpin the instant the player bar is fully within the viewport (1px tolerance for float drift)
@@ -3528,7 +3565,7 @@ local function CreateDMWindow(winIdx)
         if session and session.combatSources then
 
             local sources = session.combatSources
-            local c = DB(); local barH = PhysicalPixels(c.barHeight or 18); local barSp = c.barSpacing or 2; local stride = barH + barSp
+            local c = DB(); local barH, barSp, stride = ns._RowMetrics(c.barHeight or 18, c.barSpacing or 2, frame:GetEffectiveScale())
             local leftFS = c.leftFontSize or c.fontSize or 11; local rightFS = c.rightFontSize or c.fontSize or 11
             local fontSize = leftFS -- compat for cacheKey
             local showIcon = (c.iconStyle or "spec") ~= "none"
@@ -3831,8 +3868,7 @@ local function CreateDMWindow(winIdx)
             -- Events come newest-first from API; reverse to oldest-first
             local reversed = {}
             for ri = #events, 1, -1 do reversed[#reversed + 1] = events[ri] end
-            local c = DB(); local barH = PhysicalPixels(c.barHeight or 18)
-            local barSp = c.barSpacing or 2; local stride = barH + barSp
+            local c = DB(); local barH, _, stride = ns._RowMetrics(c.barHeight or 18, c.barSpacing or 2, frame:GetEffectiveScale())
             local leftFS = c.leftFontSize or c.fontSize or 11; local rightFS = c.rightFontSize or c.fontSize or 11
             local texPath, texKey = GetBarTexturePath()
             local deathTime = reversed[#reversed] and reversed[#reversed].timestamp
@@ -3939,13 +3975,12 @@ local function CreateDMWindow(winIdx)
                 local ok, sd = pcall(C_DamageMeter.GetCombatSessionSourceFromType, W.curSession, W.curDMType, guid, cid)
                 if ok then srcData = sd end
             end
-            local c = DB(); local barH = PhysicalPixels(c.barHeight or 18)
+            local c = DB(); local barH, _, stride = ns._RowMetrics(c.barHeight or 18, c.barSpacing or 2, frame:GetEffectiveScale())
             local players = AggregateEnemyPlayers(srcData, GetBreakdownDuration(W.curSession, W.curSessionID))
             if not players then
                 if W.spellPool then for i = 1, BAR_POOL_SIZE do W.spellPool[i].row:Hide() end end
                 return
             end
-            local barSp = c.barSpacing or 2; local stride = barH + barSp
             local leftFS = c.leftFontSize or c.fontSize or 11; local rightFS = c.rightFontSize or c.fontSize or 11
             local texPath, texKey = GetBarTexturePath()
             local maxAmt = players[1].total
@@ -3996,8 +4031,8 @@ local function CreateDMWindow(winIdx)
             if W.spellPool then for i = 1, BAR_POOL_SIZE do W.spellPool[i].row:Hide() end end
             return
         end
-        local spells = srcData.combatSpells; local c = DB(); local barH = PhysicalPixels(c.barHeight or 18)
-        local barSp = c.barSpacing or 2; local stride = barH + barSp; local leftFS = c.leftFontSize or c.fontSize or 11; local rightFS = c.rightFontSize or c.fontSize or 11; local texPath, texKey = GetBarTexturePath()
+        local spells = srcData.combatSpells; local c = DB(); local barH, barSp, stride = ns._RowMetrics(c.barHeight or 18, c.barSpacing or 2, frame:GetEffectiveScale())
+        local leftFS = c.leftFontSize or c.fontSize or 11; local rightFS = c.rightFontSize or c.fontSize or 11; local texPath, texKey = GetBarTexturePath()
         local sorted = {}
         for _, spell in ipairs(spells) do local ok, amt = pcall(function() return spell.totalAmount end); sorted[#sorted + 1] = { spell = spell, amount = (ok and amt) or 0 } end
         -- API returns combatSpells pre-sorted; no table.sort needed
@@ -4477,6 +4512,24 @@ end
 ns.RefreshMeter = function()
     for _, w in ipairs(_windows) do w.Refresh() end
 end
+
+-- Re-lay out every row after a UI scale change. The row stride is derived from
+-- the frame's effective scale, so a new scale invalidates the cached row
+-- anchors; busting _barCacheKey makes the next refresh re-anchor them. Rows are
+-- otherwise only re-anchored on a settings change or from the in-combat ticker,
+-- so out of combat the old grid would survive until the next fight. Deliberately
+-- not _EDM_Apply (a full teardown and rebuild): the core scale slider calls this
+-- on every drag step.
+ns.Rescale = function()
+    for _, w in ipairs(_windows) do
+        w._barCacheKey = nil
+        w.Refresh()
+        if w.sourceOpen and w.RefreshBreakdown then w.RefreshBreakdown() end
+    end
+    if ns.ApplySpellHistory then ns.ApplySpellHistory() end
+end
+-- Called by the core right after PP.SetUIScale, alongside the other modules' re-apply hooks
+_G._EDM_Rescale = ns.Rescale
 
 -- Bust per-class color caches and repaint when global custom class colors change, so bars/text
 -- recolor live without a /reload (color is cached keyed only on classFile, which the palette edit doesn't change).
@@ -5015,35 +5068,58 @@ end
 -- panel runs on cancel and on a binding-set switch, drops every override, so a
 -- configured key would otherwise stay dead until the next profile change. Our own
 -- writes raise that event as well, hence the short self-write window.
+-- Zero cost with no key: the event is registered only while a key is laid down, and a
+-- pass that finds nothing configured and nothing applied never touches the binding API.
 do
     local kbFrame = CreateFrame("Frame")
     local selfWriteUntil = 0
+    -- The key each button currently carries (nil = none). Tracked apart from the
+    -- configured key so that clearing a key still gets its one ClearOverrideBindings,
+    -- and so a key dropped by LoadBindings is re-laid from the configured value.
+    local appliedReset, appliedToggle
+
+    local function WantKey(key)
+        if key == nil or key == "" then return nil end
+        return key
+    end
 
     ns.ApplyDMKeybinds = function()
+        local c = DB()
+        local wantReset, wantToggle = WantKey(c.resetDataKey), WantKey(c.toggleWindowsKey)
+        if not wantReset and not wantToggle and not appliedReset and not appliedToggle then
+            kbFrame:UnregisterEvent("UPDATE_BINDINGS")
+            kbFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
+            return
+        end
         if InCombatLockdown() then
             kbFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
             return
         end
         kbFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
-        local c = DB()
         selfWriteUntil = GetTime() + 0.5
         local resetBtn = _G.EllesmereUIDMResetBindBtn
         if resetBtn then
             ClearOverrideBindings(resetBtn)
-            if c.resetDataKey and c.resetDataKey ~= "" then
-                SetOverrideBindingClick(resetBtn, true, c.resetDataKey, "EllesmereUIDMResetBindBtn")
+            if wantReset then
+                SetOverrideBindingClick(resetBtn, true, wantReset, "EllesmereUIDMResetBindBtn")
             end
+            appliedReset = wantReset
         end
         local toggleBtn = _G.EllesmereUIDMToggleBindBtn
         if toggleBtn then
             ClearOverrideBindings(toggleBtn)
-            if c.toggleWindowsKey and c.toggleWindowsKey ~= "" then
-                SetOverrideBindingClick(toggleBtn, true, c.toggleWindowsKey, "EllesmereUIDMToggleBindBtn")
+            if wantToggle then
+                SetOverrideBindingClick(toggleBtn, true, wantToggle, "EllesmereUIDMToggleBindBtn")
             end
+            appliedToggle = wantToggle
+        end
+        if wantReset or wantToggle then
+            kbFrame:RegisterEvent("UPDATE_BINDINGS")
+        else
+            kbFrame:UnregisterEvent("UPDATE_BINDINGS")
         end
     end
 
-    kbFrame:RegisterEvent("UPDATE_BINDINGS")
     kbFrame:SetScript("OnEvent", function(_, event)
         -- Ours, echoing back: ignore, or we re-enter forever
         if event == "UPDATE_BINDINGS" and GetTime() < selfWriteUntil then return end

@@ -255,6 +255,9 @@ local function ItemChecksAllowed(unit)
     if issecretvalue and issecretvalue(can) then return false end
     return can == true
 end
+-- Shared with any other item-range reader (Quickdraw's usability tint) so the
+-- protection rule lives in one place.
+EllesmereUI.ItemRangeChecksAllowed = ItemChecksAllowed
 
 -------------------------------------------------------------------------------
 --  Queries
@@ -391,6 +394,10 @@ function EllesmereUI.Range_IsBeyondAttackRange(unit, cutoff)
     end
     local minY, maxY = EllesmereUI.Range_ItemBracket(unit, cutoff)
     if minY == nil then return nil end
+    -- A bracket that straddles the cutoff (the first in-range rung sits past
+    -- it, the last out-of-range rung before it) cannot say which side the
+    -- unit is on: unknown, no fade, rather than a beyond guess.
+    if maxY and maxY > cutoff and minY < cutoff then return nil end
     return maxY == nil or maxY > cutoff
 end
 
@@ -425,7 +432,8 @@ function EllesmereUI.Range_SweepBeyond(unit, cutoff)
     end
     if beyond == nil and C_Item and C_Item.IsItemInRange and ItemChecksAllowed(unit) then
         local minY, maxY = ItemWalk(unit, cutoff)
-        if minY ~= nil then
+        -- Same straddle rule as Range_IsBeyondAttackRange: unknown, not beyond.
+        if minY ~= nil and not (maxY and maxY > cutoff and minY < cutoff) then
             beyond = maxY == nil or maxY > cutoff
         end
     end

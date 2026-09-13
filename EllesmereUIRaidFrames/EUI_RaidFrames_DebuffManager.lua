@@ -275,6 +275,9 @@ local function TileStyleView(s, t)
     if not o then return s end
     return setmetatable(o, { __index = s })
 end
+-- The options preview renders tile runs through this same view, so what the
+-- page shows for a tile's Display values is what the live frames resolve.
+ns.DM_TileStyleView = TileStyleView
 -- Sorted fingerprint of one tile's style overrides (part of DM_CfgFP).
 local function TileStyleFP(t)
     local o = {}
@@ -569,6 +572,19 @@ local function EnsureEater(d, slot, host, container, active, pinHost, point, cor
         end
         return
     end
+    -- Clamp the footprint to the unit it serves: the settings maximum (cap
+    -- per declared group, stacked in rows) can be taller than the frame, and
+    -- with a centered or inward pin the excess would sit on the neighbouring
+    -- units at a higher level, stealing their hover and clicks for this unit.
+    -- Bounds = the smaller of the button and the pin host (both our frames,
+    -- settings-sized); pins that deliberately place icons outside the frame
+    -- keep their overshoot exactly as the icons themselves do.
+    local maxW, maxH = host:GetSize()
+    local pw, ph = pinHost:GetSize()
+    if pw and pw > 0 and pw < maxW then maxW = pw end
+    if ph and ph > 0 and ph < maxH then maxH = ph end
+    if w > maxW then w = maxW end
+    if h > maxH then h = maxH end
     local lvl = (container:GetFrameLevel() or 1) + 30
     local geoChanged = not e or e._euiPin ~= point or e._euiCorner ~= corner
         or e._euiOX ~= offX or e._euiOY ~= offY or e._euiHost ~= pinHost
