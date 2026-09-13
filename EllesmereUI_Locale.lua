@@ -185,5 +185,8 @@ f:SetScript("OnEvent", function(self, _, loaded)
             C_AddOns.LoadAddOn("EllesmereUILocales")
         end
         Activate()
+        -- EllesmereUI.lua's font system captured _localeFont/_localeScript before
+        -- this override-aware Activate() ran; re-sync it now that they're final.
+        if EllesmereUI.RefreshLocaleFontFallback then EllesmereUI.RefreshLocaleFontFallback() end
     end
 end)
