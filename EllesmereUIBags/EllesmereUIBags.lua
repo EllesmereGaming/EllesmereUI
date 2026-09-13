@@ -7096,9 +7096,24 @@ function EUI_Bags:RefreshInventory()
 
     if EUI_Bags.Header and EUI_Bags.Header.itemCount then
         -- Capacity describes physical slots, independent of categories and merged stacks.
-        local countText = EllesmereUI.Lf("%d / %d Bag slots", regularUsed, regularTotal)
-        if reagentTotal > 0 then
-            countText = countText .. "\n" .. EllesmereUI.Lf("%d / %d Reagent slots", reagentUsed, reagentTotal)
+        local format = BP().bagSlotCountFormat
+        local separate = BP().bagSeparateReagentSlots ~= false
+        local function FormatSlots(used, total, reagent)
+            if format == "free" then
+                return EllesmereUI.Lf(reagent and "%d Reagent slots free" or "%d Bag slots free", total - used)
+            elseif format == "free_total" then
+                return EllesmereUI.Lf(reagent and "%d / %d Reagent slots free" or "%d / %d Bag slots free", total - used, total)
+            end
+            return EllesmereUI.Lf(reagent and "%d / %d Reagent slots" or "%d / %d Bag slots", used, total)
+        end
+        local countText
+        if separate then
+            countText = FormatSlots(regularUsed, regularTotal, false)
+            if reagentTotal > 0 then
+                countText = countText .. "\n" .. FormatSlots(reagentUsed, reagentTotal, true)
+            end
+        else
+            countText = FormatSlots(regularUsed + reagentUsed, regularTotal + reagentTotal, false)
         end
         EUI_Bags.Header.itemCount:SetText(countText)
     end
