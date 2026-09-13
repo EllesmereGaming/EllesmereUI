@@ -9963,16 +9963,6 @@ ns._ptEventFrame = nil         -- name-refresh event host (created on first enab
 local PT_WIDTH_SCALE  = 0.56
 local PT_HEIGHT_SCALE = 0.55
 
--- Owner units whose UNIT_TARGET should refresh a party target name. Party
--- tokens cover normal groups; raid1-5 cover arena (the party header binds
--- raid1-5 there); player covers an in-header player frame. Kept as a set so
--- the handler ignores the flood of nameplate/boss UNIT_TARGET events.
-local PT_OWNER_UNITS = {
-    party1 = true, party2 = true, party3 = true, party4 = true,
-    raid1 = true, raid2 = true, raid3 = true, raid4 = true, raid5 = true,
-    player = true,
-}
-
 -- Refresh one target frame's name from its owner button's live unit. The
 -- owner's unit attribute is the party token the header currently holds, so
 -- appending "target" mirrors the secure unitsuffix resolution used for clicks.
@@ -10004,7 +9994,17 @@ end
 local function PT_OnEvent(_, event, arg1)
     if not ns._ptEnabled then return end
     if event == "UNIT_TARGET" then
-        if PT_OWNER_UNITS[arg1] then ns._PT_RefreshAll() end
+        -- Small Raid mode can bind any raid index to a party button. Read the
+        -- live owner so roster changes never leave a fixed token list stale.
+        if not arg1 then return end
+        local frames = ns._partyTargetFrames
+        for i = 1, #frames do
+            local tf = frames[i]
+            local owner = tf._ptOwner
+            if owner and owner:GetAttribute("unit") == arg1 then
+                PT_RefreshName(tf)
+            end
+        end
     else
         ns._PT_RefreshAll()
     end
