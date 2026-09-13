@@ -648,6 +648,18 @@ EllesmereUI._LEGENDS = {
     },
 }
 
+-- Language-picker font: each entry is entirely one script (even the CJK ones --
+-- their stock font already covers the trailing "(Korean)"-style Latin text, per
+-- the confirmed live render), so a plain per-entry font beats a multi-script
+-- family -- no dependency on how CreateFontFamily buckets accented Latin.
+local LP_FONT_BY_LOCALE = {
+    ruRU = "Fonts\\FRIZQT___CYR.TTF",
+    koKR = "Fonts\\2002.ttf",
+    zhCN = "Fonts\\ARKai_T.ttf",
+    zhTW = "Fonts\\bLEI00D.ttf",
+}
+local LP_ROMAN = EllesmereUI.MEDIA_PATH .. "fonts\\Expressway.TTF"
+
 -- The EUI Legends page: a celebration of the donors and team. Free-form
 -- chrome (no settings widgets) in the Patch Notes / Window Skins hero
 -- design language: dark cards, faint borders, accent bars, alpha hierarchy.
@@ -4050,6 +4062,14 @@ initFrame:SetScript("OnEvent", function(self)
                 ["zhTW"] = { text = "繁體中文 (Traditional Chinese)" },
             }
             local langOrder = { "auto", "enUS", "deDE", "frFR", "esES", "esMX", "itIT", "ptBR", "ruRU", "koKR", "zhCN", "zhTW" }
+            -- Pin each entry to the plain font its own script needs, independent
+            -- of whichever display locale is currently active.
+            for _, key in ipairs(langOrder) do
+                langValues[key].font = LP_FONT_BY_LOCALE[key] or LP_ROMAN
+            end
+            -- "auto"'s own text is translated, not a fixed native-script name, so
+            -- its script follows the ACTIVE locale rather than its own key.
+            langValues["auto"].font = LP_FONT_BY_LOCALE[EllesmereUI.LOCALE] or LP_ROMAN
 
             local function LanguageReload()
                 EllesmereUI:ShowConfirmPopup({
