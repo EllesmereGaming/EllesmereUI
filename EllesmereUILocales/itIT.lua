@@ -7,6 +7,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local L = EllesmereUI.RegisterLocale("itIT")
 if not L then return end
 
+L["Guild Repair"] = "Riparazione di gilda"
+L["Shows a large on-screen text when you enter or leave a raid instance with more than half guild members (e.g. \"+Guild repair\" / \"-Guild repair\") -- a nudge to toggle guild repair funds around raid time. Use the cog to set the text, size, colors and which transitions are shown; use Unlock Mode to reposition the alert."] = "Mostra un grande testo a schermo quando entri o esci da un'istanza raid con più della metà di membri della gilda (es. \"+Riparazione di gilda\" / \"-Riparazione di gilda\") -- un promemoria per attivare o disattivare i fondi di riparazione di gilda in occasione dei raid. Usa la rotella per impostare testo, dimensione, colori e quali transizioni vengono mostrate; usa la Modalità Sblocco per riposizionare l'avviso."
+L["Guild Repair Alert Settings"] = "Impostazioni avviso riparazione di gilda"
+L["Show For (sec)"] = "Durata (sec.)"
+
 L["WARLOCK"] = "STREGONE"
 L["Soulstone"] = "Pietra dell'Anima"
 L["Show a reminder until your own Soulstone is active on you or another group member."] = "Mostra un promemoria finché la tua Pietra dell'Anima non è attiva su di te o su un altro membro del gruppo."

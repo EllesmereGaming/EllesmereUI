@@ -6,6 +6,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local L = EllesmereUI.RegisterLocale("zhTW")
 if not L then return end
 
+L["Guild Repair"] = "公會修理"
+L["Shows a large on-screen text when you enter or leave a raid instance with more than half guild members (e.g. \"+Guild repair\" / \"-Guild repair\") -- a nudge to toggle guild repair funds around raid time. Use the cog to set the text, size, colors and which transitions are shown; use Unlock Mode to reposition the alert."] = "當你進入或離開公會成員超過一半的團隊副本時,在螢幕上顯示大字提醒(例如「+公會修理」/「-公會修理」),提示你在團隊活動前後開啟或關閉公會修理資金。使用齒輪圖示設定文字、大小、顏色以及顯示哪些切換;使用解鎖模式重新定位提醒。"
+L["Guild Repair Alert Settings"] = "公會修理提醒設定"
+L["Show For (sec)"] = "顯示時長（秒）"
+
 L["WARLOCK"] = "術士"
 L["Soulstone"] = "靈魂石"
 L["Show a reminder until your own Soulstone is active on you or another group member."] = "當你自己的靈魂石尚未作用於自己或其他隊伍成員時顯示提醒。"

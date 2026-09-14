@@ -1142,6 +1142,257 @@ qolFrame:SetScript("OnEvent", function(self)
     end)
 
     ---------------------------------------------------------------------------
+    --  Guild Repair Alert -- center-screen text on entering/leaving a raid
+    --  instance, gated both ways on the raid roster being majority guild
+    --  members (guild bank repair permission is a rank flag Blizzard
+    --  controls, never something an addon can flip, so this only nudges the
+    --  guild master to do it by hand). Same shape as Combat Alert: one Text
+    --  Size, per-transition text/color, "Show On" picks enter/leave/both.
+    --  No events registered unless enabled. Boot init rides
+    --  PLAYER_ENTERING_WORLD rather than PLAYER_LOGIN so it reliably applies
+    --  the saved setting after /reload, not just on first real login.
+    ---------------------------------------------------------------------------
+    do
+        local alertFrame
+        local watcher
+        local installed = false
+        local lastInRaidInstance
+        local DEFAULT_TEXT_SIZE = 22
+        local DEFAULT_HOLD_TIME = 3  -- seconds the text stays fully visible, between fade in/out
+        local DEFAULT_POS = { point = "CENTER", relPoint = "CENTER", x = 0, y = 100 }
+
+        local DEFAULTS = {
+            enterText  = "+Guild repair",
+            leaveText  = "-Guild repair",
+            enterColor = { r = 1.00, g = 1.00, b = 1.00 },
+            leaveColor = { r = 1.00, g = 1.00, b = 1.00 },
+        }
+
+        local function ResolveColor(which)
+            local db = EllesmereUIDB
+            local useClassKey = which == "leave" and "guildRepairAlertLeaveUseClassColor" or "guildRepairAlertEnterUseClassColor"
+            local useClass = db and db[useClassKey]
+            if useClass then
+                local _, classToken = UnitClass("player")
+                local c = classToken and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classToken]
+                if c then return c.r, c.g, c.b end
+            end
+            local c = (db and db[which == "leave" and "guildRepairAlertLeaveColor" or "guildRepairAlertEnterColor"])
+                or (which == "leave" and DEFAULTS.leaveColor or DEFAULTS.enterColor)
+            return c.r, c.g, c.b
+        end
+
+        local function AlertText(which)
+            local db = EllesmereUIDB
+            if which == "leave" then
+                return (db and db.guildRepairAlertLeaveText) or DEFAULTS.leaveText
+            end
+            return (db and db.guildRepairAlertEnterText) or DEFAULTS.enterText
+        end
+
+        local function ApplyOverlaySettings()
+            if not alertFrame then return end
+            local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras"))
+                or EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF"
+            local outline = (EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("extras")) or ""
+            if not outline:find("OUTLINE") then
+                outline = (outline == "") and "OUTLINE" or (outline .. ", OUTLINE")
+            end
+            local size = (EllesmereUIDB and EllesmereUIDB.guildRepairAlertTextSize) or DEFAULT_TEXT_SIZE
+            alertFrame._text:SetFont(fontPath, size, outline)
+            alertFrame:SetSize(size * 7, size + 14)
+
+            alertFrame:ClearAllPoints()
+            local pos = EllesmereUIDB and EllesmereUIDB.guildRepairAlertPos
+            if pos and pos.point then
+                alertFrame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
+            else
+                alertFrame:SetPoint(DEFAULT_POS.point, UIParent, DEFAULT_POS.relPoint, DEFAULT_POS.x, DEFAULT_POS.y)
+            end
+
+            if alertFrame._holdAnim then
+                local holdTime = (EllesmereUIDB and EllesmereUIDB.guildRepairAlertHoldTime) or DEFAULT_HOLD_TIME
+                alertFrame._holdAnim:SetDuration(holdTime)
+            end
+        end
+
+        local function CreateAlertFrame()
+            if alertFrame then return end
+
+            alertFrame = CreateFrame("Frame", nil, UIParent)
+            alertFrame:SetSize(240, 50)
+            alertFrame:SetFrameStrata("HIGH")
+            alertFrame:SetFrameLevel(60)
+            alertFrame:EnableMouse(false)
+            alertFrame:SetMouseClickEnabled(false)
+
+            local fs = alertFrame:CreateFontString(nil, "OVERLAY")
+            fs:SetPoint("CENTER")
+            alertFrame._text = fs
+            ApplyOverlaySettings()
+
+            local ag = alertFrame:CreateAnimationGroup()
+            local fadeIn = ag:CreateAnimation("Alpha")
+            fadeIn:SetFromAlpha(0); fadeIn:SetToAlpha(1); fadeIn:SetDuration(0.15); fadeIn:SetOrder(1)
+            local hold = ag:CreateAnimation("Alpha")
+            hold:SetFromAlpha(1); hold:SetToAlpha(1); hold:SetDuration(DEFAULT_HOLD_TIME); hold:SetOrder(2)
+            local fadeOut = ag:CreateAnimation("Alpha")
+            fadeOut:SetFromAlpha(1); fadeOut:SetToAlpha(0); fadeOut:SetDuration(0.5); fadeOut:SetOrder(3)
+            ag:SetScript("OnFinished", function() alertFrame:Hide() end)
+            alertFrame._ag = ag
+            alertFrame._holdAnim = hold
+
+            alertFrame:SetScript("OnHide", function() ag:Stop() end)
+            alertFrame:Hide()
+            ApplyOverlaySettings()  -- picks up the saved hold time now that _holdAnim exists
+        end
+
+        local function ShowAlert(which)
+            if EllesmereUI._unlockActive then return end
+            CreateAlertFrame()
+            ApplyOverlaySettings()
+
+            alertFrame._text:SetText(EllesmereUI.L(AlertText(which)))
+            alertFrame._text:SetTextColor(ResolveColor(which))
+            alertFrame._text:SetAlpha(1)
+
+            alertFrame._ag:Stop()
+            alertFrame:SetAlpha(1)
+            alertFrame:Show()
+            alertFrame._ag:Play()
+        end
+
+        -- Majority of the raid roster shares the player's guild.
+        local function GuildRaidQualified()
+            if not IsInRaid() then return false end
+            local total = GetNumGroupMembers()
+            if total == 0 then return false end
+            local guildMembers = 0
+            for i = 1, total do
+                if UnitIsInMyGuild("raid" .. i) then
+                    guildMembers = guildMembers + 1
+                end
+            end
+            return guildMembers > total / 2
+        end
+
+        local function OnGuildRepairEvent()
+            local db = EllesmereUIDB
+            if not (db and db.guildRepairAlertEnabled) then return end
+            if not IsGuildLeader() then return end
+
+            local _, instanceType = IsInInstance()
+            local inRaidInstance = instanceType == "raid"
+            if inRaidInstance == lastInRaidInstance then return end
+            lastInRaidInstance = inRaidInstance
+
+            -- Both directions gate on the same live majority check: entering
+            -- only matters for a guild raid, and leaving only matters if the
+            -- raid you're stepping out of still qualifies as one.
+            if not GuildRaidQualified() then return end
+
+            local mode = db.guildRepairAlertMode or "both"
+            if inRaidInstance then
+                if mode ~= "leave" then ShowAlert("enter") end
+            else
+                if mode ~= "enter" then ShowAlert("leave") end
+            end
+        end
+
+        local function ApplyGuildRepairAlert()
+            local on = EllesmereUIDB and EllesmereUIDB.guildRepairAlertEnabled
+            if on and not installed then
+                watcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+                installed = true
+            elseif not on and installed then
+                watcher:UnregisterAllEvents()
+                installed = false
+            end
+            if alertFrame then ApplyOverlaySettings() end
+        end
+        EllesmereUI._applyGuildRepairAlert = ApplyGuildRepairAlert
+
+        -- Fires a sample alert for the given transition so the look can be checked from the options cog without a real raid change.
+        EllesmereUI._guildRepairAlertPreview = function(which)
+            if EllesmereUI._unlockActive then return end
+            CreateAlertFrame()
+            ApplyOverlaySettings()
+            alertFrame._text:SetText(EllesmereUI.L(AlertText(which)))
+            alertFrame._text:SetTextColor(ResolveColor(which))
+            alertFrame._ag:Stop()
+            alertFrame:SetAlpha(1)
+            alertFrame:Show()
+            alertFrame._ag:Play()
+        end
+
+        -- Re-apply font size/position (called from the Text Size slider and from unlock mode on saved-position change).
+        EllesmereUI._applyGuildRepairAlertFrame = function()
+            CreateAlertFrame()
+            ApplyOverlaySettings()
+        end
+
+        watcher = CreateFrame("Frame")
+        watcher:SetScript("OnEvent", OnGuildRepairEvent)
+
+        -- Register the alert with Unlock Mode so its position can be dragged.
+        C_Timer.After(2, function()
+            if not (EllesmereUI and EllesmereUI.RegisterUnlockElements) then return end
+            local MK = EllesmereUI.MakeUnlockElement
+            if not MK then return end
+            EllesmereUI:RegisterUnlockElements({
+                MK({
+                    key      = "EUI_GuildRepairAlert",
+                    label    = "Guild Repair",
+                    group    = "Quality of Life",
+                    order    = 722,
+                    noResize = true,
+                    isHidden = function()
+                        return not (EllesmereUIDB and EllesmereUIDB.guildRepairAlertEnabled)
+                    end,
+                    getFrame = function()
+                        CreateAlertFrame()
+                        return alertFrame
+                    end,
+                    getSize = function()
+                        local size = (EllesmereUIDB and EllesmereUIDB.guildRepairAlertTextSize) or DEFAULT_TEXT_SIZE
+                        return size * 7, size + 14
+                    end,
+                    savePos = function(_, point, relPoint, x, y)
+                        if not point then return end
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.guildRepairAlertPos = { point = point, relPoint = relPoint, x = x, y = y }
+                        if alertFrame and not EllesmereUI._unlockActive then
+                            ApplyOverlaySettings()
+                        end
+                    end,
+                    loadPos = function()
+                        local pos = EllesmereUIDB and EllesmereUIDB.guildRepairAlertPos
+                        if pos and pos.point then return pos end
+                        return { point = DEFAULT_POS.point, relPoint = DEFAULT_POS.relPoint, x = DEFAULT_POS.x, y = DEFAULT_POS.y }
+                    end,
+                    clearPos = function()
+                        if EllesmereUIDB then EllesmereUIDB.guildRepairAlertPos = nil end
+                        if alertFrame then ApplyOverlaySettings() end
+                    end,
+                    applyPos = function()
+                        CreateAlertFrame()
+                        ApplyOverlaySettings()
+                    end,
+                }),
+            })
+        end)
+
+        local boot = CreateFrame("Frame")
+        boot:RegisterEvent("PLAYER_ENTERING_WORLD")
+        boot:SetScript("OnEvent", function(self)
+            self:UnregisterAllEvents()
+            if EllesmereUIDB and EllesmereUIDB.guildRepairAlertEnabled then
+                ApplyGuildRepairAlert()
+            end
+        end)
+    end
+
+    ---------------------------------------------------------------------------
     --  Quick Loot -- frame created lazily on first enable; LOOT_READY
     --  registers/unregisters with the toggle so it applies live and costs zero when off.
     ---------------------------------------------------------------------------

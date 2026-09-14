@@ -8,6 +8,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local L = EllesmereUI.RegisterLocale("koKR")
 if not L then return end
 
+L["Guild Repair"] = "길드 수리"
+L["Shows a large on-screen text when you enter or leave a raid instance with more than half guild members (e.g. \"+Guild repair\" / \"-Guild repair\") -- a nudge to toggle guild repair funds around raid time. Use the cog to set the text, size, colors and which transitions are shown; use Unlock Mode to reposition the alert."] = "길드원이 절반 이상인 공격대 인던에 들어가거나 나갈 때 화면에 큰 글씨로 표시합니다 (예: \"+길드 수리\" / \"-길드 수리\"). 공격대 시기에 맞춰 길드 수리 기금을 켜고 끄라는 알림입니다. 톱니바퀴로 텍스트, 크기, 색상, 표시할 전환을 설정하고, 잠금 해제 모드로 알림 위치를 옮기세요."
+L["Guild Repair Alert Settings"] = "길드 수리 알림 설정"
+L["Show For (sec)"] = "표시 시간 (초)"
+
 L["WARLOCK"] = "흑마법사"
 L["Soulstone"] = "영혼석"
 L["Show a reminder until your own Soulstone is active on you or another group member."] = "자신의 영혼석이 자신이나 다른 파티원에게 활성화될 때까지 알림을 표시합니다."

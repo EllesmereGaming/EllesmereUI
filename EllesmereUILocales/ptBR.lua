@@ -7,6 +7,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local L = EllesmereUI.RegisterLocale("ptBR")
 if not L then return end
 
+L["Guild Repair"] = "Reparo do grêmio"
+L["Shows a large on-screen text when you enter or leave a raid instance with more than half guild members (e.g. \"+Guild repair\" / \"-Guild repair\") -- a nudge to toggle guild repair funds around raid time. Use the cog to set the text, size, colors and which transitions are shown; use Unlock Mode to reposition the alert."] = "Mostra um texto grande na tela quando você entra ou sai de uma instância de raide com mais da metade de membros do grêmio (ex.: \"+Reparo do grêmio\" / \"-Reparo do grêmio\") -- um lembrete para ativar ou desativar os fundos de reparo do grêmio perto das raides. Use a engrenagem para definir o texto, tamanho, cores e quais transições são exibidas; use o Modo de Desbloqueio para reposicionar o alerta."
+L["Guild Repair Alert Settings"] = "Configurações do alerta de reparo do grêmio"
+L["Show For (sec)"] = "Duração (seg.)"
+
 L["WARLOCK"] = "BRUXO"
 L["Soulstone"] = "Pedra da Alma"
 L["Show a reminder until your own Soulstone is active on you or another group member."] = "Exibe um lembrete até que sua própria Pedra da Alma esteja ativa em você ou em outro membro do grupo."

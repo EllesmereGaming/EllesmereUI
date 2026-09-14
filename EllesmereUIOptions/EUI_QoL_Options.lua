@@ -983,6 +983,172 @@ initFrame:SetScript("OnEvent", function(self)
             if caInitOff then caCogBlock:Show() else caCogBlock:Hide() end
         end
 
+        -- Row: Guild repair alert, left half (right half left empty -- no
+        -- natural partner toggle). Mirrors Combat Alert's shape: a
+        -- center-screen enter/leave text, gated here on the raid being
+        -- majority guild members instead of combat state.
+        local guildRepairRow
+        guildRepairRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Guild Repair",
+              tooltip="Shows a large on-screen text when you enter or leave a raid instance with more than half guild members (e.g. \"+Guild repair\" / \"-Guild repair\") -- a nudge to toggle guild repair funds around raid time. Use the cog to set the text, size, colors and which transitions are shown; use Unlock Mode to reposition the alert.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.guildRepairAlertEnabled or false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.guildRepairAlertEnabled = v
+                  if EllesmereUI._applyGuildRepairAlert then EllesmereUI._applyGuildRepairAlert() end
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="spacer" }
+        );  y = y - h
+
+        -- Inline cog (text, size, colors, mode) on the Guild repair toggle.
+        if not EllesmereUI._prebuilding then
+            local leftRgn = guildRepairRow._leftRegion
+            local function grOff()
+                return not (EllesmereUIDB and EllesmereUIDB.guildRepairAlertEnabled)
+            end
+
+            local grModeValues = {
+                both  = "Enter & Leave",
+                enter = "Enter Only",
+                leave = "Leave Only",
+            }
+            local grModeOrder = { "both", "enter", "leave" }
+
+            local function grEnterClassOn()
+                return EllesmereUIDB and EllesmereUIDB.guildRepairAlertEnterUseClassColor
+            end
+            local function grLeaveClassOn()
+                return EllesmereUIDB and EllesmereUIDB.guildRepairAlertLeaveUseClassColor
+            end
+
+            local _, guildRepairCogShow = EllesmereUI.BuildCogPopup({
+                title = "Guild Repair Alert Settings",
+                minWidth = 300,
+                rows = {
+                    { type="dropdown", label="Show On",
+                      values=grModeValues, order=grModeOrder,
+                      get=function() return (EllesmereUIDB and EllesmereUIDB.guildRepairAlertMode) or "both" end,
+                      set=function(v)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.guildRepairAlertMode = v
+                      end },
+                    { type="slider", label="Text Size",
+                      min=14, max=64, step=1,
+                      get=function()
+                        return (EllesmereUIDB and EllesmereUIDB.guildRepairAlertTextSize) or 22
+                      end,
+                      set=function(v)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.guildRepairAlertTextSize = v
+                        if EllesmereUI._applyGuildRepairAlertFrame then EllesmereUI._applyGuildRepairAlertFrame() end
+                        if EllesmereUI._guildRepairAlertPreview then EllesmereUI._guildRepairAlertPreview("enter") end
+                      end },
+                    { type="slider", label="Show For (sec)",
+                      min=0.5, max=10, step=0.5,
+                      get=function()
+                        return (EllesmereUIDB and EllesmereUIDB.guildRepairAlertHoldTime) or 3
+                      end,
+                      set=function(v)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.guildRepairAlertHoldTime = v
+                        if EllesmereUI._applyGuildRepairAlertFrame then EllesmereUI._applyGuildRepairAlertFrame() end
+                      end },
+                    { type="input", label="Enter Text", inputWidth=90,
+                      get=function()
+                        return (EllesmereUIDB and EllesmereUIDB.guildRepairAlertEnterText) or "+Guild repair"
+                      end,
+                      set=function(v)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.guildRepairAlertEnterText = v
+                        if EllesmereUI._guildRepairAlertPreview then EllesmereUI._guildRepairAlertPreview("enter") end
+                      end },
+                    { type="colorpicker", label="Enter Color",
+                      disabled=grEnterClassOn,
+                      disabledTooltip="Disable Class Color to pick a custom color.", rawTooltip=true,
+                      get=function()
+                        local c = (EllesmereUIDB and EllesmereUIDB.guildRepairAlertEnterColor) or { r=1.00, g=1.00, b=1.00 }
+                        return c.r, c.g, c.b
+                      end,
+                      set=function(r, g, b)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.guildRepairAlertEnterColor = { r=r, g=g, b=b }
+                        if EllesmereUI._guildRepairAlertPreview then EllesmereUI._guildRepairAlertPreview("enter") end
+                      end },
+                    { type="toggle", label="Enter Class Color",
+                      get=function() return grEnterClassOn() end,
+                      set=function(v)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.guildRepairAlertEnterUseClassColor = v
+                        if EllesmereUI._guildRepairAlertPreview then EllesmereUI._guildRepairAlertPreview("enter") end
+                      end },
+                    { type="input", label="Leave Text", inputWidth=90,
+                      get=function()
+                        return (EllesmereUIDB and EllesmereUIDB.guildRepairAlertLeaveText) or "-Guild repair"
+                      end,
+                      set=function(v)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.guildRepairAlertLeaveText = v
+                        if EllesmereUI._guildRepairAlertPreview then EllesmereUI._guildRepairAlertPreview("leave") end
+                      end },
+                    { type="colorpicker", label="Leave Color",
+                      disabled=grLeaveClassOn,
+                      disabledTooltip="Disable Class Color to pick a custom color.", rawTooltip=true,
+                      get=function()
+                        local c = (EllesmereUIDB and EllesmereUIDB.guildRepairAlertLeaveColor) or { r=1.00, g=1.00, b=1.00 }
+                        return c.r, c.g, c.b
+                      end,
+                      set=function(r, g, b)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.guildRepairAlertLeaveColor = { r=r, g=g, b=b }
+                        if EllesmereUI._guildRepairAlertPreview then EllesmereUI._guildRepairAlertPreview("leave") end
+                      end },
+                    { type="toggle", label="Leave Class Color",
+                      get=function() return grLeaveClassOn() end,
+                      set=function(v)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.guildRepairAlertLeaveUseClassColor = v
+                        if EllesmereUI._guildRepairAlertPreview then EllesmereUI._guildRepairAlertPreview("leave") end
+                      end },
+                },
+                footer = { unlockKey = "EUI_GuildRepairAlert" },
+            })
+            local grCogBtn = CreateFrame("Button", nil, leftRgn)
+            grCogBtn:SetSize(26, 26)
+            grCogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
+            leftRgn._lastInline = grCogBtn
+            grCogBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
+            grCogBtn:SetAlpha(grOff() and 0.15 or 0.4)
+            local grCogTex = grCogBtn:CreateTexture(nil, "OVERLAY")
+            grCogTex:SetAllPoints()
+            grCogTex:SetTexture(EllesmereUI.COGS_ICON or EllesmereUI.DIRECTIONS_ICON)
+            grCogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            grCogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            grCogBtn:SetScript("OnClick", function(self) guildRepairCogShow(self) end)
+
+            local grCogBlock = CreateFrame("Frame", nil, grCogBtn)
+            grCogBlock:SetAllPoints()
+            grCogBlock:SetFrameLevel(grCogBtn:GetFrameLevel() + 10)
+            grCogBlock:EnableMouse(true)
+            grCogBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(grCogBtn, EllesmereUI.DisabledTooltip("Guild Repair"))
+            end)
+            grCogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            EllesmereUI.RegisterWidgetRefresh(function()
+                if grOff() then
+                    grCogBtn:SetAlpha(0.15); grCogBlock:Show()
+                else
+                    grCogBtn:SetAlpha(0.4); grCogBlock:Hide()
+                end
+            end)
+            local grInitOff = grOff()
+            grCogBtn:SetAlpha(grInitOff and 0.15 or 0.4)
+            if grInitOff then grCogBlock:Show() else grCogBlock:Hide() end
+        end
+
         -- (Target Distance Text moved to the EXTRAS section, Row 4 right slot.)
 
         -- Inline picker cog on Hide Item Transforms (right slot of the death
@@ -2906,6 +3072,17 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.combatAlertLeaveColor = nil
                 EllesmereUIDB.combatAlertEnterUseClassColor = nil
                 EllesmereUIDB.combatAlertLeaveUseClassColor = nil
+                EllesmereUIDB.guildRepairAlertEnabled = false
+                EllesmereUIDB.guildRepairAlertMode = nil
+                EllesmereUIDB.guildRepairAlertTextSize = nil
+                EllesmereUIDB.guildRepairAlertHoldTime = nil
+                EllesmereUIDB.guildRepairAlertPos = nil
+                EllesmereUIDB.guildRepairAlertEnterText = nil
+                EllesmereUIDB.guildRepairAlertLeaveText = nil
+                EllesmereUIDB.guildRepairAlertEnterColor = nil
+                EllesmereUIDB.guildRepairAlertLeaveColor = nil
+                EllesmereUIDB.guildRepairAlertEnterUseClassColor = nil
+                EllesmereUIDB.guildRepairAlertLeaveUseClassColor = nil
                 EllesmereUIDB.targetDistanceEnabled = false
                 EllesmereUIDB.targetDistanceFormat = nil
                 EllesmereUIDB.targetDistanceAlign = nil

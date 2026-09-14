@@ -8,6 +8,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local L = EllesmereUI.RegisterLocale("ruRU")
 if not L then return end
 
+L["Guild Repair"] = "Гильдейский ремонт"
+L["Shows a large on-screen text when you enter or leave a raid instance with more than half guild members (e.g. \"+Guild repair\" / \"-Guild repair\") -- a nudge to toggle guild repair funds around raid time. Use the cog to set the text, size, colors and which transitions are shown; use Unlock Mode to reposition the alert."] = "Показывает крупный текст на экране, когда вы входите в рейдовое подземелье или покидаете его, если в рейде больше половины членов гильдии (напр. \"+Гильдейский ремонт\" / \"-Гильдейский ремонт\") -- напоминание включать или отключать средства на гильдейский ремонт во время рейдов. Используйте шестерёнку, чтобы задать текст, размер, цвета и какие переходы показывать; используйте Режим разблокировки, чтобы переместить оповещение."
+L["Guild Repair Alert Settings"] = "Настройки оповещения о гильдейском ремонте"
+L["Show For (sec)"] = "Длительность (сек.)"
+
 L["WARLOCK"] = "ЧЕРНОКНИЖНИК"
 L["Soulstone"] = "Камень души"
 L["Show a reminder until your own Soulstone is active on you or another group member."] = "Показывать напоминание, пока ваш собственный камень души не действует на вас или другого участника группы."

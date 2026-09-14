@@ -6,6 +6,9 @@ EllesmereUIUnitFrames/Libs/
 .kiro/
 .DS_Store
 
+# VS Code workspace files
+.vscode/
+
 # Claude Code workspace files
 .claude/
 CLAUDE.md

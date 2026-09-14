@@ -7,6 +7,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local L = EllesmereUI.RegisterLocale("deDE")
 if not L then return end
 
+L["Guild Repair"] = "Gildenreparatur"
+L["Shows a large on-screen text when you enter or leave a raid instance with more than half guild members (e.g. \"+Guild repair\" / \"-Guild repair\") -- a nudge to toggle guild repair funds around raid time. Use the cog to set the text, size, colors and which transitions are shown; use Unlock Mode to reposition the alert."] = "Zeigt einen großen Text auf dem Bildschirm an, wenn Ihr eine Schlachtzugsinstanz mit mehr als der Hälfte Gildenmitgliedern betretet oder verlasst (z. B. \"+Gildenreparatur\" / \"-Gildenreparatur\") -- ein Hinweis, die Gildenreparatur-Mittel rund um Schlachtzüge umzuschalten. Verwende das Zahnrad, um Text, Größe, Farben und gezeigte Übergänge einzustellen; nutze den Freischaltmodus, um die Warnung neu zu positionieren."
+L["Guild Repair Alert Settings"] = "Einstellungen für Gildenreparatur-Warnung"
+L["Show For (sec)"] = "Anzeigedauer (Sek.)"
+
 L["WARLOCK"] = "HEXENMEISTER"
 L["Soulstone"] = "Seelenstein"
 L["Show a reminder until your own Soulstone is active on you or another group member."] = "Zeigt eine Erinnerung an, bis Euer eigener Seelenstein auf Euch oder einem anderen Gruppenmitglied aktiv ist."
