@@ -12,6 +12,7 @@ local BAGS_DEFAULTS = {
         bagScale              = 1,
         bagItemIconZoom       = 0.08,
         bagColumns            = 12,
+        bankColumns           = 14,
         bagAutoSize           = false,
         bagCatTitleSize       = 11,
         bagCountFontSize      = 11,
