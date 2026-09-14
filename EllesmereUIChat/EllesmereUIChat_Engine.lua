@@ -146,6 +146,7 @@ local function LayoutWindowSMF(cf)
     -- edge, and the input covers the hidden lines' hit-zones.
     smf:SetPoint("TOPLEFT", d.bg, "TOPLEFT", -il, -(it + 6 + (d._smfTopExtra or 0)))
     smf:SetPoint("BOTTOMRIGHT", d.bg, "BOTTOMRIGHT", -ir, -ib)
+    if ns._onMetersHostChanged then ns._onMetersHostChanged() end
 end
 ECHAT.EngineLayoutWindows = function()
     for cf in pairs(WINS) do LayoutWindowSMF(cf) end
@@ -1057,7 +1058,7 @@ function ECHAT.EngineUpdateCombatLogHost()
     if not cf2 or not IsCombatLog or not IsCombatLog(cf2) then return end
     local selected = GENERAL_CHAT_DOCK and FCFDock_GetSelectedWindow
         and FCFDock_GetSelectedWindow(GENERAL_CHAT_DOCK)
-    local host = (selected == cf2)
+    local host = (selected == cf2 and ns._metersViewWindow ~= cf2)
     if host == (ns._clHosted or false) then return end
     ns._clHosted = host
     local win = WINS[cf2]
@@ -1084,6 +1085,35 @@ function ECHAT.EngineUpdateCombatLogHost()
             if theirs < win.smf:GetNumMessages() then
                 RebuildWindowFromBuffer(cf2)
             end
+        end
+    end
+end
+
+-- The optional meter view suppresses display layers only. Blizzard's selected
+-- dock window, frame fields and scripts are never changed. Combat Log goes
+-- through the existing visual host path above rather than a second frame owner.
+local metersQuickAlpha
+function ECHAT.SetMetersView(cf)
+    local previous = ns._metersViewWindow
+    if previous == cf then return end
+    ns._metersViewWindow = cf
+    if previous and WINS[previous] then
+        WINS[previous].smf:SetAlpha(1)
+        if WINS[previous].track then WINS[previous].track:SetAlpha(1) end
+    end
+    ECHAT.EngineUpdateCombatLogHost()
+    if cf and WINS[cf] then
+        WINS[cf].smf:SetAlpha(0)
+        if WINS[cf].track then WINS[cf].track:SetAlpha(0) end
+    end
+    local quick = _G.CombatLogQuickButtonFrame_Custom
+    if quick then
+        if cf == _G.ChatFrame2 then
+            metersQuickAlpha = quick:GetAlpha()
+            quick:SetAlpha(0)
+        elseif previous == _G.ChatFrame2 then
+            quick:SetAlpha(metersQuickAlpha)
+            metersQuickAlpha = nil
         end
     end
 end

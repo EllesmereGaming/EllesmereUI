@@ -192,6 +192,29 @@ initFrame:SetScript("OnEvent", function(self)
         if EllesmereUI.ClearContentHeader then EllesmereUI:ClearContentHeader() end
         parent._showRowDivider = true
 
+        -- Opt-in chat hosting; the controller is created only by the first enable.
+        _, h = W:SectionHeader(parent, "CHAT METERS", y); y = y - h
+        local function ChatToggle(key, label, tooltip)
+            return { type = "toggle", text = label, tooltip = tooltip,
+                getValue = function() return Cfg(key) == true end,
+                setValue = function(value)
+                    Set(key, value)
+                    if ns.ApplyChatMeters then ns.ApplyChatMeters() end
+                end }
+        end
+        _, h = W:DualRow(parent, y,
+            ChatToggle("chatEmbedEnabled", "Embed Meters in Chat",
+                "Show existing Damage Done and Healing Done windows side by side using the Meters sidebar icon. Requires EllesmereUI Chat. Resize the chat pane to resize both meters. Disable to restore separate windows."),
+            ChatToggle("chatEmbedReturnOnExit", "Return to Chat on Exit",
+                "Return to chat when leaving a dungeon or raid."))
+        y = y - h
+        _, h = W:DualRow(parent, y,
+            ChatToggle("chatEmbedAutoDungeon", "Auto Show in Dungeons",
+                "Select Meters when entering a dungeon. Manual chat selection lasts until the next instance transition."),
+            ChatToggle("chatEmbedAutoRaid", "Auto Show in Raids",
+                "Select Meters when entering a raid. Manual chat selection lasts until the next instance transition."))
+        y = y - h
+
         local function Refresh() if ns.RefreshMeter then ns.RefreshMeter() end end
         local function ApplyHdr() if ns.ApplyHeader then ns.ApplyHeader() end end
         local function ApplyBrd() if ns.ApplyBorder then ns.ApplyBorder() end end

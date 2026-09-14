@@ -6,11 +6,13 @@
 ## Author: Ellesmere
 ## Version: 9.1.8
 ## Dependencies: EllesmereUI
+## OptionalDeps: EllesmereUIChat
 ## SavedVariables: EllesmereUIDamageMetersDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
 # Main Luas
 EllesmereUIDamageMeters.lua
+EllesmereUIDamageMeters_Chat.lua
 EllesmereUIDamageMeters_SpellHistory.lua
 
 # Options

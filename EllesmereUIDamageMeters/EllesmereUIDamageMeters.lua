@@ -76,6 +76,10 @@ local DM_DEFAULTS = {
     global = {},
     profile = {
         dm = {
+            chatEmbedEnabled = false,
+            chatEmbedAutoDungeon = false,
+            chatEmbedAutoRaid = false,
+            chatEmbedReturnOnExit = false,
             visibility      = "always",
             barTexture      = "atrocity",
             fontSize        = 11,
@@ -397,7 +401,7 @@ ns.ApplyWinPosition = function(frame, wdb, idx)
     -- function, so referencing it here would read a nil global and the guard
     -- would silently never fire.
     local W = ns._windows and ns._windows[idx]
-    if W and W.resizing then return end
+    if W and (W.resizing or W._chatHost) then return end
     local pos = wdb.position
     -- Unlock-anchored window (e.g. one meter window anchored to another): the
     -- anchor system owns the position ENTIRELY -- the standard Build* guard
@@ -467,6 +471,7 @@ ns._DM_TYPE_NAMES = DM_TYPE_NAMES
 -- keys; deletion re-keys anchor/match links via ShiftIndexedAnchorKeys (see W.Destroy). Called
 -- on login, window add/remove, and profile swap; slots beyond the live count unregister.
 ns.RegisterDMUnlock = function()
+    if ns.ApplyChatMeters then ns.ApplyChatMeters() end
     if not EUI or not EUI.RegisterUnlockElements or not EUI.MakeUnlockElement then return end
     local MK = EUI.MakeUnlockElement
     local function winOf(key)
@@ -482,17 +487,22 @@ ns.RegisterDMUnlock = function()
             order = 650 + i,
             getFrame = function(key)
                 local w = winOf(key)
+                if w and w._chatHost then return nil end
                 return w and w.frame
             end,
             getSize = function(key)
                 local w, idx = winOf(key)
+                if w and w._chatHost then
+                    local saved = w._chatHost.records[w]
+                    return saved.width, saved.height
+                end
                 if w and w.frame then return w.frame:GetWidth(), w.frame:GetHeight() end
                 local wdb = idx and WinDB(idx)
                 return wdb and wdb.width or 375, wdb and wdb.height or 150
             end,
             setWidth = function(key, newW)
                 local w, idx = winOf(key)
-                if not w or not w.frame then return end
+                if not w or not w.frame or w._chatHost then return end
                 local PPu = EUI.PP
                 local v = math.max(MIN_W, newW or MIN_W)
                 v = PPu and PPu.Snap and PPu.Snap(v) or math.floor(v + 0.5)
@@ -502,7 +512,7 @@ ns.RegisterDMUnlock = function()
             end,
             setHeight = function(key, newH)
                 local w, idx = winOf(key)
-                if not w or not w.frame then return end
+                if not w or not w.frame or w._chatHost then return end
                 local PPu = EUI.PP
                 local v = math.max(MIN_H, newH or MIN_H)
                 v = PPu and PPu.Snap and PPu.Snap(v) or math.floor(v + 0.5)
@@ -511,7 +521,7 @@ ns.RegisterDMUnlock = function()
             end,
             savePos = function(key, point, relPoint, x, y)
                 local w, idx = winOf(key)
-                if not idx then return end
+                if not idx or (w and w._chatHost) then return end
                 WinDB(idx).position = { point = point, relPoint = relPoint or point, x = x, y = y }
                 if w and w.ApplyPosition and not EUI._unlockActive then w.ApplyPosition() end
             end,
@@ -531,7 +541,8 @@ ns.RegisterDMUnlock = function()
                 return nil
             end,
             clearPos = function(key)
-                local _, idx = winOf(key)
+                local w, idx = winOf(key)
+                if w and w._chatHost then return end
                 if idx then WinDB(idx).position = nil end
             end,
             applyPos = function(key)
@@ -2667,18 +2678,22 @@ local function CreateDMWindow(winIdx)
                 for _, w in ipairs(_windows) do w.UpdateVisibility() end
             end },
             "---",
-            { text = L("Width"), isInput = true,
+            { text = L("Width"), isInput = W._chatHost == nil,
+              isDisabled = function() return W._chatHost ~= nil end,
               getValue = function() return math.floor(frame:GetWidth() + 0.5) end,
               setValue = function(v)
+                  if W._chatHost then return end -- resize the chat pane while embedded
                   local left, top = frame:GetLeft(), frame:GetTop()
                   frame:SetSize(math.max(MIN_W, v), frame:GetHeight())
                   if left and top then frame:ClearAllPoints(); frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top) end
                   wdb.width = math.floor(frame:GetWidth() + 0.5)
               end,
               min = MIN_W },
-            { text = L("Height"), isInput = true,
+            { text = L("Height"), isInput = W._chatHost == nil,
+              isDisabled = function() return W._chatHost ~= nil end,
               getValue = function() return math.floor(frame:GetHeight() + 0.5) end,
               setValue = function(v)
+                  if W._chatHost then return end
                   local left, top = frame:GetLeft(), frame:GetTop()
                   frame:SetSize(frame:GetWidth(), math.max(MIN_H, v))
                   if left and top then frame:ClearAllPoints(); frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top) end
@@ -2753,6 +2768,7 @@ local function CreateDMWindow(winIdx)
     -- mode button and the "Default on M+ Start" key-start hook so both stay in sync.
     function W.SetDMType(dmType)
         W.curDMType = dmType; wdb.curDMType = dmType
+        if ns.ApplyChatMeters then ns.ApplyChatMeters() end
         if W.CloseSource then W.CloseSource() end
         W.Refresh()
         if W._modeIcon then
@@ -2919,6 +2935,7 @@ local function CreateDMWindow(winIdx)
     local SNAP_THRESH = 6
 
     local function SnapDragPosition()
+        if W._chatHost then return end
         local myLeft = frame:GetLeft()
         local myRight = frame:GetRight()
         if not myLeft or not myRight then return end
@@ -3068,7 +3085,7 @@ local function CreateDMWindow(winIdx)
     end)
 
     header:SetScript("OnMouseDown", function(_, button)
-        if button ~= "LeftButton" or W.windowLocked then return end
+        if button ~= "LeftButton" or W.windowLocked or W._chatHost then return end
         if EUI.InProtectedInstance and EUI.InProtectedInstance() then return end
         local cx, cy = GetCursorPosition(); local es = frame:GetEffectiveScale()
         dragStartCX = cx/es; dragStartCY = cy/es
@@ -3300,7 +3317,7 @@ local function CreateDMWindow(winIdx)
     end)
 
     W.resizeGrip:SetScript("OnMouseDown", function(_, button)
-        if button ~= "LeftButton" or W.windowLocked then return end
+        if button ~= "LeftButton" or W.windowLocked or W._chatHost then return end
         if EUI.InProtectedInstance and EUI.InProtectedInstance() then return end
         local left, top = frame:GetLeft(), frame:GetTop()
         if left and top then
@@ -4298,6 +4315,7 @@ local function CreateDMWindow(winIdx)
                     RefreshHome()
                 elseif button == "LeftButton" then
                     W.curDMType = dmType; wdb.curDMType = dmType
+                    if ns.ApplyChatMeters then ns.ApplyChatMeters() end
                     W._modeIcon:SetTexture(DM_TYPE_ICONS[dmType] or DM_TYPE_ICONS[Enum.DamageMeterType.DamageDone])
                     W.HideHome(); W.CloseSource(); W.Refresh()
                 end
@@ -4438,6 +4456,7 @@ local function CreateDMWindow(winIdx)
     -- Visibility
     function W.UpdateVisibility()
         if not frame then return end
+        if W._chatHost then frame:SetAlpha(1); frame:EnableMouse(true); frame:Show(); return end
         local c = DB()
         if EUI._unlockActive or ns._optionsOpen then frame:SetAlpha(1); frame:EnableMouse(true); frame:Show(); return end
         -- Hotkey toggle outranks every configured rule but yields to the two modes above
@@ -4459,6 +4478,7 @@ local function CreateDMWindow(winIdx)
     if EUI.RegisterMouseoverTarget then
         -- Hover-gated sets only reveal while their conditions pass; a legacy single "mouseover" behaves exactly as before
         EUI.RegisterMouseoverTarget(frame, function()
+            if W._chatHost then return false end
             -- The mouseover scanner shows the frame without going through UpdateVisibility,
             -- so the toggle has to be refused here as well
             if ns._toggleHidden then return false end
@@ -4470,6 +4490,7 @@ local function CreateDMWindow(winIdx)
 
     -- Destroy
     function W.Destroy()
+        if W._chatHost then W._chatHost:Retire(W) end
         if W._hoverTicker then W._hoverTicker:Cancel() end
         resizeFrame:SetScript("OnUpdate", nil)
         -- Unregister from global visibility system (prevents ghost resurrection)
@@ -4706,7 +4727,7 @@ end
 ns.ApplyDMSize = function()
     for _, w in ipairs(_windows) do
         local wdb = WinDB(w.idx)
-        if w.frame then
+        if w.frame and not w._chatHost then
             if wdb.width then w.frame:SetWidth(math.max(MIN_W, wdb.width)) end
             if wdb.height then w.frame:SetHeight(math.max(MIN_H, wdb.height)) end
         end
@@ -5544,6 +5565,7 @@ initFrame:SetScript("OnEvent", function(self)
             return
         end
         _windows[winIdx] = CreateDMWindow(winIdx)
+        if ns.ApplyChatMeters then ns.ApplyChatMeters() end
         ns.ApplyWindowBorder()
         C_Timer.After(0, CreateNextWindow)
     end
@@ -5557,6 +5579,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Destroy existing windows (frame cleanup only, don't touch DB)
         for i = #_windows, 1, -1 do
             local w = _windows[i]
+            if w._chatHost then w._chatHost:Retire(w) end
             if w._hoverTicker then w._hoverTicker:Cancel() end
             if EUI.UnregisterVisibilityUpdater and w.UpdateVisibility then
                 EUI.UnregisterVisibilityUpdater(w.UpdateVisibility)
