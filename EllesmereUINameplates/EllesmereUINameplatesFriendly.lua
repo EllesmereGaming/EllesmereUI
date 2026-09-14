@@ -232,13 +232,16 @@ local function ApplyFriendlyFontOverride(force)
         end
         fontOverrideApplied = false
     end
+    -- Apply the user's outline setting DIRECTLY: Blizzard's stock font objects
+    -- carry non-nil flags ("SLUG"), so a `flags or GetNPOutline()` fallback
+    -- short-circuits and the configured outline never lands on friendly player
+    -- names (issue #1653). The friendly NPC overlay already applies
+    -- GetNPOutline() directly (ApplyOverlayStyle); match it here.
     if SystemFont_NamePlate and SystemFont_NamePlate.SetFont then
-        local _, _, flags = SystemFont_NamePlate:GetFont()
-        SystemFont_NamePlate:SetFont(font, size, flags or GetNPOutline())
+        SystemFont_NamePlate:SetFont(font, size, GetNPOutline())
     end
     if SystemFont_NamePlate_Outlined and SystemFont_NamePlate_Outlined.SetFont then
-        local _, _, flags = SystemFont_NamePlate_Outlined:GetFont()
-        SystemFont_NamePlate_Outlined:SetFont(font, size, flags or GetNPOutline())
+        SystemFont_NamePlate_Outlined:SetFont(font, size, GetNPOutline())
     end
     _ffFile, _ffSize = font, size
     fontOverrideApplied = true
