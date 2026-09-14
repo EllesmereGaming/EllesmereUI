@@ -177,6 +177,28 @@ function AK.GetDurationFormatter(showSecondsUnit, preciseThreshold)
     return durationFormatter
 end
 
+local stackFormatter
+
+local function BuildRuleStackFormatter()
+    if not (C_StringUtil and C_StringUtil.CreateNumericRuleFormatter) then
+        return nil
+    end
+    local formatter = C_StringUtil.CreateNumericRuleFormatter()
+    local ok = pcall(formatter.SetBreakpoints, formatter, {
+        { threshold = 0, format = "" },
+        { threshold = 1, format = "%d" },
+    })
+    if not ok then return nil end
+    return formatter
+end
+
+function AK.GetStackFormatter()
+    if stackFormatter == nil then
+        stackFormatter = BuildRuleStackFormatter() or false
+    end
+    return stackFormatter or nil
+end
+
 ------------------------------------------------------------------------------
 -- Styles and the button registry
 --
@@ -1072,7 +1094,8 @@ function AK.MakeInitializer(styleKey, extra)
 
         button:SetIcon(d.icon)
         button:SetDurationCooldown(d.cooldown)
-        button:SetApplicationCount(d.stack, {})
+        local stackFmt = AK.GetStackFormatter()
+        button:SetApplicationCount(d.stack, stackFmt and { formatter = stackFmt } or {})
 
         -- style.durationFormatter: a module whose countdown must agree with a
         -- neighboring non-AuraKit display supplies its own rule formatter.
