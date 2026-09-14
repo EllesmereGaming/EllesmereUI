@@ -500,6 +500,7 @@ local function RefreshNow()
     local cfg = DB()
     local selected = SelectedWindow()
     local height = TabHeight()
+    if ns._onMetersSelectionChanged then ns._onMetersSelectionChanged(selected) end
     local fontPath = TabFontPath()
     local fontSize = cfg.tabFontSize or 11
     local fontFlag = TabFontFlag()

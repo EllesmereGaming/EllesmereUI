@@ -1085,6 +1085,7 @@ function ECHAT.ApplyPanelHost()
     ReseatPanel(ns._sidebarSeparateBorder, host)
     ReseatPanel(ns._chatHoverOverlay, host)
     _panelHost = host
+    if ns._onMetersHostChanged then ns._onMetersHostChanged() end
 end
 
 -- The on-demand popups are built the first time they are used and can be built
@@ -1351,6 +1352,7 @@ function ECHAT.ApplySidebarIconVisibility()
     local sbHidden = sbMode == "never"
         or (sbMode == "mouseover" and _sidebarFadeTarget == 0 and _sidebarFadeAlpha == 0)
         or ns._chatPassthrough == true
+    if ns._metersSidebarButton then ns._metersSidebarButton:SetShown(not sbHidden) end
     local PAIRS = {
         { "showFriends", "friendsBtn", "friendsCount" },
         { "showGuild", "guildBtn", "guildCount" },
@@ -1370,6 +1372,21 @@ function ECHAT.ApplySidebarIconVisibility()
             if tail and tail:IsShown() ~= shown then tail:SetShown(shown) end
         end
     end
+end
+
+-- The optional meter entry participates in the same chain as Settings, even
+-- when Settings itself is hidden. No extra entry exists until opt-in.
+local function PlaceMetersButton(sb, anchor, gap, topShift, hidden)
+    local button = ns._metersSidebarButton
+    if not button then return anchor end
+    button:SetParent(sb)
+    local size = 22 * (ECHAT.DB().sidebarIconScale or 1)
+    button:SetSize(size, size)
+    button:ClearAllPoints()
+    if anchor then button:SetPoint("TOP", anchor, "BOTTOM", 0, -gap)
+    else button:SetPoint("TOP", sb, "TOP", 0, -gap + topShift) end
+    button:SetShown(not hidden)
+    return not hidden and button or anchor
 end
 
 -- Show/hide individual sidebar icons and re-anchor visible ones to close gaps
@@ -1411,7 +1428,12 @@ function ECHAT.ApplySidebarIcons()
         or ns._chatPassthrough == true
 
     local anchor = nil
+    local metersPlaced = false
     for _, key in ipairs(chainOrder) do
+        if key == "showSettings" and ns._metersSidebarButton then
+            anchor = PlaceMetersButton(sb, anchor, ICON_GAP, iconTopShift, sbHidden)
+            metersPlaced = true
+        end
         local refs = CHAIN_REFS[key]
         local btn = refs and sbd[refs.btn]
         if btn then
@@ -1429,6 +1451,10 @@ function ECHAT.ApplySidebarIcons()
                 anchor = tail or btn
             end
         end
+    end
+
+    if ns._metersSidebarButton and not metersPlaced then
+        PlaceMetersButton(sb, anchor, ICON_GAP, iconTopShift, sbHidden)
     end
 
     -- Scroll is independent; when anchored to the chat panel it is exempt
@@ -2178,6 +2204,7 @@ end
 
 -- Apply icon color to all sidebar icons
 function ECHAT.ApplyIconColor()
+    if ns._onMetersStyleChanged then ns._onMetersStyleChanged() end
     local cfg = ECHAT.DB()
     local cf1 = _G.ChatFrame1
     local sb = cf1 and CFD(cf1).sidebar
@@ -2274,6 +2301,7 @@ end
 
 -- Scale sidebar icon buttons and friends count text
 function ECHAT.ApplySidebarIconScale()
+    if ns._onMetersStyleChanged then ns._onMetersStyleChanged() end
     local cfg = ECHAT.DB()
     local scale = cfg.sidebarIconScale or 1.0
     local cf1 = _G.ChatFrame1
@@ -3264,6 +3292,7 @@ local function SetChatStackShown(shown)
     -- Gate for SyncChatFrameState: the panels' shown-follow must not undo
     -- this hide (the Blizzard frames stay shown, so the follow would).
     ns._chatStackHidden = not shown
+    if ns._onMetersHostChanged then ns._onMetersHostChanged() end
     for i = 1, 20 do
         local cf = _G["ChatFrame" .. i]
         local d = cf and CFD(cf)
@@ -3352,6 +3381,7 @@ local function SetChatMousePassthrough(on)
     if _chatPassthrough == on then return end
     _chatPassthrough = on
     ns._chatPassthrough = on
+    if ns._onMetersHostChanged then ns._onMetersHostChanged() end
     -- Reveal BEFORE the restore pass: TabsSweepBlizzard (run by the tab
     -- restore inside PassthroughFrames) derives its click state from
     -- ns._chatPassthrough OR ns._chatStackHidden. With the stack still
@@ -5453,12 +5483,14 @@ initFrame:SetScript("OnEvent", function(self)
         local idleTimer = nil
 
         local function IsIdleApplicable()
+            if ns._metersViewWindow then return false end
             local cfg = ECHAT.DB()
             local vis = cfg.visibility or "always"
             return vis ~= "never"
         end
 
         local function StartIdleFade()
+            if ns._metersViewWindow then return end
             if ECHAT.DB().idleFadeEnabled == false then return end
             if _idleFadeActive then return end
             _idleFadeActive = true
