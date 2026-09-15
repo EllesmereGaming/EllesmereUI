@@ -131,6 +131,7 @@ local DM_DEFAULTS = {
             standaloneTimerShowOOC  = false,
             standaloneTimerDesatOOC = false,
             refreshRate = 1,
+            reportEnabled = false, -- opt-in chat reports; controls are built lazily
             hideResetButton = false, -- display the "reset data" button on the damage meter header
             -- toggleWindowsKey (unset by default) is the hotkey that hides/shows every
             -- meter window at once. Runtime only: the hidden state is never saved, so a
@@ -355,11 +356,13 @@ local function EnsureHeaderButtonsHoverHooks(W)
         W.header:HookScript("OnEnter", Show)
         W.header:HookScript("OnLeave", MaybeHide)
     end
+    -- Reuse the same hover behavior for controls created after initial setup.
+    W.HookHeaderButton = function(btn)
+        btn:HookScript("OnEnter", Show)
+        btn:HookScript("OnLeave", MaybeHide)
+    end
     if W.hdrBtns then
-        for _, btn in ipairs(W.hdrBtns) do
-            btn:HookScript("OnEnter", Show)
-            btn:HookScript("OnLeave", MaybeHide)
-        end
+        for _, btn in ipairs(W.hdrBtns) do W.HookHeaderButton(btn) end
     end
 end
 
@@ -2193,6 +2196,19 @@ local function ShowEDMMenu(items, anchorBtn)
     _edmMenu:Show()
 end
 
+-- Shared formatting for the optional report dialog. No frames or events here.
+ns.ReportContext = {
+    HideMenu = function()
+        if _edmMenu then _edmMenu:Hide() end
+        if _edmSub then _edmSub:Hide() end
+    end,
+    TypeNames = DM_TYPE_NAMES,
+    SessionNames = SESSION_TYPE_NAMES,
+    Duration = GetBreakdownDuration,
+    Abbreviate = AbbrevNumber,
+    Timer = FormatTimer,
+}
+
 -- Window Factory: creates a fully independent damage meter window with its own frame tree, bar
 -- pool, scroll state, source window, home screen, and refresh cycle. Returns a window table W with all state and a Destroy method.
 local UpdateSATimerText  -- forward declaration (defined in standalone timer section)
@@ -2879,6 +2895,28 @@ local function CreateDMWindow(winIdx)
 
     -- Ordered list of header buttons for live resize/reposition
     W.hdrBtns = { W.settingsBtn, W.segmentBtn, W.modeBtn, W.resetBtn, W.winActionBtn }
+    function W.SyncReportButton()
+        local enabled = DB().reportEnabled == true
+        if enabled and not W.reportBtn then
+            W.reportBtn = MakeHeaderBtn("dm_report.png", 0, EllesmereUI.L("Report to Chat"), function()
+                ns.Report.Open(W)
+            end)
+            if W.HookHeaderButton then W.HookHeaderButton(W.reportBtn) end
+        end
+        if not W.reportBtn then return end
+        local index
+        for i, button in ipairs(W.hdrBtns) do
+            if button == W.reportBtn then index = i; break end
+        end
+        if enabled then
+            if not index then table.insert(W.hdrBtns, 4, W.reportBtn) end
+        else
+            if index then table.remove(W.hdrBtns, index) end
+            W.reportBtn:Hide()
+            ns.Report.Close(W)
+        end
+    end
+    W.SyncReportButton()
     LayoutHeaderButtons(W, cfg, btnSize)
 
     -- Truncate the header title so it never runs under the right-side icons; mirrors the icon layout math (N buttons of hdrIconSize spaced by btnPad from the right) rather than relying on GetLeft (can lag a SetPoint)
@@ -4470,6 +4508,7 @@ local function CreateDMWindow(winIdx)
 
     -- Destroy
     function W.Destroy()
+        if ns.Report then ns.Report.Close(W) end
         if W._hoverTicker then W._hoverTicker:Cancel() end
         resizeFrame:SetScript("OnUpdate", nil)
         -- Unregister from global visibility system (prevents ghost resurrection)
@@ -4660,6 +4699,7 @@ ns.ApplyHeader = function()
         if w.timerText then
             SetDMFont(w.timerText, hdrFS)
         end
+        w.SyncReportButton()
         LayoutHeaderButtons(w, cfg, iconSz)
         -- Close icon is 2px larger than other icons
         if w._closeIconTex then
@@ -5551,6 +5591,7 @@ initFrame:SetScript("OnEvent", function(self)
 
     -- Profile swap rebuild: tear down all windows and recreate from new profile
     _G._EDM_Apply = function()
+        if ns.Report then ns.Report.Close() end
         -- Supersede any staggered build still in flight, so its remaining steps do not
         -- assign over the windows created below and orphan them
         _buildGen = _buildGen + 1

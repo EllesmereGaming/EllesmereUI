@@ -635,6 +635,15 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
+        -- Optional report control; keep the final header row filled left to right.
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text=EllesmereUI.L("Enable Chat Reports"),
+              tooltip=EllesmereUI.L("Add a report button to each meter header. Choose a chat channel and preview the selected segment before sending."),
+              getValue=function() return Cfg("reportEnabled") == true end,
+              setValue=function(v) Set("reportEnabled", v); ApplyHdr() end },
+            { type="label", text="" })
+        y = y - h
+
         -- ── BAR DESIGN ──────────────────────────────────────────────────
         _, h = W:SectionHeader(parent, "BARS", y); y = y - h
 
