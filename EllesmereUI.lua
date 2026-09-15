@@ -2100,7 +2100,8 @@ do
         -- Update these IDs each season. Midnight S2 uses six ranks per track,
         -- plus Hero/Myth crest bonuses for crafts, independent of craft quality.
         -- Source: https://www.raidbots.com/static/data/live/bonuses.json
-        local currentSeasonColors = { [13835] = HE, [13836] = MY }
+        local currentSeasonColors = {}
+        for bonusID, color in pairs(craftedColors) do currentSeasonColors[bonusID] = color end
         for firstBonus, color in pairs({ [12817] = W, [12825] = VE, [12833] = CH, [12841] = HE, [12849] = MY }) do
             for rank = 0, 5 do currentSeasonColors[firstBonus + rank] = color end
         end
