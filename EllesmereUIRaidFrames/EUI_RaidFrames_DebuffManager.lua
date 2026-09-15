@@ -433,11 +433,12 @@ local function ParkEater(e)
     if ns.CC_ReleaseTipEater then ns.CC_ReleaseTipEater(e) end
 end
 
--- Is any debuff display actually in the "Shown on Modifier" mode? Base row
--- plus enabled icon tiles' overrides (nil override inherits the base).
+-- Is any aura display in the "Shown on Modifier" mode? Buffs share the key;
+-- debuffs include the base row and enabled icon tiles' effective modes.
 local function TipModeInUse()
     local p = ns.db and ns.db.profile
     if not p then return false end
+    if p.buffHideTooltips == "modifier" then return true end
     if p.debuffHideTooltips == "modifier" then return true end
     local dm = DM()
     local tiles = dm and dm.tiles
@@ -461,7 +462,7 @@ local tipModArmed = false
 -- without the feature never touches the header at all (zero cost while off).
 local tipModKeyApplied = false
 
--- Feature wanted at all: a key is set AND some debuff display is in the
+-- Feature wanted at all: a key is set AND some aura display is in the
 -- "modifier" mode. The apply pass gates every footprint/ensure write on this.
 function ns.DM_TipModWanted()
     return ns.DM_TipMod() ~= "none" and TipModeInUse()
@@ -562,7 +563,7 @@ end
 -- reload re-runs this ensure. An unchanged eater costs a few compares and
 -- never touches the frame.
 local tipEaterCount = 0
-local function EnsureEater(d, slot, host, container, active, pinHost, point, corner, offX, offY, w, h)
+local function EnsureEater(d, slot, host, container, active, pinHost, point, corner, offX, offY, w, h, anchor, anchorFP)
     local map = d.tipModEaters
     local e = map and map[slot]
     if not active or not pinHost then
@@ -588,7 +589,7 @@ local function EnsureEater(d, slot, host, container, active, pinHost, point, cor
     local lvl = (container:GetFrameLevel() or 1) + 30
     local geoChanged = not e or e._euiPin ~= point or e._euiCorner ~= corner
         or e._euiOX ~= offX or e._euiOY ~= offY or e._euiHost ~= pinHost
-        or e._euiW ~= w or e._euiH ~= h
+        or e._euiW ~= w or e._euiH ~= h or e._euiAnchorFP ~= anchorFP
     local lvlChanged = not e or e._euiLvl ~= lvl
     local armChanged = not e or not e._euiActive
     if not (geoChanged or lvlChanged or armChanged) then
@@ -627,15 +628,35 @@ local function EnsureEater(d, slot, host, container, active, pinHost, point, cor
         e:SetFrameLevel(lvl)
     end
     if geoChanged then
+        e._euiAnchorFP = anchorFP
         e._euiPin, e._euiCorner, e._euiOX, e._euiOY = point, corner, offX, offY
         e._euiHost, e._euiW, e._euiH = pinHost, w, h
         e:ClearAllPoints()
         e:SetPoint(point, pinHost, corner, offX, offY)
         e:SetSize(w, h)
+        if anchor then anchor(e) end
     end
     if armChanged then
         e._euiActive = true
         e:Show()
+    end
+end
+
+-- Buffs share the secure modifier driver, but keep their own display handles.
+-- Layout callbacks only anchor our eater; they never read native aura buttons.
+function ns.DM_EnsureBuffTipEater(button, d, key, container, pinHost, point, corner, x, y, w, h, anchor, anchorFP)
+    d.buffTipSlots = d.buffTipSlots or {}
+    local slot = d.buffTipSlots[key]
+    if not slot then slot = {}; d.buffTipSlots[key] = slot end
+    EnsureEater(d, slot, button, container, true, pinHost, point, corner, x, y, w, h, anchor, anchorFP)
+end
+
+function ns.DM_ParkBuffTipEaters(d, seen)
+    if not d.buffTipSlots then return end
+    for key, slot in pairs(d.buffTipSlots) do
+        if not seen or not seen[key] then
+            EnsureEater(d, slot, nil, nil, false)
+        end
     end
 end
 

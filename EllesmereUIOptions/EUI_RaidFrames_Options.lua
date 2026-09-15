@@ -4115,12 +4115,12 @@ initFrame:SetScript("OnEvent", function(self)
                 tipRows = {
                     { type="dropdown", label="Buff Tooltips",
                       tooltip="Tooltip behavior when hovering a buff/HoT icon on a raid or party frame.",
-                      values={ hidden="Hidden", shown="Shown", cursor="Shown At Cursor", combat="Hidden In Combat" },
-                      order={ "hidden", "shown", "cursor", "combat" },
+                      values={ hidden="Hidden", shown="Shown", cursor="Shown At Cursor", combat="Hidden In Combat", modifier="Shown on Modifier" },
+                      order={ "hidden", "shown", "cursor", "modifier", "combat" },
                       get=function()
                           local v = SVal("buffHideTooltips", true)
                           if v == false then return "shown" end
-                          if v == "cursor" or v == "combat" then return v end
+                          if v == "cursor" or v == "combat" or v == "modifier" then return v end
                           return "hidden"
                       end,
                       set=function(k)
@@ -4128,6 +4128,13 @@ initFrame:SetScript("OnEvent", function(self)
                           if k == "shown" then v = false elseif k == "hidden" then v = true end
                           SSet("buffHideTooltips", v); if ns.ReloadFrames then ns.ReloadFrames() end
                       end },
+                    { type="dropdown", label="Use Modifier",
+                      tooltip="Shared with debuff tooltips. None shows tooltips without requiring a key.",
+                      values={ none="None", shift="Shift", control="Control", alt="Alt" },
+                      order={ "none", "shift", "control", "alt" },
+                      get=function() return db.profile.debuffTooltipModifier or "none" end,
+                      set=function(v) SSet("debuffTooltipModifier", v) end,
+                      disabled=function() return SVal("buffHideTooltips", true) ~= "modifier" end },
                 }
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Tooltip Settings",

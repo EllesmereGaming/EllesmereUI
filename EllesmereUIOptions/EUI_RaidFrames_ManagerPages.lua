@@ -1550,6 +1550,7 @@ local function BuildBaseDetailDM(frame, fontPath)
             title = "Tooltips",
             rows = {
                 { type = "dropdown", label = "Use Modifier",
+                  tooltip = "Shared with buff tooltips. None shows tooltips without requiring a key.",
                   values = { none = "None", shift = "Shift", control = "Control", alt = "Alt" },
                   order = { "none", "shift", "control", "alt" },
                   get = function() return p.debuffTooltipModifier or "none" end,
