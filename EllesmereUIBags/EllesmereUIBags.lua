@@ -7120,11 +7120,14 @@ function EUI_Bags:RefreshInventory()
         local separate = BP().bagSeparateReagentSlots ~= false
         local function FormatSlots(used, total, reagent)
             if format == "free" then
-                return EllesmereUI.Lf(reagent and "%d Reagent slots free" or "%d Bag slots free", total - used)
+                if reagent then return EllesmereUI.Lf("%d Reagent slots free", total - used) end
+                return EllesmereUI.Lf("%d Bag slots free", total - used)
             elseif format == "free_total" then
-                return EllesmereUI.Lf(reagent and "%d / %d Reagent slots free" or "%d / %d Bag slots free", total - used, total)
+                if reagent then return EllesmereUI.Lf("%d / %d Reagent slots free", total - used, total) end
+                return EllesmereUI.Lf("%d / %d Bag slots free", total - used, total)
             end
-            return EllesmereUI.Lf(reagent and "%d / %d Reagent slots" or "%d / %d Bag slots", used, total)
+            if reagent then return EllesmereUI.Lf("%d / %d Reagent slots", used, total) end
+            return EllesmereUI.Lf("%d / %d Bag slots", used, total)
         end
         local countText
         if separate then
