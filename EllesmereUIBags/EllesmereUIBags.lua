@@ -385,9 +385,10 @@ do
                         rank = color and _trackRank[color] or 0
                         local craftedColor = EUI.GetCraftedTrackColor(d.itemLink)
                         if craftedColor then
-                            rank = _trackRank[craftedColor]
-                            ilvl = C_Item.GetDetailedItemLevelInfo(d.itemLink) or ilvl
+                            rank = _trackRank[craftedColor] or rank
                         end
+                        -- Compare crafted and upgraded gear using the same item level.
+                        if rank > 0 then ilvl = C_Item.GetDetailedItemLevelInfo(d.itemLink) or ilvl end
                     end
                     c = { name = name or "", quality = quality or 0, ilvl = ilvl or 0,
                           itemType = itemType or "", rank = rank, complete = name ~= nil }
