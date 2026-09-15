@@ -1846,9 +1846,7 @@ end
 -- members = array of { ind, count }; members[1] is the ROOT driving position/growth/
 -- wrap. Attached members (Anchor To) each contribute one flow group with their own
 -- element size and Max Icons cap.
-local function AnchorBmChainContainer(container, health, members, iscale)
-    if not container then return end
-    local ind = members[1].ind
+local function BmChainPin(ind, iscale)
     local pos = ind.position or "TOPLEFT"
     local grow = ind.growDirection or "RIGHT"
     local size = (ind.size or 18) * iscale
@@ -1862,16 +1860,15 @@ local function AnchorBmChainContainer(container, health, members, iscale)
 
     local per = tonumber(ind.iconsPerRow) or 0
 
-    container:ClearAllPoints()
     local gH, gV
     if grow == "CENTER" then
         local point = (posT and "TOP") or (posB and "BOTTOM") or "CENTER"
-        container:SetPoint(point, health, pos, ox, oy)
         -- Wrapped rows stack away from the anchored edge (simple-grid
         -- convention); the flow origin corner follows the stack direction.
         gH = "RIGHT"
         gV = (per > 0 and posB) and "UP" or "DOWN"
-        AK.SetContainerAnchor(container, (gV == "UP") and "BOTTOMLEFT" or "TOPLEFT")
+        return point, pos, ox, oy, gH, gV,
+            (gV == "UP") and "BOTTOMLEFT" or "TOPLEFT"
     else
         gH = (grow == "LEFT") and "LEFT" or "RIGHT"
         gV = (grow == "UP") and "UP" or "DOWN"
@@ -1899,9 +1896,20 @@ local function AnchorBmChainContainer(container, health, members, iscale)
         else
             if posT then dy = -size elseif not posB then dy = -size / 2 end
         end
-        container:SetPoint(corner, health, pos, ox + dx, oy + dy)
-        AK.SetContainerAnchor(container, corner)
+        return corner, pos, ox + dx, oy + dy, gH, gV, corner
     end
+end
+
+local function AnchorBmChainContainer(container, health, members, iscale)
+    if not container then return end
+    local ind = members[1].ind
+    local grow = ind.growDirection or "RIGHT"
+    local size = (ind.size or 18) * iscale
+    local per = tonumber(ind.iconsPerRow) or 0
+    local point, corner, x, y, gH, gV, anchor = BmChainPin(ind, iscale)
+    container:ClearAllPoints()
+    container:SetPoint(point, health, corner, x, y)
+    AK.SetContainerAnchor(container, anchor)
     AK.SetContainerGrowth(container, FlowDir(gH), FlowDir(gV))
     local spacing = (ind.spacing or 0) * iscale
     local vertical = (grow == "UP" or grow == "DOWN")
@@ -2164,17 +2172,10 @@ end
 -- Mirrors the legacy AnchorSimpleGrid: the grid's start corner pinned at the same
 -- corner of the health bar, rows wrap after Icons Per Row and stack away from the
 -- anchored edge; CENTER growth centers rows on the anchor point.
-local function AnchorBmSimpleContainer(container, health, bs, iscale, d)
-    if not container then return end
-    -- Uniform Icon Anchoring: bs is the bmSimple sub-table, so the toggle is
-    -- read from the button's class proxy.
-    if d and ns.RF_AnchorHost then health = ns.RF_AnchorHost(health, ProxyFor(d)) end
+local function BmSimplePin(bs, iscale)
     local pos = bs.position or "topright"
     local corner = CORNERS[pos] or "TOPRIGHT"
     local grow = bs.growDirection or "LEFT"
-    local size = (bs.size or 18) * iscale
-    local spacing = (bs.spacing or 1) * iscale
-    local perRow = bs.iconsPerRow or 4
     local ox = (bs.offsetX or 0) * iscale
     local oy = (bs.offsetY or 0) * iscale
 
@@ -2184,22 +2185,33 @@ local function AnchorBmSimpleContainer(container, health, bs, iscale, d)
     local vEdge = bottomish and "BOTTOM" or "TOP"
     local gV = bottomish and "UP" or "DOWN"
 
-    container:ClearAllPoints()
     local anchorPoint, gH
     if not horizontal then
         gH = rightish and "LEFT" or "RIGHT" -- moot in a single column
         gV = grow
         anchorPoint = (grow == "UP" and "BOTTOM" or "TOP") .. (rightish and "RIGHT" or "LEFT")
-        container:SetPoint(anchorPoint, health, corner, ox, oy)
     elseif grow == "CENTER" then
         gH = "RIGHT"
         anchorPoint = vEdge .. "LEFT"
-        container:SetPoint(vEdge, health, corner, ox, oy)
     else
         gH = grow
         anchorPoint = vEdge .. ((grow == "LEFT") and "RIGHT" or "LEFT")
-        container:SetPoint(anchorPoint, health, corner, ox, oy)
     end
+    return grow == "CENTER" and vEdge or anchorPoint, corner, ox, oy, gH, gV, anchorPoint
+end
+
+local function AnchorBmSimpleContainer(container, health, bs, iscale, d)
+    if not container then return end
+    -- Uniform Icon Anchoring: bs is the bmSimple sub-table, so the toggle is
+    -- read from the button's class proxy.
+    if d and ns.RF_AnchorHost then health = ns.RF_AnchorHost(health, ProxyFor(d)) end
+    local size = (bs.size or 18) * iscale
+    local spacing = (bs.spacing or 1) * iscale
+    local perRow = bs.iconsPerRow or 4
+    local horizontal = bs.growDirection ~= "UP" and bs.growDirection ~= "DOWN"
+    local point, corner, x, y, gH, gV, anchorPoint = BmSimplePin(bs, iscale)
+    container:ClearAllPoints()
+    container:SetPoint(point, health, corner, x, y)
     AK.SetContainerAnchor(container, anchorPoint)
     AK.SetContainerGrowth(container, FlowDir(gH), FlowDir(gV))
 
@@ -2234,12 +2246,11 @@ local function EnsureBmTipModifiers(button, d)
     local hugBar = pinHost._euiHealth or pinHost
     local iscale = BmScaleFor(d)
     local seen = {}
-    local function Grid(key, container, n, size, spacing, per, vertical, padding, lineWidth)
+    local function Grid(key, container, n, size, spacing, per, vertical, padding, lineWidth,
+        point, corner, x, y)
         if not container or n < 1 then return end
-        -- Containers are owned frames whose single pin is set by the layout
-        -- functions above; their dynamic aura buttons are never queried.
-        local point, host, corner, x, y = container:GetPoint(1)
-        if not point or not host then return end
+        -- GetPoint can return secret values even on owned aura containers.
+        -- Share the settings-derived pin with the container's layout instead.
         local along = per and per > 0 and math.min(n, per) or n
         local lines = per and per > 0 and math.ceil(n / per) or 1
         local w = math.max(size, along * size + (along - 1) * spacing, lineWidth or 0)
@@ -2253,7 +2264,7 @@ local function EnsureBmTipModifiers(button, d)
         if point:find("TOP", 1, true) then y = y + padding
         elseif point:find("BOTTOM", 1, true) then y = y - padding end
         seen[key] = true
-        ns.DM_EnsureBuffTipEater(button, d, key, container, host, point, corner, x, y, w, h)
+        ns.DM_EnsureBuffTipEater(button, d, key, container, pinHost, point, corner, x, y, w, h)
     end
     local bs = BmSimpleSettings()
     if bs and bs.showBuffs and ns.BM_BaseActive and ns.BM_BaseActive() then
@@ -2261,7 +2272,8 @@ local function EnsureBmTipModifiers(button, d)
         local per = bs.iconsPerRow or 4
         if per < 2 then per = 0 end
         Grid("simple", d.rfcBmSimple, bs.maxBuffs or 8, (bs.size or 18) * iscale,
-            (bs.spacing or 1) * iscale, vertical and 1 or per, false)
+            (bs.spacing or 1) * iscale, vertical and 1 or per, false, nil, nil,
+            BmSimplePin(bs, iscale))
     end
     for _, m in ipairs(d.rfcBmMeta or {}) do
         if m.isChain and not m.anchored then
@@ -2296,7 +2308,8 @@ local function EnsureBmTipModifiers(button, d)
                 per = math.max(1, math.floor((width + spacing) / math.max(1, size + spacing)))
             end
             Grid("chain:" .. m.chainKey, d.rfcBmChain and d.rfcBmChain[m.chainKey],
-                n, size, spacing, per, ind.growDirection == "UP" or ind.growDirection == "DOWN", padding, width)
+                n, size, spacing, per, ind.growDirection == "UP" or ind.growDirection == "DOWN", padding, width,
+                BmChainPin(ind, iscale))
         elseif not m.isChain and d.rfcBm and (m.kind == "icon" or m.kind == "square" or m.kind == "bar") then
             local key = "slot:" .. m.key
             seen[key] = true
