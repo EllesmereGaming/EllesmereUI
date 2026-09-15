@@ -11,6 +11,7 @@
 
 # Main Luas
 EllesmereUIDamageMeters.lua
+EllesmereUIDamageMeters_Report.lua
 EllesmereUIDamageMeters_SpellHistory.lua
 
 # Options
