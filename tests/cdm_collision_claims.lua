@@ -339,4 +339,25 @@ if arg and arg[1] then
     equal(ns._overrideClaimRefreshPending, true, "transient missing metadata requests post-combat retry")
 end
 
+do
+    local frames, overrideReads = {}, 0
+    for _, sd in pairs(stores) do sd.assignedSpells = {} end
+    ns._overrideClaimRefreshPending = true
+    ns._overrideClaimInfo = {}
+    ns.RebuildSpellRouteMap()
+    equal(ns._overrideClaimRefreshPending, nil, "last claim removal clears pending refresh")
+    equal(ns._overrideClaimInfo, nil, "last claim removal clears clean metadata cache")
+    for i = 1, 100 do frames[i] = Frame(1000 + i, 2000 + i, i) end
+    EssentialCooldownViewer.itemFramePool = Pool(frames)
+    UtilityCooldownViewer.itemFramePool = Pool({})
+    local original = C_Spell.GetOverrideSpell
+    C_Spell.GetOverrideSpell = function(id) overrideReads = overrideReads + 1; return id end
+    equal(#ns.EnumerateCDMViewerSpells(false), 100, "unrelated slots stay independent")
+    assert(overrideReads <= 600, "collision discovery must not make quadratic override queries")
+    overrideReads = 0
+    equal(ns.IsBuffViewerCdID(1050), false, "direct cooldown family lookup")
+    equal(overrideReads, 0, "family lookup does not resolve spell overrides")
+    C_Spell.GetOverrideSpell = original
+end
+
 print("cdm collision claim harness: PASS")

@@ -420,24 +420,30 @@ local function EnumerateCDMViewerSpells(includeBuffViewer)
             local claims = sd and ns.CollectCdClaimSet and ns.CollectCdClaimSet(sd)
             for cdID in pairs(claims or {}) do collided[cdID] = true end
         end
-        for i = 1, #entries do
-            local a = entries[i]
-            if type(a.cdID) == "number" then
-                for j = i + 1, #entries do
-                    local b = entries[j]
-                    -- A base-only tie can join unrelated abilities. Require
-                    -- distinct source spells with a direct override link.
-                    -- Source IDs also distinguish slots displaying the same
-                    -- override, while duplicate views of one spell stay merged.
-                    if type(b.cdID) == "number" and a.cdID ~= b.cdID
-                       and a.identitySID ~= b.identitySID
-                       and (a.overrideSID == b.identitySID or b.overrideSID == a.identitySID
-                            or _GetOverride(a.identitySID) == b.identitySID
-                            or _GetOverride(b.identitySID) == a.identitySID) then
-                        collided[a.cdID] = true
-                        collided[b.cdID] = true
-                    end
+        -- Index source identities so unrelated viewer slots never need pairwise
+        -- comparisons. Both directions are visited; base-only ties stay separate.
+        local byIdentity = {}
+        for _, e in ipairs(entries) do
+            if type(e.cdID) == "number" then
+                local group = byIdentity[e.identitySID]
+                if not group then group = {}; byIdentity[e.identitySID] = group end
+                group[#group + 1] = e
+            end
+        end
+        local function MarkReplacement(a, sid)
+            if not sid or sid == a.identitySID then return end
+            local group = byIdentity[sid]
+            if not group then return end
+            for _, b in ipairs(group) do
+                if a.cdID ~= b.cdID then
+                    collided[a.cdID], collided[b.cdID] = true, true
                 end
+            end
+        end
+        for _, e in ipairs(entries) do
+            if type(e.cdID) == "number" then
+                MarkReplacement(e, e.overrideSID)
+                MarkReplacement(e, _GetOverride(e.identitySID))
             end
         end
     end
@@ -520,13 +526,22 @@ function ns.GetRedundantOverrideClaims(claims)
     return hidden
 end
 
+local cdFamilyViewers = { "BuffIconCooldownViewer", "EssentialCooldownViewer", "UtilityCooldownViewer" }
 function ns.IsBuffViewerCdID(cdID)
     if type(cdID) ~= "number" then return false end
-    for _, e in ipairs(EnumerateCDMViewerSpells(true)) do
-        if e.cdID == cdID then return true end
-    end
-    for _, e in ipairs(EnumerateCDMViewerSpells(false)) do
-        if e.cdID == cdID then return false end
+    -- Family classification needs only membership, not spell resolution,
+    -- sorting or collision discovery for every preview/repopulate entry.
+    for _, name in ipairs(cdFamilyViewers) do
+        local viewer = _G[name]
+        local pool = viewer and viewer.itemFramePool
+        if pool and pool.EnumerateActive then
+            for frame in pool:EnumerateActive() do
+                if _IsUsableSID(frame.cooldownID) and frame.cooldownID == cdID
+                   and (frame:IsShown() or frame.cooldownInfo) then
+                    return name == "BuffIconCooldownViewer"
+                end
+            end
+        end
     end
     -- Untalented slots can lack a live frame. Static family membership is
     -- sufficient here; the arranged category is only needed for bar placement.

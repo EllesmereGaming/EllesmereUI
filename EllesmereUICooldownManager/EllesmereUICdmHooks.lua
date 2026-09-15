@@ -1152,6 +1152,17 @@ local _routeMapBuilt = false
 --- _divertedSpellsBuff or _divertedSpellsCD so buff/CD bars claiming the same
 --- spellID (e.g. Divine Shield 642) never clobber each other.
 function ns.RefreshRedundantOverrideClaims()
+    if not next(_divertedCdIDs) then
+        if ns._redundantOverrideClaims and next(ns._redundantOverrideClaims) then
+            wipe(_cdidRouteMap)
+        end
+        ns._redundantOverrideClaims = nil
+        if not (InCombatLockdown and InCombatLockdown()) then
+            ns._overrideClaimRefreshPending = nil
+            ns._overrideClaimInfo = nil
+        end
+        return
+    end
     local updated = ns.GetRedundantOverrideClaims
         and ns.GetRedundantOverrideClaims(_divertedCdIDs) or {}
     local previous = ns._redundantOverrideClaims or {}
