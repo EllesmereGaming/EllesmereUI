@@ -2234,7 +2234,7 @@ local function EnsureBmTipModifiers(button, d)
     local hugBar = pinHost._euiHealth or pinHost
     local iscale = BmScaleFor(d)
     local seen = {}
-    local function Grid(key, container, n, size, spacing, per, vertical, padding, lineWidth)
+    local function Grid(key, container, n, size, spacing, per, vertical, padding, lineWidth, levelOffset)
         if not container or n < 1 then return end
         -- Containers are owned frames whose single pin is set by the layout
         -- functions above; their dynamic aura buttons are never queried.
@@ -2253,7 +2253,8 @@ local function EnsureBmTipModifiers(button, d)
         if point:find("TOP", 1, true) then y = y + padding
         elseif point:find("BOTTOM", 1, true) then y = y - padding end
         seen[key] = true
-        ns.DM_EnsureBuffTipEater(button, d, key, container, host, point, corner, x, y, w, h)
+        ns.DM_EnsureBuffTipEater(button, d, key, container, host, point, corner, x, y, w, h,
+            nil, nil, button:GetFrameLevel() + (levelOffset or 13) + 1)
     end
     local bs = BmSimpleSettings()
     if bs and bs.showBuffs and ns.BM_BaseActive and ns.BM_BaseActive() then
@@ -2266,7 +2267,7 @@ local function EnsureBmTipModifiers(button, d)
     for _, m in ipairs(d.rfcBmMeta or {}) do
         if m.isChain and not m.anchored then
             local members = m.members or { { ind = m.ind, count = m.count or (m.ind.spells and #m.ind.spells) or 0 } }
-            local n, size, padding = 0, 0, 0
+            local n, size, padding, levelOffset = 0, 0, 0, 0
             local budgets = {}
             for i, member in ipairs(members) do
                 local ind = member.ind
@@ -2280,6 +2281,7 @@ local function EnsureBmTipModifiers(button, d)
                 end
                 n = n + count
                 size = math.max(size, (ind.size or 18) * iscale)
+                levelOffset = math.max(levelOffset, BM_FRAMELVL[ind.frameLevel or "medium"] or 13)
                 if i > 1 and (member.segIndex or 1) <= 1 and index > 1 then
                     local grow = members[1].ind.growDirection
                     local offset = (grow == "UP" or grow == "DOWN") and ind.offsetY or ind.offsetX
@@ -2296,13 +2298,15 @@ local function EnsureBmTipModifiers(button, d)
                 per = math.max(1, math.floor((width + spacing) / math.max(1, size + spacing)))
             end
             Grid("chain:" .. m.chainKey, d.rfcBmChain and d.rfcBmChain[m.chainKey],
-                n, size, spacing, per, ind.growDirection == "UP" or ind.growDirection == "DOWN", padding, width)
+                n, size, spacing, per, ind.growDirection == "UP" or ind.growDirection == "DOWN", padding, width, levelOffset)
         elseif not m.isChain and d.rfcBm and (m.kind == "icon" or m.kind == "square" or m.kind == "bar") then
             local key = "slot:" .. m.key
             seen[key] = true
             ns.DM_EnsureBuffTipEater(button, d, key, d.rfcBm, pinHost, "CENTER", "CENTER", 0, 0, 1, 1,
                 function(e) BmAnchorOneSlot(e, m, pinHost, hugBar, iscale) end,
-                BmGeoFP({ m }, iscale, s))
+                BmGeoFP({ m }, iscale, s),
+                button:GetFrameLevel() + (BM_FRAMELVL[m.ind.frameLevel or
+                    (m.kind == "bar" and "behindBorders" or "medium")] or 13) + 1)
         end
     end
     ns.DM_ParkBuffTipEaters(d, seen)
