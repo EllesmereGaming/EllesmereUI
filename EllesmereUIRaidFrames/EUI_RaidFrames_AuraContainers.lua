@@ -1059,6 +1059,8 @@ local function BmSignature(inds, specKey, mode)
                 -- Anchor To is structural: the composition decides how many
                 -- groups each pool container declares.
                 .. ":@" .. tostring(ind.anchorTo or "")
+                -- Pandemic regions must be registered in the creation callback.
+                .. (((ind.type or "icon") == "icon" and ind.pandemicBorderEnabled) and ":p" or "")
         end
     end
     return table.concat(parts, "|")
@@ -1225,8 +1227,9 @@ local function ApplyBmIconGlow(button, dd, style)
 end
 
 local function ApplyBmPandemicBorder(button, dd, style)
-    -- Register once during creation, including when disabled. The engine owns
-    -- visibility; settings only recolor the child textures on subsequent restyles.
+    -- Disabled displays allocate nothing. Opted-in chains register every pooled
+    -- button at creation; per-member restyles only recolor the child textures.
+    if not style.bmPandemicEnabled and not style.bmPandemicRegister and not dd.bmPandemic then return end
     if not dd.bmPandemic and not dd.bmRegistered and button.AddPandemicRegion then
         local holder = CreateFrame("Frame", nil, button)
         holder:SetAllPoints(button)
@@ -2449,6 +2452,16 @@ local function BmAcquireChain(button, d, health, ch, iscale, counters)
         totalGroups = totalGroups + (segsBy[j] and #segsBy[j] or 1)
     end
     local ck = kind .. ":" .. table.concat(ownPat)
+    local anyPandemic = false
+    if kind == "icon" then
+        for j = 1, #members do
+            anyPandemic = anyPandemic or members[j].ind.pandemicBorderEnabled == true
+        end
+        -- A shared engine pool can reuse buttons across members. Register all
+        -- buttons in the opted-in container, but keep visibility per member.
+        -- Only two variants are needed, regardless of the member enable pattern.
+        if anyPandemic then ck = ck .. ":p:" end
+    end
     if anySegs then
         -- Segment shape joins the pool key (group sets are add-only, so a
         -- differently-segmented chain needs its own container). The trailing
@@ -2474,6 +2487,7 @@ local function BmAcquireChain(button, d, health, ch, iscale, counters)
         if bmStyleFP[sk] ~= vk then
             bmStyleFP[sk] = vk
             AK.styles[sk] = BuildBmStyleFor(kind, mInd, iscale, msize)
+            AK.styles[sk].bmPandemicRegister = anyPandemic
             AK.RestyleSoon(sk)
         end
     end
