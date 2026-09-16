@@ -124,6 +124,25 @@ local function EnsureFilterLanes(dm)
     end
 end
 
+-- Preserve the old shared flavor on every bucket before any surface edits it.
+-- Explicit "nonplayer" distinguishes an independent choice from legacy nil.
+function ns.DM_EnsureTileNonplayerModes(dm)
+    if dm.tileNonplayerModesV1 then return end
+    local mode = dm.nonplayerMode == "any" and "any" or "nonplayer"
+    local function Seed(tiles)
+        if not tiles then return end
+        for i = 1, #tiles do
+            local t = tiles[i]
+            if t.nonplayerMode == nil then t.nonplayerMode = mode end
+        end
+    end
+    Seed(dm.tiles)
+    if dm.specTiles then
+        for _, b in pairs(dm.specTiles) do Seed(b.tiles) end
+    end
+    dm.tileNonplayerModesV1 = true
+end
+
 -- One-shot: maps the retired Auras-tab preset onto the manager, runs ONLY
 -- while the profile has no dmDebuff yet (a brand-new profile maps nil/"all" preset to the defaults, harmless). No
 -- display/style key mapping needed; the base grid reads legacy debuff keys directly (nondestructive view).
@@ -133,6 +152,7 @@ local function EnsureMigrated()
     if p.dmDebuff then
         EnsureFilterV2(p.dmDebuff)
         EnsureFilterLanes(p.dmDebuff)
+        ns.DM_EnsureTileNonplayerModes(p.dmDebuff)
         return
     end
     local preset = p.debuffFilter
@@ -172,6 +192,7 @@ local function EnsureMigrated()
     p.dmDebuff = dm
     EnsureFilterV2(dm)
     EnsureFilterLanes(dm)
+    ns.DM_EnsureTileNonplayerModes(dm)
 end
 
 function ns.DM_Active()
@@ -784,6 +805,7 @@ function ns.DM_CfgFP()
                     t.neg.raid and 1 or 0, t.neg.raidcombat and 1 or 0,
                     t.neg.dispel and 1 or 0, t.neg.nonplayer and 1 or 0 }, "") or "-",
                 t.all == true and 1 or 0, t.hasDuration == true and 1 or 0,
+                t.nonplayerMode == "any" and "npany" or "np",
                 TileStyleFP(t),
                 FxListFP(t.fxList),
             }, ",")
@@ -842,8 +864,12 @@ local function EffectiveState(dm)
                 if t.claim then
                     for c = 1, #CATS do
                         local cat = CATS[c]
-                        if t.claim[cat] and not claims[cat] then
-                            claims[cat] = t
+                        -- Opposite source filters own separate records; the
+                        -- first claim still wins within each source flavor.
+                        local claimKey = cat == "nonplayer" and t.nonplayerMode == "any"
+                            and "anyplayer" or cat
+                        if t.claim[cat] and not claims[claimKey] then
+                            claims[claimKey] = t
                             eff[cat] = true
                         end
                     end
@@ -1148,9 +1174,15 @@ local function BuildRecords(s, dm)
     -- token negation set keeps token categories owning their overlaps; overlap with boolean records accepted like
     -- boolean x boolean. Pure subset of the all-record under Show All, so the base skips it there; a
     -- claiming tile or a per-filter effect still forces it (same routing as the other boolean categories).
-    if eff.nonplayer and (claims.nonplayer or fxCats.nonplayer or not allOn) then
-        recs[#recs + 1] = { key = "nonplayer", tokens = BoolTokens(),
-            cand = Cand(false, { isFromPlayerOrPlayerPet = npAny }), tile = claims.nonplayer }
+    for flavor = 1, 2 do
+        local anyPlayer = flavor == 2
+        local owner = claims[anyPlayer and "anyplayer" or "nonplayer"]
+        local baseWanted = npAny == anyPlayer
+            and (fxCats.nonplayer or (not allOn and bv.nonplayer))
+        if owner or baseWanted then
+            recs[#recs + 1] = { key = "nonplayer", tokens = BoolTokens(),
+                cand = Cand(false, { isFromPlayerOrPlayerPet = anyPlayer }), tile = owner }
+        end
     end
 
     -- Tile-hosted catch-all: the first enabled grid tile in catch-all state
@@ -1193,13 +1225,14 @@ local function BuildRecords(s, dm)
                 if t.enabled and (t.type == "icons" or t.type == "square") and t.all == true then
                     deadBlocked = true
                 end
-                if not deadTile and t.enabled and t.type == "icons" and t.claim and t.claim.nonplayer then
+                if not deadTile and t.enabled and t.type == "icons" and t.claim and t.claim.nonplayer
+                    and t.nonplayerMode ~= "any" then
                     deadTile = t
                 end
             end
         end
         -- The From Any Player flavor is not "Non-Player Auras": no corpse swap.
-        if not deadBlocked and not npAny and (deadTile or bv.nonplayer == true) then
+        if not deadBlocked and (deadTile or (not npAny and bv.nonplayer == true)) then
             recs[#recs + 1] = { key = "npdead", tokens = { "HARMFUL" },
                 cand = { excludeSpellIDs = ex }, deadOnly = true, tile = deadTile }
         end
@@ -1218,7 +1251,7 @@ local function BuildRecords(s, dm)
         for i = 1, #toks do if toks[i] == tok then return true end end
         return false
     end
-    for i = 1, #recs do
+    for i = #recs, 1, -1 do
         local r = recs[i]
         local tn = r.tile and r.tile.neg
         -- npdead ignores ALL filters by definition: no hide-lane folds, no duration cap.
@@ -1243,8 +1276,15 @@ local function BuildRecords(s, dm)
             if tn.boss == true and cf.isBossAura == nil and cf.isBossOrRoleAura == nil then cf.isBossAura = false end
             if tn.role == true and cf.isRoleAura == nil and cf.isBossOrRoleAura == nil then cf.isRoleAura = false end
             if tn.priority == true and cf.isPriorityAura == nil then cf.isPriorityAura = false end
-            if tn.nonplayer == true and key ~= "nonplayer" and cf.isFromPlayerOrPlayerPet == nil then
-                cf.isFromPlayerOrPlayerPet = npHideVal
+            if tn.nonplayer == true and key ~= "nonplayer" then
+                local keepPlayer = r.tile.nonplayerMode ~= "any"
+                if cf.isFromPlayerOrPlayerPet ~= nil and cf.isFromPlayerOrPlayerPet ~= keepPlayer then
+                    -- The base and tile exclude opposite sources, so no aura
+                    -- can satisfy both. Omit the record rather than drop a hide.
+                    table.remove(recs, i)
+                else
+                    cf.isFromPlayerOrPlayerPet = keepPlayer
+                end
             end
             -- Less common categories: token, boolean, and per-type folds.
             if tn.castbyme == true and key ~= "castbyme" and not HasTok(toks, "!PLAYER") then
@@ -1330,7 +1370,7 @@ local function GroupKey(AKL, r)
 end
 
 -- Effect-tile category resolution: one live-settable slot per tile.
-local function EffectFilterFor(dm, cat)
+local function EffectFilterFor(dm, cat, t)
     if cat == "cc" then return { "HARMFUL", "CROWD_CONTROL" }, nil, false end
     if cat == "raid" then return { "HARMFUL", "RAID" }, nil, false end
     if cat == "raidcombat" then return { "HARMFUL", "RAID_IN_COMBAT" }, nil, false end
@@ -1343,8 +1383,8 @@ local function EffectFilterFor(dm, cat)
     end
     if cat == "boss" then return { "HARMFUL" }, { isBossAura = true }, true end
     if cat == "role" then return { "HARMFUL" }, { isRoleAura = true }, true end
-    -- Follows the base Non-Player flavor (false = Non-Player Auras, true = From Any Player).
-    if cat == "nonplayer" then return { "HARMFUL" }, { isFromPlayerOrPlayerPet = dm.nonplayerMode == "any" }, false end
+    -- Non-Player flavor belongs to this indicator, independently of the base.
+    if cat == "nonplayer" then return { "HARMFUL" }, { isFromPlayerOrPlayerPet = (t or dm).nonplayerMode == "any" }, false end
     if cat == "castbyme" then return { "HARMFUL", "PLAYER" }, nil, false end
     if TYPE_CATS[cat] then return { "HARMFUL" }, { includeDispelTypes = TYPE_INCLUDE[cat] }, false end
     if cat == "canapply" then return { "HARMFUL" }, { canApplyAura = true }, true end
@@ -1361,7 +1401,7 @@ end
 -- the cc slot takes no folds at all -- cc owns its overlaps, base parity with
 -- ccCand bypassing Cand).
 local function EffectFilterForTile(dm, t, cat)
-    local toks, cf, gated = EffectFilterFor(dm, cat)
+    local toks, cf, gated = EffectFilterFor(dm, cat, t)
     local cap = t and (t.maxDurSec or (t.hasDuration == true and math.huge)) or nil
     if cap and cat ~= "cc" then
         cf = cf or {}
@@ -1394,7 +1434,7 @@ local function EffectFilterForTile(dm, t, cat)
         end
         if tn.nonplayer == true and cat ~= "nonplayer" then
             cf = cf or {}
-            if cf.isFromPlayerOrPlayerPet == nil then cf.isFromPlayerOrPlayerPet = (dm.nonplayerMode ~= "any") end
+            if cf.isFromPlayerOrPlayerPet == nil then cf.isFromPlayerOrPlayerPet = t.nonplayerMode ~= "any" end
         end
         if tn.castbyme == true and cat ~= "castbyme" then toks[#toks + 1] = "!PLAYER" end
         if tn.canapply == true and cat ~= "canapply" then
@@ -2754,7 +2794,8 @@ function ns.DM_AddTile(tileType, bucketKey)
         if id <= maxId then id = maxId + 1 end
     end
     dm.nextTileId = id + 1
-    local t = { id = id, enabled = true, type = tileType or "icons" }
+    local t = { id = id, enabled = true, type = tileType or "icons",
+        nonplayerMode = dm.nonplayerMode == "any" and "any" or "nonplayer" }
     if t.type == "icons" or t.type == "square" then
         -- Grid tiles (Icon / Square): identical shape; squares add a color.
         t.claim = {}

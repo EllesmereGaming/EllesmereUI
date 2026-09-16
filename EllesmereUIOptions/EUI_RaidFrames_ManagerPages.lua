@@ -91,6 +91,7 @@ local function DmTable()
     if not p then return nil end
     local dm = p.dmDebuff
     if not dm then dm = {}; p.dmDebuff = dm end
+    ns.DM_EnsureTileNonplayerModes(dm)
     return dm
 end
 
@@ -764,9 +765,9 @@ local function BuildTileFiltersDD(rgn, t, dm)
                 if neg then return NegHas("dispel") and dm.dispelMode == "typed" end
                 return (claim.dispel and true or false) and dm.dispelMode == "typed"
             end
-            -- Two flavors of ONE nonplayer category (global dm.nonplayerMode).
+            -- Two flavors of this indicator's nonplayer category.
             if k == "nonplayer" or k == "anyplayer" then
-                if ((dm.nonplayerMode == "any") ~= (k == "anyplayer")) then return false end
+                if ((t.nonplayerMode == "any") ~= (k == "anyplayer")) then return false end
                 if neg then return NegHas("nonplayer") end
                 return claim.nonplayer and true or false
             end
@@ -808,21 +809,19 @@ local function BuildTileFiltersDD(rgn, t, dm)
                 return
             end
             if k == "nonplayer" or k == "anyplayer" then
-                -- ONE nonplayer category, one global flavor (shared with the base
-                -- grid): any checked lane owns both the lane and dm.nonplayerMode;
-                -- checking one lane/flavor clears the other.
-                local mode = (k == "anyplayer") and "any" or nil
+                -- Checking a lane/flavor clears only this indicator's other lane.
+                local mode = (k == "anyplayer") and "any" or "nonplayer"
                 if neg then
                     SetNeg("nonplayer", v and true or false)
                     if v then
                         claim.nonplayer = nil
-                        dm.nonplayerMode = mode
+                        t.nonplayerMode = mode
                     end
                 else
                     claim.nonplayer = v and true or nil
                     if v then
                         SetNeg("nonplayer", false)
-                        dm.nonplayerMode = mode
+                        t.nonplayerMode = mode
                     end
                 end
                 DmApply()
