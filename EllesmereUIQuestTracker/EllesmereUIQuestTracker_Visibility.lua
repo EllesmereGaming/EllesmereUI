@@ -18,7 +18,6 @@ local EQT = ns.EQT
 local hiddenFrame = CreateFrame("Frame", "EllesmereUIQTHiddenParent", UIParent)
 hiddenFrame:Hide()
 
-local _eqtCollapsed       = false
 local _eqtSuppressed      = false
 
 -- Forward-declared so the auto-hide path can toggle BG visibility. The BG
@@ -58,25 +57,23 @@ local function GetBGTopAnchor()
     return otf, "TOP"
 end
 
--------------------------------------------------------------------------------
--- Top-level collapse / expand via SetParent. No child recursion.
--------------------------------------------------------------------------------
-local function Collapse()
-    local otf = GetTracker()
-    if not otf then return end
-    if InCombatLockdown() then return end
-    if _eqtCollapsed then return end
-    _eqtCollapsed = true
-    otf:SetParent(hiddenFrame)
-end
-
-local function Expand()
-    local otf = GetTracker()
-    if not otf then return end
-    if InCombatLockdown() then return end
-    if not _eqtCollapsed then return end
-    _eqtCollapsed = false
-    otf:SetParent(UIParent)
+-- Reparenting under an already-Hidden frame drops visibility AND mouse for
+-- the whole subtree (unlike SetAlpha/EnableMouse, which never cascade to
+-- children); pcall-guarded, falling back to top-level-only SetAlpha/EnableMouse.
+local function SetTrackerHidden(otf, hidden)
+    if hidden then
+        if otf:GetParent() ~= hiddenFrame then
+            pcall(otf.SetParent, otf, hiddenFrame)
+        end
+        otf:SetAlpha(0)
+        otf:EnableMouse(false)
+    else
+        if otf:GetParent() == hiddenFrame then
+            pcall(otf.SetParent, otf, UIParent)
+        end
+        otf:SetAlpha(1)
+        otf:EnableMouse(true)
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -160,19 +157,14 @@ function EQT.ApplySuppression(on)
     if EQT.UpdateVisibility then EQT.UpdateVisibility() end
 end
 
--- ObjectiveTrackerFrame is EditMode-managed: Hide()/Show() route through the system
--- template's protected HideBase/ShowBase, so calling either from addon execution during
--- combat is blocked (ADDON_ACTION_BLOCKED) -- and the raid/encounter auto-hide fires
--- exactly at combat start (vehicle boss pulls hit this). In combat fall back to alpha
--- suppression: top-level frame only, never children, never mouse state. The shared
--- visibility dispatcher re-runs UpdateVisibility on PLAYER_REGEN_ENABLED, where the
--- real Hide() lands -- same recovery shape as the M+ timer's HideTracker, minus the
--- private regen listener it needs (we are dispatcher-driven).
+-- ObjectiveTrackerFrame is EditMode-managed: Hide()/Show() are combat-protected
+-- (ADDON_ACTION_BLOCKED), so combat uses SetTrackerHidden's reparent instead;
+-- out of combat, clear any lingering reparent/alpha state then really Hide() it.
 local function HardHide(otf)
     if InCombatLockdown() then
-        otf:SetAlpha(0)
+        SetTrackerHidden(otf, true)
     else
-        otf:SetAlpha(1)  -- clear any combat alpha-suppression before hiding
+        SetTrackerHidden(otf, false)
         otf:Hide()
     end
 end
@@ -218,6 +210,7 @@ local function UpdateVisibility()
     end
 
     ResumeQTEvents()
+    SetTrackerHidden(otf, false)  -- undo any reparent from the branch above
     if not otf:IsShown() then
         -- Show() is protected in combat like Hide() (see HardHide). Skip;
         -- the dispatcher's PLAYER_REGEN_ENABLED pass re-runs us and the
@@ -233,18 +226,10 @@ local function UpdateVisibility()
         vis = EllesmereUI.EvalVisibility(cfg)
     end
 
-    local alpha
-    if _eqtSuppressed or vis == false then
-        alpha = 0
-    elseif vis == "mouseover" then
-        -- Mouseover poll raises alpha to 1 on hover.
-        alpha = 0
-    else
-        alpha = 1
-    end
-
-    otf:SetAlpha(alpha)
-    if _bgFrame then _bgFrame:SetAlpha(alpha) end
+    -- "mouseover" defaults hidden; moProxy's Show/Hide flip it on actual hover.
+    local hide = _eqtSuppressed or vis == false or vis == "mouseover"
+    SetTrackerHidden(otf, hide)
+    if _bgFrame then _bgFrame:SetAlpha(hide and 0 or 1) end
 
     -- Let ResizeBGToContent decide BG shown/hidden based on real content;
     -- an unconditional Show here would resurrect the empty-state BG.
@@ -549,7 +534,7 @@ function EQT.InitVisibility()
             return 1
         end
         moProxy.SetAlpha = function(_, a)
-            if otf then otf:SetAlpha(a) end
+            if otf then SetTrackerHidden(otf, a <= 0) end
             if _bgFrame then _bgFrame:SetAlpha(a) end
         end
         -- The monitor reveals via SetAlpha(1) + Show(). The BG may have been Hidden by
@@ -558,10 +543,11 @@ function EQT.InitVisibility()
         -- brings back the tracker without its background. Hide() stays alpha-only; the
         -- next resize pass re-hides the frame cleanly.
         moProxy.Show = function()
+            if otf then SetTrackerHidden(otf, false) end
             if _bgFrame then _bgFrame:Show() end
         end
         moProxy.Hide = function()
-            if otf then otf:SetAlpha(0) end
+            if otf then SetTrackerHidden(otf, true) end
             if _bgFrame then _bgFrame:SetAlpha(0) end
         end
         moProxy.EnableMouse = function() end
