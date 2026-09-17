@@ -2234,6 +2234,7 @@ local GLOW_STYLES = {
     { name = "Modern WoW Glow",      atlas = "UI-HUD-ActionBar-Proc-Loop-Flipbook", texPadding = 1.4 },
     { name = "Classic WoW Glow",     texture = "Interface\\SpellActivationOverlay\\IconAlertAnts",
       rows = 5, columns = 5, frames = 25, duration = 0.3, frameW = 48, frameH = 48, texPadding = 1.25 },
+    { name = "Blackout",             solidFill = true },
 }
 ns.GLOW_STYLES = GLOW_STYLES
 
@@ -2582,6 +2583,13 @@ StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
         _G_Glows.StartButtonGlow(overlay, pW, cr, cg, cb, nil, pH)
     elseif entry.autocast then
         _G_Glows.StartAutoCastShine(overlay, pW, cr, cg, cb, 1.0, pH)
+    elseif entry.solidFill then
+        -- Blackout: opaque fill over the icon. An unspecified colour means
+        -- black here rather than the tinted-style gold every other style takes.
+        local ifc3 = _ecmeFC[parent]
+        _G_Glows.StartSolidFill(overlay,
+            noColor and 0 or cr, noColor and 0 or cg, noColor and 0 or cb,
+            { shapeMask = (ifc3 and ifc3.shapeApplied) and ifc3.shapeMask or nil })
     else
         if noColor then cr, cg, cb = nil, nil, nil end
         _G_Glows.StartFlipBookGlow(overlay, pW, entry, cr, cg, cb, pH)

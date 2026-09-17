@@ -276,7 +276,7 @@ initFrame:SetScript("OnEvent", function(self)
     local PAN_GLOW_ORDER  = { 0, -1 }
     if ns.GLOW_STYLES then
         for i, entry in ipairs(ns.GLOW_STYLES) do
-            if not entry.shapeGlow then
+            if not entry.shapeGlow and not entry.solidFill then
                 PAN_GLOW_VALUES[i] = entry.name
                 PAN_GLOW_ORDER[#PAN_GLOW_ORDER + 1] = i
             end
@@ -622,6 +622,15 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
         return false
+    end
+
+    -- Blackout masks itself to the icon silhouette, so it survives a custom
+    -- shape instead of being forced to Shape Glow (mirrors CdmBarGlows).
+    local function ResolveBarGlowStyle(barIdx, style)
+        style = tonumber(style) or 1
+        local e = ns.GLOW_STYLES and ns.GLOW_STYLES[style]
+        if BarHasCustomShape(barIdx) and not (e and e.solidFill) then return 2 end
+        return style
     end
 
     -- Preview glow state tracking
@@ -1574,7 +1583,7 @@ initFrame:SetScript("OnEvent", function(self)
                         if not _bgPreviewGlowActive[pvKey] then return end
                         local ov = _bgPreviewGlowOverlays[pvKey]
                         if not ov then return end
-                        local style = BarHasCustomShape(curBar) and 2 or (entry.glowStyle or 1)
+                        local style = ResolveBarGlowStyle(curBar, entry.glowStyle)
                         local cr, cg, cb
                         if entry.colorMode == "class" then
                             local cc = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
@@ -1609,8 +1618,7 @@ initFrame:SetScript("OnEvent", function(self)
                           disabled = function() return BarHasCustomShape(curBar) end,
                           disabledTooltip = "This option is not available for custom shaped icons",
                           getValue = function()
-                              if BarHasCustomShape(curBar) then return 2 end
-                              return entry.glowStyle or 1
+                              return ResolveBarGlowStyle(curBar, entry.glowStyle)
                           end,
                           setValue = function(v)
                               entry.glowStyle = tonumber(v) or 1
@@ -1700,7 +1708,7 @@ initFrame:SetScript("OnEvent", function(self)
                                     -- Restore accent border
                                     if previewBtn._accentBrd then previewBtn._accentBrd:Show() end
                                 else
-                                    local style = BarHasCustomShape(curBar) and 2 or (entry.glowStyle or 1)
+                                    local style = ResolveBarGlowStyle(curBar, entry.glowStyle)
                                     local cr, cg, cb
                                     if entry.colorMode == "class" then
                                         local cc = EllesmereUI.GetClassColor(EllesmereUI._playerClass)

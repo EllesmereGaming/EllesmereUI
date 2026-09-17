@@ -40,6 +40,7 @@ local GLOW_STYLES = {
       -- a direct Classic pick keeps this entry's bare-ants look.
       rows = 5, columns = 5, frames = 22, duration = 0.3,
       frameW = 48, frameH = 48, texPadding = 1.25 },
+    { name = "Blackout",           solidFill = true },
 }
 
 -------------------------------------------------------------------------------
@@ -800,6 +801,37 @@ local function StopFlipBookGlow(wrapper)
     end
 end
 
+-------------------------------------------------------------------------------
+--  Solid Fill Engine (Blackout)
+--  One opaque colour texture covering the wrapper. Static: no driver tick and
+--  no AnimationGroup, so it renders identically inside the 12.1 forbidden
+--  partition and costs nothing per frame.
+-------------------------------------------------------------------------------
+local function StartSolidFill(wrapper, cr, cg, cb, opts)
+    opts = opts or {}
+    if not wrapper._euiFillData then
+        local tex = wrapper:CreateTexture(nil, "OVERLAY", nil, 7)
+        tex:SetAllPoints(wrapper)
+        wrapper._euiFillData = { tex = tex }
+    end
+    local d = wrapper._euiFillData
+    d.tex:SetColorTexture(cr or 0, cg or 0, cb or 0, 1)
+    d.tex:SetAlpha(1)
+    -- Shape-masked icons: clip the fill to the icon silhouette so it cannot
+    -- spill past a rounded/circular border.
+    local shapeMask = opts.shapeMask
+    if d.mask ~= shapeMask then
+        if d.mask then pcall(d.tex.RemoveMaskTexture, d.tex, d.mask) end
+        if shapeMask then pcall(d.tex.AddMaskTexture, d.tex, shapeMask) end
+        d.mask = shapeMask
+    end
+    d.tex:Show()
+end
+
+local function StopSolidFill(wrapper)
+    if wrapper._euiFillData then wrapper._euiFillData.tex:Hide() end
+end
+
 -- Defined above StopAllGlows so engine-hosted ants (StartEngineGlow /
 -- StartAnimatedAnts) tear down through the same unified stop path.
 local function StopAnimatedAnts(wrapper)
@@ -821,6 +853,7 @@ local function StopAllGlows(wrapper)
     StopAutoCastShine(wrapper)
     StopShapeGlow(wrapper)
     StopFlipBookGlow(wrapper)
+    StopSolidFill(wrapper)
     StopAnimatedAnts(wrapper)
     -- Defensive scrub: the central driver owns the only OnUpdate now, so the
     -- five Stop* calls above already unregistered this wrapper from the driver.
@@ -868,6 +901,7 @@ local function StartGlow(wrapper, styleIdx, szOrW, cr, cg, cb, opts, szH)
     opts = opts or {}
     local w = szOrW or 36
     local h = szH or w
+    local noColor = (cr == nil)
     cr = cr or 1; cg = cg or 1; cb = cb or 1
 
     -- Stop any previous glow
@@ -892,6 +926,10 @@ local function StartGlow(wrapper, styleIdx, szOrW, cr, cg, cb, opts, szH)
 
     elseif entry.shapeGlow then
         StartShapeGlow(wrapper, w, cr, cg, cb, 1.20, opts)
+
+    elseif entry.solidFill then
+        -- An unspecified colour means black here, not the tinted-style gold.
+        StartSolidFill(wrapper, noColor and 0 or cr, noColor and 0 or cg, noColor and 0 or cb, opts)
 
     else
         -- FlipBook mode (GCD, Modern WoW Glow, Classic WoW Glow, etc.)
@@ -1089,6 +1127,8 @@ EllesmereUI.Glows = {
     StopShapeGlow       = StopShapeGlow,
     StartFlipBookGlow   = StartFlipBookGlow,
     StopFlipBookGlow    = StopFlipBookGlow,
+    StartSolidFill      = StartSolidFill,
+    StopSolidFill       = StopSolidFill,
     ApplyMaskWith       = ApplyMaskWith,
     StopAllGlows        = StopAllGlows,
 }
