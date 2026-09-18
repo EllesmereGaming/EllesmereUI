@@ -4164,24 +4164,35 @@ initFrame:SetScript("OnEvent", function(self)
                 if ns.ApplyOOCPlates then ns.ApplyOOCPlates() end
               end });  y = y - h
 
-        -- Row 6 (Blood Death Knight only): Hide Copies of Blood Plague. The row
-        -- is not built at all for anyone else -- the setting only affects a
-        -- debuff Blood spec applies.
-        do
-            local _, classFile = UnitClass("player")
-            local specIdx = GetSpecialization and GetSpecialization()
-            local specID = specIdx and GetSpecializationInfo(specIdx)
-            if classFile == "DEATHKNIGHT" and specID == 250 then
-                _, h = W:DualRow(parent, y,
-                    { type="toggle", text="Hide Copies of Blood Plague",
-                      tooltip="Shows a single Blood Plague debuff on enemy nameplates instead of one per copy (Blood Boil from weapon copies).",
-                      getValue=function() return DBVal("hideBloodPlagueCopies") ~= false end,
-                      setValue=function(v)
-                        DB().hideBloodPlagueCopies = v
-                        if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
-                      end },
-                    { type="label", text="" });  y = y - h
+        -- Row 6: Class-specific options and Arena Number Names
+        local arenaConfig = {
+            type="dropdown", text="Arena Number Names",
+            tooltip="Changes how enemy names are displayed in arenas based on their arena target number (e.g., arena1, arena2).",
+            values={ none="Disabled", full="Full Replacement (1, 2, 3)", prefix="Prefix (1 Name)", postfix="Postfix (Name 1)" },
+            order={ "none", "full", "prefix", "postfix" },
+            getValue=function() return DBVal("arenaNumberNames") or "none" end,
+            setValue=function(v)
+                DB().arenaNumberNames = v
+                if ns.RefreshAllSettings then ns.RefreshAllSettings() end
+                UpdatePreview()
             end
+        }
+
+        local _, classFile = UnitClass("player")
+        local specIdx = GetSpecialization and GetSpecialization()
+        local specID = specIdx and GetSpecializationInfo(specIdx)
+        if classFile == "DEATHKNIGHT" and specID == 250 then
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Hide Copies of Blood Plague",
+                  tooltip="Shows a single Blood Plague debuff on enemy nameplates instead of one per copy (Blood Boil from weapon copies).",
+                  getValue=function() return DBVal("hideBloodPlagueCopies") ~= false end,
+                  setValue=function(v)
+                    DB().hideBloodPlagueCopies = v
+                    if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
+                  end },
+                arenaConfig);  y = y - h
+        else
+            _, h = W:DualRow(parent, y, arenaConfig, { type="label", text="" });  y = y - h
         end
 
         return math.abs(y)
