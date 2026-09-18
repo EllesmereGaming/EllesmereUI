@@ -6223,7 +6223,6 @@ local function GVToggleVault()
     end
     local wrf = _G.WeeklyRewardsFrame
     if not wrf then return end
-    if EllesmereUI.RegisterEscapeClose then EllesmereUI.RegisterEscapeClose(wrf) end
     wrf:SetShown(not wrf:IsShown())
 end
 

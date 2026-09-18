@@ -12217,6 +12217,10 @@ initFrame:SetScript("OnEvent", function(self)
                                 -- Stamp/restore on every claimed frame now: DecorateFrame runs from
                                 -- the reanchor pass (the only re-style path for the default Essential/Utility bars).
                                 if ns.QueueReanchor then ns.QueueReanchor() end
+                                -- Aura-tracked custom buffs render in an engine container the
+                                -- reanchor never reaches; their sync pass rebuilds it when the
+                                -- icon changes (a signature no-op for every other bar).
+                                if ns.UpdateCustomBuffAuraTracking then ns.UpdateCustomBuffAuraTracking() end
                             end)
                         end)
                         mH = mH + ITEM_H

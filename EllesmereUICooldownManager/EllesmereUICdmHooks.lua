@@ -8861,7 +8861,12 @@ end
 --  the style; why they cannot join the bar's icon row is on _AC above the
 --  collect passes. ENTRIES WITH A STORED DURATION ARE LEGACY CAST-TIMER
 --  CUSTOMS AND NEVER REACH HERE. Styling reads the bar's own settings; glows
---  and per-spell overrides do not reach these icons.
+--  and per-spell overrides do not reach these icons, with one exception:
+--  per-spell Custom Icon. A spell carrying one is split out of the shared
+--  group into a single-spell group of its own, so every button in that group
+--  is known to hold that spell without Lua ever reading the (secret) aura, and
+--  its style paints the fixed art (_AC.ApplyExtra). Bars with no Custom Icon
+--  keep the single shared group, byte-for-byte.
 -------------------------------------------------------------------------------
 
 -- Appearance fingerprint: the settings a restyle can carry. Geometry the engine
@@ -8932,8 +8937,9 @@ end
 -- crop, swipe and border; style.cdm carries what _AC.ApplyExtra draws on our own
 -- regions (background, custom shape, text). PER-SPELL settings cannot reach here:
 -- one engine group renders every custom aura on the bar and, while auras are
--- secret, Lua cannot tell which button holds which aura.
-function _AC.BuildStyle(bd)
+-- secret, Lua cannot tell which button holds which aura. The lone exception is
+-- fixedIcon (a Custom Icon fileID), which only a single-spell group's style carries.
+function _AC.BuildStyle(bd, fixedIcon)
     -- Snapped to the physical pixel grid, as LayoutCDMBar does for the bar's own
     -- icons: an unsnapped button renders a fraction off its neighbors at
     -- non-integral UI scales.
@@ -8999,6 +9005,7 @@ function _AC.BuildStyle(bd)
         applyExtra = _AC.ApplyExtra,
         cdm = {
             font = cdFont, size = SZ, zoom = zoom,
+            fixedIcon = fixedIcon,
             shape = shape, customShape = customShape,
             brdSize = brdSize, brdR = brdR, brdG = brdG, brdB = brdB, brdA = brdA,
             onlyNumbers = onlyNumbers,
@@ -9041,10 +9048,21 @@ function _AC.InitExtra(button, d)
     d.cdmRing:SetSnapToPixelGrid(false)
     d.cdmRing:SetTexelSnappingBias(0)
     d.cdmRing:Hide()
-    -- AuraKit runs applyExtra BEFORE this creation hook, so the pass that draws
-    -- these regions has to run once more now that they exist.
     local AK = EllesmereUI.AuraKit
     local style = AK and d.styleKey and AK.styles[d.styleKey]
+    -- Custom Icon art gets a texture of its own instead of a SetTexture on d.icon:
+    -- the engine re-stamps the aura's art onto its registered icon on every update,
+    -- so ApplyExtra hides d.icon and this takes its place. Anchored to d.icon so it
+    -- follows every shape/zoom re-point without anchoring anything under secrecy.
+    -- Creation time is enough: whether a spell has a Custom Icon is part of the
+    -- structural signature, so a group's style never gains or loses fixedIcon
+    -- without a rebuild. Only its value changes in place, and ApplyExtra re-reads it.
+    if style and style.cdm and style.cdm.fixedIcon and d.icon then
+        d.cdmFixedIcon = button:CreateTexture(nil, "ARTWORK", nil, 1)
+        d.cdmFixedIcon:SetAllPoints(d.icon)
+    end
+    -- AuraKit runs applyExtra BEFORE this creation hook, so the pass that draws
+    -- these regions has to run once more now that they exist.
     if style then _AC.ApplyExtra(button, d, style) end
 end
 
@@ -9068,9 +9086,14 @@ function _AC.ApplyExtra(button, d, style)
     -- Only Show Numbers strips the art down to the countdown. Shown-state as
     -- well as alpha, the same pair ApplyOnlyNumbers uses on the bar's own icons:
     -- a texture's alpha and its vertex color share one slot on this client.
+    -- A Custom Icon group hides the engine's art the same way and shows its own
+    -- texture (d.cdmFixedIcon, see InitExtra) in its place.
+    local fixed = c.fixedIcon and d.cdmFixedIcon
+    local artOn = not c.onlyNumbers
+    local engineArtOn = artOn and not fixed
     if d.icon then
-        d.icon:SetAlpha(c.onlyNumbers and 0 or 1)
-        d.icon:SetShown(not c.onlyNumbers)
+        d.icon:SetAlpha(engineArtOn and 1 or 0)
+        d.icon:SetShown(engineArtOn)
         -- Cropped samples a heavy vertical slice, and a snapped image edge can
         -- round to a different physical pixel than the unsnapped swipe (the 1px
         -- split ApplyShapeToCDMIcon disables snapping for). Restored otherwise.
@@ -9080,6 +9103,27 @@ function _AC.ApplyExtra(button, d, style)
         if c.shape == "cropped" and d.icon.SetTexelSnappingBias then
             d.icon:SetTexelSnappingBias(0)
         end
+    end
+    if fixed then
+        fixed:SetTexture(c.fixedIcon)
+        -- The crop AuraKit's ApplyStyleToRegions gives d.icon from this same style.
+        local tc = style.texCoord
+        if tc then
+            fixed:SetTexCoord(tc[1], tc[2], tc[3], tc[4])
+        elseif style.iconCrop then
+            local z = style.iconZoom or 0.07
+            fixed:SetTexCoord(z, 1 - z, z, 1 - z)
+        else
+            fixed:SetTexCoord(0, 1, 0, 1)
+        end
+        if fixed.SetSnapToPixelGrid then
+            fixed:SetSnapToPixelGrid(c.shape ~= "cropped")
+        end
+        if c.shape == "cropped" and fixed.SetTexelSnappingBias then
+            fixed:SetTexelSnappingBias(0)
+        end
+        fixed:SetAlpha(artOn and 1 or 0)
+        fixed:SetShown(artOn)
     end
     if d.cdmBg then
         if c.onlyNumbers then
@@ -9103,6 +9147,7 @@ function _AC.ApplyExtra(button, d, style)
             mask:SetTexture(maskPath, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
             mask:Show()
             _AC.SetMask(d.icon, mask, true)
+            _AC.SetMask(d.cdmFixedIcon, mask, true)
             _AC.SetMask(d.cdmBg, mask, true)
             _AC.SetMask(d.cooldown, mask, true)
             local exp = SH.iconExpand + (SH.iconExpandOffsets[c.shape] or 0)
@@ -9133,6 +9178,7 @@ function _AC.ApplyExtra(button, d, style)
             end
         else
             _AC.SetMask(d.icon, mask)
+            _AC.SetMask(d.cdmFixedIcon, mask)
             _AC.SetMask(d.cdmBg, mask)
             _AC.SetMask(d.cooldown, mask)
             mask:SetTexture(nil); mask:ClearAllPoints()
@@ -9198,7 +9244,43 @@ function _AC.ApplyExtra(button, d, style)
     end
 end
 
-function _AC.Build(rec, barKey, bd, sids, sig)
+-- Add every id form the live aura can carry (typed + override + base) to map.
+function _AC.AddSpellForms(map, sid)
+    map[sid] = true
+    local ovr = C_SpellBook and C_SpellBook.FindSpellOverrideByID
+        and C_SpellBook.FindSpellOverrideByID(sid)
+    if ovr and ovr > 0 then map[ovr] = true end
+    local base = C_Spell and C_Spell.GetBaseSpell and C_Spell.GetBaseSpell(sid)
+    if base and base > 0 then map[base] = true end
+    return map
+end
+
+function _AC.FixedIconStyleKey(barKey, sid)
+    return "cdm:aurabuff:" .. barKey .. ":ci:" .. sid
+end
+
+-- A new fileID for a spell that already has its own group is appearance, not
+-- structure: restyle that group in place. A rebuild would abandon the old
+-- container, whose engine-created group buttons can never be freed
+-- (AK.ReleaseContainer), so re-picking an icon must not cost one.
+function _AC.SyncFixedIcons(rec, bd, cis)
+    local styles = rec.ciStyles
+    if not (styles and cis) then return end
+    local AK = EllesmereUI.AuraKit
+    if not (AK and AK.styles) then return end
+    for sid, ci in pairs(cis) do
+        local key = _AC.FixedIconStyleKey(bd.key, sid)
+        local cur = styles[key]
+        if cur and cur ~= ci then
+            styles[key] = ci
+            AK.styles[key] = _AC.BuildStyle(bd, ci)
+            if AK.RestyleSoon then AK.RestyleSoon(key) end
+        end
+    end
+end
+
+-- cis: optional sid -> Custom Icon fileID for the entries that carry one.
+function _AC.Build(rec, barKey, bd, sids, sig, cis)
     local AK = EllesmereUI.AuraKit
     local barFrame = cdmBarFrames[barKey]
     -- Bar not built yet (login race): bail WITHOUT stamping the signature;
@@ -9220,16 +9302,28 @@ function _AC.Build(rec, barKey, bd, sids, sig)
     holder:Show()
     -- ONE flow group carrying every id form the live aura can carry (typed
     -- + override + base): the engine compacts actives and renders nothing
-    -- when none are up.
-    local includeMap = {}
+    -- when none are up. A spell with a Custom Icon gets a single-spell group
+    -- instead, flowing after the shared one. Its forms are struck from the
+    -- shared map, so an id it shares with a plain entry (the add-time variant
+    -- dedup rules that out, but overrides move with talents) renders once.
+    local includeMap, nShared = {}, 0
+    local ciGroups, claimed
     for i = 1, #sids do
         local sid = sids[i]
-        includeMap[sid] = true
-        local ovr = C_SpellBook and C_SpellBook.FindSpellOverrideByID
-            and C_SpellBook.FindSpellOverrideByID(sid)
-        if ovr and ovr > 0 then includeMap[ovr] = true end
-        local base = C_Spell and C_Spell.GetBaseSpell and C_Spell.GetBaseSpell(sid)
-        if base and base > 0 then includeMap[base] = true end
+        local ci = cis and cis[sid]
+        if ci then
+            local forms = _AC.AddSpellForms({}, sid)
+            claimed = claimed or {}
+            for id in pairs(forms) do claimed[id] = true end
+            ciGroups = ciGroups or {}
+            ciGroups[#ciGroups + 1] = { sid = sid, ci = ci, forms = forms }
+        else
+            nShared = nShared + 1
+            _AC.AddSpellForms(includeMap, sid)
+        end
+    end
+    if claimed then
+        for id in pairs(claimed) do includeMap[id] = nil end
     end
     local vertical = (bd and bd.verticalOrientation) and true or false
     local gap = (bd and bd.spacing) or 2
@@ -9248,28 +9342,70 @@ function _AC.Build(rec, barKey, bd, sids, sig)
     rec.pt = pt
     rec.curPt = pt
     if AK.SetContainerAxis then AK.SetContainerAxis(container, vertical) end
-    AK.AddGroupToContainer(container, {
-        key = "spells",
-        filter = { "HELPFUL" },
-        style = styleKey,
-        extraInit = _AC.InitExtra,
-        maxFrameCount = #sids,
-        -- Helpful spellID includes on the player pass the identity gate
-        -- regardless of the spell's secrecy flag.
-        candidateFilters = { includeSpellIDs = includeMap },
-    })
+    -- Group keys in flow order. The shared group is skipped when nothing is left
+    -- in its map: an EMPTY includeSpellIDs would not narrow the HELPFUL filter.
+    local groupKeys = {}
+    if nShared > 0 and next(includeMap) then
+        AK.AddGroupToContainer(container, {
+            key = "spells",
+            filter = { "HELPFUL" },
+            style = styleKey,
+            extraInit = _AC.InitExtra,
+            maxFrameCount = nShared,
+            -- Helpful spellID includes on the player pass the identity gate
+            -- regardless of the spell's secrecy flag.
+            candidateFilters = { includeSpellIDs = includeMap },
+        })
+        groupKeys[#groupKeys + 1] = "spells"
+    end
+    -- Custom Icon groups: one style per spell, since the fixed art is the one
+    -- thing that differs from the shared style. Kept on rec.ciStyles so a restyle
+    -- (RefreshAuraCustomStyle) reaches them too.
+    local ciStyles
+    if ciGroups then
+        ciStyles = {}
+        for i = 1, #ciGroups do
+            local g = ciGroups[i]
+            local ciStyleKey = _AC.FixedIconStyleKey(barKey, g.sid)
+            AK.styles[ciStyleKey] = _AC.BuildStyle(bd, g.ci)
+            ciStyles[ciStyleKey] = g.ci
+            local gKey = "ci:" .. g.sid
+            AK.AddGroupToContainer(container, {
+                key = gKey,
+                filter = { "HELPFUL" },
+                style = ciStyleKey,
+                extraInit = _AC.InitExtra,
+                maxFrameCount = 1,
+                candidateFilters = { includeSpellIDs = g.forms },
+            })
+            groupKeys[#groupKeys + 1] = gKey
+        end
+    end
+    -- Drop the styles of Custom Icon groups this build no longer has. Their old
+    -- buttons stay registered under the key (group buttons are never released),
+    -- and AuraKit skips a key with no style, so nothing restyles them again.
+    if rec.ciStyles then
+        for oldKey in pairs(rec.ciStyles) do
+            if not (ciStyles and ciStyles[oldKey]) then AK.styles[oldKey] = nil end
+        end
+    end
+    rec.ciStyles = ciStyles
     if container.SetAuraGroupLayout then
         -- elementWidth/Height feed the engine's flow math (the style sizes the
         -- button itself). Without them the flow spaces icons at the engine
         -- default, so any bar not at that size overlaps or gaps -- and a cropped
-        -- bar, whose buttons are 0.80 tall, is off on both axes.
+        -- bar, whose buttons are 0.80 tall, is off on both axes. Every group
+        -- shares one layout: their styles differ only in the fixed art.
         local st = AK.styles[styleKey]
         local gapPx = _AC.SnapPx(gap)
-        container:SetAuraGroupLayout("spells", {
+        local layout = {
             elementWidth = st and st.width, elementHeight = st and st.height,
             elementSpacing = gapPx, lineSpacing = gapPx,
             groupSpacing = gapPx, groupLineSpacing = gapPx,
-        })
+        }
+        for i = 1, #groupKeys do
+            container:SetAuraGroupLayout(groupKeys[i], layout)
+        end
     end
     AK.FinishContainer(container, "player")
     rec.container = container
@@ -9482,6 +9618,24 @@ function ns.UpdateCustomBuffAuraTracking()
                     end
                     if sids then
                         seen[bd.key] = true
+                        -- Which spells carry a per-spell Custom Icon is structural:
+                        -- each gets a group of its own. The fileID itself is not --
+                        -- it restyles in place (_AC.SyncFixedIcons). Resolved only
+                        -- once anyone has set one (monotonic gate); everyone else
+                        -- keeps the exact signature they had and pays nothing for it.
+                        local cis, ciSig
+                        if ns._cdmAnyCustomIcon then
+                            for i = 1, #sids do
+                                local sid = sids[i]
+                                local ss = ResolveSpellSettings(nil, sid, sd, bd.key)
+                                local ci = ss and ss.customIcon
+                                if type(ci) == "number" and ci > 0 then
+                                    cis = cis or {}
+                                    cis[sid] = ci
+                                    ciSig = (ciSig or "|ci") .. ":" .. sid
+                                end
+                            end
+                        end
                         -- Structural only: the id list plus the geometry the
                         -- engine flow owns. Everything else is appearance and
                         -- rides ns.RefreshAuraCustomStyle without a rebuild.
@@ -9491,6 +9645,7 @@ function ns.UpdateCustomBuffAuraTracking()
                             .. "|" .. tostring(bd.growDirection or "CENTER")
                             .. "|" .. (bd.verticalOrientation and 1 or 0)
                             .. "|" .. tostring(bd.spacing or 2)
+                            .. (ciSig or "")
                         local rec = _AC.bars[bd.key]
                         if not rec then rec = {}; _AC.bars[bd.key] = rec end
                         rec.bdRef = bd
@@ -9498,10 +9653,10 @@ function ns.UpdateCustomBuffAuraTracking()
                             local AK = EllesmereUI.AuraKit
                             if AK and AK.QueueBuildJob then
                                 rec.queued = true
-                                local barKey, bdRef, sidsRef, sigRef = bd.key, bd, sids, sig
+                                local barKey, bdRef, sidsRef, sigRef, cisRef = bd.key, bd, sids, sig, cis
                                 AK.QueueBuildJob(function()
                                     rec.queued = nil
-                                    _AC.Build(rec, barKey, bdRef, sidsRef, sigRef)
+                                    _AC.Build(rec, barKey, bdRef, sidsRef, sigRef, cisRef)
                                     -- The job captured the id list as it was when
                                     -- it was queued. A change that landed while it
                                     -- was in flight (two adds in a row) is not in
@@ -9517,6 +9672,7 @@ function ns.UpdateCustomBuffAuraTracking()
                         elseif rec.queued and rec.sig ~= sig then
                             rec.resync = true
                         else
+                            _AC.SyncFixedIcons(rec, bd, cis)
                             ns.RefreshAuraCustomStyle(bd.key)
                         end
                     end
@@ -9537,6 +9693,10 @@ function ns.UpdateCustomBuffAuraTracking()
             rec.sig = nil
             rec.sids = nil
             rec.styleSig = nil
+            if rec.ciStyles and AK and AK.styles then
+                for oldKey in pairs(rec.ciStyles) do AK.styles[oldKey] = nil end
+            end
+            rec.ciStyles = nil
         end
     end
 end
@@ -9560,6 +9720,13 @@ function ns.RefreshAuraCustomStyle(barKey)
     local styleKey = "cdm:aurabuff:" .. barKey
     AK.styles[styleKey] = _AC.BuildStyle(bd)
     if AK.RestyleSoon then AK.RestyleSoon(styleKey) end
+    -- Custom Icon groups carry the same appearance under their own style keys.
+    if rec.ciStyles then
+        for ciStyleKey, ci in pairs(rec.ciStyles) do
+            AK.styles[ciStyleKey] = _AC.BuildStyle(bd, ci)
+            if AK.RestyleSoon then AK.RestyleSoon(ciStyleKey) end
+        end
+    end
     -- Stamped only once the style is actually installed: recording a style that
     -- never applied would make every later call with the same settings early-out.
     rec.styleSig = sig

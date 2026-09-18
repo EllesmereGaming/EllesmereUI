@@ -10,6 +10,7 @@ if not ns then return end  -- module disabled: no options page
 local PAGE_DISPLAY = "Mythic+ Timer"
 local PAGE_TSB = "Targeted Spell Bars"
 local PAGE_TFB = "Target/Focus Bars"
+local PAGE_RS = "Run Summary"
 
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
@@ -1868,16 +1869,144 @@ initFrame:SetScript("OnEvent", function(self)
         parent:SetHeight(math.abs(y - yOffset))
     end
 
+    -----------------------------------------------------------------------
+    --  Run Summary page
+    -----------------------------------------------------------------------
+    local function RSCfg()
+        local p = DB()
+        return p and p.runSummary
+    end
+
+    local function RSGet(key, fallback)
+        local c = RSCfg()
+        local v = c and c[key]
+        if v == nil then return fallback end
+        return v
+    end
+
+    local function RSSet(key, val)
+        local c = RSCfg()
+        if c then c[key] = val end
+        if ns.RS_Apply then ns.RS_Apply() end
+        -- Column toggles and the scale change how an already open panel looks,
+        -- so repaint it instead of waiting for the next time it is opened.
+        if ns.RS_Refresh then ns.RS_Refresh() end
+    end
+
+    local function RSOn() return RSCfg() ~= nil and RSCfg().enabled == true end
+    local function RSOff() return not RSOn() end
+
+    local function BuildRSPage(pageName, parent, yOffset)
+        local W = EllesmereUI.Widgets
+        local y = yOffset
+        local row, h
+
+        if EllesmereUI.ClearContentHeader then EllesmereUI:ClearContentHeader() end
+        parent._showRowDivider = true
+
+        local REQ = "Enable Run Summary"
+
+        row, h = W:SectionHeader(parent, "RUN SUMMARY", y); y = y - h
+
+        row, h = W:DualRow(parent, y,
+            { type="toggle", text="Enable Run Summary",
+              tooltip="Records every finished Mythic+ key and shows an overview of the group when the run ends. Nothing is registered or created while this is off.",
+              getValue=RSOn,
+              setValue=function(v) RSSet("enabled", v and true or false); EllesmereUI:RefreshPage() end },
+            { type="toggle", text="Show After Looting",
+              tooltip="Open the overview once the end of run chest has been looted. With this off it opens as soon as the key ends. /ov reopens it at any time.",
+              disabled=RSOff, disabledTooltip=REQ,
+              getValue=function() return RSGet("showAfterLoot", true) == true end,
+              setValue=function(v) RSSet("showAfterLoot", v and true or false) end });  y = y - h
+
+        row, h = W:DualRow(parent, y,
+            { type="slider", text="History Size", min=5, max=50, step=1,
+              disabled=RSOff, disabledTooltip=REQ,
+              getValue=function() return RSGet("historySize", 20) end,
+              setValue=function(v) RSSet("historySize", v) end },
+            { type="slider", text="Panel Scale", min=0.5, max=2, step=0.05,
+              disabled=RSOff, disabledTooltip=REQ,
+              getValue=function() return RSGet("scale", 1) end,
+              setValue=function(v) RSSet("scale", v) end });  y = y - h
+
+        row, h = W:SectionHeader(parent, "COLUMNS", y); y = y - h
+
+        row, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Spec Icons",
+              disabled=RSOff, disabledTooltip=REQ,
+              getValue=function() return RSGet("showSpecIcons", true) == true end,
+              setValue=function(v) RSSet("showSpecIcons", v and true or false) end },
+            { type="toggle", text="Item Level",
+              tooltip="Shown in grey next to each name. Item levels are read by inspecting party members during the run, so a member who stayed out of range shows none.",
+              disabled=RSOff, disabledTooltip=REQ,
+              getValue=function() return RSGet("colItemLevel", true) == true end,
+              setValue=function(v) RSSet("colItemLevel", v and true or false) end });  y = y - h
+
+        row, h = W:DualRow(parent, y,
+            { type="toggle", text="M+ Score",
+              tooltip="Current season score plus the gain from this run. Your own gain is the exact value the server reports; for party members it is their score before the key subtracted from their score after it.",
+              disabled=RSOff, disabledTooltip=REQ,
+              getValue=function() return RSGet("colScore", true) == true end,
+              setValue=function(v) RSSet("colScore", v and true or false) end },
+            { type="toggle", text="Loot",
+              tooltip="What each player looted. Your own chest reward always appears; other players' items only when the server announces the loot to the group, which it does not always do for the end of run chest.",
+              disabled=RSOff, disabledTooltip=REQ,
+              getValue=function() return RSGet("colLoot", true) == true end,
+              setValue=function(v) RSSet("colLoot", v and true or false) end });  y = y - h
+
+        row, h = W:DualRow(parent, y,
+            { type="toggle", text="DPS",
+              tooltip="Read from Blizzard's own damage meter. With that meter switched off this column, Damage Taken and Interrupts stay empty.",
+              disabled=RSOff, disabledTooltip=REQ,
+              getValue=function() return RSGet("colDps", true) == true end,
+              setValue=function(v) RSSet("colDps", v and true or false) end },
+            { type="toggle", text="Damage Taken",
+              disabled=RSOff, disabledTooltip=REQ,
+              getValue=function() return RSGet("colDamageTaken", true) == true end,
+              setValue=function(v) RSSet("colDamageTaken", v and true or false) end });  y = y - h
+
+        row, h = W:DualRow(parent, y,
+            { type="toggle", text="Interrupts",
+              disabled=RSOff, disabledTooltip=REQ,
+              getValue=function() return RSGet("colInterrupts", true) == true end,
+              setValue=function(v) RSSet("colInterrupts", v and true or false) end },
+            { type="toggle", text="Deaths",
+              disabled=RSOff, disabledTooltip=REQ,
+              getValue=function() return RSGet("colDeaths", true) == true end,
+              setValue=function(v) RSSet("colDeaths", v and true or false) end });  y = y - h
+
+        row, h = W:WideButton(parent, "Show Preview", y, function()
+            if ns.RS_ShowPreview then ns.RS_ShowPreview() end
+        end);  y = y - h
+
+        row, h = W:WideButton(parent, "Clear Run History", y, function()
+            EllesmereUI:ShowConfirmPopup({
+                title = "Clear Run History",
+                message = "Delete every recorded Mythic+ run for this character?",
+                confirmText = "Delete",
+                cancelText = "Cancel",
+                onConfirm = function()
+                    if ns.RS_ClearHistory then ns.RS_ClearHistory() end
+                end,
+            })
+        end);  y = y - h
+
+        row, h = W:Spacer(parent, y, 20); y = y - h
+        parent:SetHeight(math.abs(y - yOffset))
+    end
+
     -- RegisterModule
     EllesmereUI:RegisterModule("EllesmereUIMythicTimer", {
         title       = "Mythic+ Tools",
         description = "Mythic+ timer, targeted spell bars, and standalone cast bars.",
-        pages    = { PAGE_DISPLAY, PAGE_TSB, PAGE_TFB },
+        pages    = { PAGE_DISPLAY, PAGE_TSB, PAGE_TFB, PAGE_RS },
         buildPage = function(pageName, parent, yOffset)
             if pageName == PAGE_TSB then
                 return BuildTSBPage(pageName, parent, yOffset)
             elseif pageName == PAGE_TFB then
                 return BuildTFBPage(pageName, parent, yOffset)
+            elseif pageName == PAGE_RS then
+                return BuildRSPage(pageName, parent, yOffset)
             end
             return BuildPage(pageName, parent, yOffset)
         end,

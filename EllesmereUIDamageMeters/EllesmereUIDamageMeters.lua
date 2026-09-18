@@ -15,6 +15,9 @@ local RANK_STRINGS      = {}
 for i = 1, 40 do RANK_STRINGS[i] = i .. "." end
 local MIN_W, MIN_H      = 150, 50
 local TICK_COMBAT       = 1
+local REFRESH_RATE_FLOOR      = 0.5  -- default floor; skipped when unsafeRefreshRate is on
+local REFRESH_RATE_HARD_FLOOR = 0.05 -- absolute floor regardless of unsafeRefreshRate: guards against a corrupt/imported 0 or negative value reaching the ticker
+ns._REFRESH_RATE_FLOOR = REFRESH_RATE_FLOOR -- published so the options page's toggle-off snap-back uses the same value instead of a second hardcoded 0.5
 local PEAK_BUDGET       = 1.5
 local BAR_TEX           = "Interface\\Buttons\\WHITE8X8"
 local MEDIA             = "Interface\\AddOns\\EllesmereUIDamageMeters\\Media\\"
@@ -131,6 +134,7 @@ local DM_DEFAULTS = {
             standaloneTimerShowOOC  = false,
             standaloneTimerDesatOOC = false,
             refreshRate = 1,
+            unsafeRefreshRate = false, -- opt-in: lets refreshRate go below the 0.5s floor
             hideResetButton = false, -- display the "reset data" button on the damage meter header
             -- toggleWindowsKey (unset by default) is the hotkey that hides/shows every
             -- meter window at once. Runtime only: the hidden state is never saved, so a
@@ -258,14 +262,18 @@ local function EnsureDB()
     -- snapshot per window, so sub-0.5 rates multiply allocation churn far
     -- past any visual gain. Clamp every stored profile once per session
     -- (idempotent; imports of old exports are caught by the ticker clamp
-    -- until their next login).
+    -- until their next login). Skipped for a profile with unsafeRefreshRate
+    -- on; the hard floor still applies regardless, so a corrupt/imported
+    -- value can't reach the ticker as 0 or negative.
     local sv = _G.EllesmereUIDamageMetersDB
     if type(sv) == "table" and type(sv.profiles) == "table" then
         for _, p in pairs(sv.profiles) do
             local dm = type(p) == "table" and p.dm
-            if type(dm) == "table" and type(dm.refreshRate) == "number"
-               and dm.refreshRate < 0.5 then
-                dm.refreshRate = 0.5
+            if type(dm) == "table" and type(dm.refreshRate) == "number" then
+                local floor = dm.unsafeRefreshRate and REFRESH_RATE_HARD_FLOOR or REFRESH_RATE_FLOOR
+                if dm.refreshRate < floor then
+                    dm.refreshRate = floor
+                end
             end
         end
     end
@@ -5236,8 +5244,11 @@ StartSharedTicker = function()
     if _sharedTicker then _sharedTicker:Cancel() end
     local rate = DB().refreshRate or TICK_COMBAT
     -- Belt for values the login clamp has not seen yet (a profile imported
-    -- mid-session from an old export can carry a sub-floor rate).
-    if rate < 0.5 then rate = 0.5 end
+    -- mid-session from an old export can carry a sub-floor rate). Respects
+    -- unsafeRefreshRate the same way the login clamp does; the hard floor
+    -- applies either way so 0 or negative can never reach the ticker.
+    local floor = DB().unsafeRefreshRate and REFRESH_RATE_HARD_FLOOR or REFRESH_RATE_FLOOR
+    if rate < floor then rate = floor end
     _sharedTicker = C_Timer.NewTicker(rate, SharedRefreshTick)
     StopTimerTicker()
     _timerTicker = C_Timer.NewTicker(0.5, TimerTick)
