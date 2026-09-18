@@ -729,7 +729,7 @@ local function BuildRezLines(binding, guard, standalone)
     local groupName  = Known(kit and kit.group)
     local singleName = Known(kit and kit.single)
     local lines = {}
-    
+
     -- [combat] only when there is an out-of-combat rez after it to be the answer
     -- instead. A death knight or a warlock, whose only rez IS the battle one,
     -- would otherwise cast nothing out of combat -- where that spell works
