@@ -64,7 +64,21 @@ local CLASS_LABELS = {
     DispelTyped       = { "Dispels", "Shows any debuff with a dispel type (Magic, Curse, Disease, Poison, Bleed), even if you cannot remove it" },
     Raid              = { "Raid",            "Shows only debuffs from Blizzard's curated raid-frame debuff set" },
     RaidInCombat      = { "Raid In Combat",  "Shows only the stricter in-combat subset of the raid set" },
+    -- Less common filters (below the divider in the Filters dropdown).
+    CastByMe          = { "Cast By You",     "Debuffs applied by you or your pet" },
+    AnyPlayer         = { "From Any Player", "Debuffs caused by any player or player pet. The opposite of Non-Player Auras; checking one clears the other" },
+    DispelMagic       = { "Magic",           "Debuffs with the Magic dispel type" },
+    DispelCurse       = { "Curse",           "Debuffs with the Curse dispel type" },
+    DispelPoison      = { "Poison",          "Debuffs with the Poison dispel type" },
+    DispelDisease     = { "Disease",         "Debuffs with the Disease dispel type" },
+    DispelBleed       = { "Bleed",           "Debuffs with the Bleed dispel type" },
+    CanApply          = { "Can Apply Aura",  "Debuffs your own class is able to apply" },
 }
+
+-- Non-Player Auras and From Any Player share one engine field: checking either
+-- (in either lane) clears the other from both lanes. Keyed by .skey.
+local EXCLUSIVE_SKEY = { NonPlayer = "AnyPlayer", AnyPlayer = "NonPlayer" }
+ns.PAB_ExclusiveSkey = EXCLUSIVE_SKEY
 
 -- Curated debuff filter list: exact vocabulary+order parity with Raid Frames' debuff
 -- filters (EUI_RaidFrames_ManagerPages.lua TILE_FILTER_ITEMS); shared by Base Filters
@@ -74,6 +88,10 @@ local CLASS_LABELS = {
 -- profiles that already set them.
 local DEBUFF_FILTER_ORDER = {
     "nonplayer", "priority", "cc", "bossaura", "roleaura", "raid", "raidcombat", "dispellable", "dispeltyped",
+    -- Divider sentinel (ClassByKey resolves nothing for it; PAB_ClassItems emits a
+    -- header row, PAB_FxClassItems skips it), then the less common filters.
+    "__less",
+    "castbyme", "anyplayer", "magic", "curse", "poison", "disease", "bleed", "canapply",
 }
 
 local function ClassByKey(key)
@@ -91,14 +109,19 @@ function ns.PAB_ClassItems(isBuff)
     if not isBuff then
         local items = {}
         for i = 1, #DEBUFF_FILTER_ORDER do
-            local class = ClassByKey(DEBUFF_FILTER_ORDER[i])
-            if class then
-                local meta = CLASS_LABELS[class.skey]
-                items[#items + 1] = {
-                    key = class.skey,
-                    label = meta and meta[1] or class.skey,
-                    tooltip = meta and meta[2] or nil,
-                }
+            local key = DEBUFF_FILTER_ORDER[i]
+            if key == "__less" then
+                items[#items + 1] = { isHeader = true, label = "Less Common Filters" }
+            else
+                local class = ClassByKey(key)
+                if class then
+                    local meta = CLASS_LABELS[class.skey]
+                    items[#items + 1] = {
+                        key = class.skey,
+                        label = meta and meta[1] or class.skey,
+                        tooltip = meta and meta[2] or nil,
+                    }
+                end
             end
         end
         return items
@@ -211,7 +234,8 @@ end
 -- the matching Base Filter on.
 local function PAB_FxSafeToForce(class)
     local c = class.cand
-    return not (c and (c.isBossAura ~= nil or c.isRoleAura ~= nil or c.isPriorityAura ~= nil))
+    return not (c and (c.isBossAura ~= nil or c.isRoleAura ~= nil or c.isPriorityAura ~= nil
+        or c.canApplyAura ~= nil))
 end
 
 -- Filter vocabulary for the Icon Effects UI (debuffs only): same curated
@@ -259,6 +283,17 @@ end
 local function PabShapedSize(rawSize, shape)
     if PabShapeActive(shape) then return rawSize + PAB_SHAPE_EXPAND end
     return rawSize
+end
+
+-- Nearest physical pixel at UIParent scale, for every PAB grid number (icon size,
+-- padding, row gap). Not PP.Scale: it truncates, and the per-icon loss adds up
+-- along a row, so a bar measured a different number of UI units per resolution.
+-- Rounds like EllesmereUIActionBars.lua's ComputeBarLayout, plus the 0.001 tie
+-- guard PP.SnapForES uses, so an exact half pixel cannot flip between sessions.
+local function PabSnap(x)
+    local m = EllesmereUI.PP.mult
+    if x == 0 or m == 1 then return x end
+    return math.floor(x / m + 0.5 + 0.001) * m
 end
 
 local function PAB_ApplyDmFx(button, d, style)
@@ -443,9 +478,19 @@ local function DebuffSubtractFn(cfg)
     end
 end
 
+-- Union of two dispel-type sets as a NEW table (the shared vocabulary tables
+-- are never mutated); nil-safe on the accumulator. Several per-type classes
+-- can forward at once, so the carrier accumulates instead of overwriting.
+local function MergeTypes(acc, add)
+    local out = {}
+    if acc then for k, v in pairs(acc) do out[k] = v end end
+    for k, v in pairs(add) do out[k] = v end
+    return out
+end
+
 local function BuildChain(base, classEnabledFn, includeCatchAll, subtractFn)
     local chain, negations = {}, {}
-    local excludeDispelTypes, npOwned, subCand
+    local excludeDispelTypes, npOwned, anyOwned, subCand
     local tokenClasses = VisibleTokenClasses()
     local candidateClasses = VisibleCandidateClasses()
     if not (tokenClasses and candidateClasses) then return chain end
@@ -469,10 +514,13 @@ local function BuildChain(base, classEnabledFn, includeCatchAll, subtractFn)
     -- subCand stays a catch-all-only payload, legacy parity).
     local function ExtraCand()
         local withSub = addMode and subCand or nil
-        if not (excludeDispelTypes or npOwned or withSub) then return nil end
+        if not (excludeDispelTypes or npOwned or anyOwned or withSub) then return nil end
         local t = {}
         if excludeDispelTypes then t.excludeDispelTypes = excludeDispelTypes end
-        if npOwned then t.isFromPlayerOrPlayerPet = true end
+        -- Non-Player and From Any Player are the same field; the options
+        -- setters keep them exclusive, nonplayer wins if stale data disagrees.
+        if npOwned then t.isFromPlayerOrPlayerPet = true
+        elseif anyOwned then t.isFromPlayerOrPlayerPet = false end
         if withSub then
             for k, v in pairs(withSub) do t[k] = v end
         end
@@ -516,8 +564,9 @@ local function BuildChain(base, classEnabledFn, includeCatchAll, subtractFn)
                     for n = 1, #negations do tokens[#tokens + 1] = negations[n] end
                     chain[#chain + 1] = { key = class.key, tokens = tokens, cand = cc, excludeCand = ExtraCand(),
                         hidden = true }
-                    if cc.includeDispelTypes then excludeDispelTypes = cc.includeDispelTypes end
-                    if cc.isFromPlayerOrPlayerPet == false then npOwned = true end
+                    if cc.includeDispelTypes then excludeDispelTypes = MergeTypes(excludeDispelTypes, cc.includeDispelTypes) end
+                    if cc.isFromPlayerOrPlayerPet == false then npOwned = true
+                    elseif cc.isFromPlayerOrPlayerPet == true then anyOwned = true end
                 else
                     CollectSub(cc)
                 end
@@ -542,8 +591,9 @@ local function BuildChain(base, classEnabledFn, includeCatchAll, subtractFn)
                 -- class.cand is a candidate-filter TABLE; the shared vocabulary
                 -- carries set-valued filters (includeDispelTypes) directly in it.
                 chain[#chain + 1] = { key = class.key, tokens = tokens, cand = cc, excludeCand = ExtraCand() }
-                if cc.includeDispelTypes then excludeDispelTypes = cc.includeDispelTypes end
-                if cc.isFromPlayerOrPlayerPet == false then npOwned = true end
+                if cc.includeDispelTypes then excludeDispelTypes = MergeTypes(excludeDispelTypes, cc.includeDispelTypes) end
+                if cc.isFromPlayerOrPlayerPet == false then npOwned = true
+                elseif cc.isFromPlayerOrPlayerPet == true then anyOwned = true end
             end
         end
         return chain
@@ -585,8 +635,9 @@ local function BuildChain(base, classEnabledFn, includeCatchAll, subtractFn)
                 -- set-valued filters (includeDispelTypes) directly in it.
                 chain[#chain + 1] = { key = class.key, tokens = tokens, cand = cc, excludeCand = ExtraCand(),
                     hidden = (sub and not en) or nil }
-                if cc.includeDispelTypes then excludeDispelTypes = cc.includeDispelTypes end
-                if cc.isFromPlayerOrPlayerPet == false then npOwned = true end
+                if cc.includeDispelTypes then excludeDispelTypes = MergeTypes(excludeDispelTypes, cc.includeDispelTypes) end
+                if cc.isFromPlayerOrPlayerPet == false then npOwned = true
+                elseif cc.isFromPlayerOrPlayerPet == true then anyOwned = true end
             else
                 CollectSub(cc)
             end
@@ -635,6 +686,8 @@ local STYLE_DEBUFFS = "playerAuraBars_debuffs"
 -- stackTextSize/stackPosition/stackOffsetX/Y; stackColorR/G/B (same nil=white rule).
 -- Buff/debuff bars additionally: iconZoom (default 0.07, AK's fallback);
 -- borderSize/borderR/G/B/A (base border color, per-dispel-type override is separate);
+-- borderTexture ("solid" or a built-in/LibSharedMedia key), optional
+-- borderTextureOffset/OffsetY/ShiftX/ShiftY, and borderBehind;
 -- padding (single scalar -> all 4 sides); rowSpacing (optional row gap: feeds
 -- lineSpacing/groupLineSpacing only, nil falls back to `padding`; elementSpacing/
 -- groupSpacing, icon-to-icon within a row, always stay tied to `padding`); maxTotal
@@ -849,6 +902,13 @@ local function PAB_ApplyExtraText(button, d, style)
         SetTexturePixelSnap(border._left, d.pabCenteredSnap)
         SetTexturePixelSnap(border._right, d.pabCenteredSnap)
     end
+    -- Textured borders use the secret-safe eight-slice renderer rather than PP.
+    -- Keep its edge art on the same centered-growth snapping policy.
+    if d._secretBorderEdges then
+        for _, tex in pairs(d._secretBorderEdges) do
+            SetTexturePixelSnap(tex, d.pabCenteredSnap)
+        end
+    end
 end
 
 -- Icon-text outline flag for duration/stack text. Default follows the house icon-text
@@ -878,6 +938,23 @@ local function BuildStyle(isBuff, cfg)
     local border
     if borderSize > 0 then
         border = { borderR, borderG, borderB, borderA, size = borderSize }
+        -- Texture fields ride only on a textured pick: a border table with a
+        -- texture key sends AuraKit down its explicit-size eight-slice lane,
+        -- and Solid must keep the plain PP path it always had.
+        local texture = cfg.borderTexture
+        if texture and texture ~= "" and texture ~= "solid" then
+            local textureSize = cfg.borderTextureSizeOverride or borderSize
+            border.texture = texture
+            border.textureSize = textureSize
+            border.offsetX = cfg.borderTextureOffset
+            border.offsetY = cfg.borderTextureOffsetY
+            border.shiftX = cfg.borderTextureShiftX
+            border.shiftY = cfg.borderTextureShiftY
+            border.behind = cfg.borderBehind == true
+            border.addonKey = "unitframes"
+            border.sizeKey = textureSize
+            border.edgeScale = cfg.borderTextureScaleOverride
+        end
     end
 
     -- Positions may arrive mixed-case ("Bottom") rather than the uppercase anchor
@@ -889,8 +966,7 @@ local function BuildStyle(isBuff, cfg)
     -- Snapped to the physical pixel grid (like MaxIconSizeFor and ApplyGroupConfig's
     -- gap snap) so the rendered size agrees with the container's cross-axis extent
     -- math at any UIParent scale.
-    local PP = EllesmereUI.PP
-    local iconSize = PP.Scale(PabShapedSize(cfg.iconSize or 32, cfg.iconShape))
+    local iconSize = PabSnap(PabShapedSize(cfg.iconSize or 32, cfg.iconShape))
 
     local style = {
         width = iconSize,
@@ -1006,7 +1082,7 @@ local function BuildStyle(isBuff, cfg)
                 pos = dip,
                 -- Scaled like iconSize (button-geometry class); offsets stay raw
                 -- like durationX (fine-tune class).
-                size = PP.Scale(cfg.dispelIconSize or 16),
+                size = PabSnap(cfg.dispelIconSize or 16),
                 offX = cfg.dispelIconOffsetX or 0,
                 offY = cfg.dispelIconOffsetY or 0,
             }
@@ -1079,8 +1155,13 @@ end
 -- the engine's only duration filter (Blizzard_AuraContainerUtil), so Has
 -- Duration exists as a show-side AND-modifier only, never a hide-lane entry.
 local function DebuffCandidateExtras(cfg)
-    if cfg and cfg.hasDuration then
-        return { maxDuration = math.huge }
+    if not cfg then return nil end
+    -- Max Duration (seconds) is the same gate with a real cap and implies Has
+    -- Duration; nil = Unlimited = no extras at all (the candidate fingerprint
+    -- sees the cap value, so edits re-declare like any payload change).
+    local cap = cfg.maxDurSec or (cfg.hasDuration and math.huge) or nil
+    if cap then
+        return { maxDuration = cap }
     end
     return nil
 end
@@ -1193,20 +1274,18 @@ local function EnsurePabSizedStyle(baseKey, size, shape)
     -- keyed by the raw size. Shape-expand applies the same as BuildStyle's own
     -- iconSize -- base already carries iconShape/shapeMaskPath/etc via the shallow
     -- copy above, only width/height need recomputing for this variant's own size.
-    local PP = EllesmereUI.PP
-    v.width = PP.Scale(PabShapedSize(size, shape))
-    v.height = PP.Scale(PabShapedSize(size, shape))
+    v.width = PabSnap(PabShapedSize(size, shape))
+    v.height = PabSnap(PabShapedSize(size, shape))
     AK.styles[variantKey] = v
     AK.RestyleSoon(variantKey)
     return variantKey
 end
 
 local function BuildGroupLayout(cfg, gap, rowGap, size)
-    local PP = EllesmereUI.PP
     rowGap = rowGap or gap
-    size = PP.Scale(PabShapedSize(size or cfg.iconSize or 32, cfg.iconShape))
-    gap = PP.Scale(gap)
-    rowGap = PP.Scale(rowGap)
+    size = PabSnap(PabShapedSize(size or cfg.iconSize or 32, cfg.iconShape))
+    gap = PabSnap(gap)
+    rowGap = PabSnap(rowGap)
     return {
         elementWidth = size,
         elementHeight = size,
@@ -1373,16 +1452,17 @@ local function MaxIconSizeFor(isBuff, cfg)
     -- snap): a raw iconSize also feeds the container's cross-axis extent math
     -- (ComputeGrid) at a non-pixel-perfect UIParent scale. Shape-expand applied last so
     -- the bar frame's footprint (ComputeGrid) always matches the buttons' real size.
-    local PP = EllesmereUI.PP
-    return PP.Scale(PabShapedSize(size, cfg.iconShape))
+    -- Second value: the unsnapped size, for ComputeGrid's design extent.
+    local shaped = PabShapedSize(size, cfg.iconShape)
+    return PabSnap(shaped), shaped
 end
 
 local function ComputeGrid(isBuff, cfg)
-    local iconSize = MaxIconSizeFor(isBuff, cfg)
+    local iconSize, rawIconSize = MaxIconSizeFor(isBuff, cfg)
     local pad = cfg.padding or 5
     local rowGap = cfg.rowSpacing or 12
-    local layoutPad = EllesmereUI.PP.Scale(pad)
-    local layoutRowGap = EllesmereUI.PP.Scale(rowGap)
+    local layoutPad = PabSnap(pad)
+    local layoutRowGap = PabSnap(rowGap)
     local cols = math.max(1, cfg.iconsPerRow or (isBuff and 11 or 8))
     local rows = math.max(1, cfg.maxRows or (isBuff and 3 or 2))
     local configuredMax = cfg.maxTotal or (isBuff and 32 or 16)
@@ -1408,11 +1488,24 @@ local function ComputeGrid(isBuff, cfg)
     local vertical = (cfg.growDirection == "UP" or cfg.growDirection == "DOWN" or cfg.growDirection == "CENTER_VERTICAL")
     local width = vertical and crossExtent or lineExtent
     local height = vertical and lineExtent or crossExtent
+    -- Reference boxes for stored positions (see BarAnchorOffset): the design extent
+    -- from the raw config numbers, identical at every resolution, and the legacy
+    -- extent the pre-fix PP.Scale truncation produced at this resolution.
+    local PP = EllesmereUI.PP
+    local legacyIcon, legacyPad, legacyRowGap = PP.Scale(rawIconSize), PP.Scale(pad), PP.Scale(rowGap)
+    local designLine = cols * rawIconSize + (cols - 1) * pad
+    local designCross = usedRows * rawIconSize + (usedRows - 1) * rowGap
+    local legacyLine = cols * legacyIcon + (cols - 1) * legacyPad
+    local legacyCross = usedRows * legacyIcon + (usedRows - 1) * legacyRowGap
     return {
         effectiveMax = effectiveMax,
         rowWidth = rowWidth,
         width = width,
         height = height,
+        designWidth = vertical and designCross or designLine,
+        designHeight = vertical and designLine or designCross,
+        legacyWidth = vertical and legacyCross or legacyLine,
+        legacyHeight = vertical and legacyLine or legacyCross,
         rowGap = rowGap,
     }
 end
@@ -1529,10 +1622,9 @@ end
 -- SkinAuraButton sized duration AND stack-count font strings from cfg.textSize, NOT
 -- the duration-only/stack-only split the old External Defensives module uses.
 -- noBorderDebuffs -> debuffCfg.borderSize = 0 (debuffs-only override, applied after
--- the shared borderSize above). NOT migrated, no PAB cfg field exists (known gap):
--- borderTexture/borderTextureOffset(Y)/borderTextureShiftX/Y/borderBehind,
--- durationFormat. Old buffIconZoom/debuffIconZoom are also skipped -- PAB has its own
--- per-bar iconZoom.
+-- the shared borderSize above). Border texture/offset/layer fields now map directly;
+-- durationFormat remains unsupported. Old buffIconZoom/debuffIconZoom are skipped --
+-- PAB has its own per-bar iconZoom.
 local function MigratePlayerAuraStyle(buffCfg, debuffCfg)
     local old = ns.db and ns.db.profile and ns.db.profile.playerAuras
     if not (old and old.enabled) then return end
@@ -1543,6 +1635,12 @@ local function MigratePlayerAuraStyle(buffCfg, debuffCfg)
         if old.borderG then cfg.borderG = old.borderG end
         if old.borderB then cfg.borderB = old.borderB end
         if old.borderA then cfg.borderA = old.borderA end
+        if old.borderTexture then cfg.borderTexture = old.borderTexture end
+        if old.borderTextureOffset ~= nil then cfg.borderTextureOffset = old.borderTextureOffset end
+        if old.borderTextureOffsetY ~= nil then cfg.borderTextureOffsetY = old.borderTextureOffsetY end
+        if old.borderTextureShiftX ~= nil then cfg.borderTextureShiftX = old.borderTextureShiftX end
+        if old.borderTextureShiftY ~= nil then cfg.borderTextureShiftY = old.borderTextureShiftY end
+        if old.borderBehind ~= nil then cfg.borderBehind = old.borderBehind end
         if old.showText ~= nil then cfg.durationShow = old.showText end
         if old.textSize then
             cfg.durationTextSize = old.textSize
@@ -1786,6 +1884,12 @@ local function EnsureExtDefCustomBar(s)
         if from.sortDirection then bar.sortDirection = from.sortDirection end
         if from.borderSize then bar.borderSize = from.borderSize end
         if from.borderR then bar.borderR, bar.borderG, bar.borderB, bar.borderA = from.borderR, from.borderG, from.borderB, from.borderA end
+        if from.borderTexture then bar.borderTexture = from.borderTexture end
+        if from.borderTextureOffset ~= nil then bar.borderTextureOffset = from.borderTextureOffset end
+        if from.borderTextureOffsetY ~= nil then bar.borderTextureOffsetY = from.borderTextureOffsetY end
+        if from.borderTextureShiftX ~= nil then bar.borderTextureShiftX = from.borderTextureShiftX end
+        if from.borderTextureShiftY ~= nil then bar.borderTextureShiftY = from.borderTextureShiftY end
+        if from.borderBehind ~= nil then bar.borderBehind = from.borderBehind end
     end
     local pos = s.extDefPos or (legacy and legacy.unlockPos)
     if pos and pos.point then
@@ -2020,7 +2124,7 @@ local function ApplyContainerAnchorAndGrowth(container, parent, cfg, grid)
     containerDirections[container] = direction
     if directionChanged then container:Hide() end
 
-    local size = EllesmereUI.PP.Scale(cfg.iconSize or 32)
+    local size = PabSnap(cfg.iconSize or 32)
     container:ClearAllPoints()
     container:SetSize(size, size)
     container:SetPoint(containerAnchor, parent, containerAnchor, 0, 0)
@@ -2058,17 +2162,73 @@ end
 -- dimension handling keeps both edges on whole pixels, while plain SnapForES would
 -- round the center itself and push edges onto half pixels; every other anchor point
 -- uses SnapForES.
-local function SnapBarPos(frame, point, relPoint, x, y)
+local function SnapBarPos(frame, point, relPoint, x, y, w, h)
     if not (x and y) then return x, y end
     local PP = EllesmereUI.PP
     local es = frame:GetEffectiveScale()
     local isCenterAnchor = (point == "CENTER" or point == nil)
         and (relPoint == "CENTER" or relPoint == nil)
+    -- w/h replace the frame's own size when given (legacy positions, BarAnchorOffset).
     if isCenterAnchor then
-        return PP.SnapCenterForDim(x, frame:GetWidth() or 0, es),
-            PP.SnapCenterForDim(y, frame:GetHeight() or 0, es)
+        return PP.SnapCenterForDim(x, w or frame:GetWidth() or 0, es),
+            PP.SnapCenterForDim(y, h or frame:GetHeight() or 0, es)
     end
     return PP.SnapForES(x, es), PP.SnapForES(y, es)
+end
+
+-- Pixel-rounding compensation. A stored position places a reference frame (see
+-- BarAnchorOffset); the live frame is the snapped grid, slightly larger or smaller.
+-- Returns the SetPoint offset that keeps the growth origin (the parent corner the
+-- container is pinned to, the center for centered growth) where the reference frame
+-- puts it, for a frame anchored at `point`. dw/dh are (reference - snapped) at apply
+-- time; ApplyLiveConfig also passes a reference size change to move a stored center
+-- with its origin.
+local OriginShift
+do
+    local FRAC_X = { TOPLEFT = 0, LEFT = 0, BOTTOMLEFT = 0, TOP = 0.5, CENTER = 0.5,
+        BOTTOM = 0.5, TOPRIGHT = 1, RIGHT = 1, BOTTOMRIGHT = 1 }
+    local FRAC_Y = { BOTTOMLEFT = 0, BOTTOM = 0, BOTTOMRIGHT = 0, LEFT = 0.5, CENTER = 0.5,
+        RIGHT = 0.5, TOPLEFT = 1, TOP = 1, TOPRIGHT = 1 }
+    function OriginShift(cfg, point, dw, dh)
+        local dir = cfg.growDirection or "LEFT"
+        local origin = (dir == "CENTER_HORIZONTAL" or dir == "CENTER_VERTICAL") and "CENTER"
+            or CornerFor(dir, cfg.iconWrapDirection or "LEFT")
+        point = point or "CENTER"
+        return (FRAC_X[origin] - (FRAC_X[point] or 0.5)) * dw,
+            (FRAC_Y[origin] - (FRAC_Y[point] or 0.5)) * dh
+    end
+end
+
+-- Pre-snap SetPoint offsets for a stored bar position. A position saved by an
+-- unlock-mode move since the rounding fix (pos.design) refers to the design frame.
+-- Any other position, defaults included, keeps the placement it had before the fix:
+-- its growth origin stays where the truncated legacy frame, snapped as before, put
+-- it at this resolution, until the bar is moved.
+local function BarAnchorOffset(frame, cfg, grid, pos)
+    local x, y = pos.x, pos.y
+    if not (x and y) then return x, y end
+    local rw, rh = grid.designWidth, grid.designHeight
+    if not pos.design then
+        rw, rh = grid.legacyWidth, grid.legacyHeight
+        x, y = SnapBarPos(frame or UIParent, pos.point, pos.relPoint or pos.point, x, y, rw, rh)
+    end
+    local dx, dy = OriginShift(cfg, pos.point, rw - grid.width, rh - grid.height)
+    return x + dx, y + dy
+end
+
+-- Unlock-mode savePos: x/y is the VISUAL position the mover hands over, `cur` the
+-- stored one. An unchanged position (a discard or an untouched commit writes back
+-- what loadPos returned) keeps `cur` as it is, so a legacy position only converts
+-- on a real move. Anything else is stored as a design position.
+local function MoverStorePos(frame, cfg, grid, cur, point, relPoint, x, y)
+    relPoint = relPoint or point
+    if not (x and y) then return { point = point, relPoint = relPoint, x = x, y = y } end
+    if cur and cur.point == point and (cur.relPoint or cur.point) == relPoint then
+        local cx, cy = BarAnchorOffset(frame, cfg, grid, cur)
+        if cx and cy and math.abs(x - cx) < 0.001 and math.abs(y - cy) < 0.001 then return cur end
+    end
+    local dx, dy = OriginShift(cfg, point, grid.designWidth - grid.width, grid.designHeight - grid.height)
+    return { point = point, relPoint = relPoint, x = x - dx, y = y - dy, design = true }
 end
 
 -- Centered growth needs a position whose meaning does not change with the mover's
@@ -2083,26 +2243,26 @@ local function RebaseBarPositionToCenter(frame, pos)
     local sx, sy = SnapBarPos(frame, "CENTER", "CENTER", x, y)
     frame:ClearAllPoints()
     frame:SetPoint("CENTER", UIParent, "CENTER", sx, sy)
-    return { point = "CENTER", relPoint = "CENTER", x = x, y = y }
+    -- design: centered growth has no rounding shift at CENTER, so the measured
+    -- center already is the design center (BarAnchorOffset).
+    return { point = "CENTER", relPoint = "CENTER", x = x, y = y, design = true }
 end
 
 -- Applies the saved position (if any) or the default to the given parent frame.
 -- Shared between initial creation and the unlock-mode applyPos callback so the two
--- never drift into different SetPoint logic.
-local function ApplyBarPosition(parent, isBuff)
+-- never drift into different SetPoint logic. `grid` is optional (computed when nil).
+local function ApplyBarPosition(parent, isBuff, grid)
     local s = PAB()
     local posKey = BarPositionKey(isBuff)
     local pos = s and s[posKey]
     local def = isBuff and DEFAULT_POS.buffs or DEFAULT_POS.debuffs
-    parent:ClearAllPoints()
-    if pos and pos.point then
-        local x, y = SnapBarPos(parent, pos.point, pos.relPoint or pos.point, pos.x, pos.y)
-        parent:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, x, y)
-    else
-        local x, y = SnapBarPos(parent, def.point, def.relPoint, def.x, def.y)
-        parent:SetPoint(def.point, UIParent, def.relPoint, x, y)
-    end
     local cfg = s and (isBuff and DefaultBuffsCfg(s) or DefaultDebuffsCfg(s))
+    local p = (pos and pos.point) and pos or def
+    local x, y = p.x, p.y
+    if cfg then x, y = BarAnchorOffset(parent, cfg, grid or ComputeGrid(isBuff, cfg), p) end
+    parent:ClearAllPoints()
+    x, y = SnapBarPos(parent, p.point, p.relPoint or p.point, x, y)
+    parent:SetPoint(p.point, UIParent, p.relPoint or p.point, x, y)
     if cfg and (cfg.growDirection == "CENTER_HORIZONTAL" or cfg.growDirection == "CENTER_VERTICAL") then
         s[posKey] = RebaseBarPositionToCenter(parent, pos)
     end
@@ -2179,7 +2339,7 @@ local function ShiftBuffsForEnchants(container, parent, cfg, grid)
     local n = (cfg.showWeaponEnchants == true and ns.WeaponEnchants_Count and ns.WeaponEnchants_Count()) or 0
     local containerAnchor = BuildContainerSpec(parent, cfg, grid)
     local dir = cfg.growDirection or "LEFT"
-    local cell = EllesmereUI.PP.Scale(cfg.iconSize or 32) + EllesmereUI.PP.Scale(cfg.padding or 5)
+    local cell = PabSnap(cfg.iconSize or 32) + PabSnap(cfg.padding or 5)
     container:ClearAllPoints()
     -- Centered modes: the enchant cells must hug the RUN's moving edge, which
     -- only the container's live rect knows. rec.parent must stay the PLAIN bar
@@ -2214,7 +2374,7 @@ local function ShiftBuffsForEnchants(container, parent, cfg, grid)
             ns._weaponEnchPAB.point = "BOTTOM"
             ns._weaponEnchPAB.relativePoint = "TOP"
             ns._weaponEnchPAB.x = 0
-            ns._weaponEnchPAB.y = math.max(0, n - 1) * cell + EllesmereUI.PP.Scale(cfg.padding or 5)
+            ns._weaponEnchPAB.y = math.max(0, n - 1) * cell + PabSnap(cfg.padding or 5)
             ns._weaponEnchPAB.dir = "DOWN"
         end
         return
@@ -2317,13 +2477,17 @@ local function CreateBars()
 
     buffsParent = buffsParent or CreateFrame("Frame", "EllesmereUIPlayerAuraBars_Buffs", UIParent)
     buffsParent:SetSize(buffGrid.width, buffGrid.height)
-    ApplyBarPosition(buffsParent, true)
-    lastSize.buffs = { w = buffGrid.width, h = buffGrid.height }
+    ApplyBarPosition(buffsParent, true, buffGrid)
+    lastSize.buffs = { w = buffGrid.width, h = buffGrid.height, dw = buffGrid.designWidth,
+        dh = buffGrid.designHeight, lw = buffGrid.legacyWidth, lh = buffGrid.legacyHeight,
+        gd = buffCfg.growDirection, wd = buffCfg.iconWrapDirection }
 
     debuffsParent = debuffsParent or CreateFrame("Frame", "EllesmereUIPlayerAuraBars_Debuffs", UIParent)
     debuffsParent:SetSize(debuffGrid.width, debuffGrid.height)
-    ApplyBarPosition(debuffsParent, false)
-    lastSize.debuffs = { w = debuffGrid.width, h = debuffGrid.height }
+    ApplyBarPosition(debuffsParent, false, debuffGrid)
+    lastSize.debuffs = { w = debuffGrid.width, h = debuffGrid.height, dw = debuffGrid.designWidth,
+        dh = debuffGrid.designHeight, lw = debuffGrid.legacyWidth, lh = debuffGrid.legacyHeight,
+        gd = debuffCfg.growDirection, wd = debuffCfg.iconWrapDirection }
 
     -- Enable toggles (cfg.enabled, nil = enabled): containers and groups still
     -- build below so a live re-enable needs no reload; a disabled bar just
@@ -2359,7 +2523,7 @@ local function CreateBars()
             -- Snapped like the shift's own cell stride above: the buttons add
             -- this to an already-snapped style.width, so a raw gap would place
             -- them off the engine's grid at a non-native UI scale.
-            pad = EllesmereUI.PP.Scale(buffPad), styleKey = STYLE_BUFFS, canCancel = true }
+            pad = PabSnap(buffPad), styleKey = STYLE_BUFFS, canCancel = true }
     else
         ns._weaponEnchPAB = nil
     end
@@ -2428,6 +2592,37 @@ local function CreateBars()
     SyncCancelCVar()
 end
 
+-- Unlock mode's cog menu only offers "Element Options" for keys in
+-- EllesmereUI._ELEMENT_SETTINGS_MAP; a module adds its own dynamic keys there the
+-- way EllesmereUIDataBars.lua does, so EUI_UnlockMode.lua's static map needs no
+-- PAB branch. barId nil = one of the two built-in bars.
+--
+-- No sectionName/highlightText: NavigateToElementSettings scans the page
+-- wrapper's DIRECT children for section headers, and PABMP_BuildPage builds past
+-- `parent` into its own root on the shared scroll frame, so nothing is scannable.
+local function MapElementSettings(key, kind, barId)
+    if not EllesmereUI then return end
+    EllesmereUI._ELEMENT_SETTINGS_MAP = EllesmereUI._ELEMENT_SETTINGS_MAP or {}
+    EllesmereUI._ELEMENT_SETTINGS_MAP[key] = {
+        module = "EllesmereUIUnitFrames",
+        page = "Player Aura Bars",
+        preSelectFn = function()
+            if not EllesmereUI._setPABSelection then return end
+            if not barId then
+                EllesmereUI._setPABSelection(kind, "default")
+                return
+            end
+            -- Owning bucket resolved at click time, not baked in at registration:
+            -- the tile's "Add To" menu can move a bar to another editing-spec
+            -- bucket long after its key was mapped.
+            local bar, bucket
+            if kind == "buff" then bar, bucket = ns.PAB_GetCustomBuffBar(barId)
+            else bar, bucket = ns.PAB_GetCustomDebuffBar(barId) end
+            if bar then EllesmereUI._setPABSelection(kind, barId, bucket) end
+        end,
+    }
+end
+
 -- Unlock-mode registration, patterned on EllesmereUIDamageMeters.lua's
 -- ns.RegisterDMUnlock/MakeSATimerUnlockElement (observed EUI.MakeUnlockElement field
 -- usage, not a verified schema). Both bars use noResize (AuraKit sizes the container
@@ -2465,16 +2660,39 @@ function RegisterPABUnlock()
                 local grid = ComputeGrid(isBuff, isBuff and DefaultBuffsCfg(s) or DefaultDebuffsCfg(s))
                 return grid.width, grid.height
             end,
+            -- The mover works in VISUAL positions (the snapped live frame): loadPos
+            -- converts the stored one (BarAnchorOffset), savePos goes back through
+            -- MoverStorePos, which leaves an unchanged position untouched.
             savePos = function(_, point, relPoint, x, y)
                 local s = PAB()
                 if not s then return end
-                s[BarPositionKey(isBuff)] = { point = point, relPoint = relPoint or point, x = x, y = y }
+                local posKey = BarPositionKey(isBuff)
+                local cfg = isBuff and DefaultBuffsCfg(s) or DefaultDebuffsCfg(s)
+                s[posKey] = MoverStorePos(getParent(), cfg, ComputeGrid(isBuff, cfg), s[posKey], point, relPoint, x, y)
             end,
             loadPos = function()
                 local s = PAB()
                 local pos = s and s[BarPositionKey(isBuff)]
                 if not pos then return nil end
-                return { point = pos.point, relPoint = pos.relPoint, x = pos.x, y = pos.y }
+                local cfg = isBuff and DefaultBuffsCfg(s) or DefaultDebuffsCfg(s)
+                local x, y = BarAnchorOffset(getParent(), cfg, ComputeGrid(isBuff, cfg), pos)
+                return { point = pos.point, relPoint = pos.relPoint, x = x, y = y }
+            end,
+            -- Spec-override unlock layers bank and restore the STORED table through
+            -- these, not the visual position loadPos returns: a layer harvested at
+            -- one resolution stays valid at another and keeps the design flag.
+            loadRawPosition = function()
+                local s = PAB()
+                local pos = s and s[BarPositionKey(isBuff)]
+                if not pos then return nil end
+                return { point = pos.point, relPoint = pos.relPoint, x = pos.x, y = pos.y,
+                    design = pos.design }
+            end,
+            saveRawPosition = function(_, p)
+                local s = PAB()
+                if not (s and p and p.point) then return end
+                s[BarPositionKey(isBuff)] = { point = p.point, relPoint = p.relPoint or p.point,
+                    x = p.x, y = p.y, design = p.design }
             end,
             clearPos = function()
                 local s = PAB()
@@ -2500,6 +2718,8 @@ function RegisterPABUnlock()
         MakeBarElement("PAB_Buffs", buffLabel, 700, true, function() return buffsParent end),
         MakeBarElement("PAB_Debuffs", "Debuffs", 701, false, function() return debuffsParent end),
     }
+    MapElementSettings("PAB_Buffs", "buff")
+    MapElementSettings("PAB_Debuffs", "debuff")
     EllesmereUI:RegisterUnlockElements(elements, "EllesmereUIUnitFrames")
     -- Registration alone only updates the element table; a mover already built
     -- this session keeps the label CreateMover baked into its FontString. No-op
@@ -2525,6 +2745,12 @@ local function RestyleBars()
     AK.styles[STYLE_DEBUFFS] = BuildStyle(false, DefaultDebuffsCfg(s))
     AK.RestyleSoon(STYLE_BUFFS)
     AK.RestyleSoon(STYLE_DEBUFFS)
+    -- RestyleSoon only reaches ENGINE buttons. The weapon-enchant cells
+    -- carry the bar's style too but repaint only from their own Paint, so
+    -- the callers that restyle without ApplyLiveConfig (global font/outline
+    -- changes, profile and spec-override swaps through the
+    -- _EUF_ReloadFrames tail) would leave them on the previous style.
+    if ns.WeaponEnchants_Layout then ns.WeaponEnchants_Layout() end
     SyncCancelCVar()
 end
 ns.PAB_Restyle = RestyleBars
@@ -2651,7 +2877,9 @@ local function ApplyLiveConfig(isBuff)
     -- still sees the real last-applied size (the fixed-corner compensation needs it),
     -- and the stored pos is not mutated for a resize that never landed.
     if InCombatLockdown() then
-        local sizeChanged = not (prev and prev.w == grid.width and prev.h == grid.height)
+        local sizeChanged = not (prev and prev.w == grid.width and prev.h == grid.height
+            and prev.dw == grid.designWidth and prev.dh == grid.designHeight
+            and prev.gd == cfg.growDirection and prev.wd == cfg.iconWrapDirection)
         local rebasePending = centered
             and not (pos and pos.point == "CENTER" and (pos.relPoint or pos.point) == "CENTER")
         if sizeChanged or rebasePending then
@@ -2662,23 +2890,35 @@ local function ApplyLiveConfig(isBuff)
             pos = RebaseBarPositionToCenter(parent, pos)
             s[posKey] = pos
         end
-        if not centered and pos and pos.point == "CENTER"
-            and prev and (prev.w ~= grid.width or prev.h ~= grid.height) then
-            pos.x = pos.x + (prev.w - grid.width) / 2
-            pos.y = pos.y + (prev.h - grid.height) / 2
-            -- Snap against the NEW grid.width/height (what parent:SetSize is about to
-            -- apply), not parent:GetWidth/GetHeight -- those still read the OLD size, the
-            -- resize hasn't run yet. The STORED pos keeps the raw accumulation; only the
-            -- SetPoint values are snapped.
-            local PP = EllesmereUI.PP
-            local es = parent:GetEffectiveScale()
-            local sx = PP.SnapCenterForDim(pos.x, grid.width, es)
-            local sy = PP.SnapCenterForDim(pos.y, grid.height, es)
-            parent:ClearAllPoints()
-            parent:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, sx, sy)
+        local resized = not centered and prev
+            and (prev.w ~= grid.width or prev.h ~= grid.height
+                or prev.dw ~= grid.designWidth or prev.dh ~= grid.designHeight)
+        if resized and pos and pos.point == "CENTER" then
+            -- The stored center belongs to its reference frame (design or legacy, see
+            -- BarAnchorOffset), so it moves by that frame's delta, toward whichever
+            -- side the growth origin is on.
+            local dx, dy
+            if pos.design then
+                dx, dy = OriginShift(cfg, pos.point, prev.dw - grid.designWidth, prev.dh - grid.designHeight)
+            else
+                dx, dy = OriginShift(cfg, pos.point, prev.lw - grid.legacyWidth, prev.lh - grid.legacyHeight)
+            end
+            pos.x = pos.x + dx
+            pos.y = pos.y + dy
         end
-        lastSize[sizeKey] = { w = grid.width, h = grid.height }
+        local turned = prev and (prev.gd ~= cfg.growDirection or prev.wd ~= cfg.iconWrapDirection)
+        lastSize[sizeKey] = { w = grid.width, h = grid.height, dw = grid.designWidth,
+            dh = grid.designHeight, lw = grid.legacyWidth, lh = grid.legacyHeight,
+            gd = cfg.growDirection, wd = cfg.iconWrapDirection }
         parent:SetSize(grid.width, grid.height)
+        -- Re-seated AFTER SetSize so SnapBarPos snaps against the new size and the
+        -- rounding shift follows the new grid, or the new origin after a grow/wrap
+        -- direction change. The STORED pos keeps the raw accumulation. Never for an
+        -- unlock-anchored bar: the anchor owns its placement and re-applies itself on
+        -- a size change.
+        local anchored = EllesmereUI.IsUnlockAnchored
+            and EllesmereUI.IsUnlockAnchored(isBuff and "PAB_Buffs" or "PAB_Debuffs")
+        if (resized or turned) and not anchored then ApplyBarPosition(parent, isBuff, grid) end
     end
 
     local pad = cfg.padding or 5
@@ -2693,7 +2933,7 @@ local function ApplyLiveConfig(isBuff)
             ns._weaponEnchPAB = { parent = parent, corner = liveCorner,
                 dir = cfg.growDirection or "LEFT",
                 -- Snapped, as in CreateBars' publish above.
-                pad = EllesmereUI.PP.Scale(pad), styleKey = STYLE_BUFFS, canCancel = true }
+                pad = PabSnap(pad), styleKey = STYLE_BUFFS, canCancel = true }
         else
             ns._weaponEnchPAB = nil
         end
@@ -3406,7 +3646,8 @@ end
 -- Bar objects (both kinds) also carry the same shared+category cfg fields as
 -- DefaultBuffsCfg/DefaultDebuffsCfg (iconSize, durationShow/stackShow,
 -- durationPosition/TextSize/OffsetX/Y/ColorR/G/B, stackPosition/TextSize/OffsetX/
--- Y/ColorR/G/B; buff/debuff bars additionally borderSize/R/G/B/A, iconZoom, padding,
+-- Y/ColorR/G/B; buff/debuff bars additionally borderSize/R/G/B/A, borderTexture and
+-- optional texture offset/shift/layer fields, iconZoom, padding,
 -- iconsPerRow, maxRows, maxTotal; debuff bars additionally dispelColorMagic/Curse/
 -- Disease/Poison/Bleed). NOT pre-populated, same as those two starting as {}:
 -- BuildStyle/ComputeGrid apply the same `or <default>` fallbacks either way, so a
@@ -3694,10 +3935,11 @@ end
 -- Applies bar.pos (or the default) to a custom bar's parent frame. Same SetPoint
 -- logic as ApplyBarPosition, kept separate only because custom bars key off bar.pos
 -- on the bar object, not a fixed s[BarPositionKey] slot.
-local function ApplyCustomBarPosition(parent, bar, barId)
+local function ApplyCustomBarPosition(parent, bar, barId, isBuff, grid)
     local pos = bar.pos or DefaultCustomPos(barId)
+    local x, y = BarAnchorOffset(parent, bar, grid or ComputeGrid(isBuff, bar), pos)
     parent:ClearAllPoints()
-    local x, y = SnapBarPos(parent, pos.point, pos.relPoint or pos.point, pos.x, pos.y)
+    x, y = SnapBarPos(parent, pos.point, pos.relPoint or pos.point, x, y)
     parent:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, x, y)
     if bar.growDirection == "CENTER_HORIZONTAL" or bar.growDirection == "CENTER_VERTICAL" then
         local centeredPos = RebaseBarPositionToCenter(parent, pos)
@@ -3730,6 +3972,7 @@ local function RegisterPABCustomUnlock()
 
     local function MakeCustomBarElement(barId, bar, order, isBuff, parents)
         local key = (isBuff and "PAB_CustomBuff_" or "PAB_CustomDebuff_") .. barId
+        MapElementSettings(key, isBuff and "buff" or "debuff", barId)
         return key, MK({
             key = key,
             label = "PAB: " .. (bar.name or (isBuff and "Buff Bar" or "Debuff Bar")),
@@ -3752,14 +3995,32 @@ local function RegisterPABCustomUnlock()
                 local grid = ComputeGrid(isBuff, b)
                 return grid.width, grid.height
             end,
+            -- Visual <-> stored conversion, as in RegisterPABUnlock's MakeBarElement.
             savePos = function(_, point, relPoint, x, y)
                 local b = isBuff and ns.PAB_GetCustomBuffBar(barId) or ns.PAB_GetCustomDebuffBar(barId)
                 if not b then return end
-                b.pos = { point = point, relPoint = relPoint or point, x = x, y = y }
+                b.pos = MoverStorePos(parents[barId], b, ComputeGrid(isBuff, b), b.pos, point, relPoint, x, y)
             end,
             loadPos = function()
                 local b = isBuff and ns.PAB_GetCustomBuffBar(barId) or ns.PAB_GetCustomDebuffBar(barId)
-                return b and b.pos or nil
+                local pos = b and b.pos
+                if not pos then return nil end
+                local x, y = BarAnchorOffset(parents[barId], b, ComputeGrid(isBuff, b), pos)
+                return { point = pos.point, relPoint = pos.relPoint, x = x, y = y }
+            end,
+            -- Raw stored position for spec-override layers, as in MakeBarElement.
+            loadRawPosition = function()
+                local b = isBuff and ns.PAB_GetCustomBuffBar(barId) or ns.PAB_GetCustomDebuffBar(barId)
+                local pos = b and b.pos
+                if not pos then return nil end
+                return { point = pos.point, relPoint = pos.relPoint, x = pos.x, y = pos.y,
+                    design = pos.design }
+            end,
+            saveRawPosition = function(_, p)
+                local b = isBuff and ns.PAB_GetCustomBuffBar(barId) or ns.PAB_GetCustomDebuffBar(barId)
+                if not (b and p and p.point) then return end
+                b.pos = { point = p.point, relPoint = p.relPoint or p.point,
+                    x = p.x, y = p.y, design = p.design }
             end,
             clearPos = function()
                 local b = isBuff and ns.PAB_GetCustomBuffBar(barId) or ns.PAB_GetCustomDebuffBar(barId)
@@ -3768,7 +4029,7 @@ local function RegisterPABCustomUnlock()
             applyPos = function()
                 local b = isBuff and ns.PAB_GetCustomBuffBar(barId) or ns.PAB_GetCustomDebuffBar(barId)
                 local parent = parents[barId]
-                if b and parent then ApplyCustomBarPosition(parent, b, barId) end
+                if b and parent then ApplyCustomBarPosition(parent, b, barId, isBuff) end
             end,
         })
     end
@@ -3826,15 +4087,24 @@ local function RegisterPABCustomUnlock()
     end
 
     -- Retire keys for bars deleted since the last call -- safe here (unlike TBB)
-    -- because PAB custom-bar ids are permanent, see doc comment above.
+    -- because PAB custom-bar ids are permanent, see doc comment above. The
+    -- element-options map entry is retired with the mover; a leftover entry would
+    -- be harmless (no mover, no cog) but the id is gone for good either way.
+    local elemMap = EllesmereUI._ELEMENT_SETTINGS_MAP
     if prevBuffKeys then
         for key in pairs(prevBuffKeys) do
-            if not pabRegisteredCustomBuffKeys[key] then EllesmereUI:UnregisterUnlockElement(key) end
+            if not pabRegisteredCustomBuffKeys[key] then
+                EllesmereUI:UnregisterUnlockElement(key)
+                if elemMap then elemMap[key] = nil end
+            end
         end
     end
     if prevDebuffKeys then
         for key in pairs(prevDebuffKeys) do
-            if not pabRegisteredCustomDebuffKeys[key] then EllesmereUI:UnregisterUnlockElement(key) end
+            if not pabRegisteredCustomDebuffKeys[key] then
+                EllesmereUI:UnregisterUnlockElement(key)
+                if elemMap then elemMap[key] = nil end
+            end
         end
     end
 end
@@ -3897,7 +4167,7 @@ local function ReloadCustomBuffBarImpl(barId)
     if geomLocked then
         QueuePABRegenApply("custom-buff-" .. barId, function() ns.PAB_ReloadCustomBuffBar(barId) end)
     else
-        ApplyCustomBarPosition(parent, bar, barId)
+        ApplyCustomBarPosition(parent, bar, barId, true, grid)
     end
     -- Effective render verdict: the bar's own toggle AND its editing-spec
     -- bucket's applicability to the current spec AND this spec's per-spec
@@ -4037,7 +4307,7 @@ local function ReloadCustomDebuffBarImpl(barId)
     if geomLocked then
         QueuePABRegenApply("custom-debuff-" .. barId, function() ns.PAB_ReloadCustomDebuffBar(barId) end)
     else
-        ApplyCustomBarPosition(parent, bar, barId)
+        ApplyCustomBarPosition(parent, bar, barId, false, grid)
     end
     -- Same effective-render verdict as the custom buff reload above.
     local barActive = ns.PAB_BarActive(bar, barBucket)
@@ -4472,6 +4742,13 @@ local function CreatePreviewIcon(box)
     btn.cooldown:SetHideCountdownNumbers(true)
     btn.cooldown:Hide()
     btn.border = CreateFrame("Frame", nil, btn)
+    btn.borderState = {}
+    -- Dispel-type icon host: a child frame created after the cooldown and the border,
+    -- so the icon draws above the swipe and the border like the live button's holder.
+    -- A texture on the button itself sits under every child frame whatever its layer,
+    -- so the frozen preview swipe covered it.
+    btn.typeHost = CreateFrame("Frame", nil, btn)
+    btn.typeHost:SetAllPoints()
     -- Plain preview region, not a real AuraKit button -- masking is unguarded here.
     btn.shapeMask = btn:CreateMaskTexture()
     btn.shapeMask:Hide()
@@ -4525,6 +4802,11 @@ local function ApplyPreviewScale(cfg, comp)
     out.padding = (cfg.padding or 5) * comp
     out.rowSpacing = cfg.rowSpacing and (cfg.rowSpacing * comp) or nil
     out.borderSize = (cfg.borderSize or 1) * comp
+    -- Textured borders use a discrete 0-4 lookup for edge art. Preserve that raw
+    -- key and scale the resolved edge/offset geometry separately; Solid continues
+    -- to use the compensated borderSize above.
+    out.borderTextureSizeOverride = cfg.borderSize or 1
+    out.borderTextureScaleOverride = comp
     -- PabShapeBorderSize is keyed by the raw 0-4 level, so it must run BEFORE scaling
     -- (unlike out.borderSize above) -- resolve the level, then scale the result,
     -- mirroring iconSize's own scale-after-resolve treatment. BuildStyle prefers this
@@ -5112,7 +5394,12 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
             end
 
             btn.border:SetAllPoints(shapeActive and btn or btn.icon)
-            btn.border:SetFrameLevel(btn:GetFrameLevel() + 1)
+            btn.border:SetFrameLevel(style.border and style.border.behind
+                and math.max(0, btn:GetFrameLevel() - 1)
+                or (btn:GetFrameLevel() + 1))
+            -- Type-icon host above the border's strip container (+1) and the fx
+            -- border/glow hosts (+1/+2), like the live dispel holder clears them.
+            btn.typeHost:SetFrameLevel(btn.border:GetFrameLevel() + 3)
             local PP = EllesmereUI and EllesmereUI.PanelPP
             if PP and style.border then
                 local br, bg, bb, ba = style.border[1], style.border[2], style.border[3], style.border[4]
@@ -5122,39 +5409,44 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
                 end
                 local size = style.border.size or 1
                 if shapeActive and style.shapeBorderPath and PP.ApplyMaskedShapeBorder then
+                    if EllesmereUI.HideBorderStyle then EllesmereUI.HideBorderStyle(btn.border) end
+                    if btn.borderState and btn.borderState._secretBorderEdges then
+                        for _, tex in pairs(btn.borderState._secretBorderEdges) do tex:Hide() end
+                    end
                     PP:ApplyMaskedShapeBorder(btn.border, btn.shapeMask, style.shapeBorderPath, style.shapeBorderSize or size, br, bg, bb, ba)
-                    if PP.ShowBorder then PP.ShowBorder(btn.border) end
                     btn.border:Show()
                 else
                     if PP.HideMaskedShapeBorder then PP:HideMaskedShapeBorder(btn.border)
                     elseif btn.border._shapeBorderTex then btn.border._shapeBorderTex:Hide() end
-                    -- PP.CreateBorder is create-once-only; live size/color changes on an
-                    -- already-created host go through PP.UpdateBorder instead.
-                    if btn.borderMade then
-                        PP.UpdateBorder(btn.border, size, br, bg, bb, ba)
-                    elseif PP.CreateBorder then
-                        PP.CreateBorder(btn.border, br, bg, bb, ba, size, "OVERLAY", 7)
-                        btn.borderMade = true
-                    end
-                    if PP.ShowBorder then PP.ShowBorder(btn.border) else btn.border:Show() end
+                    local b = style.border
+                    local appliedSize = (b.texture and b.texture ~= "" and b.texture ~= "solid")
+                        and (b.textureSize or size) or size
+                    EllesmereUI.ApplySecretSafeBorderStyle(btn.border, btn.borderState,
+                        appliedSize, br, bg, bb, ba, b.texture or "solid",
+                        b.offsetX, b.offsetY, b.shiftX, b.shiftY,
+                        b.addonKey or "unitframes", b.sizeKey or size, b.edgeScale)
+                    btn.borderMade = true
                 end
             else
-                if PP and PP.HideBorder then PP.HideBorder(btn.border) else btn.border:Hide() end
+                if EllesmereUI.ApplySecretSafeBorderStyle then
+                    EllesmereUI.ApplySecretSafeBorderStyle(btn.border, btn.borderState,
+                        0, 0, 0, 0, 0, "solid")
+                elseif PP and PP.HideBorder then PP.HideBorder(btn.border) else btn.border:Hide() end
                 if PP and PP.HideMaskedShapeBorder then PP:HideMaskedShapeBorder(btn.border)
                 elseif btn.border._shapeBorderTex then btn.border._shapeBorderTex:Hide() end
             end
 
             -- Dispel-type indicator icon (style.dispelTypeIcon): the live bar's
             -- engine channel picks the art per aura; here the fake entry's own
-            -- dispel token does. Drawn above the border on the button itself.
+            -- dispel token does. Drawn on its own host above the swipe and border.
             local ti = style.dispelTypeIcon
             if ti and dispel and PV_DISPEL_ICON_ATLAS[dispel] then
                 if not btn.typeIcon then
-                    btn.typeIcon = btn:CreateTexture(nil, "OVERLAY", nil, 3)
+                    btn.typeIcon = btn.typeHost:CreateTexture(nil, "OVERLAY", nil, 3)
                 end
                 btn.typeIcon:SetAtlas(PV_DISPEL_ICON_ATLAS[dispel])
                 -- Geometry from the (panel-scaled) cfg, like iconSize above --
-                -- style carries the live PP.Scale'd size, wrong units here.
+                -- style carries the live pixel-snapped size, wrong units here.
                 local tiSz = cfg.dispelIconSize or 16
                 btn.typeIcon:SetSize(tiSz, tiSz)
                 btn.typeIcon:ClearAllPoints()

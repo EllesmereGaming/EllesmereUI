@@ -252,6 +252,7 @@ local applyPending             -- true when combat blocked an Apply()
 local previewOn = false        -- Raid Tools settings page is in front (see ApplyVisibility)
 local lastSuppressed           -- assist gate verdict currently ON SCREEN (see AssistSuppressed)
 local toggleButton             -- keybind target; also the out-of-combat path
+local runtime = {}             -- Quick Fire's lazily-created secure state
 local sections = {}            -- key -> shell frame
 local shellTitle = {}          -- key -> title fontstring
 local groupHolder, markersHolder, compactHolder   -- plain content holders (see header)
@@ -448,6 +449,12 @@ local DB_DEFAULTS = {
         -- Toggle Raid Tools key ("SHIFT-R" form). Profile-stored and applied
         -- as an override binding, exactly like Action Bars' toggleVisKey.
         toggleKey     = false,
+        -- Opt-in world-marker bindings. Empty defaults mean enabling Quick
+        -- Fire alone never claims a key.
+        quickFire         = false,
+        quickFirePlaceKey = false,
+        quickFireUndoKey  = false,
+        quickFireClearKey = false,
         -- Default to Collapsed When Shown: EVERY show (driver, settings pass,
         -- keybind) starts as the small icon; click it to expand. Turning this
         -- off makes the keybind a plain full-window toggle.
@@ -1733,6 +1740,169 @@ local function ApplyToggleKeybind()
     end
 end
 
+-- Build the first-free run from live marker state. Protected attributes cannot
+-- be changed during combat, so the secure Place button consumes the last run
+-- prepared out of combat and PLAYER_REGEN_ENABLED refreshes it afterward.
+local function PrimeQuickFire(place)
+    if not place or InCombatLockdown() then return end
+    local count = 0
+    for i = 1, 8 do
+        local marker = SYMBOL_TO_WORLD[i]
+        if not IsRaidMarkerActive or not IsRaidMarkerActive(marker) then
+            count = count + 1
+            place:SetAttribute("qfAvail" .. count, i)
+        end
+    end
+    for i = count + 1, 8 do place:SetAttribute("qfAvail" .. i, nil) end
+    place:SetAttribute("qfAvailCount", count)
+    place:SetAttribute("qfAvailPos", 0)
+end
+
+-- The three invisible buttons are created only after Quick Fire is enabled.
+-- Their secure click snippets keep Place, Undo and Clear usable in combat;
+-- changing the bindings themselves still follows WoW's normal combat lock.
+local function BuildQuickFire()
+    if runtime.qfPlace then return end
+
+    runtime.qfHeader = CreateFrame("Frame", "EllesmereUIRaidToolsQuickFireHeader",
+        UIParent, "SecureHandlerBaseTemplate")
+
+    local place = CreateFrame("Button", "EllesmereUIRaidToolsQuickFirePlace",
+        UIParent, "SecureActionButtonTemplate")
+    place:RegisterForClicks("AnyDown")
+    place:SetAttribute("useOnKeyDown", true)
+    place:EnableMouse(false)
+    place:SetSize(1, 1)
+    place:SetAlpha(0)
+    place:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", -120, -120)
+    place:Show()
+    place:SetAttribute("qfCount", 8)
+    place:SetAttribute("qfDepth", 0)
+    for i = 1, 8 do
+        place:SetAttribute("qfMarker" .. i, SYMBOL_TO_WORLD[i])
+        place:SetAttribute("qfPlaceMacro" .. i,
+            (SLASH_WORLD_MARKER1 or "/wm") .. " [@cursor] " .. SYMBOL_TO_WORLD[i])
+    end
+    place:SetScript("PreClick", function(self) PrimeQuickFire(self) end)
+    SecureHandlerWrapScript(place, "OnClick", runtime.qfHeader, [[
+        self:SetAttribute("type", nil)
+        self:SetAttribute("macrotext", nil)
+        local n = tonumber(self:GetAttribute("qfCount")) or 8
+        local available = tonumber(self:GetAttribute("qfAvailCount")) or 0
+        local nextPos = (tonumber(self:GetAttribute("qfAvailPos")) or 0) + 1
+        if nextPos > available then return end
+        local pos = tonumber(self:GetAttribute("qfAvail" .. nextPos))
+        if not pos then return end
+        self:SetAttribute("qfAvailPos", nextPos)
+
+        local depth = tonumber(self:GetAttribute("qfDepth")) or 0
+        if depth >= n then
+            for i = 1, n - 1 do
+                self:SetAttribute("qfStack" .. i,
+                    self:GetAttribute("qfStack" .. (i + 1)))
+            end
+            depth = n - 1
+        end
+        depth = depth + 1
+        self:SetAttribute("qfDepth", depth)
+        self:SetAttribute("qfStack" .. depth, pos)
+        self:SetAttribute("macrotext", self:GetAttribute("qfPlaceMacro" .. pos))
+        self:SetAttribute("type", "macro")
+    ]], [[
+        self:SetAttribute("type", nil)
+        self:SetAttribute("macrotext", nil)
+    ]])
+
+    local undo = CreateFrame("Button", "EllesmereUIRaidToolsQuickFireUndo",
+        UIParent, "SecureActionButtonTemplate")
+    undo:RegisterForClicks("AnyDown")
+    undo:SetAttribute("useOnKeyDown", true)
+    undo:EnableMouse(false)
+    undo:SetSize(1, 1)
+    undo:SetAlpha(0)
+    undo:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", -124, -120)
+    undo:Show()
+    SecureHandlerSetFrameRef(undo, "place", place)
+    SecureHandlerWrapScript(undo, "OnClick", runtime.qfHeader, [[
+        self:SetAttribute("type", nil)
+        self:SetAttribute("action", nil)
+        self:SetAttribute("marker", nil)
+        local place = self:GetFrameRef("place")
+        local depth = place and (tonumber(place:GetAttribute("qfDepth")) or 0) or 0
+        if depth < 1 then return end
+        local pos = tonumber(place:GetAttribute("qfStack" .. depth))
+        if not pos then return end
+        place:SetAttribute("qfStack" .. depth, nil)
+        place:SetAttribute("qfDepth", depth - 1)
+        local availablePos = tonumber(place:GetAttribute("qfAvailPos")) or 0
+        if availablePos > 0
+           and tonumber(place:GetAttribute("qfAvail" .. availablePos)) == pos then
+            place:SetAttribute("qfAvailPos", availablePos - 1)
+        end
+        self:SetAttribute("marker", place:GetAttribute("qfMarker" .. pos))
+        self:SetAttribute("action", "clear")
+        self:SetAttribute("type", "worldmarker")
+    ]], [[
+        self:SetAttribute("type", nil)
+        self:SetAttribute("action", nil)
+        self:SetAttribute("marker", nil)
+    ]])
+
+    local clear = CreateFrame("Button", "EllesmereUIRaidToolsQuickFireClear",
+        UIParent, "SecureActionButtonTemplate")
+    clear:RegisterForClicks("AnyDown")
+    clear:SetAttribute("useOnKeyDown", true)
+    clear:EnableMouse(false)
+    clear:SetSize(1, 1)
+    clear:SetAlpha(0)
+    clear:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", -128, -120)
+    clear:Show()
+    SecureHandlerSetFrameRef(clear, "place", place)
+    SecureHandlerWrapScript(clear, "OnClick", runtime.qfHeader, [[
+        local place = self:GetFrameRef("place")
+        if place then
+            local n = tonumber(place:GetAttribute("qfCount")) or 8
+            place:SetAttribute("qfDepth", 0)
+            place:SetAttribute("qfAvailCount", n)
+            place:SetAttribute("qfAvailPos", 0)
+            for i = 1, n do
+                place:SetAttribute("qfAvail" .. i, i)
+                place:SetAttribute("qfStack" .. i, nil)
+            end
+        end
+        self:SetAttribute("macrotext", self:GetAttribute("qfClearMacro"))
+        self:SetAttribute("type", "macro")
+    ]], [[
+        self:SetAttribute("type", nil)
+        self:SetAttribute("macrotext", nil)
+    ]])
+    clear:SetAttribute("qfClearMacro",
+        (SLASH_CLEAR_WORLD_MARKER1 or "/cwm") .. " " .. (ALL or "All"))
+
+    runtime.qfPlace, runtime.qfUndo, runtime.qfClear = place, undo, clear
+    runtime.qfBindingOwner = CreateFrame("Frame")
+    PrimeQuickFire(place)
+end
+
+local function ApplyQuickFireBindings()
+    local p = P()
+    if runtime.qfBindingOwner then ClearOverrideBindings(runtime.qfBindingOwner) end
+    if not p or p.quickFire ~= true or Mode() == "never" or AssistSuppressed() then return end
+
+    BuildQuickFire()
+    PrimeQuickFire(runtime.qfPlace)
+    local bindings = {
+        { p.quickFirePlaceKey, "EllesmereUIRaidToolsQuickFirePlace" },
+        { p.quickFireUndoKey,  "EllesmereUIRaidToolsQuickFireUndo" },
+        { p.quickFireClearKey, "EllesmereUIRaidToolsQuickFireClear" },
+    }
+    for _, binding in ipairs(bindings) do
+        if binding[1] and binding[1] ~= "" then
+            SetOverrideBindingClick(runtime.qfBindingOwner, false, binding[1], binding[2])
+        end
+    end
+end
+
 -------------------------------------------------------------------------------
 --  Lifecycle
 --
@@ -1769,8 +1939,16 @@ local function EnsureEvents()
                 return
             end
             if Mode() == "never" then return end
-            if event == "RAID_TARGET_UPDATE" then
+            if event == "RAID_TARGET_UPDATE" and ShowAs() == "compact" then
                 RefreshCompactMarkerState()
+            end
+            -- Both features share this event, but each only does work while
+            -- enabled. An old Quick Fire frame can survive being disabled.
+            if event == "RAID_TARGET_UPDATE" or event == "PLAYER_REGEN_ENABLED" then
+                local p = P()
+                if p and p.quickFire == true and runtime.qfPlace then
+                    PrimeQuickFire(runtime.qfPlace)
+                end
             end
             RefreshPermissions()
             RefreshAssistGate()
@@ -1780,7 +1958,8 @@ local function EnsureEvents()
     ev:RegisterEvent("PARTY_LEADER_CHANGED")
     ev:RegisterEvent("PLAYER_ENTERING_WORLD")
     ev:RegisterEvent("PLAYER_REGEN_ENABLED")
-    if Mode() ~= "never" and ShowAs() == "compact" then
+    local p = P()
+    if Mode() ~= "never" and (ShowAs() == "compact" or (p and p.quickFire == true)) then
         ev:RegisterEvent("RAID_TARGET_UPDATE")
     else
         ev:UnregisterEvent("RAID_TARGET_UPDATE")
@@ -1962,6 +2141,7 @@ function Apply()
             iconBtn:Hide()
             ClearOverrideBindings(toggleButton)
         end
+        if runtime.qfBindingOwner then ClearOverrideBindings(runtime.qfBindingOwner) end
         -- Fully off and nothing pending: no reason to keep hearing roster
         -- spam. Never-activated sessions never created the frame at all.
         DropEvents()
@@ -1983,6 +2163,7 @@ function Apply()
     ApplyPositions()
     ApplyVisibility()
     ApplyToggleKeybind()
+    ApplyQuickFireBindings()
     ApplyFonts()
     RefreshPermissions(true)
 end

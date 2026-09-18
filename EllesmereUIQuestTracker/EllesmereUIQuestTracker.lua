@@ -158,6 +158,9 @@ _G._EQT_RefreshAll = function()
     if EQT.RefreshFonts then EQT.RefreshFonts() end
     if EQT.UpdateVisibility then EQT.UpdateVisibility() end
     if EQT.RestyleAll then EQT.RestyleAll() end
+    -- Before ApplyBackground: the BG's top anchor depends on whether the
+    -- master header is suppressed.
+    if EQT.ApplyMasterHeaderVisibility then EQT.ApplyMasterHeaderVisibility() end
     if EQT.ApplyBackground then EQT.ApplyBackground() end
     if EQT.ApplyForceOnScreen then EQT.ApplyForceOnScreen() end
     -- The hotkey is a per-profile setting backed by an override binding, so a

@@ -723,6 +723,18 @@ local TILE_LANE_ITEMS = {
       tooltip = "Debuffs you can dispel." },
     { key = "dispel_typed", label = "Dispels", dual = true,
       tooltip = "Any debuff with a dispel type (Magic, Curse, Disease, Poison, Bleed), even if you cannot remove it." },
+    { isHeader = true, label = "Less Common Filters" },
+    { key = "castbyme", label = "Cast By You", dual = true,
+      tooltip = "Debuffs applied by you or your pet." },
+    { key = "anyplayer", label = "From Any Player", dual = true,
+      tooltip = "Debuffs caused by any player or player pet. The opposite of Non-Player Auras; checking one clears the other." },
+    { key = "magic", label = "Magic", dual = true, tooltip = "Debuffs with the Magic dispel type." },
+    { key = "curse", label = "Curse", dual = true, tooltip = "Debuffs with the Curse dispel type." },
+    { key = "poison", label = "Poison", dual = true, tooltip = "Debuffs with the Poison dispel type." },
+    { key = "disease", label = "Disease", dual = true, tooltip = "Debuffs with the Disease dispel type." },
+    { key = "bleed", label = "Bleed", dual = true, tooltip = "Debuffs with the Bleed dispel type." },
+    { key = "canapply", label = "Can Apply Aura", dual = true,
+      tooltip = "Debuffs your own class is able to apply." },
 }
 local function BuildTileFiltersDD(rgn, t, dm)
     local PP = EllesmereUI.PP or EllesmereUI.PanelPP
@@ -751,6 +763,12 @@ local function BuildTileFiltersDD(rgn, t, dm)
             elseif k == "dispel_typed" then
                 if neg then return NegHas("dispel") and dm.dispelMode == "typed" end
                 return (claim.dispel and true or false) and dm.dispelMode == "typed"
+            end
+            -- Two flavors of ONE nonplayer category (global dm.nonplayerMode).
+            if k == "nonplayer" or k == "anyplayer" then
+                if ((dm.nonplayerMode == "any") ~= (k == "anyplayer")) then return false end
+                if neg then return NegHas("nonplayer") end
+                return claim.nonplayer and true or false
             end
             if neg then return NegHas(k) end
             return claim[k] and true or false
@@ -783,6 +801,28 @@ local function BuildTileFiltersDD(rgn, t, dm)
                     if v then
                         SetNeg("dispel", false)
                         dm.dispelMode = (k == "dispel_typed") and "typed" or "you"
+                    end
+                end
+                DmApply()
+                EllesmereUI:RefreshPage()
+                return
+            end
+            if k == "nonplayer" or k == "anyplayer" then
+                -- ONE nonplayer category, one global flavor (shared with the base
+                -- grid): any checked lane owns both the lane and dm.nonplayerMode;
+                -- checking one lane/flavor clears the other.
+                local mode = (k == "anyplayer") and "any" or nil
+                if neg then
+                    SetNeg("nonplayer", v and true or false)
+                    if v then
+                        claim.nonplayer = nil
+                        dm.nonplayerMode = mode
+                    end
+                else
+                    claim.nonplayer = v and true or nil
+                    if v then
+                        SetNeg("nonplayer", false)
+                        dm.nonplayerMode = mode
                     end
                 end
                 DmApply()
@@ -1050,7 +1090,10 @@ local function BuildBaseDetailDM(frame, fontPath)
           values = { __placeholder = "..." }, order = { "__placeholder" },
           getValue = function() return "__placeholder" end,
           setValue = function() end },
-        { type = "label", text = "" }); sy = sy - hh
+        EllesmereUI.MaxDurationDropdown(
+            function() return dm.maxDurSec end,
+            function(v) dm.maxDurSec = v end,
+            DmApply)); sy = sy - hh
     do
         local PPl = EllesmereUI.PP or EllesmereUI.PanelPP
         local rgn = safRow._leftRegion
@@ -1085,6 +1128,25 @@ local function BuildBaseDetailDM(frame, fontPath)
               tooltip = "Debuffs you can dispel." },
             { key = "dispel_typed", label = "Dispels", dual = true, showLockedFn = AllOn,
               tooltip = "Any debuff with a dispel type (Magic, Curse, Disease, Poison, Bleed), even if you cannot remove it." },
+            -- Less common filters: same two-lane rows, engine-evaluated like the
+            -- rest. From Any Player is the other flavor of Non-Player Auras.
+            { isHeader = true, label = "Less Common Filters" },
+            { key = "castbyme", label = "Cast By You", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs applied by you or your pet." },
+            { key = "anyplayer", label = "From Any Player", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs caused by any player or player pet. The opposite of Non-Player Auras; checking one clears the other." },
+            { key = "magic", label = "Magic", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs with the Magic dispel type." },
+            { key = "curse", label = "Curse", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs with the Curse dispel type." },
+            { key = "poison", label = "Poison", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs with the Poison dispel type." },
+            { key = "disease", label = "Disease", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs with the Disease dispel type." },
+            { key = "bleed", label = "Bleed", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs with the Bleed dispel type." },
+            { key = "canapply", label = "Can Apply Aura", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs your own class is able to apply." },
         }
         -- Hovering a dimmed Show box explains the dim (the lane is inert
         -- while All Debuffs already shows everything). Has Duration is an
@@ -1115,6 +1177,9 @@ local function BuildBaseDetailDM(frame, fontPath)
             return dm.boss == true or dm.role == true or dm.priority == true
                 or dm.cc == true or dm.raid == true or dm.raidcombat == true
                 or dm.dispel == true or dm.nonplayer == true
+                or dm.castbyme == true or dm.magic == true or dm.curse == true
+                or dm.poison == true or dm.disease == true or dm.bleed == true
+                or dm.canapply == true
         end
         -- Empty selections are LEGAL here (user directive 2026-08-16, the
         -- same reversal PAB got): any content source can be unchecked,
@@ -1157,6 +1222,12 @@ local function BuildBaseDetailDM(frame, fontPath)
                     if neg then return NegHas("dispel") and dm.dispelMode == "typed" end
                     return dm.dispel == true and dm.dispelMode == "typed"
                 end
+                -- Two flavors of ONE nonplayer category (dm.nonplayerMode).
+                if k == "nonplayer" or k == "anyplayer" then
+                    if ((dm.nonplayerMode == "any") ~= (k == "anyplayer")) then return false end
+                    if neg then return NegHas("nonplayer") end
+                    return dm.nonplayer == true
+                end
                 if neg then return NegHas(k) end
                 return dm[k] == true
             end,
@@ -1197,6 +1268,28 @@ local function BuildBaseDetailDM(frame, fontPath)
                     DmApply()
                     -- Non-force: re-evaluates the empty-selection warning (and
                     -- any other widget refreshers) without closing the menu.
+                    EllesmereUI:RefreshPage()
+                    return
+                end
+                if k == "nonplayer" or k == "anyplayer" then
+                    -- ONE nonplayer category, one flavor (shared with tiles): any
+                    -- checked lane owns both the lane and dm.nonplayerMode;
+                    -- checking one lane/flavor clears the other.
+                    local mode = (k == "anyplayer") and "any" or nil
+                    if neg then
+                        SetNeg("nonplayer", v and true or false)
+                        if v then
+                            dm.nonplayer = nil
+                            dm.nonplayerMode = mode
+                        end
+                    else
+                        dm.nonplayer = v and true or nil
+                        if v then
+                            SetNeg("nonplayer", false)
+                            dm.nonplayerMode = mode
+                        end
+                    end
+                    DmApply()
                     EllesmereUI:RefreshPage()
                     return
                 end
@@ -1558,7 +1651,10 @@ local function BuildTileDetail(frame, fontPath, t)
               values = { __placeholder = "..." }, order = { "__placeholder" },
               getValue = function() return "__placeholder" end,
               setValue = function() end },
-            { type = "label", text = "" }); sy = sy - hh
+            EllesmereUI.MaxDurationDropdown(
+                function() return t.maxDurSec end,
+                function(v) t.maxDurSec = v end,
+                DmApply)); sy = sy - hh
         BuildTileFiltersDD(fRow._leftRegion, t, dm)
 
         _, hh = W:SectionHeader(frame, "CORE", sy); sy = sy - hh
@@ -2210,11 +2306,13 @@ function ns.DMP_RefreshPreview()
         return fr
     end
 
-    -- One icon run (the base grid or an icon-container tile). Base style
-    -- (zoom/border/swipe/duration/stacks) applies to both, matching the
-    -- live renderer where icon tiles inherit the base debuff style.
+    -- One icon run (the base grid or an icon-container tile). Display keys
+    -- (zoom/border/swipe/duration/stacks) resolve through cfg.sv: the base
+    -- profile for the base grid, the tile's inherit-until-set view for a
+    -- tile -- the same view the live renderer styles that tile with.
     local function RenderRun(cfg)
         if cfg.count <= 0 then return end
+        local sv = cfg.sv or p
         local anchor = string.upper(cfg.pos or "center")
         local sz = cfg.size or 18
         local gap = cfg.spacing or 1
@@ -2274,14 +2372,14 @@ function ns.DMP_RefreshPreview()
                     cfg.color.b or 0.35, cfg.color.a or 1)
             else
                 fr._tex:SetTexture(SampleDebuffTexture(i))
-                local z = p.debuffIconZoom or 0.08
+                local z = sv.debuffIconZoom or 0.08
                 fr._tex:SetTexCoord(z, 1 - z, z, 1 - z)
             end
             fr:SetAlpha(cfg.alpha)
             if fr._borderFrame and PP then
-                local bsz = p.debuffBorderSize or 1
+                local bsz = sv.debuffBorderSize or 1
                 if bsz > 0 then
-                    local bc = p.debuffBorderColor or { r = 0, g = 0, b = 0 }
+                    local bc = sv.debuffBorderColor or { r = 0, g = 0, b = 0 }
                     PP.UpdateBorder(fr._borderFrame, bsz, bc.r or 0, bc.g or 0, bc.b or 0, 1)
                     fr._borderFrame:Show()
                 else
@@ -2290,8 +2388,8 @@ function ns.DMP_RefreshPreview()
             end
             local cd = fr._cooldown
             if cd then
-                local wantSwipe = p.debuffShowSwipe ~= false
-                local wantDurText = p.debuffShowDurText and true or false
+                local wantSwipe = sv.debuffShowSwipe ~= false
+                local wantDurText = sv.debuffShowDurText and true or false
                 if wantSwipe or wantDurText then
                     -- Randomized FROZEN sweep: stable per-slot fraction on an hour-long
                     -- cooldown, so the preview shows varied mid-flight states without
@@ -2310,12 +2408,12 @@ function ns.DMP_RefreshPreview()
                     end
                     if wantDurText then
                         local dt = fr._pvDurText
-                        local dtc = p.debuffDurTextColor or { r = 1, g = 1, b = 1 }
-                        EllesmereUI.ApplyIconTextFont(dt, fontPath, p.debuffDurTextSize or 10, "raidFrames")
+                        local dtc = sv.debuffDurTextColor or { r = 1, g = 1, b = 1 }
+                        EllesmereUI.ApplyIconTextFont(dt, fontPath, sv.debuffDurTextSize or 10, "raidFrames")
                         dt:SetTextColor(dtc.r or 1, dtc.g or 1, dtc.b or 1)
                         dt:ClearAllPoints()
                         dt:SetPoint("CENTER", fr, "CENTER",
-                            p.debuffDurTextOffsetX or 0, p.debuffDurTextOffsetY or 0)
+                            sv.debuffDurTextOffsetX or 0, sv.debuffDurTextOffsetY or 0)
                         dt:SetText(tostring(math.floor(3 + seed * 17)))
                         dt:Show()
                     else
@@ -2327,13 +2425,13 @@ function ns.DMP_RefreshPreview()
                 end
             end
             if fr._count then
-                if p.debuffShowStacks ~= false then
-                    local sc = p.debuffStacksTextColor or { r = 1, g = 1, b = 1 }
-                    EllesmereUI.ApplyIconTextFont(fr._count, fontPath, p.debuffStacksTextSize or 11, "raidFrames")
+                if sv.debuffShowStacks ~= false then
+                    local sc = sv.debuffStacksTextColor or { r = 1, g = 1, b = 1 }
+                    EllesmereUI.ApplyIconTextFont(fr._count, fontPath, sv.debuffStacksTextSize or 11, "raidFrames")
                     fr._count:SetTextColor(sc.r or 1, sc.g or 1, sc.b or 1)
                     fr._count:ClearAllPoints()
                     fr._count:SetPoint("BOTTOMRIGHT", fr, "BOTTOMRIGHT",
-                        p.debuffStacksOffsetX or -1, p.debuffStacksOffsetY or 2)
+                        sv.debuffStacksOffsetX or -1, sv.debuffStacksOffsetY or 2)
                     fr._count:SetText("3")
                 else
                     -- Only the stacks-on branch ever fonts this FontString: a
@@ -2403,6 +2501,8 @@ function ns.DMP_RefreshPreview()
             if t.type == "icons" or t.type == "square" then
                 RenderRun({
                     selKey = t.id,
+                    -- Tile Display values: the tile's own keys over the base (nil = inherit).
+                    sv = (ns.DM_TileStyleView and ns.DM_TileStyleView(p, t)) or p,
                     count = math.min(t.cap or 3, (sel or allVis) and 4 or 2),
                     size = t.size or 18,
                     spacing = t.spacing or 1,
@@ -4294,7 +4394,9 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
         local function SpellEntry(id)
             local name = (ns.SPELL_NAME_BY_ID and ns.SPELL_NAME_BY_ID[id])
                 or (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id))
-            return { key = id, label = (name or ("Spell " .. tostring(id))),
+            local label = name or ("Spell " .. tostring(id))
+            -- Truncated rows (long/duplicate names) still need to be told apart on hover.
+            return { key = id, label = label, tooltip = label,
                 icon = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id) }
         end
         local function ByLabel(a, b) return a.label < b.label end

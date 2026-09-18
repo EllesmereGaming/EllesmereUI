@@ -750,9 +750,19 @@ local vehicleWatch = CreateFrame("Frame")
 vehicleWatch:RegisterUnitEvent("UNIT_ENTERED_VEHICLE", "player")
 vehicleWatch:RegisterUnitEvent("UNIT_EXITED_VEHICLE", "player")
 vehicleWatch:RegisterUnitEvent("UNIT_PET", "player")
-vehicleWatch:SetScript("OnEvent", function()
+vehicleWatch:SetScript("OnEvent", function(_, event)
     EvalActiveUnit(unitFrames.player)
-    EvalActiveUnit(unitFrames.pet)
+    local pet = unitFrames.pet
+    if event == "UNIT_PET" and pet and pet._euiUnit == "pet" and UnitExists("pet") then
+        -- Pet SWAP: the token stays "pet", so EvalActiveUnit sees no change and
+        -- nothing repaints the identity zones (name is static on value ticks,
+        -- and no UNIT_NAME_UPDATE follows a swap) -- the old pet's name stuck
+        -- until the next summon from empty. Blizzard's PetFrame full-updates on
+        -- every UNIT_PET; one repaint per swap is the same shape.
+        Engine.RepaintAll(pet, "UnitChanged")
+        return
+    end
+    EvalActiveUnit(pet)
 end)
 
 -------------------------------------------------------------------------------

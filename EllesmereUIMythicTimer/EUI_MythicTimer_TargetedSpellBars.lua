@@ -71,6 +71,7 @@ local slowAccum = 0         -- 10Hz tick counter driving the 0.2s poll pass
 local styleGen = 0          -- bumped by TSB_Refresh; O3 restyle-on-stale stamp
 local anyCastDropped = false -- true only when the maxBars cap actually dropped a cast
 local whereActive = false   -- location/combat watcher registered (tied to cfg.enabled only)
+local whereInCombat = false -- combat state, tracked from the regen edges (see ReadCombatFlag)
 
 local DEFAULT_X, DEFAULT_Y = -340, 60
 
@@ -113,13 +114,28 @@ local LOCATION_KEYS = {
     "dungeon_mythic", "dungeon_nonmythic", "timewalking", "delve",
 }
 
+-- Combat state is TRACKED from PLAYER_REGEN_DISABLED / _ENABLED instead of
+-- sampled inside the gate: a live lockdown read is the one input here that can
+-- answer differently (or as a secret) inside restricted instanced combat, and a
+-- wrong answer at that moment leaves the group switched off for the whole fight.
+-- The edges are exact everywhere, so this seed only has to cover login/zoning.
+local function ReadCombatFlag()
+    if not InCombatLockdown then return false end
+    local ok, v = pcall(InCombatLockdown)
+    if not ok then return false end
+    if issecretvalue then
+        local sok, secret = pcall(issecretvalue, v)
+        if sok and secret then return false end
+    end
+    return v and true or false
+end
+
 local function WhereShows(whereToShow)
     if not whereToShow or not next(whereToShow) then return true end
     local wantIn  = whereToShow.in_combat == true
     local wantOut = whereToShow.out_of_combat == true
     if wantIn ~= wantOut then
-        local inCombat = (InCombatLockdown and InCombatLockdown()) and true or false
-        if inCombat ~= wantIn then return false end
+        if whereInCombat ~= wantIn then return false end
     end
     local anyLoc = false
     for i = 1, #LOCATION_KEYS do
@@ -138,15 +154,39 @@ local SyncWhereActive
 local whereEvt = CreateFrame("Frame")
 local WHERE_EVENTS = {
     "PLAYER_ENTERING_WORLD", "CHALLENGE_MODE_START", "CHALLENGE_MODE_COMPLETED",
+    "CHALLENGE_MODE_RESET", "PLAYER_DIFFICULTY_CHANGED",
     "ZONE_CHANGED_NEW_AREA", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED",
 }
-whereEvt:SetScript("OnEvent", function() SyncWhereActive() end)
+local whereRecheckPending = false
+whereEvt:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_REGEN_DISABLED" then
+        whereInCombat = true
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        whereInCombat = false
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        whereInCombat = ReadCombatFlag()
+    end
+    SyncWhereActive()
+    -- GetInstanceInfo() can still report the PREVIOUS zone on the first frame
+    -- after a loading screen, which resolves the wrong content bucket and leaves
+    -- the group deactivated in a zone the filter actually allows (same read
+    -- hazard AuraBuffReminders defers 0.5s for). Re-check once the client has
+    -- settled; the sync only flips the group when the answer actually changed.
+    if event == "PLAYER_ENTERING_WORLD" and not whereRecheckPending then
+        whereRecheckPending = true
+        C_Timer.After(0.5, function()
+            whereRecheckPending = false
+            SyncWhereActive()
+        end)
+    end
+end)
 
 local function SetWhereWatcherActive(on)
     on = on and true or false
     if on == whereActive then return end
     whereActive = on
     if on then
+        whereInCombat = ReadCombatFlag()
         for i = 1, #WHERE_EVENTS do whereEvt:RegisterEvent(WHERE_EVENTS[i]) end
     else
         whereEvt:UnregisterAllEvents()
@@ -270,13 +310,21 @@ end
 --  Name anchoring: shared by StyleBar and the raid-marker paint pass, since
 --  the name has to shift right while a marker is shown.
 --------------------------------------------------------------------------------
-local function AnchorName(holder, cfg, markerShown)
+-- hasTarget: whether the target zone is actually in use for the current cast.
+-- Most casts never populate it (no target, or Show Target off), so the plain
+-- 48% split needlessly caps -- and truncates -- names that have the room.
+local function AnchorName(holder, cfg, markerShown, hasTarget)
     local w = cfg.width or 240
     local h = cfg.height or 20
     local markerReserve = markerShown and ((cfg.raidMarkerSize or 14) + 2) or 0
     holder.name:ClearAllPoints()
     holder.name:SetPoint("LEFT", holder.sb, "LEFT", 4 + markerReserve + (cfg.nameX or 0), cfg.nameY or 0)
-    local nameWidth = (w - h) * 0.48 - markerReserve
+    local shared = (w - h) * 0.48 - markerReserve
+    local nameWidth = shared
+    if not hasTarget then
+        local timerReserve = (cfg.showTimer ~= false) and ((cfg.timerSize or 10) * 2.2) or 0
+        nameWidth = math.max(shared, (w - h) - 8 - markerReserve - timerReserve)
+    end
     if nameWidth < 1 then nameWidth = 1 end
     holder.name:SetWidth(nameWidth)
 end
@@ -378,7 +426,7 @@ local function StyleBar(holder, cfg)
 
     local showTimer = cfg.showTimer ~= false
     local timerReserve = showTimer and ((cfg.timerSize or 10) * 2.2) or 0
-    AnchorName(holder, cfg, holder.marker:IsShown())
+    AnchorName(holder, cfg, holder.marker:IsShown(), holder.target:IsShown())
     holder.timer:ClearAllPoints()
     holder.timer:SetPoint("RIGHT", holder.sb, "RIGHT", -3 + (cfg.timerX or 0), cfg.timerY or 0)
     holder.target:ClearAllPoints()
@@ -563,7 +611,7 @@ local function ApplyRaidMarker(e, cfg)
     if not cfg.showRaidMarker then
         if holder.marker:IsShown() then
             holder.marker:Hide()
-            AnchorName(holder, cfg, false)
+            AnchorName(holder, cfg, false, holder.target:IsShown())
         end
         return
     end
@@ -571,7 +619,7 @@ local function ApplyRaidMarker(e, cfg)
     if type(idx) == "nil" then -- type() is the taint-safe existence check
         if holder.marker:IsShown() then
             holder.marker:Hide()
-            AnchorName(holder, cfg, false)
+            AnchorName(holder, cfg, false, holder.target:IsShown())
         end
         return
     end
@@ -584,7 +632,7 @@ local function ApplyRaidMarker(e, cfg)
         if tc then holder.marker:SetTexCoord(tc[1], tc[2], tc[3], tc[4]) end
     end
     holder.marker:Show()
-    AnchorName(holder, cfg, true)
+    AnchorName(holder, cfg, true, holder.target:IsShown())
 end
 
 --------------------------------------------------------------------------------
@@ -733,10 +781,12 @@ local function ArmFill(e, isChannel)
 end
 
 local function PaintTarget(e, cfg)
-    local fs = e.bar.target
+    local holder = e.bar
+    local fs = holder.target
     if cfg.showTarget == false then
         fs:SetText("")
         fs:Hide()
+        AnchorName(holder, cfg, holder.marker:IsShown(), false)
         return
     end
     local spellTarget, spellTargetClass
@@ -752,6 +802,7 @@ local function PaintTarget(e, cfg)
     if type(spellTarget) == "nil" then
         fs:SetText("")
         fs:Hide()
+        AnchorName(holder, cfg, holder.marker:IsShown(), false)
         return
     end
     if cfg.targetClassColor ~= false and type(spellTargetClass) ~= "nil" and C_ClassColor then
@@ -763,6 +814,7 @@ local function PaintTarget(e, cfg)
     end
     fs:SetText(spellTarget)
     fs:Show()
+    AnchorName(holder, cfg, holder.marker:IsShown(), true)
 end
 
 local function Release(unit)
@@ -864,11 +916,14 @@ local function StartCast(unit)
             e.bar.icon:SetTexture(nil)
         end
     end
+    -- PaintTarget/ApplyRaidMarker first: they size bar.name for this cast's
+    -- target/marker state, and SetWidth after SetText does not reliably
+    -- re-truncate an already-laid-out FontString.
+    PaintTarget(e, cfg)
+    ApplyRaidMarker(e, cfg)
     if cfg.showSpellName ~= false then
         e.bar.name:SetText(name)
     end
-    PaintTarget(e, cfg)
-    ApplyRaidMarker(e, cfg)
     ApplyCastColor(e, cfg)
     ApplyImportantGlow(e, cfg)
     e.bar.timer:SetText("")
@@ -962,25 +1017,32 @@ local RELEASE_EVENTS = {
 }
 
 evt:SetScript("OnEvent", function(_, event, unit)
-    if previewOn then return end
+    -- The plate roster is kept current for as long as the FEATURE is enabled,
+    -- not only while the group is live: the Where to Show gate can switch the
+    -- group on mid-combat ("In Combat"), and the plates that already exist at
+    -- that moment have to be known. Reading them back with
+    -- C_NamePlate.GetNamePlates() at that point does not answer in combat,
+    -- which left every already-visible caster untracked until its plate was
+    -- removed and re-added.
     if event == "NAME_PLATE_UNIT_ADDED" then
-        if unit then
-            plateUnits[unit] = true
-            -- Probe the delta: only this plate, only if it is mid-cast.
-            local nm = UnitCastingInfo(unit)
-            if type(nm) == "nil" then nm = UnitChannelInfo(unit) end
-            if type(nm) ~= "nil" then StartCast(unit) end
-        end
+        if not unit then return end
+        plateUnits[unit] = true
+        if not active or previewOn then return end
+        -- Probe the delta: only this plate, only if it is mid-cast.
+        local nm = UnitCastingInfo(unit)
+        if type(nm) == "nil" then nm = UnitChannelInfo(unit) end
+        if type(nm) ~= "nil" then StartCast(unit) end
         return
     end
     if event == "NAME_PLATE_UNIT_REMOVED" then
-        if unit then
-            plateUnits[unit] = nil
-            Release(unit)
-            PromoteWaiting()
-        end
+        if not unit then return end
+        plateUnits[unit] = nil
+        if not active or previewOn then return end
+        Release(unit)
+        PromoteWaiting()
         return
     end
+    if previewOn then return end
     if event == "RAID_TARGET_UPDATE" then
         RefreshAllRaidMarkers()
         return
@@ -1002,8 +1064,11 @@ evt:SetScript("OnEvent", function(_, event, unit)
     end
 end)
 
-local ALL_EVENTS = {
-    "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED",
+-- Registered while the feature is enabled (roster only, see the handler above).
+local PLATE_EVENTS = { "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED" }
+
+-- Registered only while the group is live.
+local CAST_EVENTS = {
     "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_CHANNEL_START",
     "UNIT_SPELLCAST_EMPOWER_START", "UNIT_SPELLCAST_DELAYED",
     "UNIT_SPELLCAST_CHANNEL_UPDATE", "UNIT_SPELLCAST_EMPOWER_UPDATE",
@@ -1038,19 +1103,38 @@ local function ReleaseAll()
     end
 end
 
--- Seed from plates that already exist (mid-session enable).
+-- Plate roster lifecycle: tied to cfg.enabled, never to `active`.
+local plateRoster = false
+local function SetPlateRosterActive(on)
+    on = on and true or false
+    if on == plateRoster then return end
+    plateRoster = on
+    if on then
+        for i = 1, #PLATE_EVENTS do evt:RegisterEvent(PLATE_EVENTS[i]) end
+    else
+        for i = 1, #PLATE_EVENTS do evt:UnregisterEvent(PLATE_EVENTS[i]) end
+        wipe(plateUnits)
+    end
+end
+
+-- Seed from plates that already exist (mid-session enable, or the gate turning
+-- the group on mid-combat). The event-maintained roster is the source of truth;
+-- the C_NamePlate sweep only tops it up with plates that appeared BEFORE the
+-- feature was enabled, and is allowed to come back empty.
 local function SeedFromLivePlates()
-    if not (C_NamePlate and C_NamePlate.GetNamePlates) then return end
-    local ok, plates = pcall(C_NamePlate.GetNamePlates)
-    if not ok or type(plates) ~= "table" then return end
-    for i = 1, #plates do
-        local unit = plates[i] and plates[i].namePlateUnitToken
-        if unit then
-            plateUnits[unit] = true
-            local nm = UnitCastingInfo(unit)
-            if type(nm) == "nil" then nm = UnitChannelInfo(unit) end
-            if type(nm) ~= "nil" then StartCast(unit) end
+    if C_NamePlate and C_NamePlate.GetNamePlates then
+        local ok, plates = pcall(C_NamePlate.GetNamePlates)
+        if ok and type(plates) == "table" then
+            for i = 1, #plates do
+                local u = plates[i] and plates[i].namePlateUnitToken
+                if u then plateUnits[u] = true end
+            end
         end
+    end
+    for unit in pairs(plateUnits) do
+        local nm = UnitCastingInfo(unit)
+        if type(nm) == "nil" then nm = UnitChannelInfo(unit) end
+        if type(nm) ~= "nil" then StartCast(unit) end
     end
 end
 
@@ -1058,7 +1142,7 @@ local function Activate()
     if active then return end
     active = true
     EnsureContainer()
-    for i = 1, #ALL_EVENTS do evt:RegisterEvent(ALL_EVENTS[i]) end
+    for i = 1, #CAST_EVENTS do evt:RegisterEvent(CAST_EVENTS[i]) end
     SyncMarkerEvent(Cfg())
     SeedFromLivePlates()
 end
@@ -1066,19 +1150,30 @@ end
 local function Deactivate()
     if not active then return end
     active = false
-    evt:UnregisterAllEvents()
+    -- Cast traffic only: the plate roster stays registered so a later
+    -- mid-combat Activate() already knows every plate on screen.
+    for i = 1, #CAST_EVENTS do evt:UnregisterEvent(CAST_EVENTS[i]) end
+    evt:UnregisterEvent("RAID_TARGET_UPDATE")
     ReleaseAll()
-    wipe(plateUnits)
 end
 
 SyncWhereActive = function()
     local cfg = Cfg()
-    local want = cfg and cfg.enabled == true and WhereShows(cfg.whereToShow)
+    -- Feature off: nothing runs, and a lingering preview goes down with it.
+    if not (cfg and cfg.enabled == true) then
+        if active then Deactivate() end
+        previewOn = false
+        return
+    end
+    -- The preview owns the display while it runs: the options eye and the unlock
+    -- mover must show sample bars wherever the player stands, including content
+    -- the Where to Show filter excludes. Leaving it re-applies the gate.
+    if previewOn then return end
+    local want = WhereShows(cfg.whereToShow)
     if want and not active then
         Activate()
     elseif not want and active then
         Deactivate()
-        previewOn = false
     end
 end
 
@@ -1107,8 +1202,8 @@ local function ShowPreview()
         PositionBar(e.bar, i, cfg)
         e.bar:SetAlpha(1)
         e.bar.icon:SetTexture(134400)
-        if cfg.showSpellName ~= false then e.bar.name:SetText(sample.name) end
-        if cfg.showTarget ~= false then
+        local hasTarget = cfg.showTarget ~= false
+        if hasTarget then
             local tc = cfg.targetColor
             if cfg.targetClassColor ~= false and C_ClassColor and UnitClassBase then
                 local col = C_ClassColor.GetClassColor(UnitClassBase("player"))
@@ -1122,6 +1217,20 @@ local function ShowPreview()
             e.bar.target:SetText("")
             e.bar.target:Hide()
         end
+
+        -- Raid marker sample: static, non-secret index.
+        if cfg.showRaidMarker and sample.marker then
+            local tc = RAID_MARKER_TEXCOORDS[sample.marker]
+            if tc then e.bar.marker:SetTexCoord(tc[1], tc[2], tc[3], tc[4]) end
+            e.bar.marker:Show()
+            AnchorName(e.bar, cfg, true, hasTarget)
+        else
+            e.bar.marker:Hide()
+            AnchorName(e.bar, cfg, false, hasTarget)
+        end
+        -- Name sized/anchored above; SetWidth after SetText does not reliably
+        -- re-truncate an already-laid-out FontString.
+        if cfg.showSpellName ~= false then e.bar.name:SetText(sample.name) end
         e.bar.timer:SetText(cfg.showTimer ~= false and sample.timer or "")
         e.bar.sb:SetValue(sample.fill)
 
@@ -1134,17 +1243,6 @@ local function ShowPreview()
             e.bar.overlay:SetAlpha(0)
             local c = cfg.barColor
             if c then e.bar.sb:GetStatusBarTexture():SetVertexColor(c.r, c.g, c.b) end
-        end
-
-        -- Raid marker sample: static, non-secret index.
-        if cfg.showRaidMarker and sample.marker then
-            local tc = RAID_MARKER_TEXCOORDS[sample.marker]
-            if tc then e.bar.marker:SetTexCoord(tc[1], tc[2], tc[3], tc[4]) end
-            e.bar.marker:Show()
-            AnchorName(e.bar, cfg, true)
-        else
-            e.bar.marker:Hide()
-            AnchorName(e.bar, cfg, false)
         end
 
         -- Important sample: tint and/or glow, both driven by a plain (never
@@ -1170,6 +1268,9 @@ function ns.TSB_SetPreview(on)
         ShowPreview()
     else
         ReleaseAll()
+        -- The gate was held open while the preview ran: re-apply it before
+        -- reseeding, so leaving the preview lands on the real content state.
+        SyncWhereActive()
         if active then SeedFromLivePlates() end
     end
 end
@@ -1185,6 +1286,7 @@ end
 function ns.TSB_Refresh()
     local cfg = Cfg()
     SetWhereWatcherActive(cfg and cfg.enabled == true)
+    SetPlateRosterActive(cfg and cfg.enabled == true)
     SyncWhereActive()
     if not cfg then return end
     SyncMarkerEvent(cfg)
