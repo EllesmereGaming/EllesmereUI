@@ -54,5 +54,32 @@ assert(created==old and d.rfcBmPending,'combat changes must defer')
 combat=false
 ns.DM_ParkBuffTipEaters(d)
 assert(not e.shown and not e._euiActive)
+-- Grid/chain paths pass no anchor callback. Size caps alone do not prevent
+-- an offset footprint from extending onto the neighbouring unit.
+local gd={}
+ns.DM_EnsureBuffTipEater(host,gd,'grid',container,host,'BOTTOMLEFT','BOTTOMLEFT',-25,-10,80,40,nil,nil,24)
+local g=gd.tipModEaters[gd.buffTipSlots.grid]
+assert(g.x==100 and g.y==100 and g.w==55 and g.h==30,'grid overlay overlaps neighbouring unit')
+host.w=40
+ns.DM_EnsureBuffTipEater(host,gd,'grid',container,host,'BOTTOMLEFT','BOTTOMLEFT',-25,-10,80,40,nil,nil,24)
+assert(g.x==100 and g.w==15,'grid clipping must follow unit resize')
+ns.DM_EnsureBuffTipEater(host,gd,'outside',container,host,'BOTTOMLEFT','BOTTOMLEFT',-100,0,40,20,nil,nil,24)
+local o=gd.tipModEaters[gd.buffTipSlots.outside]
+assert(not o.shown and not o._euiActive,'fully outside grid must not capture another unit')
 ''')
 print('PASS: final tooltip clipping, layer, resize, combat deferral and retirement')
+
+# Exercise the actual secure leave snippet with a retained old unit attribute.
+# Native hover delivery still requires in-game verification.
+cc=source(2095,'EllesmereUIRaidFrames/EUI_RaidFrames_ClickCast.lua')
+leave=between(cc,'local TIP_LEAVE_BODY = [[',']]').split('[[',1)[1]
+lua.execute('''
+parentUnit='party2'
+self={unit='party1',SetAttribute=function(s,k,v) s[k]=v end}
+eui_hoverframe=self
+control={GetAttribute=function() return '' end,RunFor=function() end}
+''')
+lua.execute(leave)
+assert lua.eval('self.unit == nil and eui_hoverframe == nil'), 'stale overlay unit survives hover exit'
+assert lua.eval('(self.unit or parentUnit) == "party2"'), 'unit inheritance must use reassigned parent'
+print('PASS: secure leave releases cached unit; native hover delivery pending')

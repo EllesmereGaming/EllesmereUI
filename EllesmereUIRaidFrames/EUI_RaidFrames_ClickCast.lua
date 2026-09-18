@@ -1532,6 +1532,9 @@ local TIP_ENTER_BODY = [[
     end
 ]]
 local TIP_LEAVE_BODY = [[
+    -- A cached mouseover unit must not override the parent's current unit
+    -- after this overlay is hidden or its unit frame is reassigned.
+    self:SetAttribute("unit", nil)
     if eui_hoverframe == self then eui_hoverframe = nil end
     control:RunFor(self, control:GetAttribute("eui_setup_onleave"))
 ]]

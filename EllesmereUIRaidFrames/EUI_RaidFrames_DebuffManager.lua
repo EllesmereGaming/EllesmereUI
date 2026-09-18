@@ -578,8 +578,8 @@ local function EnsureEater(d, slot, host, container, active, pinHost, point, cor
     -- with a centered or inward pin the excess would sit on the neighbouring
     -- units at a higher level, stealing their hover and clicks for this unit.
     -- Bounds = the smaller of the button and the pin host (both our frames,
-    -- settings-sized); pins that deliberately place icons outside the frame
-    -- keep their overshoot exactly as the icons themselves do.
+    -- settings-sized). The final positioned rectangle is also clipped below;
+    -- an offset grid can cross a neighbour even when its size fits this unit.
     local maxW, maxH = host:GetSize()
     local pw, ph = pinHost:GetSize()
     if pw and pw > 0 and pw < maxW then maxW = pw end
@@ -590,7 +590,7 @@ local function EnsureEater(d, slot, host, container, active, pinHost, point, cor
     local geoChanged = not e or e._euiPin ~= point or e._euiCorner ~= corner
         or e._euiOX ~= offX or e._euiOY ~= offY or e._euiHost ~= pinHost
         or e._euiW ~= w or e._euiH ~= h or e._euiAnchorFP ~= anchorFP
-        or (anchor and (e._euiClampW ~= maxW or e._euiClampH ~= maxH))
+        or e._euiClampW ~= maxW or e._euiClampH ~= maxH
     local lvlChanged = not e or e._euiLvl ~= lvl
     local armChanged = not e or not e._euiActive
     if not (geoChanged or lvlChanged or armChanged) then
@@ -635,10 +635,11 @@ local function EnsureEater(d, slot, host, container, active, pinHost, point, cor
         e:ClearAllPoints()
         e:SetPoint(point, pinHost, corner, offX, offY)
         e:SetSize(w, h)
-        if anchor then
-            anchor(e)
+        if anchor then anchor(e) end
+        do
             -- Only addon-owned frames are measured, outside combat. Anchoring
-            -- can replace the initial size, so constrain the FINAL rectangle.
+            -- can replace the initial size. Grids have no callback, but their
+            -- offsets can still cross unit boundaries: constrain every rectangle.
             local x, y, width, height = e:GetRect()
             local hx, hy, hw, hh = host:GetRect()
             if not x or not hx then
