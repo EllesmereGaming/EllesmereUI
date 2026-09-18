@@ -8239,9 +8239,10 @@ function NameplateFrame:UNIT_SPELLCAST_STOP()
         end
     end
 end
-function NameplateFrame:UNIT_SPELLCAST_CHANNEL_STOP()
+function NameplateFrame:UNIT_SPELLCAST_CHANNEL_STOP(_, _, _, interrupterGUID)
     -- Directly hide instead of UpdateCast: in restricted execution, UnitCastingInfo can
     -- return secret values (not nil) for a stale channel, making UpdateCast think it's active.
+    -- An interrupted channel carries the interrupter GUID on this event; a natural end leaves it nil.
     if self.isCasting then
         if self._castFallback then
             self._castFallback = nil
@@ -8263,17 +8264,23 @@ function NameplateFrame:UNIT_SPELLCAST_CHANNEL_STOP()
     if GetShowClassPower() and classPowerType and self._cpPips and self.unit and UnitIsUnit(self.unit, "target") then
         UpdateClassPowerOnPlate(self)
     end
+    if type(interrupterGUID) ~= "nil" and not self._interrupted then
+        self:HandleInterrupted(interrupterGUID)
+    end
 end
 function NameplateFrame:UNIT_SPELLCAST_FAILED()
     self:UpdateCast()
 end
-function NameplateFrame:UNIT_SPELLCAST_INTERRUPTED(_, _, _, interrupterGUID)
+function NameplateFrame:HandleInterrupted(interrupterGUID)
     local protected = self._kickProtected
     if type(interrupterGUID) ~= "nil"
         and ((issecretvalue and issecretvalue(protected)) or not protected) then
         self:ShowCastLockout()
     end
     self:ShowInterrupted(interrupterGUID)
+end
+function NameplateFrame:UNIT_SPELLCAST_INTERRUPTED(_, _, _, interrupterGUID)
+    self:HandleInterrupted(interrupterGUID)
 end
 -- Mid-cast interruptibility flips: re-read protection once, store it, refresh
 -- color + kick tick + overlay. The cooldown watcher never re-reads cast info per
@@ -8311,9 +8318,10 @@ function NameplateFrame:UNIT_SPELLCAST_EMPOWER_UPDATE()
     self._kickGeoDirty = true
     self:UpdateCast()
 end
-function NameplateFrame:UNIT_SPELLCAST_EMPOWER_STOP()
+function NameplateFrame:UNIT_SPELLCAST_EMPOWER_STOP(_, _, _, _, interrupterGUID)
     -- Stop directly. Re-checking cast info here can return a stale secret
-    -- value in PvP and look like the cast is still going.
+    -- value in PvP and look like the cast is still going. An interrupted empower
+    -- carries the interrupter GUID as the 5th arg (after unit, castGUID, spellID, complete).
     local wasCasting = self.isCasting
     self.isCasting = false
     self:HideKickTick()
@@ -8335,6 +8343,9 @@ function NameplateFrame:UNIT_SPELLCAST_EMPOWER_STOP()
     end
     if GetShowClassPower() and classPowerType and self._cpPips and self.unit and UnitIsUnit(self.unit, "target") then
         UpdateClassPowerOnPlate(self)
+    end
+    if type(interrupterGUID) ~= "nil" and not self._interrupted then
+        self:HandleInterrupted(interrupterGUID)
     end
 end
 
