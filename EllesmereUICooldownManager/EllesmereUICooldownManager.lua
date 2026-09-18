@@ -7356,31 +7356,32 @@ local UpdateCDMKeybinds
 do
 
 -- Action bar slot -> binding name map, with the priority tier each source
--- feeds into _SetKeybind (lower wins). These bars have fixed slots and never
--- page, so they outrank every main-bar page: if a spell sits on both, the
--- dedicated bar's key is the one that always works.
+-- feeds into _SetKeybind (lower wins). Tiers ascend with bar number, so a
+-- spell bound on multiple bars shows the lowest-numbered bar's key -- the one
+-- most players expect.
 -- The main bar (ACTIONBUTTON1-12) is not listed here -- it needs per-page slot
 -- math and is scanned separately below.
 local _barBindingDefs = {
-    { prefix = "MULTIACTIONBAR1BUTTON", startSlot = 61,  tier = 1 },  -- bar 2 bottom left
-    { prefix = "MULTIACTIONBAR2BUTTON", startSlot = 49,  tier = 2 },  -- bar 3 bottom right
-    { prefix = "MULTIACTIONBAR3BUTTON", startSlot = 25,  tier = 3 },  -- bar 4 right
-    { prefix = "MULTIACTIONBAR4BUTTON", startSlot = 37,  tier = 4 },  -- bar 5 left
-    { prefix = "MULTIACTIONBAR5BUTTON", startSlot = 145, tier = 5 },  -- bar 6
-    { prefix = "MULTIACTIONBAR6BUTTON", startSlot = 157, tier = 6 },  -- bar 7
-    { prefix = "MULTIACTIONBAR7BUTTON", startSlot = 169, tier = 7 },  -- bar 8
+    { prefix = "MULTIACTIONBAR1BUTTON", startSlot = 61,  tier = 2 },  -- bar 2 bottom left
+    { prefix = "MULTIACTIONBAR2BUTTON", startSlot = 49,  tier = 3 },  -- bar 3 bottom right
+    { prefix = "MULTIACTIONBAR3BUTTON", startSlot = 25,  tier = 4 },  -- bar 4 right
+    { prefix = "MULTIACTIONBAR4BUTTON", startSlot = 37,  tier = 5 },  -- bar 5 left
+    { prefix = "MULTIACTIONBAR5BUTTON", startSlot = 145, tier = 6 },  -- bar 6
+    { prefix = "MULTIACTIONBAR6BUTTON", startSlot = 157, tier = 7 },  -- bar 7
+    { prefix = "MULTIACTIONBAR7BUTTON", startSlot = 169, tier = 8 },  -- bar 8
     -- EUI bars 9/10 have no native binding command: their keys are routed
     -- through the button with SetOverrideBindingClick against the custom
     -- commands declared in the Action Bars module's Bindings.xml. Because that
     -- route always reads the button's live "action" attr, resolve the slot from
     -- the button when it exists and only fall back to the base page slot when
     -- the Action Bars module is not loaded (handled where this def is consumed).
-    { prefix = "EUI_BAR9_BUTTON",       startSlot = 13,  tier = 8, eabButton = true },  -- bar 9  (action page 2)
-    { prefix = "EUI_BAR10_BUTTON",      startSlot = 109, tier = 9, eabButton = true },  -- bar 10 (action page 10)
+    { prefix = "EUI_BAR9_BUTTON",       startSlot = 13,  tier = 9,  eabButton = true },  -- bar 9  (action page 2)
+    { prefix = "EUI_BAR10_BUTTON",      startSlot = 109, tier = 10, eabButton = true },  -- bar 10 (action page 10)
 }
 
--- Main-bar tiers. Page 1 is the "home" state and outranks the form/stealth/
--- skyriding bonus pages.
+-- Main-bar tiers. Page 1 is bar 1 -- tier 1, ahead of every other bar (see
+-- above). Bonus pages (form/stealth/skyriding) rank last: they're situational,
+-- not an explicit per-bar assignment like the tiers above.
 --
 -- Pages 2-6 (manual paging, e.g. Shift+MouseWheel -- a stock WoW binding, not
 -- an EAB-specific feature) are deliberately NOT scanned. Unlike page 1 and the
@@ -7395,9 +7396,7 @@ local _barBindingDefs = {
 -- pages don't have this problem: multibars are explicit EAB bar assignments,
 -- and bonus pages are gated by real, meaningful game state (stealth/form/
 -- skyriding), not "whatever a stray scroll last revealed."
--- Tiers 8-9 are taken by EUI_BAR9_BUTTON/EUI_BAR10_BUTTON above (also
--- non-main-bar, so they outrank the main bar the same way).
-local _TIER_MAINBAR_HOME  = 10   -- page 1        -> slots 1-12
+local _TIER_MAINBAR_HOME  = 1    -- page 1        -> slots 1-12
 local _TIER_MAINBAR_BONUS = 11   -- pages 7-11    -> slots 73-132  (+ pg - 7)
 -- A macro-sourced bind is always outranked by a direct one, whatever the bar.
 local _RANK_MACRO_PENALTY = 100
@@ -7595,6 +7594,11 @@ local function _ResolveSlotBinding(slot, key, tier)
             -- Legacy took Blizzard's single answer as final. Stable mode falls
             -- through to the body scan, which is the whole point: that answer
             -- is state-dependent and hides the other branches.
+            if not _stableMode then return end
+        elseif subType == "item" and id then
+            -- Same contract, item side (e.g. "/use 13" trinket macros): `id`
+            -- is the actual itemID, straight from Blizzard, not the body scan.
+            _SetKeybind(-id, formatted, macroRank)
             if not _stableMode then return end
         end
         -- For everything else `id` from GetActionInfo is NOT a reliable

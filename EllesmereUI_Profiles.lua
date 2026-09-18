@@ -457,10 +457,15 @@ function EllesmereUI.FilterLayoutToFolders(ul, folderSet, k2f)
         if NO_CHECKBOX_FOLDER[f] then return false end     -- never export no-checkbox edges
         return folderSet[f] == true                        -- both endpoints in S
     end
+    -- Screen-edge targets (EUI_UnlockMode) exist on every install and belong to no
+    -- module: a link TO one travels with its child's module. Target only -- a screen
+    -- edge is never an anchor child or a size-match endpoint.
+    local isEdge = EllesmereUI.IsScreenEdgeKey
     local out = { anchors = {}, widthMatch = {}, heightMatch = {}, phantomBounds = {} }
     if type(ul.anchors) == "table" then
         for child, info in pairs(ul.anchors) do
-            if type(info) == "table" and endpointOK(child) and endpointOK(info.target) then
+            if type(info) == "table" and endpointOK(child)
+               and (endpointOK(info.target) or (isEdge and isEdge(info.target))) then
                 out.anchors[child] = DeepCopy(info)
             end
         end

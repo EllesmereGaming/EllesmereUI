@@ -383,6 +383,11 @@ do
                     if GetUpgradeTrack and _trackRank then
                         local _, color = GetUpgradeTrack(d.itemLink)
                         rank = color and _trackRank[color] or 0
+                        local craftedColor = EUI.GetCraftedTrackColor(d.itemLink)
+                        if craftedColor then
+                            rank = _trackRank[craftedColor]
+                            ilvl = C_Item.GetDetailedItemLevelInfo(d.itemLink) or ilvl
+                        end
                     end
                     c = { name = name or "", quality = quality or 0, ilvl = ilvl or 0,
                           itemType = itemType or "", rank = rank, complete = name ~= nil }
@@ -3071,7 +3076,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
                     local trackColor = data._giTrackColor
                     if BP().itemlevelUseCustomColor and BP().itemlevelCustomColor then
                         r, g, b = BP().itemlevelCustomColor.r, BP().itemlevelCustomColor.g, BP().itemlevelCustomColor.b
-                    elseif rankText ~= "" and trackColor then
+                    elseif trackColor then
                         r, g, b = trackColor.r, trackColor.g, trackColor.b
                     else
                         r, g, b = GetItemQualityColor(data._giQuality or 1)
@@ -5590,6 +5595,8 @@ function EUI_Bags:RefreshInventory()
                         if rankText and rankText ~= "" then
                             d._giTrackRank = rankText
                             d._giTrackColor = trackColor
+                        elseif d._giIlvl and not (BP().itemlevelUseCustomColor and BP().itemlevelCustomColor) then
+                            d._giTrackColor = EUI.GetCraftedTrackColor(itemLink)
                         end
                     end
                     -- Warbound check (warbank dim overlay) + WuE bind check (gear only, when bind-type text is enabled).

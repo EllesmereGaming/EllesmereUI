@@ -2649,6 +2649,30 @@ TagFns.tgtcol = function(unit)
     local tunit = unit and (unit .. "target")
     if not tunit or not UnitExists(tunit) then return "" end
     local r, g, b = ns.ResolveUnitNameColor(tunit)
+    if r then
+        return string.format("|cff%02x%02x%02x", math.floor(r * 255 + 0.5),
+            math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5))
+    end
+    -- Secret class token (identity-restricted target, e.g. a boss's own
+    -- target): try Blizzard's own hex generator first, in case it's allowed
+    -- to declassify where plain string.format on r/g/b is not.
+    if UnitIsPlayer(tunit) and C_ClassColor and C_ClassColor.GetClassColor then
+        local _, class = UnitClass(tunit)
+        if issecretvalue(class) then
+            local cc = C_ClassColor.GetClassColor(class)
+            if cc and cc.GenerateHexColor then
+                local ok, hex = pcall(cc.GenerateHexColor, cc)
+                if ok and type(hex) == "string" then return "|c" .. hex end
+            end
+        end
+    end
+    -- Still nothing usable: fall back to the plain reaction color instead of "".
+    local reaction = UnitReaction(tunit, "player")
+    if reaction and not issecretvalue(reaction) then
+        local c = (ns.Colors and ns.Colors.reaction and ns.Colors.reaction[reaction])
+            or FACTION_BAR_COLORS[reaction]
+        if c then r, g, b = c.r, c.g, c.b end
+    end
     if not r then return "" end
     return string.format("|cff%02x%02x%02x", math.floor(r * 255 + 0.5),
         math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5))

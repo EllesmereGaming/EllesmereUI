@@ -1547,6 +1547,52 @@ end
             status:HookScript("OnShow", function() SkinQueueStatus() end)
         end
 
+        -- Accept/Decline both inherit stock UIPanelButtonTemplate and were never
+        -- touched, same treatment as SkinQueuePopup's enterButton/leaveButton.
+        local function SkinRoleCheckButton(btn)
+            if not btn then return end
+            for j = 1, select("#", btn:GetRegions()) do
+                local r = select(j, btn:GetRegions())
+                if r and r:IsObjectType("Texture") and not GetFFD(r).owned and r ~= btn:GetFontString() then
+                    r:SetAlpha(0)
+                end
+            end
+            if btn.Left then btn.Left:SetAlpha(0) end
+            if btn.Middle then btn.Middle:SetAlpha(0) end
+            if btn.Right then btn.Right:SetAlpha(0) end
+            if not GetFFD(btn).skinned then
+                GetFFD(btn).skinned = true
+                for _, texKey in ipairs({ "Left", "Middle", "Right" }) do
+                    local tex = btn[texKey]
+                    if tex and tex.SetAlpha then
+                        hooksecurefunc(tex, "SetAlpha", function(self, a)
+                            if a > 0 then self:SetAlpha(0) end
+                        end)
+                    end
+                end
+                local btnBg = btn:CreateTexture(nil, "BACKGROUND", nil, -6)
+                btnBg:SetAllPoints()
+                GetFFD(btnBg).owned = true
+                GetFFD(btn).bg = btnBg
+                local hov = btn:CreateTexture(nil, "HIGHLIGHT")
+                hov:SetColorTexture(1, 1, 1, 0.1)
+                hov:SetAllPoints()
+                GetFFD(hov).owned = true
+            end
+            local c = EllesmereUIDB and EllesmereUIDB.popupMenuButtonBackgroundColor or { r=.1,g=.1,b=.1,a=.8 }
+            if GetFFD(btn).bg then GetFFD(btn).bg:SetColorTexture(c.r,c.g,c.b,c.a == nil and .8 or c.a) end
+            _applyConfiguredBorder(btn, "popupMenuButton", 1)
+            local fs = btn:GetFontString()
+            if fs then
+                if _elementColorMode() == "native" then
+                    fs:SetTextColor(1, 1, 1, 1)
+                else
+                    local r, g, b = _getElementColor()
+                    fs:SetTextColor(r, g, b, 1)
+                end
+            end
+        end
+
         -- The "Confirm your role" popup shown to the whole party when ANYONE queues
         -- (leader or otherwise) and roles aren't already locked in. LFG_PROPOSAL_SHOW
         -- only fires for the later group-found step, so this frame is hooked directly.
@@ -1576,6 +1622,8 @@ end
                     _PP.CreateBorder(popup, 1, 1, 1, RS.BRD_ALPHA, 1, "OVERLAY", 7)
                 end
             end
+            SkinRoleCheckButton(_G.LFDRoleCheckPopupAcceptButton)
+            SkinRoleCheckButton(_G.LFDRoleCheckPopupDeclineButton)
         end
 
         -- Not gated behind any LFG event: unlike the proposal/status popups above,
@@ -1588,6 +1636,10 @@ end
             if not popup then return end
             _roleCheckHooked = true
             popup:HookScript("OnShow", function() SkinRoleCheckPopup() end)
+            -- Blizzard may have already called :Show() before we got here (e.g. a
+            -- party member who never opened the LFG UI themselves) -- HookScript
+            -- only catches future shows, so skin the current one too.
+            if popup:IsShown() then SkinRoleCheckPopup() end
         end
         HookRoleCheckOnShow()
 

@@ -217,13 +217,64 @@ initFrame:SetScript("OnEvent", function(self)
               onChanged = VisApply,
               onOptionChanged = VisApply },
             -- Refresh Rate moved up into the slot the Visibility Options dropdown left
-            -- behind; its "(seconds)" suffix is attached below.
+            -- behind; its "(seconds)" suffix is attached below. Range widens once the
+            -- cog's Unsafe Refresh Rate toggle is on (see below); that toggle rebuilds
+            -- the page so this table is re-evaluated with the new min/tooltip.
+            (Cfg("unsafeRefreshRate") and
+            { type="slider", text="Refresh Rate",
+              tooltip = "Below 0.5s multiplies memory allocation per window every tick. Not recommended with several windows open.",
+              min = 0.1, max = 2, step = 0.05,
+              getValue = function() return Cfg("refreshRate") or 1 end,
+              setValue = function(v) Set("refreshRate", v) end,
+              fmt = function(v) return format("%.2fs", v) end }
+            or
             { type="slider", text="Refresh Rate",
               tooltip = "Increase to improve performance, Decrease to update meters faster",
               min = 0.5, max = 2, step = 0.1,
               getValue = function() return Cfg("refreshRate") or 1 end,
               setValue = function(v) Set("refreshRate", v) end,
-              fmt = function(v) return format("%.2fs", v) end })
+              fmt = function(v) return format("%.2fs", v) end }))
+        if not EllesmereUI._prebuilding then
+            local rgn = visRow._rightRegion
+            -- Forward-declared so the row's set() can close the popup before the page
+            -- rebuild below tears down the button it's anchored to: RefreshPage(true)
+            -- recreates this whole block's frames, and a still-open popup left anchored
+            -- to the old (now orphaned) cog button drifts to wherever that frame lands.
+            local unsafeCogShow
+            local _, _unsafeCogShow = EllesmereUI.BuildCogPopup({
+                title = "Refresh Rate",
+                rows = {
+                    { type = "toggle", label = "Unsafe Refresh Rate",
+                      tooltip = "Allows Refresh Rate below 0.5s. Each tick fetches a full session snapshot per window, so lower values multiply allocation cost far past any visual gain, especially with several windows open.",
+                      get = function() return Cfg("unsafeRefreshRate") == true end,
+                      set = function(v)
+                          Set("unsafeRefreshRate", v)
+                          if not v then
+                              local floor = ns._REFRESH_RATE_FLOOR or 0.5
+                              local r = Cfg("refreshRate")
+                              if r and r < floor then Set("refreshRate", floor) end
+                          end
+                          if unsafeCogShow and unsafeCogShow._popupFrame then
+                              unsafeCogShow._popupFrame:Hide()
+                          end
+                          EllesmereUI:RefreshPage(true)
+                      end },
+                },
+            })
+            unsafeCogShow = _unsafeCogShow
+            local unsafeCogBtn = CreateFrame("Button", nil, rgn)
+            unsafeCogBtn:SetSize(26, 26)
+            unsafeCogBtn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = unsafeCogBtn
+            unsafeCogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            unsafeCogBtn:SetAlpha(0.4)
+            local unsafeCogTex = unsafeCogBtn:CreateTexture(nil, "OVERLAY")
+            unsafeCogTex:SetAllPoints()
+            unsafeCogTex:SetTexture(EllesmereUI.COGS_ICON)
+            unsafeCogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            unsafeCogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            unsafeCogBtn:SetScript("OnClick", function(self) unsafeCogShow(self) end)
+        end
         y = y - h
 
         -- Window Border Style (+ directions submenu) | Border Size (+ color)

@@ -1550,7 +1550,22 @@ local function HarvestLayer()
         for key, elem in pairs(elems) do
             if not LayerSkipsKey(key) then
                 local e
-                if elem.loadPosition then
+                -- Elements whose STORED position is not the visual one loadPosition
+                -- reports (PlayerAuraBars' rounding-shifted bars) expose
+                -- loadRawPosition/saveRawPosition: bank that flat table verbatim, so
+                -- a layer harvested at one resolution stays valid at another and
+                -- keeps the element's own position flags.
+                if elem.loadRawPosition and elem.saveRawPosition then
+                    local ok, p = pcall(elem.loadRawPosition, key)
+                    if ok and type(p) == "table" and p.point then
+                        e = {}
+                        for k, v in pairs(p) do
+                            if type(v) ~= "table" then e[k] = v end
+                        end
+                        e.relPoint = e.relPoint or e.point
+                        e.rawPos = true
+                    end
+                elseif elem.loadPosition then
                     local ok, p = pcall(elem.loadPosition, key)
                     if ok and p and p.point then
                         e = { point = p.point, relPoint = p.relPoint or p.point,
@@ -1612,6 +1627,22 @@ local function ElemNear(a, b)
         return math.abs(x - y) < 0.5
     end
     return near(a.x, b.x) and near(a.y, b.y) and near(a.w, b.w) and near(a.h, b.h)
+end
+
+-- Exact equality for RAW element positions (loadRawPosition): the element's own
+-- stored fields, so a position flag it carries counts as a difference too. The
+-- layer's own bookkeeping keys are not part of the position.
+local RAW_POS_LAYER_KEYS = { w = true, h = true, rawPos = true, relPoint = true }
+local function RawPosEqual(cur, e)
+    if not cur then return false end
+    if (cur.relPoint or cur.point) ~= (e.relPoint or e.point) then return false end
+    for k, v in pairs(e) do
+        if not RAW_POS_LAYER_KEYS[k] and cur[k] ~= v then return false end
+    end
+    for k, v in pairs(cur) do
+        if not RAW_POS_LAYER_KEYS[k] and e[k] ~= v then return false end
+    end
+    return true
 end
 
 --- Writes a layer into the live stores. CRITICAL: the raw CDM/AB position tables
@@ -2074,7 +2105,15 @@ function EllesmereUI.SpecOverrides_FlushUnlock()
                 -- live for most elements; only real deltas write and settle.
                 -- Anchor-owned keys never take elem positions (see
                 -- UnlockElemAnchorOwned): the anchor is the authority.
-                if e.point and elem.savePosition and not UnlockElemAnchorOwned(key) then
+                -- Raw-position elements take their stored table back verbatim,
+                -- flags included (see the harvest).
+                if e.rawPos and elem.saveRawPosition and not UnlockElemAnchorOwned(key) then
+                    if not RawPosEqual(elem.loadRawPosition and elem.loadRawPosition(key), e) then
+                        pcall(elem.saveRawPosition, key, e)
+                        if elem.applyPosition then pcall(elem.applyPosition, key) end
+                        _unlockSettleWanted = true
+                    end
+                elseif e.point and elem.savePosition and not UnlockElemAnchorOwned(key) then
                     local cur = elem.loadPosition and elem.loadPosition(key)
                     if not (cur and cur.point == e.point
                         and (cur.relPoint or cur.point) == (e.relPoint or e.point)
@@ -2121,7 +2160,14 @@ function EllesmereUI.SpecOverrides_FlushUnlock()
             elseif elems and elems[key] then
                 local elem = elems[key]
                 -- Same anchor-owned skip as the pend path above.
-                if e.point and elem.savePosition and not UnlockElemAnchorOwned(key) then
+                -- Same raw-position branch as the pend path above.
+                if e.rawPos and elem.saveRawPosition and not UnlockElemAnchorOwned(key) then
+                    if not RawPosEqual(elem.loadRawPosition and elem.loadRawPosition(key), e) then
+                        pcall(elem.saveRawPosition, key, e)
+                        if elem.applyPosition then pcall(elem.applyPosition, key) end
+                        _unlockSettleWanted = true
+                    end
+                elseif e.point and elem.savePosition and not UnlockElemAnchorOwned(key) then
                     local cur = elem.loadPosition and elem.loadPosition(key)
                     if not (cur and cur.point == e.point
                         and (cur.relPoint or cur.point) == (e.relPoint or e.point)
