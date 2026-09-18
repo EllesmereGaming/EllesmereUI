@@ -6904,5 +6904,60 @@ L["Choose the profile-wide border or glow used for Blizzard's Assisted Combat su
 L["Thickness in physical pixels for Solid Border and Pixel Glow."] = "Espessura em pixels físicos para Borda Sólida e Brilho em Pixel."
 L["How many pixels the custom effect extends beyond the icon."] = "Quantos pixels o efeito personalizado se estende além do ícone."
 L["Solid Border"] = "Borda Sólida"
-L["Thickness applies to Solid Border and Pixel Glow"] = "A espessura se aplica a Borda Sólida e Brilho em Pixel"
 L["Blizzard Default uses Blizzard's native size"] = "Padrão da Blizzard usa o tamanho nativo da Blizzard"
+
+-- == Mythic+ Tools / Run Summary ================================================
+L["Mythic+ Run Summary"] = "Resumo da Corrida Mítica+"
+L["Run Summary"] = "Resumo da Corrida"
+L["RUN SUMMARY"] = "RESUMO DA CORRIDA"
+L["COLUMNS"] = "COLUNAS"
+L["Enable Run Summary"] = "Ativar Resumo da Corrida"
+L["Show After Looting"] = "Mostrar Após Saquear"
+L["Open the overview once the end of run chest has been looted. With this off it opens as soon as the key ends. /ov reopens it at any time."] = "Abre a visão geral assim que o baú de fim de corrida for saqueado. Com isso desativado, ela abre assim que a chave termina. /ov reabre a qualquer momento."
+L["Records every finished Mythic+ key and shows an overview of the group when the run ends. Nothing is registered or created while this is off."] = "Registra toda chave Mítica+ concluída e mostra uma visão geral do grupo ao fim da corrida. Nada é registrado ou criado enquanto isso estiver desativado."
+L["History Size"] = "Tamanho do Histórico"
+L["Panel Scale"] = "Escala do Painel"
+L["Show Spec Icons"] = "Mostrar Ícones de Especialização"
+L["M+ Score"] = "Pontuação M+"
+L["Current season score plus the gain from this run. Your own gain is the exact value the server reports; for party members it is their score before the key subtracted from their score after it."] = "Pontuação da temporada atual mais o ganho desta corrida. Seu próprio ganho é o valor exato relatado pelo servidor; para os membros do grupo, é a pontuação deles antes da chave subtraída da pontuação depois dela."
+L["Loot"] = "Saque"
+L["What each player looted. Your own chest reward always appears; other players' items only when the server announces the loot to the group, which it does not always do for the end of run chest."] = "O que cada jogador saqueou. Sua própria recompensa do baú sempre aparece; os itens de outros jogadores só aparecem quando o servidor anuncia o saque ao grupo, o que nem sempre acontece com o baú de fim de corrida."
+L["Read from Blizzard's own damage meter. With that meter switched off this column, Damage Taken and Interrupts stay empty."] = "Lido a partir do próprio medidor de dano da Blizzard. Com esse medidor desligado, esta coluna, Dano Recebido e Interrupções ficam vazias."
+L["Shown in grey next to each name. Item levels are read by inspecting party members during the run, so a member who stayed out of range shows none."] = "Mostrado em cinza ao lado de cada nome. Os níveis de item são lidos inspecionando os membros do grupo durante a corrida, então um membro que ficou fora de alcance não mostra nenhum."
+L["Clear Run History"] = "Limpar Histórico de Corridas"
+L["Delete every recorded Mythic+ run for this character?"] = "Excluir todas as corridas Mítica+ registradas para este personagem?"
+L["Score"] = "Pontuação"
+L["Taken"] = "Recebido"
+L["No loot recorded for this player in this run."] = "Nenhum saque registrado para este jogador nesta corrida."
+L["No runs recorded yet"] = "Nenhuma corrida registrada ainda"
+L["Blizzard damage meter is off"] = "O medidor de dano da Blizzard está desligado"
+L["Combat data stayed restricted for this run"] = "Os dados de combate ficaram restritos nesta corrida"
+L["Depleted"] = "Esgotada"
+L["+%1$d Upgrade"] = "+%1$d Melhoria"
+L["+%1$d Upgrades"] = "+%1$d Melhorias"
+L["%1$d Deaths"] = "%1$d Mortes"
+L["Run Summary is disabled in Mythic+ Tools."] = "O Resumo da Corrida está desativado em Ferramentas Mítica+."
+L["spells"] = "feitiços"
+
+-- == Blizzard Skin / Socket Panel ================================================
+L["Next sockets"] = "Próximos encaixes"
+L["Previous sockets"] = "Encaixes anteriores"
+
+-- == Chat Options ================================================
+L["This option requires Tabs Inside Chat Panel to be disabled"] = "Esta opção requer que as Abas Dentro do Painel de Bate-Papo estejam desativadas"
+
+-- == Damage Meters Options ================================================
+L["Unsafe Refresh Rate"] = "Taxa de Atualização Insegura"
+L["Below 0.5s multiplies memory allocation per window every tick. Not recommended with several windows open."] = "Abaixo de 0,5s multiplica a alocação de memória por janela a cada tick. Não recomendado com várias janelas abertas."
+L["Allows Refresh Rate below 0.5s. Each tick fetches a full session snapshot per window, so lower values multiply allocation cost far past any visual gain, especially with several windows open."] = "Permite Taxa de Atualização abaixo de 0,5s. Cada tick busca um retrato completo da sessão por janela, então valores menores multiplicam o custo de alocação muito além de qualquer ganho visual, especialmente com várias janelas abertas."
+
+-- == Unlock Mode / Screen Edge Anchors ================================================
+L["Left Screen Edge"] = "Borda Esquerda da Tela"
+L["Right Screen Edge"] = "Borda Direita da Tela"
+L["Top Screen Edge"] = "Borda Superior da Tela"
+L["Bottom Screen Edge"] = "Borda Inferior da Tela"
+L["Relative to Screen"] = "Relativo à Tela"
+
+-- == Aura/Buff Reminders Food Items ================================================
+L["Feast of Knowledge"] = "Banquete de Conhecimento"
+L["Hearty Feast of Knowledge"] = "Banquete de Conhecimento Substancial"

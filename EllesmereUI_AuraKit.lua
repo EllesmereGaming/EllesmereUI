@@ -1362,6 +1362,67 @@ function AK.AddSlotToContainer(container, s)
     return f
 end
 
+------------------------------------------------------------------------------
+-- Item enchantments (temporary weapon enchants: oils, imbues, stones)
+--
+-- Not auras (an enchantID, no spell ID) but engine display sources since
+-- 12.1: the container builds the frame through the SAME initializer as an
+-- aura group, resolves the icon off the inventory slot, shows the item
+-- tooltip, and runs the protected CancelTemporaryEnchantment on a cancel
+-- click (style.cancelButtons feeds SetCancelAuraButtons, as for auras).
+AK.ITEM_ENCH_SLOTS = { "MainHand", "OffHand", "Ranged" }
+
+-- Their position is LAYOUT data: they are a flow group of their own, and
+-- `placement`/`layoutIndex` decides whether they lead or trail the aura
+-- groups. Nothing may be anchored to a container (forbidden aspects).
+function AK.SetContainerItemEnchantmentLayout(container, layout)
+    if not (container and layout and container.SetItemEnchantmentLayout) then return end
+    container:SetItemEnchantmentLayout(layout)
+end
+
+-- BOTH halves required: the inbound setter validates before it defaults, so a
+-- method without a direction is a hard error engine-side.
+function AK.SetContainerItemEnchantmentSort(container, sortMethod, sortDirection)
+    if not (container and sortMethod and sortDirection
+        and container.SetItemEnchantmentSortMethod) then return end
+    container:SetItemEnchantmentSortMethod(sortMethod, sortDirection)
+end
+
+-- e = { style, extraInit, hidePermanent (default true: duration-bearing
+-- only), maxSlots (declare only the first N of ITEM_ENCH_SLOTS, for a
+-- display too small to hold all three), layout, sortMethod, sortDirection }.
+-- ONE-WAY: with no addon-facing unregister, a consumer that must stop
+-- showing them releases the container and builds a fresh one. Re-calling is
+-- idempotent and re-applies layout and sort only.
+function AK.AddItemEnchantmentsToContainer(container, e)
+    if not (container and e and container.AddItemEnchantment) then return end
+    local slotEnum = AuraContainerItemEnchantmentSlot
+    if not slotEnum then return end
+    local cd = containerData[container]
+    if cd and not cd.itemEnchFrames then cd.itemEnchFrames = {} end
+    local tracked = cd and cd.itemEnchFrames
+    local names = AK.ITEM_ENCH_SLOTS
+    local last = math.min(e.maxSlots or #names, #names)
+    for i = 1, last do
+        local name = names[i]
+        local slot = slotEnum[name]
+        -- HasItemEnchantment is engine-private and a second declaration for
+        -- the same slot asserts, so the declared set is ours to keep. pcall'd
+        -- anyway: ReleaseContainer drops the whole containerData entry, so a
+        -- container that is released and then re-declared (no consumer does
+        -- that today) would hit that assert with the tracking gone.
+        if slot ~= nil and not (tracked and tracked[name]) then
+            local ok, frame = pcall(container.AddItemEnchantment, container, slot, {
+                initializeFrame = AK.MakeInitializer(e.style, e.extraInit),
+                hidePermanent = e.hidePermanent ~= false,
+            })
+            if ok and tracked then tracked[name] = frame or true end
+        end
+    end
+    AK.SetContainerItemEnchantmentLayout(container, e.layout)
+    AK.SetContainerItemEnchantmentSort(container, e.sortMethod, e.sortDirection)
+end
+
 -- Unit LAST: unit assignment re-evaluates event registrations, and those
 -- are gated on the container having groups/slots. Setting the unit before
 -- declaring content leaves UNIT_AURA unregistered (the Blizzard reference
@@ -1545,16 +1606,22 @@ end
 function AK.ReleaseContainer(container)
     if not container then return end
     local data = containerData[container]
-    if data and data.slotFrames then
-        for _, slotButton in pairs(data.slotFrames) do
-            local d = bd[slotButton]
-            if d then
-                if d.styleKey and styleButtons[d.styleKey] then
-                    styleButtons[d.styleKey][slotButton] = nil
-                end
-                bd[slotButton] = nil
+    local function Untrack(button)
+        local d = type(button) == "table" and bd[button]
+        if d then
+            if d.styleKey and styleButtons[d.styleKey] then
+                styleButtons[d.styleKey][button] = nil
             end
+            bd[button] = nil
         end
+    end
+    if data and data.slotFrames then
+        for _, slotButton in pairs(data.slotFrames) do Untrack(slotButton) end
+    end
+    -- Item enchantment frames come back as handles on declaration, so unlike
+    -- group buttons they can be untracked instead of left as restyle zombies.
+    if data and data.itemEnchFrames then
+        for _, enchButton in pairs(data.itemEnchFrames) do Untrack(enchButton) end
     end
     containerData[container] = nil
     container:Hide()
