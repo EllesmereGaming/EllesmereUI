@@ -1189,7 +1189,8 @@ ApplyCdState = function(frame, fc, cas, eff, onCD, ready)
         if ns.SetCdStateShiftHidden then ns.SetCdStateShiftHidden(fc, false) end
         return
     end
-    -- Glow modes: glow while the ability is READY (off cooldown). Not a hide.
+    -- Glow modes: glow while the ability is READY (off cooldown), or while ON cooldown
+    -- for the mirror-image "OnCD" variant (ns.IsCdStateOnCdGlow). Not a hide.
     -- Restore the alpha as well as the flag, exactly as the appearance refresh
     -- does on this transition: once a bar has settled nothing else re-asserts a
     -- preset frame's alpha, so clearing the flag alone leaves a hide from an
@@ -1199,7 +1200,7 @@ ApplyCdState = function(frame, fc, cas, eff, onCD, ready)
     if ns.SetCdStateShiftHidden then ns.SetCdStateShiftHidden(fc, false) end
     local glow = fd and fd.glowOverlay
     if not glow then return end
-    if not onCD then
+    if ns.CdStateGlowWants(eff, onCD) then
         -- Re-assert against the overlay's REAL state (overlay._glowActive), not
         -- our flag alone. fd.glowOverlay is shared with the proc-glow and
         -- appearance passes, and twelve of the thirteen sites that stop it never
@@ -1212,7 +1213,7 @@ ApplyCdState = function(frame, fc, cas, eff, onCD, ready)
             if ns.ResolveGlowColor then
                 gr, gg, gb = ns.ResolveGlowColor(cas)
             end
-            ns.StartNativeGlow(glow, eff == "pixelGlowReady" and 1 or 3, gr or 1, gg or 1, gb or 1)
+            ns.StartNativeGlow(glow, ns.CdStateGlowStyle(eff), gr or 1, gg or 1, gb or 1)
             fd._presetCdGlowOn = true
         end
     elseif fd._presetCdGlowOn then
