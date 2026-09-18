@@ -4622,9 +4622,18 @@ initFrame:SetScript("OnEvent", function(self)
         local _visSrcIsEui = ns.GetUnitFrameSource(selectedUnit) == "eui"
         if not EllesmereUI._prebuilding then
         AttachFrameSourceCog(visRow._leftRegion, selectedUnit, {
-            title = _visSrcIsEui and "Frame Source & Fade" or "Frame Source",
-            cogTooltip = _visSrcIsEui and "Frame Source & Fade" or "Frame Source",
+            title = _visSrcIsEui and "Frame Source & Visibility" or "Frame Source",
+            cogTooltip = _visSrcIsEui and "Frame Source & Visibility" or "Frame Source",
             extraRows = _visSrcIsEui and {
+                { type = "toggle", label = "Show When Health Missing",
+                  tooltip = "Reveals the frame while this unit is below full health. At full health, your existing visibility rules apply. Never Show takes priority. Hidden frames may still accept clicks in combat.",
+                  disabled = function() return InCombatLockdown() end,
+                  disabledTooltip = "Change health visibility out of combat",
+                  get = function() return SVal("showWhenHealthMissing", false) == true end,
+                  set = function(v)
+                      SSet("showWhenHealthMissing", v)
+                      if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
+                  end },
                 { type = "toggle", label = "Fade Out of Combat",
                   tooltip = "Fades the entire frame (portrait, health and power bars, text) while out of combat.",
                   get = function() return SVal("oocFadeEnabled", false) == true end,
