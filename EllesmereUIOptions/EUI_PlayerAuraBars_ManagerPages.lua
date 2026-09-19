@@ -328,8 +328,8 @@ local function DefaultBuffBarName(cfg)
 end
 
 -- Weapon-enchants-only is a fundamentally different shape of bar -- at most
--- three cells (main hand / off hand / ranged, see EUI_UnitFrames_
--- WeaponEnchants.lua's SLOTS, which matches Blizzard's own
+-- three cells (main hand / off hand / ranged, the engine's own
+-- AuraContainerItemEnchantmentSlot set, which matches Blizzard's
 -- UpdateTemporaryEnchantmentBuffs) instead of a wrapping buff grid. Resize the
 -- grid to fit on the way in and restore it on the way out.
 --
@@ -570,7 +570,7 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply, isDefau
             -- alone, so the row would be a dead switch on custom buff bars.
             if isDefault then
                 items[#items + 1] = { key = PAB_WEAPON_ENCH_KEY, label = "Weapon Enchants",
-                  tooltip = "Show weapon oil and imbue icons at the front of this bar. They are weapon enchants rather than auras, so they show independently of the options above -- and the aura grid is shifted inward to make room for them, with every row shifting over by the same amount." }
+                  tooltip = "Show weapon oil and imbue icons at the front of this bar. They are weapon enchants rather than auras, so they show independently of the options above." }
             end
             items[#items + 1] = { isHeader = true, label = "Show", rightLabel = "Hide" }
             for i = 1, #filters do

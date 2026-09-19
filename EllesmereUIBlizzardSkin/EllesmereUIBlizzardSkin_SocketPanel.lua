@@ -2,7 +2,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --------------------------------------------------------------------------------
 --  Character Sheet Socket Panel
 --
---  A single bare row of socket icons in the blank strip along the bottom
+--  A bounded row of socket icons in the blank strip along the bottom
 --  edge of the EUI-skinned character sheet, right-aligned. Each icon is one
 --  socket on a currently-equipped item:
 --  filled sockets paint the gem, empty sockets paint the empty-socket texture.
@@ -38,14 +38,17 @@ local CHasItem         = _G.CursorHasItem
 -- Constants
 local SIZE       = 28
 local PAD        = 4
+local MAX_SOCKET_ICONS = 6
+local PAGE_BUTTON_W = 12
 local ROW_H      = 20   -- gem flyout row height
 local FLYOUT_W   = 240
 local MAX_FLYOUT_ROWS = 12   -- flyout caps here; extra gems scroll with the wheel
 local GEM_CLASS  = (Enum and Enum.ItemClass and Enum.ItemClass.Gem) or 3
 local EMPTY_SOCKET_TEX = "Interface\\ItemSocketingFrame\\UI-EmptySocket-Prismatic"
 
--- Inventory slots that can carry sockets (skip Body/Relic/Tabard/Shirt).
-local SLOTS = { 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 }
+-- Character-sheet order: left column, right column, then weapons.
+-- Skip shirt/tabard; each item's sockets stay in socket-index order.
+local SLOTS = { 1, 2, 3, 15, 5, 9, 10, 6, 7, 8, 11, 12, 13, 14, 16, 17 }
 
 -- State (all plain Lua tables / our own frames -- nothing lives on Blizzard frames)
 local sockets   = {}      -- ordered list of { slot, socketIndex, gemLink, emptyName }
@@ -64,6 +67,8 @@ local gemDirty = true
 local pendingGemLoads = {} -- itemID -> true: bag gems whose data load we requested
 local socketLoadRequested = {} -- gem itemID -> true: equipped-gem data loads we requested
 local activeIcon = nil    -- icon whose flyout is currently open
+local socketPage = 0
+local prevPage, nextPage
 local flyoutScroll = 0    -- top gem index offset when the gem list overflows MAX_FLYOUT_ROWS
 local flyoutHoverMode = false -- flyout opened by hovering an empty socket (auto-closes on leave)
 local ourSession = false  -- a socketing session WE opened is (or may still be) live
@@ -226,6 +231,7 @@ local function SafeCloseSession()
 end
 
 local RebuildSockets   -- forward declaration
+local LayoutSockets
 local CloseFlyout      -- forward declaration
 local OpenFlyout       -- forward declaration
 local MaybeCloseHoverFlyout -- forward declaration
@@ -598,7 +604,71 @@ RebuildSockets = function()
         end
     end
 
+    LayoutSockets()
+end
+
+local function ChangeSocketPage(delta)
+    local last = math.max(0, math.ceil(#sockets / (MAX_SOCKET_ICONS - 1)) - 1)
+    local page = math.max(0, math.min(last, socketPage + delta))
+    if page == socketPage then return end
+    CloseFlyout()
+    StopSlotGlow()
+    GameTooltip:Hide()
+    if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+    socketPage = page
+    LayoutSockets()
+end
+
+local function BuildPageButton(text, delta, tip)
+    local btn = CreateFrame("Button", nil, panel)
+    btn:SetSize(PAGE_BUTTON_W, SIZE)
+    local label = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    label:SetAllPoints(btn)
+    label:SetText(text)
+    btn:SetScript("OnClick", function() ChangeSocketPage(delta) end)
+    btn:SetScript("OnEnter", function(self)
+        EllesmereUI.ShowWidgetTooltip(self, tip)
+    end)
+    btn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+    return btn
+end
+
+LayoutSockets = function()
     if not panel then return end
+
+    local count = #sockets
+    local paged = count > MAX_SOCKET_ICONS
+    -- Reserve one icon's width for the arrows, keeping the entire strip no
+    -- wider than the original six-socket layout, including on the last page.
+    local perPage = paged and (MAX_SOCKET_ICONS - 1) or MAX_SOCKET_ICONS
+    local last = math.max(0, math.ceil(count / perPage) - 1)
+    socketPage = math.min(socketPage, last)
+    local first = socketPage * perPage
+    local visible = math.min(perPage, count - first)
+    if activeIcon then
+        local old = activeIcon.euiSock
+        local keep = false
+        for i = 1, visible do
+            local rec = sockets[first + i]
+            if activeIcon == iconPool[i] and old and old.slot == rec.slot
+                and old.socketIndex == rec.socketIndex then keep = true; break end
+        end
+        if not keep then CloseFlyout(); StopSlotGlow() end
+    end
+    if paged and not prevPage then
+        prevPage = BuildPageButton("<", -1, EllesmereUI.L("Previous sockets"))
+        nextPage = BuildPageButton(">", 1, EllesmereUI.L("Next sockets"))
+        prevPage:SetPoint("LEFT", panel, "LEFT", 0, 0)
+        nextPage:SetPoint("RIGHT", panel, "RIGHT", 0, 0)
+    end
+    if prevPage then
+        prevPage:SetShown(paged)
+        nextPage:SetShown(paged)
+        prevPage:SetEnabled(socketPage > 0)
+        nextPage:SetEnabled(socketPage < last)
+        prevPage:SetAlpha(socketPage > 0 and 1 or 0.3)
+        nextPage:SetAlpha(socketPage < last and 1 or 0.3)
+    end
 
     -- Hide all pooled icons first.
     for _, btn in ipairs(iconPool) do
@@ -606,7 +676,6 @@ RebuildSockets = function()
         btn.euiSock = nil
     end
 
-    local count = #sockets
     if count == 0 then
         panel:Hide()
         if EllesmereUI and EllesmereUI._updateCharSheetDurability then
@@ -615,9 +684,8 @@ RebuildSockets = function()
         return
     end
 
-    -- One row, never wraps; the panel's right edge stays pinned so the row
-    -- grows leftward into the strip.
-    for i, rec in ipairs(sockets) do
+    for i = 1, visible do
+        local rec = sockets[first + i]
         local btn = AcquireIcon(i)
         btn.euiSock = rec
         if rec.gemLink then
@@ -626,11 +694,12 @@ RebuildSockets = function()
             PaintEmptyIcon(btn)
         end
         btn:ClearAllPoints()
-        btn:SetPoint("LEFT", panel, "LEFT", (i - 1) * (SIZE + PAD), 0)
+        btn:SetPoint("LEFT", panel, "LEFT",
+            (paged and (PAGE_BUTTON_W + PAD) or 0) + (i - 1) * (SIZE + PAD), 0)
         btn:Show()
     end
 
-    panel:SetWidth(count * (SIZE + PAD) - PAD)
+    panel:SetWidth((paged and MAX_SOCKET_ICONS or visible) * (SIZE + PAD) - PAD)
     panel:Show()
     if EllesmereUI and EllesmereUI._updateCharSheetDurability then
         EllesmereUI._updateCharSheetDurability()

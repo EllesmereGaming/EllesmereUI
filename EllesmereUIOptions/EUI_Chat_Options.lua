@@ -761,7 +761,7 @@ initFrame:SetScript("OnEvent", function(self)
                           or (Cfg("sidebarVisibility") or "always") == "never"
                   end,
                   disabledTooltip=function()
-                      if Cfg("extendBgBehindTabs") then return "Tabs Inside Chat Panel" end
+                      if Cfg("extendBgBehindTabs") then return "This option requires Tabs Inside Chat Panel to be disabled" end
                       return "Sidebar Visibility"
                   end,
                   getValue=function() return Cfg("alignTabsToPanel") or false end,

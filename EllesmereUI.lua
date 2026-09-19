@@ -1441,6 +1441,16 @@ EllesmereUI.LOCALE_FONT_FALLBACK = LOCALE_FONT_FALLBACK
 EllesmereUI.LOCALE_SCRIPT = EllesmereUI._localeScript
 EllesmereUI.EXPRESSWAY = LOCALE_FONT_FALLBACK or EXPRESSWAY
 
+-- Re-sync once the override-aware effective locale is known (the values above
+-- are captured before EllesmereUIDB's displayLocale override is readable).
+function EllesmereUI.RefreshLocaleFontFallback()
+    LOCALE_FONT_FALLBACK = EllesmereUI._localeFont
+    EllesmereUI.LOCALE_FONT_FALLBACK = LOCALE_FONT_FALLBACK
+    EllesmereUI.LOCALE_SCRIPT = EllesmereUI._localeScript
+    EllesmereUI.EXPRESSWAY = LOCALE_FONT_FALLBACK or EXPRESSWAY
+    EllesmereUI.InvalidateFontCache()
+end
+
 -- Taint-safe print: AddMessage, never global print() (its C-side handler taints the chat
 -- frame). Drops silently in protected instances (raid combat, active M+) to avoid tainting FCF_OpenTemporaryWindow's whisper chain.
 function EllesmereUI.Print(...)
@@ -2073,6 +2083,27 @@ do
             local key, cur, maxL = EllesmereUI.GetUpgradeTrackKey(itemLink)
             local text = (cur and maxL and maxL > 0) and (cur .. "/" .. maxL) or ""
             return text, map[key or ""] or W
+        end
+
+        -- Crest bonuses identify the crafting tier independently of quality and
+        -- overlapping item levels. Midnight S2 Hero/Myth: 13835/13836.
+        -- Source: https://www.raidbots.com/static/data/live/bonuses.json
+        local craftedColors = { [13835] = HE, [13836] = MY }
+        function EllesmereUI.GetCraftedTrackColor(itemLink)
+            if type(itemLink) ~= "string" then return nil end
+            local payload = itemLink:match("item:([^|]+)")
+            if not payload then return nil end
+            local index, lastBonus = 0, 13
+            for field in (payload .. ":"):gmatch("([^:]*):") do
+                index = index + 1
+                if index == 13 then
+                    lastBonus = 13 + (tonumber(field) or 0)
+                elseif index > 13 then
+                    if index > lastBonus then break end
+                    local color = craftedColors[tonumber(field)]
+                    if color then return color end
+                end
+            end
         end
 
         -- Item-level text color: custom override > upgrade-track hue > item rarity >
@@ -11526,6 +11557,24 @@ initFrame:SetScript("OnEvent", function(self, event)
             frame:HookScript("OnShow", RefreshProxy)
             frame:HookScript("OnHide", RefreshProxy)
         end
+
+        -- Register the Vault once, regardless of which shortcut opens it.
+        local function RegisterVaultEscapeClose()
+            if not WeeklyRewardsFrame then return false end
+            EllesmereUI.RegisterEscapeClose(WeeklyRewardsFrame)
+            RefreshProxy()
+            return true
+        end
+
+        if not RegisterVaultEscapeClose() then
+            local vaultLoader = CreateFrame("Frame")
+            vaultLoader:RegisterEvent("ADDON_LOADED")
+            vaultLoader:SetScript("OnEvent", function(self, event, addonName)
+                if addonName == "Blizzard_WeeklyRewards" and RegisterVaultEscapeClose() then
+                    self:UnregisterEvent("ADDON_LOADED")
+                end
+            end)
+        end
     end
 
     -- Create native minimap button
@@ -12247,9 +12296,7 @@ local DRUID_MOUNT_FORM_SPELLS = {
 -- "any" match verdict. A garrison reports a difficulty but is not instanced content
 -- for this axis, which is why the difficulty test alone is not enough.
 function EllesmereUI.IsInInstancedContent()
-    local _, iType, diffID = GetInstanceInfo()
-    diffID = tonumber(diffID) or 0
-    if diffID <= 0 then return false end
+    local _, iType = GetInstanceInfo()
     if C_Garrison and C_Garrison.IsOnGarrisonMap and C_Garrison.IsOnGarrisonMap() then
         return false
     end

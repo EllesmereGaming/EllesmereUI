@@ -112,14 +112,12 @@ local function SetFont(fs, size)
     fs:SetFont(font, size, flags)
 end
 
--- Snapped through PP.Scale so accumulated row offsets (stride * index) don't drift off the pixel
--- grid from float dust -- without this, a spacing of 1 can round to 0px on some rows and 2px on others.
-local function PhysicalPixels(val)
+-- Icon size is a coordinate value like the window width and icon spacing, so it
+-- keeps its proportion at any UI scale; only snapped onto the pixel grid.
+local function SnapSize(val)
     local PP = EUI and EUI.PP
-    local mult = (PP and PP.mult) or 1
-    local value = (val or 0) * mult
-    if PP and PP.Scale then return PP.Scale(value) end
-    return value
+    if PP and PP.Snap then return PP.Snap(val or 0) end
+    return val or 0
 end
 
 local function GetBarTexturePath()
@@ -485,7 +483,7 @@ local ANIM_SLIDE_PX = 6
 -- the history length or growth direction never makes the row wander.
 local function IconStripGeometry(count)
     local sh = DB()
-    local iconSz = PhysicalPixels(sh.iconSize or 24)
+    local iconSz = SnapSize(sh.iconSize or 24)
     local gap = sh.iconSpacing or 1
     local dir = sh.growDirection or "LEFT"
     count = max(1, count or sh.iconCount or 5)
@@ -807,7 +805,7 @@ BuildIconStrip = function()
         -- during animation. No strip-level background needed.
     end
 
-    local iconSz = PhysicalPixels(sh.iconSize or 24)
+    local iconSz = SnapSize(sh.iconSize or 24)
     local gap = sh.iconSpacing or 1
     local dir = sh.growDirection or "LEFT"
     local iconZoom = sh.iconZoom or 0.08
