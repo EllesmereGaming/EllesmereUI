@@ -28,6 +28,7 @@ EllesmereUIDataBars_Options.lua
 EUI_Friends_Options.lua
 EUI_Minimap_Options.lua
 EUI_MythicTimer_Options.lua
+EUI_LoadoutManager_Options.lua
 EUI_Nameplates_Options.lua
 EUI_QoL_Options.lua
 EUI_QoL_Cursor_Options.lua

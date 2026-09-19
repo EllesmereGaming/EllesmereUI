@@ -1,0 +1,14 @@
+## Interface: 120000, 120001, 120005, 120007, 120100
+## Title: |cff0cd29fEllesmereUI|r Loadout Manager
+## Category: |cff0cd29fEllesmere|rUI
+## Group: EllesmereUI
+## Notes: Applies gear sets and talent loadouts automatically per instance type and specialization.
+## Author: Ellesmere
+## Version: 9.1.6
+## Dependencies: EllesmereUI
+## SavedVariablesPerCharacter: EllesmereUILoadoutManagerDB
+## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
+
+# Runtime. The settings page lives in the LoadOnDemand EllesmereUIOptions addon
+# (EUI_LoadoutManager_Options.lua), like every other module.
+EllesmereUILoadoutManager.lua
