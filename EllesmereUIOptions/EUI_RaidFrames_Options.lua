@@ -5495,6 +5495,16 @@ initFrame:SetScript("OnEvent", function(self)
                   end
               end });  y = y - h
 
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Enable Party Targets",
+              tooltip="Show a small clickable frame next to each party member with that member's current target. Left-click a target to select it.",
+              getValue=function() return db.profile.partyShowTargets or false end,
+              setValue=function(v)
+                  db.profile.partyShowTargets = v
+                  if ns.PT_SetEnabled then ns.PT_SetEnabled(v) end
+              end },
+            { type="label", text="" });  y = y - h
+
         -------------------------------------------------------------------
         --  ALL VISUAL SECTIONS
         --  _partyCtx makes SGet/SSet/SVal read/write "party_<key>", so the same section builders produce party controls; synced sections get a per-section blocking overlay.
