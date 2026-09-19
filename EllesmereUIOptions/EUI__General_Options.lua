@@ -6472,6 +6472,23 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                 end
 
+                -- The client refuses ReloadUI() from addon code (ADDON_ACTION_BLOCKED on
+                -- 'Reload()'), so the reload runs from the confirm popup's secure /reload
+                -- macro. That overlay's attributes cannot be set under lockdown, so in
+                -- combat the popup asks for a manual reload instead.
+                local function PromptReload(disclaimer)
+                    local inCombat = InCombatLockdown()
+                    EllesmereUI:ShowConfirmPopup({
+                        title        = EllesmereUI.L("Profile Imported"),
+                        message      = inCombat and EllesmereUI.L("Type /reload in chat to finish applying it.")
+                            or EllesmereUI.L("Reload the UI to finish applying it."),
+                        disclaimer   = disclaimer,
+                        confirmText  = inCombat and EllesmereUI.L("Okay") or EllesmereUI.L("Reload Now"),
+                        cancelText   = EllesmereUI.L("Later"),
+                        confirmMacro = (not inCombat) and "/reload" or nil,
+                    })
+                end
+
                 local function commit()
                     -- The payload table goes to ImportProfile directly (no encode-to-string round trip on already-decoded data). An
                     -- interactive-API session marks itself as committing so ImportProfile's stale-session cancellation (which guards
@@ -6496,13 +6513,9 @@ initFrame:SetScript("OnEvent", function(self)
                         if EllesmereUI._ProfilesResetToMain then pcall(EllesmereUI._ProfilesResetToMain) end
                         EllesmereUI:Hide()
                     elseif ok and status == "spec_locked" then
-                        EllesmereUI:ShowInfoPopup({
-                            title   = EllesmereUI.L("Profile Imported"),
-                            content = EllesmereUI.Lf("\"%1$s\" was saved but cannot be loaded because this spec has an assigned profile. Switch specs or remove the spec assignment to use it.", name),
-                        })
-                        ReloadUI()
+                        PromptReload(EllesmereUI.Lf("\"%1$s\" was saved but cannot be loaded because this spec has an assigned profile. Switch specs or remove the spec assignment to use it.", name))
                     elseif ok then
-                        ReloadUI()
+                        PromptReload()
                     else
                         EllesmereUI:ShowInfoPopup({ title = EllesmereUI.L("Import Failed"), content = err or EllesmereUI.L("Unknown error") })
                     end
