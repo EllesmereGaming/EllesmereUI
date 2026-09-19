@@ -5112,6 +5112,157 @@ end
 -- nothing). OnShow/OnHide track the frame's own shown flag, matching the old
 -- IsShown() gate exactly (alpha/parent-only hiding behaves identically).
 local _pcActive = {}
+
+-------------------------------------------------------------------------------
+--  Out of Range Coloring for spells added by Spell ID (opt-in, per spell).
+--
+--  Blizzard's viewer frames tint themselves out of range; a spell added by ID
+--  has no viewer frame, so its own-frame icon never did. When a spell opts in,
+--  its range check is armed (C_Spell.EnableSpellRangeCheck) and the icon is
+--  repainted on SPELL_RANGE_CHECK_UPDATE and PLAYER_TARGET_CHANGED, mirroring
+--  CooldownViewerCooldownItemMixin: armed only when the spell has a range, and
+--  out of range outranks the resource tint. Writes go to our own texture only.
+--  Zero cost unless a spell opts in: nothing is armed, the listener shell is
+--  taken on the first arm, and its events drop when the last arm releases.
+--
+--  Registrations are per SPELL and shared with Blizzard's viewer and the
+--  override arming in the main file: a release never disables an id either of
+--  them still holds, and CustomSpellRangeHolds is the same rule from their side.
+-------------------------------------------------------------------------------
+do
+    local refs = {}      -- armed spell id -> number of frames holding it
+    local armCount = 0   -- frames holding an arm; the listener is live while > 0
+    local listener
+
+    function ns.CustomSpellRangeHolds(spellID)
+        return refs[spellID] ~= nil
+    end
+
+    -- Custom-spell icon tint: out of range first (Blizzard's RefreshIconColor
+    -- order), else the resource dim. 3-arg writes, same as the dim always used.
+    local function PaintTint(f, sid, onRealCD)
+        local tex = f._tex
+        if not tex then return end
+        if f._rangeOut then
+            local c = CooldownViewerConstants and CooldownViewerConstants.ITEM_NOT_IN_RANGE_COLOR
+            if c then
+                tex:SetVertexColor(c:GetRGB())
+                f._rangeTinted = true
+            end
+            return
+        end
+        -- Leaving the range tint needs a white write even when the dim memo is clean.
+        local wasTinted = f._rangeTinted
+        f._rangeTinted = nil
+        if not onRealCD then
+            local isUsable, notEnoughMana = C_Spell.IsSpellUsable(sid)
+            if notEnoughMana then
+                tex:SetVertexColor(0.5, 0.5, 1.0)
+            elseif not isUsable then
+                tex:SetVertexColor(0.4, 0.4, 0.4)
+            elseif f._lastVertexDim or wasTinted then
+                tex:SetVertexColor(1, 1, 1)
+            end
+            f._lastVertexDim = (not isUsable) or nil
+        elseif f._lastVertexDim or wasTinted then
+            tex:SetVertexColor(1, 1, 1)
+            f._lastVertexDim = nil
+        end
+    end
+    ns.PaintCustomSpellTint = PaintTint
+
+    local function OnRangeEvent(_, event, spellID)
+        -- A readable id touches only the frames armed on it; an unreadable id or
+        -- a target change re-reads every armed frame (a handful at most).
+        local named = event == "SPELL_RANGE_CHECK_UPDATE"
+            and not (issecretvalue and issecretvalue(spellID))
+            and type(spellID) == "number"
+        for f in pairs(_pcActive) do
+            local armed = f._rangeArmedSID
+            if armed and (not named or armed == spellID) then
+                ns.SyncCustomSpellRange(f, true)
+            end
+        end
+    end
+
+    local function SetArm(f, id)
+        local prev = f._rangeArmedSID
+        if prev == id then return end
+        f._rangeArmedSID = id
+        if prev then
+            local n = (refs[prev] or 1) - 1
+            refs[prev] = (n > 0) and n or nil
+            armCount = armCount - 1
+            if not refs[prev] and not ns.BlizzardArmsRange(prev) then
+                local held = false
+                if ns._oorArmed then
+                    for _, ov in pairs(ns._oorArmed) do
+                        if ov == prev then held = true; break end
+                    end
+                end
+                if not held then C_Spell.EnableSpellRangeCheck(prev, false) end
+            end
+        end
+        if id then
+            if not refs[id] then C_Spell.EnableSpellRangeCheck(id, true) end
+            refs[id] = (refs[id] or 0) + 1
+            armCount = armCount + 1
+        end
+        if armCount == 1 and id and not prev then
+            if not listener then
+                listener = ns.TakeShell()
+                listener:SetScript("OnEvent", OnRangeEvent)
+            end
+            listener:RegisterEvent("SPELL_RANGE_CHECK_UPDATE")
+            listener:RegisterEvent("PLAYER_TARGET_CHANGED")
+        elseif armCount == 0 and listener then
+            listener:UnregisterAllEvents()
+        end
+    end
+
+    -- Resolve one custom-spell frame: arm, re-point (talent override) or release
+    -- its range check, then re-read range. paint=true repaints on a flip (event
+    -- and options paths); the preset pass paints right after, so it passes false.
+    function ns.SyncCustomSpellRange(f, paint)
+        local sid = f._cachedPresetSID
+        if not sid then
+            local m = f._pfKey and f._pfKey:match(":(%d+)$")
+            sid = m and tonumber(m)
+            f._cachedPresetSID = sid
+        end
+        local want
+        local cas = sid and ns._cdmAnyCustomRangeColor and ns.GetEffectiveCustomActiveState(sid)
+        if cas and cas.outOfRangeColoring then
+            local ovr = C_SpellBook.FindSpellOverrideByID(sid)
+            local live = (ovr and ovr > 0) and ovr or sid
+            if C_Spell.SpellHasRange(live) then want = live end
+        end
+        SetArm(f, want)
+        local out
+        if want then
+            local r = C_Spell.IsSpellInRange(want)
+            if not (issecretvalue and issecretvalue(r)) and r == false then out = true end
+        end
+        if f._rangeOut ~= out then
+            f._rangeOut = out
+            if paint and sid then PaintTint(f, sid, f._lastOnRealCD) end
+        end
+    end
+
+    function ns.ReleaseCustomSpellRange(f)
+        SetArm(f, nil)
+    end
+
+    -- Options toggle: re-resolve every shown custom-spell icon right away.
+    function ns.RefreshCustomSpellRange()
+        for f in pairs(_pcActive) do
+            if f._isCustomSpellFrame and not f._isCustomBuffFrame then
+                ns.SyncCustomSpellRange(f, true)
+            end
+        end
+    end
+end
+
 local function _RegisterPresetLive(f, fkey)
     f._pfKey = fkey
     f:HookScript("OnShow", function(self)
@@ -5127,6 +5278,8 @@ local function _RegisterPresetLive(f, fkey)
     end)
     f:HookScript("OnHide", function(self)
         _pcActive[self] = nil
+        -- A hidden icon holds no range registration; the Show re-read re-arms it.
+        if self._rangeArmedSID then ns.ReleaseCustomSpellRange(self) end
     end)
     if f:IsShown() then _pcActive[f] = true end
 end
@@ -5913,22 +6066,11 @@ local function ProcessPresetCooldowns()
                     -- hiding the swipe when that geometry is only a GCD.
                     ApplyPresetGCDSwipe(f, sid, cdInfo)
                     -- Resource check: dim vertex color when not enough resources
-                    -- Only for custom spells (not racials -- racials don't cost resources)
+                    -- Only for custom spells (not racials -- racials don't cost resources).
+                    -- Out of Range Coloring (opt-in) re-reads range first; it outranks the dim.
                     if f._isCustomSpellFrame and f._tex then
-                        if not onRealCD then
-                            local isUsable, notEnoughMana = C_Spell.IsSpellUsable(sid)
-                            if notEnoughMana then
-                                f._tex:SetVertexColor(0.5, 0.5, 1.0)
-                            elseif not isUsable then
-                                f._tex:SetVertexColor(0.4, 0.4, 0.4)
-                            elseif f._lastVertexDim then
-                                f._tex:SetVertexColor(1, 1, 1)
-                            end
-                            f._lastVertexDim = (not isUsable) or nil
-                        elseif f._lastVertexDim then
-                            f._tex:SetVertexColor(1, 1, 1)
-                            f._lastVertexDim = nil
-                        end
+                        if ns._cdmAnyCustomRangeColor then ns.SyncCustomSpellRange(f, false) end
+                        ns.PaintCustomSpellTint(f, sid, onRealCD)
                     end
                     if f._lastVertexDim then anyUnsettled = true end
                     -- "Show Charges" (opt-in, CD/utility custom spells only):

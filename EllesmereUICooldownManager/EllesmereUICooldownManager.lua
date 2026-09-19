@@ -1562,6 +1562,22 @@ function ns.RescanCustomForceCountFlag()
     end
 end
 
+-- "Out of Range Coloring" (spells added by Spell ID) gate. Same contract as the flags above;
+-- lives in the profile customActiveStates. Zero cost in the preset pass (and no range check
+-- armed, no listener events) unless a custom spell opted in.
+function ns.RescanCustomRangeColorFlag()
+    if ns._cdmAnyCustomRangeColor or ns._customRangeColorScanned then return end
+    local cas = ns.GetCustomActiveStates and ns.GetCustomActiveStates()
+    if not cas then return end
+    ns._customRangeColorScanned = true
+    for _, e in pairs(cas) do
+        if type(e) == "table" and e.outOfRangeColoring then
+            ns._cdmAnyCustomRangeColor = true
+            return
+        end
+    end
+end
+
 
 -- Reverse Swipe gate: set ns._cdmAnyReverseSwipe once if any saved spell (any spec) has
 -- per-spell reverseSwipe on; the reverse-apply in RefreshCDMIconAppearance is skipped for
@@ -7803,6 +7819,7 @@ BuildAllCDMBars = function()
     ns.RescanBuffReplaceFlag()    -- set the Replace with Buff gate (once) before the route map
     ns.RescanCustomItemFlag()     -- set the custom-item buff-injection gate (once)
     ns.RescanCustomForceCountFlag() -- set the "Show Charges" custom-spell gate (once)
+    ns.RescanCustomRangeColorFlag() -- set the "Out of Range Coloring" custom-spell gate (once)
     ns.RescanReverseSwipeFlag()   -- set the Reverse Swipe gate (once) before refresh
     ns.RescanThresholdTextFlag()  -- set the Threshold Text gate (once) before refresh
     ns.RescanCustomIconFlag()     -- set the per-spell Custom Icon gate (once) before refresh
@@ -10431,7 +10448,9 @@ function ns.ArmOverrideRange(baseSpellID, overrideSpellID)
     local prev = armed[baseSpellID]
     if prev == overrideSpellID then return end
     if prev then
-        if not ns.BlizzardArmsRange(prev) then
+        -- Also left armed while a custom spell icon holds it (CdmHooks, Out of Range Coloring).
+        if not ns.BlizzardArmsRange(prev)
+           and not (ns.CustomSpellRangeHolds and ns.CustomSpellRangeHolds(prev)) then
             C_Spell.EnableSpellRangeCheck(prev, false)
         end
         armed[baseSpellID] = nil
@@ -10448,7 +10467,8 @@ function ns.DisarmOverrideRanges()
     local armed = ns._oorArmed
     if not armed then return end
     for base, ov in pairs(armed) do
-        if not ns.BlizzardArmsRange(ov) then
+        if not ns.BlizzardArmsRange(ov)
+           and not (ns.CustomSpellRangeHolds and ns.CustomSpellRangeHolds(ov)) then
             C_Spell.EnableSpellRangeCheck(ov, false)
         end
         armed[base] = nil

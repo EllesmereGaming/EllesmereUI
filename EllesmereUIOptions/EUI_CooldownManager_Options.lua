@@ -11345,6 +11345,23 @@ initFrame:SetScript("OnEvent", function(self)
                                             t.hideCDSwipe = (v == "hide") or false
                                         end } })
 
+                        -- Out of Range Coloring (spells added by Spell ID only): they have no
+                        -- Blizzard viewer frame, so nothing tinted them out of range. Default off;
+                        -- stored in customActiveStates so it travels with the spell. Racials and
+                        -- items are not offered it (item range checks are protected in combat).
+                        if sd.customSpellIDs and sd.customSpellIDs[spellID]
+                           and not (ns._myRacialsSet and ns._myRacialsSet[spellID]) then
+                            MakeSubnavRow("Out of Range Coloring",
+                                { { val = nil, label = "Off" }, { val = true, label = "On" } },
+                                function() return cas.outOfRangeColoring and true or nil end,
+                                function(v)
+                                    SetCasOwn("outOfRangeColoring", v or nil)
+                                    if v then ns._cdmAnyCustomRangeColor = true end
+                                    if ns.RefreshCustomSpellRange then ns.RefreshCustomSpellRange() end
+                                end,
+                                function() return not cas.outOfRangeColoring end)
+                        end
+
                         -- Audio Effect on CD Ready (preset/trinket/racial/custom): fired when the
                         -- ability comes off cooldown via the FakeActive poll (PresetOnCD). Stored in
                         -- customActiveStates so it travels with the item (own list/preview: the buff-bar branch's shared AUDIO_ITEMS/AddSoundPreview are out of scope in this branch).
