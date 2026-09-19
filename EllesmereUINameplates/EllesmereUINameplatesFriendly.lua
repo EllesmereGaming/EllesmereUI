@@ -35,6 +35,20 @@ local _cachedFriendlyTargetPlate = nil
 
 local FRIENDLY_PLATE_Y_OFFSET = -18
 
+local function ApplyFriendlyHitbox(plate, restoreBlizzard)
+    local np = plate and plate.nameplate
+    if not (np and np.CanChangeHitTestPoints and np:CanChangeHitTestPoints()) then return end
+    if restoreBlizzard then
+        if np.SetAllHitTestPoints and np.UnitFrame then
+            np:SetAllHitTestPoints(np.UnitFrame)
+        end
+    elseif FP() and FP().friendlyClickThrough == true then
+        if np.ClearAllHitTestPoints then np:ClearAllHitTestPoints() end
+    elseif np.SetAllHitTestPoints then
+        np:SetAllHitTestPoints(plate.health)
+    end
+end
+
 local function IsInFollowerDungeon()
     if C_LFGInfo and C_LFGInfo.IsInLFGFollowerDungeon and C_LFGInfo.IsInLFGFollowerDungeon() then
         return true
@@ -1191,6 +1205,7 @@ function FriendlyFrame:SetUnit(unit, nameplate)
     self:Show()
 
     self.health:SetSize(GetFriendlyHealthBarWidth(), GetFriendlyHealthBarHeight())
+    ApplyFriendlyHitbox(self)
 
     -- Suppress Blizzard UF via reparenting (immediate, no OnUpdate needed)
     SuppressBlizzardUF(unit, nameplate)
@@ -1244,6 +1259,7 @@ function FriendlyFrame:ClearUnit()
     end
     -- Restore Blizzard UF before clearing our reference
     if self.unit then RestoreBlizzardUF(self.unit) end
+    ApplyFriendlyHitbox(self, true)
     self.unit = nil
     self.nameplate = nil
     self.glow:Hide()
@@ -1620,6 +1636,9 @@ local function ApplyFriendlyClickThrough()
     clickThroughRetry:UnregisterEvent("PLAYER_REGEN_ENABLED")
     local inset = on and CLICK_THROUGH_INSET or 0
     C_NamePlateManager.SetNamePlateHitTestInsets(Enum.NamePlateType.Friendly, inset, inset, inset, inset)
+    for _, plate in pairs(friendlyPlates) do
+        ApplyFriendlyHitbox(plate)
+    end
     clickThroughApplied = on
 end
 ns.UpdateFriendlyClickThrough = ApplyFriendlyClickThrough
