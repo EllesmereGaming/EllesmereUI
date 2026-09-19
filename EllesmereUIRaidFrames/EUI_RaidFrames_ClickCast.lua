@@ -1504,7 +1504,8 @@ end
 --     hides itself so the hover falls through to the aura button beneath.
 --  The "eui_tipmod" state driver on this header flips only the HOVERED eater
 --  on a modifier edge (one macro-conditional check per press, nothing else)
---  and re-shows the peeked eater on release. wrappedFrames is set here first,
+--  and re-shows the peeked eaters on release. Overlapping eaters each hide
+--  on entry while the key is held. wrappedFrames is set here first,
 --  so DoRegisterFrame (click attributes when enabled) never wraps them twice.
 -------------------------------------------------------------------------------
 local tipEaters = setmetatable({}, { __mode = "k" })
@@ -1521,15 +1522,19 @@ local TIP_ENTER_BODY = [[
         eui_hoveractive = true
     end
     local k = control:GetAttribute("eui_tipmod_key")
-    if k and not eui_tippeeked
+    if k
        and ((k == "shift" and IsShiftKeyDown())
          or (k == "control" and IsControlKeyDown())
          or (k == "alt" and IsAltKeyDown())) then
-        eui_tippeeked = self
+        eui_tippeeked = eui_tippeeked or newtable()
+        eui_tippeeked[self] = true
         self:Hide()
     end
 ]]
 local TIP_LEAVE_BODY = [[
+    -- A cached mouseover unit must not override the parent's current unit
+    -- after this overlay is hidden or its unit frame is reassigned.
+    self:SetAttribute("unit", nil)
     if eui_hoverframe == self then eui_hoverframe = nil end
     control:RunFor(self, control:GetAttribute("eui_setup_onleave"))
 ]]
@@ -1567,7 +1572,7 @@ function ns.CC_ReleaseTipEater(frame)
     header:SetFrameRef("eui_tipclear", frame)
     header:Execute([[
         local f = self:GetFrameRef("eui_tipclear")
-        if eui_tippeeked == f then eui_tippeeked = nil end
+        if eui_tippeeked then eui_tippeeked[f] = nil end
         if eui_hoverframe == f then eui_hoverframe = nil end
     ]])
 end
@@ -1580,19 +1585,23 @@ function ns.CC_SetTipModKey(key)
     header:SetAttribute("eui_tipmod_key", key)
     if not key then
         header:Execute([[
-            if eui_tippeeked then eui_tippeeked:Show(); eui_tippeeked = nil end
+            if eui_tippeeked then
+                for f in pairs(eui_tippeeked) do f:Show() end
+                eui_tippeeked = nil
+            end
         ]])
         return
     end
     header:SetAttribute("_onstate-eui_tipmod", [[
         if newstate == "held" then
             local f = eui_hoverframe
-            if f and not eui_tippeeked and f:GetAttribute("eui_tipeater") then
-                eui_tippeeked = f
+            if f and f:GetAttribute("eui_tipeater") then
+                eui_tippeeked = eui_tippeeked or newtable()
+                eui_tippeeked[f] = true
                 f:Hide()
             end
         elseif eui_tippeeked then
-            eui_tippeeked:Show()
+            for f in pairs(eui_tippeeked) do f:Show() end
             eui_tippeeked = nil
         end
     ]])
