@@ -103,6 +103,7 @@ function ns._appendDisplayPresetKeys(t)
         "textSlotLeftSize", "textSlotLeftXOffset", "textSlotLeftYOffset", "textSlotLeftStrata",
         "textSlotCenterSize", "textSlotCenterXOffset", "textSlotCenterYOffset", "textSlotCenterStrata",
         "textSlotTopColor", "textSlotRightColor", "textSlotLeftColor", "textSlotCenterColor",
+        "threatColorHealth", "threatColorBorder", "threatColorName",
         "tankHasAggroEnabled", "tankHasAggro", "classicTankAggro", "tankHasAggroOverrideMobType",
         "tankHasAggroOverrideBoss",
         "dpsHasAggro", "dpsNearAggro", "offTankAggroEnabled", "offTankAggro",
@@ -179,6 +180,17 @@ local defaults = {
     darkenEnemiesOOC = true,
     darkenOOCRecolor = false,  -- "Change Color Instead": recolor OOC enemies rather than dimming
     darkenOOCColor   = { r = 0.5, g = 0.5, b = 0.5 },
+    -- Threat Colors channel multi-check: which surfaces carry the threat color.
+    -- Health Bar is the historical single channel (on by default, so existing profiles
+    -- keep their exact colors); Border and Text are opt-in SECOND channels that carry
+    -- threat independently of the bar, so the bar can keep showing the mob type
+    -- (Caster/Mini-Boss/Boss) while the border/name shows aggro -- the two-signal
+    -- layout. With Health Bar off, GetReactionColor skips the whole threat arm and
+    -- clears isThreatUnit, so the low-priority has-aggro/no-aggro steps stop firing on
+    -- the bar as well and it is purely mob-type/reaction colored.
+    threatColorHealth = true,
+    threatColorBorder = false,
+    threatColorName   = false,
     tankHasAggro = { r = 0.05, g = 0.82, b = 0.62 },
     tankHasAggroEnabled = false,
     tankHasAggroOverrideMobType = false,  -- on: overrides Mini-Boss/Caster (above priority step 7); off = stays low
@@ -2622,6 +2634,29 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     end
     function plate:ApplyBorderColor()
         if not PP then return end
+        -- Threat Colors "Border" channel: UpdateHealthColor parks the resolved threat color
+        -- on the plate and this stays the single funnel that paints the BASE border, so
+        -- every caller that restores it -- RefreshBorderColor, ApplyTarget's else-branch,
+        -- ClearHoverExtras -- picks the threat tint up for free. The target and hover border
+        -- colors are applied AFTER this and still win: those are explicit selection states
+        -- the user asked for. _threatBdOn is the plain gate; the components themselves can
+        -- be SECRET (off-tank C-fold), so they are never tested for truth, only handed to
+        -- the setter.
+        if plate._threatBdOn then
+            if ns.IsCustomBorderEnabled() then
+                -- Same lazy build ApplyTarget does: a plate can take the threat tint before
+                -- its first ApplyBorder ever ran.
+                if not plate._customBorder then ns.ApplyCustomBorderStyle(plate) end
+                if plate._customBorder and EllesmereUI and EllesmereUI.SetBorderStyleColor then
+                    local a = (p and p.customBorderAlpha) or defaults.customBorderAlpha or 1
+                    EllesmereUI.SetBorderStyleColor(plate._customBorder,
+                        plate._threatBdR, plate._threatBdG, plate._threatBdB, a)
+                end
+            else
+                PP.SetBorderColor(plate.health, plate._threatBdR, plate._threatBdG, plate._threatBdB, 1)
+            end
+            return
+        end
         if ns.IsCustomBorderEnabled() then
             ns.ApplyCustomBorderColor(plate)
         else
@@ -4951,6 +4986,112 @@ function ns.GetBlizzardBarColor(frame)
     if type(r) ~= "number" or type(g) ~= "number" or type(b) ~= "number" then return false end
     return true, r, g, b
 end
+-- Threat Colors channels (multi-check on the Threat Colors section). All three on ns:
+-- the module file is at the 200-local cap. Health Bar defaults ON so nothing changes
+-- for an existing profile; Border/Text default OFF.
+function ns.GetThreatColorHealth()
+    local v = p and p.threatColorHealth
+    if v == nil then return defaults.threatColorHealth end
+    return v
+end
+function ns.GetThreatColorBorder()
+    local v = p and p.threatColorBorder
+    if v == nil then return defaults.threatColorBorder end
+    return v
+end
+function ns.GetThreatColorName()
+    local v = p and p.threatColorName
+    if v == nil then return defaults.threatColorName end
+    return v
+end
+-- The threat color for the SECOND channels (border / name text), resolved independently
+-- of the health bar's priority chain. GetReactionColor cannot answer this: there the
+-- threat colors compete with tapped/quest/target/focus/mob-type and lose (or win) by
+-- priority, while a border/name channel exists precisely so the threat signal is never
+-- traded against the type signal. Same role arms, same colors and same enable toggles as
+-- the health arm, minus every priority interaction:
+--   tank      -- no aggro / losing aggro always; off-tank color when a co-tank holds it;
+--               has aggro only with Tank Has Aggro (or Classic Tank Aggro) enabled
+--   non-tank  -- has aggro / near aggro always; no aggro only with DPS No Aggro enabled
+-- Returns nothing when there is no signal to show (out of instanced content, no threat
+-- data, solo, or the state's color is opt-in and switched off) -- the caller then leaves
+-- the border/name at its normal color. The fourth return is a SECRET flag: true means
+-- r/g/b came out of the off-tank C-fold and may be secret values, so the caller must hand
+-- them to setters only and never cache or compare them.
+function ns.ResolveThreatColor(unit)
+    if not InRealInstancedContent() then return end
+    local status = UnitThreatSituation("player", unit)
+    if not status then return end
+    local db = p or defaults
+    if not _isTankRole then
+        -- Solo players always have aggro: the signal only means something in a group.
+        if not IsInGroup() then return end
+        if status >= 3 then
+            local c = _C("dpsHasAggro")
+            return c.r, c.g, c.b, false
+        elseif status >= 2 then
+            local c = _C("dpsNearAggro")
+            return c.r, c.g, c.b, false
+        end
+        local en = defaults.dpsNoAggroEnabled
+        if db.dpsNoAggroEnabled ~= nil then en = db.dpsNoAggroEnabled end
+        if en then
+            local c = _C("dpsNoAggro")
+            return c.r, c.g, c.b, false
+        end
+        return
+    end
+    -- Tank arm.
+    if status >= 3 then
+        -- Holding it: nothing is wrong, so the has-aggro color only paints when the user
+        -- explicitly asked for one (either toggle). Otherwise no tint at all, which is the
+        -- point of a border channel: red border = someone else's mob, plain border = mine.
+        local hae = defaults.tankHasAggroEnabled
+        if db.tankHasAggroEnabled ~= nil then hae = db.tankHasAggroEnabled end
+        if not hae then
+            hae = defaults.classicTankAggro
+            if db.classicTankAggro ~= nil then hae = db.classicTankAggro end
+        end
+        if hae then
+            local c = _C("tankHasAggro")
+            return c.r, c.g, c.b, false
+        end
+        return
+    end
+    if status >= 2 then
+        local c = _C("tankLosingAggro")
+        return c.r, c.g, c.b, false
+    end
+    -- No aggro. Another TANK holding the mob is normal off-tank positioning, not a
+    -- warning -- same read as the health arm, including the secret-role fallback: an
+    -- identity-restricted role read cannot be compared, so the question flips sides and
+    -- ns.ComputeOffTankFold answers it C-side ("is any OTHER tank tanking this mob"),
+    -- starting from the tankNoAggro color and folding toward offTankAggro.
+    local otE = defaults.offTankAggroEnabled
+    if db.offTankAggroEnabled ~= nil then otE = db.offTankAggroEnabled end
+    local base = _C("tankNoAggro")
+    local targetRole, roleSecret = "NONE", false
+    local unitTarget = unit .. "target"
+    if UnitExists(unitTarget) then
+        local r = UnitGroupRolesAssigned(unitTarget)
+        if issecretvalue(r) then roleSecret = true
+        elseif r then targetRole = r end
+    end
+    if otE and roleSecret then
+        local otc = _C("offTankAggro")
+        local folded, fr, fg, fb = ns.ComputeOffTankFold(unit, base.r, base.g, base.b, otc.r, otc.g, otc.b)
+        if folded then return fr, fg, fb, true end
+        return base.r, base.g, base.b, false
+    end
+    if targetRole == "TANK" then
+        -- Co-tank holds it. With Off-Tank Color off there is no signal to show (the health
+        -- arm falls through here too) -- a red border would call normal positioning a bug.
+        if not otE then return end
+        local c = _C("offTankAggro")
+        return c.r, c.g, c.b, false
+    end
+    return base.r, base.g, base.b, false
+end
 local function GetReactionColor(unit)
     -- Per-call marker read SYNCHRONOUSLY by UpdateHealthColor right after this
     -- returns: true only when this resolution landed on the non-tank Near
@@ -4985,7 +5126,20 @@ local function GetReactionColor(unit)
         if status then
             isThreatUnit = true
             threatStatus = status
-            if not _isTankRole then
+            -- Threat Colors "Health Bar" channel off: the bar carries no threat color at
+            -- all. Clearing isThreatUnit here is what makes that complete -- it also
+            -- switches off the LOW-priority has-aggro / no-aggro steps further down
+            -- (6b, 7b, 9, 10), which read these two locals -- so the bar ends up purely
+            -- mob-type/reaction colored and the Border/Text channels own the threat signal
+            -- on their own. The near-aggro glow rides the STATE, not the bar color, so it
+            -- is still marked here; ns._reactionOffTankFold is a health-bar mechanism and
+            -- deliberately stays unset (ns.ResolveThreatColor does its own fold).
+            if not ns.GetThreatColorHealth() then
+                if not _isTankRole and IsInGroup() and status >= 2 and status < 3 then
+                    ns._reactionNearAggro = true
+                end
+                isThreatUnit, threatStatus = false, 0
+            elseif not _isTankRole then
                 -- Non-tank: has aggro / near aggro absolute priority
                 -- Only apply when in a group (solo players always have aggro)
                 if IsInGroup() then
@@ -6309,6 +6463,12 @@ function NameplateFrame:ClearUnit()
     self._absMode = nil
     self._lastHCr, self._lastHCg, self._lastHCb = nil, nil, nil
     self._mirrorPending = nil
+    -- Threat Colors border/text channels: drop the skip-if-unchanged caches so a recycled
+    -- plate always repaints for its new unit. _threatBdOn / _threatNameOn are deliberately
+    -- LEFT set -- they record that the border and name still carry a threat tint, and the
+    -- next UpdateHealthColor uses that to hand them back if the new unit has no signal.
+    self._threatBdKr, self._threatBdKg, self._threatBdKb = nil, nil, nil
+    self._nameThR, self._nameThG, self._nameThB = nil, nil, nil
     -- Health-text value memo (UpdateHealthValues): a recycled plate must
     -- always write its first values, never skip against the old unit's.
     self._hpTxtPct, self._hpTxtCur = nil, nil
@@ -6720,6 +6880,19 @@ function NameplateFrame:UpdateHealthValues()
         end
     end
 end
+-- Repaint the base border after the Threat Colors "Border" tint changed. Skipped while
+-- this plate wears the target or hover border color: both are applied ON TOP of the base
+-- border and outrank threat, and when they end their own restore (ApplyTarget's
+-- else-branch, ClearHoverExtras) calls ApplyBorderColor, which picks the tint up then.
+-- The wrap re-sync mirrors what ApplyTarget does after its own border paint: with the
+-- border wrapped around the cast bar, the color just set landed on the hidden health
+-- border.
+function NameplateFrame:RepaintThreatBorder(unit)
+    if UnitIsUnit(unit, "target") and ns.GetTargetGlowBorderColor() then return end
+    if self._hoverFxOn and ns.GetHoverGlowBorderColor() then return end
+    if self.ApplyBorderColor then self:ApplyBorderColor() end
+    if self._wrapActive and self.UpdateBorderWrap then self:UpdateBorderWrap() end
+end
 function NameplateFrame:UpdateHealthColor()
     local unit = self.unit
     if not unit then return end
@@ -6761,24 +6934,84 @@ function NameplateFrame:UpdateHealthColor()
         self._lastHCr, self._lastHCg, self._lastHCb = hr, hg, hb
         self.health:SetStatusBarColor(hr, hg, hb)
     end
-    -- Enemy Name Text "Reaction Color" (EXTRAS toggle): zero cost while off (one field read),
-    -- other than the one-time restore below for a plate that was previously colored by this
-    -- feature. Piggybacks on this function's existing event-driven calls rather than
-    -- registering anything of its own.
-    if p and p.enemyNameTextReactionColor then
-        local nnr, nng, nnb = GetEnemyNameReactionColor(unit)
-        if nnr ~= self._lastNameReactR or nng ~= self._lastNameReactG or nnb ~= self._lastNameReactB then
-            self._lastNameReactR, self._lastNameReactG, self._lastNameReactB = nnr, nng, nnb
-            self.name:SetTextColor(nnr, nng, nnb, 1)
+    -- Threat Colors "Border" / "Text" channels -- the SECOND signal. Both off by default,
+    -- so the shipped path costs two field reads. ns.ResolveThreatColor answers "what does
+    -- threat say about this unit" without any of the health bar's priority competition,
+    -- which is the whole point: the bar can carry the mob type (Caster/Mini-Boss/Boss)
+    -- while border and name carry aggro at the same time. Its fourth return marks an
+    -- off-tank C-fold, whose components can be SECRET: those bypass every compare, stay
+    -- out of the caches and reach setters only, exactly like the bar's own fold path.
+    local tcBorder = ns.GetThreatColorBorder()
+    local tcName   = ns.GetThreatColorName()
+    local tcr, tcg, tcb, tcSecret
+    if tcBorder or tcName then
+        tcr, tcg, tcb, tcSecret = ns.ResolveThreatColor(unit)
+    end
+    -- Plain "there is a signal" boolean: tcr itself may be secret, so the short-circuit
+    -- keeps it out of the comparison.
+    local tcOn = (tcSecret or tcr ~= nil) and true or false
+    -- Border. The color is parked on the plate and ApplyBorderColor -- the single funnel
+    -- that paints the base border -- reads it, so every restore path (RefreshBorderColor,
+    -- ApplyTarget's else-branch, ClearHoverExtras) picks it up for free. Repainted here
+    -- only when it actually changed, and never over a plate currently wearing the target
+    -- or hover border color: those are explicit selection states that win, and their own
+    -- restore runs ApplyBorderColor when they end.
+    if tcBorder and tcOn then
+        local repaint = false
+        self._threatBdOn = true
+        self._threatBdR, self._threatBdG, self._threatBdB = tcr, tcg, tcb
+        if tcSecret then
+            self._threatBdKr, self._threatBdKg, self._threatBdKb = nil, nil, nil
+            repaint = true
+        elseif tcr ~= self._threatBdKr or tcg ~= self._threatBdKg or tcb ~= self._threatBdKb then
+            self._threatBdKr, self._threatBdKg, self._threatBdKb = tcr, tcg, tcb
+            repaint = true
         end
-    elseif self._lastNameReactR then
-        -- Toggled off after having been applied to this plate: restore the slot color
-        -- directly here rather than depending on ApplyAppearance re-running elsewhere.
+        if repaint then self:RepaintThreatBorder(unit) end
+    elseif self._threatBdOn then
+        self._threatBdOn = nil
+        self._threatBdR, self._threatBdG, self._threatBdB = nil, nil, nil
+        self._threatBdKr, self._threatBdKg, self._threatBdKb = nil, nil, nil
+        self:RepaintThreatBorder(unit)
+    end
+    -- Enemy name text: two lanes can want it. Threat Colors "Text" wins while it has a
+    -- signal; the "Reaction Color" EXTRAS toggle owns the name otherwise. Both lanes keep
+    -- their own skip-if-unchanged cache, and handing the name from one to the other clears
+    -- the other's cache so the new owner always repaints once.
+    local nameThreat = tcName and tcOn
+    local wasNameThreat = self._threatNameOn
+    self._threatNameOn = nameThreat or nil
+    if nameThreat then
+        if tcSecret then
+            self._nameThR, self._nameThG, self._nameThB = nil, nil, nil
+            self.name:SetTextColor(tcr, tcg, tcb, 1)
+        elseif tcr ~= self._nameThR or tcg ~= self._nameThG or tcb ~= self._nameThB then
+            self._nameThR, self._nameThG, self._nameThB = tcr, tcg, tcb
+            self.name:SetTextColor(tcr, tcg, tcb, 1)
+        end
         self._lastNameReactR, self._lastNameReactG, self._lastNameReactB = nil, nil, nil
-        local nameSlotKey = ns.FindNameSlot()
-        if nameSlotKey then
-            local nr, ng, nb = GetTextSlotColor(nameSlotKey)
-            self.name:SetTextColor(nr, ng, nb, 1)
+    else
+        if wasNameThreat then self._nameThR, self._nameThG, self._nameThB = nil, nil, nil end
+        -- Enemy Name Text "Reaction Color" (EXTRAS toggle): zero cost while off (one field read),
+        -- other than the one-time restore below for a plate that was previously colored by this
+        -- feature. Piggybacks on this function's existing event-driven calls rather than
+        -- registering anything of its own.
+        if p and p.enemyNameTextReactionColor then
+            local nnr, nng, nnb = GetEnemyNameReactionColor(unit)
+            if nnr ~= self._lastNameReactR or nng ~= self._lastNameReactG or nnb ~= self._lastNameReactB then
+                self._lastNameReactR, self._lastNameReactG, self._lastNameReactB = nnr, nng, nnb
+                self.name:SetTextColor(nnr, nng, nnb, 1)
+            end
+        elseif self._lastNameReactR or wasNameThreat then
+            -- Toggled off after having been applied to this plate (or the threat lane just
+            -- handed the name back): restore the slot color directly here rather than
+            -- depending on ApplyAppearance re-running elsewhere.
+            self._lastNameReactR, self._lastNameReactG, self._lastNameReactB = nil, nil, nil
+            local nameSlotKey = ns.FindNameSlot()
+            if nameSlotKey then
+                local nr, ng, nb = GetTextSlotColor(nameSlotKey)
+                self.name:SetTextColor(nr, ng, nb, 1)
+            end
         end
     end
     -- Near-aggro glow (Non-Tank Threat cog): ns._reactionNearAggro was written
