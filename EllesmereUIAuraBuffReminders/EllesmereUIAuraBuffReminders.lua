@@ -1443,6 +1443,17 @@ local RUNE_BUFF_IDS = {1264426, 453250, 1234969, 1242347, 393438, 347901}
 local INKY_BLACK_ITEM = 124640
 local INKY_BLACK_BUFF = 185394  -- "Inky Blackness" buff (icon 136122); detected by aura scan, see PlayerHasInkyBlackness
 
+-- Camp Benefits: the campfire perk. Nothing to cast and nothing to use, so the
+-- reminder is display-only. A client whose spell table has no such spell resolves
+-- no info for it, and that absence is what keeps the reminder and its options row
+-- out of the way instead of a client check. On EABR rather than locals: this file
+-- sits on Lua's 200 main-chunk local ceiling and two more would not compile.
+EABR.CAMP_BENEFITS_BUFF = 1229741
+EABR.CAMP_BENEFITS_KNOWN = (C_Spell and C_Spell.GetSpellInfo
+    and C_Spell.GetSpellInfo(EABR.CAMP_BENEFITS_BUFF)) and true or false
+_G._EABR_CAMP_BENEFITS_KNOWN = EABR.CAMP_BENEFITS_KNOWN
+_G._EABR_CAMP_BENEFITS_ID = EABR.CAMP_BENEFITS_BUFF
+
 -------------------------------------------------------------------------------
 --  Helpers: Well Fed / Flask buff detection (by name, not spell ID secret)
 -------------------------------------------------------------------------------
@@ -1593,6 +1604,20 @@ local function PlayerHasFlaskBuff()
         end
     end
     return false
+end
+
+local function PlayerHasCampBenefits()
+    if InPvPInstance() then return true end
+    if EABR.ConsumablePresenceUnverifiable() then return true end
+    local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, EABR.CAMP_BENEFITS_BUFF)
+    if not ok then return true end  -- cannot verify absence
+    if aura == nil then return false end
+    local dur, exp = aura.duration, aura.expirationTime
+    if dur ~= nil and exp ~= nil and not isSecret(dur) and not isSecret(exp)
+       and IsUnderDuration(dur, exp, "consumable") then
+        return false
+    end
+    return true
 end
 
 local function PlayerHasInkyBlackness()
@@ -2046,6 +2071,7 @@ local defaults = {
                 augment_rune=true,
                 weapon_enchant=true,
                 inky_black=true,
+                camp_benefits=false,
                 flask=true,
                 food=true,
             },
@@ -3776,6 +3802,19 @@ local specialsActive = EABR.SectionShows(co.specialsWhereToShow, inInstance)
                     end
                 end
             end
+        end
+        -- Gated on the specials set rather than the consumables one: consumables
+        -- default to open world off, and a campfire perk is only ever earned there.
+        if EABR.CAMP_BENEFITS_KNOWN and co.enabled.camp_benefits and specialsActive
+            and not PlayerHasCampBenefits() then
+            local e = AcquireEntry()
+            e.mode = "texture"
+            e.spellID = EABR.CAMP_BENEFITS_BUFF
+            e.texture = Tex(EABR.CAMP_BENEFITS_BUFF)
+            e.label = EllesmereUI.L(ShortLabel("Camp Benefits"))
+            e.cat = "consumable"
+            e.dismissKey = "consumable:camp_benefits"
+            missing[#missing+1] = e
         end
     end -- consumables block
 

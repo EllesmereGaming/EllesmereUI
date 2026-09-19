@@ -234,6 +234,11 @@ initFrame:SetScript("OnEvent", function(self)
         if co and co.enabled and co.enabled.inky_black then
             icons[#icons+1] = { texture = C_Item.GetItemIconByID(124640) or 136122, label = EllesmereUI.L("Inky"), cat = "consumable", itemKey = "inky_black" }
         end
+        -- Camp Benefits
+        if _G._EABR_CAMP_BENEFITS_KNOWN and co and co.enabled and co.enabled.camp_benefits then
+            icons[#icons+1] = { texture = _G._EABR_Tex and _G._EABR_Tex(_G._EABR_CAMP_BENEFITS_ID),
+                label = EllesmereUI.L("Camp"), cat = "consumable", itemKey = "camp_benefits" }
+        end
 
         return icons
     end
@@ -1847,6 +1852,8 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
         local healthstoneRow = runeRow
 
+        local campRow  -- assigned at the end of the section, mapped after the wipe
+
         -- Inky Black Potion | Choose Zones (inline on the right)
         local inkyRow
         inkyRow, h = W:DualRow(parent, y,
@@ -2122,6 +2129,21 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(UpdateRcwInlinesDisabled)
         end
 
+        -- Camp Benefits. Absent on any client whose spell table lacks the buff,
+        -- so the row never offers a reminder that could not fire.
+        if _G._EABR_CAMP_BENEFITS_KNOWN then
+            campRow, h = W:DualRow(parent, y,
+                { type="toggle", text="Camp Benefits",
+                  tooltip="Reminds you when the campfire benefit buff is missing. Follows the class-special Where to Show set, so it shows in the open world.",
+                  getValue=function() local c = CDB(); return c and c.enabled and c.enabled.camp_benefits end,
+                  setValue=function(v)
+                      local c = CDB(); if c and c.enabled then c.enabled.camp_benefits = v; RefreshAll(); RebuildPreviewHeader() end
+                  end },
+                { type="label", text="" }
+            );  y = y - h
+            row = campRow
+        end
+
         -- Wire up click mappings for preview hit overlays.
         wipe(_eabrClickMappings)
         _eabrClickMappings.display = { section = displaySection, target = borderRow }
@@ -2142,6 +2164,7 @@ initFrame:SetScript("OnEvent", function(self)
         if runeRow then _eabrClickMappings["item:augment_rune"] = { section = runeRow, target = runeRow } end
         if healthstoneRow then _eabrClickMappings["item:healthstone"] = { section = healthstoneRow, target = healthstoneRow } end
         if inkyRow then _eabrClickMappings["item:inky_black"] = { section = inkyRow, target = inkyRow } end
+        if campRow then _eabrClickMappings["item:camp_benefits"] = { section = campRow, target = campRow } end
 
         return math.abs(y)
     end
