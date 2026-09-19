@@ -13661,6 +13661,9 @@ function SetupOptionsPanel()
     if ns._InitEUIModule then
         ns._InitEUIModule()
     end
+
+    -- Player Aura Bars build here, the first point ns.db is known to exist.
+    if ns.PAB_CreateBars then ns.PAB_CreateBars() end
 end
 
 -------------------------------------------------------------------------------
@@ -14146,9 +14149,6 @@ end
 -- always set the pending flag by the time this frame's handler fires -- within the
 -- SAME event dispatch, still inside the combat-reload pre-lockdown window.
 local function EnableBody()
-    -- Consumed by PlayerAuraBars' login retry: absent = the module never enabled
-    -- this session, so ns.db will never arrive and PAB must stand down silently.
-    ns._eufEnabled = true
     InitializeFrames()
     -- Register with unlock mode synchronously: on a combat reload this runs
     -- inside the pre-lockdown window, so the login position pass can resolve

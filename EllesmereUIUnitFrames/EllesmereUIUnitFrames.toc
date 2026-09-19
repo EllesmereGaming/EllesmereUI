@@ -14,6 +14,5 @@ EUI_UnitFrames_Engine.lua
 EllesmereUIUnitFrames.lua
 EllesmereUIUnitFrames_PlayerAuraBars.lua
 EUI_UnitFrames_AuraContainers.lua
-EUI_UnitFrames_WeaponEnchants.lua
 
 # Options
