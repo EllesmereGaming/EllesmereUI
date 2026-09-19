@@ -329,6 +329,93 @@ end
 -- BUFF MANAGER splice pieces (called from the Buff Manager page)
 -------------------------------------------------------------------------------
 
+local function AttachTooltipModifier(tipRow, p, modeKey, sharedTooltip)
+    local leftRgn = tipRow._leftRegion
+    local function tipOff()
+        return TipModeKey(p[modeKey]) ~= "modifier"
+    end
+    local _, tipModShow = EllesmereUI.BuildCogPopup({
+        title = "Tooltips",
+        rows = {
+            { type = "dropdown", label = "Use Modifier",
+              tooltip = sharedTooltip,
+              values = { none = "None", shift = "Shift", control = "Control", alt = "Alt" },
+              order = { "none", "shift", "control", "alt" },
+              get = function() return p.debuffTooltipModifier or "none" end,
+              set = function(v)
+                  p.debuffTooltipModifier = v; DmApply()
+                  EllesmereUI:RefreshPage()  -- clear/raise the no-key warning bubble
+              end },
+        },
+    })
+    local tipModBtn = CreateFrame("Button", nil, leftRgn)
+    tipModBtn:SetSize(26, 26)
+    tipModBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
+    leftRgn._lastInline = tipModBtn
+    tipModBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
+    tipModBtn:SetAlpha(tipOff() and 0.15 or 0.4)
+    local tipModTex = tipModBtn:CreateTexture(nil, "OVERLAY")
+    tipModTex:SetAllPoints()
+    tipModTex:SetTexture(EllesmereUI.COGS_ICON)
+    tipModBtn:SetScript("OnEnter", function(self)
+        self:SetAlpha(0.7)
+        if (p.debuffTooltipModifier or "none") == "none" then
+            EllesmereUI.ShowWidgetTooltip(self,
+                "Select a modifier key here, or tooltips will always be shown")
+        end
+    end)
+    tipModBtn:SetScript("OnLeave", function(self)
+        self:SetAlpha(tipOff() and 0.15 or 0.4)
+        EllesmereUI.HideWidgetTooltip()
+    end)
+    tipModBtn:SetScript("OnClick", function(self) tipModShow(self) end)
+
+    -- Blocking overlay + disabled tooltip while the mode is Hidden
+    local tipModBlock = CreateFrame("Frame", nil, tipModBtn)
+    tipModBlock:SetAllPoints()
+    tipModBlock:SetFrameLevel(tipModBtn:GetFrameLevel() + 10)
+    tipModBlock:EnableMouse(true)
+    tipModBlock:SetScript("OnEnter", function()
+        -- Whole sentence: DisabledTooltip passes "This option..." strings
+        -- through verbatim (still localized).
+        EllesmereUI.ShowWidgetTooltip(tipModBtn,
+            EllesmereUI.DisabledTooltip("This option requires Tooltips to be set to Shown on Modifier"))
+    end)
+    tipModBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+    local function UpdateTipModState()
+        local off = tipOff()
+        tipModBtn:SetAlpha(off and 0.15 or 0.4)
+        if off then tipModBlock:Show() else tipModBlock:Hide() end
+    end
+    UpdateTipModState(); EllesmereUI.RegisterWidgetRefresh(UpdateTipModState)
+
+    -- Persistent red bubble above the cog while Shown on Modifier is
+    -- selected with no key picked (the standard empty-selection warning);
+    -- the hover tooltip above keeps the explanation.
+    EllesmereUI.AttachEmptyFilterWarn(leftRgn, tipModBtn, L("Select a Modifier"),
+        function()
+            return tipOff() or (p.debuffTooltipModifier or "none") ~= "none"
+        end)
+end
+
+-- Profile-wide buff tooltip settings use the same modifier cog as debuffs.
+function ns.BMP_BuildTooltipSettings(parent, y, p, rightConfig)
+    local row, h = EllesmereUI.Widgets:DualRow(parent, y,
+        { type = "dropdown", text = "Tooltips",
+          tooltip = "Tooltip behavior for all buff/HoT icons on raid and party frames.",
+          values = TIP_VALUES, order = TIP_ORDER,
+          getValue = function() return TipModeKey(p.buffHideTooltips) end,
+          setValue = function(k)
+              p.buffHideTooltips = TipModeStore(k)
+              if ns.ReloadFrames then ns.ReloadFrames() end
+              EllesmereUI:RefreshPage()
+          end },
+        rightConfig or { type = "label", text = "" })
+    AttachTooltipModifier(row, p, "buffHideTooltips",
+        "Shared with debuff tooltips. None shows tooltips without requiring a key.")
+    return y - h, row
+end
+
 -- The pinned Base Icons sidebar tile. Returns the height consumed.
 function ns.BMP_BuildBaseTile(sidebarFrame, sidebarW, tileY, opts)
     local p = DmProfile()
@@ -597,6 +684,8 @@ function ns.BMP_BuildBaseDetail(root, leftW, visibleH, s, fontPath, PP)
         UpdateStacksCog()
         EllesmereUI.RegisterWidgetRefresh(UpdateStacksCog)
     end
+
+    sy = ns.BMP_BuildTooltipSettings(optsFrame, sy, s)
 
     _, hh = W:DualRow(optsFrame, sy,
         { type = "toggle", text = "Show Own on All Specs",
@@ -1541,73 +1630,8 @@ local function BuildBaseDetailDM(frame, fontPath)
     -- "Shown on Modifier" mode, so it is only available there. While that
     -- mode is selected with the key still at None, the cog hover warns that
     -- tooltips will always show (the runtime degrades to plain Shown).
-    do
-        local leftRgn = tipRow._leftRegion
-        local function tipOff()
-            return TipModeKey(p.debuffHideTooltips) ~= "modifier"
-        end
-        local _, tipModShow = EllesmereUI.BuildCogPopup({
-            title = "Tooltips",
-            rows = {
-                { type = "dropdown", label = "Use Modifier",
-                  values = { none = "None", shift = "Shift", control = "Control", alt = "Alt" },
-                  order = { "none", "shift", "control", "alt" },
-                  get = function() return p.debuffTooltipModifier or "none" end,
-                  set = function(v)
-                      p.debuffTooltipModifier = v; DmApply()
-                      EllesmereUI:RefreshPage()  -- clear/raise the no-key warning bubble
-                  end },
-            },
-        })
-        local tipModBtn = CreateFrame("Button", nil, leftRgn)
-        tipModBtn:SetSize(26, 26)
-        tipModBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
-        leftRgn._lastInline = tipModBtn
-        tipModBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-        tipModBtn:SetAlpha(tipOff() and 0.15 or 0.4)
-        local tipModTex = tipModBtn:CreateTexture(nil, "OVERLAY")
-        tipModTex:SetAllPoints()
-        tipModTex:SetTexture(EllesmereUI.COGS_ICON)
-        tipModBtn:SetScript("OnEnter", function(self)
-            self:SetAlpha(0.7)
-            if (p.debuffTooltipModifier or "none") == "none" then
-                EllesmereUI.ShowWidgetTooltip(self,
-                    "Select a modifier key here, or tooltips will always be shown")
-            end
-        end)
-        tipModBtn:SetScript("OnLeave", function(self)
-            self:SetAlpha(tipOff() and 0.15 or 0.4)
-            EllesmereUI.HideWidgetTooltip()
-        end)
-        tipModBtn:SetScript("OnClick", function(self) tipModShow(self) end)
-
-        -- Blocking overlay + disabled tooltip while the mode is Hidden
-        local tipModBlock = CreateFrame("Frame", nil, tipModBtn)
-        tipModBlock:SetAllPoints()
-        tipModBlock:SetFrameLevel(tipModBtn:GetFrameLevel() + 10)
-        tipModBlock:EnableMouse(true)
-        tipModBlock:SetScript("OnEnter", function()
-            -- Whole sentence: DisabledTooltip passes "This option..." strings
-            -- through verbatim (still localized).
-            EllesmereUI.ShowWidgetTooltip(tipModBtn,
-                EllesmereUI.DisabledTooltip("This option requires Tooltips to be set to Shown on Modifier"))
-        end)
-        tipModBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        local function UpdateTipModState()
-            local off = tipOff()
-            tipModBtn:SetAlpha(off and 0.15 or 0.4)
-            if off then tipModBlock:Show() else tipModBlock:Hide() end
-        end
-        UpdateTipModState(); EllesmereUI.RegisterWidgetRefresh(UpdateTipModState)
-
-        -- Persistent red bubble above the cog while Shown on Modifier is
-        -- selected with no key picked (the standard empty-selection warning);
-        -- the hover tooltip above keeps the explanation.
-        EllesmereUI.AttachEmptyFilterWarn(leftRgn, tipModBtn, L("Select a Modifier"),
-            function()
-                return tipOff() or (p.debuffTooltipModifier or "none") ~= "none"
-            end)
-    end
+    AttachTooltipModifier(tipRow, p, "debuffHideTooltips",
+        "Shared with buff tooltips. None shows tooltips without requiring a key.")
 
     sy = BuildFxEffects(frame, sy, dm)
     return sy
