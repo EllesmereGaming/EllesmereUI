@@ -1620,8 +1620,13 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
                                     end
                                     if fr._bdr and PP then
                                         local ibs = pvHideIcon and 0 or (ind.indBorderSize or 1)
+                                        local pandemicPreview = indType == "icon" and isSelected
+                                            and ind.pandemicBorderEnabled and not pvHideIcon
+                                        if pandemicPreview then ibs = ind.pandemicBorderWidth or 2 end
                                         if ibs > 0 then
-                                            local ibc = ind.indBorderColor or { r=0, g=0, b=0 }
+                                            local ibc = pandemicPreview
+                                                and (ind.pandemicBorderColor or { r=1, g=0.2, b=0.2 })
+                                                or ind.indBorderColor or { r=0, g=0, b=0 }
                                             PP.UpdateBorder(fr._bdr, ibs, ibc.r, ibc.g, ibc.b, 1)
                                             fr._bdr:Show()
                                         else
@@ -4913,7 +4918,48 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 UpdateDispGlowState()
             end
 
-            -- THRESHOLD section (Enable, seconds, color, opacity)
+            if indType == "icon" then
+                _, h = W:SectionHeader(leftFrame, "PANDEMIC BORDER", sy); sy = sy - h
+                local pandemicOff = function() return not ind.pandemicBorderEnabled end
+                local pandemicRow = SettingsRow(
+                    { type="toggle", text="Enable Pandemic Border",
+                      tooltip="Highlights this indicator's icons during Blizzard's refresh window. Requires pandemic-region support from the game. The selected indicator previews the active border. Use a Lifebloom-only indicator to highlight only Lifebloom.",
+                      getValue=function() return ind.pandemicBorderEnabled or false end,
+                      setValue=function(v) ind.pandemicBorderEnabled = v; ReloadAndUpdate(); EllesmereUI:RefreshPage() end },
+                    { type="slider", text="Border Size", min=1, max=5, step=1,
+                      disabled=pandemicOff, disabledTooltip="Enable Pandemic Border",
+                      getValue=function() return ind.pandemicBorderWidth or 2 end,
+                      setValue=function(v) ind.pandemicBorderWidth = v; ReloadAndUpdate() end })
+                local rgn = pandemicRow._leftRegion
+                local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
+                    rgn, pandemicRow:GetFrameLevel() + 3,
+                    function()
+                        local c = ind.pandemicBorderColor or { r=1, g=0.2, b=0.2 }
+                        return c.r, c.g, c.b
+                    end,
+                    function(r, g, b)
+                        ind.pandemicBorderColor = { r=r, g=g, b=b }
+                        ReloadAndUpdate()
+                    end, false, 20)
+                swatch:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
+                local origClick = swatch:GetScript("OnClick")
+                swatch:SetScript("OnClick", function(self, ...)
+                    if pandemicOff() then return end
+                    if origClick then origClick(self, ...) end
+                end)
+                swatch:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(swatch, pandemicOff()
+                        and EllesmereUI.DisabledTooltip("Enable Pandemic Border") or "Pandemic Border Color")
+                end)
+                swatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local function UpdatePandemicSwatch()
+                    updateSwatch(); swatch:SetAlpha(pandemicOff() and 0.3 or 1)
+                end
+                EllesmereUI.RegisterWidgetRefresh(UpdatePandemicSwatch)
+                UpdatePandemicSwatch()
+            end
+
+            -- Threshold text remains independent of the pandemic border.
             BuildThresholdRow()
 
         elseif typeInfo and typeInfo.placed then
