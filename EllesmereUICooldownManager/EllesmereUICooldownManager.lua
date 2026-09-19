@@ -1310,14 +1310,18 @@ end
 -- CD-state Glow: cdStateEffect value -> GLOW_STYLES index (Pixel Glow, Button Glow,
 -- Blackout). Shared by every glow decoration path (CooldownManager.lua,
 -- CdmHooks.lua, CdmFakeActive.lua) so a new glow style only needs an entry here.
-local CD_READY_GLOW_STYLE = {
-    pixelGlowReady = 1,  pixelGlowReadyUsable  = 1,
-    buttonGlowReady = 3, buttonGlowReadyUsable = 3,
-    blackoutReady = 8,   blackoutReadyUsable   = 8,
-    blackoutOnCD = 8,
-}
-function ns.CdStateGlowStyle(cse)
-    return CD_READY_GLOW_STYLE[cse] or 3
+-- Scoped in a do-block (not a bare main-chunk local): this file sits at Lua 5.1's
+-- 200-local ceiling, and the table is only ever read through the ns.* closures below.
+do
+    local CD_READY_GLOW_STYLE = {
+        pixelGlowReady = 1,  pixelGlowReadyUsable  = 1,
+        buttonGlowReady = 3, buttonGlowReadyUsable = 3,
+        blackoutReady = 8,   blackoutReadyUsable   = 8,
+        blackoutOnCD = 8,
+    }
+    function ns.CdStateGlowStyle(cse)
+        return CD_READY_GLOW_STYLE[cse] or 3
+    end
 end
 
 -- True for a plain (cooldown-only) CD Ready Glow variant (glows while OFF cooldown).
@@ -2499,6 +2503,23 @@ function ns.RefreshGlowCombatGate()
     if on then ns._cdmGlowGateEverOn = true end
 end
 
+-- Blackout is the only opaque glow style, so it is the only one that hides Blizzard's
+-- native swipe/countdown text (every other style is translucent and lets it show
+-- through). Lift the Cooldown widget above the fill while Blackout is active; every
+-- other style restores it to the offset DecorateFrame captured (never a hardcoded
+-- level), so this never touches how any other style layers against the icon.
+-- Scoped in a do-block (not a bare main-chunk local): this file sits at Lua 5.1's
+-- 200-local ceiling; StartNativeGlow/StopNativeGlow are forward-declared outside, so
+-- assigning them here needs no new locals of their own.
+do
+local function RestoreCooldownLevel(parent)
+    local cd = parent and parent.Cooldown
+    local fd = parent and ns._hookFrameData and ns._hookFrameData[parent]
+    if cd and fd and fd._cdLevelOffset then
+        cd:SetFrameLevel(parent:GetFrameLevel() + fd._cdLevelOffset)
+    end
+end
+
 StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
     if not overlay then return end
     local styleIdx = tonumber(style) or 1
@@ -2554,6 +2575,8 @@ StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
     local noColor = (cr == nil)
     if noColor then cr, cg, cb = 1.0, 0.788, 0.137 end
     cr = cr or 1; cg = cg or 1; cb = cb or 1
+
+    if not entry.solidFill then RestoreCooldownLevel(parent) end
 
     if entry.shapeGlow then
         -- CDM-specific: read shape mask/border from the icon frame
@@ -2630,6 +2653,10 @@ StartNativeGlow = function(overlay, style, cr, cg, cb, opts)
         _G_Glows.StartSolidFill(overlay,
             noColor and 0 or cr, noColor and 0 or cg, noColor and 0 or cb,
             { shapeMask = (ifc3 and ifc3.shapeApplied) and ifc3.shapeMask or nil })
+        -- Opaque fill would otherwise bury the native swipe/countdown text; lift
+        -- the Cooldown widget above it (restored by every other branch/StopNativeGlow).
+        local cd = parent.Cooldown
+        if cd then cd:SetFrameLevel(overlay:GetFrameLevel() + 1) end
     else
         if noColor then cr, cg, cb = nil, nil, nil end
         _G_Glows.StartFlipBookGlow(overlay, pW, entry, cr, cg, cb, pH)
@@ -2665,10 +2692,12 @@ StopNativeGlow = function(overlay)
     _G_Glows.StopAllGlows(overlay)
     overlay._glowActive = false
     overlay:SetAlpha(0)
+    RestoreCooldownLevel(overlay:GetParent())
     local rec = ns._cdmGlowRec[overlay]
     if rec then rec.active = false; rec.suppressed = false end
     -- No Hide() -- just alpha 0. Same reason as above.
 end
+end -- do (RestoreCooldownLevel scope)
 ns.StartNativeGlow = StartNativeGlow
 ns.StopNativeGlow = StopNativeGlow
 

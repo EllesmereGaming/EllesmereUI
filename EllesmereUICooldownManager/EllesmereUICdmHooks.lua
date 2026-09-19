@@ -3016,6 +3016,13 @@ local function DecorateFrame(frame, barData)
     end
     fd.tex = iconWidget
     fd.cooldown = frame.Cooldown
+    -- Captured once (never on a later re-decorate): the offset from the icon's
+    -- live level to Blizzard's native swipe/countdown level, so Blackout can
+    -- lift the Cooldown widget above its opaque fill and restore it exactly
+    -- afterwards, without hardcoding Blizzard's own default.
+    if fd.cooldown and fd._cdLevelOffset == nil then
+        fd._cdLevelOffset = fd.cooldown:GetFrameLevel() - baseLvl
+    end
 
     -- Swiftmend brightness (druid only; retried from the decorated early-return).
     TryHookSwiftmend(frame, fd)
