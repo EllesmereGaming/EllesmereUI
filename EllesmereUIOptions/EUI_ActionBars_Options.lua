@@ -1839,7 +1839,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Bar Opacity keeps this row (and its sync icon, now on the left region) with
         -- Always Show Buttons as its partner; Toggle Action Bar sits in the Visibility row.
         row, h = W:DualRow(parent, y,
-            { type="slider", text="Bar Opacity", min=0, max=100, step=5,
+            { type="slider", text="Bar Opacity", min=0, max=100, step=(SB().advancedFadeEnabled == true) and 1 or 5,
               getValue=function()
                   local bs = SB()
                   if bs.mouseoverEnabled then
@@ -1850,7 +1850,13 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   local bs = SB()
                   if bs.mouseoverEnabled then
+                      -- Native 9.1.5 only stores the shown alpha here; with Advanced
+                      -- Fade OFF we intentionally keep that exact behavior.  When our
+                      -- optional layer is ON, repaint its current visible target live.
                       bs._savedBarAlpha = v / 100
+                      if bs.advancedFadeEnabled == true and EAB.RefreshCustomFadeForBar then
+                          EAB:RefreshCustomFadeForBar(SelectedKey(), false)
+                      end
                   else
                       SSet("mouseoverAlpha", v / 100, function(k) EAB:ApplyBarOpacity(k) end)
                   end
@@ -1909,6 +1915,285 @@ initFrame:SetScript("OnEvent", function(self)
                     end,
                 },
             })
+        end
+
+        -----------------------------------------------------------------------
+        --  ADVANCED FADE (optional; OFF = native EUI 9.1.5 behavior)
+        -----------------------------------------------------------------------
+        do
+            local FADE_ORDER = { "combat", "party", "raid", "instance", "mounted", "flying", "target", "enemy_target", "mouseover" }
+            local FADE_LABELS = {
+                combat = "In Combat",
+                party = "In Party",
+                raid = "In Raid",
+                instance = "In Instance",
+                mounted = "Mounted",
+                flying = "Skyriding (Airborne)",
+                target = "Target",
+                enemy_target = "Enemy Target",
+                mouseover = "Mouseover",
+            }
+
+            local function AdvancedFadeOn()
+                return SB().advancedFadeEnabled == true
+            end
+
+            local function EnsureFadeConditions(bs)
+                if type(bs.fadeConditions) ~= "table" then bs.fadeConditions = {} end
+                return bs.fadeConditions
+            end
+
+            local function RefreshFade(barKey, animate)
+                if EAB.RefreshCustomFadeForBar then
+                    EAB:RefreshCustomFadeForBar(barKey, animate)
+                end
+            end
+
+            -- Each Advanced Fade setting owns its own Apply-to state. Do not
+            -- group these together: changing Maximum Opacity must not make the
+            -- Fade Conditions (or speed) sync affordance appear, and vice versa.
+            local function CopyFadeSetting(dst, src, setting)
+                if setting == "fadeConditions" then
+                    local out = {}
+                    local sc = src.fadeConditions
+                    if type(sc) == "table" then
+                        for i = 1, #FADE_ORDER do
+                            local k = FADE_ORDER[i]
+                            if sc[k] then out[k] = true end
+                        end
+                    end
+                    dst.fadeConditions = out
+                elseif setting == "fadeMaxAlpha" then
+                    dst.fadeMaxAlpha = src.fadeMaxAlpha ~= nil and src.fadeMaxAlpha or 1
+                elseif setting == "fadeInSpeed" then
+                    dst.fadeInSpeed = src.fadeInSpeed or 0.15
+                elseif setting == "fadeOutSpeed" then
+                    dst.fadeOutSpeed = src.fadeOutSpeed or 0.15
+                end
+            end
+
+            local function FadeSettingEqual(a, b, setting)
+                if setting == "fadeConditions" then
+                    local ac, bc = a.fadeConditions, b.fadeConditions
+                    for i = 1, #FADE_ORDER do
+                        local k = FADE_ORDER[i]
+                        if (type(ac) == "table" and ac[k] and true or false) ~= (type(bc) == "table" and bc[k] and true or false) then
+                            return false
+                        end
+                    end
+                    return true
+                elseif setting == "fadeMaxAlpha" then
+                    return (a.fadeMaxAlpha ~= nil and a.fadeMaxAlpha or 1) == (b.fadeMaxAlpha ~= nil and b.fadeMaxAlpha or 1)
+                elseif setting == "fadeInSpeed" then
+                    return (a.fadeInSpeed or 0.15) == (b.fadeInSpeed or 0.15)
+                elseif setting == "fadeOutSpeed" then
+                    return (a.fadeOutSpeed or 0.15) == (b.fadeOutSpeed or 0.15)
+                end
+                return true
+            end
+
+            local function BuildFadeSettingSync(rgn, setting, label)
+                EllesmereUI.BuildSyncIcon({
+                    region  = rgn,
+                    tooltip = "Apply " .. label .. " to all Bars",
+                    onClick = function()
+                        local src = SB()
+                        for _, key in ipairs(GROUP_BAR_ORDER) do
+                            local dst = EAB.db.profile.bars[key]
+                            if dst then CopyFadeSetting(dst, src, setting) end
+                        end
+                        if setting == "fadeConditions" and EAB.RefreshCustomFadeGate then
+                            EAB:RefreshCustomFadeGate()
+                        end
+                        if (setting == "fadeConditions" or setting == "fadeMaxAlpha") and EAB.RefreshAllCustomFade then
+                            EAB:RefreshAllCustomFade(true, true)
+                        end
+                        EllesmereUI:RefreshPage()
+                    end,
+                    isSynced = function()
+                        local src = SB()
+                        for _, key in ipairs(GROUP_BAR_ORDER) do
+                            local dst = EAB.db.profile.bars[key]
+                            if dst and not FadeSettingEqual(src, dst, setting) then return false end
+                        end
+                        return true
+                    end,
+                    flashTargets = function() return { rgn } end,
+                    multiApply = {
+                        elementKeys   = GROUP_BAR_ORDER,
+                        elementLabels = SHORT_LABELS,
+                        getCurrentKey = function() return SelectedKey() end,
+                        onApply       = function(checkedKeys)
+                            local src = SB()
+                            for _, key in ipairs(checkedKeys) do
+                                local dst = EAB.db.profile.bars[key]
+                                if dst then CopyFadeSetting(dst, src, setting) end
+                            end
+                            if setting == "fadeConditions" and EAB.RefreshCustomFadeGate then
+                                EAB:RefreshCustomFadeGate()
+                            end
+                            if (setting == "fadeConditions" or setting == "fadeMaxAlpha") and EAB.RefreshAllCustomFade then
+                                EAB:RefreshAllCustomFade(true, true)
+                            end
+                            EllesmereUI:RefreshPage()
+                        end,
+                    },
+                })
+            end
+
+            -- Per-bar master switch. Its Apply-to control copies ONLY the enable state;
+            -- each bar keeps its own saved Advanced Fade settings.
+            local enableRow
+            enableRow, h = W:DualRow(parent, y,
+                { type="toggle", text="Enable Advanced Fade",
+                  tooltip="Enable the optional Advanced Fade layer for this bar. When disabled, Bar Opacity and Visibility behave exactly as in native EUI 9.1.5.",
+                  getValue=function() return AdvancedFadeOn() end,
+                  setValue=function(v)
+                      SB().advancedFadeEnabled = v and true or false
+                      if EAB.RefreshAdvancedFadeEnabled then EAB:RefreshAdvancedFadeEnabled(SelectedKey()) end
+                      -- Rebuild is intentional: native Bar Opacity uses step 5 while OFF
+                      -- and step 1 only while this optional layer is enabled.
+                      EllesmereUI:RefreshPage(true)
+                  end },
+                { type="label", text="" });  y = y - h
+
+            do
+                local rgn = enableRow._leftRegion
+                EllesmereUI.BuildSyncIcon({
+                    region  = rgn,
+                    tooltip = "Apply Enable Advanced Fade to all Bars",
+                    onClick = function()
+                        local v = AdvancedFadeOn()
+                        for _, key in ipairs(GROUP_BAR_ORDER) do
+                            local dst = EAB.db.profile.bars[key]
+                            if dst then dst.advancedFadeEnabled = v end
+                        end
+                        if EAB.RefreshAdvancedFadeEnabled then EAB:RefreshAdvancedFadeEnabled(GROUP_BAR_ORDER) end
+                        EllesmereUI:RefreshPage(true)
+                    end,
+                    isSynced = function()
+                        local v = AdvancedFadeOn()
+                        for _, key in ipairs(GROUP_BAR_ORDER) do
+                            local dst = EAB.db.profile.bars[key]
+                            if dst and (dst.advancedFadeEnabled == true) ~= v then return false end
+                        end
+                        return true
+                    end,
+                    flashTargets = function() return { rgn } end,
+                    multiApply = {
+                        elementKeys   = GROUP_BAR_ORDER,
+                        elementLabels = SHORT_LABELS,
+                        getCurrentKey = function() return SelectedKey() end,
+                        onApply       = function(checkedKeys)
+                            local v = AdvancedFadeOn()
+                            for _, key in ipairs(checkedKeys) do
+                                local dst = EAB.db.profile.bars[key]
+                                if dst then dst.advancedFadeEnabled = v end
+                            end
+                            if EAB.RefreshAdvancedFadeEnabled then EAB:RefreshAdvancedFadeEnabled(checkedKeys) end
+                            EllesmereUI:RefreshPage(true)
+                        end,
+                    },
+                })
+            end
+
+            local fadeItems = {}
+            for i = 1, #FADE_ORDER do
+                local k = FADE_ORDER[i]
+                fadeItems[#fadeItems + 1] = { key = k, label = FADE_LABELS[k] }
+            end
+
+            local fadeRow
+            fadeRow, h = W:DualRow(parent, y,
+                { type="slider", text="Maximum Opacity", min=0, max=100, step=1,
+                  disabled=function() return not AdvancedFadeOn() end,
+                  disabledTooltip="Enable Advanced Fade",
+                  tooltip="Opacity used while any selected Fade Condition is true. Visibility still decides whether the bar is shown.",
+                  getValue=function() return floor(((SB().fadeMaxAlpha ~= nil and SB().fadeMaxAlpha or 1) * 100) + 0.5) end,
+                  setValue=function(v)
+                      if not AdvancedFadeOn() then return end
+                      SB().fadeMaxAlpha = v / 100
+                      RefreshFade(SelectedKey(), true)
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type="dropdown", text="Fade Conditions",
+                  values={ __placeholder = "..." }, order={ "__placeholder" },
+                  tooltip="Select one or more conditions. They use OR logic: if any selected condition is true, the bar fades to Maximum Opacity.",
+                  getValue=function() return "__placeholder" end,
+                  setValue=function() end });  y = y - h
+
+            if not EllesmereUI._prebuilding then
+                local rgn = fadeRow._rightRegion
+                if rgn._control then rgn._control:Hide() end
+
+                local fadeDD, fadeDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                    rgn, 170, rgn:GetFrameLevel() + 2,
+                    fadeItems,
+                    function(k)
+                        local c = EnsureFadeConditions(SB())
+                        return c[k] and true or false
+                    end,
+                    function(k, v)
+                        if not AdvancedFadeOn() then return end
+                        local c = EnsureFadeConditions(SB())
+                        c[k] = v and true or nil
+                        if EAB.RefreshCustomFadeGate then EAB:RefreshCustomFadeGate() end
+                        RefreshFade(SelectedKey(), true)
+                        -- In-place refresh makes Apply-to reappear immediately when the
+                        -- current bar diverges after a previous Apply All/Multiple.
+                        EllesmereUI:RefreshPage()
+                    end)
+
+                PP.Point(fadeDD, "RIGHT", rgn, "RIGHT", -20, 0)
+                rgn._control = fadeDD
+                rgn._lastInline = nil
+                EllesmereUI.RegisterWidgetRefresh(fadeDDRefresh)
+
+                -- BuildVisOptsCBDropdown has no config-level disabled callback, so use
+                -- the exact EUI pattern used by other native dependent checkbox menus.
+                local function UpdateFadeConditionsDisabled()
+                    local off = not AdvancedFadeOn()
+                    fadeDD:SetAlpha(off and 0.3 or 1)
+                    fadeDD:EnableMouse(not off)
+                    if rgn._label then rgn._label:SetAlpha(off and 0.3 or 1) end
+                end
+                UpdateFadeConditionsDisabled()
+                EllesmereUI.RegisterWidgetRefresh(UpdateFadeConditionsDisabled)
+            end
+
+            -- Independent Apply-to controls: each one compares/copies ONLY the
+            -- setting beside it, matching the native EUI sync affordance semantics.
+            if AdvancedFadeOn() then
+                BuildFadeSettingSync(fadeRow._leftRegion,  "fadeMaxAlpha",    "Maximum Opacity")
+                BuildFadeSettingSync(fadeRow._rightRegion, "fadeConditions", "Fade Conditions")
+            end
+
+            row, h = W:DualRow(parent, y,
+                { type="slider", text="Fade In Speed", min=0.01, max=2.00, step=0.01,
+                  disabled=function() return not AdvancedFadeOn() end,
+                  disabledTooltip="Enable Advanced Fade",
+                  tooltip="Fade-in duration in seconds. Lower values are faster.",
+                  getValue=function() return SB().fadeInSpeed or 0.15 end,
+                  setValue=function(v)
+                      if not AdvancedFadeOn() then return end
+                      SB().fadeInSpeed = v
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type="slider", text="Fade Out Speed", min=0.01, max=2.00, step=0.01,
+                  disabled=function() return not AdvancedFadeOn() end,
+                  disabledTooltip="Enable Advanced Fade",
+                  tooltip="Fade-out duration in seconds. Lower values are faster.",
+                  getValue=function() return SB().fadeOutSpeed or 0.15 end,
+                  setValue=function(v)
+                      if not AdvancedFadeOn() then return end
+                      SB().fadeOutSpeed = v
+                      EllesmereUI:RefreshPage()
+                  end });  y = y - h
+
+            if AdvancedFadeOn() then
+                BuildFadeSettingSync(row._leftRegion,  "fadeInSpeed",  "Fade In Speed")
+                BuildFadeSettingSync(row._rightRegion, "fadeOutSpeed", "Fade Out Speed")
+            end
         end
 
         if not visOnly then
