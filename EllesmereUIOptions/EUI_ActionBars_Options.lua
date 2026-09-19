@@ -5448,8 +5448,63 @@ initFrame:SetScript("OnEvent", function(self)
         end
     end
 
+    -- Assisted Highlight preview uses only local textures, so opening the
+    -- options page never starts/stops any live glow engine.
+    local function UpdateAssistGlowPreview(f)
+        if not f then return end
+        local p = EAB.db and EAB.db.profile or {}
+        local customType = p.assistGlowType or 0
+        local style = p.assistGlowStyle or 1
+
+        if not f._assistOverlay then
+            local ov = f:CreateTexture(nil, "OVERLAY", nil, 1)
+            ov:SetAllPoints()
+            f._assistOverlay = ov
+        end
+        if not f._assistRing then
+            local ring = {}
+            for i = 1, 4 do
+                local t = f:CreateTexture(nil, "OVERLAY", nil, 2)
+                t:SetColorTexture(1, 1, 1, 1)
+                ring[i] = t
+            end
+            f._assistRing = ring
+        end
+
+        local ov = f._assistOverlay
+        local ring = f._assistRing
+        ov:Hide()
+        for i = 1, 4 do ring[i]:Hide() end
+
+        if customType > 0 then
+            local cr, cg, cb
+            if p.assistGlowUseClassColor then
+                local _, class = UnitClass("player")
+                local cc = RAID_CLASS_COLORS[class]
+                cr, cg, cb = cc and cc.r or 1, cc and cc.g or 1, cc and cc.b or 1
+            else
+                local c = p.assistGlowColor or { r = 0.15, g = 0.5, b = 1 }
+                cr, cg, cb = c.r or 0.15, c.g or 0.5, c.b or 1
+            end
+            for i = 1, 4 do ring[i]:SetColorTexture(cr, cg, cb, 1) end
+            ring[1]:ClearAllPoints(); ring[1]:SetPoint("TOPLEFT", f); ring[1]:SetPoint("TOPRIGHT", f); ring[1]:SetHeight(2)
+            ring[2]:ClearAllPoints(); ring[2]:SetPoint("BOTTOMLEFT", f); ring[2]:SetPoint("BOTTOMRIGHT", f); ring[2]:SetHeight(2)
+            ring[3]:ClearAllPoints(); ring[3]:SetPoint("TOPLEFT", ring[1], "BOTTOMLEFT"); ring[3]:SetPoint("BOTTOMLEFT", ring[2], "TOPLEFT"); ring[3]:SetWidth(2)
+            ring[4]:ClearAllPoints(); ring[4]:SetPoint("TOPRIGHT", ring[1], "BOTTOMRIGHT"); ring[4]:SetPoint("BOTTOMRIGHT", ring[2], "TOPRIGHT"); ring[4]:SetWidth(2)
+            for i = 1, 4 do ring[i]:Show() end
+            return
+        end
+
+        if style == 2 or style == 3 then
+            local c = p.assistGlowOverlayColor or { r = 0.15, g = 0.5, b = 1 }
+            local a = (p.assistGlowOverlayAlpha or 30) / 100
+            ov:SetColorTexture(c.r or 0.15, c.g or 0.5, c.b or 1, a)
+            ov:Show()
+        end
+    end
+
     -- Persistent preview icon frames (survive page cache restores)
-    local _pushedPreview, _highlightPreview, _procGlowPreview
+    local _pushedPreview, _highlightPreview, _procGlowPreview, _assistGlowPreview
 
     local function BuildAnimationsPage(pageName, parent, yOffset)
         local W = EllesmereUI.Widgets
@@ -5795,65 +5850,169 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
-        -- Assisted Highlight. Blizzard's ring sits on the same button edge as
-        -- the proc glow and has no size control of its own, so we offer two
-        -- ways to tell them apart: push the ring clear with an outset, or drop
-        -- the ring for a flat tint that leaves the edge to the proc glow.
-        -- Values mirror p.assistGlowStyle: 1 = ring, 2 = overlay, 3 = both.
+        -- Keep the existing EUI styles and append custom glow engines as
+        -- explicit opt-in entries in the same Assisted Highlight dropdown.
         local function AssistOff()
             return not (GetCVarBool and GetCVarBool("assistedCombatHighlight"))
         end
+        local assistValues = {
+            [0] = "Default (Blizzard)",
+            [1] = "Glow Ring",
+            [2] = "Button Overlay",
+            [3] = "Ring + Overlay",
+        }
+        local assistOrder = { 0, 1, 2, 3 }
+        for i, entry in ipairs(ns.LOOP_GLOW_TYPES or {}) do
+            if not entry.shapeGlow then
+                assistValues[100 + i] = entry.name
+                assistOrder[#assistOrder + 1] = 100 + i
+            end
+        end
+        local function assistCustomSelected()
+            return (p.assistGlowType or 0) > 0
+        end
+
         local assistRow
         assistRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Assisted Highlight",
-              values={ [1]="Glow Ring", [2]="Button Overlay", [3]="Ring + Overlay" },
-              order={ 1, 2, 3 },
-              tooltip="How Blizzard's next-spell suggestion is drawn on the button. Button Overlay replaces the blue ring with a flat tint, leaving the button edge free for the proc glow.",
+              values=assistValues, order=assistOrder,
+              tooltip="Use Blizzard-style highlighting, the existing EUI styles, or an optional custom glow. Existing users keep Glow Ring unless they choose another entry.",
               disabled=AssistOff,
               disabledTooltip="This option requires Blizzard's Assisted Highlight to be enabled",
               rawTooltip=true,
-              getValue=function() return p.assistGlowStyle or 1 end,
+              getValue=function()
+                  local custom = p.assistGlowType or 0
+                  if custom > 0 then return 100 + custom end
+                  return p.assistGlowStyle or 1
+              end,
               setValue=function(v)
-                  p.assistGlowStyle = v
+                  if v >= 100 then
+                      -- Custom glows are opt-in and do not overwrite the user's
+                      -- saved legacy style; switching back restores that style.
+                      p.assistGlowType = v - 100
+                  else
+                      p.assistGlowType = 0
+                      p.assistGlowStyle = v
+                  end
                   if ns.UpdateAssistHighlights then ns.UpdateAssistHighlights() end
-                  -- Deferred like the proc-glow dropdown above: a synchronous
-                  -- rebuild tears the dropdown down inside its own click handler.
+                  UpdateAssistGlowPreview(_assistGlowPreview)
                   C_Timer.After(0, function() EllesmereUI:RefreshPage() end)
               end },
+            { type="toggle", text="Use Class Color",
+              disabled=function() return AssistOff() or not assistCustomSelected() end,
+              disabledTooltip="This option requires a custom Assisted Highlight glow to be selected",
+              rawTooltip=true,
+              getValue=function() return p.assistGlowUseClassColor end,
+              setValue=function(v)
+                  p.assistGlowUseClassColor = v
+                  if ns.UpdateAssistHighlights then ns.UpdateAssistHighlights() end
+                  UpdateAssistGlowPreview(_assistGlowPreview)
+                  EllesmereUI:RefreshPage()
+              end })
+
+        if not EllesmereUI._prebuilding then
+            local leftRgn = assistRow._leftRegion
+            _assistGlowPreview = CreatePreviewIcon(leftRgn)
+            if _assistGlowPreview._icon then
+                _assistGlowPreview._icon:SetTexture(GetNthActionButtonIcon(4))
+                _assistGlowPreview._icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            end
+            UpdateAssistGlowPreview(_assistGlowPreview)
+            EllesmereUI.RegisterWidgetRefresh(function() UpdateAssistGlowPreview(_assistGlowPreview) end)
+
+            local assistSwatchGet = function()
+                local c = p.assistGlowColor or { r = 0.15, g = 0.5, b = 1 }
+                return c.r, c.g, c.b
+            end
+            local assistSwatchSet = function(r, g, b)
+                p.assistGlowColor = { r = r, g = g, b = b }
+                if ns.UpdateAssistHighlights then ns.UpdateAssistHighlights() end
+                UpdateAssistGlowPreview(_assistGlowPreview)
+            end
+            local assistSwatch, assistUpdateSwatch = EllesmereUI.BuildColorSwatch(
+                leftRgn, leftRgn:GetFrameLevel() + 5,
+                assistSwatchGet, assistSwatchSet, nil, 20)
+            PP.Point(assistSwatch, "RIGHT", _assistGlowPreview, "LEFT", -12, 0)
+            assistSwatch:HookScript("OnEnter", function(self)
+                if AssistOff() then
+                    EllesmereUI.ShowWidgetTooltip(self, "This option requires Blizzard's Assisted Highlight to be enabled")
+                elseif not assistCustomSelected() then
+                    EllesmereUI.ShowWidgetTooltip(self, "This option requires a custom Assisted Highlight glow to be selected")
+                elseif p.assistGlowUseClassColor then
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("Class Colors", "disabled"))
+                end
+            end)
+            assistSwatch:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            EllesmereUI.RegisterWidgetRefresh(function()
+                local off = AssistOff() or not assistCustomSelected() or p.assistGlowUseClassColor
+                assistSwatch:SetAlpha(off and 0.15 or 1)
+                assistSwatch:SetMouseClickEnabled(not off)
+                assistUpdateSwatch()
+            end)
+            local initAssistOff = AssistOff() or not assistCustomSelected() or p.assistGlowUseClassColor
+            assistSwatch:SetAlpha(initAssistOff and 0.15 or 1)
+            assistSwatch:SetMouseClickEnabled(not initAssistOff)
+        end
+        y = y - h
+
+        local overlayOpacityRow
+        overlayOpacityRow, h = W:DualRow(parent, y,
             { type="slider", text="Overlay Opacity", min=0, max=100, step=1,
               tooltip="Opacity of the Button Overlay tint.",
-              disabled=function() return AssistOff() or (p.assistGlowStyle or 1) == 1 end,
-              disabledTooltip="This option requires the Button Overlay style",
+              disabled=function()
+                  local style = p.assistGlowStyle or 1
+                  return AssistOff() or assistCustomSelected() or (style ~= 2 and style ~= 3)
+              end,
+              disabledTooltip="This option requires the Button Overlay or Ring + Overlay style",
               rawTooltip=true,
               getValue=function() return p.assistGlowOverlayAlpha or 30 end,
               setValue=function(v)
                   p.assistGlowOverlayAlpha = v
                   if ns.UpdateAssistHighlights then ns.UpdateAssistHighlights() end
-              end });  y = y - h
+                  UpdateAssistGlowPreview(_assistGlowPreview)
+              end },
+            { type="spacer" }); y = y - h
 
-        -- Inline swatch: overlay tint color, next to the opacity slider it belongs to.
         if not EllesmereUI._prebuilding then
-            EllesmereUI.BuildInlineSwatches(assistRow._rightRegion, {
-                { tooltip = "Button Overlay Color", hasAlpha = false,
-                  getValue = function()
-                      local c = p.assistGlowOverlayColor or { r = 0.15, g = 0.5, b = 1 }
-                      return c.r, c.g, c.b
-                  end,
-                  setValue = function(r, g, b)
-                      p.assistGlowOverlayColor = { r = r, g = g, b = b }
-                      if ns.UpdateAssistHighlights then ns.UpdateAssistHighlights() end
-                  end },
-            }, {
-                disabled = function() return AssistOff() or (p.assistGlowStyle or 1) == 1 end,
-                disabledTooltip = "This option requires the Button Overlay style",
-            })
+            local leftRgn = overlayOpacityRow._leftRegion
+            local ctrl = leftRgn._control
+            local overlaySwatch, overlayUpdateSwatch = EllesmereUI.BuildColorSwatch(
+                leftRgn, leftRgn:GetFrameLevel() + 5,
+                function()
+                    local c = p.assistGlowOverlayColor or { r = 0.15, g = 0.5, b = 1 }
+                    return c.r, c.g, c.b
+                end,
+                function(r, g, b)
+                    p.assistGlowOverlayColor = { r = r, g = g, b = b }
+                    if ns.UpdateAssistHighlights then ns.UpdateAssistHighlights() end
+                    UpdateAssistGlowPreview(_assistGlowPreview)
+                end, false, 20)
+            if ctrl then
+                PP.Point(overlaySwatch, "RIGHT", ctrl, "LEFT", -10, 0)
+            else
+                PP.Point(overlaySwatch, "RIGHT", leftRgn, "RIGHT", -6, 0)
+            end
+            EllesmereUI.RegisterWidgetRefresh(function()
+                local style = p.assistGlowStyle or 1
+                local disabled = AssistOff() or assistCustomSelected() or (style ~= 2 and style ~= 3)
+                overlaySwatch:SetAlpha(disabled and 0.15 or 1)
+                overlaySwatch:SetMouseClickEnabled(not disabled)
+                overlayUpdateSwatch()
+            end)
+            local initOverlayStyle = p.assistGlowStyle or 1
+            local initOverlayOff = AssistOff() or assistCustomSelected() or (initOverlayStyle ~= 2 and initOverlayStyle ~= 3)
+            overlaySwatch:SetAlpha(initOverlayOff and 0.15 or 1)
+            overlaySwatch:SetMouseClickEnabled(not initOverlayOff)
         end
 
         _, h = W:DualRow(parent, y,
             { type="slider", text="Assisted Highlight Outset", min=-10, max=30, step=1,
               tooltip="Moves the blue Assisted Highlight ring outward (or inward at negative values) so it no longer overlaps the proc glow on the same button. With Ring + Overlay the tint resizes along with it, so the two stay flush.",
-              disabled=function() return AssistOff() or (p.assistGlowStyle or 1) == 2 end,
-              disabledTooltip="This option requires a style that draws the glow ring",
+              disabled=function()
+                  local style = p.assistGlowStyle or 1
+                  return AssistOff() or assistCustomSelected() or (style ~= 1 and style ~= 3)
+              end,
+              disabledTooltip="This option requires Glow Ring or Ring + Overlay",
               rawTooltip=true,
               getValue=function() return p.assistGlowOutset or 0 end,
               setValue=function(v)
