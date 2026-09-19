@@ -2459,10 +2459,18 @@ local function BmAcquireChain(button, d, health, ch, iscale, counters)
             if ownPat[j] == "o" then filter = { "HELPFUL", "PLAYER" } else filter = { "HELPFUL" } end
             for _ = 1, (segsBy[j] and #segsBy[j] or 1) do
                 g = g + 1
+                -- Default's sortMethod ignores layoutIndex across segmented
+                -- groups (confirmed live); AuraInstanceIDOnly respects it.
+                local sm
+                if segsBy[j] and AuraContainerSortMethod then
+                    sm = AuraContainerSortMethod.AuraInstanceIDOnly or AuraContainerSortMethod.Default
+                else
+                    sm = AuraContainerSortMethod and AuraContainerSortMethod.Default or nil
+                end
                 AK.AddGroupToContainer(cc, {
                     key = (g == 1) and "chain" or ("chain" .. g),
                     filter = filter, maxFrameCount = 0,
-                    sortMethod = AuraContainerSortMethod and AuraContainerSortMethod.Default or nil,
+                    sortMethod = sm,
                     style = styleKeys[j], extraInit = ChainExtraInit(),
                     layout = { layoutIndex = g },
                 })
