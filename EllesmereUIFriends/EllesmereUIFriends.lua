@@ -2345,19 +2345,24 @@ local function SkinFriendsFrame()
                 local targetId = row._matchId
                 local cached = row._cached
 
+                -- A Battle.net friend is invited by game account, never by name.
+                -- InviteUnit routes through the legacy friend system, which a client
+                -- can have switched off entirely (C_FriendList.IsLegacyFriendSystemEnabled),
+                -- and it then has no valid invite target and does nothing at all.
+                -- Blizzard gates its own FriendsFrame_GroupInvite on the same flag.
                 if cached and targetType == FRIENDS_BUTTON_TYPE_BNET then
-                    if cached.gameAccountInfo and cached.gameAccountInfo.isOnline then
-                        local charName = cached.gameAccountInfo.characterName
-                        local realmName = cached.gameAccountInfo.realmName
-                        if charName then
+                    local gi = cached.gameAccountInfo
+                    if gi and gi.isOnline then
+                        if gi.gameAccountID then
+                            C_BattleNet.InviteFriend(gi.gameAccountID)
+                        elseif gi.characterName and C_FriendList.IsLegacyFriendSystemEnabled() then
                             -- Canonical "Name-Realm" (the helper returns nil for an
                             -- empty name; fall back rather than invite nil).
-                            local fullName = EllesmereUI.BuildFullName(charName, realmName) or charName
-                            C_PartyInfo.InviteUnit(fullName)
+                            C_PartyInfo.InviteUnit(EllesmereUI.BuildFullName(gi.characterName, gi.realmName) or gi.characterName)
                         end
                     end
                 elseif cached and targetType == FRIENDS_BUTTON_TYPE_WOW then
-                    if cached.name and cached.connected then
+                    if cached.name and cached.connected and C_FriendList.IsLegacyFriendSystemEnabled() then
                         C_PartyInfo.InviteUnit(EllesmereUI.BuildFullName(cached.name) or cached.name)
                     end
                 end
