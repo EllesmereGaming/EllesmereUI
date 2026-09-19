@@ -86,8 +86,11 @@ local function CurrentWhereBucket()
     if C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive and C_ChallengeMode.IsChallengeModeActive() then
         return "dungeon_mythic"
     end
-    local _, iType, diffID = GetInstanceInfo()
+    local _, iType, diffID, _, _, _, _, _, _, _, hasWorldTier = GetInstanceInfo()
     diffID = tonumber(diffID) or 0
+    -- The diffID branches below predate Lairs, so without this early return
+    -- they'd hit the unmapped case and always show.
+    if hasWorldTier then return "lair" end
     if iType == "party" then
         if diffID == 23 or diffID == 8 then return "dungeon_mythic" end
         if diffID == 2 or diffID == 1 or diffID == 205 then return "dungeon_nonmythic" end
@@ -111,7 +114,7 @@ end
 -- (PvP, arena) never hides.
 local LOCATION_KEYS = {
     "open_world", "raid_mythic", "raid_heroic", "raid_normal_lfr",
-    "dungeon_mythic", "dungeon_nonmythic", "timewalking", "delve",
+    "dungeon_mythic", "dungeon_nonmythic", "timewalking", "delve", "lair",
 }
 
 -- Combat state is TRACKED from PLAYER_REGEN_DISABLED / _ENABLED instead of
