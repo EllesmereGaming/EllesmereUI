@@ -1193,7 +1193,8 @@ function WSkin.Tab(tab, opts)
     end
     for j = 1, select("#", tab:GetRegions()) do
         local r = select(j, tab:GetRegions())
-        if r and r:IsObjectType("Texture") then
+        -- Icon-only tabs (TabSystem AddIconTab) carry their art in .Icon/.IconMask.
+        if r and r:IsObjectType("Texture") and r ~= tab.Icon and r ~= tab.IconMask then
             r:SetTexture("")
             if r.SetAtlas then r:SetAtlas("") end
         end
