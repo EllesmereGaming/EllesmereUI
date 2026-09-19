@@ -2106,6 +2106,50 @@ do
             end
         end
 
+        -- Season-specific bonuses keep older gear out of current track colours.
+        -- Update these IDs each season. Midnight S2 uses six ranks per track,
+        -- plus Hero/Myth crest bonuses for crafts, independent of craft quality.
+        -- Source: https://www.raidbots.com/static/data/live/bonuses.json
+        local currentSeasonColors = {}
+        for bonusID, color in pairs(craftedColors) do currentSeasonColors[bonusID] = color end
+        for firstBonus, color in pairs({ [12817] = W, [12825] = VE, [12833] = CH, [12841] = HE, [12849] = MY }) do
+            for rank = 0, 5 do currentSeasonColors[firstBonus + rank] = color end
+        end
+        local previousSeasonBonuses = {
+            [13621] = true, [13622] = true,
+            [13653] = true, [13654] = true, [13655] = true,
+            [13786] = true, [13787] = true, [13788] = true, [13789] = true,
+        }
+        for _, firstBonus in ipairs({ 12769, 12777, 12785, 12793, 12801 }) do
+            for rank = 0, 5 do previousSeasonBonuses[firstBonus + rank] = true end
+        end
+        function EllesmereUI.GetSeasonItemLevelColor(itemLink, greyPreviousSeason)
+            if type(itemLink) ~= "string" then return nil end
+            local payload = itemLink:match("item:([^|]+)")
+            if not payload then return nil end
+            local index, lastBonus = 0, 13
+            local currentSeason, previousSeason = false, false
+            for field in (payload .. ":"):gmatch("([^:]*):") do
+                index = index + 1
+                if index == 13 then
+                    lastBonus = 13 + (tonumber(field) or 0)
+                elseif index > 13 then
+                    if index > lastBonus then break end
+                    local bonusID = tonumber(field)
+                    local color = currentSeasonColors[bonusID]
+                    if color then return color, true end
+                    -- Recrafted S2 gear can retain older bonuses. The Tidal
+                    -- crafting marker takes precedence even without a crest.
+                    if bonusID == 13751 then currentSeason = true end
+                    if previousSeasonBonuses[bonusID] then previousSeason = true end
+                end
+            end
+            if previousSeason and not currentSeason then
+                return greyPreviousSeason and GR or nil, false
+            end
+            return W, currentSeason
+        end
+
         -- Item-level text color: custom override > upgrade-track hue > item rarity >
         -- white. Shared by character sheet, inspect sheet and equipment flyout.
         function EllesmereUI.GetItemLevelColor(itemLink, itemQuality)

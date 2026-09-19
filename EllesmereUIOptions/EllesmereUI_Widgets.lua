@@ -4046,7 +4046,7 @@ local function BuildCogPopup(opts)
         tmpFS:Hide()
         if maxLblW < 10 then maxLblW = 60 end
 
-        local COG_DD_W = 130
+        local COG_DD_W = opts.dropdownWidth or 130
         local SLIDER_LEFT = SIDE_PAD + maxLblW + LABEL_SLIDER_GAP
         local TARGET_W = opts.minWidth or 260
         local SLIDER_W = math.max(80, TARGET_W - SLIDER_LEFT - SLIDER_INPUT_GAP - INPUT_W - SIDE_PAD)

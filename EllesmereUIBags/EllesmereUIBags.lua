@@ -409,6 +409,18 @@ do
                 d._sortType = c.itemType
                 d._sortTrackRank = c.rank
                 d._sortGear = d.categoryIndex and IsGearCategory(d.categoryIndex) or false
+                local sortOrder = BP().bagGearSortOrder
+                if d._sortGear and (sortOrder == "seasonTrack" or sortOrder == "seasonIlvl" or sortOrder == "ilvl") then
+                    if c.detailedIlvl == nil then c.detailedIlvl = C_Item.GetDetailedItemLevelInfo(d.itemLink) end
+                    d._sortIlvl = c.detailedIlvl or c.ilvl
+                end
+                if (sortOrder == "seasonTrack" or sortOrder == "seasonIlvl") and d._sortGear then
+                    if c.currentSeason == nil then
+                        local _, currentSeason = EUI.GetSeasonItemLevelColor(d.itemLink)
+                        c.currentSeason = currentSeason or false
+                    end
+                    d._sortCurrentSeason = c.currentSeason
+                end
                 if c.complete then d._sortCached = true end
             end
         end
@@ -416,8 +428,16 @@ do
 end
 
 local function VisualSortCompare(a, b)
-    -- Gear sort: track (descending) > ilvl (descending) -- only for gear categories
+    -- Gear sort defaults to track then ilvl; optional modes prioritise season or ilvl.
     if a._sortGear and b._sortGear then
+        local sortOrder = BP().bagGearSortOrder
+        if (sortOrder == "seasonTrack" or sortOrder == "seasonIlvl")
+            and a._sortCurrentSeason ~= b._sortCurrentSeason then
+            return a._sortCurrentSeason == true
+        end
+        if (sortOrder == "ilvl" or sortOrder == "seasonIlvl") and a._sortIlvl ~= b._sortIlvl then
+            return a._sortIlvl > b._sortIlvl
+        end
         if a._sortTrackRank ~= b._sortTrackRank then return a._sortTrackRank > b._sortTrackRank end
         if a._sortTrackRank > 0 and b._sortTrackRank > 0 then
             if a._sortIlvl ~= b._sortIlvl then return a._sortIlvl > b._sortIlvl end
@@ -5586,8 +5606,13 @@ function EUI_Bags:RefreshInventory()
                         if rankText and rankText ~= "" then
                             d._giTrackRank = rankText
                             d._giTrackColor = trackColor
-                        elseif d._giIlvl and not (BP().itemlevelUseCustomColor and BP().itemlevelCustomColor) then
-                            d._giTrackColor = EUI.GetCraftedTrackColor(itemLink)
+                        end
+                        if d._giIlvl and not (BP().itemlevelUseCustomColor and BP().itemlevelCustomColor) then
+                            if BP().bagSeasonColors then
+                                d._giTrackColor = EUI.GetSeasonItemLevelColor(itemLink, BP().bagGreyPreviousSeason)
+                            elseif not d._giTrackColor then
+                                d._giTrackColor = EUI.GetCraftedTrackColor(itemLink)
+                            end
                         end
                     end
                     -- Warbound check (warbank dim overlay) + WuE bind check (gear only, when bind-type text is enabled).
