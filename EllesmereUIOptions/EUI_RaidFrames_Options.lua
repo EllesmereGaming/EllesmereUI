@@ -2719,7 +2719,8 @@ initFrame:SetScript("OnEvent", function(self)
         local readyCheckPositionOrder = EllesmereUI.POSITION_GRID_ORDER
         local rcRow
         rcRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Ready Check / Summon / Rez", values=readyCheckPositionValues, order=readyCheckPositionOrder,
+            { type="dropdown", text="Status Icon", values=readyCheckPositionValues, order=readyCheckPositionOrder,
+              tooltip="Controls where status icons are displayed. Use the individual settings to choose which icons are shown: Ready Check, Summon, Resurrection, Other Phase, or Other Party.",
               getValue=function() return SVal("readyCheckPosition", "center") end,
               setValue=function(v) SSet("readyCheckPosition", v) end },
             { type="slider", text="Icon Size", min=8, max=40, step=1,
@@ -2728,7 +2729,7 @@ initFrame:SetScript("OnEvent", function(self)
         if not EllesmereUI._prebuilding then
             local rgn = rcRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Ready Check / Summon / Rez",
+                title = "Status Icon",
                 rows = {
                     { type="toggle", label="Show Ready Check",
                       get=function() return SVal("showReadyCheck", true) end,
@@ -2739,6 +2740,12 @@ initFrame:SetScript("OnEvent", function(self)
                     { type="toggle", label="Show Incoming Resurrection",
                       get=function() return SVal("showIncomingRez", true) end,
                       set=function(v) SSet("showIncomingRez", v) end },
+                    { type="toggle", label="Show \"in other phase\"",
+                      get=function() return SVal("showInOtherPhase", false) end,
+                      set=function(v) SSet("showInOtherPhase", v) end },
+                    { type="toggle", label="Show \"in other party\"",
+                      get=function() return SVal("showInOtherParty", false) end,
+                      set=function(v) SSet("showInOtherParty", v) end },
                     { type="slider", label="Offset X", min=-50, max=50, step=1,
                       get=function() return SVal("readyCheckOffsetX", 0) end,
                       set=function(v) SSet("readyCheckOffsetX", v) end },
@@ -2776,6 +2783,7 @@ initFrame:SetScript("OnEvent", function(self)
         local stRow
         stRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Status Text", values=statusTextPositionValues, order=statusTextPositionOrder,
+              tooltip="Controls whether status text is displayed and where. When enabled, Dead and Offline statuses are shown. AFK status can also be shown or hidden, but only when status text is enabled.",
               getValue=function() return SVal("statusTextPosition", "center") end,
               setValue=function(v) SSet("statusTextPosition", v) end },
             { type="slider", text="Text Size", min=6, max=30, step=1,
