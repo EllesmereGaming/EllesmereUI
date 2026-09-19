@@ -39,7 +39,7 @@ local DEFAULT_CATEGORIES = {
     { name = "Quest Items",        types = { IC_QUEST },                     icon = "Crosshair_Quest_64", isAtlas = true },
     { name = "Weapons / Trinkets", types = { IC_WEAPON }, equipSlots = { "INVTYPE_TRINKET" }, icon = 3751725 },
     { name = "Armor",              types = { IC_ARMOR }, excludeEquipSlots = { "INVTYPE_TRINKET" }, icon = 4382688 },
-    { name = "Consumables",        types = { IC_CONSUMABLE },                icon = 7548911 },
+    { name = "Consumables",        types = { IC_CONSUMABLE },                icon = 133975 },
     { name = "Trade Goods",        types = { IC_TRADESKILL, IC_REAGENT },    icon = 132996 },
     { name = "Gear Enhancements",  types = { IC_GEM, IC_ITEM_ENHANCE },     icon = 7549094 },
     { name = "Professions",        types = { IC_PROFESSION, IC_RECIPE },     icon = 7548925 },
