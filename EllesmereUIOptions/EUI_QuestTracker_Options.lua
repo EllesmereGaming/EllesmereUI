@@ -201,13 +201,20 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return Cfg("showQuestIcons") or false end,
               setValue=function(v)
                   Set("showQuestIcons", v)
+                  -- Reload through a hardware click because addon-triggered ReloadUI may be blocked.
+                  local manualReload = InCombatLockdown()
                   EllesmereUI:ShowConfirmPopup({
                       title       = "Reload Required",
-                      message     = "Changing quest icons requires a UI reload to apply.",
-                      confirmText = "Reload Now",
+                      message     = manualReload and "Quest icons changed. Type /reload in chat to apply."
+                          or "Changing quest icons requires a UI reload to apply.",
+                      confirmText = manualReload and "Okay" or "Reload Now",
                       cancelText  = "Later",
-                      onConfirm   = function() ReloadUI() end,
+                      confirmMacro = not manualReload and "/reload" or nil,
                   })
+                  if not manualReload then
+                      -- Match the overlay's default mouse-up click registration.
+                      EUIConfirmMacroOverlay:SetAttribute("useOnKeyDown", false)
+                  end
               end },
             { type="toggle", text="Hide All Objectives",
               tooltip="Hides the master header and its minimize button at the top of the tracker. When shown, it's skinned to match the section headers below it (Quests, Achievements, ...).",
