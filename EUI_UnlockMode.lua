@@ -6790,7 +6790,8 @@ local function CreateMover(barKey)
     -- Match-source capability: width/height MATCH buttons may appear even when
     -- drag/manual resize is disabled (noResize), if the element opts in via
     -- allowMatchSource (e.g. tracking bars sized via their own sliders can still size-MATCH another element).
-    local canMatchSource = canResize or (elem and elem.allowMatchSource) or false
+    local canMatchSource = (canResize or (elem and elem.allowMatchSource) or false)
+        and not (elem and elem.noMatchSource)
 
     -- Single source of truth for which action-row link buttons are active, in
     -- left-to-right order. The layout, the hover show/hide, and the hover-box
@@ -9600,7 +9601,12 @@ local function CreateMover(barKey)
 
                 -- Disable if this element is width/height matched
                 local isWidth = (axis == "Width")
-                local matchTarget = isWidth and EllesmereUI.GetWidthMatchTarget(barKey) or (not isWidth and EllesmereUI.GetHeightMatchTarget(barKey))
+                local matchTarget
+                if axis == "Size" then
+                    matchTarget = EllesmereUI.GetWidthMatchTarget(barKey) or EllesmereUI.GetHeightMatchTarget(barKey)
+                else
+                    matchTarget = isWidth and EllesmereUI.GetWidthMatchTarget(barKey) or (not isWidth and EllesmereUI.GetHeightMatchTarget(barKey))
+                end
                 if matchTarget then
                     box:Disable()
                     box:SetTextColor(0.4, 0.4, 0.4, 0.7)
@@ -9623,8 +9629,17 @@ local function CreateMover(barKey)
                         for childKey, targetKey in pairs(MatchH.GetWidthMatchDB() or {}) do
                             if targetKey == barKey then MatchH.ApplyWidthMatch(childKey, barKey) end
                         end
-                    else
+                    elseif axis == "Height" then
                         if elem.setHeight then elem.setHeight(barKey, val) end
+                        for childKey, targetKey in pairs(MatchH.GetHeightMatchDB() or {}) do
+                            if targetKey == barKey then MatchH.ApplyHeightMatch(childKey, barKey) end
+                        end
+                    else -- "Size": linked square element, one value drives both dimensions
+                        if elem.setWidth then elem.setWidth(barKey, val) end
+                        if elem.setHeight then elem.setHeight(barKey, val) end
+                        for childKey, targetKey in pairs(MatchH.GetWidthMatchDB() or {}) do
+                            if targetKey == barKey then MatchH.ApplyWidthMatch(childKey, barKey) end
+                        end
                         for childKey, targetKey in pairs(MatchH.GetHeightMatchDB() or {}) do
                             if targetKey == barKey then MatchH.ApplyHeightMatch(childKey, barKey) end
                         end
@@ -9670,8 +9685,13 @@ local function CreateMover(barKey)
             -- so a resize here would write the SHARED module setting mid-session
             -- while looking like a per-group edit. Users resize from the options panel instead.
             if not isCDMBar and not EllesmereUI._specialUnlockGroup then
-                wBox = MakeSizeRow("Width",  curW)
-                hBox = MakeSizeRow("Height", curH)
+                if elem.linkedDimensions then
+                    wBox = MakeSizeRow("Size", curW)
+                    hBox = wBox
+                else
+                    wBox = MakeSizeRow("Width",  curW)
+                    hBox = MakeSizeRow("Height", curH)
+                end
             end
 
             -- X Position / Y Position rows (screen coords from center)
