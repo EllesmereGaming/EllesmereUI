@@ -48,6 +48,7 @@ local qolFrame = CreateFrame("Frame")
 qolFrame:RegisterEvent("PLAYER_LOGIN")
 qolFrame:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
+    if _G._EUI_Swing_Apply then _G._EUI_Swing_Apply() end
 
     ---------------------------------------------------------------------------
     --  Auto Unwrap Collections (Mounts / Pets / Toys)
@@ -1279,9 +1280,10 @@ qolFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
-    --  Auto Insert Keystone
+    --  Auto Insert Keystone (no keystones on WoW Forever: the block, its events
+    --  and its options row do not exist there)
     ---------------------------------------------------------------------------
-    do
+    if not EllesmereUI.IS_FOREVER then
         local function InsertKeystone()
             if EllesmereUIDB and EllesmereUIDB.autoInsertKeystone == false then return end
             if C_ChallengeMode.GetSlottedKeystoneInfo() then return end
@@ -3117,6 +3119,9 @@ do
     end)
 
     local function ApplyRightClickTarget()
+        -- The binding rides _onstate snippets: nothing to arm on a client that
+        -- cannot compile them (WoW Forever beta), nothing was armed to clear.
+        if not EllesmereUI.SecureSnippetsOK() then return end
         if InCombatLockdown() then
             local deferFrame = CreateFrame("Frame")
             deferFrame:RegisterEvent("PLAYER_REGEN_ENABLED")

@@ -1057,6 +1057,11 @@ local function MakeHistoryBar(parent)
     bar.fill:SetMinMaxValues(0, 1)
     bar.fill:SetValue(1)
     bar.fill:SetStatusBarTexture(BAR_TEX)
+    -- Blizzard Style: the same track and edge as the meter's own rows.
+    if ns.DMBlizz() then
+        bar._bg = bar.row:CreateTexture(nil, "BACKGROUND")
+        ns.DMApplyBlizzBarBg(bar)
+    end
 
     local tf = CreateFrame("Frame", nil, bar.fill)
     tf:SetAllPoints(bar.fill)
@@ -1250,11 +1255,11 @@ local function BuildBarWindow()
     end
 
     -- Apply styling (bg from spell history settings, header from DM settings)
-    _barWin._bg:SetColorTexture(sh.bgR or 0, sh.bgG or 0, sh.bgB or 0, sh.bgAlpha or 0.25)
+    ns.DMPaintWindowBg(_barWin._bg, sh.bgR or 0, sh.bgG or 0, sh.bgB or 0, sh.bgAlpha or 0.25)
 
     local hc = dmCfg.hdrBgColor
     local hR, hG, hB = hc and hc.r or 0x1B/255, hc and hc.g or 0x1B/255, hc and hc.b or 0x1B/255
-    _barWin._hdrBg:SetColorTexture(hR, hG, hB, dmCfg.hdrBgAlpha or 1)
+    ns.DMPaintHeaderBg(_barWin._hdrBg, hR, hG, hB, dmCfg.hdrBgAlpha or 1)
 
     local tR, tG, tB
     if dmCfg.hdrTextUseAccent ~= false then tR, tG, tB = GetAccentRGB()
@@ -1361,6 +1366,8 @@ RefreshBarWindow = function()
                 bar.row:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, y)
                 bar.row:SetHeight(barH)
                 bar.fill:SetStatusBarTexture(texPath)
+                -- Blizzard Style: the stock bevel over the user's texture.
+                if ns.DMBlizz() then ns.DMApplyBlizzFill(bar.fill) end
                 bar.icon:SetSize(barH, barH)
                 bar._cachedEntry = nil -- force content rebuild
             end

@@ -138,15 +138,19 @@ end
 
 -- Public: run all migrations. Called once from the parent ADDON_LOADED handler.
 function EllesmereUI.RunRegisteredMigrations()
-    if not EllesmereUIDB then
-        -- Fresh install: no SavedVariables yet. Must stamp globals now, not skip --
-        -- an unstamped catalog would run the whole chain at next load against
-        -- whatever exists by then (e.g. an imported profile), treating current-format
-        -- data as legacy (concretely: CDM consolidate/detach would rebuild an
-        -- imported spell store, pixel-rounding would floor imported positions/sizes,
-        -- the colors seed would replace imported palettes). Profile-scoped stamps
-        -- live inside each profile (and ride exports), so they need no genesis pass.
-        EllesmereUIDB = {}
+    if not EllesmereUIDB then EllesmereUIDB = {} end
+    if not (EllesmereUIDB.profiles and next(EllesmereUIDB.profiles)) then
+        -- Fresh install (no SavedVariables yet) or the Reset All wipe (a table
+        -- with no profiles: a few preserved keys, nothing to migrate). Must
+        -- stamp globals now, not skip -- an unstamped catalog would run the
+        -- whole chain at next load against whatever exists by then (e.g. an
+        -- imported profile), treating current-format data as legacy
+        -- (concretely: CDM consolidate/detach would rebuild an imported spell
+        -- store, pixel-rounding would floor imported positions/sizes, the
+        -- colors seed would replace imported palettes) -- and, on the reset
+        -- table, every "preserve the old default for veterans" migration would
+        -- hand a reset user the OLD default. Profile-scoped stamps live inside
+        -- each profile (and ride exports), so they need no genesis pass.
         local flags = GetFlagTable(EllesmereUIDB)
         for _, spec in ipairs(_migrations) do
             if spec.scope == "global" then
@@ -2036,6 +2040,9 @@ EllesmereUI.RegisterMigration({
     scope       = "global",
     description = "Preserve disabled default for existing users when flipping themedCharacterSheet to default-on.",
     body = function(ctx)
+        -- Veterans only: a database with no profiles is a fresh install or a
+        -- reset, and it must take the new default, not the preserved old one.
+        if not (ctx.db.profiles and next(ctx.db.profiles)) then return end
         -- nil = never touched (old default = disabled): stamp false so the new
         -- nil-means-enabled logic can't flip them on. Explicit values are kept.
         if ctx.db.themedCharacterSheet == nil then

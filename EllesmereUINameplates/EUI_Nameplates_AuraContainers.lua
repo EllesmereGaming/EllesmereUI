@@ -84,19 +84,22 @@ end
 -- vertical texcoords derive from the shared crop math.
 ------------------------------------------------------------------------------
 
-local function CropCoords(cropped)
+local function CropCoords(cropped, zoom)
+    -- Horizontal zoom 0.08 (Blizzard Style passes 0: the stock item draws the
+    -- whole icon under its rounded mask, same as PAB and the unit frames).
+    local z = zoom or 0.08
     if cropped then
-        -- Horizontal zoom 0.08; vertical span scaled to the cropped aspect so
-        -- the artwork never squishes (same math as ns.SetAuraIconCrop).
+        -- Vertical span scaled to the cropped aspect so the artwork never
+        -- squishes (same math as ns.SetAuraIconCrop).
         -- `cropped` carries the height factor from GetAuraCrop (Adjust Crop
         -- slider); plain true from a legacy caller falls back to the classic
         -- 0.80, which reproduces the old fixed coords exactly (0.164/0.836).
         local factor = (type(cropped) == "number") and cropped or 0.80
-        local vSpan = (1 - 2 * 0.08) * factor
+        local vSpan = (1 - 2 * z) * factor
         local v0 = 0.5 - vSpan / 2
-        return { 0.08, 0.92, v0, 1 - v0 }
+        return { z, 1 - z, v0, 1 - v0 }
     end
-    return { 0.08, 0.92, 0.08, 0.92 }
+    return { z, 1 - z, z, 1 - z }
 end
 
 local function NPSize(kind)
@@ -357,11 +360,17 @@ local function BuildNPStyle(kind, variant)
     local kindKey = (kind == "debuffs" and "debuff") or (kind == "buffs" and "buff") or "cc"
     local dur = AuraDurCfg(kindKey)
     local stk = StackCfg()
+    -- Blizzard Style: the stock nameplate aura item -- the whole icon (zoom
+    -- 0) under the rounded mask with the ring overlay (AuraKit blizzRoundArt),
+    -- no EUI border (GetIconBorderEnabled is false for every kind under the
+    -- style). Text, stacks, sizes and the dispel glow all stay the user's.
+    local blizz = ns.NP_Blizz()
     local style = {
         width = size,
         height = height,
-        texCoord = CropCoords(cropped),
+        texCoord = CropCoords(cropped, blizz and 0 or nil),
         border = (not ns.GetIconBorderEnabled or ns.GetIconBorderEnabled(kind)) and { 0, 0, 0, 1, size = 1 } or false,
+        blizzRoundArt = blizz or nil,
         cooldownReverse = true,
         noDefaultFonts = true,
         noTooltips = true,
@@ -1265,12 +1274,18 @@ function ns.NPC_UpdateLockout(plate)
             f:SetFrameStrata("MEDIUM")
             f:SetFrameLevel(800)
             f.icon = f:CreateTexture(nil, "ARTWORK")
-            f.icon:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1)
-            f.icon:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1)
+            -- Blizzard Style: no border, so the icon fills the cell under
+            -- the stock ring, and the swipe is the stock rounded one.
+            local px = ns.NP_Blizz() and 0 or 1
+            f.icon:SetPoint("TOPLEFT", f, "TOPLEFT", px, -px)
+            f.icon:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -px, px)
             f.cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
             f.cd:SetAllPoints(f)
             f.cd:SetReverse(true)
             f.cd:SetDrawEdge(false)
+            local kit = AK or EllesmereUI.AuraKit
+            local swipe = px == 0 and kit and kit.BLIZZ_ROUND_SWIPE
+            if swipe and f.cd.SetSwipeTexture then f.cd:SetSwipeTexture(swipe) end
             local PP = EllesmereUI.PP
             if PP and PP.CreateBorder then PP.CreateBorder(f, 0, 0, 0, 1, 1) end
             if ns.ApplyFrameIconBorder then
@@ -1281,10 +1296,13 @@ function ns.NPC_UpdateLockout(plate)
         local size = NPSize("cc")
         local height, cropped = NPHeight("cc", size)
         f:SetSize(size, height)
-        local tc = CropCoords(cropped)
+        local blizz = ns.NP_Blizz()
+        local tc = CropCoords(cropped, blizz and 0 or nil)
         f.icon:SetTexture(lockout.icon)
         f.icon:SetTexCoord(tc[1], tc[2], tc[3], tc[4])
         f.cd:SetCooldown(lockout.start, lockout.duration)
+        -- Blizzard Style: the stock rounded mask and ring, sized with the cell.
+        if blizz and ns.NP_ApplyBlizzIconArt then ns.NP_ApplyBlizzIconArt(f, f.icon, size, height) end
         PositionLockout(plate, f, cs)
         if ns.ApplyFrameIconBorder then
             ns.ApplyFrameIconBorder(f, ns.GetIconBorderEnabled and ns.GetIconBorderEnabled("ccs"))

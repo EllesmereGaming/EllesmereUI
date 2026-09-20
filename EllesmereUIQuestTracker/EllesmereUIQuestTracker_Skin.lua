@@ -926,6 +926,98 @@ local function SuppressPOI(block)
     QueuePOIRepair(pb)
 end
 
+-------------------------------------------------------------------------------
+-- Hidden-tracker mouse suppression. Every alpha-0 state (the combat
+-- auto-hide, the user's visibility rules, mouseover idle) left the pooled
+-- block buttons clickable: a click meant for the world opened the quest log
+-- instead. The tracker's click sinks are a finite, NAMED set hung off each
+-- block, so they are switched off by field name -- never by walking children
+-- -- and only frames that were ON go into the weak set, so the restore can
+-- never mouse-enable something Blizzard left off (a mouse-enabled alpha-0
+-- tracker frame would be a screen-sized click-catcher). EnableMouse runs no
+-- script handler and writes no Lua field: taint-free, and legal in combat
+-- since none of these frames is protected. Blocks Blizzard hands out or
+-- re-enables while the tracker is hidden come back through the AddBlock hook
+-- and the deferred Update sweep, which re-apply the current state.
+-- Scenario / UI-widget trackers are headers-only here (see SharesWidgetPool).
+local _mouseOffSet = setmetatable({}, { __mode = "k" })
+
+-- Records WHICH half was on (1 = clicks, 2 = motion, 3 = both) so the
+-- restore puts back exactly that: an XML tooltip-only frame runs on motion
+-- alone, and handing it clicks would make it a click sink it never was.
+local function MouseOff(f)
+    if not (f and f.IsMouseEnabled) or _mouseOffSet[f] then return end
+    local mode
+    if f.IsMouseClickEnabled and f.IsMouseMotionEnabled then
+        mode = (f:IsMouseClickEnabled() and 1 or 0) + (f:IsMouseMotionEnabled() and 2 or 0)
+    else
+        mode = f:IsMouseEnabled() and 3 or 0
+    end
+    if mode == 0 then return end
+    _mouseOffSet[f] = mode
+    f:EnableMouse(false)
+end
+
+-- One block's click sinks: the block frame itself (bonus blocks), the header
+-- button (the quest log click), the item, group-finder and POI buttons, the
+-- objective lines (hyperlinks) and every right-edge region with its bar.
+local function ApplyBlockMouse(block)
+    MouseOff(block)
+    MouseOff(block.HeaderButton)
+    MouseOff(block.ItemButton)
+    MouseOff(block.poiButton)
+    local lines = block.usedLines
+    if type(lines) == "table" then
+        for _, line in pairs(lines) do
+            if type(line) == "table" then MouseOff(line) end
+        end
+    end
+    local regions = block.addedRegions
+    if type(regions) == "table" then
+        for region in pairs(regions) do
+            if type(region) == "table" then
+                MouseOff(region)
+                MouseOff(region.Bar)
+            end
+        end
+    end
+end
+
+-- The scenario tracker's blocks are FIXED XML frames of the module
+-- (parentArray FixedBlocks), not pool frames: the stage block carrying the
+-- dungeon name and its tooltip, the objectives block, the challenge block
+-- with its affix and status frames, the proving-grounds block, the maw and
+-- delve buff containers, the scenario spell buttons. Switching THEIR mouse
+-- off touches no shared-widget-pool frame; the UIWidget containers inside
+-- them are left alone (see SharesWidgetPool).
+local function ApplyScenarioMouse(sc)
+    if not sc then return end
+    if sc.ObjectivesBlock then ApplyBlockMouse(sc.ObjectivesBlock) end
+    local stage = sc.StageBlock
+    if stage then
+        MouseOff(stage)
+        MouseOff(stage.findGroupButton)
+    end
+    local cm = sc.ChallengeModeBlock
+    if cm then
+        MouseOff(cm)
+        MouseOff(cm.StartedDepleted)
+        MouseOff(cm.TimesUpLootStatus)
+        MouseOff(cm.DeathCount)
+        local pool = cm.affixPool
+        if pool and pool.EnumerateActive then
+            for affix in pool:EnumerateActive() do MouseOff(affix) end
+        end
+    end
+    MouseOff(sc.ProvingGroundsBlock)
+    if sc.MawBuffsBlock then MouseOff(sc.MawBuffsBlock.Container) end
+    if sc.TieredEntranceTraitsBlock then MouseOff(sc.TieredEntranceTraitsBlock.Container) end
+    local spells = sc.spellFramePool
+    if spells and spells.EnumerateActive then
+        for sf in spells:EnumerateActive() do MouseOff(sf.SpellButton) end
+    end
+end
+
 -- Raise the block's right-edge buttons (quest item / group finder) above the
 -- block itself. Blizzard acquires both the block and its right-edge frames from
 -- the same module pool, so they are siblings on ContentsFrame at the *same*
@@ -1117,7 +1209,9 @@ local function ApplyMasterHeaderVisibility()
     -- The header frame takes no mouse input of its own, but the collapse-all
     -- button would still be clickable while invisible.
     local minBtn = header.MinimizeButton
-    if minBtn and minBtn.EnableMouse then minBtn:EnableMouse(not hide) end
+    -- Never back on while the tracker is alpha-hidden (EQT.ApplyTrackerMouse
+    -- brings it back with the tracker).
+    if minBtn and minBtn.EnableMouse then minBtn:EnableMouse(not hide and not EQT._trackerMouseOff) end
 
     EnsureAccentDivider(header)
 end
@@ -1152,7 +1246,18 @@ local function HookTracker(tracker)
             -- deferring only this call). Same dirty-flag + After(0) shape as the
             -- generic branch below; QueueResize only touches our own bg frame.
             local _dividerDirty = false
+            local _scMouseDirty = false
             hooksecurefunc(tracker, "Update", function(self)
+                -- Hidden tracker: affix / spell frames this pass acquired come
+                -- out mouse-off too (deferred: no frame work inline in a
+                -- module Update post-hook).
+                if EQT._trackerMouseOff and tracker == _G.ScenarioObjectiveTracker and not _scMouseDirty then
+                    _scMouseDirty = true
+                    C_Timer.After(0, function()
+                        _scMouseDirty = false
+                        if EQT._trackerMouseOff then ApplyScenarioMouse(_G.ScenarioObjectiveTracker) end
+                    end)
+                end
                 if ShouldSkipSkin() then return end
                 if EQT.QueueResize then EQT.QueueResize() end
                 if self.Header and not _dividerDirty then
@@ -1180,6 +1285,9 @@ local function HookTracker(tracker)
 
     if tracker.AddBlock then
         hooksecurefunc(tracker, "AddBlock", function(_, block)
+            -- A block handed out while the tracker is alpha-hidden must not
+            -- come out clickable; independent of the skin (runs suppressed too).
+            if block and EQT._trackerMouseOff then ApplyBlockMouse(block) end
             if ShouldSkipSkin() then return end
             if block then _skinned[block] = nil end
             SkinBlock(block)
@@ -1193,18 +1301,30 @@ local function HookTracker(tracker)
     local _updateDirty = false
     if tracker.Update then
         hooksecurefunc(tracker, "Update", function()
-            if ShouldSkipSkin() or _updateDirty then return end
+            if _updateDirty then return end
+            -- Suppressed (M+ / raid tools): no skin work, but a hidden
+            -- tracker still needs the blocks this pass touched mouse-off.
+            if ShouldSkipSkin() and not EQT._trackerMouseOff then return end
             _updateDirty = true
             C_Timer.After(0, function()
                 _updateDirty = false
-                if ShouldSkipSkin() then return end
-                if tracker.Header then EnsureAccentDivider(tracker.Header) end
-                if EQT.QueueResize then EQT.QueueResize() end
+                local skip = ShouldSkipSkin()
+                local mouseOff = EQT._trackerMouseOff
+                if skip and not mouseOff then return end
+                if not skip then
+                    if tracker.Header then EnsureAccentDivider(tracker.Header) end
+                    if EQT.QueueResize then EQT.QueueResize() end
+                end
                 if tracker.usedBlocks then
                     for _, byTemplate in pairs(tracker.usedBlocks) do
                         if type(byTemplate) == "table" then
                             for _, block in pairs(byTemplate) do
-                                if type(block) == "table" then SuppressPOI(block) end
+                                if type(block) == "table" then
+                                    if not skip then SuppressPOI(block) end
+                                    -- Blizzard's own Update re-enables bonus
+                                    -- blocks; this lands after it.
+                                    if mouseOff then ApplyBlockMouse(block) end
+                                end
                             end
                         end
                     end
@@ -1258,6 +1378,7 @@ end
 -- Called from SUPER_TRACKING_CHANGED (deferred) to catch fresh POIs
 -- that Blizzard assigns when the player clicks a quest on the map.
 EQT._SuppressAllPOIs = function()
+    local mouseOff = EQT._trackerMouseOff
     EachTracker(function(tracker)
         -- Shared-widget-pool trackers have no quest POI buttons and touching
         -- their blocks taints the tooltip widget pool (see SharesWidgetPool).
@@ -1266,11 +1387,72 @@ EQT._SuppressAllPOIs = function()
         for _, byTemplate in pairs(tracker.usedBlocks) do
             if type(byTemplate) == "table" then
                 for _, block in pairs(byTemplate) do
-                    if type(block) == "table" then SuppressPOI(block) end
+                    if type(block) == "table" then
+                        SuppressPOI(block)
+                        -- A POI freshly assigned to a hidden tracker.
+                        if mouseOff then ApplyBlockMouse(block) end
+                    end
                 end
             end
         end
     end)
+end
+
+-- Tracker-wide mouse switch, driven by the Visibility file on every alpha
+-- edge (combat auto-hide, visibility rules, mouseover idle and hover). OFF
+-- sweeps the blocks now in use plus the module and master header buttons;
+-- later blocks ride the AddBlock hook and the Update sweep. ON restores
+-- exactly the frames the weak set holds -- wherever Blizzard's pools moved
+-- them since -- and nothing else; the master minimize button then follows
+-- its own hide rule again (SkinHeader keeps it off while the header is
+-- hidden by option). Both directions early-out when already applied, so a
+-- visibility pass on an unchanged state costs one field read.
+EQT.ApplyTrackerMouse = function(on)
+    if on then
+        if not EQT._trackerMouseOff then return end
+        EQT._trackerMouseOff = nil
+        for f, mode in pairs(_mouseOffSet) do
+            _mouseOffSet[f] = nil
+            if mode == 3 or not f.SetMouseClickEnabled then
+                f:EnableMouse(true)
+            elseif mode == 1 then
+                pcall(f.SetMouseClickEnabled, f, true)
+            else
+                pcall(f.SetMouseMotionEnabled, f, true)
+            end
+        end
+        -- The master minimize button follows its own hide rule again (a
+        -- header pass while hidden may have found it already off).
+        local otf = _G.ObjectiveTrackerFrame
+        local master = otf and (otf.HeaderMenu or otf.Header)
+        local mb = master and master.MinimizeButton
+        if mb and mb.EnableMouse and EQT.ShouldHideMasterHeader then
+            mb:EnableMouse(not EQT.ShouldHideMasterHeader())
+        end
+        return
+    end
+    if EQT._trackerMouseOff then return end
+    EQT._trackerMouseOff = true
+    EachTracker(function(tracker)
+        local header = tracker.Header
+        if header then MouseOff(header.MinimizeButton) end
+        -- Shared-widget-pool trackers: headers only (see SharesWidgetPool).
+        if SharesWidgetPool(tracker) or not tracker.usedBlocks then return end
+        for _, byTemplate in pairs(tracker.usedBlocks) do
+            if type(byTemplate) == "table" then
+                for _, block in pairs(byTemplate) do
+                    if type(block) == "table" then ApplyBlockMouse(block) end
+                end
+            end
+        end
+    end)
+    ApplyScenarioMouse(_G.ScenarioObjectiveTracker)
+    local otf = _G.ObjectiveTrackerFrame
+    local master = otf and (otf.HeaderMenu or otf.Header)
+    if master then
+        MouseOff(master.MinimizeButton)
+        MouseOff(master.FilterButton)
+    end
 end
 
 -------------------------------------------------------------------------------

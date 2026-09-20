@@ -205,6 +205,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- ── DISPLAY ─────────────────────────────────────────────────────
         _, h = W:SectionHeader(parent, "DISPLAY", y); y = y - h
+        y = EllesmereUI.BlizzStyle.Note(parent, y, "damagemeters")
 
         -- Visibility (one control)
         local function VisApply()
@@ -222,8 +223,8 @@ initFrame:SetScript("OnEvent", function(self)
             -- the page so this table is re-evaluated with the new min/tooltip.
             (Cfg("unsafeRefreshRate") and
             { type="slider", text="Refresh Rate",
-              tooltip = "Below 0.5s multiplies memory allocation per window every tick. Not recommended with several windows open.",
-              min = 0.1, max = 2, step = 0.05,
+              tooltip = "Faster than 0.5s makes the meters work much harder in combat and can cost you frames, especially with several windows open.",
+              min = 0.2, max = 2, step = 0.05,
               getValue = function() return Cfg("refreshRate") or 1 end,
               setValue = function(v) Set("refreshRate", v) end,
               fmt = function(v) return format("%.2fs", v) end }
@@ -245,7 +246,7 @@ initFrame:SetScript("OnEvent", function(self)
                 title = "Refresh Rate",
                 rows = {
                     { type = "toggle", label = "Unsafe Refresh Rate",
-                      tooltip = "Allows Refresh Rate below 0.5s. Each tick fetches a full session snapshot per window, so lower values multiply allocation cost far past any visual gain, especially with several windows open.",
+                      tooltip = "Lets you set Refresh Rate faster than 0.5s. The meters update more often but work much harder in combat, which can cost you frames. Only turn this on if your PC has performance to spare.",
                       get = function() return Cfg("unsafeRefreshRate") == true end,
                       set = function(v)
                           Set("unsafeRefreshRate", v)
@@ -281,7 +282,7 @@ initFrame:SetScript("OnEvent", function(self)
         local windowTexValues, windowTexOrder = EllesmereUI.GetBorderTextureDropdown()
         local windowBorderRow
         windowBorderRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Border Style",
+            EllesmereUI.BlizzStyle.Gate("damagemeters", { type="dropdown", text="Border Style",
               values=windowTexValues, order=windowTexOrder,
               getValue=function() return Cfg("windowBorderTexture") or "solid" end,
               setValue=function(v)
@@ -293,11 +294,11 @@ initFrame:SetScript("OnEvent", function(self)
                   local defaultSize = EllesmereUI.GetBorderDefaultSize("damagemeters", v)
                   if defaultSize then Set("windowBorderSize", defaultSize) end
                   ApplyWindowBrd(); EllesmereUI:RefreshPage()
-              end },
-            { type="dropdown", text="Border Size",
+              end }),
+            EllesmereUI.BlizzStyle.Gate("damagemeters", { type="dropdown", text="Border Size",
               values=borderSizeValues, order=borderSizeOrder,
               getValue=function() return tostring(Cfg("windowBorderSize") or 0) end,
-              setValue=function(v) Set("windowBorderSize", tonumber(v) or 0); ApplyWindowBrd() end })
+              setValue=function(v) Set("windowBorderSize", tonumber(v) or 0); ApplyWindowBrd() end }))
         if not EllesmereUI._prebuilding then
             local rgn = windowBorderRow._leftRegion
             local _, popupShow = EllesmereUI.BuildCogPopup({
@@ -330,6 +331,7 @@ initFrame:SetScript("OnEvent", function(self)
             directionBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
             directionBtn:SetScript("OnClick", function(self) popupShow(self) end)
             rgn._lastInline = directionBtn
+            EllesmereUI.BlizzStyle.BlockInline("damagemeters", directionBtn, 0.15)
         end
         if not EllesmereUI._prebuilding then
             local rgn, ctrl = windowBorderRow._rightRegion, windowBorderRow._rightRegion._control
@@ -346,6 +348,7 @@ initFrame:SetScript("OnEvent", function(self)
                 true, 20)
             PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
             EllesmereUI.RegisterWidgetRefresh(refreshSwatch)
+            EllesmereUI.BlizzStyle.BlockInline("damagemeters", swatch)
         end
         y = y - h
 
@@ -376,6 +379,7 @@ initFrame:SetScript("OnEvent", function(self)
                 false, 20)
             PP.Point(bgSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             EllesmereUI.RegisterWidgetRefresh(function() bgSwatchRefresh() end)
+            EllesmereUI.BlizzStyle.BlockInline("damagemeters", bgSwatch)
         end
         y = y - h
 
@@ -469,16 +473,17 @@ initFrame:SetScript("OnEvent", function(self)
                 false, 20)
             PP.Point(hdrSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             EllesmereUI.RegisterWidgetRefresh(function() hdrSwatchRefresh() end)
+            EllesmereUI.BlizzStyle.BlockInline("damagemeters", hdrSwatch)
         end
         y = y - h
 
         -- Row 2: Header Bottom Border (+ inline swatch) | Icon Size (+ inline dual swatches)
         local hdrBorderRow
         hdrBorderRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Header Bottom Border",
+            EllesmereUI.BlizzStyle.Gate("damagemeters", { type="dropdown", text="Header Bottom Border",
               values=borderSizeValues, order=borderSizeOrder,
               getValue=function() return tostring(Cfg("hdrBottomBorderSize") or 0) end,
-              setValue=function(v) Set("hdrBottomBorderSize", tonumber(v) or 0); ApplyHdr() end },
+              setValue=function(v) Set("hdrBottomBorderSize", tonumber(v) or 0); ApplyHdr() end }),
             { type="slider", text="Icon Size",
               min = 20, max = 30, step = 1,
               getValue = function() return Cfg("hdrIconSize") or 22 end,
@@ -498,6 +503,7 @@ initFrame:SetScript("OnEvent", function(self)
                 true, 20)
             PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
             EllesmereUI.RegisterWidgetRefresh(refreshSwatch)
+            EllesmereUI.BlizzStyle.BlockInline("damagemeters", swatch)
         end
         -- Inline dual swatches on Icon Size: right = Custom, left = Accent
         if not EllesmereUI._prebuilding then
@@ -691,10 +697,10 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Bar Texture | Bar Height
         _, h = W:DualRow(parent, y,
-            { type="dropdown", text="Bar Texture",
+            EllesmereUI.BlizzStyle.Gate("damagemeters", { type="dropdown", text="Bar Texture",
               values = dmTexValues, order = dmTexOrder,
               getValue = function() return Cfg("barTexture") or "none" end,
-              setValue = function(v) Set("barTexture", v); Refresh(); if ns.ApplySpellHistory then ns.ApplySpellHistory() end end },
+              setValue = function(v) Set("barTexture", v); Refresh(); if ns.ApplySpellHistory then ns.ApplySpellHistory() end end }),
             { type="slider", text="Bar Height", min = 8, max = 40, step = 1,
               getValue = function() return Cfg("barHeight") or 18 end,
               setValue = function(v) Set("barHeight", v); Refresh() end })
@@ -827,7 +833,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
         local bsRow
         bsRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Border Style",
+            EllesmereUI.BlizzStyle.Gate("damagemeters", { type="dropdown", text="Border Style",
               values=texValues, order=texOrder,
               getValue=function() return Cfg("borderTexture") or "solid" end,
               setValue=function(v)
@@ -844,11 +850,13 @@ initFrame:SetScript("OnEvent", function(self)
                   local defSz = EllesmereUI.GetBorderDefaultSize("damagemeters", v)
                   if defSz then Set("borderSize", defSz) end
                   ApplyBrd(); EllesmereUI:RefreshPage()
-              end },
-            { type="slider", text="Border Size",
+              -- keepRow: the cog on this slot is the only home of the Custom
+              -- Icon Border toggle, which stays live under the style.
+              end }, true),
+            EllesmereUI.BlizzStyle.Gate("damagemeters", { type="slider", text="Border Size",
               min=0, max=4, step=1,
               getValue=function() return Cfg("borderSize") or 1 end,
-              setValue=function(v) Set("borderSize", v); ApplyBrd() end })
+              setValue=function(v) Set("borderSize", v); ApplyBrd() end }))
         y = y - h
         -- Inline cog for border offset (left region)
         if not EllesmereUI._prebuilding then
@@ -957,6 +965,7 @@ initFrame:SetScript("OnEvent", function(self)
                 true, 20)
             PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
             EllesmereUI.RegisterWidgetRefresh(function() updateSwatch() end)
+            EllesmereUI.BlizzStyle.BlockInline("damagemeters", swatch)
         end
 
         -- Icon Border row: shown only while "Custom Icon Border" is enabled
@@ -1081,10 +1090,10 @@ initFrame:SetScript("OnEvent", function(self)
             { type="toggle", text="Show Breakdown on Hover",
               getValue = function() return Cfg("showHoverTooltip") ~= false end,
               setValue = function(v) Set("showHoverTooltip", v) end },
-            { type="slider", text="Background",
+            EllesmereUI.BlizzStyle.Gate("damagemeters", { type="slider", text="Background",
               min = 0, max = 1, step = 0.01,
               getValue = function() return Cfg("barBgAlpha") or 0 end,
-              setValue = function(v) Set("barBgAlpha", v); if ns.ApplyBarBg then ns.ApplyBarBg() end end })
+              setValue = function(v) Set("barBgAlpha", v); if ns.ApplyBarBg then ns.ApplyBarBg() end end }))
         -- Inline custom + class color swatches on Background (right region).
         -- Custom paints a fixed track color; class tints each bar's track with
         -- that player's class color. Mirrors the Left/Right Text Size swatches.
@@ -1145,12 +1154,19 @@ initFrame:SetScript("OnEvent", function(self)
 
             local function refreshBarBg()
                 barBgSwatchRefresh(); barBgClassRefresh()
+                -- Blizzard Style rows use the stock shadow track: both swatches inert.
+                if EllesmereUI.BlizzStyle.Get("damagemeters") then
+                    barBgSwatch:SetAlpha(0.3); barBgClassSwatch:SetAlpha(0.3)
+                    return
+                end
                 local useClass = Cfg("barBgUseClassColor")
                 barBgSwatch:SetAlpha(useClass and 0.3 or 1)
                 barBgClassSwatch:SetAlpha(useClass and 1 or 0.3)
             end
             EllesmereUI.RegisterWidgetRefresh(refreshBarBg)
             refreshBarBg()
+            EllesmereUI.BlizzStyle.BlockInline("damagemeters", barBgSwatch)
+            EllesmereUI.BlizzStyle.BlockInline("damagemeters", barBgClassSwatch)
         end
         if not EllesmereUI._prebuilding then
             local rgn = bdRow._leftRegion
@@ -1936,6 +1952,8 @@ initFrame:SetScript("OnEvent", function(self)
                 end,
                 false, 20)
             PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            -- Blizzard Style paints the stock window art (colour unused).
+            EllesmereUI.BlizzStyle.BlockInline("damagemeters", swatch)
             local block = CreateFrame("Frame", nil, swatch)
             block:SetAllPoints(); block:SetFrameLevel(swatch:GetFrameLevel() + 10)
             block:EnableMouse(true)
@@ -1972,11 +1990,11 @@ initFrame:SetScript("OnEvent", function(self)
         -- Row 4: Bar Texture | Text Size (+ inline dual swatches)
         local textRow
         textRow, h = W:DualRow(parent, y,
-            { type = "dropdown", text = "Bar Texture",
+            EllesmereUI.BlizzStyle.Gate("damagemeters", { type = "dropdown", text = "Bar Texture",
               disabled = barOff, disabledTooltip = "Bar History",
               values = matchTexValues, order = matchTexOrder,
               getValue = function() return SHDB().spellHistoryBarTexture or "match" end,
-              setValue = function(v) SHDB().spellHistoryBarTexture = v; RefreshSH() end },
+              setValue = function(v) SHDB().spellHistoryBarTexture = v; RefreshSH() end }),
             { type = "slider", text = "Text Size",
               min = 8, max = 16, step = 1,
               disabled = barOff, disabledTooltip = "Bar History",

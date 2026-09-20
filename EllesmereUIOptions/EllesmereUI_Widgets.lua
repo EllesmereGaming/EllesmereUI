@@ -2833,18 +2833,23 @@ end
 function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
     local ROW_H = 50
     local SIDE_PAD = 20  -- padding inside each half
+    -- Blizzard Style: a row whose every control is gated for the active style is built (callers still hang cogs and sync icons on its regions) but hidden, takes no row background or search entry, and returns no height, so the page reads as if it were not there.
+    local BS = EllesmereUI.BlizzStyle
+    local hiddenRow = BS and BS.RowHidden and BS.RowHidden(leftCfg, rightCfg)
     local frame = CreateFrame("Frame", nil, parent)
     local totalW = parent:GetWidth() - CONTENT_PAD * 2
     PP.Size(frame, totalW, ROW_H)
     PP.Point(frame, "TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, yOffset)
     if not rightCfg then frame._skipRowDivider = true end
-    RowBg(frame, parent)
-    -- Search metadata: combined label on the frame (inline page search), one global-index entry per slot.
-    local dualLabel = (leftCfg and leftCfg.text or "")
-    if rightCfg and rightCfg.text then dualLabel = dualLabel .. " " .. rightCfg.text end
-    TagOptionRow(frame, parent, dualLabel, nil, true)
-    IndexSlotForSearch(parent, leftCfg and leftCfg.text, leftCfg and leftCfg.tooltip)
-    IndexSlotForSearch(parent, rightCfg and rightCfg.text, rightCfg and rightCfg.tooltip)
+    if not hiddenRow then
+        RowBg(frame, parent)
+        -- Search metadata: combined label on the frame (inline page search), one global-index entry per slot.
+        local dualLabel = (leftCfg and leftCfg.text or "")
+        if rightCfg and rightCfg.text then dualLabel = dualLabel .. " " .. rightCfg.text end
+        TagOptionRow(frame, parent, dualLabel, nil, true)
+        IndexSlotForSearch(parent, leftCfg and leftCfg.text, leftCfg and leftCfg.tooltip)
+        IndexSlotForSearch(parent, rightCfg and rightCfg.text, rightCfg and rightCfg.tooltip)
+    end
 
     -- Half regions: invisible, anchoring only
     local fullWidth = not rightCfg
@@ -3270,6 +3275,13 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
     frame._leftRegion  = leftRegion
     frame._rightRegion = rightRegion
 
+    if hiddenRow then
+        -- The inline page search re-shows and re-anchors every row it has
+        -- collected whenever it resets; keep this one out of its hands.
+        frame._searchIgnore = true
+        frame:Hide()
+        return frame, 0
+    end
     return frame, ROW_H
 end
 
@@ -6549,7 +6561,7 @@ local function BuildCursorAnchorRow(opts)
                       message = "Changing cursor anchor requires a UI reload to take effect.",
                       confirmText = "Reload Now",
                       cancelText = "Later",
-                      onConfirm = function() ReloadUI() end,
+                      reload    = true,
                   })
               else
                   onApply()

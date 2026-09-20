@@ -618,10 +618,10 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
     }
 
     -- Detect current spec and class
-    local specIndex = GetSpecialization()
+    local specIndex = C_SpecializationInfo.GetSpecialization()
     local activeSpecID, activeSpecName
     if specIndex then
-        activeSpecID, activeSpecName = GetSpecializationInfo(specIndex)
+        activeSpecID, activeSpecName = C_SpecializationInfo.GetSpecializationInfo(specIndex)
     end
     local activeClassName = UnitClass("player") or "Unknown"
     -- All spec macro bodies use spell-ID {n} tokens (localized at build time via
@@ -1681,8 +1681,8 @@ function EllesmereUI.RefreshMacroFactory()
     if not mf or not mf.parent or not mf.parent.IsObjectType then return end
     -- PLAYER_SPECIALIZATION_CHANGED can fire several times for one switch; skip
     -- the rebuild if the spec that's already built hasn't actually changed.
-    local idx = GetSpecialization()
-    local curSpecID = idx and GetSpecializationInfo(idx) or nil
+    local idx = C_SpecializationInfo.GetSpecialization()
+    local curSpecID = idx and C_SpecializationInfo.GetSpecializationInfo(idx) or nil
     if curSpecID == mf.builtSpecID then return end
     local oldContainer = mf.container
 

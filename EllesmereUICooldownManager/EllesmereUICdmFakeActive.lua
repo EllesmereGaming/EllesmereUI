@@ -202,6 +202,12 @@ GetOverlay = function(iconFrame)
     local icon = f:CreateTexture(nil, "ARTWORK")
     icon:SetAllPoints(f)
     o.icon = icon
+    -- Blizzard Style: the copy rounds off with the art it copies (the
+    -- viewer's mask on pooled frames, ours on own frames).
+    if ns.CdmBlizzIcons and ns.CdmBlizzIcons() and ns.CdmBlizzIconMask then
+        local m = ns.CdmBlizzIconMask(iconFrame)
+        if m then pcall(icon.AddMaskTexture, icon, m) end
+    end
 
     local cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
     cd:SetAllPoints(f)

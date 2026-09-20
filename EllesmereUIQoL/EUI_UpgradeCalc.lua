@@ -1,4 +1,5 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
+if EllesmereUI and EllesmereUI.IS_FOREVER then return end -- no item upgrade system on WoW Forever: no frame, no DB, no equipment listener; the QoL Upgrader tab is not registered there (every reader of EUIUpgCalc / EUIUpgCalcFrame nil-guards)
 -------------------------------------------------------------------------------
 --  EUI_UpgradeCalc.lua  (part of EllesmereUIQoL)
 --  Gear upgrade planner: data tables, game logic, and calculator UI.

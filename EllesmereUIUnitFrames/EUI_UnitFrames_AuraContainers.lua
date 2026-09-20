@@ -993,7 +993,7 @@ local function StyleTableFP(st, font)
         b and b.texture, b and b.size, b and b[1], b and b[2], b and b[3], b and b[4],
         b and b.offsetX, b and b.offsetY, b and b.shiftX, b and b.shiftY,
         b and b.behind, b and b.behindUnitFrame, b and b.unitFrameLevel,
-        st.noTooltips)
+        st.noTooltips, st.blizzBorder)
 end
 
 -- Declares one chain group and records it in the element's declared-set
@@ -1066,10 +1066,13 @@ local function BuildStyle(unit, base, s, unitFrame)
         cdSizeDefault = 14
     end
 
-    return {
-        width = size,
-        height = h,
-        texCoord = CropCoords(cropped, size, h, Pick(isBuff, s.buffIconZoom, s.debuffIconZoom)),
+    -- Blizzard Style: buffs borderless like the stock frames, debuffs on the
+    -- engine-stamped stock dispel border (AuraKit blizzBorder); no EUI ring.
+    local blizz = ns.UF_Blizz and ns.UF_Blizz() or false
+    local border, dispel, blizzBorder
+    if blizz then
+        if not isBuff then dispel = true; blizzBorder = true end
+    else
         border = {
             s.auraBorderR or 0, s.auraBorderG or 0, s.auraBorderB or 0, s.auraBorderA or 1,
             size = s.auraBorderSize or 1,
@@ -1081,7 +1084,24 @@ local function BuildStyle(unit, base, s, unitFrame)
             behind = s.auraBorderBehind,
             behindUnitFrame = s.auraBorderBehindUnitFrame,
             unitFrameLevel = unitFrame and unitFrame:GetFrameLevel() or 1,
-        },
+        }
+        -- Dispel-type border recolor (per-unit debuffDispelBorder): the engine
+        -- shows the ring only on typed (dispellable) debuffs and picks the
+        -- dispel color itself -- the user palette cannot apply under secrecy
+        -- (same documented delta as the RF debuff border).
+        dispel = (not isBuff and s.debuffDispelBorder) and true or nil
+    end
+
+    return {
+        width = size,
+        height = h,
+        -- Blizzard Style: zoom 0 -- the stock frames draw the whole icon, and
+        -- the icon art's own dark edge is the border a stock buff shows.
+        texCoord = CropCoords(cropped, size, h, blizz and 0 or Pick(isBuff, s.buffIconZoom, s.debuffIconZoom)),
+        border = border,
+        blizzBorder = blizzBorder,
+        -- Weapon enchant buttons mirror this style: the stock purple ring.
+        blizzEnchant = blizz or nil,
         cooldownReverse = true,
         cooldownDrawEdge = false,
         noDefaultFonts = true,
@@ -1100,11 +1120,7 @@ local function BuildStyle(unit, base, s, unitFrame)
         -- Show Tooltip For -> Buffs & Debuffs (per-unit, default on). Motion
         -- goes off with the tooltips; clicks (player buff cancel) unaffected.
         noTooltips = (s.showAuraTooltips == false) or nil,
-        -- Dispel-type border recolor (per-unit debuffDispelBorder): the engine
-        -- shows the ring only on typed (dispellable) debuffs and picks the
-        -- dispel color itself -- the user palette cannot apply under secrecy
-        -- (same documented delta as the RF debuff border).
-        dispelBorder = (not isBuff and s.debuffDispelBorder) and true or nil,
+        dispelBorder = dispel,
         -- Resolved once per (fingerprint-gated) style rebuild instead of on
         -- every ApplyUFText call -- GetFontPath's result only changes when
         -- font settings change, which already forces a fresh style table.
@@ -1140,6 +1156,19 @@ local CB_FRAME_NAMES = {
 local function CastbarBelowFrame(unit, frame)
     if not CB_FRAME_NAMES[unit] then return true end
     frame = frame or _G[CB_FRAME_NAMES[unit]]
+    local vb = 0
+    if ns.UF_Blizz and ns.UF_Blizz() then
+        -- Blizzard Style: the bar hangs off the frame's aura block (an engine
+        -- anchor whose edges are secret values under aura restriction, so no
+        -- Lua compare may touch them) and the bottom stacks reserve nothing
+        -- for it, so the strip test is moot: report it below the frame without
+        -- reading it. Without the layout aspect (ns.UF_LayoutAspectOK) the bar
+        -- rests on the visible art's bottom instead, so the strip is measured
+        -- from there.
+        if ns.UF_LayoutAspectOK and ns.UF_LayoutAspectOK() then return true end
+        local _, _, _, b = ns.UF_BlizzVis(frame)
+        vb = b or 0
+    end
     -- frame.Castbar is the status bar; its PARENT is the holder the unlock
     -- system moves (see CreateCastBar in EllesmereUIUnitFrames.lua).
     local cb = frame and frame.Castbar and frame.Castbar:GetParent()
@@ -1150,7 +1179,7 @@ local function CastbarBelowFrame(unit, frame)
     -- Physical pixels: the holder is positioned independently of the frame and
     -- can carry its own effective scale, so raw coordinates are not comparable.
     local fs, cs = frame:GetEffectiveScale(), cb:GetEffectiveScale()
-    fl, fr, fb = fl * fs, fr * fs, fb * fs
+    fl, fr, fb = fl * fs, fr * fs, (fb + vb) * fs
     cl, cr, ct, cbot = cl * cs, cr * cs, ct * cs, cbot * cs
     -- Beside the frame rather than under it: nothing to reserve.
     if cl >= fr or cr <= fl then return false end
@@ -1169,6 +1198,35 @@ ns.UF_CastbarBelowFrame = CastbarBelowFrame
 -- Cross-addon: the options preview mirrors this decision so its layout matches
 -- the live frames (EllesmereUIOptions/EUI_UnitFrames_Options.lua).
 EllesmereUI.UF_CastbarBelowFrame = CastbarBelowFrame
+
+-- Blizzard Style: point the frame's aura block (ns.UF_BlizzAuraBlock, the
+-- edge a cast bar linked under the frame follows) at the lowest
+-- bottom-anchored stack. `container` nil = this display is off; `ia` is its
+-- anchor point and `xOff` its x offset from the frame's corner (the fixed
+-- edge under `ia`), so the block's corner lands on the frame's own edge.
+-- Merged buffs ride the debuff anchor with the debuff container below them
+-- (above for upward growth); otherwise a bottom-anchored debuff stack wins
+-- over a bottom-anchored buff stack. Nothing below: the visible art's bottom.
+local function PointBlizzAuraBlock(frame, unit, s, isBuff, container, ia, xOff, merged, gY)
+    if not (CB_FRAME_NAMES[unit] and ns.UF_BlizzAuraBlock and ns.UF_BlizzAuraBlock(frame)) then return end
+    local dA, bA = s.debuffAnchor or "none", s.buffAnchor or "topleft"
+    local dBottom = (dA == "bottomleft" or dA == "bottomright")
+    local bBottom = (bA == "bottomleft" or bA == "bottomright") and s.showBuffs ~= false
+    local lowestIsBuff
+    if merged then
+        if dBottom then lowestIsBuff = (gY == "UP") end
+    elseif dBottom then
+        lowestIsBuff = false
+    elseif bBottom then
+        lowestIsBuff = true
+    end
+    if lowestIsBuff == nil then
+        ns.UF_BlizzAuraBlockBottom(frame, nil)
+    elseif container and lowestIsBuff == isBuff then
+        local corner = (ia and ia:find("RIGHT", 1, true)) and "BOTTOMRIGHT" or "BOTTOMLEFT"
+        ns.UF_BlizzAuraBlockBottom(frame, container, corner, -(xOff or 0))
+    end
+end
 
 -- Container anchoring: mirrors the legacy element's SetPoint(ia, frame, fp,
 -- ox + userX, oy + castbarPush + userY) with gap = 1.
@@ -1216,12 +1274,33 @@ local function AnchorContainer(container, frame, unit, base, s, buffContainer)
         -- Player buffs hidden: the weapon enchants ride this container (see
         -- the declaration below), so ApplyGroupConfig's SetShown(false) takes
         -- them down with it -- nothing to retire here.
+        PointBlizzAuraBlock(frame, unit, s, isBuff, nil, nil, nil, merged, nil)
         return anchor
     end
 
     local growth = Pick(isBuff, s.buffGrowth, s.debuffGrowth)
     if mergedBuff then growth = s.debuffGrowth end
     local ia, fp, ox, oy, gX, gY = ResolveLayout(anchor, growth)
+
+    -- Blizzard Style: the frame is the stock box with transparent padding round
+    -- the art, so the anchors move in to the visible art's edges; and on the
+    -- frames with a movable cast bar the bottom stacks no longer reserve the
+    -- bar's strip -- the bar hangs below them instead, off the frame's aura
+    -- block (ns.UF_BlizzAuraBlock), as the stock spell bar does.
+    local vl, vr, vt, vb
+    if ns.UF_BlizzVis then vl, vr, vt, vb = ns.UF_BlizzVis(frame) end
+    if vl then
+        if anchor == "topleft" or anchor == "bottomleft" or anchor == "left" then
+            ox = ox + vl
+        elseif anchor == "topright" or anchor == "bottomright" or anchor == "right" then
+            ox = ox - vr
+        end
+        if anchor == "topleft" or anchor == "topright" then
+            oy = oy - vt
+        elseif anchor == "bottomleft" or anchor == "bottomright" then
+            oy = oy + vb
+        end
+    end
 
     local cbOff = 0
     local showCb, cbH
@@ -1237,6 +1316,7 @@ local function AnchorContainer(container, frame, unit, base, s, buffContainer)
     -- (field case: boss left-anchored debuffs sat ~castbarHeight low). The
     -- oUF-element anchor path has always been bottom-only; this matches it.
     if showCb and (anchor == "bottomleft" or anchor == "bottomright")
+        and not (vl and CB_FRAME_NAMES[unit] and ns.UF_LayoutAspectOK and ns.UF_LayoutAspectOK())
         and CastbarBelowFrame(unit, frame) then
         if not cbH or cbH <= 0 then cbH = 14 end
         cbOff = -cbH
@@ -1266,6 +1346,7 @@ local function AnchorContainer(container, frame, unit, base, s, buffContainer)
         local gap = PP.FromPixels(s.debuffSpacingY or 1)
         container:SetPoint(vert .. horiz, buffContainer, relVert .. horiz, 0, gap * gapSign)
         AK.SetContainerAnchor(container, vert .. horiz)
+        PointBlizzAuraBlock(frame, unit, s, isBuff, container, ia, ox + offX, merged, gY)
     else
         -- Side anchors ("left"/"right") pin the container's vertical CENTER to
         -- the frame's LEFT/RIGHT point -- a center-class axis. An odd-physical-
@@ -1305,14 +1386,17 @@ local function AnchorContainer(container, frame, unit, base, s, buffContainer)
         end
         container:SetPoint(ia, frame, fp, ox + offX, oy + cbOff + offY)
         AK.SetContainerAnchor(container, ia)
-        if unit == "player" and isBuff then
-            -- Weapon enchants are not auras: the engine's own item-
-            -- enchantment source renders them as a layout group flowed AHEAD
-            -- of the aura groups on this container (see
-            -- AK.AddItemEnchantmentsToContainer), so nothing is anchored and
-            -- no cells are reserved. Declared lazily and never removed (no
-            -- addon-facing unregister), so they follow this container's
-            -- visibility instead of the old broad-content gate.
+        PointBlizzAuraBlock(frame, unit, s, isBuff, container, ia, ox + offX, merged, gY)
+        -- Weapon enchants are not auras: the engine's own item-enchantment
+        -- source renders them as a layout group flowed AHEAD of the aura
+        -- groups on this container (see AK.AddItemEnchantmentsToContainer),
+        -- so nothing is anchored and no cells are reserved. They ride the
+        -- broad-content modes (All Buffs or Has Duration), like every other
+        -- generic buff: declared once the first time a broad mode is on
+        -- (this pass re-runs on a chain change), and -- the engine has no
+        -- addon-facing unregister -- kept until the next reload should the
+        -- mode turn off again.
+        if unit == "player" and isBuff and (s.buffShowAll ~= false or s.buffHasDuration == true) then
             local PP = EllesmereUI.PP
             local w, h = ElementSize(unit, base, s)
             local gap = PP.FromPixels(s.buffSpacingX or 1)
@@ -1322,6 +1406,9 @@ local function AnchorContainer(container, frame, unit, base, s, buffContainer)
             local sortDirs = AuraContainerSortDirection
             AK.AddItemEnchantmentsToContainer(container, {
                 style = StyleKey("player", "HELPFUL"),
+                -- Marks the cell as a weapon enchant for the style pass
+                -- (Blizzard Style draws the stock temp-enchant ring on those only).
+                extraInit = AK.EnchantCellInit,
                 hidePermanent = true,
                 -- REVERSE keeps main hand adjacent to the aura run: the
                 -- engine puts the group's first element at the leading edge,

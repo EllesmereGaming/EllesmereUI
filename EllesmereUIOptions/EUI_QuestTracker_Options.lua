@@ -188,7 +188,7 @@ initFrame:SetScript("OnEvent", function(self)
                           message     = "Font changed. A UI reload is needed to apply the new font.",
                           confirmText = "Reload Now",
                           cancelText  = "Later",
-                          onConfirm   = function() ReloadUI() end,
+                          reload      = true,
                       })
                   end })
         end
@@ -206,7 +206,7 @@ initFrame:SetScript("OnEvent", function(self)
                       message     = "Changing quest icons requires a UI reload to apply.",
                       confirmText = "Reload Now",
                       cancelText  = "Later",
-                      onConfirm   = function() ReloadUI() end,
+                      reload      = true,
                   })
               end },
             { type="toggle", text="Hide All Objectives",

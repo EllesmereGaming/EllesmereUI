@@ -692,16 +692,20 @@ end
 
 -- MinimalScrollBar -> strip track/arrows; the thumb becomes a slim 5px white
 -- strip centered in the thumb's hit area (the house scrollbar look).
-function WSkin.ScrollBar(sb)
+-- keepSteppers leaves the up/down arrows as Blizzard draws them; only the
+-- track art and the thumb change, in place.
+function WSkin.ScrollBar(sb, keepSteppers)
     if not sb or sb:IsForbidden() then return end
     local d = GetFFD(sb)
     if d.skinned then return end
     d.skinned = true
-    for _, k in ipairs({ "Back", "Forward" }) do
-        local b = sb[k]
-        if b then
-            FadeRegions(b)
-            if b.Texture then b.Texture:SetAlpha(0) end
+    if not keepSteppers then
+        for _, k in ipairs({ "Back", "Forward" }) do
+            local b = sb[k]
+            if b then
+                FadeRegions(b)
+                if b.Texture then b.Texture:SetAlpha(0) end
+            end
         end
     end
     local track = sb.Track
@@ -1191,9 +1195,10 @@ function WSkin.Tab(tab, opts)
             hooksecurefunc(sys, "SetTabVisuallySelected", UpdateAllTabs)
         end
     end
+    -- Icon tabs carry their label in Icon; retain its clipping mask as well.
     for j = 1, select("#", tab:GetRegions()) do
         local r = select(j, tab:GetRegions())
-        if r and r:IsObjectType("Texture") then
+        if r and r ~= tab.Icon and r ~= tab.IconMask and r:IsObjectType("Texture") then
             r:SetTexture("")
             if r.SetAtlas then r:SetAtlas("") end
         end
