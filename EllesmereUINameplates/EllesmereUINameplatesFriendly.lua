@@ -232,13 +232,27 @@ local function ApplyFriendlyFontOverride(force)
         end
         fontOverrideApplied = false
     end
+    -- Blizzard picks the name's font object by Nameplate Style: Modern/Block
+    -- anchor the name inside the bar and use _Outlined (stock NORMAL outline),
+    -- Classic anchors it above and uses the plain object (stock SLUG only), so
+    -- Classic-style users got name-only player names with no outline at all.
+    -- Friendly names are always outlined (the full plates force it), so the
+    -- one thing added here is OUTLINE where the object's own flags lack one.
+    -- Everything else the object carries (SLUG, an outline already present)
+    -- stays exactly as read, so already-outlined names render unchanged.
+    local function WithOutline(flags)
+        flags = flags or ""
+        if flags:find("OUTLINE", 1, true) then return flags end
+        if flags == "" then return "OUTLINE" end
+        return flags .. ", OUTLINE"
+    end
     if SystemFont_NamePlate and SystemFont_NamePlate.SetFont then
         local _, _, flags = SystemFont_NamePlate:GetFont()
-        SystemFont_NamePlate:SetFont(font, size, flags or GetNPOutline())
+        SystemFont_NamePlate:SetFont(font, size, WithOutline(flags))
     end
     if SystemFont_NamePlate_Outlined and SystemFont_NamePlate_Outlined.SetFont then
         local _, _, flags = SystemFont_NamePlate_Outlined:GetFont()
-        SystemFont_NamePlate_Outlined:SetFont(font, size, flags or GetNPOutline())
+        SystemFont_NamePlate_Outlined:SetFont(font, size, WithOutline(flags))
     end
     _ffFile, _ffSize = font, size
     fontOverrideApplied = true
@@ -1101,8 +1115,11 @@ local friendlyFrameCache = CreateFramePool("Frame", UIParent, nil, nil, false, f
     -- Forced crisp outline; SetFSFont applies the global "Never Show Slug" gate.
     SetFSFont(plate.hpText, 10, "OUTLINE, SLUG")
     plate.hpText:SetPoint("RIGHT", plate.health, -2, 0)
+    -- Blizzard Style: above the deselected overlay / ring (OVERLAY 4/5).
+    if ns.NP_Blizz and ns.NP_Blizz() then plate.hpText:SetDrawLayer("OVERLAY", 7) end
 
-    plate.highlight = plate.health:CreateTexture(nil, "OVERLAY", nil, 6)
+    -- Blizzard Style: under the stock ring / deselected overlay (OVERLAY 4/5).
+    plate.highlight = plate.health:CreateTexture(nil, "OVERLAY", nil, (ns.NP_Blizz and ns.NP_Blizz()) and 1 or 6)
     plate.highlight:SetAllPoints()
     local _hc = (FP() and FP().hoverColor) or ns.defaults.hoverColor
     local _ha = (FP() and FP().hoverAlpha) or ns.defaults.hoverAlpha
@@ -1378,6 +1395,8 @@ function FriendlyFrame:ApplyTarget()
     end
     self.leftArrow:SetShown(showArrows or false)
     self.rightArrow:SetShown(showArrows or false)
+    -- Blizzard Style: stock selection ring / deselected overlay on friendly plates too.
+    if ns.NP_Blizz and ns.NP_Blizz() then ns.NP_ApplyBlizzSelection(self) end
 end
 
 function FriendlyFrame:UNIT_HEALTH()  self:UpdateHealth() end

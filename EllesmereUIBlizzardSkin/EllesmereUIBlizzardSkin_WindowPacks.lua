@@ -7158,6 +7158,10 @@ local function Skin_MicroMenu()
     end
 end
 
+-- WoW Forever keeps Blizzard's micro menu art (user decision): the pack is not
+-- registered there, so nothing above runs and the UpdateMicroButtons hook is
+-- never installed. The options card is dropped on that client to match.
+if not EllesmereUI.IS_FOREVER then
 WSkin.RegisterWindow({
     key = "micromenu",
     apply = function()
@@ -7174,6 +7178,7 @@ WSkin.RegisterWindow({
         pcall(Skin_MicroMenu)
     end,
 })
+end -- not IS_FOREVER
 
 -------------------------------------------------------------------------------
 --  Dressing Room (DressUpFrame). Chrome + action buttons; the 3D model scene

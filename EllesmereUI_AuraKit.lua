@@ -520,9 +520,29 @@ local function ApplyStyleToRegions(button, style)
         local legacy = (Enum and Enum.CustomAuraButtonBorderStyle) or AuraButtonBorderStyle
         dispelTint = legacy and legacy.Color
     end
+    -- Blizzard Style (style.blizzBorder): ONE texture registered with the
+    -- engine's built-in Border style -- the engine stamps Blizzard's own
+    -- per-dispel-type debuff border atlas on it (red for untyped debuffs via
+    -- showWithoutDispelType), so this IS the stock aura border, art and colour
+    -- both engine-owned. No static border, no palette, no strips.
+    local blizzBorderStyle = style.blizzBorder and button.AddDispelTypeTexture
+        and Enum and Enum.CustomAuraButtonDispelTypeTextureStyle
+        and Enum.CustomAuraButtonDispelTypeTextureStyle.Border
     if style.dispelBorder and d.dispelHolder
         and (button.AddDispelTypeTexture or button.SetAuraBorder) and dispelTint ~= nil then
-        if shapeActive and style.shapeBorderPath then
+        if blizzBorderStyle then
+            if not d.blizzBorderTex then
+                -- Hidden on creation (the engine shows it per aura); no vertex
+                -- prewrite needed, the Border style writes white itself.
+                local tex = d.dispelHolder:CreateTexture(nil, "OVERLAY")
+                if tex.SetSnapToPixelGrid then
+                    tex:SetSnapToPixelGrid(false)
+                    tex:SetTexelSnappingBias(0)
+                end
+                tex:Hide()
+                d.blizzBorderTex = tex
+            end
+        elseif shapeActive and style.shapeBorderPath then
             if not d.dispelShapeTex then
                 -- Neutral white tint base, written ONCE here (same rule as the strips
                 -- below): registration turns VertexColor into an engine-driven secret
@@ -588,14 +608,22 @@ local function ApplyStyleToRegions(button, style)
     end
 
     local dispelTexSet
-    if shapeActive and d.dispelShapeTex then
+    if blizzBorderStyle and d.blizzBorderTex then
+        dispelTexSet = { d.blizzBorderTex }
+        if d.dispelStrips then
+            for i = 1, 4 do d.dispelStrips[i]:Hide() end
+        end
+        if d.dispelShapeTex then d.dispelShapeTex:Hide() end
+    elseif shapeActive and d.dispelShapeTex then
         dispelTexSet = { d.dispelShapeTex }
         if d.dispelStrips then
             for i = 1, 4 do d.dispelStrips[i]:Hide() end
         end
+        if d.blizzBorderTex then d.blizzBorderTex:Hide() end
     elseif d.dispelStrips then
         dispelTexSet = d.dispelStrips
         if d.dispelShapeTex then d.dispelShapeTex:Hide() end
+        if d.blizzBorderTex then d.blizzBorderTex:Hide() end
     end
 
     if dispelTexSet or d.dispelIconTex then
@@ -613,6 +641,20 @@ local function ApplyStyleToRegions(button, style)
 
         if not dispelTexSet then
             -- Icons-only style: no ring set was ever created, skip ring geometry.
+        elseif blizzBorderStyle and d.blizzBorderTex then
+            -- The stock buff frame draws its 40px border round a 30px icon: a
+            -- sixth of the icon on each side. Anchored to the holder (button
+            -- rects are restricted) from the style's own size. Folded into
+            -- setKey below: the engine snapshots geometry at registration.
+            local bw, bh = style.width or 18, style.height or style.width or 18
+            local geomKey = bw .. "|" .. bh
+            if d.akBlizzGeom ~= geomKey then
+                local ox, oy = bw / 6, bh / 6
+                d.blizzBorderTex:ClearAllPoints()
+                d.blizzBorderTex:SetPoint("TOPLEFT", d.dispelHolder, "TOPLEFT", -ox, oy)
+                d.blizzBorderTex:SetPoint("BOTTOMRIGHT", d.dispelHolder, "BOTTOMRIGHT", ox, -oy)
+                d.akBlizzGeom = geomKey
+            end
         elseif shapeActive and d.dispelShapeTex then
             -- Same bExp mask-expand math as PP.ApplyMaskedShapeBorder, inlined since that
             -- helper also writes SetVertexColor, which would fight the engine's per-aura
@@ -700,8 +742,9 @@ local function ApplyStyleToRegions(button, style)
         -- shape toggle forces the same clear+re-add cycle a palette edit does --
         -- AddDispelTypeTexture has no "swap one entry" semantics, the whole
         -- registration is all-or-nothing either way.
-        local borderWant = (style.dispelBorder and style.border and dispelTexSet ~= nil
-            and (style.dispelBorderPx or 2) > 0) and true or false
+        local borderWant = (style.dispelBorder and dispelTexSet ~= nil
+            and ((blizzBorderStyle and d.blizzBorderTex)
+                or (style.border and (style.dispelBorderPx or 2) > 0))) and true or false
         local iconWant = (style.dispelTypeIcon and d.dispelIconTex ~= nil) and true or false
         local want = borderWant or iconWant
         local mapFP = style.dispelColorFP or ""
@@ -710,12 +753,18 @@ local function ApplyStyleToRegions(button, style)
         -- needs the same clear+re-add cycle or the OLD ring geometry keeps rendering.
         -- Ring-only styles keep their historical keys ("strip"/"shape:...") so
         -- shipping the icon channel forces no re-registration on them; the icon
-        -- suffix folds in the icon geometry for the same snapshot reason.
-        local setKey = borderWant
-            and ((shapeActive and d.dispelShapeTex)
-                and ("shape:" .. style.iconShape .. "|" .. (style.shapeBorderSize or style.dispelBorderPx or 2))
-                or "strip")
-            or "noborder"
+        -- suffix folds in the icon geometry for the same snapshot reason. The
+        -- Blizzard border folds in its own geometry key the same way.
+        local setKey = "noborder"
+        if borderWant then
+            if blizzBorderStyle and d.blizzBorderTex then
+                setKey = "blizz:" .. (d.akBlizzGeom or "")
+            elseif shapeActive and d.dispelShapeTex then
+                setKey = "shape:" .. style.iconShape .. "|" .. (style.shapeBorderSize or style.dispelBorderPx or 2)
+            else
+                setKey = "strip"
+            end
+        end
         if iconWant then
             setKey = setKey .. "|icons:" .. (d.akDispelIconGeom or "")
         end
@@ -755,8 +804,16 @@ local function ApplyStyleToRegions(button, style)
                     end
                     local added = true
                     if borderWant then
-                        local opts = { style = dispelTint, showWhenHarmful = true,
-                            showWhenHelpful = false, customDispelColorMap = style.dispelColorMap }
+                        local opts
+                        if blizzBorderStyle and d.blizzBorderTex then
+                            -- Stock art needs no palette; untyped debuffs get the
+                            -- stock red "None" border like the buff frame.
+                            opts = { style = blizzBorderStyle, showWhenHarmful = true,
+                                showWhenHelpful = false, showWithoutDispelType = true }
+                        else
+                            opts = { style = dispelTint, showWhenHarmful = true,
+                                showWhenHelpful = false, customDispelColorMap = style.dispelColorMap }
+                        end
                         for i = 1, #dispelTexSet do
                             if not pcall(addFn, button, dispelTexSet[i], opts) then
                                 added = false
@@ -905,6 +962,15 @@ local function ApplyStyleToRegions(button, style)
         elseif d.styleKey and AK.AurasRestricted() then
             deferredRestyles[d.styleKey] = true
         end
+    end
+
+    -- Weapon-enchant cells (stamped by AK.EnchantCellInit): the stock
+    -- temp-enchant ring under Blizzard Style, re-fitted on every restyle.
+    if d.enchantCell then AK.ApplyBlizzEnchantRing(button, d, style) end
+
+    -- Blizzard Style nameplate cells: the stock rounded mask and ring.
+    if style.blizzRoundArt or d.blizzRoundRing then
+        AK.ApplyBlizzRoundArt(button, d, style, shapeActive)
     end
 
     -- Module-specific styling pass; runs at init and on every Restyle.
@@ -1362,6 +1428,180 @@ function AK.AddSlotToContainer(container, s)
     return f
 end
 
+------------------------------------------------------------------------------
+-- Item enchantments (temporary weapon enchants: oils, imbues, stones)
+--
+-- Not auras (an enchantID, no spell ID) but engine display sources since
+-- 12.1: the container builds the frame through the SAME initializer as an
+-- aura group, resolves the icon off the inventory slot, shows the item
+-- tooltip, and runs the protected CancelTemporaryEnchantment on a cancel
+-- click (style.cancelButtons feeds SetCancelAuraButtons, as for auras).
+AK.ITEM_ENCH_SLOTS = { "MainHand", "OffHand", "Ranged" }
+
+-- Blizzard Style (style.blizzEnchant, set by the consumers' style builders):
+-- the stock purple temp-enchant ring round a weapon-enchant cell, the one
+-- piece of aura border art the engine does not stamp itself (its Border
+-- style is harmful-only). 32px round a 30px icon in the stock buff frame,
+-- so a thirtieth of the cell on each side; anchored to the border host
+-- (button rects are restricted). Hidden, never destroyed, without the flag.
+function AK.ApplyBlizzEnchantRing(button, d, style)
+    local ring = d.blizzEnchantRing
+    if not style.blizzEnchant then
+        if ring then ring:Hide() end
+        return
+    end
+    local host = d.borderHost or button
+    if not ring then
+        ring = host:CreateTexture(nil, "OVERLAY")
+        ring:SetTexture("Interface\\Buttons\\UI-TempEnchant-Border")
+        if ring.SetSnapToPixelGrid then
+            ring:SetSnapToPixelGrid(false)
+            ring:SetTexelSnappingBias(0)
+        end
+        d.blizzEnchantRing = ring
+    end
+    local w = style.width or 32
+    local h = style.height or w
+    local key = w .. "|" .. h
+    if d.blizzEnchantGeom ~= key then
+        local ex, ey = w / 30, h / 30
+        ring:ClearAllPoints()
+        ring:SetPoint("TOPLEFT", host, "TOPLEFT", -ex, ey)
+        ring:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", ex, -ey)
+        d.blizzEnchantGeom = key
+    end
+    ring:Show()
+end
+
+-- extraInit for AddItemEnchantmentsToContainer: marks the cell so the style
+-- pass (ApplyStyleToRegions, at init and on every restyle) can tell it from
+-- an aura button, and fits the ring once now (the pass ran before this hook).
+function AK.EnchantCellInit(button, d, style)
+    d.enchantCell = true
+    AK.ApplyBlizzEnchantRing(button, d, style)
+end
+
+-- Blizzard Style (style.blizzRoundArt, set by the nameplate style builder):
+-- the stock nameplate aura item look -- the full icon art under the rounded
+-- Cooldown Manager mask, the ring overlay hung round the cell (6px by 5px
+-- past a 25px item, so the overhang scales with the cell) and the rounded
+-- stock swipe. The mask goes on the engine's icon region, so it rides the
+-- same restriction guard as the shape mask; the ring sits on the border
+-- host (button rects are restricted). Hidden, never destroyed, without the
+-- flag. Yields to an icon shape, which owns the mask and swipe itself.
+AK.BLIZZ_ROUND_MASK  = "UI-HUD-CoolDownManager-Mask"
+AK.BLIZZ_ROUND_RING  = "UI-HUD-CoolDownManager-IconOverlay"
+AK.BLIZZ_ROUND_SWIPE = "Interface\\HUD\\UI-HUD-CoolDownManager-Icon-Swipe"
+function AK.ApplyBlizzRoundArt(button, d, style, shapeActive)
+    local ring = d.blizzRoundRing
+    local want = style.blizzRoundArt and not shapeActive
+    if want and AK._blizzRoundOK == nil then
+        AK._blizzRoundOK = (C_Texture and C_Texture.GetAtlasInfo
+            and C_Texture.GetAtlasInfo(AK.BLIZZ_ROUND_MASK)
+            and C_Texture.GetAtlasInfo(AK.BLIZZ_ROUND_RING)) and true or false
+    end
+    if not (want and AK._blizzRoundOK) then
+        if ring then ring:Hide() end
+        if d.akBlizzRoundMasked then
+            if d.icon and d.blizzRoundMask then
+                pcall(d.icon.RemoveMaskTexture, d.icon, d.blizzRoundMask)
+            end
+            if d.cooldown and d.cooldown.SetSwipeTexture then
+                pcall(d.cooldown.SetSwipeTexture, d.cooldown, "")
+            end
+            d.akBlizzRoundMasked = nil
+        end
+        return
+    end
+    local host = d.borderHost or button
+    if not ring then
+        ring = host:CreateTexture(nil, "OVERLAY")
+        ring:SetAtlas(AK.BLIZZ_ROUND_RING)
+        if ring.SetSnapToPixelGrid then
+            ring:SetSnapToPixelGrid(false)
+            ring:SetTexelSnappingBias(0)
+        end
+        d.blizzRoundRing = ring
+    end
+    if not d.blizzRoundMask then
+        local mask = button:CreateMaskTexture()
+        mask:SetAtlas(AK.BLIZZ_ROUND_MASK)
+        mask:SetAllPoints(button)
+        d.blizzRoundMask = mask
+    end
+    if not d.akBlizzRoundMasked and d.icon then
+        if pcall(d.icon.AddMaskTexture, d.icon, d.blizzRoundMask) then
+            d.akBlizzRoundMasked = true
+            if d.cooldown and d.cooldown.SetSwipeTexture then
+                pcall(d.cooldown.SetSwipeTexture, d.cooldown, AK.BLIZZ_ROUND_SWIPE)
+            end
+        elseif d.styleKey and AK.AurasRestricted() then
+            deferredRestyles[d.styleKey] = true
+        end
+    end
+    local w = style.width or 32
+    local h = style.height or w
+    if d.blizzRoundW ~= w or d.blizzRoundH ~= h then
+        local ex, ey = w * 0.24, h * 0.2
+        ring:ClearAllPoints()
+        ring:SetPoint("TOPLEFT", host, "TOPLEFT", -ex, ey)
+        ring:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", ex, -ey)
+        d.blizzRoundW, d.blizzRoundH = w, h
+    end
+    ring:Show()
+end
+
+-- Their position is LAYOUT data: they are a flow group of their own, and
+-- `placement`/`layoutIndex` decides whether they lead or trail the aura
+-- groups. Nothing may be anchored to a container (forbidden aspects).
+function AK.SetContainerItemEnchantmentLayout(container, layout)
+    if not (container and layout and container.SetItemEnchantmentLayout) then return end
+    container:SetItemEnchantmentLayout(layout)
+end
+
+-- BOTH halves required: the inbound setter validates before it defaults, so a
+-- method without a direction is a hard error engine-side.
+function AK.SetContainerItemEnchantmentSort(container, sortMethod, sortDirection)
+    if not (container and sortMethod and sortDirection
+        and container.SetItemEnchantmentSortMethod) then return end
+    container:SetItemEnchantmentSortMethod(sortMethod, sortDirection)
+end
+
+-- e = { style, extraInit, hidePermanent (default true: duration-bearing
+-- only), maxSlots (declare only the first N of ITEM_ENCH_SLOTS, for a
+-- display too small to hold all three), layout, sortMethod, sortDirection }.
+-- ONE-WAY: with no addon-facing unregister, a consumer that must stop
+-- showing them releases the container and builds a fresh one. Re-calling is
+-- idempotent and re-applies layout and sort only.
+function AK.AddItemEnchantmentsToContainer(container, e)
+    if not (container and e and container.AddItemEnchantment) then return end
+    local slotEnum = AuraContainerItemEnchantmentSlot
+    if not slotEnum then return end
+    local cd = containerData[container]
+    if cd and not cd.itemEnchFrames then cd.itemEnchFrames = {} end
+    local tracked = cd and cd.itemEnchFrames
+    local names = AK.ITEM_ENCH_SLOTS
+    local last = math.min(e.maxSlots or #names, #names)
+    for i = 1, last do
+        local name = names[i]
+        local slot = slotEnum[name]
+        -- HasItemEnchantment is engine-private and a second declaration for
+        -- the same slot asserts, so the declared set is ours to keep. pcall'd
+        -- anyway: ReleaseContainer drops the whole containerData entry, so a
+        -- container that is released and then re-declared (no consumer does
+        -- that today) would hit that assert with the tracking gone.
+        if slot ~= nil and not (tracked and tracked[name]) then
+            local ok, frame = pcall(container.AddItemEnchantment, container, slot, {
+                initializeFrame = AK.MakeInitializer(e.style, e.extraInit),
+                hidePermanent = e.hidePermanent ~= false,
+            })
+            if ok and tracked then tracked[name] = frame or true end
+        end
+    end
+    AK.SetContainerItemEnchantmentLayout(container, e.layout)
+    AK.SetContainerItemEnchantmentSort(container, e.sortMethod, e.sortDirection)
+end
+
 -- Unit LAST: unit assignment re-evaluates event registrations, and those
 -- are gated on the container having groups/slots. Setting the unit before
 -- declaring content leaves UNIT_AURA unregistered (the Blizzard reference
@@ -1545,16 +1785,22 @@ end
 function AK.ReleaseContainer(container)
     if not container then return end
     local data = containerData[container]
-    if data and data.slotFrames then
-        for _, slotButton in pairs(data.slotFrames) do
-            local d = bd[slotButton]
-            if d then
-                if d.styleKey and styleButtons[d.styleKey] then
-                    styleButtons[d.styleKey][slotButton] = nil
-                end
-                bd[slotButton] = nil
+    local function Untrack(button)
+        local d = type(button) == "table" and bd[button]
+        if d then
+            if d.styleKey and styleButtons[d.styleKey] then
+                styleButtons[d.styleKey][button] = nil
             end
+            bd[button] = nil
         end
+    end
+    if data and data.slotFrames then
+        for _, slotButton in pairs(data.slotFrames) do Untrack(slotButton) end
+    end
+    -- Item enchantment frames come back as handles on declaration, so unlike
+    -- group buttons they can be untracked instead of left as restyle zombies.
+    if data and data.itemEnchFrames then
+        for _, enchButton in pairs(data.itemEnchFrames) do Untrack(enchButton) end
     end
     containerData[container] = nil
     container:Hide()

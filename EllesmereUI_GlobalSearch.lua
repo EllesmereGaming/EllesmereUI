@@ -489,6 +489,9 @@ function AbsorberW:WideButton(parent, text, yOffset, onClick, btnWidth)
     return NewAbsorber(), 40
 end
 function AbsorberW:DualRow(parent, yOffset, leftCfg, rightCfg)
+    -- A row the live factory hides for Blizzard Style has nothing to find.
+    local BS = EllesmereUI.BlizzStyle
+    if BS and BS.RowHidden and BS.RowHidden(leftCfg, rightCfg) then return NewAbsorber(), 0 end
     AbsorberRegister(leftCfg and leftCfg.text, leftCfg and leftCfg.tooltip)
     AbsorberRegister(rightCfg and rightCfg.text, rightCfg and rightCfg.tooltip)
     return NewAbsorber(), 40

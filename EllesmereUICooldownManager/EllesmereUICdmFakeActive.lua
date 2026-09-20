@@ -202,6 +202,12 @@ GetOverlay = function(iconFrame)
     local icon = f:CreateTexture(nil, "ARTWORK")
     icon:SetAllPoints(f)
     o.icon = icon
+    -- Blizzard Style: the copy rounds off with the art it copies (the
+    -- viewer's mask on pooled frames, ours on own frames).
+    if ns.CdmBlizzIcons and ns.CdmBlizzIcons() and ns.CdmBlizzIconMask then
+        local m = ns.CdmBlizzIconMask(iconFrame)
+        if m then pcall(icon.AddMaskTexture, icon, m) end
+    end
 
     local cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
     cd:SetAllPoints(f)
@@ -403,15 +409,25 @@ ApplyToFrame = function(iconFrame, rule, win)
     end
 end
 
+-- User active states belong only to frames we inject. Removing a custom spell
+-- clears its customSpellIDs tag but preserves its profile-level settings for
+-- moves between bars. Those settings must not decorate a native viewer icon
+-- when the spell is later added through normal CDM tracking.
+local function IsInjectedFrame(f)
+    return (f._isCustomSpellFrame or f._isRacialFrame or f._isPresetFrame
+            or f._isItemPresetFrame or f._isTrinketFrame) and true or false
+end
+ns.CdmIsInjectedFrame = IsInjectedFrame
+
 -- BUILT-IN rules only ever target native viewer entries, so they only match
 -- icons on the three native bars. Guards against a stale cached spellID on a
 -- Blizzard-pool-reused icon frame matching a custom bar it never belonged to
 -- (field: Ebon Might's built-in overlay painting a custom-bar potion slot
 -- after icon-size/glow adjustments forced frame reuse). USER rules are
 -- deliberately NOT scoped: they are barKey-less by design and follow the
--- spell to whichever bar hosts it (see the AddUserRule contract below) --
--- scoping them would kill custom-bar cd-state effects, overlays and
--- ready-sounds.
+-- injected spell to whichever bar hosts it (see the AddUserRule contract below).
+-- Restrict their frame kind, not their bar, so native icons cannot inherit an
+-- orphaned custom timer while custom-bar presets keep their active states.
 local NATIVE_VIEWER_BARKEYS = { cooldowns = true, utility = true, buffs = true }
 
 -- Apply (or clear) a rule on every matching live icon. A rule with .barKey
@@ -430,7 +446,7 @@ ApplyRule = function(rule, win)
             if rule.barKey then
                 barScopeOK = fc and fc.barKey == rule.barKey
             elseif rule.user then
-                barScopeOK = fc ~= nil
+                barScopeOK = fc ~= nil and IsInjectedFrame(f)
             else
                 barScopeOK = fc and fc.barKey and NATIVE_VIEWER_BARKEYS[fc.barKey]
             end
@@ -1237,19 +1253,6 @@ RestoreAllCdState = function()
         end
     end
 end
-
--- Is this frame one WE inject? customActiveStates is only editable from the
--- per-icon menu's "Custom Active State" section, offered for exactly these
--- frames (EUI_CooldownManager_Options.lua isCustomInjected). A Blizzard viewer
--- frame carries none of the flags, so a user rule reaching one is an orphan:
--- removing a custom spell clears customSpellIDs but not the profile-level
--- active state, and no menu can then show or clear it -- which hid a plainly
--- tracked spell with nothing to explain why.
-local function IsInjectedFrame(f)
-    return (f._isCustomSpellFrame or f._isRacialFrame or f._isPresetFrame
-            or f._isItemPresetFrame or f._isTrinketFrame) and true or false
-end
-ns.CdmIsInjectedFrame = IsInjectedFrame
 
 -- Same-frame coalesced evaluation: every engine edge funnels here. Zero cost
 -- while no cd-state rules exist.

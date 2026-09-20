@@ -340,6 +340,29 @@ local DB_DEFAULTS = {
                 targetSize = 10,
             },
         },
+        -- Run Summary (Mythic+ Tools tab): end-of-key overview panel with one
+        -- row per party member, plus a per-character history of finished runs.
+        -- Disabled by default; the collector registers its events only while
+        -- enabled (zero cost off). Runtime in EUI_MythicTimer_RunSummary.lua.
+        -- The run records themselves live in the per-character SavedVariable
+        -- EllesmereUIMythicRunsDB, not here -- profile data is settings only.
+        runSummary = {
+            enabled          = false,
+            showAfterLoot    = true,
+            historySize      = 20,
+            scale            = 1,
+            textSize         = 14,   -- member rows only; header/title sizes are fixed
+            sortKey          = "dps", -- dps | damageTaken | interrupts | deaths (header click)
+            sortAsc          = false,
+            showSpecIcons    = true,
+            colItemLevel     = true,
+            colScore         = true,
+            colLoot          = true,
+            colDps           = true,
+            colDamageTaken   = true,
+            colInterrupts    = true,
+            colDeaths        = true,
+        },
     },
 }
 
@@ -3052,6 +3075,7 @@ function EMT:OnEnable()
     -- timer feature turned off. Both are no-ops while their flags are off.
     if ns.TSB_OnEnable then ns.TSB_OnEnable(db) end
     if ns.TFB_OnEnable then ns.TFB_OnEnable(db) end
+    if ns.RS_OnEnable then ns.RS_OnEnable(db) end
     if not db or not db.profile.enabled then return end
 
     if EllesmereUI and EllesmereUI.RegisterUnlockModeListener then

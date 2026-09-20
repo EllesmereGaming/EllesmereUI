@@ -315,48 +315,11 @@ local function TruncateFilterName(name)
     return (name or ""):sub(1, 3) .. "..."
 end
 
--- Both defined in EllesmereUIUnitFrames_PlayerAuraBars.lua next to the cfg they
--- read, so this page and the unlock-mode mover label cannot drift apart. The
--- module returns raw English keys; only the options page translates them.
-local function IsWeaponEnchantsOnly(cfg)
-    return ns.PAB_IsWeaponEnchantsOnly ~= nil
-        and ns.PAB_IsWeaponEnchantsOnly(cfg)
-end
-
+-- Defined in EllesmereUIUnitFrames_PlayerAuraBars.lua next to the cfg it
+-- reads, so this page and the unlock-mode mover label cannot drift apart. The
+-- module returns the raw English key; only the options page translates it.
 local function DefaultBuffBarName(cfg)
     return L(ns.PAB_DefaultBuffsName and ns.PAB_DefaultBuffsName(cfg) or "Buffs")
-end
-
--- Weapon-enchants-only is a fundamentally different shape of bar -- at most
--- three cells (main hand / off hand / ranged, see EUI_UnitFrames_
--- WeaponEnchants.lua's SLOTS, which matches Blizzard's own
--- UpdateTemporaryEnchantmentBuffs) instead of a wrapping buff grid. Resize the
--- grid to fit on the way in and restore it on the way out.
---
--- The user's own iconsPerRow/maxRows/maxTotal are stashed rather than assumed:
--- restoring hardcoded defaults would silently eat a customized grid. Storing
--- nil for an unset key is intentional -- the stash is then empty and restoring
--- puts the keys back to nil, i.e. ComputeGrid's own 11/3/32 buff fallbacks.
---
--- Returns true when it actually crossed the boundary. Callers use that to pick
--- a FORCE page rebuild: crossing rewrites the three grid sliders and the bar's
--- name, and none of those are RegisterWidgetRefresh clients, so the usual
--- lightweight refresh would leave them showing stale numbers.
-local function SyncWeaponEnchantsGrid(cfg)
-    if not cfg then return false end
-    if IsWeaponEnchantsOnly(cfg) then
-        if cfg.enchGridSaved then return false end
-        cfg.enchGridSaved = { iconsPerRow = cfg.iconsPerRow,
-            maxRows = cfg.maxRows, maxTotal = cfg.maxTotal }
-        cfg.iconsPerRow, cfg.maxRows, cfg.maxTotal = 3, 1, 3
-        return true
-    end
-    if not cfg.enchGridSaved then return false end
-    local saved = cfg.enchGridSaved
-    cfg.iconsPerRow, cfg.maxRows, cfg.maxTotal =
-        saved.iconsPerRow, saved.maxRows, saved.maxTotal
-    cfg.enchGridSaved = nil
-    return true
 end
 
 local function BuildBuffBarSubtitle(bar)
@@ -473,13 +436,9 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply, isDefau
     --                      its own, MUTUALLY EXCLUSIVE with All Buffs:
     --                      the catch-all narrowed to duration-carrying
     --                      buffs via candidateFilters.maxDuration)
-    --   [ ] Weapon Enchants (cfg.showWeaponEnchants, default-bar only --
-    --                      the enchant cells publish from the default
-    --                      Buffs bar alone. INDEPENDENT of the two modes
-    --                      above and of the real filters: oils/imbues are
-    --                      not auras, so they come from their own source
-    --                      rather than the catch-all group, and a mode
-    --                      flip must not clear it)
+    --   (weapon enchants have no row of their own: the default Buffs
+    --    bar's enchant cells ride All Buffs / Has Duration --
+    --    ns.PAB_EnchantsOn)
     --   ------------------ (isHeader divider)
     --   [ ] <real filters, alphabetical>
     --
@@ -512,7 +471,6 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply, isDefau
     ); sy = sy - hh
 
     local PAB_ALL_BUFFS_KEY, PAB_HAS_DURATION_KEY = "__allBuffs", "__hasDuration"
-    local PAB_WEAPON_ENCH_KEY = "__weaponEnchants"
 
     -- Empty selections are LEGAL (user directive 2026-08-15, reversing the
     -- phase-2 no-empty rule on PAB): any content source can be unchecked,
@@ -566,12 +524,6 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply, isDefau
                 { key = PAB_HAS_DURATION_KEY, label = "Has Duration",
                   tooltip = "Show every buff that has a duration (hides permanent buffs). Use the Hide lane below to remove specific filters." },
             }
-            -- Default Buffs bar only: the enchant cells publish from that bar
-            -- alone, so the row would be a dead switch on custom buff bars.
-            if isDefault then
-                items[#items + 1] = { key = PAB_WEAPON_ENCH_KEY, label = "Weapon Enchants",
-                  tooltip = "Show weapon oil and imbue icons at the front of this bar. They are weapon enchants rather than auras, so they show independently of the options above -- and the aura grid is shifted inward to make room for them, with every row shifting over by the same amount." }
-            end
             items[#items + 1] = { isHeader = true, label = "Show", rightLabel = "Hide" }
             for i = 1, #filters do
                 items[#items + 1] = { key = filters[i].id, label = filters[i].name,
@@ -580,21 +532,12 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply, isDefau
             return items
         end
         local warnClosed
-        -- Crossing the enchants-only boundary rewrites the grid sliders and the
-        -- bar's name, which aren't lightweight-refresh clients -- but a forced
-        -- RefreshPage(true) mid-click would also tear down this open dropdown.
-        -- So the force is DEFERRED: the setters mark it and onMenuClosed flushes
-        -- it once the menu hides (the widget's documented defer pattern). While
-        -- the menu stays open the sliders behind it are briefly stale; they
-        -- rebuild the moment it closes.
-        local pendingForce
         local cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
             rgn, 190, rgn:GetFrameLevel() + 2,
             FilterItems,
             function(k, neg)
                 if k == PAB_ALL_BUFFS_KEY then return AllBuffsOn() end
                 if k == PAB_HAS_DURATION_KEY then return cfg.hasDuration == true end
-                if k == PAB_WEAPON_ENCH_KEY then return cfg.showWeaponEnchants == true end
                 if neg then
                     local nf = cfg.negFilters
                     return nf and nf[k] == true
@@ -610,13 +553,10 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply, isDefau
                     -- lane subtracts in both modes; the show lane simply goes dormant
                     -- while broad content is on). Extra Spells stay untouched.
                     cfg.hasDuration = nil
-                    if SyncWeaponEnchantsGrid(cfg) then pendingForce = true end
                     apply()
                     -- Non-force, same as every other row: the open menu
                     -- refreshes its own checks/locks in place, so a mode
-                    -- flip must not tear the page down under it. Crossing the
-                    -- enchants-only boundary defers its rebuild to menu close
-                    -- (pendingForce above).
+                    -- flip must not tear the page down under it.
                     EllesmereUI:RefreshPage()
                     return
                 end
@@ -625,24 +565,7 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply, isDefau
                     -- Mutually exclusive with All Buffs (a broad-content mode of its
                     -- own); lanes persist, same as All Buffs.
                     if v then cfg.showAllBuffs = false end
-                    if SyncWeaponEnchantsGrid(cfg) then pendingForce = true end
                     apply()
-                    EllesmereUI:RefreshPage()
-                    return
-                end
-                if k == PAB_WEAPON_ENCH_KEY then
-                    -- Its own content source (oils/imbues are not auras), so it
-                    -- neither clears nor is cleared by the two modes above and
-                    -- never touches the filter lanes.
-                    cfg.showWeaponEnchants = v and true or nil
-                    if SyncWeaponEnchantsGrid(cfg) then pendingForce = true end
-                    apply()
-                    -- Non-force so this open dropdown survives the click, same
-                    -- as every other row. Entering/leaving enchants-only
-                    -- rewrites the grid sliders (Icons per Row / Max Rows /
-                    -- Max Total) and the bar's name, none of which are
-                    -- RegisterWidgetRefresh clients -- that rebuild is
-                    -- deferred to menu close (pendingForce).
                     EllesmereUI:RefreshPage()
                     return
                 end
@@ -671,12 +594,6 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply, isDefau
             end,
             nil, 12, nil, nil, function()
                 if warnClosed then warnClosed() end
-                -- Flush the deferred enchants-only rebuild now that closing
-                -- can no longer strand an open menu.
-                if pendingForce then
-                    pendingForce = nil
-                    EllesmereUI:RefreshPage(true)
-                end
             end)
         PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
         rgn._control = cbDD; rgn._lastInline = nil
@@ -1149,11 +1066,12 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
     local _, hh = 0, 0
 
     _, hh = W:SectionHeader(frame, "DISPLAY", sy); sy = sy - hh
+    sy = EllesmereUI.BlizzStyle.Note(frame, sy, "playerauras")
 
     local textureValues, textureOrder = EllesmereUI.GetBorderTextureDropdown()
     local styleRow
     styleRow, hh = W:DualRow(frame, sy,
-        {
+        EllesmereUI.BlizzStyle.Gate("playerauras", {
             type = "dropdown", text = "Border Style",
             disabled = function()
                 return cfg.iconShape and cfg.iconShape ~= "none"
@@ -1175,8 +1093,8 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
                 if defaultSize then cfg.borderSize = defaultSize end
                 apply()
             end,
-        },
-        {
+        }),
+        EllesmereUI.BlizzStyle.Gate("playerauras", {
             type = "dropdown", text = "Border Size",
             values = BORDER_SIZE_VALUES, order = BORDER_SIZE_LEVELS,
             itemDisabled = function(v)
@@ -1188,7 +1106,7 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
             end,
             getValue = function() return BORDER_SIZE_KEY[cfg.borderSize or 1] or "thin" end,
             setValue = function(v) cfg.borderSize = BORDER_SIZE_NUM[v] or 1; apply() end,
-        }
+        })
     ); sy = sy - hh
     do
         local rgn = styleRow._leftRegion
@@ -1236,7 +1154,8 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
         local cogBtn = ns._PAMakeCogBtn(rgn, cogShow)
         local function UpdateBorderCogVisibility()
             cogBtn:SetShown((cfg.borderTexture or "solid") ~= "solid"
-                and not (cfg.iconShape and cfg.iconShape ~= "none"))
+                and not (cfg.iconShape and cfg.iconShape ~= "none")
+                and not EllesmereUI.BlizzStyle.Get("playerauras"))
         end
         EllesmereUI.RegisterWidgetRefresh(UpdateBorderCogVisibility)
         UpdateBorderCogVisibility()
@@ -1460,13 +1379,14 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
                 apply()
             end
         },
-        {
+        EllesmereUI.BlizzStyle.Gate("playerauras", {
             -- cfg.iconZoom stays a raw 0-1 fraction (SetTexCoord's own units); the
             -- slider itself works in percent, like Action Bars' Icon Zoom.
+            -- Blizzard Style draws the whole icon (zoom 0).
             type = "slider", text = "Icon Zoom", min = 0, max = 15, step = 0.5, trackWidth = 120,
             getValue = function() return (cfg.iconZoom or 0.055) * 100 end,
             setValue = function(v) cfg.iconZoom = v / 100; apply() end
-        }
+        })
     ); sy = sy - hh
     do
         local rgn = shapeRow._leftRegion
@@ -1561,10 +1481,7 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
     end
 
     -- Buff bars only: debuffs are never player-cancelable, so the row would
-    -- be a dead switch there. (Weapon enchants used to share this row as a
-    -- second toggle; they are a content source rather than a display tweak,
-    -- so they now live as the "Weapon Enchants" pinned row in the Filters
-    -- dropdown -- see BuildAssignedBuffsFields.)
+    -- be a dead switch there.
     if isBuff then
         _, hh = W:DualRow(frame, sy,
             FontOutlineField(cfg, apply),
@@ -1640,6 +1557,10 @@ local function BuildDispelColorFields(frame, fontPath, sy, cfg, apply)
         cogBtn:SetScript("OnEnter", function(self) if IconOn() then self:SetAlpha(0.7) end end)
         cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(IconOn() and 0.4 or 0.15) end)
     end
+
+    -- Blizzard Style paints the stock per-type border art, so the palette has
+    -- nothing to colour: the whole section stays out (fully gated rows hide).
+    if EllesmereUI.BlizzStyle.Get("playerauras") then return sy end
 
     _, hh = W:SectionHeader(frame, "DISPEL COLORS", sy); sy = sy - hh
 
@@ -3316,7 +3237,7 @@ function ns.PABMP_BuildPage(pageName, parent, yOffset)
                     message     = L("Player Aura Bars are disabled and Blizzard's default display is back. A UI reload is recommended to finish cleanup."),
                     confirmText = "Reload Now",
                     cancelText  = "Later",
-                    onConfirm   = function() ReloadUI() end,
+                    reload      = true,
                 })
             end
         end)

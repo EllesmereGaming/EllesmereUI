@@ -12,6 +12,14 @@ if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; r
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 local EAB = EllesmereUI.Lite.NewAddon(ADDON_NAME)
 ns.EAB = EAB
+-- Degraded mode (WoW Forever beta, EllesmereUI.SecureSnippetsOK): the
+-- restricted environment cannot compile snippets there, so every site that
+-- would compile one -- Execute, WrapScript, a driver or a state write on a
+-- handler that carries a body -- is skipped, and the secure layout handler
+-- is mirrored in plain Lua out of combat. Bars, buttons and keybinds work;
+-- stance and form paging, conditional bar hiding, empty-slot handling and
+-- vehicle or override switching do not. Comes back whole with the client fix.
+ns.SNIPPETS_OK = EllesmereUI.SecureSnippetsOK()
 
 local PP = EllesmereUI.PP
 
@@ -1311,10 +1319,12 @@ local SHOWGRID = {
 -- Lua-side button registry: [button] = actionSlot
 local _controllerButtons = {}
 
-ActionButtonController:Execute([[
-    _eabBtnMap = table.new()
-    _eabPendingVis = table.new()
-]])
+if ns.SNIPPETS_OK then
+    ActionButtonController:Execute([[
+        _eabBtnMap = table.new()
+        _eabPendingVis = table.new()
+    ]])
+end
 
 -- Secure method: SetShowGrid (bitwise flag toggle). Restricted Lua has no bit
 -- library, so modular arithmetic tests/flips individual bits in the bitmask.
@@ -1347,7 +1357,9 @@ ActionButtonController:SetAttributeNoHandler("ForActionSlot", [[
 
 -- Deferred visibility: "flush"=0 marks dirty; the attribute driver resets it
 -- to 1 after ~200ms, applying pending changes in one batch instead of per-change.
-RegisterAttributeDriver(ActionButtonController, "flush", 1)
+if ns.SNIPPETS_OK then
+    RegisterAttributeDriver(ActionButtonController, "flush", 1)
+end
 
 ActionButtonController:SetAttributeNoHandler("_onattributechanged", [[
     if name == "flush" and value == 1 then
@@ -1392,7 +1404,7 @@ local BTN_ON_SHOW_HIDE = [[
 -- Showgrid monitor: when Blizzard changes ActionButton1's showgrid
 -- (e.g. during spell drag in combat), propagate to all our buttons.
 local function InitShowGridMonitor()
-    if not ActionButton1 then return end
+    if not ActionButton1 or not ns.SNIPPETS_OK then return end
     ActionButtonController:WrapScript(ActionButton1, "OnAttributeChanged", [[
         if name ~= "showgrid" then return end
         for r = 2, 4, 2 do
@@ -1410,6 +1422,12 @@ local function RegisterButtonWithController(btn)
     -- carries our secure snippets, skip WrapScript+Execute (re-wrapping in
     -- combat taints the restricted env) and just restore the Lua registry.
     if btn:GetAttribute("_eabControllerRegistered") then
+        _controllerButtons[btn] = true
+        return
+    end
+    -- Degraded mode: no wraps and no secure map, the Lua registry alone.
+    if not ns.SNIPPETS_OK then
+        btn:SetAttributeNoHandler("_eabControllerRegistered", true)
         _controllerButtons[btn] = true
         return
     end
@@ -1584,7 +1602,9 @@ do
     ]])
 
     -- Secure table of bar frames that receive state broadcasts
-    OverrideController:Execute([[ _eabBarFrames = table.new() ]])
+    if ns.SNIPPETS_OK then
+        OverrideController:Execute([[ _eabBarFrames = table.new() ]])
+    end
 
     -- overrideui driven by [overridebar][vehicleui] macro instead of parenting
     -- to OverrideActionBar (which would taint the protected frame).
@@ -1598,13 +1618,17 @@ do
         vehicleui = "[vehicleui]1;0",
         petbattleui = "[petbattle]1;0",
     }) do
-        RegisterAttributeDriver(OverrideController, attr, driver)
+        -- Each driver evaluates at once and runs the handler body above.
+        if ns.SNIPPETS_OK then
+            RegisterAttributeDriver(OverrideController, attr, driver)
+        end
     end
 end
 
 -- Add a bar frame to the watch list. Deduped in the snippet: the secure list
 -- can never be pruned, so a re-registration would grow it and every sweep permanently.
 local function RegisterBarWithOverrideController(frame)
+    if not ns.SNIPPETS_OK then return end
     OverrideController:SetFrameRef("add", frame)
     OverrideController:Execute([[
         local f = self:GetFrameRef("add")
@@ -1743,12 +1767,24 @@ local _secureRefsReady = false
 -- it has already run, so the reveal path in RefreshRuntimeVisibility clears
 -- _secureRefsReady and calls this again; indices are reassigned consistently in
 -- the same pass, and the only readers of btn._secureSlotIdx run after a full one.
+-- Degraded mode keeps the same refs in a Lua table, so the mirror further
+-- down can apply what the handler would have. A frame ref on the handler
+-- runs its body, so none is set there without snippets.
+ns._degradedRefs = {}
+ns._SetupRef = function(label, frame)
+    if ns.SNIPPETS_OK then
+        _secureHandler:SetFrameRef(label, frame)
+    else
+        ns._degradedRefs[label] = frame
+    end
+end
+
 local function SecureSetupHandler_PrepareRefs()
     if _secureRefsReady then return end
     _secureRefsReady = true
 
-    _secureHandler:SetFrameRef("uiParent", UIParent)
-    _secureHandler:SetFrameRef("hiddenParent", hiddenParent)
+    ns._SetupRef("uiParent", UIParent)
+    ns._SetupRef("hiddenParent", hiddenParent)
 
     -- Register all buttons (our EABButtons + Blizzard Stance/Pet)
     local btnIdx = 0
@@ -1758,13 +1794,14 @@ local function SecureSetupHandler_PrepareRefs()
             for _, btn in ipairs(btns) do
                 if btn then
                     btnIdx = btnIdx + 1
-                    _secureHandler:SetFrameRef("btn-" .. btnIdx, btn)
+                    ns._SetupRef("btn-" .. btnIdx, btn)
                     btn._secureSlotIdx = btnIdx
                 end
             end
         end
     end
-    _secureHandler:SetAttribute("btn-count", btnIdx)
+    ns._degradedBtnCount = btnIdx
+    if ns.SNIPPETS_OK then _secureHandler:SetAttribute("btn-count", btnIdx) end
 
     -- Register stock bar frames to hide
     local blizzIdx = 0
@@ -1772,25 +1809,79 @@ local function SecureSetupHandler_PrepareRefs()
         local bar = _G[entry.name]
         if bar then
             blizzIdx = blizzIdx + 1
-            _secureHandler:SetFrameRef("blizzbar-" .. blizzIdx, bar)
+            ns._SetupRef("blizzbar-" .. blizzIdx, bar)
         end
     end
     if StatusTrackingBarManager and not (EAB.db and EAB.db.profile.useBlizzardDataBars) then
         blizzIdx = blizzIdx + 1
-        _secureHandler:SetFrameRef("blizzbar-" .. blizzIdx, StatusTrackingBarManager)
+        ns._SetupRef("blizzbar-" .. blizzIdx, StatusTrackingBarManager)
     end
-    _secureHandler:SetAttribute("blizzbar-count", blizzIdx)
+    ns._degradedBlizzCount = blizzIdx
+    if ns.SNIPPETS_OK then _secureHandler:SetAttribute("blizzbar-count", blizzIdx) end
 end
 
 -- Register our bar frames as refs. Called after CreateBarFrame.
 local function SecureSetupHandler_RegisterBarFrame(key, frame)
-    _secureHandler:SetFrameRef("bar-" .. key, frame)
+    ns._SetupRef("bar-" .. key, frame)
+end
+
+-- Degraded mode: the handler body above in plain Lua. Every call here is
+-- allowed on a protected frame outside combat; in combat the apply is parked
+-- on the regen re-apply like every other Lua-side write.
+ns._DegradedLayoutApply = function(layoutData, barFrameData)
+    if InCombatLockdown() then ns._eabApplyDeferred = true; return end
+    local refs = ns._degradedRefs
+    local uiParent = refs.uiParent or UIParent
+    local hidden = refs.hiddenParent or hiddenParent
+    for i = 1, (ns._degradedBtnCount or 0) do
+        local btn = refs["btn-" .. i]
+        if btn then btn:SetParent(uiParent) end
+    end
+    for i = 1, (ns._degradedBlizzCount or 0) do
+        local bar = refs["blizzbar-" .. i]
+        if bar then bar:SetParent(hidden) end
+    end
+    for slot, d in pairs(layoutData) do
+        local btn = refs["btn-" .. slot]
+        local bar = refs["bar-" .. d.barKey]
+        if btn and bar then
+            btn:SetAttribute("statehidden", nil)
+            btn:SetParent(bar)
+            btn:ClearAllPoints()
+            btn:SetPoint("TOPLEFT", bar, "TOPLEFT", tonumber(d.x) or 0, tonumber(d.y) or 0)
+            btn:SetWidth(tonumber(d.w) or 45)
+            btn:SetHeight(tonumber(d.h) or 45)
+            if d.barKey == "PetBar" then
+                btn:SetID(tonumber(d.actionSlot) or 1)
+                btn:SetAttribute("action", nil)
+            elseif d.barKey ~= "StanceBar" then
+                btn:SetID(0)
+                local action = tonumber(d.actionSlot)
+                if action and action ~= 0 then btn:SetAttribute("action", action) end
+            end
+            if d.show then btn:Show() else btn:Hide() end
+        end
+    end
+    for _, d in ipairs(barFrameData) do
+        local bar = refs["bar-" .. d.key]
+        if bar then
+            bar:SetWidth(tonumber(d.w) or 1)
+            bar:SetHeight(tonumber(d.h) or 1)
+            bar:ClearAllPoints()
+            bar:SetPoint(d.point or "CENTER", uiParent, d.relPoint or "CENTER", tonumber(d.x) or 0, tonumber(d.y) or 0)
+            if d.hidden then bar:Hide() else bar:Show() end
+        end
+    end
 end
 
 -- Encode layout data for all buttons as attributes, then trigger the snippet.
 -- layoutData: table of { slot = { barKey, x, y, w, h, show, actionSlot } }
 -- barFrameData: table of { key, w, h, point, relPoint, x, y }
 local function SecureSetupHandler_Execute(layoutData, barFrameData)
+    if not ns.SNIPPETS_OK then
+        ns._DegradedLayoutApply(layoutData, barFrameData)
+        return
+    end
     for slot, d in pairs(layoutData) do
         local actionSlot = d.actionSlot or 0
         _secureHandler:SetAttribute("layout-" .. slot,
@@ -2210,7 +2301,7 @@ local function GetOrCreateButton(slot, parent, info, index, skipProtected)
         -- A drag consumes the up edge and strands the flip; the next down
         -- click (mouse or keybind) clears it BEFORE the native handler
         -- runs, so that press still acts on its configured edge.
-        if not btn:GetAttribute("eabPickupWrap") and not InCombatLockdown() then
+        if not btn:GetAttribute("eabPickupWrap") and not InCombatLockdown() and ns.SNIPPETS_OK then
             btn:SetAttribute("eabPickupWrap", true)
             SecureHandlerWrapScript(btn, "OnClick", btn, [[
                 local flipped = self:GetAttribute("eabPickupFlipped")
@@ -2852,7 +2943,9 @@ local function CreateBarFrame(info)
             self:GetFrameRef("blizzmainbar"):SetAttribute("actionpage", page)
         ]])
 
-        RegisterStateDriver(frame, "page", pagingConditions)
+        if ns.SNIPPETS_OK then
+            RegisterStateDriver(frame, "page", pagingConditions)
+        end
     end
 
     -- Bars 2-8 (nativeActionPage) and 9-10 (customPage): buttons have static action
@@ -2861,7 +2954,12 @@ local function CreateBarFrame(info)
     -- identical machinery either way, differing only in the default page source.
     local defaultPage = info.nativeActionPage or info.customPage
     if defaultPage then
-        frame:Execute(("self:SetAttribute('actionpage', %d)"):format(defaultPage))
+        if ns.SNIPPETS_OK then
+            frame:Execute(("self:SetAttribute('actionpage', %d)"):format(defaultPage))
+        else
+            -- Plain attribute, no state handler: nothing compiles.
+            frame:SetAttribute("actionpage", defaultPage)
+        end
 
         -- Configurable paging: install a state driver on top of the default
         -- page; when no conditions match, fall back to the bar's default.
@@ -2875,7 +2973,7 @@ local function CreateBarFrame(info)
             ]])
             frame._eabPagingInstalled = true
             local conditions = EAB_VTABLE.BuildPagingConditions(key, customPaging, defaultPage)
-            if conditions then
+            if conditions and ns.SNIPPETS_OK then
                 RegisterStateDriver(frame, "page", conditions)
             end
         end
@@ -2908,7 +3006,9 @@ local function CreateBarFrame(info)
     -- it immediately, before combat can return after a brief reload regen.
     local s = EAB.db and EAB.db.profile.bars[key]
     local startHidden = s and (s.alwaysHidden or s.enabled == false)
-    RegisterStateDriver(frame, "eabvis", startHidden and "hide" or "show")
+    -- Degraded mode: the driver manager's own visibility state shows and
+    -- hides the frame itself, no handler body involved.
+    RegisterStateDriver(frame, ns.SNIPPETS_OK and "eabvis" or "visibility", startHidden and "hide" or "show")
 
     -- Register with the override controller so vehicle/override/petbattle
     -- state changes propagate to this bar frame.
@@ -2947,6 +3047,7 @@ end
 -- Rebuild the paging state driver for a bar after settings change. Called from the
 -- options panel when the user modifies paging config. Must be called out of combat.
 function ns.RebuildBarPaging(barKey)
+    if not ns.SNIPPETS_OK then return end
     if InCombatLockdown() then return end
     local frame = barFrames[barKey]
     if not frame then return end
@@ -9460,7 +9561,9 @@ function EAB:ApplyExtraBarVisibility()
         end
     end
     -- Register the state driver: hide during pet battle, show otherwise
-    RegisterStateDriver(_extraBarVisProxy, "extravis", "[petbattle] hide; show")
+    if ns.SNIPPETS_OK then
+        RegisterStateDriver(_extraBarVisProxy, "extravis", "[petbattle] hide; show")
+    end
 end
 
 --  Combat Show/Hide, Runtime Visibility, Click-Through, Housing
@@ -11859,7 +11962,7 @@ local function UpdateKeybinds()
     for _, info in ipairs(BAR_CONFIG) do
         local frame = barFrames[info.key]
         if frame then
-            frame:SetAttribute("state-eabempower", GetTime())
+            if ns.SNIPPETS_OK then frame:SetAttribute("state-eabempower", GetTime()) end
         end
     end
     return true
@@ -11883,7 +11986,7 @@ ns._EABReassertEmpowerAttrs = function()
     for _, info in ipairs(BAR_CONFIG) do
         local frame = barFrames[info.key]
         if frame then
-            frame:SetAttribute("state-eabempower", GetTime())
+            if ns.SNIPPETS_OK then frame:SetAttribute("state-eabempower", GetTime()) end
         end
     end
 end
@@ -13291,6 +13394,10 @@ end
 function EAB:OnFirstLogin()
     self:UnregisterEvent("PLAYER_ENTERING_WORLD")
 
+    -- WoW Forever starts every install from the base layout, never from a
+    -- snapshot of Blizzard's bars (EllesmereUI_ForeverLayout.lua).
+    if EllesmereUI.IS_FOREVER then self.db.sv._capturedOnce_EAB = true end
+
     -- A profile import can stamp the capture flag mid-session (imported data
     -- is a chosen layout). Honor the stamp here so a still-pending capture
     -- never overwrites the imported profile; just run the normal setup.
@@ -13764,7 +13871,7 @@ function EAB:FinishSetup()
         local v = locked and 1 or 0
         -- Guarded: SetAttribute re-runs the controller's _onattributechanged
         -- snippet, and CVAR_UPDATE is a firehose at login.
-        if ActionButtonController:GetAttribute("eab-barslocked") ~= v then
+        if ns.SNIPPETS_OK and ActionButtonController:GetAttribute("eab-barslocked") ~= v then
             ActionButtonController:SetAttribute("eab-barslocked", v)
         end
     end

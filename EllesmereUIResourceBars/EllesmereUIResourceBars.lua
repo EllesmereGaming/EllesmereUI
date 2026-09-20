@@ -82,7 +82,9 @@ local format = string.format
 local UnitHealth, UnitHealthMax = UnitHealth, UnitHealthMax
 local UnitPower, UnitPowerMax = UnitPower, UnitPowerMax
 local UnitClass = UnitClass
-local GetSpecialization = GetSpecialization
+-- Vanilla-based clients (WoW Forever) have no specialization API: every
+-- reader then sees "no spec", the state a fresh character is in anyway.
+local GetSpecialization = GetSpecialization or function() return nil end
 local InCombatLockdown = InCombatLockdown
 local GetShapeshiftFormID = GetShapeshiftFormID
 local IsPlayerSpell = IsPlayerSpell
@@ -714,7 +716,9 @@ end
 local BAR_TYPE_SPECS = {}
 
 local function BuildBarTypeSpecMap()
-    if not GetNumClasses then return end
+    -- Vanilla-based clients (WoW Forever) have classes but no specialization
+    -- API at all, so the map stays empty there.
+    if not (GetNumClasses and GetNumSpecializationsForClassID and GetSpecializationInfoForClassID) then return end
     for classID = 1, GetNumClasses() do
         local _, classFile = GetClassInfo(classID)
         if classFile then
@@ -1090,6 +1094,10 @@ local CUSTOM_FILL_DEFAULT = { 1, 1, 1 }
 
 local DEFAULTS = {
     profile = {
+        -- Blizzard Style (Global Settings > Style) for the health, power and
+        -- class resource bars: the personal resource display's bar frame in
+        -- place of the EUI full-bar border. Default OFF; reload-gated.
+        useBlizzardStyleBars = false,
         health = {
             enabled     = false,
             smoothBars  = false,
@@ -1143,7 +1151,8 @@ local DEFAULTS = {
             hashColorR  = 1, hashColorG = 1, hashColorB = 1, hashColorA = 0.7,
         },
         primary = {
-            enabled     = true,
+            -- Off by default on WoW Forever (vanilla content), on everywhere else.
+            enabled     = (EllesmereUI.IS_FOREVER ~= true),
             smoothBars  = false,
             width       = 214,
             height      = 14,
@@ -1203,7 +1212,8 @@ local DEFAULTS = {
             shiftElementsIfNoPower = "None",
         },
         secondary = {
-            enabled     = true,
+            -- Off by default on WoW Forever (vanilla content), on everywhere else.
+            enabled     = (EllesmereUI.IS_FOREVER ~= true),
             smoothBars  = false,
             pipWidth    = 214,
             pipHeight   = 20,
@@ -1278,6 +1288,10 @@ local DEFAULTS = {
         },
         castBar = {
             enabled       = true,
+            -- Blizzard Style (Global Settings > Style): the stock cast bar art
+            -- (background, frame, text box, cast/channel fills, pip) on this
+            -- bar with every feature intact. Default OFF; reload-gated.
+            useBlizzardStyle = false,
             alwaysShow    = false,  -- keep the bar on screen (sitting empty) while nothing is being cast
             showIcon      = true,
             iconOnRight   = false,  -- attach the spell icon to the right of the bar instead of the left
@@ -1705,6 +1719,9 @@ local function ApplyBarTexture(bar, texKey)
     if not bar then return end
     local path = EllesmereUI.ResolveTexturePath(_G._ERB_BarTextures, texKey, "Interface\\Buttons\\WHITE8x8")
     bar:SetStatusBarTexture(path)
+    -- Blizzard Style: a path swap can mint a new fill object; re-seat the
+    -- bar-shape mask on it (memoized per object, so a no-op otherwise).
+    if bar._blizzBarMask then ns.ERB_SeatBlizzMask(bar) end
 end
 
 
@@ -1910,6 +1927,8 @@ local function CreatePip(parent, w, h, idx, borderSize, borderR, borderG, border
         if self._rechargeBar then
             self._rechargeBar:SetStatusBarTexture(path)
         end
+        -- Blizzard Style: a path swap mints a new recharge fill; re-seat the mask.
+        if self._blizzMask then ns.ERB_MaskPip(self, self._blizzMask) end
     end
 
     pip._active = false
@@ -2347,13 +2366,18 @@ local function RegisterUnlockElements()
             getFrame = function() return castBarFrame end,
             getSize  = function()
                 local cb = S()
-                local iconW = (cb.showIcon ~= false) and cb.height or 0
-                return cb.width + iconW, cb.height
+                return cb.width + ns.ERB_CastIconW(cb), cb.height
+            end,
+            -- Blizzard Style: the stock text box (and the icon spanning it)
+            -- hang 13px below the bar; the mover wraps them.
+            getBottomExtra = function()
+                local cb = S()
+                if ns.ERB_CastBlizz() and cb.showSpellText and ns.ERB_BlizzAtlas("textbox") then return 13 end
+                return 0
             end,
             setWidth = function(_, w)
                 local cb = S()
-                local iconW = (cb.showIcon ~= false) and cb.height or 0
-                cb.width = PP.Snap(math.max(w - iconW, 10))
+                cb.width = PP.Snap(math.max(w - ns.ERB_CastIconW(cb), 10))
                 Rebuild()
             end,
             setHeight = function(_, h) S().height = PP.Snap(h); Rebuild() end,
@@ -3091,7 +3115,14 @@ local function BuildBars()
                 SmoothBarAnimate(healthBar, "h", hpHeight, function() ApplyHealthBarTransform() end)
             end
         end
-        healthBar:ApplyBorder(hp.borderSize, hp.borderR, hp.borderG, hp.borderB, hp.borderA, hp.borderTexture, hp.borderTextureOffset, hp.borderTextureOffsetY, hp.borderTextureShiftX, hp.borderTextureShiftY, "resourcebars", hp.borderSize, hp.borderBehind)
+        if ns.ERB_BarsBlizz() then
+            -- Blizzard Style: the stock bar frame replaces the EUI border.
+            healthBar:ApplyBorder(0, 0, 0, 0, 0)
+            local bw, bh = OrientedSize(hpWidth, hpHeight, hpOri)
+            ns.ERB_ApplyBlizzBarChrome(healthBar, healthBar._sb, bw, bh)
+        else
+            healthBar:ApplyBorder(hp.borderSize, hp.borderR, hp.borderG, hp.borderB, hp.borderA, hp.borderTexture, hp.borderTextureOffset, hp.borderTextureOffsetY, hp.borderTextureShiftX, hp.borderTextureShiftY, "resourcebars", hp.borderSize, hp.borderBehind)
+        end
 
         -- Bar texture (must be applied before colors since SetStatusBarTexture resets vertex color)
         ApplyBarTexture(healthBar, g.barTexture or "none")
@@ -3260,7 +3291,14 @@ local function BuildBars()
         -- ->up, below->down) via ppDirSign/ResolveExpandDirSign for the free and
         -- dragged branches above; anchorTo/unlock-anchored branches grow per their
         -- own anchor edge.
-        primaryBar:ApplyBorder(pp.borderSize, pp.borderR, pp.borderG, pp.borderB, pp.borderA, pp.borderTexture, pp.borderTextureOffset, pp.borderTextureOffsetY, pp.borderTextureShiftX, pp.borderTextureShiftY, "resourcebars", pp.borderSize, pp.borderBehind)
+        if ns.ERB_BarsBlizz() then
+            -- Blizzard Style: the stock bar frame replaces the EUI border.
+            primaryBar:ApplyBorder(0, 0, 0, 0, 0)
+            local bw, bh = OrientedSize(ppWidth, ppHeight, ppOri)
+            ns.ERB_ApplyBlizzBarChrome(primaryBar, primaryBar._sb, bw, bh)
+        else
+            primaryBar:ApplyBorder(pp.borderSize, pp.borderR, pp.borderG, pp.borderB, pp.borderA, pp.borderTexture, pp.borderTextureOffset, pp.borderTextureOffsetY, pp.borderTextureShiftX, pp.borderTextureShiftY, "resourcebars", pp.borderSize, pp.borderBehind)
+        end
 
         -- Bar texture (must be applied before colors since SetStatusBarTexture resets vertex color)
         ApplyBarTexture(primaryBar, g.barTexture or "none")
@@ -3754,7 +3792,55 @@ local function BuildBars()
             local pl = secondaryFrame:GetFrameLevel()
             secondaryFrame._barBorder._frame:SetFrameLevel(sp.borderBehind and math.max(0, pl - 1) or (pl + 5))
         end
-        if sp.borderOnPips and not isBarType then
+        if ns.ERB_BarsBlizz() then
+            -- Blizzard Style: the stock bar frame replaces the full-bar border;
+            -- pips keep their own borders and spacing. The fill and backing
+            -- (bar-type) or every pip/rune texture take the bar-shape mask, and
+            -- the row carries the inner bevel: on the bar's own StatusBar for a
+            -- bar-type, on an overlay above the pips otherwise, so a segmented
+            -- row still reads as one recessed bar.
+            secondaryFrame._barBorder:ApplyStyle(0,0,0,0,0)
+            secondaryFrame._blizzVertical = isVertical or nil
+            ns.ERB_ApplyBlizzBarChrome(secondaryFrame)
+            local rowMask = secondaryFrame._blizzBarMask
+            if secondaryBar then ns.ERB_SeatBlizzMask(secondaryFrame, secondaryBar) end
+            local shade = secondaryFrame._blizzShadeFrame
+            if isBarType then
+                -- The bevel rides the overlay frame here too, over the layer
+                -- bars (Ironfur / Ignore Pain) the bar-type stacks on its fill.
+                local sb = secondaryBar and secondaryBar._sb
+                if sb then
+                    if not shade then
+                        shade = CreateFrame("Frame", nil, secondaryFrame)
+                        secondaryFrame._blizzShadeFrame = shade
+                    end
+                    shade:ClearAllPoints()
+                    shade:SetAllPoints(sb)
+                    shade:SetFrameLevel(secondaryFrame:GetFrameLevel() + 9)
+                    shade._blizzVertical = isVertical
+                    shade:Show()
+                    ns.ERB_BlizzBarShadow(shade, rowMask)
+                elseif shade then
+                    shade:Hide()
+                end
+            else
+                for i = 1, #pips do if pips[i] then ns.ERB_MaskPip(pips[i], rowMask) end end
+                for i = 1, #runeFrames do if runeFrames[i] then ns.ERB_MaskPip(runeFrames[i], rowMask) end end
+                if not shade then
+                    shade = CreateFrame("Frame", nil, secondaryFrame)
+                    secondaryFrame._blizzShadeFrame = shade
+                end
+                shade:ClearAllPoints()
+                shade:SetAllPoints(secondaryFrame)
+                -- Above the pips (+1) and their inner bars (up to six threshold
+                -- bands plus the reset bar), below the rune countdown overlay
+                -- (+10) and the count text (25).
+                shade:SetFrameLevel(secondaryFrame:GetFrameLevel() + 9)
+                shade._blizzVertical = isVertical
+                shade:Show()
+                ns.ERB_BlizzBarShadow(shade, rowMask)
+            end
+        elseif sp.borderOnPips and not isBarType then
             secondaryFrame._barBorder:ApplyStyle(0,0,0,0,0)
         else
             secondaryFrame._barBorder:ApplyStyle(sp.borderSize, sp.borderR, sp.borderG, sp.borderB, sp.borderA,
@@ -3768,6 +3854,11 @@ local function BuildBars()
         -- opaque black to keep a solid separator cohesive with the opaque pips.
         if not secondaryFrame._barBg then
             secondaryFrame._barBg = secondaryFrame:CreateTexture(nil, "BACKGROUND", nil, -1)
+        end
+        -- Blizzard Style: the backdrop takes the bar-shape mask like the fills.
+        if secondaryFrame._blizzBarMask and secondaryFrame._blizzMaskedBarBg ~= secondaryFrame._barBg then
+            secondaryFrame._barBg:AddMaskTexture(secondaryFrame._blizzBarMask)
+            secondaryFrame._blizzMaskedBarBg = secondaryFrame._barBg
         end
         secondaryFrame._barBg:ClearAllPoints()
         if secondaryBar and secondaryBar._fillOpApplied and secondaryBar:IsShown() then
@@ -5158,6 +5249,7 @@ local function UpdateSecondaryResource()
                                 if path then sb:SetStatusBarTexture(path) end
                             end
                             rf._rechargeBar = sb
+                            if rf._blizzMask then ns.ERB_MaskPip(rf, rf._blizzMask) end
                         end
 
                         -- Recharge fill follows the pip orientation: a lazily
@@ -5505,6 +5597,10 @@ local function UpdateSecondaryResource()
                                     local _obt = ob:GetStatusBarTexture()
                                     if _obt then _obt:SetSnapToPixelGrid(false); _obt:SetTexelSnappingBias(0) end
                                     ob._texPath = texPath
+                                    -- Blizzard Style: the layer rides the row's bar-shape mask
+                                    -- (the bevel overlay sits above it by level).
+                                    local rm = secondaryFrame and secondaryFrame._blizzBarMask
+                                    if rm and _obt then ns.ERB_MaskTex(_obt, rm) end
                                 end
                                 local _lvl = host:GetFrameLevel() + shown
                                 if ob._lvl ~= _lvl then ob:SetFrameLevel(_lvl); ob._lvl = _lvl end
@@ -5706,11 +5802,13 @@ local function UpdateSecondaryResource()
                         sb:SetStatusBarColor(r, g, b, a)
                         sb:SetFrameLevel(pip:GetFrameLevel())
                         pip._secretBar = sb
+                        if pip._blizzMask then ns.ERB_MaskPip(pip, pip._blizzMask) end
                     elseif pip._secretBar._texPath ~= texPath then
                         -- A path swap mints a brand-new inner texture and runs the
                         -- parent's pixel-snap hook: NEVER re-set the current path.
                         pip._secretBar:SetStatusBarTexture(texPath)
                         pip._secretBar._texPath = texPath
+                        if pip._blizzMask then ns.ERB_MaskPip(pip, pip._blizzMask) end
                     end
                     pip._secretBar:SetMinMaxValues(i - 1, i)
                     pip._secretBar:SetValue(cur)
@@ -5733,6 +5831,7 @@ local function UpdateSecondaryResource()
                             -- loop fires pips x bands redundant calls.
                             if bb._texPath ~= texPath then
                                 bb:SetStatusBarTexture(texPath); bb._texPath = texPath
+                                if pip._blizzMask then ns.ERB_MaskPip(pip, pip._blizzMask) end
                             end
                             local _lvl = pip:GetFrameLevel() + k
                             if bb._lvl ~= _lvl then
@@ -5758,6 +5857,7 @@ local function UpdateSecondaryResource()
                             if pip._bandResetBar._texPath ~= texPath then
                                 pip._bandResetBar:SetStatusBarTexture(texPath)
                                 pip._bandResetBar._texPath = texPath
+                                if pip._blizzMask then ns.ERB_MaskPip(pip, pip._blizzMask) end
                             end
                             pip._bandResetBar:SetFrameLevel(pip:GetFrameLevel() + #_tsBands + 1)
                             local _rlo = (i > (_topTo + 1)) and i or (_topTo + 1)
@@ -5787,9 +5887,11 @@ local function UpdateSecondaryResource()
                                 tb._texPath = texPath
                                 tb:SetFrameLevel(pip:GetFrameLevel() + 1)
                                 pip._secretThreshBar = tb
+                                if pip._blizzMask then ns.ERB_MaskPip(pip, pip._blizzMask) end
                             elseif pip._secretThreshBar._texPath ~= texPath then
                                 pip._secretThreshBar:SetStatusBarTexture(texPath)
                                 pip._secretThreshBar._texPath = texPath
+                                if pip._blizzMask then ns.ERB_MaskPip(pip, pip._blizzMask) end
                             end
                             -- Fills only when cur >= max(i, threshCount): the pip is
                             -- active AND the threshold has been reached.
@@ -6078,6 +6180,7 @@ local function UpdateSecondaryResource()
                     if path then sb:SetStatusBarTexture(path) end
                 end
                 nextPip._rechargeBar = sb
+                if nextPip._blizzMask then ns.ERB_MaskPip(nextPip, nextPip._blizzMask) end
             end
             nextPip._rechargeBar:SetValue(frac)
             -- Partial generator (Evoker/Lock): color the filling pip like the full
@@ -6477,8 +6580,341 @@ end
 -- Player Cast Bar
 local SPARK_TEX = "Interface\\AddOns\\EllesmereUI\\media\\cast_spark.tga"
 
+-------------------------------------------------------------------------------
+--  Blizzard Style cast bar (Global Settings > Style). The stock cast bar's
+--  atlases on our own frame: every feature (timer, latency, ticks, pips, kick
+--  hints) keeps working; only the art changes. Atlas names are validated once
+--  per session (GetAtlasInfo) with a legacy spelling as fallback, so a missing
+--  atlas degrades to the EUI look for that piece instead of a blank texture.
+--  On ns: the file is at the 200-local cap.
+-------------------------------------------------------------------------------
+ns.ERB_CAST_BLIZZ = {
+    bg          = { "ui-castingbar-background",       "UI-CastingBar-Background" },
+    frame       = { "ui-castingbar-frame",            "UI-CastingBar-Frame" },
+    textbox     = { "ui-castingbar-textbox",          "UI-CastingBar-TextBox" },
+    cast        = { "ui-castingbar-filling-standard", "UI-CastingBar-Fill" },
+    channel     = { "ui-castingbar-filling-channel",  "UI-CastingBar-Fill" },
+    spark       = { "ui-castingbar-pip",              "UI-CastingBar-Spark" },
+}
+ns._erbBlizzAtlasMemo = {}
+-- Read from the profile once (first call with a profile present) and latched
+-- for the session: a live profile switch never flips the look under the
+-- one-time art setup; the profile system prompts for a reload instead.
+function ns.ERB_CastBlizz()
+    local v = ns._erbCastBlizz
+    if v == nil then
+        local cb = ERB.db and ERB.db.profile and ERB.db.profile.castBar
+        if not cb then return false end
+        v = cb.useBlizzardStyle and true or false
+        ns._erbCastBlizz = v
+    end
+    return v
+end
+-- Blizzard Style for the health, power and class resource bars: the
+-- personal resource display's bar frame (the viewer's shadowed bar
+-- background, overhanging the bar) in place of the EUI full-bar border.
+-- Fills, pips (with their own borders and spacing), texts and every setting
+-- stay EUI. Latched per session like the cast bar flag.
+function ns.ERB_BarsBlizz()
+    local v = ns._erbBarsBlizz
+    if v == nil then
+        local p = ERB.db and ERB.db.profile
+        if not p then return false end
+        v = p.useBlizzardStyleBars and true or false
+        ns._erbBarsBlizz = v
+    end
+    return v
+end
+ns.ERB_BLIZZ_BAR_BG = "UI-HUD-CoolDownManager-Bar-BG"
+ns.ERB_BLIZZ_BAR_FILL = "UI-HUD-CoolDownManager-Bar"
+-- The frame around a bar: one texture on the host under everything the bar
+-- draws, anchored round `rect` (the fill area; the host itself when nil)
+-- with the personal resource display's overhang for this atlas (2 left, 3
+-- top, 6 right, 7 bottom: the rim plus its bottom-right shadow; the tracked
+-- buff bars' tighter 2/2/4/7 lets the bar sit over the top and right rim).
+-- The stock fill art's own footprint (rounded, soft-edged, inside the rim)
+-- becomes a mask over `rect` for the bar's fill and backing, so the user's
+-- texture sits inside the rim exactly as the stock fill does instead of
+-- painting over it.
+function ns.ERB_ApplyBlizzBarChrome(host, rect, fw, fh)
+    if not host then return end
+    rect = rect or host
+    local bg = host._blizzBarBg
+    if not bg then
+        bg = host:CreateTexture(nil, "BACKGROUND", nil, -2)
+        if bg.SetSnapToPixelGrid then bg:SetSnapToPixelGrid(false); bg:SetTexelSnappingBias(0) end
+        host._blizzBarBg = bg
+        if C_Texture.GetAtlasInfo(ns.ERB_BLIZZ_BAR_FILL) then
+            local mask = rect:CreateMaskTexture()
+            mask:SetAtlas(ns.ERB_BLIZZ_BAR_FILL)
+            mask:SetAllPoints(rect)
+            host._blizzBarMask = mask
+        end
+    end
+    -- A vertical bar (orientation option, or the class row's own flag) takes
+    -- the panel turned on its side: the atlas is a wide strip, stretched into
+    -- a column its rim would smear. The overhang turns with it (a 90-degree
+    -- turn maps the art's top/right/bottom/left to left/top/right/bottom).
+    local vertical = host._blizzVertical
+        or (rect.GetOrientation and rect:GetOrientation() == "VERTICAL") or false
+    ns.ERB_SeatBlizzBarBg(bg, vertical)
+    bg:ClearAllPoints()
+    if vertical then
+        bg:SetPoint("TOPLEFT", rect, "TOPLEFT", -3, 6)
+        bg:SetPoint("BOTTOMRIGHT", rect, "BOTTOMRIGHT", 7, -2)
+    else
+        bg:SetPoint("TOPLEFT", rect, "TOPLEFT", -2, 3)
+        bg:SetPoint("BOTTOMRIGHT", rect, "BOTTOMRIGHT", 6, -7)
+    end
+    bg:Show()
+    ns.ERB_SeatBlizzMask(host)
+    -- Health/power: the fill's own StatusBar carries the bevel (sized from the
+    -- caller's target size: the bar may still be animating to it).
+    if rect.GetStatusBarTexture then ns.ERB_BlizzBarShadow(rect, host._blizzBarMask, fw, fh) end
+end
+-- The panel art on `bg`: the atlas as is, or (vertical) the sheet file with
+-- the atlas rect's corners rotated a quarter turn counter-clockwise (an
+-- atlas cannot take texcoords). Memo on the orientation.
+function ns.ERB_SeatBlizzBarBg(bg, vertical)
+    vertical = vertical and true or false
+    if bg._blizzRot == vertical then return end
+    local info = C_Texture.GetAtlasInfo(ns.ERB_BLIZZ_BAR_BG)
+    if not info then return end
+    bg._blizzRot = vertical
+    if vertical then
+        bg:SetTexture(info.file or info.filename)
+        local l, r, t, b = info.leftTexCoord, info.rightTexCoord, info.topTexCoord, info.bottomTexCoord
+        bg:SetTexCoord(r, t, l, t, r, b, l, b)
+    else
+        bg:SetAtlas(ns.ERB_BLIZZ_BAR_BG)
+    end
+end
+-- Inner bevel under the style: the stock fill art bakes a dark edge into
+-- its long sides (and a darker left end), which is what makes the stock
+-- bar read as recessed inside the frame; the user's own texture has none,
+-- so without this the bar reads as pasted over the frame. Four gradient
+-- strips on the fill's StatusBar at OVERLAY -3 (above fill and backing,
+-- under hash lines and text), the long edges carrying the bevel and the
+-- short ends the end darkening whichever way the bar runs, masked to the
+-- bar shape. Created once, re-sized on every chrome pass.
+ns._erbShadeClear  = CreateColor(0, 0, 0, 0)
+ns._erbShadeTop    = CreateColor(0, 0, 0, 0.55)
+ns._erbShadeBottom = CreateColor(0, 0, 0, 0.30)
+ns._erbShadeEnd    = CreateColor(0, 0, 0, 0.35)
+function ns.ERB_BlizzBarShadow(sb, mask, fw, fh)
+    if not sb then return end
+    local sh = sb._blizzShadow
+    if not sh then
+        sh = {}
+        sb._blizzShadow = sh
+        for i = 1, 4 do
+            local tex = sb:CreateTexture(nil, "OVERLAY", nil, -3)
+            tex:SetTexture("Interface\\Buttons\\WHITE8X8")
+            if tex.SetSnapToPixelGrid then tex:SetSnapToPixelGrid(false); tex:SetTexelSnappingBias(0) end
+            sh[i] = tex
+        end
+    end
+    local vertical = sb._blizzVertical or (sb.GetOrientation and sb:GetOrientation() == "VERTICAL")
+    local w, h = fw or sb:GetWidth(), fh or sb:GetHeight()
+    -- A bar carrying secret values reports secret sizes: leave the strips
+    -- as they are (a later plain-sized pass lays them) rather than compare.
+    if issecretvalue and (issecretvalue(w) or issecretvalue(h)) then return end
+    if not w or w <= 0 then w = 100 end
+    if not h or h <= 0 then h = 10 end
+    local long, short = h, w
+    if vertical then long, short = w, h end
+    local a = math.max(2, math.floor(long * 0.2))
+    local b = math.max(1, math.floor(long * 0.1))
+    local e = math.max(2, math.floor(short * 0.15))
+    for i = 1, 4 do sh[i]:ClearAllPoints() end
+    -- VERTICAL gradients run bottom -> top, HORIZONTAL left -> right.
+    if vertical then
+        sh[1]:SetGradient("HORIZONTAL", ns._erbShadeTop, ns._erbShadeClear)
+        sh[1]:SetPoint("TOPLEFT", sb, "TOPLEFT", 0, 0); sh[1]:SetPoint("BOTTOMLEFT", sb, "BOTTOMLEFT", 0, 0); sh[1]:SetWidth(a)
+        sh[2]:SetGradient("HORIZONTAL", ns._erbShadeClear, ns._erbShadeBottom)
+        sh[2]:SetPoint("TOPRIGHT", sb, "TOPRIGHT", 0, 0); sh[2]:SetPoint("BOTTOMRIGHT", sb, "BOTTOMRIGHT", 0, 0); sh[2]:SetWidth(b)
+        sh[3]:SetGradient("VERTICAL", ns._erbShadeClear, ns._erbShadeEnd)
+        sh[3]:SetPoint("TOPLEFT", sb, "TOPLEFT", 0, 0); sh[3]:SetPoint("TOPRIGHT", sb, "TOPRIGHT", 0, 0); sh[3]:SetHeight(e)
+        sh[4]:SetGradient("VERTICAL", ns._erbShadeEnd, ns._erbShadeClear)
+        sh[4]:SetPoint("BOTTOMLEFT", sb, "BOTTOMLEFT", 0, 0); sh[4]:SetPoint("BOTTOMRIGHT", sb, "BOTTOMRIGHT", 0, 0); sh[4]:SetHeight(e)
+    else
+        sh[1]:SetGradient("VERTICAL", ns._erbShadeClear, ns._erbShadeTop)
+        sh[1]:SetPoint("TOPLEFT", sb, "TOPLEFT", 0, 0); sh[1]:SetPoint("TOPRIGHT", sb, "TOPRIGHT", 0, 0); sh[1]:SetHeight(a)
+        sh[2]:SetGradient("VERTICAL", ns._erbShadeBottom, ns._erbShadeClear)
+        sh[2]:SetPoint("BOTTOMLEFT", sb, "BOTTOMLEFT", 0, 0); sh[2]:SetPoint("BOTTOMRIGHT", sb, "BOTTOMRIGHT", 0, 0); sh[2]:SetHeight(b)
+        sh[3]:SetGradient("HORIZONTAL", ns._erbShadeEnd, ns._erbShadeClear)
+        sh[3]:SetPoint("TOPLEFT", sb, "TOPLEFT", 0, 0); sh[3]:SetPoint("BOTTOMLEFT", sb, "BOTTOMLEFT", 0, 0); sh[3]:SetWidth(e)
+        sh[4]:SetGradient("HORIZONTAL", ns._erbShadeClear, ns._erbShadeEnd)
+        sh[4]:SetPoint("TOPRIGHT", sb, "TOPRIGHT", 0, 0); sh[4]:SetPoint("BOTTOMRIGHT", sb, "BOTTOMRIGHT", 0, 0); sh[4]:SetWidth(e)
+    end
+    for i = 1, 4 do sh[i]:Show() end
+    if mask and sh._mask ~= mask then
+        for i = 1, 4 do
+            if sh._mask then pcall(sh[i].RemoveMaskTexture, sh[i], sh._mask) end
+            sh[i]:AddMaskTexture(mask)
+        end
+        sh._mask = mask
+    end
+end
+-- Seat the row's bar-shape mask on one texture, once per texture object
+-- (AddMaskTexture is additive).
+function ns.ERB_MaskTex(tex, mask)
+    if tex and mask and tex._blizzMasked ~= mask then
+        tex:AddMaskTexture(mask)
+        tex._blizzMasked = mask
+    end
+end
+-- Pips and runes under the style: every texture a pip draws (backing, fill,
+-- pixel-border strips, the inner bars the secret renderer and recharge
+-- create) takes the row's bar-shape mask so the end pips round off with
+-- the frame; middle pips sit inside the footprint's straight edges and are
+-- unaffected. Stamps the mask on the pip so the lazy creation and
+-- re-texture sites can re-seat (a path swap mints a new fill object); the
+-- per-object memo makes every other call free.
+function ns.ERB_MaskPip(pip, mask)
+    if not (pip and mask) then return end
+    pip._blizzMask = mask
+    local M = ns.ERB_MaskTex
+    M(pip._bg, mask)
+    M(pip._fill, mask)
+    local bf = pip._border and pip._border._frame
+    local c = bf and PP.GetBorders(bf)
+    if c then M(c._top, mask); M(c._bottom, mask); M(c._left, mask); M(c._right, mask) end
+    local sb = pip._secretBar
+    if sb then M(sb:GetStatusBarTexture(), mask) end
+    sb = pip._bandResetBar
+    if sb then M(sb:GetStatusBarTexture(), mask) end
+    sb = pip._secretThreshBar
+    if sb then M(sb:GetStatusBarTexture(), mask) end
+    sb = pip._rechargeBar
+    if sb then M(sb:GetStatusBarTexture(), mask) end
+    local bands = pip._bandBars
+    if bands then
+        for k = 1, #bands do M(bands[k]:GetStatusBarTexture(), mask) end
+    end
+end
+-- Seat the host's bar-shape mask on `target`'s fill and backing (`target`
+-- defaults to the host; the class resource frame passes its bar-type bar).
+-- Memoized per texture object: a status bar texture path swap mints a new
+-- fill object, and AddMaskTexture is additive.
+function ns.ERB_SeatBlizzMask(host, target)
+    local mask = host and host._blizzBarMask
+    if not mask then return end
+    target = target or host
+    local fill = target.GetStatusBarTexture and target:GetStatusBarTexture()
+    if fill and target._blizzMaskedFill ~= fill then
+        fill:AddMaskTexture(mask)
+        target._blizzMaskedFill = fill
+    end
+    local bgTex = target._bg
+    if bgTex and target._blizzMaskedBg ~= bgTex then
+        bgTex:AddMaskTexture(mask)
+        target._blizzMaskedBg = bgTex
+    end
+end
+-- First existing atlas for a piece, memoized (false = none available).
+function ns.ERB_BlizzAtlas(key)
+    local memo = ns._erbBlizzAtlasMemo
+    local hit = memo[key]
+    if hit ~= nil then return hit or nil end
+    local list = ns.ERB_CAST_BLIZZ[key]
+    local found = false
+    if list and C_Texture and C_Texture.GetAtlasInfo then
+        for i = 1, #list do
+            if C_Texture.GetAtlasInfo(list[i]) then found = list[i]; break end
+        end
+    end
+    memo[key] = found
+    return found or nil
+end
+-- Cast icon side (0 while the icon is off): the bar height, or under the
+-- style the bar plus the stock text box's 13px drop while the spell text
+-- shows, so the icon spans bar and box. The frame width, the fill inset and
+-- the unlock sizing all take it from here.
+function ns.ERB_CastIconW(cb)
+    if cb.showIcon == false then return 0 end
+    local h = cb.height
+    if ns.ERB_CastBlizz() and cb.showSpellText and ns.ERB_BlizzAtlas("textbox") then
+        return h + 13
+    end
+    return h
+end
+-- Fill art for the current cast kind ("cast" | "channel" | "interrupted").
+-- One field test when the style is off; a memo skips repeat atlas swaps.
+function ns.ERB_SetBlizzCastFill(kind)
+    local f = castBarFrame
+    if not f or not f._blizzFill then return end
+    if f._blizzFillKind == kind then return end
+    local atlas = ns.ERB_BlizzAtlas(kind)
+    if not atlas then return end
+    f._blizzFillKind = kind
+    f._bar:GetStatusBarTexture():SetAtlas(atlas)
+end
+-- Frame art around the bar plus the text box under it (the spell name moves
+-- into the box, honouring the Spell Text side and offsets). Rebuilt on every
+-- BuildCastBar pass; regions are created once.
+function ns.ERB_ApplyBlizzCastChrome(cb, barW)
+    local f = castBarFrame
+    if not f then return end
+    local clip = f._barClip
+    if not f._blizzFrame then
+        -- Own host above the bar and icon (the EUI border child is hidden by
+        -- its size-0 pass under this style, so the art cannot ride on it).
+        local af = CreateFrame("Frame", nil, f)
+        af:SetAllPoints(f)
+        af:EnableMouse(false)
+        f._blizzArtFrame = af
+        local fr = af:CreateTexture(nil, "OVERLAY", nil, 2)
+        if fr.SetSnapToPixelGrid then fr:SetSnapToPixelGrid(false); fr:SetTexelSnappingBias(0) end
+        f._blizzFrame = fr
+        local tb = f:CreateTexture(nil, "BACKGROUND", nil, -1)
+        if tb.SetSnapToPixelGrid then tb:SetSnapToPixelGrid(false); tb:SetTexelSnappingBias(0) end
+        f._blizzTextBox = tb
+    end
+    -- Same level the EUI border host uses (re-asserted: the bar's level follows its strata setting).
+    f._blizzArtFrame:SetFrameLevel(f:GetFrameLevel() + 5)
+    local fr, tb = f._blizzFrame, f._blizzTextBox
+    local frameAtlas = ns.ERB_BlizzAtlas("frame")
+    if frameAtlas then
+        fr:SetAtlas(frameAtlas)
+        fr:ClearAllPoints()
+        fr:SetPoint("TOPLEFT", clip, "TOPLEFT", -2, 2)
+        fr:SetPoint("BOTTOMRIGHT", clip, "BOTTOMRIGHT", 2, -2)
+        fr:Show()
+    else
+        fr:Hide()
+    end
+    local boxAtlas = cb.showSpellText and ns.ERB_BlizzAtlas("textbox")
+    if boxAtlas then
+        tb:SetAtlas(boxAtlas)
+        tb:ClearAllPoints()
+        tb:SetPoint("TOPLEFT", clip, "BOTTOMLEFT", 0, 3)
+        tb:SetPoint("BOTTOMRIGHT", clip, "BOTTOMRIGHT", 0, -13)
+        tb:Show()
+        local nameText = f._nameText
+        local side = cb.spellTextSide or "left"
+        local x, y = cb.spellTextX or 0, cb.spellTextY or 0
+        nameText:ClearAllPoints()
+        if side == "right" then
+            nameText:SetJustifyH("RIGHT")
+            nameText:SetPoint("RIGHT", tb, "RIGHT", -8 + x, y)
+        elseif side == "center" then
+            nameText:SetJustifyH("CENTER")
+            nameText:SetPoint("CENTER", tb, "CENTER", x, y)
+        else
+            nameText:SetJustifyH("LEFT")
+            nameText:SetPoint("LEFT", tb, "LEFT", 8 + x, y)
+        end
+        nameText:SetWidth(math.max(10, (barW or cb.width or 220) - 16))
+        ns.ReflowFontString(nameText)
+    else
+        tb:Hide()
+    end
+end
+
 BuildCastBar = function()
     local cb = ERB.db.profile.castBar
+    local blizz = ns.ERB_CastBlizz()
 
     -- ResourceBars only claims Blizzard's player cast bar while its own
     -- replacement bar is active. The shared helper arbitrates ownership
@@ -6605,11 +7041,16 @@ BuildCastBar = function()
         castBarFrame._ticks = {}
         castBarFrame._numTicks = 0
     end
+    -- Read by the per-cast fill swap (ns.ERB_SetBlizzCastFill): one field, no profile lookup.
+    castBarFrame._blizzFill = blizz or nil
 
     local w, h = cb.width, cb.height
     local hasIcon = cb.showIcon ~= false
-    -- Total frame width includes icon (h x h) only when icon is shown
-    local totalW = hasIcon and (w + h) or w
+    -- Total frame width includes the icon only when it is shown (a square of
+    -- the bar height; under the style it also spans the text box, so the
+    -- bar keeps its configured width beside it).
+    local iconW = ns.ERB_CastIconW(cb)
+    local totalW = w + iconW
     if EllesmereUI._TryOverrideAnchor and EllesmereUI._TryOverrideAnchor("ERB_CastBar", castBarFrame) then
         -- Override anchor owns position; just set size directly
         castBarFrame:SetSize(totalW, h)
@@ -6653,11 +7094,12 @@ BuildCastBar = function()
 
     -- Border: update the dedicated child border frame (PP or textured)
     if castBarFrame._border then
-        local bs = cb.borderSize or 0
+        -- Blizzard Style: no EUI border; the stock frame art draws on this child instead.
+        local bs = blizz and 0 or (cb.borderSize or 0)
         local texKey = cb.borderTexture or "solid"
         -- "Show Behind": +5 in front of the bar, level-1 behind it.
         local pl = castBarFrame:GetFrameLevel()
-        castBarFrame._border:SetFrameLevel(cb.borderBehind and math.max(0, pl - 1) or (pl + 5))
+        castBarFrame._border:SetFrameLevel((cb.borderBehind and not blizz) and math.max(0, pl - 1) or (pl + 5))
         -- Same lost-rect recovery as MakePixelBorder:ApplyStyle -- re-anchoring the bar
         -- stops this child's rect from resolving and the border silently vanishes.
         if not castBarFrame._border:GetLeft() then castBarFrame._border:SetAllPoints(castBarFrame) end
@@ -6671,13 +7113,18 @@ BuildCastBar = function()
     local iconFrame = castBarFrame._iconFrame
     local iconOnRight = hasIcon and cb.iconOnRight
     if hasIcon then
-        iconFrame:SetSize(h, h)
+        -- A square of the bar height; under the style it also spans the stock
+        -- text box under the bar (see ns.ERB_CastIconW), hung from the same
+        -- top corner, as the unit frame cast bars do.
+        iconFrame:SetSize(iconW, iconW)
         iconFrame:ClearAllPoints()
         if iconOnRight then
             iconFrame:SetPoint("TOPRIGHT", castBarFrame, "TOPRIGHT", 0, 0)
         else
             iconFrame:SetPoint("TOPLEFT", castBarFrame, "TOPLEFT", 0, 0)
         end
+        -- Blizzard Style shows the full spell art, as the stock bar does.
+        if blizz then castBarFrame._icon:SetTexCoord(0, 1, 0, 1) end
         iconFrame:Show()
     else
         iconFrame:Hide()
@@ -6713,13 +7160,13 @@ BuildCastBar = function()
     local bar = castBarFrame._bar
     -- No border, no inset: the bg spans the frame, so an inset with no border
     -- over it reads as a 1px background ring around the fill.
-    local bdrInset = ((cb.borderSize or 0) > 0 and PP and PP.mult) or 0
+    local bdrInset = (not blizz and (cb.borderSize or 0) > 0 and PP and PP.mult) or 0
     clipFrame:ClearAllPoints()
     -- The icon-adjacent side sits FLUSH against the icon (no inset): that seam is
     -- interior with no border, and insetting it exposes a 1px background column
     -- next to the icon. Outer edges keep the inset so the fill never bleeds out.
-    local clipLeft  = (hasIcon and not iconOnRight) and h or bdrInset
-    local clipRight = (hasIcon and iconOnRight) and h or bdrInset
+    local clipLeft  = (hasIcon and not iconOnRight) and iconW or bdrInset
+    local clipRight = (hasIcon and iconOnRight) and iconW or bdrInset
     clipFrame:SetPoint("TOPLEFT", castBarFrame, "TOPLEFT", clipLeft, -bdrInset)
     clipFrame:SetPoint("BOTTOMRIGHT", castBarFrame, "BOTTOMRIGHT", -clipRight, bdrInset)
     clipFrame:SetFrameLevel(castBarFrame:GetFrameLevel() + 1)
@@ -6728,7 +7175,24 @@ BuildCastBar = function()
 
     local texKey = cb.texture
     local isBlizzard = (texKey == "blizzard")
-    if isBlizzard then
+    if blizz then
+        -- Blizzard Style: the stock fill art follows the cast kind
+        -- (ns.ERB_SetBlizzCastFill) and the background hugs the bar the way
+        -- the stock frame anchors it.
+        bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+        castBarFrame._blizzFillKind = nil
+        ns.ERB_SetBlizzCastFill(castBarFrame._channeling and "channel" or "cast")
+        local bgAtlas = ns.ERB_BlizzAtlas("bg")
+        if bgAtlas then
+            castBarFrame._bg:SetAtlas(bgAtlas)
+        else
+            castBarFrame._bg:SetTexture(nil)
+            castBarFrame._bg:SetColorTexture(0, 0, 0, 0.7)
+        end
+        castBarFrame._bg:ClearAllPoints()
+        castBarFrame._bg:SetPoint("TOPLEFT", clipFrame, "TOPLEFT", -1, 1)
+        castBarFrame._bg:SetPoint("BOTTOMRIGHT", clipFrame, "BOTTOMRIGHT", 1, -1)
+    elseif isBlizzard then
         bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
         bar:GetStatusBarTexture():SetAtlas("UI-CastingBar-Fill", true)
         castBarFrame._bg:SetAtlas("UI-CastingBar-Background", true)
@@ -6748,7 +7212,14 @@ BuildCastBar = function()
 local fillTex = bar:GetStatusBarTexture()
 local fillOp = (cb.fillOpacity or 100) / 100
 
-if cb.gradientEnabled then
+if blizz then
+    -- Blizzard Style: the fill atlas carries its own colour; only Fill Opacity applies.
+    fillTex:SetVertexColor(1, 1, 1, fillOp)
+    if castBarFrame._gradClip then castBarFrame._gradClip:Hide() end
+    castBarFrame._gradientFullBar = nil
+    castBarFrame._nameText:SetParent(castBarFrame._textFrame)
+    castBarFrame._timerText:SetParent(castBarFrame._textFrame)
+elseif cb.gradientEnabled then
     local dir = cb.gradientDir or "HORIZONTAL"
 
     local fR, fG, fB, fA = cb.fillR, cb.fillG, cb.fillB, 1
@@ -6788,6 +7259,17 @@ else
 end
 
     local spark = castBarFrame._spark
+    -- Blizzard Style: the stock pip replaces the spark art (once; the swap is
+    -- reload-gated so it never needs undoing).
+    if blizz and not castBarFrame._blizzSpark then
+        local pip = ns.ERB_BlizzAtlas("spark")
+        if pip then
+            castBarFrame._blizzSpark = true
+            spark:SetAtlas(pip)
+            -- The stock pip is drawn plain (the EUI spark art is additive).
+            spark:SetBlendMode("BLEND")
+        end
+    end
     if cb.showSpark then
         spark:SetSize(8, h)
         spark:ClearAllPoints()
@@ -6877,6 +7359,8 @@ end
     -- Re-flow so a live JustifyH change takes effect on already-rendered text.
     ns.ReflowFontString(timerText)
     ns.ReflowFontString(nameText)
+    -- Blizzard Style chrome: frame art + text box (moves the spell name under the bar).
+    if blizz then ns.ERB_ApplyBlizzCastChrome(cb, barW) end
 
     -- Hide pips (build reset), then RE-LAY them for an in-flight empower:
     -- same wipe-sticks class as the channel ticks below (field: Evokers
@@ -7545,8 +8029,9 @@ function ns.ApplyCastBgAnchor()
     if not castBarFrame then return end
     local cb = ERB.db.profile.castBar
     -- The Blizzard texture draws an atlas background that always spans the
-    -- frame; BuildCastBar anchors that one itself.
-    if cb.texture == "blizzard" then return end
+    -- frame; BuildCastBar anchors that one itself. Same for Blizzard Style
+    -- (the build stamp, never the profile: the style is latched per session).
+    if cb.texture == "blizzard" or castBarFrame._blizzFill then return end
     local bar = castBarFrame._bar
     local casting = castBarFrame._casting or castBarFrame._channeling or castBarFrame._empowering
     castBarFrame._bg:ClearAllPoints()
@@ -7630,6 +8115,7 @@ OnCastStart = function()
     castBarFrame._spellName = name
     castBarFrame._totalDurSuffix = " / " .. format("%.1f", (endTimeMS - startTimeMS) / 1000)
     castBarFrame._nameText:SetText(name)
+    ns.ERB_SetBlizzCastFill("cast")
     if not ns.ApplyCastTimer("cast") then
         local castDur = endTimeMS - startTimeMS
         local initProgress = (castDur > 0) and ((GetTime() - startTimeMS / 1000) / (castDur / 1000)) or 0
@@ -7687,6 +8173,7 @@ OnChannelStart = function()
     castBarFrame._spellName = name
     castBarFrame._totalDurSuffix = " / " .. format("%.1f", (endTimeMS - startTimeMS) / 1000)
     castBarFrame._nameText:SetText(name)
+    ns.ERB_SetBlizzCastFill("channel")
     if not ns.ApplyCastTimer("channel") then
         local chanDur = endTimeMS - startTimeMS
         local initProgress = (chanDur > 0) and ((endTimeMS / 1000 - GetTime()) / (chanDur / 1000)) or 1
@@ -7802,6 +8289,11 @@ ns.ResetEmpowerFillColor = function()
     if not (castBarFrame and castBarFrame._empowerColorApplied) then return end
     castBarFrame._empowerColorApplied = false
     local cb = ERB.db.profile.castBar
+    -- Blizzard Style (build stamp): the fill atlas is its own colour; restore plain white.
+    if castBarFrame._blizzFill then
+        castBarFrame._bar:GetStatusBarTexture():SetVertexColor(1, 1, 1, (cb.fillOpacity or 100) / 100)
+        return
+    end
     local fR, fG, fB, fA = cb.fillR, cb.fillG, cb.fillB, 1
     if cb.classColored then
         local cc = CLASS_COLORS[cachedClass]
@@ -7897,6 +8389,7 @@ OnEmpowerStart = function()
     castBarFrame._totalDurSuffix = " / " .. format("%.1f", (endTimeMS - startTimeMS) / 1000)
     HideLatencyOverlay()
     castBarFrame._nameText:SetText(name)
+    ns.ERB_SetBlizzCastFill("cast")
     if not ns.ApplyCastTimer("empower") then
         local empDur = endTimeMS - startTimeMS
         local empProgress = (empDur > 0) and ((GetTime() - startTimeMS / 1000) / (empDur / 1000)) or 0
@@ -9061,7 +9554,7 @@ function ERB:ApplyAll()
     -- condition). Secure frame creation + RegisterStateDriver both need combat OOC.
     if not ERB._vehicleProxy then
         local function InitVehicleProxy()
-            if ERB._vehicleProxy then return end
+            if ERB._vehicleProxy or not EllesmereUI.SecureSnippetsOK() then return end
             ERB._vehicleProxy = CreateFrame("Frame", nil, UIParent, "SecureHandlerStateTemplate")
             ERB._vehicleProxy:SetAttribute("_onstate-erbvehicle", [[
                 self:CallMethod("OnVehicleStateChanged", newstate)

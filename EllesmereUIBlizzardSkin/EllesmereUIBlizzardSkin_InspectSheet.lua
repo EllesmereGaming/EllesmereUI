@@ -1113,7 +1113,7 @@ local DOCK_MARGIN = 4
 -- since secure repositioning of a protected frame is blocked in combat.
 local securePositioner = CreateFrame("Frame", nil, UIParent, "SecureHandlerBaseTemplate")
 local function SecureSetPoint(frame, point, relPoint, x, y)
-    if InCombatLockdown() then return false end
+    if InCombatLockdown() or not EllesmereUI.SecureSnippetsOK() then return false end
     securePositioner:SetFrameRef("f", frame)
     securePositioner:SetAttribute("p", point)
     securePositioner:SetAttribute("rp", relPoint)

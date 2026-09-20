@@ -12,7 +12,13 @@ local PAGE_REMINDERS = "Auras, Buffs & Consumables"
 local PAGE_TALENTS   = "Talent Reminders"
 local PAGE_UNLOCK    = "Unlock Mode"
 
+-- WoW Forever: the page keeps CORE and DISPLAY and swaps every retail section
+-- for the one Forever section (Camp Benefits + custom spell IDs); the Talent
+-- Reminders page does not exist there.
+local FOREVER = EllesmereUI.IS_FOREVER == true
+
 local SECTION_CORE         = "CORE"
+local SECTION_FOREVER      = "WOW FOREVER"
 local SECTION_DISPLAY      = "DISPLAY"
 local SECTION_RAID_BUFFS   = "RAID BUFFS"
 local SECTION_AURAS        = "AURAS"
@@ -75,6 +81,7 @@ initFrame:SetScript("OnEvent", function(self)
     local function RDB()  local p = DB(); return p and p.raidBuffs end
     local function ADB()  local p = DB(); return p and p.auras end
     local function CDB()  local p = DB(); return p and p.consumables end
+    local function FDB()  local p = DB(); return p and p.forever end  -- WoW Forever section (nil on retail)
 
     ---------------------------------------------------------------------------
     --  Refresh
@@ -124,6 +131,7 @@ initFrame:SetScript("OnEvent", function(self)
     --- Collect all potential preview icons for the player's class/spec
     local function CollectPreviewIcons()
         local icons = {}
+        if FOREVER then return icons end  -- no preview on WoW Forever (and the spec lookups below are retail-only globals)
         local _, playerClass = UnitClass("player")
         local specIdx = GetSpecialization()
         local specID = specIdx and GetSpecializationInfo(specIdx) or nil
@@ -359,6 +367,7 @@ initFrame:SetScript("OnEvent", function(self)
     --- SetContentHeader tears down and rebuilds, which can cause scroll jumps.
     --- This wrapper saves the scroll position, rebuilds, then compensates.
     local function RebuildPreviewHeader()
+        if FOREVER then return end  -- no preview header on WoW Forever
         EllesmereUI:SetContentHeader(_previewHeaderBuilder)
     end
 
@@ -702,6 +711,15 @@ initFrame:SetScript("OnEvent", function(self)
         -- section while in combat.
         { key="in_combat",         label="In Combat" },
     }
+    -- WoW Forever buckets: vanilla dungeons report Normal difficulty and its
+    -- raids the legacy 40/20-player ids (mapped in the core file), so the
+    -- Forever section offers three locations plus the combat gate.
+    local FOREVER_WHERE_ITEMS = {
+        { key="open_world",        label="Open World" },
+        { key="dungeon_nonmythic", label="Dungeons" },
+        { key="raid_normal_lfr",   label="Raids" },
+        { key="in_combat",         label="In Combat" },
+    }
     local SHOWWHEN_ITEMS = {
         { key="othersMissing", label="Others are missing my buff" },
         { key="iAmMissing",    label="I am missing others' buffs" },
@@ -734,6 +752,7 @@ initFrame:SetScript("OnEvent", function(self)
     local function CWhere() local c = CDB(); if not c then return nil end; c.whereToShow = c.whereToShow or {}; return c.whereToShow end
     local function CSpecialWhere() local c = CDB(); if not c then return nil end; c.specialsWhereToShow = c.specialsWhereToShow or {}; return c.specialsWhereToShow end
     local function CWarlockWhere() local c = CDB(); if not c then return nil end; c.warlockWhereToShow = c.warlockWhereToShow or {}; return c.warlockWhereToShow end
+    local function FWhere() local f = FDB(); if not f then return nil end; f.whereToShow = f.whereToShow or {}; return f.whereToShow end
     local function RShowWhen() local r = RDB(); if not r then return nil end; r.showWhen = r.showWhen or {}; return r.showWhen end
 
     -- Shared reminder-sound catalogue (built + LSM-populated by the QoL
@@ -802,7 +821,7 @@ initFrame:SetScript("OnEvent", function(self)
         local lrgn = row._leftRegion
         if lrgn._control then lrgn._control:Hide() end
         local whereDD, whereRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-            lrgn, 220, lrgn:GetFrameLevel() + 2, WHERE_ITEMS,
+            lrgn, 220, lrgn:GetFrameLevel() + 2, cfg.whereItems or WHERE_ITEMS,
             WhereGet(cfg.whereStore), WhereSet(cfg.whereStore, cfg.onChange))
         PP.Point(whereDD, "RIGHT", lrgn, "RIGHT", -20, 0)
         lrgn._control = whereDD
@@ -994,6 +1013,41 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     --  Auras, Buffs & Consumables page
     ---------------------------------------------------------------------------
+    ---------------------------------------------------------------------------
+    --  WoW Forever custom spells: one DualRow slot per tracked spell (label =
+    --  name + id, button = Remove), filled left to right, a blank label in an
+    --  odd last slot. The page rebuilds on add and remove, so the slots never
+    --  need in-place updates.
+    ---------------------------------------------------------------------------
+    local function BuildForeverCustomRows(parent, y)
+        local f = FDB()
+        local ids = f and f.customIDs
+        local n = ids and #ids or 0
+        if n == 0 then return y end
+        local W = EllesmereUI.Widgets
+        local function Slot(id)
+            return { type="labeledButton", buttonText="Remove", width=90,
+                text=_G._EABR_SpellName(id, tostring(id)) .. " |cff808080" .. id .. "|r",
+                tooltip="Reminds you whenever this buff is missing. Remove stops tracking it.",
+                onClick=function()
+                    local fo = FDB()
+                    local list = fo and fo.customIDs
+                    if not list then return end
+                    for j = #list, 1, -1 do
+                        if list[j] == id then table.remove(list, j) end
+                    end
+                    RefreshAll()
+                    EllesmereUI:RefreshPage(true)
+                end }
+        end
+        for i = 1, n, 2 do
+            local _, h = W:DualRow(parent, y, Slot(ids[i]),
+                ids[i + 1] and Slot(ids[i + 1]) or { type="label", text="" })
+            y = y - h
+        end
+        return y
+    end
+
     local function BuildRemindersPage(pageName, parent, yOffset)
         local W = EllesmereUI.Widgets
         local y = yOffset
@@ -1002,8 +1056,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- Cell reference table for preview icon specific toggle navigation
         local _gridCellRefs = {}
 
-        -- Set up the preview header
-        EllesmereUI:SetContentHeader(_previewHeaderBuilder)
+        -- Set up the preview header (retail only; WoW Forever has no preview)
+        if not FOREVER then EllesmereUI:SetContentHeader(_previewHeaderBuilder) end
 
         parent._showRowDivider = true
 
@@ -1019,7 +1073,11 @@ initFrame:SetScript("OnEvent", function(self)
             line1:SetTextColor(1, 1, 1, 0.75)
             line1:SetPoint("TOP", infoFrame, "TOP", 0, 0)
             line1:SetJustifyH("CENTER")
-            line1:SetText(EllesmereUI.L("Left Click to apply buffs (out of combat), Middle Click to hide until next load screen"))
+            if FOREVER then
+                line1:SetText(EllesmereUI.L("Middle Click a reminder to hide it until the next load screen"))
+            else
+                line1:SetText(EllesmereUI.L("Left Click to apply buffs (out of combat), Middle Click to hide until next load screen"))
+            end
             y = y - 32
         end
 
@@ -1440,6 +1498,8 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Row 5: Show Below | Show Below Pre-Key (global timing, minutes)
+        -- No expiry thresholds on WoW Forever (its reminders are absence only): the row is not built there.
+        if not FOREVER then
         local timingRow
         timingRow, h = W:DualRow(parent, y,
             { type="slider", text="Show Below", min=0, max=60, step=1,
@@ -1458,6 +1518,7 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
         AddMinSuffix(timingRow, "Show Below", "Show Below Pre-Key")
+        end -- not FOREVER
 
         -- Row 6: Show Tooltips | Opacity
         _, h = W:DualRow(parent, y,
@@ -1476,6 +1537,56 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
+
+        -----------------------------------------------------------------------
+        --  WOW FOREVER section: on that client the whole page past DISPLAY.
+        --  Camp Benefits toggle, a spell-ID entry that adds a custom reminder
+        --  and one row per tracked spell; the retail sections below never build.
+        -----------------------------------------------------------------------
+        if FOREVER then
+            _, h = W:SectionHeader(parent, SECTION_FOREVER, y);  y = y - h
+
+            -- Where to Show | Reminder Sound
+            _, h = SectionControlRow(parent, y, {
+                whereStore = FWhere, whereItems = FOREVER_WHERE_ITEMS,
+                whereTooltip = "Pick which content the WoW Forever reminders appear in.\nRested areas (cities and inns) always stay hidden.",
+                soundSec = FDB, soundField = "sectionSound",
+                onChange = RefreshAll,
+            });  y = y - h
+
+            -- Camp Benefits | Add Custom Spell
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Camp Benefits",
+                  tooltip="Reminds you when the Camp Benefits campfire buff is missing.",
+                  getValue=function() local f = FDB(); return not f or f.camp ~= false end,
+                  setValue=function(v)
+                      local f = FDB(); if not f then return end; f.camp = v
+                      RefreshAll()
+                  end },
+                { type="input", text="Add Custom Spell", inputStyle="popup", placeholder="Spell ID", inputWidth=110,
+                  tooltip="Type a spell ID and press Enter to be reminded whenever that buff is missing.\nUnknown IDs are ignored.",
+                  getValue=function() return "" end,
+                  setValue=function(text)
+                      local id = tonumber((text or ""):match("^%s*(%d+)%s*$"))
+                      local f = FDB()
+                      if not (id and f) then return end
+                      if not (C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(id)) then return end
+                      f.customIDs = f.customIDs or {}
+                      for i = 1, #f.customIDs do
+                          if f.customIDs[i] == id then return end
+                      end
+                      f.customIDs[#f.customIDs + 1] = id
+                      RefreshAll()
+                      -- Rebuilds the page once the edit box has finished its commit.
+                      C_Timer.After(0, function() EllesmereUI:RefreshPage(true) end)
+                  end }
+            );  y = y - h
+
+            y = BuildForeverCustomRows(parent, y)
+
+            -- No preview header here, so no click-to-scroll mappings to wire.
+            return math.abs(y)
+        end
 
         -----------------------------------------------------------------------
         --  RAID BUFFS section
@@ -3018,7 +3129,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local row = MakeListRow(-totalH)
                 local capturedIdx = idx
 
-                -- === LEFT HALF: delete (—) | zone name | talent name + icon ===
+                -- === LEFT HALF: delete (x) | zone name | talent name + icon ===
 
                 -- Delete button (far left)
                 local delBtn = CreateFrame("Button", nil, row)
@@ -3281,7 +3392,7 @@ initFrame:SetScript("OnEvent", function(self)
     EllesmereUI:RegisterModule("EllesmereUIAuraBuffReminders", {
         title       = "Auras, Buffs & Consumables",
         description = "AuraBuff Reminders: Raid Buffs, Auras, and Consumables.",
-        pages       = { PAGE_REMINDERS, PAGE_TALENTS },
+        pages       = FOREVER and { PAGE_REMINDERS } or { PAGE_REMINDERS, PAGE_TALENTS },
         buildPage   = function(pageName, parent, yOffset)
             if pageName == PAGE_REMINDERS then
                 return BuildRemindersPage(pageName, parent, yOffset)
@@ -3290,13 +3401,13 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end,
         getHeaderBuilder = function(pageName)
-            if pageName == PAGE_REMINDERS then
+            if pageName == PAGE_REMINDERS and not FOREVER then
                 return _previewHeaderBuilder
             end
             return nil
         end,
         onPageCacheRestore = function(pageName)
-            if pageName == PAGE_REMINDERS then
+            if pageName == PAGE_REMINDERS and not FOREVER then
                 UpdatePreviewHeader()
                 -- Refresh hint visibility never recreate here, just show/hide
                 local dismissed = IsPreviewHintDismissed()

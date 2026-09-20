@@ -1,4 +1,5 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
+if EllesmereUI and EllesmereUI.IS_FOREVER then return end -- WoW Forever: talent reminders are retail-only (its options page is not built there)
 -------------------------------------------------------------------------------
 --  EllesmereUIABR_TalentReminders.lua
 --  Standalone talent reminder system. Zero dependency on ABR aura/buff logic.

@@ -112,14 +112,12 @@ local function SetFont(fs, size)
     fs:SetFont(font, size, flags)
 end
 
--- Snapped through PP.Scale so accumulated row offsets (stride * index) don't drift off the pixel
--- grid from float dust -- without this, a spacing of 1 can round to 0px on some rows and 2px on others.
-local function PhysicalPixels(val)
+-- Icon size is a coordinate value like the window width and icon spacing, so it
+-- keeps its proportion at any UI scale; only snapped onto the pixel grid.
+local function SnapSize(val)
     local PP = EUI and EUI.PP
-    local mult = (PP and PP.mult) or 1
-    local value = (val or 0) * mult
-    if PP and PP.Scale then return PP.Scale(value) end
-    return value
+    if PP and PP.Snap then return PP.Snap(val or 0) end
+    return val or 0
 end
 
 local function GetBarTexturePath()
@@ -485,7 +483,7 @@ local ANIM_SLIDE_PX = 6
 -- the history length or growth direction never makes the row wander.
 local function IconStripGeometry(count)
     local sh = DB()
-    local iconSz = PhysicalPixels(sh.iconSize or 24)
+    local iconSz = SnapSize(sh.iconSize or 24)
     local gap = sh.iconSpacing or 1
     local dir = sh.growDirection or "LEFT"
     count = max(1, count or sh.iconCount or 5)
@@ -807,7 +805,7 @@ BuildIconStrip = function()
         -- during animation. No strip-level background needed.
     end
 
-    local iconSz = PhysicalPixels(sh.iconSize or 24)
+    local iconSz = SnapSize(sh.iconSize or 24)
     local gap = sh.iconSpacing or 1
     local dir = sh.growDirection or "LEFT"
     local iconZoom = sh.iconZoom or 0.08
@@ -1059,6 +1057,11 @@ local function MakeHistoryBar(parent)
     bar.fill:SetMinMaxValues(0, 1)
     bar.fill:SetValue(1)
     bar.fill:SetStatusBarTexture(BAR_TEX)
+    -- Blizzard Style: the same track and edge as the meter's own rows.
+    if ns.DMBlizz() then
+        bar._bg = bar.row:CreateTexture(nil, "BACKGROUND")
+        ns.DMApplyBlizzBarBg(bar)
+    end
 
     local tf = CreateFrame("Frame", nil, bar.fill)
     tf:SetAllPoints(bar.fill)
@@ -1252,11 +1255,11 @@ local function BuildBarWindow()
     end
 
     -- Apply styling (bg from spell history settings, header from DM settings)
-    _barWin._bg:SetColorTexture(sh.bgR or 0, sh.bgG or 0, sh.bgB or 0, sh.bgAlpha or 0.25)
+    ns.DMPaintWindowBg(_barWin._bg, sh.bgR or 0, sh.bgG or 0, sh.bgB or 0, sh.bgAlpha or 0.25)
 
     local hc = dmCfg.hdrBgColor
     local hR, hG, hB = hc and hc.r or 0x1B/255, hc and hc.g or 0x1B/255, hc and hc.b or 0x1B/255
-    _barWin._hdrBg:SetColorTexture(hR, hG, hB, dmCfg.hdrBgAlpha or 1)
+    ns.DMPaintHeaderBg(_barWin._hdrBg, hR, hG, hB, dmCfg.hdrBgAlpha or 1)
 
     local tR, tG, tB
     if dmCfg.hdrTextUseAccent ~= false then tR, tG, tB = GetAccentRGB()
@@ -1363,6 +1366,8 @@ RefreshBarWindow = function()
                 bar.row:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, y)
                 bar.row:SetHeight(barH)
                 bar.fill:SetStatusBarTexture(texPath)
+                -- Blizzard Style: the stock bevel over the user's texture.
+                if ns.DMBlizz() then ns.DMApplyBlizzFill(bar.fill) end
                 bar.icon:SetSize(barH, barH)
                 bar._cachedEntry = nil -- force content rebuild
             end

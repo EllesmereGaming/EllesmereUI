@@ -10,6 +10,11 @@ if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; r
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 
 local ERF = EllesmereUI.Lite.NewAddon(ADDON_NAME)
+-- The group headers (initialConfigFunction) and click-casting are secure
+-- handlers end to end: the enable drain stands the module down where snippets
+-- cannot compile (WoW Forever beta) and Blizzard's raid frames stay
+-- (EllesmereUI.SecureSnippetsOK).
+ERF.requiresSecureSnippets = true
 ns.ERF = ERF
 _G.EllesmereUIRaidFrames = ERF
 
@@ -3936,16 +3941,6 @@ local function StyleButton(button)
                 end
             end
             GameTooltip:SetUnit(tip)
-            -- _G.RaiderIO resolves the tooltip unit via UnitTokenFromGUID(data.guid), which returns
-            -- a SECRET token on our secure header frames, so its handler bails before drawing. When
-            -- the tooltip unit is still secret, hand it our clean GUID-matched token via its public
-            -- API. Gated on secret/absent GetUnit() so we never double-draw.
-            if _G.RaiderIO and _G.RaiderIO.ShowProfile then
-                local _, ttUnit = GameTooltip:GetUnit()
-                if not ttUnit or (issecretvalue and issecretvalue(ttUnit)) then
-                    _G.RaiderIO.ShowProfile(GameTooltip, tip)
-                end
-            end
             GameTooltip:Show()
         end
     end)
