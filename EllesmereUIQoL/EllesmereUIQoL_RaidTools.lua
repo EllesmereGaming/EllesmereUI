@@ -455,6 +455,9 @@ local DB_DEFAULTS = {
         quickFirePlaceKey = false,
         quickFireUndoKey  = false,
         quickFireClearKey = false,
+        -- Opt-in raid groups window: a cog on Group & Pull that opens a window
+        -- for moving players between subgroups. Off, nothing for it is built.
+        groupsWindow      = false,
         -- Default to Collapsed When Shown: EVERY show (driver, settings pass,
         -- keybind) starts as the small icon; click it to expand. Turning this
         -- off makes the keybind a plain full-window toggle.
@@ -764,6 +767,22 @@ local function RefreshPermissions(force)
     if convertButton then
         convertButton._lbl:SetText(raid and EllesmereUI.L("Convert to Party")
                                          or EllesmereUI.L("Convert to Raid"))
+    end
+
+    -- The raid groups cog appears and vanishes with rank, which is exactly what
+    -- this function already memoizes on -- and it is the ONLY writer: a copy in
+    -- the settings pass would be overwritten by the forced call at the end of
+    -- Apply anyway, and this one also rides PARTY_LEADER_CHANGED. Three things
+    -- have to hold: the option is on, the player may act (leader or assistant,
+    -- in a raid), and the layout has a title band to dock on -- Compact replaces
+    -- the whole band (ApplyLayout). Apply forces this function on every option
+    -- and Show as change, so none of them can be stale. It only toggles: the cog
+    -- is built by EnsureGroupsCog, out of combat, and never here.
+    local gw = sections.Group
+    if gw and gw._groupsCog then
+        local p = P()
+        gw._groupsCog:SetShown(p and p.groupsWindow == true
+            and ShowAs() ~= "compact" and ns.RaidGroupsPermitted() or false)
     end
 end
 
@@ -1415,6 +1434,45 @@ local function BuildCollapsedIcon()
         end
     ]])
     iconBtn:SetAttribute("_onclick", EXPAND_SNIPPET)
+end
+
+-- Raid group composition cog, riding the title band left of the collapse
+-- control. Built outside MakeShell so the factory stays key-agnostic -- the
+-- same arrangement BuildCollapsedIcon uses, wired to the Group shell by its
+-- caller rather than by a key test inside the factory.
+--
+-- Group & Pull only: arranging the raid is that group's business.
+-- EnsureGroupsCog decides whether it EXISTS (the option, out of combat) and
+-- RefreshPermissions whether it SHOWS (rank, which moves mid-session, and Show
+-- as -- Compact replaces the whole title band with the marker strip, see
+-- ApplyLayout, so there is no band left to dock the cog on there).
+--
+-- A plain Button on a secure shell is fine -- scripts on a protected frame are
+-- unrestricted, only its attributes are combat-sensitive -- and the window it
+-- opens is not secure at all (see EllesmereUIQoL_RaidGroups.lua).
+local function BuildGroupsCog(shell)
+    local cog = CreateFrame("Button", nil, shell)
+    cog:SetSize(14, 14)
+    cog:SetPoint("RIGHT", shell._collapseBtn, "LEFT", -4, 0)
+    cog:SetAlpha(0.5)
+    local cogTex = cog:CreateTexture(nil, "OVERLAY")
+    cogTex:SetAllPoints()
+    cogTex:SetTexture(EllesmereUI.COGS_ICON)
+    cog:SetScript("OnEnter", function(self) self:SetAlpha(0.85) end)
+    cog:SetScript("OnLeave", function(self) self:SetAlpha(0.5) end)
+    cog:SetScript("OnClick", ns.ShowRaidGroupsWindow)
+    shell._groupsCog = cog
+end
+
+-- Built the first time Enable Raid Groups Window is on, never before -- the
+-- arrangement Quick Fire uses -- so a player who leaves it off never has the
+-- frame. Called from Apply, which is the out-of-combat path: building a child
+-- of a protected shell is not something to do from a roster event in combat.
+local function EnsureGroupsCog()
+    local gw, p = sections.Group, P()
+    if not gw._groupsCog and p and p.groupsWindow == true then
+        BuildGroupsCog(gw)
+    end
 end
 
 local function BuildAll()
@@ -2155,6 +2213,7 @@ function Apply()
     EnsureEvents()
     RegisterUnlock()
     BuildAll()
+    EnsureGroupsCog()
     -- Before ApplyLayout: it sizes the shells from GROUP_CONTENT_H, which the
     -- hidden buttons and the 0-second pull slots move.
     LayoutGroupContent()

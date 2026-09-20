@@ -74,6 +74,12 @@ initFrame:SetScript("OnEvent", function(self)
         local mode = ShowAsVal()
         return Disabled() or mode == "compact" or mode == "markers"
     end
+    -- The cog rides the Group & Pull title band, which neither Compact nor Only
+    -- Markers shows, so this is the same gate as the other Group & Pull-only
+    -- options. The scale only means something once the window can be opened.
+    local function GroupsWindowDisabled()
+        return FullPanelButtonDisabled() or Cfg("groupsWindow") ~= true
+    end
     local function PullDisabled()
         return Disabled() or ShowAsVal() == "markers"
     end
@@ -319,6 +325,26 @@ initFrame:SetScript("OnEvent", function(self)
                   Set("growDir", v)
                   Refresh()
               end }
+        );  y = y - h
+
+        -- Row 4: opt-in raid groups window | its own scale. Off by default, like
+        -- Quick Fire below: nothing for it is built until the toggle is on. Both are
+        -- gated like Show Convert and Show Disband: the cog needs the Group & Pull
+        -- title band, which Compact and Only Markers do not show.
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Enable Raid Groups Window",
+              tooltip = "Adds a cog to the Group & Pull title bar, for raid leaders and assistants, that opens a window where players can be dragged between raid groups. Needs a layout that shows Group & Pull.",
+              disabled = FullPanelButtonDisabled,
+              getValue = function() return Cfg("groupsWindow") == true end,
+              setValue = function(v)
+                  Set("groupsWindow", v)
+                  Refresh()
+                  EllesmereUI:RefreshPage()
+              end },
+            { type = "slider", text = "Raid Groups Window Scale", min = 0.5, max = 2.0, step = 0.05,
+              disabled = GroupsWindowDisabled,
+              getValue = ns.RaidGroupsScale,
+              setValue = ns.RaidGroupsScale }
         );  y = y - h
 
         -- QUICK FIRE
