@@ -5,6 +5,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Visually matches the Bags module with sidebar, search, and sorting
 -------------------------------------------------------------------------------
 local EUI = EllesmereUI
+local GetItemInfo = C_Item.GetItemInfo
+local GetItemInfoInstant = C_Item.GetItemInfoInstant
+local GetItemQualityColor = C_Item.GetItemQualityColor
 -- Profile access helper (DB created in EUI_Bags_Options.lua, loaded first per TOC)
 local _emptyP = {}
 local function BP() return (EUI._bagsDB and EUI._bagsDB.profile) or _emptyP end
@@ -2722,7 +2725,9 @@ function BuildBankSidebar()
         if isAtlas and btn._icon.SetAtlas then
             btn._icon:SetAtlas(icon)
         else
-            btn._icon:SetTexture(icon)
+            -- Through the client icon map, like the bag window's sidebar: a
+            -- default the Forever client cannot draw takes its stand-in there.
+            btn._icon:SetTexture(EllesmereUI.ClientIcon(icon))
         end
         btn._icon:SetAlpha(isSelected and 1 or 0.75)
 

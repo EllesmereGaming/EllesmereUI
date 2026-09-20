@@ -10,6 +10,11 @@ if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; r
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 
 local ERF = EllesmereUI.Lite.NewAddon(ADDON_NAME)
+-- The group headers (initialConfigFunction) and click-casting are secure
+-- handlers end to end: the enable drain stands the module down where snippets
+-- cannot compile (WoW Forever beta) and Blizzard's raid frames stay
+-- (EllesmereUI.SecureSnippetsOK).
+ERF.requiresSecureSnippets = true
 ns.ERF = ERF
 _G.EllesmereUIRaidFrames = ERF
 

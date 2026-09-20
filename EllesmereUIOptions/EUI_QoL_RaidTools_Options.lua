@@ -422,6 +422,10 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                         return
                     end
+                    -- Only a plain left click arms the capture: with AnyUp
+                    -- registered, an idle side-button click would otherwise
+                    -- fall through here and start listening.
+                    if mouseButton ~= "LeftButton" then return end
                     if listening then return end
                     listening = true
                     label:SetText(EllesmereUI.L("Press a key..."))

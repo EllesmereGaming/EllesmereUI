@@ -5,6 +5,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ADDON_NAME = "EllesmereUIQuickdraw"
 local ns = EllesmereUI._ModuleNS[ADDON_NAME]  -- module namespace (published by the module at its load)
 if not ns then return end  -- module disabled: no options page
+-- Stood down for the session (secure snippets unavailable: WoW Forever beta):
+-- the module is not running, so its page stays out of the sidebar.
+if (EllesmereUI.Lite.GetAddon(ADDON_NAME, true) or ns).standDown then return end
 
 local PAGE_DISPLAY = "Quickdraw"
 local BINDING_PREFIX = "EUI_RADIAL"

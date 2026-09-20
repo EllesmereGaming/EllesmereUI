@@ -1827,6 +1827,12 @@ local function CaptureChatPositionGenesis()
         cfg.chatPosition = nil
     end
     if cfg.chatPosition then return end
+    -- WoW Forever starts every install from the base layout, never from a
+    -- snapshot of Blizzard's chat placement (EllesmereUI_ForeverLayout.lua).
+    if EllesmereUI.IS_FOREVER and EllesmereUI.ForeverChatPosition then
+        cfg.chatPosition = EllesmereUI.ForeverChatPosition()
+        return
+    end
     local cf1 = _G.ChatFrame1
     if not cf1 then return end
     local left, bottom = cf1:GetLeft(), cf1:GetBottom()

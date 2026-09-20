@@ -652,6 +652,93 @@ initFrame:SetScript("OnEvent", function(self)
         castParts.targetFS:SetMaxLines(1)
         castParts.targetFS:SetText(UnitName("player") or EllesmereUI.L("Spell Target"))
 
+        -- Blizzard Style (Global Settings > Style): the stock plate look over the
+        -- mock at the end of every Update, as the live plates get it -- the
+        -- shadowed background art around the bar (the user's own fill texture
+        -- stays), the bar's inner shadow, no EUI borders, the selection ring or
+        -- deselected overlay, and the stock cast bar art. Stashed on previewGlow
+        -- (an Update upvalue already) so Update stays under Lua's 60-upvalue cap.
+        previewGlow.applyBlizz = function()
+            local B, ok = ns.NP_BLIZZ, ns.NP_AtlasOK
+            if not (B and ok) then return end
+            borderFrame:Hide(); simpleBorderFrame:Hide()
+            for _, e in ipairs(_solidEdges) do e:Hide() end
+            if healthWrapper._customBorder then healthWrapper._customBorder:Hide() end
+            if ok(B.barBg) then
+                healthBG:SetAtlas(B.barBg)
+                healthBG:SetVertexColor(1, 1, 1, 1)
+                healthBG:ClearAllPoints()
+                healthBG:SetPoint("TOPLEFT", health, "TOPLEFT", -2, 3)
+                healthBG:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 6, -6)
+            end
+            -- The stock fill art's footprint masks the fill, the highlight
+            -- wash and the shadow inside the background's rim, as live.
+            local mask = previewGlow.blizzMask
+            if not mask and ok(B.bar) then
+                mask = health:CreateMaskTexture()
+                mask:SetAtlas(B.bar)
+                mask:SetAllPoints(health)
+                previewGlow.blizzMask = mask
+            end
+            if mask then
+                local fill = health:GetStatusBarTexture()
+                if fill and previewGlow.blizzMaskedFill ~= fill then
+                    pcall(fill.RemoveMaskTexture, fill, mask)
+                    fill:AddMaskTexture(mask)
+                    previewGlow.blizzMaskedFill = fill
+                end
+                if not previewGlow.blizzMaskedHL then
+                    previewGlow.highlight:AddMaskTexture(mask)
+                    previewGlow.blizzMaskedHL = true
+                end
+            end
+            if ns.NP_BlizzBarShadow then ns.NP_BlizzBarShadow(health, health:GetHeight(), mask) end
+            -- Selection ring while the target glow preview is on, else the
+            -- deselected overlay every other plate carries.
+            local sel, desel = previewGlow.blizzSel, previewGlow.blizzDesel
+            if not sel and ok(B.selected) and ok(B.deselected) then
+                sel = health:CreateTexture(nil, "OVERLAY", nil, 5)
+                sel:SetAtlas(B.selected)
+                sel:SetPoint("TOPLEFT", healthBG, "TOPLEFT", -1, 1)
+                sel:SetPoint("BOTTOMRIGHT", healthBG, "BOTTOMRIGHT", -3, 3)
+                previewGlow.blizzSel = sel
+                desel = health:CreateTexture(nil, "OVERLAY", nil, 4)
+                desel:SetAtlas(B.deselected)
+                desel:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 1)
+                desel:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, -1)
+                previewGlow.blizzDesel = desel
+            end
+            if sel then
+                if showTargetGlowPreview then
+                    local c = NAMEPLATE_BORDER_TARGET_COLOR
+                    if c and c.r then sel:SetVertexColor(c.r, c.g, c.b) else sel:SetVertexColor(1, 1, 1) end
+                    sel:Show(); desel:Hide()
+                else
+                    sel:Hide(); desel:Show()
+                end
+            end
+            -- The highlight wash sits under the ring, as on the live plates.
+            previewGlow.highlight:SetDrawLayer("OVERLAY", 0)
+            -- Cast bar: stock background, fill art and pip; no EUI border.
+            if ok(B.castBg) then
+                castParts.bg:SetAtlas(B.castBg)
+                castParts.bg:SetVertexColor(1, 1, 1, 1)
+                castParts.bg:ClearAllPoints()
+                castParts.bg:SetPoint("TOPLEFT", cast, "TOPLEFT", 1, 0)
+                castParts.bg:SetPoint("BOTTOMRIGHT", cast, "BOTTOMRIGHT", -1, 0)
+            end
+            if ok(B.cast) then
+                cast:GetStatusBarTexture():SetAtlas(B.cast)
+                cast:SetStatusBarColor(1, 1, 1, 1)
+            end
+            if ok(B.castPip) then
+                castParts.spark:SetAtlas(B.castPip)
+                castParts.spark:SetWidth(4)
+            end
+            if PP.GetBorders(cast) then PP.HideBorder(cast) end
+            castParts.icon:SetTexCoord(0, 1, 0, 1)
+        end
+
         -- Class power pips (cosmetic preview queries live class/spec resource count); packed into a single table to stay under Lua's 60-upvalue limit.
         local CP = {
             PIP_W = 8, PIP_H = 3, PIP_GAP = 2,
@@ -2151,6 +2238,18 @@ initFrame:SetScript("OnEvent", function(self)
                 previewGlow.highlight:SetShown(showHL)
             end
 
+            -- Blizzard Style: the stock look over everything laid out above.
+            if EllesmereUI.BlizzStyle.Get("nameplates") then
+                previewGlow.applyBlizz()
+                -- Aura mocks: the stock rounded mask and ring, as the live cells
+                -- (sized above, so the ring geometry reads the frames).
+                if ns.NP_ApplyBlizzIconArt then
+                    for i = 1, PV_CONST.DEBUFF_COUNT do ns.NP_ApplyBlizzIconArt(debuffs[i], debuffs[i].icon) end
+                    for i = 1, PV_CONST.BUFF_COUNT do ns.NP_ApplyBlizzIconArt(buffs[i], buffs[i].icon) end
+                    for i = 1, PV_CONST.CC_COUNT do ns.NP_ApplyBlizzIconArt(ccs[i], ccs[i].icon) end
+                end
+            end
+
             -- Absorb preview: update and toggle
             ToggleAbsorbPreview()
 
@@ -2971,7 +3070,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 message = "Changing Max Debuffs requires a UI reload to take effect.",
                                 confirmText = "Reload Now",
                                 cancelText = "Later",
-                                onConfirm = function() ReloadUI() end,
+                                reload    = true,
                             })
                         end
                     end)
@@ -4486,6 +4585,7 @@ initFrame:SetScript("OnEvent", function(self)
         -----------------------------------------------------------------------
         local styleHeader
         styleHeader, h = W:SectionHeader(parent, "STYLE", y);  y = y - h
+        y = EllesmereUI.BlizzStyle.Note(parent, y, "nameplates")
 
         local function RefreshAllTextures()
             ns.RefreshAllSettings()
@@ -4498,7 +4598,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Row 1: Border (None/Basic/Custom) | Border Size. Pure VIEW over showBorder + customBorderEnabled: None=off, Basic=standard border, Custom=custom border engine (reveals the Custom Border row below via page rebuild; None/Basic collapse it).
         local borderStyleRow
         borderStyleRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Border",
+            EllesmereUI.BlizzStyle.Gate("nameplates", { type="dropdown", text="Border",
               values={ none = "None", basic = "Basic", custom = "Custom" },
               order={ "none", "basic", "custom" },
               getValue=function()
@@ -4522,8 +4622,8 @@ initFrame:SetScript("OnEvent", function(self)
                 UpdatePreview()
                 -- Force rebuild so the Custom Border row shows/hides and rows below reflow.
                 EllesmereUI:RefreshPage(true)
-              end },
-            { type="slider", text="Border Size", min=1, max=4, step=1,
+              end }),
+            EllesmereUI.BlizzStyle.Gate("nameplates", { type="slider", text="Border Size", min=1, max=4, step=1,
               -- Only Basic uses this size (None has no border; Custom uses its own Custom Border Size below).
               disabled=function()
                 if DBVal("customBorderEnabled") then return true end
@@ -4538,13 +4638,14 @@ initFrame:SetScript("OnEvent", function(self)
                 DB().borderSize = v
                 ns.RefreshBorder()
                 UpdatePreview()
-              end })
+              end }))
         y = y - h
         -- Inline swatch on the Border dropdown: standard (Basic) border color, dimmed unless mode is Basic.
         if not EllesmereUI._prebuilding then
             local leftRgn = borderStyleRow._leftRegion
             local function isBorderOff()
                 -- Off for None and Custom (standard border/color is inert then) -- only Basic uses it.
+                if EllesmereUI.BlizzStyle.Get("nameplates") then return true end
                 if DBVal("customBorderEnabled") then return true end
                 local v = DBVal("showBorder")
                 if v == nil then return not defaults.showBorder end
@@ -4602,6 +4703,7 @@ initFrame:SetScript("OnEvent", function(self)
             wrapCogTex:SetAllPoints(); wrapCogTex:SetTexture(EllesmereUI.COGS_ICON)
             local function wrapCogOff()
                 -- Only "None" disables it; Basic and Custom both support the wrap.
+                if EllesmereUI.BlizzStyle.Get("nameplates") then return true end
                 if DBVal("customBorderEnabled") then return false end
                 local v = DBVal("showBorder")
                 if v == nil then v = defaults.showBorder end
@@ -4626,7 +4728,7 @@ initFrame:SetScript("OnEvent", function(self)
             local cbTexValues, cbTexOrder = EllesmereUI.GetBorderTextureDropdown()
             local customBorderRow
             customBorderRow, h = W:DualRow(parent, y,
-                { type="dropdown", text="Custom Border Style",
+                EllesmereUI.BlizzStyle.Gate("nameplates", { type="dropdown", text="Custom Border Style",
                   values=cbTexValues, order=cbTexOrder,
                   getValue=function() return DBVal("customBorderTexture") or defaults.customBorderTexture end,
                   setValue=function(v)
@@ -4644,14 +4746,14 @@ initFrame:SetScript("OnEvent", function(self)
                     ns.RefreshBorder()
                     UpdatePreview()
                     EllesmereUI:RefreshPage()
-                  end },
-                { type="slider", text="Custom Border Size", min=0, max=4, step=1,
+                  end }),
+                EllesmereUI.BlizzStyle.Gate("nameplates", { type="slider", text="Custom Border Size", min=0, max=4, step=1,
                   getValue=function() return DBVal("customBorderSize") or defaults.customBorderSize end,
                   setValue=function(v)
                     DB().customBorderSize = v
                     ns.RefreshBorder()
                     UpdatePreview()
-                  end })
+                  end }))
             y = y - h
 
             -- Inline "Border Offset" cog on the Custom Border Style region
@@ -4792,7 +4894,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
         local bgHoverRow
         bgHoverRow, h = W:DualRow(parent, y,
-            { type="slider", text="Background", min=0, max=100, step=1,
+            EllesmereUI.BlizzStyle.Gate("nameplates", { type="slider", text="Background", min=0, max=100, step=1,
               getValue=function()
                 return math.floor(((DBVal("bgAlpha") or defaults.bgAlpha) * 100) + 0.5)
               end,
@@ -4803,7 +4905,7 @@ initFrame:SetScript("OnEvent", function(self)
                     plate.healthBG:SetColorTexture(c.r, c.g, c.b, v / 100)
                 end
                 UpdatePreview()
-              end },
+              end }),
             { type="dropdown", text="Absorb Style", values=absorbStyleValues, order=absorbStyleOrder,
               getValue=function() return DBVal("absorbStyle") or "blizzard" end,
               setValue=function(v)
@@ -4835,6 +4937,7 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(cbSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             leftRgn._lastInline = cbSwatch
             EllesmereUI.RegisterWidgetRefresh(function() cbUpdateSwatch() end)
+            EllesmereUI.BlizzStyle.BlockInline("nameplates", cbSwatch)
         end
 
         -- Inline absorb color swatch (right of Row 2): white by default, tints every style except Blizzard (disabled there since Blizzard keeps its own coloring); mirrors the Focus Texture swatch's disabled pattern.
@@ -4931,6 +5034,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Row 3: Bar Texture | Cast Bar Texture -- share the same texture set (EUI built-ins + SharedMedia) and resolve identically; Bar Texture drives the health bar, Cast Bar Texture drives the cast bar.
         _, h = W:DualRow(parent, y,
+            -- Bar Texture stays live under Blizzard Style: the health fill is the
+            -- user's own texture under the stock background art.
             { type="dropdown", text="Bar Texture", values=hbtValues, order=hbtOrder,
               getValue=function() return DBVal("healthBarTexture") or "none" end,
               setValue=function(v)
@@ -4938,13 +5043,13 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshAllTextures()
                 UpdatePreview()
               end },
-            { type="dropdown", text="Cast Bar Texture", values=hbtValues, order=hbtOrder,
+            EllesmereUI.BlizzStyle.Gate("nameplates", { type="dropdown", text="Cast Bar Texture", values=hbtValues, order=hbtOrder,
               getValue=function() return DBVal("castBarTexture") or "none" end,
               setValue=function(v)
                 DB().castBarTexture = v
                 RefreshAllTextures()
                 UpdatePreview()
-              end });  y = y - h
+              end }));  y = y - h
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
@@ -6262,7 +6367,9 @@ initFrame:SetScript("OnEvent", function(self)
                 elseif element == "ccs" then
                     borderKey = "hideCCIconBorder"
                 end
-                if borderKey then
+                -- Blizzard Style: the stock aura ring replaces the 1px border,
+                -- so the toggle has nothing to switch (the page banner says why).
+                if borderKey and not EllesmereUI.BlizzStyle.Get("nameplates") then
                     opts.toggleLabel = "Hide Border"
                     opts.toggleGet = function()
                         local v = DBVal(borderKey)
@@ -6867,6 +6974,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                     { type="toggle", label="Hide Border",
                       tooltip="Hide the 1-pixel border around the cast bar spell icon.",
+                      disabled=function() return EllesmereUI.BlizzStyle.Get("nameplates") end,
                       get=function()
                         local db = DB()
                         if db and db.hideCastIconBorder ~= nil then return db.hideCastIconBorder and true or false end
@@ -6923,7 +7031,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Cast Background Opacity (+ swatch) | Cast Bar Border (+ swatch)
         local castBgRow
         castBgRow, h = W:DualRow(parent, y,
-            { type="slider", text="Cast Background", min=0, max=100, step=1,
+            EllesmereUI.BlizzStyle.Gate("nameplates", { type="slider", text="Cast Background", min=0, max=100, step=1,
               getValue=function()
                 return math.floor(((DBVal("castBgAlpha") or defaults.castBgAlpha) * 100) + 0.5)
               end,
@@ -6934,15 +7042,15 @@ initFrame:SetScript("OnEvent", function(self)
                     plate.castBG:SetColorTexture(c.r, c.g, c.b, v / 100)
                 end
                 UpdatePreview()
-              end },
-            { type="slider", text="Cast Bar Border", min=0, max=4, step=1,
+              end }),
+            EllesmereUI.BlizzStyle.Gate("nameplates", { type="slider", text="Cast Bar Border", min=0, max=4, step=1,
               tooltip="Pixel-perfect border around the cast bar. Set to 0 for no border.",
               getValue=function() return DBVal("castBorderSize") or defaults.castBorderSize end,
               setValue=function(v)
                 DB().castBorderSize = v
                 ns.RefreshCastBorder()
                 UpdatePreview()
-              end });  y = y - h
+              end }));  y = y - h
         if not EllesmereUI._prebuilding then
             local leftRgn = castBgRow._leftRegion
             local castBgColorGet = function()
@@ -6961,6 +7069,7 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(castBgSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             leftRgn._lastInline = castBgSwatch
             EllesmereUI.RegisterWidgetRefresh(function() castBgUpdateSwatch() end)
+            EllesmereUI.BlizzStyle.BlockInline("nameplates", castBgSwatch)
         end
         -- Inline color swatch on Cast Bar Border (right region)
         if not EllesmereUI._prebuilding then
@@ -6978,6 +7087,7 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(cbSwatch, "RIGHT", rightRgn._control, "LEFT", -12, 0)
             rightRgn._lastInline = cbSwatch
             EllesmereUI.RegisterWidgetRefresh(function() cbUpdateSwatch() end)
+            EllesmereUI.BlizzStyle.BlockInline("nameplates", cbSwatch)
         end
 
         -- Cast Timer: position dropdown (None/Right/Left), styled like the duration dropdowns. "None" hides it; Right/Left choose the side (reserving space, pushing shared-side cast text); Size/X/Y live in the inline cog.
@@ -7081,24 +7191,24 @@ initFrame:SetScript("OnEvent", function(self)
         castColorRow, h = W:DualRow(parent, y,
             { type="multiSwatch", text="Cast Color",
               swatches = {
-                { tooltip = "Interruptible Cast",
+                EllesmereUI.BlizzStyle.Gate("nameplates", { tooltip = "Interruptible Cast",
                   getValue = function() return DBColor("castBar") end,
                   setValue = function(r, g, b)
                     DB().castBar = { r = r, g = g, b = b }
                     RefreshAllPlates(); UpdatePreview()
-                  end },
+                  end }),
                 { tooltip = "Interrupt on CD",
                   getValue = function() return DBColor("interruptReady") end,
                   setValue = function(r, g, b)
                     DB().interruptReady = { r = r, g = g, b = b }
                     RefreshAllPlates()
                   end },
-                { tooltip = "Uninterruptible Cast",
+                EllesmereUI.BlizzStyle.Gate("nameplates", { tooltip = "Uninterruptible Cast",
                   getValue = function() return DBColor("castBarUninterruptible") end,
                   setValue = function(r, g, b)
                     DB().castBarUninterruptible = { r = r, g = g, b = b }
                     RefreshAllPlates()
-                  end },
+                  end }),
                 { tooltip = "Important Cast",
                   getValue = function() return DBColor("castBarImportant") end,
                   setValue = function(r, g, b)
@@ -7531,8 +7641,9 @@ initFrame:SetScript("OnEvent", function(self)
                     rgn._lastInline = swatch
                     swatch:SetScript("OnEnter", function(s) EllesmereUI.ShowWidgetTooltip(s, "Interrupted Flash Colour") end)
                     swatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                    -- Blizzard Style uses the stock interrupted fill art, so the flash colour is inert there.
                     EllesmereUI.RegisterWidgetRefresh(function()
-                        local off = flashOff()
+                        local off = flashOff() or EllesmereUI.BlizzStyle.Get("nameplates")
                         swatch:SetAlpha(off and 0.15 or 1)
                         swatch:EnableMouse(not off)
                         updateSwatch()

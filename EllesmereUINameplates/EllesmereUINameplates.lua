@@ -140,6 +140,10 @@ function ns._appendDisplayPresetKeys(t)
 end
 
 local defaults = {
+    -- Blizzard Style (Global Settings > Style): the stock nameplate's bar,
+    -- background, selection and cast bar art on our plates with every feature
+    -- intact. Default OFF; reload-gated.
+    useBlizzardStyle = false,
     absorbStyle = "blizzard",
     absorbCleanAlpha = 30,
     absorbColor = { r = 1, g = 1, b = 1 },
@@ -248,7 +252,8 @@ local defaults = {
     font = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF",
     textSlotTop = "enemyName",
     textSlotRight = "healthPercent",
-    textSlotLeft = "none",
+    -- WoW Forever shows the level by default (retail leaves the slot empty).
+    textSlotLeft = (EllesmereUI.IS_FOREVER == true) and "level" or "none",
     textSlotCenter = "none",
     showTargetArrows = false,
     targetArrowDouble = false,
@@ -516,6 +521,8 @@ end
 -- so it never collides with the simple PP.CreateBorder on plate.health. ns fields, not new
 -- file-scope locals (local cap).
 function ns.IsCustomBorderEnabled()
+    -- Blizzard Style plates carry the stock background art instead of borders.
+    if ns.NP_Blizz() then return false end
     local v = p and p.customBorderEnabled
     if v == nil then return defaults.customBorderEnabled end
     return v
@@ -561,6 +568,269 @@ function ns.HideCustomBorder(plate)
     end
 end
 
+-------------------------------------------------------------------------------
+--  Blizzard Style (Global Settings > Style). The stock nameplate atlases on
+--  our own plates: bar fill + shadowed background, target/focus selection
+--  ring, deselected overlay, and the stock cast bar art (background, fills
+--  per cast kind, pip, interrupt shield). Every EUI feature keeps working;
+--  the EUI borders and textures step aside. Reload-gated per-profile flag,
+--  read only on build/restyle paths. Atlases are validated once per session so
+--  a missing one leaves that piece on the EUI look. ns fields (local cap).
+-------------------------------------------------------------------------------
+ns.NP_BLIZZ = {
+    bar = "UI-HUD-CoolDownManager-Bar", barBg = "UI-HUD-CoolDownManager-Bar-BG",
+    selected = "UI-HUD-Nameplates-Selected", deselected = "ui-hud-nameplates-deselected-overlay",
+    castBg = "ui-castingbar-background", cast = "ui-castingbar-filling-standard",
+    channel = "ui-castingbar-filling-channel", interrupted = "ui-castingbar-interrupted",
+    castShieldFill = "ui-castingbar-uninterruptable", castPip = "ui-castingbar-pip",
+    shield = "nameplates-InterruptShield",
+    auraMask = "UI-HUD-CoolDownManager-Mask", auraRing = "UI-HUD-CoolDownManager-IconOverlay",
+}
+ns._npAtlasMemo = {}
+-- Read from the profile once (first call with a profile present) and latched
+-- for the session: a live profile switch never flips the look under the
+-- one-time art setup; the profile system prompts for a reload instead.
+function ns.NP_Blizz()
+    local v = ns._npBlizz
+    if v == nil then
+        if not p then return false end
+        v = p.useBlizzardStyle and true or false
+        ns._npBlizz = v
+    end
+    return v
+end
+function ns.NP_AtlasOK(name)
+    local memo = ns._npAtlasMemo
+    local v = memo[name]
+    if v == nil then
+        v = (name and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(name)) and true or false
+        memo[name] = v
+    end
+    return v
+end
+-- Inner shadow on the health bar: the stock fill art bakes this bevel in,
+-- and under the style the fill is the user's own texture, so it is drawn
+-- here: four regions of the bar at OVERLAY -3 (above the fill, under the
+-- hash line, the overlays and the ring), created once, re-sized per pass.
+ns._npShadeClear  = CreateColor(0, 0, 0, 0)
+ns._npShadeTop    = CreateColor(0, 0, 0, 0.55)
+ns._npShadeBottom = CreateColor(0, 0, 0, 0.30)
+ns._npShadeEnd    = CreateColor(0, 0, 0, 0.35)
+function ns.NP_BlizzBarShadow(bar, h, mask)
+    local sh = bar._blizzShadow
+    if not sh then
+        sh = {}
+        bar._blizzShadow = sh
+        for i = 1, 4 do
+            local tex = bar:CreateTexture(nil, "OVERLAY", nil, -3)
+            tex:SetTexture("Interface\\Buttons\\WHITE8X8")
+            if tex.SetSnapToPixelGrid then tex:SetSnapToPixelGrid(false); tex:SetTexelSnappingBias(0) end
+            sh[i] = tex
+        end
+        -- VERTICAL runs bottom -> top, HORIZONTAL left -> right.
+        sh[1]:SetGradient("VERTICAL", ns._npShadeClear, ns._npShadeTop)
+        sh[2]:SetGradient("VERTICAL", ns._npShadeBottom, ns._npShadeClear)
+        sh[3]:SetGradient("HORIZONTAL", ns._npShadeEnd, ns._npShadeClear)
+        sh[4]:SetGradient("HORIZONTAL", ns._npShadeClear, ns._npShadeEnd)
+    end
+    h = h or bar:GetHeight() or 10
+    -- The strips hang off the bar's edges, so only the height sizes them:
+    -- one compare per plate show once laid out (plates show constantly).
+    if sh._h ~= h then
+        sh._h = h
+        local top, bottom, ends = math.max(2, math.floor(h * 0.2)), math.max(1, math.floor(h * 0.1)), math.max(2, math.floor(h * 0.15))
+        sh[1]:ClearAllPoints(); sh[1]:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0); sh[1]:SetPoint("TOPRIGHT", bar, "TOPRIGHT", 0, 0); sh[1]:SetHeight(top)
+        sh[2]:ClearAllPoints(); sh[2]:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", 0, 0); sh[2]:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 0, 0); sh[2]:SetHeight(bottom)
+        sh[3]:ClearAllPoints(); sh[3]:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0); sh[3]:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", 0, 0); sh[3]:SetWidth(ends)
+        sh[4]:ClearAllPoints(); sh[4]:SetPoint("TOPRIGHT", bar, "TOPRIGHT", 0, 0); sh[4]:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 0, 0); sh[4]:SetWidth(ends)
+        for i = 1, 4 do sh[i]:Show() end
+    end
+    -- Bar-shape mask, seated once per mask object.
+    if mask and sh._mask ~= mask then
+        for i = 1, 4 do
+            if sh._mask then pcall(sh[i].RemoveMaskTexture, sh[i], sh._mask) end
+            sh[i]:AddMaskTexture(mask)
+        end
+        sh._mask = mask
+    end
+end
+-- Health bar: the stock shadowed background hugging the bar the way the
+-- stock plate anchors it, plus the bar's inner shadow. The fill keeps the
+-- user's own Bar Texture (the stock fill art is pre-coloured and darkened
+-- every colour rule), so colours, textures and opacity render as on the
+-- EUI look.
+function ns.NP_ApplyBlizzBarArt(plate)
+    local health = plate.health
+    local B = ns.NP_BLIZZ
+    local bg = plate.healthBG
+    if bg and not plate._blizzBarBg and ns.NP_AtlasOK(B.barBg) then
+        plate._blizzBarBg = true
+        bg:SetAtlas(B.barBg)
+        bg:SetVertexColor(1, 1, 1, 1)
+        bg:ClearAllPoints()
+        bg:SetPoint("TOPLEFT", health, "TOPLEFT", -2, 3)
+        bg:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 6, -6)
+    end
+    -- The stock fill art's own footprint (rounded, soft-edged, inside the
+    -- background's rim) as a mask over the bar for the fill, the highlights
+    -- and the shadow: the user's texture sits inside the rim exactly as the
+    -- stock fill does instead of painting over it. Seated per texture object
+    -- (a status bar texture path swap mints a new fill object).
+    local mask = plate._blizzBarMask
+    if not mask and ns.NP_AtlasOK(B.bar) then
+        mask = health:CreateMaskTexture()
+        mask:SetAtlas(B.bar)
+        mask:SetAllPoints(health)
+        plate._blizzBarMask = mask
+    end
+    if mask then
+        local fill = health:GetStatusBarTexture()
+        if fill and plate._blizzMaskedFill ~= fill then
+            pcall(fill.RemoveMaskTexture, fill, mask)
+            fill:AddMaskTexture(mask)
+            plate._blizzMaskedFill = fill
+        end
+        if plate.highlight and not plate._blizzMaskedHover then
+            plate.highlight:AddMaskTexture(mask)
+            plate._blizzMaskedHover = true
+        end
+        if plate.targetHighlight and not plate._blizzMaskedTarget then
+            plate.targetHighlight:AddMaskTexture(mask)
+            plate._blizzMaskedTarget = true
+        end
+    end
+    ns.NP_BlizzBarShadow(health, nil, mask)
+end
+-- Hand-built aura icons (the cast-lockout icon, the options preview mocks):
+-- the stock nameplate aura item look -- the rounded mask over the icon art
+-- and the ring overlay hung 6px by 5px past a 25px item, scaled to the
+-- frame. Our own frames, so the state lives on them: one-time structure,
+-- size-memoized ring geometry. The engine cells get the same look through
+-- AuraKit's blizzRoundArt lane (EUI_Nameplates_AuraContainers BuildNPStyle).
+function ns.NP_ApplyBlizzIconArt(frame, icon, w, h)
+    if not (frame and icon) then return end
+    local B = ns.NP_BLIZZ
+    if not (ns.NP_AtlasOK(B.auraMask) and ns.NP_AtlasOK(B.auraRing)) then return end
+    local ring = frame._blizzIconRing
+    if not ring then
+        local mask = frame:CreateMaskTexture()
+        mask:SetAtlas(B.auraMask)
+        mask:SetAllPoints(frame)
+        icon:AddMaskTexture(mask)
+        frame._blizzIconMask = mask
+        ring = frame:CreateTexture(nil, "OVERLAY", nil, 5)
+        ring:SetAtlas(B.auraRing)
+        ring:SetSnapToPixelGrid(false)
+        ring:SetTexelSnappingBias(0)
+        frame._blizzIconRing = ring
+    end
+    w = w or frame:GetWidth()
+    h = h or frame:GetHeight()
+    if frame._blizzIconW ~= w or frame._blizzIconH ~= h then
+        frame._blizzIconW, frame._blizzIconH = w, h
+        ring:ClearAllPoints()
+        ring:SetPoint("TOPLEFT", frame, "TOPLEFT", -w * 0.24, h * 0.2)
+        ring:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", w * 0.24, -h * 0.2)
+    end
+end
+-- Target / focus selection ring and the deselected overlay every other plate
+-- carries. Called from the target/focus change paths (never per tick);
+-- isTarget is passed by callers that already resolved it.
+function ns.NP_ApplyBlizzSelection(plate, isTarget)
+    local health = plate and plate.health
+    if not health or not plate.unit then return end
+    local B = ns.NP_BLIZZ
+    local sel, desel = plate._blizzSelected, plate._blizzDeselected
+    if not sel then
+        if not (ns.NP_AtlasOK(B.selected) and ns.NP_AtlasOK(B.deselected)) then return end
+        local bg = plate.healthBG or health
+        sel = health:CreateTexture(nil, "OVERLAY", nil, 5)
+        sel:SetAtlas(B.selected)
+        sel:SetPoint("TOPLEFT", bg, "TOPLEFT", -1, 1)
+        sel:SetPoint("BOTTOMRIGHT", bg, "BOTTOMRIGHT", -3, 3)
+        sel:Hide()
+        plate._blizzSelected = sel
+        desel = health:CreateTexture(nil, "OVERLAY", nil, 4)
+        desel:SetAtlas(B.deselected)
+        desel:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 1)
+        desel:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, -1)
+        plate._blizzDeselected = desel
+    end
+    if isTarget == nil then isTarget = UnitIsUnit(plate.unit, "target") end
+    local isFocus = not isTarget and UnitIsUnit(plate.unit, "focus")
+    -- State memo: a plate show with the same selection state repaints nothing.
+    local state = (isTarget and "target") or (isFocus and "focus") or false
+    if plate._blizzSelState == state then return end
+    plate._blizzSelState = state
+    if isTarget or isFocus then
+        local c
+        if isTarget then c = NAMEPLATE_BORDER_TARGET_COLOR else c = NAMEPLATE_BORDER_FOCUS_TARGET_COLOR end
+        if c and c.r then
+            sel:SetVertexColor(c.r, c.g, c.b)
+        elseif isTarget then
+            sel:SetVertexColor(1, 1, 1)
+        else
+            sel:SetVertexColor(1, 0.8, 0)
+        end
+        sel:Show()
+        desel:Hide()
+    else
+        sel:Hide()
+        desel:Show()
+    end
+end
+-- Cast fill per cast kind ("cast" | "channel" | "interrupted"); one field test
+-- when the style is off, memoized per plate.
+function ns.NP_SetBlizzCastFill(plate, kind)
+    if not plate._blizzCastArt then return end
+    kind = kind or "cast"
+    if plate._blizzCastKind == kind then return end
+    local atlas = ns.NP_BLIZZ[kind]
+    if not ns.NP_AtlasOK(atlas) then return end
+    plate._blizzCastKind = kind
+    plate.cast:GetStatusBarTexture():SetAtlas(atlas)
+end
+-- Cast bar: stock background, fills, pip and shield; the uninterruptible
+-- overlay becomes the stock grey fill art (still shown through the same
+-- SetAlphaFromBoolean gate).
+function ns.NP_ApplyBlizzCastArt(plate)
+    local cast = plate.cast
+    local B = ns.NP_BLIZZ
+    -- The fill object and the overlay art are seated once per plate (nothing
+    -- else touches them under the style); every later show only follows the
+    -- cast kind, memoized in NP_SetBlizzCastFill.
+    if not plate._blizzCastArt then
+        cast:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+        plate._blizzCastArt = true
+        plate._blizzCastKind = nil
+        if plate.castBarOverlay then
+            plate.castBarOverlay:SetTexture("Interface\\Buttons\\WHITE8x8")
+            if ns.NP_AtlasOK(B.castShieldFill) then
+                plate.castBarOverlay:SetAtlas(B.castShieldFill)
+                -- The overlay is the grey fill art: the cast path paints it white.
+                plate._blizzShieldFill = true
+            end
+        end
+    end
+    ns.NP_SetBlizzCastFill(plate, plate.isCasting and plate._blizzCastLastKind or "cast")
+    if plate._blizzCastChrome then return end
+    plate._blizzCastChrome = true
+    if plate.castBG and ns.NP_AtlasOK(B.castBg) then
+        plate.castBG:SetAtlas(B.castBg)
+        plate.castBG:SetVertexColor(1, 1, 1, 1)
+        plate.castBG:ClearAllPoints()
+        plate.castBG:SetPoint("TOPLEFT", cast, "TOPLEFT", 1, 0)
+        plate.castBG:SetPoint("BOTTOMRIGHT", cast, "BOTTOMRIGHT", -1, 0)
+    end
+    if plate.castSpark and ns.NP_AtlasOK(B.castPip) then
+        plate.castSpark:SetAtlas(B.castPip)
+        plate.castSpark:SetWidth(4)
+    end
+    if plate.castShield and ns.NP_AtlasOK(B.shield) then plate.castShield:SetAtlas(B.shield) end
+    if plate.castLeftBorder then plate.castLeftBorder:Hide() end
+    if plate.castIcon then plate.castIcon:SetTexCoord(0, 1, 0, 1) end
+end
+
 -- Health bar texture overlay tables (stored on ns to avoid local count pressure)
 ns.healthBarTextures, ns.healthBarTextureNames, ns.healthBarTextureOrder =
     EllesmereUI.BuildBarTextureTables(true)
@@ -577,6 +847,9 @@ local function ApplyHealthBarTexture(plate)
     local texKey = (p and p.healthBarTexture) or defaults.healthBarTexture or "none"
     local path   = EllesmereUI.ResolveTexturePath(ns.healthBarTextures, texKey, "Interface\\Buttons\\WHITE8x8")
     health:SetStatusBarTexture(path)
+    -- Blizzard Style: the user's fill under the stock background art, plus
+    -- the bar's inner shadow (re-sized here on every appearance pass).
+    if ns.NP_Blizz() then ns.NP_ApplyBlizzBarArt(plate) end
 end
 ns.ApplyHealthBarTexture = ApplyHealthBarTexture
 
@@ -585,6 +858,7 @@ ns.ApplyHealthBarTexture = ApplyHealthBarTexture
 function ns.ApplyCastBarTexture(plate)
     local cast = plate.cast
     if not cast then return end
+    if ns.NP_Blizz() then ns.NP_ApplyBlizzCastArt(plate); return end
     local texKey = (p and p.castBarTexture) or defaults.castBarTexture or "none"
     local path   = EllesmereUI.ResolveTexturePath(ns.healthBarTextures, texKey, "Interface\\Buttons\\WHITE8x8")
     cast:SetStatusBarTexture(path)
@@ -1248,13 +1522,15 @@ do
     -- so the texture keeps its proportions; uncropped is the original square zoom.
     function ns.SetAuraIconCrop(icon, cropped, w, h)
         if not icon then return end
+        -- Blizzard Style draws the whole icon (zoom 0), as the engine cells do.
+        local z = ns.NP_Blizz() and 0 or AURA_ZOOM
         if cropped and w and h and w > 0 then
-            local uSpan = 1 - 2 * AURA_ZOOM
+            local uSpan = 1 - 2 * z
             local vSpan = uSpan * (h / w)
             local v0 = 0.5 - vSpan / 2
-            icon:SetTexCoord(AURA_ZOOM, 1 - AURA_ZOOM, v0, 1 - v0)
+            icon:SetTexCoord(z, 1 - z, v0, 1 - v0)
         else
-            icon:SetTexCoord(AURA_ZOOM, 1 - AURA_ZOOM, AURA_ZOOM, 1 - AURA_ZOOM)
+            icon:SetTexCoord(z, 1 - z, z, 1 - z)
         end
     end
     -- Size + crop a single aura slot and its icon together so they never drift
@@ -1404,6 +1680,8 @@ function ns.GetClassPowerBorderSize()
     return (p and p.classPowerBorderSize) or defaults.classPowerBorderSize
 end
 local function IsBorderEnabled()
+    -- Blizzard Style plates carry the stock background art instead of borders.
+    if ns.NP_Blizz() then return false end
     local v = p and p.showBorder
     if v == nil then return defaults.showBorder end
     return v
@@ -1413,6 +1691,9 @@ ns.IsBorderEnabled = IsBorderEnabled
 -- (old profiles without the key keep their borders). Setting a hide key
 -- to true hides the border; false shows it.
 function ns.GetIconBorderEnabled(kind)
+    -- Blizzard Style: the stock cast icon has no border, and the stock aura
+    -- items carry the rounded ring overlay instead of a 1px border.
+    if ns.NP_Blizz() then return false end
     local key
     if kind == "cast" then
         key = "hideCastIconBorder"
@@ -2214,12 +2495,19 @@ end
 -- target ever shows it), kept SEPARATE from plate.highlight (mouseover) so the two never fight.
 local function EnsureTargetHighlight(plate)
     if plate.targetHighlight then return end
-    local t = plate.health:CreateTexture(nil, "OVERLAY", nil, 5)
+    -- Blizzard Style: under the stock selection ring and deselected overlay
+    -- (OVERLAY 4/5), still above the fill; the EUI look keeps it on top.
+    local t = plate.health:CreateTexture(nil, "OVERLAY", nil, ns.NP_Blizz() and 0 or 5)
     t:SetAllPoints(plate.health)
     local c = ns.GetTargetHighlightColor()
     t:SetColorTexture(c.r, c.g, c.b, ns.GetTargetHighlightAlpha())
     t:Hide()
     plate.targetHighlight = t
+    -- Blizzard Style: inside the stock bar shape like the fill.
+    if plate._blizzBarMask then
+        t:AddMaskTexture(plate._blizzBarMask)
+        plate._blizzMaskedTarget = true
+    end
 end
 
 -- Target arrow styles: key -> { l=left texture, r=right texture, w=drawn width at height 16
@@ -2689,7 +2977,9 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.levelText:Hide()
     -- Mouseover highlight: parented to the health bar (not the higher-level text
     -- frame) so it renders BEHIND the border (a child at health level + 1).
-    plate.highlight = plate.health:CreateTexture(nil, "OVERLAY", nil, 6)
+    -- Blizzard Style: under the stock ring / deselected overlay (OVERLAY 4/5),
+    -- above the target wash (0).
+    plate.highlight = plate.health:CreateTexture(nil, "OVERLAY", nil, ns.NP_Blizz() and 1 or 6)
     plate.highlight:SetAllPoints(plate.health)
     local _hc = (p and p.hoverColor) or defaults.hoverColor
     local _ha = (p and p.hoverAlpha) or defaults.hoverAlpha
@@ -2759,6 +3049,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     function plate:ApplyCastBorder()
         if not PP or not PP.CreateBorder then return end
         local sz = (p and p.castBorderSize) or defaults.castBorderSize or 0
+        if ns.NP_Blizz() then sz = 0 end  -- stock cast bar art, no EUI border
         if sz and sz > 0 then
             if PP.GetBorders(plate.cast) then
                 PP.SetBorderSize(plate.cast, sz)
@@ -7530,6 +7821,8 @@ function NameplateFrame:ApplyTarget()
     -- If this plate is wrapping its border around the cast bar, the colour just set landed on
     -- the HIDDEN health border: re-sync the visible unified border. One field read unless live.
     if self._wrapActive then self:UpdateBorderWrap() end
+    -- Blizzard Style: stock selection ring / deselected overlay.
+    if ns.NP_Blizz() then ns.NP_ApplyBlizzSelection(self, isTarget) end
     -- Highlight: translucent wash across the health bar (color + opacity are
     -- configurable; re-applied on show so live edits and pooled textures update)
     if isTarget and ns.GetTargetGlowHighlight() then
@@ -7835,7 +8128,20 @@ function NameplateFrame:UpdateCast()
         end
         local cfg = p or defaults
         local unintColor = cfg.castBarUninterruptible or defaults.castBarUninterruptible
-        self.castBarOverlay:SetVertexColor(unintColor.r, unintColor.g, unintColor.b)
+        if self._blizzCastArt then
+            -- Blizzard Style: the overlay IS the stock grey fill art (painted
+            -- white; the user's colour stays if that atlas never seated), and
+            -- the fill atlas follows the cast kind.
+            if self._blizzShieldFill then
+                self.castBarOverlay:SetVertexColor(1, 1, 1)
+            else
+                self.castBarOverlay:SetVertexColor(unintColor.r, unintColor.g, unintColor.b)
+            end
+            self._blizzCastLastKind = isChannel and "channel" or "cast"
+            ns.NP_SetBlizzCastFill(self, self._blizzCastLastKind)
+        else
+            self.castBarOverlay:SetVertexColor(unintColor.r, unintColor.g, unintColor.b)
+        end
         self.castShieldFrame:Show()
         self:ApplyCastColor(kickProtected)
     end
@@ -7959,6 +8265,14 @@ function NameplateFrame:ApplyCastColor(uninterruptible)
     local cfg = p or defaults
     local kickReadyTint = cfg.interruptReady or defaults.interruptReady
     local normalCastTint = cfg.castBar or defaults.castBar
+    -- Blizzard Style: the fill atlas is its own colour, so the normal and
+    -- uninterruptible tints are white; the kick-ready and Important tints
+    -- still layer on top exactly as before. No per-call allocation.
+    local blizzCast = self._blizzCastArt
+    if blizzCast then
+        if not ns._npWhite then ns._npWhite = { r = 1, g = 1, b = 1 } end
+        normalCastTint = ns._npWhite
+    end
     -- Important Cast Color (opt-in): a cast the game flags important shows the Important
     -- colour instead of Interruptible. The flag may be SECRET, so blend per channel via
     -- EvaluateColorValueFromBoolean (ifTrue=Important, ifFalse=Interruptible), never branch on
@@ -7984,7 +8298,7 @@ function NameplateFrame:ApplyCastColor(uninterruptible)
     -- Match the base cast fill to uninterruptible casts so plate opacity
     -- doesn't reveal the interruptible color underneath the overlay.
     if C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean then
-        local unintColor = cfg.castBarUninterruptible or defaults.castBarUninterruptible
+        local unintColor = blizzCast and ns._npWhite or (cfg.castBarUninterruptible or defaults.castBarUninterruptible)
         -- The settings-refresh callers pass the stored _kickProtected stamp,
         -- which is nil until the first cast event -- and a nil reaching the
         -- fold throws. type() is the secret-legal nil test (a plain == nil
@@ -8267,8 +8581,14 @@ function NameplateFrame:ShowInterrupted(interrupterGUID)
     self.cast:SetReverseFill(false)
     self.cast:SetMinMaxValues(0, 1)
     self.cast:SetValue(1)
-    local fc = (p and p.interruptedFlashColor) or defaults.interruptedFlashColor
-    self.cast:GetStatusBarTexture():SetVertexColor(fc.r, fc.g, fc.b)
+    if self._blizzCastArt then
+        -- Blizzard Style: the stock interrupted fill art, untinted.
+        ns.NP_SetBlizzCastFill(self, "interrupted")
+        self.cast:GetStatusBarTexture():SetVertexColor(1, 1, 1)
+    else
+        local fc = (p and p.interruptedFlashColor) or defaults.interruptedFlashColor
+        self.cast:GetStatusBarTexture():SetVertexColor(fc.r, fc.g, fc.b)
+    end
 
     -- GetPlayerInfoByGUID accepts the event's SECRET interrupter GUID and may
     -- return a SECRET name/class. Keep those values opaque until native sinks.
@@ -9001,6 +9321,8 @@ manager:SetScript("OnEvent", function(self, event, unit)
         local function UpdateFocusPlate(plate)
             if not plate or not plate.unit then return end
             plate:UpdateHealthColor()
+            -- Blizzard Style: the focus ring follows the focus, not just the target.
+            if ns.NP_Blizz() then ns.NP_ApplyBlizzSelection(plate) end
             if focusPct ~= 100 then
                 local castH = GetCastBarHeight()
                 if UnitIsUnit(plate.unit, "focus") then

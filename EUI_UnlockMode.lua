@@ -1672,8 +1672,13 @@ function EllesmereUI.NotifyElementResized(key)
 
     -- Detect which axis changed by comparing to last known size
     local bar = GetBarFrame(key)
-    local curW = bar and bar:GetWidth() or 0
-    local curH = bar and bar:GetHeight() or 0
+    local curW = bar and bar:GetWidth()
+    local curH = bar and bar:GetHeight()
+    -- A secret size (a frame riding an engine aura container under aura
+    -- restriction) can't be compared; the next plain resize converges.
+    if issecretvalue and (issecretvalue(curW) or issecretvalue(curH)) then return end
+    curW = curW or 0
+    curH = curH or 0
     local prev = _resizeLastSize[key]
     local widthChanged = not prev or math.abs(curW - prev.w) > 0.5
     local heightChanged = not prev or math.abs(curH - prev.h) > 0.5
@@ -1901,12 +1906,17 @@ local function NotifyElementMoved(key)
         local bar = GetBarFrame(key)
         if not bar then return end
         local l, t = bar:GetLeft(), bar:GetTop()
+        -- A frame riding an engine aura container (a Blizzard Style cast bar
+        -- under its frame's aura stack) reports a secret position: nothing to
+        -- compare, and its children cannot follow it anyway (they re-anchor on
+        -- the next plain apply).
+        if issecretvalue and (issecretvalue(l) or issecretvalue(t)) then return end
         if not l or not t then return end
         local prev = _lastScreenPos[key]
         if prev and math.abs(l - prev.l) < 0.5 and math.abs(t - prev.t) < 0.5 then
             return  -- position unchanged (within half a physical pixel)
         end
-        _lastScreenPos[key] = { l = l, t = t }
+        if prev then prev.l, prev.t = l, t else _lastScreenPos[key] = { l = l, t = t } end
         -- Convergence: ApplyAnchorPosition's idempotent guard skips SetPoint when the
         -- child is already within 0.5px of target, so the cascade drains in bounded
         -- passes -- each call re-enters this hook, but the check above returns early once settled.
@@ -3636,8 +3646,27 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fromCa
 
     -- No valid target screen bounds (hidden/not yet laid out): bail rather than
     -- compute garbage coordinates that oscillate. Same for the child under noMove, which reads its actual position.
-    if not targetBar:GetLeft() then return end
-    if noMove and not childBar:GetLeft() then return end
+    local tL0 = targetBar:GetLeft()
+    -- A target hanging off an engine aura container (a Blizzard Style cast bar
+    -- under its frame's aura stack) has secret edges under aura restriction:
+    -- no compare or arithmetic may touch them. Park until regen.
+    if issecretvalue and issecretvalue(tL0) then
+        EllesmereUI._AnchorPark.Park(childKey)
+        return
+    end
+    if not tL0 then return end
+    if noMove then
+        -- A child on a follow anchor reports a secret rect: it cannot "stay
+        -- put" (nothing may read where it is), so it is placed absolutely
+        -- instead -- unlock mode keeps the follow provider inert, so that is
+        -- its resting spot, which the movers can read.
+        local cl0 = childBar:GetLeft()
+        if issecretvalue and issecretvalue(cl0) then
+            noMove = false
+        elseif not cl0 then
+            return
+        end
+    end
 
     local uiS = UIParent:GetEffectiveScale()
     local tS = targetBar:GetEffectiveScale()
@@ -3666,9 +3695,15 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fromCa
         end
     end
 
-    -- Get child size in UIParent space
-    local cW = (childBar:GetWidth() or 50) * cS / uiS
-    local cH = (childBar:GetHeight() or 50) * cS / uiS
+    -- Get child size in UIParent space (a child riding an engine aura
+    -- container reads back secret under aura restriction: park until regen).
+    local cW0, cH0 = childBar:GetWidth(), childBar:GetHeight()
+    if issecretvalue and (issecretvalue(cW0) or issecretvalue(cH0)) then
+        EllesmereUI._AnchorPark.Park(childKey)
+        return
+    end
+    local cW = (cW0 or 50) * cS / uiS
+    local cH = (cH0 or 50) * cS / uiS
 
     -- Compute child center
     local cx, cy
@@ -4088,6 +4123,12 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fromCa
     -- of this function reads them, and it sits outside the branch below that
     -- computes them. Kept local, they were read as (never set) globals there.
     local bCenterX, bCenterY
+    -- Follow provider (opt-in): a frame the child anchors to instead of taking
+    -- an absolute position, for a target edge the engine moves (see the branch below).
+    local follow
+    if side == "BOTTOM" and EllesmereUI._GetAnchorFollowFrame then
+        follow = EllesmereUI._GetAnchorFollowFrame(childKey, targetKey, side)
+    end
 
     -- Only move the actual bar frame when noMove is not set
     if not noMove then
@@ -4155,6 +4196,52 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fromCa
                 _pendingAnchorKeys[childKey] = "all"
                 ScheduleAnchorBatch()
             end
+        elseif follow then
+            -- Follow frame: the child hangs off a frame whose edge the engine
+            -- moves -- a Blizzard Style unit frame's aura block, whose bottom
+            -- rides the aura stack. Under aura restriction that geometry is a
+            -- secret value no Lua may read, so the centre math above is
+            -- expressed as an offset from the frame's own BOTTOM point (the
+            -- provider's static edge is where that point rests with nothing
+            -- stacked) and the engine does the following. The saved position
+            -- stays the resting one.
+            local PPa = EllesmereUI and EllesmereUI.PP
+            local exFX, exFY = ExtraAnchorOffset(childKey)
+            -- Resting centre, snapped and offset exactly like the CENTER branch
+            -- (it is what CommitPositions may read for this element).
+            bCenterX = centerX * acRatio
+            bCenterY = centerY * acRatio
+            if PPa and PPa.SnapCenterForDim then
+                bCenterX = PPa.SnapCenterForDim(bCenterX, cW0 or 0, cS)
+                bCenterY = PPa.SnapCenterForDim(bCenterY, cH0 or 0, cS)
+            end
+            bCenterX, bCenterY = bCenterX + exFX, bCenterY + exFY
+            local fx = (cx - tCX) * acRatio
+            local fy = ((cy + cH / 2) - tB) * acRatio
+            if PPa and PPa.SnapForES then
+                fx = PPa.SnapForES(fx, cS)
+                fy = PPa.SnapForES(fy, cS)
+            end
+            fx, fy = fx + exFX, fy + exFY
+            local skip = false
+            local okPt, point, relTo, relPoint, curX, curY = pcall(childBar.GetPoint, childBar, 1)
+            if okPt and point == "TOP" and relPoint == "BOTTOM" and relTo == follow then
+                local onePx = ((PP and PP.perfect) or 1) / cS
+                local tol = onePx * 0.5
+                if curX and curY
+                   and math.abs(curX - fx) < tol
+                   and math.abs(curY - fy) < tol then
+                    skip = true
+                end
+            end
+            if not skip then
+                pcall(function()
+                    childBar:ClearAllPoints()
+                    childBar:SetPoint("TOP", follow, "BOTTOM", fx, fy)
+                end)
+                _pendingAnchorKeys[childKey] = "all"
+                ScheduleAnchorBatch()
+            end
         else
             -- Standard CENTER positioning for all other elements
             bCenterX = centerX * acRatio
@@ -4197,6 +4284,15 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fromCa
         end
     else
         -- noMove: bar stays put, but resync ai.offsetX/offsetY from its actual screen position so future propagation uses correct offsets
+        -- A followed edge (see the follow branch above): the child sits under
+        -- the live edge, so the offset is measured from it, not the resting one.
+        -- Read only while plain (unlock mode never runs under aura restriction).
+        if follow then
+            local fbB = follow:GetBottom()
+            if not (issecretvalue and issecretvalue(fbB)) and fbB then
+                tB = fbB * follow:GetEffectiveScale() / uiS
+            end
+        end
         local bS = childBar:GetEffectiveScale()
         local bL = (childBar:GetLeft() or 0) * bS / uiS
         local bR = (childBar:GetRight() or 0) * bS / uiS
@@ -4244,6 +4340,14 @@ ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fromCa
         else
             mX = cx
             mY = cy - UIParent:GetHeight()
+            -- Followed edge: the bar sits under the live edge (plain outside
+            -- restriction; the deferred re-anchor below corrects any rest).
+            if follow then
+                local fbB = follow:GetBottom()
+                if not (issecretvalue and issecretvalue(fbB)) and fbB then
+                    mY = mY + (fbB * follow:GetEffectiveScale() / uiS - tB)
+                end
+            end
         end
         local PPp = EllesmereUI and EllesmereUI.PP
         if PPp then mX = PPp.Scale(mX); mY = PPp.Scale(mY) end
@@ -6121,6 +6225,34 @@ local function ApplyDarkOverlays()
         end
     end
 end
+-- Attach a mover to its bar's TOPLEFT, inset by il/-it (UIParent units). An
+-- element whose frame carries a forbidden layout aspect (a Blizzard Style unit
+-- cast bar riding its frame's aura stack, created with Blizzard's
+-- DisableUntrustedLayoutScriptsTemplate) refuses dependents that lack the
+-- aspect, so its mover takes the same screen spot by absolute anchor instead
+-- (elem.detachedMover); every sync and apply path re-runs this, so it keeps
+-- up outside of drags.
+local function AttachMoverToBar(m, bar, key, il, it)
+    m:ClearAllPoints()
+    local elem = registeredElements[key]
+    if elem and elem.detachedMover then
+        local bL, bT = bar:GetLeft(), bar:GetTop()
+        if not (issecretvalue and (issecretvalue(bL) or issecretvalue(bT))) and bL and bT then
+            local r = bar:GetEffectiveScale() / UIParent:GetEffectiveScale()
+            m:SetPoint("TOPLEFT", UIParent, "TOPLEFT", bL * r + (il or 0), bT * r - UIParent:GetHeight() - (it or 0))
+        else
+            -- No readable rect yet: park at the screen centre (the bar's own
+            -- anchor is the one this element refuses) until the next sync.
+            m:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+        end
+        return
+    end
+    m:SetPoint("TOPLEFT", bar, "TOPLEFT", il or 0, -(it or 0))
+end
+-- CreateMover is at Lua's 60-upvalue cap: its closures call this through the
+-- namespace table (already an upvalue there), like NudgeMover below.
+EllesmereUI._unlockAttachMover = AttachMoverToBar
+
 local function NudgeMover(dx, dy, targetMover, skipCollapse)
     local m = targetMover or selectedMover
     if not m or InCombatLockdown() then return end
@@ -6199,9 +6331,16 @@ local function NudgeMover(dx, dy, targetMover, skipCollapse)
     end
     hasChanges = true
 
-    -- Reanchor mover to bar
-    m:ClearAllPoints()
-    m:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0)
+    -- Reanchor mover to bar, inside the element's visual insets (see Sync).
+    local nIL, nIR, nIT, nIB = 0, 0, 0, 0
+    if elem and elem.getInsets then
+        local l, r, t, bt = elem.getInsets(m._barKey)
+        if l then
+            local es = bar:GetEffectiveScale() / UIParent:GetEffectiveScale()
+            nIL, nIR, nIT, nIB = l * es, (r or 0) * es, (t or 0) * es, (bt or 0) * es
+        end
+    end
+    AttachMoverToBar(m, bar, m._barKey, nIL, nIT)
 
     -- Update stored mover center from bar's new position
     local bL, bR = bar:GetLeft(), bar:GetRight()
@@ -6210,8 +6349,8 @@ local function NudgeMover(dx, dy, targetMover, skipCollapse)
         local s = bar:GetEffectiveScale()
         local uiS = UIParent:GetEffectiveScale()
         local ratio = s / uiS
-        local cx = (bL + bR) * 0.5 * ratio
-        local cy = (bT + bB) * 0.5 * ratio - UIParent:GetHeight()
+        local cx = (bL + bR) * 0.5 * ratio + (nIL - nIR) * 0.5
+        local cy = (bT + bB) * 0.5 * ratio - UIParent:GetHeight() + (nIB - nIT) * 0.5
         if m._setCenterXY then m._setCenterXY(cx, cy) end
     end
 
@@ -6881,28 +7020,41 @@ local function CreateMover(barKey)
             if self2._dragging then return end
             local b = GetBarFrame(bk)
             if not b then return end
+            -- A bar riding an engine aura container reports a secret rect
+            -- outside unlock mode (the follow provider is inert inside it, so
+            -- the bar rests plain there): nothing to attach to yet.
+            local bl0 = b:GetLeft()
+            if issecretvalue and issecretvalue(bl0) then return end
             local s = b:GetEffectiveScale()
             local uiS = UIParent:GetEffectiveScale()
             local elemScale = s / uiS
             -- Update size from bar (+ any below-frame extra, e.g. boss castbar).
             local elem = registeredElements[bk]
             local extra = (elem and elem.getBottomExtra and (elem.getBottomExtra(bk) or 0) or 0) * elemScale
-            local w = (b:GetWidth() or 50) * elemScale
-            local h = (b:GetHeight() or 50) * elemScale + extra
+            -- Visual insets (optional, e.g. a Blizzard Style unit frame whose stock
+            -- box carries transparent padding round its art): the mover outlines
+            -- the rect inside them. Left, right, top, bottom in the bar's units.
+            local il, ir, it, ib = 0, 0, 0, 0
+            if elem and elem.getInsets then
+                local l, r, t, bt = elem.getInsets(bk)
+                if l then il, ir, it, ib = l * elemScale, (r or 0) * elemScale, (t or 0) * elemScale, (bt or 0) * elemScale end
+            end
+            local w = (b:GetWidth() or 50) * elemScale - il - ir
+            local h = (b:GetHeight() or 50) * elemScale + extra - it - ib
             if w > 10 then baseW = w end
             if h > 10 then baseH = h end
             self2:SetSize(baseW, baseH)
             -- Recompute moverCX/moverCY from bar's current center. Shift the
             -- stored center DOWN by half the extra so the box stays top-pinned
-            -- to the frame and grows downward over the extra region.
+            -- to the frame and grows downward over the extra region; insets
+            -- shift it by half their difference.
             local bcx, bcy = b:GetCenter()
             if bcx and bcy then
-                moverCX = bcx * elemScale
-                moverCY = bcy * elemScale - UIParent:GetHeight() - extra * 0.5
+                moverCX = bcx * elemScale + (il - ir) * 0.5
+                moverCY = bcy * elemScale - UIParent:GetHeight() - extra * 0.5 + (ib - it) * 0.5
             end
             -- Anchor mover to bar TOPLEFT for pixel-perfect overlay
-            self2:ClearAllPoints()
-            self2:SetPoint("TOPLEFT", b, "TOPLEFT", 0, 0)
+            EllesmereUI._unlockAttachMover(self2, b, bk, il, it)
         end)
     end
 
@@ -7834,16 +7986,42 @@ local function CreateMover(barKey)
 
         if not b then self:Hide(); return end
         -- Show mover even for hidden bars (mouseover/alwaysHidden) so user can reposition
-        -- Only skip if the bar frame truly doesn't exist
+        -- Only skip if the bar frame truly doesn't exist.
+        -- A bar still on a follow anchor from before the session (a Blizzard
+        -- Style cast bar under its frame's aura stack) reports a secret rect:
+        -- re-apply its anchor now -- the follow provider is inert in unlock
+        -- mode, so that places it absolutely -- and sync from the plain rect.
+        -- If the rect has not resolved yet, sync again next frame.
+        if issecretvalue and issecretvalue(b:GetLeft()) then
+            if EllesmereUI.ReapplyOwnAnchor then EllesmereUI.ReapplyOwnAnchor(bk) end
+            if issecretvalue(b:GetLeft()) then
+                self:Hide()
+                local n = self._secretResync or 0
+                if n < 2 then
+                    self._secretResync = n + 1
+                    C_Timer.After(0, function() self:Sync() end)
+                end
+                return
+            end
+        end
+        self._secretResync = nil
         local s = b:GetEffectiveScale()
         local uiS = UIParent:GetEffectiveScale()
         local w, h
         local elemScale = s / uiS
+        -- Visual insets (optional, e.g. a Blizzard Style unit frame whose stock
+        -- box carries transparent padding round its art): the mover outlines
+        -- the rect inside them. UIParent units.
+        local il, ir, it, ib = 0, 0, 0, 0
+        if elem and elem.getInsets then
+            local l, r, t, bt = elem.getInsets(bk)
+            if l then il, ir, it, ib = l * elemScale, (r or 0) * elemScale, (t or 0) * elemScale, (bt or 0) * elemScale end
+        end
         -- Read size directly from the bar frame. Since the mover is anchored
         -- to the bar, we need the size in the mover's coordinate space.
         -- elemScale converts from bar space to UIParent (mover parent) space.
-        w = (b:GetWidth() or 50) * elemScale
-        h = (b:GetHeight() or 50) * elemScale
+        w = (b:GetWidth() or 50) * elemScale - il - ir
+        h = (b:GetHeight() or 50) * elemScale - it - ib
         -- For action bars, compute visual size from button grid (accounts for
         -- shape overrides, padding, and per-button scale)
         -- Only use this as a fallback when the frame has no size yet (first load).
@@ -7886,8 +8064,8 @@ local function CreateMover(barKey)
                 local cx, cy
                 local bCX, bCY = b:GetCenter()
                 if bCX and bCY then
-                    cx = bCX * s / uiS - w * 0.5
-                    cy = bCY * s / uiS - UIParent:GetHeight() + h * 0.5 + centerYOff
+                    cx = bCX * s / uiS + (il - ir) * 0.5 - w * 0.5
+                    cy = bCY * s / uiS + (ib - it) * 0.5 - UIParent:GetHeight() + h * 0.5 + centerYOff
                 elseif bL and bT then
                     cx = bL * s / uiS
                     cy = bT * s / uiS - UIParent:GetHeight()
@@ -7910,11 +8088,10 @@ local function CreateMover(barKey)
             else
                 -- Anchor mover directly to the bar frame so both share the
                 -- exact same screen position with zero coordinate math.
-                self:ClearAllPoints()
-                self:SetPoint("TOPLEFT", b, "TOPLEFT", 0, 0)
+                EllesmereUI._unlockAttachMover(self, b, bk, il, it)
                 -- Compute moverCX/moverCY for snap/drag logic
-                local cx = bL * elemScale
-                local cy = bT * elemScale - UIParent:GetHeight()
+                local cx = bL * elemScale + il
+                local cy = bT * elemScale - UIParent:GetHeight() - it
                 moverCX, moverCY = cx + w * 0.5, cy - h * 0.5
             end
         else
@@ -7978,6 +8155,19 @@ local function CreateMover(barKey)
         else
             self._dragCenterYOff = 0
         end
+        -- Visual insets (see Sync): the bar's box sits outside the mover by
+        -- these, UIParent units. The bar is placed from the mover's rect plus
+        -- them, and the mover re-attaches inside them.
+        self._dragIL, self._dragIR, self._dragIT, self._dragIB = 0, 0, 0, 0
+        if elem and elem.getInsets then
+            local bIn = GetBarFrame(self._barKey)
+            local l, r, t, bt = elem.getInsets(self._barKey)
+            if l and bIn then
+                local es = bIn:GetEffectiveScale() / UIParent:GetEffectiveScale()
+                self._dragIL, self._dragIR = l * es, (r or 0) * es
+                self._dragIT, self._dragIB = (t or 0) * es, (bt or 0) * es
+            end
+        end
         -- Snap links away instantly during drag (no animation -- it fights with drag positioning)
         hoverState = 0
         hoverTarget = 0
@@ -8012,8 +8202,8 @@ local function CreateMover(barKey)
             local ratio0 = uiS0 / bS0
             local barHW0 = (bar0:GetWidth() or 0) * 0.5
             local barHH0 = (bar0:GetHeight() or 0) * 0.5
-            local barX0 = snap0X * ratio0 - barHW0
-            local barY0 = (snap0Y - UIParent:GetHeight() - (self._dragCenterYOff or 0)) * ratio0 + barHH0
+            local barX0 = (snap0X + (self._dragIR - self._dragIL) * 0.5) * ratio0 - barHW0
+            local barY0 = (snap0Y + (self._dragIT - self._dragIB) * 0.5 - UIParent:GetHeight() - (self._dragCenterYOff or 0)) * ratio0 + barHH0
             local PPd = EllesmereUI and EllesmereUI.PP
             if PPd and PPd.SnapForES then
                 local lockX, lockY = EllesmereUI._snapAxisLocked()
@@ -8031,7 +8221,12 @@ local function CreateMover(barKey)
                 pcall(elem.onLiveMove, self._barKey)
             end
             self:ClearAllPoints()
-            self:SetPoint("TOPLEFT", bar0, "TOPLEFT", 0, 0)
+            if elem and elem.detachedMover then
+                -- The bar refuses dependents (see AttachMoverToBar): same spot, absolute.
+                self:SetPoint("TOPLEFT", UIParent, "TOPLEFT", snap0X - halfW0, snap0Y + halfH0 - UIParent:GetHeight())
+            else
+                self:SetPoint("TOPLEFT", bar0, "TOPLEFT", self._dragIL, -self._dragIT)
+            end
         else
             local f0X = snap0X - halfW0
             local f0Y = snap0Y + halfH0 - UIParent:GetHeight()
@@ -8093,8 +8288,8 @@ local function CreateMover(barKey)
                 -- local space first, then subtract the unscaled half-size to get TOPLEFT.
                 local barHW = (bar:GetWidth() or 0) * 0.5
                 local barHH = (bar:GetHeight() or 0) * 0.5
-                local barX = snapCX * ratio - barHW
-                local barY = (snapCY - UIParent:GetHeight() - (s._dragCenterYOff or 0)) * ratio + barHH
+                local barX = (snapCX + (s._dragIR - s._dragIL) * 0.5) * ratio - barHW
+                local barY = (snapCY + (s._dragIT - s._dragIB) * 0.5 - UIParent:GetHeight() - (s._dragCenterYOff or 0)) * ratio + barHH
                 local PPd = EllesmereUI and EllesmereUI.PP
                 if PPd and PPd.SnapForES then
                     -- When an edge snap is active, skip SnapForES on that axis.
@@ -8110,7 +8305,13 @@ local function CreateMover(barKey)
                 end)
                 -- Anchor mover directly to bar TOPLEFT for pixel-perfect overlay
                 s:ClearAllPoints()
-                s:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0)
+                local dElem = registeredElements[s._barKey]
+                if dElem and dElem.detachedMover then
+                    -- The bar refuses dependents (see AttachMoverToBar): same spot, absolute.
+                    s:SetPoint("TOPLEFT", UIParent, "TOPLEFT", snapCX - halfW, snapCY + halfH - UIParent:GetHeight())
+                else
+                    s:SetPoint("TOPLEFT", bar, "TOPLEFT", s._dragIL, -s._dragIT)
+                end
             else
                 -- No live bar -- position mover in UIParent space
                 local finalX = snapCX - halfW
@@ -8262,6 +8463,26 @@ local function CreateMover(barKey)
                     tB = tB * tS / uiScale
                     local tCX = (tL + tR) / 2
                     local tCY = (tT + tB) / 2
+                    -- Growth-edge extent and followed edges: the same edges the
+                    -- apply measures from. A follow frame's live bottom is plain
+                    -- here (unlock mode never runs under aura restriction).
+                    if EllesmereUI._GetAnchorTargetExtent then
+                        local ext = EllesmereUI._GetAnchorTargetExtent(ai.target, ai.side)
+                        if ext then
+                            if ai.side == "TOP" then tT = ext
+                            elseif ai.side == "BOTTOM" then tB = ext
+                            elseif ai.side == "LEFT" then tL = ext
+                            elseif ai.side == "RIGHT" then tR = ext
+                            end
+                        end
+                    end
+                    if ai.side == "BOTTOM" and EllesmereUI._GetAnchorFollowFrame then
+                        local fol = EllesmereUI._GetAnchorFollowFrame(self._barKey, ai.target, ai.side)
+                        local fB = fol and fol:GetBottom()
+                        if not (issecretvalue and issecretvalue(fB)) and fB then
+                            tB = fB * fol:GetEffectiveScale() / uiScale
+                        end
+                    end
                     -- Read child edges from the actual bar frame for accuracy
                     local childBar = GetBarFrame(self._barKey)
                     local cL, cR, cT, cB
@@ -12272,6 +12493,9 @@ end
 -------------------------------------------------------------------------------
 
 function ns.ShowUnlockTip()
+    -- TEMPORARY, WoW Forever only (EllesmereUI.FOREVER_SV_BUG): the seen stamp
+    -- cannot persist there, so the tip would greet every unlock session.
+    if EllesmereUI.FOREVER_SV_BUG then return end
     if EllesmereUIDB and EllesmereUIDB.unlockTipSeen then return end
     if unlockTipFrame and unlockTipFrame:IsShown() then return end
 

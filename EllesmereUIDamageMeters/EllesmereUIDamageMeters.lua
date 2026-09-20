@@ -16,7 +16,7 @@ for i = 1, 40 do RANK_STRINGS[i] = i .. "." end
 local MIN_W, MIN_H      = 150, 50
 local TICK_COMBAT       = 1
 local REFRESH_RATE_FLOOR      = 0.5  -- default floor; skipped when unsafeRefreshRate is on
-local REFRESH_RATE_HARD_FLOOR = 0.05 -- absolute floor regardless of unsafeRefreshRate: guards against a corrupt/imported 0 or negative value reaching the ticker
+local REFRESH_RATE_HARD_FLOOR = 0.2  -- absolute floor regardless of unsafeRefreshRate (the Unsafe slider's minimum); also guards a corrupt/imported 0 or negative value reaching the ticker
 ns._REFRESH_RATE_FLOOR = REFRESH_RATE_FLOOR -- published so the options page's toggle-off snap-back uses the same value instead of a second hardcoded 0.5
 local PEAK_BUDGET       = 1.5
 local BAR_TEX           = "Interface\\Buttons\\WHITE8X8"
@@ -100,6 +100,10 @@ local DM_DEFAULTS = {
             showSpellTooltips = true,     -- game spell tooltip on breakdown-row hover
             breakdownAnchorPoint = "row", -- "row" (Above Row) | "center" (Center of Screen)
             breakdownBarTexture = "match",
+            -- Blizzard Style (Global Settings > Style): the stock meter's
+            -- window, header and bar art with every feature intact. Default
+            -- OFF; reload-gated.
+            useBlizzardStyle = false,
             barColorUseAccent = true,
             barColor        = { r = 0.35, g = 0.55, b = 0.8 },
             barFillAlpha    = 1,
@@ -289,6 +293,149 @@ end
 
 local function DB() return ns.EDM.DB() end
 local function GetHeaderH() local c = DB(); return c.hdrHeight or 22 end
+
+-------------------------------------------------------------------------------
+--  Blizzard Style (Global Settings > Style): the stock meter's atlases on our
+--  own windows and rows. Reload-gated per-profile flag; every read is on a
+--  build/refresh path. On ns so the spell history window shares the painters.
+-------------------------------------------------------------------------------
+ns.DM_BLIZZ_BAR_BG   = "ui-damagemeters-bar-shadowbg"
+ns.DM_BLIZZ_BAR_EDGE = "ui-damagemeters-bar-shadowedge"
+ns.DM_BLIZZ_HEADER   = "ui-damagemeters-header-bar"
+-- Read from the profile once (first call with a real profile) and latched for
+-- the session: a live profile switch never flips the look under the one-time
+-- art setup; the profile system prompts for a reload instead.
+function ns.DMBlizz()
+    local v = ns._dmBlizz
+    if v == nil then
+        local d = _G._EDM_DB
+        local dm = d and d.profile and d.profile.dm
+        if not dm then return false end
+        v = dm.useBlizzardStyle and true or false
+        ns._dmBlizz = v
+    end
+    return v
+end
+-- Header / window backgrounds: the stock atlas (opacity still applies) under
+-- Blizzard Style, the configured colour otherwise.
+function ns.DMPaintHeaderBg(tex, r, g, b, a)
+    if ns.DMBlizz() then
+        tex:SetAtlas(ns.DM_BLIZZ_HEADER)
+        tex:SetVertexColor(1, 1, 1, a)
+    else
+        tex:SetColorTexture(r, g, b, a)
+    end
+end
+-- Window background: the stock panel atlas is plain black with an alpha ramp
+-- baked in -- transparent at the top edge, opaque about a third of the way
+-- down (50 of its 148 rows, stretched with the window), and a short fade at
+-- the bottom -- far too heavy on a tall window. Drawn from parts instead
+-- (user ruling: half the strength, the top 20px only, no bottom fade): a
+-- 20px top band running from half the body alpha up to it over a flat black
+-- body, both hung off the bg texture's own rect (the window code owns that
+-- rect and re-anchors it under the header), which itself paints nothing.
+-- Parts are created once per bg texture; every call re-colours them with
+-- the configured opacity multiplied in.
+ns.DM_BLIZZ_BG_BODY = 245 / 255
+ns._dmBgLo = CreateColor(0, 0, 0, 1)
+ns._dmBgHi = CreateColor(0, 0, 0, 0.5)
+function ns.DMPaintWindowBg(tex, r, g, b, a)
+    if not ns.DMBlizz() then
+        tex:SetColorTexture(r, g, b, a)
+        return
+    end
+    local parts = tex._blizzParts
+    if not parts then
+        local parent = tex:GetParent()
+        local layer, sub = tex:GetDrawLayer()
+        parts = {}
+        for i = 1, 2 do
+            local t = parent:CreateTexture(nil, layer or "BACKGROUND", nil, sub or 0)
+            t:SetTexture("Interface\\Buttons\\WHITE8X8")
+            if t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false); t:SetTexelSnappingBias(0) end
+            parts[i] = t
+        end
+        parts[1]:SetPoint("TOPLEFT", tex, "TOPLEFT", 0, 0)
+        parts[1]:SetPoint("TOPRIGHT", tex, "TOPRIGHT", 0, 0)
+        parts[1]:SetHeight(20)
+        parts[2]:SetPoint("TOPLEFT", tex, "TOPLEFT", 0, -20)
+        parts[2]:SetPoint("BOTTOMRIGHT", tex, "BOTTOMRIGHT", 0, 0)
+        tex._blizzParts = parts
+        tex:SetTexture(nil)
+        tex:SetColorTexture(0, 0, 0, 0)
+    end
+    local body = ns.DM_BLIZZ_BG_BODY * (a or 1)
+    ns._dmBgLo:SetRGBA(0, 0, 0, body)
+    ns._dmBgHi:SetRGBA(0, 0, 0, body * 0.5)
+    -- VERTICAL gradients run bottom -> top.
+    parts[1]:SetGradient("VERTICAL", ns._dmBgLo, ns._dmBgHi)
+    parts[2]:SetGradient("VERTICAL", ns._dmBgLo, ns._dmBgLo)
+end
+-- Bar fill: the user's own texture keeps its colour (the stock fill art is
+-- pre-coloured and halves every tint, the ruling the unit frames and plates
+-- follow), and the bevel that art bakes in is drawn over the filled part:
+-- four gradient strips anchored to the fill TEXTURE so they follow the
+-- value, above the fill and under the edge highlight and the texts. Created
+-- once per fill; re-anchored only when the texture object or the height
+-- changes (a path swap mints a new texture object), so refresh passes pay
+-- two compares.
+ns._dmShadeClear  = CreateColor(0, 0, 0, 0)
+ns._dmShadeTop    = CreateColor(0, 0, 0, 0.55)
+ns._dmShadeBottom = CreateColor(0, 0, 0, 0.30)
+ns._dmShadeEnd    = CreateColor(0, 0, 0, 0.35)
+function ns.DMApplyBlizzFill(fill)
+    local sh = fill._blizzShadow
+    if not sh then
+        sh = {}
+        fill._blizzShadow = sh
+        for i = 1, 4 do
+            local tex = fill:CreateTexture(nil, "OVERLAY", nil, -3)
+            tex:SetTexture("Interface\\Buttons\\WHITE8X8")
+            if tex.SetSnapToPixelGrid then tex:SetSnapToPixelGrid(false); tex:SetTexelSnappingBias(0) end
+            sh[i] = tex
+        end
+        -- VERTICAL runs bottom -> top, HORIZONTAL left -> right.
+        sh[1]:SetGradient("VERTICAL", ns._dmShadeClear, ns._dmShadeTop)
+        sh[2]:SetGradient("VERTICAL", ns._dmShadeBottom, ns._dmShadeClear)
+        sh[3]:SetGradient("HORIZONTAL", ns._dmShadeEnd, ns._dmShadeClear)
+        sh[4]:SetGradient("HORIZONTAL", ns._dmShadeClear, ns._dmShadeEnd)
+    end
+    local ft = fill:GetStatusBarTexture()
+    local h = fill:GetHeight()
+    -- A bar carrying secret values (the tooltip preview rows in combat)
+    -- reports a secret height; the last plain height stands in, then the
+    -- row default, so nothing here ever compares a secret.
+    if issecretvalue and issecretvalue(h) then h = sh._h or 18 end
+    h = h or 0
+    if h <= 0 then h = 18 end
+    if not ft or (sh._tex == ft and sh._h == h) then return end
+    sh._tex, sh._h = ft, h
+    local top, bottom, ends = math.max(2, math.floor(h * 0.2)), math.max(1, math.floor(h * 0.1)), math.max(2, math.floor(h * 0.15))
+    sh[1]:ClearAllPoints(); sh[1]:SetPoint("TOPLEFT", ft, "TOPLEFT", 0, 0); sh[1]:SetPoint("TOPRIGHT", ft, "TOPRIGHT", 0, 0); sh[1]:SetHeight(top)
+    sh[2]:ClearAllPoints(); sh[2]:SetPoint("BOTTOMLEFT", ft, "BOTTOMLEFT", 0, 0); sh[2]:SetPoint("BOTTOMRIGHT", ft, "BOTTOMRIGHT", 0, 0); sh[2]:SetHeight(bottom)
+    sh[3]:ClearAllPoints(); sh[3]:SetPoint("TOPLEFT", ft, "TOPLEFT", 0, 0); sh[3]:SetPoint("BOTTOMLEFT", ft, "BOTTOMLEFT", 0, 0); sh[3]:SetWidth(ends)
+    sh[4]:ClearAllPoints(); sh[4]:SetPoint("TOPRIGHT", ft, "TOPRIGHT", 0, 0); sh[4]:SetPoint("BOTTOMRIGHT", ft, "BOTTOMRIGHT", 0, 0); sh[4]:SetWidth(ends)
+    for i = 1, 4 do sh[i]:Show() end
+end
+-- Row background: the stock shadowed track under the fill plus its edge
+-- highlight over it, both hugging the fill's rect (the shadow style's own
+-- insets: the track sits 2px outside the fill on every side, exactly under
+-- its edge). One-time per row.
+function ns.DMApplyBlizzBarBg(bar)
+    local bg = bar._bg
+    if not bg or not bar.fill then return end
+    if bar._blizzBgOn then return end
+    bar._blizzBgOn = true
+    bg:SetAtlas(ns.DM_BLIZZ_BAR_BG)
+    bg:SetVertexColor(1, 1, 1, 1)
+    bg:ClearAllPoints()
+    bg:SetPoint("TOPLEFT", bar.fill, "TOPLEFT", -2, 2)
+    bg:SetPoint("BOTTOMRIGHT", bar.fill, "BOTTOMRIGHT", 2, -2)
+    local edge = bar.fill:CreateTexture(nil, "OVERLAY", nil, 6)
+    edge:SetAtlas(ns.DM_BLIZZ_BAR_EDGE)
+    edge:SetPoint("TOPLEFT", bar.fill, "TOPLEFT", -2, 2)
+    edge:SetPoint("BOTTOMRIGHT", bar.fill, "BOTTOMRIGHT", 2, -2)
+end
 
 -- Header icon visibility (hide until title bar hovered)
 local function ResetButtonHidden(cfg)
@@ -983,6 +1130,9 @@ local function ClearThinLine(fill)
 end
 
 local function ApplyBarTexture(fill, texPath, texKey)
+    -- Blizzard Style: the user's texture as below, plus the stock bevel over
+    -- it (strips on the fill, independent of the texture path).
+    if ns.DMBlizz() then ns.DMApplyBlizzFill(fill) end
     local edge = THIN_LINE_KEYS[texKey]
     if edge then
         fill:SetStatusBarTexture(BAR_TEX)
@@ -1607,7 +1757,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
         _ttFrame._hdrText:SetText(EllesmereUI.Lf("%1$s's %2$s Breakdown", playerName, typeName))
         local cfg = DB()
         local hc = cfg.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
-        _ttFrame._hdrBg:SetColorTexture(hR, hG, hB, cfg.hdrBgAlpha or 1)
+        ns.DMPaintHeaderBg(_ttFrame._hdrBg, hR, hG, hB, cfg.hdrBgAlpha or 1)
         local tR, tG, tB
         if cfg.hdrTextUseAccent ~= false then tR, tG, tB = GetAccentRGB()
         else local tc = cfg.hdrTextColor; tR = tc and tc.r or 1; tG = tc and tc.g or 1; tB = tc and tc.b or 1 end
@@ -2251,7 +2401,8 @@ local function CreateDMWindow(winIdx)
         function bar.ApplyBorder()
             local c = DB()
             local sz = c.borderSize or 0
-            if sz <= 0 then
+            -- Blizzard Style rows draw the stock shadow edge instead of a border.
+            if sz <= 0 or ns.DMBlizz() then
                 if bar._borderFrame then bar._borderFrame:Hide() end
                 if bar._fillBorder then bar._fillBorder:Hide() end
                 return
@@ -2341,6 +2492,7 @@ local function CreateDMWindow(winIdx)
         bar._bg:SetAllPoints(bar.row)
         function bar.ApplyBg()
             local c = DB()
+            if ns.DMBlizz() then ns.DMApplyBlizzBarBg(bar); return end
             local a = c.barBgAlpha or 0
             -- Class-colored track when enabled: tint the bg with this bar's class color (x bg
             -- alpha), else the custom bg color. classFile can be secret, so guard before indexing
@@ -2434,7 +2586,7 @@ local function CreateDMWindow(winIdx)
                     _ttFrame._hdrText:SetText(EllesmereUI.Lf("%1$s's Death Recap", playerName))
                     local cfg2 = DB()
                     local hc = cfg2.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
-                    _ttFrame._hdrBg:SetColorTexture(hR, hG, hB, cfg2.hdrBgAlpha or 1)
+                    ns.DMPaintHeaderBg(_ttFrame._hdrBg, hR, hG, hB, cfg2.hdrBgAlpha or 1)
                     local tR, tG, tB
                     if cfg2.hdrTextUseAccent ~= false then tR, tG, tB = GetAccentRGB()
                     else local tc = cfg2.hdrTextColor; tR = tc and tc.r or 1; tG = tc and tc.g or 1; tB = tc and tc.b or 1 end
@@ -2465,7 +2617,7 @@ local function CreateDMWindow(winIdx)
                 _ttFrame._hdrText:SetText(EllesmereUI.Lf("%1$s's %2$s Breakdown", playerName, typeName))
                 local cfg2 = DB()
                 local hc = cfg2.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
-                _ttFrame._hdrBg:SetColorTexture(hR, hG, hB, cfg2.hdrBgAlpha or 1)
+                ns.DMPaintHeaderBg(_ttFrame._hdrBg, hR, hG, hB, cfg2.hdrBgAlpha or 1)
                 local tR, tG, tB
                 if cfg2.hdrTextUseAccent ~= false then tR, tG, tB = GetAccentRGB()
                 else local tc = cfg2.hdrTextColor; tR = tc and tc.r or 1; tG = tc and tc.g or 1; tB = tc and tc.b or 1 end
@@ -2513,6 +2665,11 @@ local function CreateDMWindow(winIdx)
         local bar = {}
         bar.row = CreateFrame("Button", nil, parent); bar.row:SetHeight(18); bar.row:EnableMouse(true); bar.row:RegisterForClicks("AnyUp")
         bar.fill = CreateFrame("StatusBar", nil, bar.row); bar.fill:SetMinMaxValues(0, 1); bar.fill:SetValue(0); bar.fill:SetStatusBarTexture(BAR_TEX)
+        -- Blizzard Style: the same track and edge as the main rows.
+        if ns.DMBlizz() then
+            bar._bg = bar.row:CreateTexture(nil, "BACKGROUND")
+            ns.DMApplyBlizzBarBg(bar)
+        end
         bar.classIcon = bar.fill:CreateTexture(nil, "OVERLAY"); bar.classIcon:SetSize(18, 18); bar.classIcon:SetPoint("LEFT", bar.row, "LEFT", 0, 0); bar.classIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92); bar.classIcon:Hide()
         local tf = CreateFrame("Frame", nil, bar.fill); tf:SetAllPoints(bar.fill); tf:SetFrameLevel(bar.fill:GetFrameLevel() + 2)
         bar.label = tf:CreateFontString(nil, "OVERLAY"); bar.label:SetPoint("LEFT", tf, "LEFT", 3, 0); bar.label:SetPoint("RIGHT", tf, "RIGHT", -70, 0); bar.label:SetJustifyH("LEFT"); SetDMFont(bar.label, 11)
@@ -2538,7 +2695,7 @@ local function CreateDMWindow(winIdx)
     frame._bg = frame:CreateTexture(nil, "BACKGROUND")
     frame._bg:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -GetHeaderH())
     frame._bg:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
-    frame._bg:SetColorTexture(cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgAlpha or 0.75)
+    ns.DMPaintWindowBg(frame._bg, cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgAlpha or 0.75)
 
     -- Header
     local header = CreateFrame("Frame", nil, frame)
@@ -2553,7 +2710,7 @@ local function CreateDMWindow(winIdx)
     W.windowBorderTarget = windowBorderTarget
 
     do local hc = cfg.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
-    header._hdrBg = header:CreateTexture(nil, "BACKGROUND"); header._hdrBg:SetAllPoints(); header._hdrBg:SetColorTexture(hR, hG, hB, cfg.hdrBgAlpha or 1) end
+    header._hdrBg = header:CreateTexture(nil, "BACKGROUND"); header._hdrBg:SetAllPoints(); ns.DMPaintHeaderBg(header._hdrBg, hR, hG, hB, cfg.hdrBgAlpha or 1) end
     header._bottomBorder = header:CreateTexture(nil, "OVERLAY", nil, 7)
     header._bottomBorder:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", 0, 0)
     header._bottomBorder:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", 0, 0)
@@ -2562,7 +2719,7 @@ local function CreateDMWindow(winIdx)
         local color = cfg.hdrBottomBorderColor or {}
         header._bottomBorder:SetHeight(PhysicalPixels(size))
         header._bottomBorder:SetColorTexture(color.r or 0, color.g or 0, color.b or 0, color.a or 1)
-        header._bottomBorder:SetShown(size > 0)
+        header._bottomBorder:SetShown(size > 0 and not ns.DMBlizz())
     end
 
     local hdrFS = cfg.hdrFontSize or 11
@@ -3173,7 +3330,7 @@ local function CreateDMWindow(winIdx)
     W.sourceFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
     W.sourceFrame:SetFrameLevel(frame:GetFrameLevel() + 20); W.sourceFrame:EnableMouse(true); W.sourceFrame:Hide()
     W.sourceFrame._bg = W.sourceFrame:CreateTexture(nil, "BACKGROUND"); W.sourceFrame._bg:SetAllPoints()
-    W.sourceFrame._bg:SetColorTexture(cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgAlpha or 0.75)
+    ns.DMPaintWindowBg(W.sourceFrame._bg, cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgAlpha or 0.75)
 
     W.srcViewport = CreateFrame("ScrollFrame", nil, W.sourceFrame); W.srcViewport:SetAllPoints()
     W.srcContent = CreateFrame("Frame", nil, W.srcViewport); W.srcContent:SetSize(1, 1); W.srcViewport:SetScrollChild(W.srcContent)
@@ -4237,8 +4394,12 @@ local function CreateDMWindow(winIdx)
         local EG = EUI.ELLESMERE_GREEN
         local acR, acG, acB = GetAccentRGB()
 
-        -- Calculate column width from scroll frame
+        -- Calculate column width from scroll frame. An unplaced window (an
+        -- unlock-anchored one before the login anchor pass lands) has no
+        -- width yet; laying out from zero would collapse every card. The
+        -- scroll frame's size hook runs this again once the width arrives.
         local totalW = homeScroll and homeScroll:GetWidth() or homeFrame:GetWidth()
+        if not totalW or totalW < 1 then return end
         local colW = (totalW - CARD_PAD_X * 2 - CARD_COL_GAP) / 2
 
         -- Hide all existing cards
@@ -4402,7 +4563,13 @@ local function CreateDMWindow(winIdx)
             homeChild = CreateFrame("Frame", nil, homeScroll)
             homeChild:SetSize(1, 1)
             homeScroll:SetScrollChild(homeChild)
-            homeScroll:SetScript("OnSizeChanged", function(_, w) homeChild:SetWidth(w) end)
+            homeScroll:SetScript("OnSizeChanged", function(_, w)
+                homeChild:SetWidth(w)
+                -- The grid is laid out from this width: re-flow it when the
+                -- width changes while the page is up (first placement of an
+                -- anchored window, a resize).
+                if w and w > 1 and homeFrame:IsShown() then RefreshHome() end
+            end)
 
             -- Mouse wheel scrolling (no visual scrollbar)
             local function HomeWheel(_, delta)
@@ -4596,14 +4763,15 @@ ns.ApplyBackground = function()
     local cfg = DB()
     local r, g, b, a = cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgAlpha or 0.75
     for _, w in ipairs(_windows) do
-        if w.frame and w.frame._bg then w.frame._bg:SetColorTexture(r, g, b, a) end
-        if w.sourceFrame and w.sourceFrame._bg then w.sourceFrame._bg:SetColorTexture(r, g, b, a) end
+        if w.frame and w.frame._bg then ns.DMPaintWindowBg(w.frame._bg, r, g, b, a) end
+        if w.sourceFrame and w.sourceFrame._bg then ns.DMPaintWindowBg(w.sourceFrame._bg, r, g, b, a) end
     end
 end
 
 ns.ApplyWindowBorder = function()
     local cfg = DB()
-    local size = tonumber(cfg.windowBorderSize) or 0
+    -- Blizzard Style windows carry the stock background art, no EUI border.
+    local size = ns.DMBlizz() and 0 or (tonumber(cfg.windowBorderSize) or 0)
     local texture = cfg.windowBorderTexture or "solid"
     local color = cfg.windowBorderColor or {}
     local r, g, b, a = color.r or 0, color.g or 0, color.b or 0, color.a or 1
@@ -4642,13 +4810,13 @@ ns.ApplyHeader = function()
     for _, w in ipairs(_windows) do
         if w.header then
             w.header:SetHeight(hdrH)
-            if w.header._hdrBg then w.header._hdrBg:SetColorTexture(hR, hG, hB, hA) end
+            if w.header._hdrBg then ns.DMPaintHeaderBg(w.header._hdrBg, hR, hG, hB, hA) end
             if w.header._bottomBorder then
                 local size = cfg.hdrBottomBorderSize or 0
                 local color = cfg.hdrBottomBorderColor or {}
                 w.header._bottomBorder:SetHeight(PhysicalPixels(size))
                 w.header._bottomBorder:SetColorTexture(color.r or 0, color.g or 0, color.b or 0, color.a or 1)
-                w.header._bottomBorder:SetShown(size > 0)
+                w.header._bottomBorder:SetShown(size > 0 and not ns.DMBlizz())
             end
         end
         if w.frame and w.frame._bg then

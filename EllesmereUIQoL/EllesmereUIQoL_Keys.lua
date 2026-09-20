@@ -1,4 +1,5 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
+if EllesmereUI and EllesmereUI.IS_FOREVER then return end -- no keystones on WoW Forever: no /keys popup, no events, no slash commands; the options section is not built there and every reader nil-guards
 -------------------------------------------------------------------------------
 --  EllesmereUIQoL_Keys.lua
 --  /keys slash command: displays party keystone levels in a styled popup.

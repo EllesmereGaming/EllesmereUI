@@ -188,7 +188,7 @@ end
 -------------------------------------------------------------------------------
 local securePositioner = CreateFrame("Frame", nil, UIParent, "SecureHandlerBaseTemplate")
 local function SecureSetPoint(frame, point, relPoint, x, y)
-    if InCombatLockdown() then return false end
+    if InCombatLockdown() or not EllesmereUI.SecureSnippetsOK() then return false end
     securePositioner:SetFrameRef("f", frame)
     securePositioner:SetAttribute("p", point)
     securePositioner:SetAttribute("rp", relPoint)
@@ -230,7 +230,7 @@ end
 local SCALE_MIN, SCALE_MAX, SCALE_STEP = 0.5, 2, 0.1
 
 local function SecureSetScale(frame, scale)
-    if InCombatLockdown() then return false end
+    if InCombatLockdown() or not EllesmereUI.SecureSnippetsOK() then return false end
     securePositioner:SetFrameRef("f", frame)
     securePositioner:SetAttribute("s", scale)
     securePositioner:Execute([[

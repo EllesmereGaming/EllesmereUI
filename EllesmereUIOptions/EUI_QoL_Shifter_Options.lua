@@ -56,11 +56,11 @@ _G._EUI_BuildShifterPage = function(pageName, parent, yOffset)
                 message = "This will reset all saved panel positions and zoom levels and reload your UI.",
                 confirmText = "Reset",
                 cancelText  = "Cancel",
+                reload = true,
                 onConfirm = function()
                     if EllesmereUI._ResetShifterPositions then
                         EllesmereUI._ResetShifterPositions()
                     end
-                    ReloadUI()
                 end,
             })
         end
@@ -123,6 +123,7 @@ _G._EUI_BuildShifterPage = function(pageName, parent, yOffset)
                   message = EllesmereUI.Lf("Reset %1$s to its default position and zoom and reload your UI?", pretty),
                   confirmText = "Reset",
                   cancelText  = "Cancel",
+                  reload = true,
                   onConfirm = function()
                       if EllesmereUIDB and EllesmereUIDB.shifterPositions then
                           EllesmereUIDB.shifterPositions[frameName] = nil
@@ -130,7 +131,6 @@ _G._EUI_BuildShifterPage = function(pageName, parent, yOffset)
                       if EllesmereUIDB and EllesmereUIDB.shifterScales then
                           EllesmereUIDB.shifterScales[frameName] = nil
                       end
-                      ReloadUI()
                   end,
               })
           end }

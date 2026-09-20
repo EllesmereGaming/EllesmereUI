@@ -1636,7 +1636,7 @@ local function MakeLocationBlock(blockCfg, slot, content, barCtx, opts)
     -- click; PLAYER_REGEN_ENABLED drives Refresh's retry so a block built mid-fight becomes clickable once combat ends.
     local clickBtn
     local function EnsureClickButton()
-        if clickBtn or InCombatLockdown() then return clickBtn end
+        if clickBtn or InCombatLockdown() or not EllesmereUI.SecureSnippetsOK() then return clickBtn end
         local micro = _G.QuestLogMicroButton
         if not micro then return nil end
         clickBtn = CreateFrame("Button", "EWB_LOC_" .. inst.key, frame,
@@ -3368,16 +3368,19 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
     local function D() return blockCfg.settings or {} end
     local function BC() return barCtx.cfg end
 
+    -- Spec reads go through C_SpecializationInfo: the legacy globals are not
+    -- registered on WoW Forever (same native functions on retail). The loot
+    -- spec pair and GetNumSpecializations are plain globals on both clients.
     local function BuildSpecCache()
         specCache = {}; numSpecs = GetNumSpecializations() or 0
         for i = 1, numSpecs do
-            local id, name, _, icon, role = GetSpecializationInfo(i)
+            local id, name, _, icon, role = C_SpecializationInfo.GetSpecializationInfo(i)
             if id then specCache[i] = { id = id, name = name, icon = icon, role = role } end
         end
     end
 
     local function UpdateCurrentSpec()
-        currentSpecIdx    = GetSpecialization()
+        currentSpecIdx    = C_SpecializationInfo.GetSpecialization()
         currentLootSpecID = GetLootSpecialization() or 0
     end
 
@@ -3732,7 +3735,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
         local inCombat = InCombatLockdown()
         BuildPopup(lootPool, specButton, L["CHANGE_LOOT_SPEC"], entries, function(e)
             local id = 0
-            if e.specIndex > 0 then id = select(1, GetSpecializationInfo(e.specIndex)) or 0 end
+            if e.specIndex > 0 then id = select(1, C_SpecializationInfo.GetSpecializationInfo(e.specIndex)) or 0 end
             SetLootSpecialization(id)
         end, inCombat, nil, true)
         if inCombat and hoverWatch then
@@ -4524,7 +4527,7 @@ local mmHiders = {}
 local function MMGetHider(frame)
     local hider = mmHiders[frame]
     if hider then return hider end
-    if InCombatLockdown() then return nil end
+    if InCombatLockdown() or not EllesmereUI.SecureSnippetsOK() then return nil end
     hider = CreateFrame("Frame", nil, nil, "SecureHandlerStateTemplate")
     hider:SetFrameRef("target", frame)
     hider:SetAttribute("_onstate-vis", [[
@@ -4590,9 +4593,9 @@ end
 local CS_DIM = "|cffaaaaaa"
 
 local function MMPrimaryStat()
-    local specIndex = GetSpecialization and GetSpecialization()
+    local specIndex = C_SpecializationInfo.GetSpecialization()
     if not specIndex or specIndex <= 0 then return nil end
-    local _, _, _, _, _, statID = GetSpecializationInfo(specIndex)
+    local _, _, _, _, _, statID = C_SpecializationInfo.GetSpecializationInfo(specIndex)
     if statID == LE_UNIT_STAT_STRENGTH  then return SPELL_STAT1_NAME or "Strength",  1 end
     if statID == LE_UNIT_STAT_AGILITY   then return SPELL_STAT2_NAME or "Agility",   2 end
     if statID == LE_UNIT_STAT_INTELLECT then return SPELL_STAT4_NAME or "Intellect", 4 end
@@ -4993,7 +4996,7 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
         end
         local frame
         local gname = "EWB_MM_" .. inst.key .. "_" .. key
-        if microRef then
+        if microRef and EllesmereUI.SecureSnippetsOK() then
             -- Taint-safe: pass clicks through to the Blizzard MicroButton.
             frame = CreateFrame("Button", gname, content,
                 "SecureActionButtonTemplate,SecureHandlerStateTemplate")
@@ -6390,6 +6393,8 @@ ns.BlockFactories.greatvault = function(blockCfg, slot, content, barCtx)
 
     return inst
 end
+-- No Great Vault on WoW Forever: no factory, so no instance, no keystone feed (the main file drops the block from BLOCK_TYPES too).
+if EllesmereUI.IS_FOREVER then ns.BlockFactories.greatvault = nil end
 
 -------------------------------------------------------------------------------
 --  SPACER (transparent block; the slot's optional bg tint still applies)

@@ -296,9 +296,9 @@ EllesmereUI.GetAccentColor = function()
     return ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b
 end
 
---- Active theme name (default "EllesmereUI")
+--- Active theme name (default per client: EllesmereUI.DEFAULT_THEME)
 EllesmereUI.GetActiveTheme = function()
-    return EllesmereUIDB and EllesmereUIDB.activeTheme or "EllesmereUI"
+    return EllesmereUIDB and EllesmereUIDB.activeTheme or EllesmereUI.DEFAULT_THEME
 end
 
 --- Internal: resolve the accent color for a given theme name
@@ -543,13 +543,18 @@ EllesmereUI.ResetTheme = function()
 end
 
 -------------------------------------------------------------------------------
---  ShowContextMenu(anchor, items)
+--  ShowContextMenu(anchor, items, opts)
 --  Shared pooled context menu used by Blizz UI Enhanced (character sheet gear-set cog, etc.). Pops up at the cursor.
 --  items = { { text = "Foo", onClick = fn, isDisabled = fn? }, ... }
---  Behavior: click-outside-to-dismiss (polled ~10hz); auto-closes on combat entry so insecure clicks can't taint protected paths while lockdown is active.
+--  opts (optional): below = true hangs the menu off `anchor`'s bottom-left edge
+--  instead of the cursor (the dropdown placement of the options widgets);
+--  minWidth widens the menu to the anchor's width so it reads as a dropdown.
+--  Behavior: click-outside-to-dismiss (polled ~10hz); a second call from the same
+--  anchor while its menu is open closes it (toggle); auto-closes on combat entry so
+--  insecure clicks can't taint protected paths while lockdown is active.
 -------------------------------------------------------------------------------
 local _ctxMenu
-local function ShowContextMenu(anchor, items)
+local function ShowContextMenu(anchor, items, opts)
     local PP_L = EllesmereUI.PP
     if not _ctxMenu then
         _ctxMenu = CreateFrame("Frame", nil, UIParent)
@@ -576,19 +581,31 @@ local function ShowContextMenu(anchor, items)
             self._elapsed = self._elapsed + dt
             if self._elapsed < 0.1 then return end
             self._elapsed = 0
-            if not self:IsMouseOver() and IsMouseButtonDown("LeftButton") then
+            -- A click on the owner is left to the owner: its OnClick reaches
+            -- ShowContextMenu with the menu still open and toggles it closed.
+            local owner = self._owner
+            if not self:IsMouseOver() and IsMouseButtonDown("LeftButton")
+               and not (owner and owner.IsMouseOver and owner:IsMouseOver()) then
                 self:Hide()
             end
         end
 
         _ctxMenu:HookScript("OnHide", function(self)
             self:SetScript("OnUpdate", nil)
+            self._owner = nil
         end)
 
         -- Combat entry closes the menu to avoid tainting protected paths.
         _ctxMenu:RegisterEvent("PLAYER_REGEN_DISABLED")
         _ctxMenu:SetScript("OnEvent", function(self) self:Hide() end)
     end
+
+    -- Toggle: the owner's click while its own menu is open closes it.
+    if anchor and _ctxMenu:IsShown() and _ctxMenu._owner == anchor then
+        _ctxMenu:Hide()
+        return
+    end
+    _ctxMenu._owner = anchor
 
     -- Hide pooled rows past the current item count
     for _, btn in ipairs(_ctxMenu._items) do btn:Hide() end
@@ -612,7 +629,7 @@ local function ShowContextMenu(anchor, items)
     mfs:SetText("")
     mfs:Hide()
 
-    local MENU_W = math.max(140, maxTextW + 40)
+    local MENU_W = math.max((opts and opts.minWidth) or 140, maxTextW + 40)
     local EG = EllesmereUI.ELLESMERE_GREEN
     local hlAlpha = EllesmereUI.DD_ITEM_HL_A or 0.08
 
@@ -669,11 +686,17 @@ local function ShowContextMenu(anchor, items)
 
     _ctxMenu:SetSize(MENU_W, MENU_PAD * 2 + #items * ITEM_H)
 
-    -- Position at cursor
-    local scale = _ctxMenu:GetEffectiveScale()
-    local cx, cy = GetCursorPosition()
     _ctxMenu:ClearAllPoints()
-    _ctxMenu:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", cx / scale, cy / scale)
+    if opts and opts.below and anchor then
+        -- Dropdown placement: under the anchor, left edges aligned (screen
+        -- clamping still applies).
+        _ctxMenu:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -2)
+    else
+        -- Position at cursor
+        local scale = _ctxMenu:GetEffectiveScale()
+        local cx, cy = GetCursorPosition()
+        _ctxMenu:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", cx / scale, cy / scale)
+    end
     _ctxMenu:Show()
 
     _ctxMenu._elapsed = 0

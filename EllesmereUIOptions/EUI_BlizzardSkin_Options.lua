@@ -111,7 +111,7 @@ initFrame:SetScript("OnEvent", function(self)
                           message     = "Reskin setting requires a UI reload to fully apply.",
                           confirmText = "Reload Now",
                           cancelText  = "Later",
-                          onConfirm   = function() ReloadUI() end,
+                          reload      = true,
                       })
                   end
               end },
@@ -182,7 +182,7 @@ initFrame:SetScript("OnEvent", function(self)
                           message     = "Disabling queue popup reskin requires a UI reload to restore Blizzard's default style.",
                           confirmText = "Reload Now",
                           cancelText  = "Later",
-                          onConfirm   = function() ReloadUI() end,
+                          reload      = true,
                       })
                   end
               end }
@@ -238,7 +238,7 @@ initFrame:SetScript("OnEvent", function(self)
                           message     = "Changing the pause menu reskin requires a UI reload.",
                           confirmText = "Reload Now",
                           cancelText  = "Later",
-                          onConfirm   = function() ReloadUI() end,
+                          reload      = true,
                       })
                   end
               end }
@@ -347,7 +347,7 @@ initFrame:SetScript("OnEvent", function(self)
                           message     = "Reskin setting requires a UI reload to fully apply.",
                           confirmText = "Reload Now",
                           cancelText  = "Later",
-                          onConfirm   = function() ReloadUI() end,
+                          reload      = true,
                       })
                   end
               end },
@@ -850,7 +850,7 @@ initFrame:SetScript("OnEvent", function(self)
                           message     = "Widget bar reskin requires a UI reload to apply.",
                           confirmText = "Reload Now",
                           cancelText  = "Later",
-                          onConfirm   = function() ReloadUI() end,
+                          reload      = true,
                       })
                   end
               end },
@@ -1443,7 +1443,7 @@ initFrame:SetScript("OnEvent", function(self)
                           message     = "Inspect Sheet theme setting requires a UI reload to fully apply.",
                           confirmText = "Reload Now",
                           cancelText  = "Later",
-                          onConfirm   = function() ReloadUI() end,
+                          reload      = true,
                       })
                   end
                   EllesmereUI:RefreshPage()
@@ -1598,7 +1598,7 @@ initFrame:SetScript("OnEvent", function(self)
                           message     = "Merchant Show As List setting requires a UI reload to fully apply.",
                           confirmText = "Reload Now",
                           cancelText  = "Cancel",
-                          onConfirm   = function() ReloadUI() end,
+                          reload      = true,
                           onCancel    = function()
                               EllesmereUIDB.merchantShowAsList = previousValue;
                               EllesmereUI:RefreshPage()
@@ -1706,7 +1706,7 @@ initFrame:SetScript("OnEvent", function(self)
                 message     = message,
                 confirmText = "Reload Now",
                 cancelText  = "Later",
-                onConfirm   = function() ReloadUI() end,
+                reload      = true,
             })
         end
     end
@@ -2266,6 +2266,14 @@ initFrame:SetScript("OnEvent", function(self)
             end,
         },
     }
+
+    -- WoW Forever keeps Blizzard's micro menu art: its pack is not registered
+    -- there (WindowPacks), so the card is not offered either.
+    if EllesmereUI.IS_FOREVER then
+        for i = #WINDOWS, 1, -1 do
+            if WINDOWS[i].key == "micromenu" then table.remove(WINDOWS, i) end
+        end
+    end
 
     local function WSGetStyle(win)
         return EllesmereUI.GetBlizzWindowStyle(win.key)
@@ -3127,9 +3135,13 @@ initFrame:SetScript("OnEvent", function(self)
 
     EllesmereUI:RegisterModule("EllesmereUIBlizzardSkin", {
         title       = "Blizz UI Enhanced",
-        description = "Themed Blizzard frames: window skins, tooltips, menus, popups, Dragon Riding HUD.",
+        -- WoW Forever has no skyriding: the Dragon Riding tab is not registered there
+        -- (its resident file returns at load, so the page would have no DB to read).
+        description = EllesmereUI.IS_FOREVER and "Themed Blizzard frames: window skins, tooltips, menus, popups."
+            or "Themed Blizzard frames: window skins, tooltips, menus, popups, Dragon Riding HUD.",
         searchTerms = "blizzard skin character sheet tooltip menu popup dragon riding skyriding window skins lfg group finder premade queue pause game menu great vault inspect collections mounts pets toys spellbook talents adventure guide encounter journal professions guild communities calendar achievements mail catalyst gem socket item upgrade upgrades crest loot window loot toast you received popup micro menu modern delves companion brann loot roll need greed pass disenchant loot rolls pending rolls group invite invited to a group role",
-        pages       = { PAGE_WINDOWSKINS, PAGE_TOOLTIPS, PAGE_DRAGONRIDING },
+        pages       = EllesmereUI.IS_FOREVER and { PAGE_WINDOWSKINS, PAGE_TOOLTIPS }
+            or { PAGE_WINDOWSKINS, PAGE_TOOLTIPS, PAGE_DRAGONRIDING },
         buildPage   = function(pageName, parent, yOffset)
             if pageName == PAGE_WINDOWSKINS then
                 return BuildWindowSkinsPage(pageName, parent, yOffset)

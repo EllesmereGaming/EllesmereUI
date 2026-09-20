@@ -1113,6 +1113,9 @@ end
 local boot = CreateFrame("Frame")
 boot:RegisterEvent("PLAYER_LOGIN")
 boot:SetScript("OnEvent", function()
+    -- WoW Forever: part of the character sheet makeover, which stands down
+    -- there (EllesmereUIBlizzardSkin_CharacterSheetForever.lua owns the sheet).
+    if EllesmereUI and EllesmereUI.IS_FOREVER then return end
     if EllesmereUI then
         EllesmereUI._refreshCharSheetSocketPanel = RefreshFromOptions
     end

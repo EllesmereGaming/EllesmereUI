@@ -10,6 +10,9 @@
 
 local ns = EllesmereUI._ModuleNS["EllesmereUIRaidFrames"]  -- module namespace (published by the module at its load)
 if not ns then return end  -- module disabled: no options page
+-- Stood down for the session (secure snippets unavailable: WoW Forever beta):
+-- the module is not running, so its pages stay out of the sidebar.
+if (EllesmereUI.Lite.GetAddon("EllesmereUIRaidFrames", true) or ns).standDown then return end
 local EllesmereUI = _G.EllesmereUI
 
 local floor = math.floor
