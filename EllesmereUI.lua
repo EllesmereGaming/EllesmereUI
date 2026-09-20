@@ -5284,6 +5284,10 @@ function EllesmereUI.MakeUnlockElement(opts)
         -- noSizeMatchTarget: other elements may NOT size-match TO this one.
         allowMatchSource  = opts.allowMatchSource,
         noSizeMatchTarget = opts.noSizeMatchTarget,
+        -- noMatchSource: never show this element's own width/height MATCH links
+        -- (e.g. a linkedDimensions element with a single Size value -- matching
+        -- width/height separately makes no sense once they can't diverge).
+        noMatchSource     = opts.noMatchSource,
         -- matchUnavailable: function(key) -> reason string when a NEW width/height match
         -- is impossible (action bars in Blizzard Style, where EUI does not control
         -- sizing). Clearing an existing match stays allowed.
