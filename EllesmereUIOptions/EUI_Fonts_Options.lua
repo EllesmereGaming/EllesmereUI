@@ -38,7 +38,7 @@ local function FontReload()
         message     = "Font changed. A UI reload is needed to apply the new font.",
         confirmText = "Reload Now",
         cancelText  = "Later",
-        onConfirm   = function() ReloadUI() end,
+        reload      = true,
     })
 end
 
@@ -635,7 +635,7 @@ local function TileChat(parent, y, W, tile)
             message     = msg,
             confirmText = "Reload Now",
             cancelText  = "Later",
-            onConfirm   = function() ReloadUI() end,
+            reload      = true,
         })
     end
     _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display),

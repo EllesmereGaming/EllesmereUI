@@ -2194,11 +2194,13 @@ local function TBBMultiThresholdList(cfg)
     return list
 end
 
-local function ApplyTBBThresholdOverlay(overlay, sb, texPath, orient, reverse, i, r, g, b, a, value)
+local function ApplyTBBThresholdOverlay(overlay, sb, texPath, orient, reverse, i, r, g, b, a, value, blizzAtlas)
     overlay:SetStatusBarTexture(texPath)
     overlay:SetOrientation(orient)
     overlay:SetReverseFill(reverse)
     local tex = overlay:GetStatusBarTexture()
+    -- Blizzard Style: the segment takes the same atlas as the fill it covers.
+    if blizzAtlas then tex:SetAtlas("UI-HUD-CoolDownManager-Bar") end
     tex:SetVertexColor(r, g, b, a)
     tex:SetDrawLayer("ARTWORK", i)
     overlay:ClearAllPoints()
@@ -2229,7 +2231,7 @@ local function SetupTBBThresholdOverlay(bar, cfg)
             local overlay = EnsureTBBThresholdOverlay(bar, i)
             if not overlay then break end
             ApplyTBBThresholdOverlay(overlay, sb, texPath, orient, reverse, i,
-                t.r or 0.8, t.g or 0.1, t.b or 0.1, t.a or 1, t.value or 5)
+                t.r or 0.8, t.g or 0.1, t.b or 0.1, t.a or 1, t.value or 5, bar._blizzFillAtlas)
             n = i
         end
     else
@@ -2238,7 +2240,7 @@ local function SetupTBBThresholdOverlay(bar, cfg)
             ApplyTBBThresholdOverlay(overlay, sb, texPath, orient, reverse, 1,
                 cfg.stackThresholdR or 0.8, cfg.stackThresholdG or 0.1,
                 cfg.stackThresholdB or 0.1, cfg.stackThresholdA or 1,
-                cfg.stackThreshold or 5)
+                cfg.stackThreshold or 5, bar._blizzFillAtlas)
             n = 1
         end
     end
@@ -2541,12 +2543,15 @@ local function AnchorTBBSparkState(bar, anchor, isVert, reverse, flushToEdge)
        and bar._sparkAnchorBarH == barH then
         return
     end
+    -- Blizzard Style pip is an atlas: an 8-coord rotation would sample the
+    -- whole sheet, so its coords are left to the atlas (vertical bars keep the
+    -- upright pip).
     if isVert then
         spark:SetSize(barW, 8)
-        spark:SetTexCoord(0, 1, 1, 1, 0, 0, 1, 0)
+        if not bar._blizzSpark then spark:SetTexCoord(0, 1, 1, 1, 0, 0, 1, 0) end
     else
         spark:SetSize(8, barH)
-        spark:SetTexCoord(0, 0, 0, 1, 1, 0, 1, 1)
+        if not bar._blizzSpark then spark:SetTexCoord(0, 0, 0, 1, 1, 0, 1, 1) end
     end
     spark:ClearAllPoints()
     if isVert then
@@ -2570,6 +2575,43 @@ local function AnchorTBBSpark(bar, cfg, anchor, flushToEdge)
         cfg.reverseFill, flushToEdge)
 end
 
+-- Blizzard Style icon art for a tracked bar's icon: the viewer's rounded mask
+-- and ring overlay over the full spell art, sized to the icon square (same
+-- proportional inset as the CDM icons). One-time structure, size-memoized
+-- geometry; never runs unless the style is on. On ns for the local cap.
+ns.ApplyTBBBlizzIconArt = function(bar, iSize)
+    local icon = bar._icon
+    local tex = icon and icon._tex
+    if not tex then return end
+    if not bar._blizzIconMask then
+        tex:SetTexCoord(0, 1, 0, 1)
+        local mask = icon:CreateMaskTexture()
+        mask:SetAtlas(ns.CDM_BLIZZ_MASK)
+        mask:SetAllPoints(icon)
+        tex:AddMaskTexture(mask)
+        bar._blizzIconMask = mask
+        local ov = icon:CreateTexture(nil, "OVERLAY", nil, 5)
+        ov:SetAtlas(ns.CDM_BLIZZ_OVERLAY)
+        ov:SetSnapToPixelGrid(false)
+        ov:SetTexelSnappingBias(0)
+        bar._blizzIconOverlay = ov
+    end
+    -- The ring overhangs the bar, so the icon draws above the fill (the
+    -- viewer levels its icon above its bar the same way); re-asserted here
+    -- because a strata change collapses child levels.
+    if bar._bar then
+        local lvl = bar._bar:GetFrameLevel() + 3
+        if icon:GetFrameLevel() ~= lvl then icon:SetFrameLevel(lvl) end
+    end
+    if bar._blizzIconSize ~= iSize then
+        bar._blizzIconSize = iSize
+        local ov = bar._blizzIconOverlay
+        ov:ClearAllPoints()
+        ov:SetPoint("TOPLEFT", icon, "TOPLEFT", -iSize * ns.CDM_BLIZZ_RING_X, iSize * ns.CDM_BLIZZ_RING_Y)
+        ov:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", iSize * ns.CDM_BLIZZ_RING_X, -iSize * ns.CDM_BLIZZ_RING_Y)
+    end
+end
+
 -- Defined with the charge renderer below. ApplySettings calls it whenever a
 -- pooled bar frame is restyled so stale composite geometry cannot leak into a
 -- different bar after deletion, reordering or a tracking-type change.
@@ -2582,6 +2624,15 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
     if not bar or not cfg then return end
     local sb = bar._bar
     if not sb then return end
+    -- Blizzard Style (Global Settings > Style): the viewer's bar, background
+    -- and pip art with every setting still applied. Reload-gated, so the
+    -- per-bar one-time setup below never has to be undone.
+    local blizzBar = ns.CdmBlizzBars()
+    if blizzBar and not bar._blizzSpark and bar._spark then
+        bar._blizzSpark = true
+        bar._spark:SetAtlas("UI-HUD-CoolDownManager-Bar-Pip")
+        bar._spark:SetBlendMode("BLEND")
+    end
     if _restoreTBBNormalFill then _restoreTBBNormalFill(bar, cfg) end
 
     -- User-selectable strata for the whole bar (options setter keeps grouped bars
@@ -2673,7 +2724,17 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
 
     -- Texture
     local texPath = EllesmereUI.ResolveTexturePath(TBB_TEXTURES, cfg.texture or "none", "Interface\\Buttons\\WHITE8x8")
-    if bar._lastTexPath ~= texPath then
+    if blizzBar then
+        -- The viewer's bar atlas (tinted by Fill Color below). _lastTexPath
+        -- stays a real file path: the charge hash fill re-reads it.
+        texPath = "Interface\\Buttons\\WHITE8x8"
+        if not bar._blizzFillAtlas then
+            sb:SetStatusBarTexture(texPath)
+            sb:GetStatusBarTexture():SetAtlas("UI-HUD-CoolDownManager-Bar")
+            bar._lastTexPath = texPath
+            bar._blizzFillAtlas = true
+        end
+    elseif bar._lastTexPath ~= texPath then
         sb:SetStatusBarTexture(texPath)
         bar._lastTexPath = texPath
     end
@@ -2689,12 +2750,26 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
     bar._baseFillR, bar._baseFillG, bar._baseFillB, bar._baseFillA = fR, fG, fB, fA
 
     -- Background
-    if bar._bg then
+    if blizzBar then
+        -- The viewer's shadowed bar background overhangs the fill, so it lives
+        -- on the wrap (the StatusBar clips its own regions).
+        if bar._bg then bar._bg:Hide() end
+        local bbg = bar._blizzBg
+        if not bbg then
+            bbg = bar:CreateTexture(nil, "BACKGROUND")
+            bbg:SetAtlas("UI-HUD-CoolDownManager-Bar-BG")
+            -- Anchored once: the fill StatusBar is the bar's for life.
+            bbg:SetPoint("TOPLEFT", sb, "TOPLEFT", -2, 2)
+            bbg:SetPoint("BOTTOMRIGHT", sb, "BOTTOMRIGHT", 4, -7)
+            bar._blizzBg = bbg
+        end
+        bbg:Show()
+    elseif bar._bg then
         bar._bg:SetColorTexture(cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgA or 0.4)
     end
 
-    -- Gradient
-    if cfg.gradientEnabled then
+    -- Gradient (an EUI-look effect; Blizzard Style keeps the flat atlas fill)
+    if cfg.gradientEnabled and not blizzBar then
         local dir = cfg.gradientDir or "HORIZONTAL"
         fillTex:SetVertexColor(1, 1, 1, 0)
         if not bar._gradClip then
@@ -2838,6 +2913,7 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
                 bar._icon:SetPoint("TOPRIGHT", bar, "TOPRIGHT", 0, 0)
             end
         end
+        if blizzBar then ns.ApplyTBBBlizzIconArt(bar, iSize) end
         bar._icon:Show()
     elseif bar._icon then
         bar._icon:Hide()
@@ -2868,10 +2944,10 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
         end
     end
 
-    -- Border (PP or textured via ApplyBorderStyle)
+    -- Border (PP or textured via ApplyBorderStyle; none under Blizzard Style)
     if bar._barBorder then
         bar._barBorder:SetAllPoints(bar)
-        local bSz = cfg.borderSize or 0
+        local bSz = blizzBar and 0 or (cfg.borderSize or 0)
         local textureKey = cfg.borderTexture or "solid"
         -- Border container is a child of the bar: +6 draws in front of the fill AND above
         -- the tick marks at sb+4 (=bar+5, which would tie and lose to the lazily-created
@@ -4405,6 +4481,7 @@ local function _styleTBBChargeHashFill(bar, cfg)
     end
 
     fill:SetTexture(texPath)
+    if bar._blizzFillAtlas then fill:SetAtlas("UI-HUD-CoolDownManager-Bar") end
     fill:ClearAllPoints()
     if gradientEnabled then
         -- Gradients stay mapped across the full bar and are revealed by the moving clip, matching the stock gradient path.

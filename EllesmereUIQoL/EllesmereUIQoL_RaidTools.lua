@@ -2118,6 +2118,10 @@ end
 -- protected as Hide). So in combat the whole request is parked behind applyPending,
 -- with the REGEN listener guaranteed alive to finish it.
 function Apply()
+    -- Secure handlers end to end (state-driven shells, click handlers):
+    -- stands down on a client that cannot compile snippets (WoW Forever
+    -- beta). Nothing is built, so there is nothing to tear down either.
+    if not EllesmereUI.SecureSnippetsOK() then return end
     if InCombatLockdown() then
         applyPending = true
         EnsureEvents()

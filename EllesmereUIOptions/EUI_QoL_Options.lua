@@ -2557,8 +2557,11 @@ initFrame:SetScript("OnEvent", function(self)
         ---------------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "GROUP FINDER", y);  y = y - h
 
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Auto Insert Keystone",
+        -- Auto Insert Keystone | Announce Instance Reset, then Quick Signup |
+        -- Persistent Signup Note. WoW Forever has no keystones: the first slot goes
+        -- and the other three fill in sequence, so the note lands alone on the
+        -- second row and its cog follows it there.
+        local autoKeyCfg = { type="toggle", text="Auto Insert Keystone",
               tooltip="Automatically inserts your key into the Font of Power.",
               getValue=function()
                   if not EllesmereUIDB then return true end
@@ -2567,8 +2570,8 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.autoInsertKeystone = v
-              end },
-            { type="toggle", text="Announce Instance Reset",
+              end }
+        local announceCfg = { type="toggle", text="Announce Instance Reset",
               tooltip="After a successful instance reset, automatically announces it in party or raid chat so your group knows they can re-enter.",
               getValue=function()
                   return EllesmereUIDB and EllesmereUIDB.instanceResetAnnounce or false
@@ -2580,11 +2583,7 @@ initFrame:SetScript("OnEvent", function(self)
                       EllesmereUI._applyInstanceResetAnnounce()
                   end
               end }
-        );  y = y - h
-
-        local quickSignupRow
-        quickSignupRow, h = W:DualRow(parent, y,
-            { type="toggle", text="Quick Signup",
+        local quickCfg = { type="toggle", text="Quick Signup",
               tooltip="Double-click a group listing to instantly sign up without pressing the Sign Up button. Hold Shift to keep the dialog open, e.g. to type a signup note.",
               getValue=function()
                   return EllesmereUIDB and EllesmereUIDB.quickSignup or false
@@ -2595,8 +2594,8 @@ initFrame:SetScript("OnEvent", function(self)
                   if EllesmereUI._applyQuickSignup then
                       EllesmereUI._applyQuickSignup()
                   end
-              end },
-            { type="toggle", text="Persistent Signup Note",
+              end }
+        local persistCfg = { type="toggle", text="Persistent Signup Note",
               tooltip="Keeps a saved signup note you can copy into the Sign Up dialog with the Copy button.",
               getValue=function()
                   return EllesmereUIDB and EllesmereUIDB.persistSignupNote or false
@@ -2609,10 +2608,19 @@ initFrame:SetScript("OnEvent", function(self)
                   end
                   EllesmereUI:RefreshPage()
               end }
-        );  y = y - h
+        local noteRow, noteRgnKey
+        if EllesmereUI.IS_FOREVER then
+            _, h = W:DualRow(parent, y, announceCfg, quickCfg);  y = y - h
+            noteRow, h = W:DualRow(parent, y, persistCfg, { type="label", text="" });  y = y - h
+            noteRgnKey = "_leftRegion"
+        else
+            _, h = W:DualRow(parent, y, autoKeyCfg, announceCfg);  y = y - h
+            noteRow, h = W:DualRow(parent, y, quickCfg, persistCfg);  y = y - h
+            noteRgnKey = "_rightRegion"
+        end
 
         if not EllesmereUI._prebuilding then
-            local rightRgn = quickSignupRow._rightRegion
+            local rightRgn = noteRow[noteRgnKey]
             local function persistOff()
                 return not (EllesmereUIDB and EllesmereUIDB.persistSignupNote)
             end
@@ -2814,10 +2822,15 @@ initFrame:SetScript("OnEvent", function(self)
         return math.abs(y)
     end
 
+    local pages = { PAGE_QOL, PAGE_RAIDTOOLS, PAGE_CURSOR, PAGE_SHIFTER, PAGE_MOVEMENT }
+    -- No item upgrade system on WoW Forever: the Upgrader tab is not offered there
+    -- (its resident file returns at load, so the page builder never exists either).
+    if not EllesmereUI.IS_FOREVER then pages[#pages + 1] = PAGE_UPGCALC end
+    if _G._EUI_Swing_Profile then pages[#pages + 1] = "Swing Timer" end
     EllesmereUI:RegisterModule("EllesmereUIQoL", {
         title       = "Quality of Life",
         description = "Quality of life features and custom cursor.",
-        pages       = { PAGE_QOL, PAGE_RAIDTOOLS, PAGE_CURSOR, PAGE_SHIFTER, PAGE_MOVEMENT, PAGE_UPGCALC },
+        pages       = pages,
         searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "upgrade", "ilvl", "item level", "crest", "upgrade calculator", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "target distance", "distance to target", "range text", "yard", "yards", "movement", "mobility", "gap closer", "blink", "gateway", "warlock gateway", "control shard", "time spiral", "free movement", "raid tools", "raid", "pull timer", "pull", "ready check", "role check", "raid marker", "target marker", "world marker", "flare", "disband", "convert to raid", "countdown" },
         buildPage   = function(pageName, parent, yOffset)
             -- The Raid Tools settings preview ends when any OTHER QoL page
@@ -2827,6 +2840,9 @@ initFrame:SetScript("OnEvent", function(self)
             if pageName ~= PAGE_RAIDTOOLS and not EllesmereUI._prebuilding
                and _G._EUI_RaidTools_Preview then
                 _G._EUI_RaidTools_Preview(false)
+            end
+            if pageName == "Swing Timer" and _G._EUI_BuildSwingPage then
+                return _G._EUI_BuildSwingPage(pageName, parent, yOffset)
             end
             if pageName == PAGE_QOL then
                 return BuildQoLPage(pageName, parent, yOffset)

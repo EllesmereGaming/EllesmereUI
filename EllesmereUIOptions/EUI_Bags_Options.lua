@@ -549,6 +549,7 @@ initFrame:SetScript("OnEvent", function(self)
                                         local cName = cInfo and cInfo.name or info.name
                                         currencyItems[#currencyItems + 1] = {
                                             key = cID, label = cName,
+                                            icon = (cInfo and cInfo.iconFileID) or info.iconFileID,
                                         }
                                     end
                                 end
@@ -597,6 +598,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 block[#block + 1] = {
                                     key = cID,
                                     label = (cInfo and cInfo.name) or ("Currency " .. cID),
+                                    icon = cInfo and cInfo.iconFileID,
                                 }
                             end
                             for i = #block, 1, -1 do

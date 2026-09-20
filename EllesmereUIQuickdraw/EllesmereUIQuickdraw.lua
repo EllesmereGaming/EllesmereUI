@@ -45,6 +45,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 local EQD = EllesmereUI.Lite.NewAddon(ADDON_NAME)
+-- The palettes are secure handlers end to end: the enable drain stands the
+-- module down where snippets cannot compile (WoW Forever beta); ns.Refresh
+-- carries the same guard for the toggles (EllesmereUI.SecureSnippetsOK).
+EQD.requiresSecureSnippets = true
 if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
 EllesmereUI._ModuleNS[ADDON_NAME] = select(2, ...)  -- LOD options files read this module ns via the registry
 
@@ -9560,6 +9564,10 @@ end
 -- Re-read everything from the DB. Safe to call at any time; only redraws views
 -- that are actually on screen.
 function ns.Refresh()
+    -- Secure handlers end to end: stands down on a client that cannot compile
+    -- snippets (WoW Forever beta); the enable drain skipped OnEnable for the
+    -- same reason, and every toggle arrives here.
+    if not EllesmereUI.SecureSnippetsOK() then return end
     -- Ahead of everything that reads the profile: a profile imported from a
     -- pre-rename build carries its palettes under the dead key until this
     -- runs, and applying such a profile is exactly what reaches here.

@@ -119,6 +119,9 @@ local function GlyphScript(locale)
     if locale == "ruRU" then return "cyrillic" end
     return nil
 end
+-- Per-locale glyph font for callers that pin a font to a locale other than the
+-- active one (the language picker's native-script entries).
+EllesmereUI.LocaleGlyphFont = GlyphFont
 
 local function Activate()
     local client = GetLocale()
@@ -185,5 +188,8 @@ f:SetScript("OnEvent", function(self, _, loaded)
             C_AddOns.LoadAddOn("EllesmereUILocales")
         end
         Activate()
+        -- EllesmereUI.lua's font system captured _localeFont/_localeScript before
+        -- this override-aware Activate() ran; re-sync it now that they're final.
+        if EllesmereUI.RefreshLocaleFontFallback then EllesmereUI.RefreshLocaleFontFallback() end
     end
 end)

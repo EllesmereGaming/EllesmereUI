@@ -81,6 +81,20 @@ local GROUPS = {
     },
 }
 
+-- WoW Forever: addons switched off for the whole client leave the picker
+-- (the set lives with the roster in EllesmereUI.lua).
+if EUI_CLIENT_FOREVER == true and EllesmereUI.FOREVER_HIDDEN_ADDONS then
+    for _, group in ipairs(GROUPS) do
+        for i = #group.entries, 1, -1 do
+            local addon = group.entries[i].addon
+            local stood = EllesmereUI.FOREVER_STOOD_DOWN_ADDONS
+            if addon and (EllesmereUI.FOREVER_HIDDEN_ADDONS[addon] or (stood and stood[addon])) then
+                table.remove(group.entries, i)
+            end
+        end
+    end
+end
+
 local function IsAddonEnabled(folder)
     if not folder then return true end
     if C_AddOns and C_AddOns.GetAddOnEnableState then
@@ -475,6 +489,9 @@ local function ShowFirstInstallPopup()
         if not EllesmereUIDB then EllesmereUIDB = {} end
         EllesmereUIDB.firstInstallPopupShown = true
         EllesmereUIDB.bagsUserChosen = true
+        -- The style picker (EllesmereUI_StyleChoicePopup.lua) follows on the
+        -- next login, after this popup's reload: EllesmereUI look or Blizzard.
+        EllesmereUIDB.styleChoicePending = true
         EllesmereUI._firstInstallPending = nil
 
         -- Write QoL cursor setting directly into the profile table so it
@@ -586,6 +603,11 @@ loader:SetScript("OnEvent", function(self, event, addonName)
         if addonName ~= "EllesmereUI" then return end
         self:UnregisterEvent("ADDON_LOADED")
         _showPopupOnLogin = ComputeShowOnLogin()
+        -- WoW Forever: a fresh install starts from the base layout, seeded
+        -- before any module opens its profile (EllesmereUI_ForeverLayout.lua).
+        if _showPopupOnLogin and EllesmereUI.SeedForeverBaseLayout then
+            EllesmereUI.SeedForeverBaseLayout()
+        end
         if _showPopupOnLogin then
             -- Handshake for other first-login popups (e.g. CDM's Edit Mode
             -- reload prompt): the picker is coming and ALWAYS ends in its own
@@ -603,6 +625,12 @@ loader:SetScript("OnEvent", function(self, event, addonName)
             -- installer's import stamps first-install state, and a session
             -- with no registration brings the picker back).
             if EllesmereUI._externalInstaller then return end
+            -- TEMPORARY, WoW Forever only (EllesmereUI.FOREVER_SV_BUG): while
+            -- the beta client loses settings on reload, the picker's choices
+            -- would not survive its own forced reload, so it stays off. The
+            -- pending handshake stays armed on purpose: every reload-prompting
+            -- popup keeps quiet, since a reload would reset the user.
+            if EllesmereUI.FOREVER_SV_BUG then return end
             ShowFirstInstallPopup()
         end)
     end

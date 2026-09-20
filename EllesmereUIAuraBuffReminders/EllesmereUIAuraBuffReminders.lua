@@ -11,6 +11,13 @@ EllesmereUI._ModuleNS[ADDON_NAME] = select(2, ...)  -- LOD options files read th
 
 local EABR = EllesmereUI.Lite.NewAddon("EllesmereUIAuraBuffReminders")
 
+-- WoW Forever runs a reduced module: one Forever-only section (the Camp
+-- Benefits campfire buff plus custom spell IDs) collected by EABR.CollectForever,
+-- with every retail collector, its events and its options sections off. Both
+-- values live on EABR because this file sits at Lua's 200-local ceiling; retail
+-- reads FOREVER as false at each gate and nothing else changes there.
+EABR.FOREVER = EllesmereUI.IS_FOREVER == true
+EABR.CAMP_BENEFITS = 1229741
 
 local _B = {}  -- beacon state table, populated later
 local Known = function(id) return id and (IsPlayerSpell(id) or IsSpellKnown(id)) end
@@ -104,6 +111,7 @@ local function GetPlayerClass()
 end
 
 local function GetSpecID()
+    if not GetSpecialization then return nil end  -- legacy global, not registered on WoW Forever
     local s = GetSpecialization(); if not s then return nil end
     return GetSpecializationInfo(s)
 end
@@ -181,6 +189,7 @@ local function CacheInstanceInfo()
     local _, iType, diffID = GetInstanceInfo()
     _cachedIType = iType
     _cachedDiffID = tonumber(diffID) or 0
+    if EABR.FOREVER then return end  -- the map lookup only serves the pre-key threshold window
     local mapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player") or nil
     if mapID ~= _cachedMapID then
         _dungeonPrePull = true
@@ -212,6 +221,7 @@ local function InRealInstancedContent()
 end
 
 local function InMythicPlusKey()
+    if EABR.FOREVER then return false end  -- no keystones on WoW Forever
     return C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive and C_ChallengeMode.IsChallengeModeActive()
 end
 
@@ -268,6 +278,9 @@ function EABR.CurrentDifficultyCat()
         if d == 14 or d == 3 or d == 4 or d == 5 then return "r_normal" end
         if d == 17 or d == 7 then return "r_lfr" end
         if d == 33 then return "d_timewalking" end
+        -- WoW Forever raids report the legacy 40- and 20-player ids; they feed
+        -- the Forever section's "Raids" bucket. Retail leaves them unmapped.
+        if EABR.FOREVER and (d == 9 or d == 148) then return "r_normal" end
     elseif it == "scenario" then
         if d == 208 then return "s_delve" end
     end
@@ -417,9 +430,17 @@ if EABR.IsRuntimeNonSecret(20707) then NON_SECRET_SPELL_IDS[20707] = true end
 
 local function SnapshotPlayerAuras()
     wipe(_preCombatAuraCache)
-    for id in pairs(NON_SECRET_SPELL_IDS) do
-        local result = C_UnitAuras.GetPlayerAuraBySpellID(id)
-        _preCombatAuraCache[id] = (result ~= nil)
+    if EABR.FOREVER then
+        -- WoW Forever: only the custom spell IDs read this snapshot in combat;
+        -- with none tracked there is nothing to scan, and the retail whitelist
+        -- below is dead there either way.
+        local fo = db and db.profile.forever
+        if not (fo and fo.customIDs and fo.customIDs[1]) then return end
+    else
+        for id in pairs(NON_SECRET_SPELL_IDS) do
+            local result = C_UnitAuras.GetPlayerAuraBySpellID(id)
+            _preCombatAuraCache[id] = (result ~= nil)
+        end
     end
     -- Also snapshots non-whitelisted auras (e.g. Devotion Aura) going secret when a
     -- partymate combats first. 12.1: index scan hard-errors under restrictions (M+/raid) even OOC; whitelisted lookups still work, extras skipped.
@@ -1384,6 +1405,7 @@ local FOOD_ITEMS = {
     { key="foragers_medley",       itemID=242306, name="Forager's Medley" },
     { key="farstrider_rations",    itemID=242309, name="Farstrider Rations" },
     { key="bloom_skewers",         itemID=242302, name="Bloom Skewers" },
+    { key="feast_of_knowledge",    itemID=275266, name="Feast of Knowledge" },
     -- Hearty Food Items
     { key="hearty_royal_roast",            itemID=242747, name="Hearty Royal Roast" },
     { key="hearty_impossibly_royal_roast",  itemID=268679, name="Hearty Impossibly Royal Roast" },
@@ -1421,6 +1443,7 @@ local FOOD_ITEMS = {
     { key="hearty_foragers_medley",         itemID=242773, name="Hearty Forager's Medley" },
     { key="hearty_farstrider_rations",      itemID=242776, name="Hearty Farstrider Rations" },
     { key="hearty_bloom_skewers",           itemID=242769, name="Hearty Bloom Skewers" },
+    { key="hearty_feast_of_knowledge",      itemID=275269, name="Hearty Feast of Knowledge" },
 }
 
 -- Weapon Enchant dropdown choices (name best itemID lookup at runtime)
@@ -1467,6 +1490,7 @@ end
 
 function EABR.ScanEatingState()
     EABR._eatingIID = nil
+    if EABR.FOREVER then return end  -- no food reminder on WoW Forever, so no eating channel to track
     if EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted() then return end
     for i = 1, AURA_SCAN_LIMIT do
         local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
@@ -2067,6 +2091,15 @@ local defaults = {
     },
 }
 
+-- WoW Forever section settings; only that client's profiles carry the table.
+if EABR.FOREVER then
+    defaults.profile.forever = {
+        camp = false,       -- Camp Benefits reminder; opt-in, it shows whenever the buff is missing
+        whereToShow = {},   -- section "Where to Show" (an absent bucket = shown)
+        customIDs = {},     -- spell IDs the user tracks, in the order added
+    }
+end
+
 local euiPanelOpen = false
 
 -------------------------------------------------------------------------------
@@ -2109,6 +2142,9 @@ function EABR.ResolveReminderSound(dk)
         local co = p.consumables
         if EABR.IsSpecialKey(key) then return co.specialsSound end
         return co.sectionSound
+    elseif prefix == "forever" then
+        local fo = p.forever
+        return fo and fo.sectionSound
     end
     return nil
 end
@@ -2518,6 +2554,7 @@ end
 -- Binds the player's own castable raid buff to the button (OOC only), so the
 -- binding is already warm when combat starts.
 function EABR.SyncProviderCastSpell()
+    if EABR.FOREVER then return end  -- no raid buff providers on WoW Forever; the button is never built there
     if InCombatLockdown() then return end
     local btn = EABR.EnsureProviderCastButton()
     if not btn then return end
@@ -3482,9 +3519,11 @@ end
 function EABR.EmitWeaponEnchantReminders(missing, co)
     local hasMH, mhExpire, _, _, hasOH, ohExpire = EABR.WeaponEnchants()
     for i = 1, 2 do
-        local slot = (i == 1) and 16 or 17
-        local has = (i == 1) and hasMH or hasOH
-        local expire = (i == 1) and mhExpire or ohExpire
+        local slot, has, expire
+        -- Plain if/else, not "cond and a or b": that idiom silently falls
+        -- through to b whenever a (hasMH) is false, corrupting slot 16.
+        if i == 1 then slot, has, expire = 16, hasMH, mhExpire
+        else slot, has, expire = 17, hasOH, ohExpire end
         local r = EABR._resolved.we[slot]
         local cat = r.cat
         local shouldRemind = false
@@ -3893,6 +3932,48 @@ end
 local _refreshMissing = {}
 local UpdateDurationTicker  -- forward-declare; defined after RequestRefresh
 
+-- WoW Forever collector: the Camp Benefits campfire buff and the user's custom
+-- spell IDs, absence only (no expiry thresholds). Entries are display-only
+-- textures carrying the spell for the tooltip; presence goes through
+-- PlayerHasAuraByID, so combat falls back to the pre-pull snapshot exactly like
+-- the Auras section. Camp Benefits is skipped under the aura lock and in PvP.
+-- The one-slot id table and the dismiss-key memo keep the pass allocation-free.
+function EABR.CollectForever(missing, inInstance, inPvP, restricted)
+    local fo = db.profile.forever
+    if not fo or not EABR.SectionShows(fo.whereToShow, inInstance) then return end
+    local ids = EABR._foreverIDs
+    if not ids then ids = {}; EABR._foreverIDs = ids end
+    if fo.camp ~= false and not inPvP and not restricted then
+        ids[1] = EABR.CAMP_BENEFITS
+        if not PlayerHasAuraByID(ids) then
+            local e = AcquireEntry()
+            e.mode = "texture"; e.spellID = EABR.CAMP_BENEFITS
+            e.texture = Tex(EABR.CAMP_BENEFITS)
+            e.label = EllesmereUI.L("Camp")
+            e.cat = "forever"; e.dismissKey = "forever:camp"
+            missing[#missing+1] = e
+        end
+    end
+    local custom = fo.customIDs
+    if not custom then return end
+    local keys = EABR._foreverKeys
+    if not keys then keys = {}; EABR._foreverKeys = keys end
+    for i = 1, #custom do
+        local id = custom[i]
+        ids[1] = id
+        if not PlayerHasAuraByID(ids) then
+            local dk = keys[id]
+            if not dk then dk = "forever:" .. id; keys[id] = dk end
+            local e = AcquireEntry()
+            e.mode = "texture"; e.spellID = id
+            e.texture = Tex(id)
+            e.label = ShortLabel(SpellName(id) or tostring(id))
+            e.cat = "forever"; e.dismissKey = dk
+            missing[#missing+1] = e
+        end
+    end
+end
+
 local function Refresh()
     _cachedOutline = nil
     EABR._nextDurationRefreshTime = nil
@@ -3949,10 +4030,15 @@ local function Refresh()
     local inPvP = InPvPInstance()
     local restricted = inCombat or inKeystone
 
+    -- WoW Forever: the one Forever section stands in for the four collectors below.
+    if EABR.FOREVER and remindersOn then
+        EABR.CollectForever(missing, inInstance, inPvP, restricted)
+    end
+
     ---------------------------------------------------------------------------
     --  1) Raid Buffs (runs in and out of combat)
     ---------------------------------------------------------------------------
-    if remindersOn then
+    if remindersOn and not EABR.FOREVER then
         CollectRaidBuffs(missing, playerClass, inInstance, inCombat)
     end
 
@@ -3960,7 +4046,7 @@ local function Refresh()
     --  2) Auras: OOC normally; in restricted contexts only reminders whose
     --  detection survives the aura lock (stances/forms + whitelisted IDs).
     ---------------------------------------------------------------------------
-    if remindersOn then
+    if remindersOn and not EABR.FOREVER then
         CollectAuras(missing, playerClass, specID, inInstance, restricted)
     end
 
@@ -3968,14 +4054,14 @@ local function Refresh()
     --  3) Consumables: OOC (non-PvP) normally; in restricted contexts the
     --  trackable subset only. PvP stays fully suppressed.
     ---------------------------------------------------------------------------
-    if remindersOn and not inPvP then
+    if remindersOn and not inPvP and not EABR.FOREVER then
         CollectConsumables(missing, playerClass, specID, inInstance, inKeystone, inCombat)
     end
 
     ---------------------------------------------------------------------------
     --  4) Pet Reminders (combat-safe: UnitExists/UnitIsDead unrestricted); suppressed for petless specs, Grimoire of Sacrifice, etc.
     ---------------------------------------------------------------------------
-    if remindersOn and PET_CLASSES[playerClass] then
+    if remindersOn and not EABR.FOREVER and PET_CLASSES[playerClass] then
         local co = db.profile.consumables
         if co and co.enabled and co.enabled.pet ~= false and EABR.SectionShows(co.specialsWhereToShow, inInstance) then
             local suppress = false
@@ -4229,7 +4315,7 @@ local function Refresh()
         EllesmereUI.SetElementVisibility(iconAnchor, false)
     end
 
-    UpdateDurationTicker()
+    if not EABR.FOREVER then UpdateDurationTicker() end  -- expiry thresholds are retail-only
 end
 
 local REFRESH_THROTTLE_COMBAT = 0.5
@@ -4652,14 +4738,18 @@ end
 _G._EABR_BeaconRefresh = BeaconRefresh
 _G._EABR_BeaconAnchor = function() return _B.anchor end
 
-_B.frame:RegisterEvent("PLAYER_ENTERING_WORLD")
-_B.frame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-_B.frame:RegisterEvent("SPELLS_CHANGED")
-_B.frame:RegisterEvent("PLAYER_TALENT_UPDATE")
-_B.frame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-_B.frame:RegisterEvent("TRAIT_CONFIG_UPDATED")
-_B.frame:RegisterEvent("GROUP_ROSTER_UPDATE")
-_B.frame:RegisterEvent("PLAYER_LEVEL_CHANGED")
+-- Beacon tracking is retail Holy Paladin; WoW Forever registers nothing here
+-- (BeaconInit is skipped there too, so the handler would only ever return).
+if not EABR.FOREVER then
+    _B.frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    _B.frame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+    _B.frame:RegisterEvent("SPELLS_CHANGED")
+    _B.frame:RegisterEvent("PLAYER_TALENT_UPDATE")
+    _B.frame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    _B.frame:RegisterEvent("TRAIT_CONFIG_UPDATED")
+    _B.frame:RegisterEvent("GROUP_ROSTER_UPDATE")
+    _B.frame:RegisterEvent("PLAYER_LEVEL_CHANGED")
+end
 _B.frame:SetScript("OnEvent", function(_, e, id)
     if not _B.isPaladin then return end
     if e == "SPELL_ACTIVATION_OVERLAY_GLOW_SHOW" or e == "SPELL_ACTIVATION_OVERLAY_GLOW_HIDE" then
@@ -4939,7 +5029,7 @@ function EABR:OnEnable()
     EABR.ScanEatingState()
     EABR.SyncProviderCastSpell()
     RequestRefresh()
-    BeaconInit()
+    if not EABR.FOREVER then BeaconInit() end  -- retail Holy Paladin beacons only
     C_Timer.After(0.5, RegisterUnlockElements)
 
     -- Registers broad UNIT_AURA only when the class needs group aura tracking AND only OOC: it fires 100+/sec in a raid, but in-combat CollectRaidBuffs only checks the player's own auras (PlayerHasAuraByID), so group events are pure waste. Evoker keeps broad in combat for ownOnRaid cache updates but skips RequestRefresh on group events (handler below).
@@ -4986,12 +5076,15 @@ function EABR:OnEnable()
         end
     end
     _G._EABR_UpdateGroupAuraRegistration = UpdateGroupAuraRegistration
-    UpdateGroupAuraRegistration()
+    if not EABR.FOREVER then UpdateGroupAuraRegistration() end  -- Forever keeps the player-only UNIT_AURA from file scope
 
     -- Register spellcast tracking for Hunters (combat reminder for Hunter's Mark)
-    if GetPlayerClass() == "HUNTER" then
+    if not EABR.FOREVER and GetPlayerClass() == "HUNTER" then
         mainFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
     end
+
+    -- WoW Forever tracks no group buffs, so the range tracking below has nothing to feed.
+    if EABR.FOREVER then return end
 
     ---------------------------------------------------------------------------
     --  Range updates: UNIT_IN_RANGE_UPDATE mirrors the raid frames' range path, so range changes retrigger group-buff evaluation without polling.
@@ -5103,6 +5196,9 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
     if e == "PLAYER_REGEN_DISABLED" then
         -- First pull of this dungeon visit: the elevated pre-key/pre-pull
         -- threshold (EABR.GetShowUnderMinutes' showUnderMPlus) is over.
+        -- WoW Forever has no pre-key window, no group aura tracking and no
+        -- Hunter's Mark reminder: the whole retail pull bookkeeping is skipped.
+        if not EABR.FOREVER then
         MarkDungeonPullStarted()
         -- Drops broad UNIT_AURA in combat unless group tracking is needed: Evoker keeps broad for ownOnRaid cache updates; the provider view ("others missing") keeps it for timely group coverage refreshes.
         local rbSW = db and db.profile.raidBuffs and db.profile.raidBuffs.showWhen
@@ -5115,6 +5211,7 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
             and UnitExists("target") and C_UnitAuras.GetUnitAuraBySpellID("target", 257284) then
             _huntersMarkNeeded = false
         end
+        end -- not FOREVER
         -- Hide secure buttons before lockdown. ENCOUNTER_START may already have
         -- set our combat flag, so HideAllIcons guards on InCombatLockdown itself.
         HideAllIcons()
@@ -5175,7 +5272,7 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
     if e == "UNIT_AURA" then
         -- arg1 = unit token. Player aura changes always refresh; group member changes only matter for Evoker ownOnRaid cache updates and OOC raid buff checks (broad UNIT_AURA is only registered for classes needing group tracking).
         if arg1 == "player" then
-            EABR.UpdateEatingState(arg2)
+            if not EABR.FOREVER then EABR.UpdateEatingState(arg2) end  -- eating channel feeds the retail food reminder only
             local isEvoker = _cachedPlayerClass == "EVOKER"
             if isEvoker and InCombat() and IsInGroup() then
                 for _, id in ipairs(_ownOnRaidIDs) do
@@ -5266,7 +5363,8 @@ local function DetectUsedItem()
     for k, v in pairs(_bagCounts) do _prevBagCounts[k] = v end
 end
 
-do
+-- Item-use tracking serves the consumable pickers; WoW Forever has no consumable reminders.
+if not EABR.FOREVER then
     local f = CreateFrame("Frame")
     f:RegisterEvent("BAG_UPDATE_DELAYED")
     f:RegisterEvent("PLAYER_LOGIN")
@@ -5283,6 +5381,22 @@ do
     end)
 end
 
+if EABR.FOREVER then
+    -- WoW Forever: only what the Forever section needs -- combat edges, zone
+    -- changes, the player's own aura changes, vehicles and the death states.
+    mainFrame:RegisterEvent("ENCOUNTER_START")
+    mainFrame:RegisterEvent("ENCOUNTER_END")
+    mainFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+    mainFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    mainFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    mainFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+    mainFrame:RegisterUnitEvent("UNIT_AURA", "player")
+    mainFrame:RegisterUnitEvent("UNIT_ENTERED_VEHICLE", "player")
+    mainFrame:RegisterUnitEvent("UNIT_EXITED_VEHICLE", "player")
+    mainFrame:RegisterEvent("PLAYER_DEAD")
+    mainFrame:RegisterEvent("PLAYER_ALIVE")
+    mainFrame:RegisterEvent("PLAYER_UNGHOST")
+else
 mainFrame:RegisterEvent("ENCOUNTER_START")
 mainFrame:RegisterEvent("ENCOUNTER_END")
 mainFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
@@ -5313,6 +5427,7 @@ mainFrame:RegisterEvent("BAG_UPDATE")
 mainFrame:RegisterUnitEvent("UNIT_PET", "player")
 -- UNIT_PET fires on pet summon/dismiss, NOT stance changes. Pet on Passive reacts to the pet's command state via the pet action bar -- PET_BAR_UPDATE is that event; without it the reminder only re-evaluated on reload.
 mainFrame:RegisterEvent("PET_BAR_UPDATE")
+end
 
 -------------------------------------------------------------------------------
 --  Ready Check Mana Warning: centered text warning for ~10s when a ready check fires in a raid and the player is a healer under 80% mana. Out-of-combat only.
@@ -5479,5 +5594,6 @@ local SetupReadyCheckManaWarning = function()
     _G._EABR_RCWarnHidePreview = HideWarning
     _G._EABR_RCWarnUpdateReg = UpdateReadyCheckRegistration
 end
-SetupReadyCheckManaWarning()
+-- The warning reads retail spec roles and lives in the consumables options; WoW Forever skips it.
+if not EABR.FOREVER then SetupReadyCheckManaWarning() end
 
