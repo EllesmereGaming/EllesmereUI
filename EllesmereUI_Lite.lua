@@ -82,21 +82,35 @@ end
 -- stay); the per-site users guard their snippet frames with this. Comes back
 -- on its own the day the client is fixed.
 --
--- No snippet is ever run to find out: a snippet compiles inside Blizzard's
--- attribute handler, so its failure neither reaches a pcall around the call
--- nor stays quiet under a parked error handler (error grabbers record it
--- anyway). The answer is the loader itself: the restricted environment
--- captures the global loadstring_untainted at load, and that global is the
--- exact piece the beta client lacks. Its return is what brings the modules back.
+-- Run a snippet rather than inspect the loader. The global loadstring_untainted
+-- is NOT the tell: Blizzard_EnvironmentCleanup (LoadFirst) nils it on every
+-- healthy client once RestrictedExecution.lua has captured its own local, so a
+-- gate keyed on it reads "broken" forever and can never lift. Measured on
+-- Forever 1.60.1: that captured local is nil too, and the compile raises at
+-- RestrictedExecution.lua:79 inside Blizzard's own script handler -- so the
+-- verdict is the attribute read, not the pcall, and a broken client still gets
+-- one grabber line per session however the error handler is parked.
 function EllesmereUI.SecureSnippetsOK()
     local v = EllesmereUI._secureSnippetsOK
-    if v == nil then
-        v = true
-        if EllesmereUI.IS_FOREVER then
-            v = (type(_G.loadstring_untainted) == "function")
-        end
-        EllesmereUI._secureSnippetsOK = v
+    if v ~= nil then return v end
+    if not EllesmereUI.IS_FOREVER then
+        EllesmereUI._secureSnippetsOK = true
+        return true
     end
+    -- Combat cannot answer this: the SecureHandlers API raises outright there.
+    -- Stand down for the session, since the load-time readers latch whatever this
+    -- returns -- a reload mid-fight leaves the snippet modules off until the next
+    -- one. Matches the behaviour this replaces, which answered false on Forever
+    -- in or out of combat.
+    if InCombatLockdown() then return false end
+    local made, probe = pcall(CreateFrame, "Frame", nil, UIParent, "SecureHandlerAttributeTemplate")
+    if not made or not probe then return false end
+    local restore = geterrorhandler()
+    seterrorhandler(function() end)
+    pcall(probe.Execute, probe, [[ self:SetAttribute("euiSnippetProbe", 1) ]])
+    seterrorhandler(restore)
+    v = probe:GetAttribute("euiSnippetProbe") == 1
+    EllesmereUI._secureSnippetsOK = v
     return v
 end
 
