@@ -4713,9 +4713,22 @@ local function MMBuildSocialTip()
             if acc.isDND or ga.isGameBusy then icon = FRIENDS_TEXTURE_DND end
             -- Left text carries NO |c codes so hover recolor (Tip_Show) shows; its blue rides the left-color args. Right column keeps its codes.
             local left  = format("|T%s:16|t %s", icon, acc.accountName or "?")
-            local right = format("|cffecd672%s|r %s", charName or "?", ga.areaName or "")
+            -- A cross-faction BNet friend's characterName can be secret; format("%s", ...)
+            -- rejects it outright, so display text uses a nil'd-out copy. The real
+            -- charName below is kept whole for BuildFullName (invite/whisper). The
+            -- area name rides the same format call and the faction feeds a compare,
+            -- so a secret in either is dropped the same way: no area shown, and a
+            -- friend whose faction cannot be read is treated as not ours to invite.
+            local displayCharName, displayArea = charName, ga.areaName
+            local secretFaction = false
+            if issecretvalue then
+                if issecretvalue(displayCharName) then displayCharName = nil end
+                if issecretvalue(displayArea) then displayArea = nil end
+                secretFaction = issecretvalue(faction)
+            end
+            local right = format("|cffecd672%s|r %s", displayCharName or "?", displayArea or "")
             local bnetName   = acc.accountName
-            local sameFaction = (not faction) or (faction == playerFaction)
+            local sameFaction = (not secretFaction) and ((not faction) or (faction == playerFaction))
             -- Fix "Name-Realm-Realm" to "Name-Realm"
             local inviteName  = EllesmereUI.BuildFullName(charName, realmName)
             ns.Tip_AddClickable(left, right, function(mouseButton)

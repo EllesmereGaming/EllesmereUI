@@ -1966,6 +1966,12 @@ initFrame:SetScript("OnEvent", function(self)
                 -- Determine pip count from player's class, using live UnitPowerMax when available
                 local _, playerClass = UnitClass("player")
                 local cpInfo = CP.CLASS_MAP[playerClass]
+                -- Match the module: vanilla content has only these two resources,
+                -- so previewing the rest would promise pips that never appear.
+                if EllesmereUI.IS_FOREVER then
+                    cpInfo = (playerClass == "ROGUE" or playerClass == "DRUID")
+                        and CP.CLASS_MAP[playerClass] or nil
+                end
                 local cpMax = 0
                 if cpInfo then
                     -- Resolve spec-specific entries (numeric specID keys)

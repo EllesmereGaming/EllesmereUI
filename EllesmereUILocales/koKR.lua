@@ -7205,6 +7205,27 @@ L["Outline style override for all Bags text. EUI Global Outline follows the glob
 L["Outline style override for all Quickdraw text. EUI Global Outline follows the global Outline Mode setting above."] = "모든 퀵드로우 텍스트의 외곽선 스타일을 강제로 설정합니다. EUI 전체 외곽선은 위의 전체 외곽선 모드 설정을 따릅니다."
 L["Outline style override for all Resource & Cast Bars text. EUI Global Outline follows the global Outline Mode setting above."] = "모든 자원 및 시전 바 텍스트의 외곽선 스타일을 강제로 설정합니다. EUI 전체 외곽선은 위의 전체 외곽선 모드 설정을 따릅니다."
 
+-- 전체설정 - 모양
+L["MODULE STYLES"] = "모듈 스타일"
+L["Tracked Buff Bars"] = "추적 중인 강화 효과 바"
+L["Cooldown Manager Icons"] = "재사용 대기시간 관리 아이콘"
+L["Choose the look of each module."] = "각 모듈의 외형을 선택하세요."
+
+-- 전체설정 - 모양 - 툴팁
+L["Blizzard Style keeps every EllesmereUI feature and setting; only the art changes. Changing a style reloads the UI."] = "블리자드 스타일은 EllesmereUi의 모든 기능과 설정을 유지하며 그래픽 디자인(아트)만 변경됩니다. 스타일을 변경하면 UI가 새로고침됩니다."
+L["Style to apply to every module below."] = "아래의 모든 모듈에 적용할 스타일입니다."
+L["Blizzard's rounded button art with every EllesmereUI bar feature."] = "모든 EllesmereUI 바 기능이 포함된 블리자드 스타일의 둥근 버튼 디자인입니다."
+L["Blizzard's frame art, portraits and bar shapes with every EllesmereUI frame feature."] = "모든 EllesmereUI 유닛 프레임 기능이 포함된 블리자드 프레임 디자인, 초상화 및 바 모양입니다."
+L["Blizzard's aura borders on the buffs, debuffs and weapon enchants, with every EllesmereUI bar feature."] = "모든 EllesmereUI 바 기능이 포함되어 있으며, 강화 효과, 약화 효과 및 무기 마법부여에 블리자드 스타일의 오라 테두리가 적용됩니다."
+L["Blizzard's health and cast bar art with every EllesmereUI nameplate feature."] = "모든 EllesmereUI 이름표 기능이 포함된 블리자드 생명력 및 시전 바 디자인입니다."
+L["Blizzard's rounded cooldown icons with every EllesmereUI icon feature."] = "모든 EllesmereUI 아이콘 기능이 포함된 블리자드 스타일의 둥근 재사용 대기시간 아이콘입니다."
+L["Blizzard's buff bar art with every EllesmereUI tracked bar feature."] = "모든 EllesmereUI 추적 바 기능이 포함된 블리자드 강화 효과 바 디자인입니다."
+L["Blizzard's cast bar art with every EllesmereUI cast bar feature."] = "모든 EllesmereUI 시전 바 기능이 포함된 블리자드 시전 바 디자인입니다."
+L["The personal resource display's bar frame on the health, power and class resource bars, with every EllesmereUI bar feature."] = "모든 EllesmereUI 바 기능이 포함되어 있으며, 생명력, 자원 및 직업 특수 자원 바에 개인 자원 표시기(PRD)의 바 프레임이 적용됩니다."
+L["Blizzard's round minimap and header with every EllesmereUI minimap feature."] = "모든 EllesmereUI 미니맵 기능이 포함된 블리자드 스타일의 둥근 미니맵 및 상단바입니다."
+L["Blizzard's meter window and bar art with every EllesmereUI meter feature."] = "모든 EllesmereUI 미터기 기능이 포함된 블리자드 미터기 창 및 바 디자인입니다."
+L["Enable %1$s to change its style."] = "스타일을 변경하려면 %1$s을(를) 활성화하세요."
+
 --핵심 애드온 - 공격대/파티 
 L["Active In"] = "활성화 위치"
 L["Cast On"] = "시전 대상"
@@ -7438,6 +7459,17 @@ L["Show Raid Target Marker"] = "공격대 징표 표시"
 L["Range Fade Settings"] = "사거리 흐려짐 설정"
 L["Raid Target Marker"] = "공격대 징표"
 L["Important Cast Glow Settings"] = "중요 시전 반짝임 설정"
+L["Run Summary"] = "쐐기 요약"
+L["Clear Run History"] = "쐐기 기록 지우기"
+L["RUN SUMMARY"] = "쐐기 완료 요약"
+L["Enable Run Summary"] = "쐐기 요약 표시 활성화"
+L["History Size"] = "기록 보관 개수"
+L["Show After Looting"] = "아이템 획득 후 표시"
+L["Panel Scale"] = "패널 크기 비율"
+L["COLUMNS"] = "표시할 항목"
+L["Show Spec Icons"] = "전문화 아이콘 표시"
+L["M+ Score"] = "신화+ 점수"
+L["Loot"] = "전리품"
 
 --UI 모양 변경 - 데미지 미터기
 L["Outfits"] = "복장"
@@ -7445,6 +7477,7 @@ L["Show/Hide Windows Keybind"] = "창 표시/숨기기 단축키"
 L["Keybind Scope"] = "단축키 적용 범위"
 L["Include Combat Timer"] = "전투 시간 포함"
 L["Include Spell History"] = "주문 사용 기록 포함"
+L["Unsafe Refresh Rate"] = "비권장 갱신 속도"
 
 -- UI 모양 변경 - 대미지 미터기 - 툴팁
 L["Hide and show every damage meter window at once. The state is not saved; a reload restores the configured visibility.\n\nThe bound key is taken over while it is set. Use the cog to include the combat timer and Spell History.\n\nLeft-click to set a keybind.\nRight-click to unbind."] = "모든 미터기 창을 한 번에 숨기거나 표시합니다. 상태는 저장되지 않으며, UI를 재시작하면 설정된 표시 상태로 돌아갑니다.\n\n단축키가 설정되어 있는 동안에는 해당 키가 전용으로 사용됩니다. 톱니바퀴 아이콘을 눌러 전투 시간과 주문 기록을 포함하세요.\n\n좌클릭하여 단축키를 설정합니다.\n우클릭하여 단축키를 해제합니다."
@@ -7509,6 +7542,26 @@ L["Fade a bar when the enemy is beyond your active interrupt spell's range. Has 
 L["Show the enemy's raid target marker to the left of the spell name."] = "주문 이름 왼쪽에 적의 공격대 징표를 표시합니다."
 L["Glow the bar when the enemy casts a spell Blizzard flags as important."] = "적이 블리자드에서 '중요'로 지정한 주문을 시전할 때 시전 바를 반짝이게 합니다."
 L["Limit the bars to the selected content and combat states; nothing selected shows them everywhere."] = "선택한 콘텐츠 및 전투 상태에서만 주문 바를 표시합니다. 아무것도 선택하지 않으면 모든 지역에서 표시됩니다."
+
+-- WOW 포에버 - 첫화면 
+L["NOW ON WOW FOREVER"] = "WOW 포에버 출시"
+L["EllesmereUI Forever"] = "EllesmereUI 포에버"
+L["The full suite now runs on WoW Forever, crafted with a clean base layout for your first login."] = "이제 전체 기능이 WoW 포에버에서 실행되며, 첫 로그인 시 깔끔한 기본 레이아웃으로 구성됩니다."
+L["Everything from retail, ported to WoW Forever"] = "본섭의 모든 기능이 WoW 포에버로 이식됨"
+L["One EllesmereUI: the same install runs on either game"] = "하나의 EllesmereUI: 동일한 설치로 두 게임 모두 구동"
+L["Export and import your profiles between the two clients"] = "두 클라이언트 간 프로필 내보내기 및 가져오기"
+L["ALSO NEW"] = "신규 기능"
+L["Blizzard Style"] = "블리자드 스타일"
+L["BLIZZARD ART"] = "블리자드 아트"
+L["Keep every EllesmereUI feature and setting, with Blizzard's own art. Pick the look per module in Global Settings -> Style."] = "블리자드 고유의 아트를 통해 모든 EllesmereUI 기능과 설정을 유지합니다. [전역 설정 -> 스타일]에서 모듈별 외형을 선택하세요."
+L["On WoW Forever the same install sets itself up on first login."] = "WoW 포에버에서는 동일한 설치 파일이 첫 로그인 시 자동으로 설정됩니다."
+
+-- WOW 포에버 - 편의 기능 -  Swing Timer 
+L["SWING TIMER"] = "평타 타이머"
+L["Enable Swing Timer"] = "평타 타이머 사용"
+L["Only Show In Combat"] = "전투 중일 때만 표시"
+L["Highlight Queued Attacks"] = "대기열 공격 강조"
+L["Position with Unlock Mode"] = "잠금 해제 모드로 위치 조절"
 
 -- == Chat prints (채팅창 print 출력 - 소스 엘키(L/Lf) 삽입 대기) ==================
 -- 원본이 print() 에 영문 리터럴을 직접 쓰는 곳들. 엔진 자동번역 밖이라 소스에서

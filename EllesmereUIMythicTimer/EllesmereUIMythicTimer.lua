@@ -213,6 +213,7 @@ local DB_DEFAULTS = {
         objectiveCompareDeltaOnly = false,
         objectiveCompareStrict = false,
         showUpcomingSplitTargets = false,
+        showFastestRunSplits = false,
         frameWidth        = 260,
         barWidth          = 210,
         barHeight         = 8,
@@ -589,7 +590,7 @@ end
 local function GetReferenceObjectiveTime(run, objectiveIndex, mode)
     if mode == COMPARE_NONE then return nil end
 
-    local store = EnsureProfileStore("bestObjectiveSplits")
+    local store  = (db.profile.showFastestRunSplits and EnsureProfileStore("fastestRunSplits"))  or EnsureProfileStore("bestObjectiveSplits")
     if not store then return nil end
 
     -- Try exact scope first, then fall back to broader scopes
@@ -642,6 +643,34 @@ local function UpdateObjectiveCompletion(obj, objectiveIndex)
     obj.isNewBest = reference == nil or obj.elapsed < reference
 
     UpdateBestObjectiveSplits(currentRun, objectiveIndex, obj.elapsed)
+end
+
+-- The splits of the fastest COMPLETED run per scope, beside the per-objective
+-- bests: same shape (store[scopeKey][objectiveIndex] = elapsed) plus the
+-- run's own time under "overallRunTime", which decides whether a run
+-- replaces the stored one. Called once per completion from CompleteRun.
+local FASTEST_RUN_SCOPES = { COMPARE_DUNGEON, COMPARE_LEVEL, COMPARE_LEVEL_AFFIX }
+local function SaveFastestRunSplits()
+    local store = EnsureProfileStore("fastestRunSplits")
+    if not store then return end
+    local run = currentRun
+    local elapsed = run.elapsed
+    -- The completion time can come from GetWorldElapsedTime after a
+    -- depletion, which may hand back a secret: no compare on that.
+    if type(elapsed) ~= "number" or (issecretvalue and issecretvalue(elapsed)) then return end
+    for _, mode in ipairs(FASTEST_RUN_SCOPES) do
+        local scopeKey = GetScopeKey(run, mode)
+        if scopeKey then
+            if not store[scopeKey] then store[scopeKey] = {} end
+            local previousRunTime = store[scopeKey].overallRunTime
+            if not previousRunTime or elapsed < previousRunTime then
+                store[scopeKey].overallRunTime = elapsed
+                for objectiveIndex, objective in ipairs(run.objectives) do
+                    store[scopeKey][objectiveIndex] = objective.elapsed
+                end
+            end
+        end
+    end
 end
 
 local function BuildSplitCompareText(referenceTime, currentTime, deltaOnly, fasterColor, slowerColor)
@@ -792,6 +821,10 @@ local function UpdateObjectives()
                 end
             end
         end
+    end
+
+    if currentRun.completed then
+        SaveFastestRunSplits()
     end
 
     for i = numCriteria + 1, #currentRun.objectives do
@@ -3061,6 +3094,15 @@ function EMT:OnInitialize()
                 local mapID = tonumber(mapIDStr)
                 if mapID and not validMapIDs[mapID] then
                     db.profile.bestObjectiveSplits[scopeKey] = nil
+                end
+            end
+        end
+        if db.profile.fastestRunSplits then
+            for scopeKey in pairs(db.profile.fastestRunSplits) do
+                local mapIDStr = tostring(scopeKey):match("^(%d+)")
+                local mapID = tonumber(mapIDStr)
+                if mapID and not validMapIDs[mapID] then
+                    db.profile.fastestRunSplits[scopeKey] = nil
                 end
             end
         end

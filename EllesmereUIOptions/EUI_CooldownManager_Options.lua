@@ -8477,10 +8477,15 @@ initFrame:SetScript("OnEvent", function(self)
             return sid
         end
 
+        -- No early return on an empty Blizzard list: the picker also hosts the Custom
+        -- Spell ID / Custom Item ID / Equipment Slot entries and the trinket / racial /
+        -- potion presets, which are the only way onto the bar while the viewer has no
+        -- data for it (before COOLDOWN_VIEWER_DATA_LOADED, or every entry set to Not
+        -- Displayed). The list sections below already render nothing for an empty set,
+        -- and the "Missing Spells?" footer is the right prompt in that state.
         local allSpells = {}
         if not removeOnly and not isCustomBuff then
             allSpells = ns.GetCDMSpellsForBar(barKey) or {}
-            if #allSpells == 0 and not isCustomBuff then return end
         end
 
         -- Standard EllesmereUI dropdown colors

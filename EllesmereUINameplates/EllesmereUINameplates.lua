@@ -264,7 +264,10 @@ local defaults = {
     classPowerPos = "bottom",
     classPowerYOffset = 1,
     classPowerXOffset = 0,
-    classPowerScale = 1.0,
+    -- The 8x3 base pip is reported as too small to read on Forever, where this is
+    -- the target-side display rather than a second one. The Size slider (0.5 to
+    -- 4.0) still overrides it.
+    classPowerScale = (EllesmereUI.IS_FOREVER == true) and 1.8 or 1.0,
     classPowerClassColors = true,
     classPowerCustomColor = { r = 1.00, g = 0.84, b = 0.30 },
     classPowerBgColor = { r = 0.082, g = 0.082, b = 0.082, a = 1.0 },
@@ -418,7 +421,7 @@ local defaults = {
     focusCastHeight = 100,
     questMobColorEnabled = false,
     questMobColor = { r = 0.157, g = 0.855, b = 0.475 },
-    replaceQuestIconWithObjective = false,
+    replaceQuestIconWithObjective = (EllesmereUI.IS_FOREVER == true) and true or false,
     questObjectiveTextSize = 14,
     showCastIcon = true,
     castIconScale = 1,
@@ -4515,7 +4518,16 @@ local function UpdateClassPowerOnPlate(plate)
         end
         cur, maxP = count, 5
     else
-        cur = UnitPower("player", classPowerType) or 0
+        -- Forever combo points belong to the target, and UnitPower still reports
+        -- the previous target's count at the moment PLAYER_TARGET_CHANGED fires
+        -- (measured on 1.60.1: up=3 while gcp=0 on the swap), with no later event
+        -- to correct it. Blizzard's own classic ComboFrame reads GetComboPoints.
+        if EllesmereUI.IS_FOREVER == true and classPowerType == Enum.PowerType.ComboPoints
+           and GetComboPoints then
+            cur = GetComboPoints("player", "target") or 0
+        else
+            cur = UnitPower("player", classPowerType) or 0
+        end
         maxP = UnitPowerMax("player", classPowerType) or classPowerMax
         if maxP <= 0 then maxP = classPowerMax end
         -- Runes: UnitPower doesn't return ready-rune count; iterate cooldowns
@@ -4527,6 +4539,10 @@ local function UpdateClassPowerOnPlate(plate)
             end
         end
     end
+    -- The resource kind alone does not decide this: which values the client
+    -- classifies depends on the client, and combo points come back secret on
+    -- Forever. The pip fill below compares against cur, which raises on one.
+    if not isSecret and issecretvalue and issecretvalue(cur) then isSecret = true end
     if maxP <= 0 then
         for i = 1, #plate._cpPips do
             plate._cpPips[i]:Hide()
@@ -4853,6 +4869,13 @@ local ApplyClassPowerSetting
 local function EnableClassPowerWatcher()
     if classPowerWatcher then return end  -- already active
     local info = CLASS_POWER_MAP[PLAYER_CLASS]
+    -- Vanilla content has no specializations, so the spec-keyed entries above never
+    -- resolve on Forever, and the flat ones name resources that client does not
+    -- have. This is the whole set that exists there.
+    if EllesmereUI.IS_FOREVER == true then
+        info = (PLAYER_CLASS == "ROGUE" or PLAYER_CLASS == "DRUID")
+            and { Enum.PowerType.ComboPoints, 5 } or nil
+    end
     if not info then return end  -- class has no trackable resource
 
     -- Resolve spec-specific entries: if info has numeric specID keys, look up current spec
@@ -4865,10 +4888,15 @@ local function EnableClassPowerWatcher()
 
     classPowerType = info[1]
     classPowerMax = info[2]
-    -- Druid Resto: cat form required. Feral always shows.
-    local specIdx = C_SpecializationInfo and C_SpecializationInfo.GetSpecialization()
-    local isResto = (PLAYER_CLASS == "DRUID" and specIdx == 4)
-    classPowerFormReq = isResto and 1 or nil
+    -- Druid Resto: cat form required. Feral always shows. On Forever there are no
+    -- specs to tell them apart and combo points are cat-only for every druid.
+    if EllesmereUI.IS_FOREVER == true then
+        classPowerFormReq = (PLAYER_CLASS == "DRUID") and (DRUID_CAT_FORM or 1) or nil
+    else
+        local specIdx = C_SpecializationInfo and C_SpecializationInfo.GetSpecialization()
+        local isResto = (PLAYER_CLASS == "DRUID" and specIdx == 4)
+        classPowerFormReq = isResto and (DRUID_CAT_FORM or 1) or nil
+    end
     classPowerWatcher = CreateFrame("Frame")
 
     -- String-type resources (custom-tracked): use OnUpdate poll + events

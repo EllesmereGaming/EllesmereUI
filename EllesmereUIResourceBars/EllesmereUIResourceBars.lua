@@ -113,6 +113,9 @@ local function SetRBFont(fs, font, size)
     if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, f == "") end
     fs:SetFont(font, size, f)
 end
+-- Shared with EUI_ResourceBars_SwingTimer.lua (same font lane as the cast bar text).
+ns.GetRBFont = GetRBFont
+ns.SetRBFont = SetRBFont
 
 -- Cast-bar text side anchoring (mirrors nameplate/unit-frame cast text). Spell text
 -- and duration share one line; duration reserves a slot on its side and pushes spell
@@ -381,6 +384,13 @@ local PRIMARY_CLASS_MAP = {
 }
 
 local function GetPrimaryPowerType()
+    -- WoW Forever: the class table below is retail's (hunters use mana
+    -- there, not Focus), so ask the client what the player uses. Covers
+    -- every class and druid forms with no second table to maintain.
+    if EllesmereUI.IS_FOREVER then
+        local live = UnitPowerType("player")
+        if type(live) == "number" then return live end
+    end
     local _, classFile = UnitClass("player")
     local spec = GetSpecialization()
     local form = GetShapeshiftFormID()
@@ -1361,6 +1371,54 @@ local DEFAULTS = {
             alwaysShow    = false,
             unlockPos     = nil,
         },
+        -- WoW Forever swing timer (EUI_ResourceBars_SwingTimer.lua): one row per
+        -- weapon slot that can swing (Main Hand / Off Hand / Ranged), driven by the
+        -- client's native PLAYER_SWING event. Flat colour keys per module
+        -- convention; OFF by default, and nothing is built or registered until it
+        -- is turned on. Ignored entirely on clients without C_SwingTimer.
+        swingTimer = {
+            enabled       = false,
+            width         = 220,
+            height        = 12,      -- per row
+            rowSpacing    = 2,
+            anchorX       = 0,
+            anchorY       = -130,
+            classColored  = false,
+            mhR = 0.898, mhG = 0.702, mhB = 0.267, mhA = 1,   -- Main Hand
+            ohR = 0.898, ohG = 0.451, ohB = 0.267, ohA = 1,   -- Off Hand
+            rR  = 0.267, rG  = 0.729, rB  = 0.898, rA  = 1,   -- Ranged
+            gradientEnabled = false,
+            gradientR     = 0.20, gradientG = 0.20, gradientB = 0.80, gradientA = 1,
+            gradientDir   = "HORIZONTAL",  -- "HORIZONTAL","VERTICAL"
+            texture       = "none",
+            showSpark     = false,
+            depleteFill   = false,  -- start full and deplete instead of filling up
+            idleShowFill  = nil,    -- true = idle row sits full of its fill colour
+            hideWhenIdle  = false,  -- hide the whole bar while no swing is running
+            showTime      = true,   -- remaining seconds on each row
+            showLabel     = true,   -- MH / OH / R tag on each row
+            showMH        = true,   -- per-row toggles (a row also needs a weapon in the slot)
+            showOH        = true,
+            showR         = true,
+            textSize      = 11,
+            rangeCheck    = true,   -- dim rows whose target is out of auto-attack range
+            outOfRangeAlpha = 0.4,
+            queueHighlight = true,  -- melee rows take the queue colour + spell name while an on-next-swing attack is queued
+            queueR = 1, queueG = 0.70, queueB = 0.20, queueA = 1,
+            borderSize    = 1,
+            borderR       = 0, borderG = 0, borderB = 0, borderA = 1,
+            borderTexture = "solid",
+            bgR           = 0, bgG = 0, bgB = 0, bgA = 0.7,
+            frameStrata   = "MEDIUM",
+            visibility    = "always",
+            visHideHousing = false,
+            visOnlyInstances = false,
+            visHideMounted = false,
+            visHideDragonriding = false,
+            visHideNoTarget = false,
+            visHideNoEnemy = false,
+            unlockPos     = nil,
+        },
         -- Sunfury Arcane Mage Arcane Soul callout (EUI_ResourceBars_ArcaneSoul.lua).
         -- Flat colour keys per module convention; OFF by default, and nothing at
         -- all is built or registered until it is turned on.
@@ -1566,6 +1624,12 @@ local function ApplyBarFlat(ft, r, g, b, a)
     ft._lgOn = nil   -- a flat fill invalidates any cached gradient
     ft:SetVertexColor(r, g, b, a)
 end
+-- Shared with EUI_ResourceBars_SwingTimer.lua, which paints its rows the way the
+-- GCD bar paints its fill. Exported, not duplicated, so the change-gates stay one.
+ns.ApplyBarGradient = ApplyBarGradient
+ns.ApplyBarFlat = ApplyBarFlat
+ns.SnapXY = SnapXY
+ns.CLASS_COLORS = CLASS_COLORS
 
 -- Fill Opacity (continuous bars). Below 100 the fill turns translucent via texture
 -- REGION alpha (survives every runtime SetVertexColor/SetGradient writer) and the
@@ -2503,6 +2567,10 @@ local function RegisterUnlockElements()
     -- the mover only exists where the feature can.
     if ns.AS_MakeUnlockElement then
         elements[#elements + 1] = ns.AS_MakeUnlockElement(MK)
+    end
+    -- Swing Timer (WoW Forever): returns nil on clients without C_SwingTimer.
+    if ns.ST_MakeUnlockElement then
+        elements[#elements + 1] = ns.ST_MakeUnlockElement(MK, Rebuild)
     end
 
     EllesmereUI:RegisterUnlockElements(elements, "EllesmereUIResourceBars")
@@ -6279,7 +6347,14 @@ local function ShouldShowBar(barProfile)
     return true
 end
 
+-- Shared with EUI_ResourceBars_SwingTimer.lua: the swing timer runs the same
+-- Visibility checklist as the class/power/health bars.
+ns.ShouldShowBar = ShouldShowBar
+
 local function UpdateVisibility()
+    -- Swing timer (Forever only) rides every visibility edge this module sees;
+    -- a no-op until the feature is on.
+    if ns.ST_UpdateVisibility then ns.ST_UpdateVisibility() end
     if not mainFrame then return end
 
     -- Main frame always shown
@@ -6579,6 +6654,7 @@ end
 
 -- Player Cast Bar
 local SPARK_TEX = "Interface\\AddOns\\EllesmereUI\\media\\cast_spark.tga"
+ns.SPARK_TEX = SPARK_TEX
 
 -------------------------------------------------------------------------------
 --  Blizzard Style cast bar (Global Settings > Style). The stock cast bar's
@@ -9549,6 +9625,7 @@ function ERB:ApplyAll()
     self:ApplySmoothing()
     if ns.MigrateLegacyAnchorTo then ns.MigrateLegacyAnchorTo() end
     if ns.AS_Apply then ns.AS_Apply() end
+    if ns.ST_Apply then ns.ST_Apply() end
 
     -- Vehicle proxy: hide resource bars during full vehicle UI ([vehicleui]
     -- condition). Secure frame creation + RegisterStateDriver both need combat OOC.

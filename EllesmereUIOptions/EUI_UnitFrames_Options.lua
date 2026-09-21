@@ -10436,6 +10436,13 @@ initFrame:SetScript("OnEvent", function(self)
         local sharedClassResRow
         sharedClassResRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Enable Class Resource", values=classPowerStyleValues, order=classPowerStyleOrder,
+              -- Forever ships no class resource bar that can be re-parented: the
+              -- per-class globals the Blizzard style adopts are all Mainline-only.
+              disabledValues=function(k)
+                  if k == "blizzard" and EllesmereUI.IS_FOREVER then
+                      return "This client has no Blizzard class resource bar to attach to the frame"
+                  end
+              end,
               getValue=function() return SValSupported("classPowerStyle", "none") end,
               -- DependentSetValue: Rows 2-3 below are hidden while the style
               -- is None; only the None <-> enabled flip forces the rebuild
