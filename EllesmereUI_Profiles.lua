@@ -1419,7 +1419,6 @@ local REFRESH_ADDON_STEPS = {
         if _G._EMIN_RefreshFlyout then _G._EMIN_RefreshFlyout() end
     end,
     -- Global class/power colors (updates oUF, nameplates, raid frames)
-    function() if _G._EUI_Swing_Apply then _G._EUI_Swing_Apply() end end,
     function() if EllesmereUI.ApplyColorsToOUF then EllesmereUI.ApplyColorsToOUF() end end,
     -- Re-register unlock elements for all modules whose bar sets can
     -- differ between profiles. Without this, _applySavedPositions uses

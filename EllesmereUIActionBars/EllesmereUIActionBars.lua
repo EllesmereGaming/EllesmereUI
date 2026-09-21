@@ -967,123 +967,98 @@ function ns.ReassertHiddenOnShow(bar)
     end)
 end
 
--- Kill Blizzard's event broadcasters at file load (before any button exists):
--- both dispatch to ALL registered buttons, causing mass redraws. Our central
--- dispatcher handles the needed events with HasAction() filtering (GCD swipes
--- ride its ACTIONBAR_UPDATE_COOLDOWN); re-registered during vehicle/override
--- so Blizzard's OverrideActionBar buttons (not replaced by us) still get cooldowns.
-if ActionBarButtonEventsFrame then ActionBarButtonEventsFrame:UnregisterAllEvents() end
-if ActionBarActionEventsFrame then ActionBarActionEventsFrame:UnregisterAllEvents() end
+-- Blizzard's two event broadcasters dispatch to ALL registered buttons, causing
+-- mass redraws; our central dispatcher handles the needed events with
+-- HasAction() filtering (GCD swipes ride its ACTIONBAR_UPDATE_COOLDOWN). The
+-- block below quiets them at file load, before any button exists, keeping
+-- exactly two of Blizzard's own registrations alive (see there), and adds the
+-- rest back only while the vehicle/override bar or ExtraActionButton1 shows.
 do
+    -- The tick set "full" mode adds and removes: what the vehicle/override
+    -- bar and ExtraActionButton1 need painted. NEVER the two seeding events.
     local _abefEvents = {
         "ACTIONBAR_UPDATE_COOLDOWN", "ACTIONBAR_UPDATE_STATE",
-        "ACTIONBAR_UPDATE_USABLE", "ACTIONBAR_SLOT_CHANGED",
+        "ACTIONBAR_UPDATE_USABLE",
         -- Spell-typed extra-action buttons (delve abilities) carry no action
         -- slot, so their cooldown fires SPELL_UPDATE_COOLDOWN not this event.
         "SPELL_UPDATE_COOLDOWN",
-        "UPDATE_SHAPESHIFT_FORM", "PLAYER_ENTERING_WORLD",
+        "UPDATE_SHAPESHIFT_FORM",
     }
     local _aaefEvents = {
         "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP",
         "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_FAILED",
         "UNIT_SPELLCAST_INTERRUPTED",
     }
-    -- Re-enable the killed broadcaster only while needed, tracked as two
-    -- independent flags so one turning off never strands the other: the
-    -- vehicle/override bar (OverrideActionBarButton1-6) and ExtraActionButton1
-    -- (delve abilities with no action slot -- only this broadcaster paints them).
-    -- A THIRD need, and a partial one: press-and-hold.
-    --
-    -- Empower keys ride the native command, so ACTIONBUTTON<n> resolves through
-    -- GetActionButtonForID to BLIZZARD's button, not ours -- which is why the
-    -- mouse was never affected. Those twins learn their pressAndHoldAction only
-    -- from Update() -> UpdatePressAndHoldAction, reached from the mixin OnEvent,
-    -- and the only thing that ever calls that OnEvent is this broadcaster. With
-    -- it dead the attribute is never initialised at all, so SecureTemplates
-    -- computes releasePressAndHoldAction = (not down) and (pressAndHoldAction or
-    -- CVar) and, with Press and Hold Casting off, key-up has nothing to release
-    -- the empower with. Broken since the empower keys became native, for every
-    -- login, not just after a spec change.
-    --
-    -- We cannot repair those buttons ourselves: writing any field or attribute
-    -- on them from here taints them, and their own later updates then fail
-    -- (blocked SetAttribute, and secret cooldown args rejected). Let Blizzard do
-    -- it in its own untainted execution instead, and buy the smallest possible
-    -- slice of the broadcaster to make that happen.
-    --
-    -- ACTIONBAR_SLOT_CHANGED ONLY, and that is the whole cost story. The event
-    -- the perf campaign profiled out is ACTIONBAR_UPDATE_COOLDOWN, which fires
-    -- ~11x/sec at total idle; this one fires only when a slot actually changes,
-    -- and Blizzard's own handler gates on "arg1 == 0 or arg1 == self.action" so
-    -- a single button does real work per event. Idle cost is zero.
-    local _vehNeed, _extraNeed, _phNeed = false, false, false
-    local _broadcasterMode = "off"
-    local _broadcasterSlot = true
-    -- Class gate, and it exists purely for ORDERING. The survey that sets
-    -- _phNeed reads the action slots, and on a cold login those are still empty
-    -- when it first runs -- so it reports "no press-and-hold", we stay off, and
-    -- the ACTIONBAR_SLOT_CHANGED that arrives WITH the slot data is the one
-    -- event we needed and the one we are not listening for. The class is known
-    -- before any of that and cannot change mid-session, so it turns the listener
-    -- on early enough to catch the first fill. _phNeed remains the general
-    -- path: if press-and-hold ever reaches another class, the survey still
-    -- switches this on without touching this gate.
-    local _classPH
-    local function ClassMayPressHold()
-        if _classPH == nil then
-            local _, class = UnitClass("player")
-            if not class then return false end   -- too early; ask again later
-            _classPH = (class == "EVOKER")
+    -- The rest of what ActionBarButtonEventsFrame registers in its own OnLoad.
+    -- ACTIONBAR_SLOT_CHANGED and PLAYER_ENTERING_WORLD are in neither list and
+    -- are never registered or unregistered by us in any mode: those two stay
+    -- Blizzard's own registrations, so their dispatch runs UNTAINTED. They are
+    -- the only way Blizzard's hidden ActionButtonN twins ever learn
+    -- pressAndHoldAction (Update -> UpdatePressAndHoldAction -> SetAttribute;
+    -- a natively routed empower key drives those twins, not ours), and
+    -- untainted is what lets that Update write the attribute in combat and
+    -- hand secret cooldown values to SetCooldown in restricted content, where
+    -- a dispatch of ours would raise once per twin with a running cooldown. A
+    -- registration made by us taints every dispatch of that event, which is
+    -- why every other event is dropped here and added back only while the
+    -- vehicle/extra buttons need painting. Our EABButtons are removed from the
+    -- broadcaster's frames list at creation (GetOrCreateButton), so the
+    -- untainted loop only ever reaches Blizzard-owned entries.
+    local _abefQuiet = {
+        "UPDATE_BINDINGS", "GAME_PAD_ACTIVE_CHANGED", "PET_BAR_UPDATE",
+        "UNIT_FLAGS", "UNIT_AURA", "PLAYER_MOUNT_DISPLAY_CHANGED",
+    }
+    -- Drops every registration except the two seeding events. Also the reset
+    -- step of every mode change, and the setup path's safety net. Never
+    -- UnregisterAllEvents on ActionBarButtonEventsFrame anywhere: it would take
+    -- the seeding registrations with it, and nothing of ours can put them
+    -- back untainted.
+    ns.QuietBroadcasters = function()
+        local abef = ActionBarButtonEventsFrame
+        if abef then
+            for _, ev in ipairs(_abefQuiet) do abef:UnregisterEvent(ev) end
+            for _, ev in ipairs(_abefEvents) do abef:UnregisterEvent(ev) end
         end
-        return _classPH
+        local aaef = ActionBarActionEventsFrame
+        if aaef then aaef:UnregisterAllEvents() end
     end
-    -- ACTIONBAR_SLOT_CHANGED is the only event in either set that reaches
-    -- Blizzard's Update() -> UpdatePressAndHoldAction -> SetAttribute. The
-    -- registration is ours, so the dispatch runs under our taint and that write
-    -- is BLOCKED in combat, on Blizzard's own ActionButtonN and reported as
-    -- EllesmereUI. An assisted-combat action dirties its slot ~11x/sec, so a
-    -- raid pull spams it (Jera, 9.0.1). Registered out of combat only, both
-    -- edges driven by the REGEN events; PLAYER_ENTERING_WORLD, the other
-    -- Update() path, cannot fire under lockdown.
-    -- Cooldowns read SECRET in restricted content, and every dispatch this
-    -- registration drives runs under OUR taint, so Blizzard's own
-    -- ActionButton_ApplyCooldown -> SetCooldown is rejected on every Blizzard
-    -- button the broadcaster still reaches. Live raid report: 511k errors.
-    -- InCombatLockdown() alone was the wrong gate -- it was chosen for the BLOCKED
-    -- SetAttribute, and secrecy is instance-gated, so the whole out-of-combat
-    -- window inside an instance stayed open. Under secrecy "full" drops to the
-    -- press-and-hold subset when that need exists, else the frame goes bare: the
-    -- cooldown ticks (~11/s at idle) are the flood, while SLOT_CHANGED and PEW are
-    -- the only way Blizzard's twin buttons ever learn pressAndHoldAction, and a
-    -- twin only raises there when its own cooldown is running.
+    ns.QuietBroadcasters()
+    -- Add the tick set back only while needed, tracked as two independent
+    -- flags so one turning off never strands the other: the vehicle/override
+    -- bar (OverrideActionBarButton1-6) and ExtraActionButton1 (delve abilities
+    -- with no action slot -- only this broadcaster paints them). The cost story
+    -- of the quiet state: SLOT_CHANGED fires only when a slot actually changes
+    -- and Blizzard's handler gates on "arg1 == 0 or arg1 == self.action", so a
+    -- single twin does real work per event; PLAYER_ENTERING_WORLD is one pass
+    -- over the twins per loading screen. ACTIONBAR_UPDATE_COOLDOWN, the event
+    -- the perf campaign profiled out (~11x/sec at total idle), is in the tick set.
+    local _vehNeed, _extraNeed = false, false
+    local _broadcasterMode = "off"
+    -- Cooldowns read SECRET in restricted content (instance-gated, not
+    -- combat-gated), and the tick set is a registration of OURS: its dispatch
+    -- runs under our taint, so Blizzard's own ActionButton_UpdateCooldown ->
+    -- SetCooldown is rejected on every twin with a running cooldown, at the
+    -- tick rate. No tick set there at all; the vehicle/extra buttons keep the
+    -- two seeding events plus our dispatcher's direct paints.
     local function CooldownsSecret()
         if not (C_Secrets and C_Secrets.ShouldCooldownsBeSecret) then return false end
         local ok, secret = pcall(C_Secrets.ShouldCooldownsBeSecret)
         return (ok and secret) and true or false
     end
     local function ApplyBroadcaster()
-        local want = (_vehNeed or _extraNeed) and "full"
-            or ((_phNeed or ClassMayPressHold()) and "ph" or "off")
-        -- Folded into `want`, not into slotOK, so the mode comparison below sees the
-        -- change and re-applies; PLAYER_ENTERING_WORLD and the REGEN edges already
-        -- re-run this, which are the edges secrecy turns on and off.
-        if want == "full" and CooldownsSecret() then
-            want = (_phNeed or ClassMayPressHold()) and "ph" or "off"
-        end
-        local slotOK = not InCombatLockdown()
-        if want == _broadcasterMode and slotOK == _broadcasterSlot then return end
-        _broadcasterMode, _broadcasterSlot = want, slotOK
-        -- Always drop to a known state first: "full" and "ph" are different
-        -- registration sets, so switching between them directly would leave the
-        -- wider set's events behind.
-        if ActionBarButtonEventsFrame then ActionBarButtonEventsFrame:UnregisterAllEvents() end
-        if ActionBarActionEventsFrame then ActionBarActionEventsFrame:UnregisterAllEvents() end
+        local want = (_vehNeed or _extraNeed) and "full" or "off"
+        -- Folded into `want` so the mode comparison below sees the change and
+        -- re-applies; PLAYER_ENTERING_WORLD and the REGEN edges re-run this.
+        if want == "full" and CooldownsSecret() then want = "off" end
+        if want == _broadcasterMode then return end
+        _broadcasterMode = want
+        -- Drop to the quiet state first (the two seeding registrations survive
+        -- it), then add the tick set.
+        ns.QuietBroadcasters()
         if want == "full" then
             if ActionBarButtonEventsFrame then
                 for _, ev in ipairs(_abefEvents) do
-                    if slotOK or ev ~= "ACTIONBAR_SLOT_CHANGED" then
-                        ActionBarButtonEventsFrame:RegisterEvent(ev)
-                    end
+                    ActionBarButtonEventsFrame:RegisterEvent(ev)
                 end
             end
             if ActionBarActionEventsFrame then
@@ -1091,47 +1066,15 @@ do
                     ActionBarActionEventsFrame:RegisterUnitEvent(ev, "player")
                 end
             end
-        elseif want == "ph" then
-            if ActionBarButtonEventsFrame then
-                if slotOK then
-                    ActionBarButtonEventsFrame:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
-                end
-                -- PLAYER_ENTERING_WORLD as well, because SLOT_CHANGED alone
-                -- cannot seed a login. Blizzard gates that one on
-                -- "arg1 == 0 or arg1 == tonumber(self.action)", so a button only
-                -- re-checks when ITS slot is the one that changed -- and at login
-                -- a slot that never changes never fires, leaving that button
-                -- unset while its neighbours are fine. Measured: one empowered
-                -- slot read true at login and the other still false. The PEW
-                -- branch calls self:Update() with no gate at all, so every button
-                -- re-derives once per loading screen. Costs one pass per zone-in.
-                ActionBarButtonEventsFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-            end
         end
     end
-    -- Driven from UpdateKeybinds, where the press-and-hold survey already runs,
-    -- so a character with no empowered spells never turns this on and pays
-    -- nothing at all.
-    -- No "unchanged value" early-out on purpose: the resolved mode also depends
-    -- on the class gate and on the vehicle/extra needs, so a survey reporting
-    -- the same _phNeed as last time can still need a different mode -- and at
-    -- load it reports false into an already-false _phNeed, which is exactly when
-    -- the class gate has to get its first look. ApplyBroadcaster early-outs on an
-    -- unchanged resolved mode, so calling it unconditionally costs nothing.
-    ns.SetBroadcasterPressHoldNeed = function(v)
-        _phNeed = v and true or false
-        ApplyBroadcaster()
-    end
-    -- For callers that unregister the broadcasters DIRECTLY rather than through
-    -- ApplyBroadcaster. The setup path has a "redundant kill, in case Blizzard
-    -- re-creates them" safety net that runs after we may already have
-    -- registered: it leaves the frames bare while _broadcasterMode still claims
-    -- "ph", and the mode check above then early-outs forever, so we never
-    -- register again. That is precisely how press-and-hold mode ended up
-    -- silently inert -- registered once at login, wiped moments later, and the
-    -- state machine none the wiser. Any direct wipe must come back through here.
+    -- For callers that quiet the broadcasters DIRECTLY rather than through
+    -- ApplyBroadcaster (the setup path's safety net, which can run after "full"
+    -- has registered): the tick set is gone while _broadcasterMode still claims
+    -- it, and the mode check above would early-out forever. Any direct
+    -- quieting must come back through here.
     ns.ResyncBroadcaster = function()
-        _broadcasterMode = nil   -- the caller has just wiped the frames; never early-out
+        _broadcasterMode = nil   -- the caller has just quieted the frames; never early-out
         ApplyBroadcaster()
     end
     -- Recompute from ground truth (the buttons' actual visibility) on a broad event set
@@ -1156,8 +1099,8 @@ do
     barFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
     barFrame:SetScript("OnEvent", function(_, event, unit)
         if event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
-            -- Undeferred: the first slot change of the pull can arrive in the
-            -- same frame as the lockdown, and the needs are unchanged anyway.
+            -- Undeferred, and a secrecy re-check only: the needs are unchanged
+            -- at a combat edge, so this early-outs unless the secret state moved.
             ApplyBroadcaster()
             return
         end
@@ -1837,9 +1780,14 @@ ns._DegradedLayoutApply = function(layoutData, barFrameData)
         local btn = refs["btn-" .. i]
         if btn then btn:SetParent(uiParent) end
     end
+    -- MainActionBar keeps its parent, the one stock bar that must. It is Edit Mode
+    -- system 0 index 1, and an insecure SetParent taints it, so InitSystemAnchors
+    -- is blocked on SetPointBase at every reload and every /editmode. The snippet
+    -- path reparents it securely; here HideBlizzardBars has already hidden it with
+    -- alpha plus an OnShow re-hide, which needs no reparent at all.
     for i = 1, (ns._degradedBlizzCount or 0) do
         local bar = refs["blizzbar-" .. i]
-        if bar then bar:SetParent(hidden) end
+        if bar and bar ~= MainActionBar then bar:SetParent(hidden) end
     end
     for slot, d in pairs(layoutData) do
         local btn = refs["btn-" .. slot]
@@ -2181,10 +2129,12 @@ local function GetOrCreateButton(slot, parent, info, index, skipProtected)
         btn:UnregisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
         -- Template OnLoad also registered this button with Blizzard's
         -- ActionBarButtonEventsFrame broadcaster; that tinsert ran under OUR
-        -- execution, so the stored entry is a tainted value -- while the broadcaster
-        -- is re-enabled for the vehicle/extra button, its dispatch reads the entry and
-        -- the button's whole mixin OnEvent runs tainted (blocked SetAttribute, secret
-        -- SetCooldown rejections in combat). UnregisterEvent can't stop this
+        -- execution, so the stored entry is a tainted value -- every dispatch
+        -- (Blizzard's own untainted SLOT_CHANGED/PEW seeding, or the tick set
+        -- while the vehicle/extra button shows) would read the entry, run the
+        -- button's whole mixin OnEvent tainted and carry that taint through the
+        -- rest of the loop (blocked SetAttribute, secret SetCooldown rejections
+        -- in combat). UnregisterEvent can't stop this
         -- (broadcaster calls OnEvent directly) and wrapping btn.OnEvent would taint
         -- every per-button dispatch (template wires OnEvent by name, resolved at fire
         -- time). Instead nil our entry out of the list in place (never tremove --
@@ -5526,8 +5476,11 @@ do
             end
 
             -- ExtraActionButton1 is a Blizzard button outside our barButtons.
-            -- It relied on ActionBarButtonEventsFrame for cooldown updates,
-            -- which we killed. Dispatch cooldown + slot events to it directly.
+            -- Its cooldown ticks come from the broadcaster's tick set, which is
+            -- off under secrecy, so the cooldown is painted from here directly.
+            -- Blizzard's own SLOT_CHANGED registration reaches it untainted as
+            -- well (the broadcaster quieting keeps that one); the slot refresh
+            -- here is our painter's pass on top of it.
             if event == "ACTIONBAR_UPDATE_COOLDOWN" or event == "ACTIONBAR_SLOT_CHANGED" then
                 local eab1 = ExtraActionButton1
                 if eab1 and eab1:IsShown() then
@@ -11837,6 +11790,15 @@ local function UpdateKeybinds()
                and (bs.disableFormPaging or bs.disableSkyridingPaging) then
                 barHasCustomPaging = true
             end
+            -- Forever has no snippet compiler, so the page driver is never
+            -- registered (ns.SNIPPETS_OK) and MainBar is frozen on page 1 while
+            -- the engine keeps paging: a warrior in Battle Stance resolves
+            -- ACTIONBUTTONn through MainActionBar's actionpage to slots 73-84,
+            -- the page our icons never show. Same show-one/fire-another split as
+            -- the opt-outs above, so take the same exit. Costs press-and-hold
+            -- repeat, and puts override/vehicle/possess out of keyboard reach --
+            -- they remap ACTIONBUTTONn, and OverrideController is gated too.
+            local frozenPage = info.key == "MainBar" and not ns.SNIPPETS_OK
             for i, btn in ipairs(btns) do
                 if btn then
                     local cmd = prefix .. i
@@ -11885,7 +11847,8 @@ local function UpdateKeybinds()
                     -- isFlyout IS part of it: flyouts need self to be the
                     -- visible button so SpellFlyout anchors somewhere the
                     -- player can actually see.
-                    local useClick = barHasCustomPaging or (info.customPage ~= nil) or isFlyout
+                    local useClick = barHasCustomPaging or (info.customPage ~= nil)
+                        or isFlyout or frozenPage
                     k1 = k1 or false
                     k2 = k2 or false
                     if sig[n + 1] ~= k1 or sig[n + 2] ~= k2
@@ -11903,12 +11866,10 @@ local function UpdateKeybinds()
     -- combat-drop attr re-assert knows whether any press-and-hold slot
     -- exists at all -- non-empower classes never pay for it.
     _bindState.hasPH = anyPH
-    -- Same survey drives the broadcaster's press-and-hold need: Blizzard's twin
-    -- buttons are what a natively-routed empower key actually drives, and only
-    -- the broadcaster can keep their pressAndHoldAction current (we cannot write
-    -- it ourselves without tainting them). Costs nothing for a character with no
-    -- press-and-hold slots, which is every class but one.
-    if ns.SetBroadcasterPressHoldNeed then ns.SetBroadcasterPressHoldNeed(anyPH) end
+    -- Blizzard's twin buttons are what a natively-routed empower key actually
+    -- drives; their pressAndHoldAction is kept current by Blizzard's own
+    -- SLOT_CHANGED and PLAYER_ENTERING_WORLD registrations, which the
+    -- broadcaster quieting at the top of the file leaves untouched.
     if not changed then return false end
     _bindState.sigValid = true
     -- Pass 2: apply. Reads the routing decisions computed above.
@@ -14907,14 +14868,13 @@ function EAB:FinishSetup()
                 bar:SetParent(hiddenParent)
             end
         end
-        -- Both event broadcasters are killed at file-load time (top of file).
-        -- Redundant kill here as safety net in case Blizzard re-creates them.
-        if _G.ActionBarButtonEventsFrame then _G.ActionBarButtonEventsFrame:UnregisterAllEvents() end
-        if _G.ActionBarActionEventsFrame then _G.ActionBarActionEventsFrame:UnregisterAllEvents() end
-        -- ...then hand control back to the mode machine. This safety net runs
-        -- after the press-and-hold mode may already have registered, so without
-        -- the resync it silently wipes that registration and the mode check
-        -- believes it is still active, leaving empower keybinds unfixable.
+        -- Both event broadcasters are quieted at file-load time (top of file).
+        -- Redundant quieting here as a safety net in case Blizzard re-creates
+        -- them; the same helper, so Blizzard's two seeding registrations stay.
+        if ns.QuietBroadcasters then ns.QuietBroadcasters() end
+        -- ...then hand control back to the mode machine: this safety net can
+        -- run after "full" has registered, so without the resync it silently
+        -- drops that tick set while the mode check believes it is still active.
         if ns.ResyncBroadcaster then ns.ResyncBroadcaster() end
     end)
 

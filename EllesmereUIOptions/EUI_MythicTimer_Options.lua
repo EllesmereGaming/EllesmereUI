@@ -967,6 +967,12 @@ initFrame:SetScript("OnEvent", function(self)
               disabledTooltip="This option requires Split Compare to include a key level",
               get=function() return Cfg("objectiveCompareStrict") == true end,
               set=function(v) Set("objectiveCompareStrict", v); Refresh() end },
+            { type="toggle", label="Fastest Run Splits",
+              tooltip="Compare against the splits of your fastest completed run instead of your best individual splits.",
+              disabled=function() return (Cfg("objectiveCompareMode") or "NONE") == "NONE" end,
+              disabledTooltip="This option requires a Split Compare mode",
+              get=function() return Cfg("showFastestRunSplits") == true end,
+              set=function(v) Set("showFastestRunSplits", v); Refresh() end },
         }, function() return Cfg("enabled") == false or Cfg("showObjectives") == false end)
         end
         y = y - h
@@ -1009,6 +1015,7 @@ initFrame:SetScript("OnEvent", function(self)
         { key="dungeon_nonmythic", label="Non-Mythic Dungeons" },
         { key="timewalking",       label="Timewalking" },
         { key="delve",             label="Delve" },
+        { key="lair",              label="Lair" },
         { key="in_combat",         label="In Combat" },
         { key="out_of_combat",     label="Out of Combat" },
     }

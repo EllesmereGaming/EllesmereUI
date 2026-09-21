@@ -99,9 +99,18 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
     local totalW = parent:GetWidth() - PAD * 2
     local CARD_GAP = 14
 
-    -- Display title: "Module: Title" -- the module name is prepended to every entry.
+    -- Display prefix: "Module: " on every entry, and "WoW Forever - " in the
+    -- Forever theme's bronze ahead of it on entries flagged `forever = true`
+    -- (changes that apply on WoW Forever only), so the note text itself never
+    -- has to say where it applies. Sorting stays by module, so a module's
+    -- retail and Forever lines sit together.
+    local FOREVER_TAG = "|cffdca77f" .. EllesmereUI.L("WoW Forever") .. "|r - "
+    local function PrefixOf(e)
+        return (e.forever and FOREVER_TAG or "") .. ((e.module and EllesmereUI.L(e.module) .. ": ") or "")
+    end
+    -- Display title: "Module: Title" (see PrefixOf).
     local function TitleOf(e)
-        return ((e.module and EllesmereUI.L(e.module) .. ": ") or "") .. (EllesmereUI.L(e.title) or "")
+        return PrefixOf(e) .. (EllesmereUI.L(e.title) or "")
     end
 
     -- Stable sort by module display name; preserves authored order per module.
@@ -625,7 +634,7 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
                 y = y - 10  -- extra spacing below the divider
             end
             for _, fx in ipairs(fixes) do
-                local fh = MakeFixLine(y, ((fx.module and EllesmereUI.L(fx.module) .. ": ") or "") .. (EllesmereUI.L(fx.text) or "")); y = y - fh
+                local fh = MakeFixLine(y, PrefixOf(fx) .. (EllesmereUI.L(fx.text) or "")); y = y - fh
             end
         end
 
@@ -992,6 +1001,50 @@ end
 --  deep-links via NavigateToElementSettings(module, page, section, preSelect, highlight).
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
+    {
+        version = "9.2.2",
+        heroes = {},
+        features = {
+            {
+                -- Static card: Unlock Mode has no options page.
+                module = "General",
+                title  = "Anchor Offsets and Corner Anchors",
+                desc   = "Type an anchored element's X and Y offset in its Unlock Mode cog menu, and anchor cooldown or action bars to a target's corner with the matching grow direction",
+            },
+            {
+                module = "Mythic+ Tools",
+                title  = "Fastest Run Splits",
+                desc   = "Compare your splits against your fastest completed run instead of your best individual splits",
+                nav    = { module = "EllesmereUIMythicTimer", page = "Mythic+ Timer",
+                           section = "BOSS OBJECTIVES", highlight = "Fastest Run Splits" },
+            },
+            {
+                -- Static card: the page only exists on WoW Forever.
+                forever = true,
+                module = "Resource Bars",
+                title  = "Swing Timer",
+                desc   = "The swing timer is now a Resource Bars bar with anchoring, visibility rules, textures, borders, range dimming and queued-attack colour; off by default",
+            },
+        },
+        fixes = {
+            { module = "Action Bars", text = "Inside dungeons and raids, changing an action slot or reloading no longer logs cooldown errors, and empower keybinds keep Hold-and-Release after a reload or talent change there." },
+            { forever = true, module = "Action Bars", text = "Action Bar 1 keybinds now fire the button they show while in a stance, form or stealth." },
+            { forever = true, module = "Action Bars", text = "Reloading or opening Edit Mode no longer shows a blocked-action error on the main action bar." },
+            { module = "Aura Buff Reminders & Mythic+ Tools", text = "Sections and Targeted Spell Bars limited to specific content no longer show inside Lairs, and Lair is a new Where to Show choice." },
+            { module = "Blizz UI Enhanced", text = "The Choose Your Roles sign-up dialog is skinned whenever the Queue Popup skin is on, as the option already said." },
+            { forever = true, module = "Blizz UI Enhanced", text = "The character sheet's ammo slot is skinned like the other slots." },
+            { module = "Cooldown Manager", text = "The spell picker now opens on a bar whose Blizzard list is empty, so custom spell and item IDs and the presets can still be added." },
+            { module = "DataBars & Damage Meters", text = "The social tooltip no longer errors on a cross-faction Battle.net friend, and the damage breakdown no longer errors on spells from players outside your group." },
+            { module = "Minimap", text = "The Tracking button is shown by default; turn it off under Show Blizzard Elements." },
+            { forever = true, module = "Nameplates", text = "Replace Quest Icon with Objective is on by default." },
+            { forever = true, module = "Nameplates", text = "The class resource shows combo points on the target's nameplate for rogues and druids, follows the current target, and starts at a larger size." },
+            { forever = true, module = "Resource Bars", text = "The Power Bar now tracks the resource the class actually uses, so hunters read mana." },
+            { module = "Unit Frames", text = "Health text at a Y offset of 0 now sits exactly on the bar's centre, matching the options preview." },
+            { module = "Unit Frames", text = "Name > Target text colours a boss's target by class again in instanced content, and updates the moment a unit's target changes." },
+            { forever = true, module = "Unit Frames", text = "Combo points show on the player frame, and the classic combo point art no longer floats beside the frame." },
+            { module = "Localization", text = "More Korean and Traditional Chinese translations: module style cards, Run Summary, Swing Timer, chat bubbles, Rotation Assist and the launch popup." },
+        },
+    },
     {
         version = "9.2.1",
         heroes = {

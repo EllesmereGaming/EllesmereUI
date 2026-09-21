@@ -120,7 +120,9 @@ local defaults = {
             zoomResetSeconds = 0,
             -- false = Zoom +/- Icons checked in Show Blizzard Elements (buttons hover-show). The old true default was inert on Midnight (targeted pre-Midnight global button names), so flipping it changed nobody's visual state.
             hideZoomButtons      = false,
-            hideTrackingButton   = true,
+            -- false = Tracking checked in Show Blizzard Elements on both clients (user
+            -- decision 2026-09-21); a profile that never touched the row gains the button.
+            hideTrackingButton   = false,
             hideGameTime         = false,
             hideMail             = false,
             -- Mail indicator: "button" = element row, or a map corner (TOPLEFT/TOPRIGHT/BOTTOMLEFT/BOTTOMRIGHT) pinned like Omnium Folio's, nudged by X/Y offsets.

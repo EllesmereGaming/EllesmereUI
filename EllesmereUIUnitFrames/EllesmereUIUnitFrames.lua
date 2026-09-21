@@ -99,6 +99,10 @@ do
         end
     end
 
+    -- One Blizzard frame on its own, the same treatment (Forever's classic
+    -- ComboFrame, see InitializeFrames).
+    ns.UF_HideBlizzardFrame = HandleFrame
+
     function ns.UF_HideBlizzard(unit)
         if not unit then return end
         if unit == "player" then
@@ -390,13 +394,18 @@ local defaults = {
             showCastTarget = false,
             castbarFillColor = { r = 0.863, g = 0.820, b = 0.639 },
             castbarClassColored = false,
-            showClassPowerBar = false,
+            -- WoW Forever: the class resource is ON (modern pips above the health
+            -- bar, 16) because the client's own combo point art is stood down
+            -- there (Forever combo points belong to the target and Blizzard's
+            -- classic ComboFrame cannot follow our target frame); the 8 default
+            -- lands at a 3px sliver. Per-client defaults, never seeded.
+            showClassPowerBar = (EllesmereUI.IS_FOREVER == true) and true or false,
             lockClassPowerToFrame = true,
-            classPowerStyle = "none",
-            classPowerPosition = "top",
+            classPowerStyle = (EllesmereUI.IS_FOREVER == true) and "modern" or "none",
+            classPowerPosition = (EllesmereUI.IS_FOREVER == true) and "above" or "top",
             classPowerBarX = 0,
             classPowerBarY = 0,
-            classPowerSize = 8,
+            classPowerSize = (EllesmereUI.IS_FOREVER == true) and 16 or 8,
             classPowerSpacing = 2,
             classPowerClassColor = true,
             classPowerCustomColor = { r = 1, g = 0.82, b = 0 },
@@ -2416,7 +2425,8 @@ end
 -- the user's custom color for a matching group member, else Blizzard's shade. Used by
 -- ResolveBgClassColor and ApplyClassColor; ResolveUnitNameColor does NOT use this, since
 -- its result also feeds the [eui-tgtcol] hex-escape tag, which cannot format secret
--- channels (that tag declassifies through GenerateHexColor on its own).
+-- channels itself (that tag takes a secret hex from GenerateHexColor on its own and
+-- hands it to SetFormattedText untouched).
 -- Returns ok, r, g, b -- ok is a PLAIN boolean, r/g/b may be SECRET, only safe as setter args.
 local function ResolveRestrictedClassColor(unit, class)
     local ok, r, g, b = EllesmereUI.GetClassColorForRestrictedUnit(unit, class)
@@ -2671,16 +2681,15 @@ TagFns.tgtcol = function(unit)
     local r, g, b = ns.ResolveUnitNameColor(tunit)
     if not r then
         -- Secret class token (identity-restricted target, e.g. a boss's own
-        -- target): C_ClassColor.GetClassColor and C_ColorUtil.GenerateTextColorCode
-        -- (behind GenerateHexColor) are both AllowedWhenTainted and return a PLAIN
-        -- hex string, so the class colour declassifies here where r/g/b never could.
+        -- target): GenerateHexColor's result may itself be secret, but still
+        -- renders correctly through SetFormattedText's arg lane -- don't reject it.
         if UnitIsPlayer(tunit) and C_ClassColor and C_ClassColor.GetClassColor then
             local _, class = UnitClass(tunit)
             if issecretvalue(class) then
                 local cc = C_ClassColor.GetClassColor(class)
                 if cc and cc.GenerateHexColor then
                     local ok, hex = pcall(cc.GenerateHexColor, cc)
-                    if ok and type(hex) == "string" and not issecretvalue(hex) then
+                    if ok and type(hex) == "string" then
                         return "|c" .. hex
                     end
                 end
@@ -2839,10 +2848,13 @@ do
     local ZONE_IDENTITY = { name = true, levelname = true, namelevel = true, level = true }
     -- Value-class events: a static zone skips these and repaints on anything
     -- else (identity events, ForceUpdate, UnitChanged, PEW, nil = repaint all).
+    -- UNIT_TARGET is here too: only the Name > Target zone (never static)
+    -- reads the unit's target, so the name and level zones sit it out.
     local VALUE_EVENTS = {
         UNIT_HEALTH = true, UNIT_MAXHEALTH = true, UNIT_MAX_HEALTH_MODIFIERS_CHANGED = true,
         UNIT_POWER_UPDATE = true, UNIT_MAXPOWER = true, UNIT_DISPLAYPOWER = true,
         UNIT_ABSORB_AMOUNT_CHANGED = true, UNIT_HEAL_ABSORB_AMOUNT_CHANGED = true,
+        UNIT_TARGET = true,
         Resettle = true, EUI_AbsorbEnd = true, EUI_AbsorbBelt = true,
     }
 
@@ -3291,8 +3303,9 @@ local function ApplyClassColor(fs, unit, useClassColor, customR, customG, custom
         local r, g, b = ns.ResolveUnitNameColor(unit)
         if r then fs:SetTextColor(r, g, b); return end
         -- ResolveUnitNameColor returns nil for a SECRET class token (identity-restricted
-        -- units: focus-target, ToT) since it can't be used as a table key or formatted by
-        -- the [eui-tgtcol] hex-escape tag it also feeds. SetTextColor accepts secrets
+        -- units: focus-target, ToT) since it can't be used as a table key; the
+        -- [eui-tgtcol] hex-escape tag it also feeds recovers a secret hex on its own
+        -- and passes it through SetFormattedText. SetTextColor accepts secrets
         -- directly, so recover the real color here the same way the health bar does:
         -- the user's custom color when the unit matches a group member, else Blizzard's.
         if UnitIsPlayer(unit) or (UnitInPartyIsAI and UnitInPartyIsAI(unit)) then
@@ -4273,12 +4286,14 @@ local function UpdateBordersForScale(frame, unit)
         frame._barClip:ClearAllPoints()
         frame._barClip:SetPoint("TOPLEFT", frame, "TOPLEFT", clipL, -halfPixel)
         frame._barClip:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -clipR, halfPixel)
-        -- Re-anchor the health bar to the clip so coordinates stay consistent.
+        -- Preserve the health bar's logical top while the clip trims its edges.
+        -- Cancel the clip's Y inset after snapping; the bar keeps its full height,
+        -- so inheriting that inset would move centered text down half a pixel.
         local xOff = frame.Health._xOffset or 0
         local rInset = frame.Health._rightInset or 0
         local topOff = frame.Health._topOffset or 0
         frame.Health:ClearAllPoints()
-        frame.Health:SetPoint("TOPLEFT", frame._barClip, "TOPLEFT", xOff, PP.Scale(-topOff))
+        frame.Health:SetPoint("TOPLEFT", frame._barClip, "TOPLEFT", xOff, PP.Scale(-topOff) + halfPixel)
         frame.Health:SetPoint("RIGHT", frame._barClip, "RIGHT", -rInset, 0)
         PP.Height(frame.Health, settings.healthHeight)
     end
@@ -8687,10 +8702,42 @@ local CLASS_POWER_TYPES = {
                     [71]  = { "SWEEPING_STRIKES", 18 } },  -- 12.1 cap: 12 + 6 Broad Strokes
 }
 
+-- Vanilla content has no specializations, so every spec-keyed entry above fails to
+-- resolve on Forever, and the flat ones name resources that client does not have --
+-- a paladin there would draw five Holy Power pips that can never fill. This is the
+-- whole set that exists on Forever; a class missing from it has no class resource.
+local FOREVER_CLASS_POWER = {
+    ROGUE = Enum.PowerType.ComboPoints,
+    DRUID = Enum.PowerType.ComboPoints,
+}
+
+local function ClassPowerEntry(playerClass)
+    if EllesmereUI.IS_FOREVER == true then return FOREVER_CLASS_POWER[playerClass] end
+    return CLASS_POWER_TYPES[playerClass]
+end
+
+-- Combo points exist only in cat form for Guardian and Resto on retail, and for
+-- every druid on Forever, where there are no specs to tell them apart.
+local function DruidNeedsCatForm(playerClass, powerType)
+    if playerClass ~= "DRUID" or powerType ~= Enum.PowerType.ComboPoints then
+        return false
+    end
+    if EllesmereUI.IS_FOREVER == true then return true end
+    local spec = C_SpecializationInfo and C_SpecializationInfo.GetSpecialization()
+    local specID = spec and C_SpecializationInfo.GetSpecializationInfo(spec)
+    return specID == 104 or specID == 105
+end
+
+-- Blizzard defines DRUID_CAT_FORM on every flavour; the literal is the fallback.
+local function InCatForm()
+    local form = GetShapeshiftFormID and GetShapeshiftFormID() or 0
+    return form == (DRUID_CAT_FORM or 1)
+end
+
 -- Returns true if the player's current spec has a class resource in CLASS_POWER_TYPES
 SpecHasClassPower = function()
     local _, playerClass = UnitClass("player")
-    local entry = CLASS_POWER_TYPES[playerClass]
+    local entry = ClassPowerEntry(playerClass)
     if not entry then return false end
     if type(entry) ~= "table" then return true end
     if entry[1] ~= nil then return true end
@@ -8752,7 +8799,7 @@ end
 
 local function CreateCustomClassPower(playerFrame, style)
     local _, playerClass = UnitClass("player")
-    local entry = CLASS_POWER_TYPES[playerClass]
+    local entry = ClassPowerEntry(playerClass)
     if not entry then return nil end
 
     -- Resolve spec-specific entries (table with specID keys)
@@ -9033,7 +9080,17 @@ local function CreateCustomClassPower(playerFrame, style)
             end
             if not max or max <= 0 then max = maxPower end
         else
-            cur = UnitPower("player", powerType) or 0
+            -- Forever combo points belong to the target, and UnitPower still
+            -- reports the previous target's count at the moment
+            -- PLAYER_TARGET_CHANGED fires (measured on 1.60.1: up=3 while
+            -- gcp=0 on the swap), with no later event to correct it. Blizzard's
+            -- own classic ComboFrame reads GetComboPoints for the same reason.
+            if EllesmereUI.IS_FOREVER == true and powerType == Enum.PowerType.ComboPoints
+               and GetComboPoints then
+                cur = GetComboPoints("player", "target") or 0
+            else
+                cur = UnitPower("player", powerType) or 0
+            end
             max = UnitPowerMax("player", powerType) or maxPower
 
             -- Handle runes specially (count available runes)
@@ -9074,7 +9131,11 @@ local function CreateCustomClassPower(playerFrame, style)
             end
         end
 
-        if isSecretResource then
+        -- The resource kind alone does not decide this: which values the client
+        -- classifies depends on the client, and combo points come back secret on
+        -- Forever. Classifying the value itself keeps the compare below legal
+        -- whatever the resource, at the cost of one test per update.
+        if isSecretResource or issecretvalue(cur) then
             -- Secret-value path: use StatusBar overlays per pip
             for i = 1, #pips do
                 if pips[i] then
@@ -9182,36 +9243,30 @@ local function CreateCustomClassPower(playerFrame, style)
         if powerType == Enum.PowerType.Runes then
             eventFrame:RegisterEvent("RUNE_POWER_UPDATE")
         end
-        -- Guardian/Resto druids: show combo points only in cat form
-        local druidFormToggle = false
-        if playerClass == "DRUID" and powerType == Enum.PowerType.ComboPoints then
-            local spec = C_SpecializationInfo and C_SpecializationInfo.GetSpecialization()
-            local specID = spec and C_SpecializationInfo.GetSpecializationInfo(spec)
-            if specID == 104 or specID == 105 then
-                druidFormToggle = true
-                eventFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
-            end
+        local druidFormToggle = DruidNeedsCatForm(playerClass, powerType)
+        if druidFormToggle then
+            eventFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
+        end
+        -- Combo points belong to the target on Forever, so swapping targets
+        -- changes the count with no power event behind it. Blizzard's own
+        -- ComboFrame refreshes on this event for the same reason.
+        if EllesmereUI.IS_FOREVER == true and powerType == Enum.PowerType.ComboPoints then
+            eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
         end
         eventFrame:SetScript("OnEvent", function(_, event, unit)
             if druidFormToggle and (event == "UPDATE_SHAPESHIFT_FORM" or event == "PLAYER_ENTERING_WORLD") then
-                local form = GetShapeshiftFormID and GetShapeshiftFormID() or 0
-                container:SetShown(form == 1)
+                container:SetShown(InCatForm())
             end
             if event == "PLAYER_ENTERING_WORLD" or event == "RUNE_POWER_UPDATE"
-               or (unit == "player") then
+               or event == "PLAYER_TARGET_CHANGED" or (unit == "player") then
                 UpdatePips()
             end
         end)
     end
 
-    -- For druid form-toggle specs, start hidden if not in cat form
-    if playerClass == "DRUID" and powerType == Enum.PowerType.ComboPoints then
-        local spec = C_SpecializationInfo and C_SpecializationInfo.GetSpecialization()
-        local specID = spec and C_SpecializationInfo.GetSpecializationInfo(spec)
-        if specID == 104 or specID == 105 then
-            local form = GetShapeshiftFormID and GetShapeshiftFormID() or 0
-            if form ~= 1 then container:Hide() end
-        end
+    -- Form-toggled druids start hidden unless already in cat form
+    if DruidNeedsCatForm(playerClass, powerType) and not InCatForm() then
+        container:Hide()
     end
 
     UpdatePips()
@@ -12428,6 +12483,17 @@ function InitializeFrames()
     end
 
     local classPowerStyle = db.profile.player.classPowerStyle or "none"
+    if EllesmereUI.IS_FOREVER == true and classPowerStyle == "blizzard" then
+        -- Forever has no Blizzard class resource bar to adopt (see the ComboFrame
+        -- note below) and the options page greys that entry out there: a stored
+        -- "blizzard" builds as the modern style, written back so the style
+        -- watchers compare like with like. The Forever defaults themselves
+        -- (modern, shown, above, 16) are IS_FOREVER conditionals in
+        -- DEFAULTS.player; nothing is seeded or migrated here.
+        classPowerStyle = "modern"
+        db.profile.player.classPowerStyle = "modern"
+        db.profile.player.showClassPowerBar = true
+    end
     -- Per-unit frame source, resolved once for this build. When a unit is set to
     -- "blizzard" (leave Blizzard's default frame) or "hidden", the EllesmereUI frame is
     -- not spawned at all -- the ONLY way to keep Blizzard's own frame alive, since
@@ -13128,6 +13194,22 @@ function InitializeFrames()
         SetupUnitMenu(frames.target, "target")
     elseif targetFrameSource == "hidden" then
         ns.Engine.HideBlizzardUnitFrame("target")
+    end
+
+    -- Forever combo points belong to the target, and Blizzard draws them with the
+    -- classic ComboFrame: parented to UIParent but only anchored to TargetFrame,
+    -- so replacing that frame strands the art at a dead anchor instead of hiding
+    -- it, and ComboFrame_Update re-anchors it there on every change, so it
+    -- cannot be re-homed onto ours either. No BLIZZARD_CP_FRAMES global exists
+    -- here, so the takeover above never reaches it. Our pips are the display: the
+    -- classic frame goes to the hidden parent the way TargetFrame itself does,
+    -- events unregistered, so it costs nothing. It is left alone only where
+    -- Blizzard's own target frame is kept AND the class resource is off, the one
+    -- case in which nothing else draws combo points. The hidden parent is pinned
+    -- for the session, like every frame HandleFrame takes.
+    if EllesmereUI.IS_FOREVER == true and _G.ComboFrame
+       and (targetFrameSource ~= "blizzard" or classPowerStyle ~= "none") then
+        ns.UF_HideBlizzardFrame(_G.ComboFrame)
     end
 
     local focusFrameSource = ns.GetUnitFrameSource("focus")

@@ -1905,7 +1905,7 @@ do
     local function SkinApplicationDialog()
         local dialog = _G.LFGListApplicationDialog
         if not dialog then return end
-        if not EllesmereUIDB or not EllesmereUIDB.reskinQueuePopup then return end
+        if EllesmereUIDB and EllesmereUIDB.reskinQueuePopup == false then return end
         if GetFFD(dialog).skinned then return end
         GetFFD(dialog).skinned = true
 

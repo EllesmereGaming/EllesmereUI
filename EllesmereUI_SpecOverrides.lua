@@ -435,6 +435,8 @@ local MATCH_OWNED_FKEYS = {
     ["EllesmereUIResourceBars\31castBar\30height"]      = { elem = "ERB_CastBar",       dim = "h" },
     ["EllesmereUIResourceBars\31gcdBar\30width"]        = { elem = "ERB_GCDBar",        dim = "both" },
     ["EllesmereUIResourceBars\31gcdBar\30height"]       = { elem = "ERB_GCDBar",        dim = "both" },
+    ["EllesmereUIResourceBars\31swingTimer\30width"]    = { elem = "ERB_SwingTimer",    dim = "w" },
+    ["EllesmereUIResourceBars\31swingTimer\30height"]   = { elem = "ERB_SwingTimer",    dim = "h" },
 }
 
 local function MatchOwnedFKey(fkey)

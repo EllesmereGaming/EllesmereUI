@@ -5,10 +5,13 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  On the Forever client every fresh install starts from one layout instead
 --  of a snapshot of wherever Blizzard's frames happened to be:
 --    chat bottom-left with the micro menu under it, action bar 1 bottom
---    centre, action bars 2+ hidden, the bag bar bottom-right with the damage
---    meter above it and the tooltip above that, the minimap top-right, the
---    player frame left and the target frame right a hundred pixels above
---    action bar 1, the stance bar just above the player frame.
+--    centre with the pet bar above it, action bars 2+ hidden, the bag bar
+--    bottom-right with the damage meter above it and the tooltip above that,
+--    the minimap top-right, the player frame left and the target frame right
+--    a hundred pixels above action bar 1 with the cast bar centred between
+--    them, the stance bar just above the player frame, the battle res
+--    indicator to its left and Blizzard's encounter bar fifty pixels above
+--    the target frame.
 --
 --  Two halves:
 --    1. SeedForeverBaseLayout, called by the first-install loader at the
@@ -18,9 +21,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --       screen-edge anchor for every piece unlock mode owns (the record its
 --       "Relative to Screen" menu writes), so each piece keeps its distance
 --       to the screen edges on any monitor width.
---    2. The Edit Mode layout: the micro menu, the bag bar and Blizzard's own
---       action bars are placed by Blizzard's Edit Mode (on retail too; the
---       Action Bars module only follows the first two), so those come from
+--    2. The Edit Mode layout: the micro menu, the bag bar, the encounter bar
+--       and Blizzard's own action bars are placed by Blizzard's Edit Mode (on
+--       retail too; the Action Bars module only follows the micro menu and
+--       the bag bar), so those come from
 --       an account layout named "EllesmereUI Forever", written once the
 --       layouts have loaded and only while no layout of that name exists.
 --       Edit Mode keeps the layout account-wide but the active choice per
@@ -67,6 +71,20 @@ local TOT_DX       = (TARGET_W - TOT_W) / 2   -- centre offset that aligns the r
 -- or fewer forms grows to the left and the right edge stays put.
 local STANCE_RIGHT  = -UF_SPREAD + TARGET_W / 2   -- the player frame's right edge
 local STANCE_BOTTOM = UF_BOTTOM + TARGET_H + GAP
+-- Pet bar: centred just above action bar 1.
+local PET_BOTTOM    = BAR_BOTTOM + BAR_HEIGHT + GAP
+-- The unit frames' vertical centre: the Resource Bars cast bar sits there,
+-- centred between the player and target frames.
+local UF_MID        = UF_BOTTOM + TARGET_H / 2
+-- Blizzard's encounter bar: over the target frame, this far above it.
+local ENCOUNTER_GAP = 50
+-- Battle res indicator (Quality of Life, a 40 px icon by default): left of
+-- the player frame, vertically centred on it. Its store keeps centre offsets
+-- from the UIParent centre, so the vertical half is computed from the screen
+-- size in the world, like the tooltip box.
+local BREZ_SIZE     = 40
+local BREZ_GAP      = GAP + 20                  -- a little more room than the stacked pieces get
+local BREZ_CX       = -UF_SPREAD - TARGET_W / 2 - BREZ_GAP - BREZ_SIZE / 2
 local MINIMAP_SIZE = 200
 EllesmereUI.FOREVER_MINIMAP_SIZE = MINIMAP_SIZE   -- the minimap's own first-activation default there
 
@@ -75,7 +93,7 @@ EllesmereUI.FOREVER_MINIMAP_SIZE = MINIMAP_SIZE   -- the minimap's own first-act
 -- older layouts of ours and takes over as active, so a base layout change
 -- lands without anyone deleting the old one by hand. Bump on every change.
 local LAYOUT_NAME    = "EllesmereUI Forever"
-local LAYOUT_VERSION = 2
+local LAYOUT_VERSION = 3
 
 local function LayoutFullName()
     if LAYOUT_VERSION > 1 then return LAYOUT_NAME .. " v" .. LAYOUT_VERSION end
@@ -148,6 +166,11 @@ function EllesmereUI.SeedForeverBaseLayout()
     uf.target = Pos("BOTTOM", UF_SPREAD, UF_BOTTOM)
     uf.targettarget = Pos("BOTTOM", UF_SPREAD + TOT_DX, UF_BOTTOM + TARGET_H + TOT_GAP)
 
+    -- Resource Bars cast bar (the cast bar shown by default): centred between
+    -- the player and target frames.
+    local erb = Sub(addons, "EllesmereUIResourceBars")
+    Sub(erb, "castBar").unlockPos = { point = "CENTER", relPoint = "BOTTOM", x = 0, y = UF_MID }
+
     -- Damage meter: the one window, bottom-right above the bag bar, open on
     -- Damage Done (a window with no mode shows its mode picker instead).
     local dm = Sub(Sub(addons, "EllesmereUIDamageMeters"), "dm")
@@ -159,13 +182,14 @@ function EllesmereUI.SeedForeverBaseLayout()
         win.curDMType = Enum.DamageMeterType.DamageDone
     end
 
-    -- Action bars: bar 1 bottom centre, the stance bar just above the player
-    -- frame, every other bar hidden, Blizzard's own XP and reputation bars in
-    -- place of the module's.
+    -- Action bars: bar 1 bottom centre with the pet bar centred above it, the
+    -- stance bar just above the player frame, every other bar hidden,
+    -- Blizzard's own XP and reputation bars in place of the module's.
     local ab = Sub(addons, "EllesmereUIActionBars")
     ab.useBlizzardDataBars = true
     local barPos = Sub(ab, "barPositions")
     barPos.MainBar = Pos("BOTTOM", 0, BAR_BOTTOM)
+    barPos.PetBar = Pos("BOTTOM", 0, PET_BOTTOM)
     barPos.StanceBar = { point = "BOTTOMRIGHT", relPoint = "BOTTOM", x = STANCE_RIGHT, y = STANCE_BOTTOM }
     local bars = Sub(ab, "bars")
     for _, key in ipairs({ "Bar2", "Bar3", "Bar4", "Bar5", "Bar6", "Bar7", "Bar8", "Bar9", "Bar10" }) do
@@ -284,6 +308,10 @@ local function WriteEditModeLayout()
     if micro then AnchorSystem(micro, "BOTTOMLEFT", EDGE, GAP) end
     local bags = Enum.EditModeSystem.Bags and FindSystem(layout, Enum.EditModeSystem.Bags, nil)
     if bags then AnchorSystem(bags, "BOTTOMRIGHT", -EDGE, GAP) end
+    -- The encounter bar keeps the Modern preset's bottom-centre spot
+    -- otherwise, which lands between the player and target frames here.
+    local enc = Enum.EditModeSystem.EncounterBar and FindSystem(layout, Enum.EditModeSystem.EncounterBar, nil)
+    if enc then AnchorSystem(enc, "BOTTOM", UF_SPREAD, UF_BOTTOM + TARGET_H + ENCOUNTER_GAP) end
     -- Blizzard's experience bar: bottom centre, three quarters wide. The
     -- stored size is a slider STEP, not the percentage: Edit Mode shows
     -- raw * step + min (50 to 130 in steps of 5, so the preset's 10 reads
@@ -349,11 +377,27 @@ local function PlaceTooltipAnchor()
     if EllesmereUI._applyTooltipFixedAnchor then EllesmereUI._applyTooltipFixedAnchor() end
 end
 
--- Every login of a character that has not had its first look at the layout
--- (stamped by character below, in the account's saved data; a fresh install
--- is such a login too), and never when an external installer owns the first
--- run. Retried on the layouts event and a few times after entering the
--- world; drops out for good once done, and at once for a stamped character.
+-- The battle res indicator keeps centre offsets from the UIParent centre the
+-- same way, so its spot is computed here too: left of the player frame,
+-- vertically centred on it, re-parked through the module's own apply.
+local function PlaceBattleRes()
+    local getDB = _G._EUI_BattleRes_DB
+    local qdb = getDB and getDB()
+    local br = qdb and qdb.profile and qdb.profile.battleRes
+    if not br then return end
+    local uh = UIParent:GetHeight()
+    if not uh or uh <= 0 then return end
+    br.pos = { centerX = BREZ_CX, centerY = UF_MID - uh / 2 }
+    if _G._EUI_BattleRes_Apply then _G._EUI_BattleRes_Apply() end
+end
+
+-- Every login of a character that has not had its first look at this version
+-- of the layout (stamped by character with the version below, in the
+-- account's saved data, so a rebuilt layout lands once more for everyone; a
+-- fresh install is such a login too), and never when an external installer
+-- owns the first run. Retried on the layouts event and a few times after
+-- entering the world; drops out for good once done, and at once for a
+-- stamped character.
 local function SeenByCharacter()
     if not EllesmereUIDB then return nil end
     return Sub(EllesmereUIDB, "foreverEditModeSeen")
@@ -364,21 +408,25 @@ writer:RegisterEvent("PLAYER_ENTERING_WORLD")
 writer:SetScript("OnEvent", function(self, event)
     local guid = UnitGUID("player")
     local seen = SeenByCharacter()
-    if EllesmereUI._externalInstaller or not guid or not seen or seen[guid] then
+    if EllesmereUI._externalInstaller or not guid or not seen or seen[guid] == LAYOUT_VERSION then
         self:UnregisterAllEvents()
         return
     end
     if event == "PLAYER_ENTERING_WORLD" then
         self:UnregisterEvent("PLAYER_ENTERING_WORLD")
         self:RegisterEvent("EDIT_MODE_LAYOUTS_UPDATED")
-        -- The tooltip box is profile data: first session of an install only.
-        if EllesmereUI._foreverLayoutFresh then PlaceTooltipAnchor() end
+        -- The tooltip box and the battle res indicator are profile data:
+        -- first session of an install only.
+        if EllesmereUI._foreverLayoutFresh then
+            PlaceTooltipAnchor()
+            PlaceBattleRes()
+        end
     end
     local tries = 0
     local function Attempt()
-        if seen[guid] then return end
+        if seen[guid] == LAYOUT_VERSION then return end
         if WriteEditModeLayout() then
-            seen[guid] = true
+            seen[guid] = LAYOUT_VERSION
             EllesmereUI._foreverLayoutFresh = nil
             self:UnregisterAllEvents()
             return
