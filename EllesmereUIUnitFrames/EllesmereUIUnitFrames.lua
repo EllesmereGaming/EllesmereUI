@@ -8702,6 +8702,13 @@ local function ClassPowerEntry(playerClass)
     return CLASS_POWER_TYPES[playerClass]
 end
 
+-- The Blizzard style has nothing to adopt on Forever: none of the
+-- BLIZZARD_CP_FRAMES globals exist there (see RealiseForeverComboFrame).
+local function ForeverClassPowerStyle(style)
+    if EUI_CLIENT_FOREVER == true and style == "blizzard" then return "modern" end
+    return style
+end
+
 -- Combo points exist only in cat form for Guardian and Resto on retail, and for
 -- every druid on Forever, where there are no specs to tell them apart.
 local function DruidNeedsCatForm(playerClass, powerType)
@@ -8723,21 +8730,17 @@ end
 -- Forever combo points belong to the target, and Blizzard draws them with the
 -- classic ComboFrame: parented to UIParent but only anchored to TargetFrame, so
 -- replacing that frame strands the art at a dead anchor instead of hiding it.
--- Decided from the same inputs as the pip build and re-run by _toggleClassPower,
--- so a live style change keeps the two displays in step. On ns, not a file local
--- (Lua's 200-local ceiling).
-function ns.RealiseForeverComboFrame(style)
+-- Called after the pip build, at login and from _toggleClassPower. On ns, not a
+-- file local (Lua's 200-local ceiling).
+function ns.RealiseForeverComboFrame()
     if EUI_CLIENT_FOREVER ~= true then return end
     local comboFrame = _G.ComboFrame
     if not comboFrame then return end
-    -- Pips need our player frame, so with the player frame left to Blizzard
-    -- there is nothing of ours to put in ComboFrame's place.
-    local replaced = (style ~= "none") and frames.player ~= nil
-    -- Hiding the target frame suppresses Blizzard's as well, which leaves
-    -- ComboFrame drawing at an invisible frame's coordinates and nowhere of
-    -- ours to re-anchor it to.
+    -- Hiding the target frame suppresses Blizzard's as well, so a missing EUI
+    -- target frame is only a live anchor when Blizzard's frame is the source.
     local stranded = not frames.target and ns.GetUnitFrameSource("target") ~= "blizzard"
-    ns._foreverHideComboFrame = replaced or stranded
+    local hide = frames._customClassPower ~= nil or stranded
+    local parent = (not hide and frames.target) or nil
     -- An OnShow hook cannot be removed, so the flag carries the decision.
     if not ns._foreverComboHooked then
         ns._foreverComboHooked = true
@@ -8745,14 +8748,25 @@ function ns.RealiseForeverComboFrame(style)
             if ns._foreverHideComboFrame then self:Hide() end
         end)
     end
-    if ns._foreverHideComboFrame then
+    if hide == ns._foreverHideComboFrame and parent == ns._foreverComboParent then return end
+    ns._foreverHideComboFrame = hide
+    ns._foreverComboParent = parent
+    if hide then
         comboFrame:Hide()
-    elseif frames.target then
-        -- Blizzard's own offsets are cut for its target frame art, not ours, so
-        -- sit the row just above ours instead of inside it.
-        comboFrame:ClearAllPoints()
-        PP.Point(comboFrame, "BOTTOMRIGHT", frames.target, "TOPRIGHT", 0, 2)
+        return
     end
+    if parent then
+        -- Parented, not just anchored, so it fades and hides with our frame.
+        -- Blizzard's offsets are cut for its own target art, so the row sits
+        -- just above ours.
+        comboFrame:SetParent(parent)
+        comboFrame:SetFrameStrata("MEDIUM")
+        comboFrame:ClearAllPoints()
+        PP.Point(comboFrame, "BOTTOMRIGHT", parent, "TOPRIGHT", 0, 2)
+    end
+    -- Re-show for the current count the way Blizzard does after a target change;
+    -- a bare Show would draw an empty row.
+    if ComboFrame_Update then ComboFrame_Update(comboFrame) end
 end
 
 -- Returns true if the player's current spec has a class resource in CLASS_POWER_TYPES
@@ -12506,10 +12520,9 @@ function InitializeFrames()
     local classPowerStyle = db.profile.player.classPowerStyle or "none"
     if EUI_CLIENT_FOREVER == true then
         local pp = db.profile.player
-        -- The Blizzard style has nothing to adopt here (see the ComboFrame note
-        -- below), so a stored "blizzard" draws nothing at all, and the options
-        -- page greys the entry out -- migrate the ones already saved.
-        if classPowerStyle == "blizzard" then classPowerStyle = "modern" end
+        -- The options page greys the Blizzard style out here; migrate the ones
+        -- already saved.
+        classPowerStyle = ForeverClassPowerStyle(classPowerStyle)
         -- Profiles made before Blizzard's combo points were suppressed carry the
         -- suite default of "none", which nobody chose. Defaults are copied into
         -- the profile rather than inherited, so an untouched key cannot be told
@@ -13066,11 +13079,7 @@ function InitializeFrames()
         -- Class power is a player-frame feature; if the player is on Blizzard's
         -- default frame (or hidden), there is no EUI frame to attach it to.
         if not frames.player then return end
-        style = style or db.profile.player.classPowerStyle or "none"
-        -- A switched or imported profile can bring "blizzard" back mid-session,
-        -- and it has nothing to adopt here, so coerce it on the way through
-        -- rather than only in the login migration.
-        if EUI_CLIENT_FOREVER == true and style == "blizzard" then style = "modern" end
+        style = ForeverClassPowerStyle(style or db.profile.player.classPowerStyle or "none")
         -- What is actually BUILT right now. Read by the reload pass below to
         -- notice a style that changed through a path which never calls this
         -- function (see the reload hook).
@@ -13078,9 +13087,6 @@ function InitializeFrames()
         -- Keep showClassPowerBar in sync with style
         db.profile.player.showClassPowerBar = (style ~= "none")
         db.profile.player.classPowerStyle = style
-        -- Blizzard's own combo point display follows the same switch, so the two
-        -- never end up both hidden or both drawn.
-        ns.RealiseForeverComboFrame(style)
 
         -- Clean up existing
         _blizzCPActive = false
@@ -13140,6 +13146,7 @@ function InitializeFrames()
                 ResizeFrameForClassPower(0)
             end
         end
+        ns.RealiseForeverComboFrame()
     end
 
     -- Persistent spec-change watcher for class power rebuild.
@@ -13239,7 +13246,7 @@ function InitializeFrames()
         ns.Engine.HideBlizzardUnitFrame("target")
     end
 
-    ns.RealiseForeverComboFrame(classPowerStyle)
+    ns.RealiseForeverComboFrame()
 
     local focusFrameSource = ns.GetUnitFrameSource("focus")
     if focusFrameSource == "eui" then
