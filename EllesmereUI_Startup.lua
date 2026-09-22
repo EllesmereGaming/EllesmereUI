@@ -477,19 +477,24 @@ do
         if addonName ~= ADDON_NAME then return end
         self:UnregisterAllEvents()
         if not EllesmereUIDB then EllesmereUIDB = {} end
-        if EllesmereUIDB.bagsUserChosen then return end
+        -- Fix: Respect moduleUserChosen for all modules (not just Bags)
+        if EllesmereUIDB.bagsUserChosen or (EllesmereUIDB.moduleUserChosen and EllesmereUIDB.moduleUserChosen["EllesmereUIBags"]) then return end
         if not C_AddOns or not C_AddOns.GetAddOnEnableState then return end
         -- If we previously auto-disabled bags but the user re-enabled it
         -- (via Blizzard addon list or any other means), respect their choice.
         local bagsEnabled = C_AddOns.GetAddOnEnableState("EllesmereUIBags") > 0
         if EllesmereUIDB.bagsAutoDisabled and bagsEnabled then
             EllesmereUIDB.bagsUserChosen = true
+            EllesmereUIDB.moduleUserChosen = EllesmereUIDB.moduleUserChosen or {}
+            EllesmereUIDB.moduleUserChosen["EllesmereUIBags"] = true
             EllesmereUIDB.bagsAutoDisabled = nil
             return
         end
         for _, name in ipairs(BAG_ADDONS) do
             if C_AddOns.GetAddOnEnableState(name) > 0 then
                 C_AddOns.DisableAddOn("EllesmereUIBags")
+                local char = UnitName("player")
+                pcall(C_AddOns.DisableAddOn, "EllesmereUIBags", char)
                 EllesmereUIDB.bagsAutoDisabled = true
                 return
             end

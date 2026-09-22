@@ -5113,6 +5113,7 @@ function EllesmereUI.ImportProfileSilent(opts)
     -- Apply the pack's folder composition (takes effect at the caller's
     -- reload). Enabling sweeps the whole suite so children added after a
     -- pack shipped default ON instead of ending up in neither set.
+    -- Fix: Respect moduleUserChosen - don't re-enable modules user manually disabled (fixes relog re-enable bug)
     if disable and C_AddOns and C_AddOns.EnableAddOn then
         local exists = C_AddOns.DoesAddOnExist
         local seen = {}
@@ -5120,10 +5121,24 @@ function EllesmereUI.ImportProfileSilent(opts)
             if seen[folder] then return end
             seen[folder] = true
             if exists and not exists(folder) then return end
+            -- Fix: If user manually disabled this module, don't auto-enable it
+            if EllesmereUIDB and EllesmereUIDB.moduleUserChosen and EllesmereUIDB.moduleUserChosen[folder] then
+                -- User chose this module state manually, respect it - only disable if in disable list, never auto-enable
+                if disable[folder] then
+                    C_AddOns.DisableAddOn(folder)
+                    local char = UnitName("player")
+                    pcall(C_AddOns.DisableAddOn, folder, char)
+                end
+                return
+            end
             if disable[folder] then
                 C_AddOns.DisableAddOn(folder)
+                local char = UnitName("player")
+                pcall(C_AddOns.DisableAddOn, folder, char)
             else
                 C_AddOns.EnableAddOn(folder)
+                local char = UnitName("player")
+                pcall(C_AddOns.EnableAddOn, folder, char)
             end
         end
         for _, e in ipairs(ADDON_DB_MAP) do
@@ -5131,7 +5146,10 @@ function EllesmereUI.ImportProfileSilent(opts)
         end
         -- The pack made the bags decision; keep the bag-addon auto-disable
         -- from overriding it later.
-        if EllesmereUIDB then EllesmereUIDB.bagsUserChosen = true end
+        if EllesmereUIDB then 
+            EllesmereUIDB.bagsUserChosen = true 
+            EllesmereUIDB.moduleUserChosen = EllesmereUIDB.moduleUserChosen or {}
+        end
     end
 
     return true, nil, status

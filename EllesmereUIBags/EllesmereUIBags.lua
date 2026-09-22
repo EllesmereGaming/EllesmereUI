@@ -1079,8 +1079,8 @@ local function CreateHeader()
             local function DoOnePass()
                 local stacks = {}  -- itemID -> { {bag,slot,count}, ... }
                 for bag = 0, 5 do
-                    local numSlots = C_Container.GetContainerNumSlots(bag)
-                    for slot = 1, numSlots do
+                    local numSlots = C_Container.GetContainerNumSlots(bag) or 0
+                    for slot = 1, (numSlots or 0) do
                         local info = C_Container.GetContainerItemInfo(bag, slot)
                         if info and info.itemID and info.stackCount then
                             local maxStack = maxStackByID[info.itemID]
@@ -1169,8 +1169,8 @@ local function CreateHeader()
 
             local items = {}
             for bag = bagMin, bagMax do
-                local numSlots = C_Container.GetContainerNumSlots(bag)
-                for slot = 1, numSlots do
+                local numSlots = C_Container.GetContainerNumSlots(bag) or 0
+                for slot = 1, (numSlots or 0) do
                     total = total + 1
                     sBag[total] = bag
                     sSlot[total] = slot
@@ -1319,8 +1319,8 @@ local function CreateHeader()
         local cats = EUI_CategoryManager:GetCategories()
         local tempItems = {}
         for bag = 0, 5 do
-            local numSlots = C_Container.GetContainerNumSlots(bag)
-            for slot = 1, numSlots do
+            local numSlots = C_Container.GetContainerNumSlots(bag) or 0
+            for slot = 1, (numSlots or 0) do
                 local info = C_Container.GetContainerItemInfo(bag, slot)
                 if info then
                     local itemLink = C_Container.GetContainerItemLink(bag, slot)
@@ -1465,8 +1465,8 @@ local function CreateHeader()
         local slots = {}
         local items = {}
         for bag = 0, 4 do
-            local numSlots = C_Container.GetContainerNumSlots(bag)
-            for slot = 1, numSlots do
+            local numSlots = C_Container.GetContainerNumSlots(bag) or 0
+            for slot = 1, (numSlots or 0) do
                 slots[#slots + 1] = { bag = bag, slot = slot }
                 local info = C_Container.GetContainerItemInfo(bag, slot)
                 if info then
@@ -1734,7 +1734,7 @@ end
 local function CaptureWarbandGold()
     if not C_Bank or not C_Bank.FetchDepositedMoney then return end
     InitializeCharacterGold()
-    local gold = C_Bank.FetchDepositedMoney(Enum.BankType.Account) or 0
+    local gold = 0; if C_Bank and C_Bank.FetchDepositedMoney and Enum and Enum.BankType and Enum.BankType.Account then local ok, g = pcall(C_Bank.FetchDepositedMoney, Enum.BankType.Account); if ok and g then gold = g end end
     if gold == lastCapturedWarbandGold then return end
     if warbandGoldCapturePending then return end
     lastCapturedWarbandGold = gold
@@ -5566,8 +5566,8 @@ function EUI_Bags:RefreshInventory()
     local emptySlots = {}
 
     for bag = 0, 5 do
-        local numSlots = C_Container.GetContainerNumSlots(bag)
-        for slot = 1, numSlots do
+        local numSlots = C_Container.GetContainerNumSlots(bag) or 0
+        for slot = 1, (numSlots or 0) do
             local info = C_Container.GetContainerItemInfo(bag, slot)
             if info then
                 local itemLink = C_Container.GetContainerItemLink(bag, slot)
@@ -7155,9 +7155,9 @@ function EUI_BagsReagent:RefreshInventory()
     -- Same secure-button rule as EUI_Bags:RefreshInventory: viewing in combat is fine, creating is not (GetOrCreateReagentSlot refuses); mark pending so combat-end tops up.
     if InCombatLockdown() then EUI_Bags._refreshPendingCombat = true end
     local tempItems = {}
-    local numSlots = C_Container.GetContainerNumSlots(5)
+    local numSlots = C_Container.GetContainerNumSlots(5) or 0
     if numSlots > 0 then
-        for slot = 1, numSlots do
+        for slot = 1, (numSlots or 0) do
             local info = C_Container.GetContainerItemInfo(5, slot)
             tempItems[#tempItems + 1] = { bag = 5, slot = slot, info = info }
         end
@@ -7429,8 +7429,8 @@ local function StartAddon()
         if cursorType ~= "item" then return end
         -- Check if the cursor item is from the player's bags (bag 0-4)
         for bag = 0, 4 do
-            local numSlots = C_Container.GetContainerNumSlots(bag)
-            for slot = 1, numSlots do
+            local numSlots = C_Container.GetContainerNumSlots(bag) or 0
+            for slot = 1, (numSlots or 0) do
                 local info = C_Container.GetContainerItemInfo(bag, slot)
                 if info and info.isLocked then
                     -- Locked = this slot is the pickup source
@@ -7440,8 +7440,8 @@ local function StartAddon()
         end
         -- External item: place in first empty bag slot
         for bag = 0, 4 do
-            local numSlots = C_Container.GetContainerNumSlots(bag)
-            for slot = 1, numSlots do
+            local numSlots = C_Container.GetContainerNumSlots(bag) or 0
+            for slot = 1, (numSlots or 0) do
                 if not C_Container.GetContainerItemInfo(bag, slot) then
                     C_Container.PickupContainerItem(bag, slot)
                     return
@@ -7580,8 +7580,8 @@ local function StartAddon()
     local function TallyItemCounts()
         local counts, order = {}, {}
         for bag = 0, 5 do
-            local numSlots = C_Container.GetContainerNumSlots(bag)
-            for slot = 1, numSlots do
+            local numSlots = C_Container.GetContainerNumSlots(bag) or 0
+            for slot = 1, (numSlots or 0) do
                 local info = C_Container.GetContainerItemInfo(bag, slot)
                 if info and info.itemID then
                     if not counts[info.itemID] then order[#order + 1] = info.itemID end

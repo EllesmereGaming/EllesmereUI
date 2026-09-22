@@ -7922,13 +7922,25 @@ local function CreateMainFrame()
                     confirmText = enabled and "Disable & Reload" or "Enable & Reload",
                     cancelText  = "Cancel",
                     onConfirm   = function()
-                        if folder == "EllesmereUIBags" and EllesmereUIDB then
-                            EllesmereUIDB.bagsUserChosen = true
+                        -- Fix: Track user choice for all modules, not just Bags (prevents auto-re-enable on relog)
+                        if EllesmereUIDB then
+                            EllesmereUIDB.bagsUserChosen = EllesmereUIDB.bagsUserChosen or (folder == "EllesmereUIBags")
+                            EllesmereUIDB.moduleUserChosen = EllesmereUIDB.moduleUserChosen or {}
+                            EllesmereUIDB.moduleUserChosen[folder] = true
                         end
+                        -- Fix: Disable/Enable for both all and current character to ensure persistence with per-char addon settings
+                        local char = UnitName("player")
                         if enabled then
-                            C_AddOns.DisableAddOn(folder)
+                            if C_AddOns.DisableAddOn then
+                                C_AddOns.DisableAddOn(folder)
+                                -- Also disable for current char if per-char settings used
+                                pcall(C_AddOns.DisableAddOn, folder, char)
+                            end
                         else
-                            C_AddOns.EnableAddOn(folder)
+                            if C_AddOns.EnableAddOn then
+                                C_AddOns.EnableAddOn(folder)
+                                pcall(C_AddOns.EnableAddOn, folder, char)
+                            end
                         end
                         ReloadUI()
                     end,

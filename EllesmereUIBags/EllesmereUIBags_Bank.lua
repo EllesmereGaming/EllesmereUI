@@ -157,7 +157,7 @@ local function GetCharacterBankTabs()
         for i, td in ipairs(tabData) do
             local bagID = CHARACTER_BANK_BAGS[i]
             if bagID then
-                local numSlots = C_Container.GetContainerNumSlots(bagID)
+                local numSlots = C_Container.GetContainerNumSlots(bagID) or 0
                 if numSlots > 0 then
                     local icon = td.icon
                     if not icon or icon == 134400 then icon = GetFallbackIcon(bagID) end
@@ -167,7 +167,7 @@ local function GetCharacterBankTabs()
         end
     else
         for i, bagID in ipairs(CHARACTER_BANK_BAGS) do
-            local numSlots = C_Container.GetContainerNumSlots(bagID)
+            local numSlots = C_Container.GetContainerNumSlots(bagID) or 0
             if numSlots > 0 then
                 tabs[#tabs + 1] = { bagID = bagID, numSlots = numSlots, name = EUI.Lf("Bank Tab %1$d", #tabs + 1), icon = GetFallbackIcon(bagID), depositFlags = 0 }
             end
@@ -192,7 +192,7 @@ local function GetWarbandBankTabs()
         for i, td in ipairs(tabData) do
             local bagID = WARBAND_BANK_BAGS[i]
             if bagID then
-                local numSlots = C_Container.GetContainerNumSlots(bagID)
+                local numSlots = C_Container.GetContainerNumSlots(bagID) or 0
                 if numSlots > 0 then
                     local name = td.name or EUI.Lf("Tab %1$d", i)
                     local icon = td.icon
@@ -203,7 +203,7 @@ local function GetWarbandBankTabs()
         end
     else
         for i, bagID in ipairs(WARBAND_BANK_BAGS) do
-            local numSlots = C_Container.GetContainerNumSlots(bagID)
+            local numSlots = C_Container.GetContainerNumSlots(bagID) or 0
             if numSlots > 0 then
                 tabs[#tabs + 1] = { bagID = bagID, numSlots = numSlots, name = EUI.L("Warbank") .. " " .. EUI.Lf("Tab %1$d", #tabs + 1), icon = GetFallbackIcon(bagID), depositFlags = 0 }
             end
@@ -1198,8 +1198,8 @@ function EUI_Bank:GetSelectedTabBagID()
         -- Aggregate warband view: find first warband tab with space
         for _, tab in ipairs(_allTabs) do
             if tab.isWarband then
-                local numSlots = C_Container.GetContainerNumSlots(tab.bagID)
-                for slot = 1, numSlots do
+                local numSlots = C_Container.GetContainerNumSlots(tab.bagID) or 0
+                for slot = 1, (numSlots or 0) do
                     if not C_Container.GetContainerItemInfo(tab.bagID, slot) then
                         return tab.bagID
                     end
@@ -1286,14 +1286,14 @@ end
 --- Returns true if placement was attempted, false if no space found.
 function EUI_Bank:DepositCursorItemIntoTab(bagID)
     if not bagID then return false end
-    local numSlots = C_Container.GetContainerNumSlots(bagID)
+    local numSlots = C_Container.GetContainerNumSlots(bagID) or 0
     if numSlots == 0 then return false end
     -- Try stacking first (same itemID, not full stack)
     local cursorType, cursorItemID = GetCursorInfo()
     if cursorType ~= "item" or not cursorItemID then return false end
     local maxStack = C_Item.GetItemMaxStackSizeByID(cursorItemID) or 1
     if maxStack > 1 then
-        for slot = 1, numSlots do
+        for slot = 1, (numSlots or 0) do
             local info = C_Container.GetContainerItemInfo(bagID, slot)
             if info and info.itemID == cursorItemID and info.stackCount < maxStack then
                 C_Container.PickupContainerItem(bagID, slot)
@@ -1302,7 +1302,7 @@ function EUI_Bank:DepositCursorItemIntoTab(bagID)
         end
     end
     -- Then try first empty slot
-    for slot = 1, numSlots do
+    for slot = 1, (numSlots or 0) do
         if not C_Container.GetContainerItemInfo(bagID, slot) then
             C_Container.PickupContainerItem(bagID, slot)
             return true
@@ -1341,12 +1341,12 @@ end
 --- Find target in a specific bank bag, skipping allocated slots.
 --- Tries partial stacks first, then empty slots.
 local function FindTargetSlot(targetBag, srcItemID)
-    local numSlots = C_Container.GetContainerNumSlots(targetBag)
+    local numSlots = C_Container.GetContainerNumSlots(targetBag) or 0
     if numSlots == 0 then return nil end
     local maxStack = C_Item.GetItemMaxStackSizeByID(srcItemID) or 1
     -- Partial stack first
     if maxStack > 1 then
-        for slot = 1, numSlots do
+        for slot = 1, (numSlots or 0) do
             if not IsSlotAllocated(targetBag, slot) then
                 local info = C_Container.GetContainerItemInfo(targetBag, slot)
                 if info and info.itemID == srcItemID and info.stackCount < maxStack then
@@ -1356,7 +1356,7 @@ local function FindTargetSlot(targetBag, srcItemID)
         end
     end
     -- Empty slot
-    for slot = 1, numSlots do
+    for slot = 1, (numSlots or 0) do
         if not IsSlotAllocated(targetBag, slot) then
             if not C_Container.GetContainerItemInfo(targetBag, slot) then
                 return slot
@@ -1384,8 +1384,8 @@ local function ProcessTransfer(srcBag, srcSlot)
         if maxStack > 1 then
             for _, tab in ipairs(_allTabs) do
                 if tab.isWarband then
-                    local numSlots = C_Container.GetContainerNumSlots(tab.bagID)
-                    for slot = 1, numSlots do
+                    local numSlots = C_Container.GetContainerNumSlots(tab.bagID) or 0
+                    for slot = 1, (numSlots or 0) do
                         if not IsSlotAllocated(tab.bagID, slot) then
                             local si = C_Container.GetContainerItemInfo(tab.bagID, slot)
                             if si and si.itemID == info.itemID and si.stackCount < maxStack then
@@ -1402,8 +1402,8 @@ local function ProcessTransfer(srcBag, srcSlot)
         if not targetSlot then
             for _, tab in ipairs(_allTabs) do
                 if tab.isWarband then
-                    local numSlots = C_Container.GetContainerNumSlots(tab.bagID)
-                    for slot = 1, numSlots do
+                    local numSlots = C_Container.GetContainerNumSlots(tab.bagID) or 0
+                    for slot = 1, (numSlots or 0) do
                         if not IsSlotAllocated(tab.bagID, slot) then
                             if not C_Container.GetContainerItemInfo(tab.bagID, slot) then
                                 targetBag, targetSlot = tab.bagID, slot
@@ -1941,7 +1941,7 @@ EUI_Bank.RefreshIconZoom = RefreshBankIconZoom
 
 local function CountUsedSlots(bagID, numSlots)
     local used = 0
-    for slot = 1, numSlots do
+    for slot = 1, (numSlots or 0) do
         if C_Container.GetContainerItemInfo(bagID, slot) then used = used + 1 end
     end
     return used
