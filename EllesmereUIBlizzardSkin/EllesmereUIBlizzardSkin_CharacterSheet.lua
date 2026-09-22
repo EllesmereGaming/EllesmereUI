@@ -3327,6 +3327,9 @@ local function SkinCharacterSheet()
             OnAccept = function(dialog)
                 local newName = dialog.EditBox:GetText()
                 if newName ~= "" then
+                    -- Creation saves the pending ignored slots; start clean like Blizzard's New Set.
+                    PaperDollFrame.EquipmentManagerPane.selectedSetID = nil
+                    PaperDollFrame_ClearIgnoredSlots()
                     C_EquipmentSet.CreateEquipmentSet(newName)
                     RefreshEquipmentSets()
                 end
@@ -3471,6 +3474,16 @@ local function SkinCharacterSheet()
 
         if not selectedSetID and activeEquipmentSetID then
             selectedSetID = activeEquipmentSetID
+        end
+
+        -- Blizzard's slot flyout offers Ignore This Slot, and saves honor ignored
+        -- slots, only for the set selected on its own (covered) pane.
+        local pane = PaperDollFrame.EquipmentManagerPane
+        if selectedSetID and pane.selectedSetID ~= selectedSetID
+           and C_EquipmentSet.GetEquipmentSetInfo(selectedSetID) then
+            pane.selectedSetID = selectedSetID
+            PaperDollFrame_ClearIgnoredSlots()
+            PaperDollFrame_IgnoreSlotsForSet(selectedSetID)
         end
 
         -- Lazy-create a tile with all sub-frames + once-bound scripts. Data
@@ -3739,6 +3752,11 @@ local function SkinCharacterSheet()
             end
         end
         activeEquipmentSetID = newActiveID
+        -- Blizzard's pane selects a set equipped from outside this panel; follow it.
+        local paneSetID = PaperDollFrame.EquipmentManagerPane.selectedSetID
+        if paneSetID and C_EquipmentSet.GetEquipmentSetInfo(paneSetID) then
+            selectedSetID = paneSetID
+        end
         for _, tile in ipairs(setTilePool) do
             if tile:IsShown() and tile._setText and tile._setName then
                 if IsEquipmentSetComplete(tile._setName) then
