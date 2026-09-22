@@ -93,6 +93,13 @@ local EXTERNAL_SPELLS = {
     { id = 116849, name = "Life Cocoon",            class = "MONK" },  -- Mistweaver
 }
 
+-- Grimoire of Sacrifice (108503) buff 196099 means no pet, so pet spells like Singe Magic are not castable.
+local function IsPetSacrificed()
+    if not C_UnitAuras or not C_UnitAuras.GetPlayerAuraBySpellID then return false end
+    local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, 196099)
+    return ok and aura ~= nil
+end
+
 -- This class's preset entries, narrowed to what the character can cast. A /cast
 -- line naming a spell they have not got matches its condition and then casts
 -- nothing, eating the fallback the next line was there to be, so an unavailable
@@ -100,7 +107,7 @@ local EXTERNAL_SPELLS = {
 -- unfiltered list: the book can lag the first apply at login, so "nothing
 -- available" is as likely stale as true, and an all-unknown list shadows
 -- nothing anyway. Singe Magic is exempt -- the pet book holds only the
--- summoned demon's spells.
+-- summoned demon's spells (unless sacrificed).
 local function ClassPresetSpells(spellList, class)
     local bank = Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player
     local canCheck = C_SpellBook.IsSpellInSpellBook and bank
@@ -108,7 +115,8 @@ local function ClassPresetSpells(spellList, class)
     for _, sp in ipairs(spellList) do
         if sp.class == class then
             all[#all + 1] = sp
-            if sp.pet or not canCheck or C_SpellBook.IsSpellInSpellBook(sp.id, bank, true) then
+            local isPetUsable = sp.pet and not IsPetSacrificed()
+            if isPetUsable or not canCheck or C_SpellBook.IsSpellInSpellBook(sp.id, bank, true) then
                 usable[#usable + 1] = sp
             end
         end
@@ -339,7 +347,11 @@ for _, sp in ipairs(DISPEL_SPELLS) do
 end
 
 local function IsSpellIDKnown(id)
-    if type(id) ~= "number" or id <= 0 or PET_SPELL_IDS[id] then return true end
+    if type(id) ~= "number" or id <= 0 then return true end
+    if PET_SPELL_IDS[id] then
+        if IsPetSacrificed() then return false end
+        return true
+    end
     local bank = Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player
     if not (C_SpellBook.IsSpellInSpellBook and bank) then return true end
     if C_SpellBook.IsSpellInSpellBook(id, bank, true) then return true end
@@ -1097,7 +1109,7 @@ function ns.CC_GetEquippedItems()
     -- Bag on-use items (potions, healthstones, consumables, etc.)
     if C_Container then
         for bag = 0, 4 do
-            local numSlots = C_Container.GetContainerNumSlots(bag)
+            local numSlots = C_Container.GetContainerNumSlots(bag) or 0
             for slot = 1, numSlots do
                 local containerInfo = C_Container.GetContainerItemInfo(bag, slot)
                 if containerInfo and containerInfo.itemID and not seen[containerInfo.itemID] then

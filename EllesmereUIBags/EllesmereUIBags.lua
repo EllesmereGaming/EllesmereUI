@@ -1303,7 +1303,7 @@ local function CreateHeader()
 
         local function RunSort()
             RunRetryLoop(0, 4, function()
-                if C_Container.GetContainerNumSlots(5) > 0 then
+                if (C_Container.GetContainerNumSlots(5) or 0) > 0 then
                     RunRetryLoop(5, 5, FinishSort)
                 else
                     FinishSort()
@@ -2237,7 +2237,7 @@ do
     local containerOps = {
         ownerBag = function(owner) return owner:GetParent():GetID() end,
         info     = C_Container.GetContainerItemInfo,
-        numSlots = C_Container.GetContainerNumSlots,
+        numSlots = function(bag) return C_Container.GetContainerNumSlots(bag) or 0 end,
         split    = C_Container.SplitContainerItem,
         pickup   = C_Container.PickupContainerItem,
     }
@@ -5853,7 +5853,7 @@ function EUI_Bags:RefreshInventory()
             -- MultiBag: one section per bag that has slots (+ reagent)
             n = #tempItems + #emptySlots
             S = 0
-            for bag = 0, 5 do if C_Container.GetContainerNumSlots(bag) > 0 then S = S + 1 end end
+            for bag = 0, 5 do if (C_Container.GetContainerNumSlots(bag) or 0) > 0 then S = S + 1 end end
             if S < 1 then S = 1 end
         else
             -- OneBag / group view: a few sections (pinned/recent/main/reagent)
@@ -7252,8 +7252,8 @@ function EUI_BagsWindow:RefreshBags()
         local invID = C_Container.ContainerIDToInventoryID(i)
         local texture = GetInventoryItemTexture("player", invID)
         local quality = GetInventoryItemQuality("player", invID) or 0
-        local free = C_Container.GetContainerNumFreeSlots(i)
-        local total = C_Container.GetContainerNumSlots(i)
+        local free = C_Container.GetContainerNumFreeSlots(i) or 0
+        local total = C_Container.GetContainerNumSlots(i) or 0
         if i == 0 then btn.icon:SetTexture(133633)
         elseif texture then btn.icon:SetTexture(texture)
         else btn.icon:SetTexture("Interface\\PaperDoll\\UI-PaperDoll-Slot-Bag") end
@@ -7282,8 +7282,8 @@ function EUI_BagsWindow:RefreshBags()
                     local bLink = GetInventoryItemLink("player", bInvID)
                     bName = bLink and GetItemInfo(bLink) or EUI.Lf("Bag %1$d", bagIdx)
                 end
-                local bTotal = C_Container.GetContainerNumSlots(bagIdx)
-                local bFree = C_Container.GetContainerNumFreeSlots(bagIdx)
+                local bTotal = C_Container.GetContainerNumSlots(bagIdx) or 0
+                local bFree = C_Container.GetContainerNumFreeSlots(bagIdx) or 0
                 local tip = bName
                 if bTotal > 0 then tip = tip .. "  (" .. (bTotal - bFree) .. "/" .. bTotal .. ")" end
                 EUI.ShowWidgetTooltip(self, tip)

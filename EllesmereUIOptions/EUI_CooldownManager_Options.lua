@@ -12770,7 +12770,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                 end
                 for bag = 0, 4 do
-                    local numSlots = C_Container.GetContainerNumSlots(bag)
+                    local numSlots = C_Container.GetContainerNumSlots(bag) or 0
                     for slot = 1, numSlots do
                         local info = C_Container.GetContainerItemInfo(bag, slot)
                         if info and info.itemID and not seen[info.itemID] and not BAG_ITEM_BLACKLIST[info.itemID] then

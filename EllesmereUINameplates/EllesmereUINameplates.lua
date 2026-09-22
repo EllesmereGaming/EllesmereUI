@@ -8570,6 +8570,8 @@ function NameplateFrame:UNIT_SPELLCAST_STOP()
         self:HideKickTick()
         self:ClearImportantCastGlow()
         self:ApplyScale()
+        if ns.ClearHoverExtras then ns.ClearHoverExtras(self) end
+        self:ApplyTarget()
         if not self._interrupted then
             self.cast:Hide()
         end

@@ -310,7 +310,7 @@ qolFrame:SetScript("OnEvent", function(self)
             if not IsEnabled() then self:Hide(); return end
             local checked = 0
             while checked < SLOTS_PER_FRAME do
-                local numSlots = C_Container.GetContainerNumSlots(_scanBag)
+                local numSlots = C_Container.GetContainerNumSlots(_scanBag) or 0
                 if _scanSlot > numSlots then
                     _scanBag = _scanBag + 1
                     _scanSlot = 1
@@ -437,7 +437,7 @@ qolFrame:SetScript("OnEvent", function(self)
 
             local toOpen = {}
             for bag = BACKPACK_CONTAINER, NUM_BAG_SLOTS do
-                for slot = 1, C_Container.GetContainerNumSlots(bag) do
+                for slot = 1, (C_Container.GetContainerNumSlots(bag) or 0) do
                     local info = C_Container.GetContainerItemInfo(bag, slot)
                     if info and info.itemID then
                         -- Only tooltip-check uncached items (new loot)
@@ -856,7 +856,7 @@ qolFrame:SetScript("OnEvent", function(self)
         local function CountJunk()
             local junk, unknown = 0, 0
             for bag = BACKPACK_CONTAINER, NUM_BAG_SLOTS do
-                for slot = 1, C_Container.GetContainerNumSlots(bag) do
+                for slot = 1, (C_Container.GetContainerNumSlots(bag) or 0) do
                     local info = C_Container.GetContainerItemInfo(bag, slot)
                     if info and info.itemID then
                         if info.quality == nil then
@@ -1287,7 +1287,7 @@ qolFrame:SetScript("OnEvent", function(self)
             if EllesmereUIDB and EllesmereUIDB.autoInsertKeystone == false then return end
             if C_ChallengeMode.GetSlottedKeystoneInfo() then return end
             for bag = BACKPACK_CONTAINER, NUM_BAG_SLOTS do
-                local slots = C_Container.GetContainerNumSlots(bag)
+                local slots = C_Container.GetContainerNumSlots(bag) or 0
                 for slot = 1, slots do
                     local link = C_Container.GetContainerItemLink(bag, slot)
                     if link and link:find("|Hkeystone:") then

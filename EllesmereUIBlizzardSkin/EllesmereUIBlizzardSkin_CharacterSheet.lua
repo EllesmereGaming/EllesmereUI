@@ -1227,7 +1227,7 @@ local function SkinCharacterSheet()
         -- Check all bag slots (0 = backpack, 1-4 = bag slots, 5 = reagent
         -- bag -- included since it can hold any item, not just reagents).
         for bagSlot = 0, 5 do
-            local bagSize = C_Container.GetContainerNumSlots(bagSlot)
+            local bagSize = C_Container.GetContainerNumSlots(bagSlot) or 0
             for slotIndex = 1, bagSize do
                 local itemLink = C_Container.GetContainerItemLink(bagSlot, slotIndex)
                 if itemLink then

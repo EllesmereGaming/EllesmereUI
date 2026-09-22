@@ -717,7 +717,7 @@ initFrame:SetScript("OnEvent", function(self)
     local function ItemEntries()
         local out, seen = {}, {}
         local function ScanBag(bag)
-            for slot = 1, C_Container.GetContainerNumSlots(bag) do
+            for slot = 1, (C_Container.GetContainerNumSlots(bag) or 0) do
                 local info = C_Container.GetContainerItemInfo(bag, slot)
                 local itemID = info and info.itemID
                 -- Only items with a use effect. The palette fires "/use item:<id>",
@@ -1813,7 +1813,7 @@ initFrame:SetScript("OnEvent", function(self)
     local function PotionSlots()
         local out, seen = {}, {}
         local function ScanBag(bag)
-            for slot = 1, C_Container.GetContainerNumSlots(bag) do
+            for slot = 1, (C_Container.GetContainerNumSlots(bag) or 0) do
                 local info = C_Container.GetContainerItemInfo(bag, slot)
                 local itemID = info and info.itemID
                 if itemID and not seen[itemID] and #out < MAX_SLOTS
@@ -1933,7 +1933,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
         local function ScanBag(bag)
-            for slot = 1, C_Container.GetContainerNumSlots(bag) do
+            for slot = 1, (C_Container.GetContainerNumSlots(bag) or 0) do
                 local info = C_Container.GetContainerItemInfo(bag, slot)
                 local itemID = info and info.itemID
                 if itemID and not seen[itemID] then
