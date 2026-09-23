@@ -1953,7 +1953,9 @@ initFrame:SetScript("OnEvent", function(self)
         if ns.RS_Refresh then ns.RS_Refresh() end
     end
 
-    local function RSOn() return RSCfg() ~= nil and RSCfg().enabled == true end
+    local RS_DETAILS_TIP = "Run Summary doesn't work alongside Details!. Disable Details! to use it again."
+    local function RSBlocked() return ns.RS_BlockedByDetails ~= nil and ns.RS_BlockedByDetails() end
+    local function RSOn() return RSCfg() ~= nil and RSCfg().enabled == true and not RSBlocked() end
     local function RSOff() return not RSOn() end
 
     local function BuildRSPage(pageName, parent, yOffset)
@@ -2008,6 +2010,17 @@ initFrame:SetScript("OnEvent", function(self)
                     })
                 end)
 
+            -- Greyed out and inert while Details! is loaded; hovering still
+            -- explains why.
+            if RSBlocked() then
+                for _, btn in ipairs({ previewBtn, clearBtn }) do
+                    btn:SetAlpha(0.3)
+                    btn:SetScript("OnClick", nil)
+                    btn:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(btn, RS_DETAILS_TIP) end)
+                    btn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                end
+            end
+
             y = y - ROW_H
         end
 
@@ -2016,6 +2029,9 @@ initFrame:SetScript("OnEvent", function(self)
         row, h = W:DualRow(parent, y,
             { type="toggle", text="Enable Run Summary",
               tooltip="Records every finished Mythic+ key and shows an overview of the group when the run ends. Nothing is registered or created while this is off.",
+              disabled=RSBlocked,
+              disabledTooltip=RS_DETAILS_TIP,
+              rawTooltip=true,
               getValue=RSOn,
               setValue=function(v) RSSet("enabled", v and true or false); EllesmereUI:RefreshPage() end },
             { type="toggle", text="Show After Looting",

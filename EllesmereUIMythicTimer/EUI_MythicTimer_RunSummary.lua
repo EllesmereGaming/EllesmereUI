@@ -47,9 +47,19 @@ local function Cfg()
     return p and p.runSummary
 end
 
+-- Details! copies Blizzard's meter sessions into its own segments and resets
+-- them after every combat, so the Overall session diffed below no longer
+-- covers the key. The feature stays off while it is loaded; the saved setting
+-- and the run history are left untouched.
+local function BlockedByDetails()
+    return C_AddOns ~= nil and C_AddOns.IsAddOnLoaded ~= nil
+        and C_AddOns.IsAddOnLoaded("Details") == true
+end
+ns.RS_BlockedByDetails = BlockedByDetails
+
 local function Enabled()
     local c = Cfg()
-    return c and c.enabled == true
+    return c and c.enabled == true and not BlockedByDetails()
 end
 
 local function IsSecret(v)
@@ -1844,7 +1854,11 @@ SLASH_EUIMPLUS1 = "/ov"
 SLASH_EUIMPLUS2 = "/euimplus"
 SlashCmdList.EUIMPLUS = function(msg)
     if not Enabled() then
-        EUI.Print("|cffff6060[EllesmereUI]|r " .. EllesmereUI.L("Run Summary is disabled in Mythic+ Tools."))
+        if BlockedByDetails() then
+            EUI.Print("|cffff6060[EllesmereUI]|r " .. EllesmereUI.L("Run Summary doesn't work alongside Details!. Disable Details! to use it again."))
+        else
+            EUI.Print("|cffff6060[EllesmereUI]|r " .. EllesmereUI.L("Run Summary is disabled in Mythic+ Tools."))
+        end
         return
     end
     local lower = msg and msg:lower() or ""
