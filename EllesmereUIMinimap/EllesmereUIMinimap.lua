@@ -72,6 +72,10 @@ local defaults = {
             -- top border bar and element placement on our map with every EUI
             -- feature intact. Default OFF; reload-gated.
             useBlizzardStyle = false,
+            -- Classic WoW UI (Global Settings > Style): the vanilla ring, zone
+            -- banner and zoom buttons on our map, the same stock-mode geometry
+            -- as Blizzard Style. Default OFF; reload-gated.
+            useClassicStyle = false,
             shape         = "square",
             rotateMinimap = false,
             borderSize    = 1,
@@ -120,7 +124,9 @@ local defaults = {
             zoomResetSeconds = 0,
             -- false = Zoom +/- Icons checked in Show Blizzard Elements (buttons hover-show). The old true default was inert on Midnight (targeted pre-Midnight global button names), so flipping it changed nobody's visual state.
             hideZoomButtons      = false,
-            hideTrackingButton   = true,
+            -- false = Tracking checked in Show Blizzard Elements on both clients (user
+            -- decision 2026-09-21); a profile that never touched the row gains the button.
+            hideTrackingButton   = false,
             hideGameTime         = false,
             hideMail             = false,
             -- Mail indicator: "button" = element row, or a map corner (TOPLEFT/TOPRIGHT/BOTTOMLEFT/BOTTOMRIGHT) pinned like Omnium Folio's, nudged by X/Y offsets.
@@ -3279,7 +3285,8 @@ end
 
 local MAIL_CORNER_POINTS = { TOPLEFT = true, TOPRIGHT = true, BOTTOMLEFT = true, BOTTOMRIGHT = true }
 
--- Blizzard Style: dress one of OUR row buttons as the stock round minimap
+-- Stock styles: dress one of OUR row buttons (and, under Classic WoW UI, the
+-- indicators) as the stock round minimap
 -- button: a 31px button with the 53px ring-border texture hung from its
 -- top-left exactly as addon buttons hang it (its shadow falls bottom-right).
 -- Measured on that texture at the 53px draw size, the gold band's inner
@@ -3325,6 +3332,7 @@ function EBS._ClassicRingButton(btn, crop, ...)
     end
     ring:Show()
     btn._classicDisc:Show()
+    btn._classicHL:Show()
     for i = 1, select("#", ...) do
         local tex = select(i, ...)
         if tex then
@@ -3353,6 +3361,25 @@ function EBS._ClassicRingButton(btn, crop, ...)
     end
 end
 
+-- Takes the ring dress off a button the pass renders bare (a mail pinned to a
+-- corner): ring, disc and highlight hide and the round mask comes off the
+-- textures given, so the pass's own geometry shows unclipped. Re-dressing
+-- puts everything back; a button never dressed is left alone.
+function EBS._ClassicRingUndress(btn, ...)
+    local ring = btn and btn._classicRing
+    if not ring then return end
+    ring:Hide()
+    btn._classicDisc:Hide()
+    btn._classicHL:Hide()
+    for i = 1, select("#", ...) do
+        local tex = select(i, ...)
+        if tex and tex._classicMasked then
+            tex:RemoveMaskTexture(btn._classicMask)
+            tex._classicMasked = nil
+        end
+    end
+end
+
 local function LayoutIndicatorFrames(minimap, p, circleMode)
     local flvl = minimap:GetFrameLevel() + 10
     local mapAnchor = GetFFD(minimap).layoutFrame or minimap
@@ -3374,7 +3401,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
     local function ResizeIndicator(btn)
         if not btn then return end
         btn:SetSize(sz, sz)
-        -- Blizzard Style indicators are bare icons, as on the stock map.
+        -- Stock styles: no EUI black box behind the indicators.
         if btn._bg then btn._bg:SetShown(showBg and not blizzHdr) end
         local ratio = btn._upAtlas and INDICATOR_ATLAS_RATIO[btn._upAtlas]
         if ratio and btn._icon then
@@ -3440,14 +3467,22 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
     if not minimap.Layout then minimap.Layout = function() end end
 
     if blizzHdr then
-        -- Blizzard Style: stock placement around the top bar -- tracking on its
-        -- left, mail and crafting stacked under the tracking button, calendar
-        -- on its right, the difficulty flag under the bar's right end. Corner
-        -- mail and every hide toggle still apply.
+        -- Stock styles: placement around the top bar -- tracking on its left,
+        -- calendar on its right, crafting stacked under the tracking button,
+        -- the difficulty flag hung under the bar's right end. Blizzard Style
+        -- stacks the mail under the tracking button too; Classic WoW UI puts
+        -- it at the vanilla spot on the ring's upper right, below the flag,
+        -- and dresses the row's indicators as the vanilla round buttons (a
+        -- corner-pinned mail renders bare). Corner mail and every hide toggle
+        -- still apply.
+        local classic = EBS._MinimapClassic()
+        local cs = (p.mapSize or 140) / 140
         if ci.tracking and not p.hideTrackingButton then
-            -- The stock tracking button sits on a round plate (our own button, so the
-            -- texture lives on it directly).
-            if not ci.tracking._blizzRing then
+            if classic then
+                EBS._ClassicRingButton(ci.tracking, nil, ci.tracking._icon)
+            elseif not ci.tracking._blizzRing then
+                -- The stock tracking button sits on a round plate (our own button, so the
+                -- texture lives on it directly).
                 local ring = ci.tracking:CreateTexture(nil, "BACKGROUND")
                 ring:SetAllPoints(ci.tracking)
                 ring:SetAtlas("ui-hud-minimap-button")
@@ -3466,9 +3501,26 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
         end
         local under = (ci.tracking and ci.tracking:IsShown()) and ci.tracking or nil
         if ci.mail and ci.mail:IsShown() then
+            if classic then
+                if mailCorner then
+                    EBS._ClassicRingUndress(ci.mail, ci.mail._icon)
+                else
+                    EBS._ClassicRingButton(ci.mail, nil, ci.mail._icon)
+                    -- The dress squares its icon; the envelope keeps its atlas
+                    -- aspect at the ring's 16px icon height.
+                    local ratio = ci.mail._upAtlas and INDICATOR_ATLAS_RATIO[ci.mail._upAtlas]
+                    if ratio and ci.mail._icon then ci.mail._icon:SetSize(16 * ratio, 16) end
+                end
+            end
             ci.mail:ClearAllPoints()
             if mailCorner then
                 ci.mail:SetPoint(mailCorner, mapAnchor, mailCorner, p.mailOffsetX or 0, p.mailOffsetY or 0)
+            elseif classic then
+                -- The vanilla mail frame: 33px, its TOPRIGHT 24,-37 off the map's
+                -- top-right corner, ring border hung from its top-left; placed by
+                -- that top-left, 6 lower than the vanilla spot so the difficulty
+                -- flag hanging under the banner's right end clears the ring.
+                ci.mail:SetPoint("TOPLEFT", minimap, "TOPRIGHT", -9 * cs, -43 * cs)
             else
                 if under then
                     ci.mail:SetPoint("TOP", under, "BOTTOM", 0, 0)
@@ -3479,6 +3531,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
             end
         end
         if ci.crafting and ci.crafting:IsShown() then
+            if classic then EBS._ClassicRingButton(ci.crafting, nil, ci.crafting._icon) end
             ci.crafting:ClearAllPoints()
             if under then
                 ci.crafting:SetPoint("TOP", under, "BOTTOM", 0, 0)
@@ -3596,8 +3649,8 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
         local rowGap = PP.SnapForES(p.btnRowSpacing or 0, rowES)
         local rowX = PP.SnapForES(rowBaseX, rowES)
         local rowY = PP.SnapForES(rowBaseY, rowES)
-        -- Blizzard Style: the row follows the compass ring instead of the square's
-        -- edge, as the stock map's addon buttons do -- each button centred on the
+        -- Stock styles: the row follows the ring instead of the square's edge,
+        -- as the stock map's addon buttons do -- each button centred on the
         -- circle just outside the map (the stock addon-button radius, 5px scaled
         -- with the map, plus Distance from Map), starting at the row's corner and
         -- walking round in its growth direction; Icon Spacing becomes the arc gap.
@@ -3620,10 +3673,10 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
                 rowY = rowY + adv * rowMode.dirY
             end
         end
-        -- Blizzard Style: every button on the ring wears the stock round
-        -- minimap-button look -- ours dressed by EBS._ClassicRingButton, addon
-        -- buttons in their own native dress (the common minimap-button
-        -- library draws exactly that look).
+        -- Stock styles: every button on the ring wears the round minimap-button
+        -- look -- ours dressed by EBS._ClassicRingButton, addon buttons in
+        -- their own native dress (the common minimap-button library draws
+        -- exactly that look).
         if arcR then EBS._ClassicRingButton(flyoutToggle, 0.12, flyoutToggle._norm, flyoutToggle._pushed, flyoutToggle._hl) end
         flyoutToggle:ClearAllPoints()
         local flyoutVisible = flyoutToggle:IsShown()
@@ -3925,7 +3978,7 @@ local function PositionOmniumFolio(btn)
     -- Anchor the button's chosen corner to the minimap's same corner; X/Y nudge from there (positive X = right, positive Y = up, regardless of corner).
     local corner = mp.omniumFolioCorner or "BOTTOMLEFT"
     if EBS._MinimapBlizz() then
-        -- Blizzard Style: the stock spot on the compass ring (the button's centre
+        -- Stock styles: the stock spot on the ring (the button's centre
         -- 84 left and 63.5 below the map centre at the stock 198px map: the
         -- backdrop's TOPLEFT -3,-150 for the 53px button), mirrored to the chosen
         -- corner and scaled with the map. Anchor offsets are in the button's own
@@ -4169,7 +4222,7 @@ function EBS._PositionAddonCompartment(btn)
     local corner = mp.addonCompartmentCorner or "TOPRIGHT"
     local placed = false
     if EBS._MinimapBlizz() then
-        -- Blizzard Style: the stock spot is under the calendar (the button's
+        -- Stock styles: the stock spot is under the calendar (the button's
         -- top-left to the calendar's bottom-left; calendar hidden = right of the
         -- top bar); any other corner is that corner's diagonal on the compass
         -- ring. The nudges still apply.
@@ -4257,7 +4310,7 @@ end
 -- Parenting the canvas to the 4:3 layout frame is what crops the blips.
 local function DesiredMapParent(minimap)
     local p = EBS.db and EBS.db.profile.minimap
-    -- Blizzard Style is always the round map, whatever shape is stored.
+    -- The stock styles are always the round map, whatever shape is stored.
     if p and (p.shape or "square") == "rectangular" and not EBS._MinimapBlizz() then
         return GetFFD(minimap).layoutFrame or UIParent
     end
@@ -4265,36 +4318,56 @@ local function DesiredMapParent(minimap)
 end
 
 -------------------------------------------------------------------------------
---  Blizzard Style (Global Settings > Style). The stock look on our own map:
---  Blizzard's compass ring (its own texture, so Rotate Minimap keeps turning
---  it) and top border bar reparented onto the map and scaled with it, the
---  zoom buttons and indicators where the stock layout puts them, no EUI
---  border. Every EUI feature keeps working. Reload-gated per-profile flag,
---  read only on apply passes; all of this is skipped while it is off.
+--  Stock styles (Global Settings > Style): Blizzard Style and Classic WoW UI.
+--  Both force the round map, drop the EUI border and put the zoom buttons,
+--  indicators and button row where a stock layout puts them; only the art
+--  differs. Blizzard Style wears the 12.1 kit: Blizzard's compass ring (its
+--  own texture, so Rotate Minimap keeps turning it) sized onto the map and a
+--  header of ours in the stock NineSlice kit. Classic WoW UI wears the
+--  vanilla texture files: the UI-Minimap-Border ring and zone banner on
+--  frames of ours, the vanilla zoom buttons, the ring-border indicators.
+--  Every EUI feature keeps working. Reload-gated per-profile flags, read only
+--  on apply passes; all of this is skipped while both are off.
 -------------------------------------------------------------------------------
+-- The style this module RENDERS this session: "eui" | "blizzard" | "classic".
 -- Read from the profile once (first call with a profile present) and latched
 -- for the session: a live profile switch never flips the look under the
 -- one-time chrome setup; the profile system prompts for a reload instead.
-EBS._MinimapBlizz = function()
-    local v = EBS._blizzStyleLatch
+EBS._MinimapStyle = function()
+    local v = EBS._styleLatch
     if v == nil then
         local m = EBS.db and EBS.db.profile and EBS.db.profile.minimap
-        if not m then return false end
-        v = m.useBlizzardStyle and true or false
-        EBS._blizzStyleLatch = v
+        if not m then return "eui" end
+        v = (m.useClassicStyle and "classic") or (m.useBlizzardStyle and "blizzard") or "eui"
+        EBS._styleLatch = v
     end
     return v
 end
+-- Stock-art mode: true for both stock styles (the geometry, gating and
+-- placement they share).
+EBS._MinimapBlizz = function() return EBS._MinimapStyle() ~= "eui" end
+EBS._MinimapClassic = function() return EBS._MinimapStyle() == "classic" end
 -- Published on the module ns for the Style page and the profile-switch check.
 EllesmereUI._ModuleNS[ADDON_NAME].MinimapBlizz = EBS._MinimapBlizz
+EllesmereUI._ModuleNS[ADDON_NAME].MinimapStyle = EBS._MinimapStyle
 
 -- Zoom button anchor, shared by the apply pass and the SetPoint re-assert
--- hooks: EUI stacks them at the bottom-right corner; Blizzard Style places
--- them where the stock map does (offsets scale with the map size).
+-- hooks: EUI stacks them at the bottom-right corner; the stock styles place
+-- them where their stock map does (offsets scale with the map size).
 EBS._ZoomAnchor = function(btn, isIn, minimap)
     local p = EBS.db and EBS.db.profile.minimap
     btn:ClearAllPoints()
-    if p and EBS._MinimapBlizz() then
+    local style = p and EBS._MinimapStyle() or "eui"
+    if style == "classic" then
+        -- Vanilla: MinimapZoomIn CENTER 69,-37 and MinimapZoomOut CENTER 43,-65
+        -- of the backdrop centred on the 140px map.
+        local s = (p.mapSize or 140) / 140
+        if isIn then
+            btn:SetPoint("CENTER", minimap, "CENTER", 69 * s, -37 * s)
+        else
+            btn:SetPoint("CENTER", minimap, "CENTER", 43 * s, -65 * s)
+        end
+    elseif style == "blizzard" then
         local s = (p.mapSize or 140) / 198
         if isIn then
             btn:SetPoint("CENTER", minimap, "CENTER", 88 * s, -68 * s)
@@ -4306,7 +4379,7 @@ EBS._ZoomAnchor = function(btn, isIn, minimap)
     end
 end
 
--- A button's spot on the ring round the map (Blizzard Style button row):
+-- A button's spot on the ring round the map (stock-style button row):
 -- radius r, angle t (radians, 0 = right, counter-clockwise), snapped to the
 -- physical grid at the row's effective scale.
 EBS._ArcPoint = function(btn, minimap, r, t, es)
@@ -4361,6 +4434,97 @@ EBS._ApplyBlizzMinimapChrome = function(minimap, mapSize)
     header:SetPoint("BOTTOM", minimap, "TOP", 5, 24)
     header:SetScale(s)
     header:SetFrameLevel(minimap:GetFrameLevel() + 4)
+    header:Show()
+end
+
+-- Classic WoW UI: the stock zoom button wearing the vanilla button files at
+-- the vanilla 32px size, scaled with the map. Texture setters and SetSize
+-- only on this Blizzard button; the one-time skin is memoized in its lookup
+-- record. The vanilla files fill the whole button, so the atlas coordinates
+-- the stock art left behind are reset.
+EBS._ClassicZoomButton = function(btn, isIn, s)
+    btn:SetSize(32 * s, 32 * s)
+    local d = GetFFD(btn)
+    if d.classicSkin then return end
+    d.classicSkin = true
+    local base = isIn and "Interface\\Minimap\\UI-Minimap-ZoomInButton-" or "Interface\\Minimap\\UI-Minimap-ZoomOutButton-"
+    btn:SetNormalTexture(base .. "Up")
+    btn:SetPushedTexture(base .. "Down")
+    btn:SetDisabledTexture(base .. "Disabled")
+    btn:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight", "ADD")
+    local tex = btn:GetNormalTexture()
+    if tex then tex:SetTexCoord(0, 1, 0, 1) end
+    tex = btn:GetPushedTexture()
+    if tex then tex:SetTexCoord(0, 1, 0, 1) end
+    tex = btn:GetDisabledTexture()
+    if tex then tex:SetTexCoord(0, 1, 0, 1); tex:SetDesaturated(false) end
+    tex = btn:GetHighlightTexture()
+    if tex then tex:SetTexCoord(0, 1, 0, 1); tex:SetBlendMode("ADD") end
+end
+
+-- Classic WoW UI chrome: the vanilla UI-Minimap-Border file on two frames of
+-- ours. The ring: the 192x192 region the vanilla MinimapBorder draws, centred
+-- 8 left and 24 below the map centre (the art's circle sits on the map, the
+-- rest is the lower-left bulge), on a frame above the map like the vanilla
+-- backdrop, scaled by mapSize/140. The banner: the MinimapBorderTop strip
+-- (sheet rows 0..28, columns 80..256) on OUR header frame (the same header
+-- record the indicators, compartment and zone text anchor to), drawn in
+-- three pieces at the sheet's own pixel size -- the 36-column rounded left
+-- end, the 16-column right end and the middle stretched between them -- so
+-- it spans the map plus the vanilla 18 a side without growing taller on a
+-- big map; its bottom sits 4 above the map's top, under the map and ring as
+-- the cluster's own region is; its zone-text slot is a 12-tall box centred
+-- on the banner between the ends. Created once, re-anchored per apply pass.
+EBS._ApplyClassicMinimapChrome = function(minimap, mapSize)
+    local s = mapSize / 140
+    local d = GetFFD(minimap)
+    local ring = d.classicRing
+    if not ring then
+        ring = CreateFrame("Frame", nil, minimap)
+        ring:EnableMouse(false)
+        local tex = ring:CreateTexture(nil, "ARTWORK")
+        tex:SetAllPoints(ring)
+        tex:SetTexture("Interface\\Minimap\\UI-Minimap-Border")
+        tex:SetTexCoord(0.25, 1.0, 0.125, 0.875)
+        d.classicRing = ring
+    end
+    ring:ClearAllPoints()
+    ring:SetPoint("CENTER", minimap, "CENTER", -8 * s, -24 * s)
+    ring:SetSize(192 * s, 192 * s)
+    ring:SetFrameLevel(minimap:GetFrameLevel() + 3)
+    ring:Show()
+    local header = d.blizzHeader
+    if not header then
+        header = CreateFrame("Frame", nil, minimap)
+        header:EnableMouse(false)
+        local file = "Interface\\Minimap\\UI-Minimap-Border"
+        local capL = header:CreateTexture(nil, "ARTWORK")
+        capL:SetTexture(file)
+        capL:SetTexCoord(0.3125, 0.453125, 0.0, 0.109375)
+        capL:SetSize(36, 28)
+        capL:SetPoint("TOPLEFT", header, "TOPLEFT", 0, 0)
+        local capR = header:CreateTexture(nil, "ARTWORK")
+        capR:SetTexture(file)
+        capR:SetTexCoord(0.9375, 1.0, 0.0, 0.109375)
+        capR:SetSize(16, 28)
+        capR:SetPoint("TOPRIGHT", header, "TOPRIGHT", 0, 0)
+        local mid = header:CreateTexture(nil, "ARTWORK")
+        mid:SetTexture(file)
+        mid:SetTexCoord(0.453125, 0.9375, 0.0, 0.109375)
+        mid:SetPoint("TOPLEFT", capL, "TOPRIGHT", 0, 0)
+        mid:SetPoint("BOTTOMRIGHT", capR, "BOTTOMLEFT", 0, 0)
+        local slot = CreateFrame("Frame", nil, header)
+        slot:SetHeight(12)
+        slot:SetPoint("CENTER", header, "CENTER", 0, 1)
+        slot:EnableMouse(false)
+        header._zoneSlot = slot
+        d.blizzHeader = header
+    end
+    header:ClearAllPoints()
+    header:SetSize(mapSize + 36, 28)
+    header:SetPoint("BOTTOM", minimap, "TOP", 0, 4)
+    header._zoneSlot:SetWidth(math.max(40, mapSize + 36 - 52))
+    header:SetFrameLevel(math.max(0, minimap:GetFrameLevel() - 1))
     header:Show()
 end
 
@@ -4500,8 +4664,9 @@ local function ApplyMinimap()
 
     for _, name in ipairs(minimapDecorations) do
         local frame = _G[name]
-        -- Blizzard Style keeps the stock compass ring (placed once the map has its size).
-        if frame and not (blizz and name == "MinimapCompassTexture") then frame:Hide() end
+        -- Blizzard Style keeps the stock compass ring (placed once the map has
+        -- its size); Classic WoW UI draws its own ring and hides it like EUI.
+        if frame and not (blizz and not EBS._MinimapClassic() and name == "MinimapCompassTexture") then frame:Hide() end
     end
     -- The addon compartment is placed (or parked) by EBS._ApplyAddonCompartment
     -- at the end of this pass, once the map has its final size and position.
@@ -4564,8 +4729,13 @@ local function ApplyMinimap()
     end
 
     if blizz then
-        -- Blizzard Style: stock compass ring + top bar instead of any EUI border.
-        EBS._ApplyBlizzMinimapChrome(minimap, mapSize)
+        -- Stock styles: the stock chrome (compass ring + top bar, or the vanilla
+        -- ring + banner) instead of any EUI border.
+        if EBS._MinimapClassic() then
+            EBS._ApplyClassicMinimapChrome(minimap, mapSize)
+        else
+            EBS._ApplyBlizzMinimapChrome(minimap, mapSize)
+        end
         if GetFFD(minimap).borderHost then GetFFD(minimap).borderHost:Hide() end
         if GetFFD(minimap).circBorder then GetFFD(minimap).circBorder:Hide() end
         if GetFFD(minimap).texCircBorder then GetFFD(minimap).texCircBorder:Hide() end
@@ -4594,11 +4764,13 @@ local function ApplyMinimap()
         -- Same level as the minimap keeps the border under all child buttons; Show Behind drops it under the map surface for the Shadow style.
         host:SetFrameLevel(p.borderBehind and math.max(0, minimap:GetFrameLevel() - 1) or minimap:GetFrameLevel())
         host:SetAlpha(1)
+        -- Exact size beside the legacy step (nil = the legacy path unchanged).
+        local px = EllesmereUI.BorderPx(p.borderSizePx, bs, p.borderTexture or "solid")
         EllesmereUI.ApplyBorderStyle(host, bs, r, g, b, borderA,
             p.borderTexture or "solid",
             p.borderTextureOffset, p.borderTextureOffsetY,
             p.borderTextureShiftX, p.borderTextureShiftY,
-            "minimap", bs)
+            "minimap", bs, nil, px)
         if GetFFD(minimap).circBorder then GetFFD(minimap).circBorder:Hide() end
         if GetFFD(minimap).texCircBorder then GetFFD(minimap).texCircBorder:Hide() end
     elseif p.shape == "circle" then
@@ -4813,6 +4985,7 @@ local function ApplyMinimap()
         zoomIn:SetParent(hideZoom and EBS._hiddenFrame or minimap)
         zoomIn:SetFrameLevel(minimap:GetFrameLevel() + 10)
         EBS._ZoomAnchor(zoomIn, true, minimap)
+        if EBS._MinimapClassic() then EBS._ClassicZoomButton(zoomIn, true, mapSize / 140) end
         zoomIn:EnableMouse(true)
         zoomIn:SetAlpha(1)
         -- Start in Blizzard's between-hovers state (hidden; hover handlers Show/Hide on map enter/leave) so it is not visible from /reload until hovered.
@@ -4831,6 +5004,7 @@ local function ApplyMinimap()
         zoomOut:SetParent(hideZoom and EBS._hiddenFrame or minimap)
         zoomOut:SetFrameLevel(minimap:GetFrameLevel() + 10)
         EBS._ZoomAnchor(zoomOut, false, minimap)
+        if EBS._MinimapClassic() then EBS._ClassicZoomButton(zoomOut, false, mapSize / 140) end
         zoomOut:EnableMouse(true)
         zoomOut:SetAlpha(1)
         -- Same between-hovers start as ZoomIn above
@@ -5096,10 +5270,12 @@ local function ApplyMinimap()
             locationFrame:SetPoint("CENTER", locationBg, "CENTER", 0, 0)
         end
         if blizz and GetFFD(minimap).blizzHeader then
-            -- Blizzard Style: the zone text rides the stock top bar (offsets still apply).
+            -- Stock styles: the zone text rides the top bar -- the banner's text
+            -- slot under Classic WoW UI (offsets still apply).
+            local hdr = GetFFD(minimap).blizzHeader
             locationBg:SetBackdropColor(0, 0, 0, 0)
             locationBg:ClearAllPoints()
-            locationBg:SetPoint("CENTER", GetFFD(minimap).blizzHeader, "CENTER", lxOff, lyOff)
+            locationBg:SetPoint("CENTER", hdr._zoneSlot or hdr, "CENTER", lxOff, lyOff)
             locationFrame:ClearAllPoints()
             locationFrame:SetPoint("CENTER", locationBg, "CENTER", 0, 0)
         end

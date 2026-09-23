@@ -273,13 +273,25 @@ local function SkinSlot(slotName, Fade)
     -- The bronze slot frame lives on a child frame; the button art is the
     -- named NormalTexture (hidden, not faded: the client rewrites its vertex
     -- colour, and with it the alpha, on every item update).
-    if slot.BorderFrame then Fade(slot.BorderFrame) end
+    if slot.BorderFrame then
+        Fade(slot.BorderFrame)
+    else
+        -- The ammo slot is built without that child: its ring is an atlas
+        -- texture on the button itself. The arrow pointing at the ranged slot
+        -- (an unnamed child frame of its own) stays.
+        for i = 1, select("#", slot:GetRegions()) do
+            local r = select(i, slot:GetRegions())
+            if r.GetAtlas and r:GetAtlas() == "UI-Character-Info-GearSlotSmall" then r:SetAlpha(0) end
+        end
+    end
     local normal = _G[slotName .. "NormalTexture"]
     if normal then normal:Hide() end
     -- Blizzard's quality ring gets re-shown and recoloured on every item
     -- update, so it is collapsed onto one blank texel instead of hidden.
     if slot.IconBorder then slot.IconBorder:SetTexCoord(0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8) end
-    local icon = _G[slotName .. "IconTexture"]
+    -- The item icon is the button's own; the ammo slot also declares a
+    -- legacy texture under the same global name, which is not it.
+    local icon = slot.icon or _G[slotName .. "IconTexture"]
     if icon then
         local z = Zoom()
         icon:SetTexCoord(z, 1 - z, z, 1 - z)
@@ -306,7 +318,7 @@ function EllesmereUI._refreshCharSheetIconZoom()
     for i = 1, #SLOTS do
         local slot = _G[SLOTS[i]]
         if slot and FFD[slot] and FFD[slot].done then
-            local icon = _G[SLOTS[i] .. "IconTexture"]
+            local icon = slot.icon or _G[SLOTS[i] .. "IconTexture"]
             if icon then icon:SetTexCoord(z, 1 - z, z, 1 - z) end
         end
     end

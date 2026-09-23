@@ -28,10 +28,6 @@ local SECTION_PALADIN      = "PALADIN RITES"
 local SECTION_SHAMAN       = "SHAMAN IMBUES & SHIELDS"
 local SECTION_WARLOCK      = "WARLOCK"
 local SPECIAL_WHERE_TIP    = "Pick which content the class-special reminders (poisons/rites/imbues/shields) appear in.\nRested areas (cities and inns) always stay hidden."
-local BORDER_SIZE_ORDER    = { "none", "thin", "normal", "heavy", "strong" }
-local BORDER_SIZE_VALUES   = { none="None", thin="Thin", normal="Normal", heavy="Heavy", strong="Strong" }
-local BORDER_SIZE_NUM      = { none=0, thin=1, normal=2, heavy=3, strong=4 }
-local BORDER_SIZE_KEY      = { [0]="none", [1]="thin", [2]="normal", [3]="heavy", [4]="strong" }
 
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
@@ -599,13 +595,15 @@ initFrame:SetScript("OnEvent", function(self)
                 btn._eabrBorderFrame = border
                 local pd = DDB()
                 local borderSize = (pd and pd.borderSize) or 1
+                local borderTex = (pd and pd.borderTexture) or "solid"
                 EllesmereUI.ApplyBorderStyle(border, borderSize,
                     (pd and pd.borderR) or 0, (pd and pd.borderG) or 0,
                     (pd and pd.borderB) or 0, (pd and pd.borderA) or 1,
-                    (pd and pd.borderTexture) or "solid",
+                    borderTex,
                     pd and pd.borderTextureOffset, pd and pd.borderTextureOffsetY,
                     pd and pd.borderTextureShiftX, pd and pd.borderTextureShiftY,
-                    "aurabuffreminders", borderSize)
+                    "aurabuffreminders", borderSize, nil,
+                    EllesmereUI.BorderPx(pd and pd.borderSizePx, borderSize, borderTex))
             end
 
             -- Text label below icon
@@ -707,6 +705,7 @@ initFrame:SetScript("OnEvent", function(self)
         { key="dungeon_nonmythic", label="Non-Mythic Dungeons" },
         { key="timewalking",       label="Timewalking" },
         { key="delve",             label="Delve" },
+        { key="lair",              label="Lair" },
         -- Orthogonal state gate (not a location): unchecking hides this
         -- section while in combat.
         { key="in_combat",         label="In Combat" },
@@ -1113,7 +1112,7 @@ initFrame:SetScript("OnEvent", function(self)
         local displaySection
         displaySection, h = W:SectionHeader(parent, SECTION_DISPLAY, y);  y = y - h
 
-        -- Row 1: Border Style (+ offset cog) | Border Size (+ color swatch)
+        -- Row 1: Border Style (+ options cog) | Border Size (+ color swatch)
         local borderTextureValues, borderTextureOrder = EllesmereUI.GetBorderTextureDropdown()
         local borderRow
         borderRow, h = W:DualRow(parent, y,
@@ -1132,43 +1131,54 @@ initFrame:SetScript("OnEvent", function(self)
                   d.borderBehind = behind
                   local defaultSize = EllesmereUI.GetBorderDefaultSize("aurabuffreminders", v)
                   if defaultSize then d.borderSize = defaultSize end
+                  if d.borderSizePx then d.borderSizePx = false end
                   RefreshBorders()
-                  EllesmereUI:RefreshPage()
+                  -- Rebuild: the Width | Height Offset row follows the Solid / textured pick.
+                  EllesmereUI:RefreshPage(true)
               end },
-            { type="dropdown", text="Border Size",
-              values=BORDER_SIZE_VALUES, order=BORDER_SIZE_ORDER,
-              getValue=function()
-                  local d = DDB()
-                  return BORDER_SIZE_KEY[(d and d.borderSize) or 1] or "thin"
-              end,
-              setValue=function(v)
-                  local d = DDB(); if not d then return end
-                  d.borderSize = BORDER_SIZE_NUM[v] or 1
-                  RefreshBorders()
-              end }
+            -- Exact pixels over borderSize (the number the icons render with) and its
+            -- borderSizePx companion (EllesmereUI.BorderPx).
+            EllesmereUI.BorderPxSliderCfg{
+              text="Border Size",
+              getStep=function() local d = DDB(); return (d and d.borderSize) or 1 end,
+              setStep=function(v) local d = DDB(); if d then d.borderSize = v end end,
+              getTex=function() local d = DDB(); return (d and d.borderTexture) or "solid" end,
+              getPx=function() local d = DDB(); return d and d.borderSizePx end,
+              setPx=function(v) local d = DDB(); if d then d.borderSizePx = v end end,
+              apply=RefreshBorders }
         );  y = y - h
+
+        -- Row 1b: Width Offset | Height Offset. The textured border's outward offsets
+        -- as their own row, present only while a textured style is selected (the style
+        -- setter rebuilds the page). Each slider shows what is drawn (override, else the
+        -- "aurabuffreminders" registry default for the step) and stores nothing while
+        -- the value follows the default.
+        do
+            local d = DDB()
+            local tex = (d and d.borderTexture) or "solid"
+            if tex ~= "" and tex ~= "solid" then
+                local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs{
+                    addonKey = "aurabuffreminders",
+                    getTex = function() local d = DDB(); return (d and d.borderTexture) or "solid" end,
+                    getStep = function() local d = DDB(); return (d and d.borderSize) or 1 end,
+                    getSizeKey = function() local d = DDB(); return (d and d.borderSize) or 1 end,
+                    getPx = function() local d = DDB(); return d and d.borderSizePx end,
+                    getX = function() local d = DDB(); return d and d.borderTextureOffset end,
+                    setX = function(v) local d = DDB(); if d then d.borderTextureOffset = v end end,
+                    getY = function() local d = DDB(); return d and d.borderTextureOffsetY end,
+                    setY = function(v) local d = DDB(); if d then d.borderTextureOffsetY = v end end,
+                    apply = RefreshBorders,
+                }
+                _, h = W:DualRow(parent, y, ocfgL, ocfgR);  y = y - h
+            end
+        end
 
         if not EllesmereUI._prebuilding then
             do
                 local rgn = borderRow._leftRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
-                    title = "Border Offset",
+                    title = "Border Options",
                     rows = {
-                        { type="slider", label="Offset X", min=-10, max=10, step=1,
-                          get=function()
-                              local d = DDB(); if not d then return 0 end
-                              if d.borderTextureOffset ~= nil then return d.borderTextureOffset end
-                              return EllesmereUI.GetBorderDefaults("aurabuffreminders", d.borderTexture or "solid", d.borderSize or 1)
-                          end,
-                          set=function(v) local d=DDB(); if d then d.borderTextureOffset=v; RefreshBorders() end end },
-                        { type="slider", label="Offset Y", min=-10, max=10, step=1,
-                          get=function()
-                              local d = DDB(); if not d then return 0 end
-                              if d.borderTextureOffsetY ~= nil then return d.borderTextureOffsetY end
-                              local _, value = EllesmereUI.GetBorderDefaults("aurabuffreminders", d.borderTexture or "solid", d.borderSize or 1)
-                              return value
-                          end,
-                          set=function(v) local d=DDB(); if d then d.borderTextureOffsetY=v; RefreshBorders() end end },
                         { type="slider", label="Shift X", min=-10, max=10, step=1,
                           get=function()
                               local d = DDB(); if not d then return 0 end

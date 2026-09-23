@@ -207,9 +207,10 @@ local function BuildUpgradeCalcPage(pageName, parent, yOffset)
           setValue = function(v) GetAddonDB().showWeeklyRemaining = v; LiveRefresh() end }
     ); y = y - h
 
-    -- Row 5: Show Calc Button on Character Sheet | Open with Crest Upgrader
-    _, h = W:DualRow(parent, y,
-        { type = "toggle", text = "Show Calc Button on Character Sheet",
+    -- Row 5: Show Calc Button on Character Sheet | Open with Crest Upgrader.
+    -- The button is a tab on the EllesmereUI character sheet: gated while a
+    -- stock character sheet style (Style page) keeps Blizzard's tab row.
+    local calcBtnCfg = { type = "toggle", text = "Show Calc Button on Character Sheet",
           tooltip = "Adds a Calc toggle button to the character sheet that opens and closes the Upgrade Calculator.",
           getValue = function() return GetAddonDB().showCalcButton or false end,
           setValue = function(v)
@@ -217,7 +218,10 @@ local function BuildUpgradeCalcPage(pageName, parent, yOffset)
               if EllesmereUI and EllesmereUI.ApplyCharSheetCalcTab then
                   EllesmereUI.ApplyCharSheetCalcTab()
               end
-          end },
+          end }
+    if EllesmereUI.BlizzStyle then EllesmereUI.BlizzStyle.Gate("charsheet", calcBtnCfg) end
+    _, h = W:DualRow(parent, y,
+        calcBtnCfg,
         { type = "toggle", text = "Open with Crest Upgrader",
           tooltip = "Automatically opens the Upgrade Calculator when the Crest Upgrade NPC window is opened.",
           getValue = function() return GetAddonDB().openWithUpgrader or false end,

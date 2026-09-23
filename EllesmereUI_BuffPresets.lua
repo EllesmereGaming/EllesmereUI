@@ -98,7 +98,7 @@ spells = {
         [104773] = { class = "WARLOCK" },
         [132413] = { class = "WARLOCK" },
         [387636] = { class = "WARLOCK" },
-        [389614] = { class = "WARLOCK" },
+        [389614] = { class = "WARLOCK", disabled = true },
         [118038] = { class = "WARRIOR" },
         [184364] = { class = "WARRIOR" },
         [190456] = { class = "WARRIOR", alts = { 1277297 } },

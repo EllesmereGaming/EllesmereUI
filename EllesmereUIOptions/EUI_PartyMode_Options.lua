@@ -371,40 +371,55 @@ do
             return function() return EllesmereUIDB and EllesmereUIDB[key] or false end
         end
 
-        -- Row 1: Randomly | Timed Keystone | Mythic Boss Kill
         local CB_SPLITS = { 0.333, 0.333, 0.334, rowHeight = 36 }
-        _, h = W:TripleRow(parent, y,
-            { type = "checkbox", text = "Randomly",           getValue = TriggerGet("partyModeTriggerRandom"),     setValue = function(v)
-                if not EllesmereUIDB then EllesmereUIDB = {} end
-                EllesmereUIDB.partyModeTriggerRandom = v
-                if v then
-                    EllesmereUI_StartRandomTrigger()
-                else
-                    EllesmereUI_StopRandomTrigger()
-                end
-                local rl = EllesmereUI._widgetRefreshList
-                if rl then for i = 1, #rl do rl[i]() end end
-            end },
-            { type = "checkbox", text = "Timed Keystone",     getValue = TriggerGet("partyModeTriggerKeystone"),   setValue = TriggerSet("partyModeTriggerKeystone") },
-            { type = "checkbox", text = "Mythic Boss Kill",   getValue = TriggerGet("partyModeTriggerMythicBoss"), setValue = TriggerSet("partyModeTriggerMythicBoss") },
-            CB_SPLITS
-        );  y = y - h
+        local randomlyCheckbox = { type = "checkbox", text = "Randomly", getValue = TriggerGet("partyModeTriggerRandom"), setValue = function(v)
+            if not EllesmereUIDB then EllesmereUIDB = {} end
+            EllesmereUIDB.partyModeTriggerRandom = v
+            if v then
+                EllesmereUI_StartRandomTrigger()
+            else
+                EllesmereUI_StopRandomTrigger()
+            end
+            local rl = EllesmereUI._widgetRefreshList
+            if rl then for i = 1, #rl do rl[i]() end end
+        end }
 
-        -- Row 2: Rated Arena Win | Rated BG Win | Heroic Boss Kill
-        _, h = W:TripleRow(parent, y,
-            { type = "checkbox", text = "Rated Arena Win",    getValue = TriggerGet("partyModeTriggerRatedArena"), setValue = TriggerSet("partyModeTriggerRatedArena") },
-            { type = "checkbox", text = "Rated BG Win",       getValue = TriggerGet("partyModeTriggerRatedBG"),    setValue = TriggerSet("partyModeTriggerRatedBG") },
-            { type = "checkbox", text = "Heroic Boss Kill",   getValue = TriggerGet("partyModeTriggerHeroicBoss"), setValue = TriggerSet("partyModeTriggerHeroicBoss") },
-            CB_SPLITS
-        );  y = y - h
+        if EllesmereUI.IS_FOREVER then
+            -- WoW Forever has no Mythic+, Mythic or Raid Finder difficulties and no
+            -- rated PvP, so those triggers can never fire there. Show only the ones
+            -- that can: Randomly | Normal Boss Kill | Heroic Boss Kill
+            _, h = W:TripleRow(parent, y,
+                randomlyCheckbox,
+                { type = "checkbox", text = "Normal Boss Kill", getValue = TriggerGet("partyModeTriggerNormalBoss"), setValue = TriggerSet("partyModeTriggerNormalBoss") },
+                { type = "checkbox", text = "Heroic Boss Kill", getValue = TriggerGet("partyModeTriggerHeroicBoss"), setValue = TriggerSet("partyModeTriggerHeroicBoss") },
+                CB_SPLITS
+            );  y = y - h
+        else
+            -- Row 1: Randomly | Timed Keystone | Mythic Boss Kill
+            _, h = W:TripleRow(parent, y,
+                randomlyCheckbox,
+                { type = "checkbox", text = "Timed Keystone",     getValue = TriggerGet("partyModeTriggerKeystone"),   setValue = TriggerSet("partyModeTriggerKeystone") },
+                { type = "checkbox", text = "Mythic Boss Kill",   getValue = TriggerGet("partyModeTriggerMythicBoss"), setValue = TriggerSet("partyModeTriggerMythicBoss") },
+                CB_SPLITS
+            );  y = y - h
 
-        -- Row 3: Normal Boss Kill | Raid Finder Boss Kill | Mythic 0 Completion
-        _, h = W:TripleRow(parent, y,
-            { type = "checkbox", text = "Normal Boss Kill",       getValue = TriggerGet("partyModeTriggerNormalBoss"),  setValue = TriggerSet("partyModeTriggerNormalBoss") },
-            { type = "checkbox", text = "Raid Finder Boss Kill",  getValue = TriggerGet("partyModeTriggerLFRBoss"),     setValue = TriggerSet("partyModeTriggerLFRBoss") },
-            { type = "checkbox", text = "Mythic 0 Completion",    getValue = TriggerGet("partyModeTriggerMythic0"),     setValue = TriggerSet("partyModeTriggerMythic0") },
-            CB_SPLITS
-        );  y = y - h
+            -- Row 2: Rated Arena Win | Rated BG Win | Heroic Boss Kill
+            _, h = W:TripleRow(parent, y,
+                { type = "checkbox", text = "Rated Arena Win",    getValue = TriggerGet("partyModeTriggerRatedArena"), setValue = TriggerSet("partyModeTriggerRatedArena") },
+                { type = "checkbox", text = "Rated BG Win",       getValue = TriggerGet("partyModeTriggerRatedBG"),    setValue = TriggerSet("partyModeTriggerRatedBG") },
+                { type = "checkbox", text = "Heroic Boss Kill",   getValue = TriggerGet("partyModeTriggerHeroicBoss"), setValue = TriggerSet("partyModeTriggerHeroicBoss") },
+                CB_SPLITS
+            );  y = y - h
+
+            -- Row 3: Normal Boss Kill | Raid Finder Boss Kill | Mythic 0 Completion
+            _, h = W:TripleRow(parent, y,
+                { type = "checkbox", text = "Normal Boss Kill",       getValue = TriggerGet("partyModeTriggerNormalBoss"),  setValue = TriggerSet("partyModeTriggerNormalBoss") },
+                { type = "checkbox", text = "Raid Finder Boss Kill",  getValue = TriggerGet("partyModeTriggerLFRBoss"),     setValue = TriggerSet("partyModeTriggerLFRBoss") },
+                { type = "checkbox", text = "Mythic 0 Completion",    getValue = TriggerGet("partyModeTriggerMythic0"),     setValue = TriggerSet("partyModeTriggerMythic0") },
+                CB_SPLITS
+            );  y = y - h
+
+        end
 
         -- Row 4: Bloodlust (debuff-triggered, hardcoded 40s; intentionally NOT
         -- wired into the Auto Celebration Duration slider, so it has its own
@@ -419,7 +434,15 @@ do
                   local rl = EllesmereUI._widgetRefreshList
                   if rl then for i = 1, #rl do rl[i]() end end
               end },
-            nil,
+            { type = "checkbox", text = "Level Up",
+              getValue = TriggerGet("partyModeTriggerLevelUp"),
+              setValue = function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.partyModeTriggerLevelUp = v
+                  if EllesmereUI_UpdatePartyModeLevelUpListener then EllesmereUI_UpdatePartyModeLevelUpListener() end
+                  local rl = EllesmereUI._widgetRefreshList
+                  if rl then for i = 1, #rl do rl[i]() end end
+              end },
             nil,
             CB_SPLITS
         );  y = y - h
@@ -447,6 +470,7 @@ do
                     or EllesmereUIDB.partyModeTriggerMythic0
                     or EllesmereUIDB.partyModeTriggerRatedBG
                     or EllesmereUIDB.partyModeTriggerRatedArena
+                    or EllesmereUIDB.partyModeTriggerLevelUp
                     or EllesmereUIDB.partyModeTriggerRandom
                     or false
             end
@@ -681,6 +705,7 @@ do
                 EllesmereUIDB.partyModeTriggerLFRBoss = nil
                 EllesmereUIDB.partyModeTriggerMythic0 = nil
                 EllesmereUIDB.partyModeTriggerBloodlust = nil
+                EllesmereUIDB.partyModeTriggerLevelUp = nil
                 EllesmereUIDB.partyModeTriggerRatedBG = nil
                 EllesmereUIDB.partyModeTriggerRatedArena = nil
                 EllesmereUIDB.partyModeTriggerRandom = nil

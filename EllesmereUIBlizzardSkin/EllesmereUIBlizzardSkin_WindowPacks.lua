@@ -5447,6 +5447,9 @@ local function HookRCScrollBox(box, isCurrency)
 end
 
 local function Skin_RepCurrency()
+    -- Stock character sheet styles (Style page) keep Blizzard's whole sheet,
+    -- these tabs included.
+    if ns.CharSheetStock and ns.CharSheetStock() then return end
     local rep = _G.ReputationFrame
     if rep then
         if rep.filterDropdown then WSkin.Dropdown(rep.filterDropdown) end
@@ -11557,6 +11560,10 @@ end
 function SP.Apply()
     local f = _G.SocialUIFrame
     if not f then return end
+    -- The Friends List stock styles (Style page) keep Blizzard's whole Social
+    -- window, its frame included; the Window Skins card is blocked meanwhile.
+    local fr = EllesmereUI._ModuleNS and EllesmereUI._ModuleNS.EllesmereUIFriends
+    if fr and fr.FR_Style and fr.FR_Style() ~= "eui" then return end
 
     WSkin.Shell("socialui", f)
     WSkin.RemovePortrait(f)

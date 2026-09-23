@@ -47,6 +47,9 @@ local defaults = {
             accentColors   = true,
             factionBanners = false,
             showRegionIcons = true,
+            -- Style page (reload-gated): Blizzard Style / Classic WoW UI
+            useBlizzardStyle = false,
+            useClassicStyle  = false,
             autoAcceptFriendInvites = false,
             autoAcceptGuildInvites = false,
             showOffline    = true,
@@ -75,6 +78,10 @@ end
 -- whisper handling (SetTellTarget on a secret target) -- so the skin stays off
 -- there (EUI_Friends_Groups_121.lua owns that window); checked live since the switch can flip mid-session.
 local function LegacyFriendsRetired()
+    -- The Style page's stock styles keep Blizzard's own friends window on
+    -- either path, so the legacy skin stands down for them too.
+    local mns = EllesmereUI._ModuleNS[ADDON_NAME]
+    if mns and mns.FR_Style and mns.FR_Style() ~= "eui" then return true end
     if not (C_SocialUI and C_SocialUI.IsSystemEnabled) then return false end
     local ok, enabled = pcall(C_SocialUI.IsSystemEnabled)
     return ok and enabled == true
@@ -2586,40 +2593,6 @@ local function SkinFriendsFrame()
     end
     if FriendsFrame:IsShown() then RegisterFriendsEvents() end
 
-    -- Auto-accept group invites from friends; GROUP_ROSTER_UPDATE is armed only between an auto-accept and its popup cleanup.
-    local _autoAcceptHideStatic = false
-    local autoAcceptFrame = CreateFrame("Frame")
-    autoAcceptFrame:RegisterEvent("PARTY_INVITE_REQUEST")
-    autoAcceptFrame:SetScript("OnEvent", function(self, event, _, _, _, _, _, _, inviterGUID)
-        if event == "PARTY_INVITE_REQUEST" then
-            local fp5 = EBS.db and EBS.db.profile and EBS.db.profile.friends
-            if not fp5 or not fp5.autoAcceptFriendInvites then return end
-            if not inviterGUID or inviterGUID == "" or IsInGroup() then return end
-            local isFriend = false
-            if C_BattleNet and C_BattleNet.GetGameAccountInfoByGUID then
-                isFriend = C_BattleNet.GetGameAccountInfoByGUID(inviterGUID) ~= nil
-            end
-            if not isFriend and C_FriendList and C_FriendList.IsFriend then
-                isFriend = C_FriendList.IsFriend(inviterGUID)
-            end
-            if not isFriend and fp5.autoAcceptGuildInvites then
-              isFriend = IsGuildMember(inviterGUID)
-            end
-            if isFriend then
-                AcceptGroup()
-                _autoAcceptHideStatic = true
-                self:RegisterEvent("GROUP_ROSTER_UPDATE")
-            end
-        elseif event == "GROUP_ROSTER_UPDATE" and _autoAcceptHideStatic then
-            _autoAcceptHideStatic = false
-            self:UnregisterEvent("GROUP_ROSTER_UPDATE")
-            StaticPopup_Hide("PARTY_INVITE")
-            if LFGInvitePopup then
-                StaticPopupSpecial_Hide(LFGInvitePopup)
-            end
-        end
-    end)
-
     -- Events live only while the panel is open.
     frame:HookScript("OnHide", function()
         UnregisterFriendsEvents()
@@ -3078,6 +3051,9 @@ end
 
 -- Live updates: colors, border, opacity
 local function ApplyFriends()
+    -- Every profile apply (live switch, spec switch, import) re-syncs the
+    -- auto-accept listener before any look or combat gate below.
+    if _G._EFR_SyncAutoAccept then _G._EFR_SyncAutoAccept() end
     if LegacyFriendsRetired() then return end
     local _mplus = C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive and C_ChallengeMode.IsChallengeModeActive()
     local _, _iT = IsInInstance()
@@ -3161,6 +3137,52 @@ function EBS:OnInitialize()
     _G._EFR_DB                   = EBS.db
     _G._EFR_ApplyFriends         = ApplyFriends
     _G._EFR_ProcessFriendButtons = function() ProcessFriendButtons(true) end
+
+    -- Auto-accept group invites from friends (and guildmates, from its cog).
+    -- Independent of the friends window and of the Style page look: an invite
+    -- is answered whichever window Blizzard shows. PARTY_INVITE_REQUEST is
+    -- registered only while the toggle is on; GROUP_ROSTER_UPDATE only
+    -- between an accept and its popup cleanup.
+    local autoAcceptHidePopup = false
+    local autoAcceptFrame = CreateFrame("Frame")
+    autoAcceptFrame:SetScript("OnEvent", function(self, event, _, _, _, _, _, _, inviterGUID)
+        if event == "PARTY_INVITE_REQUEST" then
+            local fp = EBS.db and EBS.db.profile and EBS.db.profile.friends
+            if not fp or fp.enabled == false or not fp.autoAcceptFriendInvites then return end
+            if not inviterGUID or inviterGUID == "" or IsInGroup() then return end
+            local isFriend = false
+            if C_BattleNet and C_BattleNet.GetGameAccountInfoByGUID then
+                isFriend = C_BattleNet.GetGameAccountInfoByGUID(inviterGUID) ~= nil
+            end
+            if not isFriend and C_FriendList and C_FriendList.IsFriend then
+                isFriend = C_FriendList.IsFriend(inviterGUID)
+            end
+            if not isFriend and fp.autoAcceptGuildInvites then
+                isFriend = IsGuildMember(inviterGUID)
+            end
+            if isFriend then
+                AcceptGroup()
+                autoAcceptHidePopup = true
+                self:RegisterEvent("GROUP_ROSTER_UPDATE")
+            end
+        elseif event == "GROUP_ROSTER_UPDATE" and autoAcceptHidePopup then
+            autoAcceptHidePopup = false
+            self:UnregisterEvent("GROUP_ROSTER_UPDATE")
+            StaticPopup_Hide("PARTY_INVITE")
+            if LFGInvitePopup then
+                StaticPopupSpecial_Hide(LFGInvitePopup)
+            end
+        end
+    end)
+    _G._EFR_SyncAutoAccept = function()
+        local fp = EBS.db and EBS.db.profile and EBS.db.profile.friends
+        if fp and fp.enabled ~= false and fp.autoAcceptFriendInvites then
+            autoAcceptFrame:RegisterEvent("PARTY_INVITE_REQUEST")
+        else
+            autoAcceptFrame:UnregisterEvent("PARTY_INVITE_REQUEST")
+        end
+    end
+    _G._EFR_SyncAutoAccept()
 
     -- Visibility updater + mouseover target register only while the panel is shown;
     -- both bill this addon (dispatcher fan-out per event, mouseover scan every 0.15s)

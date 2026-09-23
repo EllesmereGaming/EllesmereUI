@@ -99,9 +99,18 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
     local totalW = parent:GetWidth() - PAD * 2
     local CARD_GAP = 14
 
-    -- Display title: "Module: Title" -- the module name is prepended to every entry.
+    -- Display prefix: "Module: " on every entry, and "WoW Forever - " in the
+    -- Forever theme's bronze ahead of it on entries flagged `forever = true`
+    -- (changes that apply on WoW Forever only), so the note text itself never
+    -- has to say where it applies. Sorting stays by module, so a module's
+    -- retail and Forever lines sit together.
+    local FOREVER_TAG = "|cffdca77f" .. EllesmereUI.L("WoW Forever") .. "|r - "
+    local function PrefixOf(e)
+        return (e.forever and FOREVER_TAG or "") .. ((e.module and EllesmereUI.L(e.module) .. ": ") or "")
+    end
+    -- Display title: "Module: Title" (see PrefixOf).
     local function TitleOf(e)
-        return ((e.module and EllesmereUI.L(e.module) .. ": ") or "") .. (EllesmereUI.L(e.title) or "")
+        return PrefixOf(e) .. (EllesmereUI.L(e.title) or "")
     end
 
     -- Stable sort by module display name; preserves authored order per module.
@@ -625,7 +634,7 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
                 y = y - 10  -- extra spacing below the divider
             end
             for _, fx in ipairs(fixes) do
-                local fh = MakeFixLine(y, ((fx.module and EllesmereUI.L(fx.module) .. ": ") or "") .. (EllesmereUI.L(fx.text) or "")); y = y - fh
+                local fh = MakeFixLine(y, PrefixOf(fx) .. (EllesmereUI.L(fx.text) or "")); y = y - fh
             end
         end
 
@@ -638,37 +647,103 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
 end
 
 -------------------------------------------------------------------------------
---  EUI LEGENDS -- curated content. EDIT THESE TABLES to update the page:
---    monthLabel : label shown over the monthly podium
---    topMonthly : rank-ordered top three donors for that month (1st, 2nd, 3rd)
---    donors     : the all-donors wall, rendered in this order
---    staff      : grouped team sections ({ group, members } tables)
+--  EUI LEGENDS content.
+--  The block between the GENERATED DONORS markers is written by the
+--  update-donors.ps1 dev tool from the internal donor list: change the list
+--  and rerun the tool instead of editing the block by hand.
+--    season      : "spring" / "summer" / "fall" / "winter" (page accents)
+--    seasonYear  : shown after the season name over the podium
+--    topSeasonal : rank-ordered top three donors this season (1st, 2nd, 3rd)
+--    donors      : the all-time donor wall, numbered in this order
+--  The staff table below the block is edited by hand:
+--    staff       : grouped team sections ({ group, members } tables)
 -------------------------------------------------------------------------------
+-- BEGIN GENERATED DONORS
 EllesmereUI._LEGENDS = {
-    monthLabel = "Summer 2026",
-    topMonthly = { "Thias", "StickyMittens", "Xeno" },
+    season      = "fall",
+    seasonYear  = "2026",
+    topSeasonal = { "Lurn", "BeaKusch", "Schamicha" },
     donors = {
-        "Thias", "StickyMittens", "Xeno",
-        "delasteve", "Toxik", "Lily", "Pelleas", "Kulia",
-        "GamingGrammers", "Cartridgebros", "fizzle_crunk", "Tzahal",
-        "Ani", "Venalis", "Lurn", "Natasi", "Khardi", "Quiim",
-        "Capa", "e_luvin", "ccpoppin1", "Arjax",
-    },
-    staff = {
-        { group = "Support Leads", members = {
-            "Burne", "Mudd", "Kulia", "Dookie", "Lily",
-        } },
-        { group = "Bug Hunters", members = {
-            "Glyalith", "Derek", "Juju", "Kneeul", "Kiri",
-            "Stoley", "Stormspren", "Xanax", "DNL",
-        } },
-        { group = "Support Team", members = {
-            "Mantis", "Kned", "Zylann", "Svart", "Meza",
-            "Tzahal", "Spaze", "Terrible", "Mohkan", "Groukh",
-            "Freschi", "Twilight", "Bierbauch",
-        } },
+        "Thias", "StickyMittens", "Xeno", "Delasteve",
+        "Toxik", "Lily", "Pelleas", "Kulia",
+        "GamingGrammers", "Cartridgebros", "Lurn", "fizzle_crunk",
+        "Tzahal", "Ani", "Venalis", "Natasi",
+        "Khardi", "Quiim", "Capa", "e_luvin",
+        "ccpoppin1", "Arjax", "Excelvior", "Marple_V",
+        "shy_x00",
     },
 }
+-- END GENERATED DONORS
+EllesmereUI._LEGENDS.staff = {
+    { group = "Support Leads", members = {
+        "Burne", "Mudd", "Kulia", "Dookie", "Lily",
+    } },
+    { group = "Support Team", members = {
+        "Mantis", "Kned", "Zylann", "Svart", "Meza",
+        "Tzahal", "Spaze", "Terrible", "Mohkan", "Groukh",
+        "Freschi", "Twilight", "Bierbauch",
+    } },
+    { group = "Major Bugfix/Feature Contributors", members = {
+        "Glyalith", "Derek", "JuJu", "Kneeul", "Kiri",
+        "Stoley", "Stormspren", "Xanax", "DNL",
+        "Svart", "Nnoggie",
+        "Filpet96", "Snsei987", "JensBaumannDev", "Absol3m",
+        "SamJin98", "RedAces", "liamcooper", "uNBEx", "natty",
+        "Ricoder92", "0x963D", "Barbiero", "Lyrex", "Delasteve",
+        "andybergon", "TF0rd",
+    } },
+    { group = "Multi-language Support Contributors", members = {
+        "LoChinAn", "Crazyyoungs", "Barbiero", "Dlarge", "labrie75",
+        "tenngoxars", "Shiyan66666", "Absol3m",
+    } },
+}
+
+-- Seasonal accents: a palette (first entry leads, tinting the season name) and
+-- the drift of the small particles around the hero head and podium. dir -1
+-- falls, dir 1 rises; size/dur are {min, max} ranges; spin is total degrees.
+EllesmereUI._LEGENDS_SEASONS = {
+    spring = { name = "Spring", dir = -1, size = { 4, 7 }, dur = { 11, 15 }, spin = 200, alpha = 0.50,
+        colors = { { 1.00, 0.70, 0.82 }, { 0.98, 0.86, 0.91 }, { 0.66, 0.88, 0.55 } } },
+    summer = { name = "Summer", dir = 1, size = { 3, 4 }, dur = { 8, 11 }, spin = 45, alpha = 0.60,
+        colors = { { 1.00, 0.84, 0.34 }, { 1.00, 0.64, 0.40 }, { 1.00, 0.93, 0.62 } } },
+    fall   = { name = "Fall", dir = -1, size = { 5, 8 }, dur = { 10, 14 }, spin = 320, alpha = 0.55,
+        colors = { { 0.96, 0.58, 0.20 }, { 0.84, 0.34, 0.15 }, { 0.98, 0.78, 0.30 }, { 0.70, 0.42, 0.18 } } },
+    winter = { name = "Winter", dir = -1, size = { 3, 5 }, dur = { 12, 17 }, spin = 90, alpha = 0.60,
+        colors = { { 0.72, 0.86, 1.00 }, { 0.90, 0.95, 1.00 }, { 0.62, 0.74, 0.95 } } },
+}
+
+-- Weighted pick for the options header's thanks line. Ranking = this season's
+-- podium, then the rest of the all-time wall (so an empty podium falls back to
+-- the all-time order). Slots 1-3 carry 50/25/15; everyone after shares 10.
+local _thanksRanked, _thanksSeen = {}, {}
+function EllesmereUI._PickLegendsThanks()
+    local data = EllesmereUI._LEGENDS
+    if not data then return nil end
+    local ranked, seen = _thanksRanked, _thanksSeen
+    wipe(ranked); wipe(seen)
+    local top, donors = data.topSeasonal or {}, data.donors or {}
+    for i = 1, #top do
+        local n = top[i]
+        if n and n ~= "" and not seen[n] then seen[n] = true; ranked[#ranked + 1] = n end
+    end
+    for i = 1, #donors do
+        local n = donors[i]
+        if n and n ~= "" and not seen[n] then seen[n] = true; ranked[#ranked + 1] = n end
+    end
+    local count = #ranked
+    if count == 0 then return nil end
+    local restW = count > 3 and (10 / (count - 3)) or 0
+    local total = 0
+    for i = 1, count do
+        total = total + ((i == 1 and 50) or (i == 2 and 25) or (i == 3 and 15) or restW)
+    end
+    local roll = math.random() * total
+    for i = 1, count do
+        roll = roll - ((i == 1 and 50) or (i == 2 and 25) or (i == 3 and 15) or restW)
+        if roll <= 0 then return ranked[i] end
+    end
+    return ranked[count]
+end
 
 -- Language-picker font: each entry is entirely one script (the CJK stock fonts
 -- also cover the trailing "(Korean)"-style Latin text), so a plain per-entry
@@ -695,6 +770,9 @@ function EllesmereUI._BuildLegendsPage(pageName, parent, yOffset)
     local y      = yOffset - 14
     local totalW = parent:GetWidth() - PAD * 2
     local CARD_GAP = 14
+    local SEASONS = EllesmereUI._LEGENDS_SEASONS or {}
+    local season  = SEASONS[data.season or ""]
+    local lead    = season and season.colors[1]
 
     -- Podium metal palette: gold / silver / bronze.
     local METALS = {
@@ -717,7 +795,8 @@ function EllesmereUI._BuildLegendsPage(pageName, parent, yOffset)
     PP.Point(desc, "TOP", title, "BOTTOM", 0, -12)
     desc:SetText(L("Thank you to all who support EllesmereUI and its incredible support team!"))
 
-    -- Flourish: two faint lines meeting a green diamond dot.
+    -- Flourish: two faint lines meeting a green diamond dot. In season the
+    -- lines warm to the season's lead colour near the dot and fade outward.
     local fy = y - 76
     local dot = parent:CreateTexture(nil, "ARTWORK")
     dot:SetColorTexture(EG.r, EG.g, EG.b, 0.9)
@@ -726,21 +805,40 @@ function EllesmereUI._BuildLegendsPage(pageName, parent, yOffset)
     for side = -1, 1, 2 do
         local line = parent:CreateTexture(nil, "ARTWORK")
         line:SetColorTexture(1, 1, 1, 0.12)
+        if lead then
+            -- White base: the gradient's vertex colours multiply the texture.
+            line:SetColorTexture(1, 1, 1, 1)
+            local near = CreateColor(lead[1], lead[2], lead[3], 0.38)
+            local far  = CreateColor(lead[1], lead[2], lead[3], 0.04)
+            if side < 0 then
+                line:SetGradient("HORIZONTAL", far, near)
+            else
+                line:SetGradient("HORIZONTAL", near, far)
+            end
+        end
         PP.Size(line, 150, 1)
         PP.Point(line, side < 0 and "RIGHT" or "LEFT", dot, side < 0 and "LEFT" or "RIGHT", side * 10, 0)
         if PP.DisablePixelSnap then PP.DisablePixelSnap(line) end
     end
+    local bandTop = y + 8
     y = fy - 28
 
     ---------------------------------------------------------------------------
-    --  Monthly podium: #1 center and elevated, #2 left, #3 right.
+    --  Seasonal podium: #1 center and elevated, #2 left, #3 right. A rank
+    --  nobody holds yet keeps its card with a dim placeholder.
     ---------------------------------------------------------------------------
     local podiumLabel = MakeFont(parent, 13, nil, EG.r, EG.g, EG.b, 0.9)
     PP.Point(podiumLabel, "TOP", parent, "TOP", 0, y)
-    podiumLabel:SetText(L("Monthly Top Donors") .. "  -  " .. (data.monthLabel or ""))
+    local seasonText = season and ((L(season.name) .. " " .. (data.seasonYear or "")):gsub("%s+$", "")) or (data.seasonYear or "")
+    if lead and seasonText ~= "" then
+        seasonText = string.format("|cff%02x%02x%02x%s|r",
+            math.floor(lead[1] * 255 + 0.5), math.floor(lead[2] * 255 + 0.5),
+            math.floor(lead[3] * 255 + 0.5), seasonText)
+    end
+    podiumLabel:SetText(seasonText ~= "" and (L("Seasonal Top Donors") .. "  -  " .. seasonText) or L("Seasonal Top Donors"))
     y = y - 30
 
-    local top3 = data.topMonthly or {}
+    local top3 = data.topSeasonal or {}
     local CENTER_W, CENTER_H = 200, 78
     local SIDE_W, SIDE_H     = 172, 66
     -- Sides drop exactly the height difference so all three BOTTOMS align;
@@ -750,50 +848,143 @@ function EllesmereUI._BuildLegendsPage(pageName, parent, yOffset)
     local SLOT_DX = { 0, -(CENTER_W / 2 + CARD_GAP + SIDE_W / 2), (CENTER_W / 2 + CARD_GAP + SIDE_W / 2) }
     for rank = 1, 3 do
         local name = top3[rank]
-        if name and name ~= "" then
-            local isFirst = (rank == 1)
-            local m = METALS[rank]
-            local w = isFirst and CENTER_W or SIDE_W
-            local h = isFirst and CENTER_H or SIDE_H
-            local card = CreateFrame("Frame", nil, parent)
-            PP.Size(card, w, h)
-            PP.Point(card, "TOP", parent, "TOP", SLOT_DX[rank], y - (isFirst and 0 or SIDE_DROP))
-            card:SetFrameLevel(parent:GetFrameLevel() + 2)
+        local open = not name or name == ""
+        local isFirst = (rank == 1)
+        local m = METALS[rank]
+        local w = isFirst and CENTER_W or SIDE_W
+        local h = isFirst and CENTER_H or SIDE_H
+        local card = CreateFrame("Frame", nil, parent)
+        PP.Size(card, w, h)
+        PP.Point(card, "TOP", parent, "TOP", SLOT_DX[rank], y - (isFirst and 0 or SIDE_DROP))
+        card:SetFrameLevel(parent:GetFrameLevel() + 2)
 
-            local bg = card:CreateTexture(nil, "BACKGROUND")
-            bg:SetAllPoints()
-            bg:SetColorTexture(0.06, 0.08, 0.10, 0.55)
-            -- Soft metal wash: barely-there tint that makes each podium card
-            -- read gold/silver/bronze without leaving the dark aesthetic.
-            local wash = card:CreateTexture(nil, "BACKGROUND", nil, 1)
-            wash:SetAllPoints()
-            wash:SetColorTexture(m.r, m.g, m.b, isFirst and 0.07 or 0.04)
-            MakeBorder(card, 1, 1, 1, isFirst and 0.16 or 0.10, PP)
+        local bg = card:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetColorTexture(0.06, 0.08, 0.10, 0.55)
+        -- Soft metal wash: barely-there tint that makes each podium card
+        -- read gold/silver/bronze without leaving the dark aesthetic.
+        local wash = card:CreateTexture(nil, "BACKGROUND", nil, 1)
+        wash:SetAllPoints()
+        wash:SetColorTexture(m.r, m.g, m.b, isFirst and 0.07 or 0.04)
+        MakeBorder(card, 1, 1, 1, isFirst and 0.16 or 0.10, PP)
 
-            local accent = card:CreateTexture(nil, "ARTWORK", nil, 7)
-            accent:SetColorTexture(m.r, m.g, m.b, isFirst and 0.95 or 0.7)
-            PP.Point(accent, "TOPLEFT", card, "TOPLEFT", 1, -1)
-            PP.Point(accent, "TOPRIGHT", card, "TOPRIGHT", -1, -1)
-            accent:SetHeight(2)
-            if PP.DisablePixelSnap then PP.DisablePixelSnap(accent) end
+        local accent = card:CreateTexture(nil, "ARTWORK", nil, 7)
+        accent:SetColorTexture(m.r, m.g, m.b, isFirst and 0.95 or 0.7)
+        PP.Point(accent, "TOPLEFT", card, "TOPLEFT", 1, -1)
+        PP.Point(accent, "TOPRIGHT", card, "TOPRIGHT", -1, -1)
+        accent:SetHeight(2)
+        if PP.DisablePixelSnap then PP.DisablePixelSnap(accent) end
 
-            local rankFs = MakeFont(card, isFirst and 14 or 12, nil, m.r, m.g, m.b, 0.95)
-            PP.Point(rankFs, "TOP", card, "TOP", 0, isFirst and -16 or -13)
-            rankFs:SetText("#" .. rank)
+        local rankFs = MakeFont(card, isFirst and 14 or 12, nil, m.r, m.g, m.b, 0.95)
+        PP.Point(rankFs, "TOP", card, "TOP", 0, isFirst and -16 or -13)
+        rankFs:SetText("#" .. rank)
 
-            local nameFs = MakeFont(card, isFirst and 17 or 15, nil, 1, 1, 1, isFirst and 1 or 0.92)
-            PP.Point(nameFs, "TOP", rankFs, "BOTTOM", 0, isFirst and -10 or -8)
-            PP.Point(nameFs, "LEFT", card, "LEFT", 10, 0)
-            PP.Point(nameFs, "RIGHT", card, "RIGHT", -10, 0)
-            nameFs:SetJustifyH("CENTER")
-            nameFs:SetWordWrap(false)
-            nameFs:SetText(name)
-        end
+        local nameFs = MakeFont(card, isFirst and 17 or 15, nil, 1, 1, 1,
+            open and 0.3 or (isFirst and 1 or 0.92))
+        PP.Point(nameFs, "TOP", rankFs, "BOTTOM", 0, isFirst and -10 or -8)
+        PP.Point(nameFs, "LEFT", card, "LEFT", 10, 0)
+        PP.Point(nameFs, "RIGHT", card, "RIGHT", -10, 0)
+        nameFs:SetJustifyH("CENTER")
+        nameFs:SetWordWrap(false)
+        nameFs:SetText(open and L("Unclaimed") or name)
     end
     y = y - (SIDE_DROP + math.max(CENTER_H, SIDE_H + SIDE_DROP)) - 26
 
     ---------------------------------------------------------------------------
-    --  The walls: all donors (left) and the team (right). FIXED height from
+    --  Seasonal particles: a few small tumbling squares drifting through the
+    --  side margins beside the hero head and podium (leaves in fall, snow in
+    --  winter, petals in spring, rising sparks in summer). Engine animations
+    --  on a host that plays them only while the page is visible.
+    ---------------------------------------------------------------------------
+    if season then
+        local bandBot = y + 14
+        local bandH   = bandTop - bandBot
+        -- Side margin: outside the centred description (600) and podium.
+        local marginW = math.max(60, (totalW - 600) / 2)
+        local fx = CreateFrame("Frame", nil, parent)
+        fx:SetAllPoints(parent)
+        fx:SetFrameLevel(parent:GetFrameLevel() + 1)
+        local groups = {}
+        -- x: 0..1 across the margin; y: start depth into the band; s/d: 0..1
+        -- picks within the season's size/duration ranges; w: idle seconds
+        -- before each pass (also staggers the first pass).
+        local SLOTS = {
+            { x = 0.18, y = 0,  s = 0.6, d = 0.2, w = 0.0 },
+            { x = 0.58, y = 26, s = 0.2, d = 0.7, w = 2.6 },
+            { x = 0.86, y = 8,  s = 0.9, d = 0.4, w = 5.2 },
+            { x = 0.38, y = 52, s = 0.4, d = 0.9, w = 1.3 },
+            { x = 0.72, y = 40, s = 0.7, d = 0.1, w = 6.4 },
+            { x = 0.06, y = 70, s = 0.3, d = 0.5, w = 3.9 },
+        }
+        local nColors = #season.colors
+        local idx = 0
+        for side = 1, 2 do
+            for i = 1, #SLOTS do
+                idx = idx + 1
+                local sl = SLOTS[i]
+                local xf = (side == 1) and sl.x or (1 - sl.x)
+                local df = (side == 1) and sl.d or (1 - sl.d)
+                local size = season.size[1] + (season.size[2] - season.size[1]) * sl.s
+                local dur  = season.dur[1] + (season.dur[2] - season.dur[1]) * df
+                local wait = sl.w + (side == 2 and 1.7 or 0)
+                local travel = math.max(40, bandH - sl.y - 10)
+                local x0 = (side == 1) and (PAD + 8 + xf * (marginW - 24))
+                                       or (PAD + totalW - marginW + 16 + xf * (marginW - 24))
+                local c = season.colors[(idx - 1) % nColors + 1]
+
+                local leaf = fx:CreateTexture(nil, "ARTWORK")
+                leaf:SetColorTexture(c[1], c[2], c[3], 1)
+                PP.Size(leaf, size, size)
+                if season.dir < 0 then
+                    PP.Point(leaf, "TOP", parent, "TOPLEFT", x0, bandTop - sl.y)
+                else
+                    PP.Point(leaf, "BOTTOM", parent, "TOPLEFT", x0, bandBot + sl.y)
+                end
+                leaf:SetAlpha(0)
+
+                local ag = leaf:CreateAnimationGroup()
+                ag:SetLooping("REPEAT")
+                local sway = (idx % 2 == 0) and 10 or -10
+                local drift = ag:CreateAnimation("Translation")
+                drift:SetOffset(sway * 0.6, season.dir * travel)
+                drift:SetDuration(dur); drift:SetStartDelay(wait); drift:SetSmoothing("NONE")
+                local swayOut = ag:CreateAnimation("Translation")
+                swayOut:SetOffset(sway, 0)
+                swayOut:SetDuration(dur / 2); swayOut:SetStartDelay(wait); swayOut:SetSmoothing("IN_OUT")
+                local swayBack = ag:CreateAnimation("Translation")
+                swayBack:SetOffset(-sway, 0)
+                swayBack:SetDuration(dur / 2); swayBack:SetStartDelay(wait + dur / 2); swayBack:SetSmoothing("IN_OUT")
+                local spin = ag:CreateAnimation("Rotation")
+                spin:SetDegrees((idx % 3 == 0) and -season.spin or season.spin)
+                spin:SetDuration(dur); spin:SetStartDelay(wait)
+                -- Back-to-back alpha steps (in, hold, out) so one is always
+                -- driving the alpha for the whole pass; idle waits sit at the
+                -- texture's own alpha of 0.
+                local fadeIn = ag:CreateAnimation("Alpha")
+                fadeIn:SetFromAlpha(0); fadeIn:SetToAlpha(season.alpha)
+                fadeIn:SetDuration(dur * 0.2); fadeIn:SetStartDelay(wait)
+                local hold = ag:CreateAnimation("Alpha")
+                hold:SetFromAlpha(season.alpha); hold:SetToAlpha(season.alpha)
+                hold:SetDuration(dur * 0.45); hold:SetStartDelay(wait + dur * 0.2)
+                local fadeOut = ag:CreateAnimation("Alpha")
+                fadeOut:SetFromAlpha(season.alpha); fadeOut:SetToAlpha(0)
+                fadeOut:SetDuration(dur * 0.35); fadeOut:SetStartDelay(wait + dur * 0.65)
+                groups[#groups + 1] = ag
+            end
+        end
+        fx:SetScript("OnShow", function()
+            for i = 1, #groups do groups[i]:Play() end
+        end)
+        fx:SetScript("OnHide", function()
+            for i = 1, #groups do groups[i]:Stop() end
+        end)
+        if fx:IsVisible() then
+            for i = 1, #groups do groups[i]:Play() end
+        end
+    end
+
+    ---------------------------------------------------------------------------
+    --  The walls: all-time donors (left) and the team (right). FIXED height from
     --  the page budget; the name lists scroll INSIDE each card with smooth
     --  wheel scrolling and the thin custom thumb (the sidebar-nav pattern),
     --  so the page itself never scrolls.
@@ -805,7 +996,7 @@ function EllesmereUI._BuildLegendsPage(pageName, parent, yOffset)
     local wallH = 330
 
     local WALL_STEP, WALL_SPEED = 48, 12
-    local function MakeWall(x, headerText)
+    local function MakeWall(x, headerText, subText)
         local card = CreateFrame("Frame", nil, parent)
         card:SetFrameLevel(parent:GetFrameLevel() + 2)
         PP.Size(card, colW, wallH)
@@ -824,6 +1015,12 @@ function EllesmereUI._BuildLegendsPage(pageName, parent, yOffset)
         local header = MakeFont(card, 13, nil, EG.r, EG.g, EG.b, 0.9)
         PP.Point(header, "TOPLEFT", card, "TOPLEFT", 16, -16)
         header:SetText(headerText)
+        -- Optional small grey qualifier after the header on its baseline.
+        if subText then
+            local sub = MakeFont(card, 11, nil, 1, 1, 1, 0.4)
+            PP.Point(sub, "BOTTOMLEFT", header, "BOTTOMRIGHT", 6, 0)
+            sub:SetText(subText)
+        end
 
         local div = card:CreateTexture(nil, "ARTWORK")
         div:SetColorTexture(1, 1, 1, 0.08)
@@ -924,9 +1121,11 @@ function EllesmereUI._BuildLegendsPage(pageName, parent, yOffset)
         end
     end
 
-    -- Left wall: every donor, dot-bulleted on alternating row strips.
+    -- Left wall: every donor, numbered in all-time order on alternating row
+    -- strips (ranks 1-3 take the podium metals on number and name, the rest
+    -- an accent number and a white name).
     local donors = data.donors or {}
-    local donorList, donorFin = MakeWall(PAD, L("ALL DONORS"))
+    local donorList, donorFin = MakeWall(PAD, L("ALL-TIME DONORS"), L("($100 or more)"))
     local DONOR_ROW_H = 24
     for i = 1, #donors do
         local rowF = CreateFrame("Frame", nil, donorList)
@@ -935,19 +1134,20 @@ function EllesmereUI._BuildLegendsPage(pageName, parent, yOffset)
         local rbg = rowF:CreateTexture(nil, "BACKGROUND")
         rbg:SetAllPoints()
         rbg:SetColorTexture(0, 0, 0, (i % 2 == 0) and 0.12 or 0.06)
-        local nameFs = MakeFont(rowF, 14, nil, 1, 1, 1, 0.85)
-        PP.Point(nameFs, "LEFT", rowF, "LEFT", 34, 0)
+        local m = METALS[i]
+        local nameFs = MakeFont(rowF, 14, nil, m and m.r or 1, m and m.g or 1, m and m.b or 1, m and 0.95 or 0.85)
+        PP.Point(nameFs, "LEFT", rowF, "LEFT", 40, 0)
         nameFs:SetJustifyH("LEFT")
         nameFs:SetText(donors[i])
-        local bdot = rowF:CreateTexture(nil, "OVERLAY")
-        bdot:SetColorTexture(EG.r, EG.g, EG.b, 0.9)
-        PP.Size(bdot, 4, 4)
-        PP.Point(bdot, "RIGHT", nameFs, "LEFT", -10, 0)
+        local numFs = MakeFont(rowF, 12, nil, m and m.r or EG.r, m and m.g or EG.g, m and m.b or EG.b, m and 0.95 or 0.8)
+        PP.Point(numFs, "RIGHT", nameFs, "LEFT", -8, 0)
+        numFs:SetJustifyH("RIGHT")
+        numFs:SetText(i .. ".")
     end
     donorFin(#donors * DONOR_ROW_H)
 
     -- Right wall: the team, grouped by role section (green group header,
-    -- then plain member rows on alternating strips).
+    -- then dot-bulleted member rows on alternating strips, as the donors).
     local staff = data.staff or {}
     local staffList, staffFin = MakeWall(PAD + colW + CARD_GAP, L("EUI STAFF"))
     local STAFF_ROW_H = 22
@@ -969,9 +1169,13 @@ function EllesmereUI._BuildLegendsPage(pageName, parent, yOffset)
             rbg:SetAllPoints()
             rbg:SetColorTexture(0, 0, 0, (i % 2 == 0) and 0.12 or 0.06)
             local nameFs = MakeFont(rowF, 14, nil, 1, 1, 1, 0.9)
-            PP.Point(nameFs, "LEFT", rowF, "LEFT", 16, 0)
+            PP.Point(nameFs, "LEFT", rowF, "LEFT", 34, 0)
             nameFs:SetJustifyH("LEFT")
             nameFs:SetText(members[i])
+            local bdot = rowF:CreateTexture(nil, "OVERLAY")
+            bdot:SetColorTexture(EG.r, EG.g, EG.b, 0.9)
+            PP.Size(bdot, 4, 4)
+            PP.Point(bdot, "RIGHT", nameFs, "LEFT", -10, 0)
             sy = sy - STAFF_ROW_H
         end
     end
@@ -992,6 +1196,50 @@ end
 --  deep-links via NavigateToElementSettings(module, page, section, preSelect, highlight).
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
+    {
+        version = "9.2.2",
+        heroes = {},
+        features = {
+            {
+                -- Static card: Unlock Mode has no options page.
+                module = "General",
+                title  = "Anchor Offsets and Corner Anchors",
+                desc   = "Type an anchored element's X and Y offset in its Unlock Mode cog menu, and anchor cooldown or action bars to a target's corner with the matching grow direction",
+            },
+            {
+                module = "Mythic+ Tools",
+                title  = "Fastest Run Splits",
+                desc   = "Compare your splits against your fastest completed run instead of your best individual splits",
+                nav    = { module = "EllesmereUIMythicTimer", page = "Mythic+ Timer",
+                           section = "BOSS OBJECTIVES", highlight = "Fastest Run Splits" },
+            },
+            {
+                -- Static card: the page only exists on WoW Forever.
+                forever = true,
+                module = "Resource Bars",
+                title  = "Swing Timer",
+                desc   = "The swing timer is now a Resource Bars bar with anchoring, visibility rules, textures, borders, range dimming and queued-attack colour; off by default",
+            },
+        },
+        fixes = {
+            { module = "Action Bars", text = "Inside dungeons and raids, changing an action slot or reloading no longer logs cooldown errors, and empower keybinds keep Hold-and-Release after a reload or talent change there." },
+            { forever = true, module = "Action Bars", text = "Action Bar 1 keybinds now fire the button they show while in a stance, form or stealth." },
+            { forever = true, module = "Action Bars", text = "Reloading or opening Edit Mode no longer shows a blocked-action error on the main action bar." },
+            { module = "Aura Buff Reminders & Mythic+ Tools", text = "Sections and Targeted Spell Bars limited to specific content no longer show inside Lairs, and Lair is a new Where to Show choice." },
+            { module = "Blizz UI Enhanced", text = "The Choose Your Roles sign-up dialog is skinned whenever the Queue Popup skin is on, as the option already said." },
+            { forever = true, module = "Blizz UI Enhanced", text = "The character sheet's ammo slot is skinned like the other slots." },
+            { module = "Cooldown Manager", text = "The spell picker now opens on a bar whose Blizzard list is empty, so custom spell and item IDs and the presets can still be added." },
+            { module = "DataBars & Damage Meters", text = "The social tooltip no longer errors on a cross-faction Battle.net friend, and the damage breakdown no longer errors on spells from players outside your group." },
+            { module = "Minimap", text = "The Tracking button is shown by default; turn it off under Show Blizzard Elements." },
+            { forever = true, module = "Nameplates", text = "Replace Quest Icon with Objective is on by default." },
+            { forever = true, module = "Nameplates", text = "The class resource shows combo points on the target's nameplate for rogues and druids, follows the current target, and starts at a larger size." },
+            { forever = true, module = "Resource Bars", text = "The Power Bar now tracks the resource the class actually uses, so hunters read mana." },
+            { module = "Unit Frames", text = "Health text at a Y offset of 0 now sits exactly on the bar's centre, matching the options preview." },
+            { module = "Unit Frames", text = "Name > Target text colours a boss's target by class again in instanced content, and updates the moment a unit's target changes." },
+            { forever = true, module = "Unit Frames", text = "Combo points show on the player frame, and the classic combo point art no longer floats beside the frame." },
+            { module = "Localization", text = "More Korean and Traditional Chinese translations: module style cards, Run Summary, Swing Timer, chat bubbles, Rotation Assist and the launch popup." },
+        },
+    },
     {
         version = "9.2.1",
         heroes = {
@@ -4256,7 +4504,12 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Cast Actions on Key Down",
               tooltip="Keybinds respond on key down instead of key up. This helps make your abilities feel more responsive.",
-              getValue=function() return GetCVarBool("ActionButtonUseKeyDown") end,
+              -- Without secure snippets the bars force key up (see
+              -- ns.UseKeyDownEffective); the row shows that effective state.
+              disabled=function() return not EllesmereUI.SecureSnippetsOK() end,
+              disabledTooltip="This client cannot run the safeguard that stops a drag from casting the spell, so actions stay on key up until Blizzard fixes it.",
+              rawTooltip=true,
+              getValue=function() return GetCVarBool("ActionButtonUseKeyDown") and EllesmereUI.SecureSnippetsOK() end,
               setValue=function(v)
                 SetCVarSafe("ActionButtonUseKeyDown", v and "1" or "0")
                 if _G._EAB_ApplyKeyDown then _G._EAB_ApplyKeyDown() end
@@ -8076,8 +8329,8 @@ initFrame:SetScript("OnEvent", function(self)
         end
     end
 
-    -- Profiles and Patch Notes are now their own sidebar pages (registered below), so Global Settings only owns General + Fonts + Textures + Style + Colors.
-    local globalPages = { PAGE_GENERAL, PAGE_FONTS, PAGE_TEXTURES, PAGE_STYLE, PAGE_COLORS }
+    -- Profiles and Patch Notes are now their own sidebar pages (registered below), so Global Settings only owns General + Style + Fonts + Textures + Colors (Style second, beside General).
+    local globalPages = { PAGE_GENERAL, PAGE_STYLE, PAGE_FONTS, PAGE_TEXTURES, PAGE_COLORS }
 
     EllesmereUI:RegisterModule(GLOBAL_KEY, {
         title       = "Global Settings",
@@ -8181,6 +8434,8 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.unlockAnchors = nil
                 EllesmereUIDB.unlockWidthMatch = nil
                 EllesmereUIDB.unlockHeightMatch = nil
+                EllesmereUIDB.unlockWidthMatchExtra = nil
+                EllesmereUIDB.unlockHeightMatchExtra = nil
                 -- QoL Features are NOT reset here; they have their own module reset
             end
             if EllesmereUI._applyRightClickTarget then
@@ -8470,6 +8725,55 @@ initFrame:SetScript("OnEvent", function(self)
                 return EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
             end,
         })
+
+        -- "Special thanks to: <donor>" beside the header's close button, re-rolled
+        -- on every panel open (weighted by _PickLegendsThanks); a click opens
+        -- the EUI Legends page. Built on the first open.
+        local thanksBtn
+        local function RollThanks()
+            local ca = EllesmereUI._clickArea
+            if not ca then return end
+            local name = EllesmereUI._PickLegendsThanks()
+            if not name then
+                if thanksBtn then thanksBtn:Hide() end
+                return
+            end
+            if not thanksBtn then
+                thanksBtn = CreateFrame("Button", nil, ca)
+                thanksBtn:SetFrameLevel(ca:GetFrameLevel() + 20)
+                thanksBtn:SetHeight(20)
+                -- Vertically centred on the close X, 12px left of its box.
+                thanksBtn:SetPoint("RIGHT", ca, "TOPRIGHT", -62, -31)
+                local nameFs = EllesmereUI.MakeFont(thanksBtn, 13, nil, 1, 1, 1, 0.9)
+                nameFs:SetPoint("RIGHT", thanksBtn, "RIGHT", 0, 0)
+                local prefixFs = EllesmereUI.MakeFont(thanksBtn, 13, nil, 1, 1, 1, 0.45)
+                prefixFs:SetPoint("RIGHT", nameFs, "LEFT", -4, 0)
+                prefixFs:SetText(EllesmereUI.L("Special thanks to:"))
+                thanksBtn._nameFs, thanksBtn._prefixFs = nameFs, prefixFs
+                thanksBtn:SetScript("OnEnter", function(self)
+                    self._prefixFs:SetAlpha(0.75)
+                    self._nameFs:SetAlpha(1)
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("View EUI Legends"))
+                end)
+                thanksBtn:SetScript("OnLeave", function(self)
+                    self._prefixFs:SetAlpha(0.45)
+                    self._nameFs:SetAlpha(0.9)
+                    EllesmereUI.HideWidgetTooltip()
+                end)
+                thanksBtn:SetScript("OnClick", function()
+                    EllesmereUI.HideWidgetTooltip()
+                    EllesmereUI:SelectModule(PATCHNOTES_KEY)
+                    EllesmereUI:SelectPage(PAGE_LEGENDS)
+                end)
+            end
+            local EG = EllesmereUI.ELLESMERE_GREEN
+            thanksBtn._nameFs:SetTextColor(EG.r, EG.g, EG.b, 0.9)
+            thanksBtn._nameFs:SetText(name)
+            thanksBtn:SetWidth(thanksBtn._nameFs:GetStringWidth() + 4 + thanksBtn._prefixFs:GetStringWidth())
+            thanksBtn:Show()
+        end
+        EllesmereUI:RegisterOnShow(RollThanks)
+        if EllesmereUI._mainFrame and EllesmereUI._mainFrame:IsShown() then RollThanks() end
     end
 
     -- Clean up profiles root when panel closes

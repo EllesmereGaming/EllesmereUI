@@ -4257,7 +4257,6 @@ L["Buff Size"] = "Tamanho dos Buffs"
 L["Buffs join the debuff stack as its first rows; debuffs continue on the next row and move as buff rows change."] = "Os buffs se juntam à pilha de debuffs como suas primeiras linhas; os debuffs continuam na linha seguinte e se movem conforme as linhas de buffs mudam."
 L["Buffs Location"] = "Localização dos Buffs"
 L["Buff Stack Size"] = "Tamanho da Pilha dos Buffs"
-L["Buffs & Weapon Enchants"] = "Buffs e Encantamentos de Arma"
 L["Buff Text Size"] = "Tamanho do Texto dos Buffs"
 L["Cast Bar"] = "Barra de Lançamento"
 L["CAST BAR"] = "BARRA DE LANÇAMENTO"
@@ -4277,7 +4276,6 @@ L["Show S for Seconds"] = "Mostrar 'S' de Segundos"
 L["Show aura tooltips when hovering this bar's icons."] = "Mostra dicas de aura ao passar o mouse sobre os ícones desta barra."
 L["Show every buff. While this is on, checked filters below are hidden from the bar instead of added."] = "Mostra todos os buffs. Enquanto isso estiver ativado, os filtros marcados abaixo são ocultados da barra em vez de adicionados."
 L["Show every debuff. While this is on, checked filters below are hidden from the bar instead of added."] = "Mostra todos os debuffs. Enquanto isso estiver ativado, os filtros marcados abaixo são ocultados da barra em vez de adicionados."
-L["Show weapon oil and imbue icons at the front of this bar. They are weapon enchants rather than auras, so they show independently of the options above -- and the aura grid is shifted inward to make room for them, with every row shifting over by the same amount."] = "Mostra os ícones de óleo de arma e imbuição na frente desta barra. Eles são encantamentos de arma, não auras, então aparecem independentemente das opções acima -- e a grade de auras é deslocada para dentro para abrir espaço para eles, com cada linha deslocando pelo mesmo valor."
 L["Sort Direction"] = "Direção de Ordenação"
 L["Sort Method"] = "Método de Ordenação"
 L["Stealable"] = "Roubável"
@@ -6907,7 +6905,6 @@ L["Solid Border"] = "Borda Sólida"
 L["Blizzard Default uses Blizzard's native size"] = "Padrão da Blizzard usa o tamanho nativo da Blizzard"
 
 -- == Mythic+ Tools / Run Summary ================================================
-L["Mythic+ Run Summary"] = "Resumo da Corrida Mítica+"
 L["Run Summary"] = "Resumo da Corrida"
 L["RUN SUMMARY"] = "RESUMO DA CORRIDA"
 L["COLUMNS"] = "COLUNAS"
@@ -6948,8 +6945,6 @@ L["This option requires Tabs Inside Chat Panel to be disabled"] = "Esta opção 
 
 -- == Damage Meters Options ================================================
 L["Unsafe Refresh Rate"] = "Taxa de Atualização Insegura"
-L["Below 0.5s multiplies memory allocation per window every tick. Not recommended with several windows open."] = "Abaixo de 0,5s multiplica a alocação de memória por janela a cada tick. Não recomendado com várias janelas abertas."
-L["Allows Refresh Rate below 0.5s. Each tick fetches a full session snapshot per window, so lower values multiply allocation cost far past any visual gain, especially with several windows open."] = "Permite Taxa de Atualização abaixo de 0,5s. Cada tick busca um retrato completo da sessão por janela, então valores menores multiplicam o custo de alocação muito além de qualquer ganho visual, especialmente com várias janelas abertas."
 
 -- == Unlock Mode / Screen Edge Anchors ================================================
 L["Left Screen Edge"] = "Borda Esquerda da Tela"
@@ -6961,3 +6956,117 @@ L["Relative to Screen"] = "Relativo à Tela"
 -- == Aura/Buff Reminders Food Items ================================================
 L["Feast of Knowledge"] = "Banquete de Conhecimento"
 L["Hearty Feast of Knowledge"] = "Banquete de Conhecimento Substancial"
+
+-- == WoW Forever ================================================
+L["%1$s is switched off on the WoW Forever beta until Blizzard's client can run secure handlers again."] = "%1$s: desativado no beta do WoW Forever até que o cliente da Blizzard volte a executar manipuladores seguros."
+L["A reload is required to apply this."] = "É necessário recarregar para aplicar isto."
+L["ALSO NEW"] = "TAMBÉM NOVO"
+L["BLIZZARD ART"] = "ARTE DA BLIZZARD"
+L["EllesmereUI Forever"] = true
+L["Everything from retail, ported to WoW Forever"] = "Tudo da versão retail, portado para o WoW Forever"
+L["Export and import your profiles between the two clients"] = "Exporte e importe seus perfis entre os dois clientes"
+L["Got It"] = "Entendi"
+L["Keep every EllesmereUI feature and setting, with Blizzard's own art. Pick the look per module in Global Settings -> Style."] = "Mantenha todos os recursos e configurações da EllesmereUI, com a arte original da Blizzard. Escolha o visual de cada módulo em Configurações globais -> Estilo."
+L["NOW ON WOW FOREVER"] = "AGORA NO WOW FOREVER"
+L["On WoW Forever the same install sets itself up on first login."] = "No WoW Forever, a mesma instalação se configura sozinha no primeiro login."
+L["One EllesmereUI: the same install runs on either game"] = "Uma só EllesmereUI: a mesma instalação funciona nos dois jogos"
+L["Profiles are switched off on the WoW Forever beta until Blizzard's client saves settings again."] = "Os perfis estão desativados no beta do WoW Forever até que o cliente da Blizzard volte a salvar as configurações."
+L["Reloading on the WoW Forever beta resets your EllesmereUI settings until Blizzard fixes the client."] = "Recarregar no beta do WoW Forever redefine suas configurações da EllesmereUI até que a Blizzard corrija o cliente."
+L["Reloading resets your settings on the WoW Forever beta until Blizzard fixes the client."] = "Recarregar redefine suas configurações no beta do WoW Forever até que a Blizzard corrija o cliente."
+L["The current WoW Forever client has a bug that prevents some Action Bars functionality. Bars, buttons and keybinds work; page switching on stance and form changes, conditional bar hiding and empty-slot handling do not. This resolves itself once Blizzard fixes the client."] = "O cliente atual do WoW Forever tem um bug que impede parte das funções das Barras de Ação. Barras, botões e atalhos funcionam; a troca de página em mudanças de postura e forma, o ocultamento condicional de barras e o tratamento de espaços vazios não funcionam. Isso se resolve sozinho assim que a Blizzard corrigir o cliente."
+L["The full suite now runs on WoW Forever, crafted with a clean base layout for your first login."] = "O conjunto completo agora roda no WoW Forever, com um layout base limpo para o seu primeiro login."
+L["This client has no Blizzard class resource bar to attach to the frame"] = "Este cliente não tem uma barra de recurso de classe da Blizzard para anexar ao quadro"
+L["Type /reload in chat to apply."] = "Digite /reload no bate-papo para aplicar."
+L["WOW FOREVER"] = true
+L["WoW Forever"] = true
+
+-- == Global Settings / Style ================================================
+L["Blizzard Style"] = "Estilo Blizzard"
+L["Blizzard Style is active. Settings that only apply to the EllesmereUI look are hidden."] = "O Estilo Blizzard está ativo. As configurações que só valem para o visual da EllesmereUI ficam ocultas."
+L["Blizzard Style keeps every EllesmereUI feature and setting; only the art changes. Changing a style reloads the UI."] = "O Estilo Blizzard mantém todos os recursos e configurações da EllesmereUI; só a arte muda. Trocar um estilo recarrega a interface."
+L["Blizzard's aura borders on the buffs, debuffs and weapon enchants, with every EllesmereUI bar feature."] = "As bordas de aura da Blizzard nos buffs, debuffs e encantamentos de arma, com todos os recursos de barra da EllesmereUI."
+L["Blizzard's buff bar art with every EllesmereUI tracked bar feature."] = "A arte das barras de buffs da Blizzard com todos os recursos de barra rastreada da EllesmereUI."
+L["Blizzard's cast bar art with every EllesmereUI cast bar feature."] = "A arte da barra de lançamento da Blizzard com todos os recursos de barra de lançamento da EllesmereUI."
+L["Blizzard's frame art, portraits and bar shapes with every EllesmereUI frame feature."] = "A arte de quadros, os retratos e o formato das barras da Blizzard com todos os recursos de quadro da EllesmereUI."
+L["Blizzard's health and cast bar art with every EllesmereUI nameplate feature."] = "A arte das barras de vida e de lançamento da Blizzard com todos os recursos de placa de nome da EllesmereUI."
+L["Blizzard's meter window and bar art with every EllesmereUI meter feature."] = "A janela do medidor e a arte das barras da Blizzard com todos os recursos de medidor da EllesmereUI."
+L["Blizzard's round minimap and header with every EllesmereUI minimap feature."] = "O minimapa redondo e o cabeçalho da Blizzard com todos os recursos de minimapa da EllesmereUI."
+L["Blizzard's rounded button art with every EllesmereUI bar feature."] = "A arte de botões arredondados da Blizzard com todos os recursos de barra da EllesmereUI."
+L["Blizzard's rounded cooldown icons with every EllesmereUI icon feature."] = "Os ícones de recarga arredondados da Blizzard com todos os recursos de ícone da EllesmereUI."
+L["Changing the style requires a UI reload to apply."] = "Alterar o estilo requer recarregar a interface para aplicá-lo."
+L["Choose the look of each module."] = "Escolha o visual de cada módulo."
+L["Cooldown Manager Icons"] = "Ícones do Gerenciador de Recarga"
+L["EllesmereUI Style"] = "Estilo EllesmereUI"
+L["Enable %1$s to change its style."] = "Ative %1$s para alterar o estilo."
+L["MODULE STYLES"] = "ESTILOS DOS MÓDULOS"
+L["Open Style"] = "Abrir Estilo"
+L["Style changed for this profile. A UI reload is needed to apply it."] = "O estilo foi alterado para este perfil. É necessário recarregar a interface para aplicá-lo."
+L["Style to apply to every module below."] = "Estilo a aplicar a todos os módulos abaixo."
+L["The personal resource display's bar frame on the health, power and class resource bars, with every EllesmereUI bar feature."] = "A moldura de barra da exibição de recursos pessoais nas barras de vida, de poder e de recurso de classe, com todos os recursos de barra da EllesmereUI."
+L["This option requires Blizzard Style to be disabled"] = "Esta opção requer que o Estilo Blizzard esteja desativado"
+L["Tracked Buff Bars"] = "Barras de Buffs Rastreados"
+
+-- == Unit Frames / Blizzard Style ================================================
+L["Frame Scale"] = "Escala do Quadro"
+L["Level Text Settings"] = "Configurações do Texto de Nível"
+L["Scales the whole frame. Blizzard Style frames are the stock size, so this stands in for Bar Width and Health Bar Height."] = "Escala o quadro inteiro. Os quadros no Estilo Blizzard têm o tamanho padrão, então isto substitui Largura da Barra e Altura da Barra de Vida."
+L["Shows the unit's level in the frame's level circle, as the default UI does."] = "Mostra o nível da unidade no círculo de nível do quadro, como faz a interface padrão."
+L["Size matching is unavailable with Blizzard Style Unit Frames."] = "A correspondência de tamanho não está disponível com os Quadros de Unidade no Estilo Blizzard."
+L["This option requires Show Level."] = "Esta opção requer Mostrar Nível."
+
+-- == Resource Bars / Swing Timer ================================================
+L["Dim a row and paint its text red while the current target is out of that weapon's auto attack range."] = "Escurece uma linha e pinta o texto de vermelho enquanto o alvo atual está fora do alcance de ataque automático dessa arma."
+L["Enable Swing Timer"] = "Ativar Cronômetro de Ataque"
+L["Gap between the weapon rows."] = "Espaço entre as linhas de arma."
+L["Height of each weapon row."] = "Altura de cada linha de arma."
+L["Hide the bar while no swing is running."] = "Oculta a barra enquanto nenhum ataque estiver em andamento."
+L["Highlight Queued Attacks"] = "Destacar Ataques na Fila"
+L["Idle Rows"] = "Linhas Ociosas"
+L["Main Hand Color"] = "Cor da Mão Principal"
+L["Off Hand Color"] = "Cor da Mão Secundária"
+L["One bar per weapon that can swing, each filling over the time to the next auto attack."] = "Uma barra por arma que pode atacar, cada uma enchendo durante o tempo até o próximo ataque automático."
+L["Opacity of a row whose target is out of range."] = "Opacidade de uma linha cujo alvo está fora de alcance."
+L["Ranged Color"] = "Cor de Longo Alcance"
+L["Show an idle row full of its fill color instead of the background color."] = "Mostra uma linha ociosa cheia da cor de preenchimento em vez da cor de fundo."
+L["Show the Main Hand row."] = "Mostra a linha da mão principal."
+L["Show the Off Hand row while an off-hand weapon is equipped."] = "Mostra a linha da mão secundária enquanto uma arma de mão secundária estiver equipada."
+L["Show the Ranged row while a ranged weapon is equipped."] = "Mostra a linha de longo alcance enquanto uma arma de longo alcance estiver equipada."
+L["Show the seconds left to the next swing on each row."] = "Mostra os segundos restantes até o próximo ataque em cada linha."
+L["Show Time"] = "Mostrar Tempo"
+L["Show Weapon Label"] = "Mostrar Rótulo da Arma"
+L["Start each row full and drain it as the swing timer elapses, instead of filling it up."] = "Começa cada linha cheia e a esvazia conforme o cronômetro de ataque corre, em vez de enchê-la."
+L["Swing Timer"] = "Cronômetro de Ataque"
+L["Swing Timer Position"] = "Posição do Cronômetro de Ataque"
+L["Tag each row with its weapon slot: MH (Main Hand), OH (Off Hand), R (Ranged)."] = "Marca cada linha com o slot da arma: MH (Mão Principal), OH (Mão Secundária), R (Longo Alcance)."
+L["While an on-next-swing attack is queued (Heroic Strike, Cleave, Maul), the Main Hand and Off Hand rows take the queue color and show the attack's name."] = "Enquanto um ataque de próximo golpe está na fila (Golpe Heroico, Cutilada, Espancar), as linhas da Mão Principal e da Mão Secundária assumem a cor da fila e mostram o nome do ataque."
+
+-- == Aura/Buff Reminders ================================================
+L["Camp"] = "Acampamento"
+L["Camp Benefits"] = "Benefícios do Acampamento"
+L["Dungeons"] = "Masmorras"
+L["Lair"] = "Covil"
+L["Middle Click a reminder to hide it until the next load screen"] = "Clique do meio em um lembrete para ocultá-lo até a próxima tela de carregamento"
+L["Pick which content the WoW Forever reminders appear in.\nRested areas (cities and inns) always stay hidden."] = "Escolha em qual conteúdo os lembretes do WoW Forever aparecem.\nÁreas de descanso (cidades e estalagens) ficam sempre ocultas."
+L["Reminds you when the Camp Benefits campfire buff is missing."] = "Avisa quando o buff de fogueira Benefícios do Acampamento estiver faltando."
+L["Reminds you whenever this buff is missing. Remove stops tracking it."] = "Avisa sempre que este buff estiver faltando. Remover interrompe o rastreamento."
+L["Type a spell ID and press Enter to be reminded whenever that buff is missing.\nUnknown IDs are ignored."] = "Digite um ID de feitiço e pressione Enter para ser lembrado sempre que esse buff estiver faltando.\nIDs desconhecidos são ignorados."
+
+-- == Bags ================================================
+L["Camp Items"] = "Itens de Acampamento"
+
+-- == Damage Meters Options ================================================
+L["Faster than 0.5s makes the meters work much harder in combat and can cost you frames, especially with several windows open."] = "Mais rápido que 0,5s faz os medidores trabalharem bem mais em combate e pode custar FPS, principalmente com várias janelas abertas."
+L["Lets you set Refresh Rate faster than 0.5s. The meters update more often but work much harder in combat, which can cost you frames. Only turn this on if your PC has performance to spare."] = "Permite definir a Taxa de Atualização mais rápida que 0,5s. Os medidores atualizam com mais frequência, mas trabalham bem mais em combate, o que pode custar FPS. Só ative se o seu PC tiver desempenho de sobra."
+
+-- == Mythic+ Tools ================================================
+L["(%1$d Chest)"] = "(Baús: %1$d)"
+L["Compare against the splits of your fastest completed run instead of your best individual splits."] = "Compara com os parciais da sua corrida concluída mais rápida em vez dos seus melhores parciais individuais."
+L["Fastest Run Splits"] = "Parciais da Corrida Mais Rápida"
+L["Size of the player rows. The title and column headers keep their own size."] = "Tamanho das linhas de jogadores. O título e os cabeçalhos das colunas mantêm o próprio tamanho."
+
+-- == Unlock Mode ================================================
+L["Anchored to: %1$s"] = "Ancorado a: %1$s"
+L["Corner options place the bar flush with that corner of the target and set its grow direction to keep it there as bars change size."] = "As opções de canto posicionam a barra rente a esse canto do alvo e definem a direção de crescimento para mantê-la ali conforme as barras mudam de tamanho."
+
+-- == Blizzard Skin Options ================================================
+L["Themed Blizzard frames: window skins, tooltips, menus, popups."] = "Quadros da Blizzard com tema: aparências de janelas, dicas, menus, pop-ups."

@@ -213,6 +213,7 @@ local DB_DEFAULTS = {
         objectiveCompareDeltaOnly = false,
         objectiveCompareStrict = false,
         showUpcomingSplitTargets = false,
+        showFastestRunSplits = false,
         frameWidth        = 260,
         barWidth          = 210,
         barHeight         = 8,
@@ -246,6 +247,12 @@ local DB_DEFAULTS = {
         deathTextColor    = { r = 0.93, g = 0.33, b = 0.33 },
         enemyBarUseAccent = true,
         enemyBarColor     = { r = 0.35, g = 0.55, b = 0.8 },
+        -- Current pull: the bar previews the forces of every enemy in combat
+        -- behind the forces fill (by default in the fill color at reduced alpha).
+        showPullBar        = false,
+        pullBarUseBarColor = true,
+        pullBarColor       = { r = 1, g = 0.55, b = 0.1 },
+        pullBarAlpha       = 0.35,
         -- Targeted Spell Bars (Mythic+ Tools tab): replica nameplate cast bars
         -- collected into one movable group. Disabled by default; the feature
         -- registers its events only while enabled (zero cost off). Runtime in
@@ -589,7 +596,7 @@ end
 local function GetReferenceObjectiveTime(run, objectiveIndex, mode)
     if mode == COMPARE_NONE then return nil end
 
-    local store = EnsureProfileStore("bestObjectiveSplits")
+    local store  = (db.profile.showFastestRunSplits and EnsureProfileStore("fastestRunSplits"))  or EnsureProfileStore("bestObjectiveSplits")
     if not store then return nil end
 
     -- Try exact scope first, then fall back to broader scopes
@@ -642,6 +649,34 @@ local function UpdateObjectiveCompletion(obj, objectiveIndex)
     obj.isNewBest = reference == nil or obj.elapsed < reference
 
     UpdateBestObjectiveSplits(currentRun, objectiveIndex, obj.elapsed)
+end
+
+-- The splits of the fastest COMPLETED run per scope, beside the per-objective
+-- bests: same shape (store[scopeKey][objectiveIndex] = elapsed) plus the
+-- run's own time under "overallRunTime", which decides whether a run
+-- replaces the stored one. Called once per completion from CompleteRun.
+local FASTEST_RUN_SCOPES = { COMPARE_DUNGEON, COMPARE_LEVEL, COMPARE_LEVEL_AFFIX }
+local function SaveFastestRunSplits()
+    local store = EnsureProfileStore("fastestRunSplits")
+    if not store then return end
+    local run = currentRun
+    local elapsed = run.elapsed
+    -- The completion time can come from GetWorldElapsedTime after a
+    -- depletion, which may hand back a secret: no compare on that.
+    if type(elapsed) ~= "number" or (issecretvalue and issecretvalue(elapsed)) then return end
+    for _, mode in ipairs(FASTEST_RUN_SCOPES) do
+        local scopeKey = GetScopeKey(run, mode)
+        if scopeKey then
+            if not store[scopeKey] then store[scopeKey] = {} end
+            local previousRunTime = store[scopeKey].overallRunTime
+            if not previousRunTime or elapsed < previousRunTime then
+                store[scopeKey].overallRunTime = elapsed
+                for objectiveIndex, objective in ipairs(run.objectives) do
+                    store[scopeKey][objectiveIndex] = objective.elapsed
+                end
+            end
+        end
+    end
 end
 
 local function BuildSplitCompareText(referenceTime, currentTime, deltaOnly, fasterColor, slowerColor)
@@ -792,6 +827,10 @@ local function UpdateObjectives()
                 end
             end
         end
+    end
+
+    if currentRun.completed then
+        SaveFastestRunSplits()
     end
 
     for i = numCriteria + 1, #currentRun.objectives do
@@ -1077,6 +1116,8 @@ local PREVIEW_RUN = {
     preciseCompletedElapsed = nil,
     _previewAffixNames = { "Tyrannical", "Xal'atath's Bargain: Ascendant" },
     _previewAffixIDs = { 9, 152 },
+    -- Current pull sample: two pulled mobs worth 18 and 14 forces (~13%).
+    _previewPullValues = { 18, 14 },
     objectives    = {
         { name = "Kyrioss",                 completed = true,  elapsed = 510,  quantity = 1,     totalQuantity = 1,   rawQuantity = 1, rawTotalQuantity = 1, percent = 0, isWeighted = false, previewSplit = 528 },
         { name = "Stormguard Gorren",       completed = true,  elapsed = 1005, quantity = 1,     totalQuantity = 1,   rawQuantity = 1, rawTotalQuantity = 1, percent = 0, isWeighted = false, previewSplit = 972 },
@@ -1159,7 +1200,7 @@ local unlockLayoutActive = false -- force preview layout while Unlock Mode is op
 -- textured border if the border lived inside the host. Frame level is raised
 -- above the host's tick layer every apply so the continuous TICKS fill cannot
 -- paint over the border strips.
-local function ApplyBorderTo(parent, anchor, key, p, size, texKey, r, g, b, a)
+local function ApplyBorderTo(parent, anchor, key, p, size, texKey, r, g, b, a, px)
     if not parent or not anchor then
         return
     end
@@ -1203,7 +1244,7 @@ local function ApplyBorderTo(parent, anchor, key, p, size, texKey, r, g, b, a)
         bf, size, r, g, b, a, texKey,
         p.borderTextureOffset, p.borderTextureOffsetY,
         p.borderTextureShiftX, p.borderTextureShiftY,
-        "MythicPlus", size
+        "MythicPlus", size, nil, px
     )
     -- PP strip container keeps an absolute level from create time; bump it with
     -- the carrier or the strips can sit under the TICKS tick layer while the
@@ -1233,6 +1274,9 @@ ns.ApplyBorder = function()
     end
     local texKey = p.borderTexture or "solid"
     local r, g, b, a = p.borderR or 0, p.borderG or 0, p.borderB or 0, p.borderA or 1
+    -- Exact pixel size (nil = the legacy path), resolved once against the bar's
+    -- own step: every carrier below draws either this size or a forced 0.
+    local px = EllesmereUI.BorderPx(p.borderSizePx, size, texKey)
 
     -- Main timer bar. In SEGMENTS mode "_barHost" is only a layout spacer that
     -- spans the ENTIRE bar width (including the gaps between segments). Bordering
@@ -1243,28 +1287,28 @@ ns.ApplyBorder = function()
     local isSegmented = (p.timerBarStyle == "SEGMENTS")
     local barAnchor = f._barHost or f._barBg
     if isSegmented then
-        ApplyBorderTo(f, barAnchor, "_emtBarBorderFrame", p, 0, texKey, r, g, b, a)
+        ApplyBorderTo(f, barAnchor, "_emtBarBorderFrame", p, 0, texKey, r, g, b, a, nil)
     else
-        ApplyBorderTo(f, barAnchor, "_emtBarBorderFrame", p, size, texKey, r, g, b, a)
+        ApplyBorderTo(f, barAnchor, "_emtBarBorderFrame", p, size, texKey, r, g, b, a, px)
     end
 
     -- Forces bar (skipped when "Apply to Forces Bar" is off in the border cog).
-    local forcesSize = size
-    if p.borderApplyToForces == false then forcesSize = 0 end
-    ApplyBorderTo(f, f._enemyBarHost or f._enemyBarBg, "_emtEnemyBorderFrame", p, forcesSize, texKey, r, g, b, a)
+    local forcesSize, forcesPx = size, px
+    if p.borderApplyToForces == false then forcesSize, forcesPx = 0, nil end
+    ApplyBorderTo(f, f._enemyBarHost or f._enemyBarBg, "_emtEnemyBorderFrame", p, forcesSize, texKey, r, g, b, a, forcesPx)
 
     -- Segment bars (timer bar SEGMENTS mode) -- border each segment host.
+    local segSize, segPx = 0, nil
+    if isSegmented then segSize, segPx = size, px end
     if f._timerSegHosts then
         for i, host in ipairs(f._timerSegHosts) do
-            local segSize = isSegmented and size or 0
-            ApplyBorderTo(f, host, "_emtSegBorderFrame" .. i, p, segSize, texKey, r, g, b, a)
+            ApplyBorderTo(f, host, "_emtSegBorderFrame" .. i, p, segSize, texKey, r, g, b, a, segPx)
         end
     elseif f._timerSegBgs then
         -- Legacy texture-only segments (pre-shell); keep border working if hosts
         -- were never built this session.
         for i, seg in ipairs(f._timerSegBgs) do
-            local segSize = isSegmented and size or 0
-            ApplyBorderTo(f, seg, "_emtSegBorderFrame" .. i, p, segSize, texKey, r, g, b, a)
+            ApplyBorderTo(f, seg, "_emtSegBorderFrame" .. i, p, segSize, texKey, r, g, b, a, segPx)
         end
     end
 end
@@ -1401,6 +1445,182 @@ local function GetAccentColor()
         return EllesmereUI.ResolveActiveAccent()
     end
     return 0.05, 0.83, 0.62
+end
+
+-- Current pull bar: one StatusBar per enemy in combat, chained off the end of
+-- the forces fill. In M+ the per-unit forces values are secret (tainted code
+-- can neither add nor compare them) and unit identity is restricted, so the
+-- pull total is never computed in Lua: each value goes straight into SetValue
+-- and the segments add up on screen by anchoring each one to the previous
+-- segment's fill edge. The host clips anything past 100%.
+-- The full render stores the layout and style on the frame (f._pull*); plate
+-- and regen events then only re-place the segments via UpdatePullSegments.
+local RenderPullSegments, HidePullSegments, SyncPullEvents
+do
+    local PLATE_UNITS = {}
+    for i = 1, 40 do PLATE_UNITS[i] = "nameplate" .. i end
+    local GROUP_UNITS = { "player", "party1", "party2", "party3", "party4" }
+
+    -- A secret never counts as true.
+    local function IsPlainTrue(v)
+        if v == nil or (issecretvalue and issecretvalue(v)) then return false end
+        return v == true
+    end
+
+    -- Enemies only count while someone in the group fights, so the plate scan
+    -- is skipped between pulls. Party members keep it alive after a death.
+    local function GroupInCombat()
+        for i = 1, #GROUP_UNITS do
+            if IsPlainTrue(UnitAffectingCombat(GROUP_UNITS[i])) then return true end
+        end
+        return false
+    end
+
+    -- Without `from` this is a full hide: it also stops event-driven updates
+    -- from re-showing segments until the next full render turns them back on.
+    HidePullSegments = function(f, from)
+        if not from then f._pullOn = false end
+        local segs = f._pullSegs
+        if not segs then return end
+        for i = from or 1, #segs do segs[i]:Hide() end
+    end
+
+    -- Returns the placed segment's fill texture, the anchor for the next one.
+    -- Texture, color, range and size are re-applied only when the render's
+    -- style version changed; per update a segment just re-anchors and SetValues.
+    local function PlaceSegment(f, n, anchor, value)
+        local seg = f._pullSegs[n]
+        if not seg then
+            seg = CreateFrame("StatusBar", nil, f._pullClip)
+            seg:EnableMouse(false)
+            f._pullSegs[n] = seg
+        end
+        if seg._styleVer ~= f._pullStyleVer then
+            seg._styleVer = f._pullStyleVer
+            seg:SetStatusBarTexture(f._pullTex)
+            seg:SetStatusBarColor(f._pullR, f._pullG, f._pullB, f._pullA)
+            seg:SetMinMaxValues(0, f._pullTotal)
+            seg:SetSize(f._pullW, f._pullH)
+        end
+        seg:ClearAllPoints()
+        seg:SetPoint("TOPLEFT", anchor, "TOPRIGHT", 0, 0)
+        seg:SetValue(value)
+        seg:Show()
+        return seg:GetStatusBarTexture()
+    end
+
+    local function UpdatePullSegments(f)
+        if not (f and f._pullOn) then return end
+        local anchor, n = f._enemyBarFill, 0
+        local previewValues = f._pullPreview
+        if previewValues then
+            for i = 1, #previewValues do
+                n = n + 1
+                anchor = PlaceSegment(f, n, anchor, previewValues[i])
+            end
+        elseif C_ScenarioInfo and C_ScenarioInfo.GetUnitCriteriaProgressValues and GroupInCombat() then
+            for i = 1, #PLATE_UNITS do
+                local unit = PLATE_UNITS[i]
+                if IsPlainTrue(UnitExists(unit)) and IsPlainTrue(UnitCanAttack("player", unit))
+                   and IsPlainTrue(UnitAffectingCombat(unit)) and not IsPlainTrue(UnitIsDead(unit)) then
+                    -- nil for enemies that give no forces. The value itself is
+                    -- only ever handed to SetValue, never read.
+                    local value = C_ScenarioInfo.GetUnitCriteriaProgressValues(unit)
+                    if value ~= nil then
+                        n = n + 1
+                        anchor = PlaceSegment(f, n, anchor, value)
+                    end
+                end
+            end
+        end
+        HidePullSegments(f, n + 1)
+    end
+
+    RenderPullSegments = function(f, clip, run, enemyObj, p, w, h, barR, barG, barB)
+        SyncPullEvents()
+        local total = enemyObj.rawTotalQuantity
+        if p.showPullBar ~= true or enemyObj.completed or not total or total <= 0 then
+            HidePullSegments(f)
+            return
+        end
+        if not f._pullSegs then f._pullSegs = {} end
+
+        local r, g, b = barR, barG, barB
+        if p.pullBarUseBarColor == false then
+            r, g, b = GetColor(p.pullBarColor, 1, 0.55, 0.1)
+        end
+        local a = p.pullBarAlpha or 0.35
+        local texPath = EllesmereUI.ResolveTexturePath
+            and EllesmereUI.ResolveTexturePath(barTextures, p.enemyBarTexture or "none", nil)
+            or "Interface\\Buttons\\WHITE8X8"
+
+        if f._pullTex ~= texPath or f._pullR ~= r or f._pullG ~= g or f._pullB ~= b
+           or f._pullA ~= a or f._pullTotal ~= total or f._pullW ~= w or f._pullH ~= h
+           or f._pullClip ~= clip then
+            f._pullTex, f._pullR, f._pullG, f._pullB, f._pullA = texPath, r, g, b, a
+            f._pullTotal, f._pullW, f._pullH, f._pullClip = total, w, h, clip
+            f._pullStyleVer = (f._pullStyleVer or 0) + 1
+        end
+        f._pullOn = true
+        f._pullPreview = run._previewPullValues
+        UpdatePullSegments(f)
+    end
+
+    -- Event side. Regen events (twice per pull) are registered while a run is
+    -- active with the bar enabled; nameplate events additionally only while
+    -- the player is in combat, so segments follow enemies joining the fight
+    -- between the 1/sec ticks. SyncPullEvents runs from the run-event toggle,
+    -- the regen events and every full render, so enabling the option mid-run,
+    -- mid-combat or after a mid-key /reload converges within a second.
+    local pullFrame = CreateFrame("Frame")
+    local PLATE_EVENTS = { "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED" }
+    local regenOn, platesOn = false, false
+    local updatePending = false
+
+    local function RunPendingUpdate()
+        updatePending = false
+        UpdatePullSegments(standaloneFrame)
+    end
+
+    SyncPullEvents = function(inCombat)
+        local p = db and db.profile
+        local on = (currentRun.active and p and p.showPullBar == true and p.showEnemyBar ~= false) and true or false
+        if inCombat == nil then inCombat = InCombatLockdown() end
+        local plates = on and inCombat and true or false
+        if on ~= regenOn then
+            regenOn = on
+            if on then
+                pullFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+                pullFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+            else
+                pullFrame:UnregisterEvent("PLAYER_REGEN_DISABLED")
+                pullFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
+            end
+        end
+        if plates ~= platesOn then
+            platesOn = plates
+            for i = 1, #PLATE_EVENTS do
+                if plates then
+                    pullFrame:RegisterEvent(PLATE_EVENTS[i])
+                else
+                    pullFrame:UnregisterEvent(PLATE_EVENTS[i])
+                end
+            end
+        end
+    end
+
+    pullFrame:SetScript("OnEvent", function(_, event)
+        if event == "PLAYER_REGEN_DISABLED" then
+            SyncPullEvents(true)
+        elseif event == "PLAYER_REGEN_ENABLED" then
+            SyncPullEvents(false)
+        end
+        -- Coalesce plate bursts (a pack scrolling into view) into one update.
+        if not updatePending then
+            updatePending = true
+            C_Timer.After(0.05, RunPendingUpdate)
+        end
+    end)
 end
 
 local function StripDefeated(name)
@@ -2123,6 +2343,7 @@ local function RenderStandalone()
             f._enemyBarBg:Hide()
             f._enemyBarFill:Hide()
             if f._enemyBarText then f._enemyBarText:Hide() end
+            HidePullSegments(f)
             return
         end
 
@@ -2139,6 +2360,7 @@ local function RenderStandalone()
             if f._enemyBarHost then f._enemyBarHost:Hide() end
             f._enemyBarBg:Hide(); f._enemyBarFill:Hide()
             if f._enemyBarText then f._enemyBarText:Hide() end
+            HidePullSegments(f)
             return
         end
 
@@ -2216,6 +2438,7 @@ local function RenderStandalone()
             f._enemyBarFill:SetSize(eFillW, clipH)
             ApplyBarTexture(f._enemyBarFill, p.enemyBarTexture, eR, eG, eB, 0.8)
             f._enemyBarFill:Show()
+            RenderPullSegments(f, enemyClip, run, enemyObj, p, clipW, clipH, eR, eG, eB)
 
             if not f._enemyBarText then
                 f._enemyBarText = f:CreateFontString(nil, "OVERLAY")
@@ -2999,9 +3222,11 @@ local _RUN_EVENTS = { "SCENARIO_CRITERIA_UPDATE", "ZONE_CHANGED_NEW_AREA" }
 
 local function _registerRunEvents()
     for _, ev in ipairs(_RUN_EVENTS) do runtimeFrame:RegisterEvent(ev) end
+    SyncPullEvents()
 end
 local function _unregisterRunEvents()
     for _, ev in ipairs(_RUN_EVENTS) do runtimeFrame:UnregisterEvent(ev) end
+    SyncPullEvents()
 end
 
 for _, ev in ipairs(_ALWAYS_EVENTS) do runtimeFrame:RegisterEvent(ev) end
@@ -3061,6 +3286,15 @@ function EMT:OnInitialize()
                 local mapID = tonumber(mapIDStr)
                 if mapID and not validMapIDs[mapID] then
                     db.profile.bestObjectiveSplits[scopeKey] = nil
+                end
+            end
+        end
+        if db.profile.fastestRunSplits then
+            for scopeKey in pairs(db.profile.fastestRunSplits) do
+                local mapIDStr = tostring(scopeKey):match("^(%d+)")
+                local mapID = tonumber(mapIDStr)
+                if mapID and not validMapIDs[mapID] then
+                    db.profile.fastestRunSplits[scopeKey] = nil
                 end
             end
         end

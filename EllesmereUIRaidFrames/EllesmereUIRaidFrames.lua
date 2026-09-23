@@ -708,6 +708,22 @@ local defaults = {
         partyUnlockPos    = nil,
         -- Party mirror of autoResizeTrackedBuffs ("Auto Resize Icons", Party tab); nil = on.
         partyAutoResizeTrackedBuffs = true,
+        -- Party portrait (Party tab PORTRAIT section, EUI_RaidFrames_Portrait.lua):
+        -- party only, one value under every style. Off by default.
+        partyPortraitStyle       = "none",      -- "none" | "attached" | "detached"
+        partyPortraitMode        = "2d",        -- Art Style: "2d" | "3d" | "class"
+        partyPortraitClassStyle  = "modern",    -- class art set
+        partyPortraitSide        = "left",      -- left|right|top|insideleft|insideright|insidecenter
+        partyPortraitSize        = 0,           -- -50..100 (detached / inside)
+        partyPortraitX           = 0,           -- -100..100 (detached)
+        partyPortraitY           = 0,
+        partyPortraitShape       = "portrait",  -- none|portrait|circle|square|csquare|diamond|hexagon|shield
+        partyPortraitBorderColor = { r = 0, g = 0, b = 0 },
+        partyPortraitBorderClassColor = true,
+        partyPortraitBorderOpacity = 100,       -- 0..100
+        partyPortraitBorderSize  = 7,           -- 1..7
+        partyPortraitArtScale    = 100,         -- 2D Zoom 50..100
+        partyPortrait3dZoom      = 100,         -- 3D Zoom 100..300
     }
 }
 
@@ -983,6 +999,17 @@ local function InitHealthBarTextures()
     for i, k in ipairs(o) do healthBarTextureOrder[i] = k end
     -- RF-only divergence: "none" is a real solid texture here, not nil.
     healthBarTextures["none"] = "Interface\\Buttons\\WHITE8X8"
+    -- The stock raid fills, as our own keys on the game files (the stock
+    -- styles' first-visit defaults; no SharedMedia needed): the 12.1 flat
+    -- fill (Blizzard Style) and the pre-10.0 gradient "Blizzard Raid Bar"
+    -- (Classic WoW UI). The shared-media copy of the latter dedupes against
+    -- this entry (same name and path).
+    healthBarTextures.blizzardRaidModern = "Interface\\RaidFrame\\RaidFrameHPFill"
+    healthBarTextureNames.blizzardRaidModern = "Default Blizz Frames"
+    healthBarTextures.blizzardRaid = "Interface\\RaidFrame\\Raid-Bar-Hp-Fill"
+    healthBarTextureNames.blizzardRaid = "Blizzard Raid Bar"
+    table.insert(healthBarTextureOrder, 2, "blizzardRaid")
+    table.insert(healthBarTextureOrder, 2, "blizzardRaidModern")
 
     -- Append SharedMedia textures after built-ins
     if EllesmereUI.AppendSharedMediaTextures then
@@ -1004,6 +1031,70 @@ end
 ns.healthBarTextures     = healthBarTextures
 ns.healthBarTextureNames = healthBarTextureNames
 ns.healthBarTextureOrder = healthBarTextureOrder
+
+-- Style page choice (Blizzard Style / Classic WoW UI, EUI_RaidFrames_Stock.lua):
+-- "eui" | "blizzard" | "classic", read from the profile flags once and
+-- latched for the session (every switch reloads). The runtime reads only
+-- this, never the flags. On ns (200-local cap).
+function ns.RF_Style()
+    local v = ns._rfStyle
+    if v then return v end
+    local p = db and db.profile
+    if not p then return "eui" end
+    v = (p.useClassicStyle and "classic") or (p.useBlizzardStyle and "blizzard") or "eui"
+    ns._rfStyle = v
+    return v
+end
+function ns.RF_Stock() return ns.RF_Style() ~= "eui" end
+function ns.RF_Classic() return ns.RF_Style() == "classic" end
+-- Party page "Frame Style" under a stock style: the style key while the
+-- party wears the stock portrait party frame ("Party Frames"), else false.
+-- Latched like RF_Style (the choice reloads); the runtime reads only this.
+-- The memo test is ~= nil: false is a real latched value.
+function ns.RF_PartyKit()
+    local v = ns._rfPartyKit
+    if v ~= nil then return v end
+    local p = db and db.profile
+    if not p then return false end
+    local st = ns.RF_Style()
+    v = (st ~= "eui" and p.partyFrameStyle == "party") and st or false
+    ns._rfPartyKit = v
+    return v
+end
+-- Settings the Party Frames layout replaces (its rows are hidden on the
+-- Party page): the party settings view reads them neutral while it is on
+-- (with the kit's debuff row: ns.RF_KitViewKeys, EUI_RaidFrames_Stock.lua).
+ns.RF_KIT_NEUTRAL = {
+    healthVerticalFill = false, topNameBarEnabled = false,
+    powerUniformAnchors = false, extendHealthBehindPower = false,
+}
+-- The EllesmereUI border's effective size (0 under a stock style, whose edge
+-- replaces it).
+function ns.RF_EffBorderSize(s)
+    if ns.RF_Stock() then return 0 end
+    return (s and s.borderSize) or 1
+end
+
+-- Threat highlight (aggro: status 2-3; Threat Borders size 0 = off): the red
+-- EllesmereUI border, or under a stock style the stock aggro rim.
+function ns.RF_PaintThreat(d, s, unit)
+    local tf = d.threatFrame
+    if not tf then return end
+    local bs = s.threatBorderSize or 0
+    local status = bs > 0 and UnitThreatSituation(unit) or nil
+    local on = status and THREAT_ACTIVE[status] and PP and true or false
+    if d.stockHl then
+        tf:Hide()
+        ns.RF_StockAggro(d, on and status or nil)
+        return
+    end
+    if on then
+        PP.UpdateBorder(tf, bs, 1, 0, 0, 1)
+        tf:Show()
+    else
+        tf:Hide()
+    end
+end
 
 -- Vertical health fill: SetOrientation drives the fill AXIS. Raid and party
 -- resolve through the caller's settings table (party gets its own when the
@@ -1166,10 +1257,20 @@ end
 -- health bar. On, returns _euiUniformRef (stamped at creation, spanning where
 -- the bar would sit with NO power bar) so per-role power bars never shift
 -- icons/text. Visuals (fills, absorbs, dispel) keep the real bar.
+-- Party Frames kit: the host is the visible party frame (_euiKitRef, our
+-- frame at the art's rect), whatever Uniform Icon Anchoring says.
 function ns.RF_AnchorHost(health, s)
+    local kit = health and health._euiKitRef
+    if kit then return kit end
     local ref = health and health._euiUniformRef
     if ref and s and s.powerUniformAnchors then return ref end
     return health
+end
+-- Bar-relative texts (health, heal-absorb and status text): on the kit's
+-- health bar under the Party Frames kit, where the stock frame puts them.
+function ns.RF_BarHost(health, s)
+    if health and health._euiKitRef then return health end
+    return ns.RF_AnchorHost(health, s)
 end
 
 -- "Extend Health Bar Behind Power": the health-height inset layout sites subtract for
@@ -1408,6 +1509,16 @@ function ns._ApplyHealthBg(d, health, s, unit, connected, deadOrGhost)
     local bg = d.bg
     if connected == nil then connected = UnitIsConnected(unit) end
     if deadOrGhost == nil then deadOrGhost = UnitIsDeadOrGhost(unit) end
+    -- Party Frames kit: the portrait greys out while offline, as stock does
+    -- (every connection edge passes through here).
+    local kp = d.kitPortrait
+    if kp then
+        local off = not connected
+        if d._kitDesat ~= off then d._kitDesat = off; kp:SetDesaturated(off) end
+    end
+    -- Party portrait (EUI_RaidFrames_Portrait.lua): the same grey.
+    local pt = d.pt
+    if pt and pt._on and pt._desat ~= (not connected) then ns.RF_PtOffline(d, unit, connected) end
     -- Dead/offline: bg covers the FULL bar, fill dims. State+color stamped so
     -- a repeated tick in the same state re-applies nothing; entering either
     -- state clears the alive-path anchor/color stamps AND the fill-color
@@ -1687,7 +1798,8 @@ local function LayoutTopNameBar(s, baseH, powerH, healthBar, tnb, tnbBg, tnbText
     local enabled = s.topNameBarEnabled
     local topBarH = enabled and PixelSnap(s.topNameBarHeight or 20) or 0
     if healthBar then
-        local parent = healthBar:GetParent()
+        -- A party portrait's bars' area (EUI_RaidFrames_Portrait.lua), else the frame.
+        local parent = healthBar._euiBarArea or healthBar:GetParent()
         healthBar:ClearAllPoints()
         healthBar:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -topBarH)
         healthBar:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, -topBarH)
@@ -2553,6 +2665,10 @@ end
 ns.ApplyStripBarLayout = function(stripBar, ab, button, position, height, absorbPos, absorbHeight, vertGrowDir)
     if not stripBar then return end
     local hp = ab._hpBar or button
+    -- Party Frames kit: the strips that hang off the frame edge use the
+    -- visible party frame, not the whole button box; a party portrait's
+    -- frame, the bars beside it.
+    button = hp._euiKitRef or hp._euiBarArea or button
     stripBar:ClearAllPoints()
     if position == "rightVertical" or position == "leftVertical" then
         stripBar:SetOrientation("VERTICAL")
@@ -3295,9 +3411,11 @@ end
 -- Hover/target highlight on a BORDERLESS frame (Border Size 0): the highlight recolors the
 -- frame's own border, and with none drawn there is nothing to recolor, so it draws its own at
 -- hoverBorderSize/targetBorderSize in the configured border style. `size` nil/0 = not
--- highlighted. The drawn size is cached on the border frame so a group-wide target swap is a
--- color write per button rather than a restyle; callers clear it when the base border returns.
-function ns.ApplyHighlightBorder(bf, s, size, r, g, b, a)
+-- highlighted. `px` = that size's exact pixels (EllesmereUI.BorderPx of the hover/target
+-- companion key against `size` and the drawn texture), nil = the legacy size. The drawn size
+-- (and px) is cached on the border frame so a group-wide target swap is a color write per
+-- button rather than a restyle; callers clear it when the base border returns.
+function ns.ApplyHighlightBorder(bf, s, size, r, g, b, a, px)
     if not (PP and bf) then return end
     local texKey = s.borderTexture or "solid"
     if not size or size <= 0 then
@@ -3310,14 +3428,15 @@ function ns.ApplyHighlightBorder(bf, s, size, r, g, b, a)
     end
     -- IsShown: a base restyle to Border Size 0 hides the frame without clearing the cache,
     -- so the size alone would let a hover/target repaint after one land on a hidden border.
-    if bf._hlBorderSize == size and bf:IsShown() then
+    if bf._hlBorderSize == size and bf._hlBorderPx == px and bf:IsShown() then
         EllesmereUI.SetBorderStyleColor(bf, r, g, b, a)
         return
     end
     EllesmereUI.ApplyBorderStyle(bf, size, r, g, b, a, texKey,
         s.borderTextureOffset, s.borderTextureOffsetY,
-        s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", size)
+        s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", size, nil, px)
     bf._hlBorderSize = size
+    bf._hlBorderPx = px
 end
 
 -------------------------------------------------------------------------------
@@ -3469,6 +3588,13 @@ local function StyleButton(button)
     d.threatFrame = threatFrame
     if PP then PP.CreateBorder(threatFrame, 1, 0, 0, 1, 2) end
 
+    -- Party Frames kit (the stock portrait party frame, latched): built here,
+    -- before every anchor closure below and before the aura containers, so
+    -- each of them takes the kit's host and spots from its first call.
+    if d._isParty and ns.RF_PartyKit() then
+        ns.RF_KitBuild(button, d, health, d.power, bdrFrame)
+    end
+
     -- Text carrier: name + health text in the text band (ns.LVL_TEXT) -- above every border incl. the raise, below the aura band.
     local textCarrier = CreateFrame("Frame", nil, button)
     textCarrier:SetAllPoints(health)
@@ -3489,12 +3615,12 @@ local function StyleButton(button)
 
     local function AnchorHealthText()
         local s = LiveS()   -- party/extra-aware (see LiveS note above)
-        local health = ns.RF_AnchorHost(health, s)   -- Uniform Icon Anchoring host swap
+        local health = ns.RF_BarHost(health, s)   -- Uniform Icon Anchoring host swap / kit bar
         healthFS:ClearAllPoints()
         local pos = s.healthTextPosition or "center"
         local ox = s.healthTextOffsetX or 0
         local oy = s.healthTextOffsetY or 0
-        healthFS:SetWidth((s.frameWidth or 72) * 0.75)
+        healthFS:SetWidth(d.kitG and d.kitG.health.w or (s.frameWidth or 72) * 0.75)
         healthFS:SetHeight(0)
         if pos == "topleft" then
             healthFS:SetPoint("TOPLEFT", health, "TOPLEFT", 2 + ox, -2 + oy)
@@ -3538,15 +3664,18 @@ local function StyleButton(button)
     d.healAbsorbText = healAbsorbFS
     local function AnchorHealAbsorbText()
         local s = LiveS()   -- party/extra-aware (see LiveS note above)
-        local health = ns.RF_AnchorHost(health, s)   -- Uniform Icon Anchoring host swap
+        local health = ns.RF_BarHost(health, s)   -- Uniform Icon Anchoring host swap / kit bar
         ns.AnchorRFText(healAbsorbFS, health, s.healAbsorbTextPosition or "center",
-            s.healAbsorbTextOffsetX or 0, s.healAbsorbTextOffsetY or 0, (s.frameWidth or 72) * 0.75)
+            s.healAbsorbTextOffsetX or 0, s.healAbsorbTextOffsetY or 0,
+            d.kitG and d.kitG.health.w or (s.frameWidth or 72) * 0.75)
     end
     AnchorHealAbsorbText()
     d.AnchorHealAbsorbText = AnchorHealAbsorbText
 
-    -- Status text (DEAD / OFFLINE / AFK -- always shown, own position/size/color)
-    local statusFS = health:CreateFontString(nil, "OVERLAY")
+    -- Status text (DEAD / OFFLINE / AFK -- always shown, own position/size/color).
+    -- Party Frames kit: in the text band, so the Classic art (drawn over the
+    -- bars) never covers it; it still anchors to the kit health bar.
+    local statusFS = (d.kit and textCarrier or health):CreateFontString(nil, "OVERLAY")
     local stc = s.statusTextColor or { r = 1, g = 1, b = 1 }
     ApplyFont(statusFS, s.statusTextSize or 14)
     statusFS:SetJustifyH("CENTER")
@@ -3556,7 +3685,7 @@ local function StyleButton(button)
 
     local function AnchorStatusText()
         local s = LiveS()   -- party/extra-aware (see LiveS note above)
-        local health = ns.RF_AnchorHost(health, s)   -- Uniform Icon Anchoring host swap
+        local health = ns.RF_BarHost(health, s)   -- Uniform Icon Anchoring host swap / kit bar
         statusFS:ClearAllPoints()
         local pos = s.statusTextPosition or "center"
         local ox = s.statusTextOffsetX or 0
@@ -3604,6 +3733,11 @@ local function StyleButton(button)
             + (s.roleIconBehindBorder and (ns.LVL_RAISE - 1) or (ns.LVL_AURA - 1)))
         local health = ns.RF_AnchorHost(health, s)   -- Uniform Icon Anchoring host swap
         roleIcon:ClearAllPoints()
+        -- Party Frames kit: the stock spot plus the user's offsets.
+        if d.kitG then
+            ns.RF_KitSpot(d.kitG.role, roleIcon, button, s.roleIconOffsetX, s.roleIconOffsetY)
+            return
+        end
         -- The position key uppercases directly to a valid anchor point, so all
         -- 9 positions resolve like the Marker Position dropdown.
         local pos = (s.roleIconPosition or "bottomleft"):upper()
@@ -3631,6 +3765,8 @@ local function StyleButton(button)
     leaderIcon:SetPoint(liPos, ns.RF_AnchorHost(health, s), liPos, s.leaderIconOffsetX or 0, s.leaderIconOffsetY or 0)
     leaderIcon:Hide()
     d.leaderIcon = leaderIcon
+    -- Party Frames kit: the stock spot (re-seated by the party reload pass).
+    if d.kitG then ns.RF_KitLeader(d, LiveS()) end
 
     -- Raid marker (on marker carrier, above the border)
     local raidMarker = markerCarrier:CreateTexture(nil, "OVERLAY", nil, 2)
@@ -3683,6 +3819,11 @@ local function StyleButton(button)
         local pos = s.readyCheckPosition or "center"
         local ox = s.readyCheckOffsetX or 0
         local oy = s.readyCheckOffsetY or 0
+        -- Party Frames kit: centred on the portrait, as stock.
+        if d.kitG and d.kitPortrait then
+            ns.RF_KitSpot(d.kitG.rc, readyCheck, d.kitPortrait, ox, oy)
+            return
+        end
         if pos == "topleft" then
             readyCheck:SetPoint("TOPLEFT", health, "TOPLEFT", 2 + ox, -2 + oy)
         elseif pos == "top" then
@@ -3735,6 +3876,21 @@ local function StyleButton(button)
             + (s.nameTextAboveIcons and (ns.LVL_AURA + 6) or ns.LVL_TEXT))
         nameFS:ClearAllPoints()
         local pos = s.namePosition or "center"
+        -- Party Frames kit: the stock name spot and width plus the user's
+        -- offsets ("None" still hides it; the kit has no Top Name Bar).
+        local g = d.kitG
+        if g then
+            if pos == "none" then nameFS:Hide(); return end
+            nameFS:Show()
+            nameFS:SetWidth(g.name.w)
+            nameFS:SetHeight(0)
+            ns.RF_KitSpot(g.name, nameFS, button, s.nameOffsetX, s.nameOffsetY)
+            nameFS:SetJustifyH("LEFT"); nameFS:SetJustifyV(g.name.jv)
+            local txt = nameFS:GetText()
+            nameFS:SetText("")
+            nameFS:SetText(txt or "")
+            return
+        end
         -- Top Name Bar enabled: it owns the unit name, suppress the in-frame name.
         if pos == "none" or s.topNameBarEnabled then
             nameFS:Hide()
@@ -3788,7 +3944,10 @@ local function StyleButton(button)
     local function ApplyBorderLevel(raised)
         if not (PP and d.borderFrame) then return end
         local pl = button:GetFrameLevel()
-        local lvl = s.borderBehind and math.max(0, pl - 1) or (pl + (raised and ns.LVL_RAISE or 8))
+        -- Under a stock style the EllesmereUI border is stood down, so Show
+        -- Behind has nothing to lower (the hover border must stay on top).
+        local lvl = (s.borderBehind and not d.stockEdge and not d.kit) and math.max(0, pl - 1)
+            or (pl + (raised and ns.LVL_RAISE or 8))
         -- Hot path (every UpdateButton): skip the SetFrameLevel calls unless the level actually
         -- changes (hover/target transition or borderBehind toggle) -- common case is two getters.
         local container = PP.GetBorders(d.borderFrame)
@@ -3806,23 +3965,40 @@ local function StyleButton(button)
         if not (PP and d.borderFrame) then return end
         -- Re-called long after StyleButton: resolve LIVE (see LiveS note) so party overrides and profile swaps are honored.
         local s = LiveS()
+        -- Party Frames kit: hover and target glow along the frame art.
+        if d.kit then
+            ApplyBorderLevel(false)
+            ns.RF_KitHighlight(d, d.borderFrame, s, d._hovered and s.hoverBorderEnabled ~= false,
+                d._isTarget and s.targetBorderEnabled ~= false)
+            return
+        end
+        -- Stock styles: the stock selection ring for the target, the hover
+        -- border on the stood-down border frame.
+        if d.stockEdge then
+            local hover = d._hovered and s.hoverBorderEnabled ~= false
+            ApplyBorderLevel(hover)
+            ns.RF_StockHighlight(d, d.borderFrame, s, hover, d._isTarget and s.targetBorderEnabled ~= false)
+            return
+        end
         local r, g, b, a
-        local raised, hlSize = false, nil
+        local raised, hlSize, hlPx = false, nil, nil
         if d._hovered and s.hoverBorderEnabled ~= false then
             local c = s.hoverBorderColor or { r = 1, g = 1, b = 1 }
             r, g, b, a = c.r, c.g, c.b, s.hoverBorderAlpha or 1
             raised, hlSize = true, s.hoverBorderSize or 1
+            hlPx = EllesmereUI.BorderPx(s.hoverBorderSizePx, hlSize, s.borderTexture or "solid")
         elseif d._isTarget and s.targetBorderEnabled ~= false then
             local c = s.targetBorderColor or { r = 1, g = 1, b = 1 }
             r, g, b, a = c.r, c.g, c.b, s.targetBorderAlpha or 1
             raised, hlSize = true, s.targetBorderSize or 1
+            hlPx = EllesmereUI.BorderPx(s.targetBorderSizePx, hlSize, s.borderTexture or "solid")
         else
             local c = s.borderColor or { r = 0, g = 0, b = 0 }
             r, g, b, a = c.r, c.g, c.b, s.borderAlpha or 1
         end
         ApplyBorderLevel(raised)
         if (s.borderSize or 1) <= 0 then
-            ns.ApplyHighlightBorder(d.borderFrame, s, hlSize, r, g, b, a)
+            ns.ApplyHighlightBorder(d.borderFrame, s, hlSize, r, g, b, a, hlPx)
             return
         end
         d.borderFrame._hlBorderSize = nil
@@ -3840,20 +4016,50 @@ local function StyleButton(button)
         local bc = s.borderColor or { r = 0, g = 0, b = 0 }
         local texKey = s.borderTexture or "solid"
         local pl = button:GetFrameLevel()
+        -- Stock styles: the EllesmereUI border stands down for the stock edge
+        -- (for the art under the Party Frames kit).
+        if d.kit then
+            d.borderFrame:SetFrameLevel(pl + 8)
+            EllesmereUI.ApplyBorderStyle(d.borderFrame, 0, 0, 0, 0, 0, "solid")
+            d.borderFrame._hlBorderSize = nil
+            ApplyBorderColor()
+            return
+        end
+        if d.stockEdge then
+            d.borderFrame:SetFrameLevel(pl + 8)
+            EllesmereUI.ApplyBorderStyle(d.borderFrame, 0, 0, 0, 0, 0, "solid")
+            d.borderFrame._hlBorderSize = nil
+            ns.RF_StockSeat(d)
+            ApplyBorderColor()
+            return
+        end
         d.borderFrame:SetFrameLevel(s.borderBehind and math.max(0, pl - 1) or (pl + 8))
         EllesmereUI.ApplyBorderStyle(d.borderFrame, bs, bc.r, bc.g, bc.b, s.borderAlpha or 1,
             texKey, s.borderTextureOffset, s.borderTextureOffsetY,
-            s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", bs)
+            s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", bs, nil,
+            EllesmereUI.BorderPx(s.borderSizePx, bs, texKey))
         ApplyBorderColor()
     end
+    if ns.RF_Stock() and not d.kit then ns.RF_StockBuild(button, d, d.power) end
     UpdateBorder()
     d.UpdateBorder = UpdateBorder
 
     -- Apply power border
     local function UpdatePowerBorder()
+        -- Party Frames kit: the mana bar sits in the art's own track.
+        if d.kit then
+            if d.powerBorderFrame then d.powerBorderFrame:Hide() end
+            return
+        end
         -- No-op while the power bar is hidden: the border frame always exists and unconditional
         -- callers must not draw over a hidden bar. UpdateButton calls this AFTER power:Show().
         if not PP or not d.powerBorderFrame or (d.power and not d.power:IsShown()) then return end
+        -- Classic WoW UI: the stock health/power divider in place of the power border.
+        if d.stockDiv then
+            d.powerBorderFrame:Hide()
+            ns.RF_StockDivider(d)
+            return
+        end
         -- Re-called long after StyleButton: resolve LIVE (see LiveS note) -- a captured `s` misses party overrides and profile swaps.
         local s = LiveS()
         local style = s.powerBorderStyle or "eui"
@@ -4005,6 +4211,9 @@ local function StyleButton(button)
             -- Containers first: the legacy refresh below still has restriction-era failure modes,
             -- and an error there must not starve the container of its unit assignment.
             if ns.RFC_OnUnitAssigned then ns.RFC_OnUnitAssigned(self, d, u) end
+            -- Party Frames kit / party portrait: the new occupant's portrait
+            -- (ahead of the legacy refresh for the same reason as the containers).
+            if d.kitPortrait or d.pt then ns.RF_PtPaint(d, u, "UnitChanged") end
             if ns._RefreshAssignedButton then ns._RefreshAssignedButton(self, u) end
             if ns._UpdateButtonRange then ns._UpdateButtonRange(u, self) end
         else
@@ -4035,8 +4244,14 @@ ns._StyleButtonSecure = function(button)
     if d.securestyled then return end
     d.securestyled = true
     local s = db.profile
-    -- Raid sizes initially (party buttons get party sizing from ReloadPartyFrames).
-    button:SetSize(PixelSnap(s.frameWidth or 72), PixelSnap(s.frameHeight or 46))
+    -- Party buttons take the party box (their creator stamps _isParty
+    -- first); everything else the raid size.
+    if d._isParty then
+        local pw, ph = ns.RF_PartyDims(s)
+        button:SetSize(PixelSnap(pw), PixelSnap(ph))
+    else
+        button:SetSize(PixelSnap(s.frameWidth or 72), PixelSnap(s.frameHeight or 46))
+    end
 
     -- Secure click: left=target, right=menu
     button:RegisterForClicks("AnyUp")
@@ -4349,6 +4564,8 @@ local function UpdateButton(button)
     local unit = button:GetAttribute("unit")
     if not unit or not UnitExists(unit) then
         button:SetAlpha(0)
+        local pd = GetFFD(button)
+        if pd.pt and pd.pt._3dOn then ns.RF_PtModelAlpha(pd, 0) end
         return
     end
 
@@ -4366,6 +4583,7 @@ local function UpdateButton(button)
     if d.rangeAlpha then
         local baseA = button._bmSavedAlpha or 1
         button:SetAlpha(baseA * d.rangeAlpha)
+        if d.pt and d.pt._3dOn then ns.RF_PtModelAlpha(d, baseA * d.rangeAlpha) end
     end
 
     -- Health: percent-based, secret-value safe; smooth interpolation optional.
@@ -4439,6 +4657,10 @@ ns._PaintPower = function(button, d, s, unit)
         -- Extra Frames duplicates carry a per-group size offset (Extra Height), so the BUTTON is
         -- authoritative -- the shared setting would shrink health and leave a gap every update.
         local frameH = d._isExtra and button:GetHeight() or (s.frameHeight or 46)
+
+        -- Party Frames kit: the mana bar is part of the stock frame and always
+        -- shows (an empty track reads as no mana); the kit owns the bar rects.
+        if d.kit then d._appliedHidePower = false; hidePower = false end
 
         -- power:Show()/Hide() and the two SetHeight branches below reflow every decoration
         -- anchored to health (RF_AnchorHost anchors to the live health frame, not a stable
@@ -4693,21 +4915,8 @@ ns._PaintButtonTail = function(button, d, s, unit)
         end
     end
 
-    -- Threat border (red aggro highlight); size 0 = disabled
-    if d.threatFrame then
-        local bs = s.threatBorderSize or 0
-        if bs > 0 then
-            local status = UnitThreatSituation(unit)
-            if status and THREAT_ACTIVE[status] and PP then
-                PP.UpdateBorder(d.threatFrame, bs, 1, 0, 0, 1)
-                d.threatFrame:Show()
-            else
-                d.threatFrame:Hide()
-            end
-        else
-            d.threatFrame:Hide()
-        end
-    end
+    -- Threat highlight (aggro); size 0 = disabled
+    ns.RF_PaintThreat(d, s, unit)
 end
 
 -------------------------------------------------------------------------------
@@ -5439,16 +5648,30 @@ end
 FB.ApplyBorderColor = function(b)
     if not PP or not b._borderFrame or not db then return end
     local s = ns._scaledProfile or db.profile
+    if b.stockEdge then
+        local hover = b._fbHovered and s.hoverBorderEnabled ~= false
+        local lvl = b:GetFrameLevel() + (hover and ns.LVL_RAISE or 8)
+        if b._borderFrame:GetFrameLevel() ~= lvl then
+            b._borderFrame:SetFrameLevel(lvl)
+            local container = PP.GetBorders(b._borderFrame)
+            if container then container:SetFrameLevel(lvl + 1) end
+        end
+        ns.RF_StockHighlight(b, b._borderFrame, s, hover,
+            UnitIsUnit(FB.UnitOf(b), "target") and s.targetBorderEnabled ~= false)
+        return
+    end
     local r, g, bcol, a
-    local raised, hlSize = false, nil
+    local raised, hlSize, hlPx = false, nil, nil
     if b._fbHovered and s.hoverBorderEnabled ~= false then
         local c = s.hoverBorderColor or { r = 1, g = 1, b = 1 }
         r, g, bcol, a = c.r, c.g, c.b, s.hoverBorderAlpha or 1
         raised, hlSize = true, s.hoverBorderSize or 1
+        hlPx = EllesmereUI.BorderPx(s.hoverBorderSizePx, hlSize, s.borderTexture or "solid")
     elseif UnitIsUnit(FB.UnitOf(b), "target") and s.targetBorderEnabled ~= false then
         local c = s.targetBorderColor or { r = 1, g = 1, b = 1 }
         r, g, bcol, a = c.r, c.g, c.b, s.targetBorderAlpha or 1
         raised, hlSize = true, s.targetBorderSize or 1
+        hlPx = EllesmereUI.BorderPx(s.targetBorderSizePx, hlSize, s.borderTexture or "solid")
     else
         local c = s.borderColor or { r = 0, g = 0, b = 0 }
         r, g, bcol, a = c.r, c.g, c.b, s.borderAlpha or 1
@@ -5462,7 +5685,7 @@ FB.ApplyBorderColor = function(b)
         if container then container:SetFrameLevel(lvl + 1) end
     end
     if (s.borderSize or 1) <= 0 then
-        ns.ApplyHighlightBorder(b._borderFrame, s, hlSize, r, g, bcol, a)
+        ns.ApplyHighlightBorder(b._borderFrame, s, hlSize, r, g, bcol, a, hlPx)
         return
     end
     b._borderFrame._hlBorderSize = nil
@@ -5476,10 +5699,19 @@ FB.StyleBorder = function(b)
     local bs = s.borderSize or 1
     local bc = s.borderColor or { r = 0, g = 0, b = 0 }
     local pl = b:GetFrameLevel()
+    if b.stockEdge then
+        b._borderFrame:SetFrameLevel(pl + 8)
+        EllesmereUI.ApplyBorderStyle(b._borderFrame, 0, 0, 0, 0, 0, "solid")
+        b._borderFrame._hlBorderSize = nil
+        ns.RF_StockSeat(b)
+        FB.ApplyBorderColor(b)
+        return
+    end
     b._borderFrame:SetFrameLevel(s.borderBehind and math.max(0, pl - 1) or (pl + 8))
     EllesmereUI.ApplyBorderStyle(b._borderFrame, bs, bc.r, bc.g, bc.b, s.borderAlpha or 1,
         s.borderTexture or "solid", s.borderTextureOffset, s.borderTextureOffsetY,
-        s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", bs)
+        s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", bs, nil,
+        EllesmereUI.BorderPx(s.borderSizePx, bs, s.borderTexture or "solid"))
     FB.ApplyBorderColor(b)
 end
 
@@ -5619,6 +5851,8 @@ FB.EnsureBuilt = function()
         bdr:SetAllPoints(b)
         bdr:SetFrameLevel(b:GetFrameLevel() + 8)
         b._borderFrame = bdr
+        -- Stock styles: the stock edge and highlights (our button).
+        if ns.RF_Stock() then ns.RF_StockBuild(b, b) end
 
         -- Refresh as soon as the driver shows the button; visible-count drives the ticker lifecycle.
         b:HookScript("OnShow", function(self)
@@ -5856,6 +6090,12 @@ FB.Anchor = function(owner)
             if pc and pc:IsShown() then
                 local gap = s.groupSpacing or -1
                 local before = (fb.position == "left")
+                -- Party Frames kit: clear the auras it draws outside the frames.
+                if ns.RF_PartyKit() then
+                    local extra
+                    before, extra = ns.RF_KitAttach(s, before)
+                    gap = gap + extra
+                end
                 -- Party growth axis comes from partyHorizontal alone (_LayoutPartyFrames): the flip
                 -- and "centered" variants only reverse it, and the container spans all five slots
                 -- either way, so the perpendicular attach point is the same.
@@ -6515,21 +6755,7 @@ XF.EnsureBuilt = function(count)
                 end -- prediction view-gate else
             elseif event == "UNIT_THREAT_LIST_UPDATE" or event == "UNIT_THREAT_SITUATION_UPDATE" then
                 local d = GetFFD(b)
-                if d.threatFrame then
-                    local s = d._isExtra and ns._scaledExtraProxy or ns._scaledProfile
-                    local bs = s.threatBorderSize or 0
-                    if bs > 0 then
-                        local status = UnitThreatSituation(unit)
-                        if status and THREAT_ACTIVE[status] and PP then
-                            PP.UpdateBorder(d.threatFrame, bs, 1, 0, 0, 1)
-                            d.threatFrame:Show()
-                        else
-                            d.threatFrame:Hide()
-                        end
-                    else
-                        d.threatFrame:Hide()
-                    end
-                end
+                ns.RF_PaintThreat(d, d._isExtra and ns._scaledExtraProxy or ns._scaledProfile, unit)
             elseif event == "UNIT_IN_RANGE_UPDATE" then
                 ns._UpdateButtonRange(unit, b)
             elseif event == "UNIT_FLAGS" then
@@ -7882,17 +8108,28 @@ ns._ResizePartyButtons = function(w, h)
     -- width/height slider path (which skips the full reload).
     if ns._UpdatePartyIndicatorScale then ns._UpdatePartyIndicatorScale() end
     local autoResize = s.partyAutoResizeIndicators
+    -- The bars' width: an attached portrait takes its share of the box.
+    local _, _, _, pres = ns.RF_PartyDims(s)
+    local barW = bw - ((pres and pres > 0) and PixelSnap(pres) or 0)
     for _, btn in ipairs(ns._partyAllButtons) do
         local d = GetFFD(btn)
         if d.styled then
             btn:SetSize(bw, bh)
-            -- Use full height if power bar is hidden for this button's role; the
-            -- Top Name Bar always reserves topBarH from the top.
-            if d.health then
-                local hh = ((d.power and d.power:IsShown()) and healthH or bh) - topBarH
-                d.health:SetHeight(hh)
+            if d.kit then
+                -- Party Frames kit: its own bar rects, spots and name width
+                -- (Frame Scale drags land here).
+                ns.RF_ApplyPartyKit(btn, d, ns._scaledPartyProxy)
+            else
+                -- Use full height if power bar is hidden for this button's role; the
+                -- Top Name Bar always reserves topBarH from the top.
+                if d.health then
+                    local hh = ((d.power and d.power:IsShown()) and healthH or bh) - topBarH
+                    d.health:SetHeight(hh)
+                end
+                if d.nameText then d.nameText:SetWidth(barW * ns.RF_NAME_WIDTH_FRACTION) end
+                -- Party portrait: the attached square follows the height.
+                if d.pt then ns.RF_PtApply(btn, d, ns._scaledPartyProxy, bw, bh, nil) end
             end
-            if d.nameText then d.nameText:SetWidth(bw * ns.RF_NAME_WIDTH_FRACTION) end
             -- Live-rescale indicators/auras. No-op for hidden buttons / no unit
             -- (e.g. options menu while not grouped), so cheap there.
             if autoResize then
@@ -7930,11 +8167,8 @@ ns._ResizePartyButtons = function(w, h)
     -- aligned with the stack and the centered child anchors growing from the
     -- correct origin. Pure anchor tracking -- no secure re-process, no blink.
     if ns._PositionPartySlots then
-        local cs2 = PixelSnap(s.partyCellSpacing or s.cellSpacing or 2)
-        -- Explicit true only: "centered" keeps the default direction.
-        local growth2 = s.partyHorizontal and (s.partyFlipGrowth == true and "LEFT" or "RIGHT")
-            or (s.partyFlipGrowth == true and "UP" or "DOWN")
-        ns._PositionPartySlots(bw, bh, cs2, growth2)
+        local _, _, pcs = ns.RF_PartyDims(s)
+        ns._PositionPartySlots(bw, bh, PixelSnap(pcs), ns._PartyGrowth(s))
     end
 end
 
@@ -8343,6 +8577,8 @@ local function ApplyRangeAlpha(btn, rangeAlpha)
     d.rangeAlpha = rangeAlpha
     local bmA = btn._bmSavedAlpha or 1
     btn:SetAlpha(bmA * rangeAlpha)
+    -- A 3D party portrait does not take the button's alpha: mirror it.
+    if d.pt and d.pt._3dOn then ns.RF_PtModelAlpha(d, bmA * rangeAlpha) end
 end
 
 -- Secret-safe range alpha via SetAlphaFromBoolean (UnitInRange can return a
@@ -8356,7 +8592,10 @@ local function ApplyRangeAlphaSecret(btn, inRange, inAlpha, outAlpha)
         ApplyRangeAlpha(btn, inAlpha)
         return
     end
-    GetFFD(btn).rangeAlpha = nil
+    local d = GetFFD(btn)
+    d.rangeAlpha = nil
+    -- A 3D party portrait does not take the button's alpha: mirror it.
+    if d.pt and d.pt._3dOn then ns.RF_PtModelAlphaSecret(d, inRange, bmA * inAlpha, bmA * outAlpha) end
 end
 
 -- Evaluate + apply range alpha for ONE unit. Shared by the
@@ -8833,10 +9072,18 @@ local function OnEvent(self, event, arg1, ...)
                 end
             end
         end
-        -- Restore child frame levels after a deferred strata change.
+        -- Restore child frame levels after a deferred strata change. A Party
+        -- Frames kit or party portrait geometry write blocked in combat (a
+        -- Frame Scale or portrait change through a combat-time refresh) needs
+        -- the same full party pass: it re-sizes the buttons, re-runs the kit
+        -- and portrait passes and relays the slots.
+        local kitDirty = ns._partyKitDirtyInCombat
+        ns._partyKitDirtyInCombat = nil
         if frameStrataDirty then
             if not (sizeTierDirty and framesVisible) then ReloadFrames() end
             if ns.ReloadPartyFrames then ns.ReloadPartyFrames() end
+        elseif kitDirty and ns.ReloadPartyFrames then
+            ns.ReloadPartyFrames()
         end
     elseif event == "ENCOUNTER_START" then
         -- Drives the raid/party frame "Out of Boss Combat" tooltip mode (read in
@@ -9006,6 +9253,21 @@ local function OnEvent(self, event, arg1, ...)
                 if ns.HM_Rebuild then ns.HM_Rebuild() end
             end
         end)
+    elseif event == "UNIT_PORTRAIT_UPDATE" or event == "PORTRAITS_UPDATED" or event == "UNIT_MODEL_CHANGED" then
+        -- Party Frames kit / party portrait only (registered while the party
+        -- frames are shown with a portrait that needs them; the model event
+        -- for a 3D portrait alone). Matched on each party button's unit
+        -- attribute, never the routing map: a portrait is a sticky paint,
+        -- and the map keeps stale tokens.
+        local list = ns._partyAllButtons
+        for i = 1, #list do
+            local b = list[i]
+            local u = b:GetAttribute("unit")
+            if u and (arg1 == nil or u == arg1) then
+                local bd = GetFFD(b)
+                if (bd.kitPortrait or bd.pt) and UnitExists(u) then ns.RF_PtPaint(bd, u, event) end
+            end
+        end
     elseif not framesVisible and not ns._partyFramesVisible then
         -- Skip all per-unit event processing when no frames are visible
         return
@@ -9014,6 +9276,13 @@ local function OnEvent(self, event, arg1, ...)
         local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
         if btn then
             ns._UpdateButtonRange(arg1, btn)
+            -- A 3D party portrait showing the out-of-sight question mark:
+            -- a member coming into range is in sight again.
+            if ns._ptModelEv then
+                local bd = GetFFD(btn)
+                local pt = bd.pt
+                if pt and pt._state == false then ns.RF_PtPaint(bd, arg1, "Probe") end
+            end
         end
     elseif event == "UNIT_PHASE" then
         -- Phasing doesn't fire UNIT_IN_RANGE_UPDATE; re-evaluate all (rare).
@@ -9082,21 +9351,7 @@ local function OnEvent(self, event, arg1, ...)
         local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
         if btn then
             local d = GetFFD(btn)
-            if d.threatFrame then
-                local s = d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
-                local bs = s.threatBorderSize or 0
-                if bs > 0 then
-                    local status = UnitThreatSituation(arg1)
-                    if status and THREAT_ACTIVE[status] and PP then
-                        PP.UpdateBorder(d.threatFrame, bs, 1, 0, 0, 1)
-                        d.threatFrame:Show()
-                    else
-                        d.threatFrame:Hide()
-                    end
-                else
-                    d.threatFrame:Hide()
-                end
-            end
+            ns.RF_PaintThreat(d, d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile, arg1)
         end
     elseif event == "UNIT_FLAGS" then
         local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
@@ -9237,6 +9492,9 @@ local function OnEvent(self, event, arg1, ...)
         -- Combat" keeps suppressing; otherwise this clears a stale flag from a
         -- missed ENCOUNTER_END so tooltips are not stuck hidden.
         ns._inBossCombat = (IsEncounterInProgress and IsEncounterInProgress()) or false
+        -- 3D party portraits: a world transition can reset a model at the
+        -- same guid.
+        if ns._ptModelEv and ns.RF_PtRepaintAll then ns.RF_PtRepaintAll("PLAYER_ENTERING_WORLD") end
         C_Timer.After(0.5, function()
             -- Zoning in mid-combat (e.g. into a raid where trash is already
             -- pulled) must NOT run the reload here: ReloadFrames calls SetSize on
@@ -9390,6 +9648,8 @@ do
             "borderTextureShiftX", "borderTextureShiftY",
             "hoverBorderEnabled", "hoverBorderSize", "hoverBorderColor", "hoverBorderAlpha",
             "targetBorderEnabled", "targetBorderSize", "targetBorderColor", "targetBorderAlpha",
+            -- Exact-size companions (see ns._PARTY_PX_SIBLING): same section as their siblings.
+            "borderSizePx", "hoverBorderSizePx", "targetBorderSizePx",
         },
         -- Must list every key the DISPELS section of the options page draws:
         -- the party tab's blocking overlay is sized from that section's y-range,
@@ -9422,6 +9682,17 @@ do
         end
     end
 end
+
+-- A border's exact-size companion ("<key>Px", read through EllesmereUI.BorderPx)
+-- is ONE setting with its legacy sibling: wherever the party reads a stored
+-- party_<sibling>, the companion resolves ONLY to party_<companion> (nil
+-- included), never through to the raid companion. Applied by the proxy
+-- __index, the materializer and the ReloadPartyFrames temp-swap.
+ns._PARTY_PX_SIBLING = {
+    borderSizePx       = "borderSize",
+    hoverBorderSizePx  = "hoverBorderSize",
+    targetBorderSizePx = "targetBorderSize",
+}
 
 ns._IsPartySectionCustom = function(section)
     if not db or not db.profile then return false end
@@ -9490,6 +9761,10 @@ ns._partyProxy = setmetatable({}, {
     __index = function(_, key)
         local section = ns._PARTY_KEY_SECTION[key]
         if section and db and db.profile and ns._IsPartySectionCustom(section) then
+            local sib = ns._PARTY_PX_SIBLING[key]
+            if sib and rawget(db.profile, "party_" .. sib) ~= nil then
+                return rawget(db.profile, "party_" .. key)
+            end
             local pv = rawget(db.profile, "party_" .. key)
             if pv ~= nil then return pv end
         end
@@ -9571,13 +9846,21 @@ ns._scaledPartyProxy = setmetatable({}, { __index = function(_, key)
     -- Return party dimensions for frameWidth/frameHeight reads. The real-
     -- preview effective overlay (ns._pvOverlayProxy) shadows live while a
     -- panel view swap is active; it falls through to db.profile itself.
-    if key == "frameWidth" then
+    if key == "frameWidth" or key == "frameHeight" then
         local p = ns._pvOverlayProxy or (db and db.profile)
-        return p and (p.partyFrameWidth or p.frameWidth)
+        if not p then return nil end
+        -- The bars' width: an attached portrait's share of the box is not theirs.
+        local w, h, _, res = ns.RF_PartyDims(p)
+        if key == "frameWidth" then return w - (res or 0) end
+        return h
     end
-    if key == "frameHeight" then
-        local p = ns._pvOverlayProxy or (db and db.profile)
-        return p and (p.partyFrameHeight or p.frameHeight)
+    -- Party Frames kit: the settings its layout decides (neutral keys, the
+    -- debuff row under the frame) read the kit's values. Only the overlay
+    -- view reaches here for them: otherwise the materializer holds them.
+    local ovp = ns._pvOverlayProxy
+    if ovp and ns.RF_PartyKit() then
+        local kv = ns.RF_KitViewKeys(ovp)
+        if kv and kv[key] ~= nil then return kv[key] end
     end
     local val
     local resolved = false
@@ -9592,7 +9875,16 @@ ns._scaledPartyProxy = setmetatable({}, { __index = function(_, key)
         if section and ns._IsPartySectionCustom(section) then
             pv = ov["party_" .. key]
         end
-        if pv == nil then pv = ov[key] end
+        if pv == nil then
+            -- An exact-size companion whose party sibling is stored, and whose
+            -- raid sibling the overlay does not own, stays unresolved so the
+            -- party rule in _partyProxy decides (never the raid companion).
+            local sib = ns._PARTY_PX_SIBLING and ns._PARTY_PX_SIBLING[key]
+            if not (sib and section and ns._IsPartySectionCustom(section)
+                    and rawget(db.profile, "party_" .. sib) ~= nil and ov[sib] == nil) then
+                pv = ov[key]
+            end
+        end
         if pv ~= nil then
             resolved = true
             if pv ~= EllesmereUI.SPECOV_NIL then val = pv end
@@ -9628,11 +9920,19 @@ function ns._RefreshProxyModes()
     wipe(pp)
     for k, v in pairs(p) do rawset(pp, k, v) end
     local keySection = ns._PARTY_KEY_SECTION
+    local pxSib = ns._PARTY_PX_SIBLING
     if keySection and ns._IsPartySectionCustom then
         for k, section in pairs(keySection) do
             if ns._IsPartySectionCustom(section) then
                 local pv = rawget(p, "party_" .. k)
-                if pv ~= nil then rawset(pp, k, pv) end
+                local sib = pxSib[k]
+                if sib and rawget(p, "party_" .. sib) ~= nil then
+                    -- Companion of a stored party sibling: the party value only
+                    -- (a nil unsets the raid copy; the __index rule answers nil too).
+                    rawset(pp, k, pv)
+                elseif pv ~= nil then
+                    rawset(pp, k, pv)
+                end
             end
         end
     end
@@ -9664,8 +9964,15 @@ function ns._RefreshProxyModes()
                 rawset(spp, k, v)
             end
         end
-        rawset(spp, "frameWidth", pp.partyFrameWidth or pp.frameWidth)
-        rawset(spp, "frameHeight", pp.partyFrameHeight or pp.frameHeight)
+        local pw, ph, _, pres = ns.RF_PartyDims(pp)
+        rawset(spp, "frameWidth", pw - (pres or 0))
+        rawset(spp, "frameHeight", ph)
+        if ns.RF_PartyKit() then
+            local kv = ns.RF_KitViewKeys(pp)
+            if kv then
+                for k, v in pairs(kv) do rawset(spp, k, v) end
+            end
+        end
     end
 
     -- _scaledExtraProxy: the scaled view with the extra-frames ratio on top.
@@ -9707,11 +10014,20 @@ end
 ns._UpdatePartyIndicatorScale = function()
     if not (db and db.profile) then return end
     local s = db.profile
-    local baseW = s.frameWidth or 72
-    local baseH = s.frameHeight or 46
-    local pw = s.partyFrameWidth or s.frameWidth or 125
-    local ph = s.partyFrameHeight or s.frameHeight or 60
-    local scale = math.max(math.min(math.min(pw / baseW, ph / baseH), 1.3), 0.7)
+    local scale
+    if ns.RF_PartyKit() then
+        -- Party Frames kit: its Frame Scale is the frame size (at 100% the
+        -- user's own icon and text sizes apply, whatever the raid size), and
+        -- icons follow it over its whole range.
+        scale = s.partyKitScale or ns.RF_KIT_SCALE or 1.2
+    else
+        local baseW = s.frameWidth or 72
+        local baseH = s.frameHeight or 46
+        -- The bars' size (an attached portrait does not enlarge the icons).
+        local pw, ph, _, pres = ns.RF_PartyDims(s)
+        pw = pw - (pres or 0)
+        scale = math.max(math.min(math.min(pw / baseW, ph / baseH), 1.3), 0.7)
+    end
     -- Auto Resize Icons (two independent checkboxes): Tracked Buffs gates the
     -- Buff Manager scale; Indicators & Auras gates indicator/aura/text sizes.
     -- Tracked Buffs defaults on (nil treated as on) to preserve the prior
@@ -9736,9 +10052,8 @@ end
 ns._CreatePartyHeader = function()
     if ns._partyHeader then return end
     local s = db.profile
-    local bw = PixelSnap(s.partyFrameWidth or s.frameWidth or 125)
-    local bh = PixelSnap(s.partyFrameHeight or s.frameHeight or 60)
-    local cs = PixelSnap(s.partyCellSpacing or s.cellSpacing or 2)
+    local pw, ph, pcs = ns.RF_PartyDims(s)
+    local bw, bh, cs = PixelSnap(pw), PixelSnap(ph), PixelSnap(pcs)
 
     local initConfig = ([[
         self:SetWidth(%d)
@@ -9777,13 +10092,15 @@ ns._CreatePartyHeader = function()
     hdr:Hide()
     ns._partyContainerFrame:Hide()
 
-    -- Window-phase secure styling (raid sizes initially; ReloadPartyFrames
-    -- applies party-specific sizing); insecure bodies run in the deferred pass.
+    -- Window-phase secure styling; insecure bodies run in the deferred pass.
+    -- _isParty goes first: the secure pass sizes party buttons to the party
+    -- box (the header's own initConfig size would otherwise be overwritten
+    -- with the raid size).
     for i = 1, 5 do
         local btn = hdr[i]
         if btn then
-            ns._StyleButtonSecure(btn)
             GetFFD(btn)._isParty = true
+            ns._StyleButtonSecure(btn)
             ns._partyAllButtons[#ns._partyAllButtons + 1] = btn
         end
     end
@@ -9795,10 +10112,10 @@ ns._CreatePartyHeader = function()
     -- player frame; when off, it is hidden and the header shows the player.
     local selfBtn = CreateFrame("Button", "ERFPartySelfButton", ns._partyContainerFrame, "SecureUnitButtonTemplate")
     selfBtn:SetAttribute("unit", "player")
-    ns._StyleButtonSecure(selfBtn)
     local sd = GetFFD(selfBtn)
     sd._isParty = true
     sd._isSelf = true
+    ns._StyleButtonSecure(selfBtn)
     selfBtn:Hide()
     ns._partyAllButtons[#ns._partyAllButtons + 1] = selfBtn
     ns._partySelfButton = selfBtn
@@ -9921,18 +10238,53 @@ ns._PositionPartySlots = function(bw, bh, cs, unitGrowth)
     return useSelf
 end
 
+-- Party growth direction. Explicit true only: "centered" keeps the default
+-- direction.
+ns._PartyGrowth = function(s)
+    -- (Party Frames kit: horizontal frames carry their buffs above each
+    -- frame -- ns.RF_KitBmView -- so the next frame beside it stays clear.)
+    if s.partyHorizontal then return (s.partyFlipGrowth == true) and "LEFT" or "RIGHT" end
+    return (s.partyFlipGrowth == true) and "UP" or "DOWN"
+end
+
+-- Size the party container (the unlock mover's rect: always 5 slots) from
+-- snapped slot dimensions. Every sizer goes through here so they all agree.
+-- Resizing the container triggers an implicit SecureGroupHeader child
+-- re-process, and that implicit pass has been observed landing with units
+-- unassigned (NAMELIST sort especially): children left hidden with unit=nil
+-- until the next clean re-process. The resize is bracketed with an explicit
+-- header Hide/Show -- the implicit pass runs while hidden (inert) and the
+-- Show() performs a clean, reliable re-process -- and skipped when unchanged.
+-- Out of combat only (callers gate).
+ns._SizePartyContainer = function(bw, bh, cs, unitGrowth)
+    local c = ns._partyContainerFrame
+    if not c then return end
+    local cw, ch
+    if unitGrowth == "RIGHT" or unitGrowth == "LEFT" then
+        cw, ch = 5 * bw + 4 * cs, bh
+    else
+        cw, ch = bw, 5 * bh + 4 * cs
+    end
+    cw, ch = PixelSnap(cw), PixelSnap(ch)
+    local curW, curH = c:GetSize()
+    if math.abs((curW or 0) - cw) > 0.01 or math.abs((curH or 0) - ch) > 0.01 then
+        local hdr = ns._partyHeader
+        local shown = hdr and hdr:IsShown()
+        if shown then hdr:Hide() end
+        c:SetSize(cw, ch)
+        if shown then hdr:Show() end
+    end
+end
+
 -- Layout party frames: apply unitGrowth direction and cell spacing to the header.
 ns._LayoutPartyFrames = function()
     if not ns._partyHeader then return end
     if InCombatLockdown() then return end
 
     local s = db.profile
-    local bw = PixelSnap(s.partyFrameWidth or s.frameWidth or 125)
-    local bh = PixelSnap(s.partyFrameHeight or s.frameHeight or 60)
-    local cs = PixelSnap(s.partyCellSpacing or s.cellSpacing or 2)
-    -- Explicit true only: "centered" keeps the default direction.
-    local unitGrowth = s.partyHorizontal and (s.partyFlipGrowth == true and "LEFT" or "RIGHT")
-        or (s.partyFlipGrowth == true and "UP" or "DOWN")
+    local pw, ph, pcs = ns.RF_PartyDims(s)
+    local bw, bh, cs = PixelSnap(pw), PixelSnap(ph), PixelSnap(pcs)
+    local unitGrowth = ns._PartyGrowth(s)
 
     local hdrPoint, hdrXOff, hdrYOff
     if unitGrowth == "DOWN" then
@@ -9971,30 +10323,7 @@ ns._LayoutPartyFrames = function()
     local hideSelf = s.partyHideSelf
 
     -- Size container for unlock mode mover (always sized for 5 units)
-    local containerW, containerH
-    if unitGrowth == "RIGHT" or unitGrowth == "LEFT" then
-        containerW = 5 * bw + 4 * cs
-        containerH = bh
-    else
-        containerW = bw
-        containerH = 5 * bh + 4 * cs
-    end
-    local newCW, newCH = PixelSnap(containerW), PixelSnap(containerH)
-    local curCW, curCH = ns._partyContainerFrame:GetSize()
-    if math.abs((curCW or 0) - newCW) > 0.01 or math.abs((curCH or 0) - newCH) > 0.01 then
-        -- Resizing the container triggers an implicit SecureGroupHeader child
-        -- re-process, and that implicit pass has been observed landing with
-        -- units unassigned (NAMELIST sort especially): children left hidden
-        -- with unit=nil until the next clean re-process. Bracket the resize
-        -- with an explicit header Hide/Show -- the implicit pass runs while
-        -- hidden (inert) and the Show() performs a clean, reliable re-process.
-        -- Skipping the resize entirely when unchanged also avoids pointless
-        -- re-processes on every settings reload.
-        local hdrWasShown = ns._partyHeader:IsShown()
-        if hdrWasShown then ns._partyHeader:Hide() end
-        ns._partyContainerFrame:SetSize(newCW, newCH)
-        if hdrWasShown then ns._partyHeader:Show() end
-    end
+    ns._SizePartyContainer(bw, bh, cs, unitGrowth)
 
     -- Apply sort attributes + player visibility to the party header
     if not InCombatLockdown() then
@@ -10078,6 +10407,57 @@ ns._LayoutPartyFrames = function()
 end
 
 -- Party visibility: show/hide based on group state.
+-- Party portraits (the Party Frames kit's socket, or the PORTRAIT section):
+-- the portrait events, registered only while the party frames are shown
+-- with a portrait that needs them (nothing runs while they are hidden, the
+-- portrait is off or it shows class art; UNIT_MODEL_CHANGED for a 3D model
+-- alone). Tokens a party button can hold: player/party1-4 in a party,
+-- raid1-9 in arena and Small Raid mode (group 1 of a raid under 10 members
+-- can sit at any raid index up to 9). Turning them on repaints every
+-- portrait once, which covers any change made while the frames were hidden.
+-- Called on the visibility edges and after every party reload (settings).
+ns._kitPortraitUnits = { "player", "party1", "party2", "party3", "party4",
+    "raid1", "raid2", "raid3", "raid4", "raid5", "raid6", "raid7", "raid8", "raid9" }
+ns.RF_KitPortraitEvents = function(on)
+    -- Before the unit trackers exist there is nothing to register yet.
+    if not unitTrackers.player then return end
+    local kit = ns.RF_PartyKit()
+    on = on and true or false
+    -- Kit hide edge: its always-on power registrations go too.
+    if kit and ns._kitShownEv ~= on then
+        ns._kitShownEv = on
+        if not on and ns.UpdatePowerEventRegistration then ns.UpdatePowerEventRegistration() end
+    end
+    local art = on and ns.RF_PtEventMode and ns.RF_PtEventMode(kit) or nil
+    local want, wantModel = art ~= nil, art == "3d"
+    local was, wasModel = ns._kitPortraitEv or false, ns._ptModelEv or false
+    if was == want and wasModel == wantModel then return end
+    ns._kitPortraitEv, ns._ptModelEv = want, wantModel
+    local units = ns._kitPortraitUnits
+    for i = 1, #units do
+        local u = units[i]
+        local t = unitTrackers[u]
+        if t then
+            if want ~= was then
+                if want then t:RegisterUnitEvent("UNIT_PORTRAIT_UPDATE", u)
+                else t:UnregisterEvent("UNIT_PORTRAIT_UPDATE") end
+            end
+            if wantModel ~= wasModel then
+                if wantModel then t:RegisterUnitEvent("UNIT_MODEL_CHANGED", u)
+                else t:UnregisterEvent("UNIT_MODEL_CHANGED") end
+            end
+        end
+    end
+    if want and not was then
+        eventFrame:RegisterEvent("PORTRAITS_UPDATED")
+        -- 2D art and the kit socket repaint; a 3D model repaints on its own
+        -- show edge (and on a settings swap through its cleared memos).
+        if ns.RF_PtRepaintAll then ns.RF_PtRepaintAll("Resync") end
+    elseif was and not want then
+        eventFrame:UnregisterEvent("PORTRAITS_UPDATED")
+    end
+end
+
 ns._UpdatePartyVisibility = function()
     if not ns._partyHeader then return end
     if InCombatLockdown() then return end
@@ -10085,7 +10465,10 @@ ns._UpdatePartyVisibility = function()
     if previewActive then return end
     -- Defensive: re-assert full opacity unless a size preview is dimming the
     -- real frames (see UpdateVisibility). Out of combat only (bails above).
-    if not ns._sizePreviewTier and ns._partyContainerFrame then ns._partyContainerFrame:SetAlpha(1) end
+    if not ns._sizePreviewTier and ns._partyContainerFrame then
+        ns._partyContainerFrame:SetAlpha(1)
+        if ns._ptModelOn then ns.RF_PtContainerAlpha(1) end
+    end
 
     local s = db.profile
     -- Arena and Small Raid mode show party frames even though IsInRaid() is
@@ -10122,6 +10505,7 @@ ns._UpdatePartyVisibility = function()
         ns._RebuildPartyUnitMap()
         if ns.UpdatePowerEventRegistration then ns.UpdatePowerEventRegistration() end
         ns._UpdateAllPartyButtons()
+        ns.RF_KitPortraitEvents(true)
 
         if IsInGroup() then
             StartRangeTicker()
@@ -10137,6 +10521,7 @@ ns._UpdatePartyVisibility = function()
         end
 
         wipe(ns._partyUnitToButton)
+        ns.RF_KitPortraitEvents(false)
     end
 
     -- Attach-point edges the layout pass above cannot cover: the boss group's own roster pass can
@@ -10176,10 +10561,14 @@ ns.ReloadPartyFrames = function(skipButtons)
     -- nothing in `saved`, so restoring from `saved` alone would skip it and
     -- leave the party value on the shared raid key permanently.
     local saved, swapped = {}, {}
+    local pxSib = ns._PARTY_PX_SIBLING
     for key, section in pairs(ns._PARTY_KEY_SECTION) do
         if ns._IsPartySectionCustom(section) then
             local pv = rawget(raw, "party_" .. key)
-            if pv ~= nil then
+            -- An exact-size companion swaps whenever its sibling does (its party
+            -- value may be nil): recorded in `swapped` so the restore writes it back.
+            local sib = pxSib[key]
+            if pv ~= nil or (sib and rawget(raw, "party_" .. sib) ~= nil) then
                 swapped[#swapped + 1] = key
                 saved[key] = raw[key]
                 raw[key] = pv
@@ -10189,8 +10578,10 @@ ns.ReloadPartyFrames = function(skipButtons)
 
     -- Now db.profile has party values in place. Read from it directly for
     -- sizing (which also needs party width/height overrides).
-    local bw = PixelSnap(raw.partyFrameWidth or raw.frameWidth or 125)
-    local bh = PixelSnap(raw.partyFrameHeight or raw.frameHeight or 60)
+    local pw, ph, _, pres = ns.RF_PartyDims(raw)
+    local bw, bh = PixelSnap(pw), PixelSnap(ph)
+    -- The bars' width (an attached portrait takes its share of the box).
+    local barW = bw - ((pres and pres > 0) and PixelSnap(pres) or 0)
     local powerH = IsPowerBarEnabled(raw) and PixelSnap(raw.powerHeight or 4) or 0
     local healthH = PixelSnap(bh - powerH)
     local texPath = ResolveHealthTexture()
@@ -10213,8 +10604,19 @@ ns.ReloadPartyFrames = function(skipButtons)
             btn:SetSize(bw, bh)
         end
 
-        -- Health bar height/anchor + Top Name Bar (reads party-resolved `raw`)
-        LayoutTopNameBar(raw, bh, powerH, d.health, d.topNameBar, d.topNameBarBg, d.topNameBarText)
+        -- Party portrait (EUI_RaidFrames_Portrait.lua; the kit keeps its own):
+        -- ahead of the bar layout below, which hangs the bars off its area.
+        if not d.kit then
+            local pu = btn:GetAttribute("unit")
+            ns.RF_PtApply(btn, d, pp, bw, bh, pu and UnitExists(pu) and pu or nil)
+        end
+
+        -- Health bar height/anchor + Top Name Bar (reads party-resolved `raw`).
+        -- The Party Frames kit owns its bar rects (its pass runs below, after
+        -- the texture swaps, so its masks seat on the new fills).
+        if not d.kit then
+            LayoutTopNameBar(raw, bh, powerH, d.health, d.topNameBar, d.topNameBarBg, d.topNameBarText)
+        end
         if d.health then
             d.health:SetStatusBarTexture(texPath)
             d.health:GetStatusBarTexture():SetHorizTile(false)
@@ -10233,13 +10635,24 @@ ns.ReloadPartyFrames = function(skipButtons)
         -- second writer of health height alongside UpdateButton's own cached transition
         -- (LayoutTopNameBar above sized health assuming power reserved), so drop the
         -- cache or UpdateAllButtons below sees applied == computed and never corrects it.
-        d._appliedHidePower = nil
-        if d.power then
-            d.power:Hide()
-            if powerH > 0 then
-                d.power:SetHeight(powerH)
+        if d.kit then
+            -- Party Frames kit: the mana bar always shows in the art's track
+            -- (no role gate, no height); then the kit pass itself.
+            if d.power then
                 d.power:SetStatusBarTexture(texPath)
                 d.power:GetStatusBarTexture():SetHorizTile(false)
+            end
+            local u = btn:GetAttribute("unit")
+            ns.RF_ApplyPartyKit(btn, d, pp, u and UnitExists(u) and u or nil)
+        else
+            d._appliedHidePower = nil
+            if d.power then
+                d.power:Hide()
+                if powerH > 0 then
+                    d.power:SetHeight(powerH)
+                    d.power:SetStatusBarTexture(texPath)
+                    d.power:GetStatusBarTexture():SetHorizTile(false)
+                end
             end
         end
         if d.powerBg then
@@ -10252,8 +10665,9 @@ ns.ReloadPartyFrames = function(skipButtons)
         if d.nameText then
             ApplyFont(d.nameText, pp.nameSize or 10)
             if d.AnchorNameText then d.AnchorNameText() end
-            -- Override width constraint for party button dimensions
-            d.nameText:SetWidth(bw * ns.RF_NAME_WIDTH_FRACTION)
+            -- Override width constraint for party button dimensions (the
+            -- kit's name width is its closure's own).
+            if not d.kit then d.nameText:SetWidth(barW * ns.RF_NAME_WIDTH_FRACTION) end
         end
 
         -- Health text
@@ -10287,9 +10701,13 @@ ns.ReloadPartyFrames = function(skipButtons)
         if d.leaderIcon then
             local liSz = PixelSnap(pp.leaderIconSize or 14)
             d.leaderIcon:SetSize(liSz, liSz)
-            d.leaderIcon:ClearAllPoints()
-            local liPos = (raw.leaderIconPosition or "top"):upper()
-            d.leaderIcon:SetPoint(liPos, ns.RF_AnchorHost(d.health, pp), liPos, pp.leaderIconOffsetX or 0, pp.leaderIconOffsetY or 0)
+            if d.kitG then
+                ns.RF_KitLeader(d, pp)
+            else
+                d.leaderIcon:ClearAllPoints()
+                local liPos = (raw.leaderIconPosition or "top"):upper()
+                d.leaderIcon:SetPoint(liPos, ns.RF_AnchorHost(d.health, pp), liPos, pp.leaderIconOffsetX or 0, pp.leaderIconOffsetY or 0)
+            end
             -- Re-assert the host's strata/level above the border
             if d.leaderHost then ns.ApplyLeaderStrata(d.leaderHost) end
         end
@@ -10341,6 +10759,11 @@ ns.ReloadPartyFrames = function(skipButtons)
     -- Aura containers read the party class through its scaled proxy; the
     -- fingerprint guards make this near-free when nothing party-side changed.
     if ns.RFC_ReloadAll then ns.RFC_ReloadAll() end
+    -- Party Frames kit: an attached Friendly Boss group clears the kit's
+    -- outside auras, which these settings move (out of combat only).
+    if ns.RF_PartyKit() and ns.FB_ReAnchor and not InCombatLockdown() then ns.FB_ReAnchor() end
+    -- Portrait events follow the portrait settings (a no-op when unchanged).
+    ns.RF_KitPortraitEvents(ns._partyFramesVisible)
 end
 
 local function RegisterWithUnlockMode()
@@ -11798,11 +12221,13 @@ local previewGroupLabels = {}  -- [1..4] FontStrings showing group numbers
 local previewContainer = nil   -- standalone anchor frame for preview (doesn't move with containerFrame)
 local previewHiddenParent = nil -- hidden frame to reparent containerFrame into during preview
 
-local function CreatePreviewFrame(index)
+local function CreatePreviewFrame(index, party)
     local s = db.profile
     local w = PixelSnap(s.frameWidth or 72)
     local h = PixelSnap(s.frameHeight or 46)
     local powerH = IsPowerBarEnabled(s) and PixelSnap(s.powerHeight or 4) or 0
+    -- Party Frames kit (party preview only): the stock frame's own layout.
+    local kit = party and ns.RF_PartyKit()
     local healthH = PixelSnap(h - ns.RF_HealthPowerInset(s, powerH))
 
     local f = CreateFrame("Frame", nil, previewContainer or containerFrame)
@@ -12040,9 +12465,10 @@ local function CreatePreviewFrame(index)
         absorbBar._healTopBar = thb
     end
 
-    -- Power bar (anchored to frame bottom for pixel alignment)
+    -- Power bar (anchored to frame bottom for pixel alignment; the Party
+    -- Frames kit always has its mana bar)
     local power
-    if powerH > 0 then
+    if powerH > 0 or kit then
         power = CreateFrame("StatusBar", nil, f)
         power:SetFrameLevel(f:GetFrameLevel() + 3)
         power:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0)
@@ -12079,16 +12505,34 @@ local function CreatePreviewFrame(index)
         -- tier-scaled, so the effective overlay may shadow them safely.
         local s = ns._previewSettingsOverride or (ns._partyPvActive and ns._scaledPartyProxy)
             or ns._pvOverlayProxy or ns._scaledProfile
+        if f.kit then
+            ns.RF_KitHighlight(f, bdrFrame, s, f._hovered and s.hoverBorderEnabled ~= false,
+                f._isTarget and s.targetBorderEnabled ~= false)
+            return
+        end
+        if f.stockEdge then
+            local hover = f._hovered and s.hoverBorderEnabled ~= false
+            local lvl = f:GetFrameLevel() + (hover and ns.LVL_RAISE or 8)
+            if bdrFrame:GetFrameLevel() ~= lvl then
+                bdrFrame:SetFrameLevel(lvl)
+                local container = PP.GetBorders(bdrFrame)
+                if container then container:SetFrameLevel(lvl + 1) end
+            end
+            ns.RF_StockHighlight(f, bdrFrame, s, hover, f._isTarget and s.targetBorderEnabled ~= false)
+            return
+        end
         local r, g, b, a
-        local raised, hlSize = false, nil
+        local raised, hlSize, hlPx = false, nil, nil
         if f._hovered and s.hoverBorderEnabled ~= false then
             local c = s.hoverBorderColor or { r = 1, g = 1, b = 1 }
             r, g, b, a = c.r, c.g, c.b, s.hoverBorderAlpha or 1
             raised, hlSize = true, s.hoverBorderSize or 1
+            hlPx = EllesmereUI.BorderPx(s.hoverBorderSizePx, hlSize, s.borderTexture or "solid")
         elseif f._isTarget and s.targetBorderEnabled ~= false then
             local c = s.targetBorderColor or { r = 1, g = 1, b = 1 }
             r, g, b, a = c.r, c.g, c.b, s.targetBorderAlpha or 1
             raised, hlSize = true, s.targetBorderSize or 1
+            hlPx = EllesmereUI.BorderPx(s.targetBorderSizePx, hlSize, s.borderTexture or "solid")
         else
             local c = s.borderColor or { r = 0, g = 0, b = 0 }
             r, g, b, a = c.r, c.g, c.b, s.borderAlpha or 1
@@ -12105,7 +12549,7 @@ local function CreatePreviewFrame(index)
             if container then container:SetFrameLevel(lvl + 1) end
         end
         if (s.borderSize or 1) <= 0 then
-            ns.ApplyHighlightBorder(bdrFrame, s, hlSize, r, g, b, a)
+            ns.ApplyHighlightBorder(bdrFrame, s, hlSize, r, g, b, a, hlPx)
             return
         end
         bdrFrame._hlBorderSize = nil
@@ -12260,6 +12704,14 @@ local function CreatePreviewFrame(index)
     f._power = power
     f._border = bdrFrame
     f._threatFrame = threatFrame
+    -- Stock styles: the stock edge, highlights and divider (our frame), or
+    -- the Party Frames kit (host, art, portrait; stamps health._euiKitRef
+    -- here, before any refresh anchors to the host).
+    if kit then
+        ns.RF_KitBuild(f, f, health, power, bdrFrame)
+    elseif ns.RF_Stock() then
+        ns.RF_StockBuild(f, f, power)
+    end
     f._dispelBdrFrame = dispelBdrFrame
     f._dispelOLTex = dispelOLTex
     f._dispelIcon = dispelIconFrame
@@ -12711,7 +13163,8 @@ local function ApplyPreviewData(f, index)
             end
             if barOn and absorbAmt > 0 then
                 local bc = s.absorbBarColor or { r = 1, g = 1, b = 1 }
-                ns.ApplyStripBarLayout(topBar, f._absorbBar, f, barPos, s.absorbBarHeight or 4, nil, nil, s.absorbBarGrowDir or "up")
+                -- (Party Frames kit: laid out on the kit bar and host, as live.)
+                ns.ApplyStripBarLayout(topBar, f._absorbBar, ((f.kit or f._health._euiBarArea) and f._health) or f, barPos, s.absorbBarHeight or 4, nil, nil, s.absorbBarGrowDir or "up")
                 topBar:SetStatusBarColor(bc.r, bc.g, bc.b, bc.a or 1)
                 topBar:SetValue(absorbAmt)
                 topBar:Show()
@@ -12734,7 +13187,7 @@ local function ApplyPreviewData(f, index)
                 local haAmtPv = ns.previewHealAbsorbValues[index] or 0
                 if healBarOn and haAmtPv > 0 then
                     local hbc = s.healAbsorbBarColor or { r = 200/255, g = 29/255, b = 29/255 }
-                    ns.ApplyStripBarLayout(healTopBarPv, f._absorbBar, f, healBarPos, s.healAbsorbBarHeight or 4, ns.GetAbsorbBarPosition(s), s.absorbBarHeight or 4, s.healAbsorbBarGrowDir or "up")
+                    ns.ApplyStripBarLayout(healTopBarPv, f._absorbBar, ((f.kit or f._health._euiBarArea) and f._health) or f, healBarPos, s.healAbsorbBarHeight or 4, ns.GetAbsorbBarPosition(s), s.absorbBarHeight or 4, s.healAbsorbBarGrowDir or "up")
                     healTopBarPv:SetStatusBarColor(hbc.r, hbc.g, hbc.b, hbc.a or 1)
                     healTopBarPv:SetValue(haAmtPv)
                     healTopBarPv:Show()
@@ -12748,8 +13201,9 @@ local function ApplyPreviewData(f, index)
             local tex = ns.ResolveAbsorbStyleTex(absStyle, "Interface\\Buttons\\WHITE8X8")
             local alpha = (s.absorbOpacity or 90) / 100
             local tiled = (absStyle == "striped" or absStyle == "stripedReversed" or absStyle == "stripedThick" or absStyle == "stripedThickR" or absStyle == "largeStripes" or absStyle == "largeStripesR" or absStyle == "largeOutlinedStripes" or absStyle == "largeOutlinedStripesR")
-            local hpW = w
-            local hpH = healthH
+            -- (the Party Frames kit's health bar is its own rect)
+            local hpW = f.kitG and f.kitG.health.w or w
+            local hpH = f.kitG and f.kitG.health.h or healthH
             local mask = f._absorbBar._mask
             local ac = s.absorbColor or { r = 1, g = 1, b = 1 }
 
@@ -13007,8 +13461,8 @@ local function ApplyPreviewData(f, index)
             local hc = s.healAbsorbColor or { r = 0.8, g = 0.15, b = 0.15 }
             if haStyle == "healBlizzModern" or haStyle == "largeOutlinedStripes" or haStyle == "largeOutlinedStripesR" then hc = { r = 1, g = 1, b = 1 } end
             local tiled = (haStyle == "striped" or haStyle == "stripedReversed" or haStyle == "stripedThick" or haStyle == "stripedThickR" or haStyle == "largeStripes" or haStyle == "largeStripesR" or haStyle == "largeOutlinedStripes" or haStyle == "largeOutlinedStripesR")
-            local hpW = w
-            local hpH = healthH
+            local hpW = f.kitG and f.kitG.health.w or w
+            local hpH = f.kitG and f.kitG.health.h or healthH
             local mask = f._healAbsorbBar._mask
             f._healAbsorbBar:SetStatusBarTexture(haTex)
             f._healAbsorbBar:SetStatusBarColor(hc.r or 0.8, hc.g or 0.15, hc.b or 0.15, haAlpha)
@@ -13106,8 +13560,8 @@ local function ApplyPreviewData(f, index)
             local pc = s.healPredColor or { r = 102/255, g = 243/255, b = 102/255 }
             local pAlpha = (s.healPredOpacity or 75) / 100
             f._healPredBar:SetStatusBarColor(pc.r, pc.g, pc.b, pAlpha)
-            f._healPredBar:SetWidth(w)
-            f._healPredBar:SetHeight(healthH)
+            f._healPredBar:SetWidth(f.kitG and f.kitG.health.w or w)
+            f._healPredBar:SetHeight(f.kitG and f.kitG.health.h or healthH)
             -- Grows from the HP edge into the missing health: the fill's right
             -- edge normally, its top edge on a vertical bar. Only set at creation
             -- otherwise, so both axes are re-applied here.
@@ -13168,6 +13622,8 @@ local function ApplyPreviewData(f, index)
         or (role == "TANK" and s.powerShowForTank)
         or (role == "DAMAGER" and s.powerShowForDPS)
     local hidePower = powerH <= 0 or not showForRole
+    -- Party Frames kit: the stock mana bar always shows (the kit pass sizes it).
+    if f.kitG then hidePower = false end
 
     if f._power then
         if not hidePower then
@@ -13214,9 +13670,10 @@ local function ApplyPreviewData(f, index)
         end
     end
 
-    -- Power border
+    -- Power border (Classic WoW UI: the stock divider stands in, drawn with
+    -- the frame border below)
     if f._powerBorder and PP then
-        if hidePower then
+        if hidePower or f.stockDiv or f.kitG then
             f._powerBorder:Hide()
         else
             local pbStyle = s.powerBorderStyle or "eui"
@@ -13259,14 +13716,28 @@ local function ApplyPreviewData(f, index)
     end
 
     -- Border (style/size/texture/offsets via ApplyBorderStyle, then state recolor)
-    if f._border and PP then
+    if f._border and PP and f.kit then
+        -- Party Frames kit: the art stands in for the border.
+        f._border:SetFrameLevel(f:GetFrameLevel() + 8)
+        EllesmereUI.ApplyBorderStyle(f._border, 0, 0, 0, 0, 0, "solid")
+        f._border._hlBorderSize = nil
+        if f._ApplyBorderColor then f._ApplyBorderColor() end
+    elseif f._border and PP and f.stockEdge then
+        f._border:SetFrameLevel(f:GetFrameLevel() + 8)
+        EllesmereUI.ApplyBorderStyle(f._border, 0, 0, 0, 0, 0, "solid")
+        f._border._hlBorderSize = nil
+        ns.RF_StockSeat(f)
+        if f.stockDiv and f._power and f._power:IsShown() then ns.RF_StockDivider(f) end
+        if f._ApplyBorderColor then f._ApplyBorderColor() end
+    elseif f._border and PP then
         local bs = s.borderSize or 1
         local bc = s.borderColor or { r = 0, g = 0, b = 0 }
         local pl = f:GetFrameLevel()
         f._border:SetFrameLevel(s.borderBehind and math.max(0, pl - 1) or (pl + 8))
         EllesmereUI.ApplyBorderStyle(f._border, bs, bc.r, bc.g, bc.b, s.borderAlpha or 1,
             s.borderTexture or "solid", s.borderTextureOffset, s.borderTextureOffsetY,
-            s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", bs)
+            s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", bs, nil,
+            EllesmereUI.BorderPx(s.borderSizePx, bs, s.borderTexture or "solid"))
         if f._ApplyBorderColor then f._ApplyBorderColor() end
     end
 
@@ -13278,7 +13749,11 @@ local function ApplyPreviewData(f, index)
         local bs = s.threatBorderSize or 0
         local wantThreat = bs > 0
         if ns._testMode and ns._testThreat ~= nil then wantThreat = ns._testThreat end
-        if wantThreat and (ns._testMode or ns._healthAnimActive) and previewRoles._threatIndex == index then
+        local showThreat = wantThreat and (ns._testMode or ns._healthAnimActive) and previewRoles._threatIndex == index
+        if f.stockHl then
+            f._threatFrame:Hide()
+            ns.RF_StockAggro(f, showThreat and 3 or nil)
+        elseif showThreat then
             PP.UpdateBorder(f._threatFrame, bs > 0 and bs or 1, 1, 0, 0, 1)
             f._threatFrame:Show()
         else
@@ -13642,10 +14117,10 @@ local function ApplyPreviewData(f, index)
         local htPos = s.healthTextPosition or "center"
         local htOX = s.healthTextOffsetX or 0
         local htOY = s.healthTextOffsetY or 0
-        local htW = (s.frameWidth or 72) * 0.75
+        local htW = f.kitG and f.kitG.health.w or (s.frameWidth or 72) * 0.75
         f._healthText:SetWidth(htW)
         f._healthText:SetHeight(0)
-        local htHost = ns.RF_AnchorHost(f._health, s)
+        local htHost = ns.RF_BarHost(f._health, s)
         if htPos == "topleft" then
             f._healthText:SetPoint("TOPLEFT", htHost, "TOPLEFT", 2 + htOX, -2 + htOY)
             f._healthText:SetJustifyH("LEFT"); f._healthText:SetJustifyV("TOP")
@@ -13734,8 +14209,9 @@ local function ApplyPreviewData(f, index)
     if f._healAbsorbText then
         local haMode = s.healAbsorbTextMode or "none"
         ApplyFont(f._healAbsorbText, s.healAbsorbTextSize or 9)
-        ns.AnchorRFText(f._healAbsorbText, ns.RF_AnchorHost(f._health, s), s.healAbsorbTextPosition or "center",
-            s.healAbsorbTextOffsetX or 0, s.healAbsorbTextOffsetY or 0, (s.frameWidth or 72) * 0.75)
+        ns.AnchorRFText(f._healAbsorbText, ns.RF_BarHost(f._health, s), s.healAbsorbTextPosition or "center",
+            s.healAbsorbTextOffsetX or 0, s.healAbsorbTextOffsetY or 0,
+            f.kitG and f.kitG.health.w or (s.frameWidth or 72) * 0.75)
         if haMode ~= "none" and not isDead and not isOffline then
             ns.FormatHealAbsorbInto(f._healAbsorbText, math.floor(healthPct * 3000), haMode)
             local haCM = s.healAbsorbTextColorMode or "custom"
@@ -13765,7 +14241,7 @@ local function ApplyPreviewData(f, index)
         local stPos = s.statusTextPosition or "center"
         local stOX = s.statusTextOffsetX or 0
         local stOY = s.statusTextOffsetY or 0
-        local stHost = ns.RF_AnchorHost(f._health, s)
+        local stHost = ns.RF_BarHost(f._health, s)
         if stPos == "topleft" then
             f._statusText:SetPoint("TOPLEFT", stHost, "TOPLEFT", 2 + stOX, -2 + stOY)
         elseif stPos == "top" then
@@ -14322,11 +14798,13 @@ do
             local a = on and 0.2 or 1
             if containerFrame then containerFrame:SetAlpha(a) end
             if ns._partyContainerFrame then ns._partyContainerFrame:SetAlpha(a) end
+            if ns._ptModelOn then ns.RF_PtContainerAlpha(a) end
             setBlock(false)
         else
             local a = on and 0 or 1
             if containerFrame then containerFrame:SetAlpha(a) end
             if ns._partyContainerFrame then ns._partyContainerFrame:SetAlpha(a) end
+            if ns._ptModelOn then ns.RF_PtContainerAlpha(a) end
             setBlock(on)
         end
     end
@@ -14513,6 +14991,7 @@ ns._ShowSizePreview = function(tier)
     -- from catching clicks while configuring out of combat.
     if containerFrame then containerFrame:SetAlpha(0) end
     if ns._partyContainerFrame then ns._partyContainerFrame:SetAlpha(0) end
+    if ns._ptModelOn then ns.RF_PtContainerAlpha(0) end
     ns._SetPreviewMouseBlock(true)
 
     local ov = overrides[tier]
@@ -14756,6 +15235,7 @@ ns._HideSizePreview = function()
     -- or out of combat, so the frames can never be stranded invisible.
     if containerFrame then containerFrame:SetAlpha(1) end
     if ns._partyContainerFrame then ns._partyContainerFrame:SetAlpha(1) end
+    if ns._ptModelOn then ns.RF_PtContainerAlpha(1) end
     ns._SetPreviewMouseBlock(false)
     -- Recompute party visibility (only shows party frames if actually grouped /
     -- Show When Solo). Bails in combat; the alpha restore above suffices there.
@@ -14956,7 +15436,7 @@ end
 
 local function GetOrCreatePartyPvFrame(index)
     if ns._partyPvFrames[index] then return ns._partyPvFrames[index] end
-    local f = CreatePreviewFrame(index)
+    local f = CreatePreviewFrame(index, true)
     -- Reparent from raid preview container to party overlay container
     if ns._partyOC then f:SetParent(ns._partyOC) end
     ns._partyPvFrames[index] = f
@@ -14974,8 +15454,9 @@ local function ApplyPartyPreviewData(f, index)
     -- mutation+restore semantics are unchanged.
     local eff = ns._pvOverlayProxy or db.profile
     local origW, origH = s.frameWidth, s.frameHeight
-    s.frameWidth  = eff.partyFrameWidth  or eff.frameWidth
-    s.frameHeight = eff.partyFrameHeight or eff.frameHeight
+    -- The bars' width (a party portrait widens the frame after the restore).
+    local ew, eh, _, eres = ns.RF_PartyDims(eff)
+    s.frameWidth, s.frameHeight = ew - (eres or 0), eh
 
     -- Temporarily swap preview value tables so ApplyPreviewData reads party data
     local origHealth = previewHealthValues
@@ -15022,6 +15503,25 @@ local function ApplyPartyPreviewData(f, index)
     ns.previewReducedMaxHealth = origRMH
     previewRoles       = origRoles
     previewClassTokens = origCT
+
+    -- Party Frames kit: bar rects, art, spots and a mock portrait, after the
+    -- restore above (nothing here may run inside that swap window).
+    if f.kit then
+        -- Forced: the refresh above re-laid the bars out at the box's edges.
+        ns.RF_ApplyPartyKit(f, f, ns._scaledPartyProxy, nil, true)
+        local roles = ns._partyPvRoles
+        -- (Greyed only while the preview actually shows that slot offline.)
+        ns.RF_KitPreviewPortrait(f, ns._partyPvCT[index],
+            index == (roles._playerSlot or 1),
+            ns._indicatorsVisible ~= false and index == roles._offlineSlot)
+    elseif ns.RF_PtPreview then
+        -- Party portrait: the frame takes the box width, the bars move beside
+        -- the portrait, then a mock paint (same slots as the kit's).
+        local roles = ns._partyPvRoles
+        ns.RF_PtPreview(f, ns._scaledPartyProxy, ns._partyPvCT[index],
+            index == (roles._playerSlot or 1),
+            ns._indicatorsVisible ~= false and index == roles._offlineSlot)
+    end
 end
 
 -- Party overlay container (separate from raid overlay). Position is hardcoded
@@ -15060,9 +15560,8 @@ local function RefreshPartyPreview()
     -- party preview reflects Auto Resize live (preview reads _scaledPartyProxy).
     if ns._UpdatePartyIndicatorScale then ns._UpdatePartyIndicatorScale() end
     local s = ns._pvOverlayProxy or db.profile
-    local w = PixelSnap(s.partyFrameWidth or s.frameWidth or 125)
-    local h = PixelSnap(s.partyFrameHeight or s.frameHeight or 60)
-    local spacing = PixelSnap(s.partyCellSpacing or s.cellSpacing or 2)
+    local pw, ph, pcs = ns.RF_PartyDims(s)
+    local w, h, spacing = PixelSnap(pw), PixelSnap(ph), PixelSnap(pcs)
     local mode = db.profile.previewMode or "overlay"
 
     BuildPartyPreviewRoles()
@@ -15078,9 +15577,7 @@ local function RefreshPartyPreview()
     local isOverlay = (mode == "overlay")
     local anchorPad = isOverlay and 10 or 0
     local topExtra = isOverlay and 25 or 0   -- top space for the centered "Preview" title
-    -- Explicit true only: "centered" keeps the default direction.
-    local unitGrowth = s.partyHorizontal and (s.partyFlipGrowth == true and "LEFT" or "RIGHT")
-        or (s.partyFlipGrowth == true and "UP" or "DOWN")
+    local unitGrowth = ns._PartyGrowth(s)
     local isVert = (unitGrowth == "DOWN" or unitGrowth == "UP")
     local totalW, totalH
     if isVert then
@@ -15526,6 +16023,12 @@ function ERF:OnEnable()
         self._needsCapture = false
     end
 
+    -- Stock styles: a profile that arrives already switched (an import, an
+    -- older build) gets the style's first-visit defaults once, before the
+    -- proxies below materialize them.
+    if ns.RF_Stock() then ns.RF_SeedStock(db.profile, ns.RF_Style()) end
+    ns.RF_MigrateSmRaidBar(db.profile)
+
     -- Inherit the Absorbs section's party-sync state from Health Bar for
     -- profiles saved before the section split (must precede any proxy reads).
     ns._NormalizePartySyncSections()
@@ -15553,10 +16056,8 @@ function ERF:OnEnable()
     -- Size + position party container from profile
     do
         local s = db.profile
-        local w = s.partyFrameWidth or s.frameWidth or 125
-        local h = s.partyFrameHeight or s.frameHeight or 60
-        local sp = s.cellSpacing or 2
-        ns._partyContainerFrame:SetSize(w, h * 5 + sp * 4)
+        local pw, ph, pcs = ns.RF_PartyDims(s)
+        ns._SizePartyContainer(PixelSnap(pw), PixelSnap(ph), PixelSnap(pcs), ns._PartyGrowth(s))
         local pos = s.partyUnlockPos
         -- Skip the saved-pos SetPoint when element-anchored with resolved
         -- geometry: the unlock anchor system owns the position.
@@ -15644,10 +16145,8 @@ function ERF:OnEnable()
         if not c or not ns.db then return end
         if InCombatLockdown() then ns._partyGeomDirtyInCombat = true; return end
         local s = ns.db.profile
-        local w = s.partyFrameWidth or s.frameWidth or 125
-        local h = s.partyFrameHeight or s.frameHeight or 60
-        local sp = s.cellSpacing or 2
-        c:SetSize(w, h * 5 + sp * 4)
+        local pw, ph, pcs = ns.RF_PartyDims(s)
+        ns._SizePartyContainer(PixelSnap(pw), PixelSnap(ph), PixelSnap(pcs), ns._PartyGrowth(s))
         local pos = s.partyUnlockPos
         -- Skip the saved-pos SetPoint when element-anchored with resolved
         -- geometry: the unlock anchor system owns the position.
@@ -15856,10 +16355,16 @@ function ERF:OnEnable()
                 -- player/party tokens always count as party-displayable; the
                 -- routing-map check additionally covers arena, where the party
                 -- header binds raid1-5.
-                if not wantPower and IsPowerBarEnabled(ps)
-                    and (unit == "player" or unit:match("^party%d$")
+                if not wantPower and (unit == "player" or unit:match("^party%d$")
                         or (ns._partyUnitToButton and ns._partyUnitToButton[unit])) then
-                    wantPower = wantsPower(ps, role)
+                    if ns.RF_PartyKit() then
+                        -- Party Frames kit: the stock mana bar always shows
+                        -- (while the party frames are shown; the hide edge
+                        -- re-runs this through RF_KitPortraitEvents).
+                        wantPower = ns._partyFramesVisible and true or false
+                    elseif IsPowerBarEnabled(ps) then
+                        wantPower = wantsPower(ps, role)
+                    end
                 end
             end
             if wantPower then

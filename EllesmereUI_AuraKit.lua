@@ -445,10 +445,11 @@ local function ApplyStyleToRegions(button, style)
                     -- where the module's other icons put theirs.
                     local appliedSize = (b.texture and b.texture ~= "" and b.texture ~= "solid")
                         and (b.textureSize or b.size or 1) or (b.size or 1)
+                    -- b.edgePx: the surface's exact size (EllesmereUI.BorderPx), nil = legacy.
                     EllesmereUI.ApplySecretSafeBorderStyle(d.borderHost, d, appliedSize,
                         b[1] or 0, b[2] or 0, b[3] or 0, b[4] or 1,
                         b.texture or "solid", b.offsetX, b.offsetY, b.shiftX, b.shiftY,
-                        b.addonKey or "unitframes", b.sizeKey or b.size or 1, b.edgeScale)
+                        b.addonKey or "unitframes", b.sizeKey or b.size or 1, b.edgeScale, b.edgePx)
                     d.borderMade = true
                 else
                     -- Solid border on the plain PP path. A style that came back
@@ -456,20 +457,31 @@ local function ApplyStyleToRegions(button, style)
                     -- host and may never have built PP strips (the textured lane
                     -- only hides them), so presence is decided by the strips
                     -- themselves, not by borderMade.
-                    local edges = d._secretBorderEdges
-                    if edges then for _, tex in pairs(edges) do tex:Hide() end end
+                    -- A textured exact size registered this host for the UI-scale
+                    -- re-apply: the size-0 solid call unregisters it and hides the
+                    -- edges (the strips and the host are shown again below).
+                    if d._pxsbEdge then
+                        EllesmereUI.ApplySecretSafeBorderStyle(d.borderHost, d, 0, 0, 0, 0, 0, "solid")
+                    else
+                        local edges = d._secretBorderEdges
+                        if edges then for _, tex in pairs(edges) do tex:Hide() end end
+                    end
+                    local solidPx = b.edgePx or b.size or 1
                     if PP.GetBorders(d.borderHost) then
-                        PP.UpdateBorder(d.borderHost, b.size or 1, b[1] or 0, b[2] or 0, b[3] or 0, b[4] or 1)
+                        PP.UpdateBorder(d.borderHost, solidPx, b[1] or 0, b[2] or 0, b[3] or 0, b[4] or 1)
                         PP.ShowBorder(d.borderHost)
                     else
                         PP.CreateBorder(d.borderHost, b[1] or 0, b[2] or 0, b[3] or 0, b[4] or 1,
-                            b.size or 1, "OVERLAY", 7)
+                            solidPx, "OVERLAY", 7)
                     end
                     d.borderMade = true
                 end
             end
             d.borderHost:Show()
         else
+            if d._pxsbEdge then
+                EllesmereUI.ApplySecretSafeBorderStyle(d.borderHost, d, 0, 0, 0, 0, 0, "solid")
+            end
             d.borderHost:Hide()
             if PP then PP:HideMaskedShapeBorder(d.borderHost) end
         end

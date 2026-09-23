@@ -186,9 +186,11 @@ local _cachedIType, _cachedDiffID, _cachedMapID
 local _dungeonPrePull = true
 
 local function CacheInstanceInfo()
-    local _, iType, diffID = GetInstanceInfo()
+    -- The eleventh return flags World Tier scaled content (Lairs, every tier).
+    local _, iType, diffID, _, _, _, _, _, _, _, hasWorldTier = GetInstanceInfo()
     _cachedIType = iType
     _cachedDiffID = tonumber(diffID) or 0
+    EABR._cachedWorldTier = hasWorldTier == true
     if EABR.FOREVER then return end  -- the map lookup only serves the pre-key threshold window
     local mapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player") or nil
     if mapID ~= _cachedMapID then
@@ -289,9 +291,13 @@ end
 
 -- Coarse buckets matching the options multi-select: open_world, raid_mythic,
 -- raid_heroic, raid_normal_lfr, dungeon_mythic (Mythic + M+), dungeon_nonmythic
--- (Heroic / Normal / Follower), timewalking, delve. Returns nil for unmapped
--- instanced content (e.g. PvP) so reminders never silently vanish there.
+-- (Heroic / Normal / Follower), timewalking, delve, lair. Returns nil for
+-- unmapped instanced content (e.g. PvP) so reminders never silently vanish there.
 function EABR.CurrentWhereBucket(inInstance)
+    -- Lairs carry the World Tier flag instead of a difficulty id the allowlist
+    -- knows; the instance gate keeps the flag from ever reclassifying the
+    -- open world, whatever else it may be set on.
+    if inInstance and EABR._cachedWorldTier then return "lair" end
     local cat = EABR.CurrentDifficultyCat()
     if cat == "d_mplus" or cat == "d_mythic" then return "dungeon_mythic" end
     if cat == "d_heroic" or cat == "d_normal" or cat == "d_follower" then return "dungeon_nonmythic" end
@@ -2231,11 +2237,13 @@ function EABR.ApplyIconBorder(f, protectedOwner)
     local sx, sy = p and p.borderTextureShiftX, p and p.borderTextureShiftY
     local behind = p and p.borderBehind == true
     local level = behind and max(0, f:GetFrameLevel() - 1) or (f:GetFrameLevel() + 3)
+    -- Exact size companion, memoized raw: it only counts while paired with size + texture.
+    local pxRaw = p and p.borderSizePx
 
     -- Layout refreshes can be frequent in a raid. Restyle only when an actual
     -- setting or owner-level change occurred; size changes are handled by the
     -- border frame's anchors/BackdropTemplate size hook.
-    if border._eabrSize == size and border._eabrTexture == texture
+    if border._eabrSize == size and border._eabrTexture == texture and border._eabrPx == pxRaw
         and border._eabrR == r and border._eabrG == g and border._eabrB == b and border._eabrA == a
         and border._eabrOX == ox and border._eabrOY == oy and border._eabrSX == sx and border._eabrSY == sy
         and border._eabrBehind == behind and border._eabrLevel == level then
@@ -2244,8 +2252,9 @@ function EABR.ApplyIconBorder(f, protectedOwner)
 
     border:SetFrameLevel(level)
     EllesmereUI.ApplyBorderStyle(border, size, r, g, b, a, texture,
-        ox, oy, sx, sy, "aurabuffreminders", size)
-    border._eabrSize, border._eabrTexture = size, texture
+        ox, oy, sx, sy, "aurabuffreminders", size, nil,
+        EllesmereUI.BorderPx(pxRaw, size, texture))
+    border._eabrSize, border._eabrTexture, border._eabrPx = size, texture, pxRaw
     border._eabrR, border._eabrG, border._eabrB, border._eabrA = r, g, b, a
     border._eabrOX, border._eabrOY, border._eabrSX, border._eabrSY = ox, oy, sx, sy
     border._eabrBehind, border._eabrLevel = behind, level

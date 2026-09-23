@@ -2,7 +2,7 @@
 ## Title: |cff0cd29fEllesmereUI|r
 ## Notes: Shared framework for the EllesmereUI addon suite
 ## Author: Ellesmere
-## Version: 9.2.1
+## Version: 9.2.3
 ## SavedVariables: EllesmereUIDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 ## X-Curse-Project-ID: 1477613
@@ -55,6 +55,7 @@ EllesmereUI_PartyMode.lua
 EUI_MacroFactory.lua
 EUI_UnlockMode.lua
 EllesmereUI_Glows.lua
+EllesmereUI_ClassicArt.lua
 EllesmereUI_Range.lua
 EllesmereUI_AuraKit.lua
 EllesmereUI_WarriorCharges.lua
@@ -64,8 +65,9 @@ EllesmereUI_RaidFramesPopup.lua
 EllesmereUI_PatchNotesPopup.lua
 EllesmereUI_WindowSkinsPopup.lua
 EllesmereUI_SpecOverridesPopup.lua
+EllesmereUI_StyleCards.lua
 EllesmereUI_StyleChoicePopup.lua
-EllesmereUI_ForeverLaunchPopup.lua
+EllesmereUI_StyleLaunchPopup.lua
 EllesmereUI_ForeverNotice.lua
 EllesmereUI_VideoGuides.lua
 

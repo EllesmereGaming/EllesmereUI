@@ -17,6 +17,7 @@ local PAGE_UPGCALC  = "Upgrader"
 local PAGE_SHIFTER  = "Shifter"
 local PAGE_MOVEMENT = "MoveAlert"
 local PAGE_RAIDTOOLS = "Raid Tools"
+local PAGE_TRAVEL   = "Travel"
 
 -------------------------------------------------------------------------------
 --  Hide Item Transforms picker popup
@@ -2826,7 +2827,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- No item upgrade system on WoW Forever: the Upgrader tab is not offered there
     -- (its resident file returns at load, so the page builder never exists either).
     if not EllesmereUI.IS_FOREVER then pages[#pages + 1] = PAGE_UPGCALC end
-    if _G._EUI_Swing_Profile then pages[#pages + 1] = "Swing Timer" end
+    if EllesmereUI.IS_FOREVER then pages[#pages + 1] = PAGE_TRAVEL end
     EllesmereUI:RegisterModule("EllesmereUIQoL", {
         title       = "Quality of Life",
         description = "Quality of life features and custom cursor.",
@@ -2840,9 +2841,6 @@ initFrame:SetScript("OnEvent", function(self)
             if pageName ~= PAGE_RAIDTOOLS and not EllesmereUI._prebuilding
                and _G._EUI_RaidTools_Preview then
                 _G._EUI_RaidTools_Preview(false)
-            end
-            if pageName == "Swing Timer" and _G._EUI_BuildSwingPage then
-                return _G._EUI_BuildSwingPage(pageName, parent, yOffset)
             end
             if pageName == PAGE_QOL then
                 return BuildQoLPage(pageName, parent, yOffset)
@@ -2861,6 +2859,9 @@ initFrame:SetScript("OnEvent", function(self)
             end
             if pageName == PAGE_RAIDTOOLS and _G._EUI_BuildRaidToolsPage then
                 return _G._EUI_BuildRaidToolsPage(pageName, parent, yOffset)
+            end
+            if pageName == PAGE_TRAVEL and _G._EUI_BuildFlightTimerPage then
+                return _G._EUI_BuildFlightTimerPage(pageName, parent, yOffset)
             end
         end,
         -- Cached pages are restored WITHOUT a rebuild, so buildPage never runs
@@ -2935,6 +2936,10 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 EllesmereUIDB.hideTransforms = false
                 EllesmereUIDB.hideTransformItems = nil
+                EllesmereUIDB.flightTimer = nil
+                if EllesmereUIDB.unlockAnchors then
+                    EllesmereUIDB.unlockAnchors.EUI_FlightTimer = nil
+                end
             end
             EllesmereUIDB.autoLogging = nil
             if _G._EUI_ResetUpgradeCalc then _G._EUI_ResetUpgradeCalc() end
@@ -2945,6 +2950,11 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._applyCombatAlert then EllesmereUI._applyCombatAlert() end
             if EllesmereUI._applyTargetDistance then EllesmereUI._applyTargetDistance() end
             if EllesmereUI._applyHideTransforms then EllesmereUI._applyHideTransforms() end
+            if EllesmereUI._FlightTimer then
+                EllesmereUI._FlightTimer.Apply()
+                EllesmereUI._FlightTimer.ApplyStyle()
+                EllesmereUI._FlightTimer.ApplyPosition()
+            end
             if EllesmereUI._applyQuickSignup then EllesmereUI._applyQuickSignup() end
             if EllesmereUI._applyPersistSignupNote then EllesmereUI._applyPersistSignupNote() end
             if EllesmereUI._applyQuickLoot then EllesmereUI._applyQuickLoot() end

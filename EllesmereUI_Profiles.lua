@@ -63,7 +63,9 @@ local ADDON_DB_MAP = {
     -- EllesmereUIBasics, removed from the suite v8.7.x).
     { folder = "EllesmereUIQoL",               display = "Quality of Life",     svName = "EllesmereUIQoLDB",               suffix = "QoL"               },
     -- BlizzardSkin itself is excluded: it stores settings on the shared
-    -- EllesmereUIDB root, not through NewDB, so it has no per-profile data.
+    -- EllesmereUIDB root, not through NewDB, so it has no module profile
+    -- (its few per-profile keys -- disableWindowSkins, the character sheet
+    -- style, the whole-UI window look -- sit on the profile root itself).
     -- Dragon Riding is the one exception inside that addon -- it owns a real
     -- per-profile DB (EllesmereUIDragonRidingDB) but ships as a file inside the
     -- BlizzardSkin addon, so it is NOT a separately loadable addon. hostAddon
@@ -436,6 +438,29 @@ function EllesmereUI.BuildLayoutKeyToFolder(ul)
     return k2f, stale
 end
 
+-- Match extras (widthMatchExtra / heightMatchExtra: childKey -> px) mean
+-- something only beside their child's link, so they travel with it.
+-- CopyLinkedExtras returns a new table of the extras whose child still has a
+-- link in `links`. OverlayLinkedExtras gives every child linked in `links` its
+-- extra from `extras`; a child without one there loses the extra `dst` held.
+local function CopyLinkedExtras(extras, links)
+    local out = {}
+    if type(extras) == "table" and type(links) == "table" then
+        for child, px in pairs(extras) do
+            if links[child] ~= nil then out[child] = px end
+        end
+    end
+    return out
+end
+
+local function OverlayLinkedExtras(dst, links, extras)
+    if type(links) ~= "table" then return end
+    if type(extras) ~= "table" then extras = nil end
+    for child in pairs(links) do
+        dst[child] = extras and extras[child] or nil
+    end
+end
+
 -- Return a NEW unlockLayout keeping only entries whose BOTH endpoints resolve to
 -- a folder in `folderSet` (set of LOCAL folders), with both endpoints live (not
 -- stale), known, and NOT in a no-checkbox folder. This is the per-entry filter
@@ -480,6 +505,9 @@ function EllesmereUI.FilterLayoutToFolders(ul, folderSet, k2f)
             if endpointOK(child) and endpointOK(target) then out.heightMatch[child] = target end
         end
     end
+    -- An extra survives only where its link did.
+    out.widthMatchExtra  = CopyLinkedExtras(ul.widthMatchExtra,  out.widthMatch)
+    out.heightMatchExtra = CopyLinkedExtras(ul.heightMatchExtra, out.heightMatch)
     return out
 end
 
@@ -596,6 +624,12 @@ function EllesmereUI.MergeImportedLayout(base, imported, importedFolders)
     if type(imported.heightMatch) == "table" then
         for child, t in pairs(imported.heightMatch) do out.heightMatch[child] = t end
     end
+    -- 3) Match extras follow their links: a kept base link keeps its extra, an
+    --    imported link brings the import's extra (or none).
+    out.widthMatchExtra  = CopyLinkedExtras(base.widthMatchExtra,  out.widthMatch)
+    out.heightMatchExtra = CopyLinkedExtras(base.heightMatchExtra, out.heightMatch)
+    OverlayLinkedExtras(out.widthMatchExtra,  imported.widthMatch,  imported.widthMatchExtra)
+    OverlayLinkedExtras(out.heightMatchExtra, imported.heightMatch, imported.heightMatchExtra)
     return out
 end
 
@@ -689,14 +723,17 @@ end
 --- baseline-sourced snapshot does not drop them (mirrors ApplyLayer).
 local function SnapshotUnlockLayout()
     if not EllesmereUIDB then return nil end
-    local ba, bwm, bhm
+    local ba, bwm, bhm, bwx, bhx
     if EllesmereUI.SpecOverrides_UnlockBaselineLinks then
-        ba, bwm, bhm = EllesmereUI.SpecOverrides_UnlockBaselineLinks()
+        ba, bwm, bhm, bwx, bhx = EllesmereUI.SpecOverrides_UnlockBaselineLinks()
     end
     local snap = {
         anchors       = DeepCopy(ba  or EllesmereUIDB.unlockAnchors     or {}),
         widthMatch    = DeepCopy(bwm or EllesmereUIDB.unlockWidthMatch  or {}),
         heightMatch   = DeepCopy(bhm or EllesmereUIDB.unlockHeightMatch or {}),
+        -- Match extras ride with the links, from the same source.
+        widthMatchExtra  = DeepCopy(bwx or EllesmereUIDB.unlockWidthMatchExtra  or {}),
+        heightMatchExtra = DeepCopy(bhx or EllesmereUIDB.unlockHeightMatchExtra or {}),
         phantomBounds = DeepCopy(EllesmereUIDB.phantomBounds or {}),
     }
     if ba then
@@ -708,6 +745,12 @@ local function SnapshotUnlockLayout()
         end
         for k, v in pairs(EllesmereUIDB.unlockHeightMatch or {}) do
             if type(k) == "string" and k:find("^TBB_%d+$") then snap.heightMatch[k] = v end
+        end
+        for k, v in pairs(EllesmereUIDB.unlockWidthMatchExtra or {}) do
+            if type(k) == "string" and k:find("^TBB_%d+$") then snap.widthMatchExtra[k] = v end
+        end
+        for k, v in pairs(EllesmereUIDB.unlockHeightMatchExtra or {}) do
+            if type(k) == "string" and k:find("^TBB_%d+$") then snap.heightMatchExtra[k] = v end
         end
     end
     return snap
@@ -827,6 +870,10 @@ local function RepointAllDBs(profileName)
         EllesmereUIDB.unlockWidthMatch  = DeepCopy(ul.widthMatch   or {})
         EllesmereUIDB.unlockHeightMatch = DeepCopy(ul.heightMatch  or {})
         EllesmereUIDB.phantomBounds     = DeepCopy(ul.phantomBounds or {})
+        -- Match extras always restore with the links: a snapshot without them
+        -- restores none, never the outgoing profile's.
+        EllesmereUIDB.unlockWidthMatchExtra  = DeepCopy(ul.widthMatchExtra  or {})
+        EllesmereUIDB.unlockHeightMatchExtra = DeepCopy(ul.heightMatchExtra or {})
         -- unlockLayout snapshots always carry BASELINE links (CommitPositions
         -- sources them from the stored baseline layout while a group layer is
         -- live), so live now holds the baseline: reset the incoming profile's
@@ -886,6 +933,12 @@ local function RepointAllDBs(profileName)
     -- re-evaluate them on every repoint (switch/create/delete/rename/import)
     if EllesmereUI._syncRefreshFns then
         for _, fn in pairs(EllesmereUI._syncRefreshFns) do fn() end
+    end
+    -- The account-wide window skins follow the whole-UI look of the profile
+    -- now active (Blizz UI Enhanced; nil while that module is disabled).
+    -- Skins install at load: the switch sites offer the reload.
+    if EllesmereUI.ReconcileWindowSkinLook then
+        EllesmereUI.ReconcileWindowSkinLook()
     end
 end
 
@@ -1328,6 +1381,9 @@ function EllesmereUI.ApplyProfileData(profileData)
             EllesmereUIDB.unlockWidthMatch  = DeepCopy(ul.widthMatch   or {})
             EllesmereUIDB.unlockHeightMatch = DeepCopy(ul.heightMatch  or {})
             EllesmereUIDB.phantomBounds     = DeepCopy(ul.phantomBounds or {})
+            -- Match extras always restore with the links (none when absent).
+            EllesmereUIDB.unlockWidthMatchExtra  = DeepCopy(ul.widthMatchExtra  or {})
+            EllesmereUIDB.unlockHeightMatchExtra = DeepCopy(ul.heightMatchExtra or {})
             -- Tracking Bar link entries in the snapshot are stale copies of
             -- whichever spec last saved unlock mode -- TBB links are
             -- per-spec (CDM-owned buckets). Re-assert the active spec's own
@@ -1405,6 +1461,10 @@ local REFRESH_ADDON_STEPS = {
     -- Friends List + Mythic Timer
     function()
         if _G._EFR_ApplyFriends then _G._EFR_ApplyFriends() end
+        -- An open friends list repaints its decoration with the new profile:
+        -- the legacy list's row pass, then the 12.1 cards and stock rows.
+        if _G._EFR_ProcessFriendButtons then _G._EFR_ProcessFriendButtons() end
+        if _G._EFR_RedecorateTiles then _G._EFR_RedecorateTiles() end
         if _G._EMT_Apply then _G._EMT_Apply() end
     end,
     -- Damage Meters
@@ -1419,7 +1479,6 @@ local REFRESH_ADDON_STEPS = {
         if _G._EMIN_RefreshFlyout then _G._EMIN_RefreshFlyout() end
     end,
     -- Global class/power colors (updates oUF, nameplates, raid frames)
-    function() if _G._EUI_Swing_Apply then _G._EUI_Swing_Apply() end end,
     function() if EllesmereUI.ApplyColorsToOUF then EllesmereUI.ApplyColorsToOUF() end end,
     -- Re-register unlock elements for all modules whose bar sets can
     -- differ between profiles. Without this, _applySavedPositions uses
@@ -1702,27 +1761,59 @@ function EllesmereUI.ProfileChangesWindowSkins(profileData)
     local cur = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
     local a = (cur and cur.disableWindowSkins) and true or false
     local b = profileData.disableWindowSkins and true or false
-    return a ~= b
+    if a ~= b then return true end
+    -- The whole-UI window look (Blizz UI Enhanced; nil while it is disabled):
+    -- the switch swaps the account's window skins to the incoming profile's
+    -- look, which only installs at the next load.
+    local lookOf = EllesmereUI.ProfileWindowSkinLook
+    if lookOf then
+        local incoming = lookOf(profileData)
+        local slots = EllesmereUIDB and EllesmereUIDB.windowSkinStyleSlots
+        local live = type(slots) == "table" and slots.active or "eui"
+        if incoming and incoming ~= live then return true end
+    end
+    return false
 end
 
 --- Returns true if switching to profileData would give any module a different
---- Blizzard Style flag (Global Settings > Style) from the look it is rendering.
---- Styles are reload-gated: each module latches its flag at load and keeps that
---- look until the UI reloads, so callers pair this with the same reload popup as
---- the font check above. Must be called BEFORE the switch (the Action Bars flag,
---- which has no latch, is read live from the outgoing profile).
+--- style (Global Settings > Style: EllesmereUI, Blizzard Style or Classic WoW
+--- UI) from the look it is rendering. Styles are reload-gated: each module
+--- latches its style key at load and keeps that look until the UI reloads, so
+--- callers pair this with the same reload popup as the font check above. Must
+--- be called BEFORE the switch (the Action Bars flags, which have no latch,
+--- are read live from the outgoing profile).
+-- Each surface carries a Blizzard flag and a sibling Classic flag; the style
+-- key reads classic when the Classic flag is set, else blizzard when the
+-- Blizzard flag is, else eui. `active` names the module's latched key getter;
+-- optional `extra` names a module getter that is handed the incoming module
+-- profile and returns true when another latched, reload-gated choice would
+-- change (Raid Frames: the Party page's Frame Style). `root` reads the flags
+-- from the incoming profile's root instead of its module table (the
+-- Character Sheet, which has no module profile); `retailOnly` skips the entry
+-- on WoW Forever (no Style row there, its getter always reads eui).
 local STYLE_FLAGS = {
-    { folder = "EllesmereUIActionBars",      key = "useBlizzardStyle" },
-    { folder = "EllesmereUIUnitFrames",      key = "useBlizzardStyle",     active = "UF_Blizz" },
-    { folder = "EllesmereUIUnitFrames",      key = "useBlizzardStyle", sub = "playerAuraBars", active = "PAB_Blizz" },
-    { folder = "EllesmereUINameplates",      key = "useBlizzardStyle",     active = "NP_Blizz" },
-    { folder = "EllesmereUICooldownManager", key = "useBlizzardStyle",     active = "CdmBlizzIcons" },
-    { folder = "EllesmereUICooldownManager", key = "useBlizzardStyleBars", active = "CdmBlizzBars" },
-    { folder = "EllesmereUIResourceBars",    key = "useBlizzardStyle", sub = "castBar", active = "ERB_CastBlizz" },
-    { folder = "EllesmereUIResourceBars",    key = "useBlizzardStyleBars", active = "ERB_BarsBlizz" },
-    { folder = "EllesmereUIMinimap",         key = "useBlizzardStyle", sub = "minimap", active = "MinimapBlizz" },
-    { folder = "EllesmereUIDamageMeters",    key = "useBlizzardStyle", sub = "dm",      active = "DMBlizz" },
+    { folder = "EllesmereUIActionBars",      key = "useBlizzardStyle",     classic = "useClassicStyle" },
+    { folder = "EllesmereUIUnitFrames",      key = "useBlizzardStyle",     classic = "useClassicStyle",     active = "UF_Style" },
+    { folder = "EllesmereUIUnitFrames",      key = "useBlizzardStyle",     classic = "useClassicStyle",     sub = "playerAuraBars", active = "PAB_Style" },
+    { folder = "EllesmereUINameplates",      key = "useBlizzardStyle",     classic = "useClassicStyle",     active = "NP_Style" },
+    { folder = "EllesmereUICooldownManager", key = "useBlizzardStyle",     classic = "useClassicStyle",     active = "CdmIconStyle" },
+    { folder = "EllesmereUICooldownManager", key = "useBlizzardStyleBars", classic = "useClassicStyleBars", active = "CdmBarStyle" },
+    { folder = "EllesmereUIResourceBars",    key = "useBlizzardStyle",     classic = "useClassicStyle",     sub = "castBar", active = "ERB_CastStyle" },
+    { folder = "EllesmereUIResourceBars",    key = "useBlizzardStyleBars", classic = "useClassicStyleBars", active = "ERB_BarsStyle" },
+    { folder = "EllesmereUIMinimap",         key = "useBlizzardStyle",     classic = "useClassicStyle",     sub = "minimap", active = "MinimapStyle" },
+    { folder = "EllesmereUIDamageMeters",    key = "useBlizzardStyle",     classic = "useClassicStyle",     sub = "dm",      active = "DMStyle" },
+    { folder = "EllesmereUIQuestTracker",    key = "useBlizzardStyle",     classic = "useClassicStyle",     sub = "questTracker", active = "QT_Style" },
+    { folder = "EllesmereUIFriends",         key = "useBlizzardStyle",     classic = "useClassicStyle",     sub = "friends", active = "FR_Style" },
+    { folder = "EllesmereUIChat",            key = "useBlizzardStyle",     classic = "useClassicStyle",     sub = "chat",    active = "ChatStyle" },
+    { folder = "EllesmereUIRaidFrames",      key = "useBlizzardStyle",     classic = "useClassicStyle",     active = "RF_Style", extra = "RF_PartyKitChanged" },
+    { folder = "EllesmereUIBlizzardSkin",    key = "charSheetUseBlizzardStyle", classic = "charSheetUseClassicStyle", root = true, retailOnly = true, active = "CharSheetStyle" },
 }
+local function StyleKeyOfFlags(p, f)
+    if type(p) ~= "table" then return "eui" end
+    if p[f.classic] then return "classic" end
+    if p[f.key] then return "blizzard" end
+    return "eui"
+end
 function EllesmereUI.ProfileChangesStyle(profileData)
     if type(profileData) ~= "table" or type(profileData.addons) ~= "table" then return false end
     local reg = EllesmereUI._ModuleNS
@@ -1730,21 +1821,29 @@ function EllesmereUI.ProfileChangesStyle(profileData)
     for i = 1, #STYLE_FLAGS do
         local f = STYLE_FLAGS[i]
         local mns = reg[f.folder]
-        if mns then
+        if mns and not (f.retailOnly and EllesmereUI.IS_FOREVER) then
             local cur
             if f.active then
                 local fn = mns[f.active]
-                if fn then cur = fn() and true or false end
+                if fn then
+                    cur = fn()
+                    if cur ~= "blizzard" and cur ~= "classic" then cur = "eui" end
+                end
             else
                 local EAB = mns.EAB
                 local p = EAB and EAB.db and EAB.db.profile
-                if p then cur = p[f.key] and true or false end
+                if p then cur = StyleKeyOfFlags(p, f) end
             end
             if cur ~= nil then
-                local incoming = profileData.addons[f.folder]
+                local incoming = f.root and profileData or profileData.addons[f.folder]
                 if f.sub and type(incoming) == "table" then incoming = incoming[f.sub] end
-                local want = (type(incoming) == "table" and incoming[f.key]) and true or false
-                if cur ~= want then return true end
+                if cur ~= StyleKeyOfFlags(incoming, f) then return true end
+                -- `extra`: a reload-gated choice under the same style (the
+                -- module's own getter compares it; true = it would change).
+                local extra = f.extra and mns[f.extra]
+                if type(extra) == "function" and extra(type(incoming) == "table" and incoming or nil) then
+                    return true
+                end
             end
         end
     end
@@ -1896,7 +1995,7 @@ do
     -- Shared border-editor key sets (tooltip / popup menu / popup menu button)
     for _, prefix in ipairs({ "tooltip", "popupMenu", "popupMenuButton" }) do
         for _, suffix in ipairs({
-            "BorderTexture", "BorderThickness", "BorderColor",
+            "BorderTexture", "BorderThickness", "BorderThicknessPx", "BorderColor",
             "BorderColorMode", "BorderOpacity", "BorderOffsetX",
             "BorderOffsetY", "BorderShiftX", "BorderShiftY", "BorderBehind",
         }) do
@@ -1922,6 +2021,8 @@ do
         "reskinDelves", "reskinSocialUI",
         "reskinQueueStatus", "reskinDelvePicker", "reskinPlayerChoice",
         "reskinTrade",
+        -- The per-look window slots ride with the enables they describe.
+        "windowSkinStyleSlots",
         "blizzWindowSkinStyles", "blizzWindowModernDefault",
         "blizzWinAccentBar", "blizzWinBarFill", "blizzWinLinks",
         "thirdPartySkinsOff", "thirdPartySkinAddons",
@@ -1937,6 +2038,9 @@ do
         "charSheetDurabilityShowLabel", "showSecondaryRaw", "showSecondaryBoth",
         "showTertiaryRaw", "showTertiaryBoth", "showAdjustedStats",
         "showManaStat",
+        -- Character Sheet stock styles' "Blizzard UI Color" (the style itself
+        -- is per profile, on the profile root, and rides the profile)
+        "charSheetBlizzColors",
         -- Inspect card
         "inspectShowEnchants", "inspectShowItemLevel", "inspectShowUpgradeTrack",
         -- LFG / Merchant cards
@@ -2283,6 +2387,14 @@ function EllesmereUI.ImportFullAccountData(payload)
            and not FULL_EXPORT_EXCLUDED[k] then
             EllesmereUIDB[k] = DeepCopy(v)
         end
+    end
+    -- Match extras ride with their links: a string that carries links but no
+    -- extras installs none, never the recipient's leftovers on its links.
+    if data.unlockWidthMatch ~= nil and data.unlockWidthMatchExtra == nil then
+        EllesmereUIDB.unlockWidthMatchExtra = nil
+    end
+    if data.unlockHeightMatch ~= nil and data.unlockHeightMatchExtra == nil then
+        EllesmereUIDB.unlockHeightMatchExtra = nil
     end
 
     -- 2) The carried profile. The recipient's OTHER profiles survive; a
@@ -3213,6 +3325,8 @@ function EllesmereUI.ImportProfile(importStr, profileName)
             baseUL.widthMatch    = baseUL.widthMatch    or {}
             baseUL.heightMatch   = baseUL.heightMatch   or {}
             baseUL.phantomBounds = baseUL.phantomBounds or {}
+            baseUL.widthMatchExtra  = baseUL.widthMatchExtra  or {}
+            baseUL.heightMatchExtra = baseUL.heightMatchExtra or {}
             local function overlayLive(dst, live)
                 if type(live) == "table" then for k, v in pairs(live) do dst[k] = DeepCopy(v) end end
             end
@@ -3229,6 +3343,10 @@ function EllesmereUI.ImportProfile(importStr, profileName)
                     overlayLive(baseUL.anchors,     liveSnap.anchors)
                     overlayLive(baseUL.widthMatch,  liveSnap.widthMatch)
                     overlayLive(baseUL.heightMatch, liveSnap.heightMatch)
+                    -- Each live link overlaid above brings its live extra, or
+                    -- clears the stored extra of the link it replaced.
+                    OverlayLinkedExtras(baseUL.widthMatchExtra,  liveSnap.widthMatch,  liveSnap.widthMatchExtra)
+                    OverlayLinkedExtras(baseUL.heightMatchExtra, liveSnap.heightMatch, liveSnap.heightMatchExtra)
                 end
             end
             merged.unlockLayout = baseUL  -- current full layout (kept when no import layout)
@@ -3263,12 +3381,20 @@ function EllesmereUI.ImportProfile(importStr, profileName)
                 s2.baselineLayout.anchors     = DeepCopy(ul2.anchors     or {})
                 s2.baselineLayout.widthMatch  = DeepCopy(ul2.widthMatch  or {})
                 s2.baselineLayout.heightMatch = DeepCopy(ul2.heightMatch or {})
+                s2.baselineLayout.widthMatchExtra  = DeepCopy(ul2.widthMatchExtra  or {})
+                s2.baselineLayout.heightMatchExtra = DeepCopy(ul2.heightMatchExtra or {})
             end
         end
         -- UI accent color travels with the profile. A new-format string always
         -- carries euiAccent, so the imported value wins; an old string leaves
         -- merged.euiAccent inherited from the current profile (correct fallback).
         if imported.euiAccent then merged.euiAccent = DeepCopy(imported.euiAccent) end
+        -- The character sheet style and the whole-UI window look are
+        -- profile-root keys: take the exporter's values, never the
+        -- recipient's (an absent key reads as the EllesmereUI look).
+        merged.charSheetUseBlizzardStyle = imported.charSheetUseBlizzardStyle
+        merged.charSheetUseClassicStyle  = imported.charSheetUseClassicStyle
+        merged.windowSkinLook            = imported.windowSkinLook
 
         -- Snap all positions to the physical pixel grid (imported profiles
         -- may come from a different version without pixel snapping)

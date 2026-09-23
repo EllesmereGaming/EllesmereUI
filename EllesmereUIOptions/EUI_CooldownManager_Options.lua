@@ -8,6 +8,15 @@ local ADDON_NAME = "EllesmereUICooldownManager"
 local ns = EllesmereUI._ModuleNS[ADDON_NAME]  -- module namespace (published by the module at its load)
 if not ns then return end  -- module disabled: no options page
 
+-- Gates a row under Blizzard Style only: the classic kit draws chrome round
+-- the user's own fill and background, so those settings stay live there.
+local function GateBlizzardOnly(key, cfg)
+    if EllesmereUI.BlizzStyle.Active(key) == "blizzard" then
+        return EllesmereUI.BlizzStyle.Gate(key, cfg)
+    end
+    return cfg
+end
+
 local PAGE_BAR_GLOWS    = "Bar Glows"
 local PAGE_BUFF_BARS    = "Tracking Bars"
 local PAGE_CDM_BARS     = "CDM Bars"
@@ -1120,15 +1129,20 @@ initFrame:SetScript("OnEvent", function(self)
             local brdColor, brdClassColor
             if isCDMBar and cdmBd then
                 brdSize = cdmBd.borderSize or 1
+                -- This preview draws a solid border, so an exact size (borderSizePx)
+                -- shows here only while the bar's style is Solid.
+                local cdmTex = cdmBd.borderTexture or "solid"
+                local cdmPx = EllesmereUI.BorderPx(cdmBd.borderSizePx, brdSize, cdmTex)
+                if cdmPx and cdmTex == "solid" then brdSize = cdmPx end
                 brdColor = { r = cdmBd.borderR or 0, g = cdmBd.borderG or 0, b = cdmBd.borderB or 0, a = cdmBd.borderA or 1 }
                 brdClassColor = cdmBd.borderClassColor
             elseif not isCDMBar and barSettings then
+                -- None..Strong are the steps 0-4; an unknown or numeric value renders as Thin, as the bar does.
                 local thickness = barSettings.borderThickness or "thin"
-                if thickness == "none" then brdSize = 0
-                elseif thickness == "thin" then brdSize = 1
-                elseif thickness == "medium" then brdSize = 2
-                elseif thickness == "thick" then brdSize = 3
-                else brdSize = 1 end
+                brdSize = EllesmereUI.BORDER_STEP_OF_LABEL[thickness] or 1
+                local abTex = barSettings.borderTexture or "solid"
+                local abPx = EllesmereUI.BorderPx(barSettings.borderThicknessPx, brdSize, abTex)
+                if abPx and abTex == "solid" then brdSize = abPx end
                 brdColor = barSettings.borderColor
                 brdClassColor = barSettings.borderClassColor
             end
@@ -5001,7 +5015,7 @@ initFrame:SetScript("OnEvent", function(self)
                   -- Full rebuild: the Width slider's floor and sync tooltips are orientation-dependent.
                   EllesmereUI:RefreshPage(true)
               end },
-            EllesmereUI.BlizzStyle.Gate("cdmbars", { type = "dropdown", text = "Bar Texture",
+            GateBlizzardOnly("cdmbars", { type = "dropdown", text = "Bar Texture",
               values = texValues, order = texOrder,
               getValue = function() local bd = SelectedTBB(); return bd and bd.texture or "none" end,
               setValue = function(v)
@@ -5682,7 +5696,7 @@ initFrame:SetScript("OnEvent", function(self)
               end },
             { type = "multiSwatch", text = "Background Color",
               swatches = {
-                  EllesmereUI.BlizzStyle.Gate("cdmbars", { tooltip = "Background Color", hasAlpha = true,
+                  GateBlizzardOnly("cdmbars", { tooltip = "Background Color", hasAlpha = true,
                     getValue = function()
                         local bd = SelectedTBB()
                         return (bd and bd.bgR or 0), (bd and bd.bgG or 0), (bd and bd.bgB or 0), (bd and bd.bgA or 0.4)
@@ -5821,17 +5835,51 @@ initFrame:SetScript("OnEvent", function(self)
                       bd.borderBehind = _bbehind
                       local defSz = EllesmereUI.GetBorderDefaultSize("resourcebars", v)
                       if defSz then bd.borderSize = defSz end
-                      RefreshTBB(); EllesmereUI:RefreshPage()
+                      if bd.borderSizePx then bd.borderSizePx = false end
+                      RefreshTBB(); EllesmereUI:RefreshPage(true)
                   end }),
-                EllesmereUI.BlizzStyle.Gate("cdmbars", { type = "slider", text = "Border Size",
-                  min = 0, max = 5, step = 1,
-                  getValue = function() local bd = SelectedTBB(); return bd and bd.borderSize or 0 end,
-                  setValue = function(v)
-                      local bd = SelectedTBB(); if not bd then return end
-                      bd.borderSize = v; RefreshTBB()
-                  end }));  y = y - h
-            -- Inline border color swatch on Border Size (right region)
+                -- Classic WoW UI: the slot sizes the vanilla frame instead.
+                (EllesmereUI.BlizzStyle.Active("cdmbars") == "classic") and EllesmereUI.BlizzStyle.ClassicBorderSizeCfg(
+                    function() local bd = SelectedTBB(); return bd and bd.stockBorderScale end,
+                    function(v)
+                        local bd = SelectedTBB(); if not bd then return end
+                        bd.stockBorderScale = v; RefreshTBB()
+                    end) or
+                EllesmereUI.BlizzStyle.Gate("cdmbars", EllesmereUI.BorderPxSliderCfg({ text = "Border Size",
+                  getStep = function() local bd = SelectedTBB(); return bd and bd.borderSize or 0 end,
+                  setStep = function(step) local bd = SelectedTBB(); if bd then bd.borderSize = step end end,
+                  getTex = function() local bd = SelectedTBB(); return bd and bd.borderTexture or "solid" end,
+                  getPx = function() local bd = SelectedTBB(); return bd and bd.borderSizePx end,
+                  setPx = function(v) local bd = SelectedTBB(); if bd then bd.borderSizePx = v end end,
+                  apply = function() RefreshTBB() end,
+                })));  y = y - h
+            -- Width Offset | Height Offset: the textured border's outward offsets,
+            -- present only while a textured style is selected (built on the
+            -- prebuild pass too, so the y advance is identical).
             do
+                local bd0 = SelectedTBB()
+                local tex0 = bd0 and bd0.borderTexture or "solid"
+                if tex0 ~= "" and tex0 ~= "solid" then
+                    local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs({
+                        addonKey = "resourcebars",
+                        getTex = function() local bd = SelectedTBB(); return bd and bd.borderTexture or "solid" end,
+                        getStep = function() local bd = SelectedTBB(); return bd and bd.borderSize or 0 end,
+                        getSizeKey = function() local bd = SelectedTBB(); return bd and bd.borderSize or 0 end,
+                        getPx = function() local bd = SelectedTBB(); return bd and bd.borderSizePx end,
+                        getX = function() local bd = SelectedTBB(); return bd and bd.borderTextureOffset end,
+                        setX = function(v) local bd = SelectedTBB(); if bd then bd.borderTextureOffset = v end end,
+                        getY = function() local bd = SelectedTBB(); return bd and bd.borderTextureOffsetY end,
+                        setY = function(v) local bd = SelectedTBB(); if bd then bd.borderTextureOffsetY = v end end,
+                        apply = function() RefreshTBB() end,
+                    })
+                    _, h = W:DualRow(parent, y,
+                        EllesmereUI.BlizzStyle.Gate("cdmbars", ocfgL),
+                        EllesmereUI.BlizzStyle.Gate("cdmbars", ocfgR));  y = y - h
+                end
+            end
+            -- Inline border color swatch on Border Size (right region); none
+            -- under Classic WoW UI, whose slider sizes the vanilla frame.
+            if EllesmereUI.BlizzStyle.Active("cdmbars") ~= "classic" then
                 local rgn = tbbBsRow._rightRegion
                 local ctrl = rgn._control
                 local borderSwatch, updateBorderSwatch = EllesmereUI.BuildColorSwatch(
@@ -5852,32 +5900,8 @@ initFrame:SetScript("OnEvent", function(self)
             do
                 local rgn = tbbBsRow._leftRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
-                    title = "Border Offset",
+                    title = "Border Options",
                     rows = {
-                        { type = "slider", label = "Offset X", min = -10, max = 10, step = 1,
-                          get = function()
-                              local bd = SelectedTBB(); if not bd then return 0 end
-                              local v = bd.borderTextureOffset
-                              if v then return v end
-                              local dox = EllesmereUI.GetBorderDefaults("resourcebars", bd.borderTexture or "solid", bd.borderSize or 0)
-                              return dox
-                          end,
-                          set = function(v)
-                              local bd = SelectedTBB(); if not bd then return end
-                              bd.borderTextureOffset = v; RefreshTBB()
-                          end },
-                        { type = "slider", label = "Offset Y", min = -10, max = 10, step = 1,
-                          get = function()
-                              local bd = SelectedTBB(); if not bd then return 0 end
-                              local v = bd.borderTextureOffsetY
-                              if v then return v end
-                              local _, doy = EllesmereUI.GetBorderDefaults("resourcebars", bd.borderTexture or "solid", bd.borderSize or 0)
-                              return doy
-                          end,
-                          set = function(v)
-                              local bd = SelectedTBB(); if not bd then return end
-                              bd.borderTextureOffsetY = v; RefreshTBB()
-                          end },
                         { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
                           get = function()
                               local bd = SelectedTBB(); if not bd then return 0 end
@@ -6411,8 +6435,9 @@ initFrame:SetScript("OnEvent", function(self)
             cd:SetDrawBling(false)
             cd:SetReverse(false)
             cd:SetHideCountdownNumbers(false)
-            -- Blizzard Style: the viewer's rounded swipe, matching its mask.
-            cd:SetSwipeTexture((EllesmereUI.BlizzStyle.Get("cdmicons") and ns.CDM_BLIZZ_SWIPE)
+            -- Blizzard Style: the viewer's rounded swipe, matching its mask
+            -- (classic icons are square and keep the plain swipe).
+            cd:SetSwipeTexture((EllesmereUI.BlizzStyle.Active("cdmicons") == "blizzard" and ns.CDM_BLIZZ_SWIPE)
                 or "Interface\\Buttons\\WHITE8x8")
             if cd.SetSnapToPixelGrid then cd:SetSnapToPixelGrid(false); cd:SetTexelSnappingBias(0) end
             slot._previewCD = cd
@@ -8485,10 +8510,15 @@ initFrame:SetScript("OnEvent", function(self)
             return sid
         end
 
+        -- No early return on an empty Blizzard list: the picker also hosts the Custom
+        -- Spell ID / Custom Item ID / Equipment Slot entries and the trinket / racial /
+        -- potion presets, which are the only way onto the bar while the viewer has no
+        -- data for it (before COOLDOWN_VIEWER_DATA_LOADED, or every entry set to Not
+        -- Displayed). The list sections below already render nothing for an empty set,
+        -- and the "Missing Spells?" footer is the right prompt in that state.
         local allSpells = {}
         if not removeOnly and not isCustomBuff then
             allSpells = ns.GetCDMSpellsForBar(barKey) or {}
-            if #allSpells == 0 and not isCustomBuff then return end
         end
 
         -- Standard EllesmereUI dropdown colors
@@ -8738,7 +8768,7 @@ initFrame:SetScript("OnEvent", function(self)
                     -- chained to the bar tiers, so the menu shows the values the icon actually renders with; EnsureSS() persists the entry on first WRITE.
                     local ss = store and store[spellID]
                     if not ss then ss = {} end
-                    ns.ChainSettings(ss, isHostedBuff and nil or ns.GetBarTierSettings(sd, barKey))
+                    ns.ChainSettings(ss, (not isHostedBuff) and ns.GetBarTierSettings(sd, barKey) or nil)
                     local function EnsureSS()
                         if store and not store[spellID] then
                             store[spellID] = ss
@@ -15438,6 +15468,10 @@ initFrame:SetScript("OnEvent", function(self)
                 end
 
                 local bSz = bd.borderSize or 1
+                -- The art inset follows an exact Solid size (borderSizePx) so the border keeps sitting outside the art here.
+                local bTex = bd.borderTexture or "solid"
+                local bPx = EllesmereUI.BorderPx(bd.borderSizePx, bSz, bTex)
+                if bPx and bTex == "solid" then bSz = bPx end
                 slot._icon:ClearAllPoints()
                 PP.Point(slot._icon, "TOPLEFT", slot, "TOPLEFT", bSz, -bSz)
                 PP.Point(slot._icon, "BOTTOMRIGHT", slot, "BOTTOMRIGHT", -bSz, bSz)
@@ -17761,6 +17795,8 @@ initFrame:SetScript("OnEvent", function(self)
                       bd._matchExtraPixelsH = nil
                       bd._matchStrideH = nil
                       ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
+                      -- The Border Size slot is a different control under a custom shape: rebuild the page.
+                      EllesmereUI:RefreshPage(true)
                   end }),
                 EllesmereUI.BlizzStyle.Gate("cdmicons", { type="slider", text="Icon Zoom",
                   min=0, max=0.20, step=0.01,
@@ -17825,8 +17861,11 @@ initFrame:SetScript("OnEvent", function(self)
             do
                 local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
                 local buffBsRow
-                buffBsRow, h = W:DualRow(parent, y,
-                    EllesmereUI.BlizzStyle.Gate("cdmicons", { type="dropdown", text="Border Size",
+                -- Border Size: the exact-size slider, except under a custom shape, whose
+                -- ring is on (Strong) or off (None): that keeps the None..Strong dropdown.
+                local buffSizeCfg
+                if IsCustomShape() then
+                    buffSizeCfg = { type="dropdown", text="Border Size",
                       values=BORDER_LABELS, order=BORDER_ORDER,
                       itemDisabled=function(val)
                           if IsCustomShape() and (val == "thin" or val == "normal" or val == "heavy") then return true end
@@ -17841,7 +17880,22 @@ initFrame:SetScript("OnEvent", function(self)
                       setValue=function(v)
                           BD().borderThickness = v; BD().borderSize = BORDER_SIZES[v] or 1
                           ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview()
-                      end }),
+                      end }
+                else
+                    buffSizeCfg = EllesmereUI.BorderPxSliderCfg({ text="Border Size",
+                      getStep=function() return BD().borderSize or 1 end,
+                      setStep=function(step)
+                          local bd = BD()
+                          bd.borderThickness = EllesmereUI.BORDER_LABEL_OF_STEP[step] or "thin"; bd.borderSize = step
+                      end,
+                      getTex=function() return BD().borderTexture or "solid" end,
+                      getPx=function() return BD().borderSizePx end,
+                      setPx=function(v) BD().borderSizePx = v end,
+                      apply=function() ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview() end,
+                    })
+                end
+                buffBsRow, h = W:DualRow(parent, y,
+                    EllesmereUI.BlizzStyle.Gate("cdmicons", buffSizeCfg),
                     EllesmereUI.BlizzStyle.Gate("cdmicons", { type="dropdown", text="Border Style",
                       disabled=function() return IsCustomShape() end,
                       disabledTooltip="This option requires a non-custom button shape",
@@ -17855,46 +17909,47 @@ initFrame:SetScript("OnEvent", function(self)
                           bd.borderClassColor = false
                           bd.borderBehind = _bbehind
                           local defTh = EllesmereUI.GetBorderDefaultSize("cdm", v)
+                          -- An unregistered SharedMedia border defaults to the NUMBER 1: store its label.
+                          if type(defTh) == "number" then defTh = EllesmereUI.BORDER_LABEL_OF_STEP[defTh] or "thin" end
                           if defTh then
                               bd.borderThickness = defTh; bd.borderSize = BORDER_SIZES[defTh] or 1
                           end
+                          if bd.borderSizePx then bd.borderSizePx = false end
                           ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview()
-                          EllesmereUI:RefreshPage()
+                          EllesmereUI:RefreshPage(true)
                       end }));  y = y - h
+                -- Width Offset | Height Offset: the textured border's outward offsets,
+                -- present only while a textured style is selected (built on the
+                -- prebuild pass too, so the y advance is identical). Disabled under a
+                -- custom shape exactly like the Border Style dropdown it belongs to.
+                do
+                    local tex0 = BD().borderTexture or "solid"
+                    if tex0 ~= "" and tex0 ~= "solid" then
+                        local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs({
+                            addonKey = "cdm",
+                            disabled = function() return IsCustomShape() end,
+                            disabledTooltip = "This option requires a non-custom button shape",
+                            getTex = function() return BD().borderTexture or "solid" end,
+                            getStep = function() return BD().borderSize or 1 end,
+                            getSizeKey = function() return BD().borderThickness or "thin" end,
+                            getPx = function() return BD().borderSizePx end,
+                            getX = function() return BD().borderTextureOffset end,
+                            setX = function(v) BD().borderTextureOffset = v end,
+                            getY = function() return BD().borderTextureOffsetY end,
+                            setY = function(v) BD().borderTextureOffsetY = v end,
+                            apply = function() ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview() end,
+                        })
+                        _, h = W:DualRow(parent, y,
+                            EllesmereUI.BlizzStyle.Gate("cdmicons", ocfgL),
+                            EllesmereUI.BlizzStyle.Gate("cdmicons", ocfgR));  y = y - h
+                    end
+                end
                 -- Inline cog for border offset
                 if not EllesmereUI._prebuilding then
                     local rgn = buffBsRow._rightRegion
                     local _, cogShow = EllesmereUI.BuildCogPopup({
-                        title = "Border Offset",
+                        title = "Border Options",
                         rows = {
-                            { type = "slider", label = "Offset X", min = -10, max = 10, step = 1,
-                              get = function()
-                                  local v = BD().borderTextureOffset
-                                  if v then return v end
-                                  local bd = BD()
-                                  local tex = bd.borderTexture or "solid"
-                                  local th = bd.borderThickness or "thin"
-                                  local dox = EllesmereUI.GetBorderDefaults("cdm", tex, th)
-                                  return dox
-                              end,
-                              set = function(v)
-                                  BD().borderTextureOffset = v
-                                  ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview()
-                              end },
-                            { type = "slider", label = "Offset Y", min = -10, max = 10, step = 1,
-                              get = function()
-                                  local v = BD().borderTextureOffsetY
-                                  if v then return v end
-                                  local bd = BD()
-                                  local tex = bd.borderTexture or "solid"
-                                  local th = bd.borderThickness or "thin"
-                                  local _, doy = EllesmereUI.GetBorderDefaults("cdm", tex, th)
-                                  return doy
-                              end,
-                              set = function(v)
-                                  BD().borderTextureOffsetY = v
-                                  ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview()
-                              end },
                             { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
                               get = function()
                                   local v = BD().borderTextureShiftX
@@ -18015,18 +18070,23 @@ initFrame:SetScript("OnEvent", function(self)
                     isSynced = function()
                         local bd = BD()
                         local v = bd.borderThickness or "thin"
+                        local px = bd.borderSizePx or false
                         local cc = bd.borderClassColor
                         local synced = true
-                        ForEachSyncBar(function(b) if (b.borderThickness or "thin") ~= v or b.borderClassColor ~= cc then synced = false end end)
+                        ForEachSyncBar(function(b) if (b.borderThickness or "thin") ~= v or (b.borderSizePx or false) ~= px or b.borderClassColor ~= cc then synced = false end end)
                         return synced
                     end,
                     onClick = function()
                         local bd = BD()
                         local v = bd.borderThickness or "thin"
                         local sz = bd.borderSize or 1
+                        local px = bd.borderSizePx
                         local cc = bd.borderClassColor
                         ForEachSyncBar(function(b)
                             b.borderThickness = v; b.borderSize = sz
+                            local pxv = px
+                            if pxv == nil and b.borderSizePx ~= nil then pxv = false end
+                            b.borderSizePx = pxv
                             b.borderClassColor = cc
                         end)
                         ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview(); EllesmereUI:RefreshPage()
@@ -18047,6 +18107,7 @@ initFrame:SetScript("OnEvent", function(self)
                         local sy = bd.borderTextureShiftY
                         local th = bd.borderThickness or "thin"
                         local sz = bd.borderSize or 1
+                        local px = bd.borderSizePx
                         local bh = bd.borderBehind
                         local br, bg, bb, ba = bd.borderR, bd.borderG, bd.borderB, bd.borderA
                         local cc = bd.borderClassColor
@@ -18057,6 +18118,9 @@ initFrame:SetScript("OnEvent", function(self)
                             b.borderTextureShiftX = sx
                             b.borderTextureShiftY = sy
                             b.borderThickness = th; b.borderSize = sz
+                            local pxv = px
+                            if pxv == nil and b.borderSizePx ~= nil then pxv = false end
+                            b.borderSizePx = pxv
                             b.borderBehind = bh
                             b.borderR = br; b.borderG = bg; b.borderB = bb; b.borderA = ba
                             b.borderClassColor = cc
@@ -18199,27 +18263,11 @@ initFrame:SetScript("OnEvent", function(self)
         do
             local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
             local bsRow
-            bsRow, h = W:DualRow(parent, y,
-                EllesmereUI.BlizzStyle.Gate("cdmicons", { type="dropdown", text="Border Style",
-                  disabled=function() return IsCustomShape() end,
-                  disabledTooltip="This option requires a non-custom button shape",
-                  values=texValues, order=texOrder,
-                  getValue=function() return BD().borderTexture or "solid" end,
-                  setValue=function(v)
-                      local bd = BD()
-                      bd.borderTexture = v; bd.borderTextureOffset = nil; bd.borderTextureOffsetY = nil; bd.borderTextureShiftX = nil; bd.borderTextureShiftY = nil
-                      local _bcol, _bbehind = EllesmereUI.GetBorderStyleSelectDefaults(v)
-                      bd.borderR = _bcol.r; bd.borderG = _bcol.g; bd.borderB = _bcol.b; bd.borderA = 1
-                      bd.borderClassColor = false
-                      bd.borderBehind = _bbehind
-                      local defTh = EllesmereUI.GetBorderDefaultSize("cdm", v)
-                      if defTh then
-                          bd.borderThickness = defTh; bd.borderSize = BORDER_SIZES[defTh] or 1
-                      end
-                      ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview()
-                      EllesmereUI:RefreshPage()
-                  end }),
-                EllesmereUI.BlizzStyle.Gate("cdmicons", { type="dropdown", text="Border Size",
+            -- Border Size: the exact-size slider, except under a custom shape, whose
+            -- ring is on (Strong) or off (None): that keeps the None..Strong dropdown.
+            local sizeCfg
+            if IsCustomShape() then
+                sizeCfg = { type="dropdown", text="Border Size",
                   values=BORDER_LABELS, order=BORDER_ORDER,
                   itemDisabled=function(val)
                       if IsCustomShape() and (val == "thin" or val == "normal" or val == "heavy") then return true end
@@ -18234,41 +18282,76 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v)
                       BD().borderThickness = v; BD().borderSize = BORDER_SIZES[v] or 1
                       ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview()
-                  end }));  y = y - h
+                  end }
+            else
+                sizeCfg = EllesmereUI.BorderPxSliderCfg({ text="Border Size",
+                  getStep=function() return BD().borderSize or 1 end,
+                  setStep=function(step)
+                      local bd = BD()
+                      bd.borderThickness = EllesmereUI.BORDER_LABEL_OF_STEP[step] or "thin"; bd.borderSize = step
+                  end,
+                  getTex=function() return BD().borderTexture or "solid" end,
+                  getPx=function() return BD().borderSizePx end,
+                  setPx=function(v) BD().borderSizePx = v end,
+                  apply=function() ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview() end,
+                })
+            end
+            bsRow, h = W:DualRow(parent, y,
+                EllesmereUI.BlizzStyle.Gate("cdmicons", { type="dropdown", text="Border Style",
+                  disabled=function() return IsCustomShape() end,
+                  disabledTooltip="This option requires a non-custom button shape",
+                  values=texValues, order=texOrder,
+                  getValue=function() return BD().borderTexture or "solid" end,
+                  setValue=function(v)
+                      local bd = BD()
+                      bd.borderTexture = v; bd.borderTextureOffset = nil; bd.borderTextureOffsetY = nil; bd.borderTextureShiftX = nil; bd.borderTextureShiftY = nil
+                      local _bcol, _bbehind = EllesmereUI.GetBorderStyleSelectDefaults(v)
+                      bd.borderR = _bcol.r; bd.borderG = _bcol.g; bd.borderB = _bcol.b; bd.borderA = 1
+                      bd.borderClassColor = false
+                      bd.borderBehind = _bbehind
+                      local defTh = EllesmereUI.GetBorderDefaultSize("cdm", v)
+                      -- An unregistered SharedMedia border defaults to the NUMBER 1: store its label.
+                      if type(defTh) == "number" then defTh = EllesmereUI.BORDER_LABEL_OF_STEP[defTh] or "thin" end
+                      if defTh then
+                          bd.borderThickness = defTh; bd.borderSize = BORDER_SIZES[defTh] or 1
+                      end
+                      if bd.borderSizePx then bd.borderSizePx = false end
+                      ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview()
+                      EllesmereUI:RefreshPage(true)
+                  end }),
+                EllesmereUI.BlizzStyle.Gate("cdmicons", sizeCfg));  y = y - h
+            -- Width Offset | Height Offset: the textured border's outward offsets,
+            -- present only while a textured style is selected (built on the
+            -- prebuild pass too, so the y advance is identical). Disabled under a
+            -- custom shape exactly like the Border Style dropdown it belongs to.
+            do
+                local tex0 = BD().borderTexture or "solid"
+                if tex0 ~= "" and tex0 ~= "solid" then
+                    local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs({
+                        addonKey = "cdm",
+                        disabled = function() return IsCustomShape() end,
+                        disabledTooltip = "This option requires a non-custom button shape",
+                        getTex = function() return BD().borderTexture or "solid" end,
+                        getStep = function() return BD().borderSize or 1 end,
+                        getSizeKey = function() return BD().borderThickness or "thin" end,
+                        getPx = function() return BD().borderSizePx end,
+                        getX = function() return BD().borderTextureOffset end,
+                        setX = function(v) BD().borderTextureOffset = v end,
+                        getY = function() return BD().borderTextureOffsetY end,
+                        setY = function(v) BD().borderTextureOffsetY = v end,
+                        apply = function() ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview() end,
+                    })
+                    _, h = W:DualRow(parent, y,
+                        EllesmereUI.BlizzStyle.Gate("cdmicons", ocfgL),
+                        EllesmereUI.BlizzStyle.Gate("cdmicons", ocfgR));  y = y - h
+                end
+            end
             -- Inline cog for border offset
             if not EllesmereUI._prebuilding then
                 local rgn = bsRow._leftRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
-                    title = "Border Offset",
+                    title = "Border Options",
                     rows = {
-                        { type = "slider", label = "Offset X", min = -10, max = 10, step = 1,
-                          get = function()
-                              local v = BD().borderTextureOffset
-                              if v then return v end
-                              local bd = BD()
-                              local tex = bd.borderTexture or "solid"
-                              local th = bd.borderThickness or "thin"
-                              local dox = EllesmereUI.GetBorderDefaults("cdm", tex, th)
-                              return dox
-                          end,
-                          set = function(v)
-                              BD().borderTextureOffset = v
-                              ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview()
-                          end },
-                        { type = "slider", label = "Offset Y", min = -10, max = 10, step = 1,
-                          get = function()
-                              local v = BD().borderTextureOffsetY
-                              if v then return v end
-                              local bd = BD()
-                              local tex = bd.borderTexture or "solid"
-                              local th = bd.borderThickness or "thin"
-                              local _, doy = EllesmereUI.GetBorderDefaults("cdm", tex, th)
-                              return doy
-                          end,
-                          set = function(v)
-                              BD().borderTextureOffsetY = v
-                              ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview()
-                          end },
                         { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
                           get = function()
                               local v = BD().borderTextureShiftX
@@ -18327,6 +18410,7 @@ initFrame:SetScript("OnEvent", function(self)
                     local sy = bd.borderTextureShiftY
                     local th = bd.borderThickness or "thin"
                     local sz = bd.borderSize or 1
+                    local px = bd.borderSizePx
                     local bh = bd.borderBehind
                     local br, bg, bb, ba = bd.borderR, bd.borderG, bd.borderB, bd.borderA
                     local cc = bd.borderClassColor
@@ -18335,6 +18419,9 @@ initFrame:SetScript("OnEvent", function(self)
                         b.borderTextureOffset = ox; b.borderTextureOffsetY = oy
                         b.borderTextureShiftX = sx; b.borderTextureShiftY = sy
                         b.borderThickness = th; b.borderSize = sz
+                            local pxv = px
+                            if pxv == nil and b.borderSizePx ~= nil then pxv = false end
+                            b.borderSizePx = pxv
                         b.borderBehind = bh
                         b.borderR = br; b.borderG = bg; b.borderB = bb; b.borderA = ba
                         b.borderClassColor = cc
@@ -18435,6 +18522,7 @@ initFrame:SetScript("OnEvent", function(self)
                 isSynced = function()
                     local bd = BD()
                     local v = bd.borderThickness or "thin"
+                    local px = bd.borderSizePx or false
                     local cc = bd.borderClassColor
                     local bt = bd.borderTexture or "solid"
                     local sx = bd.borderTextureShiftX
@@ -18442,7 +18530,7 @@ initFrame:SetScript("OnEvent", function(self)
                     local br, bg, bb, ba = bd.borderR or 0, bd.borderG or 0, bd.borderB or 0, bd.borderA or 1
                     local synced = true
                     ForEachSyncBar(function(b)
-                        if (b.borderThickness or "thin") ~= v or b.borderClassColor ~= cc or (b.borderTexture or "solid") ~= bt then synced = false end
+                        if (b.borderThickness or "thin") ~= v or (b.borderSizePx or false) ~= px or b.borderClassColor ~= cc or (b.borderTexture or "solid") ~= bt then synced = false end
                         if b.borderTextureShiftX ~= sx or b.borderTextureShiftY ~= sy then synced = false end
                         if (b.borderR or 0) ~= br or (b.borderG or 0) ~= bg or (b.borderB or 0) ~= bb or (b.borderA or 1) ~= ba then synced = false end
                     end)
@@ -18452,6 +18540,7 @@ initFrame:SetScript("OnEvent", function(self)
                     local bd = BD()
                     local v = bd.borderThickness or "thin"
                     local sz = bd.borderSize or 1
+                    local px = bd.borderSizePx
                     local cc = bd.borderClassColor
                     local bt = bd.borderTexture or "solid"
                     local sx = bd.borderTextureShiftX
@@ -18459,6 +18548,9 @@ initFrame:SetScript("OnEvent", function(self)
                     local br, bg, bb, ba = bd.borderR, bd.borderG, bd.borderB, bd.borderA
                     ForEachSyncBar(function(b)
                         b.borderThickness = v; b.borderSize = sz
+                            local pxv = px
+                            if pxv == nil and b.borderSizePx ~= nil then pxv = false end
+                            b.borderSizePx = pxv
                         b.borderClassColor = cc; b.borderTexture = bt
                         b.borderTextureShiftX = sx; b.borderTextureShiftY = sy
                         b.borderR = br; b.borderG = bg; b.borderB = bb; b.borderA = ba
@@ -18506,6 +18598,8 @@ initFrame:SetScript("OnEvent", function(self)
                     bd._matchExtraPixelsH = nil
                     bd._matchStrideH = nil
                     ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
+                    -- The Border Size slot is a different control under a custom shape: rebuild the page.
+                    EllesmereUI:RefreshPage(true)
                 end }),
             EllesmereUI.BlizzStyle.Gate("cdmicons", { type="slider", text="Icon Zoom",
                 min=0, max=0.20, step=0.01,

@@ -47,6 +47,7 @@ local defaults = {
             countSize      = 11,
             countOffsetX   = 0,
             countOffsetY   = 0,
+            desaturateNoCharges = false,  -- grey the icon at 0 charges (icon display only)
             textSize       = 14,
             textCountColor = { r = 1, g = 1, b = 1 },
             textTimerColor = { r = 1, g = 1, b = 1 },
@@ -73,6 +74,7 @@ local defaults = {
             readyColor   = { r = 1, g = 1, b = 1 },
             readyOffsetX = 0,
             readyOffsetY = 0,
+            desaturateSated = false,  -- own key, independent of battleRes.desaturateNoCharges
         },
     },
 }
@@ -472,6 +474,14 @@ local function _setDur(s)
         _lastDurText = s
     end
 end
+local _lastDesat = false
+local function _setDesat(want)
+    want = want and true or false
+    if want ~= _lastDesat then
+        iconTex:SetDesaturated(want)
+        _lastDesat = want
+    end
+end
 
 -- Options preview stand-in. The shared brez pool only reports charges inside a
 -- raid or key, and BREZ_SPELL_ID is Rebirth, so for most characters in most
@@ -493,6 +503,7 @@ local function _showPreviewCharges()
     end
     _setCount("2", false)
     _setDur(timeText)
+    _setDesat(false)
 end
 
 local function PollCharges()
@@ -504,7 +515,7 @@ local function PollCharges()
         if textMode then
             _setTextDisplay("", "", false)
         else
-            _setCount("", false); _setDur("")
+            _setCount("", false); _setDur(""); _setDesat(false)
         end
         return
     end
@@ -524,6 +535,8 @@ local function PollCharges()
 
     _setCount(tostring(charges), charges <= 0)
     _setDur(timeText)
+    local p = P()
+    _setDesat(p and p.desaturateNoCharges and charges <= 0)
     if cooldownFrame then
         if recharging then
             cooldownFrame:SetCooldown(start, dur)

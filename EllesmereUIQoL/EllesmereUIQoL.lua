@@ -48,7 +48,6 @@ local qolFrame = CreateFrame("Frame")
 qolFrame:RegisterEvent("PLAYER_LOGIN")
 qolFrame:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
-    if _G._EUI_Swing_Apply then _G._EUI_Swing_Apply() end
 
     ---------------------------------------------------------------------------
     --  Auto Unwrap Collections (Mounts / Pets / Toys)
