@@ -12,6 +12,19 @@ local function GetNPOptOutline()
     return EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("nameplates") or ""
 end
 
+-- Rows the Blizzard kit replaces but the classic plate leaves to the user
+-- (bar background, cast bar texture, cast background and colours, the
+-- border wrap): gated only while Blizzard Style renders, live under Classic
+-- WoW UI. ns fields so the page builders gain no upvalue; the gate returns
+-- cfg for inline use like BlizzStyle.Gate.
+function ns.NP_BlizzOnly()
+    return EllesmereUI.BlizzStyle.Active("nameplates") == "blizzard"
+end
+function ns.NP_BlizzOnlyGate(cfg)
+    if ns.NP_BlizzOnly() then return EllesmereUI.BlizzStyle.Gate("nameplates", cfg) end
+    return cfg
+end
+
 -------------------------------------------------------------------------------
 --  Page / section names
 -------------------------------------------------------------------------------
@@ -502,6 +515,11 @@ initFrame:SetScript("OnEvent", function(self)
         previewGlow.getGlowAlpha      = ns.GetTargetGlowAlpha
         previewGlow.getHighlightCol   = ns.GetTargetHighlightColor
         previewGlow.getHighlightAlpha = ns.GetTargetHighlightAlpha
+        -- Classic WoW UI (Global Settings > Style), latched for the session
+        -- like the live plates: the mock wears the plain 1px black edge on the
+        -- health and cast bars. Stashed here so Update gains no upvalue.
+        previewGlow.classic = EllesmereUI.BlizzStyle.Active("nameplates") == "classic"
+        previewGlow.black = { r = 0, g = 0, b = 0 }
 
         -- Text overlay frame: renders above health bar fill and borders (same as real addon)
         local healthTextFrame = CreateFrame("Frame", nil, health)
@@ -735,6 +753,57 @@ initFrame:SetScript("OnEvent", function(self)
                 castParts.spark:SetAtlas(B.castPip)
                 castParts.spark:SetWidth(4)
             end
+            if PP.GetBorders(cast) then PP.HideBorder(cast) end
+            castParts.icon:SetTexCoord(0, 1, 0, 1)
+        end
+        -- Classic WoW UI: the vanilla borders over the mock, as the live plates
+        -- get them (ns.NP_ApplyClassicHealthArt / CastArt): the health border
+        -- with a level in its plate, the cast border with the icon in its
+        -- plate, the vanilla spark; no EUI border. Same stash as applyBlizz.
+        previewGlow.applyClassic = function(barH, castH)
+            local C = ns.NP_CLASSIC
+            if not (C and C.health and ns.NP_ClassicBorderPieces and ns.NP_SeatClassicBorder and ns.NP_ClassicLevelOffset) then return end
+            borderFrame:Hide(); simpleBorderFrame:Hide()
+            for _, e in ipairs(_solidEdges) do e:Hide() end
+            if healthWrapper._customBorder then healthWrapper._customBorder:Hide() end
+            local hp = previewGlow.classicHealthArt
+            if not hp then
+                local host = CreateFrame("Frame", nil, health)
+                host:SetAllPoints(health)
+                host:EnableMouse(false)
+                host:SetFrameLevel(health:GetFrameLevel() + 6)
+                hp = ns.NP_ClassicBorderPieces(host, C.health)
+                previewGlow.classicHealthArt = hp
+                local lv = healthTextFrame:CreateFontString(nil, "OVERLAY")
+                -- Font BEFORE any SetText: a FontString with no font raises.
+                SetPVFont(lv, FONT_PATH, 10, GetNPOptOutline())
+                lv:SetJustifyH("CENTER")
+                lv:SetText("60")
+                lv:SetTextColor(1, 0.82, 0, 1)
+                previewGlow.classicLevel = lv
+                -- Exposed for the click-navigation hit overlays below; this
+                -- runs from the build's first pf:Update(), before they build.
+                pf._classicLevel = lv
+                local ch = CreateFrame("Frame", nil, cast)
+                ch:SetAllPoints(cast)
+                ch:EnableMouse(false)
+                ch:SetFrameLevel(cast:GetFrameLevel() + 2)
+                previewGlow.classicCastArt = ns.NP_ClassicBorderPieces(ch, C.cast)
+                castParts.iconFrame:SetFrameLevel(ch:GetFrameLevel() + 1)
+            end
+            local kh, kc = barH, castH
+            ns.NP_SeatClassicBorder(hp, health, kh)
+            ns.NP_SeatClassicBorder(previewGlow.classicCastArt, cast, kc)
+            local lv = previewGlow.classicLevel
+            SetPVFont(lv, FONT_PATH, ns.NP_ClassicLevelSize(kh), GetNPOptOutline())
+            local lx, ly = ns.NP_ClassicLevelOffset(kh)
+            lv:ClearAllPoints()
+            lv:SetPoint("CENTER", health, "RIGHT", lx, ly)
+            lv:Show()
+            castParts.spark:SetTexture(C.spark)
+            castParts.spark:SetSize(C.sparkSize * kc, C.sparkSize * kc)
+            castParts.spark:ClearAllPoints()
+            castParts.spark:SetPoint("CENTER", cast:GetStatusBarTexture(), "RIGHT", 0, C.sparkY * kc)
             if PP.GetBorders(cast) then PP.HideBorder(cast) end
             castParts.icon:SetTexCoord(0, 1, 0, 1)
         end
@@ -975,6 +1044,8 @@ initFrame:SetScript("OnEvent", function(self)
             do
                 local cbSz = DBVal("castBorderSize") or defaults.castBorderSize or 0
                 local cbC = (DB() and DB().castBorderColor) or defaults.castBorderColor
+                -- Classic WoW UI: no EUI edge; the vanilla cast border is drawn at the end of Update.
+                if previewGlow.classic then cbSz = 0; cbC = previewGlow.black end
                 if PP and PP.CreateBorder then
                     if cbSz and cbSz > 0 then
                         if PP.GetBorders(cast) then
@@ -993,6 +1064,8 @@ initFrame:SetScript("OnEvent", function(self)
             -- Border style toggle
             local customOn = DBVal("customBorderEnabled")
             if customOn == nil then customOn = defaults.customBorderEnabled end
+            -- Classic WoW UI: the plain 1px black edge, as live (no custom border).
+            if previewGlow.classic then customOn = false end
             local pcb = healthWrapper._customBorder
             if customOn then
                 -- Custom border (shared engine) replaces the simple preview border.
@@ -1009,7 +1082,8 @@ initFrame:SetScript("OnEvent", function(self)
                     EllesmereUI.ApplyBorderStyle(pcb, csz, ccol.r, ccol.g, ccol.b, ca, ctex,
                         DBVal("customBorderOffset"), DBVal("customBorderOffsetY"),
                         DBVal("customBorderShiftX"), DBVal("customBorderShiftY"),
-                        "nameplates", csz)
+                        "nameplates", csz, nil,
+                        EllesmereUI.BorderPx(DB() and DB().customBorderSizePx, csz, ctex))
                 end
             else
                 if pcb and EllesmereUI.ApplyBorderStyle then
@@ -1018,10 +1092,12 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 local bOn = DBVal("showBorder")
                 if bOn == nil then bOn = defaults.showBorder end
+                -- Classic WoW UI: no EUI edge; the vanilla health border is drawn at the end of Update.
+                if previewGlow.classic then bOn = false end
                 if bOn then
                     borderFrame:Hide(); simpleBorderFrame:Show()
                     for _, e in ipairs(_solidEdges) do e:Show() end
-                    simpleBorderFrame:ApplySize(DBVal("borderSize") or defaults.borderSize)
+                    simpleBorderFrame:ApplySize(previewGlow.classic and 1 or (DBVal("borderSize") or defaults.borderSize))
                 else
                     borderFrame:Hide(); simpleBorderFrame:Hide()
                     for _, e in ipairs(_solidEdges) do e:Hide() end
@@ -1056,6 +1132,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
 
             local bc = (DB() and DB().borderColor) or defaults.borderColor
+            if previewGlow.classic then bc = previewGlow.black end
             for _, tex in ipairs(borderFrame._texs) do tex:SetVertexColor(bc.r, bc.g, bc.b) end
             for _, tex in ipairs(simpleBorderFrame._texs) do tex:SetVertexColor(bc.r, bc.g, bc.b) end
             for _, e in ipairs(_solidEdges) do e:SetColorTexture(bc.r, bc.g, bc.b, 1); if e.SetSnapToPixelGrid then e:SetSnapToPixelGrid(false); e:SetTexelSnappingBias(0) end end
@@ -1071,6 +1148,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if b == nil then b = defaults.showBorder end
                 borderVisible = b
             end
+            if previewGlow.classic then borderVisible = true end
             local wrapActive = wrapOn and borderVisible
             if wrapActive or self._wrapPrev then
                 local bottomF = healthWrapper
@@ -1157,7 +1235,12 @@ initFrame:SetScript("OnEvent", function(self)
             local iconXOff = (icdb and icdb.castIconOffsetX) or defaults.castIconOffsetX or 0
             local iconYOff = (icdb and icdb.castIconOffsetY) or defaults.castIconOffsetY or 0
             local castIconLeftPush, castIconRightPush = 0, 0
-            if showIcon then
+            if previewGlow.classic then
+                -- Classic WoW UI, as live: the spell icon sits inside the cast
+                -- border's own plate and reserves nothing of its own, while the
+                -- border art counts as part of the bar on both sides.
+                castIconLeftPush, castIconRightPush = ns.NP_ClassicBarReserve()
+            elseif showIcon then
                 if fullSize then
                     if onRight then castIconRightPush = barH + castH
                     else castIconLeftPush = barH + castH end
@@ -1230,13 +1313,21 @@ initFrame:SetScript("OnEvent", function(self)
             -- Cast bar spans the health bar width. With "Make Icon Part of the Bar" it shrinks + shifts right so the icon (anchored to its left edge) sits inside the width; otherwise the icon hangs outside.
             local pIconW = 0
             local pShiftX = 0
-            if showIcon and iconInWidth and not fullSize then
+            local pCastW = barW
+            local pCastY = (DBVal("castBarOffsetY") or defaults.castBarOffsetY)
+            if previewGlow.classic and ns.NP_ClassicCastLayout then
+                -- Classic WoW UI, as live (ns.LayoutCastBar): the vanilla cast border
+                -- hangs under the health border, plate under plain end, the stock gap lower.
+                local drop
+                pShiftX, pCastW, drop = ns.NP_ClassicCastLayout(barW, barH, castH)
+                pCastY = pCastY + drop
+            elseif showIcon and iconInWidth and not fullSize then
                 pIconW = castH * iconScale
                 if not onRight then pShiftX = pIconW end
             end
             cast:ClearAllPoints()
-            cast:SetSize(math.max(1, barW - pIconW), castH)
-            cast:SetPoint("TOPLEFT", health, "BOTTOMLEFT", pShiftX, (DBVal("castBarOffsetY") or defaults.castBarOffsetY))
+            cast:SetSize(math.max(1, pCastW - pIconW), castH)
+            cast:SetPoint("TOPLEFT", health, "BOTTOMLEFT", pShiftX, pCastY)
             do
                 local cTexKey = DBVal("castBarTexture") or "none"
                 local cTexPath = EllesmereUI.ResolveTexturePath(ns.healthBarTextures, cTexKey, "Interface\\Buttons\\WHITE8x8")
@@ -1247,7 +1338,15 @@ initFrame:SetScript("OnEvent", function(self)
             -- Cast icon: size/anchor per side or full-size; SetSize (not SetScale) keeps AddBorder pixel-perfect. Full-size pins to the cast bottom so the square reaches the health top (zero-gap bar stack).
             castParts.iconFrame:ClearAllPoints()
             castParts.iconFrame:SetScale(1)
-            if showIcon then
+            if showIcon and previewGlow.classic and ns.NP_ClassicIconOffset then
+                -- Classic WoW UI, as live (ns.LayoutCastIcon): the icon in the
+                -- vanilla cast border's plate.
+                local C = ns.NP_CLASSIC
+                local ix, iy = ns.NP_ClassicIconOffset(castH)
+                castParts.iconFrame:SetSize(C.icon * castH, C.icon * castH)
+                castParts.iconFrame:SetPoint("CENTER", cast, "LEFT", ix + iconXOff, iy + iconYOff)
+                castParts.iconFrame:Show()
+            elseif showIcon then
                 if fullSize then
                     local fs = barH + castH
                     castParts.iconFrame:SetSize(fs, fs)
@@ -1271,7 +1370,8 @@ initFrame:SetScript("OnEvent", function(self)
                 castParts.iconFrame:SetPoint("TOPRIGHT", cast, "TOPLEFT", 0, 0)
                 castParts.iconFrame:Hide()
             end
-            castParts.spark:SetHeight(castH)
+            -- The classic spark is a square sized by applyClassic below.
+            if not previewGlow.classic then castParts.spark:SetHeight(castH) end
             -- Show Spark (Cast Color cog): default on; explicit false hides it.
             castParts.spark:SetShown(DBVal("castBarSparkEnabled") ~= false)
 
@@ -1644,10 +1744,11 @@ initFrame:SetScript("OnEvent", function(self)
                     frame:SetPoint("BOTTOM", anchor, "TOP",
                         (index - (count + 1) / 2) * slotSpacing + sxOff, debuffY + slotCpPush + syOff)
                 elseif slotName == "left" then
-                    local sideOff = DBVal("sideAuraXOffset") or defaults.sideAuraXOffset
+                    -- Classic WoW UI: gap off the border art, as live does.
+                    local sideOff = (DBVal("sideAuraXOffset") or defaults.sideAuraXOffset) + ns.NP_ClassicSide("left")
                     frame:SetPoint("BOTTOMRIGHT", health, "BOTTOMLEFT", -sideOff - (index - 1) * slotSpacing + sxOff, syOff)
                 elseif slotName == "right" then
-                    local sideOff = DBVal("sideAuraXOffset") or defaults.sideAuraXOffset
+                    local sideOff = (DBVal("sideAuraXOffset") or defaults.sideAuraXOffset) + ns.NP_ClassicSide("right")
                     frame:SetPoint("BOTTOMLEFT", health, "BOTTOMRIGHT", sideOff + (index - 1) * slotSpacing + sxOff, syOff)
                 elseif slotName == "topleft" then
                     local growth = DBVal("topleftSlotGrowth") or defaults.topleftSlotGrowth
@@ -1852,10 +1953,11 @@ initFrame:SetScript("OnEvent", function(self)
                 if castIconRightPush > 0 then rightExtent = math.max(rightExtent, castIconRightPush) end
                 -- Aura slots (debuffs, buffs, ccs)
                 local function addAuraSide(slotVal, count, sz, sp, xOff)
+                    -- Classic WoW UI: the rows sit past the border art, as live.
                     if slotVal == "left" then
-                        leftExtent = math.max(leftExtent, sideOff + (count - 1) * sp + sz - xOff)
+                        leftExtent = math.max(leftExtent, sideOff + ns.NP_ClassicSide("left") + (count - 1) * sp + sz - xOff)
                     elseif slotVal == "right" then
-                        rightExtent = math.max(rightExtent, sideOff + (count - 1) * sp + sz + xOff)
+                        rightExtent = math.max(rightExtent, sideOff + ns.NP_ClassicSide("right") + (count - 1) * sp + sz + xOff)
                     end
                 end
                 addAuraSide(debuffSlotVal, PV_CONST.DEBUFF_COUNT, debuffSz, debuffSpacing, debuffXOff)
@@ -2244,8 +2346,19 @@ initFrame:SetScript("OnEvent", function(self)
                 previewGlow.highlight:SetShown(showHL)
             end
 
-            -- Blizzard Style: the stock look over everything laid out above.
-            if EllesmereUI.BlizzStyle.Get("nameplates") then
+            -- Stock styles: the stock look over everything laid out above.
+            if previewGlow.classic then
+                -- Classic WoW UI: the vanilla borders round both bars (the
+                -- border block hid the EUI edges); the cast icon shows its
+                -- whole art in the cast border's plate and the harmful aura
+                -- mocks wear the stock dispel-type border like the live
+                -- cells. No ring, overlay or mask.
+                previewGlow.applyClassic(barH, castH)
+                if ns.NP_ApplyClassicIconArt then
+                    for i = 1, PV_CONST.DEBUFF_COUNT do ns.NP_ApplyClassicIconArt(debuffs[i]) end
+                    for i = 1, PV_CONST.CC_COUNT do ns.NP_ApplyClassicIconArt(ccs[i]) end
+                end
+            elseif EllesmereUI.BlizzStyle.Get("nameplates") then
                 previewGlow.applyBlizz()
                 -- Aura mocks: the stock rounded mask and ring, as the live cells
                 -- (sized above, so the ring geometry reads the frames).
@@ -4602,6 +4715,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Row 1: Border (None/Basic/Custom) | Border Size. Pure VIEW over showBorder + customBorderEnabled: None=off, Basic=standard border, Custom=custom border engine (reveals the Custom Border row below via page rebuild; None/Basic collapse it).
+        -- Both stock styles gate both slots: they draw their own art (the stock background, the vanilla border sheets) and stand every EUI border down.
         local borderStyleRow
         borderStyleRow, h = W:DualRow(parent, y,
             EllesmereUI.BlizzStyle.Gate("nameplates", { type="dropdown", text="Border",
@@ -4628,7 +4742,7 @@ initFrame:SetScript("OnEvent", function(self)
                 UpdatePreview()
                 -- Force rebuild so the Custom Border row shows/hides and rows below reflow.
                 EllesmereUI:RefreshPage(true)
-              end }),
+              end }, EllesmereUI.BlizzStyle.Active("nameplates") == "classic"),
             EllesmereUI.BlizzStyle.Gate("nameplates", { type="slider", text="Border Size", min=1, max=4, step=1,
               -- Only Basic uses this size (None has no border; Custom uses its own Custom Border Size below).
               disabled=function()
@@ -4687,6 +4801,10 @@ initFrame:SetScript("OnEvent", function(self)
                 title = "Castbar Border",
                 rows = {
                     { type="toggle", label="Wrap Around Castbar",
+                      -- Classic WoW UI draws the vanilla borders: nothing to wrap.
+                      disabled=function() return EllesmereUI.BlizzStyle.Active("nameplates") == "classic" end,
+                      disabledTooltip=function() return EllesmereUI.BlizzStyle.Label("nameplates") end,
+                      requireState="disabled",
                       get=function()
                         local v = DBVal("wrapBorderCastbar")
                         if v == nil then return defaults.wrapBorderCastbar end
@@ -4709,7 +4827,10 @@ initFrame:SetScript("OnEvent", function(self)
             wrapCogTex:SetAllPoints(); wrapCogTex:SetTexture(EllesmereUI.COGS_ICON)
             local function wrapCogOff()
                 -- Only "None" disables it; Basic and Custom both support the wrap.
-                if EllesmereUI.BlizzStyle.Get("nameplates") then return true end
+                -- Neither stock style has an EUI border to wrap: Blizzard Style
+                -- draws the stock background art, Classic WoW UI the vanilla
+                -- border sheets, and both stand the EUI borders down.
+                if ns.NP_Blizz() then return true end
                 if DBVal("customBorderEnabled") then return false end
                 local v = DBVal("showBorder")
                 if v == nil then v = defaults.showBorder end
@@ -4727,10 +4848,77 @@ initFrame:SetScript("OnEvent", function(self)
             wrapCogState()
         end
 
+        -- Classic WoW UI only: the level, and the icon that replaces it on a
+        -- boss, both seated in the health border's own plate. Each follows
+        -- the bar's height until sized here, and each carries its X/Y nudges
+        -- on an inline cog. Not built at all on the other styles, where there
+        -- is no plate to fill; the if-body scopes its locals.
+        if EllesmereUI.BlizzStyle.Active("nameplates") == "classic" then
+            local classicPlateRow
+            classicPlateRow, h = W:DualRow(parent, y,
+                { type="slider", text="Level Size", min=0, max=40, step=1,
+                  tooltip="Size of the level in the border's plate. 0 follows the bar height.",
+                  getValue=function() return DBVal("classicLevelSize") or 0 end,
+                  setValue=function(v)
+                    DB().classicLevelSize = v
+                    ns.RefreshAllSettings()
+                    UpdatePreview()
+                  end },
+                { type="slider", text="Elite Icon Size", min=0, max=40, step=1,
+                  tooltip="Size of the icon that replaces the level on a boss. 0 follows the bar height.",
+                  getValue=function() return DBVal("classicSkullSize") or 0 end,
+                  setValue=function(v)
+                    DB().classicSkullSize = v
+                    ns.RefreshAllSettings()
+                    UpdatePreview()
+                  end })
+            y = y - h
+            -- Reached by the preview's click navigation (the level in the
+            -- border's plate scrolls here), which is built further down.
+            parent._classicPlateRow = classicPlateRow
+            if not EllesmereUI._prebuilding then
+                local function PlateOffsetCog(rgn, title, xKey, yKey)
+                    local _, cogShow = EllesmereUI.BuildCogPopup({
+                        title = title,
+                        rows = {
+                            { type="slider", label="X Offset", min=-50, max=50, step=1,
+                              get=function() return DBVal(xKey) or 0 end,
+                              set=function(v)
+                                DB()[xKey] = v
+                                ns.RefreshAllSettings()
+                                UpdatePreview()
+                              end },
+                            { type="slider", label="Y Offset", min=-50, max=50, step=1,
+                              get=function() return DBVal(yKey) or 0 end,
+                              set=function(v)
+                                DB()[yKey] = v
+                                ns.RefreshAllSettings()
+                                UpdatePreview()
+                              end },
+                        },
+                    })
+                    local btn = CreateFrame("Button", nil, rgn)
+                    btn:SetSize(26, 26)
+                    btn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+                    rgn._lastInline = btn
+                    btn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+                    btn:SetAlpha(0.4)
+                    local tex = btn:CreateTexture(nil, "OVERLAY")
+                    tex:SetAllPoints()
+                    tex:SetTexture(EllesmereUI.COGS_ICON)
+                    btn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
+                    btn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
+                    btn:SetScript("OnClick", function(s) cogShow(s) end)
+                end
+                PlateOffsetCog(classicPlateRow._leftRegion, "Level Position", "classicLevelX", "classicLevelY")
+                PlateOffsetCog(classicPlateRow._rightRegion, "Elite Icon Position", "classicSkullX", "classicSkullY")
+            end
+        end
+
         -- Custom Border row: only built when Border dropdown = "Custom" (selecting it triggers a page rebuild that reveals this row and reflows rows below;
         -- None/Basic collapse it). Uses the shared border engine (identical to Unit Frames, full SharedMedia support); the if-body scopes its locals to avoid growing this builder's local count.
         if DBVal("customBorderEnabled") then
-            -- Custom Border Style dropdown (+ offset cog) | Custom Border Size (+ color swatch)
+            -- Custom Border Style dropdown (+ options cog) | Custom Border Size (+ color swatch)
             local cbTexValues, cbTexOrder = EllesmereUI.GetBorderTextureDropdown()
             local customBorderRow
             customBorderRow, h = W:DualRow(parent, y,
@@ -4749,45 +4937,55 @@ initFrame:SetScript("OnEvent", function(self)
                     DB().customBorderBehind = _bbehind
                     local defSz = EllesmereUI.GetBorderDefaultSize("nameplates", v)
                     if defSz then DB().customBorderSize = defSz end
+                    if DB().customBorderSizePx then DB().customBorderSizePx = false end
                     ns.RefreshBorder()
                     UpdatePreview()
-                    EllesmereUI:RefreshPage()
+                    -- Full rebuild: the Width/Height Offset row below exists only for a textured style.
+                    EllesmereUI:RefreshPage(true)
                   end }),
-                EllesmereUI.BlizzStyle.Gate("nameplates", { type="slider", text="Custom Border Size", min=0, max=4, step=1,
-                  getValue=function() return DBVal("customBorderSize") or defaults.customBorderSize end,
-                  setValue=function(v)
-                    DB().customBorderSize = v
+                EllesmereUI.BlizzStyle.Gate("nameplates", EllesmereUI.BorderPxSliderCfg({
+                  text="Custom Border Size",
+                  getStep=function() return DBVal("customBorderSize") or defaults.customBorderSize end,
+                  setStep=function(step) DB().customBorderSize = step end,
+                  getTex=function() return DBVal("customBorderTexture") or defaults.customBorderTexture end,
+                  getPx=function() return DB() and DB().customBorderSizePx end,
+                  setPx=function(v) DB().customBorderSizePx = v end,
+                  apply=function()
                     ns.RefreshBorder()
                     UpdatePreview()
-                  end }))
+                  end })))
             y = y - h
 
-            -- Inline "Border Offset" cog on the Custom Border Style region
+            -- Width Offset | Height Offset: the textured border's outward offsets, shown only while a
+            -- textured style is selected (Solid has none). Built during prebuild too so the y advance matches.
+            do
+                local cbTexNow = DBVal("customBorderTexture") or defaults.customBorderTexture
+                if cbTexNow and cbTexNow ~= "" and cbTexNow ~= "solid" then
+                    local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs({
+                        addonKey   = "nameplates",
+                        getTex     = function() return DBVal("customBorderTexture") or defaults.customBorderTexture end,
+                        getStep    = function() return DBVal("customBorderSize") or defaults.customBorderSize end,
+                        getSizeKey = function() return DBVal("customBorderSize") or defaults.customBorderSize end,
+                        getPx      = function() return DB() and DB().customBorderSizePx end,
+                        getX       = function() return DB() and DB().customBorderOffset end,
+                        setX       = function(v) DB().customBorderOffset = v end,
+                        getY       = function() return DB() and DB().customBorderOffsetY end,
+                        setY       = function(v) DB().customBorderOffsetY = v end,
+                        apply      = function() ns.RefreshBorder(); UpdatePreview() end,
+                    })
+                    _, h = W:DualRow(parent, y,
+                        EllesmereUI.BlizzStyle.Gate("nameplates", ocfgL),
+                        EllesmereUI.BlizzStyle.Gate("nameplates", ocfgR))
+                    y = y - h
+                end
+            end
+
+            -- Inline "Border Options" cog on the Custom Border Style region (shifts + Show Behind)
             if not EllesmereUI._prebuilding then
                 local leftRgn = customBorderRow._leftRegion
                 local _, cbCogShow = EllesmereUI.BuildCogPopup({
-                    title = "Border Offset",
+                    title = "Border Options",
                     rows = {
-                        { type="slider", label="Offset X", min=-10, max=10, step=1,
-                          get=function()
-                            local v = DB() and DB().customBorderOffset
-                            if v then return v end
-                            local tex = DBVal("customBorderTexture") or defaults.customBorderTexture
-                            local sz  = DBVal("customBorderSize") or defaults.customBorderSize
-                            local dox = EllesmereUI.GetBorderDefaults("nameplates", tex, sz)
-                            return dox
-                          end,
-                          set=function(v) DB().customBorderOffset = v; ns.RefreshBorder(); UpdatePreview() end },
-                        { type="slider", label="Offset Y", min=-10, max=10, step=1,
-                          get=function()
-                            local v = DB() and DB().customBorderOffsetY
-                            if v then return v end
-                            local tex = DBVal("customBorderTexture") or defaults.customBorderTexture
-                            local sz  = DBVal("customBorderSize") or defaults.customBorderSize
-                            local _, doy = EllesmereUI.GetBorderDefaults("nameplates", tex, sz)
-                            return doy
-                          end,
-                          set=function(v) DB().customBorderOffsetY = v; ns.RefreshBorder(); UpdatePreview() end },
                         { type="slider", label="Shift X", min=-10, max=10, step=1,
                           get=function()
                             local v = DB() and DB().customBorderShiftX
@@ -4824,7 +5022,7 @@ initFrame:SetScript("OnEvent", function(self)
                 cbCogBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
                 local cbCogTex = cbCogBtn:CreateTexture(nil, "OVERLAY")
                 cbCogTex:SetAllPoints(); cbCogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON or EllesmereUI.COGS_ICON)
-                -- Offsets only apply to textured styles, so dim+disable the cog for "solid" (row only exists when Custom is selected, so no enable gate needed).
+                -- Shift offsets only apply to textured styles, so dim+disable the cog for "solid" (row only exists when Custom is selected, so no enable gate needed).
                 local function cbCogOff() return (DBVal("customBorderTexture") or defaults.customBorderTexture) == "solid" end
                 cbCogBtn:SetScript("OnEnter", function(s) if not cbCogOff() then s:SetAlpha(0.7) end end)
                 cbCogBtn:SetScript("OnLeave", function(s) if not cbCogOff() then s:SetAlpha(0.4) end end)
@@ -4900,7 +5098,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
         local bgHoverRow
         bgHoverRow, h = W:DualRow(parent, y,
-            EllesmereUI.BlizzStyle.Gate("nameplates", { type="slider", text="Background", min=0, max=100, step=1,
+            ns.NP_BlizzOnlyGate({ type="slider", text="Background", min=0, max=100, step=1,
               getValue=function()
                 return math.floor(((DBVal("bgAlpha") or defaults.bgAlpha) * 100) + 0.5)
               end,
@@ -4943,7 +5141,7 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(cbSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             leftRgn._lastInline = cbSwatch
             EllesmereUI.RegisterWidgetRefresh(function() cbUpdateSwatch() end)
-            EllesmereUI.BlizzStyle.BlockInline("nameplates", cbSwatch)
+            if ns.NP_BlizzOnly() then EllesmereUI.BlizzStyle.BlockInline("nameplates", cbSwatch) end
         end
 
         -- Inline absorb color swatch (right of Row 2): white by default, tints every style except Blizzard (disabled there since Blizzard keeps its own coloring); mirrors the Focus Texture swatch's disabled pattern.
@@ -5049,7 +5247,7 @@ initFrame:SetScript("OnEvent", function(self)
                 RefreshAllTextures()
                 UpdatePreview()
               end },
-            EllesmereUI.BlizzStyle.Gate("nameplates", { type="dropdown", text="Cast Bar Texture", values=hbtValues, order=hbtOrder,
+            ns.NP_BlizzOnlyGate({ type="dropdown", text="Cast Bar Texture", values=hbtValues, order=hbtOrder,
               getValue=function() return DBVal("castBarTexture") or "none" end,
               setValue=function(v)
                 DB().castBarTexture = v
@@ -6863,10 +7061,18 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                 local extra = v - BAR_W
                 DB().healthBarWidth = extra
+                -- Classic WoW UI: the cast bar's width and shift are derived
+                -- from the footprint so the two borders stay edge to edge, so
+                -- it re-lays out rather than taking the raw width.
+                local classic = ns.NP_Classic and ns.NP_Classic()
                 for _, plate in pairs(plates) do
                     PP.Width(plate.health, v)
                     PP.Width(plate.absorb, v)
-                    PP.Width(plate.cast, v)
+                    if classic then
+                        ns.LayoutCastBar(plate, v, ns.GetCastBarHeight())
+                    else
+                        PP.Width(plate.cast, v)
+                    end
                     plate:UpdateNameWidth()
                 end
                 if ns.ApplyNamePlateClickArea then ns.ApplyNamePlateClickArea() end
@@ -6876,7 +7082,17 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return DBVal("healthBarHeight") end,
               setValue=function(v)
                 DB().healthBarHeight = v
-                for _, plate in pairs(plates) do PP.Height(plate.health, v) end
+                -- Classic WoW UI: the border scales with the bar, and the cast
+                -- bar's drop and width are derived from the health bar's
+                -- height, so both re-run here.
+                local classic = ns.NP_Classic and ns.NP_Classic()
+                for _, plate in pairs(plates) do
+                    PP.Height(plate.health, v)
+                    if classic then
+                        ns.NP_ApplyClassicHealthArt(plate, v)
+                        ns.LayoutCastBar(plate, ns.GetHealthBarWidth(), ns.GetCastBarHeight())
+                    end
+                end
                 if ns.ApplyNamePlateClickArea then ns.ApplyNamePlateClickArea() end
                 UpdatePreview()
               end });  y = y - h
@@ -6917,7 +7133,12 @@ initFrame:SetScript("OnEvent", function(self)
             local _, spellIconCogShow = EllesmereUI.BuildCogPopup({
                 title = "Spell Icon Settings",
                 rows = {
+                    -- Classic WoW UI seats the icon in the vanilla border's own plate:
+                    -- size, side, in-width and full-size are the art's (offsets stay).
                     { type="slider", label="Scale", min=0.5, max=2, step=0.1,
+                      disabled=function() return EllesmereUI.BlizzStyle.Active("nameplates") == "classic" end,
+                      disabledTooltip=function() return EllesmereUI.BlizzStyle.Label("nameplates") end,
+                      requireState="disabled",
                       get=function() return DBVal("castIconScale") or defaults.castIconScale end,
                       set=function(v)
                         DB().castIconScale = v
@@ -6944,6 +7165,9 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                     { type="toggle", label="Make Icon Part of the Bar",
                       tooltip="This makes it so the width of the cast bar includes the icon, rather than placing it to the left of the cast bars width.",
+                      disabled=function() return EllesmereUI.BlizzStyle.Active("nameplates") == "classic" end,
+                      disabledTooltip=function() return EllesmereUI.BlizzStyle.Label("nameplates") end,
+                      requireState="disabled",
                       get=function()
                         local db = DB()
                         if db and db.castbarIconInWidth ~= nil then return db.castbarIconInWidth end
@@ -6956,6 +7180,9 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                     { type="toggle", label="Icon on Right",
                       tooltip="Place the cast bar spell icon on the right side of the bars instead of the left.",
+                      disabled=function() return EllesmereUI.BlizzStyle.Active("nameplates") == "classic" end,
+                      disabledTooltip=function() return EllesmereUI.BlizzStyle.Label("nameplates") end,
+                      requireState="disabled",
                       get=function()
                         local db = DB()
                         if db and db.castIconOnRight ~= nil then return db.castIconOnRight end
@@ -6968,6 +7195,9 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                     { type="toggle", label="Full Sized (Health + Cast Bar)",
                       tooltip="Make the spell icon a large square the combined height of the health bar plus the cast bar, flush with the top of the health bar and the bottom of the cast bar.",
+                      disabled=function() return EllesmereUI.BlizzStyle.Active("nameplates") == "classic" end,
+                      disabledTooltip=function() return EllesmereUI.BlizzStyle.Label("nameplates") end,
+                      requireState="disabled",
                       get=function()
                         local db = DB()
                         if db and db.castIconFullSize ~= nil then return db.castIconFullSize end
@@ -7037,7 +7267,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Cast Background Opacity (+ swatch) | Cast Bar Border (+ swatch)
         local castBgRow
         castBgRow, h = W:DualRow(parent, y,
-            EllesmereUI.BlizzStyle.Gate("nameplates", { type="slider", text="Cast Background", min=0, max=100, step=1,
+            ns.NP_BlizzOnlyGate({ type="slider", text="Cast Background", min=0, max=100, step=1,
               getValue=function()
                 return math.floor(((DBVal("castBgAlpha") or defaults.castBgAlpha) * 100) + 0.5)
               end,
@@ -7075,7 +7305,7 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(castBgSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
             leftRgn._lastInline = castBgSwatch
             EllesmereUI.RegisterWidgetRefresh(function() castBgUpdateSwatch() end)
-            EllesmereUI.BlizzStyle.BlockInline("nameplates", castBgSwatch)
+            if ns.NP_BlizzOnly() then EllesmereUI.BlizzStyle.BlockInline("nameplates", castBgSwatch) end
         end
         -- Inline color swatch on Cast Bar Border (right region)
         if not EllesmereUI._prebuilding then
@@ -7197,7 +7427,7 @@ initFrame:SetScript("OnEvent", function(self)
         castColorRow, h = W:DualRow(parent, y,
             { type="multiSwatch", text="Cast Color",
               swatches = {
-                EllesmereUI.BlizzStyle.Gate("nameplates", { tooltip = "Interruptible Cast",
+                ns.NP_BlizzOnlyGate({ tooltip = "Interruptible Cast",
                   getValue = function() return DBColor("castBar") end,
                   setValue = function(r, g, b)
                     DB().castBar = { r = r, g = g, b = b }
@@ -7209,7 +7439,7 @@ initFrame:SetScript("OnEvent", function(self)
                     DB().interruptReady = { r = r, g = g, b = b }
                     RefreshAllPlates()
                   end },
-                EllesmereUI.BlizzStyle.Gate("nameplates", { tooltip = "Uninterruptible Cast",
+                ns.NP_BlizzOnlyGate({ tooltip = "Uninterruptible Cast",
                   getValue = function() return DBColor("castBarUninterruptible") end,
                   setValue = function(r, g, b)
                     DB().castBarUninterruptible = { r = r, g = g, b = b }
@@ -7649,7 +7879,7 @@ initFrame:SetScript("OnEvent", function(self)
                     swatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                     -- Blizzard Style uses the stock interrupted fill art, so the flash colour is inert there.
                     EllesmereUI.RegisterWidgetRefresh(function()
-                        local off = flashOff() or EllesmereUI.BlizzStyle.Get("nameplates")
+                        local off = flashOff() or ns.NP_BlizzOnly()
                         swatch:SetAlpha(off and 0.15 or 1)
                         swatch:EnableMouse(not off)
                         updateSwatch()
@@ -9390,6 +9620,13 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Dynamic resolvers for elements assigned to Core Positions / Core Text Positions
         local dynamicMappings = {
+            -- Classic WoW UI: the level in the health border's plate. Its row
+            -- exists only on that style, so this resolves to nothing elsewhere.
+            classicLevel = function()
+                local row = parent._classicPlateRow
+                if not row then return nil end
+                return { section = styleHeader, target = row, slotSide = "left" }
+            end,
             debuffIcon   = function() return ResolveCoreMapping("debuffs") end,
             buffIcon     = function() return ResolveCoreMapping("buffs") end,
             ccIcon       = function() return ResolveCoreMapping("ccs") end,
@@ -9649,6 +9886,11 @@ initFrame:SetScript("OnEvent", function(self)
             -- Health text
             if pv._hpText then
                 local ov = CreateHitOverlay(pv._hpText, "healthText", true)
+                textOverlays[#textOverlays + 1] = ov
+            end
+            -- Classic WoW UI: the level in the health border's plate
+            if pv._classicLevel then
+                local ov = CreateHitOverlay(pv._classicLevel, "classicLevel", true)
                 textOverlays[#textOverlays + 1] = ov
             end
             -- Health bar

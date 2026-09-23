@@ -38,6 +38,10 @@ local QT_DEFAULTS = {
             -- you are in a raid; "boss" (default) only hides it during boss encounters.
             hideInRaidMode       = "boss",
 
+            -- Style page (reload-gated): Blizzard Style / Classic WoW UI
+            useBlizzardStyle     = false,
+            useClassicStyle      = false,
+
             -- Skin toggles
             skinHeaders          = true,
             -- Show Blizzard's native quest type icons/buttons (right side)
@@ -100,6 +104,26 @@ end
 
 function EQT.Cfg(k) return EQT.DB()[k] end
 function EQT.Set(k, v) EQT.DB()[k] = v end
+
+-- The style this module RENDERS this session: "eui" | "blizzard" | "classic".
+-- Read from the real profile once and latched for the session (a live profile
+-- switch prompts for a reload instead). Creates the DB itself: its first
+-- caller is the parent's PLAYER_LOGIN font pass, which runs before TryInit.
+-- Never reads EQT.DB(), whose stand-in table would latch "eui" too early.
+function ns.QT_Style()
+    local v = ns._qtStyle
+    if v == nil then
+        local d = EnsureDB()
+        local qt = d and d.profile and d.profile.questTracker
+        if not qt then return "eui" end
+        v = (qt.useClassicStyle and "classic") or (qt.useBlizzardStyle and "blizzard") or "eui"
+        ns._qtStyle = v
+    end
+    return v
+end
+-- Stock mode: true for both stock styles (Blizzard's own tracker art and text).
+function EQT.Blizz() return ns.QT_Style() ~= "eui" end
+function EQT.Classic() return ns.QT_Style() == "classic" end
 
 -------------------------------------------------------------------------------
 -- Cross-module suppression API. Other EUI modules (e.g. M+ Timer preview

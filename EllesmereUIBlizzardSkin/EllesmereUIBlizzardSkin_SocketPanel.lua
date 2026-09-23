@@ -1093,6 +1093,7 @@ end
 -- Live apply from the options toggle (no reload).
 local function RefreshFromOptions()
     if not (PaperDollFrame and PaperDollFrame:IsShown()) then return end
+    if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
     if EllesmereUIDB and EllesmereUIDB.charSheetSocketPanel == false then
         CloseFlyout()
         UnregisterShownEvents()
@@ -1116,6 +1117,9 @@ boot:SetScript("OnEvent", function()
     -- WoW Forever: part of the character sheet makeover, which stands down
     -- there (EllesmereUIBlizzardSkin_CharacterSheetForever.lua owns the sheet).
     if EllesmereUI and EllesmereUI.IS_FOREVER then return end
+    -- Stock character sheet styles (Style page): Blizzard's own sheet, where
+    -- this strip would sit over the stats pane's corner. Nothing is hooked.
+    if ns.CharSheetStock and ns.CharSheetStock() then return end
     if EllesmereUI then
         EllesmereUI._refreshCharSheetSocketPanel = RefreshFromOptions
     end

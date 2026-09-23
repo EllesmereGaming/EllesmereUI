@@ -7,6 +7,14 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUIDamageMeters"]  -- module namespace (published by the module at its load)
 if not ns then return end  -- module disabled: no options page
 local EDM = ns.EDM
+-- Blizzard Style paints its own window colours and bar tracks, so those
+-- controls go inert under it; the Classic WoW UI box is tinted by the
+-- configured colours and its rows keep the plain track, so they stay live.
+local function DMBlizzArt() return EllesmereUI.BlizzStyle.Active("damagemeters") == "blizzard" end
+local function DMBlizzGate(cfg, keepRow)
+    if DMBlizzArt() then return EllesmereUI.BlizzStyle.Gate("damagemeters", cfg, keepRow) end
+    return cfg
+end
 
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
@@ -197,11 +205,6 @@ initFrame:SetScript("OnEvent", function(self)
         local function ApplyBrd() if ns.ApplyBorder then ns.ApplyBorder() end end
         local function ApplyWindowBrd() if ns.ApplyWindowBorder then ns.ApplyWindowBorder() end end
         local function ApplyIconBrd() if ns.ApplyIconBorder then ns.ApplyIconBorder() end end
-        local borderSizeValues = {
-            ["0"]="None", ["1"]="Thin", ["2"]="Normal",
-            ["3"]="Heavy", ["4"]="Strong",
-        }
-        local borderSizeOrder = { "0", "1", "2", "3", "4" }
 
         -- ── DISPLAY ─────────────────────────────────────────────────────
         _, h = W:SectionHeader(parent, "DISPLAY", y); y = y - h
@@ -293,25 +296,23 @@ initFrame:SetScript("OnEvent", function(self)
                   Set("windowBorderBehind", behind)
                   local defaultSize = EllesmereUI.GetBorderDefaultSize("damagemeters", v)
                   if defaultSize then Set("windowBorderSize", defaultSize) end
-                  ApplyWindowBrd(); EllesmereUI:RefreshPage()
+                  -- A style pick returns the surface to its legacy step; clear a set exact size (false travels, nil would not).
+                  if Cfg("windowBorderSizePx") then Set("windowBorderSizePx", false) end
+                  -- force: the offset row below exists only for a textured style
+                  ApplyWindowBrd(); EllesmereUI:RefreshPage(true)
               end }),
-            EllesmereUI.BlizzStyle.Gate("damagemeters", { type="dropdown", text="Border Size",
-              values=borderSizeValues, order=borderSizeOrder,
-              getValue=function() return tostring(Cfg("windowBorderSize") or 0) end,
-              setValue=function(v) Set("windowBorderSize", tonumber(v) or 0); ApplyWindowBrd() end }))
+            EllesmereUI.BlizzStyle.Gate("damagemeters", EllesmereUI.BorderPxSliderCfg({ text="Border Size",
+              getStep=function() return tonumber(Cfg("windowBorderSize")) or 0 end,
+              setStep=function(step) Set("windowBorderSize", step) end,
+              getTex=function() return Cfg("windowBorderTexture") or "solid" end,
+              getPx=function() return Cfg("windowBorderSizePx") end,
+              setPx=function(v) Set("windowBorderSizePx", v) end,
+              apply=ApplyWindowBrd })))
         if not EllesmereUI._prebuilding then
             local rgn = windowBorderRow._leftRegion
             local _, popupShow = EllesmereUI.BuildCogPopup({
-                title="Border Offset",
+                title="Border Options",
                 rows={
-                    { type="slider", label="Offset X", min=-10, max=10, step=1,
-                      disabled=function() return (Cfg("windowBorderTexture") or "solid") == "solid" end,
-                      get=function() return Cfg("windowBorderOffsetX") or 0 end,
-                      set=function(v) Set("windowBorderOffsetX", v); ApplyWindowBrd() end },
-                    { type="slider", label="Offset Y", min=-10, max=10, step=1,
-                      disabled=function() return (Cfg("windowBorderTexture") or "solid") == "solid" end,
-                      get=function() return Cfg("windowBorderOffsetY") or 0 end,
-                      set=function(v) Set("windowBorderOffsetY", v); ApplyWindowBrd() end },
                     { type="toggle", label="Include Headerbar",
                       get=function() return Cfg("windowBorderIncludeHeader") ~= false end,
                       set=function(v) Set("windowBorderIncludeHeader", v); ApplyWindowBrd() end },
@@ -351,6 +352,33 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.BlizzStyle.BlockInline("damagemeters", swatch)
         end
         y = y - h
+        -- Width Offset | Height Offset: only while a textured style is selected
+        -- (a solid border has no outward offsets). Built during prebuild too so
+        -- the y advance is identical whenever it is present. The window's offsets
+        -- ADD to the texture's own default (the renderer grows the border frame
+        -- by them), so nil and 0 are the same: an addonKey with no registry row
+        -- makes the row's default 0 and it stores every other value as picked.
+        do
+            local wTex = Cfg("windowBorderTexture") or "solid"
+            if wTex ~= "" and wTex ~= "solid" then
+                local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs({
+                    addonKey = "damagemeters_window",
+                    getTex = function() return Cfg("windowBorderTexture") or "solid" end,
+                    getStep = function() return tonumber(Cfg("windowBorderSize")) or 0 end,
+                    getSizeKey = function() return nil end,
+                    getPx = function() return Cfg("windowBorderSizePx") end,
+                    getX = function() return Cfg("windowBorderOffsetX") end,
+                    setX = function(v) Set("windowBorderOffsetX", v) end,
+                    getY = function() return Cfg("windowBorderOffsetY") end,
+                    setY = function(v) Set("windowBorderOffsetY", v) end,
+                    apply = ApplyWindowBrd,
+                })
+                _, h = W:DualRow(parent, y,
+                    EllesmereUI.BlizzStyle.Gate("damagemeters", ocfgL),
+                    EllesmereUI.BlizzStyle.Gate("damagemeters", ocfgR))
+                y = y - h
+            end
+        end
 
         -- Background Opacity (+ inline color swatch) | Always Show Player
         local bgRow
@@ -379,7 +407,7 @@ initFrame:SetScript("OnEvent", function(self)
                 false, 20)
             PP.Point(bgSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
             EllesmereUI.RegisterWidgetRefresh(function() bgSwatchRefresh() end)
-            EllesmereUI.BlizzStyle.BlockInline("damagemeters", bgSwatch)
+            if DMBlizzArt() then EllesmereUI.BlizzStyle.BlockInline("damagemeters", bgSwatch) end
         end
         y = y - h
 
@@ -480,9 +508,10 @@ initFrame:SetScript("OnEvent", function(self)
         -- Row 2: Header Bottom Border (+ inline swatch) | Icon Size (+ inline dual swatches)
         local hdrBorderRow
         hdrBorderRow, h = W:DualRow(parent, y,
-            EllesmereUI.BlizzStyle.Gate("damagemeters", { type="dropdown", text="Header Bottom Border",
-              values=borderSizeValues, order=borderSizeOrder,
-              getValue=function() return tostring(Cfg("hdrBottomBorderSize") or 0) end,
+            -- Solid-only: a 0-4 px slider view over the same numeric key (no companion).
+            EllesmereUI.BlizzStyle.Gate("damagemeters", { type="slider", text="Header Bottom Border",
+              min=0, max=4, step=1,
+              getValue=function() return tonumber(Cfg("hdrBottomBorderSize")) or 0 end,
               setValue=function(v) Set("hdrBottomBorderSize", tonumber(v) or 0); ApplyHdr() end }),
             { type="slider", text="Icon Size",
               min = 20, max = 30, step = 1,
@@ -584,14 +613,25 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
             cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
 
+            -- Classic WoW UI paints every header icon with vanilla art that
+            -- carries its own colours: both swatches inert. (Blizzard Style
+            -- keeps the EUI glyphs, so the tint stays live there.)
             local function refreshHdrIcon()
                 updateCustom(); updateAccent()
+                if EllesmereUI.BlizzStyle.Active("damagemeters") == "classic" then
+                    customSwatch:SetAlpha(0.3); accentSwatch:SetAlpha(0.3)
+                    return
+                end
                 local useAccent = Cfg("iconColorUseAccent")
                 customSwatch:SetAlpha(useAccent and 0.3 or 1)
                 accentSwatch:SetAlpha(useAccent and 1 or 0.3)
             end
             EllesmereUI.RegisterWidgetRefresh(refreshHdrIcon)
             refreshHdrIcon()
+            if EllesmereUI.BlizzStyle.Active("damagemeters") == "classic" then
+                EllesmereUI.BlizzStyle.BlockInline("damagemeters", customSwatch)
+                EllesmereUI.BlizzStyle.BlockInline("damagemeters", accentSwatch)
+            end
         end
         y = y - h
 
@@ -697,7 +737,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Bar Texture | Bar Height
         _, h = W:DualRow(parent, y,
-            EllesmereUI.BlizzStyle.Gate("damagemeters", { type="dropdown", text="Bar Texture",
+            DMBlizzGate({ type="dropdown", text="Bar Texture",
               values = dmTexValues, order = dmTexOrder,
               getValue = function() return Cfg("barTexture") or "none" end,
               setValue = function(v) Set("barTexture", v); Refresh(); if ns.ApplySpellHistory then ns.ApplySpellHistory() end end }),
@@ -849,41 +889,51 @@ initFrame:SetScript("OnEvent", function(self)
                   end
                   local defSz = EllesmereUI.GetBorderDefaultSize("damagemeters", v)
                   if defSz then Set("borderSize", defSz) end
-                  ApplyBrd(); EllesmereUI:RefreshPage()
+                  -- A style pick returns the surface to its legacy step; clear a set exact size (false travels, nil would not).
+                  if Cfg("borderSizePx") then Set("borderSizePx", false) end
+                  -- force: the offset row below exists only for a textured style
+                  ApplyBrd(); EllesmereUI:RefreshPage(true)
               -- keepRow: the cog on this slot is the only home of the Custom
               -- Icon Border toggle, which stays live under the style.
               end }, true),
-            EllesmereUI.BlizzStyle.Gate("damagemeters", { type="slider", text="Border Size",
-              min=0, max=4, step=1,
-              getValue=function() return Cfg("borderSize") or 1 end,
-              setValue=function(v) Set("borderSize", v); ApplyBrd() end }))
+            EllesmereUI.BlizzStyle.Gate("damagemeters", EllesmereUI.BorderPxSliderCfg({ text="Border Size",
+              getStep=function() return Cfg("borderSize") or 0 end,
+              setStep=function(step) Set("borderSize", step) end,
+              getTex=function() return Cfg("borderTexture") or "solid" end,
+              getPx=function() return Cfg("borderSizePx") end,
+              setPx=function(v) Set("borderSizePx", v) end,
+              apply=ApplyBrd })))
         y = y - h
-        -- Inline cog for border offset (left region)
+        -- Width Offset | Height Offset: only while a textured style is selected
+        -- (a solid border has no outward offsets). Built during prebuild too so
+        -- the y advance is identical whenever it is present.
+        do
+            local bTex = Cfg("borderTexture") or "solid"
+            if bTex ~= "" and bTex ~= "solid" then
+                local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs({
+                    addonKey = "damagemeters",
+                    getTex = function() return Cfg("borderTexture") or "solid" end,
+                    getStep = function() return Cfg("borderSize") or 0 end,
+                    getSizeKey = function() return Cfg("borderSize") or 0 end,
+                    getPx = function() return Cfg("borderSizePx") end,
+                    getX = function() return Cfg("borderTextureOffset") end,
+                    setX = function(v) Set("borderTextureOffset", v) end,
+                    getY = function() return Cfg("borderTextureOffsetY") end,
+                    setY = function(v) Set("borderTextureOffsetY", v) end,
+                    apply = ApplyBrd,
+                })
+                _, h = W:DualRow(parent, y,
+                    EllesmereUI.BlizzStyle.Gate("damagemeters", ocfgL),
+                    EllesmereUI.BlizzStyle.Gate("damagemeters", ocfgR))
+                y = y - h
+            end
+        end
+        -- Inline cog for border options (left region)
         if not EllesmereUI._prebuilding then
             local rgn = bsRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Border Options",
                 rows = {
-                    { type = "slider", label = "Offset X", min = -10, max = 10, step = 1,
-                      get = function()
-                          local v = Cfg("borderTextureOffset")
-                          if v then return v end
-                          local tex = Cfg("borderTexture") or "solid"
-                          local sz = Cfg("borderSize") or 1
-                          local dox = EllesmereUI.GetBorderDefaults("damagemeters", tex, sz)
-                          return dox
-                      end,
-                      set = function(v) Set("borderTextureOffset", v); ApplyBrd() end },
-                    { type = "slider", label = "Offset Y", min = -10, max = 10, step = 1,
-                      get = function()
-                          local v = Cfg("borderTextureOffsetY")
-                          if v then return v end
-                          local tex = Cfg("borderTexture") or "solid"
-                          local sz = Cfg("borderSize") or 1
-                          local _, doy = EllesmereUI.GetBorderDefaults("damagemeters", tex, sz)
-                          return doy
-                      end,
-                      set = function(v) Set("borderTextureOffsetY", v); ApplyBrd() end },
                     { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
                       get = function()
                           local v = Cfg("borderTextureShiftX")
@@ -946,7 +996,7 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
             cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
             -- Always visible: the popup hosts the Custom Icon Border toggle,
-            -- which must stay reachable for the solid style too (the offset
+            -- which must stay reachable for the solid style too (the shift
             -- sliders are harmless no-ops for solid).
         end
         -- Inline color swatch on Border Size (right region)
@@ -988,39 +1038,47 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 local defSz = EllesmereUI.GetBorderDefaultSize("damagemeters_icon", v)
                 if defSz then Set("iconBorderSize", defSz) end
-                ApplyIconBrd(); EllesmereUI:RefreshPage()
+                -- A style pick returns the surface to its legacy step; clear a set exact size (false travels, nil would not).
+                if Cfg("iconBorderSizePx") then Set("iconBorderSizePx", false) end
+                -- force: the offset row below exists only for a textured style
+                ApplyIconBrd(); EllesmereUI:RefreshPage(true)
             end },
-            { type="slider", text="Icon Border Size",
-            min=0, max=4, step=1,
-            getValue=function() return Cfg("iconBorderSize") or 0 end,
-            setValue=function(v) Set("iconBorderSize", v); ApplyIconBrd() end })
+            EllesmereUI.BorderPxSliderCfg({ text="Icon Border Size",
+            getStep=function() return Cfg("iconBorderSize") or 0 end,
+            setStep=function(step) Set("iconBorderSize", step) end,
+            getTex=function() return Cfg("iconBorderTexture") or "solid" end,
+            getPx=function() return Cfg("iconBorderSizePx") end,
+            setPx=function(v) Set("iconBorderSizePx", v) end,
+            apply=ApplyIconBrd }))
         y = y - h
-        -- Inline cog for border offset (left region)
+        -- Width Offset | Height Offset: only while a textured style is selected
+        -- (a solid border has no outward offsets). Built during prebuild too so
+        -- the y advance is identical whenever it is present.
+        do
+            local iTex = Cfg("iconBorderTexture") or "solid"
+            if iTex ~= "" and iTex ~= "solid" then
+                local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs({
+                    addonKey = "damagemeters_icon",
+                    getTex = function() return Cfg("iconBorderTexture") or "solid" end,
+                    getStep = function() return Cfg("iconBorderSize") or 0 end,
+                    getSizeKey = function() return Cfg("iconBorderSize") or 0 end,
+                    getPx = function() return Cfg("iconBorderSizePx") end,
+                    getX = function() return Cfg("iconBorderTextureOffset") end,
+                    setX = function(v) Set("iconBorderTextureOffset", v) end,
+                    getY = function() return Cfg("iconBorderTextureOffsetY") end,
+                    setY = function(v) Set("iconBorderTextureOffsetY", v) end,
+                    apply = ApplyIconBrd,
+                })
+                _, h = W:DualRow(parent, y, ocfgL, ocfgR)
+                y = y - h
+            end
+        end
+        -- Inline cog for border options (left region)
         if not EllesmereUI._prebuilding then
             local rgn = ibsRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Border Offset",
+                title = "Border Options",
                 rows = {
-                    { type = "slider", label = "Offset X", min = -10, max = 10, step = 1,
-                      get = function()
-                          local v = Cfg("iconBorderTextureOffset")
-                          if v then return v end
-                          local tex = Cfg("iconBorderTexture") or "solid"
-                          local sz = Cfg("iconBorderSize") or 1
-                          local dox = EllesmereUI.GetBorderDefaults("damagemeters_icon", tex, sz)
-                          return dox
-                      end,
-                      set = function(v) Set("iconBorderTextureOffset", v); ApplyIconBrd() end },
-                    { type = "slider", label = "Offset Y", min = -10, max = 10, step = 1,
-                      get = function()
-                          local v = Cfg("iconBorderTextureOffsetY")
-                          if v then return v end
-                          local tex = Cfg("iconBorderTexture") or "solid"
-                          local sz = Cfg("iconBorderSize") or 1
-                          local _, doy = EllesmereUI.GetBorderDefaults("damagemeters_icon", tex, sz)
-                          return doy
-                      end,
-                      set = function(v) Set("iconBorderTextureOffsetY", v); ApplyIconBrd() end },
                     { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
                       get = function()
                           local v = Cfg("iconBorderTextureShiftX")
@@ -1090,7 +1148,7 @@ initFrame:SetScript("OnEvent", function(self)
             { type="toggle", text="Show Breakdown on Hover",
               getValue = function() return Cfg("showHoverTooltip") ~= false end,
               setValue = function(v) Set("showHoverTooltip", v) end },
-            EllesmereUI.BlizzStyle.Gate("damagemeters", { type="slider", text="Background",
+            DMBlizzGate({ type="slider", text="Background",
               min = 0, max = 1, step = 0.01,
               getValue = function() return Cfg("barBgAlpha") or 0 end,
               setValue = function(v) Set("barBgAlpha", v); if ns.ApplyBarBg then ns.ApplyBarBg() end end }))
@@ -1155,7 +1213,7 @@ initFrame:SetScript("OnEvent", function(self)
             local function refreshBarBg()
                 barBgSwatchRefresh(); barBgClassRefresh()
                 -- Blizzard Style rows use the stock shadow track: both swatches inert.
-                if EllesmereUI.BlizzStyle.Get("damagemeters") then
+                if DMBlizzArt() then
                     barBgSwatch:SetAlpha(0.3); barBgClassSwatch:SetAlpha(0.3)
                     return
                 end
@@ -1165,8 +1223,10 @@ initFrame:SetScript("OnEvent", function(self)
             end
             EllesmereUI.RegisterWidgetRefresh(refreshBarBg)
             refreshBarBg()
-            EllesmereUI.BlizzStyle.BlockInline("damagemeters", barBgSwatch)
-            EllesmereUI.BlizzStyle.BlockInline("damagemeters", barBgClassSwatch)
+            if DMBlizzArt() then
+                EllesmereUI.BlizzStyle.BlockInline("damagemeters", barBgSwatch)
+                EllesmereUI.BlizzStyle.BlockInline("damagemeters", barBgClassSwatch)
+            end
         end
         if not EllesmereUI._prebuilding then
             local rgn = bdRow._leftRegion
@@ -1952,8 +2012,9 @@ initFrame:SetScript("OnEvent", function(self)
                 end,
                 false, 20)
             PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
-            -- Blizzard Style paints the stock window art (colour unused).
-            EllesmereUI.BlizzStyle.BlockInline("damagemeters", swatch)
+            -- Blizzard Style paints the stock window art (colour unused); the
+            -- classic box is tinted by this colour.
+            if DMBlizzArt() then EllesmereUI.BlizzStyle.BlockInline("damagemeters", swatch) end
             local block = CreateFrame("Frame", nil, swatch)
             block:SetAllPoints(); block:SetFrameLevel(swatch:GetFrameLevel() + 10)
             block:EnableMouse(true)
@@ -1990,7 +2051,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Row 4: Bar Texture | Text Size (+ inline dual swatches)
         local textRow
         textRow, h = W:DualRow(parent, y,
-            EllesmereUI.BlizzStyle.Gate("damagemeters", { type = "dropdown", text = "Bar Texture",
+            DMBlizzGate({ type = "dropdown", text = "Bar Texture",
               disabled = barOff, disabledTooltip = "Bar History",
               values = matchTexValues, order = matchTexOrder,
               getValue = function() return SHDB().spellHistoryBarTexture or "match" end,

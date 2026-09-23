@@ -939,6 +939,36 @@ function MatchH.GetHeightMatchDB()
     return EllesmereUIDB.unlockHeightMatch
 end
 
+-- Extra width / height on a match (the unlock cog's Extra Width / Extra Height
+-- rows): whole physical pixels at the child's scale, added to the matched size
+-- after the target's pad and before the child's own pad comes off. Keyed by the
+-- child element like its link ("w" / "h" axis); stored only while non-zero and
+-- read only while the child's link exists, so a leftover entry does nothing.
+function EllesmereUI.GetMatchExtra(axis, key)
+    if not EllesmereUIDB or not key then return nil end
+    local t
+    if axis == "h" then t = EllesmereUIDB.unlockHeightMatchExtra
+    else t = EllesmereUIDB.unlockWidthMatchExtra end
+    local v = t and t[key]
+    if v and v ~= 0 then return v end
+    return nil
+end
+
+function MatchH.SetMatchExtra(axis, key, px)
+    if not EllesmereUIDB or not key then return end
+    local field = "unlockWidthMatchExtra"
+    if axis == "h" then field = "unlockHeightMatchExtra" end
+    px = tonumber(px)
+    if px then px = math.floor(px + 0.5) end
+    local t = EllesmereUIDB[field]
+    if not px or px == 0 then
+        if t then t[key] = nil end
+        return
+    end
+    if not t then t = {}; EllesmereUIDB[field] = t end
+    t[key] = px
+end
+
 function MatchH.GetWidthMatchInfo(barKey)
     local db = MatchH.GetWidthMatchDB()
     return db and db[barKey] or nil
@@ -1000,7 +1030,10 @@ function MatchH.SetWidthMatch(childKey, targetKey)
     if MatchH.WouldCreateCycle(db, childKey, targetKey) then
         -- Break the cycle: clear the link that targetKey has, then set ours
         db[targetKey] = nil
+        MatchH.SetMatchExtra("w", targetKey, nil)
     end
+    -- A new match starts at +0.
+    if db[childKey] ~= targetKey then MatchH.SetMatchExtra("w", childKey, nil) end
     db[childKey] = targetKey
 end
 
@@ -1009,7 +1042,9 @@ function MatchH.SetHeightMatch(childKey, targetKey)
     if not db then return end
     if MatchH.WouldCreateCycle(db, childKey, targetKey) then
         db[targetKey] = nil
+        MatchH.SetMatchExtra("h", targetKey, nil)
     end
+    if db[childKey] ~= targetKey then MatchH.SetMatchExtra("h", childKey, nil) end
     db[childKey] = targetKey
 end
 
@@ -1033,6 +1068,7 @@ function MatchH.ClearWidthMatch(childKey)
         end
     end
     db[childKey] = nil
+    MatchH.SetMatchExtra("w", childKey, nil)
 end
 
 function MatchH.ClearHeightMatch(childKey)
@@ -1053,6 +1089,7 @@ function MatchH.ClearHeightMatch(childKey)
         end
     end
     db[childKey] = nil
+    MatchH.SetMatchExtra("h", childKey, nil)
 end
 
 -------------------------------------------------------------------------------
@@ -1121,6 +1158,25 @@ local function PruneStaleLinks(key)
             if info and info.target == key then
                 anchors[childKey] = nil
             end
+        end
+    end
+
+    -- Match extras go with the links dropped below: the key's own, and those of
+    -- the children matched to it (read before those links are gone).
+    local wx = EllesmereUIDB.unlockWidthMatchExtra
+    if wx then
+        local wmL = EllesmereUIDB.unlockWidthMatch
+        wx[key] = nil
+        for childKey in pairs(wx) do
+            if wmL and wmL[childKey] == key then wx[childKey] = nil end
+        end
+    end
+    local hx = EllesmereUIDB.unlockHeightMatchExtra
+    if hx then
+        local hmL = EllesmereUIDB.unlockHeightMatch
+        hx[key] = nil
+        for childKey in pairs(hx) do
+            if hmL and hmL[childKey] == key then hx[childKey] = nil end
         end
     end
 
@@ -1208,12 +1264,27 @@ function EllesmereUI.ShiftIndexedAnchorKeys(prefix, removedIdx, oldCount)
             store[oldK] = nil
         end
     end
+    -- Match extras (child key -> px) follow their links: a child whose link is
+    -- severed (it pointed at the removed key) loses its extra, read before the
+    -- link stores shift below; the rest re-key like the links (ShiftedKey never
+    -- retargets a number, so only the child-role keys move).
+    local function DropSeveredExtras(links, extras)
+        if not (links and extras) then return end
+        for childKey, targetKey in pairs(links) do
+            if targetKey == removedKey then extras[childKey] = nil end
+        end
+    end
+    DropSeveredExtras(EllesmereUIDB.unlockWidthMatch, EllesmereUIDB.unlockWidthMatchExtra)
+    DropSeveredExtras(EllesmereUIDB.unlockHeightMatch, EllesmereUIDB.unlockHeightMatchExtra)
+    ShiftMatchStore(EllesmereUIDB.unlockWidthMatchExtra)
+    ShiftMatchStore(EllesmereUIDB.unlockHeightMatchExtra)
     ShiftMatchStore(EllesmereUIDB.unlockWidthMatch)
     ShiftMatchStore(EllesmereUIDB.unlockHeightMatch)
 end
 
--- Validate stored relationships against registered elements, dropping any that
--- point at a nonexistent element. Runs once on load to clear stale data.
+-- Validate stored relationships against registered elements. Runs on every
+-- unlock-mode open: drops links whose endpoint is gone for good, and size
+-- matches a noResize endpoint cannot use (see MatchUnusable).
 local function ValidateStoredLinks()
     if not EllesmereUIDB then return end
     local elems = EllesmereUI._unlockRegisteredElements
@@ -1237,13 +1308,33 @@ local function ValidateStoredLinks()
         return true
     end
 
+    -- A unit frame key missing from the registry is switched off by a unit
+    -- setting (Frame Source, Enable) or the module being off, never deleted. A
+    -- link whose CHILD is one stays for when it comes back (nothing places a
+    -- missing child) as long as its other end is live or another such key (a
+    -- cast bar and its frame). A live child anchored or matched to one is still
+    -- freed, so it is never left following a frame that is not there.
+    local resolveFolder = EllesmereUI.ResolveKeyToFolder
+    local function ufKey(key)
+        return resolveFolder ~= nil and resolveFolder(key) == "EllesmereUIUnitFrames"
+    end
+    local function LinkGone(childKey, targetKey)
+        local childGone, targetGone = MissingForGood(childKey), MissingForGood(targetKey)
+        if not (childGone or targetGone) then return false end
+        if childGone and ufKey(childKey)
+           and (not targetGone or ufKey(targetKey)) then
+            return false
+        end
+        return true
+    end
+
     local anchors = EllesmereUIDB.unlockAnchors
     if anchors then
         for childKey, info in pairs(anchors) do
-            if (MissingForGood(childKey) or (info and MissingForGood(info.target)))
+            if LinkGone(childKey, info and info.target)
                and not OverrideProtected(childKey) then
                 anchors[childKey] = nil
-            elseif info and info.edge and info.edge.key and MissingForGood(info.edge.key)
+            elseif info and info.edge and info.edge.key and LinkGone(childKey, info.edge.key)
                    and not OverrideProtected(childKey) then
                 -- Unknown cross-axis edge (a string from a build without this
                 -- feature): drop the extra, keep the link itself.
@@ -1252,15 +1343,25 @@ local function ValidateStoredLinks()
         end
     end
 
+    -- A size match a noResize endpoint cannot use: a child that cannot be sized
+    -- (unless it may match as a source) or a target with no size to follow.
+    -- sizeFixedByLook endpoints are only size-locked by the current look
+    -- (Blizzard Style unit frames), so their links stay for the other look.
+    local function MatchUnusable(childKey, targetKey)
+        local c, t = elems[childKey], elems[targetKey]
+        if not (c and t) then return false end
+        if c.noResize and not c.allowMatchSource and not c.sizeFixedByLook then return true end
+        if t.noResize and not t.sizeFixedByLook then return true end
+        return false
+    end
+
     local wm = EllesmereUIDB.unlockWidthMatch
     if wm then
         for childKey, targetKey in pairs(wm) do
-            if (MissingForGood(childKey) or MissingForGood(targetKey))
+            if LinkGone(childKey, targetKey)
                and not OverrideProtected(childKey) then
                 wm[childKey] = nil
-            elseif elems[childKey] and elems[targetKey]
-                and ((elems[childKey].noResize and not elems[childKey].allowMatchSource)
-                or elems[targetKey].noResize) then
+            elseif MatchUnusable(childKey, targetKey) then
                 wm[childKey] = nil
             end
         end
@@ -1269,14 +1370,27 @@ local function ValidateStoredLinks()
     local hm = EllesmereUIDB.unlockHeightMatch
     if hm then
         for childKey, targetKey in pairs(hm) do
-            if (MissingForGood(childKey) or MissingForGood(targetKey))
+            if LinkGone(childKey, targetKey)
                and not OverrideProtected(childKey) then
                 hm[childKey] = nil
-            elseif elems[childKey] and elems[targetKey]
-                and ((elems[childKey].noResize and not elems[childKey].allowMatchSource)
-                or elems[targetKey].noResize) then
+            elseif MatchUnusable(childKey, targetKey) then
                 hm[childKey] = nil
             end
+        end
+    end
+
+    -- A match extra is read only while its link exists: drop every extra whose
+    -- link is gone, so orphans never ride into snapshots and profiles.
+    local wx = EllesmereUIDB.unlockWidthMatchExtra
+    if wx then
+        for childKey in pairs(wx) do
+            if not (wm and wm[childKey]) then wx[childKey] = nil end
+        end
+    end
+    local hx = EllesmereUIDB.unlockHeightMatchExtra
+    if hx then
+        for childKey in pairs(hx) do
+            if not (hm and hm[childKey]) then hx[childKey] = nil end
         end
     end
 end
@@ -1296,7 +1410,14 @@ function MatchH.ApplyWidthMatch(sourceKey, targetKey)
     elseif targetBar then
         targetW = targetBar:GetWidth()
     end
+    -- Chrome drawn outside the target's own rect (getMatchPad, e.g. a classic
+    -- resource bar's frame): the match lines up with what is on screen.
+    if targetW and targetElem and targetElem.getMatchPad then
+        local pw = targetElem.getMatchPad(targetKey)
+        if pw and pw > 0 then targetW = targetW + pw end
+    end
     if targetW and targetW > 0 then
+        local rawW, conv = targetW, 1
         -- Snap to the physical pixel grid with round-to-nearest: PP.Scale
         -- truncates and drops a pixel on float boundary values; SnapForES uses
         -- floor(x/px + 0.5), which is safe.
@@ -1313,10 +1434,37 @@ function MatchH.ApplyWidthMatch(sourceKey, targetKey)
             local sES = sourceBar:GetEffectiveScale()
             if math.abs(tES - sES) > 0.001 then
                 targetW = targetW * tES / sES
+                conv = tES / sES
             end
         end
         local sourceElem = registeredElements[sourceKey]
         if sourceElem and sourceElem.setWidth then
+            -- The source's own outside chrome comes off the width it is set
+            -- to, so what it draws is what matches. Taken off the unsnapped
+            -- width and snapped once: snapping before the subtraction rounds a
+            -- half-pixel pad twice, leaving two bars with the same pad a pixel
+            -- apart.
+            if sourceElem.getMatchPad then
+                local pw = sourceElem.getMatchPad(sourceKey)
+                if pw and pw > 0 then
+                    targetW = rawW * conv - pw
+                    if PPm and PPm.SnapForES and sourceBar then
+                        targetW = PPm.SnapForES(targetW, sourceBar:GetEffectiveScale())
+                    else
+                        targetW = floor(targetW + 0.5)
+                    end
+                    targetW = math.max(1, targetW)
+                end
+            end
+            -- The match's Extra Width (whole pixels at the source's scale). targetW
+            -- sits on the source's pixel grid here, so whole pixels keep it there
+            -- with no second rounding. nil = no extra: nothing changes.
+            local ex = EllesmereUI.GetMatchExtra("w", sourceKey)
+            if ex then
+                local es = sourceBar and sourceBar:GetEffectiveScale()
+                local one = (PPm and PPm.perfect and es and es > 0) and (PPm.perfect / es) or 1
+                targetW = math.max(1, targetW + ex * one)
+            end
             if isUnlocked then
                 local sb = GetBarFrame(sourceKey)
                 local savedAlpha = sb and EllesmereUI._GetFFD(sb).restoreAlpha
@@ -1354,7 +1502,13 @@ function MatchH.ApplyHeightMatch(sourceKey, targetKey)
     elseif targetBar then
         targetH = targetBar:GetHeight()
     end
+    -- Outside chrome on the target (getMatchPad), as in ApplyWidthMatch.
+    if targetH and targetElem and targetElem.getMatchPad then
+        local _, ph = targetElem.getMatchPad(targetKey)
+        if ph and ph > 0 then targetH = targetH + ph end
+    end
     if targetH and targetH > 0 then
+        local rawH, conv = targetH, 1
         local PPm = EllesmereUI and EllesmereUI.PP
         if PPm and PPm.SnapForES and targetBar then
             targetH = PPm.SnapForES(targetH, targetBar:GetEffectiveScale())
@@ -1370,10 +1524,32 @@ function MatchH.ApplyHeightMatch(sourceKey, targetKey)
             local sES = sourceBar:GetEffectiveScale()
             if math.abs(tES - sES) > 0.001 then
                 targetH = targetH * tES / sES
+                conv = tES / sES
             end
         end
         local sourceElem = registeredElements[sourceKey]
         if sourceElem and sourceElem.setHeight then
+            -- The source's own outside chrome comes off the unsnapped height,
+            -- snapped once, as in ApplyWidthMatch.
+            if sourceElem.getMatchPad then
+                local _, ph = sourceElem.getMatchPad(sourceKey)
+                if ph and ph > 0 then
+                    targetH = rawH * conv - ph
+                    if PPm and PPm.SnapForES and sourceBar then
+                        targetH = PPm.SnapForES(targetH, sourceBar:GetEffectiveScale())
+                    else
+                        targetH = floor(targetH + 0.5)
+                    end
+                    targetH = math.max(1, targetH)
+                end
+            end
+            -- The match's Extra Height, as the Extra Width in ApplyWidthMatch.
+            local ex = EllesmereUI.GetMatchExtra("h", sourceKey)
+            if ex then
+                local es = sourceBar and sourceBar:GetEffectiveScale()
+                local one = (PPm and PPm.perfect and es and es > 0) and (PPm.perfect / es) or 1
+                targetH = math.max(1, targetH + ex * one)
+            end
             if isUnlocked then
                 local sb = GetBarFrame(sourceKey)
                 local savedAlpha = sb and EllesmereUI._GetFFD(sb).restoreAlpha
@@ -1782,6 +1958,124 @@ function EllesmereUI.NotifyElementResized(key)
         if EllesmereUI.ScheduleSettleReapply then EllesmereUI.ScheduleSettleReapply() end
     end
 end
+
+-- Pad-change notifier. A module calls EllesmereUI.MatchPadChanged(key) after it
+-- applies an element's border / chrome settings; the element's own getMatchPad
+-- output is compared with the last one seen, so no setter anywhere has to know
+-- which settings move the pad. A key's first sighting only records (the login
+-- match pass already reads pads); a real change queues the key and ONE deferred
+-- flush re-applies each queued key through ReapplyMatchPads, on the axes whose
+-- pad moved (pending value: 1 = width, 2 = height, 3 = both; an element with
+-- linked dimensions re-pulls both). Pads never depend on size, so the re-push's
+-- own setWidth -> rebuild sees an equal pad and stops. During a profile apply
+-- the pad is only recorded: that apply ends in the full match pass
+-- (ApplySavedPositions), which reads every live pad.
+-- State on the addon table: this file sits at the 200-local cap.
+EllesmereUI._matchPad = { w = {}, h = {}, pending = {}, spare = {}, armed = false }
+EllesmereUI._matchPad.flush = function()
+    local mp = EllesmereUI._matchPad
+    mp.armed = false
+    local batch = mp.pending
+    mp.pending, mp.spare = mp.spare, batch
+    for k, m in pairs(batch) do
+        batch[k] = nil
+        EllesmereUI.ReapplyMatchPads(k, m)
+    end
+end
+function EllesmereUI.MatchPadChanged(key)
+    if isUnlocked or not key then return end
+    local elem = registeredElements[key]
+    if not (elem and elem.getMatchPad) then return end
+    local pw, ph = elem.getMatchPad(key)
+    pw, ph = pw or 0, ph or 0
+    local mp = EllesmereUI._matchPad
+    local ow, oh = mp.w[key], mp.h[key]
+    mp.w[key], mp.h[key] = pw, ph
+    if ow == nil or (ow == pw and oh == ph) then return end
+    if EllesmereUI._abAnchorSuppressed then return end
+    local m = ((ow ~= pw) and 1 or 0) + ((oh ~= ph) and 2 or 0)
+    if elem.linkedDimensions then m = 3 end
+    local cur = mp.pending[key]
+    if cur and cur ~= m then m = 3 end
+    mp.pending[key] = m
+    if not mp.armed then
+        mp.armed = true
+        C_Timer.After(0, mp.flush)
+    end
+end
+
+-- An element's match pad or scale changed while its own size did not (a
+-- Classic WoW UI frame-size slider, a Blizzard Style Frame Scale change):
+-- re-pull its own width/height match and re-push its children.
+-- NotifyElementResized cannot do this, since its self re-pull keys on a size
+-- change. Never in unlock mode; a no-op for elements in no match. mask (the
+-- notifier's): 1 = width only, 2 = height only, nil = both.
+function EllesmereUI.ReapplyMatchPads(key, mask)
+    if isUnlocked or not key then return end
+    -- An explicit call covers a queued one, and the pad it applies is the one
+    -- on record, so the rebuild it triggers does not queue the same pass again.
+    local mp = EllesmereUI._matchPad
+    mp.pending[key] = nil
+    local pe = registeredElements[key]
+    if pe and pe.getMatchPad then
+        local pw, ph = pe.getMatchPad(key)
+        mp.w[key], mp.h[key] = pw or 0, ph or 0
+    end
+    local wdb = MatchH.GetWidthMatchDB()
+    if wdb and mask ~= 2 then
+        if wdb[key] then MatchH.ApplyWidthMatch(key, wdb[key]) end
+        EllesmereUI.PropagateWidthMatch(key)
+    end
+    local hdb = MatchH.GetHeightMatchDB()
+    if hdb and mask ~= 1 then
+        if hdb[key] then MatchH.ApplyHeightMatch(key, hdb[key]) end
+        EllesmereUI.PropagateHeightMatch(key)
+    end
+end
+
+-- Commit a typed Extra Width / Height from the unlock cog (axis "w" / "h",
+-- whole pixels clamped to -100..100): store it, re-pull the element's own match,
+-- then re-push its match children and anchor chain exactly as a fresh match pick
+-- does. ReapplyMatchPads cannot serve here, it stands down in unlock mode. File
+-- scope because CreateMover sits at Lua 5.1's 60-upvalue cap.
+function MatchH.CommitMatchExtra(axis, key, px)
+    if not key then return end
+    local isH = (axis == "h")
+    local target
+    if isH then target = MatchH.GetHeightMatchInfo(key)
+    else target = MatchH.GetWidthMatchInfo(key) end
+    if not target then return end
+    local ax = isH and "h" or "w"
+    px = math.floor(math.max(-100, math.min(100, tonumber(px) or 0)) + 0.5)
+    if px == (EllesmereUI.GetMatchExtra(ax, key) or 0) then return end
+    MatchH.SetMatchExtra(ax, key, px)
+    if isH then MatchH.ApplyHeightMatch(key, target)
+    else MatchH.ApplyWidthMatch(key, target) end
+    hasChanges = true
+    local m = movers[key]
+    if m then
+        m:SyncSize()
+        if m.RefreshAnchoredText then m:RefreshAnchoredText() end
+        -- The matched label grew or shrank ("W Matched +5"): re-lay the row.
+        if m._layoutActionRow then m._layoutActionRow() end
+    end
+    local ai = GetAnchorInfo(key)
+    if ai then ApplyAnchorPosition(key, ai.target, ai.side, true) end
+    if isH then EllesmereUI.PropagateHeightMatch(key)
+    else EllesmereUI.PropagateWidthMatch(key) end
+    -- A linked-dimensions element (square icons) resizes both sides from one
+    -- axis: re-push the other axis's match children too.
+    local el = registeredElements[key]
+    if el and el.linkedDimensions then
+        if isH then EllesmereUI.PropagateWidthMatch(key)
+        else EllesmereUI.PropagateHeightMatch(key) end
+    end
+    PropagateAnchorChain(key)
+end
+
+-- Each match's Extra Width / Height as it stood when unlock mode opened
+-- (SnapshotPositions), restored with the links on discard (RevertPositions).
+MatchH.snapExtra = { w = {}, h = {} }
 
 -------------------------------------------------------------------------------
 --  Apply ALL width/height matches globally (used on login/reload)
@@ -7075,6 +7369,8 @@ local function CreateMover(barKey)
             end
         end
     end
+    -- For MatchH.CommitMatchExtra (file scope): the matched label changes width.
+    mover._layoutActionRow = LayoutActionRow
 
     -- Anchored indicator: name label turns orange when anchored
     -- No separate font string needed
@@ -7168,6 +7464,9 @@ local function CreateMover(barKey)
         if wm then
             wmFS:SetText(EllesmereUI.L("W Matched"))
             wmFS:SetTextColor(1, 0.7, 0.3, 0.85)
+            -- A match's Extra Width rides the label: "W Matched +5".
+            local wx = EllesmereUI.GetMatchExtra("w", barKey)
+            if wx then wmFS:SetText(EllesmereUI.L("W Matched") .. (wx > 0 and " +" or " ") .. wx) end
         elseif wmBlocked then
             wmFS:SetText(EllesmereUI.L("W Match"))
             wmFS:SetTextColor(ar, ag, ab, 0.35)
@@ -7178,6 +7477,8 @@ local function CreateMover(barKey)
         if hm then
             hmFS:SetText(EllesmereUI.L("H Matched"))
             hmFS:SetTextColor(1, 0.7, 0.3, 0.85)
+            local hx = EllesmereUI.GetMatchExtra("h", barKey)
+            if hx then hmFS:SetText(EllesmereUI.L("H Matched") .. (hx > 0 and " +" or " ") .. hx) end
         elseif hmBlocked then
             hmFS:SetText(EllesmereUI.L("H Match"))
             hmFS:SetTextColor(ar, ag, ab, 0.35)
@@ -9812,6 +10113,7 @@ local function CreateMover(barKey)
         if cogClickCatcher then cogClickCatcher:Hide() end
         mover._menuOpen = false
         mover._syncCogPos = nil
+        mover._syncCogSize = nil
     end
 
     local function BuildCogMenu()
@@ -10060,6 +10362,13 @@ local function CreateMover(barKey)
             if not isCDMBar and not EllesmereUI._specialUnlockGroup then
                 wBox = MakeSizeRow("Width",  curW)
                 hBox = MakeSizeRow("Height", curH)
+                -- Re-read both boxes after an Extra Width / Height commit.
+                mover._syncCogSize = function()
+                    if not elem.getSize then return end
+                    local nw, nh = elem.getSize(barKey)
+                    if wBox then wBox:SetNumber(floor((nw or 0) + 0.5)) end
+                    if hBox then hBox:SetNumber(floor((nh or 0) + 0.5)) end
+                end
             end
 
             -- X Position / Y Position rows (screen coords from center)
@@ -10207,6 +10516,81 @@ local function CreateMover(barKey)
             sizeDiv:SetPoint("TOPLEFT", cogMenu, "TOPLEFT", 1, yOff - 4)
             sizeDiv:SetPoint("TOPRIGHT", cogMenu, "TOPRIGHT", -1, yOff - 4)
             yOff = yOff - 9
+        end
+
+        -- Extra Width / Extra Height (matched elements only): whole physical pixels
+        -- added to the size the match gives, typed like the Offset X/Y rows below
+        -- (Enter applies, Escape reverts). Not gated on canResize: CDM bars and
+        -- tracking bars are sized by their matches too. Hidden while the look
+        -- fixes the size or the element refuses matches right now.
+        do
+            local wT = MatchH.GetWidthMatchInfo(barKey)
+            local hT = MatchH.GetHeightMatchInfo(barKey)
+            if (wT or hT) and not InCombatLockdown()
+               and not (elem and elem.sizeFixedByLook)
+               and not (elem and elem.matchUnavailable and elem.matchUnavailable(barKey)) then
+                local XROW_H, XINPUT_W, XINPUT_H = 22, 50, 18
+                local function ExtraText(axis)
+                    return tostring(EllesmereUI.GetMatchExtra(axis, barKey) or 0)
+                end
+                local function MakeExtraRow(text, axis)
+                    local rowFrame = CreateFrame("Frame", nil, cogMenu)
+                    rowFrame:SetHeight(XROW_H)
+                    rowFrame:SetPoint("TOPLEFT", cogMenu, "TOPLEFT", 1, yOff)
+                    rowFrame:SetPoint("TOPRIGHT", cogMenu, "TOPRIGHT", -1, yOff)
+                    rowFrame:SetFrameLevel(cogMenu:GetFrameLevel() + 2)
+                    local lbl = rowFrame:CreateFontString(nil, "OVERLAY")
+                    if EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(lbl, true) end
+                    lbl:SetFont(FONT_PATH, 11, "")
+                    lbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
+                    lbl:SetJustifyH("LEFT")
+                    lbl:SetWordWrap(false)
+                    lbl:SetPoint("LEFT", rowFrame, "LEFT", 10, 0)
+                    lbl:SetText(text)
+                    local box = CreateFrame("EditBox", nil, rowFrame)
+                    box:SetSize(XINPUT_W, XINPUT_H)
+                    box:SetPoint("RIGHT", rowFrame, "RIGHT", -8, 0)
+                    box:SetFrameLevel(cogMenu:GetFrameLevel() + 3)
+                    box:SetFont(FONT_PATH, 10, "")
+                    box:SetTextColor(1, 1, 1, 0.9)
+                    box:SetJustifyH("CENTER")
+                    local boxBg = box:CreateTexture(nil, "BACKGROUND")
+                    boxBg:SetAllPoints()
+                    boxBg:SetColorTexture(0, 0, 0, 0.4)
+                    box:SetAutoFocus(false)
+                    box:SetNumeric(false)
+                    box:SetMaxLetters(4)
+                    box:SetText(ExtraText(axis))
+                    -- Enter applies (clamped to -100..100 in the commit), Escape
+                    -- reverts; the box then re-reads the store, so it only ever
+                    -- shows a value that landed.
+                    box:SetScript("OnEnterPressed", function(self)
+                        self:ClearFocus()
+                        local val = tonumber(self:GetText())
+                        if val and not InCombatLockdown() then
+                            MatchH.CommitMatchExtra(axis, barKey, val)
+                            -- An anchored element may have moved with its new size.
+                            if mover._syncCogPos then mover._syncCogPos() end
+                            if mover._syncCogSize then mover._syncCogSize() end
+                        end
+                        self:SetText(ExtraText(axis))
+                    end)
+                    box:SetScript("OnEscapePressed", function(self)
+                        self:SetText(ExtraText(axis))
+                        self:ClearFocus()
+                    end)
+                    yOff = yOff - XROW_H
+                end
+                if wT then MakeExtraRow(EllesmereUI.L("Extra Width"), "w") end
+                if hT then MakeExtraRow(EllesmereUI.L("Extra Height"), "h") end
+                local xDiv = cogMenu:CreateTexture(nil, "ARTWORK")
+                xDiv:SetHeight(PP and PP.mult or 1)
+                if xDiv.SetSnapToPixelGrid then xDiv:SetSnapToPixelGrid(false); xDiv:SetTexelSnappingBias(0) end
+                xDiv:SetColorTexture(1, 1, 1, 0.10)
+                xDiv:SetPoint("TOPLEFT", cogMenu, "TOPLEFT", 1, yOff - 4)
+                xDiv:SetPoint("TOPRIGHT", cogMenu, "TOPRIGHT", -1, yOff - 4)
+                yOff = yOff - 9
+            end
         end
 
         -- Anchor rows (anchored elements only): the target this element is linked
@@ -11830,6 +12214,18 @@ local function SnapshotPositions()
     if hmDB then
         for k, v in pairs(hmDB) do snapshotHeightMatch[k] = v end
     end
+    -- ...and each match's Extra Width / Height, reverted with its link.
+    local sx = MatchH.snapExtra
+    wipe(sx.w)
+    wipe(sx.h)
+    local wxDB = EllesmereUIDB and EllesmereUIDB.unlockWidthMatchExtra
+    if wxDB then
+        for k, v in pairs(wxDB) do sx.w[k] = v end
+    end
+    local hxDB = EllesmereUIDB and EllesmereUIDB.unlockHeightMatchExtra
+    if hxDB then
+        for k, v in pairs(hxDB) do sx.h[k] = v end
+    end
 
     -- Snapshot growth directions so we can revert on discard
     wipe(snapshotGrowDirs)
@@ -12020,6 +12416,8 @@ local function CommitPositions()
                 anchors       = CopyTable(EllesmereUIDB.unlockAnchors     or {}),
                 widthMatch    = CopyTable(EllesmereUIDB.unlockWidthMatch  or {}),
                 heightMatch   = CopyTable(EllesmereUIDB.unlockHeightMatch or {}),
+                widthMatchExtra  = CopyTable(EllesmereUIDB.unlockWidthMatchExtra  or {}),
+                heightMatchExtra = CopyTable(EllesmereUIDB.unlockHeightMatchExtra or {}),
                 phantomBounds = CopyTable(EllesmereUIDB.phantomBounds     or {}),
             }
             -- While a spec-override unlock LAYER is live, the profile
@@ -12032,11 +12430,19 @@ local function CommitPositions()
                     snap.anchors     = CopyTable(ba)
                     snap.widthMatch  = CopyTable(bw)
                     snap.heightMatch = CopyTable(bh)
+                    -- The baseline's match extras ride with its links (4th and
+                    -- 5th returns); a baseline without extras carries none.
+                    local _, _, _, bwx, bhx = EllesmereUI.SpecOverrides_UnlockBaselineLinks()
+                    snap.widthMatchExtra  = CopyTable(bwx or {})
+                    snap.heightMatchExtra = CopyTable(bhx or {})
                 end
             end
             profileData.unlockLayout = snap
         end
     end
+    -- The active spec's tracked buff bar links and extras into their spec bucket,
+    -- so a profile restore before the next bar build cannot swap older ones in.
+    if EllesmereUI._TBBBankUnlockLinks then EllesmereUI._TBBBankUnlockLinks() end
 
     -- Bank CAPTURED settings the session edited (cog size inputs) into
     -- values.default -- a normal unlock session edits the shared baseline, exactly
@@ -12148,6 +12554,39 @@ local function RevertPositions()
     if hmDB then
         wipe(hmDB)
         for k, v in pairs(snapshotHeightMatch) do hmDB[k] = v end
+    end
+    -- Each match's Extra Width / Height, in the same step as its link. A CDM bar
+    -- reads both live (its setWidth only re-lays it out) and step 6 rebuilds only
+    -- bars that moved, so a bar whose extra the restore changes is re-laid out here.
+    if EllesmereUIDB then
+        local sx = MatchH.snapExtra
+        local relayout
+        local function Note(live, snap)
+            if live then
+                for k, v in pairs(live) do
+                    if snap[k] ~= v and k:sub(1, 4) == "CDM_" then
+                        relayout = relayout or {}; relayout[k] = true
+                    end
+                end
+            end
+            for k, v in pairs(snap) do
+                if not (live and live[k] == v) and k:sub(1, 4) == "CDM_" then
+                    relayout = relayout or {}; relayout[k] = true
+                end
+            end
+        end
+        Note(EllesmereUIDB.unlockWidthMatchExtra, sx.w)
+        Note(EllesmereUIDB.unlockHeightMatchExtra, sx.h)
+        if EllesmereUIDB.unlockWidthMatchExtra then wipe(EllesmereUIDB.unlockWidthMatchExtra) end
+        for k, v in pairs(sx.w) do MatchH.SetMatchExtra("w", k, v) end
+        if EllesmereUIDB.unlockHeightMatchExtra then wipe(EllesmereUIDB.unlockHeightMatchExtra) end
+        for k, v in pairs(sx.h) do MatchH.SetMatchExtra("h", k, v) end
+        if relayout then
+            for k in pairs(relayout) do
+                local e = registeredElements[k]
+                if e and e.setWidth then pcall(e.setWidth, k) end
+            end
+        end
     end
 
     -- 5) Restore growth directions

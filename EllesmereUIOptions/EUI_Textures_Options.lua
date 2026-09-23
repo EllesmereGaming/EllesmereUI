@@ -411,11 +411,32 @@ local function TileUnitFrames(parent, y, W, tile)
                 UFReload()
             end }
     end
+    -- Cast bars follow the unit's bar texture ("Inherit") unless this names
+    -- one of their own; "Blizzard" is the vanilla cast bar's fill (the same
+    -- entry the Resource Bars cast bar offers), and the stock styles seed it.
+    -- Under Blizzard Style the stock fill art draws instead, so the row is
+    -- gated there; Classic WoW UI keeps the user's fill, so it stays live.
+    local cbtValues, cbtOrder = CopyBarDD(ns.healthBarTextureNames, ns.healthBarTextureOrder, ns.healthBarTextures, true)
+    cbtValues.inherit, cbtValues.blizzard = "Inherit", "Blizzard"
+    table.insert(cbtOrder, 1, "inherit")
+    table.insert(cbtOrder, 2, "blizzard")
+    local castTexCfg = { type = "dropdown", text = "Cast Bar Texture", values = cbtValues, order = cbtOrder,
+        tooltip = "Texture for every unit frame cast bar. Inherit follows each unit's bar texture.",
+        getValue = function()
+            local p = db()
+            return (p and p.castBarTexture) or "inherit"
+        end,
+        setValue = function(v)
+            local p = db(); if not p then return end
+            p.castBarTexture = v
+            UFReload()
+        end }
+    if EllesmereUI.BlizzStyle.Active("unitframes") == "blizzard" then EllesmereUI.BlizzStyle.Gate("unitframes", castTexCfg) end
     local _, h = W:DualRow(parent, y, barTexCfg("player"), barTexCfg("target"));  y = y - h
     _, h = W:DualRow(parent, y, barTexCfg("focus"), absorbCfg("player"));  y = y - h
     _, h = W:DualRow(parent, y, absorbCfg("target"), absorbCfg("focus"));  y = y - h
     _, h = W:DualRow(parent, y, healAbsorbCfg("player"), healAbsorbCfg("target"));  y = y - h
-    _, h = W:DualRow(parent, y, healAbsorbCfg("focus"), BLANK());  y = y - h
+    _, h = W:DualRow(parent, y, healAbsorbCfg("focus"), castTexCfg);  y = y - h
     y = LinkRow(parent, y, "Pet, Target-of-Target & Boss Bar Textures",
         tile.folder, "Mini Frames", "DISPLAY", "Bar Texture")
     y = LinkRow(parent, y, "Frame, Power & Aura Border Styles",
@@ -452,10 +473,11 @@ local function TileRaidFrames(parent, y, W, tile)
         ["largeStripes"]          = "Large Stripes",
         ["largeStripesR"]         = "Large Stripes R",
         ["maxHealthStripes"]      = "Max Health Stripes",
+        ["blizzardRaid"]          = "Blizzard Raid Bar",
     }
-    local absorbStyleOrder = { "none", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "blizzardModern", "largeStripes", "largeStripesR" }
-    local healAbsorbStyleOrder = { "none", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "healBlizzModern", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR" }
-    local maxHealthStyleOrder = { "none", "maxHealthStripes", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "healBlizzModern", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR" }
+    local absorbStyleOrder = { "none", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "blizzardModern", "largeStripes", "largeStripesR", "blizzardRaid" }
+    local healAbsorbStyleOrder = { "none", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "healBlizzModern", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR", "blizzardRaid" }
+    local maxHealthStyleOrder = { "none", "maxHealthStripes", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "healBlizzModern", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR", "blizzardRaid" }
     AppendSmTail(absorbStyleValues, { absorbStyleOrder, healAbsorbStyleOrder, maxHealthStyleOrder }, ns.healthBarTextureNames, ns.healthBarTextureOrder)
     absorbStyleValues._menuOpts = {
         itemHeight = 28,
@@ -595,6 +617,13 @@ local function TileChat(parent, y, W, tile)
     local ECHAT = ns.ECHAT
     local function db()
         return _G._ECHAT_DB and _G._ECHAT_DB.profile and _G._ECHAT_DB.profile.chat
+    end
+    -- Stock styles (Style page): Blizzard's own chat background, and either
+    -- Blizzard's tabs or the painted vanilla tab sheet -- none take a texture,
+    -- and the linked border row is hidden there too.
+    local BS = EllesmereUI.BlizzStyle
+    if BS and BS.Get("chat") then
+        return NoteRow(parent, y, EllesmereUI.Lf("%1$s is active: chat keeps Blizzard's own background and tab art.", EllesmereUI.L(BS.Label("chat"))))
     end
     if ECHAT and ECHAT.RefreshBgTextureCatalogue then ECHAT.RefreshBgTextureCatalogue() end
     -- Chat's own copies drop the separator.

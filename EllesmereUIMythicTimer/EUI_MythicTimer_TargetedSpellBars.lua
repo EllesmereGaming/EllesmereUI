@@ -386,9 +386,13 @@ local function StyleBar(holder, cfg)
     local un = cfg.uninterruptible
     if un then holder.overlay:SetVertexColor(un.r, un.g, un.b) end
 
-    -- Solid black border on the holder; size 0 removes it.
+    -- Solid black border on the holder; size 0 removes it. The Border Size
+    -- slider stores coordinate units (px * PP.mult) while PP borders take
+    -- physical pixels, so convert here: the bar draws the number the slider
+    -- shows, and the icon divider below follows the same count.
     local bsz = cfg.borderSize
     if bsz == nil then bsz = 1 end
+    if pp and pp.ToPixels then bsz = pp.ToPixels(bsz) end
     if pp and pp.CreateBorder then
         if bsz > 0 then
             if not holder._tsbBorder then

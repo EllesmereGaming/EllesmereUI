@@ -433,6 +433,17 @@ function EllesmereUI_UpdatePartyModeLustListener()
     end
 end
 
+-- Register PLAYER_LEVEL_UP only while the Level Up trigger is enabled, so users
+-- who never turn it on pay nothing. Global so the options checkbox can toggle
+-- it live, mirroring EllesmereUI_UpdatePartyModeLustListener.
+function EllesmereUI_UpdatePartyModeLevelUpListener()
+    if EllesmereUIDB and EllesmereUIDB.partyModeTriggerLevelUp then
+        pmInit:RegisterEvent("PLAYER_LEVEL_UP")
+    else
+        pmInit:UnregisterEvent("PLAYER_LEVEL_UP")
+    end
+end
+
 pmInit:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_LOGIN" then
         self:UnregisterEvent("PLAYER_LOGIN")
@@ -454,6 +465,8 @@ pmInit:SetScript("OnEvent", function(self, event, ...)
         end
         -- Start Bloodlust debuff listener if enabled
         EllesmereUI_UpdatePartyModeLustListener()
+        -- Start Level Up listener if enabled
+        EllesmereUI_UpdatePartyModeLevelUpListener()
 
     elseif event == "UNIT_AURA" then
         if not (EllesmereUIDB and EllesmereUIDB.partyModeTriggerBloodlust) then return end
@@ -536,6 +549,18 @@ pmInit:SetScript("OnEvent", function(self, event, ...)
             triggered = true
         end
         if not triggered then return end
+        EllesmereUIDB.partyMode = true
+        EllesmereUI_StartPartyMode()
+        if celebrationTimer then celebrationTimer:Cancel() end
+        local duration = (EllesmereUIDB and EllesmereUIDB.partyModeMPlusDuration) or 30
+        celebrationTimer = C_Timer.NewTimer(duration, function()
+            celebrationTimer = nil
+            if EllesmereUIDB then EllesmereUIDB.partyMode = false end
+            EllesmereUI_StopPartyMode()
+        end)
+
+    elseif event == "PLAYER_LEVEL_UP" then
+        if not (EllesmereUIDB and EllesmereUIDB.partyModeTriggerLevelUp) then return end
         EllesmereUIDB.partyMode = true
         EllesmereUI_StartPartyMode()
         if celebrationTimer then celebrationTimer:Cancel() end

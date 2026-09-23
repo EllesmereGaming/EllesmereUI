@@ -26,6 +26,20 @@ local EQT = ns.EQT
 -- onto Blizzard pool frames -- causes taint).
 local _skinned = setmetatable({}, { __mode = "k" })
 
+-- Stock styles (Blizzard Style / Classic WoW UI), latched once in InitSkin.
+-- STOCK keeps Blizzard's own tracker art, fonts and POI icons: the skin passes
+-- stand down and only the behaviour (visibility, click sinks, click-anywhere
+-- headers, QoL) runs. Both stock styles draw the tracker the same way
+-- (Blizzard's header bars included); CLASSIC only keeps its gold header
+-- colour for any remaining GetHeaderRGB reader.
+local STOCK, CLASSIC = false, false
+
+-- Blizzard's native quest POI icons instead of our classified icons: the
+-- user's toggle, or forced by either stock style.
+local function NativeIcons()
+    return STOCK or EQT.Cfg("showQuestIcons")
+end
+
 
 -- Color helpers. All four user-facing text colors come from DB so they
 -- follow the Colors section in the options page.
@@ -113,6 +127,11 @@ end
 -- header and every per-section header alike). Defaults to Accent Color
 -- (headerUseAccent is treated as true unless explicitly set to false).
 local function GetHeaderRGB()
+    if CLASSIC then
+        local n = _G.NORMAL_FONT_COLOR
+        if n then return n.r, n.g, n.b end
+        return 1.0, 0.82, 0.0
+    end
     local c = EQT.DB()
     if c.headerShowClassColor then return GetClassColorRGB() end
     if c.headerUseAccent ~= false then return GetAccent() end
@@ -168,7 +187,7 @@ local _eqtFontRegistry = setmetatable({}, { __mode = "k" })
 -- Reapplies EUI font path with explicit size + outline + shadow.
 -- If `size` is nil, preserves Blizzard's current size.
 local function StyleFontStringSized(fs, size)
-    if not fs or not fs.GetFont then return end
+    if STOCK or not fs or not fs.GetFont then return end
     if not size then
         local _, cur = fs:GetFont()
         size = cur or 12
@@ -232,7 +251,7 @@ end
 -- SetHeight via PP.perfect / effectiveScale.
 local _headerDividers = setmetatable({}, { __mode = "k" })
 local function EnsureAccentDivider(header)
-    if not header or not header.CreateTexture then return nil end
+    if STOCK or not header or not header.CreateTexture then return nil end
     local otf = _G.ObjectiveTrackerFrame
     if not otf or not otf.CreateTexture then return nil end
 
@@ -368,6 +387,11 @@ local function SkinHeader(header, knownCollapsed)
     if not header then return end
     if not EQT.Cfg("skinHeaders") then return end
 
+    local minBtn = header.MinimizeButton
+    -- The stock styles (Blizzard Style and Classic WoW UI alike) keep the
+    -- header exactly as Blizzard draws it (its header bar art, +/- buttons and
+    -- text); only the click-anywhere hit rect below applies.
+    if not STOCK then
     -- Named decorative regions we always want gone.
     -- Hide via SetTexture("") only (anti-taint pattern -- see StripTextures).
     for _, k in ipairs({
@@ -380,7 +404,6 @@ local function SkinHeader(header, knownCollapsed)
 
     -- Sweep anonymous Texture regions too. Preserve the minimize button's
     -- textures by skipping anything owned by header.MinimizeButton.
-    local minBtn = header.MinimizeButton
     local otf = _G.ObjectiveTrackerFrame
     if minBtn and otf and (header == otf.HeaderMenu or header == otf.Header) then
         SyncMasterMinimizeButtonLook(minBtn, knownCollapsed)
@@ -422,6 +445,7 @@ local function SkinHeader(header, knownCollapsed)
         end
     end
 
+    if not STOCK then
     local text = header.Text
     if text then
         local r, g, b = GetHeaderRGB()
@@ -434,6 +458,8 @@ local function SkinHeader(header, knownCollapsed)
 
     -- 1px divider beneath the header (Line Color: Class / Custom / Accent).
     EnsureAccentDivider(header)
+    end -- not STOCK
+    end -- not STOCK (outer)
 
     -- Click-anywhere-on-header: widen the NATIVE MinimizeButton's hit rect
     -- across the header, so a title click dispatches straight to Blizzard's
@@ -596,11 +622,17 @@ do
     f:RegisterEvent("QUEST_REMOVED")
     f:RegisterEvent("PLAYER_ENTERING_WORLD")
     local _pending = false
+    -- The cache only feeds our custom icons. The stock styles never draw them
+    -- (latched for the session): InitSkin unregisters this frame and blanks
+    -- its registration so ResumeQTEvents never brings it back. The Show Quest
+    -- Icons toggle can flip mid-session (its reload prompt can be declined),
+    -- so the cache stays warm on the EllesmereUI look either way.
     f:SetScript("OnEvent", function()
-        if _pending then return end
+        if _pending or STOCK then return end
         _pending = true
         C_Timer.After(0.25, function()
             _pending = false
+            if STOCK then return end
             _refreshClassifyCache()
         end)
     end)
@@ -609,6 +641,7 @@ do
     local idx = #EQT._eventFrames + 1
     EQT._eventFrames[idx] = f
     EQT._eventRegistrations[idx] = {"QUEST_LOG_UPDATE", "QUEST_ACCEPTED", "QUEST_REMOVED", "PLAYER_ENTERING_WORLD"}
+    EQT._classifyFrameIdx = idx
 end
 
 -- Hides Blizzard's built-in quest type icon(s) on a block (without
@@ -619,7 +652,7 @@ local function ApplyQuestTypeIcon(block)
 
     -- "Show Quest Icons" on: Blizzard's native icons are shown instead, so
     -- never stamp our own custom icon (hide any we already created).
-    if EQT.Cfg("showQuestIcons") then
+    if NativeIcons() then
         if _blockIcons[block] then _blockIcons[block]:Hide() end
         return
     end
@@ -707,13 +740,17 @@ do
     sf:RegisterEvent("SUPER_TRACKING_CHANGED")
     sf:RegisterEvent("PLAYER_ENTERING_WORLD")
     sf:SetScript("OnEvent", function(_, event)
-        if C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID then
+        -- The cached ID only colours our focus highlight, which the stock
+        -- styles never paint.
+        if not STOCK and C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID then
             local id = C_SuperTrack.GetSuperTrackedQuestID()
             _superTrackedID = (id and id ~= 0) and id or nil
         end
         -- Super-tracking assigns a fresh POI button to the block.
-        -- Defer one frame so Blizzard's assignment lands first.
-        if event == "SUPER_TRACKING_CHANGED" then
+        -- Defer one frame so Blizzard's assignment lands first. Nothing to
+        -- suppress while native icons show, unless the hidden tracker needs
+        -- the fresh button mouse-off.
+        if event == "SUPER_TRACKING_CHANGED" and (not NativeIcons() or EQT._trackerMouseOff) then
             C_Timer.After(0, function()
                 if not EQT._SuppressAllPOIs then return end
                 EQT._SuppressAllPOIs()
@@ -725,6 +762,7 @@ do
     local idx = #EQT._eventFrames + 1
     EQT._eventFrames[idx] = sf
     EQT._eventRegistrations[idx] = {"SUPER_TRACKING_CHANGED", "PLAYER_ENTERING_WORLD"}
+    EQT._superTrackFrameIdx = idx
 end
 
 -- One-time layout setup for the title fontstring: font, anchors, width.
@@ -749,7 +787,7 @@ end
 
 -- Lightweight color-only refresh. Called on hover (OnEnter/OnLeave) and
 -- from the stamped fast-path in SkinBlock.
-function ApplyFocusHighlight(block)  -- global to file
+local function ApplyFocusHighlight(block)
     if not block then return end
     local fs = GetBlockTitleFS(block)
     if not fs then return end
@@ -900,7 +938,7 @@ local function QueuePOIRepair(pb)
     _poiRepair[pb] = true
     C_Timer.After(0.35, function()
         _poiRepair[pb] = nil
-        if EQT.Cfg("showQuestIcons") then return end
+        if NativeIcons() then return end
         ApplyPOISuppression(pb)
         if pb.AddAnim and pb.AddAnim:IsPlaying() then QueuePOIRepair(pb) end
     end)
@@ -910,7 +948,7 @@ local function SuppressPOI(block)
     local pb = block and block.poiButton
     if not pb then return end
 
-    if EQT.Cfg("showQuestIcons") then
+    if NativeIcons() then
         -- Restore buttons we suppressed earlier in this session so flipping the
         -- setting on takes effect without waiting for the reload prompt.
         if _suppressedPOIs[pb] then
@@ -1047,7 +1085,10 @@ end
 
 local function SkinBlock(block)
     if not block then return end
-    if ShouldSkipSkin() then return end
+    -- Stock styles: Blizzard's block art, fonts and POI icons stay untouched
+    -- (the stock title keeps its right-edge anchor, so the item and group
+    -- finder buttons need no raise either).
+    if STOCK or ShouldSkipSkin() then return end
 
 
     -- Suppress POI on every entry -- Blizzard may assign a new pooled
@@ -1120,7 +1161,7 @@ end
 -- (idempotent via the _eqtBlockSkinned / _eqtBarSkinned flags on each frame).
 -------------------------------------------------------------------------------
 local function SkinExistingBlocks(tracker)
-    if not tracker then return end
+    if STOCK or not tracker then return end
 
 
     -- Refresh the accent divider under this tracker's header on every pass
@@ -1131,10 +1172,10 @@ local function SkinExistingBlocks(tracker)
     -- The header/divider above is safe; the block loop below is not.
     if SharesWidgetPool(tracker) then return end
 
-    -- Collect blocks into an ordered list sorted top-to-bottom by Y. We use this to
-    -- apply sequential per-section numbering (1, 2, 3...) that matches the visual
-    -- order. Blizzard's usedBlocks is keyed by template string, and each entry is a
-    -- sub-table keyed by blockID -> block. Iterate two levels.
+    -- Collect the blocks in use. Blizzard's usedBlocks is keyed by template
+    -- string, and each entry is a sub-table keyed by blockID -> block. Iterate
+    -- two levels. No geometry reads here: block rects turn secret once our
+    -- execution is tainted, and nothing below depends on visual order.
     local ordered = {}
     if tracker.usedBlocks then
         for _, byTemplate in pairs(tracker.usedBlocks) do
@@ -1146,11 +1187,6 @@ local function SkinExistingBlocks(tracker)
                 end
             end
         end
-        table.sort(ordered, function(a, b)
-            local ay = a.GetTop and a:GetTop() or 0
-            local by = b.GetTop and b:GetTop() or 0
-            return ay > by
-        end)
 
         for _, block in ipairs(ordered) do
             SkinBlock(block)
@@ -1193,8 +1229,13 @@ end
 -- Default is "hidden" (true) when the DB key is unset. `~= false` treats
 -- nil the same as true, while still honoring an explicit user choice of
 -- false (i.e. "show it").
+-- The stock styles default to shown, as Blizzard draws it: with no EllesmereUI
+-- background behind the tracker, a hidden header would leave its reserved slot
+-- as an empty band above the first section.
 local function ShouldHideMasterHeader()
-    return EQT.Cfg("hideAllObjectivesHeader") ~= false
+    local v = EQT.Cfg("hideAllObjectivesHeader")
+    if v == nil then return not EQT.Blizz() end
+    return v ~= false
 end
 EQT.ShouldHideMasterHeader = ShouldHideMasterHeader
 
@@ -1258,7 +1299,8 @@ local function HookTracker(tracker)
                         if EQT._trackerMouseOff then ApplyScenarioMouse(_G.ScenarioObjectiveTracker) end
                     end)
                 end
-                if ShouldSkipSkin() then return end
+                -- Stock styles: no background to resize, no divider.
+                if STOCK or ShouldSkipSkin() then return end
                 if EQT.QueueResize then EQT.QueueResize() end
                 if self.Header and not _dividerDirty then
                     _dividerDirty = true
@@ -1275,7 +1317,10 @@ local function HookTracker(tracker)
 
     if tracker.Header then
         SkinHeader(tracker.Header)
-        if tracker.Header.SetCollapsed then
+        -- The stock styles have nothing to re-apply on a toggle: headers are
+        -- fixed-size, so the hit rect set above holds. No hook, so none of our
+        -- code enters the collapse chain.
+        if tracker.Header.SetCollapsed and not STOCK then
             hooksecurefunc(tracker.Header, "SetCollapsed", function(self)
                 if ShouldSkipSkin() then return end
                 SkinHeader(self)
@@ -1302,13 +1347,13 @@ local function HookTracker(tracker)
     if tracker.Update then
         hooksecurefunc(tracker, "Update", function()
             if _updateDirty then return end
-            -- Suppressed (M+ / raid tools): no skin work, but a hidden
-            -- tracker still needs the blocks this pass touched mouse-off.
-            if ShouldSkipSkin() and not EQT._trackerMouseOff then return end
+            -- Suppressed (M+ / raid tools) or a stock style: no skin work, but
+            -- a hidden tracker still needs the blocks this pass touched mouse-off.
+            if (STOCK or ShouldSkipSkin()) and not EQT._trackerMouseOff then return end
             _updateDirty = true
             C_Timer.After(0, function()
                 _updateDirty = false
-                local skip = ShouldSkipSkin()
+                local skip = STOCK or ShouldSkipSkin()
                 local mouseOff = EQT._trackerMouseOff
                 if skip and not mouseOff then return end
                 if not skip then
@@ -1342,6 +1387,7 @@ local function HookTracker(tracker)
     -- Skin blocks that already exist before our hooks were installed.
     -- Run immediately for blocks already populated, then once more
     -- deferred to catch late-populated blocks from Blizzard's init.
+    if STOCK then return end
     SkinExistingBlocks(tracker)
     C_Timer.After(0.5, function() SkinExistingBlocks(tracker) end)
 end
@@ -1459,6 +1505,23 @@ end
 -- Entry point called from the loader after Blizzard_ObjectiveTracker loads.
 -------------------------------------------------------------------------------
 function EQT.InitSkin()
+    STOCK = EQT.Blizz()
+    CLASSIC = EQT.Classic()
+    -- Stock styles (fixed until reload): the classify cache has no reader and
+    -- the super-track frame needs only SUPER_TRACKING_CHANGED (the hidden
+    -- tracker's POI mouse-off). Blanking their registration lists keeps
+    -- ResumeQTEvents from re-registering what is dropped here.
+    if STOCK and EQT._eventFrames then
+        local ci = EQT._classifyFrameIdx
+        local cf = ci and EQT._eventFrames[ci]
+        if cf then cf:UnregisterAllEvents(); EQT._eventRegistrations[ci] = {} end
+        local si = EQT._superTrackFrameIdx
+        local sf = si and EQT._eventFrames[si]
+        if sf then
+            sf:UnregisterEvent("PLAYER_ENTERING_WORLD")
+            EQT._eventRegistrations[si] = { "SUPER_TRACKING_CHANGED" }
+        end
+    end
     local otf = _G.ObjectiveTrackerFrame
     if otf then
         -- Skin the master "All Objectives" header + minimize button the same
@@ -1474,7 +1537,7 @@ function EQT.InitSkin()
             -- after that (possibly protected) call completes, back in normal addon
             -- execution, so re-running SkinHeader here carries no taint (same pattern
             -- HookTracker already uses for every per-section header below).
-            if masterHeader.SetCollapsed and not _masterHeaderCollapseHooked then
+            if masterHeader.SetCollapsed and not _masterHeaderCollapseHooked and not STOCK then
                 _masterHeaderCollapseHooked = true
                 hooksecurefunc(masterHeader, "SetCollapsed", function(self, collapsed)
                     if ShouldSkipSkin() then return end
@@ -1504,8 +1567,11 @@ function EQT.InitSkin()
         end
 
         -- Strip the parchment / nine-slice background behind the whole tracker.
-        if otf.NineSlice then otf.NineSlice:Hide() end
-        StripTextures(otf)
+        -- The stock styles keep Blizzard's panel (Edit Mode Opacity drives it).
+        if not STOCK then
+            if otf.NineSlice then otf.NineSlice:Hide() end
+            StripTextures(otf)
+        end
     end
 
     EachTracker(HookTracker)
@@ -1513,6 +1579,9 @@ function EQT.InitSkin()
     -- Re-skin on tracker refresh events. Each of these fires when Blizzard
     -- re-populates blocks; we piggy-back to catch newly-pooled-but-not-yet-
     -- hooked children and to reapply fonts/colors Blizzard just reset.
+    -- The stock styles build no background, so the frame is never created
+    -- (and never enrolled for ResumeQTEvents).
+    if not STOCK then
     local evt = CreateFrame("Frame")
     evt:RegisterEvent("QUEST_LOG_UPDATE")
     evt:RegisterEvent("QUEST_WATCH_LIST_CHANGED")
@@ -1539,6 +1608,7 @@ function EQT.InitSkin()
     EQT._eventFrames[idx] = evt
     EQT._eventRegistrations[idx] = { "QUEST_LOG_UPDATE", "QUEST_WATCH_LIST_CHANGED", "SCENARIO_UPDATE",
         "SCENARIO_CRITERIA_UPDATE", "TRACKED_ACHIEVEMENT_LIST_CHANGED", "TRACKED_RECIPE_UPDATE", "SUPER_TRACKING_CHANGED" }
+    end -- not STOCK
 
     -- OTF.Update / ObjectiveTracker_Update hooks REMOVED (session 68).
     -- They only called QueueResize, which is already triggered by
@@ -1573,8 +1643,9 @@ function EQT.InitSkin()
     end
 
     -- Live-update headers, blocks and progress bar fills when the user
-    -- changes the UI accent color in Global Settings.
-    if EllesmereUI and EllesmereUI.RegAccent then
+    -- changes the UI accent color in Global Settings (nothing reads the
+    -- accent under the stock styles).
+    if not STOCK and EllesmereUI and EllesmereUI.RegAccent then
         EllesmereUI.RegAccent({ type = "callback", fn = function()
             if EQT.RestyleAll then EQT.RestyleAll() end
         end })

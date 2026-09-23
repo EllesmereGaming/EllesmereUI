@@ -2274,6 +2274,9 @@ do
         UIParent:SetScale(newScale)
         PP.UpdateMult()
         if scaleChanged then
+            -- Exact-size borders are pixels at UIParent scale (this path never fires
+            -- UI_SCALE_CHANGED, so the watcher below cannot do it).
+            if EllesmereUI.ReapplyPxBorders then EllesmereUI.ReapplyPxBorders() end
             -- Re-snap all stored values to the new pixel grid
             if EllesmereUI.SnapProfilePositions then
                 local activeName = EllesmereUIDB.activeProfile or "Default"
@@ -3011,6 +3014,7 @@ do
             PP.UpdateMult()
         end
         PP.ResnapAllBorders()
+        if EllesmereUI.ReapplyPxBorders then EllesmereUI.ReapplyPxBorders() end
         -- Re-sync panel scale after loading screens / resolution / UI scale changes
         local mf = EllesmereUI._mainFrame
         if mf and mf:IsShown() then
@@ -3289,6 +3293,89 @@ do
 
     -- Textured border edgeSize per size step (1-4).
     local EDGE_MAP = { 12, 16, 24, 32 }
+    EllesmereUI.BORDER_EDGE_MAP = EDGE_MAP
+    -- The None..Strong labels some modules store, as steps, and back.
+    EllesmereUI.BORDER_STEP_OF_LABEL = { none = 0, thin = 1, normal = 2, heavy = 3, strong = 4 }
+    EllesmereUI.BORDER_LABEL_OF_STEP = { [0] = "none", "thin", "normal", "heavy", "strong" }
+
+    -- PRECISE BORDER SIZE. A surface's legacy size key keeps its meaning (solid:
+    -- physical px; textured: a step into EDGE_MAP). Its companion key, the legacy
+    -- key's name plus "Px", holds an exact size as the string "<px>|<step>|<tex>":
+    -- px = whole pixels at UIParent scale (the unit every EUI pixel slider
+    -- uses), step = the legacy step it was written beside, tex = the texture then.
+    -- The value counts only while the surface's legacy step and texture still
+    -- equal that pair, so anything that knows only the legacy key (an older
+    -- build, a legacy sync icon, a spec override that captured only the legacy
+    -- key, a style pick) wins by itself. false = a cleared value that still
+    -- travels through mirror sync (nil would be left behind). Absent from every
+    -- defaults table: an untouched profile takes the legacy path unchanged.
+    -- One local: this block sits inside the main chunk near its local cap.
+    local _px = {
+        num = {}, step = {}, tex = {},                        -- parse memo by value string
+        borders = setmetatable({}, { __mode = "k" }),        -- borderFrame -> true (backdrop path)
+        secret = setmetatable({}, { __mode = "k" }),         -- borderFrame -> state (8-slice path)
+    }
+
+    --- px, step, tex of a *Px value; nil for nil / false / anything else.
+    function EllesmereUI.BorderPxParts(value)
+        if type(value) ~= "string" then return nil end
+        local px = _px.num[value]
+        if px == nil then
+            local p, s, t = value:match("^(%d+)|(%d+)|(.*)$")
+            if not p then
+                _px.num[value] = false
+                return nil
+            end
+            px = tonumber(p)
+            _px.num[value], _px.step[value], _px.tex[value] = px, tonumber(s), t
+        end
+        if px == false then return nil end
+        return px, _px.step[value], _px.tex[value]
+    end
+
+    --- The exact size a surface renders with, or nil for the legacy path: value =
+    --- its *Px key, step = the legacy step it renders with (a number), textureKey
+    --- = its texture key (nil / "" = solid).
+    function EllesmereUI.BorderPx(value, step, textureKey)
+        if not value then return nil end
+        local px, s, t = EllesmereUI.BorderPxParts(value)
+        if not px or px <= 0 or s ~= step then return nil end
+        if not textureKey or textureKey == "" then textureKey = "solid" end
+        if t ~= textureKey then return nil end
+        return px
+    end
+
+    function EllesmereUI.BorderPxString(px, step, textureKey)
+        if not textureKey or textureKey == "" then textureKey = "solid" end
+        return string.format("%d|%d|%s", px, step, textureKey)
+    end
+
+    --- The legacy step nearest an exact size: solid = the px themselves (capped
+    --- at 4); textured = the EDGE_MAP step nearest px in UIParent units.
+    function EllesmereUI.BorderPxStep(px, textureKey)
+        if not textureKey or textureKey == "" or textureKey == "solid" then
+            return math.min(4, math.max(0, math.floor(px + 0.5)))
+        end
+        local units = px * (EllesmereUI.PP and EllesmereUI.PP.mult or 1)
+        local best, bestD = 1, math.huge
+        for i = 1, #EDGE_MAP do
+            local d = math.abs(EDGE_MAP[i] - units)
+            if d < bestD then best, bestD = i, d end
+        end
+        return best
+    end
+
+    --- The pixels a surface shows today with no *Px value: solid = the step;
+    --- textured = its EDGE_MAP edge at UIParent scale (0 = hidden, an
+    --- out-of-range step = the 12 it renders, as the legacy path does).
+    function EllesmereUI.BorderLegacyPx(step, textureKey)
+        if not textureKey or textureKey == "" or textureKey == "solid" then
+            return math.max(0, math.floor((step or 0) + 0.5))
+        end
+        if not step or step <= 0 then return 0 end
+        local units = EDGE_MAP[step] or EDGE_MAP[1]
+        return math.floor(units / (EllesmereUI.PP and EllesmereUI.PP.mult or 1) + 0.5)
+    end
 
     --- Check if a border texture uses scaled offset (edgeSize/2 base).
     function EllesmereUI.BorderTextureUsesScaleOffset(key)
@@ -3340,7 +3427,11 @@ do
     ---   per-icon scale for icon size, iS = 1/iconScale, but not its border). NEVER where the
     ---   scale is user intent (nameplate target/cast scale, buff-bar position scale): those
     ---   borders scale with the frame, and ratio is sampled once at style time so a later change would bake in a transient value.
-    function EllesmereUI.ApplyBorderStyle(borderFrame, size, r, g, b, a, textureKey, offsetOverride, offsetYOverride, shiftX, shiftY, addonKey, sizeKey, normalizeScale)
+    --- edgePx: the surface's exact size from EllesmereUI.BorderPx, or nil for the legacy
+    ---   path (byte-identical to before it existed). Solid: the px themselves. Textured: the
+    ---   edge is edgePx whole pixels at UIParent scale in this frame's units (still through
+    ---   ratio); the registry offsets/shifts of `size`'s step scale with the edge.
+    function EllesmereUI.ApplyBorderStyle(borderFrame, size, r, g, b, a, textureKey, offsetOverride, offsetYOverride, shiftX, shiftY, addonKey, sizeKey, normalizeScale, edgePx)
         local PP = EllesmereUI.PP
         if not PP or not borderFrame then return end
         a = a or 1
@@ -3354,16 +3445,18 @@ do
         if isSolid then
             local bdFrame = _bdBorderData[borderFrame]
             if bdFrame then bdFrame:Hide() end
+            if bdFrame and bdFrame._pxEdge then bdFrame._pxEdge = nil; _px.borders[borderFrame] = nil end
+            local sz = edgePx or size
             -- PP system
-            if size > 0 then
+            if sz > 0 then
                 if PP.GetBorders(borderFrame) then
-                    PP.UpdateBorder(borderFrame, size, r, g, b, a)
+                    PP.UpdateBorder(borderFrame, sz, r, g, b, a)
                     PP.ShowBorder(borderFrame)
                     -- No SetAlpha "restore" after textured-mode zeroing: on Textures SetAlpha
                     -- writes the SAME state as SetVertexColor's 4th arg, so the color write above
                     -- restores it; a hardcoded SetAlpha(1) would stomp every fractional border alpha on re-apply.
                 else
-                    PP.CreateBorder(borderFrame, r, g, b, a, size, "OVERLAY", 7)
+                    PP.CreateBorder(borderFrame, r, g, b, a, sz, "OVERLAY", 7)
                 end
                 borderFrame:Show()
             else
@@ -3376,6 +3469,8 @@ do
             if not texPath or size <= 0 then
                 local bdFrame = _bdBorderData[borderFrame]
                 if bdFrame then bdFrame:Hide() end
+                -- A hidden border must not come back from the UI-scale re-apply.
+                if bdFrame and bdFrame._pxEdge then bdFrame._pxEdge = nil; _px.borders[borderFrame] = nil end
                 if PP.GetBorders(borderFrame) then PP.HideBorder(borderFrame) end
                 if size <= 0 then borderFrame:Hide() end
                 return
@@ -3419,25 +3514,35 @@ do
                 local uiES = UIParent and UIParent:GetEffectiveScale() or 1
                 if eok and es and es > 0.01 and uiES > 0 then ratio = uiES / es end
             end
-            local edgeSize = (EDGE_MAP[size] or EDGE_MAP[1]) * ratio
-            -- Resolve offset/shift defaults: per-addon registry first, then global fallback.
-            local adjX, adjY, sx, sy
-            if addonKey and sizeKey then
-                local dox, doy, dsx, dsy = EllesmereUI.GetBorderDefaults(addonKey, textureKey, sizeKey)
-                adjX = offsetOverride or dox
-                adjY = offsetYOverride or doy
-                sx   = shiftX or dsx
-                sy   = shiftY or dsy
+            local edgeSize
+            if edgePx then
+                edgeSize = math.max(1, math.floor(edgePx + 0.5)) * PP.mult * ratio
             else
-                adjX = offsetOverride or EllesmereUI.GetBorderTextureDefaultOffset(textureKey)
-                adjY = offsetYOverride or EllesmereUI.GetBorderTextureDefaultOffsetY(textureKey)
-                sx   = shiftX or 0
-                sy   = shiftY or 0
+                edgeSize = (EDGE_MAP[size] or EDGE_MAP[1]) * ratio
             end
+            -- Resolve offset/shift defaults: per-addon registry first, then global fallback.
+            local dox, doy, dsx, dsy
+            if addonKey and sizeKey then
+                dox, doy, dsx, dsy = EllesmereUI.GetBorderDefaults(addonKey, textureKey, sizeKey)
+            else
+                dox = EllesmereUI.GetBorderTextureDefaultOffset(textureKey)
+                doy = EllesmereUI.GetBorderTextureDefaultOffsetY(textureKey)
+                dsx, dsy = 0, 0
+            end
+            if edgePx then
+                -- The step's defaults follow the exact edge (the user's own offsets stay).
+                local f = (edgePx * PP.mult) / (EDGE_MAP[size] or EDGE_MAP[1])
+                dox, doy, dsx, dsy = PP.Snap(dox * f), PP.Snap(doy * f), PP.Snap(dsx * f), PP.Snap(dsy * f)
+            end
+            local adjX = offsetOverride or dox
+            local adjY = offsetYOverride or doy
+            local sx   = shiftX or dsx
+            local sy   = shiftY or dsy
             -- Same factor as edgeSize, or a normalized edge would be positioned by offsets still in the frame's scaled units.
             adjX, adjY = adjX * ratio, adjY * ratio
             sx, sy = sx * ratio, sy * ratio
             -- scaleOffset textures: base = edgeSize/2 (border tracks the edge at any size) plus fine-tune adj; other textures: absolute offset, no base.
+            -- EllesmereUI.BorderReach mirrors this placement for size matching: change the two together.
             local offsetX, offsetY
             if EllesmereUI.BorderTextureUsesScaleOffset(textureKey) then
                 offsetX = (edgeSize / 2) + adjX
@@ -3446,6 +3551,18 @@ do
                 offsetX = adjX
                 offsetY = adjY
             end
+            -- Snap the four anchor offsets to whole physical pixels at the backdrop's own
+            -- scale. Offset/shift are units, and at any UI scale where a unit is not a whole
+            -- pixel (1.75 px/unit: 2 units = 3.5 px) the backdrop's edges land between pixels;
+            -- a rect on half pixels is rasterised with the top-left fill rule, so the top and
+            -- left edges read one pixel thicker than the bottom and right. The owner is
+            -- already on the grid (PP.Point/PP.Size); this keeps the border there with it.
+            local sok, ses = pcall(bdFrame.GetEffectiveScale, bdFrame)
+            if not (sok and ses and ses > 0.01) then ses = UIParent and UIParent:GetEffectiveScale() or 1 end
+            -- Snap the offset once and mirror it (not each corner: round-half-up would put
+            -- -3.5 at -3 and +3.5 at +4, one pixel more on the right/top than the left/bottom).
+            offsetX, offsetY = PP.SnapForES(offsetX, ses), PP.SnapForES(offsetY, ses)
+            sx, sy = PP.SnapForES(sx, ses), PP.SnapForES(sy, ses)
             bdFrame:ClearAllPoints()
             bdFrame:SetPoint("TOPLEFT", borderFrame, "TOPLEFT", -offsetX + sx, offsetY + sy)
             bdFrame:SetPoint("BOTTOMRIGHT", borderFrame, "BOTTOMRIGHT", offsetX + sx, -offsetY + sy)
@@ -3471,7 +3588,132 @@ do
             bdFrame:SetBackdropBorderColor(r, g, b, a)
             bdFrame:Show()
             borderFrame:Show()
+            -- An exact edge is pixels at UIParent scale, so a UI scale change must re-apply
+            -- it (the legacy edge is UI units and needs nothing): keep the call's arguments
+            -- on our backdrop frame (scalars, no table per apply) for ReapplyPxBorders.
+            if edgePx then
+                bdFrame._pxEdge, bdFrame._pxSize = edgePx, size
+                bdFrame._pxR, bdFrame._pxG, bdFrame._pxB, bdFrame._pxA = r, g, b, a
+                bdFrame._pxTex, bdFrame._pxOffX, bdFrame._pxOffY = textureKey, offsetOverride, offsetYOverride
+                bdFrame._pxShX, bdFrame._pxShY = shiftX, shiftY
+                bdFrame._pxAddon, bdFrame._pxSizeKey, bdFrame._pxNorm = addonKey, sizeKey, normalizeScale
+                _px.borders[borderFrame] = true
+                _px.mult = PP.mult
+            elseif bdFrame._pxEdge then
+                bdFrame._pxEdge = nil
+                _px.borders[borderFrame] = nil
+            end
         end
+    end
+
+    -- Where the line a player sees starts inside a built-in texture's edge cell, as
+    -- a fraction of the cell from its outer edge (left, right, top, bottom; the
+    -- first texel at alpha 64+, measured from the media files). A texture with no
+    -- entry (Blizzard Dialog, SharedMedia) counts from the cell's outer edge.
+    EllesmereUI._borderInk = {
+        blizz      = { 0.5,   0.607, 0.5,   0.5   },
+        glow       = { 0.357, 0.357, 0.357, 0.357 },
+        lightspark = { 0.071, 0.071, 0.071, 0.071 },
+    }
+
+    --- How far a textured border's visible line reaches OUTSIDE its frame, per side
+    --- (l, r, t, b; negative = inside), in that frame's units, from ApplyBorderStyle's
+    --- own arguments (ratio = its normalizeScale factor, nil = 1; alpha = the border
+    --- color's alpha). Mirrors ApplyBorderStyle's placement: change the two together.
+    --- nil when nothing is drawn outside: solid (PP strips sit inside the frame),
+    --- shadow (a shadow is not the frame's edge), size 0, no texture, alpha 0.
+    --- Reads settings only, never a frame.
+    function EllesmereUI.BorderReach(size, tex, offX, offY, shX, shY, addonKey, sizeKey, edgePx, ratio, alpha)
+        if not size or size <= 0 or not tex or tex == "" or tex == "solid" or tex == "shadow" then return nil end
+        if alpha and alpha <= 0 then return nil end
+        if not EllesmereUI.ResolveBorderTexture(tex) then return nil end
+        local PP = EllesmereUI.PP
+        ratio = ratio or 1
+        local edge
+        if edgePx then
+            edge = math.max(1, math.floor(edgePx + 0.5)) * PP.mult * ratio
+        else
+            edge = (EDGE_MAP[size] or EDGE_MAP[1]) * ratio
+        end
+        local dox, doy, dsx, dsy
+        if addonKey and sizeKey then
+            dox, doy, dsx, dsy = EllesmereUI.GetBorderDefaults(addonKey, tex, sizeKey)
+        else
+            dox = EllesmereUI.GetBorderTextureDefaultOffset(tex)
+            doy = EllesmereUI.GetBorderTextureDefaultOffsetY(tex)
+            dsx, dsy = 0, 0
+        end
+        if edgePx then
+            local f = (edgePx * PP.mult) / (EDGE_MAP[size] or EDGE_MAP[1])
+            dox, doy, dsx, dsy = PP.Snap(dox * f), PP.Snap(doy * f), PP.Snap(dsx * f), PP.Snap(dsy * f)
+        end
+        local ox, oy = (offX or dox) * ratio, (offY or doy) * ratio
+        local sx, sy = (shX or dsx) * ratio, (shY or dsy) * ratio
+        if EllesmereUI.BorderTextureUsesScaleOffset(tex) then
+            ox, oy = edge / 2 + ox, edge / 2 + oy
+        end
+        local ink = EllesmereUI._borderInk[tex]
+        local il, ir, it, ib = 0, 0, 0, 0
+        if ink then il, ir, it, ib = ink[1] * edge, ink[2] * edge, ink[3] * edge, ink[4] * edge end
+        return ox - sx - il, ox + sx - ir, oy + sy - it, oy - sy - ib
+    end
+
+    --- The width and height a textured border adds OUTSIDE its frame (each side
+    --- clamped at 0, both sides summed) for an unlock element's getMatchPad; nil when
+    --- it adds none. Same arguments as BorderReach. Unsnapped: the match engine
+    --- snaps once.
+    function EllesmereUI.BorderMatchPad(size, tex, offX, offY, shX, shY, addonKey, sizeKey, edgePx, ratio, alpha)
+        local l, r, t, b = EllesmereUI.BorderReach(size, tex, offX, offY, shX, shY, addonKey, sizeKey, edgePx, ratio, alpha)
+        if not l then return nil end
+        local w = (l > 0 and l or 0) + (r > 0 and r or 0)
+        local h = (t > 0 and t or 0) + (b > 0 and b or 0)
+        if w <= 0 and h <= 0 then return nil end
+        return w, h
+    end
+
+    --- Re-applies every border drawn from an exact size after a UI scale change (its edge
+    --- and offsets are pixels at UIParent scale). Nothing to do while no surface uses one,
+    --- and nothing while the pixel grid (PP.mult) is the one the borders were applied at:
+    --- the scale watcher also fires at every loading screen. A frame torn down since
+    --- (no parent: a rebuilt options preview) or a border its owner hid itself (every
+    --- apply shows it, so a hidden one was hidden on purpose) is dropped instead of
+    --- re-applied; the owner's next apply registers it again. A frame that cannot be
+    --- touched right now (ReadBorderSize) is kept for its owner's next restyle. The
+    --- owner's frame level and live border colour survive the re-apply.
+    function EllesmereUI.ReapplyPxBorders()
+        local m = EllesmereUI.PP.mult
+        if _px.mult == m then return end
+        for bf in pairs(_px.borders) do
+            local bd = _bdBorderData[bf]
+            if ReadBorderSize(bf) then
+                if not (bf:GetParent() and bd and bd._pxEdge and bd:IsShown()) then
+                    if bd then bd._pxEdge = nil end
+                    _px.borders[bf] = nil
+                else
+                    local lvl = bd:GetFrameLevel()
+                    local cr, cg, cb, ca = bd:GetBackdropBorderColor()
+                    EllesmereUI.ApplyBorderStyle(bf, bd._pxSize, bd._pxR, bd._pxG, bd._pxB, bd._pxA,
+                        bd._pxTex, bd._pxOffX, bd._pxOffY, bd._pxShX, bd._pxShY,
+                        bd._pxAddon, bd._pxSizeKey, bd._pxNorm, bd._pxEdge)
+                    bd:SetFrameLevel(lvl)
+                    if cr then bd:SetBackdropBorderColor(cr, cg, cb, ca) end
+                end
+            end
+        end
+        for bf, st in pairs(_px.secret) do
+            if ReadBorderSize(bf) then
+                local edges = st._secretBorderEdges
+                if not (bf:GetParent() and st._pxsbEdge and edges and edges.topLeft:IsShown()) then
+                    st._pxsbEdge = nil
+                    _px.secret[bf] = nil
+                else
+                    EllesmereUI.ApplySecretSafeBorderStyle(bf, st, st._pxsbSize, st._pxsbR, st._pxsbG,
+                        st._pxsbB, st._pxsbA, st._pxsbTex, st._pxsbOffX, st._pxsbOffY, st._pxsbShX,
+                        st._pxsbShY, st._pxsbAddon, st._pxsbSizeKey, st._pxsbScale, st._pxsbEdge)
+                end
+            end
+        end
+        _px.mult = m
     end
 
     -- BackdropTemplate does arithmetic on its owner's width/height, so it is unusable for
@@ -3490,20 +3732,24 @@ do
         right       = { 0.1328125, 0.0625, 0.1328125, 0.9375, 0.2421875, 0.0625, 0.2421875, 0.9375 },
     }
 
+    --- edgePx: as ApplyBorderStyle's (the exact size, else the legacy EDGE_MAP path).
     function EllesmereUI.ApplySecretSafeBorderStyle(borderFrame, state, size, r, g, b, a,
-        textureKey, offsetX, offsetY, shiftX, shiftY, addonKey, sizeKey, edgeScale)
+        textureKey, offsetX, offsetY, shiftX, shiftY, addonKey, sizeKey, edgeScale, edgePx)
         if not borderFrame or not state then return end
         size, textureKey = size or 0, textureKey or "solid"
         local edges = state._secretBorderEdges
         -- Inlined, not a local closure: runs per-aura-per-refresh, and a closure built on entry (before the early-outs below) is pure garbage on the common path.
         if textureKey == "" or textureKey == "solid" or size <= 0 then
             if edges then for _, tex in pairs(edges) do tex:Hide() end end
-            EllesmereUI.ApplyBorderStyle(borderFrame, size, r, g, b, a, "solid")
+            if state._pxsbEdge then state._pxsbEdge = nil; _px.secret[borderFrame] = nil end
+            EllesmereUI.ApplyBorderStyle(borderFrame, size, r, g, b, a, "solid",
+                nil, nil, nil, nil, nil, nil, nil, edgePx)
             return
         end
         local path = EllesmereUI.ResolveBorderTexture(textureKey)
         if not path then
             if edges then for _, tex in pairs(edges) do tex:Hide() end end
+            if state._pxsbEdge then state._pxsbEdge = nil; _px.secret[borderFrame] = nil end
             EllesmereUI.ApplyBorderStyle(borderFrame, 0, 0, 0, 0, 0, "solid")
             return
         end
@@ -3522,22 +3768,51 @@ do
         -- saved 0-4 texture-size key (a fractional key would fall through EDGE_MAP).
         -- Live aura buttons omit edgeScale and stay byte-for-byte equivalent.
         edgeScale = edgeScale or 1
-        local edgeSize = (EDGE_MAP[size] or EDGE_MAP[1]) * edgeScale
+        local edgeSize
+        if edgePx then
+            edgeSize = math.max(1, math.floor(edgePx + 0.5)) * EllesmereUI.PP.mult * edgeScale
+        else
+            edgeSize = (EDGE_MAP[size] or EDGE_MAP[1]) * edgeScale
+        end
         local ox, oy, sx, sy = EllesmereUI.GetBorderDefaults(addonKey, textureKey, sizeKey)
+        if edgePx then
+            -- The step's defaults follow the exact edge (the user's own offsets stay).
+            local PPm = EllesmereUI.PP
+            local f = (edgePx * PPm.mult) / (EDGE_MAP[size] or EDGE_MAP[1])
+            ox, oy, sx, sy = PPm.Snap(ox * f), PPm.Snap(oy * f), PPm.Snap(sx * f), PPm.Snap(sy * f)
+            state._pxsbEdge, state._pxsbSize = edgePx, size
+            state._pxsbR, state._pxsbG, state._pxsbB, state._pxsbA = r, g, b, a
+            state._pxsbTex, state._pxsbOffX, state._pxsbOffY = textureKey, offsetX, offsetY
+            state._pxsbShX, state._pxsbShY = shiftX, shiftY
+            state._pxsbAddon, state._pxsbSizeKey, state._pxsbScale = addonKey, sizeKey, edgeScale
+            _px.secret[borderFrame] = state
+            _px.mult = PPm.mult
+        elseif state._pxsbEdge then
+            state._pxsbEdge = nil
+            _px.secret[borderFrame] = nil
+        end
         ox = offsetX ~= nil and offsetX or ox; oy = offsetY ~= nil and offsetY or oy
         sx = shiftX ~= nil and shiftX or sx; sy = shiftY ~= nil and shiftY or sy
         ox, oy, sx, sy = ox * edgeScale, oy * edgeScale, sx * edgeScale, sy * edgeScale
         if EllesmereUI.BorderTextureUsesScaleOffset(textureKey) then
             ox, oy = edgeSize / 2 + ox, edgeSize / 2 + oy
         end
+        -- Same pixel snap as ApplyBorderStyle's backdrop anchors (see there): the
+        -- corner pieces carry the outer edges, so their four anchor offsets go on the grid.
+        local sok, ses = pcall(borderFrame.GetEffectiveScale, borderFrame)
+        if not (sok and ses and ses > 0.01) then ses = UIParent and UIParent:GetEffectiveScale() or 1 end
+        local PP = EllesmereUI.PP
+        ox, oy = PP.SnapForES(ox, ses), PP.SnapForES(oy, ses)
+        sx, sy = PP.SnapForES(sx, ses), PP.SnapForES(sy, ses)
+        local aL, aT, aR, aB = -ox + sx, oy + sy, ox + sx, -oy + sy
         for _, tex in pairs(edges) do
             tex:SetTexture(path, true, true); tex:SetVertexColor(r, g, b, a or 1)
             tex:ClearAllPoints(); tex:Show()
         end
-        edges.topLeft:SetSize(edgeSize, edgeSize); edges.topLeft:SetPoint("TOPLEFT", borderFrame, "TOPLEFT", -ox + sx, oy + sy)
-        edges.topRight:SetSize(edgeSize, edgeSize); edges.topRight:SetPoint("TOPRIGHT", borderFrame, "TOPRIGHT", ox + sx, oy + sy)
-        edges.bottomLeft:SetSize(edgeSize, edgeSize); edges.bottomLeft:SetPoint("BOTTOMLEFT", borderFrame, "BOTTOMLEFT", -ox + sx, -oy + sy)
-        edges.bottomRight:SetSize(edgeSize, edgeSize); edges.bottomRight:SetPoint("BOTTOMRIGHT", borderFrame, "BOTTOMRIGHT", ox + sx, -oy + sy)
+        edges.topLeft:SetSize(edgeSize, edgeSize); edges.topLeft:SetPoint("TOPLEFT", borderFrame, "TOPLEFT", aL, aT)
+        edges.topRight:SetSize(edgeSize, edgeSize); edges.topRight:SetPoint("TOPRIGHT", borderFrame, "TOPRIGHT", aR, aT)
+        edges.bottomLeft:SetSize(edgeSize, edgeSize); edges.bottomLeft:SetPoint("BOTTOMLEFT", borderFrame, "BOTTOMLEFT", aL, aB)
+        edges.bottomRight:SetSize(edgeSize, edgeSize); edges.bottomRight:SetPoint("BOTTOMRIGHT", borderFrame, "BOTTOMRIGHT", aR, aB)
         edges.top:SetHeight(edgeSize); edges.top:SetPoint("TOPLEFT", edges.topLeft, "TOPRIGHT"); edges.top:SetPoint("TOPRIGHT", edges.topRight, "TOPLEFT")
         edges.bottom:SetHeight(edgeSize); edges.bottom:SetPoint("BOTTOMLEFT", edges.bottomLeft, "BOTTOMRIGHT"); edges.bottom:SetPoint("BOTTOMRIGHT", edges.bottomRight, "BOTTOMLEFT")
         edges.left:SetWidth(edgeSize); edges.left:SetPoint("TOPLEFT", edges.topLeft, "BOTTOMLEFT"); edges.left:SetPoint("BOTTOMLEFT", edges.bottomLeft, "TOPLEFT")
@@ -3568,6 +3843,7 @@ do
         if PP and PP.GetBorders and PP.GetBorders(borderFrame) then PP.HideBorder(borderFrame) end
         local bdFrame = _bdBorderData[borderFrame]
         if bdFrame then bdFrame:Hide() end
+        if bdFrame and bdFrame._pxEdge then bdFrame._pxEdge = nil; _px.borders[borderFrame] = nil end
     end
 end
 
@@ -4403,7 +4679,10 @@ function EllesmereUI.ApplyModuleFontFailsafe()
 
     -- Quest Tracker: the skin region-walks live blocks; these shared objects catch fontstrings
     -- Blizzard re-templates after the walk. ONLY ObjectiveTracker*-prefixed objects, so the world-map quest log (QuestFont*) stays untouched.
-    if IsLoaded("EllesmereUIQuestTracker") then
+    -- Skipped under the module's stock styles, which keep Blizzard's own tracker text.
+    local qtNS = EllesmereUI._ModuleNS and EllesmereUI._ModuleNS.EllesmereUIQuestTracker
+    local qtStock = qtNS and qtNS.QT_Style and qtNS.QT_Style() ~= "eui"
+    if IsLoaded("EllesmereUIQuestTracker") and not qtStock then
         local p = GetPath("questTracker")
         local po = GetOutline and GetOutline("questTracker")
         swap(_G.ObjectiveTrackerHeaderFont, p, po)
@@ -5243,6 +5522,12 @@ EllesmereUI._rowCounters     = rowCounters
 --               nudge. Runs before the anchor chain reads the frame's rect.
 --    linkedKeys (table)  list of element keys that move with this one
 --    noResize   (boolean) true for Blizzard elements that cannot be resized
+--    sizeFixedByLook (boolean) the current look fixes the element's size
+--               (Blizzard Style unit frames): getSize reports that look's size,
+--               not the element's own setting. Stored width/height matches to
+--               and from it are kept, and spec layouts never bank that size
+--    getSettingSize (function(key) -> w, h)  the size the element's own
+--               settings give, whatever the look (read with sizeFixedByLook)
 --    getBottomExtra (function(key) -> height)  extra height, in the frame's
 --               units, the mover extends BELOW the frame (a boss cast bar,
 --               the Blizzard Style cast bar text box)
@@ -5284,6 +5569,8 @@ function EllesmereUI.MakeUnlockElement(opts)
         -- noSizeMatchTarget: other elements may NOT size-match TO this one.
         allowMatchSource  = opts.allowMatchSource,
         noSizeMatchTarget = opts.noSizeMatchTarget,
+        sizeFixedByLook   = opts.sizeFixedByLook,
+        getSettingSize    = opts.getSettingSize,
         -- matchUnavailable: function(key) -> reason string when a NEW width/height match
         -- is impossible (action bars in Blizzard Style, where EUI does not control
         -- sizing). Clearing an existing match stays allowed.
@@ -5301,6 +5588,11 @@ function EllesmereUI.MakeUnlockElement(opts)
         subtitle          = opts.subtitle,
         getBottomExtra    = opts.getBottomExtra,
         getInsets         = opts.getInsets,
+        -- getMatchPad: function(key) -> padW, padH the element draws OUTSIDE its
+        -- own rect (chrome such as a classic resource bar's frame); width/height
+        -- matching adds it on the target side and takes it off the source side so
+        -- matches line up with what is on screen. nil = nothing outside the rect.
+        getMatchPad       = opts.getMatchPad,
         detachedMover     = opts.detachedMover,
     }
 end
@@ -5436,6 +5728,11 @@ function EllesmereUI.AppendSharedMediaTextures(names, order, castBarNames, textu
         if not path then return end
         local key = "sm:" .. name
         if c.textures[key] or blacklist[name] then return end
+        -- Drop only an exact duplicate: a native entry with the SAME display
+        -- name AND the same file would otherwise list that texture twice,
+        -- once in the module's own section and once in the SharedMedia tail.
+        local nativePath = c.nativeNames and c.nativeNames[string.lower(name)]
+        if nativePath and nativePath == path then return end
         if not c.sepAdded then
             c.order[#c.order + 1] = "---"
             c.sepAdded = true
@@ -5449,7 +5746,20 @@ function EllesmereUI.AppendSharedMediaTextures(names, order, castBarNames, textu
     -- Register this consumer (dedup by textures-table identity); sepAdded stays false so the first SM key adds exactly one "---" (the dedup guard prevents a second).
     local c = EllesmereUI._smTexConsumers[textures]
     if not c then
-        c = { names = names, order = order, castBarNames = castBarNames, textures = textures }
+        -- The consumer's own display-name -> file pairs at registration (its
+        -- module-side list is complete by then; SM keys are not in it yet),
+        -- for the exact-duplicate test above. Keyed by NAME, not by file
+        -- alone: several modules point an entry of their own at a file the
+        -- library also ships under a different name -- Raid Frames calls the
+        -- blank texture "None" where the library calls it "Solid" -- and
+        -- matching on the file alone would swallow the library's entry and
+        -- leave the user unable to find that texture by name.
+        local native = {}
+        for k, path in pairs(textures) do
+            local nm = names and names[k]
+            if nm then native[string.lower(nm)] = path end
+        end
+        c = { names = names, order = order, castBarNames = castBarNames, textures = textures, nativeNames = native }
         EllesmereUI._smTexConsumers[textures] = c
     end
 
@@ -11076,7 +11386,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.2.2"
+EllesmereUI.VERSION = "9.2.3"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -11352,7 +11662,7 @@ C_Timer.After(2, function()
         if EllesmereUI._raidFramesIntroPending or EllesmereUI._patchNotesIntroPending
            or EllesmereUI._windowSkinsIntroPending or EllesmereUI._specOvIntroPending
            or EllesmereUI._ptrManagersIntroPending or EllesmereUI._launchVideoIntroPending
-           or EllesmereUI._foreverLaunchIntroPending then return end
+           or EllesmereUI._styleLaunchIntroPending or EllesmereUI._styleChoicePending then return end
         if EllesmereUI._RunConflictCheck then EllesmereUI._RunConflictCheck() end
     end
 end)
@@ -12841,6 +13151,32 @@ function EllesmereUI._GetFFD(frame)
     local d = EllesmereUI._FFD[frame]
     if not d then d = {}; EllesmereUI._FFD[frame] = d end
     return d
+end
+
+-- Stock styles, enable-time catch-up seeds: a profile already on a stock
+-- style from before the per-style slots (the Style page did not switch it,
+-- so nothing saved the EllesmereUI look's values) keeps those values in its
+-- EllesmereUI slot before a seed writes over them, so switching back
+-- restores them. `keys` = the module's slot keys (dotted paths one level
+-- deep into `p`, as the Style page's SLOT_KEYS). Callers bank only while
+-- none of the module's seed stamps is set; an existing slot is never touched.
+function EllesmereUI.BankEuiStyleSlot(p, keys)
+    if type(p) ~= "table" then return end
+    local slots = p._styleSlots
+    if type(slots) == "table" and type(slots.eui) == "table" then return end
+    if type(slots) ~= "table" then slots = {}; p._styleSlots = slots end
+    local out = {}
+    for i = 1, #keys do
+        local path = keys[i]
+        local a, b = path:match("^([^.]+)%.(.+)$")
+        if a then
+            local s = p[a]
+            if type(s) == "table" then out[path] = s[b] end
+        else
+            out[path] = p[path]
+        end
+    end
+    slots.eui = out
 end
 
 -------------------------------------------------------------------------------

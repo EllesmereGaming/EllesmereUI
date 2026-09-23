@@ -161,7 +161,9 @@ end
 --  filters include a button's category wins. PAB's debuff classes are a mutual-
 --  exclusion chain (BuildChain), so every displayed icon belongs to exactly ONE
 --  engine group key (a class .key, or "all"): matching is one dictionary lookup,
---  never a search across overlapping records.
+--  never a search across overlapping records. A Match All group (DebuffChainFor)
+--  stamps a category LIST instead: every member belongs to each listed category,
+--  so the first entry naming any of them wins.
 -------------------------------------------------------------------------------
 
 local function PAB_FxEntryActive(e)
@@ -183,25 +185,46 @@ local function PAB_FxListView(list)
 end
 
 -- First ACTIVE block whose filters include `cat` wins (list is already pre-filtered
--- to active-only blocks by PAB_FxListView/style.fxList).
+-- to active-only blocks by PAB_FxListView/style.fxList). `cat` is one category key,
+-- or a Match All group's category list (any listed category matches).
 local function PAB_FxBlockFor(list, cat)
     if not (list and cat) then return nil end
+    local many = type(cat) == "table"
     for i = 1, #list do
         local f = list[i].filters
-        if f and f[cat] then return list[i] end
+        if f then
+            if many then
+                for j = 1, #cat do
+                    if f[cat[j]] then return list[i] end
+                end
+            elseif f[cat] then
+                return list[i]
+            end
+        end
     end
 end
 
 -- Per-filter Size: first ACTIVE block matching `cat` wins outright (same rule
 -- PAB_ApplyDmFx uses for glow/border) -- a later block's Size never overrides an
--- already-claimed category.
+-- already-claimed category. `cat` takes a category list like PAB_FxBlockFor.
 local function PAB_FxSizeFor(list, cat)
-    if not list then return nil end
+    if not (list and cat) then return nil end
+    local many = type(cat) == "table"
     for i = 1, #list do
         local e = list[i]
         if PAB_FxEntryActive(e) then
             local f = e.filters
-            if f and f[cat] then
+            local hit = false
+            if f then
+                if many then
+                    for j = 1, #cat do
+                        if f[cat[j]] then hit = true; break end
+                    end
+                else
+                    hit = f[cat] and true or false
+                end
+            end
+            if hit then
                 local sz = tonumber(e.size)
                 if sz and sz > 0 then return sz end
                 return nil
@@ -229,9 +252,11 @@ end
 -- present: forcing without a forward-exclusion carrier duplicates every matching debuff
 -- (once via its own group, once via catch-all). Token classes are always safe (BuildChain
 -- negates them "!TOKEN" forward); so is dispel-typed (forwards excludeDispelTypes). The
--- three boolean candidate classes (bossaura/roleaura/priorityaura) have no Blizzard
--- "exclude" counterpart, so their Icon Effects still require Show All Debuffs off plus
--- the matching Base Filter on.
+-- four boolean candidate classes (Boss, Role, Can Apply, Important) have exact false
+-- values that BuildChain carries forward from a shown link, but they are never forced
+-- here: forcing one would add a group beside the catch-all on every Show All bar with
+-- such an Icon Effect, a regrouping this gate leaves out. Their Icon Effects still
+-- require Show All Debuffs off plus the matching Base Filter on.
 local function PAB_FxSafeToForce(class)
     local c = class.cand
     return not (c and (c.isBossAura ~= nil or c.isRoleAura ~= nil or c.isPriorityAura ~= nil
@@ -490,7 +515,7 @@ end
 
 local function BuildChain(base, classEnabledFn, includeCatchAll, subtractFn)
     local chain, negations = {}, {}
-    local excludeDispelTypes, npOwned, anyOwned, subCand
+    local excludeDispelTypes, npOwned, anyOwned, prOwned, boolOwned, subCand
     local tokenClasses = VisibleTokenClasses()
     local candidateClasses = VisibleCandidateClasses()
     if not (tokenClasses and candidateClasses) then return chain end
@@ -504,27 +529,105 @@ local function BuildChain(base, classEnabledFn, includeCatchAll, subtractFn)
     -- reach every positive link -- there is nothing legacy to preserve there.
     local addMode = includeCatchAll == false
 
+    -- Boss / Role / Can Apply: the engine field a link of one of those classes
+    -- owns, else nil. Each is an exact NOT when set false (like isPriorityAura).
+    local function OwnedBool(cc)
+        if cc.isBossAura == true then return "isBossAura" end
+        if cc.isRoleAura == true then return "isRoleAura" end
+        if cc.canApplyAura == true then return "canApplyAura" end
+    end
+
+    -- One linear owner order, each shown class carrying its complement onto every
+    -- later link (see ExtraCand): Non-Player / From Any Player > Boss > Role >
+    -- Can Apply > shown types > Important > Dispels. Important owns its overlap
+    -- with Non-Player (the Raid Frames owner too), and Non-Player sits FIRST in
+    -- the vocabulary, so the pair is pre-scanned: while both are shown (npFlip)
+    -- every class ranked above Important must rank above Non-Player too, or the
+    -- order cycles (an NPC Important debuff of a shown type, or an NPC Boss
+    -- debuff that is Important, would match no link at all). So Boss, Role, Can
+    -- Apply, the per-type rows and Important skip the Non-Player handoff, and the
+    -- Non-Player link carries their complements instead: isPriorityAura = false,
+    -- the shown types' exclude, and false for each shown Boss / Role / Can Apply.
+    -- Flip order: Boss > Role > Can Apply > shown types > Important > Non-Player
+    -- > Dispels. Nothing changes unless both are shown.
+    local npFlip, flipTypes, flipBools
+    do
+        local npShown, prShown, types, bools
+        for i = 1, #candidateClasses do
+            local class = candidateClasses[i]
+            local cc = class.cand
+            if cc and classEnabledFn(class) then
+                local bk = OwnedBool(cc)
+                if cc.isFromPlayerOrPlayerPet == false then npShown = true
+                elseif cc.isPriorityAura == true then prShown = true
+                elseif bk then
+                    bools = bools or {}
+                    bools[bk] = false
+                elseif cc.includeDispelTypes and not prShown then
+                    types = MergeTypes(types, cc.includeDispelTypes)
+                end
+            end
+        end
+        if npShown and prShown then npFlip, flipTypes, flipBools = true, types, bools end
+    end
+
     -- Forward-carried candidate exclusions: candidate classes have no string token
     -- to negate with, so exclusivity rides complementary candidate filters on every
     -- link built AFTER the trigger. Carriers: excludeDispelTypes, the Non-Player
     -- handoff (once nonplayer -- isFromPlayerOrPlayerPet = false -- is in the
     -- chain, later links incl. the catch-all carry the complementary TRUE so the
-    -- two sides partition instead of double-displaying), and -- ADD MODE ONLY --
-    -- subCand (inverted booleans of hidden pure-boolean classes; in broad mode
-    -- subCand stays a catch-all-only payload, legacy parity).
-    local function ExtraCand()
+    -- two sides partition instead of double-displaying), a shown Important
+    -- (isPriorityAura = false on every later link), a shown Boss / Role / Can
+    -- Apply (its field false on every later link, boolOwned), and -- ADD MODE
+    -- ONLY -- subCand (inverted booleans of hidden pure-boolean classes; in broad
+    -- mode subCand stays a catch-all-only payload, legacy parity). skipNp drops
+    -- the Non-Player handoff for the links that outrank Non-Player (see npFlip);
+    -- noBools drops the Boss / Role / Can Apply carry (a link that matches
+    -- nothing keeps its payload and key).
+    local function ExtraCand(skipNp, noBools)
         local withSub = addMode and subCand or nil
-        if not (excludeDispelTypes or npOwned or anyOwned or withSub) then return nil end
+        local np = npOwned and not skipNp
+        local bo = (not noBools) and boolOwned or nil
+        if not (excludeDispelTypes or np or anyOwned or prOwned or bo or withSub) then return nil end
         local t = {}
         if excludeDispelTypes then t.excludeDispelTypes = excludeDispelTypes end
         -- Non-Player and From Any Player are the same field; the options
         -- setters keep them exclusive, nonplayer wins if stale data disagrees.
-        if npOwned then t.isFromPlayerOrPlayerPet = true
+        if npOwned then
+            if np then t.isFromPlayerOrPlayerPet = true end
         elseif anyOwned then t.isFromPlayerOrPlayerPet = false end
+        if prOwned then t.isPriorityAura = false end
+        if bo then
+            for k, v in pairs(bo) do t[k] = v end
+        end
         if withSub then
             for k, v in pairs(withSub) do t[k] = v end
         end
         return t
+    end
+
+    -- excludeCand for a SHOWN candidate link: ExtraCand plus the npFlip ownership.
+    -- A dispel-type link whose every type the forwarded exclude already drops
+    -- (Dispels hidden) matches nothing: it takes no Boss / Role / Can Apply carry.
+    local function ShownCand(cc)
+        local dead = cc.includeDispelTypes ~= nil and excludeDispelTypes ~= nil
+        if dead then
+            for k in pairs(cc.includeDispelTypes) do
+                if not excludeDispelTypes[k] then dead = false; break end
+            end
+        end
+        if not npFlip then return ExtraCand(nil, dead) end
+        local ex = ExtraCand(cc.isPriorityAura == true or OwnedBool(cc) ~= nil
+            or (cc.includeDispelTypes ~= nil and not prOwned), dead)
+        if cc.isFromPlayerOrPlayerPet == false then
+            ex = ex or {}
+            ex.isPriorityAura = false
+            if flipTypes then ex.excludeDispelTypes = MergeTypes(ex.excludeDispelTypes, flipTypes) end
+            if flipBools then
+                for k, v in pairs(flipBools) do ex[k] = v end
+            end
+        end
+        return ex
     end
 
     local function CollectSub(cc)
@@ -590,10 +693,16 @@ local function BuildChain(base, classEnabledFn, includeCatchAll, subtractFn)
                 for n = 1, #negations do tokens[#tokens + 1] = negations[n] end
                 -- class.cand is a candidate-filter TABLE; the shared vocabulary
                 -- carries set-valued filters (includeDispelTypes) directly in it.
-                chain[#chain + 1] = { key = class.key, tokens = tokens, cand = cc, excludeCand = ExtraCand() }
+                chain[#chain + 1] = { key = class.key, tokens = tokens, cand = cc, excludeCand = ShownCand(cc) }
                 if cc.includeDispelTypes then excludeDispelTypes = MergeTypes(excludeDispelTypes, cc.includeDispelTypes) end
                 if cc.isFromPlayerOrPlayerPet == false then npOwned = true
                 elseif cc.isFromPlayerOrPlayerPet == true then anyOwned = true end
+                if cc.isPriorityAura == true then prOwned = true end
+                local bk = OwnedBool(cc)
+                if bk then
+                    boolOwned = boolOwned or {}
+                    boolOwned[bk] = false
+                end
             end
         end
         return chain
@@ -632,12 +741,21 @@ local function BuildChain(base, classEnabledFn, includeCatchAll, subtractFn)
                 local tokens = { base }
                 for n = 1, #negations do tokens[#tokens + 1] = negations[n] end
                 -- class.cand is a candidate-filter TABLE; the shared vocabulary carries
-                -- set-valued filters (includeDispelTypes) directly in it.
-                chain[#chain + 1] = { key = class.key, tokens = tokens, cand = cc, excludeCand = ExtraCand(),
+                -- set-valued filters (includeDispelTypes) directly in it. ShownCand
+                -- may return nil on purpose, so no and/or shortcut here.
+                local ex
+                if en then ex = ShownCand(cc) else ex = ExtraCand() end
+                chain[#chain + 1] = { key = class.key, tokens = tokens, cand = cc, excludeCand = ex,
                     hidden = (sub and not en) or nil }
                 if cc.includeDispelTypes then excludeDispelTypes = MergeTypes(excludeDispelTypes, cc.includeDispelTypes) end
                 if cc.isFromPlayerOrPlayerPet == false then npOwned = true
                 elseif cc.isFromPlayerOrPlayerPet == true then anyOwned = true end
+                if en and cc.isPriorityAura == true then prOwned = true end
+                local bk = en and OwnedBool(cc)
+                if bk then
+                    boolOwned = boolOwned or {}
+                    boolOwned[bk] = false
+                end
             else
                 CollectSub(cc)
             end
@@ -941,6 +1059,10 @@ local function BuildStyle(isBuff, cfg)
 
     -- size 0 = no border; no separate "Hide Border" toggle.
     local border
+    -- The exact solid size (the borderSizePx companion) when one is set: the
+    -- dispel ring strips follow it the way they follow borderSize, so the base
+    -- ring and the dispel ring stay one width.
+    local solidPx
     if borderSize > 0 then
         border = { borderR, borderG, borderB, borderA, size = borderSize }
         -- Texture fields ride only on a textured pick: a border table with a
@@ -959,6 +1081,16 @@ local function BuildStyle(isBuff, cfg)
             border.addonKey = "unitframes"
             border.sizeKey = textureSize
             border.edgeScale = cfg.borderTextureScaleOverride
+            -- Exact edge in pixels (EllesmereUI.BorderPx over the borderSizePx
+            -- companion; nil = the legacy EDGE_MAP step). The preview resolves it
+            -- against the raw step itself (borderPxOverride) since its borderSize
+            -- is scale-compensated and could never pair.
+            border.edgePx = cfg.borderPxOverride
+                or EllesmereUI.BorderPx(cfg.borderSizePx, textureSize, texture)
+        else
+            solidPx = cfg.borderPxOverride
+                or EllesmereUI.BorderPx(cfg.borderSizePx, borderSize, texture)
+            border.edgePx = solidPx
         end
     end
     -- Blizzard Style: no EUI ring on any bar -- buffs go borderless like the
@@ -1075,8 +1207,9 @@ local function BuildStyle(isBuff, cfg)
     -- Engine dispel-type border, debuffs only (buffs have no dispel type). AK's gate
     -- (ApplyStyleToRegions) only activates it when `border` above is ALSO non-nil, so
     -- borderSize = 0 disables dispel-type coloring too, not just the static ring --
-    -- engine behavior, not a choice made here. borderSize drives BOTH ring widths; a
-    -- distinct dispel-ring width would need its own setting split back out.
+    -- engine behavior, not a choice made here. borderSize (or the exact solid size
+    -- above) drives BOTH ring widths; a distinct dispel-ring width would need its
+    -- own setting split back out.
     if not isBuff then
         if ns.PAB_Blizz() then
             -- Blizzard Style: the engine stamps Blizzard's own per-dispel-type
@@ -1086,7 +1219,7 @@ local function BuildStyle(isBuff, cfg)
         else
             local dcMap, dcFP = BuildDispelColorMap(cfg)
             style.dispelBorder = true
-            style.dispelBorderPx = borderSize
+            style.dispelBorderPx = solidPx or borderSize
             style.dispelColorMap = dcMap
             style.dispelColorFP = dcFP
         end
@@ -1198,6 +1331,279 @@ local function DebuffCatchAllOn(cfg)
         end
     end
     return true
+end
+
+-------------------------------------------------------------------------------
+--  Debuff Match Mode (cfg.debuffMatch: nil = Match Any, "all" = Match All)
+--
+--  Match Any is the BuildChain union, untouched. Match All ANDs every Show pick into
+--  ONE group: HARMFUL + every shown token + every shown candidate field, with the
+--  Hide lane as a plain veto (!TOKEN, the opposite boolean, excludeDispelTypes), so
+--  a debuff renders at most once. The dispel types stay one OR'd axis (a debuff has
+--  one type: Magic + Curse = either; Dispels beside a type adds nothing). Runs only
+--  with All Debuffs off and at least two Show picks; anything less builds today's
+--  chain. Only rows the Filters dropdown lists take part, so a retired row's stale
+--  key cannot silently empty the bar.
+--
+--  Icon Effects only PAINT here (they never add content, and Hide beats them): a
+--  block naming a category every member already belongs to paints the whole group;
+--  a block naming another category X splits it into (group AND X, painted) and
+--  (group AND NOT X) -- exact, never duplicating (every category has an exact
+--  complement: the negated token, the opposite boolean, or the remaining dispel
+--  types; Boss, Role and Can Apply split like Important). Buttons stamp the
+--  group's category LIST (link.cats) and the key names that list, since a
+--  button's category is stamped once at creation. Settings-apply time only.
+-------------------------------------------------------------------------------
+local DebuffChainFor
+do
+    local LISTED = {}
+    for i = 1, #DEBUFF_FILTER_ORDER do LISTED[DEBUFF_FILTER_ORDER[i]] = true end
+
+    -- Types of `a` also in / not in `b`, as a fresh set; nil when none are left.
+    local function TypesAnd(a, b)
+        local out
+        for k in pairs(a) do
+            if b[k] then out = out or {}; out[k] = true end
+        end
+        return out
+    end
+    local function TypesMinus(a, b)
+        local out
+        for k in pairs(a) do
+            if not (b and b[k]) then out = out or {}; out[k] = true end
+        end
+        return out
+    end
+
+    local function CopyPart(p)
+        local t, c = {}, {}
+        for i = 1, #p.tokens do t[i] = p.tokens[i] end
+        for k, v in pairs(p.cand) do c[k] = v end
+        return { tokens = t, cand = c }
+    end
+
+    local function HasToken(p, tok)
+        for i = 1, #p.tokens do
+            if p.tokens[i] == tok then return true end
+        end
+        return false
+    end
+
+    -- The group. nil = Match All does not apply; false = the picks can never match
+    -- together (Non-Player with Cast By You, Cast By You with From Any Player hidden,
+    -- a dispel type with Dispels hidden); else the part and the categories every
+    -- member belongs to.
+    local function MatchBase(cfg)
+        if cfg.debuffMatch ~= "all" or cfg.showAllDebuffs ~= false then return nil end
+        local tokenClasses, candidateClasses = VisibleTokenClasses(), VisibleCandidateClasses()
+        if not (tokenClasses and candidateClasses) then return nil end
+        local neg = cfg.negClassFilters
+        local tokens, cand, cats = { "HARMFUL" }, {}, {}
+        local picks, nTypes, clash = 0, 0, false
+        local inc, anyType, exc, typeKey, playerTok, hideBool, dispTok
+        for i = 1, #tokenClasses do
+            local class = tokenClasses[i]
+            if LISTED[class.key] then
+                if ClassEnabled(class, false, cfg) then
+                    picks = picks + 1
+                    tokens[#tokens + 1] = class.token
+                    cats[#cats + 1] = class.key
+                    if class.key == "castbyme" then playerTok = true end
+                    if class.key == "dispellable" then dispTok = true end
+                elseif neg and neg[class.skey] == true then
+                    tokens[#tokens + 1] = class.neg or ("!" .. class.token)
+                end
+            end
+        end
+        for i = 1, #candidateClasses do
+            local class = candidateClasses[i]
+            local cc = class.cand
+            if cc and LISTED[class.key] then
+                if ClassEnabled(class, false, cfg) then
+                    picks = picks + 1
+                    if class.key == "dispeltyped" then
+                        anyType = cc.includeDispelTypes
+                        cats[#cats + 1] = class.key
+                    elseif cc.includeDispelTypes then
+                        inc = MergeTypes(inc, cc.includeDispelTypes)
+                        nTypes, typeKey = nTypes + 1, class.key
+                    else
+                        for k, v in pairs(cc) do
+                            -- Two picks on one field (stale data only: the setters keep
+                            -- Non-Player and From Any Player exclusive) never match.
+                            if cand[k] ~= nil and cand[k] ~= v then clash = true end
+                            cand[k] = v
+                        end
+                        cats[#cats + 1] = class.key
+                    end
+                elseif neg and neg[class.skey] == true then
+                    if cc.includeDispelTypes then
+                        exc = MergeTypes(exc, cc.includeDispelTypes)
+                    else
+                        hideBool = hideBool or {}
+                        for k, v in pairs(cc) do
+                            if type(v) == "boolean" then hideBool[k] = not v end
+                        end
+                    end
+                end
+            end
+        end
+        if picks < 2 then return nil end
+        -- A Show pick owns its field; the Hide lane vetoes only what is left open.
+        if hideBool then
+            for k, v in pairs(hideBool) do
+                if cand[k] == nil then cand[k] = v end
+            end
+        end
+        -- Every per-type set sits inside Dispels' any-type set, so Dispels ANDed onto
+        -- shown types changes nothing. Always a fresh set (never a vocabulary table).
+        local typed = inc or anyType
+        if typed then
+            typed = TypesMinus(typed, exc)
+            if not typed then clash = true end
+            cand.includeDispelTypes = typed
+            -- One shown type: every member carries it (with two, neither is certain).
+            if nTypes == 1 then cats[#cats + 1] = typeKey end
+        elseif exc then
+            cand.excludeDispelTypes = exc
+            -- Dispellable By You passes only debuffs of a dispellable type, so
+            -- hiding all five leaves it nothing.
+            if dispTok and exc.Magic and exc.Curse and exc.Disease and exc.Poison and exc.Bleed then
+                clash = true
+            end
+        end
+        -- PLAYER (Cast By You: you, your pet or vehicle) inside isFromPlayerOrPlayerPet
+        -- = false (a shown Non-Player, or a hidden From Any Player) is always empty.
+        if playerTok and cand.isFromPlayerOrPlayerPet == false then clash = true end
+        if clash then return false end
+        return { tokens = tokens, cand = cand }, cats
+    end
+
+    -- How category `class` relates to part p: "in" when every member belongs to it;
+    -- nil when no member can; else "split" under `probe`, or the (p AND class,
+    -- p AND NOT class) parts.
+    local function Relate(p, class, probe)
+        if class.token then
+            if HasToken(p, class.token) then return "in" end
+            local negTok = class.neg or ("!" .. class.token)
+            if HasToken(p, negTok) then return nil end
+            if probe then return "split" end
+            local a, b = CopyPart(p), CopyPart(p)
+            a.tokens[#a.tokens + 1] = class.token
+            b.tokens[#b.tokens + 1] = negTok
+            return a, b
+        end
+        local cc = class.cand
+        if not cc then return nil end
+        local set = cc.includeDispelTypes
+        if set then
+            local inc, exc = p.cand.includeDispelTypes, p.cand.excludeDispelTypes
+            if inc and not TypesMinus(inc, set) then return "in" end
+            local pos
+            if inc then pos = TypesAnd(inc, set) else pos = set end
+            if pos then pos = TypesMinus(pos, exc) end
+            if not pos then return nil end
+            if probe then return "split" end
+            local a, b = CopyPart(p), CopyPart(p)
+            a.cand.includeDispelTypes = pos
+            a.cand.excludeDispelTypes = nil
+            if inc then
+                b.cand.includeDispelTypes = TypesMinus(inc, set)
+            else
+                b.cand.excludeDispelTypes = MergeTypes(exc, set)
+            end
+            return a, b
+        end
+        local k, v = next(cc)
+        if p.cand[k] ~= nil then
+            if p.cand[k] == v then return "in" end
+            return nil
+        end
+        if probe then return "split" end
+        local a, b = CopyPart(p), CopyPart(p)
+        a.cand[k] = v
+        b.cand[k] = not v
+        return a, b
+    end
+
+    local function MatchLink(p, cats)
+        local sorted = {}
+        for i = 1, #cats do sorted[i] = cats[i] end
+        table.sort(sorted)
+        return { key = "and:" .. table.concat(sorted, "+"), tokens = p.tokens,
+            cand = next(p.cand) and p.cand or nil, cats = sorted }
+    end
+
+    -- nil when Match All does not apply; empty when its picks can never match; else
+    -- the painted splits (block order) followed by the rest of the group.
+    local function MatchAllChain(cfg)
+        local rest, cats = MatchBase(cfg)
+        if rest == nil then return nil end
+        if not rest then return {} end
+        local chain = {}
+        local list = cfg.fxList
+        if list then
+            local inSet, seen = {}, {}
+            for i = 1, #cats do inSet[cats[i]] = true end
+            for i = 1, #list do
+                local e = list[i]
+                local f = e.filters
+                if f and PAB_FxEntryActive(e) then
+                    -- First block wins: one naming a category the rest already
+                    -- belongs to paints all of it, and no later block reaches it.
+                    local hit = false
+                    for j = 1, #DEBUFF_FILTER_ORDER do
+                        local key = DEBUFF_FILTER_ORDER[j]
+                        if f[key] then
+                            if inSet[key] then
+                                hit = true
+                            else
+                                local class = ClassByKey(key)
+                                if class and Relate(rest, class, true) == "in" then
+                                    inSet[key] = true
+                                    cats[#cats + 1] = key
+                                    hit = true
+                                end
+                            end
+                        end
+                    end
+                    if hit then break end
+                    for j = 1, #DEBUFF_FILTER_ORDER do
+                        local key = DEBUFF_FILTER_ORDER[j]
+                        if f[key] and not seen[key] then
+                            seen[key] = true
+                            local class = ClassByKey(key)
+                            local a, b
+                            if class then a, b = Relate(rest, class) end
+                            if type(a) == "table" then
+                                local pc = {}
+                                for n = 1, #cats do pc[n] = cats[n] end
+                                pc[#pc + 1] = key
+                                chain[#chain + 1] = MatchLink(a, pc)
+                                rest = b
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        chain[#chain + 1] = MatchLink(rest, cats)
+        return chain
+    end
+
+    -- The debuff chain for a bar: Match All when it applies, else the union.
+    DebuffChainFor = function(cfg)
+        local chain = MatchAllChain(cfg)
+        if chain then return chain end
+        return BuildChain("HARMFUL", function(class) return ClassEnabled(class, false, cfg) or (PAB_FxSafeToForce(class) and PAB_FxWantsCategory(cfg.fxList, class.key)) end, DebuffCatchAllOn(cfg), DebuffSubtractFn(cfg))
+    end
+
+    -- Options-page empty warning: Match All picks that can never match together.
+    -- The builder's own test, so the two never disagree. ns.PAB_DebuffBarHasContent
+    -- stays as it is (the one-shot EnsureBarEnable migration reads it).
+    function ns.PAB_DebuffMatchEmpty(cfg)
+        return cfg ~= nil and MatchBase(cfg) == false
+    end
 end
 
 -- MergeCandidateFilters (below) merges `extra` onto a copy of `base`, nil-safe both
@@ -1334,12 +1740,13 @@ local function ApplyGroupConfig(container, chain, declaredSet, styleKey, effecti
         local link = chain[i]
         -- Size override, debuffs only: cfg.fxList is nil for buffs, so szOv is always
         -- nil there.
-        local szOv = PAB_FxSizeFor(cfg.fxList, link.key)
+        local szOv = PAB_FxSizeFor(cfg.fxList, link.cats or link.key)
         local layout = BuildGroupLayout(cfg, gap, rowGap, szOv)
         -- Token strings are declaration-fixed too, so the effective key embeds the
         -- link's token set: a changed negation shape (subtract flips, class-set edits)
         -- declares a fresh variant instead of leaving a stale filter on the old group.
-        -- link.key alone stays the fx CATEGORY identity (d.dmCat / PAB_FxSizeFor).
+        -- link.key alone stays the fx CATEGORY identity (d.dmCat / PAB_FxSizeFor);
+        -- a Match All link carries a category list instead (link.cats, named by its key).
         local effKey = link.key .. "|" .. table.concat(link.tokens, "")
         if szOv then effKey = effKey .. "|sz" end
         local linkStyleKey = szOv and EnsurePabSizedStyle(styleKey, szOv, cfg.iconShape) or styleKey
@@ -1374,7 +1781,7 @@ local function ApplyGroupConfig(container, chain, declaredSet, styleKey, effecti
         if variant > 0 then effKey = effKey .. "#" .. variant end
         active[effKey] = true
         if not declaredSet[effKey] then
-            local catKey = link.key
+            local catKey = link.cats or link.key
             AK.AddGroupToContainer(container, {
                 key = effKey,
                 filter = link.tokens,
@@ -2302,7 +2709,18 @@ end
 -- Applies the saved position (if any) or the default to the given parent frame.
 -- Shared between initial creation and the unlock-mode applyPos callback so the two
 -- never drift into different SetPoint logic. `grid` is optional (computed when nil).
+-- An unlock-anchored bar belongs to the anchor: the stored position is only a
+-- snapshot of where the anchor put it at the last Save & Exit, stale once the
+-- target moves (a player frame riding a CDM whose width varies per spec or
+-- character), and nothing re-anchors a fixed-size bar afterwards. The stored
+-- position still seeds a parent with no point yet; the anchor then places it.
 local function ApplyBarPosition(parent, isBuff, grid)
+    local unlockKey = isBuff and "PAB_Buffs" or "PAB_Debuffs"
+    local anchored = EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored(unlockKey)
+    if anchored and parent:GetNumPoints() > 0 and EllesmereUI.ReapplyOwnAnchor then
+        EllesmereUI.ReapplyOwnAnchor(unlockKey)
+        return
+    end
     local s = PAB()
     local posKey = BarPositionKey(isBuff)
     local pos = s and s[posKey]
@@ -2317,6 +2735,7 @@ local function ApplyBarPosition(parent, isBuff, grid)
     if cfg and (cfg.growDirection == "CENTER_HORIZONTAL" or cfg.growDirection == "CENTER_VERTICAL") then
         s[posKey] = RebaseBarPositionToCenter(parent, pos)
     end
+    if anchored and EllesmereUI.ReapplyOwnAnchor then EllesmereUI.ReapplyOwnAnchor(unlockKey) end
 end
 
 -- Blizzard's player BuffFrame/DebuffFrame are superseded by this module: hide them so
@@ -2573,7 +2992,7 @@ local function CreateBars()
     ApplyDefaultBarShown(true)
     ApplyDefaultBarShown(false)
 
-    local debuffChain = BuildChain("HARMFUL", function(class) return ClassEnabled(class, false, debuffCfg) or (PAB_FxSafeToForce(class) and PAB_FxWantsCategory(debuffCfg.fxList, class.key)) end, DebuffCatchAllOn(debuffCfg), DebuffSubtractFn(debuffCfg))
+    local debuffChain = DebuffChainFor(debuffCfg)
 
     -- Single scalar padding, feeding ONLY ApplyGroupConfig's per-group
     -- elementSpacing/lineSpacing/groupSpacing/groupLineSpacing (gap BETWEEN icons).
@@ -3050,7 +3469,7 @@ local function ApplyLiveConfig(isBuff)
             end
         end
     else
-        local chain = BuildChain("HARMFUL", function(class) return ClassEnabled(class, false, cfg) or (PAB_FxSafeToForce(class) and PAB_FxWantsCategory(cfg.fxList, class.key)) end, DebuffCatchAllOn(cfg), DebuffSubtractFn(cfg))
+        local chain = DebuffChainFor(cfg)
         ApplyGroupConfig(container, chain, declared.debuffs, STYLE_DEBUFFS, grid.effectiveMax, pad, grid.rowGap, cfg, DebuffCandidateExtras(cfg))
     end
 
@@ -3976,8 +4395,14 @@ end
 
 -- Applies bar.pos (or the default) to a custom bar's parent frame. Same SetPoint
 -- logic as ApplyBarPosition, kept separate only because custom bars key off bar.pos
--- on the bar object, not a fixed s[BarPositionKey] slot.
+-- on the bar object, not a fixed s[BarPositionKey] slot. Same anchored rule too.
 local function ApplyCustomBarPosition(parent, bar, barId, isBuff, grid)
+    local unlockKey = (isBuff and "PAB_CustomBuff_" or "PAB_CustomDebuff_") .. barId
+    local anchored = EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored(unlockKey)
+    if anchored and parent:GetNumPoints() > 0 and EllesmereUI.ReapplyOwnAnchor then
+        EllesmereUI.ReapplyOwnAnchor(unlockKey)
+        return
+    end
     local pos = bar.pos or DefaultCustomPos(barId)
     local x, y = BarAnchorOffset(parent, bar, grid or ComputeGrid(isBuff, bar), pos)
     parent:ClearAllPoints()
@@ -3987,6 +4412,7 @@ local function ApplyCustomBarPosition(parent, bar, barId, isBuff, grid)
         local centeredPos = RebaseBarPositionToCenter(parent, pos)
         if bar.pos or centeredPos ~= pos then bar.pos = centeredPos end
     end
+    if anchored and EllesmereUI.ReapplyOwnAnchor then EllesmereUI.ReapplyOwnAnchor(unlockKey) end
 end
 
 local function CustomBuffSpellSignature(spells)
@@ -4361,7 +4787,7 @@ local function ReloadCustomDebuffBarImpl(barId)
         parent:SetSize(grid.width, grid.height)
     end
 
-    local chain = BuildChain("HARMFUL", function(class) return ClassEnabled(class, false, bar) or (PAB_FxSafeToForce(class) and PAB_FxWantsCategory(bar.fxList, class.key)) end, DebuffCatchAllOn(bar), DebuffSubtractFn(bar))
+    local chain = DebuffChainFor(bar)
     local _, spec = BuildContainerSpec(parent, bar, grid)
     local pad = bar.padding or 5
 
@@ -4857,6 +5283,16 @@ local function ApplyPreviewScale(cfg, comp)
     -- mirroring iconSize's own scale-after-resolve treatment. BuildStyle prefers this
     -- over recomputing from the already-scaled out.borderSize when present.
     out.shapeBorderSizeOverride = PabShapeBorderSize(cfg.borderSize or 1) * comp
+    -- The exact size (borderSizePx) pairs with the RAW step and texture, so it is
+    -- resolved here, before the compensation above, and handed to BuildStyle as
+    -- borderPxOverride. Solid scales like borderSize; a textured edge stays raw
+    -- because the eight-slice draw scales it by borderTextureScaleOverride itself.
+    local rawTex = cfg.borderTexture
+    local rawPx = EllesmereUI.BorderPx(cfg.borderSizePx, cfg.borderSize or 1, rawTex)
+    if rawPx then
+        local textured = rawTex and rawTex ~= "" and rawTex ~= "solid"
+        out.borderPxOverride = textured and rawPx or (rawPx * comp)
+    end
     out.durationTextSize = (cfg.durationTextSize or 11) * comp
     out.durationOffsetX = (cfg.durationOffsetX or 0) * comp
     out.durationOffsetY = (cfg.durationOffsetY or 0) * comp
@@ -4929,6 +5365,8 @@ local function HasFillerSource(isBuff, cfg)
     if isBuff then
         return cfg.showAllBuffs ~= false or cfg.hasDuration == true
     end
+    -- Match All picks that can never match together render nothing.
+    if ns.PAB_DebuffMatchEmpty(cfg) then return false end
     return cfg.showAllDebuffs ~= false or cfg.hasDuration == true or HasAnyTrue(cfg.classFilters)
 end
 
@@ -5454,7 +5892,7 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
                     EllesmereUI.ApplySecretSafeBorderStyle(btn.border, btn.borderState,
                         appliedSize, br, bg, bb, ba, b.texture or "solid",
                         b.offsetX, b.offsetY, b.shiftX, b.shiftY,
-                        b.addonKey or "unitframes", b.sizeKey or size, b.edgeScale)
+                        b.addonKey or "unitframes", b.sizeKey or size, b.edgeScale, b.edgePx)
                     btn.borderMade = true
                 end
             else
@@ -5775,21 +6213,25 @@ function ns.PAB_UseBlizzard()
     return (s and s.useBlizzardBuffs == true) or false
 end
 
--- Blizzard Style (Global Settings > Style) for the aura bars: read from the
--- profile once (first call with a profile present) and latched for the
--- session like the other module getters, so a live profile switch never flips
--- the look under the engine-registered border art; the profile system prompts
--- for a reload instead.
-function ns.PAB_Blizz()
-    local v = ns._pabBlizz
+-- Stock styles (Global Settings > Style) for the aura bars: "eui",
+-- "blizzard" or "classic", read from the profile once (first call with a
+-- profile present) and latched for the session like the other module
+-- getters, so a live profile switch never flips the look under the
+-- engine-registered border art; the profile system prompts for a reload
+-- instead. The Classic flag wins when both are set. Both stock styles wear
+-- the same stock aura borders, so PAB_Blizz answers for either.
+function ns.PAB_Style()
+    local v = ns._pabStyle
     if v == nil then
         local s = PAB()
-        if not s then return false end
-        v = s.useBlizzardStyle and true or false
-        ns._pabBlizz = v
+        if not s then return "eui" end
+        v = (s.useClassicStyle and "classic") or (s.useBlizzardStyle and "blizzard") or "eui"
+        ns._pabStyle = v
     end
     return v
 end
+function ns.PAB_Blizz() return ns.PAB_Style() ~= "eui" end
+function ns.PAB_Classic() return ns.PAB_Style() == "classic" end
 
 -- Profile-grade resync, called from the _EUF_ReloadFrames tail (profile
 -- switches, imports, spec-override swaps all land there): re-asserts the

@@ -171,32 +171,39 @@ end
 local ECME = EllesmereUI.Lite.NewAddon("EllesmereUICooldownManager")
 ns.ECME = ECME
 
--- Blizzard Style flags (Global Settings > Style). Reload-gated: each is read
--- from the profile ONCE (first call with a profile present) and latched for
--- the session, so a live profile switch can never flip the look under the
--- one-time art setup below; the profile system prompts for a reload when a
--- switched-to profile carries a different flag. Every call site is a
--- build/restyle path, never a per-tick one.
-function ns.CdmBlizzIcons()
-    local v = ns._cdmBlizzIcons
+-- Style flags (Global Settings > Style: EllesmereUI, Blizzard or Classic WoW
+-- UI). Reload-gated: each is read from the profile ONCE (first call with a
+-- profile present) and latched for the session, so a live profile switch can
+-- never flip the look under the one-time art setup below; the profile system
+-- prompts for a reload when a switched-to profile carries a different flag.
+-- Every call site is a build/restyle path, never a per-tick one.
+-- The style this module RENDERS on its icons this session: "eui" | "blizzard" | "classic".
+function ns.CdmIconStyle()
+    local v = ns._cdmIconStyle
     if v == nil then
         local p = ECME.db and ECME.db.profile
-        if not p then return false end
-        v = p.useBlizzardStyle and true or false
-        ns._cdmBlizzIcons = v
+        if not p then return "eui" end
+        v = (p.useClassicStyle and "classic") or (p.useBlizzardStyle and "blizzard") or "eui"
+        ns._cdmIconStyle = v
     end
     return v
 end
-function ns.CdmBlizzBars()
-    local v = ns._cdmBlizzBars
+-- Stock-art mode: true for both stock styles (the geometry, gating and chrome they share).
+function ns.CdmBlizzIcons() return ns.CdmIconStyle() ~= "eui" end
+function ns.CdmClassicIcons() return ns.CdmIconStyle() == "classic" end
+-- The style the tracked buff bars render this session, latched the same way.
+function ns.CdmBarStyle()
+    local v = ns._cdmBarStyle
     if v == nil then
         local p = ECME.db and ECME.db.profile
-        if not p then return false end
-        v = p.useBlizzardStyleBars and true or false
-        ns._cdmBlizzBars = v
+        if not p then return "eui" end
+        v = (p.useClassicStyleBars and "classic") or (p.useBlizzardStyleBars and "blizzard") or "eui"
+        ns._cdmBarStyle = v
     end
     return v
 end
+function ns.CdmBlizzBars() return ns.CdmBarStyle() ~= "eui" end
+function ns.CdmClassicBars() return ns.CdmBarStyle() == "classic" end
 -- Blizzard's cooldown viewer art: the rounded icon mask, the bevel ring drawn
 -- around every icon, and the rounded swipe file the viewer's Cooldown uses.
 ns.CDM_BLIZZ_MASK    = "UI-HUD-CoolDownManager-Mask"
@@ -206,9 +213,27 @@ ns.CDM_BLIZZ_SWIPE   = "Interface\\HUD\\UI-HUD-CoolDownManager-Icon-Swipe"
 -- essential icons at -9/+8, i.e. the ring sits proportionally outside the icon).
 ns.CDM_BLIZZ_RING_X  = 0.18
 ns.CDM_BLIZZ_RING_Y  = 0.16
+-- Classic WoW UI icon art: the vanilla action button ring, a plain 66px
+-- texture on a 36px button centred one pixel low, sized by the icon it rings.
+-- Classic icons are square: no mask, full art, EUI's own square swipe.
+ns.CDM_CLASSIC_RING       = "Interface\\Buttons\\UI-Quickslot2"
+ns.CDM_CLASSIC_RING_SCALE = 66 / 36
+ns.CDM_CLASSIC_RING_Y     = -1 / 36
+-- Places a classic ring texture round a w x h icon region.
+function ns.CdmPlaceClassicRing(ov, anchor, w, h)
+    ov:ClearAllPoints()
+    ov:SetSize(w * ns.CDM_CLASSIC_RING_SCALE, h * ns.CDM_CLASSIC_RING_SCALE)
+    ov:SetPoint("CENTER", anchor, "CENTER", 0, h * ns.CDM_CLASSIC_RING_Y)
+end
+-- The swipe file the latched icon style draws: the viewer's rounded swipe
+-- under Blizzard Style, EUI's square swipe otherwise.
+function ns.CdmSwipeFile()
+    if ns.CdmIconStyle() == "blizzard" then return ns.CDM_BLIZZ_SWIPE end
+    return "Interface\\AddOns\\EllesmereUI\\media\\white-square.png"
+end
 -- Creation-time crop for icons on frames we build ourselves (trinkets,
 -- placeholders, custom buffs, item presets): the EUI 8% zoom, or the full art
--- under Blizzard Style (RefreshCDMIconAppearance re-applies the same rule).
+-- under a stock style (RefreshCDMIconAppearance re-applies the same rule).
 function ns.CdmOwnIconCrop(tex)
     if ns.CdmBlizzIcons() then
         tex:SetTexCoord(0, 1, 0, 1)
@@ -628,12 +653,16 @@ local DEFAULTS = {
     profile = {
         -- CDM Look
         reskinBorders   = true,
-        -- Blizzard Style (Global Settings > Style). Both default OFF and are
-        -- reload-gated: icons keep Blizzard's rounded mask, overlay ring and
-        -- swipe art; tracked buff bars use Blizzard's bar art. Every EUI
+        -- Style flags (Global Settings > Style). All default OFF and are
+        -- reload-gated. Blizzard Style: icons keep Blizzard's rounded mask,
+        -- overlay ring and swipe art; tracked buff bars use Blizzard's bar
+        -- art. Classic WoW UI: square icons in the vanilla action button
+        -- ring; tracked buff bars in the vanilla cast bar frame. Every EUI
         -- feature keeps working; only the EUI-look settings are disabled.
         useBlizzardStyle     = false,
         useBlizzardStyleBars = false,
+        useClassicStyle      = false,
+        useClassicStyleBars  = false,
         -- Bar Glows (per-spec)
         spec            = {},
         activeSpecKey   = "0",
@@ -4409,6 +4438,80 @@ local function GetStableCDMBarSize(barKey, frame, barData)
     return EMPTY_CDM_BAR_SIZE[1], EMPTY_CDM_BAR_SIZE[2]
 end
 
+-- A width/height match target that draws inside a larger box (getInsets:
+-- Blizzard Style unit frames) matches by its visible art, converted into the
+-- bar's scale, as the unlock-mode match does. nil for every other target (the
+-- raw frame read stands).
+function ns.CdmMatchInsetSize(targetKey, targetFrame, bar)
+    local elems = EllesmereUI._unlockRegisteredElements
+    local elem = elems and elems[targetKey]
+    if not (elem and elem.getInsets) then return nil end
+    local l, r, t, b = elem.getInsets(targetKey)
+    if not l then return nil end
+    local k = targetFrame:GetEffectiveScale() / bar:GetEffectiveScale()
+    return (targetFrame:GetWidth() - l - r) * k, (targetFrame:GetHeight() - t - b) * k
+end
+
+-- "CDM_" .. barKey, built once per bar key, so the layout and pad paths look a
+-- bar's unlock element up without building a string each pass.
+ns._cdmUKey = setmetatable({}, { __index = function(t, k)
+    local v = "CDM_" .. k
+    t[k] = v
+    return v
+end })
+
+-- The width and height a CDM bar's own textured icon border draws OUTSIDE the
+-- bar frame, in bar units, from exactly the arguments the icon border renderer
+-- passes (bar-level size, texture, offsets and shifts, the "cdm" registry keyed
+-- by the thickness label, the exact px, the colour's alpha). The outer icons sit
+-- flush with the bar's edges, so their reach is the bar's. The renderer
+-- normalizes the icon's scale away (UIParent / icon), so in bar units the ratio
+-- is UIParent / bar. nil for buff-family bars (never in a match), the stock
+-- looks (no EUI border), custom shapes (the ring sits inside the icon) and a
+-- border that draws nothing outside. Reads settings and scales only.
+function ns.CdmBarMatchPad(barKey)
+    local bd = barDataByKey[barKey]
+    local f = cdmBarFrames[barKey]
+    if not bd or not f or not EllesmereUI.BorderMatchPad then return nil end
+    local tex = bd.borderTexture or "solid"
+    if tex == "solid" then return nil end
+    if ns.IsBarBuffFamily(bd) or bd.barType == "custom_buff" then return nil end
+    if ns.CdmBlizzIcons() then return nil end
+    local shape = bd.iconShape or "none"
+    if shape ~= "none" and shape ~= "cropped" then return nil end
+    local es, uiES = f:GetEffectiveScale(), UIParent:GetEffectiveScale()
+    local ratio = 1
+    if es and es > 0.01 and uiES and uiES > 0 then ratio = uiES / es end
+    local sz = bd.borderSize or 1
+    return EllesmereUI.BorderMatchPad(sz, tex, bd.borderTextureOffset, bd.borderTextureOffsetY,
+        bd.borderTextureShiftX, bd.borderTextureShiftY, "cdm", bd.borderThickness or "thin",
+        EllesmereUI.BorderPx(bd.borderSizePx, sz, tex), ratio, bd.borderA or 1)
+end
+
+-- Border-aware CDM match, added to LayoutCDMBar's raw target read in the same
+-- units: what the target draws outside its own rect (its getMatchPad on this
+-- axis; 0 when its inset art was read, which already is the visible size) minus
+-- what this bar's own icon border draws outside. Only positive pads count, as in
+-- the unlock-mode match. Exactly 0 when neither side has one.
+function ns.CdmMatchAdj(barKey, targetKey, isWidth, insetUsed)
+    local t, o = 0, 0
+    if not insetUsed then
+        local elems = EllesmereUI._unlockRegisteredElements
+        local elem = elems and elems[targetKey]
+        if elem and elem.getMatchPad then
+            local pw, ph = elem.getMatchPad(targetKey)
+            local v
+            if isWidth then v = pw else v = ph end
+            if v and v > 0 then t = v end
+        end
+    end
+    local ow, oh = ns.CdmBarMatchPad(barKey)
+    local v
+    if isWidth then v = ow else v = oh end
+    if v and v > 0 then o = v end
+    return t - o
+end
+
 -------------------------------------------------------------------------------
 --  Layout icons within a CDM bar
 -------------------------------------------------------------------------------
@@ -4498,9 +4601,24 @@ LayoutCDMBar = function(barKey)
     if widthMatchTarget and #icons > 0 then
         local targetFrame = GetMatchTargetFrame(widthMatchTarget)
         local targetW = targetFrame and targetFrame:GetWidth() or 0
+        if targetFrame then
+            local artW = ns.CdmMatchInsetSize(widthMatchTarget, targetFrame, frame)
+            if artW then targetW = artW end
+            -- Border-aware match (ns.CdmMatchAdj). Skipped at 0 (no textured
+            -- border on either side, or equal ones cancelling); never moves the
+            -- targetW > 1 gate below either way.
+            if targetW > 1 then
+                local adj = ns.CdmMatchAdj(barKey, widthMatchTarget, true, artW ~= nil)
+                if math.abs(adj) > 1e-6 and targetW + adj > 1 then targetW = targetW + adj end
+            end
+        end
         local curDim = CurWidthDim()
         if targetW > 1 and curDim and curDim > 0 then
             local physTarget = math.floor(targetW / onePx + 0.5)
+            -- The match's Extra Width: whole physical px on the floored target,
+            -- so no second rounding. nil = none stored.
+            local mx = EllesmereUI.GetMatchExtra and EllesmereUI.GetMatchExtra("w", ns._cdmUKey[barKey])
+            if mx then physTarget = physTarget + mx end
             local physSp = math.floor(spacing / onePx + 0.5)
             local rawPhysIcon = (physTarget - (curDim - 1) * physSp) / curDim
             if rawPhysIcon < 8 then rawPhysIcon = 8 end
@@ -4514,11 +4632,23 @@ LayoutCDMBar = function(barKey)
     elseif heightMatchTarget and #icons > 0 then
         local targetFrame = GetMatchTargetFrame(heightMatchTarget)
         local targetH = targetFrame and targetFrame:GetHeight() or 0
+        if targetFrame then
+            local _, artH = ns.CdmMatchInsetSize(heightMatchTarget, targetFrame, frame)
+            if artH then targetH = artH end
+            -- Border-aware match, as for width.
+            if targetH > 1 then
+                local adj = ns.CdmMatchAdj(barKey, heightMatchTarget, false, artH ~= nil)
+                if math.abs(adj) > 1e-6 and targetH + adj > 1 then targetH = targetH + adj end
+            end
+        end
         local curDim = CurHeightDim()
         if targetH > 1 and curDim and curDim > 0 then
             local shape = barData.iconShape or "none"
             local cropFactor = (shape == "cropped") and 0.80 or 1.0
             local physTarget = math.floor(targetH / onePx + 0.5)
+            -- The match's Extra Height, as for width.
+            local mx = EllesmereUI.GetMatchExtra and EllesmereUI.GetMatchExtra("h", ns._cdmUKey[barKey])
+            if mx then physTarget = physTarget + mx end
             local physSp = math.floor(spacing / onePx + 0.5)
             local rawPhysIcon = (physTarget - (curDim - 1) * physSp) / curDim / cropFactor
             if rawPhysIcon < 8 then rawPhysIcon = 8 end
@@ -5168,9 +5298,10 @@ ApplyShapeToCDMIcon = function(icon, shape, barData, ssb)
     end
 
     local ifc = FC(icon)
-    -- Blizzard Style: the rounded viewer mask replaces every EUI shape, the
-    -- ring overlay replaces the square border, and the icon shows its full art
-    -- (no zoom) exactly as the viewer draws it.
+    -- Stock styles: the style's ring replaces every EUI shape and the square
+    -- border, and the icon shows its full art (no zoom) exactly as the viewer
+    -- draws it (rounded by the viewer mask under Blizzard Style, square under
+    -- Classic WoW UI).
     local blizzArt = ns.CdmBlizzIcons()
     if blizzArt then shape = "none"; zoom = 0 end
     if shape == "none" or shape == "cropped" or not shape then
@@ -5193,12 +5324,16 @@ ApplyShapeToCDMIcon = function(icon, shape, barData, ssb)
             -- Blizzard Style draws no EUI border (the ring overlay is the frame).
         elseif fd and fd.borderFrame or EllesmereUI.PP.GetBorders(icon) then
             local texKey = barData.borderTexture or "solid"
+            -- Exact size (borderSizePx) belongs to the bar's own step: a per-icon
+            -- override that differs from it fails the step compare and stays legacy,
+            -- one equal to it takes the bar's px like the other two paint paths.
+            local edgePx = EllesmereUI.BorderPx(barData.borderSizePx, borderSz, texKey)
             -- "Show Behind": set the border frame's level BEFORE styling so the
             -- textured backdrop inherits it. +13 = in front, level-1 = behind.
             if fd and fd.borderFrame then
                 fd.borderFrame:SetFrameLevel(barData.borderBehind and math.max(0, icon:GetFrameLevel() - 1) or (icon:GetFrameLevel() + 13))
             end
-            EllesmereUI.ApplyBorderStyle(bdrTarget, borderSz, brdR, brdG, brdB, brdA, texKey, barData.borderTextureOffset, barData.borderTextureOffsetY, barData.borderTextureShiftX, barData.borderTextureShiftY, "cdm", barData.borderThickness or "thin", true)
+            EllesmereUI.ApplyBorderStyle(bdrTarget, borderSz, brdR, brdG, brdB, brdA, texKey, barData.borderTextureOffset, barData.borderTextureOffsetY, barData.borderTextureShiftX, barData.borderTextureShiftY, "cdm", barData.borderThickness or "thin", true, edgePx)
         end
 
         -- Restore icon texture, filling the entire frame: PP.CreateBorder renders the border on top, so no inset is needed.
@@ -5211,7 +5346,8 @@ ApplyShapeToCDMIcon = function(icon, shape, barData, ssb)
                 extraCrop = (1 - 2 * zoom) / (2 * (baseW + 1))
             end
             if blizzArt then
-                -- Full art under the rounded mask, as the viewer draws it.
+                -- Full art, as the viewer draws it (rounded by the viewer mask
+                -- under Blizzard Style, square under Classic WoW UI).
                 if tex.SetSnapToPixelGrid then tex:SetSnapToPixelGrid(true) end
                 tex:SetTexCoord(0, 1, 0, 1)
             elseif shape == "cropped" then
@@ -5232,7 +5368,7 @@ ApplyShapeToCDMIcon = function(icon, shape, barData, ssb)
         if cd then
             cd:ClearAllPoints()
             cd:SetAllPoints(icon)
-            pcall(cd.SetSwipeTexture, cd, blizzArt and ns.CDM_BLIZZ_SWIPE or "Interface\\AddOns\\EllesmereUI\\media\\white-square.png")
+            pcall(cd.SetSwipeTexture, cd, ns.CdmSwipeFile())
             if cd.SetUseCircularEdge then pcall(cd.SetUseCircularEdge, cd, false) end
         end
 
@@ -5936,7 +6072,8 @@ local function RefreshCDMIconAppearance(barKey)
             -- Blizzard Style: no EUI border or background (ring + mask instead).
         elseif fd and fd.borderFrame or EllesmereUI.PP.GetBorders(icon) then
             local textureKey = barData.borderTexture or "solid"
-            EllesmereUI.ApplyBorderStyle(bdrTgt, borderSize, barData.borderR or 0, barData.borderG or 0, barData.borderB or 0, barData.borderA or 1, textureKey, barData.borderTextureOffset, barData.borderTextureOffsetY, barData.borderTextureShiftX, barData.borderTextureShiftY, "cdm", barData.borderThickness or "thin", true)
+            EllesmereUI.ApplyBorderStyle(bdrTgt, borderSize, barData.borderR or 0, barData.borderG or 0, barData.borderB or 0, barData.borderA or 1, textureKey, barData.borderTextureOffset, barData.borderTextureOffsetY, barData.borderTextureShiftX, barData.borderTextureShiftY, "cdm", barData.borderThickness or "thin", true,
+                EllesmereUI.BorderPx(barData.borderSizePx, borderSize, textureKey))
         end
         -- Update background
         if bg and not blizzArt then
@@ -8054,6 +8191,14 @@ BuildAllCDMBars = function()
 
     -- Every full rebuild re-evaluates the FocusKick demand gate, so assigning the first kick spell (or removing the last) flips the feature family on/off live.
     if ns.RefreshFocusKickProxies then ns.RefreshFocusKickProxies() end
+
+    -- Match pads follow each bar's border settings: a bar whose pad changed is
+    -- re-pushed through its matches once, deferred (compare-only here).
+    if EllesmereUI.MatchPadChanged then
+        for _, bd in ipairs(p.cdmBars.bars) do
+            if bd.key then EllesmereUI.MatchPadChanged(ns._cdmUKey[bd.key]) end
+        end
+    end
 end
 
 -- Expose for options
@@ -9450,6 +9595,9 @@ RegisterCDMUnlockElements = function()
                 linkedKeys = linked,
                 noAnchorTarget = isDynamic,
                 noResize = isDynamic,
+                -- Outside reach of the bar's textured icon border for size matching
+                -- (nil for dynamic bars, stock looks, custom shapes, solid borders).
+                getMatchPad = function() return ns.CdmBarMatchPad(key) end,
                 isHidden = function()
                     -- If this bar key is no longer in the current profile's barDataByKey, it is a stale registration from a previous profile and should not get a mover.
                     return not barDataByKey[key]
