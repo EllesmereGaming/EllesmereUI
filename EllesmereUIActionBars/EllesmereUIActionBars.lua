@@ -748,7 +748,12 @@ end
 
 local function FadeTo(frame, toAlpha, duration, manual)
     duration = duration or 0.1
-    if abs(frame:GetAlpha() - toAlpha) < 0.01 then
+    local currentAlpha = frame:GetAlpha()
+    if issecretvalue and issecretvalue(currentAlpha) then
+        currentAlpha = 1.0
+    end
+
+    if abs(currentAlpha - toAlpha) < 0.01 then
         frame:SetAlpha(toAlpha)
         return
     end
@@ -761,7 +766,7 @@ local function FadeTo(frame, toAlpha, duration, manual)
         local existing = _extraFadeQueue[frame]
         if existing and existing.toAlpha == toAlpha then return end
         _extraFadeQueue[frame] = {
-            fromAlpha = frame:GetAlpha(),
+            fromAlpha = currentAlpha,
             toAlpha   = toAlpha,
             duration  = duration,
             elapsed   = 0,
@@ -791,7 +796,7 @@ local function FadeTo(frame, toAlpha, duration, manual)
     if group:IsPlaying() and group._toAlpha == toAlpha then return end
     if group:IsPlaying() then group:Stop() end
     group._toAlpha = toAlpha
-    anim:SetFromAlpha(frame:GetAlpha())
+    anim:SetFromAlpha(currentAlpha)
     anim:SetToAlpha(toAlpha)
     anim:SetDuration(duration)
     anim:SetStartDelay(0)
@@ -10096,7 +10101,9 @@ function EAB:ApplyClickThroughForBar(barKey)
         local btn = buttons[i]
         if btn then
             -- Don't re-enable mouse on invisible empty slots
-            local isInvisible = (btn:GetAlpha() == 0) and not showEmpty
+            local btnAlpha = btn:GetAlpha()
+            local isZeroAlpha = not (issecretvalue and issecretvalue(btnAlpha)) and (btnAlpha == 0)
+            local isInvisible = isZeroAlpha and not showEmpty
             if not isInvisible then
                 if enable then
                     SafeEnableMouse(btn, true)
