@@ -727,7 +727,6 @@ initFrame:SetScript("OnEvent", function(self)
                 wipe(ns._healthAnimState)
 
                 local frames = ns.PvActiveFrames()
-                local s = (ns.PvEffectiveProfile and ns.PvEffectiveProfile()) or db.profile
                 for i = 1, 20 do
                     local f = frames[i]
                     if f and f._health then
@@ -746,8 +745,9 @@ initFrame:SetScript("OnEvent", function(self)
                 ns._healthAnimTicker = C_Timer.NewTicker(0.1, function()
                     if not ns._healthAnimActive then return end
                     -- Real preview contract: ticks must render effective-overlay values only, never the panel view's swapped values.
-                    local s = (ns.PvEffectiveProfile and ns.PvEffectiveProfile()) or db.profile
+                    local s = (ns.PvSettings and ns.PvSettings()) or db.profile
                     local smooth = s.smoothBars
+                    local invert = ns.RF_IsInvertedFill(s)
 
                     for i, st in ipairs(ns._healthAnimState) do
                         local f = st.frame
@@ -761,10 +761,11 @@ initFrame:SetScript("OnEvent", function(self)
                                 st.current = st.target
                                 st.target = 15 + math.random(85)
 
+                                local barPct = invert and (100 - st.current) or st.current
                                 if smooth and smoothInterp then
-                                    f._health:SetValue(st.current, smoothInterp)
+                                    f._health:SetValue(barPct, smoothInterp)
                                 else
-                                    f._health:SetValue(st.current)
+                                    f._health:SetValue(barPct)
                                 end
 
                                 if f._healthText then
@@ -984,6 +985,10 @@ initFrame:SetScript("OnEvent", function(self)
                       get=function() return SVal("healthVerticalFill", false) end,
                       -- RefreshPage re-labels Absorbs Placement for the new axis; cog popups bake labels in on first build.
                       set=function(v) SSet("healthVerticalFill", v); EllesmereUI:RefreshPage() end },
+                    { type="toggle", label="Invert Health Fill",
+                      tooltip="Render the health bar inverted: bar is full at low health and empty at high health.",
+                      get=function() return SVal("healthInvertFill", false) end,
+                      set=function(v) SSet("healthInvertFill", v); EllesmereUI:RefreshPage() end },
                 },
             })
             local cogBtn = CreateFrame("Button", nil, lrgn)
