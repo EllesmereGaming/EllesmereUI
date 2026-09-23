@@ -19,29 +19,63 @@ initFrame:SetScript("OnEvent", function(self)
         local W = EllesmereUI.Widgets
         local y = yOffset
         local _, h
-        local BORDER_VALUES = { none="None", thin="Thin", normal="Normal", heavy="Heavy", strong="Strong" }
-        local BORDER_ORDER = { "none", "thin", "normal", "heavy", "strong" }
+        -- The step the skin renders with (_applyConfiguredBorder in EllesmereUIBlizzardSkin.lua):
+        -- the stored label (an unknown one = thin); unset = the legacy numeric tooltipBorderSize for the tooltip, 1 otherwise.
+        local function BorderStep(prefix)
+            local key = EllesmereUIDB[prefix.."BorderThickness"]
+            if key then return EllesmereUI.BORDER_STEP_OF_LABEL[key] or 1 end
+            if prefix == "tooltip" then return EllesmereUIDB.tooltipBorderSize or 1 end
+            return 1
+        end
+        -- Border Size in pixels over <prefix>BorderThickness (still a label) and its <prefix>BorderThicknessPx companion.
+        local function BorderSizeSlider(prefix, text, disabledFn, apply)
+            return EllesmereUI.BorderPxSliderCfg{
+                text = text, disabled = disabledFn,
+                getStep = function() return BorderStep(prefix) end,
+                setStep = function(step) EllesmereUIDB[prefix.."BorderThickness"] = EllesmereUI.BORDER_LABEL_OF_STEP[step] or "thin" end,
+                getTex = function() return EllesmereUIDB[prefix.."BorderTexture"] or "solid" end,
+                getPx = function() return EllesmereUIDB[prefix.."BorderThicknessPx"] end,
+                setPx = function(v) EllesmereUIDB[prefix.."BorderThicknessPx"] = v end,
+                apply = apply,
+            }
+        end
+        -- The registry sizeKey the skin passes beside the addonKey "blizzardSkin" (registered
+        -- nowhere, so an UNSET offset resolves to 0/0, never to the global per-texture defaults).
+        local function BorderSizeKey(prefix)
+            return EllesmereUIDB[prefix.."BorderThickness"] or EllesmereUI.BORDER_LABEL_OF_STEP[BorderStep(prefix)] or "thin"
+        end
+        -- Width Offset | Height Offset right below a Border Style row, only while its style is
+        -- textured (a solid border has no offsets). Built in every pass so the y advance never differs.
+        local function BorderOffsetRow(prefix, disabledFn)
+            local tex = EllesmereUIDB[prefix.."BorderTexture"] or "solid"
+            if tex == "" or tex == "solid" then return end
+            local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs{
+                addonKey = "blizzardSkin", disabled = disabledFn,
+                getTex = function() return EllesmereUIDB[prefix.."BorderTexture"] or "solid" end,
+                getStep = function() return BorderStep(prefix) end,
+                getSizeKey = function() return BorderSizeKey(prefix) end,
+                getPx = function() return EllesmereUIDB[prefix.."BorderThicknessPx"] end,
+                getX = function() return EllesmereUIDB[prefix.."BorderOffsetX"] end,
+                setX = function(v) EllesmereUIDB[prefix.."BorderOffsetX"] = v end,
+                getY = function() return EllesmereUIDB[prefix.."BorderOffsetY"] end,
+                setY = function(v) EllesmereUIDB[prefix.."BorderOffsetY"] = v end,
+            }
+            _, h = W:DualRow(parent, y, ocfgL, ocfgR); y = y - h
+        end
 
         local function AttachBorderControls(row, prefix, disabledFn, allowBehind)
             local PP = EllesmereUI.PanelPP
             if not EllesmereUI._prebuilding then
             local left, right = row._leftRegion, row._rightRegion
-            local popupRows = {
-                { type="slider", label="Offset X", min=-10,max=10,step=1,
-                  get=function() local v=EllesmereUIDB[prefix.."BorderOffsetX"]; if v~=nil then return v end return EllesmereUI.GetBorderTextureDefaultOffset(EllesmereUIDB[prefix.."BorderTexture"] or "solid") end,
-                  set=function(v) EllesmereUIDB[prefix.."BorderOffsetX"]=v end },
-                { type="slider", label="Offset Y", min=-10,max=10,step=1,
-                  get=function() local v=EllesmereUIDB[prefix.."BorderOffsetY"]; if v~=nil then return v end return EllesmereUI.GetBorderTextureDefaultOffsetY(EllesmereUIDB[prefix.."BorderTexture"] or "solid") end,
-                  set=function(v) EllesmereUIDB[prefix.."BorderOffsetY"]=v end },
-            }
+            -- The offsets live in their own row below the style row (BorderOffsetRow); the cog
+            -- keeps only Show Behind, so a surface without that option gets no cog at all.
             if allowBehind then
-                popupRows[#popupRows + 1] = {
-                    type="toggle", label="Show Behind",
-                    get=function() return EllesmereUIDB[prefix.."BorderBehind"] or false end,
-                    set=function(v) EllesmereUIDB[prefix.."BorderBehind"]=v end,
-                }
-            end
-            local _, showOffset = EllesmereUI.BuildCogPopup({ title="Border Offset", rows=popupRows })
+            local popupRows = {
+                { type="toggle", label="Show Behind",
+                  get=function() return EllesmereUIDB[prefix.."BorderBehind"] or false end,
+                  set=function(v) EllesmereUIDB[prefix.."BorderBehind"]=v end },
+            }
+            local _, showOffset = EllesmereUI.BuildCogPopup({ title="Border Options", rows=popupRows })
             local cog=CreateFrame("Button",nil,left); cog:SetSize(26,26); cog:SetPoint("RIGHT",left._control,"LEFT",-8,0); cog:SetAlpha(.4)
             local ico=cog:CreateTexture(nil,"OVERLAY"); ico:SetAllPoints(); ico:SetTexture(EllesmereUI.DIRECTIONS_ICON)
             cog:SetScript("OnClick",function(self) showOffset(self) end); left._lastInline=cog
@@ -54,6 +88,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
             EllesmereUI.RegisterWidgetRefresh(UpdCogState)
             UpdCogState()
+            end
 
             local function AddModeSwatch(anchor, mode, tip, getColor, custom)
                 local sw, refresh=EllesmereUI.BuildColorSwatch(right,right:GetFrameLevel()+5,getColor,
@@ -132,14 +167,16 @@ initFrame:SetScript("OnEvent", function(self)
             local texValues,texOrder=EllesmereUI.GetBorderTextureDropdown()
             local outer
             outer,h=W:DualRow(parent,y,
-                {type="dropdown",text="Border Style",disabled=popupOff,values=texValues,order=texOrder,getValue=function() return EllesmereUIDB.popupMenuBorderTexture or "solid" end,setValue=function(v) local c,b=EllesmereUI.GetBorderStyleSelectDefaults(v); EllesmereUIDB.popupMenuBorderTexture=v; EllesmereUIDB.popupMenuBorderOffsetX=nil; EllesmereUIDB.popupMenuBorderOffsetY=nil; EllesmereUIDB.popupMenuBorderBehind=b; EllesmereUIDB.popupMenuBorderColor=c end},
-                {type="dropdown",text="Border Size",disabled=popupOff,values=BORDER_VALUES,order=BORDER_ORDER,getValue=function() return EllesmereUIDB.popupMenuBorderThickness or "thin" end,setValue=function(v) EllesmereUIDB.popupMenuBorderThickness=v end}); y=y-h
+                {type="dropdown",text="Border Style",disabled=popupOff,values=texValues,order=texOrder,getValue=function() return EllesmereUIDB.popupMenuBorderTexture or "solid" end,setValue=function(v) local c,b=EllesmereUI.GetBorderStyleSelectDefaults(v); EllesmereUIDB.popupMenuBorderTexture=v; EllesmereUIDB.popupMenuBorderOffsetX=nil; EllesmereUIDB.popupMenuBorderOffsetY=nil; EllesmereUIDB.popupMenuBorderBehind=b; EllesmereUIDB.popupMenuBorderColor=c; if EllesmereUIDB.popupMenuBorderThicknessPx then EllesmereUIDB.popupMenuBorderThicknessPx=false end; EllesmereUI:RefreshPage(true) end},
+                BorderSizeSlider("popupMenu","Border Size",popupOff)); y=y-h
             AttachBorderControls(outer,"popupMenu",popupOff,true)
+            BorderOffsetRow("popupMenu",popupOff)
             local buttons
             buttons,h=W:DualRow(parent,y,
-                {type="dropdown",text="Button Border Style",disabled=popupOff,values=texValues,order=texOrder,getValue=function() return EllesmereUIDB.popupMenuButtonBorderTexture or "solid" end,setValue=function(v) EllesmereUIDB.popupMenuButtonBorderTexture=v; EllesmereUIDB.popupMenuButtonBorderOffsetX=nil; EllesmereUIDB.popupMenuButtonBorderOffsetY=nil end},
-                {type="dropdown",text="Button Border Size",disabled=popupOff,values=BORDER_VALUES,order=BORDER_ORDER,getValue=function() return EllesmereUIDB.popupMenuButtonBorderThickness or "thin" end,setValue=function(v) EllesmereUIDB.popupMenuButtonBorderThickness=v end}); y=y-h
+                {type="dropdown",text="Button Border Style",disabled=popupOff,values=texValues,order=texOrder,getValue=function() return EllesmereUIDB.popupMenuButtonBorderTexture or "solid" end,setValue=function(v) EllesmereUIDB.popupMenuButtonBorderTexture=v; EllesmereUIDB.popupMenuButtonBorderOffsetX=nil; EllesmereUIDB.popupMenuButtonBorderOffsetY=nil; if EllesmereUIDB.popupMenuButtonBorderThicknessPx then EllesmereUIDB.popupMenuButtonBorderThicknessPx=false end; EllesmereUI:RefreshPage(true) end},
+                BorderSizeSlider("popupMenuButton","Button Border Size",popupOff)); y=y-h
             AttachBorderControls(buttons,"popupMenuButton",popupOff)
+            BorderOffsetRow("popupMenuButton",popupOff)
         end
 
         _,h=W:DualRow(parent,y,
@@ -723,9 +760,10 @@ initFrame:SetScript("OnEvent", function(self)
             local texValues,texOrder=EllesmereUI.GetBorderTextureDropdown()
             local tooltipBorder
             tooltipBorder,h=W:DualRow(parent,y,
-                {type="dropdown",text="Border Style",disabled=ttReskinOff,values=texValues,order=texOrder,getValue=function() return EllesmereUIDB.tooltipBorderTexture or "solid" end,setValue=function(v) local c,b=EllesmereUI.GetBorderStyleSelectDefaults(v); EllesmereUIDB.tooltipBorderTexture=v; EllesmereUIDB.tooltipBorderOffsetX=nil; EllesmereUIDB.tooltipBorderOffsetY=nil; EllesmereUIDB.tooltipBorderBehind=b; EllesmereUIDB.tooltipBorderColor=c; if EllesmereUI.SyncAuraTooltipSkin then EllesmereUI.SyncAuraTooltipSkin() end end},
-                {type="dropdown",text="Border Size",disabled=ttReskinOff,values=BORDER_VALUES,order=BORDER_ORDER,getValue=function() return EllesmereUIDB.tooltipBorderThickness or ({[0]="none",[1]="thin",[2]="normal",[3]="heavy",[4]="strong"})[EllesmereUIDB.tooltipBorderSize or 1] or "thin" end,setValue=function(v) EllesmereUIDB.tooltipBorderThickness=v; if EllesmereUI.SyncAuraTooltipSkin then EllesmereUI.SyncAuraTooltipSkin() end end}); y=y-h
+                {type="dropdown",text="Border Style",disabled=ttReskinOff,values=texValues,order=texOrder,getValue=function() return EllesmereUIDB.tooltipBorderTexture or "solid" end,setValue=function(v) local c,b=EllesmereUI.GetBorderStyleSelectDefaults(v); EllesmereUIDB.tooltipBorderTexture=v; EllesmereUIDB.tooltipBorderOffsetX=nil; EllesmereUIDB.tooltipBorderOffsetY=nil; EllesmereUIDB.tooltipBorderBehind=b; EllesmereUIDB.tooltipBorderColor=c; if EllesmereUIDB.tooltipBorderThicknessPx then EllesmereUIDB.tooltipBorderThicknessPx=false end; if EllesmereUI.SyncAuraTooltipSkin then EllesmereUI.SyncAuraTooltipSkin() end; EllesmereUI:RefreshPage(true) end},
+                BorderSizeSlider("tooltip","Border Size",ttReskinOff,function() if EllesmereUI.SyncAuraTooltipSkin then EllesmereUI.SyncAuraTooltipSkin() end end)); y=y-h
             AttachBorderControls(tooltipBorder,"tooltip",ttReskinOff,true)
+            BorderOffsetRow("tooltip",ttReskinOff)
         end
 
         local borderRow
@@ -965,6 +1003,14 @@ initFrame:SetScript("OnEvent", function(self)
         local function themedOff()
             return EllesmereUIDB and EllesmereUIDB.themedCharacterSheet == false
         end
+        -- Stock styles only: "Blizzard UI Color" (on unless turned off) paints
+        -- every stat category in Blizzard's yellow, so the colour swatches
+        -- stand down while it is on.
+        local function blizzColorsOn()
+            local bs = EllesmereUI.BlizzStyle
+            return bs and bs.Get("charsheet")
+                and not (EllesmereUIDB and EllesmereUIDB.charSheetBlizzColors == false)
+        end
 
         local function AttachDisabledOverlay(target)
             local block = CreateFrame("Frame", nil, target)
@@ -1003,7 +1049,7 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(swatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -9, 0)
             rgn._lastInline = swatch
             local function refresh()
-                local parentEnabled = parentEnabledFn()
+                local parentEnabled = parentEnabledFn() and not blizzColorsOn()
                 if themedOff() then
                     swatch:SetAlpha(0.15); swatch:EnableMouse(false)
                 else
@@ -1066,10 +1112,20 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
+        -- Style page stock styles (Blizzard Style / Classic WoW UI) keep
+        -- Blizzard's own character sheet with our stats section and slot text:
+        -- the gem icons and the socket strip are the EllesmereUI sheet's own.
+        local BS = EllesmereUI.BlizzStyle
+        local function csGate(cfg)
+            if BS then BS.Gate("charsheet", cfg) end
+            return cfg
+        end
+
         ---------------------------------------------------------------------------
         --  CORE OPTIONS
         ---------------------------------------------------------------------------
         _, h = WSCardSection(parent, "CORE OPTIONS", y);  y = y - h
+        if BS then y = BS.Note(parent, y, "charsheet") end
 
         local coreRow1
         coreRow1, h = W:DualRow(parent, y,
@@ -1102,35 +1158,37 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUIDB.showUpgradeTrack = v
                   if EllesmereUI._refreshUpgradeTrackVisibility then EllesmereUI._refreshUpgradeTrackVisibility() end
               end },
-            { type="toggle", text="Show Gems",
+            csGate({ type="toggle", text="Show Gems",
               tooltip="Toggle visibility of gem icons inside equipment slots.",
               getValue=function() return EllesmereUIDB and EllesmereUIDB.showGems ~= false end,
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.showGems = v
                   if EllesmereUI._refreshGemsVisibility then EllesmereUI._refreshGemsVisibility() end
-              end }
+              end })
         );  y = y - h
         AttachDisabledOverlay(coreRow2)
 
         local socketRow
         socketRow, h = W:DualRow(parent, y,
-            { type="toggle", text="Socket Panel",
+            csGate({ type="toggle", text="Socket Panel",
               tooltip="Show a panel of equipped-gear sockets on the character sheet; click a socket to gem it.",
               getValue=function() return EllesmereUIDB and EllesmereUIDB.charSheetSocketPanel ~= false end,
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.charSheetSocketPanel = v
                   if EllesmereUI._refreshCharSheetSocketPanel then EllesmereUI._refreshCharSheetSocketPanel() end
-              end },
-            { type="slider", text="Icon Zoom", min=0, max=0.20, step=0.01,
+              end }),
+            -- Gated with the socket panel, so the stock styles hide the whole row
+            -- (Blizzard's own slot icons; the inspect sheet keeps its stored zoom).
+            csGate({ type="slider", text="Icon Zoom", min=0, max=0.20, step=0.01,
               tooltip="Crops the border of the equipment-slot item icons on the character and inspect sheets. 0 shows the full icon. Only affects the themed character sheet.",
               getValue=function() return (EllesmereUIDB and EllesmereUIDB.charSheetIconZoom) or 0.07 end,
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.charSheetIconZoom = v
                   if EllesmereUI._refreshCharSheetIconZoom then EllesmereUI._refreshCharSheetIconZoom() end
-              end }
+              end })
         );  y = y - h
         AttachDisabledOverlay(socketRow)
 
@@ -1363,6 +1421,35 @@ initFrame:SetScript("OnEvent", function(self)
             },
         }
 
+        local drCfg = { type="toggle", text="Show Diminishing Returns",
+              tooltip="Add diminishing-returns detail (adjusted rating, wasted rating, and current penalty bracket) to the Secondary and Tertiary stat tooltips.",
+              getValue=function() return EllesmereUIDB and EllesmereUIDB.showAdjustedStats or false end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.showAdjustedStats = v
+              end }
+
+        -- Stock styles only: "Blizzard UI Color" opens the section, paired with
+        -- Show Diminishing Returns (so Show PvP takes the odd last slot). On
+        -- unless turned off; the EllesmereUI look never builds or reads it.
+        local stockCS = BS and BS.Get("charsheet")
+        if stockCS then
+            local colorRow
+            colorRow, h = W:DualRow(parent, y,
+                { type="toggle", text="Blizzard UI Color",
+                  tooltip="Shows the item level and stat category titles in Blizzard's yellow, with values in the label color.",
+                  getValue=function() return not (EllesmereUIDB and EllesmereUIDB.charSheetBlizzColors == false) end,
+                  setValue=function(v)
+                      if not EllesmereUIDB then EllesmereUIDB = {} end
+                      EllesmereUIDB.charSheetBlizzColors = v
+                      if EllesmereUI._refreshCharacterSheetColors then EllesmereUI._refreshCharacterSheetColors() end
+                      EllesmereUI:RefreshPage()
+                  end },
+                drCfg
+            );  y = y - h
+            AttachDisabledOverlay(colorRow)
+        end
+
         local statRow1
         statRow1, h = W:DualRow(parent, y,
             StatCategoryToggle("Show Attributes", "Attributes",
@@ -1410,13 +1497,7 @@ initFrame:SetScript("OnEvent", function(self)
         statRow4, h = W:DualRow(parent, y,
             StatCategoryToggle("Show PvP", "PvP",
                 "Toggle visibility of the PvP stat category (Honor Level, Honor, Conquest)."),
-            { type="toggle", text="Show Diminishing Returns",
-              tooltip="Add diminishing-returns detail (adjusted rating, wasted rating, and current penalty bracket) to the Secondary and Tertiary stat tooltips.",
-              getValue=function() return EllesmereUIDB and EllesmereUIDB.showAdjustedStats or false end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.showAdjustedStats = v
-              end }
+            stockCS and { type="label", text="" } or drCfg
         );  y = y - h
         AttachDisabledOverlay(statRow4)
         AttachStatSwatch(statRow4._leftRegion, "PvP",
@@ -2279,6 +2360,15 @@ initFrame:SetScript("OnEvent", function(self)
         return EllesmereUI.GetBlizzWindowStyle(win.key)
     end
 
+    -- Window skins a module's Style page choice overrides: while that module
+    -- renders a stock style its pack stands down, so the card's style
+    -- dropdown is blocked and Apply to All leaves the card alone.
+    local WS_STYLE_OWNERS = { socialui = "friends" }
+    local function WSStyleOwned(win)
+        local owner = WS_STYLE_OWNERS[win.key]
+        return owner and EllesmereUI.BlizzStyle and EllesmereUI.BlizzStyle.Get(owner) or false
+    end
+
     -- Applies a style to one window. Returns true when the change crosses the
     -- on/off boundary (= needs a reload). suppressPopup lets Apply to All show
     -- one popup for the whole batch instead of one per window.
@@ -2286,6 +2376,9 @@ initFrame:SetScript("OnEvent", function(self)
         local old = WSGetStyle(win)
         if old == style then return false end
         if not EllesmereUIDB then EllesmereUIDB = {} end
+        -- A pick here belongs to the whole UI's current look: the Style
+        -- page's Apply to All saves it into that look's window slot when
+        -- the look changes (EllesmereUI.SwapWindowSkinStyle).
         win.setEnabled(style ~= "off")
         if style ~= "off" then
             -- Remember which skin set this window uses; kept while "off" so
@@ -2405,6 +2498,8 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI:RefreshPage()
             end)
         PP.Point(dd, "RIGHT", hdr, "RIGHT", -44, 0)
+        local owner = WS_STYLE_OWNERS[win.key]
+        if owner and EllesmereUI.BlizzStyle then EllesmereUI.BlizzStyle.BlockInline(owner, dd) end
 
         local strip  -- accent strip on the header's left edge (created with bg)
         local function RefreshCardState()
@@ -2709,7 +2804,7 @@ initFrame:SetScript("OnEvent", function(self)
                     if not EllesmereUIDB then EllesmereUIDB = {} end
                     local t = EllesmereUIDB.thirdPartySkinAddons
                     if not t then t = {}; EllesmereUIDB.thirdPartySkinAddons = t end
-                    t[name] = (not v) and false or nil
+                    if v then t[name] = nil else t[name] = false end
                     if v then
                         TurnedOn()
                     else
@@ -2793,7 +2888,7 @@ initFrame:SetScript("OnEvent", function(self)
         EllesmereUI.MakeStyledButton(applyBtn, "Apply to All", 12, EllesmereUI.WB_COLOURS, function()
             local crossed = false
             for _, win in ipairs(WINDOWS) do
-                if WSSetStyle(win, _wsApplyAllStyle, true) then crossed = true end
+                if not WSStyleOwned(win) and WSSetStyle(win, _wsApplyAllStyle, true) then crossed = true end
             end
             EllesmereUI:RefreshPage()
             if crossed then
@@ -3206,7 +3301,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.popupMenuButtonTextColorMode=nil
                 EllesmereUIDB.popupMenuButtonTextColor=nil
                 for _,prefix in ipairs({"popupMenu","popupMenuButton","tooltip"}) do
-                    for _,suffix in ipairs({"BorderTexture","BorderThickness","BorderColor","BorderColorMode","BorderOpacity","BorderOffsetX","BorderOffsetY","BorderShiftX","BorderShiftY","BorderBehind"}) do
+                    for _,suffix in ipairs({"BorderTexture","BorderThickness","BorderThicknessPx","BorderColor","BorderColorMode","BorderOpacity","BorderOffsetX","BorderOffsetY","BorderShiftX","BorderShiftY","BorderBehind"}) do
                         EllesmereUIDB[prefix..suffix]=nil
                     end
                 end
@@ -3270,6 +3365,8 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.reskinDelvePicker = nil
                 EllesmereUIDB.reskinPlayerChoice = nil
                 EllesmereUIDB.reskinTrade = nil
+                EllesmereUIDB.windowSkinsStockSeeded = nil
+                EllesmereUIDB.windowSkinStyleSlots = nil
                 EllesmereUIDB.reskinWidgetBars = nil
                 EllesmereUIDB.widgetBarMinSize = nil
                 EllesmereUIDB.reskinExtraActionButton = nil
@@ -3284,6 +3381,21 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.statCategoryColors = nil
                 EllesmereUIDB.statSectionsOrder = nil
                 EllesmereUIDB.charSheetCollapsedSections = nil
+                -- Character Sheet style (the Style page row): per profile,
+                -- so only the active profile's, like the kill switch; the
+                -- module latches it per session, so the reset lands at the
+                -- reload. Root copies are moved onto profiles at load, so
+                -- they are cleared too.
+                do
+                    local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+                    if prof then
+                        prof.charSheetUseBlizzardStyle = nil
+                        prof.charSheetUseClassicStyle = nil
+                    end
+                end
+                EllesmereUIDB.charSheetUseBlizzardStyle = nil
+                EllesmereUIDB.charSheetUseClassicStyle = nil
+                EllesmereUIDB.charSheetBlizzColors = nil
                 EllesmereUIDB.characterFramePos = nil
                 EllesmereUIDB.friendsFramePos = nil
             end

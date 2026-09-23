@@ -806,7 +806,30 @@ end
 -- pass, so a fresh table per call freezes position/growth edits until reload.
 local bm2ViewCache = setmetatable({}, { __mode = "k" })
 
-function ns.BM2_SpecIndicators()
+-- Show In as rendered: an Anchor To member continues its root's run, so the
+-- terminal root's value decides (the member's own is not offered while it is
+-- anchored). list = the indicator's own bucket (Anchor To links stay inside
+-- it). nil = raid and party.
+function ns.BM2_EffectiveShowIn(ind, list)
+    local src = ind
+    if list and src.anchorTo ~= nil then
+        for _ = 1, #list do
+            local tid = src.anchorTo
+            if tid == nil then break end
+            local nxt
+            for j = 1, #list do
+                if list[j].id == tid then nxt = list[j]; break end
+            end
+            if not nxt or nxt == ind then break end
+            src = nxt
+        end
+    end
+    return src.showIn
+end
+
+-- frameKind ("raid" | "party", nil = every indicator): the frames asking.
+-- Indicators whose Show In names the other kind are left out.
+function ns.BM2_SpecIndicators(frameKind)
     local inds, specKey = ns.BM2_SpecInds()
     -- Additive union buckets: "allspecs" renders for EVERY spec, the role
     -- group ("tanks"/"dps"/"healers") for specs of that role, and a spec
@@ -843,6 +866,11 @@ function ns.BM2_SpecIndicators()
         for i = 1, #list do
             local ind = list[i]
             local drop = groupKey and inhDis and inhDis[groupKey .. ":" .. ind.id]
+            if not drop and frameKind then
+                local showIn = ns.BM2_EffectiveShowIn(ind, list)
+                if showIn == "raid" then drop = frameKind == "party"
+                elseif showIn == "party" then drop = frameKind ~= "party" end
+            end
             local resolved = not drop and ns.BM2_ResolveSpells(ind) or nil
             if resolved and #resolved > 0 then
                 local v = bm2ViewCache[ind]

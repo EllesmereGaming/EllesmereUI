@@ -138,7 +138,8 @@ initFrame:SetScript("OnEvent", function(self)
                 local m = MinimapDB(); if not m then return end
                 m.shape = v
                 RefreshMinimap()
-                EllesmereUI:RefreshPage()
+                -- Rebuild: the Width | Height Offset row exists only on the rect layout.
+                EllesmereUI:RefreshPage(true)
               end }));  y = y - h
 
         -- Row 2: Size | Interactable Button Size
@@ -190,7 +191,7 @@ initFrame:SetScript("OnEvent", function(self)
               end })
         y = y - h
 
-        -- Row 3: Border Style (+ offset cog) | Border Size (+ class/custom swatches)
+        -- Row 3: Border Style (+ options cog) | Border Size (+ class/custom swatches)
         local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
         local borderRow
         borderRow, h = W:DualRow(parent, y,
@@ -214,18 +215,63 @@ initFrame:SetScript("OnEvent", function(self)
                   m.useClassColor = false
                   local defSz = EllesmereUI.GetBorderDefaultSize("minimap", v)
                   if defSz then m.borderSize = defSz end
+                  if m.borderSizePx then m.borderSizePx = false end
                   RefreshMinimap()
-                  EllesmereUI:RefreshPage()
+                  -- Rebuild: the Width | Height Offset row follows the Solid / textured pick.
+                  EllesmereUI:RefreshPage(true)
               end }),
-            EllesmereUI.BlizzStyle.Gate("minimap", { type="slider", text="Border Size", min=0, max=4, step=1, trackWidth=120,
-              getValue=function() local m = MinimapDB(); return m and m.borderSize or 1 end,
-              setValue=function(v)
-                local m = MinimapDB(); if not m then return end
-                m.borderSize = v
-                RefreshMinimap()
-              end })
+            -- Exact pixels over borderSize + borderSizePx (EllesmereUI.BorderPx). Only the
+            -- square and rectangular border reads the texture and the exact size; the
+            -- circle disc grows by the legacy step alone, so there the slider is a plain
+            -- 0-4 view of that step and never stores an exact size it cannot draw.
+            EllesmereUI.BlizzStyle.Gate("minimap", EllesmereUI.BorderPxSliderCfg{
+              text="Border Size", trackWidth=120,
+              getStep=function() local m = MinimapDB(); return (m and m.borderSize) or 1 end,
+              setStep=function(v) local m = MinimapDB(); if m then m.borderSize = v end end,
+              getTex=function()
+                  if not ShapeUsesRectLayout() then return "solid" end
+                  local m = MinimapDB(); return (m and m.borderTexture) or "solid"
+              end,
+              getPx=function()
+                  if not ShapeUsesRectLayout() then return nil end
+                  local m = MinimapDB(); return m and m.borderSizePx
+              end,
+              setPx=function(v)
+                  if not ShapeUsesRectLayout() then return end
+                  local m = MinimapDB(); if m then m.borderSizePx = v end
+              end,
+              apply=RefreshMinimap })
         );  y = y - h
-        -- Inline cog for border offset (left region); only shown for textured styles
+
+        -- Row 3b: Width Offset | Height Offset. The textured border's outward offsets
+        -- as their own row, present only while the rect layout draws a textured style
+        -- (the circle ignores textures); the shape and style setters rebuild the page.
+        -- Each slider shows what is drawn (override, else the "minimap" registry
+        -- default for the step) and stores nothing while the value follows the default.
+        do
+            local m = MinimapDB()
+            local tex = (m and m.borderTexture) or "solid"
+            if ShapeUsesRectLayout() and tex ~= "" and tex ~= "solid" then
+                local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs{
+                    addonKey = "minimap",
+                    getTex = function() local m = MinimapDB(); return (m and m.borderTexture) or "solid" end,
+                    getStep = function() local m = MinimapDB(); return (m and m.borderSize) or 1 end,
+                    getSizeKey = function() local m = MinimapDB(); return (m and m.borderSize) or 1 end,
+                    getPx = function() local m = MinimapDB(); return m and m.borderSizePx end,
+                    getX = function() local m = MinimapDB(); return m and m.borderTextureOffset end,
+                    setX = function(v) local m = MinimapDB(); if m then m.borderTextureOffset = v end end,
+                    getY = function() local m = MinimapDB(); return m and m.borderTextureOffsetY end,
+                    setY = function(v) local m = MinimapDB(); if m then m.borderTextureOffsetY = v end end,
+                    apply = RefreshMinimap,
+                }
+                _, h = W:DualRow(parent, y,
+                    EllesmereUI.BlizzStyle.Gate("minimap", ocfgL),
+                    EllesmereUI.BlizzStyle.Gate("minimap", ocfgR))
+                y = y - h
+            end
+        end
+
+        -- Inline cog for border options (left region); only shown for textured styles
         if not EllesmereUI._prebuilding then
             local rgn = borderRow._leftRegion
             local function BorderTex()
@@ -235,34 +281,8 @@ initFrame:SetScript("OnEvent", function(self)
                 local m = MinimapDB(); return (m and m.borderSize) or 1
             end
             local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Border Offset",
+                title = "Border Options",
                 rows = {
-                    { type = "slider", label = "Offset X", min = -10, max = 10, step = 1,
-                      get = function()
-                          local m = MinimapDB()
-                          local v = m and m.borderTextureOffset
-                          if v then return v end
-                          local dox = EllesmereUI.GetBorderDefaults("minimap", BorderTex(), BorderSz())
-                          return dox
-                      end,
-                      set = function(v)
-                          local m = MinimapDB(); if not m then return end
-                          m.borderTextureOffset = v
-                          RefreshMinimap()
-                      end },
-                    { type = "slider", label = "Offset Y", min = -10, max = 10, step = 1,
-                      get = function()
-                          local m = MinimapDB()
-                          local v = m and m.borderTextureOffsetY
-                          if v then return v end
-                          local _, doy = EllesmereUI.GetBorderDefaults("minimap", BorderTex(), BorderSz())
-                          return doy
-                      end,
-                      set = function(v)
-                          local m = MinimapDB(); if not m then return end
-                          m.borderTextureOffsetY = v
-                          RefreshMinimap()
-                      end },
                     { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
                       get = function()
                           local m = MinimapDB()

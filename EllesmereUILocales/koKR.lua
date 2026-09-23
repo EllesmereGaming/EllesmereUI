@@ -7009,6 +7009,19 @@ L["Pick which content the class-special reminders (poisons/rites/imbues/shields)
 
 --2026-09-08 추가 및 신규
 
+-- 전체 설정 - 잠금 해제 모드
+L["Bottom Screen Edge"] = "화면 하단 모서리"
+L["Left Screen Edge"] = "화면 좌측 모서리"
+L["Right Screen Edge"] = "화면 우측 모서리"
+L["Top Screen Edge"] = "화면 상단 모서리"
+L["Relative to Screen"] = "화면 상대 위치"
+L["Frame Scale"] = "프레임 크기 비율"
+L["Level Text Settings"] = "레벨 글자 설정"
+L["Scales the whole frame. Blizzard Style frames are the stock size, so this stands in for Bar Width and Health Bar Height."] = "전체 프레임의 크기를 조절합니다. 블리자드 스타일 프레임은 기본 크기로 고정되어 있으므로, 이 설정이 바 너비 및 생명력 바 높이 역할을 대신합니다."
+L["Shows the unit's level in the frame's level circle, as the default UI does."] = "기본 UI처럼 프레임의 레벨 원형 안에 대상의 레벨을 표시합니다."
+L["Size matching is unavailable with Blizzard Style Unit Frames."] = "블리자드 스타일 유닛 프레임에서는 크기 일치 기능을 사용할 수 없습니다."
+L["This option requires Show Level."] = "이 옵션은 '레벨 표시'가 활성화되어 있어야 합니다."
+
 --전체 설정 - 글꼴 
 L["Fonts"] = "글꼴"
 L["A quick view of every font setting in one place."] = "모든 글꼴 설정을 한눈에 확인할 수 있습니다."
@@ -7470,6 +7483,24 @@ L["COLUMNS"] = "표시할 항목"
 L["Show Spec Icons"] = "전문화 아이콘 표시"
 L["M+ Score"] = "신화+ 점수"
 L["Loot"] = "전리품"
+L["%1$d Deaths"] = "사망 %1$회"
+L["(%1$d Chest)"] = "(상자 %1$개)"
+
+--UI 모양 변경 - 쐐기돌 도구  - 툴팁
+L["Combat data stayed restricted for this run"] = "이번 소요 시간 동안 전투 데이터 기록이 제한되었습니다."
+L["Current season score plus the gain from this run. Your own gain is the exact value the server reports; for party members it is their score before the key subtracted from their score after it."] = "현재 시즌 점수에 이번 클리어로 획득한 점수가 합산됩니다. 본인의 획득 점수는 서버가 보고하는 정확한 값이며, 파티원의 경우 클리어 전 점수를 클리어 후 점수에서 뺀 값입니다."
+L["Delete every recorded Mythic+ run for this character?"] = "이 캐릭터의 모든 신화+ 기록을 삭제하시겠습니까?"
+L["Depleted"] = "소모됨 (시간 초과)"
+L["No loot recorded for this player in this run."] = "이번 쐐기에서 이 플레이어가 획득한 전리품 기록이 없습니다."
+L["No runs recorded yet"] = "기록된 쐐기 진행 내역이 없습니다."
+L["Open the overview once the end of run chest has been looted. With this off it opens as soon as the key ends. /ov reopens it at any time."] = "던전 완료 상자를 루팅한 후 개요를 엽니다. 이 기능을 끄면 쐐기가 끝나는 즉시 열립니다. 언제든지 `/ov` 명령어로 다시 열 수 있습니다."
+L["Records every finished Mythic+ key and shows an overview of the group when the run ends. Nothing is registered or created while this is off."] = "완료된 모든 신화+ 기록을 남기고, 던전 종료 시 파티원 개요를 표시합니다. 이 기능이 꺼져 있으면 아무것도 등록되거나 생성되지 않습니다."
+L["Run Summary is disabled in Mythic+ Tools."] = "신화+ 도구에서 쐐기 요약이 비활성화되어 있습니다."
+L["Score"] = "점수"
+L["Shown in grey next to each name. Item levels are read by inspecting party members during the run, so a member who stayed out of range shows none."] = "이름 옆에 회색으로 표시됩니다. 아이템 레벨은 쐐기 진행 중 파티원 조사를 통해 읽어오므로, 사정거리를 벗어난 파티원은 표시되지 않습니다."
+L["Size of the player rows. The title and column headers keep their own size."] = "플레이어 행의 크기입니다. 제목과 열 머리글은 기존 크기를 유지합니다."
+L["Taken"] = "받은 피해"
+L["What each player looted. Your own chest reward always appears; other players' items only when the server announces the loot to the group, which it does not always do for the end of run chest."] = "플레이어별 전리품 획득 내역입니다. 본인의 상자 보상은 항상 표시되지만, 다른 플레이어의 아이템은 서버가 파티에 전리품을 공지할 때만 표시되며 쐐기 완료 상자의 경우 항상 공지되지 않을 수도 있습니다."
 
 --UI 모양 변경 - 데미지 미터기
 L["Outfits"] = "복장"
@@ -7481,6 +7512,10 @@ L["Unsafe Refresh Rate"] = "비권장 갱신 속도"
 
 -- UI 모양 변경 - 대미지 미터기 - 툴팁
 L["Hide and show every damage meter window at once. The state is not saved; a reload restores the configured visibility.\n\nThe bound key is taken over while it is set. Use the cog to include the combat timer and Spell History.\n\nLeft-click to set a keybind.\nRight-click to unbind."] = "모든 미터기 창을 한 번에 숨기거나 표시합니다. 상태는 저장되지 않으며, UI를 재시작하면 설정된 표시 상태로 돌아갑니다.\n\n단축키가 설정되어 있는 동안에는 해당 키가 전용으로 사용됩니다. 톱니바퀴 아이콘을 눌러 전투 시간과 주문 기록을 포함하세요.\n\n좌클릭하여 단축키를 설정합니다.\n우클릭하여 단축키를 해제합니다."
+L["Blizzard damage meter is off"] = "블리자드 미터기가 꺼져 있습니다."
+L["Read from Blizzard's own damage meter. With that meter switched off this column, Damage Taken and Interrupts stay empty."] = "블리자드 자체 미터기에서 읽어옵니다. 해당 미터기가 꺼져 있으면 이 열, 받은 피해 및 차단 항목이 비어 있게 됩니다."
+L["Faster than 0.5s makes the meters work much harder in combat and can cost you frames, especially with several windows open."] = "갱신 속도를 0.5초보다 빠르게 설정하면 전투 중 미터기가 과부하를 일으켜 프레임 드랍이 발생할 수 있으며, 특히 여러 창이 열려 있을 때 심합니다."
+L["Lets you set Refresh Rate faster than 0.5s. The meters update more often but work much harder in combat, which can cost you frames. Only turn this on if your PC has performance to spare."] = "갱신 속도를 0.5초보다 빠르게 설정할 수 있습니다. 미터기가 더 자주 업데이트되지만 전투 중 부하가 커져 프레임이 떨어질 수 있습니다. PC 성능에 여유가 있는 경우에만 켜세요."
 
 -- UI 모양 변경 - 대화 - 대화 말풍선
 L["Only works outside of Instances"] = "인스턴스 외부에서만 작동"
@@ -7562,6 +7597,27 @@ L["Enable Swing Timer"] = "평타 타이머 사용"
 L["Only Show In Combat"] = "전투 중일 때만 표시"
 L["Highlight Queued Attacks"] = "대기열 공격 강조"
 L["Position with Unlock Mode"] = "잠금 해제 모드로 위치 조절"
+
+-- 3. WoW 포에버 전용 - 캠프 및 버프 알림 (Camp & Reminders)
+L["Camp"] = "캠프"
+L["Camp Benefits"] = "캠프 효과"
+L["Camp Items"] = "캠프 아이템"
+L["Dungeons"] = "던전"
+L["Feast of Knowledge"] = "지식의 향연"
+L["Hearty Feast of Knowledge"] = "든든한 지식의 향연"
+L["Middle Click a reminder to hide it until the next load screen"] = "알림을 마우스 가운데 클릭하면 다음 로딩 화면이 나타날 때까지 숨깁니다."
+L["Pick which content the WoW Forever reminders appear in.\nRested areas (cities and inns) always stay hidden."] = "WoW Forever 알림을 표시할 콘텐츠를 선택하세요.\n휴식 지역(도시 및 여관)에서는 항상 숨겨집니다."
+L["Reminds you when the Camp Benefits campfire buff is missing."] = "캠프 효과 모닥불 강화 효과가 없을 때 알려줍니다."
+L["Reminds you whenever this buff is missing. Remove stops tracking it."] = "해당 강화 효과가 없을 때마다 알려줍니다. 제거하면 추적을 중지합니다."
+L["Type a spell ID and press Enter to be reminded whenever that buff is missing.\nUnknown IDs are ignored."] = "주문 ID를 입력하고 Enter 키를 누르면 해당 강화 효과가 없을 때마다 알림을 받습니다.\n알 수 없는 ID는 무시됩니다."
+L["Next sockets"] = "다음 소켓"
+L["Previous sockets"] = "이전 소켓"
+L["Themed Blizzard frames: window skins, tooltips, menus, popups."] = "테마가 적용된 블리자드 프레임: 창 스킨, 툴팁, 메뉴, 팝업창."
+L["This option requires Tabs Inside Chat Panel to be disabled"] = "이 옵션은 '채팅 패널 내부 탭'이 비활성화되어 있어야 합니다."
+
+-- 2. 전투 및 클라이언트 관련 (Combat & Client)
+L["The current WoW Forever client has a bug that prevents some Action Bars functionality. Bars, buttons and keybinds work; page switching on stance and form changes, conditional bar hiding and empty-slot handling do not. This resolves itself once Blizzard fixes the client."] = "현재 WoW Forever 클라이언트의 버그로 인해 일부 행동 유도 바 기능이 정상 작동하지 않습니다. 바, 버튼, 단축키는 정상 작동하나 자세 및 변신 변경 시 페이지 전환, 조건부 바 숨김, 빈 슬롯 처리는 작동하지 않습니다. 이 문제는 블리자드가 클라이언트를 수정하면 자연스럽게 해결됩니다."
+L["%1$s is switched off on the WoW Forever beta until Blizzard's client can run secure handlers again."] = "블리자드 클라이언트에서 보안 핸들러를 다시 실행할 수 있게 될 때까지 WoW Forever 베타에서는 %1$s이(가) 비활성화됩니다."
 
 -- == Chat prints (채팅창 print 출력 - 소스 엘키(L/Lf) 삽입 대기) ==================
 -- 원본이 print() 에 영문 리터럴을 직접 쓰는 곳들. 엔진 자동번역 밖이라 소스에서

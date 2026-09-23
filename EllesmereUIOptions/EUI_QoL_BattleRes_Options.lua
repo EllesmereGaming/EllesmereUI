@@ -45,8 +45,23 @@ local SHAPE_VALUES = {
 }
 local SHAPE_ORDER = { "none", "cropped", "---", "square", "circle", "csquare", "diamond", "hexagon", "portrait", "shield" }
 
-local BORDER_VALUES = { none = "None", thin = "Thin", normal = "Normal", heavy = "Heavy", strong = "Strong" }
-local BORDER_ORDER  = { "none", "thin", "normal", "heavy", "strong" }
+-- Border Size as a 0-4 pixel slider over the stored word (none..strong): the
+-- border is solid only, so the step is the pixel count. It writes the same
+-- word the dropdown wrote and only on a real change, so a Bloodlust value that
+-- inherits Battle Res (nil) keeps inheriting while the slider merely shows it.
+-- get/set/refresh are the page's accessors (Cfg/Set/Refresh or the BL_ trio).
+local function BorderSizeSliderCfg(get, set, refresh, disabled, disabledTooltip)
+    return { type="slider", text="Border Size", min=0, max=4, step=1,
+      disabled=disabled, disabledTooltip=disabledTooltip,
+      getValue=function()
+          return EllesmereUI.BORDER_STEP_OF_LABEL[get("borderSize") or "thin"] or 1
+      end,
+      setValue=function(v)
+          local word = EllesmereUI.BORDER_LABEL_OF_STEP[math.floor(v + 0.5)] or "thin"
+          if word == (get("borderSize") or "thin") then return end
+          set("borderSize", word); refresh()
+      end }
+end
 
 local VIS_VALUES = {
     MPLUS_AND_RAID = "M+ and Raid",
@@ -110,6 +125,44 @@ end
 local ICON_ROWS_TIP = "This option requires Display Style to be set to Icon"
 local TEXT_ROWS_TIP = "This option requires Display Style to be set to Text"
 
+-- Settings cog holding one toggle, placed left of the row region's inline
+-- controls (same shape as the Skip Cinematics cog). offFn greys and blocks
+-- it; offReq is the DisabledTooltip requirement shown while blocked.
+local function AttachToggleCog(rgn, title, label, get, set, offFn, offReq)
+    local _, cogShow = EllesmereUI.BuildCogPopup({
+        title = title,
+        rows = { { type="toggle", label=label, get=get, set=set } },
+    })
+    local cogBtn = CreateFrame("Button", nil, rgn)
+    cogBtn:SetSize(26, 26)
+    cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -9, 0)
+    rgn._lastInline = cogBtn
+    cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+    local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+    cogTex:SetAllPoints()
+    cogTex:SetTexture(EllesmereUI.COGS_ICON)
+    cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+    cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(offFn() and 0.15 or 0.4) end)
+    cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+
+    local block = CreateFrame("Frame", nil, cogBtn)
+    block:SetAllPoints()
+    block:SetFrameLevel(cogBtn:GetFrameLevel() + 10)
+    block:EnableMouse(true)
+    block:SetScript("OnEnter", function()
+        EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip(offReq))
+    end)
+    block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+    local function UpdateState()
+        local off = offFn()
+        cogBtn:SetAlpha(off and 0.15 or 0.4)
+        block:SetShown(off)
+    end
+    EllesmereUI.RegisterWidgetRefresh(UpdateState)
+    UpdateState()
+end
+
 local function BuildBattleResPage(pageName, parent, yOffset)
     local W = EllesmereUI.Widgets
     local PP = EllesmereUI.PP
@@ -154,13 +207,9 @@ local function BuildBattleResPage(pageName, parent, yOffset)
 
     -- Border Size | Icon Zoom
     row, h = W:DualRow(parent, y,
-        { type="dropdown", text="Border Size",
-          disabled=function() return Cfg("visibility") == "NEVER" end,
-          disabledTooltip="BattleRes Icon",
-          values=BORDER_VALUES,
-          order=BORDER_ORDER,
-          getValue=function() return Cfg("borderSize") or "thin" end,
-          setValue=function(v) Set("borderSize", v); Refresh() end },
+        BorderSizeSliderCfg(Cfg, Set, Refresh,
+          function() return Cfg("visibility") == "NEVER" end,
+          "BattleRes Icon"),
         { type="slider", text="Icon Zoom",
           disabled=function()
               if Cfg("visibility") == "NEVER" then return true end
@@ -304,12 +353,7 @@ _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
     y = y - h
 
     row, h = W:DualRow(parent, y,
-        { type="dropdown", text="Border Size",
-          disabled=TextModeOn,
-          disabledTooltip=ICON_ROWS_TIP,
-          values=BORDER_VALUES, order=BORDER_ORDER,
-          getValue=function() return Cfg("borderSize") or "thin" end,
-          setValue=function(v) Set("borderSize", v); Refresh() end },
+        BorderSizeSliderCfg(Cfg, Set, Refresh, TextModeOn, ICON_ROWS_TIP),
         { type="slider", text="Icon Zoom",
           disabled=function()
               if TextModeOn() then return true end
@@ -434,6 +478,11 @@ _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
         local timerSwatch = MakeInlineTextSwatch("textTimerColor", "Timer Color", rgn._control)
         local countSwatch = MakeInlineTextSwatch("textCountColor", "Count Color", timerSwatch)
         rgn._lastInline = countSwatch
+
+        AttachToggleCog(rgn, "Icon Settings", "Desaturate when No Charges",
+            function() return Cfg("desaturateNoCharges") == true end,
+            function(v) Set("desaturateNoCharges", v); Refresh() end,
+            TextModeOn, ICON_ROWS_TIP)
     end
 
     -- Font | Font Outline: text-display-only controls (the icon's duration /
@@ -497,7 +546,7 @@ end
 local BL_OWN_KEYS = {
     visibility = true, enabled = true, pos = true,
     showSated = true, showReady = true, readySize = true, readyColor = true,
-    readyOffsetX = true, readyOffsetY = true,
+    readyOffsetX = true, readyOffsetY = true, desaturateSated = true,
 }
 
 local function BL_Cfg(key, fallback)
@@ -637,10 +686,7 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
     y = y - h
 
     row, h = W:DualRow(parent, y,
-        { type="dropdown", text="Border Size",
-          values=BORDER_VALUES, order=BORDER_ORDER,
-          getValue=function() return BL_Cfg("borderSize") or "thin" end,
-          setValue=function(v) BL_Set("borderSize", v); BL_Refresh() end },
+        BorderSizeSliderCfg(BL_Cfg, BL_Set, BL_Refresh),
         { type="slider", text="Icon Zoom",
           disabled=function()
               local s = BL_Cfg("shape") or "none"
@@ -734,6 +780,13 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
                   BL_Set("showReady", v); BL_Refresh(); EllesmereUI:RefreshPage()
               end })
         y = y - h
+
+        if not EllesmereUI._prebuilding then
+            AttachToggleCog(row._leftRegion, "Sated Settings", "Desaturate when Sated",
+                function() return BL_Cfg("desaturateSated") == true end,
+                function(v) BL_Set("desaturateSated", v); BL_Refresh() end,
+                function() return BL_Cfg("showSated") == false end, "Show Icon when Sated")
+        end
 
         -- Ready appearance: offset cog, colour swatch and size slider on one row,
         -- disabled (not hidden) while Show Ready is off so the layout never

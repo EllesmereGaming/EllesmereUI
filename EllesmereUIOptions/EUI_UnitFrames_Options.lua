@@ -14,6 +14,67 @@ local PAGE_MINI      = "Mini Frames"
 local PAGE_AURA_BARS = "Player Aura Bars"
 local PAGE_UNLOCK    = "Unlock Mode"
 
+-- Classic WoW UI: a cast bar section's closing Border Size row (the odd last
+-- slot), sizing the vanilla frame round the bar. getS() returns the unit's
+-- settings table and `key` its frame-size key (ns.UF_CastClassicKey);
+-- onChange repaints. `matchKey` names the cast bar's unlock element (nil on
+-- the boss page, which has none): its size matches read the frame's reach
+-- and are re-applied when it changes. `sync` (main frames page only) adds
+-- the apply-to-all icon: { units, labels, current(), db(unit), reload }; a
+-- unit's element is "<unit>Castbar". Returns the row height, 0 (nothing
+-- built) off the style. On ns: the page builders sit at the local cap.
+function ns.UF_ClassicCastBorderRow(W, parent, y, getS, key, onChange, sync, matchKey)
+    local BS = EllesmereUI.BlizzStyle
+    if not (BS and BS.Active("unitframes") == "classic") then return 0 end
+    local row, h = W:DualRow(parent, y,
+        BS.ClassicBorderSizeCfg(
+            function() local s = getS(); return s and s[key] end,
+            function(v)
+                local s = getS(); if not s then return end
+                s[key] = v; onChange()
+                if matchKey and EllesmereUI.ReapplyMatchPads then EllesmereUI.ReapplyMatchPads(matchKey) end
+            end),
+        { type = "label", text = "" })
+    if sync and not EllesmereUI._prebuilding then
+        local rgn = row._leftRegion
+        local function apply(units)
+            local s = getS()
+            local v = s and s[key]
+            for i = 1, #units do
+                local t = sync.db(units[i])
+                if t then t[ns.UF_CastClassicKey(units[i])] = v end
+            end
+            sync.reload()
+            if EllesmereUI.ReapplyMatchPads then
+                for i = 1, #units do EllesmereUI.ReapplyMatchPads(units[i] .. "Castbar") end
+            end
+            EllesmereUI:RefreshPage()
+        end
+        EllesmereUI.BuildSyncIcon({
+            region  = rgn,
+            tooltip = "Apply Border Size to all Frames",
+            onClick = function() apply(sync.units) end,
+            isSynced = function()
+                local s = getS()
+                local v = s and s[key]
+                for i = 1, #sync.units do
+                    local t = sync.db(sync.units[i])
+                    if t and t[ns.UF_CastClassicKey(sync.units[i])] ~= v then return false end
+                end
+                return true
+            end,
+            flashTargets = function() return { rgn } end,
+            multiApply = {
+                elementKeys   = sync.units,
+                elementLabels = sync.labels,
+                getCurrentKey = sync.current,
+                onApply       = apply,
+            },
+        })
+    end
+    return h
+end
+
 -- Tracked Auras popup for target/focus/boss debuff filters ("Edit Tracked
 -- Auras" pinned action; shared chrome in EllesmereUI_Widgets.lua). Tri-state
 -- lists on the unit's settings table (s.debuffInclude/s.debuffExclude); boss1-5
@@ -943,11 +1004,12 @@ initFrame:SetScript("OnEvent", function(self)
         local kind
         if unitKey == "player" then kind = "player"
         elseif unitKey == "target" or unitKey == "focus" or unitKey == "boss" then kind = "target"
+        elseif unitKey == "pet" and UFB.pet then kind = "pet"
         else kind = "mini" end
         local native = UFB[kind]
         local side = ns.UF_BlizzSide(s, native)
         local G, mirror = native, nil
-        if kind == "mini" then
+        if native.small then
             if side ~= native.side then mirror = true end
         elseif side == "right" then
             G = UFB.target
@@ -1690,14 +1752,16 @@ initFrame:SetScript("OnEvent", function(self)
             -- icon fills the freed space with the outer edge fixed, as on the real
             -- cast bar. Off = icon hangs outside, bar at full width.
             local pvCastIconW = initCH
-            local pvCastIconInWidth, pvCastIconOnRight, pvCastIconOffX, pvCastIconOffY
+            -- "Part of the bar" resolves through the module's own rule (the
+            -- stock styles force it for a shown icon), so the preview lays
+            -- the icon out exactly as live does.
+            local pvCastIconInWidth = ns.UF_CastIconInWidth(unitKey, settings)
+            local pvCastIconOnRight, pvCastIconOffX, pvCastIconOffY
             if unitKey == "player" then
-                pvCastIconInWidth = settings.showPlayerCastIcon ~= false and settings.playerCastbarIconInWidth ~= false
                 pvCastIconOnRight = settings.playerCastbarIconRight == true
                 pvCastIconOffX = settings.playerCastIconOffsetX or 0
                 pvCastIconOffY = settings.playerCastIconOffsetY or 0
             else
-                pvCastIconInWidth = settings.showCastIcon ~= false and settings.castbarIconInWidth ~= false
                 pvCastIconOnRight = settings.castbarIconRight == true
                 pvCastIconOffX = settings.castIconOffsetX or 0
                 pvCastIconOffY = settings.castIconOffsetY or 0
@@ -2067,7 +2131,8 @@ initFrame:SetScript("OnEvent", function(self)
         local initBdrBtbAtt = (initBdrBtbPos == "top" or initBdrBtbPos == "bottom")
         border:SetHeight(settings.healthHeight + initPpExtra + (settings.bottomTextBar and initBdrBtbAtt and (settings.bottomTextBarHeight or 16) or 0))
         border:SetFrameLevel(barArea:GetFrameLevel() + 5)
-        EllesmereUI.ApplyBorderStyle(border, bdrSize, bdrColor.r, bdrColor.g, bdrColor.b, settings.borderAlpha or 1, bdrTexKey, settings.borderTextureOffset, settings.borderTextureOffsetY, settings.borderTextureShiftX, settings.borderTextureShiftY, "unitframes", bdrSize)
+        EllesmereUI.ApplyBorderStyle(border, bdrSize, bdrColor.r, bdrColor.g, bdrColor.b, settings.borderAlpha or 1, bdrTexKey, settings.borderTextureOffset, settings.borderTextureOffsetY, settings.borderTextureShiftX, settings.borderTextureShiftY, "unitframes", bdrSize, nil,
+            EllesmereUI.BorderPx(settings.borderSizePx, bdrSize, bdrTexKey))
         if bdrSize == 0 and bdrTexKey == "solid" then border:Hide() end
 
         -- Position an absorb StatusBar per edge mode (mirrors UpdateAbsorbBarReverseFill
@@ -2387,7 +2452,7 @@ initFrame:SetScript("OnEvent", function(self)
             local lvl = pf:GetFrameLevel()
             local pct = _previewHealthPct or 0.70
             local ppct = _previewPowerPct or 0.85
-            local isMini = (G == ns.UF_BLIZZ.mini)
+            local isMini = G.small and true or false
 
             -- Art box: the stock box, hung so its transparent top rows sit above
             -- pf (pf spans only the visible art, plus the cast bar strip below).
@@ -2407,23 +2472,46 @@ initFrame:SetScript("OnEvent", function(self)
                 af:EnableMouse(false)
                 pf._blizzArtFrame = af
             end
-            af:SetFrameLevel(lvl + 2)
+            -- Art over or under the bars as the kit layers it (the classic
+            -- target and pet arts draw over their transparent bar windows).
+            af:SetFrameLevel(G.artAbove and (lvl + 5) or (lvl + 2))
             barArea._blizzArtFrame = af
             barArea._blizzMirror = mirror
-            if af._artAtlas ~= G.art or af._artMirror ~= mirror then
-                af._artAtlas, af._artMirror = G.art, mirror
-                ns.UF_PaintBlizzArt(barArea, G.art)
+            -- The boss preview wears the classic kit's whole-frame boss art.
+            local artEntry = (extras and unitKey == "boss" and G.artByClass and G.artByClass.boss) or G.art
+            if af._artAtlas ~= artEntry or af._artMirror ~= mirror then
+                af._artAtlas, af._artMirror = artEntry, mirror
+                ns.UF_PaintBlizzArt(barArea, artEntry)
             end
-            -- Type strip (the preview's target is hostile) and the boss dragon.
-            if extras and G.rep and ns.UF_AtlasOK(G.rep.atlas) then
+            -- The dark plaque behind the name and bars (classic kit), under the art.
+            if G.back then
+                local bk = pf._blizzBack
+                if not bk then
+                    bk = barArea:CreateTexture(nil, "BACKGROUND", nil, -2)
+                    bk:SetColorTexture(0, 0, 0, 0.5)
+                    pf._blizzBack = bk
+                end
+                bk:ClearAllPoints()
+                ns.UF_BlizzPoint(bk, "TOPLEFT", barArea, "TOPLEFT", G.back.x, -G.back.y, mirror)
+                bk:SetSize(G.back.w, G.back.h)
+                bk:Show()
+            elseif pf._blizzBack then
+                pf._blizzBack:Hide()
+            end
+            -- Type strip (the preview's target is hostile: the stock strip over
+            -- the art, or the classic name plaque under it) and the boss dragon.
+            local repArt = extras and G.rep and (G.rep.art or G.rep.atlas)
+            if repArt and ns.UF_ArtOK(repArt) and ns.UF_BlizzHeaderOn(s) then
                 local rep = af._rep
                 if not rep then
                     rep = af:CreateTexture(nil, "BACKGROUND", nil, 1)
                     af._rep = rep
                 end
-                rep:SetAtlas(G.rep.atlas, true)
+                ns.UF_SetArt(rep, repArt, true)
+                rep:SetDrawLayer("BACKGROUND", G.rep.below and -1 or 1)
                 rep:ClearAllPoints()
-                rep:SetPoint("TOPRIGHT", barArea, "TOPRIGHT", G.rep.x, G.rep.y)
+                local rp = G.rep.point or "TOPRIGHT"
+                rep:SetPoint(rp, barArea, rp, G.rep.x, G.rep.y)
                 rep:SetVertexColor(1, 0, 0)
                 rep:Show()
             elseif af._rep then
@@ -2665,7 +2753,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Left text zone on the name strip; the others stay bar-relative.
             if G.name and leftFS:IsShown() then
                 leftFS:ClearAllPoints()
-                leftFS:SetJustifyH("LEFT")
+                leftFS:SetJustifyH(G.name.justify or "LEFT")
                 ns.UF_BlizzPoint(leftFS, G.name.point, barArea, G.name.point, G.name.x, G.name.y, mirror)
                 leftFS:SetWidth(G.name.w)
             end
@@ -2679,33 +2767,35 @@ initFrame:SetScript("OnEvent", function(self)
             -- lowest bottom aura stack (`drop`, from Update) -- with the stock
             -- background, fill art, frame and text box.
             if castbar and castbar:IsShown() and ch > 0 then
-                local inW, onRight
+                local inW, onRight = ns.UF_CastIconInWidth(unitKey, s)
                 if unitKey == "player" then
-                    inW = s.showPlayerCastIcon ~= false and s.playerCastbarIconInWidth ~= false
                     onRight = s.playerCastbarIconRight == true
                 else
-                    inW = s.showCastIcon ~= false and s.castbarIconInWidth ~= false
                     onRight = s.castbarIconRight == true
                 end
                 local UFC = ns.UF_CAST_BLIZZ
+                -- The classic kit's cast chrome (nil on the stock kit): the
+                -- vanilla frame round the user's own fill, no stock
+                -- background, fill art or text box.
+                local CK = ns.UF_BLIZZ.cast
                 -- The stock text box (spell name shown) hangs 13px under the
                 -- bar and the icon spans bar + box, as live; an in-width icon
                 -- shifts the bar by half that width to keep the pair centred.
-                local tbAtlas = UFC and ns.UF_BlizzAtlas(UFC.textbox)
+                local tbAtlas = (not CK) and UFC and ns.UF_BlizzAtlas(UFC.textbox)
                 local nameSide = s.castSpellNameSide or "left"
                 local tbOn = tbAtlas and castNameFS2 and nameSide ~= "none"
                 local icoW = ch + (tbOn and 13 or 0)
                 castbar:ClearAllPoints()
                 castbar:SetPoint("TOP", barArea, "BOTTOM", inW and (onRight and -(icoW / 2) or (icoW / 2)) or 0, padBottom - (drop or 0))
                 if castIconFrame then castIconFrame:SetSize(icoW, icoW) end
-                local bgAtlas = UFC and ns.UF_BlizzAtlas(UFC.bg)
+                local bgAtlas = (not CK) and UFC and ns.UF_BlizzAtlas(UFC.bg)
                 if bgAtlas and castbar._previewBgTex then
                     castbar._previewBgTex:SetAtlas(bgAtlas)
                     castbar._previewBgTex:ClearAllPoints()
                     castbar._previewBgTex:SetPoint("TOPLEFT", castbar, "TOPLEFT", -1, 1)
                     castbar._previewBgTex:SetPoint("BOTTOMRIGHT", castbar, "BOTTOMRIGHT", 1, -1)
                 end
-                local fillAtlas = UFC and ns.UF_BlizzAtlas(UFC.cast)
+                local fillAtlas = (not CK) and UFC and ns.UF_BlizzAtlas(UFC.cast)
                 if fillAtlas and castFill then
                     castFill:SetAtlas(fillAtlas)
                     castFill:SetVertexColor(1, 1, 1, 1)
@@ -2722,8 +2812,34 @@ initFrame:SetScript("OnEvent", function(self)
                         castIconFrame._iconTex:SetTexCoord(0, 1, 0, 1)
                     end
                 end
-                local frAtlas = UFC and ns.UF_BlizzAtlas(UFC.frame)
-                if frAtlas then
+                local frAtlas = (not CK) and UFC and ns.UF_BlizzAtlas(UFC.frame)
+                if CK then
+                    -- The vanilla frame round the footprint: bar plus icon
+                    -- while the icon is part of the bar (as live, the icon
+                    -- sits inside the frame's window), on an art frame
+                    -- above both so the rim overlaps the icon's edges too.
+                    local af = castbar._classicArt
+                    if not af then
+                        af = CreateFrame("Frame", nil, pf)
+                        af:EnableMouse(false)
+                        af:SetFrameLevel(pf:GetFrameLevel() + 3)
+                        castbar._classicArt = af
+                        castbar._blizzFrame = af:CreateTexture(nil, "OVERLAY", nil, 2)
+                    end
+                    af:ClearAllPoints()
+                    if inW and castIconFrame and castIconFrame:IsShown() then
+                        if onRight then
+                            af:SetPoint("TOPLEFT", castbar, "TOPLEFT", 0, 0)
+                            af:SetPoint("BOTTOMRIGHT", castIconFrame, "BOTTOMRIGHT", 0, 0)
+                        else
+                            af:SetPoint("TOPLEFT", castIconFrame, "TOPLEFT", 0, 0)
+                            af:SetPoint("BOTTOMRIGHT", castbar, "BOTTOMRIGHT", 0, 0)
+                        end
+                    else
+                        af:SetAllPoints(castbar)
+                    end
+                    ns.UF_SeatClassicCastFrame(castbar._blizzFrame, af, ch, s[ns.UF_CastClassicKey(unitKey)])
+                elseif frAtlas then
                     local fr = castbar._blizzFrame
                     if not fr then
                         fr = castbar:CreateTexture(nil, "OVERLAY", nil, 2)
@@ -2845,7 +2961,8 @@ initFrame:SetScript("OnEvent", function(self)
                         s.auraBorderTexture or "solid",
                         s.auraBorderTextureOffset, s.auraBorderTextureOffsetY,
                         s.auraBorderTextureShiftX, s.auraBorderTextureShiftY,
-                        "unitframes", s.auraBorderSize or 1)
+                        "unitframes", s.auraBorderSize or 1, nil,
+                        EllesmereUI.BorderPx(s.auraBorderSizePx, s.auraBorderSize or 1, s.auraBorderTexture or "solid"))
                 end
                 for i = 1, #buffIcons do ApplyPreviewAuraBorder(buffIcons[i]) end
                 for i = 1, #debuffIcons do ApplyPreviewAuraBorder(debuffIcons[i]) end
@@ -3398,14 +3515,13 @@ initFrame:SetScript("OnEvent", function(self)
                 if ch > 0 then
                     -- Cast icon "part of the bar": narrow + shift the bar so the icon
                     -- sits inside the width; off = full width, icon hangs outside.
-                    local ciInWidth, ciOnRight, ciOffX, ciOffY
+                    local ciInWidth = ns.UF_CastIconInWidth(unitKey, s)
+                    local ciOnRight, ciOffX, ciOffY
                     if unitKey == "player" then
-                        ciInWidth = s.showPlayerCastIcon ~= false and s.playerCastbarIconInWidth ~= false
                         ciOnRight = s.playerCastbarIconRight == true
                         ciOffX = s.playerCastIconOffsetX or 0
                         ciOffY = s.playerCastIconOffsetY or 0
                     else
-                        ciInWidth = s.showCastIcon ~= false and s.castbarIconInWidth ~= false
                         ciOnRight = s.castbarIconRight == true
                         ciOffX = s.castIconOffsetX or 0
                         ciOffY = s.castIconOffsetY or 0
@@ -3444,16 +3560,17 @@ initFrame:SetScript("OnEvent", function(self)
                             if classToken then fillC = RAID_CLASS_COLORS[classToken] end
                         end
                         if not fillC then fillC = s.castbarFillColor end
-                        -- Cast fill reuses the unit's health bar texture (matches real frames).
+                        -- Cast fill reuses the unit's health bar texture unless the cast
+                        -- bars carry one of their own (matches real frames).
                         -- WHITE8X8 fallback ensures PV_FillColor always sets vertex color fresh.
                         local cbTexKey = s.healthBarTexture or db.profile.healthBarTexture or "none"
+                        local ownCb = db.profile.castBarTexture
+                        if ownCb and ownCb ~= "inherit" then cbTexKey = ownCb end
                         local cbTexPath = (ns.healthBarTextures or {})[cbTexKey] or "Interface\\Buttons\\WHITE8X8"
-                        if fillC then
-                            PV_FillColor(castFill, cbTexPath, fillC.r, fillC.g, fillC.b, nil, nil, nil, 1)
-                        else
-                            local gc = db.profile.castbarColor or { r=0.114, g=0.655, b=0.514 }
-                            PV_FillColor(castFill, cbTexPath, gc.r, gc.g, gc.b, nil, nil, nil, 1)
-                        end
+                        local fc = fillC or db.profile.castbarColor or { r=0.114, g=0.655, b=0.514 }
+                        PV_FillColor(castFill, cbTexPath, fc.r, fc.g, fc.b, nil, nil, nil, 1)
+                        -- The "Blizzard" fill is the vanilla cast bar's own art, tinted.
+                        if cbTexKey == "blizzard" then castFill:SetAtlas("UI-CastingBar-Fill", true) end
                     end
                     if castIconFrame then
                         castIconFrame:SetSize(ch, ch)
@@ -3562,7 +3679,8 @@ initFrame:SetScript("OnEvent", function(self)
             border:SetPoint("TOPLEFT", barArea, "TOPLEFT", 0, 0)
             border:SetPoint("TOPRIGHT", barArea, "TOPRIGHT", 0, 0)
             border:SetHeight(borderH)
-            EllesmereUI.ApplyBorderStyle(border, bs, bc.r, bc.g, bc.b, ds.borderAlpha or 1, bTexKey, ds.borderTextureOffset, ds.borderTextureOffsetY, ds.borderTextureShiftX, ds.borderTextureShiftY, "unitframes", bs)
+            EllesmereUI.ApplyBorderStyle(border, bs, bc.r, bc.g, bc.b, ds.borderAlpha or 1, bTexKey, ds.borderTextureOffset, ds.borderTextureOffsetY, ds.borderTextureShiftX, ds.borderTextureShiftY, "unitframes", bs, nil,
+                EllesmereUI.BorderPx(ds.borderSizePx, bs, bTexKey))
 
             -- Class Power Pips update (player only)
             if cpPipContainer and cpPips then
@@ -4181,7 +4299,7 @@ initFrame:SetScript("OnEvent", function(self)
                     -- The stock text box hangs 13px under the cast bar: reserve
                     -- it so the content header below does not overlap it.
                     local UFC = ns.UF_CAST_BLIZZ
-                    if UFC and ns.UF_BlizzAtlas(UFC.textbox)
+                    if UFC and not ns.UF_BLIZZ.cast and ns.UF_BlizzAtlas(UFC.textbox)
                        and (s.castSpellNameSide or "left") ~= "none" then
                         cbStrip = cbStrip + 13
                     end
@@ -4207,7 +4325,8 @@ initFrame:SetScript("OnEvent", function(self)
             if border then
                 local bs2 = ds.borderSize or 1
                 local bTex2 = ds.borderTexture or "solid"
-                EllesmereUI.ApplyBorderStyle(border, bs2, (ds.borderColor or {r=0,g=0,b=0}).r, (ds.borderColor or {r=0,g=0,b=0}).g, (ds.borderColor or {r=0,g=0,b=0}).b, ds.borderAlpha or 1, bTex2, ds.borderTextureOffset, ds.borderTextureOffsetY, ds.borderTextureShiftX, ds.borderTextureShiftY, "unitframes", bs2)
+                EllesmereUI.ApplyBorderStyle(border, bs2, (ds.borderColor or {r=0,g=0,b=0}).r, (ds.borderColor or {r=0,g=0,b=0}).g, (ds.borderColor or {r=0,g=0,b=0}).b, ds.borderAlpha or 1, bTex2, ds.borderTextureOffset, ds.borderTextureOffsetY, ds.borderTextureShiftX, ds.borderTextureShiftY, "unitframes", bs2, nil,
+                    EllesmereUI.BorderPx(ds.borderSizePx, bs2, bTex2))
             end
             if castbar then
                 if PP.GetBorders(castbar) then PP.SetBorderSize(castbar, 1) end
@@ -5343,44 +5462,49 @@ initFrame:SetScript("OnEvent", function(self)
                   SSet("borderBehind", _bbehind)
                   local defSz = EllesmereUI.GetBorderDefaultSize("unitframes", v)
                   if defSz then SSet("borderSize", defSz) end
+                  -- A style pick returns the frame to its legacy step; clear a set
+                  -- exact size (false travels through mirror sync, nil would not).
+                  if SGet("borderSizePx") then SDB().borderSizePx = false end
                   ReloadAndUpdate()
+                  -- The Width / Height Offset row exists only under a textured style.
+                  EllesmereUI:RefreshPage(true)
               end }),
-            EllesmereUI.BlizzStyle.Gate("unitframes", { type="slider", text="Border Size",
-              min=0, max=4, step=1, trackWidth=120,
-              getValue=function() return SVal("borderSize", 1) end,
-              setValue=function(v)
-                  SSet("borderSize", v); ReloadAndUpdate()
-              end }));  y = y - h
-        -- Inline cog for border offset (left region)
+            EllesmereUI.BlizzStyle.Gate("unitframes", EllesmereUI.BorderPxSliderCfg({ text="Border Size", trackWidth=120,
+              getStep=function() return SVal("borderSize", 1) end,
+              setStep=function(step) SDB().borderSize = step end,
+              getTex=function() return SGet("borderTexture") or "solid" end,
+              getPx=function() return SGet("borderSizePx") end,
+              setPx=function(v) SDB().borderSizePx = v end,
+              apply=ReloadAndUpdate })));  y = y - h
+        -- Width Offset | Height Offset: a textured style's outward offsets (a Solid
+        -- border has none). The row shows what is drawn: the stored override, else
+        -- the texture's default for this size, which keeps seeding until a real edit.
+        do
+            local bTex = SGet("borderTexture") or "solid"
+            if bTex ~= "solid" and bTex ~= "" then
+                local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs({
+                    addonKey = "unitframes",
+                    getTex = function() return SGet("borderTexture") or "solid" end,
+                    getStep = function() return SVal("borderSize", 1) end,
+                    getSizeKey = function() return SVal("borderSize", 1) end,
+                    getPx = function() return SGet("borderSizePx") end,
+                    getX = function() return SGet("borderTextureOffset") end,
+                    setX = function(v) SDB().borderTextureOffset = v end,
+                    getY = function() return SGet("borderTextureOffsetY") end,
+                    setY = function(v) SDB().borderTextureOffsetY = v end,
+                    apply = ReloadAndUpdate,
+                })
+                _, h = W:DualRow(parent, y,
+                    EllesmereUI.BlizzStyle.Gate("unitframes", ocfgL),
+                    EllesmereUI.BlizzStyle.Gate("unitframes", ocfgR));  y = y - h
+            end
+        end
+        -- Inline cog for border shift / layering (left region)
         if not EllesmereUI._prebuilding then
             local rgn = sharedScaleBorderRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Border Offset",
+                title = "Border Options",
                 rows = {
-                    { type = "slider", label = "Offset X", min = -10, max = 10, step = 1,
-                      get = function()
-                          local v = SGet("borderTextureOffset")
-                          if v then return v end
-                          local tex = SGet("borderTexture") or "solid"
-                          local sz = SVal("borderSize", 1)
-                          local dox = EllesmereUI.GetBorderDefaults("unitframes", tex, sz)
-                          return dox
-                      end,
-                      set = function(v)
-                          SSet("borderTextureOffset", v); ReloadAndUpdate()
-                      end },
-                    { type = "slider", label = "Offset Y", min = -10, max = 10, step = 1,
-                      get = function()
-                          local v = SGet("borderTextureOffsetY")
-                          if v then return v end
-                          local tex = SGet("borderTexture") or "solid"
-                          local sz = SVal("borderSize", 1)
-                          local _, doy = EllesmereUI.GetBorderDefaults("unitframes", tex, sz)
-                          return doy
-                      end,
-                      set = function(v)
-                          SSet("borderTextureOffsetY", v); ReloadAndUpdate()
-                      end },
                     { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
                       get = function()
                           local v = SGet("borderTextureShiftX")
@@ -5501,19 +5625,33 @@ initFrame:SetScript("OnEvent", function(self)
                 tooltip = "Apply Border to all Frames",
                 onClick = function()
                     local bs = SVal("borderSize", 1)
+                    local bpx = SGet("borderSizePx")
                     local bc = SGet("borderColor")
                     local ba = SGet("borderAlpha")
                     local bt = SGet("borderTexture") or "solid"
                     local hc = SGet("highlightColor")
                     local ha = SGet("highlightAlpha")
+                    local ox = SGet("borderTextureOffset")
+                    local oy = SGet("borderTextureOffsetY")
                     local sx = SGet("borderTextureShiftX")
                     local sy = SGet("borderTextureShiftY")
                     for _, key in ipairs(GROUP_UNIT_ORDER) do
                         if key ~= selectedUnit then
                             UNIT_DB_MAP[key]().borderSize = bs
+                            -- Verbatim (string / false / nil): the value only counts beside the same step and texture.
+                            do
+                                -- A source with no exact size clears a set one with
+                                -- false (nil would not travel through mirror sync).
+                                local t = UNIT_DB_MAP[key]()
+                                local v = bpx
+                                if v == nil and t.borderSizePx ~= nil then v = false end
+                                t.borderSizePx = v
+                            end
                             if bc then UNIT_DB_MAP[key]().borderColor = { r=bc.r, g=bc.g, b=bc.b } end
                             if ba then UNIT_DB_MAP[key]().borderAlpha = ba end
                             UNIT_DB_MAP[key]().borderTexture = bt
+                            UNIT_DB_MAP[key]().borderTextureOffset = ox
+                            UNIT_DB_MAP[key]().borderTextureOffsetY = oy
                             UNIT_DB_MAP[key]().borderTextureShiftX = sx
                             UNIT_DB_MAP[key]().borderTextureShiftY = sy
                             if hc then UNIT_DB_MAP[key]().highlightColor = { r=hc.r, g=hc.g, b=hc.b } end
@@ -5525,9 +5663,12 @@ initFrame:SetScript("OnEvent", function(self)
                 isSynced = function()
                     local bs = SVal("borderSize", 1)
                     local bt = SGet("borderTexture") or "solid"
+                    -- Exact sizes compare as rendered (a cleared or stale value equals none).
+                    local bpx = EllesmereUI.BorderPx(SGet("borderSizePx"), bs, bt)
                     for _, key in ipairs(GROUP_UNIT_ORDER) do
                         if (UNIT_DB_MAP[key]().borderSize or 1) ~= bs then return false end
                         if (UNIT_DB_MAP[key]().borderTexture or "solid") ~= bt then return false end
+                        if EllesmereUI.BorderPx(UNIT_DB_MAP[key]().borderSizePx, bs, bt) ~= bpx then return false end
                     end
                     return true
                 end,
@@ -5538,18 +5679,31 @@ initFrame:SetScript("OnEvent", function(self)
                     getCurrentKey = function() return selectedUnit end,
                     onApply       = function(checkedKeys)
                         local bs = SVal("borderSize", 1)
+                        local bpx = SGet("borderSizePx")
                         local bc = SGet("borderColor")
                         local ba = SGet("borderAlpha")
                         local bt = SGet("borderTexture") or "solid"
                         local hc = SGet("highlightColor")
                         local ha = SGet("highlightAlpha")
+                        local ox = SGet("borderTextureOffset")
+                        local oy = SGet("borderTextureOffsetY")
                         local sx = SGet("borderTextureShiftX")
                         local sy = SGet("borderTextureShiftY")
                         for _, key in ipairs(checkedKeys) do
                             UNIT_DB_MAP[key]().borderSize = bs
+                            do
+                                -- A source with no exact size clears a set one with
+                                -- false (nil would not travel through mirror sync).
+                                local t = UNIT_DB_MAP[key]()
+                                local v = bpx
+                                if v == nil and t.borderSizePx ~= nil then v = false end
+                                t.borderSizePx = v
+                            end
                             if bc then UNIT_DB_MAP[key]().borderColor = { r=bc.r, g=bc.g, b=bc.b } end
                             if ba then UNIT_DB_MAP[key]().borderAlpha = ba end
                             UNIT_DB_MAP[key]().borderTexture = bt
+                            UNIT_DB_MAP[key]().borderTextureOffset = ox
+                            UNIT_DB_MAP[key]().borderTextureOffsetY = oy
                             UNIT_DB_MAP[key]().borderTextureShiftX = sx
                             UNIT_DB_MAP[key]().borderTextureShiftY = sy
                             if hc then UNIT_DB_MAP[key]().highlightColor = { r=hc.r, g=hc.g, b=hc.b } end
@@ -5902,6 +6056,24 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateHBSwatchVis()
         end
 
+        -- Blizzard Style, target frame: the coloured strip behind the name,
+        -- or an uncoloured header matching the player frame.
+        if selectedUnit == "target" and EllesmereUI.BlizzStyle.Active("unitframes") == "blizzard" then
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Blizz Colored Target Header",
+                  tooltip="Colors the strip behind the target's name by its reaction.",
+                  getValue=function() return UNIT_DB_MAP.target().blizzColoredHeader ~= false end,
+                  setValue=function(v)
+                      if v then
+                          UNIT_DB_MAP.target().blizzColoredHeader = nil
+                      else
+                          UNIT_DB_MAP.target().blizzColoredHeader = false
+                      end
+                      ReloadAndUpdate(); UpdatePreview()
+                  end },
+                { type="label", text="" });  y = y - h
+        end
+
         _, h = W:Spacer(parent, y, 20); y = y - h
 
         -------------------------------------------------------------------
@@ -5954,9 +6126,12 @@ initFrame:SetScript("OnEvent", function(self)
               disabledTooltip="Portrait Mode is set to None", rawTooltip=true,
               -- Blizzard Style masks the 2D art; a 3D model cannot be masked.
               itemDisabled=function(val) return val == "3d" and EllesmereUI.BlizzStyle.Get("unitframes") end,
+              -- The active style's name as the requirement noun; the widget
+              -- wraps and translates it once ("... to be disabled").
               itemDisabledTooltip=function(val)
-                  if val == "3d" then return "This option requires Blizzard Style to be disabled" end
+                  if val == "3d" then return EllesmereUI.BlizzStyle.Label("unitframes") end
               end,
+              itemRequireState="disabled",
               getValue=function()
                   local v = SGet("portraitMode")
                   if v == "class" then return SVal("classThemeStyle", "modern") end
@@ -6091,7 +6266,7 @@ initFrame:SetScript("OnEvent", function(self)
         local portraitLocationOrder = { "left", "right", "top", "insideleft", "insideright", "insidecenter" }
         local sharedSizePosRow
         sharedSizePosRow, h = W:DualRow(parent, y,
-            { type="slider", text="Size", min=-20, max=100, step=1,
+            { type="slider", text="Size", min=-50, max=100, step=1,
               disabled=function()
                   local style = SVal("portraitStyle", "attached")
                   local side = SVal("portraitSide", "left")
@@ -7766,6 +7941,9 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   SSet("powerPosition", v)
                   ReloadAndUpdate(); UpdatePreview()
+                  -- Attached bars paint a Solid border: the power border's Width /
+                  -- Height Offset row comes and goes with the detached state.
+                  EllesmereUI:RefreshPage(true)
               end });  y = y - h
         -- Cog on Position for X/Y offsets + Width (disabled unless detached)
         if not EllesmereUI._prebuilding then
@@ -8428,9 +8606,14 @@ initFrame:SetScript("OnEvent", function(self)
                   end
                   local defSz = EllesmereUI.GetBorderDefaultSize("unitframes", v)
                   if defSz then SSet("powerBorderSize", defSz) end
+                  -- A style pick returns the bar to its legacy step; clear a set
+                  -- exact size (false travels through mirror sync, nil would not).
+                  if SGet("powerBorderSizePx") then SDB().powerBorderSizePx = false end
                   ReloadAndUpdate()
+                  -- The Width / Height Offset row exists only under a textured style.
+                  EllesmereUI:RefreshPage(true)
               end }),
-            EllesmereUI.BlizzStyle.Gate("unitframes", { type="slider", text="Border Size",
+            EllesmereUI.BlizzStyle.Gate("unitframes", EllesmereUI.BorderPxSliderCfg({ text="Border Size",
               disabled=function()
                   local pos = SVal("powerPosition", "below")
                   return pos == "none"
@@ -8438,37 +8621,53 @@ initFrame:SetScript("OnEvent", function(self)
               disabledTooltip=function()
                   return EllesmereUI.L("Border is only available when the Power Bar is shown.")
               end, rawTooltip=true,
-              min=0, max=4, step=1, trackWidth=120,
-              getValue=function() return SVal("powerBorderSize", 0) end,
-              setValue=function(v)
-                  SSet("powerBorderSize", v); ReloadAndUpdate()
-              end }));  y = y - h
-        -- Cog for power border offset (left region)
+              trackWidth=120,
+              getStep=function() return SVal("powerBorderSize", 0) end,
+              setStep=function(step) SDB().powerBorderSize = step end,
+              getTex=function()
+                  -- The style the bar is painted with (ns.UpdatePowerBorder): an
+                  -- attached bar is forced Solid whatever the dropdown holds.
+                  local pos = SVal("powerPosition", "below")
+                  if pos == "above" or pos == "below" then return "solid" end
+                  return SGet("powerBorderStyle") or "solid"
+              end,
+              getPx=function() return SGet("powerBorderSizePx") end,
+              setPx=function(v) SDB().powerBorderSizePx = v end,
+              apply=ReloadAndUpdate })));  y = y - h
+        -- Width Offset | Height Offset: a textured power border's outward offsets.
+        -- Only a detached bar can be textured (an attached bar is painted Solid),
+        -- so the row exists only while the painted style is textured.
+        do
+            local pbPos = SVal("powerPosition", "below")
+            local pbTex = SGet("powerBorderStyle") or "solid"
+            if (pbPos == "detached_top" or pbPos == "detached_bottom") and pbTex ~= "solid" and pbTex ~= "" then
+                local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs({
+                    addonKey = "unitframes",
+                    getTex = function()
+                        local pos = SVal("powerPosition", "below")
+                        if pos == "above" or pos == "below" then return "solid" end
+                        return SGet("powerBorderStyle") or "solid"
+                    end,
+                    getStep = function() return SVal("powerBorderSize", 0) end,
+                    getSizeKey = function() return SVal("powerBorderSize", 0) end,
+                    getPx = function() return SGet("powerBorderSizePx") end,
+                    getX = function() return SGet("powerBorderOffsetX") end,
+                    setX = function(v) SDB().powerBorderOffsetX = v end,
+                    getY = function() return SGet("powerBorderOffsetY") end,
+                    setY = function(v) SDB().powerBorderOffsetY = v end,
+                    apply = ReloadAndUpdate,
+                })
+                _, h = W:DualRow(parent, y,
+                    EllesmereUI.BlizzStyle.Gate("unitframes", ocfgL),
+                    EllesmereUI.BlizzStyle.Gate("unitframes", ocfgR));  y = y - h
+            end
+        end
+        -- Cog for power border shift / layering (left region)
         if not EllesmereUI._prebuilding then
             local rgn = sharedPowerBorderRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Power Border Offset",
+                title = "Power Border Options",
                 rows = {
-                    { type = "slider", label = "Offset X", min = -10, max = 10, step = 1,
-                      get = function()
-                          local v = SGet("powerBorderOffsetX")
-                          if v then return v end
-                          local tex = SGet("powerBorderStyle") or "solid"
-                          local sz = SVal("powerBorderSize", 0)
-                          local dox = EllesmereUI.GetBorderDefaults("unitframes", tex, sz)
-                          return dox
-                      end,
-                      set = function(v) SSet("powerBorderOffsetX", v); ReloadAndUpdate() end },
-                    { type = "slider", label = "Offset Y", min = -10, max = 10, step = 1,
-                      get = function()
-                          local v = SGet("powerBorderOffsetY")
-                          if v then return v end
-                          local tex = SGet("powerBorderStyle") or "solid"
-                          local sz = SVal("powerBorderSize", 0)
-                          local _, doy = EllesmereUI.GetBorderDefaults("unitframes", tex, sz)
-                          return doy
-                      end,
-                      set = function(v) SSet("powerBorderOffsetY", v); ReloadAndUpdate() end },
                     { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
                       get = function()
                           local v = SGet("powerBorderShiftX")
@@ -9020,7 +9219,13 @@ initFrame:SetScript("OnEvent", function(self)
                 rows = {
                     { type = "toggle", label = "Make Icon Part of the Bar",
                       tooltip = "This makes it so the width of the cast bar includes the icon, rather than placing it to the left of the cast bars width.",
+                      -- The stock styles count a shown icon as part of the bar
+                      -- (their frame art wraps both), so the toggle reads on and locks.
+                      disabled = function() return EllesmereUI.BlizzStyle.Get("unitframes") end,
+                      disabledTooltip = function() return EllesmereUI.BlizzStyle.Label("unitframes") end,
+                      requireState = "disabled",
                       get = function()
+                          if EllesmereUI.BlizzStyle.Get("unitframes") then return true end
                           if selectedUnit == "player" then
                               return UNIT_DB_MAP.player().playerCastbarIconInWidth ~= false
                           end
@@ -9474,6 +9679,16 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
         end
+        -- Classic WoW UI: Border Size closes the section (odd last slot).
+        y = y - ns.UF_ClassicCastBorderRow(W, parent, y,
+            function() return UNIT_DB_MAP[selectedUnit]() end,
+            ns.UF_CastClassicKey(selectedUnit),
+            function() ReloadAndUpdate(); UpdatePreview() end,
+            { units = GROUP_UNIT_ORDER, labels = SHORT_LABELS,
+              current = function() return selectedUnit end,
+              db = function(u) local f = UNIT_DB_MAP[u]; return f and f() end,
+              reload = ReloadAndUpdate },
+            selectedUnit .. "Castbar")
         end   -- close Cast Bar hidden-while-disabled gate
 
         -------------------------------------------------------------------
@@ -11015,9 +11230,11 @@ initFrame:SetScript("OnEvent", function(self)
                       get=function() return SValSupported("buffCropIcons", false) end,
                       set=function(v) SSetSupported("buffCropIcons", v) end },
                     { type="slider", label="Icon Zoom", min=0, max=0.20, step=0.01,
-                      -- Blizzard Style draws the whole icon (zoom 0).
+                      -- The stock styles draw the whole icon (zoom 0); the active
+                      -- style's name is the requirement noun the widget wraps.
                       disabled=function() return EllesmereUI.BlizzStyle.Get("unitframes") end,
-                      disabledTooltip="This option requires Blizzard Style to be disabled",
+                      disabledTooltip=function() return EllesmereUI.BlizzStyle.Label("unitframes") end,
+                      requireState="disabled",
                       get=function() return SValSupported("buffIconZoom", 0.07) end,
                       set=function(v) SSetSupported("buffIconZoom", v) end },
                 },
@@ -11154,15 +11371,18 @@ initFrame:SetScript("OnEvent", function(self)
                       get=function() return SValSupported("debuffCropIcons", false) end,
                       set=function(v) SSetSupported("debuffCropIcons", v) end },
                     { type="slider", label="Icon Zoom", min=0, max=0.20, step=0.01,
-                      -- Blizzard Style draws the whole icon (zoom 0).
+                      -- The stock styles draw the whole icon (zoom 0); the active
+                      -- style's name is the requirement noun the widget wraps.
                       disabled=function() return EllesmereUI.BlizzStyle.Get("unitframes") end,
-                      disabledTooltip="This option requires Blizzard Style to be disabled",
+                      disabledTooltip=function() return EllesmereUI.BlizzStyle.Label("unitframes") end,
+                      requireState="disabled",
                       get=function() return SValSupported("debuffIconZoom", 0.07) end,
                       set=function(v) SSetSupported("debuffIconZoom", v) end },
                     { type="toggle", label="Dispel Type Borders",
-                      -- Blizzard Style always paints the stock per-type border.
+                      -- The stock styles always paint the stock per-type border.
                       disabled=function() return EllesmereUI.BlizzStyle.Get("unitframes") end,
-                      disabledTooltip="This option requires Blizzard Style to be disabled",
+                      disabledTooltip=function() return EllesmereUI.BlizzStyle.Label("unitframes") end,
+                      requireState="disabled",
                       get=function() return SValSupported("debuffDispelBorder", false) end,
                       set=function(v) SSetSupported("debuffDispelBorder", v) end },
                 },
@@ -11265,13 +11485,6 @@ initFrame:SetScript("OnEvent", function(self)
         local function AddAuraBorderSettings()
         if selectedUnit == "player" or selectedUnit == "target" then
             local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
-            local borderSizeValues = {
-                none = "None", thin = "Thin", normal = "Normal",
-                heavy = "Heavy", strong = "Strong",
-            }
-            local borderSizeOrder = { "none", "thin", "normal", "heavy", "strong" }
-            local sizeToNumber = { none = 0, thin = 1, normal = 2, heavy = 3, strong = 4 }
-            local numberToSize = { [0] = "none", [1] = "thin", [2] = "normal", [3] = "heavy", [4] = "strong" }
             local auraBorderRow
             auraBorderRow, h = W:DualRow(parent, y,
                 EllesmereUI.BlizzStyle.Gate("unitframes", { type="dropdown", text="Border Style", values=texValues, order=texOrder,
@@ -11287,30 +11500,49 @@ initFrame:SetScript("OnEvent", function(self)
                       s.auraBorderR = color.r; s.auraBorderG = color.g; s.auraBorderB = color.b; s.auraBorderA = 1
                       local defSz = EllesmereUI.GetBorderDefaultSize("unitframes", v)
                       if defSz then s.auraBorderSize = defSz end
+                      -- A style pick returns the icons to their legacy step; clear a
+                      -- set exact size (false travels through mirror sync, nil would not).
+                      if s.auraBorderSizePx then s.auraBorderSizePx = false end
                       ReloadAndUpdate(); UpdatePreview()
+                      -- The Width / Height Offset row exists only under a textured style.
+                      EllesmereUI:RefreshPage(true)
                   end }),
-                EllesmereUI.BlizzStyle.Gate("unitframes", { type="dropdown", text="Border Size", values=borderSizeValues, order=borderSizeOrder,
-                  getValue=function() return numberToSize[SVal("auraBorderSize", 1)] or "thin" end,
-                  setValue=function(v) SSetSupported("auraBorderSize", sizeToNumber[v] or 1) end })
+                EllesmereUI.BlizzStyle.Gate("unitframes", EllesmereUI.BorderPxSliderCfg({ text="Border Size", trackWidth=120,
+                  getStep=function() return SVal("auraBorderSize", 1) end,
+                  setStep=function(step) SDB().auraBorderSize = step end,
+                  getTex=function() return SVal("auraBorderTexture", "solid") end,
+                  getPx=function() return SGet("auraBorderSizePx") end,
+                  setPx=function(v) SDB().auraBorderSizePx = v end,
+                  apply=function() ReloadAndUpdate(); UpdatePreview() end }))
             ); y = y - h
+            -- Width Offset | Height Offset: a textured aura border's outward offsets
+            -- (a Solid border has none).
+            do
+                local abTex = SVal("auraBorderTexture", "solid")
+                if abTex ~= "solid" and abTex ~= "" then
+                    local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs({
+                        addonKey = "unitframes",
+                        getTex = function() return SVal("auraBorderTexture", "solid") end,
+                        getStep = function() return SVal("auraBorderSize", 1) end,
+                        getSizeKey = function() return SVal("auraBorderSize", 1) end,
+                        getPx = function() return SGet("auraBorderSizePx") end,
+                        getX = function() return SGet("auraBorderTextureOffset") end,
+                        setX = function(v) SDB().auraBorderTextureOffset = v end,
+                        getY = function() return SGet("auraBorderTextureOffsetY") end,
+                        setY = function(v) SDB().auraBorderTextureOffsetY = v end,
+                        apply = function() ReloadAndUpdate(); UpdatePreview() end,
+                    })
+                    _, h = W:DualRow(parent, y,
+                        EllesmereUI.BlizzStyle.Gate("unitframes", ocfgL),
+                        EllesmereUI.BlizzStyle.Gate("unitframes", ocfgR)); y = y - h
+                end
+            end
 
             if not EllesmereUI._prebuilding then
                 local rgn = auraBorderRow._leftRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
-                    title="Border Offset",
+                    title="Border Options",
                     rows={
-                        { type="slider", label="Offset X", min=-10, max=10, step=1,
-                          get=function()
-                              local v = SGet("auraBorderTextureOffset"); if v ~= nil then return v end
-                              return EllesmereUI.GetBorderDefaults("unitframes", SVal("auraBorderTexture", "solid"), SVal("auraBorderSize", 1))
-                          end,
-                          set=function(v) SSetSupported("auraBorderTextureOffset", v) end },
-                        { type="slider", label="Offset Y", min=-10, max=10, step=1,
-                          get=function()
-                              local v = SGet("auraBorderTextureOffsetY"); if v ~= nil then return v end
-                              local _, oy = EllesmereUI.GetBorderDefaults("unitframes", SVal("auraBorderTexture", "solid"), SVal("auraBorderSize", 1)); return oy
-                          end,
-                          set=function(v) SSetSupported("auraBorderTextureOffsetY", v) end },
                         { type="slider", label="Shift X", min=-10, max=10, step=1,
                           get=function()
                               local v = SGet("auraBorderTextureShiftX"); if v ~= nil then return v end
@@ -11643,9 +11875,21 @@ initFrame:SetScript("OnEvent", function(self)
                         return Scan(ns.UF_TokenClasses) or Scan(ns.UF_CandidateClasses)
                     end
                     local function FilterItems()
+                        -- Match Mode (ps.debuffFilterMatch: nil = Match Any, the
+                        -- union; "all" = one group matching every Show pick). A
+                        -- radio pair over one scalar, locked while All Debuffs
+                        -- makes the Show lane inert (the setting is kept).
+                        local matchLockTip = EllesmereUI.L("Uncheck All Debuffs to choose how the Show filters combine.")
                         local items = {
                             { key = ALL_KEY, label = "All Debuffs",
                               tooltip = "Show every debuff. Use the Hide lane below to remove specific filters." },
+                            { isHeader = true, label = "Match Mode" },
+                            { key = "__matchAny", label = EllesmereUI.L("Match Any Filter"), isModifier = true,
+                              lockedFn = AllOn, lockedTooltip = matchLockTip,
+                              tooltip = EllesmereUI.L("Shows debuffs that match any checked Show filter (the default).") },
+                            { key = "__matchAll", label = EllesmereUI.L("Match All Filters"), isModifier = true,
+                              lockedFn = AllOn, lockedTooltip = matchLockTip,
+                              tooltip = EllesmereUI.L("Shows only debuffs that match every checked Show filter (dispel types count as one); opposites like Non-Player Auras with Cast By You show nothing.") },
                             { isHeader = true, label = "Show", rightLabel = "Hide" },
                         }
                         local classItems = ns.PAB_ClassItems and ns.PAB_ClassItems(false) or {}
@@ -11678,6 +11922,9 @@ initFrame:SetScript("OnEvent", function(self)
                         FilterItems,
                         function(k, neg)
                             if k == ALL_KEY then return AllOn() end
+                            if k == "__matchAny" or k == "__matchAll" then
+                                return (k == "__matchAll") == (ps.debuffFilterMatch == "all")
+                            end
                             if neg then
                                 local m = ps.debuffNegClasses
                                 return m ~= nil and m[k] == true
@@ -11685,6 +11932,17 @@ initFrame:SetScript("OnEvent", function(self)
                             return ps["debuff" .. k] == true
                         end,
                         function(k, v, neg)
+                            if k == "__matchAny" or k == "__matchAll" then
+                                -- Radio: the clicked row wins whatever its checked
+                                -- state was (re-clicking the active row keeps it).
+                                local want
+                                if k == "__matchAll" then want = "all" end
+                                if ps.debuffFilterMatch == want then return end
+                                ps.debuffFilterMatch = want
+                                ReloadAndUpdate()
+                                EllesmereUI:RefreshPage()
+                                return
+                            end
                             if k == ALL_KEY then
                                 -- Written unconditionally (Player Aura Bars parity): the
                                 -- Show lane is locked while All Debuffs is on, so a
@@ -11719,13 +11977,22 @@ initFrame:SetScript("OnEvent", function(self)
                             -- without closing this open dropdown.
                             EllesmereUI:RefreshPage()
                         end,
-                        nil, 12, nil, nil, function() if warnClosed then warnClosed() end end)
+                        nil, 12, nil, nil, function() if warnClosed then warnClosed() end end,
+                        -- Summary joins picks with " & " while Match All combines them.
+                        { separatorFn = function()
+                            if ps.debuffFilterMatch == "all" and not AllOn() then return " & " end
+                            return ", "
+                        end })
                     -- Empty-selection warning (Player Aura Bars parity): replaces the
                     -- old silent block. A Debuff Display of None already dims the whole
-                    -- control, so it is not warned about a second time.
+                    -- control, so it is not warned about a second time. Match All picks
+                    -- that can never match together count as empty (the engine test).
                     warnClosed = EllesmereUI.AttachEmptyFilterWarn(rgn, cbDD,
                         EllesmereUI.L("You are displaying NO debuffs at all."),
-                        function() return DebuffDisabled() or AllOn() or AnyShowClass() end)
+                        function()
+                            return DebuffDisabled() or AllOn()
+                                or (AnyShowClass() and not (ns.UF_DebuffMatchEmpty and ns.UF_DebuffMatchEmpty(ps)))
+                        end)
                 end
                 PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
                 rgn._control = cbDD; rgn._lastInline = nil
@@ -15598,10 +15865,6 @@ initFrame:SetScript("OnEvent", function(self)
                 local function AddBossAuraBorderSettings()
                     local B = db.profile.boss
                     local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
-                    local sizeValues = { none="None", thin="Thin", normal="Normal", heavy="Heavy", strong="Strong" }
-                    local sizeOrder = { "none", "thin", "normal", "heavy", "strong" }
-                    local toNumber = { none=0, thin=1, normal=2, heavy=3, strong=4 }
-                    local toSize = { [0]="none", [1]="thin", [2]="normal", [3]="heavy", [4]="strong" }
                     local borderRow
                     borderRow, hh = Ww:DualRow(pp, yy,
                         EllesmereUI.BlizzStyle.Gate("unitframes", { type="dropdown", text="Border Style", values=texValues, order=texOrder,
@@ -15615,21 +15878,47 @@ initFrame:SetScript("OnEvent", function(self)
                               B.auraBorderBehindUnitFrame = behindUnitFrame
                               B.auraBorderR=color.r; B.auraBorderG=color.g; B.auraBorderB=color.b; B.auraBorderA=1
                               local ds=EllesmereUI.GetBorderDefaultSize("unitframes",v); if ds then B.auraBorderSize=ds end
+                              -- A style pick returns the icons to their legacy step; clear a
+                              -- set exact size (false travels through mirror sync, nil would not).
+                              if B.auraBorderSizePx then B.auraBorderSizePx = false end
                               ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end
+                              -- The Width / Height Offset row exists only under a textured style.
+                              EllesmereUI:RefreshPage(true)
                           end }),
-                        EllesmereUI.BlizzStyle.Gate("unitframes", { type="dropdown", text="Border Size", values=sizeValues, order=sizeOrder,
-                          getValue=function() return toSize[B.auraBorderSize or 1] or "thin" end,
-                          setValue=function(v) B.auraBorderSize=toNumber[v] or 1; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end })
+                        EllesmereUI.BlizzStyle.Gate("unitframes", EllesmereUI.BorderPxSliderCfg({ text="Border Size", trackWidth=120,
+                          getStep=function() return B.auraBorderSize or 1 end,
+                          setStep=function(step) B.auraBorderSize=step end,
+                          getTex=function() return B.auraBorderTexture or "solid" end,
+                          getPx=function() return B.auraBorderSizePx end,
+                          setPx=function(v) B.auraBorderSizePx=v end,
+                          apply=function() ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end }))
                     ); yy = yy - hh
+                    -- Width Offset | Height Offset: a textured aura border's outward
+                    -- offsets (a Solid border has none).
+                    do
+                        local abTex = B.auraBorderTexture or "solid"
+                        if abTex ~= "solid" and abTex ~= "" then
+                            local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs({
+                                addonKey="unitframes",
+                                getTex=function() return B.auraBorderTexture or "solid" end,
+                                getStep=function() return B.auraBorderSize or 1 end,
+                                getSizeKey=function() return B.auraBorderSize or 1 end,
+                                getPx=function() return B.auraBorderSizePx end,
+                                getX=function() return B.auraBorderTextureOffset end,
+                                setX=function(v) B.auraBorderTextureOffset=v end,
+                                getY=function() return B.auraBorderTextureOffsetY end,
+                                setY=function(v) B.auraBorderTextureOffsetY=v end,
+                                apply=function() ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end,
+                            })
+                            local offRow
+                            offRow, hh = Ww:DualRow(pp, yy,
+                                EllesmereUI.BlizzStyle.Gate("unitframes", ocfgL),
+                                EllesmereUI.BlizzStyle.Gate("unitframes", ocfgR)); yy = yy - hh
+                        end
+                    end
                     if not EllesmereUI._prebuilding then
                         local rgn=borderRow._leftRegion
-                        local _,show=EllesmereUI.BuildCogPopup({ title="Border Offset", rows={
-                            { type="slider",label="Offset X",min=-10,max=10,step=1,
-                              get=function() local v=B.auraBorderTextureOffset;if v~=nil then return v end;return EllesmereUI.GetBorderDefaults("unitframes",B.auraBorderTexture or "solid",B.auraBorderSize or 1) end,
-                              set=function(v) B.auraBorderTextureOffset=v;ReloadAndUpdate() end },
-                            { type="slider",label="Offset Y",min=-10,max=10,step=1,
-                              get=function() local v=B.auraBorderTextureOffsetY;if v~=nil then return v end;local _,y=EllesmereUI.GetBorderDefaults("unitframes",B.auraBorderTexture or "solid",B.auraBorderSize or 1);return y end,
-                              set=function(v) B.auraBorderTextureOffsetY=v;ReloadAndUpdate() end },
+                        local _,show=EllesmereUI.BuildCogPopup({ title="Border Options", rows={
                             { type="slider",label="Shift X",min=-10,max=10,step=1,
                               get=function() local v=B.auraBorderTextureShiftX;if v~=nil then return v end;local _,_,x=EllesmereUI.GetBorderDefaults("unitframes",B.auraBorderTexture or "solid",B.auraBorderSize or 1);return x end,
                               set=function(v) B.auraBorderTextureShiftX=v==0 and nil or v;ReloadAndUpdate() end },
@@ -16096,7 +16385,15 @@ initFrame:SetScript("OnEvent", function(self)
                     rows = {
                         { type = "toggle", label = "Make Icon Part of the Bar",
                           tooltip = "This makes it so the width of the cast bar includes the icon, rather than placing it to the left of the cast bars width.",
-                          get = function() return B.castbarIconInWidth ~= false end,
+                          -- The stock styles count a shown icon as part of the bar
+                          -- (their frame art wraps both), so the toggle reads on and locks.
+                          disabled = function() return EllesmereUI.BlizzStyle.Get("unitframes") end,
+                          disabledTooltip = function() return EllesmereUI.BlizzStyle.Label("unitframes") end,
+                          requireState = "disabled",
+                          get = function()
+                              if EllesmereUI.BlizzStyle.Get("unitframes") then return true end
+                              return B.castbarIconInWidth ~= false
+                          end,
                           set = function(v) B.castbarIconInWidth = v; ReloadAndUpdate() end },
                         { type = "toggle", label = "Show Icon on Right",
                           tooltip = "Place the cast icon on the right side of the bar instead of the left.",
@@ -16214,6 +16511,11 @@ initFrame:SetScript("OnEvent", function(self)
                 })
                 CCogBtn(rgn, cogShow)
             end
+            -- Classic WoW UI: Border Size closes the section (odd last slot).
+            yy = yy - ns.UF_ClassicCastBorderRow(Ww, pp, yy,
+                function() return B end,
+                ns.UF_CastClassicKey("boss"),
+                function() ReloadAndUpdate() end)
 
             end   -- close boss Cast Bar hidden-while-disabled gate
 

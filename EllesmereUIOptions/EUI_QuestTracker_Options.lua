@@ -107,8 +107,15 @@ initFrame:SetScript("OnEvent", function(self)
             y = y - 68
         end
 
+        -- Stock styles (Blizzard Style / Classic WoW UI) keep Blizzard's own
+        -- tracker art, text and quest icons: the background, font and colour
+        -- rows only apply to the EllesmereUI look.
+        local BS = EllesmereUI.BlizzStyle
+        local STOCK = BS and BS.Get("questtracker")
+
         -- -- DISPLAY ---------------------------------------------------------
         _, h = W:SectionHeader(parent, "DISPLAY", y); y = y - h
+        if BS then y = BS.Note(parent, y, "questtracker") end
 
         -- Row 1: Visibility | Hide When In Raid. The raid-hide dropdown moved up from
         -- the Background Opacity row into the slot the old Visibility Options dropdown
@@ -126,6 +133,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) Set("hideInRaidMode", v); if EQT.UpdateVisibility then EQT.UpdateVisibility() end end })
         y = y - h
 
+        if not STOCK then
         -- Row 2: Background Opacity (slider + inline color swatch) | Show Top Line.
         -- Show Top Line moved up from the old trailing half-row to close the gap left
         -- by Hide When In Raid; both settings describe the tracker's background chrome.
@@ -193,10 +201,11 @@ initFrame:SetScript("OnEvent", function(self)
                   end })
         end
         y = y - h
+        end -- not STOCK
 
-        -- Row 4: Show Quest Icons | Hide All Objectives
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Show Quest Icons",
+        -- Row 4: Show Quest Icons | Hide All Objectives. Both stock styles show
+        -- Blizzard's native icons, so the toggle is gated there.
+        local questIconsCfg = { type="toggle", text="Show Quest Icons",
               tooltip="Show Blizzard's native quest type icons/buttons on the right instead of EllesmereUI's custom icons. Requires a UI reload.",
               getValue=function() return Cfg("showQuestIcons") or false end,
               setValue=function(v)
@@ -208,10 +217,20 @@ initFrame:SetScript("OnEvent", function(self)
                       cancelText  = "Later",
                       reload      = true,
                   })
-              end },
+              end }
+        if BS then BS.Gate("questtracker", questIconsCfg) end
+        _, h = W:DualRow(parent, y,
+            questIconsCfg,
             { type="toggle", text="Hide All Objectives",
-              tooltip="Hides the master header and its minimize button at the top of the tracker. When shown, it's skinned to match the section headers below it (Quests, Achievements, ...).",
-              getValue=function() return Cfg("hideAllObjectivesHeader") ~= false end,
+              tooltip = STOCK
+                  and "Hides the master header and its minimize button at the top of the tracker."
+                  or "Hides the master header and its minimize button at the top of the tracker. When shown, it's skinned to match the section headers below it (Quests, Achievements, ...).",
+              -- The module's own rule, so the per-style default (hidden under
+              -- the EllesmereUI look, shown under the stock styles) reads true.
+              getValue=function()
+                  if EQT.ShouldHideMasterHeader then return EQT.ShouldHideMasterHeader() end
+                  return Cfg("hideAllObjectivesHeader") ~= false
+              end,
               setValue=function(v)
                   Set("hideAllObjectivesHeader", v)
                   if EQT.ApplyMasterHeaderVisibility then EQT.ApplyMasterHeaderVisibility() end
@@ -219,6 +238,7 @@ initFrame:SetScript("OnEvent", function(self)
               end })
         y = y - h
 
+        if not STOCK then
         -- -- COLORS ----------------------------------------------------------
         _, h = W:SectionHeader(parent, "COLORS", y); y = y - h
 
@@ -354,6 +374,7 @@ initFrame:SetScript("OnEvent", function(self)
         y = y - h
 
         y = y - 10
+        end -- not STOCK
 
         -- -- EXTRAS ----------------------------------------------------------
         _, h = W:SectionHeader(parent, "EXTRAS", y); y = y - h

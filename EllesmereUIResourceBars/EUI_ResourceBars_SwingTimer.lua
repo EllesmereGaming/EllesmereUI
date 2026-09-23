@@ -429,7 +429,8 @@ local function ApplyRowLook(row, cfg, w, h)
     EllesmereUI.ApplyBorderStyle(bdr, bs,
         cfg.borderR or 0, cfg.borderG or 0, cfg.borderB or 0, cfg.borderA or 1,
         cfg.borderTexture or "solid", cfg.borderTextureOffset, cfg.borderTextureOffsetY,
-        cfg.borderTextureShiftX, cfg.borderTextureShiftY, "resourcebars", bs)
+        cfg.borderTextureShiftX, cfg.borderTextureShiftY, "resourcebars", bs,
+        nil, EllesmereUI.BorderPx(cfg.borderSizePx, bs, cfg.borderTexture or "solid"))
 
     -- Clip + bar layout. The 1px inset keeps the fill from bleeding past the
     -- border; with no border there is nothing to clip to, so skip it.
@@ -769,6 +770,9 @@ function ns.ST_MakeUnlockElement(MK, Rebuild)
         getFrame = function() return S.built and shell or nil end,
         isHidden = function() local cfg = P(); return not (cfg and cfg.enabled) end,
         getSize  = function() return Size(P()) end,
+        -- The rows' textured border outside the stack: every row spans the full
+        -- width and the outer rows' edges are the stack's, so one row's reach.
+        getMatchPad = function() return ns.ERB_EuiBorderPad(P()) end,
         setWidth = function(_, w)
             local cfg = P(); if not cfg then return end
             cfg.width = PP.Snap(math.max(w, 10))

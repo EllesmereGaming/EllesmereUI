@@ -21,6 +21,15 @@ ns.EAB = EAB
 -- vehicle or override switching do not. Comes back whole with the client fix.
 ns.SNIPPETS_OK = EllesmereUI.SecureSnippetsOK()
 
+-- The pickup wrapper (eabPickupWrap, below) is what stops a key-down press from
+-- casting the spell a drag is about to pick up, and it is a secure snippet, so
+-- without snippets key down is not safe to honour. On ns: this file sits on
+-- Lua's 200-local ceiling.
+function ns.UseKeyDownEffective()
+    if not ns.SNIPPETS_OK then return false end
+    return GetCVarBool("ActionButtonUseKeyDown")
+end
+
 local PP = EllesmereUI.PP
 
 -- CPU-attribution shell pool: the engine bills a handler's whole call tree to the addon
@@ -163,6 +172,16 @@ end
 
 -- Local alias for hot-path EFD access
 local EFD = ns.EFD
+
+-- The style Action Bars render: "eui" | "blizzard" | "classic". A LIVE
+-- profile read, no latch: the Style page reloads the UI on every change, so
+-- build-time gating is safe. "eui" without a profile; both flags set resolves
+-- classic. Stock-mode sites ask `~= "eui"`, kit sites ask `== "classic"`.
+function ns.AB_Style()
+    local p = EAB.db and EAB.db.profile
+    if not p then return "eui" end
+    return (p.useClassicStyle and "classic") or (p.useBlizzardStyle and "blizzard") or "eui"
+end
 local RegisterStateDriver = RegisterStateDriver
 local RegisterAttributeDriver = RegisterAttributeDriver
 local GetBindingKey = GetBindingKey
@@ -504,6 +523,7 @@ local defaults = {
         assistGlowOverlayColor = { r = 0.15, g = 0.5, b = 1 },
         assistGlowOverlayAlpha = 30,
         useBlizzardStyle = false,
+        useClassicStyle = false,
         showBlizzIconBg = false,
         blizzIconBgAlpha = 1,
         -- Flat color background behind every button icon; defaults keep the
@@ -591,6 +611,13 @@ for _, info in ipairs(BAR_CONFIG) do
         macroOffsetY = 0,
         countOffsetX = 0,
         countOffsetY = 0,
+        -- Text anchors: nil keeps the stock placement (keybind top-right,
+        -- charges bottom-right, macro name bottom-center). Any value from
+        -- EAB.TEXT_ANCHOR_ORDER pins the text to that button corner/edge and
+        -- justifies it the same way, so multi-digit text grows away from it.
+        keybindAnchor = nil,
+        countAnchor = nil,
+        macroAnchor = nil,
         cooldownFontSize = 12,
         cooldownTextXOffset = 0,
         cooldownTextYOffset = 0,
@@ -809,7 +836,12 @@ local function StopFade(frame)
     end
 end
 
--- Resolve borderThickness dropdown to actual pixel values
+-- Resolve borderThickness dropdown to actual pixel values. The ONE size source
+-- for a bar's square border: every paint path (bar borders, the shape repaint,
+-- the flyout, the keybind-mode restore) takes both results from here. Second
+-- result: the exact size from borderThicknessPx (EllesmereUI.BorderPx) while it
+-- still pairs with this step and the bar's texture, else nil = the legacy path.
+-- A custom shape's ring is on/off only: no exact size there.
 local function ResolveBorderThickness(s)
     local thickness = s.borderThickness or "thin"
     local entry = ns.BORDER_THICKNESS[thickness]
@@ -817,11 +849,12 @@ local function ResolveBorderThickness(s)
     local shape = s.buttonShape or "none"
     if shape ~= "none" and shape ~= "cropped" then
         if thickness == "thin" and s.shapeBorderSize and s.shapeBorderSize ~= entry.shape then
-            return s.shapeBorderSize
+            return s.shapeBorderSize, nil
         end
-        return entry.shape
+        return entry.shape, nil
     else
-        return entry.regular
+        local sz = entry.regular
+        return sz, EllesmereUI.BorderPx(s.borderThicknessPx, sz, s.borderTexture)
     end
 end
 ns.ResolveBorderThickness = ResolveBorderThickness
@@ -3175,7 +3208,7 @@ ns.BuildBarButtons = function(info, frame, skipProtected)
                 -- receive the key-down event even when CVar is key-up mode.
                 -- useOnKeyDown controls which event fires normal spells.
                 btn:RegisterForClicks("AnyDown", "AnyUp")
-                btn:SetAttribute("useOnKeyDown", GetCVarBool("ActionButtonUseKeyDown"))
+                btn:SetAttribute("useOnKeyDown", ns.UseKeyDownEffective())
                 if btn.EnableMouseWheel then
                     btn:EnableMouseWheel(true)
                 end
@@ -4284,6 +4317,11 @@ do
                 if clip then
                     local p2 = EAB.db and EAB.db.profile
                     clip:SetShown((p2 and p2.showBlizzIconBg or false) and not filled)
+                end
+                -- Classic WoW UI: the slot ring vs empty-slot art follows the
+                -- same content edge (one field read on every other look).
+                if bfd and bfd.classicArt then
+                    ns.AB_ClassicSlotRing(btn, filled)
                 end
             end
         end
@@ -5402,6 +5440,7 @@ do
                                 -- cooldown refresh (measured 0.7ms per tab). Only the
                                 -- usable tri-state below can legitimately flip on a
                                 -- target swap, and it is memo-gated.
+                                local ufd = EFD(btn)
                                 if event ~= "PLAYER_TARGET_CHANGED" then
                                     -- Taint-safe refresh; avoids passing secret cooldown values through a tainted call.
                                     local infreqAction = btn:GetAttribute("action")
@@ -5416,8 +5455,12 @@ do
                                             btn.Border:SetShown(IsEquippedAction(infreqAction) and true or false)
                                         end
                                     end
+                                    -- Classic WoW UI: a third such channel, the slot ring
+                                    -- vs empty-slot art (one field read on every other look).
+                                    if ufd.classicArt then
+                                        ns.AB_ClassicSlotRing(btn, infreqAction and HasAction(infreqAction))
+                                    end
                                 end
-                                local ufd = EFD(btn)
                                 if ufd.rangeTinted then
                                     ufd.usableState = nil
                                 else
@@ -6071,7 +6114,7 @@ local function LayoutBar(key)
             tostring(s.buttonShape), tostring(s.buttonWidth), tostring(s.buttonHeight),
             tostring(s._matchExtraPixels), tostring(s._matchExtraPixelsH),
             tostring(showES), tostring(s.mouseoverEnabled),
-            tostring(p.useBlizzardStyle), tostring(p.procGlowEnabled),
+            ns.AB_Style(), tostring(p.procGlowEnabled),
             pos and tostring(pos.point) or "-", pos and tostring(pos.relPoint) or "-",
             pos and tostring(pos.x) or "-", pos and tostring(pos.y) or "-",
             base0 and tostring(base0.w) or "-", base0 and tostring(base0.h) or "-",
@@ -6204,7 +6247,10 @@ local function LayoutBar(key)
                 anchor = "TOPLEFT"
             end
             EFD(btn).barKey = key
-            if EAB.db.profile.useBlizzardStyle then
+            -- Stock styles (Blizzard, Classic) keep the native-size button and
+            -- scale it, so the stock art scales with it.
+            local abStyle = ns.AB_Style()
+            if abStyle ~= "eui" then
                 local base = barBaseSize[key]
                 local nativeW = base and base.w or 45
                 local nativeH = base and base.h or 45
@@ -6212,15 +6258,24 @@ local function LayoutBar(key)
                 btn:SetScale(sc)
                 btn:SetSize(nativeW, nativeH)
                 btn:SetPoint(anchor, frame, anchor, xOff / sc, yOff / sc)
+                -- Classic WoW UI: the vanilla ring on the native-size button,
+                -- painted once per size (the scale carries it).
+                if abStyle == "classic" then
+                    local cfd = EFD(btn)
+                    if cfd.classicW ~= nativeW or cfd.classicH ~= nativeH then
+                        cfd.classicW, cfd.classicH = nativeW, nativeH
+                        ns.AB_PaintClassicButton(btn, nativeW, nativeH)
+                    end
+                end
             else
                 btn:SetPoint(anchor, frame, anchor, xOff, yOff)
                 btn:SetSize(thisBtnW, thisBtnH)
             end
             HideSlotArt(btn)
 
-            -- Blizzard style: counter-scale SpellActivationAlert so the native
+            -- Stock styles: counter-scale SpellActivationAlert so the native
             -- proc glow renders at screen size despite the button's SetScale.
-            if EAB.db.profile.useBlizzardStyle and btn.SpellActivationAlert then
+            if abStyle ~= "eui" and btn.SpellActivationAlert then
                 local base = barBaseSize[key]
                 local nativeW = base and base.w or 45
                 local sc = thisBtnW / nativeW
@@ -6250,8 +6305,8 @@ local function LayoutBar(key)
             end
 
             -- Pin SpellActivationAlert to button bounds for custom proc glows;
-            -- with custom glows off or Blizzard style on, leave it untouched.
-            if btn.SpellActivationAlert and EAB.db.profile.procGlowEnabled and not EAB.db.profile.useBlizzardStyle then
+            -- with custom glows off or a stock style on, leave it untouched.
+            if btn.SpellActivationAlert and EAB.db.profile.procGlowEnabled and abStyle == "eui" then
                 btn.SpellActivationAlert:SetAllPoints(btn)
                 btn.SpellActivationAlert:SetScale(1)
             end
@@ -6579,6 +6634,130 @@ local function SetSquareTexture(texture, texPath)
     texture:SetAllPoints(texture:GetParent())
 end
 
+-------------------------------------------------------------------------------
+--  Classic WoW UI button art (ns.AB_Style() == "classic")
+--  The vanilla 36-button ring on a button, scaled by the button's own size:
+--  NormalTexture UI-Quickslot2 (66/36 of the button, CENTER 0,-1/36), or
+--  UI-Quickslot on an empty slot; PushedTexture UI-Quickslot-Depress over the
+--  button; HighlightTexture ButtonHilight-Square ADD; CheckedTexture
+--  CheckButtonHilight ADD; equipped Border UI-ActionButton-Border ADD (62/36,
+--  CENTER 0,1/36). Square icon with full art: the stock IconMask is
+--  neutralised the way HideBorder does it, the stock slot background kept
+--  transparent, the cooldown swipe spans the icon. Idempotent: a layout pass
+--  re-runs it per native size (our buttons' UpdateButtonArt is a noop, so
+--  nothing of Blizzard's repaints the ring behind it).
+-------------------------------------------------------------------------------
+ns.AB_CLASSIC = {
+    slot     = "Interface\\Buttons\\UI-Quickslot2",
+    empty    = "Interface\\Buttons\\UI-Quickslot",
+    pushed   = "Interface\\Buttons\\UI-Quickslot-Depress",
+    hilight  = "Interface\\Buttons\\ButtonHilight-Square",
+    checked  = "Interface\\Buttons\\CheckButtonHilight",
+    equipped = "Interface\\Buttons\\UI-ActionButton-Border",
+}
+
+-- Slot ring or empty-slot art on the NormalTexture. Memo per button: the
+-- content edges (slot change, page flip) cost one comparison when unchanged.
+function ns.AB_ClassicSlotRing(btn, filled)
+    filled = filled and true or false
+    local fd = EFD(btn)
+    if fd.classicFilled == filled then return end
+    fd.classicFilled = filled
+    local nt = btn.NormalTexture
+    if nt then
+        nt:SetTexture(filled and ns.AB_CLASSIC.slot or ns.AB_CLASSIC.empty)
+        nt:SetTexCoord(0, 1, 0, 1)
+    end
+end
+
+-- Paints the whole kit on `btn` for a `w` x `h` button (its own size when
+-- omitted). Our bar buttons pass their native size; flyout buttons pass none.
+function ns.AB_PaintClassicButton(btn, w, h)
+    local fd = EFD(btn)
+    local art = ns.AB_CLASSIC
+    if not w then w, h = btn:GetSize() end
+    if not w or w <= 0 then w = 45 end
+    if not h or h <= 0 then h = w end
+    local sw, sh = w / 36, h / 36
+    local icon = btn.icon
+    if icon then
+        if btn.IconMask then
+            icon:RemoveMaskTexture(btn.IconMask)
+            btn.IconMask:Hide()
+            btn.IconMask:SetTexture(nil)
+            btn.IconMask:ClearAllPoints()
+            btn.IconMask:SetSize(0.001, 0.001)
+        end
+        icon:SetTexCoord(0, 1, 0, 1)
+    end
+    -- The 12.1 rounded slot background stays transparent (the square ring
+    -- below is the slot); alpha, so Blizzard's own art passes keep working.
+    if btn.SlotBackground then btn.SlotBackground:SetAlpha(0) end
+    if btn.cooldown then
+        btn.cooldown:ClearAllPoints()
+        btn.cooldown:SetAllPoints(btn)
+    end
+    -- Seeded from the same source the content edges use (the action
+    -- attribute); buttons without one (flyout popups) ask the mixin.
+    if fd.classicFilled == nil then
+        local a = btn.GetAttribute and btn:GetAttribute("action")
+        if a then
+            fd.classicFilled = HasAction(a) and true or false
+        else
+            fd.classicFilled = ButtonHasAction(btn) and true or false
+        end
+    end
+    local nt = btn.NormalTexture
+    if nt then
+        nt:SetAtlas(nil)
+        nt:SetTexture(fd.classicFilled and art.slot or art.empty)
+        nt:SetTexCoord(0, 1, 0, 1)
+        nt:ClearAllPoints()
+        nt:SetPoint("CENTER", btn, "CENTER", 0, -sh)
+        nt:SetSize(66 * sw, 66 * sh)
+    end
+    local pt = btn.PushedTexture
+    if pt then
+        pt:SetAtlas(nil)
+        pt:SetTexture(art.pushed)
+        pt:SetTexCoord(0, 1, 0, 1)
+        pt:SetDrawLayer("OVERLAY", 7)
+        pt:ClearAllPoints()
+        pt:SetAllPoints(btn)
+        pt:SetVertexColor(1, 1, 1, 1)
+        pt:SetAlpha(1)
+    end
+    local ht = btn.HighlightTexture
+    if ht then
+        ht:SetAtlas(nil)
+        ht:SetTexture(art.hilight)
+        ht:SetTexCoord(0, 1, 0, 1)
+        ht:SetBlendMode("ADD")
+        ht:ClearAllPoints()
+        ht:SetAllPoints(btn)
+    end
+    local ct = btn.CheckedTexture
+    if ct then
+        ct:SetAtlas(nil)
+        ct:SetTexture(art.checked)
+        ct:SetTexCoord(0, 1, 0, 1)
+        ct:SetBlendMode("ADD")
+        ct:ClearAllPoints()
+        ct:SetAllPoints(btn)
+    end
+    local bd = btn.Border
+    if bd then
+        bd:SetAtlas(nil)
+        bd:SetTexture(art.equipped)
+        bd:SetTexCoord(0, 1, 0, 1)
+        bd:SetBlendMode("ADD")
+        bd:ClearAllPoints()
+        bd:SetPoint("CENTER", btn, "CENTER", 0, sh)
+        bd:SetSize(62 * sw, 62 * sh)
+    end
+    fd.classicArt = true
+end
+
 _quickKeybindState.art.ApplyButtonHighlight = function(btn)
     local tex = btn and btn.QuickKeybindHighlightTexture
     if not tex then return end
@@ -6684,9 +6863,9 @@ local function MakeButtonSquare(btn)
     -- Always hide SlotBackground regardless of style (our own icon
     -- background toggle controls slot backgrounds for all bars).
     HideSlotArt(btn)
-    -- Skip the rest of Blizzard texture stripping for Blizzard style
+    -- Skip the rest of Blizzard texture stripping for the stock styles
     local _p = EAB.db and EAB.db.profile
-    if _p and _p.useBlizzardStyle then return end
+    if ns.AB_Style() ~= "eui" then return end
     HideBorder(btn)
     -- Ensure the button has GetPopupDirection for Blizzard's SpellFlyout system.
     -- ActionBarButtonTemplate may not always inherit this from FlyoutButtonMixin.
@@ -6892,7 +7071,8 @@ local function EnsureBorders(btn)
     return fd.borders
 end
 
-local function ApplyButtonBorders(btn, on, cr, cg, cb, ca, sz, zoom, textureKey, texOffset, texOffsetY, shiftX, shiftY, addonKey, sizeKey, behind)
+-- edgePx: the bar's exact size from ResolveBorderThickness (nil = legacy path).
+local function ApplyButtonBorders(btn, on, cr, cg, cb, ca, sz, zoom, textureKey, texOffset, texOffsetY, shiftX, shiftY, addonKey, sizeKey, behind, edgePx)
     MakeButtonSquare(btn)
     local PP = EllesmereUI and EllesmereUI.PP
     local fd = EFD(btn)
@@ -6912,13 +7092,15 @@ local function ApplyButtonBorders(btn, on, cr, cg, cb, ca, sz, zoom, textureKey,
             -- Textured borders: always apply (cheap SetBackdropBorderColor call)
             fd.borderKey = nil
         else
-            -- Solid borders: cache to avoid redundant PP updates
+            -- Solid borders: cache to avoid redundant PP updates (the exact size is
+            -- a memo input of its own: a number or nil, compared as is)
             local es = btn:GetEffectiveScale()
             local stateKey = cr * 1000000 + cg * 10000 + cb * 100 + ca + sz * 0.001 + zoom * 10000000 + es * 0.0001
-            if fd.borderKey == stateKey and fd.borderTexKey == texKey then return end
+            if fd.borderKey == stateKey and fd.borderTexKey == texKey and fd.borderPxKey == edgePx then return end
             fd.borderKey = stateKey
         end
         fd.borderTexKey = texKey
+        fd.borderPxKey = edgePx
         if texKey == "solid" then
             EnsureBorders(btn)
         elseif fd.borders then
@@ -6932,7 +7114,7 @@ local function ApplyButtonBorders(btn, on, cr, cg, cb, ca, sz, zoom, textureKey,
                 if ppC._right then ppC._right:SetAlpha(0) end
             end
         end
-        EllesmereUI.ApplyBorderStyle(btn, sz, cr, cg, cb, ca, textureKey, texOffset, texOffsetY, shiftX, shiftY, addonKey, sizeKey)
+        EllesmereUI.ApplyBorderStyle(btn, sz, cr, cg, cb, ca, textureKey, texOffset, texOffsetY, shiftX, shiftY, addonKey, sizeKey, nil, edgePx)
         -- "Show Behind": textured border frame is a child of btn; equal level draws
         -- in front of the icon, level-1 draws behind it. Solid borders unaffected.
         if texKey ~= "solid" and EllesmereUI._bdBorderData then
@@ -7097,9 +7279,9 @@ local function ApplyShapeToButton(btn, shape, brdOn, brdR, brdG, brdB, brdA, brd
             if texKey ~= "solid" then
                 local s = EAB.db.profile.bars[barKey]
                 local c = s and s.borderColor or { r=0, g=0, b=0, a=1 }
-                local sz = ResolveBorderThickness(s)
+                local sz, px = ResolveBorderThickness(s)
                 local thKey = s.borderThickness or "thin"
-                EllesmereUI.ApplyBorderStyle(btn, sz, c.r, c.g, c.b, c.a or 1, texKey, s.borderTextureOffset, s.borderTextureOffsetY, s.borderTextureShiftX, s.borderTextureShiftY, "actionbars", thKey)
+                EllesmereUI.ApplyBorderStyle(btn, sz, c.r, c.g, c.b, c.a or 1, texKey, s.borderTextureOffset, s.borderTextureOffsetY, s.borderTextureShiftX, s.borderTextureShiftY, "actionbars", thKey, nil, px)
                 if EllesmereUI._bdBorderData then
                     local bdFrame = EllesmereUI._bdBorderData[btn]
                     if bdFrame then
@@ -7356,12 +7538,16 @@ end
 -------------------------------------------------------------------------------
 function EAB:ApplyBordersForBar(barKey)
     if not self.db then return end
+    -- Border reach counts in size matching (the bar's getMatchPad reads these
+    -- settings): re-push the bar's matches when it moved. At entry so the look
+    -- and square-icon returns below report too; the re-push is deferred.
+    if EllesmereUI.MatchPadChanged then EllesmereUI.MatchPadChanged(barKey) end
     if not self.db.profile.squareIcons then return end
-    if self.db.profile.useBlizzardStyle then return end
+    if ns.AB_Style() ~= "eui" then return end
     local s = self.db.profile.bars[barKey]
     if not s then return end
     local c = s.borderColor or { r=0, g=0, b=0, a=1 }
-    local sz = ResolveBorderThickness(s)
+    local sz, px = ResolveBorderThickness(s)
     local on = sz > 0
     local cr, cg, cb, ca = c.r, c.g, c.b, c.a or 1
     if s.borderClassColor then
@@ -7385,7 +7571,7 @@ function EAB:ApplyBordersForBar(barKey)
         local btn = buttons[i]
         if btn then
             EFD(btn).barKey = barKey
-            ApplyButtonBorders(btn, on, cr, cg, cb, ca, sz, zoom, textureKey, texOffset, texOffsetY, texShiftX, texShiftY, "actionbars", thicknessKey, behind)
+            ApplyButtonBorders(btn, on, cr, cg, cb, ca, sz, zoom, textureKey, texOffset, texOffsetY, texShiftX, texShiftY, "actionbars", thicknessKey, behind, px)
         end
     end
 end
@@ -7401,7 +7587,7 @@ end
 function EAB:ApplyShapesForBar(barKey)
     if InCombatLockdown() then ns._eabApplyDeferred = true return end
     if not self.db then return end
-    if self.db.profile.useBlizzardStyle then return end
+    if ns.AB_Style() ~= "eui" then return end
     local s = self.db.profile.bars[barKey]
     if not s then return end
     local shape = s.buttonShape or "none"
@@ -7511,6 +7697,64 @@ end
 -------------------------------------------------------------------------------
 --  Font / Keybind Text
 -------------------------------------------------------------------------------
+-- Button text anchoring (keybind / charges / macro name). Opt-in per bar via
+-- <text>Anchor; nil = stock placement, handled by the caller, which only
+-- calls in here once an anchor is set. Returns false for an anchor it does not
+-- know (a hand-edited profile), so the caller falls back to stock. The text is
+-- stretched across the chosen edge (both corners anchored, same as the stock
+-- keybind placement) and JustifyH does the alignment, so it holds regardless
+-- of the font string's own width. Shared with
+-- the options preview, hence on EAB not a local.
+EAB.TEXT_ANCHOR_ORDER = { "TOPLEFT", "TOP", "TOPRIGHT", "BOTTOMLEFT", "BOTTOM", "BOTTOMRIGHT" }
+-- The spacing each stock placement carries (keybind -1/-3, charges -1/+4,
+-- macro +1/+4). Seeded into a text's offset boxes the first time a position is
+-- picked for it, so opting in does not move the text, and the numbers are then
+-- the user's to change. Not applied on the drawing side: there, 0/0 is the
+-- corner itself.
+EAB.TEXT_INSET_X = 1
+EAB.TEXT_INSET_Y = { keybind = 3, count = 4, macro = 4 }
+
+-- Offsets that reproduce a text's stock spacing at the position just picked.
+function EAB.StockTextOffsets(kind, anchor)
+    local x = 0
+    if anchor:find("LEFT", 1, true) then x = EAB.TEXT_INSET_X
+    elseif anchor:find("RIGHT", 1, true) then x = -EAB.TEXT_INSET_X end
+    local y = EAB.TEXT_INSET_Y[kind] or 0
+    if anchor:find("TOP", 1, true) then y = -y end
+    return x, y
+end
+EAB.TEXT_ANCHOR_JUSTIFY = {
+    TOPLEFT = "LEFT", TOP = "CENTER", TOPRIGHT = "RIGHT",
+    BOTTOMLEFT = "LEFT", BOTTOM = "CENTER", BOTTOMRIGHT = "RIGHT",
+}
+function EAB.PlaceButtonText(fs, parent, anchor, ox, oy)
+    local justify = anchor and EAB.TEXT_ANCHOR_JUSTIFY[anchor]
+    if not justify then return false end
+    -- Offset 0/0 is the corner the position names, with no inset of its own: the
+    -- boxes are the only thing between the text and the edge, and they read the
+    -- same at all six positions. The spacing the three stock placements carry
+    -- (EAB.TEXT_INSET_*) is seeded into those boxes when a position is first
+    -- picked, so the text does not move on the way in.
+    local edge = (anchor:find("TOP", 1, true) and "TOP") or "BOTTOM"
+    local y = oy or 0
+    ox = ox or 0
+    fs:ClearAllPoints()
+    fs:SetPoint(edge .. "LEFT", parent, edge .. "LEFT", ox, y)
+    fs:SetPoint(edge .. "RIGHT", parent, edge .. "RIGHT", ox, y)
+    fs:SetJustifyH(justify)
+    -- A justification change alone does not re-lay the string out: SetPoint
+    -- with unchanged values and SetText with unchanged text are both no-ops,
+    -- so Top Left -> Top (same edge points) kept the old alignment on screen
+    -- until the next real text change. Clear and restore the text to force
+    -- it. issecretvalue first: a secret count must not be compared.
+    local text = fs:GetText()
+    if (issecretvalue and issecretvalue(text)) or (text and text ~= "") then
+        fs:SetText("")
+        fs:SetText(text)
+    end
+    return true
+end
+
 function EAB:ApplyFontsForBar(barKey)
     local s = self.db.profile.bars[barKey]
     if not s then return end
@@ -7528,14 +7772,17 @@ function EAB:ApplyFontsForBar(barKey)
     local ctColor = s.countFontColor or { r=1, g=1, b=1 }
     local kbOX = s.keybindOffsetX or 0
     local kbOY = s.keybindOffsetY or 0
+    local kbAnchor = s.keybindAnchor
     local ctOX = s.countOffsetX or 0
     local ctOY = s.countOffsetY or 0
+    local ctAnchor = s.countAnchor
     local hideMacro = s.hideMacroText
     local macroSize = s.macroFontSize or 12
     if info and (info.isStance or info.isPetBar) then macroSize = max(macroSize - 2, 6) end
     local macroColor = s.macroFontColor or { r=1, g=1, b=1 }
     local macroOX = s.macroOffsetX or 0
     local macroOY = s.macroOffsetY or 0
+    local macroAnchor = s.macroAnchor
     local RANGE_INDICATOR = RANGE_INDICATOR or "\226\128\162"
 
     for i = 1, #buttons do
@@ -7574,10 +7821,14 @@ function EAB:ApplyFontsForBar(barKey)
                 hk:Show()
                 EllesmereUI.ApplyIconTextFont(hk, fontPath, kbSize, "actionBars")
                 hk:SetTextColor(kbColor.r, kbColor.g, kbColor.b)
-                hk:ClearAllPoints()
-                hk:SetPoint("TOPRIGHT", btn, "TOPRIGHT", -1 + kbOX, -3 + kbOY)
-                hk:SetPoint("TOPLEFT", btn, "TOPLEFT", 4 + kbOX, -3 + kbOY)
-                hk:SetJustifyH("RIGHT")
+                -- Anchor unset (the default) = the stock placement below; the
+                -- nil test is the whole cost of the feature while it is off.
+                if not (kbAnchor and EAB.PlaceButtonText(hk, btn, kbAnchor, kbOX, kbOY)) then
+                    hk:ClearAllPoints()
+                    hk:SetPoint("TOPRIGHT", btn, "TOPRIGHT", -1 + kbOX, -3 + kbOY)
+                    hk:SetPoint("TOPLEFT", btn, "TOPLEFT", 4 + kbOX, -3 + kbOY)
+                    hk:SetJustifyH("RIGHT")
+                end
             end
         end
 
@@ -7586,8 +7837,11 @@ function EAB:ApplyFontsForBar(barKey)
         if ct then
             EllesmereUI.ApplyIconTextFont(ct, fontPath, ctSize, "actionBars")
             ct:SetTextColor(ctColor.r, ctColor.g, ctColor.b)
-            ct:ClearAllPoints()
-            ct:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -1 + ctOX, 4 + ctOY)
+            if not (ctAnchor and EAB.PlaceButtonText(ct, btn, ctAnchor, ctOX, ctOY)) then
+                ct:ClearAllPoints()
+                ct:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -1 + ctOX, 4 + ctOY)
+                ct:SetJustifyH("RIGHT")
+            end
         end
 
         -- Macro name text
@@ -7600,10 +7854,12 @@ function EAB:ApplyFontsForBar(barKey)
                 if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(nm, false) end
                 nm:SetFont(fontPath, macroSize, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
                 nm:SetTextColor(macroColor.r, macroColor.g, macroColor.b)
-                nm:ClearAllPoints()
-                nm:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 1 + macroOX, 4 + macroOY)
-                nm:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -1 + macroOX, 4 + macroOY)
-                nm:SetJustifyH("CENTER")
+                if not (macroAnchor and EAB.PlaceButtonText(nm, btn, macroAnchor, macroOX, macroOY)) then
+                    nm:ClearAllPoints()
+                    nm:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 1 + macroOX, 4 + macroOY)
+                    nm:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -1 + macroOX, 4 + macroOY)
+                    nm:SetJustifyH("CENTER")
+                end
             end
         end
     end
@@ -7924,11 +8180,13 @@ function EAB:ApplyBackgroundForBar(barKey)
         local thicknessKey = s.bgBorderThickness or "none"
         local thickness = ns.BORDER_THICKNESS and ns.BORDER_THICKNESS[thicknessKey]
         local borderSize = thickness and thickness.regular or 0
+        -- Exact size (bgBorderThicknessPx) while it pairs with this step and texture; nil = legacy path.
+        local bgPx = EllesmereUI.BorderPx(s.bgBorderThicknessPx, borderSize, s.bgBorderTexture)
         EllesmereUI.ApplyBorderStyle(border, borderSize,
             bc.r, bc.g, bc.b, bc.a or 1, s.bgBorderTexture or "solid",
             s.bgBorderOffsetX, s.bgBorderOffsetY,
             s.bgBorderShiftX, s.bgBorderShiftY,
-            "actionbars", thicknessKey)
+            "actionbars", thicknessKey, nil, bgPx)
     else
         border:Hide()
     end
@@ -7948,7 +8206,7 @@ function EAB:ApplyIconBackgroundForBar(barKey)
     -- on every settings edge, so the flag can't go stale.
     ns._iconBgOn = show
     local alpha = pr.blizzIconBgAlpha or 1
-    local blizzStyle = pr.useBlizzardStyle
+    local blizzStyle = ns.AB_Style() ~= "eui"
     local inset = blizzStyle and 0 or 4
     for i = 1, #buttons do
         local btn = buttons[i]
@@ -10335,6 +10593,7 @@ end
 
 function EAB:ApplyPushedTextures()
     local p = self.db.profile
+    local abStyle = ns.AB_Style()
     local pType = p.pushedTextureType or 2
     local useCC = p.pushedUseClassColor
     local customC = p.pushedCustomColor or { r=0.973, g=0.839, b=0.604, a=1 }
@@ -10352,8 +10611,15 @@ function EAB:ApplyPushedTextures()
             for i = 1, #buttons do
                 local btn = buttons[i]
                 if btn and btn.PushedTexture then
-                    if p.useBlizzardStyle then
-                        btn.PushedTexture:SetAtlas("UI-HUD-ActionBar-IconFrame-Down", true)
+                    if abStyle ~= "eui" then
+                        if abStyle == "classic" then
+                            -- Classic WoW UI: the vanilla depress art over the button.
+                            btn.PushedTexture:SetAtlas(nil)
+                            btn.PushedTexture:SetTexture(ns.AB_CLASSIC.pushed)
+                            btn.PushedTexture:SetTexCoord(0, 1, 0, 1)
+                        else
+                            btn.PushedTexture:SetAtlas("UI-HUD-ActionBar-IconFrame-Down", true)
+                        end
                         btn.PushedTexture:SetDrawLayer("OVERLAY", 7)
                         btn.PushedTexture:ClearAllPoints()
                         btn.PushedTexture:SetAllPoints(btn)
@@ -10435,7 +10701,7 @@ do
         local function ShowPushedForSlot(slot)
             local prof = EAB.db and EAB.db.profile
             if not prof then return end
-            if not prof.useBlizzardStyle and (prof.pushedTextureType or 2) == 6 then return end
+            if ns.AB_Style() == "eui" and (prof.pushedTextureType or 2) == 6 then return end
             local btn = allButtons[slot]
             if not btn or not btn.PushedTexture then return end
             local cmd = btn.commandName
@@ -10478,6 +10744,7 @@ end
 
 function EAB:ApplyHighlightTextures()
     local p = self.db.profile
+    local abStock = ns.AB_Style() ~= "eui"
     local hType = p.highlightTextureType or 2
     local useCC = p.highlightUseClassColor
     local customC = p.highlightCustomColor or { r=0.973, g=0.839, b=0.604, a=1 }
@@ -10490,8 +10757,9 @@ function EAB:ApplyHighlightTextures()
     end
 
     for _, info in ipairs(BAR_CONFIG) do
-        if p.useBlizzardStyle then
-            -- skip -- let Blizzard handle highlight textures
+        if abStock then
+            -- skip -- the stock kit owns the highlight (classic paints its
+            -- own in ns.AB_PaintClassicButton)
         else
         local buttons = barButtons[info.key]
         if buttons then
@@ -10530,7 +10798,7 @@ function EAB:ApplyHighlightTextures()
                 _quickKeybindState.art.RefreshButton(btn)
             end
         end
-        end -- useBlizzardStyle
+        end -- abStock
     end
 
     -- Blizzard-owned special buttons do not flow through the standard bar
@@ -10788,9 +11056,9 @@ function EAB:HookProcGlow()
     if _procState.hooked then return end
     _procState.hooked = true
 
+    -- Stock art (Blizzard or Classic): the native glow shows on its own.
     local function IsBlizzStyle()
-        local _p3 = EAB.db and EAB.db.profile
-        return _p3 and _p3.useBlizzardStyle
+        return ns.AB_Style() ~= "eui"
     end
 
     local function ShowGlow(btn)
@@ -11307,7 +11575,7 @@ end
 function EAB:ScanExistingProcs()
     local found = 0
     local total = 0
-    local blizz = self.db and self.db.profile and self.db.profile.useBlizzardStyle
+    local blizz = ns.AB_Style() ~= "eui"
     for _, info in ipairs(BAR_CONFIG) do
         local buttons = barButtons[info.key]
         if buttons then
@@ -11961,7 +12229,7 @@ end
 -- receive key-down even in key-up mode. Only the attribute changes.
 -- Must be called out of combat (SetAttribute on secure buttons).
 local function ApplyClickRegistration()
-    local keyDown = GetCVarBool("ActionButtonUseKeyDown")
+    local keyDown = ns.UseKeyDownEffective()
     for _, info in ipairs(BAR_CONFIG) do
         if not info.isStance and not info.isPetBar then
             local btns = barButtons[info.key]
@@ -12770,19 +13038,41 @@ local function RegisterWithUnlockMode()
                 return frame:GetWidth(), frame:GetHeight()
             end,
             linkedDimensions = true,
-            -- Blizzard Style: EUI does not control bar sizing (the Icon Size slider is
+            -- Stock styles: EUI does not control bar sizing (the Icon Size slider is
             -- disabled for the same reason), so refuse new width/ height matches and
             -- never let a match apply or an unmatch width-persist write
             -- buttonWidth/_matchExtraPixels junk into the EUI-style settings.
             matchUnavailable = function()
-                if EAB.db.profile.useBlizzardStyle then
+                local abStyle = ns.AB_Style()
+                if abStyle == "classic" then
+                    return EllesmereUI.L("Size matching is unavailable with Classic WoW UI Action Bars.")
+                elseif abStyle ~= "eui" then
                     return EllesmereUI.L("Size matching is unavailable with Blizzard Style Action Bars.")
                 end
+            end,
+            -- A textured square border's reach past the bar's edges, so size
+            -- matching lines up with what is on screen. The outer buttons sit
+            -- flush on the bar frame's edges (LayoutBar: no outer inset), so
+            -- the per-button reach is the bar's. Same arguments ApplyBordersForBar
+            -- paints with; nil for custom shapes (their ring sits inside the
+            -- button), stock looks and non-square icons.
+            getMatchPad = function()
+                local p = EAB.db and EAB.db.profile
+                if not (p and p.squareIcons) or ns.AB_Style() ~= "eui" then return nil end
+                local s = p.bars[info.key]
+                if not s then return nil end
+                local shape = s.buttonShape or "none"
+                if shape ~= "none" and shape ~= "cropped" then return nil end
+                local sz, px = ns.ResolveBorderThickness(s)
+                local c = s.borderColor
+                return EllesmereUI.BorderMatchPad(sz, s.borderTexture or "solid",
+                    s.borderTextureOffset, s.borderTextureOffsetY, s.borderTextureShiftX, s.borderTextureShiftY,
+                    "actionbars", s.borderThickness or "thin", px, nil, c and c.a or 1)
             end,
             setWidth = function(_, w)
                 local s = EAB.db.profile.bars[info.key]
                 if not s then return end
-                if EAB.db.profile.useBlizzardStyle then return end
+                if ns.AB_Style() ~= "eui" then return end
                 -- Reverse-engineer square button size from total bar width
                 -- using physical pixel math to distribute remainder pixels.
                 local numIcons = s.overrideNumIcons or s.numIcons or info.count
@@ -12823,7 +13113,7 @@ local function RegisterWithUnlockMode()
             setHeight = function(_, h)
                 local s = EAB.db.profile.bars[info.key]
                 if not s then return end
-                if EAB.db.profile.useBlizzardStyle then return end
+                if ns.AB_Style() ~= "eui" then return end
                 -- Reverse-engineer square button size from total bar height
                 -- using physical pixel math to distribute remainder pixels.
                 local numIcons = s.overrideNumIcons or s.numIcons or info.count
@@ -17165,7 +17455,10 @@ _quickKeybindState.InitButtons = function()
                                         local cc = ct and RAID_CLASS_COLORS[ct]
                                         if cc then cr, cg, cb = cc.r, cc.g, cc.b end
                                     end
-                                    local sz = ResolveBorderThickness(s)
+                                    local sz, px = ResolveBorderThickness(s)
+                                    -- Solid strips: an exact size flows only for a solid bar
+                                    -- (a textured bar's exact size is its edge art, not a strip).
+                                    if px and (s.borderTexture or "solid") == "solid" then sz = px end
                                     if sz > 0 then
                                         PP.UpdateBorder(self, sz, cr, cg, cb, ca)
                                     else

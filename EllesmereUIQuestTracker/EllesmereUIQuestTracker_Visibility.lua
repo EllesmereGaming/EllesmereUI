@@ -249,6 +249,8 @@ function EQT.RefreshStateDriver() UpdateVisibility() end
 -------------------------------------------------------------------------------
 local function EnsureBG()
     if _bgFrame then return _bgFrame end
+    -- Stock styles keep Blizzard's own panel behind the tracker: no background.
+    if EQT.Blizz() then return nil end
     local otf = GetTracker()
     if not otf then return nil end
     _bgFrame = CreateFrame("Frame", "EllesmereUIQTBackground", UIParent)
@@ -356,7 +358,9 @@ end
 -- shift re- queues exactly one more pass -- never a continuous OnUpdate loop.
 local _resizePending = false
 local function QueueResize()
-    if _resizePending then return end
+    -- No background (not built yet, or a stock style): nothing to resize, so
+    -- arm no timer (ResizeBGToContent would return on the nil frame anyway).
+    if _resizePending or not _bgFrame then return end
     _resizePending = true
     C_Timer.After(0.05, function()
         _resizePending = false
@@ -463,8 +467,9 @@ function EQT.InitVisibility()
     EQT.ApplyForceOnScreen()
     InstallShowHook()
 
-    -- Live-update the top accent divider when the user changes UI Accent Color.
-    if EllesmereUI and EllesmereUI.RegAccent then
+    -- Live-update the top accent divider when the user changes UI Accent Color
+    -- (no background, so no divider, under the stock styles).
+    if not EQT.Blizz() and EllesmereUI and EllesmereUI.RegAccent then
         EllesmereUI.RegAccent({ type = "callback", fn = ApplyTopDivider })
     end
 

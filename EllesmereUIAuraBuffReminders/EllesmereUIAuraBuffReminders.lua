@@ -2237,11 +2237,13 @@ function EABR.ApplyIconBorder(f, protectedOwner)
     local sx, sy = p and p.borderTextureShiftX, p and p.borderTextureShiftY
     local behind = p and p.borderBehind == true
     local level = behind and max(0, f:GetFrameLevel() - 1) or (f:GetFrameLevel() + 3)
+    -- Exact size companion, memoized raw: it only counts while paired with size + texture.
+    local pxRaw = p and p.borderSizePx
 
     -- Layout refreshes can be frequent in a raid. Restyle only when an actual
     -- setting or owner-level change occurred; size changes are handled by the
     -- border frame's anchors/BackdropTemplate size hook.
-    if border._eabrSize == size and border._eabrTexture == texture
+    if border._eabrSize == size and border._eabrTexture == texture and border._eabrPx == pxRaw
         and border._eabrR == r and border._eabrG == g and border._eabrB == b and border._eabrA == a
         and border._eabrOX == ox and border._eabrOY == oy and border._eabrSX == sx and border._eabrSY == sy
         and border._eabrBehind == behind and border._eabrLevel == level then
@@ -2250,8 +2252,9 @@ function EABR.ApplyIconBorder(f, protectedOwner)
 
     border:SetFrameLevel(level)
     EllesmereUI.ApplyBorderStyle(border, size, r, g, b, a, texture,
-        ox, oy, sx, sy, "aurabuffreminders", size)
-    border._eabrSize, border._eabrTexture = size, texture
+        ox, oy, sx, sy, "aurabuffreminders", size, nil,
+        EllesmereUI.BorderPx(pxRaw, size, texture))
+    border._eabrSize, border._eabrTexture, border._eabrPx = size, texture, pxRaw
     border._eabrR, border._eabrG, border._eabrB, border._eabrA = r, g, b, a
     border._eabrOX, border._eabrOY, border._eabrSX, border._eabrSY = ox, oy, sx, sy
     border._eabrBehind, border._eabrLevel = behind, level

@@ -24,6 +24,299 @@ EllesmereUI.TAB_LABEL_OVERRIDES = EllesmereUI.TAB_LABEL_OVERRIDES or {}
 EllesmereUI.TAB_LABEL_OVERRIDES[PAGE_BUFFS] = "Buffs"
 EllesmereUI.TAB_LABEL_OVERRIDES[PAGE_DM] = "Debuffs"
 
+-- Party page under "Frame Style: Party Frames" (the latched stock portrait
+-- party frame): the rows its layout replaces are hidden on the Party page
+-- only. The page being BUILT decides (BuildVisualSections builds the Frames
+-- page too, and the search prebuild can leave the party context stale). ns
+-- fields, so no page builder gains an upvalue.
+function ns.RF_OptPartyKit()
+    return EllesmereUI._buildingPage == PAGE_PARTY and ns.RF_PartyKit ~= nil
+        and ns.RF_PartyKit() and true or false
+end
+function ns.RF_PartyKitGate(cfg)
+    if not cfg or not ns.RF_OptPartyKit() then return cfg end
+    cfg.disabled        = function() return true end
+    cfg.disabledTooltip = "Frame Style: Party Frames"
+    cfg.requireState    = "disabled"
+    cfg.rawTooltip      = nil
+    cfg._blizzGated     = true
+    return cfg
+end
+
+-- Party page PORTRAIT section (every style; EUI_RaidFrames_Portrait.lua):
+-- Portrait Mode | Art Style, then Size | Position and (Detached) Shape |
+-- Shape Border. Under "Frame Style: Party Frames" the stock socket takes
+-- the Art Style alone (2D or class art). `PSSet` is the Party page's setter
+-- (the full party pass, for the box-width changes); every other setting
+-- takes the light path. Returns the new y.
+function ns.RF_BuildPartyPortrait(parent, y, W, PSSet)
+    local db = ns.db
+    local kit = ns.RF_OptPartyKit()   -- build time only (the page rebuilds)
+    local _, h
+    local function PV(k, d)
+        local v = db.profile[k]
+        if v == nil then return d end
+        return v
+    end
+    local function Refresh()
+        if ns._RefreshProxyModes then ns._RefreshProxyModes() end
+        if ns.RF_PtRefreshAll then ns.RF_PtRefreshAll() end
+        if ns.partyPvActive and ns.partyPvActive() and ns.ShowPartyPreview then ns.ShowPartyPreview() end
+    end
+    local function PtSet(k, v)
+        db.profile[k] = v
+        Refresh()
+    end
+    local function RunWidgetRefresh()
+        C_Timer.After(0, function()
+            local rl = EllesmereUI._widgetRefreshList
+            if rl then for i = 1, #rl do rl[i]() end end
+        end)
+    end
+    -- Inline cog (off-state dimmed, with the requirement as its tooltip).
+    local function Cog(rgn, title, rows, icon, onFn, offTip)
+        if EllesmereUI._prebuilding then return end
+        local _, show = EllesmereUI.BuildCogPopup({ title = title, rows = rows })
+        local b = CreateFrame("Button", nil, rgn)
+        b:SetSize(26, 26)
+        b:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+        rgn._lastInline = b
+        b:SetFrameLevel(rgn:GetFrameLevel() + 5)
+        local t = b:CreateTexture(nil, "OVERLAY")
+        t:SetAllPoints()
+        t:SetTexture(icon or EllesmereUI.COGS_ICON)
+        local function State()
+            if not onFn or onFn() then b:SetAlpha(0.4); b:Enable()
+            else b:SetAlpha(0.15); b:Disable() end
+        end
+        b:SetScript("OnEnter", function(self)
+            if not onFn or onFn() then self:SetAlpha(0.7)
+            else EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip(offTip)) end
+        end)
+        b:SetScript("OnLeave", function() State(); EllesmereUI.HideWidgetTooltip() end)
+        b:SetScript("OnClick", function(self) show(self) end)
+        State()
+        if onFn then EllesmereUI.RegisterWidgetRefresh(State) end
+    end
+    local function IsInside(side)
+        return side == "insideleft" or side == "insideright" or side == "insidecenter"
+    end
+
+    _, h = W:SectionHeader(parent, "PORTRAIT", y); y = y - h
+
+    -- An Art Style pick, with the side effects of leaving and entering 3D
+    -- (Inside positions and the None shape are 3D only).
+    local function SetArt(v)
+        local p = db.profile
+        p.partyPortraitMode = v
+        if v == "3d" and p.partyPortraitStyle == "detached" then p.partyPortraitShape = "none" end
+        if v ~= "3d" then
+            if p.partyPortraitShape == "none" then p.partyPortraitShape = "portrait" end
+            if IsInside(p.partyPortraitSide) then p.partyPortraitSide = "left" end
+        end
+        Refresh()
+    end
+
+    -- Art Style: 2D, 3D, or class art in one of seven sets (the flyout).
+    local classVals = { modern = "Modern", arcade = "Arcade", glyph = "Glyph", legend = "Legend",
+        midnight = "Midnight", pixel = "Pixel", runic = "Runic" }
+    local classOrder = { "modern", "arcade", "glyph", "legend", "midnight", "pixel", "runic" }
+    local artValues = {
+        ["3d"] = "3D Portrait",
+        ["2d"] = "2D Portrait",
+        class = { text = "Class", subnav = { order = classOrder, values = classVals, itemHeight = 32,
+            onSelect = function(key)
+                db.profile.partyPortraitClassStyle = key
+                SetArt("class")
+                RunWidgetRefresh()
+            end,
+            icon = function(key)
+                local _, ct = UnitClass("player")
+                local c = ct and EllesmereUI.CLASS_ICON_SPRITE_COORDS and EllesmereUI.CLASS_ICON_SPRITE_COORDS[ct]
+                if not c then return nil end
+                return "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\\" .. key .. ".tga",
+                    c[1], c[2], c[3], c[4]
+            end } },
+    }
+
+    -- Row 1: Portrait Mode | Art Style. A mode change can widen the frame
+    -- (the full party pass) and shows or hides the rows below (a rebuild).
+    _, h = W:DualRow(parent, y,
+        ns.RF_PartyKitGate({ type="dropdown", text="Portrait Mode",
+          tooltip="Attached widens each frame by the portrait.",
+          values={ none = "None", attached = "Attached", detached = "Detached" },
+          order={ "none", "attached", "detached" },
+          getValue=function()
+              if kit then return "attached" end
+              return PV("partyPortraitStyle", "none")
+          end,
+          setValue=function(v)
+              local p = db.profile
+              local prev = p.partyPortraitStyle or "none"
+              if v == prev then return end
+              if v == "detached" and (p.partyPortraitMode or "2d") == "3d" then p.partyPortraitShape = "none" end
+              if v ~= "detached" then
+                  p.partyPortraitSize = 0
+                  local sd = p.partyPortraitSide
+                  if sd == "top" or IsInside(sd) then p.partyPortraitSide = "left" end
+              end
+              PSSet("partyPortraitStyle", v)
+              EllesmereUI:RefreshPage(true)
+          end }),
+        { type="dropdown", text="Art Style", values=artValues, order={ "3d", "2d", "class" },
+          disabled=function() return not kit and PV("partyPortraitStyle", "none") == "none" end,
+          disabledTooltip="Portrait Mode is set to None", rawTooltip=true,
+          -- A model cannot take the stock socket's round mask.
+          itemDisabled=function(v) return kit and v == "3d" end,
+          itemDisabledTooltip=function(v) if v == "3d" then return "Frame Style: Party Frames" end end,
+          itemRequireState="disabled",
+          getValue=function()
+              local m = PV("partyPortraitMode", "2d")
+              if m == "class" then return PV("partyPortraitClassStyle", "modern") end
+              if kit and m == "3d" then return "2d" end
+              return m
+          end,
+          setValue=function(v)
+              if v == "3d" and PV("partyPortraitMode", "2d") ~= "3d"
+                  and not (EllesmereUIDB and EllesmereUIDB.dismissed3DWarning) then
+                  EllesmereUI:ShowConfirmPopup({
+                      title       = "3D Portraits",
+                      message     = "3D portraits may cause a slight loss in performance efficiency. Do you want to enable them?",
+                      confirmText = "Enable",
+                      cancelText  = "Cancel",
+                      onConfirm   = function()
+                          if not EllesmereUIDB then EllesmereUIDB = {} end
+                          EllesmereUIDB.dismissed3DWarning = true
+                          SetArt("3d")
+                          EllesmereUI:RefreshPage(true)
+                      end,
+                      onCancel    = function() EllesmereUI:RefreshPage() end,
+                  })
+                  return
+              end
+              SetArt(v)
+              RunWidgetRefresh()
+          end });  y = y - h
+
+    if kit or PV("partyPortraitStyle", "none") == "none" then return y end
+
+    -- Row 2: Size | Position.
+    local sizePosRow
+    sizePosRow, h = W:DualRow(parent, y,
+        { type="slider", text="Size", min=-50, max=100, step=1,
+          disabled=function()
+              return PV("partyPortraitStyle", "none") ~= "detached" and not IsInside(PV("partyPortraitSide", "left"))
+          end,
+          disabledTooltip="Only available in Detached or Inside modes", rawTooltip=true,
+          getValue=function() return PV("partyPortraitSize", 0) end,
+          setValue=function(v) PtSet("partyPortraitSize", v) end },
+        { type="dropdown", text="Position",
+          values={ left = "Left", right = "Right", top = "Top",
+              insideleft = "Inside Left", insideright = "Inside Right", insidecenter = "Inside Center" },
+          order={ "left", "right", "top", "insideleft", "insideright", "insidecenter" },
+          itemDisabled=function(v)
+              local st = PV("partyPortraitStyle", "none")
+              if v == "top" and st == "attached" then return true end
+              if IsInside(v) then
+                  if PV("partyPortraitMode", "2d") ~= "3d" then return true end
+                  if st ~= "detached" then return true end
+              end
+              return false
+          end,
+          itemDisabledTooltip=function(v)
+              if v == "top" then return "Top position is only available in Detached mode" end
+              if IsInside(v) then
+                  if PV("partyPortraitMode", "2d") ~= "3d" then return "Inside positions require 3D Art Style" end
+                  return "Inside positions require Detached mode"
+              end
+          end,
+          getValue=function() return PV("partyPortraitSide", "left") end,
+          setValue=function(v)
+              PtSet("partyPortraitSide", v)
+              EllesmereUI:RefreshPage()
+          end });  y = y - h
+    Cog(sizePosRow._leftRegion, "Portrait Zoom", {
+        { type="slider", label="2D Zoom", min=50, max=100, step=1,
+          get=function() return PV("partyPortraitArtScale", 100) end,
+          set=function(v) PtSet("partyPortraitArtScale", v) end },
+        { type="slider", label="3D Zoom", min=100, max=300, step=1,
+          get=function() return PV("partyPortrait3dZoom", 100) end,
+          set=function(v) PtSet("partyPortrait3dZoom", v) end },
+    })
+    Cog(sizePosRow._rightRegion, "Portrait Position Offsets", {
+        { type="slider", label="X Offset", min=-100, max=100, step=1,
+          get=function() return PV("partyPortraitX", 0) end,
+          set=function(v) PtSet("partyPortraitX", v) end },
+        { type="slider", label="Y Offset", min=-100, max=100, step=1,
+          get=function() return PV("partyPortraitY", 0) end,
+          set=function(v) PtSet("partyPortraitY", v) end },
+    }, EllesmereUI.DIRECTIONS_ICON,
+    function() return PV("partyPortraitStyle", "none") == "detached" end,
+    "This option requires Portrait Mode to be set to Detached.")
+
+    if PV("partyPortraitStyle", "none") ~= "detached" then return y end
+
+    -- Row 3 (Detached): Shape | Shape Border (custom colour or class coloured).
+    local shapeRow
+    shapeRow, h = W:DualRow(parent, y,
+        { type="dropdown", text="Shape",
+          values={ none = "None", portrait = "Portrait", circle = "Circle", square = "Square",
+              csquare = "Rounded Square", diamond = "Diamond", hexagon = "Hexagon", shield = "Shield" },
+          order={ "none", "portrait", "circle", "square", "csquare", "diamond", "hexagon", "shield" },
+          itemDisabled=function(v) return v == "none" and PV("partyPortraitMode", "2d") ~= "3d" end,
+          itemDisabledTooltip=function(v) if v == "none" then return "None shape requires 3D Art Style" end end,
+          getValue=function() return PV("partyPortraitShape", "portrait") end,
+          setValue=function(v) PtSet("partyPortraitShape", v) end },
+        { type="multiSwatch", text="Shape Border",
+          swatches = {
+            { tooltip = "Custom Color",
+              hasAlpha = false,
+              getValue = function()
+                  local c = db.profile.partyPortraitBorderColor or { r = 0, g = 0, b = 0 }
+                  return c.r, c.g, c.b
+              end,
+              setValue = function(r, g, b)
+                  PtSet("partyPortraitBorderColor", { r = r, g = g, b = b })
+              end,
+              onClick = function(self)
+                  if PV("partyPortraitBorderClassColor", true) then
+                      PtSet("partyPortraitBorderClassColor", false)
+                      EllesmereUI:RefreshPage()
+                      return
+                  end
+                  if self._eabOrigClick then self._eabOrigClick(self) end
+              end,
+              refreshAlpha = function()
+                  return PV("partyPortraitBorderClassColor", true) and 0.3 or 1
+              end },
+            { tooltip = "Class Colored",
+              hasAlpha = false,
+              getValue = function()
+                  local _, ct = UnitClass("player")
+                  local c = ct and RAID_CLASS_COLORS[ct]
+                  if c then return c.r, c.g, c.b end
+                  return 1, 1, 1
+              end,
+              setValue = function() end,
+              onClick = function()
+                  PtSet("partyPortraitBorderClassColor", true)
+                  EllesmereUI:RefreshPage()
+              end,
+              refreshAlpha = function()
+                  return PV("partyPortraitBorderClassColor", true) and 1 or 0.3
+              end },
+          } });  y = y - h
+    Cog(shapeRow._rightRegion, "Shape Border Settings", {
+        { type="slider", label="Size", min=1, max=7, step=1,
+          get=function() return PV("partyPortraitBorderSize", 7) end,
+          set=function(v) PtSet("partyPortraitBorderSize", v) end },
+        { type="slider", label="Opacity", min=0, max=100, step=1,
+          get=function() return PV("partyPortraitBorderOpacity", 100) end,
+          set=function(v) PtSet("partyPortraitBorderOpacity", v) end },
+    })
+    return y
+end
+
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
@@ -109,6 +402,16 @@ initFrame:SetScript("OnEvent", function(self)
             db.profile[key] = val
         end
         if ns._BumpAbsorbGen then ns._BumpAbsorbGen() end
+    end
+    -- A border's exact-size companion (<sib>Px) is ONE setting with its legacy
+    -- sibling, the party proxy's rule: on the party tab a stored party sibling
+    -- carries only the party companion (nil included), never the raid one.
+    local function SGetPx(key, sib)
+        if _partyCtx and PARTY_KEY_SECTION[key] and IsPartySectionCustom(PARTY_KEY_SECTION[key])
+           and db.profile["party_" .. sib] ~= nil then
+            return db.profile["party_" .. key]
+        end
+        return SGet(key)
     end
 
     ---------------------------------------------------------------------------
@@ -501,13 +804,15 @@ initFrame:SetScript("OnEvent", function(self)
         ["largeStripes"]          = "Large Stripes",            -- large-absorb-left.png
         ["largeStripesR"]         = "Large Stripes R",          -- large-absorb-right.png
         ["maxHealthStripes"]      = "Max Health Stripes",       -- reduced max-health overlay
+        -- The native raid fill (the shared-media copy dedupes against it).
+        ["blizzardRaid"]          = "Blizzard Raid Bar",
     }
     -- Shield absorb shows every style including Blizzard (Modern).
-    local absorbStyleOrder = { "none", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "blizzardModern", "largeStripes", "largeStripesR" }
+    local absorbStyleOrder = { "none", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "blizzardModern", "largeStripes", "largeStripesR", "blizzardRaid" }
     -- Heal absorb shares the values table but EXCLUDES Blizzard (Modern).
-    local healAbsorbStyleOrder = { "none", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "healBlizzModern", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR" }
+    local healAbsorbStyleOrder = { "none", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "healBlizzModern", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR", "blizzardRaid" }
     -- Max Health mirrors Heal Absorb plus "Max Health Stripes" first.
-    local maxHealthStyleOrder = { "none", "maxHealthStripes", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "healBlizzModern", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR" }
+    local maxHealthStyleOrder = { "none", "maxHealthStripes", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "healBlizzModern", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR", "blizzardRaid" }
     -- Appends SharedMedia statusbar textures after a divider (mirrors Bar Texture dropdown). "sm:" keys land in the shared health-bar tables via AppendSharedMediaTextures; resolution flows through ns.ResolveAbsorbStyleTex -> health-bar lookup.
     -- All three dropdowns share absorbStyleValues, so each gains the SM entries and preview swatch.
     do
@@ -979,11 +1284,11 @@ initFrame:SetScript("OnEvent", function(self)
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Health Bar Fill",
                 rows = {
-                    { type="toggle", label="Vertical Fill",
+                    ns.RF_PartyKitGate({ type="toggle", label="Vertical Fill",
                       tooltip="Fill the health bar bottom-to-top instead of left-to-right. Absorbs, heal prediction and the bar background follow the same axis.",
                       get=function() return SVal("healthVerticalFill", false) end,
                       -- RefreshPage re-labels Absorbs Placement for the new axis; cog popups bake labels in on first build.
-                      set=function(v) SSet("healthVerticalFill", v); EllesmereUI:RefreshPage() end },
+                      set=function(v) SSet("healthVerticalFill", v); EllesmereUI:RefreshPage() end }),
                 },
             })
             local cogBtn = CreateFrame("Button", nil, lrgn)
@@ -1341,9 +1646,11 @@ initFrame:SetScript("OnEvent", function(self)
             -- MUTATE IN PLACE, never rebuild this table: RefreshPage's fast path skips a full rebuild and the cog popup is built once then cached, so a fresh table would never reach the widget. The popup re-reads values[get()] every show; _invalidateMenu makes an already-built menu re-read entries from this same table on next click.
             local absorbEdgeLabels = { overlay = "Overlay", overlayReverse = "Overlay Reverse" }
             local absorbEdgeLabelsVert  -- last applied axis; nil until first sync
+            -- (The Party Frames kit's bar always fills horizontally; decided at build.)
+            local kitPage = ns.RF_OptPartyKit()
             -- Returns true ONLY when the axis flipped, so callers skip _invalidateMenu on unrelated refreshes -- it nils the cached menu and would break an open menu's wired click.
             local function SyncAbsorbEdgeLabels()
-                local vert = (SVal("healthVerticalFill", false)) and true or false
+                local vert = (not kitPage) and SVal("healthVerticalFill", false) and true or false
                 if absorbEdgeLabelsVert == vert then return false end
                 absorbEdgeLabelsVert = vert
                 absorbEdgeLabels.right = vert and "From Top Edge"    or "From Right Edge"
@@ -1557,8 +1864,9 @@ initFrame:SetScript("OnEvent", function(self)
             -- Same axis-labelling contract as the shield absorb cog above (MUTATE IN PLACE; return true only on a real axis flip).
             local healAbsorbEdgeLabels = { overlay = "Overlay" }
             local healAbsorbEdgeLabelsVert  -- last applied axis; nil until first sync
+            local kitPage = ns.RF_OptPartyKit()
             local function SyncHealAbsorbEdgeLabels()
-                local vert = (SVal("healthVerticalFill", false)) and true or false
+                local vert = (not kitPage) and SVal("healthVerticalFill", false) and true or false
                 if healAbsorbEdgeLabelsVert == vert then return false end
                 healAbsorbEdgeLabelsVert = vert
                 healAbsorbEdgeLabels.right = vert and "From Top Edge"    or "From Right Edge"
@@ -1905,7 +2213,9 @@ initFrame:SetScript("OnEvent", function(self)
         end  -- close do (power eyeball)
 
         -- Power bar is off when no role is selected.
-        local function IsPowerOff()
+        -- The Party Frames kit's mana bar always shows. Decided at build time:
+        -- the page being built is only known then, and this runs on refreshes.
+        local IsPowerOff = ns.RF_OptPartyKit() and function() return false end or function()
             return not SVal("powerShowForHealer", true) and not SVal("powerShowForTank", true) and not SVal("powerShowForDPS", false)
         end
 
@@ -1916,16 +2226,18 @@ initFrame:SetScript("OnEvent", function(self)
                 { key = "dps",    label = "DPS" },
             }
             local showForKeyMap = { healer = "powerShowForHealer", tank = "powerShowForTank", dps = "powerShowForDPS" }
+            -- Party Frames kit: the stock mana bar always shows at the stock
+            -- size, so this row (and its cog) hides on the Party page.
             row, h = W:DualRow(parent, y,
-                { type="dropdown", text="Show Power Bar For",
+                ns.RF_PartyKitGate({ type="dropdown", text="Show Power Bar For",
                   values={ __placeholder = "Healers, Tanks" }, order={ "__placeholder" },
                   getValue=function() return "__placeholder" end,
-                  setValue=function() end },
-                { type="slider", text="Power Height", min=1, max=20, step=1,
+                  setValue=function() end }),
+                ns.RF_PartyKitGate({ type="slider", text="Power Height", min=1, max=20, step=1,
                   disabled=function() return IsPowerOff() end,
                   disabledTooltip="Show Power Bar For",
                   getValue=function() return SVal("powerHeight", 4) end,
-                  setValue=function(v) SSet("powerHeight", v) end });  y = y - h
+                  setValue=function(v) SSet("powerHeight", v) end }));  y = y - h
             -- Cog: uniform icon anchoring. Greyed + blocked while no role shows a power bar (nothing to ignore then).
             do
                 local rgn = row._rightRegion
@@ -1979,18 +2291,26 @@ initFrame:SetScript("OnEvent", function(self)
             border  = "Border",
         }
         local pwBorderStyleOrder = { "eui", "divider", "border" }
+        -- Classic WoW UI draws the stock health/power divider in place of the
+        -- power border (Blizzard Style has none, so the row stays there).
+        local function PwClassicGate(cfg)
+            if EllesmereUI.BlizzStyle and EllesmereUI.BlizzStyle.Active("raidframes") == "classic" then
+                return EllesmereUI.BlizzStyle.Gate("raidframes", cfg)
+            end
+            return cfg
+        end
         local pwBdrRow
         pwBdrRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Border Style", values=pwBorderStyleValues, order=pwBorderStyleOrder,
+            ns.RF_PartyKitGate(PwClassicGate({ type="dropdown", text="Border Style", values=pwBorderStyleValues, order=pwBorderStyleOrder,
               disabled=function() return IsPowerOff() end,
               disabledTooltip="Show Power Bar For",
               getValue=function() return SVal("powerBorderStyle", "divider") end,
-              setValue=function(v) SSet("powerBorderStyle", v); EllesmereUI:RefreshPage() end },
-            { type="slider", text="Border Size", min=0, max=4, step=1,
+              setValue=function(v) SSet("powerBorderStyle", v); EllesmereUI:RefreshPage() end })),
+            ns.RF_PartyKitGate(PwClassicGate({ type="slider", text="Border Size", min=0, max=4, step=1,
               disabled=function() return IsPowerOff() or SVal("powerBorderStyle", "eui") == "eui" end,
               disabledTooltip="Show Power Bar For",
               getValue=function() return SVal("powerBorderSize", 1) end,
-              setValue=function(v) SSet("powerBorderSize", v) end });  y = y - h
+              setValue=function(v) SSet("powerBorderSize", v) end })));  y = y - h
         if not EllesmereUI._prebuilding then
             local rgn = pwBdrRow._rightRegion
             local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
@@ -2182,8 +2502,17 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
         end
 
+        -- Party Frames kit: the name has the stock spot (its offsets stay on
+        -- the cog), so the dropdown only chooses shown or None.
         row, h = W:DualRow(parent, y,
-            { type="dropdown", text="Name Position", values=namePositionValuesName, order=namePositionOrderName,
+            ns.RF_OptPartyKit() and { type="dropdown", text="Name Position",
+              values={ kit = "Party Frame", none = "None" }, order={ "kit", "none" },
+              getValue=function() return (SVal("namePosition", "center") == "none") and "none" or "kit" end,
+              setValue=function(v)
+                  if v == "none" then SSet("namePosition", "none")
+                  elseif SVal("namePosition", "center") == "none" then SSet("namePosition", "topleft") end
+              end }
+            or { type="dropdown", text="Name Position", values=namePositionValuesName, order=namePositionOrderName,
               getValue=function() return SVal("namePosition", "center") end,
               setValue=function(v) SSet("namePosition", v) end },
             { type="dropdown", text="Health Text", values=healthTextValues, order=healthTextOrder,
@@ -2602,12 +2931,14 @@ initFrame:SetScript("OnEvent", function(self)
         }
         local rolePositionOrder = EllesmereUI.POSITION_GRID_ORDER
         local roleRow2
+        -- Party Frames kit: role, ready check and leader take the stock spots
+        -- (their offset cogs stay live).
         roleRow2, h = W:DualRow(parent, y,
-            { type="dropdown", text="Role Position", values=rolePositionValues, order=rolePositionOrder,
+            ns.RF_PartyKitGate({ type="dropdown", text="Role Position", values=rolePositionValues, order=rolePositionOrder,
               disabled=function() return SVal("roleIconStyle", "modern") == "none" end,
               disabledTooltip="Role Icons",
               getValue=function() return SVal("roleIconPosition", "bottomleft") end,
-              setValue=function(v) SSet("roleIconPosition", v) end },
+              setValue=function(v) SSet("roleIconPosition", v) end }),
             { type="slider", text="Role Icon Size", min=8, max=30, step=1,
               disabled=function() return SVal("roleIconStyle", "modern") == "none" end,
               disabledTooltip="Role Icons",
@@ -2722,9 +3053,9 @@ initFrame:SetScript("OnEvent", function(self)
         local readyCheckPositionOrder = EllesmereUI.POSITION_GRID_ORDER
         local rcRow
         rcRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Ready Check / Summon / Rez", values=readyCheckPositionValues, order=readyCheckPositionOrder,
+            ns.RF_PartyKitGate({ type="dropdown", text="Ready Check / Summon / Rez", values=readyCheckPositionValues, order=readyCheckPositionOrder,
               getValue=function() return SVal("readyCheckPosition", "center") end,
-              setValue=function(v) SSet("readyCheckPosition", v) end },
+              setValue=function(v) SSet("readyCheckPosition", v) end }),
             { type="slider", text="Icon Size", min=8, max=40, step=1,
               getValue=function() return SVal("readyCheckSize", 20) end,
               setValue=function(v) SSet("readyCheckSize", v) end });  y = y - h
@@ -2842,8 +3173,17 @@ initFrame:SetScript("OnEvent", function(self)
             bottomright = "Bottom Right",
         }
         local leaderPositionOrder = { "none", "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright" }
+        -- (The dropdown is also the leader icon's on/off switch, so under the
+        -- kit it keeps that job: shown at the stock spot, or None.)
         row, h = W:DualRow(parent, y,
-            { type="dropdown", text="Leader Icon", values=leaderPositionValues, order=leaderPositionOrder,
+            ns.RF_OptPartyKit() and { type="dropdown", text="Leader Icon",
+              values={ kit = "Party Frame", none = "None" }, order={ "kit", "none" },
+              getValue=function() return SVal("showLeaderIcon", false) and "kit" or "none" end,
+              setValue=function(v)
+                  SSet("showLeaderIcon", v ~= "none")
+                  EllesmereUI:RefreshPage()
+              end }
+            or { type="dropdown", text="Leader Icon", values=leaderPositionValues, order=leaderPositionOrder,
               getValue=function()
                   if not SVal("showLeaderIcon", false) then return "none" end
                   return SVal("leaderIconPosition", "top")
@@ -3318,6 +3658,9 @@ initFrame:SetScript("OnEvent", function(self)
 
         if onSection then onSection("dispels", _secY, y) end; _secY = y
 
+        -- Party Frames kit: the stock frame has no Top Name Bar (the whole
+        -- section, its sync overlay included, is skipped on the Party page).
+        if not ns.RF_OptPartyKit() then
         -------------------------------------------------------------------
         --  TOP NAME BAR
         -------------------------------------------------------------------
@@ -3447,7 +3790,9 @@ initFrame:SetScript("OnEvent", function(self)
         end
         end   -- close Top Name Bar hidden-while-disabled gate
 
-        if onSection then onSection("topNameBar", _secY, y) end; _secY = y
+        if onSection then onSection("topNameBar", _secY, y) end
+        end   -- not Party Frames kit
+        _secY = y
 
         -------------------------------------------------------------------
         --  FRIENDLY BOSS FRAMES (raid tab only)
@@ -4058,7 +4403,7 @@ initFrame:SetScript("OnEvent", function(self)
                           get=function() return XFSet().autoResizeIndicators ~= false end,
                           set=function(v)
                               -- nil = on (additive key, zero migration); false = off.
-                              XFSet().autoResizeIndicators = v and nil or false
+                              if v then XFSet().autoResizeIndicators = nil else XFSet().autoResizeIndicators = false end
                               if ns.XF_Apply then ns.XF_Apply() end
                           end },
                     },
@@ -4744,6 +5089,13 @@ initFrame:SetScript("OnEvent", function(self)
         --  FRAME DISPLAY
         -------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "FRAME DISPLAY", y); y = y - h
+        -- Stock styles: the stock frame edge stands in for the EllesmereUI
+        -- border (its style/size row hides; the hover border stays).
+        if EllesmereUI.BlizzStyle then y = EllesmereUI.BlizzStyle.Note(parent, y, "raidframes") end
+        local function StockGate(cfg)
+            if EllesmereUI.BlizzStyle then return EllesmereUI.BlizzStyle.Gate("raidframes", cfg) end
+            return cfg
+        end
 
         _, h = W:DualRow(parent, y,
             { type="slider", pixel=true, text="Frame Spacing", min=-1, max=15, step=1,
@@ -4753,11 +5105,11 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return SVal("groupSpacing", 8) end,
               setValue=function(v) SSet("groupSpacing", v) end });  y = y - h
 
-        -- Border Style (+ offset cog) | Border Size (+ Border swatch). Mirrors Unit Frames: ONE border recolored by state (hover/target), full SharedMedia support. Hover/Target swatches live on the row below.
+        -- Border Style (+ options cog) | Border Size (+ Border swatch). Mirrors Unit Frames: ONE border recolored by state (hover/target), full SharedMedia support. Hover/Target swatches live on the row below.
         local bdrTexValues, bdrTexOrder = EllesmereUI.GetBorderTextureDropdown()
         local borderStyleRow
         borderStyleRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Border Style", values=bdrTexValues, order=bdrTexOrder,
+            StockGate({ type="dropdown", text="Border Style", values=bdrTexValues, order=bdrTexOrder,
               getValue=function() return SGet("borderTexture") or "solid" end,
               setValue=function(v)
                   SWrite("borderTexture", v)
@@ -4770,30 +5122,24 @@ initFrame:SetScript("OnEvent", function(self)
                   SWrite("borderBehind", _bbehind)
                   local defSz = EllesmereUI.GetBorderDefaultSize("unitframes", v)
                   if defSz then SWrite("borderSize", defSz) end
-                  ReloadAndUpdate(); EllesmereUI:RefreshPage()
-              end },
-            { type="slider", text="Border Size", min=0, max=4, step=1,
-              getValue=function() return SVal("borderSize", 1) end,
-              setValue=function(v) SSet("borderSize", v) end });  y = y - h
+                  -- A style pick returns the size to its step: clear a set exact size.
+                  if SGetPx("borderSizePx", "borderSize") then SWrite("borderSizePx", false) end
+                  -- Rebuild: the offset row below exists only for a textured style.
+                  ReloadAndUpdate(); EllesmereUI:RefreshPage(true)
+              end }),
+            -- Exact pixel size: borderSize keeps its step, borderSizePx the pixels.
+            StockGate(EllesmereUI.BorderPxSliderCfg({
+              getStep=function() return SVal("borderSize", 1) end,
+              setStep=function(v) SWrite("borderSize", v) end,
+              getTex=function() return SGet("borderTexture") or "solid" end,
+              getPx=function() return SGetPx("borderSizePx", "borderSize") end,
+              setPx=function(v) SWrite("borderSizePx", v) end,
+              apply=ReloadAndUpdate })));  y = y - h
         if not EllesmereUI._prebuilding then
             local rgn = borderStyleRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Border Offset",
+                title = "Border Options",
                 rows = {
-                    { type="slider", label="Offset X", min=-10, max=10, step=1,
-                      get=function()
-                          local v = SGet("borderTextureOffset"); if v then return v end
-                          local dox = EllesmereUI.GetBorderDefaults("unitframes", SGet("borderTexture") or "solid", SVal("borderSize", 1))
-                          return dox
-                      end,
-                      set=function(v) SSet("borderTextureOffset", v) end },
-                    { type="slider", label="Offset Y", min=-10, max=10, step=1,
-                      get=function()
-                          local v = SGet("borderTextureOffsetY"); if v then return v end
-                          local _, doy = EllesmereUI.GetBorderDefaults("unitframes", SGet("borderTexture") or "solid", SVal("borderSize", 1))
-                          return doy
-                      end,
-                      set=function(v) SSet("borderTextureOffsetY", v) end },
                     { type="slider", label="Shift X", min=-10, max=10, step=1,
                       get=function()
                           local v = SGet("borderTextureShiftX"); if v then return v end
@@ -4848,6 +5194,47 @@ initFrame:SetScript("OnEvent", function(self)
             borderSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(borderSwatch, "Border") end)
             borderSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             EllesmereUI.RegisterWidgetRefresh(function() updBorder() end)
+        end
+
+        -- Width Offset | Height Offset: the textured edge's outward offsets as their
+        -- own row, present only while a textured style is selected (the Border Style
+        -- setter rebuilds the page). Each slider shows what is drawn: the override,
+        -- else the unitframes registry default for the step (scaled to a set exact
+        -- size), and clears the override when a click lands on that default, so the
+        -- per-texture defaults keep seeding. Reads and writes go through the party
+        -- twin helpers exactly as the cog rows did.
+        local bdrTex = SGet("borderTexture")
+        if bdrTex and bdrTex ~= "" and bdrTex ~= "solid" then
+            -- Party tab: a cleared party override inherits the RAID override, not the
+            -- texture default, so a click on the default pins it explicitly whenever
+            -- the raid holds one (else the party slider could never reach it). The pin
+            -- is the default as drawn: scaled to a set exact size, as nil draws it.
+            local function SetOffset(key, v, isY)
+                SWrite(key, v)
+                if v == nil and SGet(key) ~= nil then
+                    local tex, step = SGet("borderTexture") or "solid", SVal("borderSize", 1)
+                    local dx, dy = EllesmereUI.GetBorderDefaults("unitframes", tex, step)
+                    local px = EllesmereUI.BorderPx(SGetPx("borderSizePx", "borderSize"), step, tex)
+                    if px then
+                        local PPg, EM = EllesmereUI.PP, EllesmereUI.BORDER_EDGE_MAP
+                        local f = (px * PPg.mult) / (EM[step] or EM[1])
+                        dx, dy = PPg.Snap(dx * f), PPg.Snap(dy * f)
+                    end
+                    if isY then SWrite(key, dy) else SWrite(key, dx) end
+                end
+            end
+            local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs({
+                addonKey = "unitframes",
+                getTex = function() return SGet("borderTexture") or "solid" end,
+                getStep = function() return SVal("borderSize", 1) end,
+                getSizeKey = function() return SVal("borderSize", 1) end,
+                getPx = function() return SGetPx("borderSizePx", "borderSize") end,
+                getX = function() return SGet("borderTextureOffset") end,
+                setX = function(v) SetOffset("borderTextureOffset", v, false) end,
+                getY = function() return SGet("borderTextureOffsetY") end,
+                setY = function(v) SetOffset("borderTextureOffsetY", v, true) end,
+                apply = ReloadAndUpdate })
+            _, h = W:DualRow(parent, y, StockGate(ocfgL), StockGate(ocfgR));  y = y - h
         end
 
         -- Show When Solo | Hover Borders: which highlight states are active. Disabling one skips that recolor entirely and the frame keeps its normal border. Hover + Target swatches are inline here.
@@ -4920,18 +5307,45 @@ initFrame:SetScript("OnEvent", function(self)
             rightRgn._lastInline = targetSwatch
             targetSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(targetSwatch, "Target") end)
             targetSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            -- Stock styles: the stock selection ring carries its own colour.
+            local targetBlocked = EllesmereUI.BlizzStyle
+                and EllesmereUI.BlizzStyle.BlockInline("raidframes", targetSwatch) or false
 
             -- Highlight thickness. Shown only while the frame is borderless (Border Size 0):
             -- with a border drawn the highlight recolors THAT and these sizes do nothing.
+            -- Exact pixel sizes (hover/targetBorderSizePx beside the steps) in the frame's
+            -- border style; under a stock style the hover border draws solid, so the
+            -- slider reads and writes against Solid there. The floor stays at 1.
+            local function HlTex()
+                if ns.RF_Stock and ns.RF_Stock() then return "solid" end
+                return SGet("borderTexture") or "solid"
+            end
+            local hoverPx = EllesmereUI.BorderPxSliderCfg({
+                getStep=function() return SVal("hoverBorderSize", 1) end,
+                setStep=function(v) SWrite("hoverBorderSize", v) end,
+                getTex=HlTex,
+                getPx=function() return SGetPx("hoverBorderSizePx", "hoverBorderSize") end,
+                setPx=function(v) SWrite("hoverBorderSizePx", v) end,
+                apply=ReloadAndUpdate })
+            local targetPx = EllesmereUI.BorderPxSliderCfg({
+                getStep=function() return SVal("targetBorderSize", 1) end,
+                setStep=function(v) SWrite("targetBorderSize", v) end,
+                getTex=HlTex,
+                getPx=function() return SGetPx("targetBorderSizePx", "targetBorderSize") end,
+                setPx=function(v) SWrite("targetBorderSizePx", v) end,
+                apply=ReloadAndUpdate })
             local _, hlCogShow = EllesmereUI.BuildCogPopup({
                 title = "Highlight Border",
                 rows = {
-                    { type="slider", label="Hover Border Size", min=1, max=4, step=1,
-                      get=function() return SVal("hoverBorderSize", 1) end,
-                      set=function(v) SSet("hoverBorderSize", v) end },
-                    { type="slider", label="Target Border Size", min=1, max=4, step=1,
-                      get=function() return SVal("targetBorderSize", 1) end,
-                      set=function(v) SSet("targetBorderSize", v) end },
+                    { type="slider", label="Hover Border Size", min=1, max=hoverPx.max, step=1,
+                      tooltip=hoverPx.tooltip,
+                      get=hoverPx.getValue, set=hoverPx.setValue },
+                    { type="slider", label="Target Border Size", min=1, max=targetPx.max, step=1,
+                      tooltip=targetPx.tooltip,
+                      -- Stock styles draw the stock selection ring instead.
+                      disabled=function() return ns.RF_Stock and ns.RF_Stock() end,
+                      disabledTooltip=EllesmereUI.BlizzStyle and EllesmereUI.BlizzStyle.Label("raidframes") or nil,
+                      get=targetPx.getValue, set=targetPx.setValue },
                 },
             })
             local hlCog = CreateFrame("Button", nil, rightRgn)
@@ -4946,7 +5360,10 @@ initFrame:SetScript("OnEvent", function(self)
             hlCog:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
             hlCog:SetScript("OnClick", function(s) hlCogShow(s) end)
             local function UpdateHLCogVis()
-                if SVal("borderSize", 1) > 0 then hlCog:Hide() else hlCog:Show() end
+                -- Under a stock style the EllesmereUI border is stood down, so
+                -- the hover border draws on its own at this size.
+                local bs = (ns.RF_Stock and ns.RF_Stock()) and 0 or SVal("borderSize", 1)
+                if bs > 0 then hlCog:Hide() else hlCog:Show() end
             end
             EllesmereUI.RegisterWidgetRefresh(UpdateHLCogVis)
             UpdateHLCogVis()
@@ -4954,7 +5371,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Gray a swatch when its border state is off but keep it clickable so the color can be pre-set (matches the Heal Prediction swatch).
             UpdateHBSwatchVis = function()
                 hoverSwatch:SetAlpha(SVal("hoverBorderEnabled", true) and 1 or 0.3)
-                targetSwatch:SetAlpha(SVal("targetBorderEnabled", true) and 1 or 0.3)
+                targetSwatch:SetAlpha((not targetBlocked and SVal("targetBorderEnabled", true)) and 1 or 0.3)
             end
             EllesmereUI.RegisterWidgetRefresh(function() updHover(); updTarget(); UpdateHBSwatchVis() end)
             UpdateHBSwatchVis()
@@ -5158,10 +5575,11 @@ initFrame:SetScript("OnEvent", function(self)
         if key == "partyShowWhenSolo" and ns._partyHeader and not InCombatLockdown() then
             ns._partyHeader:SetAttribute("showSolo", val or false)
         end
-        -- Dimension keys take the lightweight resize path.
-        if (key == "partyFrameWidth" or key == "partyFrameHeight") and ns._ResizePartyButtons then
-            local w = db.profile.partyFrameWidth or db.profile.frameWidth or 125
-            local h = db.profile.partyFrameHeight or db.profile.frameHeight or 60
+        -- Dimension keys (the Party Frames kit's Frame Scale included) take the
+        -- lightweight resize path.
+        if (key == "partyFrameWidth" or key == "partyFrameHeight" or key == "partyKitScale")
+            and ns._ResizePartyButtons then
+            local w, h = ns.RF_PartyDims(db.profile)
             ns._ResizePartyButtons(w, h)
             -- Preview refresh needs no full reload.
             if ns.partyPvActive and ns.partyPvActive() and ns.ShowPartyPreview then
@@ -5194,6 +5612,119 @@ initFrame:SetScript("OnEvent", function(self)
         y = BuildPreviewModeRow(parent, y)
 
         -------------------------------------------------------------------
+        --  FRAME STYLE (stock styles only): the party in the Raid Frames
+        --  layout, or as the stock portrait party frame. Latched like the
+        --  style itself, so a pick is written on the reload confirm only.
+        -------------------------------------------------------------------
+        local p0 = db.profile
+        if ns.RF_Stock and ns.RF_Stock() and (p0.useBlizzardStyle or p0.useClassicStyle) then
+            _, h = W:SectionHeader(parent, "FRAME STYLE", y); y = y - h
+            local kitOn = ns.RF_PartyKit and ns.RF_PartyKit()
+            -- Inline cog button (the Party Frames rows below).
+            local function KitCog(rgn, title, rows)
+                if EllesmereUI._prebuilding then return end
+                local _, cogShow = EllesmereUI.BuildCogPopup({ title = title, rows = rows })
+                local cogBtn = CreateFrame("Button", nil, rgn)
+                cogBtn:SetSize(26, 26)
+                cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+                rgn._lastInline = cogBtn
+                cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+                cogBtn:SetAlpha(0.4)
+                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+                cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
+                cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
+                cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
+                cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
+            end
+            -- Frame Scale default (nil = this, 120%).
+            local scaleDef = math.floor((ns.RF_KIT_SCALE or 1.2) * 100 + 0.5)
+            local styleRow
+            styleRow, h = W:DualRow(parent, y,
+                { type="dropdown", text="Frame Style",
+                  tooltip="Party Frames switches the party to the stock portrait party frames.",
+                  values={ raid = "Raid Frames", party = "Party Frames" }, order={ "raid", "party" },
+                  noCapture=true,
+                  getValue=function() return (db.profile.partyFrameStyle == "party") and "party" or "raid" end,
+                  setValue=function(v)
+                      local cur = (db.profile.partyFrameStyle == "party") and "party" or "raid"
+                      if v == cur then return end
+                      EllesmereUI:ShowConfirmPopup({
+                          title = "Reload Required",
+                          message = "Changing the party frame style requires a UI reload.",
+                          confirmText = "Reload Now",
+                          cancelText = "Cancel",
+                          reload = true,
+                          onConfirm = function()
+                              if EllesmereUI.SpecOverrides_CloseEditSessions then
+                                  EllesmereUI.SpecOverrides_CloseEditSessions()
+                              end
+                              db.profile.partyFrameStyle = (v == "party") and "party" or nil
+                          end,
+                      })
+                  end },
+                kitOn and { type="slider", text="Frame Scale", min=50, max=200, step=5,
+                  getValue=function()
+                      local k = db.profile.partyKitScale
+                      return k and math.floor(k * 100 + 0.5) or scaleDef
+                  end,
+                  setValue=function(v) PSSet("partyKitScale", (v ~= scaleDef) and (v / 100) or nil) end }
+                or { type="label", text="" });  y = y - h
+            if kitOn then
+                -- Frame Scale cog: the gap between the party frames.
+                KitCog(styleRow._rightRegion, "Frame Scale", {
+                    { type="slider", label="Spacing", min=0, max=30, step=1,
+                      get=function() return db.profile.partyKitSpacing or ns.RF_KIT_SPACING or 6 end,
+                      set=function(v) PSSet("partyKitSpacing", v) end },
+                })
+                -- Party Frames: the aura row under the frame and the buff run
+                -- beside it (sizes, X/Y, and where the buffs sit).
+                local kitAuraRow
+                kitAuraRow, h = W:DualRow(parent, y,
+                    { type="slider", text="Debuff Size", min=8, max=40, step=1,
+                      getValue=function() return db.profile.partyKitDebuffSize or 15 end,
+                      setValue=function(v) PSSet("partyKitDebuffSize", v) end },
+                    { type="slider", text="Buff Size", min=8, max=40, step=1,
+                      getValue=function() return db.profile.partyKitBuffSize or 15 end,
+                      setValue=function(v) PSSet("partyKitBuffSize", v) end });  y = y - h
+                KitCog(kitAuraRow._leftRegion, "Debuff Position", {
+                    { type="slider", label="Offset X", min=-100, max=100, step=1,
+                      get=function() return db.profile.partyKitDebuffX or 0 end,
+                      set=function(v) PSSet("partyKitDebuffX", v) end },
+                    { type="slider", label="Offset Y", min=-100, max=100, step=1,
+                      get=function() return db.profile.partyKitDebuffY or 0 end,
+                      set=function(v) PSSet("partyKitDebuffY", v) end },
+                })
+                -- Horizontal Frames always puts the buffs above each frame
+                -- (the next frame sits beside it): the side picks disable.
+                KitCog(kitAuraRow._rightRegion, "Buff Position", {
+                    { type="dropdown", label="Anchor",
+                      values={ right = "Right of Frame", left = "Left of Frame", above = "Above Frame" },
+                      order={ "right", "left", "above" },
+                      itemDisabled=function(v) return db.profile.partyHorizontal and v ~= "above" end,
+                      get=function()
+                          if db.profile.partyHorizontal then return "above" end
+                          local a = db.profile.partyKitBuffAnchor
+                          if a == "left" or a == "above" then return a end
+                          return "right"
+                      end,
+                      set=function(v)
+                          -- Horizontal frames show Above without storing it,
+                          -- so the stacked choice survives.
+                          if db.profile.partyHorizontal then return end
+                          if v == "left" or v == "above" then PSSet("partyKitBuffAnchor", v)
+                          else PSSet("partyKitBuffAnchor", nil) end
+                      end },
+                    { type="slider", label="Offset X", min=-100, max=100, step=1,
+                      get=function() return db.profile.partyKitBuffX or 0 end,
+                      set=function(v) PSSet("partyKitBuffX", v) end },
+                    { type="slider", label="Offset Y", min=-100, max=100, step=1,
+                      get=function() return db.profile.partyKitBuffY or 0 end,
+                      set=function(v) PSSet("partyKitBuffY", v) end },
+                })
+            end
+        end
+
+        -------------------------------------------------------------------
         --  RAID SYNC AND SOLO
         -------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "RAID SYNC AND SOLO", y); y = y - h
@@ -5203,8 +5734,12 @@ initFrame:SetScript("OnEvent", function(self)
         local SECTION_LABELS = ns._PARTY_SECTION_LABELS or {}
 
         local syncItems = {}
+        -- (The Party Frames kit has no Top Name Bar section to sync.)
+        local kitPage = ns.RF_OptPartyKit()
         for _, secKey in ipairs(SECTION_ORDER) do
-            syncItems[#syncItems + 1] = { key = secKey, label = SECTION_LABELS[secKey] or secKey }
+            if not (kitPage and secKey == "topNameBar") then
+                syncItems[#syncItems + 1] = { key = secKey, label = SECTION_LABELS[secKey] or secKey }
+            end
         end
 
         local syncRow
@@ -5346,20 +5881,23 @@ initFrame:SetScript("OnEvent", function(self)
         -------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "FRAMES", y); y = y - h
 
+        -- (Party Frames kit: its Frame Scale, under FRAME STYLE, sizes it.)
         _, h = W:DualRow(parent, y,
-            { type="slider", text="Frame Width", min=40, max=300, step=1,
+            ns.RF_PartyKitGate({ type="slider", text="Frame Width", min=40, max=300, step=1,
               getValue=function() return SVal("partyFrameWidth", 125) end,
-              setValue=function(v) PSSet("partyFrameWidth", v) end },
-            { type="slider", text="Frame Height", min=20, max=150, step=1,
+              setValue=function(v) PSSet("partyFrameWidth", v) end }),
+            ns.RF_PartyKitGate({ type="slider", text="Frame Height", min=20, max=150, step=1,
               getValue=function() return SVal("partyFrameHeight", 60) end,
-              setValue=function(v) PSSet("partyFrameHeight", v) end });  y = y - h
+              setValue=function(v) PSSet("partyFrameHeight", v) end }));  y = y - h
 
         -- Horizontal Frames | Sort By: same control as the raid LAYOUT tab, wired to the party keys.
+        -- (Party Frames kit: horizontal frames carry their buffs above each frame;
+        -- RefreshPage re-reads the Buff Anchor that follows it.)
         local pSortRow
         pSortRow, h = W:DualRow(parent, y,
             { type="toggle", text="Horizontal Frames",
               getValue=function() return db.profile.partyHorizontal end,
-              setValue=function(v) db.profile.partyHorizontal = v; PartyReloadAndUpdate() end },
+              setValue=function(v) db.profile.partyHorizontal = v; PartyReloadAndUpdate(); EllesmereUI:RefreshPage() end },
             { type="dropdown", text="Sort By",
               values={ __placeholder = "Group" }, order={ "__placeholder" },
               getValue=function() return "__placeholder" end,
@@ -5443,9 +5981,15 @@ initFrame:SetScript("OnEvent", function(self)
               values={ __placeholder = "All" }, order={ "__placeholder" },
               getValue=function() return "__placeholder" end,
               setValue=function() end },
-            { type="slider", pixel=true, text="Frame Spacing", min=-1, max=15, step=1,
-              getValue=function() return SVal("partyCellSpacing", db.profile.cellSpacing or 2) end,
-              setValue=function(v) PSSet("partyCellSpacing", v) end });  y = y - h
+            -- (The Party Frames kit keeps its own spacing, set in its Frame
+            -- Scale cog, so the Raid Frames layout's value survives a switch
+            -- between the two.)
+            ns.RF_PartyKitGate({ type="slider", pixel=true, text="Frame Spacing", min=-1, max=15, step=1,
+              getValue=function()
+                  if ns.RF_PartyKit() then return db.profile.partyKitSpacing or ns.RF_KIT_SPACING or 6 end
+                  return SVal("partyCellSpacing", db.profile.cellSpacing or 2)
+              end,
+              setValue=function(v) PSSet(ns.RF_PartyKit() and "partyKitSpacing" or "partyCellSpacing", v) end }));  y = y - h
         -- Auto Resize Icons sits in the LEFT slot here; same conversion pattern as the Frames tab.
         if not EllesmereUI._prebuilding then
             local leftRgn = partyAutoResizeRow._leftRegion
@@ -5497,6 +6041,11 @@ initFrame:SetScript("OnEvent", function(self)
                       if ns._UpdatePartyVisibility then ns._UpdatePartyVisibility() end
                   end
               end });  y = y - h
+
+        -------------------------------------------------------------------
+        --  PORTRAIT (party only, every style; file-scope builder)
+        -------------------------------------------------------------------
+        y = ns.RF_BuildPartyPortrait(parent, y, W, PSSet)
 
         -------------------------------------------------------------------
         --  ALL VISUAL SECTIONS

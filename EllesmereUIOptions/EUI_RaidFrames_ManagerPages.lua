@@ -1103,12 +1103,25 @@ local function BuildBaseDetailDM(frame, fontPath)
         if rgn._control then rgn._control:Hide() end
         local DM_ALL_KEY = "__all"
         local DM_DUR_KEY = "__hasDuration"
+        local DM_MATCH_ANY = "__matchAny"
+        local DM_MATCH_ALL = "__matchAll"
         local function AllOn() return dm.all ~= false end
+        local matchLockTip = EllesmereUI.L("Uncheck All Debuffs to choose how the Show filters combine.")
         local FILTER_ITEMS = {
             { key = DM_ALL_KEY, label = "All Debuffs",
               tooltip = "Show every debuff. Use the Hide lane below to remove specific filters." },
             { key = DM_DUR_KEY, label = "Has Duration",
               tooltip = "Only show debuffs that have a duration, excluding permanent ones. Combines with the filters below; checked alone it shows every timed debuff." },
+            -- Match Mode: modifier rows (out of the summary and the count), a
+            -- radio pair over dm.match (nil = Match Any = the union). Locked
+            -- while All Debuffs shows everything; the setting is kept.
+            { isHeader = true, label = "Match Mode" },
+            { key = DM_MATCH_ANY, label = EllesmereUI.L("Match Any Filter"), isModifier = true,
+              lockedFn = AllOn, lockedTooltip = matchLockTip,
+              tooltip = EllesmereUI.L("Shows debuffs that match any checked Show filter (the default).") },
+            { key = DM_MATCH_ALL, label = EllesmereUI.L("Match All Filters"), isModifier = true,
+              lockedFn = AllOn, lockedTooltip = matchLockTip,
+              tooltip = EllesmereUI.L("Shows only debuffs that match every checked Show filter (dispel types count as one); opposites like Non-Player Auras with Cast By You, or a filter an indicator shows, show nothing.") },
             { isHeader = true, label = "Show", rightLabel = "Hide" },
             { key = "nonplayer", label = "Non-Player Auras", dual = true, showLockedFn = AllOn,
               tooltip = "Debuffs not caused by any player or player pet (this is what shows most pve debuffs)." },
@@ -1193,9 +1206,16 @@ local function BuildBaseDetailDM(frame, fontPath)
         -- base selection (EffectiveState forces eff[cat] on for claims and
         -- fx routing), so a claims-only grid displays debuffs and must not
         -- warn -- the same rule that keeps fx-forced PAB bars silent.
+        -- Match All picks that can never match build nothing, so they count
+        -- as an empty base (the runtime's own test, ns.DM_MatchEmpty).
         local warnClosed
         local function DmHasContent()
-            if AllOn() or dm.hasDuration == true or AnyShowCat() then return true end
+            if AllOn() then return true end
+            if AnyShowCat() then
+                if not (ns.DM_MatchEmpty and ns.DM_MatchEmpty(dm)) then return true end
+            elseif dm.hasDuration == true then
+                return true
+            end
             local tiles = ns.DM_ActiveTiles and ns.DM_ActiveTiles()
             if tiles then
                 for i = 1, #tiles do
@@ -1218,6 +1238,8 @@ local function BuildBaseDetailDM(frame, fontPath)
             function(k, neg)
                 if k == DM_ALL_KEY then return AllOn() end
                 if k == DM_DUR_KEY then return dm.hasDuration == true end
+                if k == DM_MATCH_ALL then return dm.match == "all" end
+                if k == DM_MATCH_ANY then return dm.match ~= "all" end
                 if k == "dispel_you" then
                     if neg then return NegHas("dispel") and dm.dispelMode ~= "typed" end
                     return dm.dispel == true and dm.dispelMode ~= "typed"
@@ -1247,6 +1269,14 @@ local function BuildBaseDetailDM(frame, fontPath)
                     -- AND-modifier: combines with All Debuffs or any show-lane
                     -- selection; checked alone it acts as the timed catch-all.
                     dm.hasDuration = v or nil
+                    DmApply()
+                    EllesmereUI:RefreshPage()
+                    return
+                end
+                if k == DM_MATCH_ANY or k == DM_MATCH_ALL then
+                    -- Radio pair: the clicked row wins whatever its checked
+                    -- state (re-clicking the active row keeps it).
+                    dm.match = (k == DM_MATCH_ALL) and "all" or nil
                     DmApply()
                     EllesmereUI:RefreshPage()
                     return
@@ -1311,7 +1341,12 @@ local function BuildBaseDetailDM(frame, fontPath)
             end,
             nil, 12, nil, nil, function()
                 if warnClosed then warnClosed() end
-            end)
+            end,
+            -- The summary joins picks the way they combine; Match Any (and
+            -- the locked state under All Debuffs) keeps the plain list.
+            { separatorFn = function()
+                return (dm.match == "all" and not AllOn()) and " & " or ", "
+            end })
         PPl.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
         rgn._control = cbDD
         rgn._lastInline = nil
@@ -4462,10 +4497,35 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
         EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
     end
 
-    -- CUSTOM ORDER (icon/square indicators): opt-in fixed arrangement. The
-    -- cog's drag list writes ind.spellOrder; the runtime renders one engine
-    -- group per arranged spell in that order (BmSegments in the containers
-    -- file) instead of the engine's default in-group sorting.
+    -- SHOW IN (every type): which frames build the indicator. ind.showIn nil =
+    -- raid and party frames, "raid" / "party" = only those. The runtime reads
+    -- the button's frame kind, so party frames shown in arenas and small raids
+    -- count as party. An anchored indicator follows its Anchor To root (one
+    -- run), so the dropdown shows the root's value and is locked.
+    local showInCfg = { type = "dropdown", text = "Show In",
+        values = { both = "Raid and Party", raid = "Raid Only", party = "Party Only" },
+        order = { "both", "raid", "party" },
+        tooltip = "Party frames in arenas and small raids count as Party; Friendly Boss frames count as Raid.",
+        disabled = function() return ind.anchorTo ~= nil end,
+        disabledTooltip = "Remove the Anchor To position",
+        getValue = function()
+            local v = ind.showIn
+            if ind.anchorTo ~= nil and ns.BM2_EffectiveShowIn then
+                local key = ns._bmSelectedSpecKey
+                v = ns.BM2_EffectiveShowIn(ind, key and ns.BM2_SpecInds and ns.BM2_SpecInds(key) or nil)
+            end
+            return (v == "raid" or v == "party") and v or "both"
+        end,
+        setValue = function(v)
+            if v == "raid" or v == "party" then ind.showIn = v else ind.showIn = nil end
+            if ns.BM2_Invalidate then ns.BM2_Invalidate() end
+            if ns.ReloadFrames then ns.ReloadFrames() end
+        end }
+
+    -- CUSTOM ORDER (icon/square indicators, beside Show In): opt-in fixed
+    -- arrangement. The cog's drag list writes ind.spellOrder; the runtime
+    -- renders one engine group per arranged spell in that order (BmSegments
+    -- in the containers file) instead of the engine's default in-group sorting.
     if ind.type == "icon" or ind.type == "square" then
         -- Default presentation for anything the user has not arranged yet:
         -- the editing spec's own class spells lead, then class-agnostic
@@ -4502,7 +4562,7 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
             return mine
         end
         local orow
-        orow, hh = W:DualRow(parent, sy,
+        orow, hh = W:DualRow(parent, sy, showInCfg,
             { type = "toggle", text = "Custom Order",
               tooltip = "Show this indicator's buffs in the exact order you arrange (the first 10 arranged buffs are guaranteed; any beyond follow the default sorting).",
               getValue = function() return ind.customOrder == true end,
@@ -4516,10 +4576,9 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
                       ind.spellOrder = PrioritizeResolved(r)
                   end
                   if ns.ReloadFrames then ns.ReloadFrames() end
-              end },
-            { type = "label", text = "" }); sy = sy - hh
+              end }); sy = sy - hh
         do
-            local rgn = orow._leftRegion
+            local rgn = orow._rightRegion
             -- Effective arrangement: stored order first (stale ids skipped),
             -- then any newly-resolved spells appended in prioritized order.
             -- Items snapshot at popup build like the Class Sorting cog; a
@@ -4577,6 +4636,8 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
             cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
             cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
         end
+    else
+        _r, hh = W:DualRow(parent, sy, showInCfg, { type = "label", text = "" }); sy = sy - hh
     end
 
     return sy
