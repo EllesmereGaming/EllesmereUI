@@ -4542,7 +4542,7 @@ initFrame:SetScript("OnEvent", function(self)
         -------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "EXTRAS", y); y = y - h
 
-        -- OOR Alpha | Show Raid Frames Tooltip (dropdown + cog). The dropdown is a pure VIEW over the legacy keys: with tooltipMode unset it derives the shown option from the showTooltip toggle plus the global "show in combat" flag, so behavior only changes once the user picks.
+        -- OOR Alpha | Show Raid Frames Tooltip. The dropdown is a pure VIEW over the legacy keys: with tooltipMode unset it derives the shown option from the showTooltip toggle plus the global "show in combat" flag, so behavior only changes once the user picks.
         -- Same derive as the runtime ns._ResolveTooltipMode.
         local function CurTooltipMode()
             local m = SVal("tooltipMode", nil)
@@ -4566,45 +4566,6 @@ initFrame:SetScript("OnEvent", function(self)
               order={ "always", "outOfCombat", "outOfBossCombat", "never" },
               getValue=function() return CurTooltipMode() end,
               setValue=function(v) SSet("tooltipMode", v) end });  y = y - h
-        -- Cog: buff/HoT aura-icon tooltips (Buff Manager), hidden by default and opt-in here. This is the ONLY gate on the aura tip: the dropdown's tooltip mode governs the UNIT tooltip and must NOT veto an aura tip enabled here (see ns.RaidFrameTooltipAllowed).
-        if not EllesmereUI._prebuilding then
-            local rgn = row._rightRegion
-            local tipRows
-                -- 4-state on the same key: true/nil=hidden, false=shown, "cursor"=shown at cursor, "combat"=hidden during combat.
-                tipRows = {
-                    { type="dropdown", label="Buff Tooltips",
-                      tooltip="Tooltip behavior when hovering a buff/HoT icon on a raid or party frame.",
-                      values={ hidden="Hidden", shown="Shown", cursor="Shown At Cursor", combat="Hidden In Combat" },
-                      order={ "hidden", "shown", "cursor", "combat" },
-                      get=function()
-                          local v = SVal("buffHideTooltips", true)
-                          if v == false then return "shown" end
-                          if v == "cursor" or v == "combat" then return v end
-                          return "hidden"
-                      end,
-                      set=function(k)
-                          local v = k
-                          if k == "shown" then v = false elseif k == "hidden" then v = true end
-                          SSet("buffHideTooltips", v); if ns.ReloadFrames then ns.ReloadFrames() end
-                      end },
-                }
-            local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "Tooltip Settings",
-                rows = tipRows,
-            })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
-        end
-
         -- Healer Mana Display: one mana-percent text row per group healer,
         -- riding the existing power-event plumbing (see ns.HM_Rebuild).
         local function HMS()

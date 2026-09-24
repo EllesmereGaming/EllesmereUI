@@ -1397,7 +1397,7 @@ end
 -- aura buttons render their own tooltip when mouse motion is on, showing the real
 -- aura even while secret; effect slots (healthcolor/border) stay motion-off always
 -- (they overlay the health bar). 4-state mode: true/nil=hidden, false=shown,
--- "combat"=hidden in combat, "cursor"=shown at cursor.
+-- "combat"=hidden in combat, "cursor"=shown at cursor, "modifier"=secure hover gate.
 local function BmTipMode()
     local p = ns.db and ns.db.profile
     local v = p and p.buffHideTooltips
@@ -1407,7 +1407,7 @@ end
 
 local function BmTipsOff()
     local v = BmTipMode()
-    return not (v == false or v == "combat" or v == "cursor")
+    return not (v == false or v == "combat" or v == "cursor" or v == "modifier")
 end
 
 local function BuildBmIconStyle(ind, iscale, size)
@@ -2335,6 +2335,98 @@ local function AnchorBmSimpleContainer(container, health, bs, iscale, d)
     })
 end
 
+-- The secure modifier overlay covers the maximum configured footprint, just
+-- like Debuff Manager. No native aura identity, visibility or bounds are read.
+local function EnsureBmTipModifiers(button, d)
+    if not ns.DM_TipModSync then return end
+    ns.DM_TipModSync(d)
+    if BmTipMode() ~= "modifier" or ns.DM_TipMod() == "none" then
+        ns.DM_ParkBuffTipEaters(d)
+        return
+    end
+    if InCombatLockdown() then d.rfcBmPending = true; return end
+    local health = d.rfcHealth
+    if not health then return end
+    local s = ProxyFor(d)
+    local pinHost = ns.RF_AnchorHost and ns.RF_AnchorHost(health, s) or health
+    local hugBar = pinHost._euiHealth or pinHost
+    local iscale = BmScaleFor(d)
+    local seen = {}
+    local function Grid(key, container, n, size, spacing, per, vertical, padding, lineWidth)
+        if not container or n < 1 then return end
+        -- Containers are owned frames whose single pin is set by the layout
+        -- functions above; their dynamic aura buttons are never queried.
+        local point, host, corner, x, y = container:GetPoint(1)
+        if not point or not host then return end
+        local along = per and per > 0 and math.min(n, per) or n
+        local lines = per and per > 0 and math.ceil(n / per) or 1
+        local w = math.max(size, along * size + (along - 1) * spacing, lineWidth or 0)
+        local h = math.max(size, lines * size + (lines - 1) * spacing)
+        if vertical then w, h = h, w end
+        padding = padding or 0
+        w, h = w + padding * 2, h + padding * 2
+        -- Expand around the same pin when members have custom gaps.
+        if point:find("LEFT", 1, true) then x = x - padding
+        elseif point:find("RIGHT", 1, true) then x = x + padding end
+        if point:find("TOP", 1, true) then y = y + padding
+        elseif point:find("BOTTOM", 1, true) then y = y - padding end
+        seen[key] = true
+        ns.DM_EnsureBuffTipEater(button, d, key, container, host, point, corner, x, y, w, h)
+    end
+    local bs = BmSimpleSettings()
+    if bs and bs.showBuffs and ns.BM_BaseActive and ns.BM_BaseActive() then
+        local vertical = bs.growDirection == "UP" or bs.growDirection == "DOWN"
+        local per = bs.iconsPerRow or 4
+        if per < 2 then per = 0 end
+        Grid("simple", d.rfcBmSimple, bs.maxBuffs or 8, (bs.size or 18) * iscale,
+            (bs.spacing or 1) * iscale, vertical and 1 or per, false)
+    end
+    for _, m in ipairs(d.rfcBmMeta or {}) do
+        if m.isChain and not m.anchored then
+            local members = m.members or { { ind = m.ind, count = m.count or (m.ind.spells and #m.ind.spells) or 0 } }
+            local n, size, padding = 0, 0, 0
+            local budgets = {}
+            for i, member in ipairs(members) do
+                local ind = member.ind
+                local count = member.count or 0
+                local cap = ind.maxIcons or 0
+                local index = member.memberIndex or i
+                if cap > 0 then
+                    local remaining = budgets[index] or cap
+                    count = math.min(count, remaining)
+                    budgets[index] = remaining - count
+                end
+                n = n + count
+                size = math.max(size, (ind.size or 18) * iscale)
+                if i > 1 and (member.segIndex or 1) <= 1 and index > 1 then
+                    local grow = members[1].ind.growDirection
+                    local offset = (grow == "UP" or grow == "DOWN") and ind.offsetY or ind.offsetX
+                    padding = padding + math.abs(offset or 0) * iscale
+                end
+            end
+            local ind = members[1].ind
+            local spacing = (ind.spacing or 0) * iscale
+            local per = tonumber(ind.iconsPerRow) or 0
+            local width
+            -- Mixed-size groups may fit fewer cells than the root's row width.
+            if per > 0 then
+                width = per * (ind.size or 18) * iscale + (per - 1) * spacing
+                per = math.max(1, math.floor((width + spacing) / math.max(1, size + spacing)))
+            end
+            Grid("chain:" .. m.chainKey, d.rfcBmChain and d.rfcBmChain[m.chainKey],
+                n, size, spacing, per, ind.growDirection == "UP" or ind.growDirection == "DOWN", padding, width)
+        elseif not m.isChain and d.rfcBm and (m.kind == "icon" or m.kind == "square" or m.kind == "bar") then
+            local key = "slot:" .. m.key
+            seen[key] = true
+            ns.DM_EnsureBuffTipEater(button, d, key, d.rfcBm, pinHost, "CENTER", "CENTER", 0, 0, 1, 1,
+                function(e) BmAnchorOneSlot(e, m, pinHost, hugBar, iscale) end,
+                BmGeoFP({ m }, iscale, s))
+        end
+    end
+    ns.DM_ParkBuffTipEaters(d, seen)
+end
+ns.RFC_EnsureBmTipModifiers = EnsureBmTipModifiers
+
 local function CreateBmSimpleContainer(button, health, d, unit, specKey)
     local bs = BmSimpleSettings() or {}
     local iscale = BmScaleFor(d)
@@ -2358,6 +2450,7 @@ local function CreateBmSimpleContainer(button, health, d, unit, specKey)
         st.style = BmSimpleStyleFP(bs, font, iscale)
         st.cand = BmSimpleCandFP(bs)
         st.geo = BmSimpleGeoFP(bs, iscale, ProxyFor(d))
+        EnsureBmTipModifiers(button, d)
         return
     end
 
@@ -2390,6 +2483,7 @@ local function CreateBmSimpleContainer(button, health, d, unit, specKey)
         st.style = BmSimpleStyleFP(bs, font, iscale)
         st.cand = BmSimpleCandFP(bs)
         st.geo = BmSimpleGeoFP(bs, iscale, ProxyFor(d))
+        EnsureBmTipModifiers(button, d)
         return
     end
     local c = AK.CreateContainer(button, unit, {
@@ -2417,6 +2511,7 @@ local function CreateBmSimpleContainer(button, health, d, unit, specKey)
     st.style = BmSimpleStyleFP(bs, font, iscale)
     st.cand = BmSimpleCandFP(bs)
     st.geo = BmSimpleGeoFP(bs, iscale, ProxyFor(d))
+    EnsureBmTipModifiers(button, d)
 end
 
 local function ReloadBmSimple(button, d, cls)
@@ -2778,6 +2873,7 @@ local function CreateBmContainer(button, health, d, unit)
         end
     end
     bmOwnFP[StyleKeyFor(d)] = BmOwnKey(meta)
+    EnsureBmTipModifiers(button, d)
 end
 
 -- Chains-only rebind for pool shells that finished building after the
@@ -3631,6 +3727,7 @@ function ns.RFC_ReloadAll()
                     clsCache[styleKey] = cls
                 end
                 ReloadBm(button, d, s, cls)
+                EnsureBmTipModifiers(button, d)
             end
         end
     end

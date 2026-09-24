@@ -4845,6 +4845,10 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 rgn._lastInline = prev
             end
 
+            if not ns.BM2_Enabled and ns.BMP_BuildTooltipSettings then
+                sy = ns.BMP_BuildTooltipSettings(leftFrame, sy, s)
+            end
+
             -- Display-level Icon Glow (v2): permanent, every visible icon of the
             -- group glows while shown. No Max Duration setting by design: the
             -- engine offers no baseline/cap on its duration bindings.
@@ -4862,15 +4866,19 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         end
                     end
                 end
-                local mdRow = SettingsRow(
-                    { type="dropdown", text="Icon Glow",
+                local glowConfig = { type="dropdown", text="Icon Glow",
                       values=GLOW_VALUES, order=GLOW_ORDER,
                       getValue=function() return ind.displayGlowType or 0 end,
-                      setValue=function(v) ind.displayGlowType = v; ReloadAndUpdate(); EllesmereUI:RefreshPage() end },
-                    { type="label", text="" })
+                      setValue=function(v) ind.displayGlowType = v; ReloadAndUpdate(); EllesmereUI:RefreshPage() end }
+                local mdRow
+                if ns.BMP_BuildTooltipSettings then
+                    sy, mdRow = ns.BMP_BuildTooltipSettings(leftFrame, sy, s, glowConfig)
+                else
+                    mdRow = SettingsRow(glowConfig, { type="label", text="" })
+                end
                 -- Inline class + custom color swatches, left of the dropdown.
                 local PPl = EllesmereUI.PanelPP or EllesmereUI.PP
-                local rightRgn = mdRow._leftRegion
+                local rightRgn = ns.BMP_BuildTooltipSettings and mdRow._rightRegion or mdRow._leftRegion
                 local ctrl = rightRgn._control
 
                 local classSwatch, updateClassSwatch = EllesmereUI.BuildColorSwatch(
@@ -5057,6 +5065,10 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         end, false, 20)
                     bgSwatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                     rgn._lastInline = bgSwatch
+                end
+
+                if ns.BMP_BuildTooltipSettings then
+                    sy = ns.BMP_BuildTooltipSettings(leftFrame, sy, s)
                 end
 
                 -- THRESHOLD section
