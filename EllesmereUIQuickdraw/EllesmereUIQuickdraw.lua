@@ -394,6 +394,8 @@ local DB_DEFAULTS = {
         palettes = {
             [1] = { name = "Action Menu 1", slots = {} },
         },
+        -- specKey<n> -- a key menu n uses INSTEAD of its <Binding>'s -- is
+        -- deliberately not seeded here; see ns.MenuKeys.
     },
 }
 ns.DB_DEFAULTS = DB_DEFAULTS
@@ -730,6 +732,26 @@ local function PaletteCount()
     return min(MAX_PALETTES, max(1, (p and p.paletteCount) or 1))
 end
 ns.PaletteCount = PaletteCount
+
+-- The keys that open palette `index`. Normally its <Binding>'s, which WoW
+-- keeps one set of for every spec alike. A FLAT specKey<n> profile key replaces
+-- them: a chord for "this key instead", "" for "no key at all". Flat on
+-- purpose: Spec Overrides refuses list-positioned paths (anything under
+-- p.palettes[n]), and a top-level key is one it can capture -- which is what
+-- lets a menu have its own key, or none, in each spec, and one key open a
+-- different menu in each. Outside Spec Overrides nothing writes it, so a
+-- profile that never overrode a key carries none of these.
+--
+-- On ns rather than a local: the main chunk is at Lua's ceiling of 200 locals.
+function ns.MenuKeys(index)
+    local p = P()
+    local sk = p and p["specKey" .. index]
+    if type(sk) == "string" then
+        if sk == "" then return nil end
+        return sk
+    end
+    return GetBindingKey(BINDING_PREFIX .. index)
+end
 
 -------------------------------------------------------------------------------
 --  Nesting
@@ -9355,7 +9377,9 @@ function ns.UpdateBindings()
     local sig = p.enabled and "on" or "off"
     local count = PaletteCount()
     for i = 1, count do
-        local k1, k2 = GetBindingKey(BINDING_PREFIX .. i)
+        -- MenuKeys, not GetBindingKey: a spec swap that gives a menu another
+        -- key changes no binding at all, and must still rebind.
+        local k1, k2 = ns.MenuKeys(i)
         sig = sig .. "|" .. (k1 or "") .. "/" .. (k2 or "")
         sig = sig .. ModifierSig(k1) .. ModifierSig(k2)
     end
@@ -9393,29 +9417,38 @@ function ns.UpdateBindings()
     -- of these writes touch -- so it turns back at the guard and this stays the
     -- only pass; the table is what makes that true by construction rather than
     -- by argument. One per rebind, and a rebind is a keybind change.
+    --
+    -- A per-spec key (specKey<n>) is placed before every <Binding> key: it is
+    -- the more specific of the two, and the options page has already taken the
+    -- chord off any other menu in that spec -- this only settles a <Binding>
+    -- edited since. `owner` keeps a menu that lost its key to another from
+    -- still taking that key's modifier variants in the second pass.
     local built = false
-    local claimed = {}
-    for i = 1, count do
-        local k1, k2 = GetBindingKey(BINDING_PREFIX .. i)
-        if k1 or k2 then
-            built = built or not secureButtons[i]
-            local name = GetSecureButton(i):GetName()
-            if k1 then
-                SetOverrideBindingClick(bindOwner, false, k1, name)
-                claimed[k1] = true
-            end
-            if k2 then
-                SetOverrideBindingClick(bindOwner, false, k2, name)
-                claimed[k2] = true
+    local claimed, owner = {}, {}
+    for pass = 1, 2 do
+        for i = 1, count do
+            local fromSpec = type(p["specKey" .. i]) == "string"
+            if fromSpec == (pass == 1) then
+                local k1, k2 = ns.MenuKeys(i)
+                for _, k in ipairs({ k1, k2 }) do
+                    if not claimed[k] then
+                        built = built or not secureButtons[i]
+                        SetOverrideBindingClick(bindOwner, false, k,
+                            GetSecureButton(i):GetName())
+                        claimed[k], owner[k] = true, i
+                    end
+                end
             end
         end
     end
     for i = 1, count do
-        local k1, k2 = GetBindingKey(BINDING_PREFIX .. i)
-        if k1 or k2 then
-            local name = secureButtons[i]:GetName()
-            BindWithModifiers(name, k1, claimed)
-            BindWithModifiers(name, k2, claimed)
+        local k1, k2 = ns.MenuKeys(i)
+        local btn = secureButtons[i]
+        if btn and k1 and owner[k1] == i then
+            BindWithModifiers(btn:GetName(), k1, claimed)
+        end
+        if btn and k2 and owner[k2] == i then
+            BindWithModifiers(btn:GetName(), k2, claimed)
         end
     end
 
