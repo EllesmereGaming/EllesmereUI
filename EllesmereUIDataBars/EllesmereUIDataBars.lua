@@ -218,7 +218,7 @@ ns.BLOCK_TYPES = {
 }
 
 ns.BLOCK_DEFAULTS = {
-    clock      = { localTime = true, twentyFour = true, showMail = true, showResting = true, fontSizeClock = nil, fontSizeInfo = nil },
+    clock      = { localTime = true, twentyFour = true, showMail = true, showResting = true, lockoutDetails = false, fontSizeClock = nil, fontSizeInfo = nil },
     fps        = {},
     ms         = { showIcon = false },
     -- widthMode/maxWidth deliberately unset: "auto" is the resolved default

@@ -2781,6 +2781,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                     MkToggle("Mail Alert", "showMail", "Shows an envelope icon when you have unread mail."),
                     MkToggle("Resting Icon", "showResting", "Shows a rest icon while your character is resting."),
+                    MkToggle("Lockout Details", "lockoutDetails", "Shows difficulty and boss progress for saved raid lockouts in the tooltip."),
                 }
             elseif b.type == "combat" then
                 typeRows = {
