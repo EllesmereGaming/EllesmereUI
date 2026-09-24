@@ -611,6 +611,7 @@ local ADDON_ROSTER = {
     { folder = "EllesmereUIBags",              display = "Bags",                 search_name = "EllesmereUI Bags"                    },
     { folder = "EllesmereUIDataBars",          display = "DataBars",             search_name = "EllesmereUI DataBars"                },
     { folder = "EllesmereUIQuickdraw",         display = "Quickdraw",            search_name = "EllesmereUI Quickdraw"               },
+    { folder = "EllesmereUILoadoutManager",    display = "Loadout Manager",      search_name = "EllesmereUI Loadout Manager Gear Talent Sets" },
     { folder = "EllesmereUIPartyMode",         display = "Party Mode",           search_name = "EllesmereUI Party Mode",             alwaysLoaded = true },
 }
 
@@ -638,6 +639,7 @@ EllesmereUI.ADDON_GROUPS = {
         members = {
             "EllesmereUIQoL",
             "EllesmereUIAuraBuffReminders",
+            "EllesmereUILoadoutManager",
             "EllesmereUIDataBars",
             "EllesmereUIQuickdraw",
             "EllesmereUIPartyMode",
@@ -4872,6 +4874,7 @@ EllesmereUI._addonKeyToFolder = {
     raidFrames   = "EllesmereUIRaidFrames",
     bags         = "EllesmereUIBags",
     quickdraw    = "EllesmereUIQuickdraw",
+    loadoutMgr   = "EllesmereUILoadoutManager",
 }
 EllesmereUI._moduleFontCache = {}
 EllesmereUI._moduleFontCacheVer = 0
@@ -10905,6 +10908,7 @@ function EllesmereUI:RegisterModule(folderName, config)
         EllesmereUIBags = true,
         EllesmereUIDataBars = true,
         EllesmereUIQuickdraw = true,
+        EllesmereUILoadoutManager = true,
     }
     if callerFolder and not ALLOWED[callerFolder] then return end
     -- Suite-core marker (module key is a suite folder), gating the toolbar whitelists:
