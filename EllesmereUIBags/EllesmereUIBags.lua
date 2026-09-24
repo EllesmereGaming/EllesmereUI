@@ -2606,8 +2606,9 @@ local function GetOrCreateSlot(idx)
     if itemSlots[idx] then return itemSlots[idx] end
     -- NEVER CreateFrame a secure ContainerFrameItemButtonTemplate in combat -- a button
     -- born in combat is tainted (UseContainerItem() -> ADDON_ACTION_FORBIDDEN in M+/Delves).
-    -- Pre-warmed pool covers normal counts; past it, callers skip the slot until PLAYER_REGEN_ENABLED.
-    if InCombatLockdown() then return nil end
+    -- Pre-warmed pool covers normal counts; past it, callers skip the slot until PLAYER_REGEN_ENABLED
+    -- builds it (_poolShort).
+    if InCombatLockdown() then EUI_Bags._poolShort = true; return nil end
 
     local slotParent = CreateFrame("Frame", nil, EUI_Bags)
     slotParent:SetSize(SLOT_SIZE, SLOT_SIZE)
@@ -2812,7 +2813,7 @@ end
 local function GetOrCreateReagentSlot(idx)
     if reagentSlots[idx] then return reagentSlots[idx] end
     -- Never create a secure button during combat (taint). See GetOrCreateSlot.
-    if InCombatLockdown() then return nil end
+    if InCombatLockdown() then EUI_Bags._poolShort = true; return nil end
 
     local slotParent = CreateFrame("Frame", nil, EUI_BagsReagent)
     slotParent:SetSize(SLOT_SIZE, SLOT_SIZE)
@@ -2896,6 +2897,43 @@ local function GetOrCreateReagentSlot(idx)
 
     reagentSlots[idx] = btn
     return btn
+end
+
+-- Builds the secure item-button pools up to the current bag sizes (main pool = bags 0-5,
+-- reagent pool = bag 5), creating only the slots that do not exist yet and hiding only
+-- those. Stops at the first slot the combat guard refuses, or once msBudget (ms, optional)
+-- is spent; either way EUI_Bags._poolShort stays set so combat end tops the pool up.
+-- Returns true when both pools are complete. Callers: the loading-screen pass on a
+-- /reload in combat, StartAddon, and PLAYER_REGEN_ENABLED.
+function EUI_Bags:WarmSlotPool(msBudget)
+    local t0 = msBudget and debugprofilestop()
+    local total = 0
+    for bag = 0, 5 do
+        total = total + (C_Container.GetContainerNumSlots(bag) or 0)
+    end
+    for i = 1, total do
+        if not itemSlots[i] then
+            local b = GetOrCreateSlot(i)
+            if not b then EUI_Bags._poolShort = true; return false end
+            b:GetParent():Hide()
+            if t0 and debugprofilestop() - t0 > msBudget then
+                EUI_Bags._poolShort = true
+                return false
+            end
+        end
+    end
+    for i = 1, (C_Container.GetContainerNumSlots(5) or 0) do
+        if not reagentSlots[i] then
+            local b = GetOrCreateReagentSlot(i)
+            if not b then EUI_Bags._poolShort = true; return false end
+            b:GetParent():Hide()
+            if t0 and debugprofilestop() - t0 > msBudget then
+                EUI_Bags._poolShort = true
+                return false
+            end
+        end
+    end
+    return true
 end
 
 local function GetOrCreateBagSlot(idx)
@@ -7763,23 +7801,10 @@ local function StartAddon()
     HookSendMail(_G.SendMailFrame)
 
     -- Pre-warm the secure item-button pool out of combat: a ContainerFrameItemButtonTemplate created
-    -- in lockdown is tainted (UseContainerItem() blocked in M+/Delves), so build every button we could need up front and let RefreshInventory only position/show clean ones.
-    do
-        local total = 0
-        for bag = 0, 5 do
-            total = total + (C_Container.GetContainerNumSlots(bag) or 0)
-        end
-        for i = 1, total do
-            local b = GetOrCreateSlot(i)
-            if b and b:GetParent() then b:GetParent():Hide() end
-        end
-        -- Reagent bag (bag 5) has its own secure-button pool; pre-warm it too.
-        local reagentSlotsN = C_Container.GetContainerNumSlots(5) or 0
-        for i = 1, reagentSlotsN do
-            local b = GetOrCreateReagentSlot(i)
-            if b and b:GetParent() then b:GetParent():Hide() end
-        end
-    end
+    -- in lockdown is tainted (UseContainerItem() blocked in M+/Delves), so build every button we could
+    -- need up front and let RefreshInventory only position/show clean ones. Slots the loading-screen
+    -- pass already built are skipped; in lockdown this builds nothing and combat end tops it up.
+    EUI_Bags:WarmSlotPool()
 
     -- Seed this character's tracked currencies from Blizzard's on first load
     if EllesmereUIDB and C_CurrencyInfo and C_CurrencyInfo.GetBackpackCurrencyInfo then
@@ -7858,7 +7883,13 @@ local function StartAddon()
 
     EUI_Bags:SetScript("OnEvent", function(self, event, interactionType)
         if event == "PLAYER_REGEN_ENABLED" then
-            -- Combat ended: replay any refresh deferred during combat, and top up the pre-warmed pool in case bag count grew while locked.
+            -- Combat ended: build any slot the combat guard refused (a /reload in combat, a bag
+            -- that grew while locked), shown or not, so the next fight opens a full grid; then
+            -- replay any refresh deferred during combat.
+            if EUI_Bags._poolShort then
+                EUI_Bags._poolShort = nil
+                EUI_Bags:WarmSlotPool()
+            end
             if EUI_Bags._refreshPendingCombat then
                 EUI_Bags._refreshPendingCombat = nil
                 if EUI_Bags:IsVisible() then EUI_Bags:RefreshInventory() end
@@ -7948,14 +7979,34 @@ end
 -------------------------------------------------------------------------------
 --  Loader
 -------------------------------------------------------------------------------
+-- Per loading-screen event, the most the combat-reload pool pass may take (ms). The pass
+-- runs in this frame's own handler (its own script budget); whatever it leaves is built at
+-- PLAYER_ENTERING_WORLD, still behind the loading screen, then at combat end.
+local WINDOW_WARM_MS = 40
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("PLAYER_LOGIN")
-loader:SetScript("OnEvent", function(self)
-    self:UnregisterAllEvents()
+loader:SetScript("OnEvent", function(self, event)
+    if event == "PLAYER_ENTERING_WORLD" then
+        self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+        EUI_Bags:WarmSlotPool(WINDOW_WARM_MS)
+        return
+    end
+    self:UnregisterEvent("PLAYER_LOGIN")
+    -- Scheduled first, so nothing in the pass below can stop the module from starting.
     C_Timer.After(0.5, function()
         StartAddon()
         EUI_Bags:Hide()
         EUI_BagsReagent:Hide()
-
     end)
+    -- A /reload in combat: the 0.5s start lands after the loading screen, in lockdown, where
+    -- the combat guard refuses every slot and the bags would open empty all fight. Timers do
+    -- not run during the loading screen, so build the pool here, in it. The guard is
+    -- untouched: if it refuses here too, nothing is built and combat end builds the pool.
+    -- Normal logins skip this and keep the 0.5s pre-warm.
+    local inCombat = UnitAffectingCombat("player")
+    if not (issecretvalue and issecretvalue(inCombat)) and inCombat then
+        if not EUI_Bags:WarmSlotPool(WINDOW_WARM_MS) and not InCombatLockdown() then
+            self:RegisterEvent("PLAYER_ENTERING_WORLD")
+        end
+    end
 end)

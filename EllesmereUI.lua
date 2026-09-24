@@ -23,6 +23,7 @@ end
 -- bgFile is relative to MEDIA_PATH (resolved later after MEDIA_PATH is defined)
 local THEME_PRESETS = {
     ["EllesmereUI"]    = { r = 12/255,  g = 210/255, b = 157/255 },  -- #0CD29D
+    ["EllesmereUI Original"] = { r = 12/255, g = 210/255, b = 157/255 },  -- #0CD29D
     ["EllesmereUI Forever"] = { r = 220/255, g = 167/255, b = 127/255 },  -- #DCA77F soft bronze
     ["Horde"]          = { r = 255/255, g = 90/255,  b = 31/255  },  -- #FF5A1F
     ["Alliance"]       = { r = 63/255,  g = 167/255, b = 255/255 },  -- #3FA7FF
@@ -32,20 +33,21 @@ local THEME_PRESETS = {
     ["Class Colored"]  = nil,  -- resolved at runtime from player class
     ["Custom Color"]   = nil,  -- user-chosen via color picker
 }
-local THEME_ORDER = { "EllesmereUI", "EllesmereUI Forever", "Horde", "Alliance", "Faction (Auto)", "Midnight", "Dark", "Class Colored", "Custom Color" }
+local THEME_ORDER = { "EllesmereUI", "EllesmereUI Original", "EllesmereUI Forever", "Horde", "Alliance", "Faction (Auto)", "Midnight", "Dark", "Class Colored", "Custom Color" }
 -- The theme in force when none was chosen: the Forever client opens on its own
 -- backdrop, every other client on the house one. A chosen theme always wins.
 EllesmereUI.DEFAULT_THEME = (EUI_CLIENT_FOREVER == true) and "EllesmereUI Forever" or "EllesmereUI"
 -- Background file paths per theme (relative to MEDIA_PATH, in backgrounds/ subfolder)
 local THEME_BG_FILES = {
-    ["EllesmereUI"]   = "backgrounds\\eui-bg-all-compressed.png",
+    ["EllesmereUI"]   = "backgrounds\\eui-bg-new.png",
+    ["EllesmereUI Original"] = "backgrounds\\eui-bg-old.png",
     ["EllesmereUI Forever"] = "backgrounds\\eui-bg-forever-compressed.png",
     ["Horde"]         = "backgrounds\\eui-bg-horde-compressed.png",
     ["Alliance"]      = "backgrounds\\eui-bg-alliance-compressed.png",
     ["Midnight"]      = "backgrounds\\eui-bg-midnight-compressed.png",
     ["Dark"]          = "backgrounds\\eui-bg-dark-compressed.png",
-    ["Class Colored"] = "backgrounds\\eui-bg-all-compressed.png",
-    ["Custom Color"]  = "backgrounds\\eui-bg-all-compressed.png",
+    ["Class Colored"] = "backgrounds\\eui-bg-old.png",
+    ["Custom Color"]  = "backgrounds\\eui-bg-old.png",
 }
 
 --- Resolve "Faction (Auto)" to Horde/Alliance by player faction; other themes unchanged.
@@ -3619,11 +3621,13 @@ do
     --- How far a textured border's visible line reaches OUTSIDE its frame, per side
     --- (l, r, t, b; negative = inside), in that frame's units, from ApplyBorderStyle's
     --- own arguments (ratio = its normalizeScale factor, nil = 1; alpha = the border
-    --- color's alpha). Mirrors ApplyBorderStyle's placement: change the two together.
+    --- color's alpha; es = the border owner's effective scale, nil = UIParent's / ratio,
+    --- which is right for every owner without its own scale). Mirrors ApplyBorderStyle's
+    --- placement, pixel snap included: change the two together.
     --- nil when nothing is drawn outside: solid (PP strips sit inside the frame),
     --- shadow (a shadow is not the frame's edge), size 0, no texture, alpha 0.
     --- Reads settings only, never a frame.
-    function EllesmereUI.BorderReach(size, tex, offX, offY, shX, shY, addonKey, sizeKey, edgePx, ratio, alpha)
+    function EllesmereUI.BorderReach(size, tex, offX, offY, shX, shY, addonKey, sizeKey, edgePx, ratio, alpha, es)
         if not size or size <= 0 or not tex or tex == "" or tex == "solid" or tex == "shadow" then return nil end
         if alpha and alpha <= 0 then return nil end
         if not EllesmereUI.ResolveBorderTexture(tex) then return nil end
@@ -3652,6 +3656,14 @@ do
         if EllesmereUI.BorderTextureUsesScaleOffset(tex) then
             ox, oy = edge / 2 + ox, edge / 2 + oy
         end
+        -- ApplyBorderStyle puts the backdrop's anchors on whole pixels at its own
+        -- effective scale; the reach snaps the same four values the same way (the
+        -- ink below stays fractional: it is texture content, not an anchor).
+        if not (es and es > 0.01) then
+            es = (UIParent and UIParent:GetEffectiveScale() or 1) / ratio
+        end
+        ox, oy = PP.SnapForES(ox, es), PP.SnapForES(oy, es)
+        sx, sy = PP.SnapForES(sx, es), PP.SnapForES(sy, es)
         local ink = EllesmereUI._borderInk[tex]
         local il, ir, it, ib = 0, 0, 0, 0
         if ink then il, ir, it, ib = ink[1] * edge, ink[2] * edge, ink[3] * edge, ink[4] * edge end
@@ -3660,10 +3672,10 @@ do
 
     --- The width and height a textured border adds OUTSIDE its frame (each side
     --- clamped at 0, both sides summed) for an unlock element's getMatchPad; nil when
-    --- it adds none. Same arguments as BorderReach. Unsnapped: the match engine
-    --- snaps once.
-    function EllesmereUI.BorderMatchPad(size, tex, offX, offY, shX, shY, addonKey, sizeKey, edgePx, ratio, alpha)
-        local l, r, t, b = EllesmereUI.BorderReach(size, tex, offX, offY, shX, shY, addonKey, sizeKey, edgePx, ratio, alpha)
+    --- it adds none. Same arguments as BorderReach. The anchors are snapped as
+    --- ApplyBorderStyle snaps them; the match engine still snaps the sum once.
+    function EllesmereUI.BorderMatchPad(size, tex, offX, offY, shX, shY, addonKey, sizeKey, edgePx, ratio, alpha, es)
+        local l, r, t, b = EllesmereUI.BorderReach(size, tex, offX, offY, shX, shY, addonKey, sizeKey, edgePx, ratio, alpha, es)
         if not l then return nil end
         local w = (l > 0 and l or 0) + (r > 0 and r or 0)
         local h = (t > 0 and t or 0) + (b > 0 and b or 0)
@@ -7273,8 +7285,8 @@ local function CreateMainFrame()
     -- removes the hue and vertex color re-tints to the chosen accent. Horde/Alliance
     -- have dedicated background images and are used as-is (never desaturated/tinted).
     local function ApplyBgTintToLayer(layer, theme, r, g, b)
-        if theme == "EllesmereUI" or theme == "EllesmereUI Forever" or theme == "Horde" or theme == "Alliance"
-           or theme == "Midnight" or theme == "Dark" then
+        if theme == "EllesmereUI" or theme == "EllesmereUI Original" or theme == "EllesmereUI Forever"
+           or theme == "Horde" or theme == "Alliance" or theme == "Midnight" or theme == "Dark" then
             -- These themes use their native bg as-is (or no bg for Dark)
             layer:SetDesaturated(false)
             layer:SetVertexColor(1, 1, 1, 1)
@@ -8520,7 +8532,8 @@ local function CreateMainFrame()
 
     ---------------------------------------------------------------------------
     --  Build deferred opacity slider: vertical above versionText in the
-    --  sidebar, or horizontal beside it under the EllesmereUI Forever theme.
+    --  sidebar, or horizontal beside it under the EllesmereUI and EllesmereUI
+    --  Forever themes (their art shares one frame layout).
     --  The orientation follows the theme live (ApplyThemeBG re-lays it out).
     ---------------------------------------------------------------------------
     do
@@ -8636,7 +8649,8 @@ local function CreateMainFrame()
         -- Orientation from the active theme. Sizes resolve a frame after the
         -- anchors change, so the thumb is re-placed on the next frame.
         local function Layout()
-            horizontal = (EllesmereUI.GetActiveTheme() == "EllesmereUI Forever")
+            local theme = EllesmereUI.GetActiveTheme()
+            horizontal = (theme == "EllesmereUI" or theme == "EllesmereUI Forever")
             opacityFrame:ClearAllPoints()
             track:ClearAllPoints()
             trackFrame:ClearAllPoints()
@@ -11386,7 +11400,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.2.3"
+EllesmereUI.VERSION = "9.2.6"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -11670,7 +11684,11 @@ end)
 SLASH_EUIOPTIONS1 = "/eui"
 SLASH_EUIOPTIONS2 = "/ellesmere"
 SLASH_EUIOPTIONS3 = "/ellesmereui"
--- Defer slash command actions by one frame to avoid tainting Blizzard's ParseText -> ClearChat -> UpdateHeader chain when typed in a BN_WHISPER edit box (secret tellTarget value).
+-- Deferred one frame: keeps the panel build out of the chat edit box's
+-- execution (its watchdog budget). Blizzard's own Enter handling still runs
+-- tainted after any addon slash command; on a whisper to a secret-named
+-- target its header math then errors (ChatFrameEditBox UpdateHeader), which
+-- no handler-side change can prevent.
 SlashCmdList.EUIOPTIONS = function()
     C_Timer.After(0, function()
         if InCombatLockdown() then
@@ -11717,9 +11735,6 @@ SlashCmdList.PARTYMODETOGGLE = function()
     end)
 end
 
--- Support: reset all one-time hint flags so they show again
-SLASH_EUIRESETHINT1 = "/euiresethint"
-
 -- Quick-access: /unlock opens Unlock Mode directly
 SLASH_EUIUNLOCK1 = "/unlock"
 SlashCmdList.EUIUNLOCK = function()
@@ -11737,6 +11752,8 @@ SlashCmdList.EUIUNLOCK = function()
     end)
 end
 
+-- Support: reset all one-time hint flags so they show again
+SLASH_EUIRESETHINT1 = "/euiresethint"
 SlashCmdList.EUIRESETHINT = function()
     C_Timer.After(0, function()
         if EllesmereUIDB then

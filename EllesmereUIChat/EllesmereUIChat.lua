@@ -141,6 +141,7 @@ local CHAT_DEFAULTS = {
             useClassicStyle  = false,
             lockChatSize = false,
             abbreviateChannels = true,  -- same key as live: saved settings carry over
+            abbreviateChannelLetters = false,  -- world channels as letters (Ge, T, LD, WD, LFG) instead of their numbers
             classColorNames = true,
             hideSidebarBg = false,
             sidebarIconScale = 1.0,
@@ -5441,6 +5442,9 @@ initFrame:SetScript("OnEvent", function(self)
     -- backfill renders through the same transforms as live lines.
     if ECHAT.EngineSetChannelAbbrev then
         ECHAT.EngineSetChannelAbbrev(p.abbreviateChannels == true)
+    end
+    if ECHAT.EngineSetChannelAbbrevLetters then
+        ECHAT.EngineSetChannelAbbrevLetters(p.abbreviateChannelLetters == true)
     end
     if p.classColorNames == true then
         ECHAT.ApplyClassColorNames(true)

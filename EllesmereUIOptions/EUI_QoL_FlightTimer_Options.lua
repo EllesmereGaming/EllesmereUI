@@ -15,6 +15,7 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
     local FT = EllesmereUI._FlightTimer
     local y = yOffset
     local _, h
+    parent._showRowDivider = true
 
     local function off()
         return not FT.Get("enabled")
@@ -75,7 +76,7 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
 
     _, h = W:DualRow(parent, y,
         { type = "toggle", text = "Enable Flight Timer",
-          tooltip = "Shows a progress bar with the time left while you ride a flight path. Move and resize it in Unlock Mode.",
+          tooltip = "Shows a bar with the time left while you ride a flight path.",
           getValue = function() return not off() end,
           setValue = function(v)
               FT.Cfg().enabled = v
@@ -84,17 +85,25 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
           end },
         { type = "labeledButton", text = "Preview", buttonText = "Show Bar",
           disabled = off,
-          disabledTooltip = "Enable Flight Timer",
+          disabledTooltip = "Flight Timer",
           onClick = function() FT.Preview() end }
     );  y = y - h
 
     _, h = W:DualRow(parent, y,
         { type = "labeledButton", text = "Learned Flight Speed", buttonText = "Reset",
-          tooltip = "Flight times start as an estimate and get more accurate after each flight you finish. Reset to start over from the estimate.",
-          disabled = function() return FT.Cfg().speed == nil end,
+          tooltip = "Flight time estimates get more accurate with each flight you finish.",
+          disabled = function() return FT.Get("speed") == nil end,
           onClick = function()
-              FT.Cfg().speed = nil
-              EllesmereUI:RefreshPage()
+              EllesmereUI:ShowConfirmPopup({
+                  title = "Reset Learned Flight Speed",
+                  message = "Flight times go back to the starting estimate.",
+                  confirmText = "Reset",
+                  cancelText = "Cancel",
+                  onConfirm = function()
+                      FT.Cfg().speed = nil
+                      EllesmereUI:RefreshPage()
+                  end,
+              })
           end },
         { type = "label", text = "" }
     );  y = y - h
@@ -108,11 +117,11 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
 
     _, h = W:DualRow(parent, y,
         { type = "slider", text = "Width", min = 50, max = 800, step = 1,
-          disabled = off, disabledTooltip = "Enable Flight Timer",
+          disabled = off, disabledTooltip = "Flight Timer",
           getValue = function() return FT.Get("width") end,
           setValue = function(v) Set("width", v) end },
         { type = "slider", text = "Height", min = 4, max = 60, step = 1,
-          disabled = off, disabledTooltip = "Enable Flight Timer",
+          disabled = off, disabledTooltip = "Flight Timer",
           getValue = function() return FT.Get("height") end,
           setValue = function(v) Set("height", v) end }
     );  y = y - h
@@ -139,35 +148,38 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
     local borderRow
     borderRow, h = W:DualRow(parent, y,
         { type = "slider", text = "Border Size", min = 0, max = 4, step = 1,
-          disabled = off, disabledTooltip = "Enable Flight Timer",
+          disabled = off, disabledTooltip = "Flight Timer",
           getValue = function() return FT.Get("borderSize") end,
-          setValue = function(v) Set("borderSize", v) end },
+          setValue = function(v) Set("borderSize", v); EllesmereUI:RefreshPage() end },
         { type = "dropdown", text = "Bar Texture", values = texValues, order = texOrder,
-          disabled = off, disabledTooltip = "Enable Flight Timer",
+          disabled = off, disabledTooltip = "Flight Timer",
           getValue = function() return FT.Get("texture") end,
           setValue = function(v) Set("texture", v) end }
     );  y = y - h
     if not EllesmereUI._prebuilding then
         EllesmereUI.BuildInlineSwatches(borderRow._leftRegion, {
             { tooltip = "Border Color",
+              -- Nothing to colour at size 0 (the slider + inline swatch pattern).
+              disabled = function() return off() or FT.Get("borderSize") == 0 end,
+              disabledTooltip = function() return off() and "Flight Timer" or "Border Size" end,
               getValue = function() return FT.Get("borderR"), FT.Get("borderG"), FT.Get("borderB"), 1 end,
               setValue = function(r, g, b)
                   local c = FT.Cfg()
                   c.borderR, c.borderG, c.borderB = r, g, b
                   FT.ApplyStyle()
               end },
-        }, { disabled = off, disabledTooltip = "Enable Flight Timer" })
+        }, { disabled = off, disabledTooltip = "Flight Timer" })
     end
 
     local colorRow
     colorRow, h = W:DualRow(parent, y,
         { type = "slider", text = "Fill Color", min = 0, max = 100, step = 1, trackWidth = 120,
           tooltip = "Opacity of the bar fill.",
-          disabled = off, disabledTooltip = "Enable Flight Timer",
+          disabled = off, disabledTooltip = "Flight Timer",
           getValue = function() return FT.Get("fillOpacity") end,
           setValue = function(v) Set("fillOpacity", v) end },
         { type = "slider", text = "Background", min = 0, max = 100, step = 1,
-          disabled = off, disabledTooltip = "Enable Flight Timer",
+          disabled = off, disabledTooltip = "Flight Timer",
           getValue = function() return math.floor(FT.Get("bgA") * 100 + 0.5) end,
           setValue = function(v) Set("bgA", v / 100) end }
     );  y = y - h
@@ -175,8 +187,8 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
         EllesmereUI.BuildInlineSwatches(colorRow._leftRegion, {
             { tooltip = "Custom Colored",
               getValue = function()
-                  local c = FT.Cfg()
-                  if c.fillR then return c.fillR, c.fillG, c.fillB, 1 end
+                  local fr = FT.Get("fillR")
+                  if fr then return fr, FT.Get("fillG"), FT.Get("fillB"), 1 end
                   local EG = EllesmereUI.ELLESMERE_GREEN
                   return EG.r, EG.g, EG.b, 1
               end,
@@ -206,17 +218,17 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
                   Set("classColored", true); EllesmereUI:RefreshPage()
               end,
               refreshAlpha = function() return FT.Get("classColored") and 1 or 0.3 end },
-        }, { disabled = off, disabledTooltip = "Enable Flight Timer" })
+        }, { disabled = off, disabledTooltip = "Flight Timer" })
     end
 
     local textRow
     textRow, h = W:DualRow(parent, y,
         { type = "dropdown", text = "Destination Text", values = TEXT_SIDES, order = TEXT_SIDE_ORDER,
-          disabled = off, disabledTooltip = "Enable Flight Timer",
+          disabled = off, disabledTooltip = "Flight Timer",
           getValue = function() return FT.Get("destText") end,
           setValue = function(v) Set("destText", v); EllesmereUI:RefreshPage() end },
         { type = "dropdown", text = "Time Text", values = TEXT_SIDES, order = TEXT_SIDE_ORDER,
-          disabled = off, disabledTooltip = "Enable Flight Timer",
+          disabled = off, disabledTooltip = "Flight Timer",
           getValue = function() return FT.Get("timeText") end,
           setValue = function(v) Set("timeText", v); EllesmereUI:RefreshPage() end }
     );  y = y - h
@@ -237,12 +249,12 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
         }
         _, h = W:DualRow(parent, y,
             { type = "dropdown", text = "Font", values = fontValues, order = fontOrder,
-              disabled = off, disabledTooltip = "Enable Flight Timer",
+              disabled = off, disabledTooltip = "Flight Timer",
               getValue = function() return FT.Get("font") end,
               setValue = function(v) Set("font", v) end },
             { type = "dropdown", text = "Font Outline", values = outlineValues,
               order = { "__global", "none", "outline", "thick" },
-              disabled = off, disabledTooltip = "Enable Flight Timer",
+              disabled = off, disabledTooltip = "Flight Timer",
               getValue = function() return FT.Get("outlineMode") end,
               setValue = function(v) Set("outlineMode", v) end }
         );  y = y - h

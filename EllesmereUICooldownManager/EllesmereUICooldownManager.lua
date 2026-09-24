@@ -10780,6 +10780,7 @@ eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
 -- covers. One debounced rebuild re-evaluates; fires rarely (login, and
 -- Blizzard-side data refreshes).
 eventFrame:RegisterEvent("COOLDOWN_VIEWER_DATA_LOADED")
+eventFrame:RegisterEvent("COOLDOWN_VIEWER_TABLE_HOTFIXED")
 -- Cinematic/cutscene end: Blizzard restores hidden frames, so re-hide ours
 eventFrame:RegisterEvent("CINEMATIC_STOP")
 eventFrame:RegisterEvent("STOP_MOVIE")
@@ -10951,8 +10952,11 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         end)
         return
     end
-    if event == "COOLDOWN_VIEWER_DATA_LOADED" then
-        -- Native viewer data arrived (usually after login init): re-evaluate the
+    if event == "COOLDOWN_VIEWER_DATA_LOADED" or event == "COOLDOWN_VIEWER_TABLE_HOTFIXED" then
+        -- Native viewer data arrived (usually after login init), or a server
+        -- hotfix rewrote the cooldown tables mid-session (the viewer then
+        -- releases and re-acquires its whole item pool, which the CD/utility
+        -- hooks deliberately do not follow): re-evaluate the
         -- frames-as-truth injection decisions against the now-live frame set.
         -- Rides the same debounced rebuild as talent changes; the reanchor sweep
         -- hides any injected racial frame the native viewer now covers. The spell
@@ -11075,7 +11079,15 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         return
     end
     if event == "PLAYER_ENTERING_WORLD" then
-        _inCombat = InCombatLockdown and InCombatLockdown() or false
+        -- UnitAffectingCombat, not InCombatLockdown: the latter reads false in
+        -- the login window of a combat /reload, which seeded "out of combat"
+        -- for the rest of the pull (in-combat visibility modes and the OOC
+        -- fade then hid every bar). Secret in restricted content: fall back.
+        local c = UnitAffectingCombat and UnitAffectingCombat("player")
+        if c == nil or (issecretvalue and issecretvalue(c)) then
+            c = InCombatLockdown and InCombatLockdown() or false
+        end
+        _inCombat = c == true
         -- Re-read the gate (a profile may have loaded), then reconcile against
         -- the combat state sampled just above: the regen events never fire for
         -- a zone-in that lands mid-combat. At the very first world entry nothing

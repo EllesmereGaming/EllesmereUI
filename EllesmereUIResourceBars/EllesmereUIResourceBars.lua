@@ -336,8 +336,6 @@ ns._crAtlasClass = {
 function ns.GetBlizzardPowerAtlas(powerKey)
     local resolved = ResolvePowerKey(powerKey) or powerKey
     local suffix = ns._crAtlasSuffix[resolved]
-    local dbg = { power = powerKey, resolved = resolved, suffix = suffix }
-    _G._ERB_AtlasDebug = dbg
     if not suffix or not (C_Texture and C_Texture.GetAtlasInfo) then return nil end
     -- Try Midnight family first (e.g. "Unit_Druid_AstralPower_Fill"), then classless
     -- and legacy HUD spellings; each candidate is validated, so a miss falls back.
@@ -350,11 +348,9 @@ function ns.GetBlizzardPowerAtlas(powerKey)
     candidates[#candidates + 1] = "Unit_" .. suffix .. "_Fill"
     candidates[#candidates + 1] = "UI-HUD-UnitFrame-Player-PortraitOff-Bar-" .. suffix
     candidates[#candidates + 1] = "UI-HUD-UnitFrame-Player-PortraitOn-Bar-" .. suffix
-    dbg.tried = candidates
     for i = 1, #candidates do
         local name = candidates[i]
         if C_Texture.GetAtlasInfo(name) then
-            dbg.hit = name
             return name
         end
     end
@@ -1238,6 +1234,8 @@ local DEFAULTS = {
             borderTexture = "solid",
             darkTheme   = false,
             useBlizzardAtlas = false,  -- bar-style class resources use Blizzard's player-frame power atlas as the fill
+            blizzardClassArt = false,  -- Blizzard's own class resource frame replaces this bar (specs that have one)
+            blizzardClassArtScale = 1,
             classColored = true,
             resourceColored = false,  -- "Class Resource Color" fill mode (per-spec resource/power color); takes precedence over classColored when on
             fillR       = 0.95, fillG = 0.90, fillB = 0.60, fillA = 1,
@@ -3288,8 +3286,9 @@ local function BuildBars()
                 EllesmereUI.BorderPx(hp.borderSizePx, hp.borderSize, hp.borderTexture))
         end
 
-        -- Bar texture (must be applied before colors since SetStatusBarTexture resets vertex color)
-        ApplyBarTexture(healthBar, g.barTexture or "none")
+        -- Bar texture (must be applied before colors since SetStatusBarTexture resets vertex color).
+        -- "Choose texture per bar" (splitTex) gives health its own key; nil follows the main row.
+        ApplyBarTexture(healthBar, (p.splitTex == true and hp.barTexture) or g.barTexture or "none")
 
         -- Colors: custom colored > class color. Gradient is additive: when enabled
         -- it fills from the resolved custom/class base to the gradient end color.
@@ -3465,8 +3464,9 @@ local function BuildBars()
                 EllesmereUI.BorderPx(pp.borderSizePx, pp.borderSize, pp.borderTexture))
         end
 
-        -- Bar texture (must be applied before colors since SetStatusBarTexture resets vertex color)
-        ApplyBarTexture(primaryBar, g.barTexture or "none")
+        -- Bar texture (must be applied before colors since SetStatusBarTexture resets vertex color).
+        -- Same per-bar rule as health: power's own key only while splitTex is on.
+        ApplyBarTexture(primaryBar, (p.splitTex == true and pp.barTexture) or g.barTexture or "none")
 
         -- Colors: custom colored > power type color. Gradient is additive: when on
         -- it fills from the resolved custom/power base to the gradient end color.
@@ -3552,6 +3552,11 @@ local function BuildBars()
         secondaryFrame:SetFrameStrata(g.frameStrata or "MEDIUM")
         secondaryFrame:SetFrameLevel(10)
     end
+    -- Blizzard Class Resource Art (EUI_ResourceBars_BlizzClassArt.lua): claims or
+    -- hands back Blizzard's class resource frame and sets ns._erbArtOn, which
+    -- stands the pips down at the end of this block while the slot keeps its
+    -- size and position for anchors, the unlock mover, shift and expand.
+    if ns.ERB_BlizzArtSync then ns.ERB_BlizzArtSync(sp, cachedSecondary, secondaryFrame) end
     if sp.enabled ~= false and not IsSpecDisabled(sp) and cachedSecondary then
 
         local maxPts = cachedSecondary.max or 5
@@ -4109,7 +4114,12 @@ local function BuildBars()
         end
 
         secondaryFrame:Show()
-        secondaryFrame:SetAlpha(ns.ResolveBarAlpha(sp))
+        if ns._erbArtOn then
+            -- Blizzard's frame stands in: the slot stays shown and sized at zero alpha.
+            EllesmereUI.SetElementVisibility(secondaryFrame, false)
+        else
+            secondaryFrame:SetAlpha(ns.ResolveBarAlpha(sp))
+        end
     elseif secondaryFrame then
         -- Enabled but no resource for this spec: keep the frame positioned
         -- at zero alpha so anchored elements have a valid target.
@@ -5094,6 +5104,8 @@ IP.UpdateText = function()
 end
 
 local function UpdateSecondaryResource()
+    -- Blizzard Class Resource Art stands in: the pips are unseen, paint nothing.
+    if ns._erbArtOn then return end
     if not secondaryFrame or not secondaryFrame:IsShown() then return end
     if not cachedSecondary then return end
 
@@ -6519,8 +6531,20 @@ local function UpdateVisibility()
         local sp = _G._ERB_ResolveSecondaryCfg()
         local vis = sp and sp.enabled ~= false and not IsSpecDisabled(sp) and not _G._ERB_BarHiddenByForm(sp, true) and cachedSecondary and not inVehicle and ShouldShowSecondary()
         ERB._moEligible.secondary = (vis == "mouseover")
-        if grp then ns._erbGrpS = (vis == true) and not secondaryFrame._erbMouseTrack end
-        if vis == true then
+        -- Blizzard Class Resource Art: the host holding Blizzard's frame takes
+        -- this visibility; while that frame stands in for the pips the slot
+        -- stays at zero alpha and out of the Border Around All group.
+        local artOn, artHost = ns._erbArtOn, ns._erbArtHost
+        if grp then ns._erbGrpS = (vis == true) and not artOn and not secondaryFrame._erbMouseTrack end
+        if artHost then
+            if vis == true then
+                EllesmereUI.SetElementVisibility(artHost, true)
+                artHost:SetAlpha(ns.ResolveBarAlpha(sp))
+            else
+                EllesmereUI.SetElementVisibility(artHost, false)
+            end
+        end
+        if vis == true and not artOn then
             secondaryFrame:Show()
             EllesmereUI.SetElementVisibility(secondaryFrame, true)
             secondaryFrame:SetAlpha(ns.ResolveBarAlpha(sp))
@@ -6590,7 +6614,8 @@ end, 1 / 30)
 -- skip every other fire. All paths funnel into UpdateSecondaryResource, whose
 -- value early-out makes an unchanged poll nearly free.
 ns.PollTick = EllesmereUI.Tick.NewAnimTicker(CreateFrame("Frame"), function()    local cs = cachedSecondary
-    if not cs then return end
+    -- Blizzard Class Resource Art stands in: nothing to poll (the ticker stops).
+    if not cs or ns._erbArtOn then return end
     local pwr, typ = cs.power, cs.type
     if _essenceNextTick and pwr == PT.ESSENCE then
         UpdateSecondaryResource()
@@ -6627,7 +6652,8 @@ end, 0.05)
 -- condition here) or be event-driven -- NEVER a per-frame OnUpdate.
 function ns.ArmTick()
     local cs = cachedSecondary
-    if cs then
+    -- Blizzard Class Resource Art stands in for the pips: arm nothing for them.
+    if cs and not ns._erbArtOn then
         local pwr, typ = cs.power, cs.type
         if pwr == "IRONFUR_BAR" or pwr == "IGNOREPAIN_BAR" then
             ns.MotionTick.Start()
@@ -6814,8 +6840,11 @@ function ns.ERB_CastClassic() return ns.ERB_CastStyle() == "classic" end
 -- profile; the dropdown stays the user's afterwards. Run by the Style page
 -- on the switch to either stock style and at enable for a profile that
 -- arrived already switched (an import, an older build).
--- The cast bar keys the Style page keeps per style (its SLOT_KEYS).
+-- The cast bar and bar keys the Style page keeps per style (its SLOT_KEYS).
 ns._erbCastSlotKeys = { "texture" }
+ns._erbBarsSlotKeys = { "general.barTexture", "splitTex", "health.barTexture", "primary.barTexture",
+    "general.classicBorderAll", "general.classicBorderAllSepSize",
+    "general.classicBorderAllSepR", "general.classicBorderAllSepG", "general.classicBorderAllSepB" }
 function ns.ERB_SeedStockCast(cb)
     if not cb or cb.stockTextureSeeded then return end
     cb.stockTextureSeeded = true
@@ -6824,7 +6853,8 @@ end
 -- Classic WoW UI on the health, power and class resource bars, once per
 -- profile (the controls stay the user's afterwards): Border Around All on
 -- when the shown bars already sit as one anchored stack, and "Plating" as
--- the bar texture. Run by the Style page on the switch and at enable for a
+-- the bar texture (on the health and power keys too while "Choose texture per
+-- bar" is on). Run by the Style page on the switch and at enable for a
 -- profile that arrives already switched.
 function ns.ERB_SeedStockBars(p, styleKey)
     local g = p and p.general
@@ -6842,6 +6872,9 @@ function ns.ERB_SeedStockBars(p, styleKey)
     if g.classicTextureSeeded then return end
     g.classicTextureSeeded = true
     g.barTexture = "plating"
+    if p.splitTex == true then
+        p.health.barTexture, p.primary.barTexture = "plating", "plating"
+    end
 end
 -- The style the health, power and class resource bars render this session,
 -- latched like the cast bar's. Blizzard Style: the personal resource
@@ -7163,7 +7196,8 @@ function ns.ERB_GroupCheck(p)
             v = pp and IsVerticalOrientation(pp.orientation or g.orientation)
             l = (pp and pp.width) or 214
         else
-            inBar = sp and sp.enabled ~= false and hasRes
+            -- Blizzard Class Resource Art stands outside the group frame.
+            inBar = sp and sp.enabled ~= false and hasRes and not ns._erbArtOn
                 and not (secondaryFrame and secondaryFrame._erbMouseTrack
                     or (not secondaryFrame and NormalizeAnchorKey(sp.anchorTo) == "mouse"))
                 and sp.visibility ~= "never" and ShouldShowSecondary() ~= "mouseover"
@@ -11021,7 +11055,12 @@ function ERB:OnEnable()
         end
         RegisterBarHover("health", function() return healthBar end)
         RegisterBarHover("primary", function() return primaryBar end)
-        RegisterBarHover("secondary", function() return secondaryFrame end)
+        -- Blizzard Class Resource Art: hover reveals the host holding Blizzard's
+        -- frame (nil while it waits to be claimed at login).
+        RegisterBarHover("secondary", function()
+            if ns._erbArtOn then return ns._erbArtHost end
+            return secondaryFrame
+        end)
     end
     eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
     eventFrame:RegisterUnitEvent("UNIT_AURA", "player")
@@ -11076,7 +11115,16 @@ function ERB:OnEnable()
         end
         ns.ERB_SeedStockCast(cb)
     end
-    if ns.ERB_BarsClassic() then ns.ERB_SeedStockBars(self.db.profile, "classic") end
+    -- The same for the bars: an unseeded profile keeps its own values in the
+    -- EllesmereUI slot before the Classic seed writes over them.
+    if ns.ERB_BarsClassic() then
+        local p = self.db.profile
+        local g = p and p.general
+        if g and not g.classicTextureSeeded and not g.borderAllSeeded and EllesmereUI.BankEuiStyleSlot then
+            EllesmereUI.BankEuiStyleSlot(p, ns._erbBarsSlotKeys)
+        end
+        ns.ERB_SeedStockBars(p, "classic")
+    end
 
     -- Apply immediately at PLAYER_LOGIN so positions are set before combat
     -- lockdown blocks ApplySavedPositions. The PLAYER_ENTERING_WORLD handler

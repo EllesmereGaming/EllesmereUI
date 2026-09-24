@@ -480,7 +480,7 @@ _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
         rgn._lastInline = countSwatch
 
         AttachToggleCog(rgn, "Icon Settings", "Desaturate when No Charges",
-            function() return Cfg("desaturateNoCharges") == true end,
+            function() return Cfg("desaturateNoCharges") ~= false end,
             function(v) Set("desaturateNoCharges", v); Refresh() end,
             TextModeOn, ICON_ROWS_TIP)
     end
@@ -783,7 +783,7 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
 
         if not EllesmereUI._prebuilding then
             AttachToggleCog(row._leftRegion, "Sated Settings", "Desaturate when Sated",
-                function() return BL_Cfg("desaturateSated") == true end,
+                function() return BL_Cfg("desaturateSated") ~= false end,
                 function(v) BL_Set("desaturateSated", v); BL_Refresh() end,
                 function() return BL_Cfg("showSated") == false end, "Show Icon when Sated")
         end

@@ -47,7 +47,7 @@ local defaults = {
             countSize      = 11,
             countOffsetX   = 0,
             countOffsetY   = 0,
-            desaturateNoCharges = false,  -- grey the icon at 0 charges (icon display only)
+            desaturateNoCharges = true,  -- grey the icon at 0 charges (icon display only)
             textSize       = 14,
             textCountColor = { r = 1, g = 1, b = 1 },
             textTimerColor = { r = 1, g = 1, b = 1 },
@@ -74,7 +74,7 @@ local defaults = {
             readyColor   = { r = 1, g = 1, b = 1 },
             readyOffsetX = 0,
             readyOffsetY = 0,
-            desaturateSated = false,  -- own key, independent of battleRes.desaturateNoCharges
+            desaturateSated = true,  -- own key, independent of battleRes.desaturateNoCharges
         },
     },
 }
@@ -536,7 +536,7 @@ local function PollCharges()
     _setCount(tostring(charges), charges <= 0)
     _setDur(timeText)
     local p = P()
-    _setDesat(p and p.desaturateNoCharges and charges <= 0)
+    _setDesat(p and p.desaturateNoCharges ~= false and charges <= 0)
     if cooldownFrame then
         if recharging then
             cooldownFrame:SetCooldown(start, dur)

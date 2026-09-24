@@ -972,8 +972,12 @@ local function Skin_LFGList()
         end
     end
 
-    -- ApplicationViewer sits under PVEFrame's protected tree; plain SetAlpha/
-    -- CreateTexture writes taint it the same way SetMovable did (see Shifter.lua).
+    -- The applicant viewer stays Blizzard's, like the search result rows: its
+    -- updates run secret-value compares in Blizzard's code, and with this skin
+    -- applied they error for raid leaders ("compare a secret number"; which
+    -- write carries the taint is not pinned down). The viewer sits in
+    -- PVEFrame's protected tree, so IsProtected() is true here and the block
+    -- below does not run.
     local AV = LFGListFrame.ApplicationViewer
     if AV and not AV:IsProtected() then
         SkinPanel(AV, { noBg = true, noBorder = true })

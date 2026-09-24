@@ -713,13 +713,29 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
             item:SetPoint("TOPRIGHT", innerContainer, "TOPRIGHT", -1, -mH)
             item:SetFrameLevel(menu:GetFrameLevel() + 2)
             if _moBackground then
-                local bgPath = _moBackground(key)
+                -- Optional second return: a look table for layered swatches,
+                -- { base = {r,g,b} solid layer under the texture, tint = {r,g,b},
+                --   tile = true } so a row can mirror a compound fill.
+                local bgPath, bgLook = _moBackground(key)
                 if bgPath then
+                    if bgLook and bgLook.base then
+                        local b = bgLook.base
+                        local baseTex = item:CreateTexture(nil, "BACKGROUND", nil, 0)
+                        baseTex:SetAllPoints()
+                        baseTex:SetColorTexture(b[1], b[2], b[3], 1)
+                        baseTex:SetAlpha(0.45)
+                    end
+                    local tile = bgLook and bgLook.tile and "REPEAT" or nil
                     local bgTex = item:CreateTexture(nil, "BACKGROUND", nil, 1)
                     bgTex:SetAllPoints()
-                    bgTex:SetTexture(bgPath)
+                    bgTex:SetTexture(bgPath, tile, tile)
+                    if tile then bgTex:SetHorizTile(true); bgTex:SetVertTile(true) end
                     bgTex:SetAlpha(0.45)
-                    if _moBgVertexColor then
+                    if bgLook and bgLook.tint then
+                        -- Alpha rides the colour write (one alpha channel per texture).
+                        local t = bgLook.tint
+                        bgTex:SetVertexColor(t[1], t[2], t[3], 0.45)
+                    elseif _moBgVertexColor then
                         local vr, vg, vb = _moBgVertexColor()
                         if vr then bgTex:SetVertexColor(vr, vg, vb, 1) end
                     end
@@ -1614,7 +1630,7 @@ function EllesmereUI.BorderOffsetRowCfgs(spec)
         end
         return dx, dy
     end
-    local lo, hi = spec.min or -10, spec.max or 10
+    local lo, hi = spec.min or -25, spec.max or 25
     -- A value as the slider shows it (SnapStep: whole units, clamped).
     local function Unit(x) return math.max(lo, math.min(hi, math.floor(x + 0.5))) end
     local function Make(text, get, set, pick)
@@ -4180,8 +4196,11 @@ local function BuildCogPopup(opts)
         -- Measure slider labels to find maxLblW
         local tmpFS = UIParent:CreateFontString(nil, "OVERLAY")
         tmpFS:SetFont(EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 11, "")
+        local COG_DD_W = 130
         local maxLblW = 0
-        local maxDDLblW = 0
+        -- Widest label + dropdown pair (a dropdown row may ask for a wider
+        -- control with row.ddWidth; every other row uses COG_DD_W).
+        local maxDDNeed = COG_DD_W
         for _, row in ipairs(opts.rows) do
             if row.type == "slider" or row.type == "input" then
                 tmpFS:SetText(EllesmereUI.L(row.label))
@@ -4189,20 +4208,19 @@ local function BuildCogPopup(opts)
                 if w > maxLblW then maxLblW = w end
             elseif row.type == "dropdown" or row.type == "segmented" or row.type == "reordercheck" then
                 tmpFS:SetText(EllesmereUI.L(row.label))
-                local w = tmpFS:GetStringWidth()
-                if w > maxDDLblW then maxDDLblW = w end
+                local w = tmpFS:GetStringWidth() + ((row.type == "dropdown" and row.ddWidth) or COG_DD_W)
+                if w > maxDDNeed then maxDDNeed = w end
             end
         end
         tmpFS:Hide()
         if maxLblW < 10 then maxLblW = 60 end
 
-        local COG_DD_W = 130
         local SLIDER_LEFT = SIDE_PAD + maxLblW + LABEL_SLIDER_GAP
         local TARGET_W = opts.minWidth or 260
         local SLIDER_W = math.max(80, TARGET_W - SLIDER_LEFT - SLIDER_INPUT_GAP - INPUT_W - SIDE_PAD)
         local POPUP_W = math.max(opts.minWidth or MIN_POPUP_W, SLIDER_LEFT + SLIDER_W + SLIDER_INPUT_GAP + INPUT_W + SIDE_PAD)
         -- Widen for dropdown rows (label + gap + dropdown + padding)
-        local ddNeeded = SIDE_PAD + maxDDLblW + LABEL_SLIDER_GAP + COG_DD_W + SIDE_PAD
+        local ddNeeded = SIDE_PAD + maxDDNeed + LABEL_SLIDER_GAP + SIDE_PAD
         if ddNeeded > POPUP_W then POPUP_W = ddNeeded end
         if opts.minWidth and opts.minWidth > POPUP_W then POPUP_W = opts.minWidth end
         -- Stretch the track to fill a widened popup so no gap opens between the slider and its value box. Gated on minWidth so un-widened cog popups keep their original slider width.
@@ -4370,7 +4388,7 @@ local function BuildCogPopup(opts)
 
                 -- Cog-popup dropdowns render 10% smaller than the panel dropdowns.
                 local DD_SCALE = 0.9
-                local ddBtn, ddLbl = BuildDropdownControl(pf, COG_DD_W, pf:GetFrameLevel() + 2, row.values, row.order, row.get, function(v)
+                local ddBtn, ddLbl = BuildDropdownControl(pf, row.ddWidth or COG_DD_W, pf:GetFrameLevel() + 2, row.values, row.order, row.get, function(v)
                     row.set(v)
                     if pf._refresh then pf._refresh() end
                 end, row.itemDisabled)

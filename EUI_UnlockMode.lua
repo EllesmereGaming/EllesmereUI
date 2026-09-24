@@ -384,15 +384,23 @@ local function WaitForSize(frame, callback)
     C_Timer.After(0, callback)
 end
 
+-- Blank or restore a bar frame's alpha around a resize. Action Bars tracks the
+-- alpha of the bars it fades instead of reading it back, so it is told.
+function EllesmereUI._UnlockSetBarAlpha(frame, a)
+    frame:SetAlpha(a)
+    local note = EllesmereUI._EABNoteAlpha
+    if note then note(frame, a) end
+end
+
 -- DeferMoverSync: sync now (no blink) and again next frame to catch layout-engine
 -- flush moves; hides the bar frame meanwhile to prevent a visual jump.
 local function DeferMoverSync(m, syncFn, barFrame)
     if not m then return end
-    if barFrame then barFrame:SetAlpha(0) end
+    if barFrame then EllesmereUI._UnlockSetBarAlpha(barFrame, 0) end
     syncFn(m)
     C_Timer.After(0, function()
         if m then syncFn(m) end
-        if barFrame then barFrame:SetAlpha(1) end
+        if barFrame then EllesmereUI._UnlockSetBarAlpha(barFrame, 1) end
     end)
 end
 
@@ -1468,13 +1476,13 @@ function MatchH.ApplyWidthMatch(sourceKey, targetKey)
             if isUnlocked then
                 local sb = GetBarFrame(sourceKey)
                 local savedAlpha = sb and EllesmereUI._GetFFD(sb).restoreAlpha
-                if sb and not savedAlpha then sb:SetAlpha(0) end
+                if sb and not savedAlpha then EllesmereUI._UnlockSetBarAlpha(sb, 0) end
                 _propagatingMatch = true; EllesmereUI._propagatingMatch = true
                 pcall(sourceElem.setWidth, sourceKey, targetW)
                 _propagatingMatch = false; EllesmereUI._propagatingMatch = false
                 EllesmereUI.RecenterBarAnchor(sourceKey)
                 if sb and not savedAlpha then
-                    C_Timer.After(0, function() sb:SetAlpha(1) end)
+                    C_Timer.After(0, function() EllesmereUI._UnlockSetBarAlpha(sb, 1) end)
                 end
                 local m = movers[sourceKey]
                 if m then m:SyncSize() end
@@ -1553,13 +1561,13 @@ function MatchH.ApplyHeightMatch(sourceKey, targetKey)
             if isUnlocked then
                 local sb = GetBarFrame(sourceKey)
                 local savedAlpha = sb and EllesmereUI._GetFFD(sb).restoreAlpha
-                if sb and not savedAlpha then sb:SetAlpha(0) end
+                if sb and not savedAlpha then EllesmereUI._UnlockSetBarAlpha(sb, 0) end
                 _propagatingMatch = true; EllesmereUI._propagatingMatch = true
                 pcall(sourceElem.setHeight, sourceKey, targetH)
                 _propagatingMatch = false; EllesmereUI._propagatingMatch = false
                 EllesmereUI.RecenterBarAnchor(sourceKey)
                 if sb and not savedAlpha then
-                    C_Timer.After(0, function() sb:SetAlpha(1) end)
+                    C_Timer.After(0, function() EllesmereUI._UnlockSetBarAlpha(sb, 1) end)
                 end
                 local m = movers[sourceKey]
                 if m then m:SyncSize() end
@@ -10307,7 +10315,7 @@ local function CreateMover(barKey)
                     local val = math.max(1, math.floor(self:GetNumber() + 0.5))
                     local sb = GetBarFrame(barKey)
                     local savedAlpha = sb and EllesmereUI._GetFFD(sb).restoreAlpha
-                    if sb and not savedAlpha then sb:SetAlpha(0) end
+                    if sb and not savedAlpha then EllesmereUI._UnlockSetBarAlpha(sb, 0) end
                     if axis == "Width" then
                         if elem.setWidth then elem.setWidth(barKey, val) end
                         for childKey, targetKey in pairs(MatchH.GetWidthMatchDB() or {}) do
@@ -10323,7 +10331,7 @@ local function CreateMover(barKey)
                     self:ClearFocus()
                     EllesmereUI.RecenterBarAnchor(barKey)
                     if sb and not savedAlpha then
-                        C_Timer.After(0, function() sb:SetAlpha(1) end)
+                        C_Timer.After(0, function() EllesmereUI._UnlockSetBarAlpha(sb, 1) end)
                     end
                     local bm = movers[barKey]
                     if bm then bm:SyncSize() end

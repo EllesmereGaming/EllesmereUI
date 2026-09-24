@@ -115,6 +115,33 @@ local CANDIDATE_CLASSES = {
 ns.UF_TokenClasses = TOKEN_CLASSES
 ns.UF_CandidateClasses = CANDIDATE_CLASSES
 
+-- Purgeable Buff Glow (target/focus buffs, s.buffPurgeGlow = a shared glow
+-- style index). Which SPECIFIC buff is purgeable is unreadable on enemy data
+-- in instanced PvP (a candidate compare on isStealable matches nothing
+-- there), so the GROUP answers it: the buffs render as two groups split by
+-- the engine-evaluated Dispellable token, and only the purgeable group wears
+-- the glow style (see BuildChain / PurgeGlow.Register). Off, or on a
+-- character with no offensive dispel, every chain stays byte-identical.
+local PurgeGlow = { TOKEN = "RAID_PLAYER_DISPELLABLE" }
+
+function PurgeGlow.On(unit, s)
+    if unit == "player" then return false end
+    local g = s and s.buffPurgeGlow
+    if type(g) ~= "number" or g < 1 then return false end
+    AK = AK or EllesmereUI.AuraKit
+    if not (AK and AK.OffensiveDispelTypes) then return false end
+    if not PurgeGlow.watching then
+        PurgeGlow.watching = true
+        -- A capability flip (talents, spec, pet) moves units between the split
+        -- and the plain row; the reload is signature/fingerprint gated.
+        AK.OnOffensiveDispelChange(function()
+            if ns.UF_ReloadAllAuraContainers then ns.UF_ReloadAllAuraContainers() end
+        end)
+    end
+    local magic, enrage = AK.OffensiveDispelTypes()
+    return magic or enrage
+end
+
 -- Important's SECOND group payload for NON-player frames (see the
 -- priority class comment above): the nameplate-importance flag,
 -- partitioned by isPriorityAura = false so an aura carrying BOTH flags
@@ -249,7 +276,7 @@ local function AppendIncludeLinks(chain, s, unit)
     if mm then
         chain[#chain + 1] = { key = "incmine|" .. CandFP({ includeSpellIDs = mm }),
             tokens = { "HARMFUL", "PLAYER" },
-            cand = { includeSpellIDs = mm, excludeSpellIDs = {} }, inc = true }
+            cand = { includeSpellIDs = mm, excludeSpellIDs = {} }, inc = true, mine = true }
     end
 end
 
@@ -337,6 +364,7 @@ local function BuildChain(base, isBuff, s, unit)
     -- elements and the player frame's debuff legacy path (PlayerDebuffChain
     -- delegates here for the class-checkbox model).
     if not isBuff and unit ~= "player" then return NonPlayerDebuffChain(s, unit) end
+    local glowOn = isBuff and PurgeGlow.On(unit, s)
     local chain, negations = {}, {}
     local subCand, negDispelTypes, npNegOwned, anyNegOwned
 
@@ -452,7 +480,33 @@ local function BuildChain(base, isBuff, s, unit)
             local tokens = { base, class.token }
             for n = 1, #negations do tokens[#tokens + 1] = negations[n] end
             local cand = NegCand(nil)
-            chain[#chain + 1] = { key = LaneKey(class.key, tokens, cand), tokens = tokens, cand = cand }
+            local key = LaneKey(class.key, tokens, cand)
+            -- Purgeable Buff Glow (own keys: a group's style is fixed). The
+            -- Dispellable class IS the purgeable set, so its link wears the glow;
+            -- any other shown token class (Big Defensive) splits into its
+            -- purgeable part, glowing, and the rest -- unless Dispellable,
+            -- shown before it or hidden, already took the purgeable buffs.
+            local notPurge = "!" .. PurgeGlow.TOKEN
+            local purgeTaken = false
+            if glowOn and class.key ~= "dispellable" then
+                for n = 1, #negations do
+                    if negations[n] == notPurge then purgeTaken = true break end
+                end
+            end
+            if glowOn and class.key == "dispellable" then
+                chain[#chain + 1] = { key = key .. ":glow", tokens = tokens, cand = cand, glow = true }
+            elseif glowOn and not purgeTaken then
+                local gT = { base, class.token, PurgeGlow.TOKEN }
+                local rT = { base, class.token, notPurge }
+                for n = 1, #negations do
+                    gT[#gT + 1] = negations[n]
+                    rT[#rT + 1] = negations[n]
+                end
+                chain[#chain + 1] = { key = LaneKey(class.key .. ":glow", gT, cand), tokens = gT, cand = cand, glow = true }
+                chain[#chain + 1] = { key = LaneKey(class.key .. ":rest", rT, cand), tokens = rT, cand = cand }
+            else
+                chain[#chain + 1] = { key = key, tokens = tokens, cand = cand }
+            end
             negations[#negations + 1] = class.neg or ("!" .. class.token)
         end
     end
@@ -609,7 +663,13 @@ local function BuildChain(base, isBuff, s, unit)
                 end
             end
             cand = NegCand(cand)
-            chain[#chain + 1] = { key = LaneKey(class.key, tokens, cand, carried), tokens = tokens, cand = cand }
+            local link = { key = LaneKey(class.key, tokens, cand, carried), tokens = tokens, cand = cand }
+            -- Stealable buffs are the player's own steal/purge targets: glow too.
+            if glowOn and class.key == "steal" then
+                link.key = link.key .. ":glow"
+                link.glow = true
+            end
+            chain[#chain + 1] = link
             -- Important on non-player frames covers BOTH importance concepts (the
             -- unit's hostility is dynamic -- a target can be an ally or an enemy): a
             -- second group adds the nameplate-importance flag, partitioned against the
@@ -637,16 +697,34 @@ local function BuildChain(base, isBuff, s, unit)
     -- fallback (plain "all" group, ApplyGroupConfig) cannot carry the negations,
     -- so an explicit catch-all link takes its place -- everything minus the hide
     -- lane. Player frames keep PAB semantics: nothing positive = show nothing.
-    if lanesActive and unit ~= "player" then
+    -- Purgeable Buff Glow splits that show-all set (the "all" fallback or the
+    -- catch-all) into the purgeable group, which wears the glow, and the rest;
+    -- not while the Hide lane removes the Dispellable class (nothing to glow).
+    if (lanesActive or glowOn) and unit ~= "player" then
         local hasPositive = false
         for i = 1, #chain do
             if not chain[i].hidden then hasPositive = true break end
         end
         if not hasPositive then
-            local allTokens = { base }
-            for n = 1, #negations do allTokens[#allTokens + 1] = negations[n] end
+            local notPurge = "!" .. PurgeGlow.TOKEN
+            local split = glowOn
+            for n = 1, #negations do
+                if negations[n] == notPurge then split = false end
+            end
             local cand = NegCand(nil)
-            chain[#chain + 1] = { key = LaneKey("nall", allTokens, cand), tokens = allTokens, cand = cand }
+            if split then
+                local gT, rT = { base, PurgeGlow.TOKEN }, { base, notPurge }
+                for n = 1, #negations do
+                    gT[#gT + 1] = negations[n]
+                    rT[#rT + 1] = negations[n]
+                end
+                chain[#chain + 1] = { key = LaneKey("pglow", gT, cand), tokens = gT, cand = cand, glow = true }
+                chain[#chain + 1] = { key = LaneKey("prest", rT, cand), tokens = rT, cand = cand }
+            elseif lanesActive then
+                local allTokens = { base }
+                for n = 1, #negations do allTokens[#allTokens + 1] = negations[n] end
+                chain[#chain + 1] = { key = LaneKey("nall", allTokens, cand), tokens = allTokens, cand = cand }
+            end
         end
     end
     return chain
@@ -1387,6 +1465,65 @@ local function BuildStyle(unit, base, s, unitFrame)
     }
 end
 
+-- Purgeable Buff Glow style: the buff element's style plus the glow, on its
+-- own key so only the purgeable groups wear it. Every button of those groups
+-- is purgeable by construction, so the glow rides the button's own
+-- visibility -- no per-aura read, identical in and out of restricted content.
+function PurgeGlow.StyleKey(unit)
+    return StyleKey(unit, "HELPFUL") .. ":glow"
+end
+
+function PurgeGlow.Extra(button, d, style)
+    ApplyUFText(button, d, style)
+    local Glows = EllesmereUI.Glows
+    if not (Glows and Glows.StartEngineGlow) then return end
+    local host = d.ufPurgeGlow
+    if not host then
+        -- The first call runs inside initializeFrame, the button's one legal
+        -- window for parenting a new frame to it. Just below the text carrier.
+        host = CreateFrame("Frame", nil, button)
+        host:SetAllPoints(button)
+        if d.stackCarrier then
+            host:SetFrameLevel(d.stackCarrier:GetFrameLevel() - 1)
+        else
+            host:SetFrameLevel(button:GetFrameLevel() + 1)
+        end
+        host:EnableMouse(false)
+        d.ufPurgeGlow = host
+    end
+    local g, w, h = style.purgeGlow, style.width, style.height
+    local cr, cg, cb = style.purgeR, style.purgeG, style.purgeB
+    if (not host._euiGlowActive) or host._pgS ~= g or host._pgW ~= w or host._pgH ~= h
+       or host._pgR ~= cr or host._pgG ~= cg or host._pgB ~= cb then
+        -- C-side animations only (engine-button subtree); nil color = the
+        -- style's default look.
+        Glows.StartEngineGlow(host, g, w, cr, cg, cb, nil, h)
+        host._pgS, host._pgW, host._pgH = g, w, h
+        host._pgR, host._pgG, host._pgB = cr, cg, cb
+    end
+end
+
+-- Registers (and restyles on a fingerprint change) the glow style while the
+-- glow is on. Runs before any glow group is declared: initializeFrame
+-- consumes the style for the pre-created button batch.
+function PurgeGlow.Register(unit, s, frame, font)
+    if not PurgeGlow.On(unit, s) then return end
+    local key = PurgeGlow.StyleKey(unit)
+    local style = BuildStyle(unit, "HELPFUL", s, frame)
+    local c = s.buffPurgeGlowColor
+    style.purgeGlow = s.buffPurgeGlow
+    style.purgeR, style.purgeG, style.purgeB = c and c.r, c and c.g, c and c.b
+    style.applyExtra = PurgeGlow.Extra
+    local v = StyleTableFP(style, font) .. "|" .. FP(style.purgeGlow, style.purgeR, style.purgeG, style.purgeB)
+    local st = ufFP[key]
+    if not st then st = {}; ufFP[key] = st end
+    if st.style ~= v then
+        st.style = v
+        AK.styles[key] = style
+        AK.RestyleSoon(key)
+    end
+end
+
 -- Does the unit's cast bar occupy the strip directly below the frame -- the
 -- space a bottom-anchored aura stack would otherwise take? Answered from LIVE
 -- GEOMETRY, not from "has the user ever moved it": a bar that was free-moved in
@@ -1694,25 +1831,49 @@ end
 -- Tracked Auras on a FRIENDLY target / focus
 --
 -- The include links ("inc" / "incmine") filter by spell ID alone, and the engine
--- skips spell-ID candidates for debuffs on a unit the player can assist -- so on
--- a friendly target or focus those groups would accept EVERY debuff (and the
--- other groups' tracked-spell excludes are skipped too, doubling every debuff the
--- mode shows). While the unit can be assisted the include groups park at 0;
--- everything else on the frame is unchanged. An unreadable answer (pcall failure
--- or a secret value) leaves them live, as before. Re-checked only on the unit's
--- own change event and UNIT_FACTION, registered only while that unit has an
--- active include group (zero cost otherwise). Boss frames are left as they are.
+-- skips spell-ID candidates for debuffs on a unit the player can assist (unless
+-- the spell is never-secret) -- so on a friendly target or focus those groups
+-- would accept every other debuff (and the other groups' tracked-spell excludes
+-- are skipped too, doubling every debuff the mode shows). While the unit can be
+-- assisted the include groups park at 0; everything else on the frame is
+-- unchanged. Only Tracked Auras is the exception: the include links are its
+-- whole display, so parking would blank the frame. There the links NARROW
+-- instead (ApplyGroupConfig): player-cast only, which keeps the never-secret
+-- lockouts people track and drops the NPC/boss debuffs; if both links exist
+-- the any-caster one also drops your casts and "incmine" lists every tracked
+-- spell, so no debuff renders twice. What narrowing cannot drop: other
+-- players' debuffs that are not never-secret pass the spell check unfiltered
+-- (in PvP, enemy players' debuffs on that friendly unit), and NPC-cast tracked
+-- spells are lost there. The check matches the engine's (immune and
+-- uninteractable units count as assistable). An unreadable answer (pcall
+-- failure or a secret value) leaves the groups live, as before. A missing
+-- unit (no target, focus out of range) keeps the last real answer, and the
+-- frame's own show (unit watch, the unit existing again -- a focus back in
+-- range fires no change event) re-checks it. Also re-checked on target/focus
+-- changes (unitWatcher, below), on the unit's UNIT_FACTION (registered only
+-- while that unit has an active include group), and on the player's own
+-- faction flips (the player recovery watcher). Boss frames are left as they are.
 --   state[unit] = { keys = { [groupKey] = true }, num = liveCount, parked = bool }
 ------------------------------------------------------------------------------
-local IncGate = { state = {} }
+local IncGate = { state = {}, hooked = setmetatable({}, { __mode = "k" }) }
 
 function IncGate.Assistable(unit)
-    local ok, can = pcall(UnitCanAssist, "player", unit)
+    local ok, can = pcall(UnitCanAssist, "player", unit, true, true)
     if ok and not (issecretvalue and issecretvalue(can)) and can == true then return true end
     return false
 end
 
--- Events follow the live state: registered per unit only while it holds keys.
+-- The gate's answer for config passes: live while the unit exists, else the
+-- last real answer (false before there was one).
+function IncGate.Answer(unit)
+    if UnitExists(unit) then return IncGate.Assistable(unit) end
+    local g = IncGate.state[unit]
+    return g ~= nil and g.parked == true
+end
+
+-- UNIT_FACTION follows the live state: registered per unit only while it holds
+-- keys. The unit change events ride the always-on unitWatcher instead, so a
+-- target swap runs the gate before its one aura re-parse.
 function IncGate.Sync()
     local st = IncGate.state
     local sig = (st.target and 1 or 0) + (st.focus and 2 or 0)
@@ -1728,8 +1889,6 @@ function IncGate.Sync()
         IncGate.frame = f
         f:SetScript("OnEvent", IncGate.OnEvent)
     end
-    if st.target then f:RegisterEvent("PLAYER_TARGET_CHANGED") else f:UnregisterEvent("PLAYER_TARGET_CHANGED") end
-    if st.focus then f:RegisterEvent("PLAYER_FOCUS_CHANGED") else f:UnregisterEvent("PLAYER_FOCUS_CHANGED") end
     f:UnregisterEvent("UNIT_FACTION")
     if st.target and st.focus then
         f:RegisterUnitEvent("UNIT_FACTION", "target", "focus")
@@ -1747,10 +1906,11 @@ function IncGate.Store(unit, keys, num)
     local st = IncGate.state
     local g
     if keys then
-        g = st[unit] or {}
-        st[unit] = g
+        g = st[unit]
+        local parked = IncGate.Answer(unit)
+        if not g then g = {}; st[unit] = g end
         g.keys, g.num = keys, num
-        g.parked = IncGate.Assistable(unit)
+        g.parked = parked
     else
         st[unit] = nil
     end
@@ -1762,17 +1922,20 @@ end
 -- tracked-spell excludes follow the park state too (ApplyGroupConfig), so a flip
 -- forces the element's config pass (which re-stores the counts) and then
 -- re-parses: membership was decided under the old answer, and re-setting
--- candidates is what makes the engine re-decide it.
-function IncGate.Apply(unit)
+-- candidates is what makes the engine re-decide it. noParse: the caller
+-- re-parses right after (unitWatcher's RefreshUnit), so only one parse runs.
+function IncGate.Apply(unit, noParse)
     local g = IncGate.state[unit]
     local entry = registry[unit]
     if not (g and entry and entry.debuffs) or entry.building then return end
+    -- No unit: keep the last answer (nothing is shown; the next unit re-checks).
+    if not UnitExists(unit) then return end
     local park = IncGate.Assistable(unit)
     if park == g.parked then return end
     g.parked = park
     entry.cfgDirty = true
     if entry.frame and ns.UF_ReloadAuraContainers then ns.UF_ReloadAuraContainers(entry.frame, unit) end
-    entry.debuffs:UpdateAllAuras()
+    if not noParse then entry.debuffs:UpdateAllAuras() end
 end
 
 -- UNIT_FACTION can fire in bursts: one coalesced check a frame later.
@@ -1783,12 +1946,8 @@ function IncGate.Flush()
     if f then IncGate.Apply("focus") end
 end
 
-function IncGate.OnEvent(_, event, unit)
-    if event == "PLAYER_TARGET_CHANGED" then
-        IncGate.Apply("target")
-    elseif event == "PLAYER_FOCUS_CHANGED" then
-        IncGate.Apply("focus")
-    elseif unit == "target" or unit == "focus" then
+function IncGate.OnEvent(_, _, unit)
+    if unit == "target" or unit == "focus" then
         if not (IncGate.pendT or IncGate.pendF) then C_Timer.After(0, IncGate.Flush) end
         if unit == "target" then IncGate.pendT = true else IncGate.pendF = true end
     end
@@ -1868,7 +2027,7 @@ local function ApplyGroupConfig(container, unit, base, s, chain, declared)
             -- Not while IncGate parks the include links (a friendly target or
             -- focus): a never-secret tracked spell still honours the excludes
             -- there and would show nowhere.
-            if incLink and not ((unit == "target" or unit == "focus") and IncGate.Assistable(unit)) then
+            if incLink and not ((unit == "target" or unit == "focus") and IncGate.Answer(unit)) then
                 for id, v in pairs(uinc) do if v then ex[id] = true end end
             end
         end
@@ -1887,12 +2046,19 @@ local function ApplyGroupConfig(container, unit, base, s, chain, declared)
     -- retired variants -- parks at count 0 (declared sets only ever grow;
     -- setters run per declared key only).
     local active, hiddenKeys, tokensOf, incKeys = {}, nil, {}, nil
+    -- Purgeable Buff Glow groups lay out FIRST whatever their declaration
+    -- order (layoutIndex beats every other group's registration index).
+    local glowKeys, glowLayout
     if num > 0 then
         if anyClass then
             for i = 1, #chain do
                 local c = chain[i]
                 active[c.key] = c.cand or false
                 tokensOf[c.key] = c.tokens
+                if c.glow then
+                    glowKeys = glowKeys or {}
+                    glowKeys[c.key] = true
+                end
                 -- Subtracted classes (the player PAB model) stay declared
                 -- so their negations keep them out of the catch-all, but
                 -- render nothing themselves.
@@ -1918,6 +2084,33 @@ local function ApplyGroupConfig(container, unit, base, s, chain, declared)
     -- (IncGate above); the debuff element owns the unit's gate state.
     local incPark = false
     if not isBuff then incPark = IncGate.Store(unit, incKeys, num) end
+    -- Only Tracked Auras (the chain is nothing but include links) narrows
+    -- instead of parking, see IncGate above: per-pass overrides of the links'
+    -- own tokens and candidates, which the next pass after the unit turns
+    -- hostile restores from the chain.
+    if incPark then
+        local anyC, mineC, onlyInc = nil, nil, true
+        for i = 1, #chain do
+            local c = chain[i]
+            if not c.inc then onlyInc = false break end
+            if c.mine then mineC = c else anyC = c end
+        end
+        if onlyInc then
+            incPark = false
+            if anyC then
+                local cd = { isFromPlayerOrPlayerPet = true }
+                for k, v in pairs(anyC.cand) do cd[k] = v end
+                active[anyC.key] = cd
+                if mineC then tokensOf[anyC.key] = { "HARMFUL", "!PLAYER" } end
+            end
+            if anyC and mineC then
+                local ids = {}
+                for id in pairs(anyC.cand.includeSpellIDs) do ids[id] = true end
+                for id in pairs(mineC.cand.includeSpellIDs) do ids[id] = true end
+                active[mineC.key] = { includeSpellIDs = ids, excludeSpellIDs = {} }
+            end
+        end
+    end
     for eff, info in pairs(declared) do
         if active[eff] ~= nil then
             local n = num
@@ -1947,7 +2140,15 @@ local function ApplyGroupConfig(container, unit, base, s, chain, declared)
                 for k, v in pairs(ac) do groupCand[k] = v end
             end
             container:SetAuraGroupCandidateFilters(eff, groupCand)
-            container:SetAuraGroupLayout(eff, layout)
+            if glowKeys and glowKeys[eff] then
+                if not glowLayout then
+                    glowLayout = { layoutIndex = 0 }
+                    for k, v in pairs(layout) do glowLayout[k] = v end
+                end
+                container:SetAuraGroupLayout(eff, glowLayout)
+            else
+                container:SetAuraGroupLayout(eff, layout)
+            end
         else
             container:SetAuraGroupMaxFrameCount(eff, 0)
         end
@@ -2323,6 +2524,9 @@ function ns.UF_ReloadAuraContainers(frame, unit)
             AK.styles[key] = style
             AK.RestyleSoon(key)
         end
+        if base == "HELPFUL" and unit ~= "player" then
+            PurgeGlow.Register(unit, s, entry.frame, font)
+        end
 
         -- Groups are ADDITIVE and the container is NEVER swapped: a changed chain
         -- declares any missing groups on the existing container (combat-legal --
@@ -2351,7 +2555,9 @@ function ns.UF_ReloadAuraContainers(frame, unit)
             for i = 1, #chain do
                 local c = chain[i]
                 if not declared[c.key] then
-                    DeclareElementGroup(container, declared, key, c.key, c.tokens, c.cand)
+                    local sk = key
+                    if c.glow then sk = PurgeGlow.StyleKey(unit) end
+                    DeclareElementGroup(container, declared, sk, c.key, c.tokens, c.cand)
                 end
             end
             force = true
@@ -2410,6 +2616,11 @@ do
         pending = true
         C_Timer.After(0, function()
             pending = false
+            -- The player's own faction/PvP flip changes whether the target and
+            -- focus can be assisted: re-check the Tracked Auras gate (a no-op
+            -- unless that unit holds include groups and the answer flipped).
+            IncGate.Apply("target")
+            IncGate.Apply("focus")
             local entry = registry.player
             if not entry or entry.building then return end
             entry.cfgDirty = true
@@ -2431,9 +2642,13 @@ unitWatcher:RegisterEvent("PLAYER_FOCUS_CHANGED")
 unitWatcher:RegisterEvent("INSTANCE_ENCOUNTER_ENGAGE_UNIT")
 unitWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
 unitWatcher:SetScript("OnEvent", function(_, event)
+    -- The Tracked Auras gate first (a friendly/hostile flip re-configures the
+    -- debuff groups), then the one re-parse.
     if event == "PLAYER_TARGET_CHANGED" then
+        IncGate.Apply("target", true)
         RefreshUnit("target")
     elseif event == "PLAYER_FOCUS_CHANGED" then
+        IncGate.Apply("focus", true)
         RefreshUnit("focus")
     elseif event == "PLAYER_REGEN_ENABLED" then
         -- Filter-set swaps requested during combat run now.
@@ -2541,12 +2756,23 @@ local function BuildUnitContainers(frame, unit)
             local style = BuildStyle(unit, base, s, frame)
             AK.styles[key] = style
             ufFP[key] = { style = StyleTableFP(style, font) }
+            if base == "HELPFUL" and unit ~= "player" then
+                PurgeGlow.Register(unit, s, frame, font)
+            end
         end
 
         entry = { frame = frame, building = true, sig = {}, groups = { buffs = {}, debuffs = {} } }
         entry.buffs = AdoptShell(frame, unit, "buffs")
         entry.debuffs = AdoptShell(frame, unit, "debuffs")
         registry[unit] = entry
+        -- Tracked Auras gate: a focus coming back into range (or any unit
+        -- appearing without a change event) shows the frame through unit
+        -- watch, so re-check there; the container parses on its next update,
+        -- after this. A no-op unless the unit holds include groups.
+        if (unit == "target" or unit == "focus") and not IncGate.hooked[frame] then
+            IncGate.hooked[frame] = true
+            frame:HookScript("OnShow", function() IncGate.Apply(unit) end)
+        end
         return "again"
     end
 
@@ -2571,7 +2797,17 @@ local function BuildUnitContainers(frame, unit)
         for i = 1, #chain do
             local c = chain[i]
             if not declared[c.key] then
-                DeclareElementGroup(entry[field], declared, styleKey, c.key, c.tokens, c.cand)
+                local sk = styleKey
+                if c.glow then
+                    sk = PurgeGlow.StyleKey(unit)
+                    -- The capability can arrive between stages (spellbook
+                    -- ready after stage 1): never declare against a missing style.
+                    if not AK.styles[sk] then
+                        PurgeGlow.Register(unit, s, frame,
+                            (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("unitFrames")) or "")
+                    end
+                end
+                DeclareElementGroup(entry[field], declared, sk, c.key, c.tokens, c.cand)
                 return "again"
             end
         end
