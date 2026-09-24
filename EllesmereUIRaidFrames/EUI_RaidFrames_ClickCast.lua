@@ -874,7 +874,20 @@ local function BuildBaseMacroText(binding)
             -- /cast resolves by localized name; hardcoded English sp.name would
             -- silently fail on non-English clients. Fall back to sp.name only if
             -- the API is unavailable/empty.
-            local castName = (C_Spell.GetSpellName and C_Spell.GetSpellName(sp.id)) or sp.name
+            local castID = sp.id
+            if sp.pet and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID and
+                C_UnitAuras.GetPlayerAuraBySpellID(196099) then
+                -- Grimoire of Sacrifice: the pet form is not castable while the
+                -- demon is sacrificed; the talent grants its ability through
+                -- Command Demon (119898), whose live override IS the castable
+                -- player form -- bind that form so the dispel keeps working.
+                -- Zero cost unless a pet entry is processed under the aura. (#2155)
+                if C_Spell and C_Spell.GetOverrideSpell then
+                    local morph = C_Spell.GetOverrideSpell(119898)
+                    if morph and morph > 0 and morph ~= 119898 then castID = morph end
+                end
+            end
+            local castName = (C_Spell.GetSpellName and C_Spell.GetSpellName(castID)) or sp.name
             lines[#lines + 1] = "/cast [@mouseover,exists,nodead" .. guard .. "] " .. castName
         end
         if #lines == 0 then return nil end
