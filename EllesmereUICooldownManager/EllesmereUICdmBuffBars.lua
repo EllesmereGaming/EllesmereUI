@@ -3116,16 +3116,23 @@ ns.ApplyTBBBarSettings = ApplyTrackedBuffBarSettings
 -- in bar units, for its unlock element's getMatchPad: exactly the arguments
 -- ApplyTrackedBuffBarSettings passes to ApplyBorderStyle (the numeric step as the
 -- "resourcebars" size key, alpha 1, no scale normalizing). nil under the stock
--- styles (no EUI border) and for a border that draws nothing outside.
-function ns.TBBBorderMatchPad(cfg)
+-- styles (no EUI border) and for a border that draws nothing outside. `frame` is
+-- the bar: its effective scale (a position scale rides on it) is the grid the
+-- border's anchors snap to.
+function ns.TBBBorderMatchPad(cfg, frame)
     if not cfg or not EllesmereUI.BorderMatchPad or ns.CdmBlizzBars() then return nil end
     local bSz = cfg.borderSize or 0
     local textureKey = cfg.borderTexture or "solid"
     if textureKey == "solid" then return nil end
+    local es
+    if frame then
+        local ok, s = pcall(frame.GetEffectiveScale, frame)
+        if ok then es = s end
+    end
     return EllesmereUI.BorderMatchPad(bSz, textureKey,
         cfg.borderTextureOffset, cfg.borderTextureOffsetY,
         cfg.borderTextureShiftX, cfg.borderTextureShiftY,
-        "resourcebars", bSz, EllesmereUI.BorderPx(cfg.borderSizePx, bSz, textureKey), nil, 1)
+        "resourcebars", bSz, EllesmereUI.BorderPx(cfg.borderSizePx, bSz, textureKey), nil, 1, es)
 end
 
 -- "TBB_" .. index and "TBBG_" .. group key, each built once, so the per-build
@@ -6395,7 +6402,7 @@ function ns.RegisterTBBUnlockElements()
                 getMatchPad = function()
                     local t = ns.GetTrackedBuffBars()
                     local c = t and t.bars and t.bars[idx]
-                    return ns.TBBBorderMatchPad(c)
+                    return ns.TBBBorderMatchPad(c, tbbFrames[idx])
                 end,
                 isHidden = function()
                     local t = ns.GetTrackedBuffBars()
@@ -6562,7 +6569,7 @@ function ns.RegisterTBBUnlockElements()
                     local ai = gid and ns.TBBGroupAnchorIndex(gid)
                     local t = ai and ns.GetTrackedBuffBars()
                     local c = t and t.bars and t.bars[ai]
-                    return ns.TBBBorderMatchPad(c)
+                    return ns.TBBBorderMatchPad(c, ai and tbbFrames[ai])
                 end,
                 isHidden = function()
                     local gid = ns.TBBLocalGidForGlobal(gk)

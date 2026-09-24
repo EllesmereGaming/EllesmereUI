@@ -4115,7 +4115,7 @@ L["Colors the cast segment during which your interrupt will be available."] = "�
 L["Shows a small white tick mark where the cast will be when your interrupt comes off cooldown."] = "시전 방해가 재사용 가능해지는 시점에 작은 흰색 눈금을 표시합니다."
 L["Appends the cast target to the spell name (Spell Name - Target), class colored, and disables the separate Spell Target display."] = "주문 이름 뒤에 시전 대상을 덧붙이고(주문 이름 - 대상) 직업 색을 입히며, 별도의 주문 대상 표시를 끕니다."
 -- 2026-08-12 신규 (자원 바: 배경/조각 테두리)
-L["Use unique backgrounds for each bar"] = "바마다 개별 배경 사용"
+L["Choose background per bar"] = "바마다 개별 배경 사용"
 L["Pip Border"] = "조각 테두리"
 L["Pip Borders"] = "조각 테두리"
 L["Border on individual pips"] = "조각마다 개별 테두리 표시"

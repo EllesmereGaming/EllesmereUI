@@ -6901,7 +6901,7 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
-    --  Custom Spell ID popup (shared by ShowSpellPicker + ShowBuffBarPicker). Lazily
+    --  Custom Spell ID popup (shared by ShowBuffBarPicker + ShowBuffToCDPicker). Lazily
     --  builds a single global popup; each call re-binds the Add handler to the given bar.
     --  withDuration adds the duration field (custom/preset buffs); onAdded(sid) runs after spellDuration/customSpellID storage.
     ---------------------------------------------------------------------------
@@ -12434,7 +12434,9 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             csItem:SetScript("OnClick", function()
                 menu:Hide()
-                local popupName = "EUI_CDM_SpellIDPopup"
+                -- Own frame, not ShowCustomSpellIDPopup's: only this build adds Show Charges,
+                -- and sharing one lazily built frame let whichever opened first win.
+                local popupName = "EUI_CDM_CDSpellIDPopup"
                 local popup = _G[popupName]
                 if not popup then
                     local POPUP_W, POPUP_H = 320, 160

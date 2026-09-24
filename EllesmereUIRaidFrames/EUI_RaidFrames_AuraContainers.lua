@@ -682,6 +682,48 @@ local function ApplyRFDispelSlot(button, dd, style)
         dd.borderHost:Hide()
     end
 
+    -- Color Custom Borders: a copy of the unit frame's own border (same style, size,
+    -- offsets and exact pixels) in this type's color. It rides the slot's engine
+    -- visibility, so it covers the normal border only while the type is present.
+    -- Always exactly one level over the base border, never a tie: +9 over the base's
+    -- +8 (strips +10 over +9), so the raised hover/target/aggro recolors (ns.LVL_RAISE)
+    -- and the inner aggro border stay above it; with Show Behind, pl over the base's
+    -- pl - 1, still under the health bar (pl + 2). The base is never raised under Show
+    -- Behind, so there the type color also covers those recolors while its type is
+    -- present. The
+    -- secret-safe renderer needs no size reads and no scripts (scripts never run
+    -- under a slot button). Per-type alpha 0 opts the type out, as for the ring.
+    local cb = style.customBorder
+    local ub = dd.rfUnitBtn
+    if cb and ub and PP and typeA > 0 then
+        if not dd.cbHost then
+            -- Published only once anchored: a denied write leaves no half-built host,
+            -- and the next restyle simply tries again.
+            local host = CreateFrame("Frame", nil, button)
+            host:SetAllPoints(dd.rfBorder or ub)
+            dd.cbState = {}
+            dd.cbHost = host
+        end
+        -- Armed before the first write on the host: a draw that throws partway still
+        -- leaves the off branch able to clear whatever it drew.
+        dd.cbOn = true
+        local pl = ub:GetFrameLevel()
+        local cbLvl = cb.behind and pl or (pl + 9)
+        dd.cbHost:SetFrameLevel(cbLvl)
+        -- A solid copy's strips sit on a PP container whose level is fixed at creation.
+        local ppC = PP.GetBorders(dd.cbHost)
+        if ppC then ppC:SetFrameLevel(cbLvl + 1) end
+        EllesmereUI.ApplySecretSafeBorderStyle(dd.cbHost, dd.cbState, cb.size, r, g, b, typeA,
+            cb.tex, cb.offX, cb.offY, cb.shX, cb.shY, "unitframes", cb.size, nil, cb.px)
+        dd.cbHost:Show()
+    elseif dd.cbOn then
+        -- Size 0 hides every piece and drops the UI-scale re-apply registration.
+        EllesmereUI.ApplySecretSafeBorderStyle(dd.cbHost, dd.cbState, 0, 0, 0, 0, 0, "solid")
+        dd.cbHost:Hide()
+        -- Disarmed only once the hide landed: a denied call re-runs this at the lift.
+        dd.cbOn = nil
+    end
+
     -- Dispel type icon.
     if style.showIcon then
         if not dd.iconHost then
@@ -724,6 +766,22 @@ local function BuildDispelStyle(s)
             a = (c and c.a) or 1,
         }
     end
+    -- Color Custom Borders: the frame border's own ApplyBorderStyle inputs, so each
+    -- type's copy matches it. Only over a custom border (ns.RF_CustomBorderOn): none
+    -- under a stock style (the EllesmereUI border stands down there), a Solid
+    -- Border Style or Border Size 0.
+    local customBorder
+    if s.dispelCustomBorder == true and ns.RF_CustomBorderOn(s) then
+        local bs = ns.RF_EffBorderSize(s)
+        local tex = s.borderTexture
+        customBorder = {
+            size = bs, tex = tex,
+            offX = s.borderTextureOffset, offY = s.borderTextureOffsetY,
+            shX = s.borderTextureShiftX, shY = s.borderTextureShiftY,
+            px = EllesmereUI.BorderPx(s.borderSizePx, bs, tex),
+            behind = s.borderBehind and true or false,
+        }
+    end
     return {
         width = 1, height = 1,
         noRegions = true,
@@ -737,6 +795,7 @@ local function BuildDispelStyle(s)
         iconOffY = s.dispelIconOffsetY or 0,
         uniformAnchors = s.powerUniformAnchors == true,
         typeColors = typeColors,
+        customBorder = customBorder,
         applyExtra = ApplyRFDispelSlot,
     }
 end
@@ -745,6 +804,7 @@ local function DispelVisible(s)
     return (s.dispelOverlay or "fill") ~= "none"
         or (s.dispelBorderSize or 0) > 0
         or s.showDispelIcons == true
+        or (s.dispelCustomBorder == true and ns.RF_CustomBorderOn(s))
 end
 
 -- Fingerprints of exact settings each subsystem reads, per class ("rf:debuff:raid"/
@@ -798,7 +858,30 @@ local function DispelStyleFP(s)
     return FP(s.dispelOverlay, s.dispelOverlayOpacity, s.dispelBorderSize, s.showDispelIcons,
         s.dispelIconSize, s.dispelIconPosition, s.dispelIconOffsetX, s.dispelIconOffsetY,
         CKA(s.dispelColorMagic), CKA(s.dispelColorCurse), CKA(s.dispelColorDisease),
-        CKA(s.dispelColorPoison), CKA(s.dispelColorBleed), s.powerUniformAnchors)
+        CKA(s.dispelColorPoison), CKA(s.dispelColorBleed), s.powerUniformAnchors,
+        -- Color Custom Borders copies the frame border (strata: a strata change
+        -- re-stacks child levels), so those inputs count, only while it is on.
+        s.dispelCustomBorder == true and FP(s.borderSize, s.borderTexture, s.borderSizePx,
+            s.borderTextureOffset, s.borderTextureOffsetY, s.borderTextureShiftX,
+            s.borderTextureShiftY, s.borderBehind, s.frameStrata) or false)
+end
+
+-- The fingerprint each class's shared styles were built from. A class with no finalized
+-- button never reaches ComputeClassFlags, so styles built at login can predate a
+-- settings change; PrimeClassFP compares against these and rebuilds what differs.
+local builtFP = {}
+local function StoreDispelStyle(key, s, fp)
+    AK.styles[key] = BuildDispelStyle(s)
+    builtFP[key] = fp or DispelStyleFP(s)
+end
+-- The base debuff style and its cc twin share one fingerprint (DebuffStyleFP).
+local function StoreDebuffStyles(styleKey, s, fp)
+    local ccKey = styleKey:gsub("debuff", "debuffcc")
+    AK.styles[styleKey] = BuildDebuffStyle(s)
+    AK.styles[ccKey] = BuildDebuffCCStyle(s)
+    builtFP[styleKey] = fp or DebuffStyleFP(s,
+        (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("raidFrames")) or "")
+    return ccKey
 end
 
 -- Stores current fingerprints without restyling. Called at button setup (which just
@@ -808,12 +891,29 @@ local function PrimeClassFP(styleKey, s)
     local st = classFP[styleKey]
     if not st then st = {}; classFP[styleKey] = st end
     local font = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("raidFrames")) or ""
-    st.debuffStyle = DebuffStyleFP(s, font)
+    local dsfp = DebuffStyleFP(s, font)
+    st.debuffStyle = dsfp
     st.debuffCfg = DebuffCfgFP(s)
     st.dispLocStyle = DispLocStyleFP(s, font)
     st.dispLocCfg = DispLocCfgFP(s)
-    st.dispelStyle = DispelStyleFP(s)
+    local dfp = DispelStyleFP(s)
+    st.dispelStyle = dfp
     st.dispelFilter = DispelFilterFP(s)
+    -- The shared styles are the stamps that must not be trusted blindly: rebuild any
+    -- built from older settings (see builtFP). One string compare each when current.
+    -- (DM tile/sized styles carry their own fingerprints; the dispel filter is per
+    -- button and reconciled in the finalize job.)
+    if AK and AK.styles[styleKey] and builtFP[styleKey] ~= dsfp then
+        local ccKey = StoreDebuffStyles(styleKey, s, dsfp)
+        AK.RestyleSoon(styleKey)
+        AK.RestyleSoon(ccKey)
+        if ns.DM_RefreshSizedStyles then ns.DM_RefreshSizedStyles(styleKey, s) end
+    end
+    local dispelStyleKey = styleKey:gsub("debuff", "dispel")
+    if AK and AK.styles[dispelStyleKey] and builtFP[dispelStyleKey] ~= dfp then
+        StoreDispelStyle(dispelStyleKey, s, dfp)
+        AK.RestyleSoon(dispelStyleKey)
+    end
 end
 
 local function ApplyDebuffConfig(container, d, s)
@@ -2910,7 +3010,7 @@ local function CreateButtonShells(button, health, d)
         local s = ProxyFor(d)
         if s then
             local dispelStyleKey = StyleKeyFor(d):gsub("debuff", "dispel")
-            AK.styles[dispelStyleKey] = AK.styles[dispelStyleKey] or BuildDispelStyle(s)
+            if not AK.styles[dispelStyleKey] then StoreDispelStyle(dispelStyleKey, s) end
             local c = AK.CreateContainerShell(button, { point = { "CENTER", health, "CENTER" } })
             for i = 1, #DISPEL_SLOTS do
                 local def = DISPEL_SLOTS[i]
@@ -2922,6 +3022,10 @@ local function CreateButtonShells(button, health, d)
                     extraInit = function(slotButton, dd)
                         dd.rfHealth = health
                         dd.rfSlotDef = def
+                        -- Color Custom Borders: the unit button (level base) and its
+                        -- border frame (geometry) for the per-type border copy.
+                        dd.rfUnitBtn = button
+                        dd.rfBorder = d.borderFrame
                         -- Anchor inside the creation window: SetPoint on the returned
                         -- slot button is denied while auras are secret (12.1 access
                         -- restriction); shell setup runs on in-instance reloads.
@@ -2934,6 +3038,9 @@ local function CreateButtonShells(button, health, d)
             -- nothing. The finish job binds the real unit.
             d.rfcDispelShell = c
             d.rfcTotemGen = rfcTotemGen
+            -- The filters baked above, checked at finalize: a setting changed while
+            -- this shell waited (raid shells wait for a raid) must not latch.
+            d.rfcDispelFilterFP = DispelFilterFP(s)
         end
     end
 
@@ -2999,8 +3106,7 @@ local function QueueDebuffPhase(button, health, d)
             local ccStyleKey = styleKey:gsub("debuff", "debuffcc")
             -- Prime here too: setup-time priming used the queue-time class,
             -- so a job-resolved class may not have style tables yet.
-            AK.styles[styleKey] = AK.styles[styleKey] or BuildDebuffStyle(sNow)
-            AK.styles[ccStyleKey] = AK.styles[ccStyleKey] or BuildDebuffCCStyle(sNow)
+            if not AK.styles[styleKey] then StoreDebuffStyles(styleKey, sNow) end
             AK.AddGroupToContainer(c, { key = g.key, filter = g.filter, maxFrameCount = 0,
                 style = (g.key == "cc") and ccStyleKey or styleKey })
             d.rfcDebuffGroups[g.key] = true
@@ -3095,17 +3201,21 @@ local function QueueButtonGroups(button, health, d)
         local unit = button:GetAttribute("unit") or NO_UNIT
         CreateBmContainer(button, health, d, unit)
         d.rfcUnit = unit
-        -- Shells baked the dispel filters from rfcTotemKnown at build time; if a
-        -- totem flip landed mid-build, re-apply the current filters before the
-        -- fingerprint below is primed as current (which would otherwise latch the
-        -- stale filters as already-applied).
-        if d.rfcDispel and d.rfcTotemGen ~= rfcTotemGen then
-            local parts = DispelSlotFilters(ProxyFor(d) or s)
-            for i = 1, #DISPEL_SLOTS do
-                d.rfcDispel:SetAuraSlotFilterString(DISPEL_SLOTS[i].key, parts[i])
+        -- Shells baked the dispel filters (settings + rfcTotemKnown) at build time; if
+        -- a totem flip or a settings change landed since, re-apply the current filters
+        -- before the fingerprint below is primed as current (which would otherwise
+        -- latch the stale filters as already-applied).
+        if d.rfcDispel then
+            local sNow = ProxyFor(d) or s
+            if d.rfcTotemGen ~= rfcTotemGen or d.rfcDispelFilterFP ~= DispelFilterFP(sNow) then
+                local parts = DispelSlotFilters(sNow)
+                for i = 1, #DISPEL_SLOTS do
+                    d.rfcDispel:SetAuraSlotFilterString(DISPEL_SLOTS[i].key, parts[i])
+                end
             end
         end
         d.rfcTotemGen = nil
+        d.rfcDispelFilterFP = nil
         -- Everything above was configured from current settings; prime the class
         -- fingerprints so the first reload doesn't re-drive it all (class resolved
         -- here, not at queue time -- party self button).
@@ -3133,11 +3243,9 @@ function ns.RFC_SetupButton(button, health, d)
     local s = ProxyFor(d)
     if s then
         local styleKey = StyleKeyFor(d)
-        AK.styles[styleKey] = AK.styles[styleKey] or BuildDebuffStyle(s)
-        local ccStyleKey = styleKey:gsub("debuff", "debuffcc")
-        AK.styles[ccStyleKey] = AK.styles[ccStyleKey] or BuildDebuffCCStyle(s)
+        if not AK.styles[styleKey] then StoreDebuffStyles(styleKey, s) end
         local dispelStyleKey = styleKey:gsub("debuff", "dispel")
-        AK.styles[dispelStyleKey] = AK.styles[dispelStyleKey] or BuildDispelStyle(s)
+        if not AK.styles[dispelStyleKey] then StoreDispelStyle(dispelStyleKey, s) end
     end
 
     d.rfcHealthRef = health
@@ -3393,10 +3501,8 @@ local function ComputeClassFlags(styleKey, s)
     local v = DebuffStyleFP(s, font)
     if st.debuffStyle ~= v then
         st.debuffStyle = v
-        AK.styles[styleKey] = BuildDebuffStyle(s)
+        local ccStyleKey = StoreDebuffStyles(styleKey, s, v)
         AK.RestyleSoon(styleKey)
-        local ccStyleKey = styleKey:gsub("debuff", "debuffcc")
-        AK.styles[ccStyleKey] = BuildDebuffCCStyle(s)
         AK.RestyleSoon(ccStyleKey)
         -- DM per-filter sized styles derive from these; a pure style edit
         -- does not flip the config fingerprint, so refresh them here.
@@ -3426,7 +3532,7 @@ local function ComputeClassFlags(styleKey, s)
     if st.dispelStyle ~= v then
         st.dispelStyle = v
         local dispelStyleKey = styleKey:gsub("debuff", "dispel")
-        AK.styles[dispelStyleKey] = BuildDispelStyle(s)
+        StoreDispelStyle(dispelStyleKey, s, v)
         AK.RestyleSoon(dispelStyleKey)
     end
     local parts = DispelSlotFilters(s)

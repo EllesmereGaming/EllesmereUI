@@ -173,6 +173,45 @@ function ns.UFOpt_ShowTrackedAuras(unitKey)
     })
 end
 
+-- Options preview: the first fake buff stands in for a purgeable one while
+-- Purgeable Buff Glow is set on target/focus and this character can purge or
+-- spellsteal (the live frame's own gate). The host is our own frame.
+function ns.UFOpt_PreviewPurgeGlow(bf, unitKey, s, w, h)
+    local Glows = EllesmereUI.Glows
+    if not (Glows and Glows.StartEngineGlow) then return end
+    local g = (unitKey == "target" or unitKey == "focus") and s and s.buffPurgeGlow
+    local on = type(g) == "number" and g > 0
+    if on then
+        local AK = EllesmereUI.AuraKit
+        local magic, enrage = false, false
+        if AK and AK.OffensiveDispelTypes then magic, enrage = AK.OffensiveDispelTypes() end
+        on = magic or enrage
+    end
+    local host = bf._purgeGlow
+    if not on then
+        if host then
+            if host._euiGlowActive then Glows.StopGlow(host) end
+            host:Hide()
+        end
+        return
+    end
+    if not host then
+        host = CreateFrame("Frame", nil, bf)
+        host:SetAllPoints(bf)
+        host:SetFrameLevel(bf:GetFrameLevel() + 2)
+        bf._purgeGlow = host
+    end
+    host:Show()
+    local c = s.buffPurgeGlowColor
+    local cr, cg, cb = c and c.r, c and c.g, c and c.b
+    if (not host._euiGlowActive) or host._pgS ~= g or host._pgW ~= w or host._pgH ~= h
+       or host._pgR ~= cr or host._pgG ~= cg or host._pgB ~= cb then
+        Glows.StartEngineGlow(host, g, w, cr, cg, cb, nil, h)
+        host._pgS, host._pgW, host._pgH = g, w, h
+        host._pgR, host._pgG, host._pgB = cr, cg, cb
+    end
+end
+
 -- Target/focus/boss Debuff Filter: ONE single-select mode, an engine VIEW over
 -- the legacy keys (ns.UF_DebuffFilterMode in EUI_UnitFrames_AuraContainers.lua;
 -- nothing is rewritten on update, the first pick writes s.debuffFilterMode --
@@ -4050,6 +4089,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 -- SetTexture resets texcoord, so re-apply the crop each update.
                                 ns.SetAuraIconCrop(bf._iconTex, buffCrop, buffSize, buffH, s.buffIconZoom or 0.07)
                             end
+                            if i == 1 then ns.UFOpt_PreviewPurgeGlow(bf, unitKey, s, buffSize, buffH) end
                         else
                             if bf:IsShown() then bf:Hide() end
                         end
@@ -5277,9 +5317,18 @@ initFrame:SetScript("OnEvent", function(self)
         local _visSrcIsEui = ns.GetUnitFrameSource(selectedUnit) == "eui"
         if not EllesmereUI._prebuilding then
         AttachFrameSourceCog(visRow._leftRegion, selectedUnit, {
-            title = _visSrcIsEui and "Frame Source & Fade" or "Frame Source",
-            cogTooltip = _visSrcIsEui and "Frame Source & Fade" or "Frame Source",
+            title = _visSrcIsEui and "Frame Source & Visibility" or "Frame Source",
+            cogTooltip = _visSrcIsEui and "Frame Source & Visibility" or "Frame Source",
             extraRows = _visSrcIsEui and {
+                { type = "toggle", label = "Show When Health Missing",
+                  tooltip = "Shows the frame while this unit is below full health; while enabled, a frame hidden by its visibility setting can still be clicked.",
+                  disabled = function() return InCombatLockdown() end,
+                  disabledTooltip = "Change health visibility out of combat",
+                  get = function() return SVal("showWhenHealthMissing", false) == true end,
+                  set = function(v)
+                      SSet("showWhenHealthMissing", v)
+                      if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
+                  end },
                 { type = "toggle", label = "Fade Out of Combat",
                   tooltip = "Fades the entire frame (portrait, health and power bars, text) while out of combat.",
                   get = function() return SVal("oocFadeEnabled", false) == true end,
@@ -10657,6 +10706,14 @@ initFrame:SetScript("OnEvent", function(self)
                   if k == "blizzard" and EllesmereUI.IS_FOREVER then
                       return "This client has no Blizzard class resource bar to attach to the frame"
                   end
+                  -- One owner for Blizzard's class resource frame: while Resource
+                  -- Bars' Blizzard Class Resource Art is on, Blizzard is greyed here.
+                  -- Only while not already chosen, so it can still be changed away.
+                  if k == "blizzard" and SValSupported("classPowerStyle", "none") ~= "blizzard" then
+                      if _G._ERB_BlizzArtWanted and _G._ERB_BlizzArtWanted() then
+                          return "This option can't be used while Blizzard Class Resource Art is enabled in Resource Bars."
+                      end
+                  end
               end,
               getValue=function() return SValSupported("classPowerStyle", "none") end,
               -- DependentSetValue: Rows 2-3 below are hidden while the style
@@ -11841,6 +11898,88 @@ initFrame:SetScript("OnEvent", function(self)
                 rgn._control = cbDD; rgn._lastInline = nil
                 RegisterWidgetRefresh(cbRefresh)
                 ApplyFilterDisabled(cbDD, rgn._label, BuffDisabled)
+
+                -- Purgeable Buff Glow (target/focus): inline cog beside the Buff
+                -- Filter. The glow styles whichever purgeable buffs the filter
+                -- shows; the engine gates it on the character's offensive dispel.
+                if selectedUnit == "target" or selectedUnit == "focus" then
+                    local glowValues, glowOrder = { [0] = "None" }, { 0 }
+                    local GS = EllesmereUI.Glows and EllesmereUI.Glows.STYLES or {}
+                    for i, entry in ipairs(GS) do
+                        -- Engine aura buttons take C-side glows only; Auto-Cast
+                        -- Shine and Shape Glow have no equivalent there.
+                        if not (entry.autocast or entry.shapeGlow) then
+                            glowValues[i] = entry.name
+                            glowOrder[#glowOrder + 1] = i
+                        end
+                    end
+                    local function GlowOff()
+                        local g = SDB().buffPurgeGlow
+                        return not (type(g) == "number" and g > 0)
+                    end
+                    local _, pgShow = EllesmereUI.BuildCogPopup({
+                        title = "Purgeable Buffs",
+                        rows = {
+                            { type="dropdown", label="Glow Style", values=glowValues, order=glowOrder,
+                              -- Full glow names ("Action Button Glow") need more than the 130px default.
+                              ddWidth=170,
+                              tooltip="Glows the buffs you can purge or spellsteal. Glowing buffs lead the row and have their own Max Buffs count.",
+                              get=function()
+                                  local g = SDB().buffPurgeGlow
+                                  if type(g) == "number" and glowValues[g] then return g end
+                                  return 0
+                              end,
+                              set=function(v)
+                                  if v == 0 then SDB().buffPurgeGlow = nil else SDB().buffPurgeGlow = v end
+                                  ReloadAndUpdate(); UpdatePreview()
+                              end },
+                            { type="colorpicker", label="Glow Color",
+                              get=function()
+                                  local c = SDB().buffPurgeGlowColor
+                                  if c then return c.r, c.g, c.b end
+                                  return 1, 1, 1
+                              end,
+                              set=function(r, g, b)
+                                  SDB().buffPurgeGlowColor = { r = r, g = g, b = b }
+                                  ReloadAndUpdate(); UpdatePreview()
+                              end,
+                              disabled=GlowOff, disabledTooltip="a Glow Style" },
+                        },
+                    })
+                    local cogBtn = CreateFrame("Button", nil, rgn)
+                    cogBtn:SetSize(26, 26)
+                    cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+                    cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+                    rgn._lastInline = cogBtn
+                    local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+                    cogTex:SetAllPoints()
+                    cogTex:SetTexture(EllesmereUI.COGS_ICON)
+                    cogBtn:SetScript("OnEnter", function(self)
+                        self:SetAlpha(0.7)
+                        EllesmereUI.ShowWidgetTooltip(self, "Glow the buffs you can purge or spellsteal")
+                    end)
+                    cogBtn:SetScript("OnLeave", function(self)
+                        self:SetAlpha(0.4)
+                        EllesmereUI.HideWidgetTooltip()
+                    end)
+                    cogBtn:SetScript("OnClick", function(self) pgShow(self) end)
+                    -- Blocking overlay while Buff Display is None (inline disabled pattern).
+                    local block = CreateFrame("Frame", nil, cogBtn)
+                    block:SetAllPoints()
+                    block:SetFrameLevel(cogBtn:GetFrameLevel() + 10)
+                    block:EnableMouse(true)
+                    block:SetScript("OnEnter", function()
+                        EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Buffs"))
+                    end)
+                    block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                    local function RefreshGlowCog()
+                        local off = BuffDisabled()
+                        cogBtn:SetAlpha(off and 0.15 or 0.4)
+                        block:SetShown(off)
+                    end
+                    RegisterWidgetRefresh(RefreshGlowCog)
+                    RefreshGlowCog()
+                end
             end
             -- Right slot (player frame): the Player Aura Bars debuff Filters model
             -- verbatim (sync with BuildAssignedDebuffsFields): pinned All Debuffs
@@ -14948,19 +15087,39 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     -- Inline "Portrait on Right" cog attached to a Show Portrait toggle
-    -- region. Clicking the cog opens a popup with a single toggle that
-    -- swaps settings.portraitSide between "left" and "right" live.
-    local function AttachPortraitSideCog(rgn, settingsTable)
+    -- region. Clicking the cog opens a popup with a toggle that swaps
+    -- settings.portraitSide between "left" and "right" live; withArtStyle
+    -- (Target of Target / Focus Target) adds the 2D / Class art choice.
+    local function AttachPortraitSideCog(rgn, settingsTable, withArtStyle)
+        local rows = {
+            { type="toggle", label="Portrait on Right",
+              get=function() return (settingsTable.portraitSide or "left") == "right" end,
+              set=function(v)
+                  settingsTable.portraitSide = v and "right" or "left"
+                  ReloadAndUpdate(); UpdatePreview()
+              end },
+        }
+        if withArtStyle then
+            rows[#rows + 1] = { type="dropdown", label="Art Style",
+                values={ ["2d"] = "2D Portrait", ["class"] = "Class" }, order={ "2d", "class" },
+                get=function() return settingsTable.portraitMode == "class" and "class" or "2d" end,
+                set=function(v)
+                    settingsTable.portraitMode = v
+                    ReloadAndUpdate(); UpdatePreview()
+                end }
+            rows[#rows + 1] = { type="dropdown", label="Class Style",
+                values=classThemeSubValues, order=classThemeSubOrder,
+                get=function() return settingsTable.classThemeStyle or "modern" end,
+                set=function(v)
+                    settingsTable.classThemeStyle = v
+                    ReloadAndUpdate(); UpdatePreview()
+                end,
+                disabled=function() return settingsTable.portraitMode ~= "class" end,
+                disabledTooltip="This option requires Art Style to be set to Class", rawTooltip=true }
+        end
         local _, cogShow = EllesmereUI.BuildCogPopup({
             title = "Portrait Settings",
-            rows = {
-                { type="toggle", label="Portrait on Right",
-                  get=function() return (settingsTable.portraitSide or "left") == "right" end,
-                  set=function(v)
-                      settingsTable.portraitSide = v and "right" or "left"
-                      ReloadAndUpdate(); UpdatePreview()
-                  end },
-            },
+            rows = rows,
         })
         local cogBtn = CreateFrame("Button", nil, rgn)
         cogBtn:SetSize(26, 26)
@@ -15013,7 +15172,7 @@ initFrame:SetScript("OnEvent", function(self)
                     ReloadAndUpdate()
                   end }) or { type="label", text="" })
             if isEUI and not EllesmereUI._prebuilding then
-                AttachPortraitSideCog(portraitRow._rightRegion, settingsTable)
+                AttachPortraitSideCog(portraitRow._rightRegion, settingsTable, true)
             end
             AttachFrameSourceCog(portraitRow._leftRegion, unitKey, {
                 tooltip = "Due to Blizzard API restrictions, Blizzard's native " .. childName

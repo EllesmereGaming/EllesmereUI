@@ -2298,15 +2298,26 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
             local entry = _ttSorted[i]
             local spell = entry.spell
             local hasIcon = false
-            -- Unlike the recap event's ev.spellId, a combatSpells spellID can be
-            -- secret in the open world (non-group participants) and GetSpellTexture
-            -- rejects a secret argument outright ("bad argument #1") rather than
-            -- tolerating it -- skip the icon rather than crash the whole tooltip.
-            if spell.spellID and not IsSecret(spell.spellID) then
-                local spIcon = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spell.spellID)
-                if spIcon then
-                    hasIcon = true
-                    b.spellIcon:SetTexture(spIcon); b.spellIcon:Show()
+            -- A combatSpells spellID is secret in combat. GetSpellTexture takes a
+            -- secret id (AllowedWhenTainted; Blizzard's own meter passes it straight
+            -- in) but rejects some outright ("bad argument #1": open-world non-group
+            -- participants), so a secret id goes through pcall and its result is
+            -- tested by type() only, never by truthiness (it may come back secret).
+            local spID = spell.spellID
+            local getTex = C_Spell and C_Spell.GetSpellTexture
+            if spID and getTex then
+                if IsSecret(spID) then
+                    local ok, spIcon = pcall(getTex, spID)
+                    if ok and type(spIcon) ~= "nil" then
+                        hasIcon = true
+                        b.spellIcon:SetTexture(spIcon); b.spellIcon:Show()
+                    end
+                else
+                    local spIcon = getTex(spID)
+                    if spIcon then
+                        hasIcon = true
+                        b.spellIcon:SetTexture(spIcon); b.spellIcon:Show()
+                    end
                 end
             end
             if not hasIcon then b.spellIcon:Hide() end
@@ -4574,13 +4585,23 @@ local function CreateDMWindow(winIdx)
                 bar.row:SetPoint("TOPRIGHT", W.srcContent, "TOPRIGHT", 0, yOff2)
                 bar.row:SetHeight(barH)
                 local iconOffset = 0
-                -- Same secret-spellID crash as the tooltip breakdown above: skip
-                -- the icon instead of letting GetSpellTexture reject the argument.
-                if spell.spellID and not IsSecret(spell.spellID) then
-                    local spIcon = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spell.spellID)
+                -- Same secret-spellID handling as the tooltip breakdown above: a
+                -- secret id goes through pcall and its result is tested by type().
+                local spID = spell.spellID
+                local getTex = C_Spell and C_Spell.GetSpellTexture
+                local spIcon, haveIcon
+                if spID and getTex then
+                    if IsSecret(spID) then
+                        local ok, tex = pcall(getTex, spID)
+                        if ok and type(tex) ~= "nil" then spIcon, haveIcon = tex, true end
+                    else
+                        spIcon = getTex(spID)
+                        haveIcon = spIcon and true or false
+                    end
+                end
+                if haveIcon then
                     local _cz = DB().classIconZoom or 0.06
-                    if spIcon then bar.classIcon:SetTexture(spIcon); bar.classIcon:SetTexCoord(_cz, 1 - _cz, _cz, 1 - _cz); bar.classIcon:SetSize(barH, barH); bar.classIcon:Show(); iconOffset = barH
-                    else bar.classIcon:Hide() end
+                    bar.classIcon:SetTexture(spIcon); bar.classIcon:SetTexCoord(_cz, 1 - _cz, _cz, 1 - _cz); bar.classIcon:SetSize(barH, barH); bar.classIcon:Show(); iconOffset = barH
                 else bar.classIcon:Hide() end
                 bar.fill:ClearAllPoints(); bar.fill:SetPoint("TOPLEFT", bar.row, "TOPLEFT", iconOffset, 0)
                 bar.fill:SetPoint("TOPRIGHT", bar.row, "TOPRIGHT", 0, 0); bar.fill:SetHeight(barH)

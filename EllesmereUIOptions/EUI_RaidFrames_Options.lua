@@ -447,7 +447,11 @@ initFrame:SetScript("OnEvent", function(self)
 
         local function UpdateSortLabel()
             local mode = opts.readMode()
-            sLabel:SetText(mode == "ROLE" and EllesmereUI.L("Role") or EllesmereUI.L("Group"))
+            if mode == "FRAMESORT" then
+                sLabel:SetText("FrameSort")
+            else
+                sLabel:SetText(mode == "ROLE" and EllesmereUI.L("Role") or EllesmereUI.L("Group"))
+            end
         end
         UpdateSortLabel()
 
@@ -501,6 +505,13 @@ initFrame:SetScript("OnEvent", function(self)
             { key = "INDEX", label = "Group" },
             { key = "ROLE",  label = "Role" },
         }
+        -- Offered only while FrameSort's API is present (its sorted unit list
+        -- orders the frames; the same test the frames use). A saved choice
+        -- with the addon gone falls back to Group order in the frames and
+        -- keeps its label here.
+        if ns._FrameSortApi and ns._FrameSortApi() then
+            radioItems[#radioItems + 1] = { key = "FRAMESORT", label = "FrameSort", noLoc = true }
+        end
         local SEL_A = EllesmereUI.DD_ITEM_SEL_A
         local HL_A  = EllesmereUI.DD_ITEM_HL_A
         local itemDimA = EllesmereUI.TEXT_DIM_A or 0.53
@@ -537,7 +548,7 @@ initFrame:SetScript("OnEvent", function(self)
                 menuFrame:Hide()
             end)
 
-            rl:SetText(EllesmereUI.L(ri.label))
+            rl:SetText(ri.noLoc and ri.label or EllesmereUI.L(ri.label))
             radioRows[#radioRows + 1] = rr
             mY = mY - MH
         end
@@ -808,9 +819,9 @@ initFrame:SetScript("OnEvent", function(self)
         ["blizzardRaid"]          = "Blizzard Raid Bar",
     }
     -- Shield absorb shows every style including Blizzard (Modern).
-    local absorbStyleOrder = { "none", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "blizzardModern", "largeStripes", "largeStripesR", "blizzardRaid" }
+    local absorbStyleOrder = { "none", "blizzardModern", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "largeStripes", "largeStripesR", "blizzardRaid" }
     -- Heal absorb shares the values table but EXCLUDES Blizzard (Modern).
-    local healAbsorbStyleOrder = { "none", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "healBlizzModern", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR", "blizzardRaid" }
+    local healAbsorbStyleOrder = { "none", "healBlizzModern", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR", "blizzardRaid" }
     -- Max Health mirrors Heal Absorb plus "Max Health Stripes" first.
     local maxHealthStyleOrder = { "none", "maxHealthStripes", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "healBlizzModern", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR", "blizzardRaid" }
     -- Appends SharedMedia statusbar textures after a divider (mirrors Bar Texture dropdown). "sm:" keys land in the shared health-bar tables via AppendSharedMediaTextures; resolution flows through ns.ResolveAbsorbStyleTex -> health-bar lookup.
@@ -834,12 +845,15 @@ initFrame:SetScript("OnEvent", function(self)
                 for _, k in ipairs(smKeys) do ord[#ord + 1] = k end
             end
         end
-        -- Preview swatch behind each row: compound keys resolve to a representative texture, others via ns.ResolveAbsorbStyleTex.
+        -- Preview swatch behind each row via ns.ResolveAbsorbStyleTex. Default Blizz
+        -- Frames draws its in-game compound: tinted tiled stripes over the solid base
+        -- (ns.ApplyModernAbsorbBar / the _modernBase colour).
+        local modernSwatch = { base = { 0.776, 0.784, 1.0 }, tint = { 0.569, 0.588, 1.0 }, tile = true }
         absorbStyleValues._menuOpts = {
             itemHeight = 28,
             background = function(key)
                 if not key or key == "---" or key == "none" then return nil end
-                if key == "blizzardModern" then return ns.ResolveAbsorbStyleTex("striped") end
+                if key == "blizzardModern" then return ns.ResolveAbsorbStyleTex("striped"), modernSwatch end
                 if key == "maxHealthStripes" then return "Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\striped-maxhp.png" end
                 return ns.ResolveAbsorbStyleTex and ns.ResolveAbsorbStyleTex(key) or nil
             end,
@@ -1504,6 +1518,26 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateHealPredSwatchVis()
         end
 
+        -- Color Custom Borders (the Threat Borders and Dispel Border cogs) recolors the
+        -- frame's own border, so it needs one to recolor: the EllesmereUI style, a Border
+        -- Style other than Solid and a Border Size above 0 (runtime twin:
+        -- ns.RF_CustomBorderOn). Cog rows re-check this on every open.
+        local function CustomBorderOff()
+            if ns.RF_Stock and ns.RF_Stock() then return true end
+            local tex = SGet("borderTexture")
+            return tex == nil or tex == "" or tex == "solid" or SVal("borderSize", 1) <= 0
+        end
+        local function CustomBorderOffTip()
+            if ns.RF_Stock and ns.RF_Stock() then
+                return EllesmereUI.BlizzStyle and EllesmereUI.BlizzStyle.Label("raidframes")
+            end
+            local tex = SGet("borderTexture")
+            if tex == nil or tex == "" or tex == "solid" then
+                return "This option requires a Border Style other than Solid."
+            end
+            return "This option requires a Border Size above 0."
+        end
+
         local smoothThreatRow
         smoothThreatRow, h = W:DualRow(parent, y,
             { type="toggle", text="Smooth Health Bars",
@@ -1514,6 +1548,47 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) SSet("threatBorderSize", v) end });  y = y - h
         ns._editTargets.threat = smoothThreatRow
         ns._editTargets.animateBars = smoothThreatRow
+        -- Cog on Threat Borders: Color Custom Borders recolors the frame's own border in
+        -- the threat color on aggro, drawn instead of the inner border (the slider's
+        -- size still applies whenever the recolor cannot).
+        if not EllesmereUI._prebuilding then
+            local rgn = smoothThreatRow._rightRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Threat Borders",
+                rows = {
+                    { type="toggle", label="Color Custom Borders",
+                      tooltip="Recolors the frame border in the threat color while the unit has aggro instead of drawing a separate border.",
+                      disabled=CustomBorderOff,
+                      disabledTooltip=CustomBorderOffTip,
+                      requireState="disabled",
+                      get=function() return SVal("threatCustomBorder", false) end,
+                      set=function(v) SSet("threatCustomBorder", v) end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
+            -- Its only row needs a custom border: dimmed, with the reason, until there is one.
+            local function UpdateThreatCog() cogBtn:SetAlpha(CustomBorderOff() and 0.15 or 0.4) end
+            cogBtn:SetScript("OnEnter", function(self)
+                if CustomBorderOff() then
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip(CustomBorderOffTip(), "disabled"))
+                else
+                    self:SetAlpha(0.7)
+                end
+            end)
+            cogBtn:SetScript("OnLeave", function()
+                EllesmereUI.HideWidgetTooltip()
+                UpdateThreatCog()
+            end)
+            cogBtn:SetScript("OnClick", function(self) if not CustomBorderOff() then cogShow(self) end end)
+            EllesmereUI.RegisterWidgetRefresh(UpdateThreatCog)
+            UpdateThreatCog()
+        end
 
         -------------------------------------------------------------------
         --  ABSORBS
@@ -1591,6 +1666,18 @@ initFrame:SetScript("OnEvent", function(self)
             { type="dropdown", text="Absorb Style", values=absorbStyleValues, order=absorbStyleOrder,
               getValue=function() return SVal("absorbStyle", "none") end,
               setValue=function(v)
+                  -- Blizzard Glow Line follows the pick: on with Default Blizz Frames, off when
+                  -- leaving it, else kept. A set value is stored explicitly, so a party that
+                  -- starts keeping its own style here keeps the line it showed; an unset one
+                  -- stays unset and keeps following the style.
+                  local was = SVal("absorbStyle", "none")
+                  local glow = SGetPx("absorbGlowLine", "absorbStyle")
+                  if v == "blizzardModern" then
+                      glow = true
+                  elseif was == "blizzardModern" then
+                      glow = false
+                  end
+                  if glow ~= nil then SWrite("absorbGlowLine", glow == true) end
                   SSet("absorbStyle", v)
                   if v == "clean" then
                       SSet("absorbOpacity", 30)
@@ -1692,6 +1779,21 @@ initFrame:SetScript("OnEvent", function(self)
                           SSet("showOvershield", v ~= "never")
                           SSet("overshieldMode", v)
                       end },
+                    { type="toggle", label="Blizzard Glow Line",
+                      tooltip="Adds the Default Blizz Frames glow line where the shield meets current health.",
+                      disabled = function()
+                          if (not kitPage) and SVal("healthVerticalFill", false) == true then return true end
+                          return SVal("absorbEdgeMode", "overlay") == "left" and SVal("absorbStyle", "none") ~= "blizzardModern"
+                      end,
+                      disabledTooltip = "The glow line is not shown on a vertical fill or with the From Left Edge placement",
+                      rawTooltip = true,
+                      get=function()
+                          -- Unset follows the style: on for Default Blizz Frames only.
+                          local g = SGetPx("absorbGlowLine", "absorbStyle")
+                          if g == nil then return SVal("absorbStyle", "none") == "blizzardModern" end
+                          return g == true
+                      end,
+                      set=function(v) SSet("absorbGlowLine", v and true or false) end },
                 },
             })
             -- Re-label on page refresh (Vertical Fill fires one) and drop any built menu so its entries rebuild with the new wording.
@@ -3605,7 +3707,8 @@ initFrame:SetScript("OnEvent", function(self)
             cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(SVal("showDispelIcons", false) and 0.4 or 0.15) end)
             cogBtn:SetScript("OnClick", function(self) if SVal("showDispelIcons", false) then cogShow(self) end end)
         end
-        -- Cog on the Dispel Border slider: thickness in physical pixels of the engine-tinted dispel ring on dispellable debuff ICONS.
+        -- Cog on the Dispel Border slider: thickness in physical pixels of the engine-tinted dispel ring on dispellable debuff ICONS,
+        -- and Color Custom Borders (the frame's own border copied in the dispel type color).
         if not EllesmereUI._prebuilding then
             local rgn = row._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
@@ -3615,6 +3718,14 @@ initFrame:SetScript("OnEvent", function(self)
                       tooltip="Thickness in physical pixels. -1 follows the Debuff Manager's Border setting, 0 hides the dispel color border.",
                       get=function() return SVal("dispelIconBorderSize", 2) end,
                       set=function(v) SSet("dispelIconBorderSize", v) end },
+                    { type="toggle", label="Color Custom Borders",
+                      tooltip="Recolors the frame border in the dispel type color while a debuff of that type is shown.",
+                      -- Copies the frame's own border: only over a custom border (CustomBorderOff).
+                      disabled=CustomBorderOff,
+                      disabledTooltip=CustomBorderOffTip,
+                      requireState="disabled",
+                      get=function() return SVal("dispelCustomBorder", false) end,
+                      set=function(v) SSet("dispelCustomBorder", v) end },
                 },
             })
             local cogBtn = CreateFrame("Button", nil, rgn)
@@ -5462,6 +5573,57 @@ initFrame:SetScript("OnEvent", function(self)
                 writeRoles = function(ro) db.profile.roleOrder = ro; ReloadAndUpdate() end,
             })
             end
+
+            -- Cog next to Sort By: Prioritize Class toggle plus a drag-to-reorder
+            -- Class Order list the toggle disables (the party cog, on the raid keys).
+            local rgn = sortRow._leftRegion
+            -- Class list in saved order, always covering every class: any missing/new
+            -- class is appended from the default alphabetical order.
+            local function GetClassItems()
+                local def = ns._GetDefaultClassOrder()  -- also populates ns._classNameByToken
+                local names = ns._classNameByToken or {}
+                local saved = db.profile.classOrder
+                local order, seen = {}, {}
+                if saved then
+                    for _, t in ipairs(saved) do
+                        if names[t] and not seen[t] then order[#order + 1] = t; seen[t] = true end
+                    end
+                end
+                for _, t in ipairs(def) do if not seen[t] then order[#order + 1] = t; seen[t] = true end end
+                local out = {}
+                for _, t in ipairs(order) do out[#out + 1] = { key = t, label = names[t] or t } end
+                return out
+            end
+            -- FrameSort's list owns the order while it is the loaded Sort By choice.
+            local function FsOwns()
+                return db.profile.sortMode == "FRAMESORT" and ns._FrameSortApi and ns._FrameSortApi() ~= nil or false
+            end
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Class Sorting",
+                rows = {
+                    { type = "toggle", label = "Prioritize Class",
+                      tooltip = "This will not override sorting by role",
+                      get = function() return db.profile.prioritizeClass end,
+                      set = function(v) db.profile.prioritizeClass = v; ReloadAndUpdate() end,
+                      disabled = FsOwns,
+                      disabledTooltip = "FrameSort sets the order while Sort By is FrameSort.", rawTooltip = true },
+                    { type = "reorder", label = "Class Order", hint = "Drag to Reorder Classes",
+                      items = GetClassItems,
+                      set = function(keys) db.profile.classOrder = keys; ReloadAndUpdate() end,
+                      disabled = function() return not db.profile.prioritizeClass or FsOwns() end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
+            cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
         end
 
         -- Row 3: Show Groups (checkbox dropdown) | Merge Groups
@@ -5931,17 +6093,24 @@ initFrame:SetScript("OnEvent", function(self)
                 for _, t in ipairs(order) do out[#out + 1] = { key = t, label = names[t] or t } end
                 return out
             end
+            -- FrameSort's list owns the order while it is the loaded Sort By choice.
+            local function FsOwns()
+                return (db.profile.partySortMode or db.profile.sortMode) == "FRAMESORT"
+                    and ns._FrameSortApi and ns._FrameSortApi() ~= nil or false
+            end
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Class Sorting",
                 rows = {
                     { type = "toggle", label = "Prioritize Class",
                       tooltip = "This will not override sorting by role",
                       get = function() return db.profile.partyPrioritizeClass end,
-                      set = function(v) db.profile.partyPrioritizeClass = v; PartyReloadAndUpdate() end },
+                      set = function(v) db.profile.partyPrioritizeClass = v; PartyReloadAndUpdate() end,
+                      disabled = FsOwns,
+                      disabledTooltip = "FrameSort sets the order while Sort By is FrameSort.", rawTooltip = true },
                     { type = "reorder", label = "Class Order", hint = "Drag to Reorder Classes",
                       items = GetClassItems,
                       set = function(keys) db.profile.partyClassOrder = keys; PartyReloadAndUpdate() end,
-                      disabled = function() return not db.profile.partyPrioritizeClass end },
+                      disabled = function() return not db.profile.partyPrioritizeClass or FsOwns() end },
                 },
             })
             local cogBtn = CreateFrame("Button", nil, rgn)
@@ -6388,7 +6557,7 @@ initFrame:SetScript("OnEvent", function(self)
                 absorbs = s.absorbStyle ~= "none",
                 healAbsorbs = (s.healAbsorbStyle or "clean") ~= "none",
                 healPrediction = s.healPrediction == true,
-                threat = (s.threatBorderSize or 0) > 0,
+                threat = (s.threatBorderSize or 0) > 0 or (s.threatCustomBorder == true and ns.RF_CustomBorderOn(s)),
                 reducedMaxHealth = false,
                 dispels = false,
                 debuffs = s.debuffFilter ~= "none",
