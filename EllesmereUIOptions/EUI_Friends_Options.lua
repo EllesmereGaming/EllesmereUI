@@ -155,29 +155,6 @@ initFrame:SetScript("OnEvent", function(self)
         "arcade", "legend", "midnight", "runic",
     }
 
-    -- Inline cog button. When disabledFn/disabledLabel are given, the cog dims
-    -- and blocks (with a requirement tooltip) while disabledFn() is true --
-    -- the standard inline-control disabled-state pattern.
-    local function MakeCogBtn(rgn, showFn, disabledFn, disabledLabel)
-        local cogBtn = EllesmereUI.MakeCogBtn(rgn, showFn, nil, nil, disabledFn)
-        if disabledFn then
-            local block = CreateFrame("Frame", nil, cogBtn)
-            block:SetAllPoints()
-            block:SetFrameLevel(cogBtn:GetFrameLevel() + 10)
-            block:EnableMouse(true)
-            block:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip(disabledLabel))
-            end)
-            block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            local function UpdateState()
-                if disabledFn() then block:Show() else block:Hide() end
-            end
-            EllesmereUI.RegisterWidgetRefresh(UpdateState)
-            UpdateState()
-        end
-        return cogBtn
-    end
-
     -- Live repaint after a display toggle: the legacy list's row pass, plus a
     -- decoration-only pass over the 12.1 cards (never Blizzard's view:Refresh,
     -- which regenerates the list data from our execution and taints whispers).
@@ -352,7 +329,7 @@ initFrame:SetScript("OnEvent", function(self)
                   end }
             },
         })
-        MakeCogBtn(rgn, cogShow, autoAcceptOff, "Auto-Accept Friend Invites")
+        EllesmereUI.MakeCogBtn(rgn, cogShow, nil, nil, autoAcceptOff, "Auto-Accept Friend Invites")
         end
 
         return math.abs(y)

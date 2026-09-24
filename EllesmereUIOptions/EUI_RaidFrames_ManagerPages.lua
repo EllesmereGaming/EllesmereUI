@@ -443,18 +443,7 @@ function ns.BMP_BuildBaseDetail(root, leftW, visibleH, s, fontPath, PP)
                   get = function() return BVal("offsetY", 0) end, set = function(v) BSet("offsetY", v) end },
             },
         })
-        local cogBtn = CreateFrame("Button", nil, rgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
-        local function UpdCog() local off = BuffsOff(); cogBtn:SetAlpha(off and 0.15 or 0.4); cogBtn:EnableMouse(not off) end
-        cogBtn:SetScript("OnEnter", function(self) if not BuffsOff() then self:SetAlpha(0.7) end end)
-        cogBtn:SetScript("OnLeave", function() UpdCog() end)
-        cogBtn:SetScript("OnClick", function(self) if not BuffsOff() then cogShow(self) end end)
-        UpdCog(); EllesmereUI.RegisterWidgetRefresh(UpdCog)
+        EllesmereUI.MakeCogBtn(rgn, cogShow, nil, EllesmereUI.DIRECTIONS_ICON, BuffsOff)
     end
 
     local row2
@@ -477,18 +466,7 @@ function ns.BMP_BuildBaseDetail(root, leftW, visibleH, s, fontPath, PP)
                   set = function(v) BSet("iconZoom", v) end },
             },
         })
-        local cogBtn = CreateFrame("Button", nil, rgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
-        local function UpdCog() local off = BuffsOff(); cogBtn:SetAlpha(off and 0.15 or 0.4); cogBtn:EnableMouse(not off) end
-        cogBtn:SetScript("OnEnter", function(self) if not BuffsOff() then self:SetAlpha(0.7) end end)
-        cogBtn:SetScript("OnLeave", function() UpdCog() end)
-        cogBtn:SetScript("OnClick", function(self) if not BuffsOff() then cogShow(self) end end)
-        UpdCog(); EllesmereUI.RegisterWidgetRefresh(UpdCog)
+        EllesmereUI.MakeCogBtn(rgn, cogShow, nil, nil, BuffsOff)
     end
 
     local row3
@@ -571,24 +549,8 @@ function ns.BMP_BuildBaseDetail(root, leftW, visibleH, s, fontPath, PP)
                   get = function() return BVal("stacksOffsetY", 2) end, set = function(v) BSet("stacksOffsetY", v) end },
             },
         })
-        local cogBtn = CreateFrame("Button", nil, rgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        cogBtn:SetAlpha(0.4)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-        local function UpdateStacksCog()
-            local off = BuffsOff() or not BVal("showStacks", true)
-            cogBtn:SetAlpha(off and 0.15 or 0.4)
-            cogBtn:EnableMouse(not off)
-        end
-        cogBtn:SetScript("OnEnter", function(self) if not (BuffsOff() or not BVal("showStacks", true)) then self:SetAlpha(0.7) end end)
-        cogBtn:SetScript("OnLeave", function() UpdateStacksCog() end)
-        cogBtn:SetScript("OnClick", function(self) if not (BuffsOff() or not BVal("showStacks", true)) then cogShow(self) end end)
-        UpdateStacksCog()
-        EllesmereUI.RegisterWidgetRefresh(UpdateStacksCog)
+        EllesmereUI.MakeCogBtn(rgn, cogShow, nil, EllesmereUI.RESIZE_ICON,
+            function() return BuffsOff() or not BVal("showStacks", true) end)
     end
 
     _, hh = W:DualRow(optsFrame, sy,

@@ -272,38 +272,8 @@ initFrame:SetScript("OnEvent", function(self)
                     },
                 })
                 local rightRgn = setNameRow._rightRegion
-                local snCog = CreateFrame("Button", nil, rightRgn)
-                snCog:SetSize(26, 26)
-                snCog:SetPoint("RIGHT", rightRgn._control, "LEFT", -8, 0)
-                snCog:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
-                local snCogTex = snCog:CreateTexture(nil, "OVERLAY")
-                snCogTex:SetAllPoints()
-                snCogTex:SetTexture(EllesmereUI.RESIZE_ICON)
                 local function snCogOff() return db.profile.bagShowSetGearName ~= true end
-                snCog:SetAlpha(snCogOff() and 0.15 or 0.4)
-                snCog:SetScript("OnEnter", function(self)
-                    if snCogOff() then
-                        EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("Show Set Name on Gear"))
-                    else self:SetAlpha(0.7) end
-                end)
-                snCog:SetScript("OnLeave", function(self)
-                    self:SetAlpha(snCogOff() and 0.15 or 0.4)
-                    EllesmereUI.HideWidgetTooltip()
-                end)
-                snCog:SetScript("OnClick", function(self)
-                    if not snCogOff() then snCogShow(self) end
-                end)
-                local snBlock = CreateFrame("Frame", nil, snCog)
-                snBlock:SetAllPoints(); snBlock:SetFrameLevel(snCog:GetFrameLevel() + 10); snBlock:EnableMouse(true)
-                snBlock:SetScript("OnEnter", function()
-                    EllesmereUI.ShowWidgetTooltip(snCog, EllesmereUI.DisabledTooltip("Show Set Name on Gear"))
-                end)
-                snBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                if snCogOff() then snBlock:Show() else snBlock:Hide() end
-                EllesmereUI.RegisterWidgetRefresh(function()
-                    if snCogOff() then snCog:SetAlpha(0.15); snBlock:Show()
-                    else snCog:SetAlpha(0.4); snBlock:Hide() end
-                end)
+                EllesmereUI.MakeCogBtn(rightRgn, snCogShow, rightRgn._control, EllesmereUI.RESIZE_ICON, snCogOff, "Show Set Name on Gear")
             end
 
             -- Default Bag Type | Show BoE / Warbound Text (+ inline cog: Text Size)
@@ -359,38 +329,8 @@ initFrame:SetScript("OnEvent", function(self)
                     },
                 })
                 local rightRgn = bindRow._rightRegion
-                local btCog = CreateFrame("Button", nil, rightRgn)
-                btCog:SetSize(26, 26)
-                btCog:SetPoint("RIGHT", rightRgn._control, "LEFT", -8, 0)
-                btCog:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
-                local btCogTex = btCog:CreateTexture(nil, "OVERLAY")
-                btCogTex:SetAllPoints()
-                btCogTex:SetTexture(EllesmereUI.RESIZE_ICON)
                 local function btCogOff() return not db.profile.bagDisplayBindType end
-                btCog:SetAlpha(btCogOff() and 0.15 or 0.4)
-                btCog:SetScript("OnEnter", function(self)
-                    if btCogOff() then
-                        EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("Show BoE / Warbound Text"))
-                    else self:SetAlpha(0.7) end
-                end)
-                btCog:SetScript("OnLeave", function(self)
-                    self:SetAlpha(btCogOff() and 0.15 or 0.4)
-                    EllesmereUI.HideWidgetTooltip()
-                end)
-                btCog:SetScript("OnClick", function(self)
-                    if not btCogOff() then btCogShow(self) end
-                end)
-                local btBlock = CreateFrame("Frame", nil, btCog)
-                btBlock:SetAllPoints(); btBlock:SetFrameLevel(btCog:GetFrameLevel() + 10); btBlock:EnableMouse(true)
-                btBlock:SetScript("OnEnter", function()
-                    EllesmereUI.ShowWidgetTooltip(btCog, EllesmereUI.DisabledTooltip("Show BoE / Warbound Text"))
-                end)
-                btBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                if btCogOff() then btBlock:Show() else btBlock:Hide() end
-                EllesmereUI.RegisterWidgetRefresh(function()
-                    if btCogOff() then btCog:SetAlpha(0.15); btBlock:Show()
-                    else btCog:SetAlpha(0.4); btBlock:Hide() end
-                end)
+                EllesmereUI.MakeCogBtn(rightRgn, btCogShow, rightRgn._control, EllesmereUI.RESIZE_ICON, btCogOff, "Show BoE / Warbound Text")
             end
 
             -- Category Title Size | Show Item Level (+ inline cog: Gear Track Rank)
@@ -428,38 +368,8 @@ initFrame:SetScript("OnEvent", function(self)
                     },
                 })
                 local rightRgn = ilvlRow._rightRegion
-                local ilCog = CreateFrame("Button", nil, rightRgn)
-                ilCog:SetSize(26, 26)
-                ilCog:SetPoint("RIGHT", rightRgn._control, "LEFT", -8, 0)
-                ilCog:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
-                local ilCogTex = ilCog:CreateTexture(nil, "OVERLAY")
-                ilCogTex:SetAllPoints()
-                ilCogTex:SetTexture(EllesmereUI.COGS_ICON)
                 local function ilCogOff() return db.profile.showItemlevelInBags == false end
-                ilCog:SetAlpha(ilCogOff() and 0.15 or 0.4)
-                ilCog:SetScript("OnEnter", function(self)
-                    if ilCogOff() then
-                        EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("Show Item Level"))
-                    else self:SetAlpha(0.7) end
-                end)
-                ilCog:SetScript("OnLeave", function(self)
-                    self:SetAlpha(ilCogOff() and 0.15 or 0.4)
-                    EllesmereUI.HideWidgetTooltip()
-                end)
-                ilCog:SetScript("OnClick", function(self)
-                    if not ilCogOff() then ilCogShow(self) end
-                end)
-                local ilBlock = CreateFrame("Frame", nil, ilCog)
-                ilBlock:SetAllPoints(); ilBlock:SetFrameLevel(ilCog:GetFrameLevel() + 10); ilBlock:EnableMouse(true)
-                ilBlock:SetScript("OnEnter", function()
-                    EllesmereUI.ShowWidgetTooltip(ilCog, EllesmereUI.DisabledTooltip("Show Item Level"))
-                end)
-                ilBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                if ilCogOff() then ilBlock:Show() else ilBlock:Hide() end
-                EllesmereUI.RegisterWidgetRefresh(function()
-                    if ilCogOff() then ilCog:SetAlpha(0.15); ilBlock:Show()
-                    else ilCog:SetAlpha(0.4); ilBlock:Hide() end
-                end)
+                EllesmereUI.MakeCogBtn(rightRgn, ilCogShow, rightRgn._control, nil, ilCogOff, "Show Item Level")
             end
 
             -- Enabled Categories | Enabled Currencies
@@ -738,38 +648,8 @@ initFrame:SetScript("OnEvent", function(self)
                     },
                 })
                 local leftRgn = sortRow._leftRegion
-                local stCog = CreateFrame("Button", nil, leftRgn)
-                stCog:SetSize(26, 26)
-                stCog:SetPoint("RIGHT", leftRgn._control, "LEFT", -8, 0)
-                stCog:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-                local stCogTex = stCog:CreateTexture(nil, "OVERLAY")
-                stCogTex:SetAllPoints()
-                stCogTex:SetTexture(EllesmereUI.COGS_ICON)
                 local function stCogOff() return db.profile.bagShowSortIcon == false end
-                stCog:SetAlpha(stCogOff() and 0.15 or 0.4)
-                stCog:SetScript("OnEnter", function(self)
-                    if stCogOff() then
-                        EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("Show Sort Icon"))
-                    else self:SetAlpha(0.7) end
-                end)
-                stCog:SetScript("OnLeave", function(self)
-                    self:SetAlpha(stCogOff() and 0.15 or 0.4)
-                    EllesmereUI.HideWidgetTooltip()
-                end)
-                stCog:SetScript("OnClick", function(self)
-                    if not stCogOff() then sortCogShow(self) end
-                end)
-                local stBlock = CreateFrame("Frame", nil, stCog)
-                stBlock:SetAllPoints(); stBlock:SetFrameLevel(stCog:GetFrameLevel() + 10); stBlock:EnableMouse(true)
-                stBlock:SetScript("OnEnter", function()
-                    EllesmereUI.ShowWidgetTooltip(stCog, EllesmereUI.DisabledTooltip("Show Sort Icon"))
-                end)
-                stBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                if stCogOff() then stBlock:Show() else stBlock:Hide() end
-                EllesmereUI.RegisterWidgetRefresh(function()
-                    if stCogOff() then stCog:SetAlpha(0.15); stBlock:Show()
-                    else stCog:SetAlpha(0.4); stBlock:Hide() end
-                end)
+                EllesmereUI.MakeCogBtn(leftRgn, sortCogShow, leftRgn._control, nil, stCogOff, "Show Sort Icon")
             end
 
             -- Show Pinned Items | Show Recent Items (each with inline cog for OneBag)
@@ -807,38 +687,8 @@ initFrame:SetScript("OnEvent", function(self)
                     },
                 })
                 local leftRgn = pinRecRow._leftRegion
-                local pcCog = CreateFrame("Button", nil, leftRgn)
-                pcCog:SetSize(26, 26)
-                pcCog:SetPoint("RIGHT", leftRgn._control, "LEFT", -8, 0)
-                pcCog:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-                local pcCogTex = pcCog:CreateTexture(nil, "OVERLAY")
-                pcCogTex:SetAllPoints()
-                pcCogTex:SetTexture(EllesmereUI.COGS_ICON)
                 local function pcCogOff() return db.profile.bagShowPinnedItems == false end
-                pcCog:SetAlpha(pcCogOff() and 0.15 or 0.4)
-                pcCog:SetScript("OnEnter", function(self)
-                    if pcCogOff() then
-                        EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("Show Pinned Items"))
-                    else self:SetAlpha(0.7) end
-                end)
-                pcCog:SetScript("OnLeave", function(self)
-                    self:SetAlpha(pcCogOff() and 0.15 or 0.4)
-                    EllesmereUI.HideWidgetTooltip()
-                end)
-                pcCog:SetScript("OnClick", function(self)
-                    if not pcCogOff() then pinCogShow(self) end
-                end)
-                local pcBlock = CreateFrame("Frame", nil, pcCog)
-                pcBlock:SetAllPoints(); pcBlock:SetFrameLevel(pcCog:GetFrameLevel() + 10); pcBlock:EnableMouse(true)
-                pcBlock:SetScript("OnEnter", function()
-                    EllesmereUI.ShowWidgetTooltip(pcCog, EllesmereUI.DisabledTooltip("Show Pinned Items"))
-                end)
-                pcBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                if pcCogOff() then pcBlock:Show() else pcBlock:Hide() end
-                EllesmereUI.RegisterWidgetRefresh(function()
-                    if pcCogOff() then pcCog:SetAlpha(0.15); pcBlock:Show()
-                    else pcCog:SetAlpha(0.4); pcBlock:Hide() end
-                end)
+                EllesmereUI.MakeCogBtn(leftRgn, pinCogShow, leftRgn._control, nil, pcCogOff, "Show Pinned Items")
             end
 
             -- Inline cog for Show Recent Items: "Show in OneBag"
@@ -861,38 +711,8 @@ initFrame:SetScript("OnEvent", function(self)
                     },
                 })
                 local rightRgn = pinRecRow._rightRegion
-                local rcCog = CreateFrame("Button", nil, rightRgn)
-                rcCog:SetSize(26, 26)
-                rcCog:SetPoint("RIGHT", rightRgn._control, "LEFT", -8, 0)
-                rcCog:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
-                local rcCogTex = rcCog:CreateTexture(nil, "OVERLAY")
-                rcCogTex:SetAllPoints()
-                rcCogTex:SetTexture(EllesmereUI.COGS_ICON)
                 local function rcCogOff() return db.profile.bagShowRecentItems == false end
-                rcCog:SetAlpha(rcCogOff() and 0.15 or 0.4)
-                rcCog:SetScript("OnEnter", function(self)
-                    if rcCogOff() then
-                        EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("Show Recent Items"))
-                    else self:SetAlpha(0.7) end
-                end)
-                rcCog:SetScript("OnLeave", function(self)
-                    self:SetAlpha(rcCogOff() and 0.15 or 0.4)
-                    EllesmereUI.HideWidgetTooltip()
-                end)
-                rcCog:SetScript("OnClick", function(self)
-                    if not rcCogOff() then recentCogShow(self) end
-                end)
-                local rcBlock = CreateFrame("Frame", nil, rcCog)
-                rcBlock:SetAllPoints(); rcBlock:SetFrameLevel(rcCog:GetFrameLevel() + 10); rcBlock:EnableMouse(true)
-                rcBlock:SetScript("OnEnter", function()
-                    EllesmereUI.ShowWidgetTooltip(rcCog, EllesmereUI.DisabledTooltip("Show Recent Items"))
-                end)
-                rcBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                if rcCogOff() then rcBlock:Show() else rcBlock:Hide() end
-                EllesmereUI.RegisterWidgetRefresh(function()
-                    if rcCogOff() then rcCog:SetAlpha(0.15); rcBlock:Show()
-                    else rcCog:SetAlpha(0.4); rcBlock:Hide() end
-                end)
+                EllesmereUI.MakeCogBtn(rightRgn, recentCogShow, rightRgn._control, nil, rcCogOff, "Show Recent Items")
             end
 
             -- Show Pinned & Recent Tips | Hide 'Add Category' Tab
@@ -985,14 +805,6 @@ initFrame:SetScript("OnEvent", function(self)
                     },
                 })
                 local leftRgn = armoryRow._leftRegion
-                local armoryCog = CreateFrame("Button", nil, leftRgn)
-                armoryCog:SetSize(26, 26)
-                armoryCog:SetPoint("RIGHT", leftRgn._control, "LEFT", -8, 0)
-                leftRgn._lastInline = armoryCog
-                armoryCog:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-                local armoryCogTex = armoryCog:CreateTexture(nil, "OVERLAY")
-                armoryCogTex:SetAllPoints()
-                armoryCogTex:SetTexture(EllesmereUI.COGS_ICON)
                 local function ArmoryCogState()
                     local dc = db.profile.bagDisabledCategories
                     if dc and dc["Armor"] == true then return true, "Armor" end
@@ -1001,32 +813,9 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                     return false
                 end
-                armoryCog:SetAlpha(ArmoryCogState() and 0.15 or 0.4)
-                armoryCog:SetScript("OnEnter", function(self)
-                    local off, reason = ArmoryCogState()
-                    if off then
-                        EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip(reason))
-                    else self:SetAlpha(0.7) end
-                end)
-                armoryCog:SetScript("OnLeave", function(self)
-                    self:SetAlpha(ArmoryCogState() and 0.15 or 0.4)
-                    EllesmereUI.HideWidgetTooltip()
-                end)
-                armoryCog:SetScript("OnClick", function(self)
-                    if not ArmoryCogState() then armoryCogShow(self) end
-                end)
-                local armoryBlock = CreateFrame("Frame", nil, armoryCog)
-                armoryBlock:SetAllPoints(); armoryBlock:SetFrameLevel(armoryCog:GetFrameLevel() + 10); armoryBlock:EnableMouse(true)
-                armoryBlock:SetScript("OnEnter", function()
-                    local _, reason = ArmoryCogState()
-                    EllesmereUI.ShowWidgetTooltip(armoryCog, EllesmereUI.DisabledTooltip(reason))
-                end)
-                armoryBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                if ArmoryCogState() then armoryBlock:Show() else armoryBlock:Hide() end
-                EllesmereUI.RegisterWidgetRefresh(function()
-                    if ArmoryCogState() then armoryCog:SetAlpha(0.15); armoryBlock:Show()
-                    else armoryCog:SetAlpha(0.4); armoryBlock:Hide() end
-                end)
+                EllesmereUI.MakeCogBtn(leftRgn, armoryCogShow, leftRgn._control, nil,
+                    function() return (ArmoryCogState()) end,
+                    function() local _, reason = ArmoryCogState(); return reason end)
             end
 
             _, h = W:Spacer(parent, y, 20); y = y - h

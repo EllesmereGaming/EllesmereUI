@@ -6469,13 +6469,14 @@ end
 EllesmereUI.BuildInlineSwatches = BuildInlineSwatches
 
 -------------------------------------------------------------------------------
---  MakeCogBtn(region, showFn, anchorTo, iconPath, disabledFn)
+--  MakeCogBtn(region, showFn, anchorTo, iconPath, disabledFn, disabledTip)
 --  Inline 26x26 cog button to the LEFT of anchorTo (default: the region's last inline item, else its control).
 --  Chains region._lastInline, so the next inline item lands left of the cog. Alpha 0.4, 0.7 on hover; a click
 --  calls showFn(cogBtn). iconPath defaults to COGS_ICON. With disabledFn, the cog dims to 0.15 and ignores the
---  mouse while disabledFn() is true; re-evaluated on page refresh.
+--  mouse while disabledFn() is true; re-evaluated on page refresh. With disabledTip too (a string, or a function
+--  that returns one), a blocker over the disabled cog shows DisabledTooltip(disabledTip) on hover.
 -------------------------------------------------------------------------------
-local function MakeCogBtn(region, showFn, anchorTo, iconPath, disabledFn)
+local function MakeCogBtn(region, showFn, anchorTo, iconPath, disabledFn, disabledTip)
     local cogBtn = CreateFrame("Button", nil, region)
     cogBtn:SetSize(26, 26)
     cogBtn:SetPoint("RIGHT", anchorTo or region._lastInline or region._control, "LEFT", -8, 0)
@@ -6490,10 +6491,24 @@ local function MakeCogBtn(region, showFn, anchorTo, iconPath, disabledFn)
     cogBtn:SetScript("OnLeave", function(self) if not isOff() then self:SetAlpha(0.4) end end)
     cogBtn:SetScript("OnClick", function(self) if not isOff() then showFn(self) end end)
     if disabledFn then
+        local block
+        if disabledTip ~= nil then
+            block = CreateFrame("Frame", nil, cogBtn)
+            block:SetAllPoints()
+            block:SetFrameLevel(cogBtn:GetFrameLevel() + 10)
+            block:EnableMouse(true)
+            block:SetScript("OnEnter", function()
+                local tip = disabledTip
+                if type(tip) == "function" then tip = tip() end
+                ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip(tip))
+            end)
+            block:SetScript("OnLeave", function() HideWidgetTooltip() end)
+        end
         local function applyCogState()
             local off = isOff()
             cogBtn:SetAlpha(off and 0.15 or 0.4)
             cogBtn:EnableMouse(not off)
+            if block then block:SetShown(off) end
         end
         applyCogState()
         RegisterWidgetRefresh(applyCogState)

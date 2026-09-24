@@ -896,28 +896,7 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) local m=MinimapDB(); if not m then return end m.omniumFolioY=v; RefreshMinimap() end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(omniumOff() and 0.15 or 0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(omniumOff() and 0.15 or 0.4) end)
-            cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
-            local cogBlock = CreateFrame("Frame", nil, cogBtn)
-            cogBlock:SetAllPoints(); cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10); cogBlock:EnableMouse(true)
-            cogBlock:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Show Omnium Folio")) end)
-            cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            EllesmereUI.RegisterWidgetRefresh(function()
-                local off = omniumOff()
-                cogBtn:SetAlpha(off and 0.15 or 0.4)
-                if off then cogBlock:Show() else cogBlock:Hide() end
-            end)
-            if omniumOff() then cogBlock:Show() else cogBlock:Hide() end
+            EllesmereUI.MakeCogBtn(rgn, cogShow, nil, nil, omniumOff, "Show Omnium Folio")
         end
         end -- not IS_FOREVER
 
@@ -967,28 +946,7 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) local m=MinimapDB(); if not m then return end m.addonCompartmentY=v; RefreshMinimap() end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(CompartmentOff() and 0.15 or 0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(CompartmentOff() and 0.15 or 0.4) end)
-            cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
-            local cogBlock = CreateFrame("Frame", nil, cogBtn)
-            cogBlock:SetAllPoints(); cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10); cogBlock:EnableMouse(true)
-            cogBlock:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Show Addon Compartment")) end)
-            cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            EllesmereUI.RegisterWidgetRefresh(function()
-                local off = CompartmentOff()
-                cogBtn:SetAlpha(off and 0.15 or 0.4)
-                if off then cogBlock:Show() else cogBlock:Hide() end
-            end)
-            if CompartmentOff() then cogBlock:Show() else cogBlock:Hide() end
+            EllesmereUI.MakeCogBtn(rgn, cogShow, nil, nil, CompartmentOff, "Show Addon Compartment")
         end
 
         -- Show Blizzard Elements | Scroll to Zoom
@@ -1108,32 +1066,10 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(mailOff() and 0.15 or 0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(mailOff() and 0.15 or 0.4) end)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
-            local cogBlock = CreateFrame("Frame", nil, cogBtn)
-            cogBlock:SetAllPoints(); cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10); cogBlock:EnableMouse(true)
-            cogBlock:SetScript("OnEnter", function()
+            EllesmereUI.MakeCogBtn(rgn, cogShow, nil, EllesmereUI.DIRECTIONS_ICON, mailOff, function()
                 local m = MinimapDB()
-                local req = (m and m.hideMail) and "Mail in Show Blizzard Elements" or "a Mail Position corner"
-                EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip(req))
+                return (m and m.hideMail) and "Mail in Show Blizzard Elements" or "a Mail Position corner"
             end)
-            cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            EllesmereUI.RegisterWidgetRefresh(function()
-                local off = mailOff()
-                cogBtn:SetAlpha(off and 0.15 or 0.4)
-                if off then cogBlock:Show() else cogBlock:Hide() end
-            end)
-            if mailOff() then cogBlock:Show() else cogBlock:Hide() end
         end
         -- Inline cog on Element Row Position for icon spacing
         if not EllesmereUI._prebuilding then
@@ -1160,29 +1096,8 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(elOff() and 0.15 or 0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(elOff() and 0.15 or 0.4) end)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+            local cogBtn = EllesmereUI.MakeCogBtn(rgn, cogShow, nil, EllesmereUI.RESIZE_ICON, elOff, "Square or Rectangular Shape")
             EllesmereUI.BlizzStyle.BlockInline("minimap", cogBtn)
-            local cogBlock = CreateFrame("Frame", nil, cogBtn)
-            cogBlock:SetAllPoints(); cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10); cogBlock:EnableMouse(true)
-            cogBlock:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Square or Rectangular Shape")) end)
-            cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            EllesmereUI.RegisterWidgetRefresh(function()
-                local off = elOff()
-                cogBtn:SetAlpha(off and 0.15 or 0.4)
-                if off then cogBlock:Show() else cogBlock:Hide() end
-            end)
-            if elOff() then cogBlock:Show() else cogBlock:Hide() end
         end
 
         y = y - 10
@@ -1266,27 +1181,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(clockOff() and 0.15 or 0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(clockOff() and 0.15 or 0.4) end)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
-            local cogBlock = CreateFrame("Frame", nil, cogBtn)
-            cogBlock:SetAllPoints(); cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10); cogBlock:EnableMouse(true)
-            cogBlock:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Clock Style")) end)
-            cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            EllesmereUI.RegisterWidgetRefresh(function()
-                local off = clockOff()
-                cogBtn:SetAlpha(off and 0.15 or 0.4)
-                if off then cogBlock:Show() else cogBlock:Hide() end
-            end)
-            if clockOff() then cogBlock:Show() else cogBlock:Hide() end
+            EllesmereUI.MakeCogBtn(rgn, cogShow, rgn._control, EllesmereUI.RESIZE_ICON, clockOff, "Clock Style")
         end
 
         -- Zone Text Style | Zone Position (with cog: Scale + X/Y offset)
@@ -1348,28 +1243,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(styleOff() and 0.15 or 0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(styleOff() and 0.15 or 0.4) end)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
-            local cogBlock = CreateFrame("Frame", nil, cogBtn)
-            cogBlock:SetAllPoints(); cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10); cogBlock:EnableMouse(true)
-            cogBlock:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Zone Text Style")) end)
-            cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            EllesmereUI.RegisterWidgetRefresh(function()
-                local off = styleOff()
-                cogBtn:SetAlpha(off and 0.15 or 0.4)
-                if off then cogBlock:Show() else cogBlock:Hide() end
-            end)
-            if styleOff() then cogBlock:Show() else cogBlock:Hide() end
+            EllesmereUI.MakeCogBtn(rgn, cogShow, nil, nil, styleOff, "Zone Text Style")
         end
         -- Inline cog on Zone Position for scale + X/Y offset
         if not EllesmereUI._prebuilding then
@@ -1404,27 +1278,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(locOff() and 0.15 or 0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(locOff() and 0.15 or 0.4) end)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
-            local cogBlock = CreateFrame("Frame", nil, cogBtn)
-            cogBlock:SetAllPoints(); cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10); cogBlock:EnableMouse(true)
-            cogBlock:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Zone Text Style")) end)
-            cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            EllesmereUI.RegisterWidgetRefresh(function()
-                local off = locOff()
-                cogBtn:SetAlpha(off and 0.15 or 0.4)
-                if off then cogBlock:Show() else cogBlock:Hide() end
-            end)
-            if locOff() then cogBlock:Show() else cogBlock:Hide() end
+            EllesmereUI.MakeCogBtn(rgn, cogShow, rgn._control, EllesmereUI.RESIZE_ICON, locOff, "Zone Text Style")
         end
 
         -- Show Coordinates | Coordinates Position (with cog: X/Y offset)
@@ -1493,27 +1347,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(coordsOff() and 0.15 or 0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(coordsOff() and 0.15 or 0.4) end)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
-            local cogBlock = CreateFrame("Frame", nil, cogBtn)
-            cogBlock:SetAllPoints(); cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10); cogBlock:EnableMouse(true)
-            cogBlock:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Show Coordinates")) end)
-            cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            EllesmereUI.RegisterWidgetRefresh(function()
-                local off = coordsOff()
-                cogBtn:SetAlpha(off and 0.15 or 0.4)
-                if off then cogBlock:Show() else cogBlock:Hide() end
-            end)
-            if coordsOff() then cogBlock:Show() else cogBlock:Hide() end
+            EllesmereUI.MakeCogBtn(rgn, cogShow, rgn._control, EllesmereUI.RESIZE_ICON, coordsOff, "Show Coordinates")
         end
 
         -- Show FPS/MS (+ swatch + cog, mirrors QoL Show FPS Counter) | FPS/MS Position (+ offset cog)
@@ -1585,28 +1419,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local fpsCogBtn = CreateFrame("Button", nil, leftRgn)
-            fpsCogBtn:SetSize(26, 26)
-            fpsCogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
-            leftRgn._lastInline = fpsCogBtn
-            fpsCogBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-            fpsCogBtn:SetAlpha(FpsOff() and 0.15 or 0.4)
-            local fpsCogTex = fpsCogBtn:CreateTexture(nil, "OVERLAY")
-            fpsCogTex:SetAllPoints()
-            fpsCogTex:SetTexture(EllesmereUI.COGS_ICON)
-            fpsCogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            fpsCogBtn:SetScript("OnLeave", function(self) self:SetAlpha(FpsOff() and 0.15 or 0.4) end)
-            fpsCogBtn:SetScript("OnClick", function(self) fpsCogShow(self) end)
-            local fpsCogBlock = CreateFrame("Frame", nil, fpsCogBtn)
-            fpsCogBlock:SetAllPoints(); fpsCogBlock:SetFrameLevel(fpsCogBtn:GetFrameLevel() + 10); fpsCogBlock:EnableMouse(true)
-            fpsCogBlock:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(fpsCogBtn, EllesmereUI.DisabledTooltip("Show FPS/MS")) end)
-            fpsCogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            EllesmereUI.RegisterWidgetRefresh(function()
-                local off = FpsOff()
-                fpsCogBtn:SetAlpha(off and 0.15 or 0.4)
-                if off then fpsCogBlock:Show() else fpsCogBlock:Hide() end
-            end)
-            if FpsOff() then fpsCogBlock:Show() else fpsCogBlock:Hide() end
+            EllesmereUI.MakeCogBtn(leftRgn, fpsCogShow, nil, nil, FpsOff, "Show FPS/MS")
         end
         -- Inline offset cog on FPS/MS Position
         if not EllesmereUI._prebuilding then
@@ -1638,27 +1451,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(FpsOff() and 0.15 or 0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(FpsOff() and 0.15 or 0.4) end)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
-            local cogBlock = CreateFrame("Frame", nil, cogBtn)
-            cogBlock:SetAllPoints(); cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10); cogBlock:EnableMouse(true)
-            cogBlock:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Show FPS/MS")) end)
-            cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            EllesmereUI.RegisterWidgetRefresh(function()
-                local off = FpsOff()
-                cogBtn:SetAlpha(off and 0.15 or 0.4)
-                if off then cogBlock:Show() else cogBlock:Hide() end
-            end)
-            if FpsOff() then cogBlock:Show() else cogBlock:Hide() end
+            EllesmereUI.MakeCogBtn(rgn, cogShow, rgn._control, EllesmereUI.RESIZE_ICON, FpsOff, "Show FPS/MS")
         end
 
         -- Show on FPS/MS Hover | Show on Clock Hover
@@ -1748,27 +1541,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(diffOff() and 0.15 or 0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(diffOff() and 0.15 or 0.4) end)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
-            local cogBlock = CreateFrame("Frame", nil, cogBtn)
-            cogBlock:SetAllPoints(); cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10); cogBlock:EnableMouse(true)
-            cogBlock:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Show Instance Difficulty as Text")) end)
-            cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            EllesmereUI.RegisterWidgetRefresh(function()
-                local off = diffOff()
-                cogBtn:SetAlpha(off and 0.15 or 0.4)
-                if off then cogBlock:Show() else cogBlock:Hide() end
-            end)
-            if diffOff() then cogBlock:Show() else cogBlock:Hide() end
+            EllesmereUI.MakeCogBtn(rgn, cogShow, rgn._control, EllesmereUI.RESIZE_ICON, diffOff, "Show Instance Difficulty as Text")
         end
 
         -- Accented Text | (empty) -- which Text elements colour their

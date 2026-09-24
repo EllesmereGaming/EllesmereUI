@@ -14927,18 +14927,7 @@ initFrame:SetScript("OnEvent", function(self)
                   end },
             },
         })
-        local cogBtn = CreateFrame("Button", nil, rgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -9, 0)
-        rgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        cogBtn:SetAlpha(0.4)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints()
-        cogTex:SetTexture(EllesmereUI.COGS_ICON)
-        cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-        cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+        EllesmereUI.MakeCogBtn(rgn, cogShow)
     end
 
     -- Shared builder for the two independent mini frames (Target of Target,
@@ -15160,30 +15149,6 @@ initFrame:SetScript("OnEvent", function(self)
 
         local function bossAfterSize(Ww, pp, yy)
             local _, hh
-            local function BossCogBtn(rgn, showFn, iconPath, disabledFn)
-                local cogBtn = CreateFrame("Button", nil, rgn)
-                cogBtn:SetSize(26, 26)
-                cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-                rgn._lastInline = cogBtn
-                cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-                cogTex:SetAllPoints()
-                cogTex:SetTexture(iconPath or EllesmereUI.COGS_ICON)
-                local function isOff() return disabledFn and disabledFn() or false end
-                cogBtn:SetScript("OnEnter", function(self) if not isOff() then self:SetAlpha(0.7) end end)
-                cogBtn:SetScript("OnLeave", function(self) if not isOff() then self:SetAlpha(0.4) end end)
-                cogBtn:SetScript("OnClick", function(self) if not isOff() then showFn(self) end end)
-                -- Disabled state (cog alpha 0.15 disabled / 0.4 enabled, per the
-                -- inline-controls pattern); re-evaluated on page refresh.
-                local function applyCogState()
-                    local off = isOff()
-                    cogBtn:SetAlpha(off and 0.15 or 0.4)
-                    cogBtn:EnableMouse(not off)
-                end
-                applyCogState()
-                if disabledFn then EllesmereUI.RegisterWidgetRefresh(applyCogState) end
-                return cogBtn
-            end
             -- BUFFS AND DEBUFFS section (below DISPLAY)
             bossAuraHeader, hh = Ww:SectionHeader(pp, "Buffs and Debuffs", yy);  yy = yy - hh
 
@@ -15295,7 +15260,7 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v) db.profile.boss.simpleBuffSpacing = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
                     },
                 })
-                BossCogBtn(leftRgn, simpleBuffPosCogShow, EllesmereUI.DIRECTIONS_ICON,
+                EllesmereUI.MakeCogBtn(leftRgn, simpleBuffPosCogShow, nil, EllesmereUI.DIRECTIONS_ICON,
                     function() return ns.GetBossSimpleBuffMode(db.profile.boss) == "none" end)
             end
 
@@ -15355,7 +15320,7 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v) db.profile.boss.buffStackTextOffsetY = v; ReloadAndUpdate() end },
                     },
                 })
-                BossCogBtn(rightRgn, simpleBuffStackCogShow, nil, buffOff)
+                EllesmereUI.MakeCogBtn(rightRgn, simpleBuffStackCogShow, nil, nil, buffOff)
             end
             -- (Show Duration toggle lives inside the Duration & Stack cog above.)
 
@@ -15438,7 +15403,7 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v) db.profile.boss.simpleDebuffSpacing = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
                     },
                 })
-                BossCogBtn(leftRgn, simplePosCogShow, EllesmereUI.DIRECTIONS_ICON,
+                EllesmereUI.MakeCogBtn(leftRgn, simplePosCogShow, nil, EllesmereUI.DIRECTIONS_ICON,
                     function() return ns.GetBossSimpleDebuffMode(db.profile.boss) == "none" end)
             end
 
@@ -15499,7 +15464,7 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v) db.profile.boss.debuffStackTextOffsetY = v; ReloadAndUpdate() end },
                     },
                 })
-                BossCogBtn(rightRgn, simpleStackCogShow, nil, debuffOff)
+                EllesmereUI.MakeCogBtn(rightRgn, simpleStackCogShow, nil, nil, debuffOff)
             end
             -- (Show Duration toggle lives inside the Duration & Stack cog above.)
 
@@ -15617,7 +15582,7 @@ initFrame:SetScript("OnEvent", function(self)
                       get=function() return db.profile.boss.buffSpacing or 1 end,
                       set=function(v) db.profile.boss.buffSpacing = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
                 } })
-                BossCogBtn(bossAuraSizeRow._leftRegion, bSizeCog, EllesmereUI.DIRECTIONS_ICON, bossBuffSizeOff)
+                EllesmereUI.MakeCogBtn(bossAuraSizeRow._leftRegion, bSizeCog, nil, EllesmereUI.DIRECTIONS_ICON, bossBuffSizeOff)
             end
             if not EllesmereUI._prebuilding then  -- Icon Zoom cog on Buff Size (gated only on buffs hidden, so it
                 -- stays adjustable in Simple Buff Display, where zoom still applies)
@@ -15627,7 +15592,7 @@ initFrame:SetScript("OnEvent", function(self)
                       get=function() return db.profile.boss.buffIconZoom or 0.07 end,
                       set=function(v) db.profile.boss.buffIconZoom = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
                 } })
-                BossCogBtn(bossAuraSizeRow._leftRegion, bZoomCog, nil, bossBuffZoomOff)
+                EllesmereUI.MakeCogBtn(bossAuraSizeRow._leftRegion, bZoomCog, nil, nil, bossBuffZoomOff)
             end
             -- Buff Text Size cog + swatches (right slot): Show Duration +
             -- Duration X/Y + Stack, with inline Duration/Stack text-color
@@ -15686,7 +15651,7 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v) db.profile.boss.buffStackTextOffsetY = v; ReloadAndUpdate() end },
                     },
                 })
-                BossCogBtn(rightRgn, buffStackCogShow, nil, buffOff)
+                EllesmereUI.MakeCogBtn(rightRgn, buffStackCogShow, nil, nil, buffOff)
             end
             end   -- close buff sizing row hidden-while-None gate
 
@@ -15749,7 +15714,7 @@ initFrame:SetScript("OnEvent", function(self)
                           get=function() return db.profile.boss.debuffSpacing or 1 end,
                           set=function(v) db.profile.boss.debuffSpacing = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
                     } })
-                    BossCogBtn(textSizeRow._leftRegion, dSizeCog, EllesmereUI.DIRECTIONS_ICON, bossDebuffSizeOff)
+                    EllesmereUI.MakeCogBtn(textSizeRow._leftRegion, dSizeCog, nil, EllesmereUI.DIRECTIONS_ICON, bossDebuffSizeOff)
                 end
                 if not EllesmereUI._prebuilding then  -- Icon Zoom cog on Debuff Size
                     local bossDebuffZoomOff = function() return (db.profile.boss.debuffAnchor or "bottomleft") == "none" end
@@ -15758,7 +15723,7 @@ initFrame:SetScript("OnEvent", function(self)
                           get=function() return db.profile.boss.debuffIconZoom or 0.07 end,
                           set=function(v) db.profile.boss.debuffIconZoom = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
                     } })
-                    BossCogBtn(textSizeRow._leftRegion, dZoomCog, nil, bossDebuffZoomOff)
+                    EllesmereUI.MakeCogBtn(textSizeRow._leftRegion, dZoomCog, nil, nil, bossDebuffZoomOff)
                 end
                 -- Debuff Text Size cog (right): Show Duration + Duration X/Y + Stack.
                 -- Disabled while Simple Debuff Display is active.
@@ -15821,7 +15786,7 @@ initFrame:SetScript("OnEvent", function(self)
                     -- Disabled while Simple Debuff Display is active: simple mode
                     -- uses its own (simpleDebuff*) cooldown text, so the regular
                     -- debuff Duration & Stack controls do not apply.
-                    BossCogBtn(rightRgn, debuffStackCogShow, nil, debuffOff)
+                    EllesmereUI.MakeCogBtn(rightRgn, debuffStackCogShow, nil, nil, debuffOff)
                 end
                 end   -- close debuff sizing row hidden-while-None gate
 
@@ -15893,7 +15858,7 @@ initFrame:SetScript("OnEvent", function(self)
                             { type="toggle",label="Show Behind",get=function() return B.auraBorderBehind or false end,set=function(v) B.auraBorderBehind=v;ReloadAndUpdate() end },
                             { type="toggle",label="Behind Unit Frame",get=function() return B.auraBorderBehindUnitFrame or false end,set=function(v) B.auraBorderBehindUnitFrame=v;ReloadAndUpdate() end },
                         } })
-                        local btn=BossCogBtn(rgn,show,EllesmereUI.DIRECTIONS_ICON)
+                        local btn=EllesmereUI.MakeCogBtn(rgn, show, nil, EllesmereUI.DIRECTIONS_ICON)
                         local function vis() if (B.auraBorderTexture or "solid")=="solid" then btn:Hide() else btn:Show() end end
                         EllesmereUI.RegisterWidgetRefresh(vis);vis()
                     end
@@ -16008,7 +15973,7 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v) db.profile.boss.buffMaxPerRow = v; ReloadAndUpdate() end },
                     },
                 })
-                local cogBtn = BossCogBtn(leftRgn, bBuffCogShowRaw)
+                local cogBtn = EllesmereUI.MakeCogBtn(leftRgn, bBuffCogShowRaw)
                 if cogBtn then
                     local cogBlock = CreateFrame("Frame", nil, cogBtn)
                     cogBlock:SetAllPoints()
@@ -16054,7 +16019,7 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v) db.profile.boss.debuffMaxPerRow = v; ReloadAndUpdate() end },
                     },
                 })
-                local cogBtn = BossCogBtn(rightRgn, bDebuffCogShowRaw)
+                local cogBtn = EllesmereUI.MakeCogBtn(rightRgn, bDebuffCogShowRaw)
                 if cogBtn then
                     local cogBlock = CreateFrame("Frame", nil, cogBtn)
                     cogBlock:SetAllPoints()
@@ -16096,10 +16061,6 @@ initFrame:SetScript("OnEvent", function(self)
         -- Buffs and Debuffs section above.
         local function bossIndicators(Ww, pp, yy)
             local hh
-            local function ICogBtn(rgn, showFn)
-                local cogBtn = EllesmereUI.MakeCogBtn(rgn, showFn)
-                return cogBtn
-            end
 
             _, hh = Ww:SectionHeader(pp, "Indicators", yy);  yy = yy - hh
 
@@ -16134,7 +16095,7 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v) db.profile.boss.castSpellTargetY = v; ReloadAndUpdate() end },
                     },
                 })
-                ICogBtn(bossTgtRow._rightRegion, bossTgtCogShow)
+                EllesmereUI.MakeCogBtn(bossTgtRow._rightRegion, bossTgtCogShow)
             end
 
             -- Row 2: Show Raid Marker | Raid Marker Size (+ position cog)
@@ -16170,7 +16131,7 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v) db.profile.boss.raidMarkerAlign = v; ReloadAndUpdate() end },
                     },
                 })
-                ICogBtn(bossRmRow._leftRegion, bossRmCogShow)
+                EllesmereUI.MakeCogBtn(bossRmRow._leftRegion, bossRmCogShow)
             end
 
             return yy

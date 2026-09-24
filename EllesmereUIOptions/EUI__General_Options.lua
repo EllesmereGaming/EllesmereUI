@@ -2535,17 +2535,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -9, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+            EllesmereUI.MakeCogBtn(rgn, cogShow)
         end
 
         -- Row 3: EUI Buttons (merged button toggles) | Disable Sync Icons (+ cog)
@@ -2870,40 +2860,7 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
 
-            local dmgCogBtn = CreateFrame("Button", nil, leftRgn)
-            dmgCogBtn:SetSize(26, 26)
-            dmgCogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
-            leftRgn._lastInline = dmgCogBtn
-            dmgCogBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-            dmgCogBtn:SetAlpha(dmgOff() and 0.15 or 0.4)
-            local dmgCogTex = dmgCogBtn:CreateTexture(nil, "OVERLAY")
-            dmgCogTex:SetAllPoints()
-            dmgCogTex:SetTexture(EllesmereUI.COGS_ICON)
-            dmgCogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            dmgCogBtn:SetScript("OnLeave", function(self) self:SetAlpha(dmgOff() and 0.15 or 0.4) end)
-            dmgCogBtn:SetScript("OnClick", function(self) dmgCogShow(self) end)
-
-            local dmgCogBlock = CreateFrame("Frame", nil, dmgCogBtn)
-            dmgCogBlock:SetAllPoints()
-            dmgCogBlock:SetFrameLevel(dmgCogBtn:GetFrameLevel() + 10)
-            dmgCogBlock:EnableMouse(true)
-            dmgCogBlock:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(dmgCogBtn, EllesmereUI.DisabledTooltip("Show Combat Damage Text"))
-            end)
-            dmgCogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
-            EllesmereUI.RegisterWidgetRefresh(function()
-                if dmgOff() then
-                    dmgCogBtn:SetAlpha(0.15)
-                    dmgCogBlock:Show()
-                else
-                    dmgCogBtn:SetAlpha(0.4)
-                    dmgCogBlock:Hide()
-                end
-            end)
-
-            dmgCogBtn:SetAlpha(dmgOff() and 0.15 or 0.4)
-            if dmgOff() then dmgCogBlock:Show() else dmgCogBlock:Hide() end
+            EllesmereUI.MakeCogBtn(leftRgn, dmgCogShow, nil, nil, dmgOff, "Show Combat Damage Text")
         end
 
         -- Swiftmend Brightness Fix (Druid only)

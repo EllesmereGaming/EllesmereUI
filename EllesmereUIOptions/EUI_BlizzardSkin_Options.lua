@@ -314,17 +314,7 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
 
-            local qtCog = CreateFrame("Button", nil, leftRgn)
-            qtCog:SetSize(26, 26)
-            qtCog:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
-            leftRgn._lastInline = qtCog
-            qtCog:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-            local qtCogTex = qtCog:CreateTexture(nil, "OVERLAY")
-            qtCogTex:SetAllPoints()
-            qtCogTex:SetTexture(EllesmereUI.COGS_ICON)
-            qtCog:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            qtCog:SetScript("OnLeave", function(self) self:SetAlpha(timerOff() and 0.15 or 0.4) end)
-            qtCog:SetScript("OnClick", function(self) queueTimerStyleShow(self) end)
+            local qtCog = EllesmereUI.MakeCogBtn(leftRgn, queueTimerStyleShow, nil, nil, timerOff)
 
             local qtSwatch, qtSwatchRefresh = EllesmereUI.BuildColorSwatch(leftRgn,
                 leftRgn:GetFrameLevel() + 5,
@@ -344,7 +334,6 @@ initFrame:SetScript("OnEvent", function(self)
             -- Called at build time too: the refresh list only runs on page show.
             local function UpdQueueTimerState()
                 local off = timerOff()
-                qtCog:SetAlpha(off and 0.15 or 0.4); qtCog:EnableMouse(not off)
                 qtSwatch:SetAlpha(off and 0.15 or 1); qtSwatch:EnableMouse(not off)
                 qtSwatchRefresh()
             end
@@ -441,35 +430,7 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
             -- Manual position button (this file has no shared button helper)
-            local ttPosBtn = CreateFrame("Button", nil, rightRgn)
-            ttPosBtn:SetSize(26, 26)
-            ttPosBtn:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -9, 0)
-            rightRgn._lastInline = ttPosBtn
-            ttPosBtn:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
-            ttPosBtn:SetAlpha(ttCursorOff() and 0.15 or 0.4)
-            local ttPosTex = ttPosBtn:CreateTexture(nil, "OVERLAY")
-            ttPosTex:SetAllPoints()
-            ttPosTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
-            ttPosBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            ttPosBtn:SetScript("OnLeave", function(self) self:SetAlpha(ttCursorOff() and 0.15 or 0.4) end)
-            ttPosBtn:SetScript("OnClick", function(self) ttCursorPosShow(self) end)
-
-            -- Blocking overlay + disabled tooltip when the toggle is off
-            local ttPosBlock = CreateFrame("Frame", nil, ttPosBtn)
-            ttPosBlock:SetAllPoints()
-            ttPosBlock:SetFrameLevel(ttPosBtn:GetFrameLevel() + 10)
-            ttPosBlock:EnableMouse(true)
-            ttPosBlock:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(ttPosBtn, EllesmereUI.DisabledTooltip("Anchor to Cursor"))
-            end)
-            ttPosBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            local function UpdateTtPosState()
-                local off = ttCursorOff()
-                ttPosBtn:SetAlpha(off and 0.15 or 0.4)
-                if off then ttPosBlock:Show() else ttPosBlock:Hide() end
-            end
-            EllesmereUI.RegisterWidgetRefresh(UpdateTtPosState)
-            UpdateTtPosState()
+            EllesmereUI.MakeCogBtn(rightRgn, ttCursorPosShow, nil, EllesmereUI.DIRECTIONS_ICON, ttCursorOff, "Anchor to Cursor")
         end
 
         -- Content cog on Reskin Tooltip (left region): the per-line tooltip content
@@ -560,18 +521,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local ttContentBtn = CreateFrame("Button", nil, leftRgn)
-            ttContentBtn:SetSize(26, 26)
-            ttContentBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
-            leftRgn._lastInline = ttContentBtn
-            ttContentBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-            ttContentBtn:SetAlpha(0.4)
-            local ttContentTex = ttContentBtn:CreateTexture(nil, "OVERLAY")
-            ttContentTex:SetAllPoints()
-            ttContentTex:SetTexture(EllesmereUI.COGS_ICON)
-            ttContentBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            ttContentBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-            ttContentBtn:SetScript("OnClick", function(self) ttContentShow(self) end)
+            EllesmereUI.MakeCogBtn(leftRgn, ttContentShow)
         end
 
         -- Unified tooltip background: controls BOTH the Blizzard tooltip reskin
@@ -670,35 +620,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local sidModBtn = CreateFrame("Button", nil, rightRgn)
-            sidModBtn:SetSize(26, 26)
-            sidModBtn:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -9, 0)
-            rightRgn._lastInline = sidModBtn
-            sidModBtn:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
-            sidModBtn:SetAlpha(sidOff() and 0.15 or 0.4)
-            local sidModTex = sidModBtn:CreateTexture(nil, "OVERLAY")
-            sidModTex:SetAllPoints()
-            sidModTex:SetTexture(EllesmereUI.COGS_ICON)
-            sidModBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            sidModBtn:SetScript("OnLeave", function(self) self:SetAlpha(sidOff() and 0.15 or 0.4) end)
-            sidModBtn:SetScript("OnClick", function(self) sidModShow(self) end)
-
-            -- Blocking overlay + disabled tooltip when Show Spell ID is off
-            local sidModBlock = CreateFrame("Frame", nil, sidModBtn)
-            sidModBlock:SetAllPoints()
-            sidModBlock:SetFrameLevel(sidModBtn:GetFrameLevel() + 10)
-            sidModBlock:EnableMouse(true)
-            sidModBlock:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(sidModBtn, EllesmereUI.DisabledTooltip("Show Spell ID on Tooltip"))
-            end)
-            sidModBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            local function UpdateSidModState()
-                local off = sidOff()
-                sidModBtn:SetAlpha(off and 0.15 or 0.4)
-                if off then sidModBlock:Show() else sidModBlock:Hide() end
-            end
-            EllesmereUI.RegisterWidgetRefresh(UpdateSidModState)
-            UpdateSidModState()
+            EllesmereUI.MakeCogBtn(rightRgn, sidModShow, nil, nil, sidOff, "Show Spell ID on Tooltip")
         end
 
         -- "Use Modifier" cog on Show Tooltips (left region): while the chosen
@@ -827,35 +749,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local iStacksModBtn = CreateFrame("Button", nil, rightRgn)
-            iStacksModBtn:SetSize(26, 26)
-            iStacksModBtn:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -9, 0)
-            rightRgn._lastInline = iStacksModBtn
-            iStacksModBtn:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
-            iStacksModBtn:SetAlpha(iStacksOff() and 0.15 or 0.4)
-            local iStacksModTex = iStacksModBtn:CreateTexture(nil, "OVERLAY")
-            iStacksModTex:SetAllPoints()
-            iStacksModTex:SetTexture(EllesmereUI.COGS_ICON)
-            iStacksModBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            iStacksModBtn:SetScript("OnLeave", function(self) self:SetAlpha(iStacksOff() and 0.15 or 0.4) end)
-            iStacksModBtn:SetScript("OnClick", function(self) iStacksModShow(self) end)
-
-            -- Blocking overlay + disabled tooltip when Show Max Stack for Items is off
-            local iStacksModBlock = CreateFrame("Frame", nil, iStacksModBtn)
-            iStacksModBlock:SetAllPoints()
-            iStacksModBlock:SetFrameLevel(iStacksModBtn:GetFrameLevel() + 10)
-            iStacksModBlock:EnableMouse(true)
-            iStacksModBlock:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(iStacksModBtn, EllesmereUI.DisabledTooltip("Show Max Stack for Items"))
-            end)
-            iStacksModBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            local function UpdateIStacksModState()
-                local off = iStacksOff()
-                iStacksModBtn:SetAlpha(off and 0.15 or 0.4)
-                if off then iStacksModBlock:Show() else iStacksModBlock:Hide() end
-            end
-            EllesmereUI.RegisterWidgetRefresh(UpdateIStacksModState)
-            UpdateIStacksModState()
+            EllesmereUI.MakeCogBtn(rightRgn, iStacksModShow, nil, nil, iStacksOff, "Show Max Stack for Items")
         end
 
         -----------------------------------------------------------------------
@@ -1062,30 +956,9 @@ initFrame:SetScript("OnEvent", function(self)
 
             if cogOpts then
                 local _, cogShow = EllesmereUI.BuildCogPopup(cogOpts)
-                local cogBtn = CreateFrame("Button", nil, rgn)
-                cogBtn:SetSize(26, 26)
-                cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -9, 0)
-                rgn._lastInline = cogBtn
-                cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-                cogTex:SetAllPoints()
-                cogTex:SetTexture(EllesmereUI.COGS_ICON)
-                cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-                cogBtn:SetScript("OnLeave", function(self)
-                    local parentEnabled = parentEnabledFn()
-                    self:SetAlpha(themedOff() and 0.15 or (parentEnabled and 0.4 or 0.15))
+                EllesmereUI.MakeCogBtn(rgn, cogShow, nil, nil, function()
+                    return themedOff() or not parentEnabledFn()
                 end)
-                cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
-                local function cogRefresh()
-                    local parentEnabled = parentEnabledFn()
-                    if themedOff() then
-                        cogBtn:SetAlpha(0.15); cogBtn:EnableMouse(false)
-                    else
-                        cogBtn:SetAlpha(parentEnabled and 0.4 or 0.15)
-                        cogBtn:EnableMouse(parentEnabled)
-                    end
-                end
-                EllesmereUI.RegisterWidgetRefresh(cogRefresh); cogRefresh()
             end
             end
         end
@@ -1248,22 +1121,8 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY"); cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
             local function enchantsOn() return EllesmereUIDB and EllesmereUIDB.showEnchants ~= false end
-            cogBtn:SetScript("OnEnter", function(s) if enchantsOn() then s:SetAlpha(0.7) end end)
-            cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(enchantsOn() and 0.4 or 0.15) end)
-            cogBtn:SetScript("OnClick", function(s) if enchantsOn() then cogShow(s) end end)
-            local function cogState()
-                local on = enchantsOn()
-                cogBtn:SetAlpha(on and 0.4 or 0.15)
-                cogBtn:EnableMouse(on)
-            end
-            EllesmereUI.RegisterWidgetRefresh(cogState); cogState()
+            EllesmereUI.MakeCogBtn(rgn, cogShow, nil, nil, function() return not enchantsOn() end)
         end
 
         -- Gear flyout item levels. Independent of the themed character sheet
@@ -1325,22 +1184,8 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY"); cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
             local function durabilityOn() return EllesmereUIDB and EllesmereUIDB.showCharSheetDurability end
-            cogBtn:SetScript("OnEnter", function(s) if durabilityOn() then s:SetAlpha(0.7) end end)
-            cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(durabilityOn() and 0.4 or 0.15) end)
-            cogBtn:SetScript("OnClick", function(s) if durabilityOn() then cogShow(s) end end)
-            local function cogState()
-                local on = durabilityOn()
-                cogBtn:SetAlpha(on and 0.4 or 0.15)
-                cogBtn:EnableMouse(on)
-            end
-            EllesmereUI.RegisterWidgetRefresh(cogState); cogState()
+            EllesmereUI.MakeCogBtn(rgn, cogShow, nil, nil, function() return not durabilityOn() end)
         end
 
         _, h = W:Spacer(parent, y, 10);  y = y - h
@@ -3213,16 +3058,7 @@ initFrame:SetScript("OnEvent", function(self)
                   set = function(v) EDR_SetField("speedText", "offsetY", v); EDR_Redraw() end },
             },
         })
-        local cogBtn = CreateFrame("Button", nil, speedTextRow._rightRegion)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", speedTextRow._rightRegion._lastInline or speedTextRow._rightRegion._control, "LEFT", -8, 0)
-        speedTextRow._rightRegion._lastInline = cogBtn
-        cogBtn:SetFrameLevel(speedTextRow._rightRegion:GetFrameLevel() + 5)
-        cogBtn:SetAlpha(0.4)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY"); cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-        cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
-        cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
-        cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
+        EllesmereUI.MakeCogBtn(speedTextRow._rightRegion, cogShow, nil, EllesmereUI.RESIZE_ICON)
         end
         y = y - h
         _, h = W:Spacer(parent, y, 20); y = y - h

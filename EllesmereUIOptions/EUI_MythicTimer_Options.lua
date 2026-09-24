@@ -183,7 +183,6 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Inline RESIZE cog on Scale: Frame Width slider
         if not EllesmereUI._prebuilding then
-            local PP = EllesmereUI.PP
             local leftRgn = scaleRow._leftRegion
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = "Frame Width",
@@ -193,24 +192,8 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) Set("frameWidth", v); Refresh() end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, leftRgn)
-            cogBtn:SetSize(26, 26)
-            PP.Point(cogBtn, "RIGHT", leftRgn._control or leftRgn, "LEFT", -6, 0)
-            cogBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-            local function isDisabled() return Cfg("enabled") == false end
-            local function UpdateAlpha() cogBtn:SetAlpha(isDisabled() and 0.15 or 0.4) end
-            EllesmereUI.RegisterWidgetRefresh(UpdateAlpha)
-            UpdateAlpha()
-            cogBtn:SetScript("OnClick", function(self)
-                if not isDisabled() then cogShow(self) end
-            end)
-            cogBtn:SetScript("OnEnter", function(self)
-                if not isDisabled() then self:SetAlpha(0.75) end
-            end)
-            cogBtn:SetScript("OnLeave", function(self) UpdateAlpha() end)
+            EllesmereUI.MakeCogBtn(leftRgn, cogShow, leftRgn._control or leftRgn, EllesmereUI.RESIZE_ICON,
+                function() return Cfg("enabled") == false end)
         end
 
         local function _MakeAccentSwatches(useAccentKey, colorKey, defR, defG, defB)
@@ -274,30 +257,8 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         local function _AttachPopupButton(rgn, icon, popupTitle, rows, isDisabled)
-            local PP = EllesmereUI.PP
             local _, popupShow = EllesmereUI.BuildCogPopup({ title = popupTitle, rows = rows })
-            local btn = CreateFrame("Button", nil, rgn)
-            btn:SetSize(26, 26)
-            -- Chain off any inline widget already on this region (swatch / earlier cog)
-            -- so multiple inline controls sit side by side instead of overlapping.
-            PP.Point(btn, "RIGHT", rgn._lastInline or rgn._control or rgn, "LEFT", -6, 0)
-            rgn._lastInline = btn
-            btn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            local tex = btn:CreateTexture(nil, "OVERLAY")
-            tex:SetAllPoints()
-            tex:SetTexture(icon)
-            local function UpdateAlpha()
-                btn:SetAlpha(isDisabled() and 0.15 or 0.4)
-            end
-            EllesmereUI.RegisterWidgetRefresh(UpdateAlpha)
-            UpdateAlpha()
-            btn:SetScript("OnClick", function(self)
-                if not isDisabled() then popupShow(self) end
-            end)
-            btn:SetScript("OnEnter", function(self)
-                if not isDisabled() then self:SetAlpha(0.75) end
-            end)
-            btn:SetScript("OnLeave", function() UpdateAlpha() end)
+            EllesmereUI.MakeCogBtn(rgn, popupShow, nil, icon, isDisabled)
         end
 
         -- Inline color swatch attached to a DualRow region (left of the control,
@@ -1106,24 +1067,11 @@ initFrame:SetScript("OnEvent", function(self)
 
     -- Inline cog button on a DualRow region (healer-mana pattern).
     local function MakeCog(rgn, showFn, tooltipText)
-        local btn = CreateFrame("Button", nil, rgn)
-        btn:SetSize(26, 26)
-        btn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = btn
-        btn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        btn:SetAlpha(0.4)
-        local tex = btn:CreateTexture(nil, "OVERLAY")
-        tex:SetAllPoints()
-        tex:SetTexture(EllesmereUI.COGS_ICON)
-        btn:SetScript("OnEnter", function(s)
-            s:SetAlpha(0.7)
-            if tooltipText then EllesmereUI.ShowWidgetTooltip(s, tooltipText) end
-        end)
-        btn:SetScript("OnLeave", function(s)
-            s:SetAlpha(0.4)
-            EllesmereUI.HideWidgetTooltip()
-        end)
-        btn:SetScript("OnClick", function(s) showFn(s) end)
+        local btn = EllesmereUI.MakeCogBtn(rgn, showFn)
+        if tooltipText then
+            btn:HookScript("OnEnter", function(s) EllesmereUI.ShowWidgetTooltip(s, tooltipText) end)
+            btn:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+        end
         return btn
     end
 

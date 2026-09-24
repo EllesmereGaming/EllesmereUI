@@ -28,31 +28,7 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
     -- Cog button on a row half, left of whatever that half already holds.
     local function AddCog(rgn, title, rows, cogOff, offTip)
         local _, cogShow = EllesmereUI.BuildCogPopup({ title = title, rows = rows })
-        local cogBtn = CreateFrame("Button", nil, rgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -9, 0)
-        rgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
-        cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(cogOff() and 0.15 or 0.4) end)
-        cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
-        local cogBlock = CreateFrame("Frame", nil, cogBtn)
-        cogBlock:SetAllPoints()
-        cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10)
-        cogBlock:EnableMouse(true)
-        cogBlock:SetScript("OnEnter", function()
-            EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip(offTip))
-        end)
-        cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        local function Update()
-            local isOff = cogOff()
-            cogBtn:SetAlpha(isOff and 0.15 or 0.4)
-            if isOff then cogBlock:Show() else cogBlock:Hide() end
-        end
-        EllesmereUI.RegisterWidgetRefresh(Update)
-        Update()
+        EllesmereUI.MakeCogBtn(rgn, cogShow, nil, EllesmereUI.DIRECTIONS_ICON, cogOff, offTip)
     end
 
     local function TextCogRows(prefix)

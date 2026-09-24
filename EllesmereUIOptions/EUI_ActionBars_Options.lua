@@ -5866,33 +5866,8 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local pushedCogBtn = CreateFrame("Button", nil, leftRgn)
-            pushedCogBtn:SetSize(26, 26)
-            pushedCogBtn:SetPoint("RIGHT", _pushedPreview, "LEFT", -8, 0)
-            pushedCogBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
             local pushedCogOff = function() return (p.pushedTextureType or 2) ~= 5 end
-            pushedCogBtn:SetAlpha(pushedCogOff() and 0.15 or 0.4)
-            local pushedCogTex = pushedCogBtn:CreateTexture(nil, "OVERLAY")
-            pushedCogTex:SetAllPoints()
-            pushedCogTex:SetTexture(EllesmereUI.COGS_ICON)
-            pushedCogBtn:SetScript("OnEnter", function(self)
-                if pushedCogOff() then
-                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("Border Pushed Type"))
-                else
-                    self:SetAlpha(0.7)
-                end
-            end)
-            pushedCogBtn:SetScript("OnLeave", function(self)
-                EllesmereUI.HideWidgetTooltip()
-                self:SetAlpha(pushedCogOff() and 0.15 or 0.4)
-            end)
-            pushedCogBtn:SetScript("OnClick", function(self)
-                if pushedCogOff() then return end
-                pushedCogShow(self)
-            end)
-            EllesmereUI.RegisterWidgetRefresh(function()
-                pushedCogBtn:SetAlpha(pushedCogOff() and 0.15 or 0.4)
-            end)
+            EllesmereUI.MakeCogBtn(leftRgn, pushedCogShow, _pushedPreview, nil, pushedCogOff, "Border Pushed Type")
 
             local rightRgn = row._rightRegion
             _highlightPreview = CreatePreviewIcon(rightRgn)
@@ -5915,33 +5890,8 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local highlightCogBtn = CreateFrame("Button", nil, rightRgn)
-            highlightCogBtn:SetSize(26, 26)
-            highlightCogBtn:SetPoint("RIGHT", _highlightPreview, "LEFT", -8, 0)
-            highlightCogBtn:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
             local highlightCogOff = function() return (p.highlightTextureType or 2) ~= 5 end
-            highlightCogBtn:SetAlpha(highlightCogOff() and 0.15 or 0.4)
-            local highlightCogTex = highlightCogBtn:CreateTexture(nil, "OVERLAY")
-            highlightCogTex:SetAllPoints()
-            highlightCogTex:SetTexture(EllesmereUI.COGS_ICON)
-            highlightCogBtn:SetScript("OnEnter", function(self)
-                if highlightCogOff() then
-                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("Border Highlight Type"))
-                else
-                    self:SetAlpha(0.7)
-                end
-            end)
-            highlightCogBtn:SetScript("OnLeave", function(self)
-                EllesmereUI.HideWidgetTooltip()
-                self:SetAlpha(highlightCogOff() and 0.15 or 0.4)
-            end)
-            highlightCogBtn:SetScript("OnClick", function(self)
-                if highlightCogOff() then return end
-                highlightCogShow(self)
-            end)
-            EllesmereUI.RegisterWidgetRefresh(function()
-                highlightCogBtn:SetAlpha(highlightCogOff() and 0.15 or 0.4)
-            end)
+            EllesmereUI.MakeCogBtn(rightRgn, highlightCogShow, _highlightPreview, nil, highlightCogOff, "Border Highlight Type")
         end
         y = y - h
 

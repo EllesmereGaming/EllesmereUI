@@ -77,26 +77,7 @@ function ns.RF_BuildPartyPortrait(parent, y, W, PSSet)
     local function Cog(rgn, title, rows, icon, onFn, offTip)
         if EllesmereUI._prebuilding then return end
         local _, show = EllesmereUI.BuildCogPopup({ title = title, rows = rows })
-        local b = CreateFrame("Button", nil, rgn)
-        b:SetSize(26, 26)
-        b:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = b
-        b:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        local t = b:CreateTexture(nil, "OVERLAY")
-        t:SetAllPoints()
-        t:SetTexture(icon or EllesmereUI.COGS_ICON)
-        local function State()
-            if not onFn or onFn() then b:SetAlpha(0.4); b:Enable()
-            else b:SetAlpha(0.15); b:Disable() end
-        end
-        b:SetScript("OnEnter", function(self)
-            if not onFn or onFn() then self:SetAlpha(0.7)
-            else EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip(offTip)) end
-        end)
-        b:SetScript("OnLeave", function() State(); EllesmereUI.HideWidgetTooltip() end)
-        b:SetScript("OnClick", function(self) show(self) end)
-        State()
-        if onFn then EllesmereUI.RegisterWidgetRefresh(State) end
+        EllesmereUI.MakeCogBtn(rgn, show, nil, icon, onFn and function() return not onFn() end, offTip)
     end
     local function IsInside(side)
         return side == "insideleft" or side == "insideright" or side == "insidecenter"
@@ -1842,19 +1823,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local p = CurAbsorbBarPos()
                 return p ~= "rightVertical" and p ~= "leftVertical"
             end
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(cogOff() and 0.15 or 0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter", function(self) if not cogOff() then self:SetAlpha(0.7) end end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(cogOff() and 0.15 or 0.4) end)
-            cogBtn:SetScript("OnClick", function(self) if not cogOff() then cogShow(self) end end)
-            EllesmereUI.RegisterWidgetRefresh(function() cogBtn:SetAlpha(cogOff() and 0.15 or 0.4) end)
+            EllesmereUI.MakeCogBtn(rgn, cogShow, nil, nil, cogOff)
         end
         -- The size slider reads as width for the vertical positions; retitle live.
         do
@@ -2042,19 +2011,7 @@ initFrame:SetScript("OnEvent", function(self)
                     local p = CurHealAbsorbBarPos()
                     return p ~= "rightVertical" and p ~= "leftVertical"
                 end
-                local cogBtn = CreateFrame("Button", nil, rgn)
-                cogBtn:SetSize(26, 26)
-                cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-                rgn._lastInline = cogBtn
-                cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-                cogBtn:SetAlpha(cogOff() and 0.15 or 0.4)
-                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-                cogTex:SetAllPoints()
-                cogTex:SetTexture(EllesmereUI.COGS_ICON)
-                cogBtn:SetScript("OnEnter", function(self) if not cogOff() then self:SetAlpha(0.7) end end)
-                cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(cogOff() and 0.15 or 0.4) end)
-                cogBtn:SetScript("OnClick", function(self) if not cogOff() then cogShow(self) end end)
-                EllesmereUI.RegisterWidgetRefresh(function() cogBtn:SetAlpha(cogOff() and 0.15 or 0.4) end)
+                EllesmereUI.MakeCogBtn(rgn, cogShow, nil, nil, cogOff)
             end
             -- The size slider reads as width for the vertical positions; retitle live.
             do
@@ -2312,18 +2269,7 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v) SSet("extendHealthBehindPower", v) end },
                     },
                 })
-                local cogBtn = CreateFrame("Button", nil, rgn)
-                cogBtn:SetSize(26, 26)
-                cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-                rgn._lastInline = cogBtn
-                cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-                cogBtn:SetAlpha(IsPowerOff() and 0.15 or 0.4)
-                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-                cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
-                cogBtn:SetScript("OnEnter", function(self) if not IsPowerOff() then self:SetAlpha(0.7) end end)
-                cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(IsPowerOff() and 0.15 or 0.4) end)
-                cogBtn:SetScript("OnClick", function(self) if not IsPowerOff() then cogShow(self) end end)
-                EllesmereUI.RegisterWidgetRefresh(function() cogBtn:SetAlpha(IsPowerOff() and 0.15 or 0.4) end)
+                EllesmereUI.MakeCogBtn(rgn, cogShow, nil, nil, IsPowerOff)
             end
             if not EllesmereUI._prebuilding then
                 local rgn = row._leftRegion
@@ -3530,17 +3476,8 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) SSet("dispelIconOffsetY", v) end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(SVal("showDispelIcons", false) and 0.4 or 0.15)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-            cogBtn:SetScript("OnEnter", function(self) if SVal("showDispelIcons", false) then self:SetAlpha(0.7) end end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(SVal("showDispelIcons", false) and 0.4 or 0.15) end)
-            cogBtn:SetScript("OnClick", function(self) if SVal("showDispelIcons", false) then cogShow(self) end end)
+            EllesmereUI.MakeCogBtn(rgn, cogShow, nil, EllesmereUI.RESIZE_ICON,
+                function() return not SVal("showDispelIcons", false) end)
         end
         -- Cog on the Dispel Border slider: thickness in physical pixels of the engine-tinted dispel ring on dispellable debuff ICONS,
         -- and Color Custom Borders (the frame's own border copied in the dispel type color).
@@ -3779,19 +3716,7 @@ initFrame:SetScript("OnEvent", function(self)
                           end },
                     },
                 })
-                local cogBtn = CreateFrame("Button", nil, rgn)
-                cogBtn:SetSize(26, 26)
-                cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-                rgn._lastInline = cogBtn
-                cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-                cogBtn:SetAlpha(FBEnabled() and 0.4 or 0.15)
-                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-                cogTex:SetAllPoints()
-                cogTex:SetTexture(EllesmereUI.COGS_ICON)
-                cogBtn:SetScript("OnEnter", function(self) if FBEnabled() then self:SetAlpha(0.7) end end)
-                cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(FBEnabled() and 0.4 or 0.15) end)
-                cogBtn:SetScript("OnClick", function(self) if FBEnabled() then fbCogShow(self) end end)
-                EllesmereUI.RegisterWidgetRefresh(function() cogBtn:SetAlpha(FBEnabled() and 0.4 or 0.15) end)
+                EllesmereUI.MakeCogBtn(rgn, fbCogShow, nil, nil, function() return not FBEnabled() end)
             end
             if FBEnabled() then
             -- Free Move Position: label left, Move Frames button right (Free Move only). Right slot: Boss Health Color.

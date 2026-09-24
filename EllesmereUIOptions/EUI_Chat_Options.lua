@@ -313,27 +313,7 @@ initFrame:SetScript("OnEvent", function(self)
                           end },
                     },
                 })
-                local cogBtn = CreateFrame("Button", nil, rgn)
-                cogBtn:SetSize(26, 26)
-                cogBtn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
-                rgn._lastInline = cogBtn
-                cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-                cogTex:SetAllPoints()
-                cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
-                local function RefreshCog() cogBtn:SetAlpha(0.4) end
-                cogBtn:SetScript("OnEnter", function(self)
-                    self:SetAlpha(0.7)
-                end)
-                cogBtn:SetScript("OnLeave", function()
-                    EllesmereUI.HideWidgetTooltip()
-                    RefreshCog()
-                end)
-                cogBtn:SetScript("OnClick", function(self)
-                    cogShow(self)
-                end)
-                EllesmereUI.RegisterWidgetRefresh(RefreshCog)
-                RefreshCog()
+                EllesmereUI.MakeCogBtn(rgn, cogShow, rgn._control, EllesmereUI.DIRECTIONS_ICON)
             end
 
             -- Accent, custom, and class-color selectors beside Border Size.
@@ -551,22 +531,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, lrgn)
-            cogBtn:SetSize(26,26)
-            cogBtn:SetPoint("RIGHT", lrgn._lastInline or lrgn._control, "LEFT", -8, 0)
-            lrgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(lrgn:GetFrameLevel()+5)
-            local function UpdateCogAlpha()
-                cogBtn:SetAlpha(Cfg("sidebarSeparate") and 0.4 or 0.15)
-            end
-            UpdateCogAlpha(); EllesmereUI.RegisterWidgetRefresh(UpdateCogAlpha)
-            local cogTex = cogBtn:CreateTexture(nil,"OVERLAY")
-            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter",function(s) s:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave",function() UpdateCogAlpha() end)
-            cogBtn:SetScript("OnClick",function(s)
-                if Cfg("sidebarSeparate") then cogShow(s) end
-            end)
+            EllesmereUI.MakeCogBtn(lrgn, cogShow, nil, nil, function() return not Cfg("sidebarSeparate") end)
         end
         y = y - h
 
@@ -1050,17 +1015,7 @@ initFrame:SetScript("OnEvent", function(self)
                           end },
                     },
                 })
-                local cogBtn = CreateFrame("Button", nil, rgn)
-                cogBtn:SetSize(26,26)
-                cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-                rgn._lastInline = cogBtn
-                cogBtn:SetFrameLevel(rgn:GetFrameLevel()+5)
-                cogBtn:SetAlpha(0.4)
-                local tex = cogBtn:CreateTexture(nil,"OVERLAY")
-                tex:SetAllPoints(); tex:SetTexture(EllesmereUI.COGS_ICON)
-                cogBtn:SetScript("OnEnter",function(self) self:SetAlpha(0.7) end)
-                cogBtn:SetScript("OnLeave",function(self) self:SetAlpha(0.4) end)
-                cogBtn:SetScript("OnClick",function(self) cogShow(self) end)
+                EllesmereUI.MakeCogBtn(rgn, cogShow)
             end
             if not EllesmereUI._prebuilding then
             AttachTabBgOpacityCog(tabBgRow._leftRegion, false)
@@ -1270,18 +1225,7 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v) Set("tabBorderShiftY", v == 0 and nil or v); ECHAT.ApplyTabBorders() end },
                     },
                 })
-                local btn = CreateFrame("Button", nil, rgn)
-                btn:SetSize(26,26); btn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
-                btn:SetFrameLevel(rgn:GetFrameLevel()+5)
-                local tex = btn:CreateTexture(nil,"OVERLAY"); tex:SetAllPoints(); tex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
-                local function Refresh() btn:SetAlpha(tabBordersDisabled() and 0.15 or 0.4) end
-                btn:SetScript("OnEnter", function(self)
-                    if tabBordersDisabled() then EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip(TabBorderDisabledTip()))
-                    else self:SetAlpha(0.7) end
-                end)
-                btn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip(); Refresh() end)
-                btn:SetScript("OnClick", function(self) if not tabBordersDisabled() then cogShow(self) end end)
-                EllesmereUI.RegisterWidgetRefresh(Refresh); Refresh()
+                EllesmereUI.MakeCogBtn(rgn, cogShow, rgn._control, EllesmereUI.DIRECTIONS_ICON, tabBordersDisabled, TabBorderDisabledTip)
             end
 
             if not EllesmereUI._prebuilding then
@@ -1632,22 +1576,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, lrgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", lrgn._lastInline or lrgn._control, "LEFT", -8, 0)
-            lrgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(lrgn:GetFrameLevel() + 5)
-            local function UpdateCogAlpha()
-                cogBtn:SetAlpha(Cfg("abbreviateChannels") == true and 0.4 or 0.15)
-            end
-            UpdateCogAlpha(); EllesmereUI.RegisterWidgetRefresh(UpdateCogAlpha)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function() UpdateCogAlpha() end)
-            cogBtn:SetScript("OnClick", function(s)
-                if Cfg("abbreviateChannels") == true then cogShow(s) end
-            end)
+            EllesmereUI.MakeCogBtn(lrgn, cogShow, nil, nil, function() return Cfg("abbreviateChannels") ~= true end)
         end
         y = y - h
 
@@ -1855,22 +1784,7 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
             local colorRgn = fontBorderRow._leftRegion
-            local colorCog = CreateFrame("Button", nil, colorRgn)
-            colorCog:SetSize(26, 26)
-            colorCog:SetPoint("RIGHT", colorRgn._lastInline or colorRgn._control, "LEFT", -8, 0)
-            colorRgn._lastInline = colorCog
-            colorCog:SetFrameLevel(colorRgn:GetFrameLevel() + 5)
-            local function UpdateColorCogAlpha()
-                colorCog:SetAlpha(Off() and 0.15 or 0.4)
-            end
-            UpdateColorCogAlpha(); EllesmereUI.RegisterWidgetRefresh(UpdateColorCogAlpha)
-            local colorCogTex = colorCog:CreateTexture(nil, "OVERLAY")
-            colorCogTex:SetAllPoints(); colorCogTex:SetTexture(EllesmereUI.COGS_ICON)
-            colorCog:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
-            colorCog:SetScript("OnLeave", function() UpdateColorCogAlpha() end)
-            colorCog:SetScript("OnClick", function(s)
-                if not Off() then colorCogShow(s) end
-            end)
+            EllesmereUI.MakeCogBtn(colorRgn, colorCogShow, nil, nil, Off)
 
             EllesmereUI.BuildInlineSwatches(fontBorderRow._rightRegion, {
                 { getValue = function() return CBColor("borderColor") end,

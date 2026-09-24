@@ -133,34 +133,7 @@ local function AttachToggleCog(rgn, title, label, get, set, offFn, offReq)
         title = title,
         rows = { { type="toggle", label=label, get=get, set=set } },
     })
-    local cogBtn = CreateFrame("Button", nil, rgn)
-    cogBtn:SetSize(26, 26)
-    cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -9, 0)
-    rgn._lastInline = cogBtn
-    cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-    local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-    cogTex:SetAllPoints()
-    cogTex:SetTexture(EllesmereUI.COGS_ICON)
-    cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-    cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(offFn() and 0.15 or 0.4) end)
-    cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
-
-    local block = CreateFrame("Frame", nil, cogBtn)
-    block:SetAllPoints()
-    block:SetFrameLevel(cogBtn:GetFrameLevel() + 10)
-    block:EnableMouse(true)
-    block:SetScript("OnEnter", function()
-        EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip(offReq))
-    end)
-    block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
-    local function UpdateState()
-        local off = offFn()
-        cogBtn:SetAlpha(off and 0.15 or 0.4)
-        block:SetShown(off)
-    end
-    EllesmereUI.RegisterWidgetRefresh(UpdateState)
-    UpdateState()
+    EllesmereUI.MakeCogBtn(rgn, cogShow, nil, nil, offFn, offReq)
 end
 
 local function BuildBattleResPage(pageName, parent, yOffset)
@@ -255,24 +228,8 @@ local function BuildBattleResPage(pageName, parent, yOffset)
                       set=function(v) Set(yKey, v); Refresh() end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            PP.Point(cogBtn, "RIGHT", rgn._control or rgn, "LEFT", -6, 0)
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-            local function isDisabled() return Cfg("visibility") == "NEVER" end
-            local function UpdateAlpha() cogBtn:SetAlpha(isDisabled() and 0.15 or 0.4) end
-            EllesmereUI.RegisterWidgetRefresh(UpdateAlpha)
-            UpdateAlpha()
-            cogBtn:SetScript("OnClick", function(self)
-                if not isDisabled() then cogShow(self) end
-            end)
-            cogBtn:SetScript("OnEnter", function(self)
-                if not isDisabled() then self:SetAlpha(0.75) end
-            end)
-            cogBtn:SetScript("OnLeave", function(self) UpdateAlpha() end)
+            EllesmereUI.MakeCogBtn(rgn, cogShow, rgn._control or rgn, EllesmereUI.RESIZE_ICON,
+                function() return Cfg("visibility") == "NEVER" end)
         end
         _attachOffsetCog(row._leftRegion,  "Duration Position", "durationOffsetX", "durationOffsetY")
         _attachOffsetCog(row._rightRegion, "Count Position",    "countOffsetX",    "countOffsetY")
@@ -397,23 +354,7 @@ _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
                       set=function(v) Set(yKey, v); Refresh() end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            PP.Point(cogBtn, "RIGHT", rgn._control or rgn, "LEFT", -6, 0)
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-            local function UpdateAlpha() cogBtn:SetAlpha(TextModeOn() and 0.15 or 0.4) end
-            EllesmereUI.RegisterWidgetRefresh(UpdateAlpha)
-            UpdateAlpha()
-            cogBtn:SetScript("OnClick", function(self)
-                if not TextModeOn() then cogShow(self) end
-            end)
-            cogBtn:SetScript("OnEnter", function(self)
-                if not TextModeOn() then self:SetAlpha(0.75) end
-            end)
-            cogBtn:SetScript("OnLeave", function(self) UpdateAlpha() end)
+            EllesmereUI.MakeCogBtn(rgn, cogShow, rgn._control or rgn, EllesmereUI.RESIZE_ICON, TextModeOn)
         end
         _attachOffsetCog(row._leftRegion,  "Duration Position", "durationOffsetX", "durationOffsetY")
         _attachOffsetCog(row._rightRegion, "Count Position",    "countOffsetX",    "countOffsetY")
@@ -728,34 +669,8 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
                       set=function(v) BL_Set(yKey, v); BL_Refresh() end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            PP.Point(cogBtn, "RIGHT", anchorTo or rgn._control or rgn, "LEFT", -6, 0)
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-            cogBtn:SetAlpha(0.4)
-            cogBtn:SetScript("OnClick", function(self)
-                if disabledFn and disabledFn() then return end
-                cogShow(self)
-            end)
-            cogBtn:SetScript("OnEnter", function(self)
-                if disabledFn and disabledFn() then
-                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip(disabledText))
-                    return
-                end
-                self:SetAlpha(0.75)
-            end)
-            cogBtn:SetScript("OnLeave", function(self)
-                if disabledFn and disabledFn() then EllesmereUI.HideWidgetTooltip(); return end
-                self:SetAlpha(0.4)
-            end)
-            if disabledFn then
-                EllesmereUI.RegisterWidgetRefresh(function()
-                    cogBtn:SetAlpha(disabledFn() and 0.15 or 0.4)
-                end)
-            end
+            EllesmereUI.MakeCogBtn(rgn, cogShow, anchorTo or rgn._control or rgn, EllesmereUI.RESIZE_ICON,
+                disabledFn, disabledText)
         end
         _attachOffsetCog(row._leftRegion,  "Duration Position", "durationOffsetX", "durationOffsetY")
         _attachOffsetCog(row._rightRegion, "Count Position",    "countOffsetX",    "countOffsetY")
