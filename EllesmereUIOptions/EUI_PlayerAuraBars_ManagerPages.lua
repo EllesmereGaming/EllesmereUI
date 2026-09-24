@@ -959,7 +959,7 @@ local function BuildCoreFields(frame, fontPath, sy, cfg, apply, isBuff)
                   set = function(v) cfg.iconZoom = v; apply() end },
             },
         })
-        ns._PAMakeCogBtn(rgn, cogShow)
+        EllesmereUI.MakeCogBtn(rgn, cogShow)
     end
     do
         -- Icon Wrap: only meaningful for vertical growth (Up/Down) and horizontal growth (Left/Right) -- decides which
@@ -984,7 +984,7 @@ local function BuildCoreFields(frame, fontPath, sy, cfg, apply, isBuff)
                  },
             },
         })
-        local cogBtn = ns._PAMakeCogBtn(rgn, cogShow)
+        local cogBtn = EllesmereUI.MakeCogBtn(rgn, cogShow)
         local function UpdateWrapCogVisibility()
             local dir = cfg.growDirection or "LEFT"
             cogBtn:SetShown(dir == "UP" or dir == "DOWN" or dir == "LEFT" or dir == "RIGHT")
@@ -995,17 +995,7 @@ local function BuildCoreFields(frame, fontPath, sy, cfg, apply, isBuff)
 
     local function AttachCog(rgn, title, rows)
         local _, cogShow = EllesmereUI.BuildCogPopup({ title = title, rows = rows })
-        local cogBtn = CreateFrame("Button", nil, rgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        cogBtn:SetAlpha(0.4)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-        cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-        cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+        EllesmereUI.MakeCogBtn(rgn, cogShow, nil, EllesmereUI.RESIZE_ICON)
     end
 
     local dsRow
@@ -1200,7 +1190,7 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
                   set = function(v) cfg.borderBehind = v; apply() end },
             },
         })
-        local cogBtn = ns._PAMakeCogBtn(rgn, cogShow)
+        local cogBtn = EllesmereUI.MakeCogBtn(rgn, cogShow)
         local function UpdateBorderCogVisibility()
             cogBtn:SetShown((cfg.borderTexture or "solid") ~= "solid"
                 and not (cfg.iconShape and cfg.iconShape ~= "none")
@@ -1412,7 +1402,7 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
                   set = function(v) cfg.rowSpacing = v; apply() end },
             },
         })
-        ns._PAMakeCogBtn(rgn, cogShow)
+        EllesmereUI.MakeCogBtn(rgn, cogShow)
     end
 
     do
@@ -1432,7 +1422,7 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
                   set = function(v) cfg.maxTotal = v; apply() end },
             },
         })
-        ns._PAMakeCogBtn(rgn, cogShow)
+        EllesmereUI.MakeCogBtn(rgn, cogShow)
     end
 
     -- Icon Shape reuses the base Border Size/Color above -- no separate shape fields.
@@ -1567,7 +1557,7 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
                   set = function(v) cfg.reverseSwipe = v; apply() end },
             },
         })
-        ns._PAMakeCogBtn(rgn, cogShow)
+        EllesmereUI.MakeCogBtn(rgn, cogShow)
     end
 
     -- Buff bars only: debuffs are never player-cancelable, so the row would
@@ -1640,7 +1630,7 @@ local function BuildDispelColorFields(frame, fontPath, sy, cfg, apply)
                   set = function(v) cfg.dispelIconOffsetY = v; apply() end },
             },
         })
-        local cogBtn = ns._PAMakeCogBtn(rgn, function(self)
+        local cogBtn = EllesmereUI.MakeCogBtn(rgn, function(self)
             if IconOn() then cogShow(self) end
         end)
         cogBtn:SetAlpha(IconOn() and 0.4 or 0.15)

@@ -266,18 +266,7 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
             unsafeCogShow = _unsafeCogShow
-            local unsafeCogBtn = CreateFrame("Button", nil, rgn)
-            unsafeCogBtn:SetSize(26, 26)
-            unsafeCogBtn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = unsafeCogBtn
-            unsafeCogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            unsafeCogBtn:SetAlpha(0.4)
-            local unsafeCogTex = unsafeCogBtn:CreateTexture(nil, "OVERLAY")
-            unsafeCogTex:SetAllPoints()
-            unsafeCogTex:SetTexture(EllesmereUI.COGS_ICON)
-            unsafeCogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            unsafeCogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-            unsafeCogBtn:SetScript("OnClick", function(self) unsafeCogShow(self) end)
+            EllesmereUI.MakeCogBtn(rgn, unsafeCogShow, rgn._control)
         end
         y = y - h
 
@@ -321,17 +310,7 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) Set("windowBorderBehind", v); ApplyWindowBrd() end },
                 },
             })
-            local directionBtn = CreateFrame("Button", nil, rgn)
-            directionBtn:SetSize(26, 26)
-            directionBtn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
-            directionBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            directionBtn:SetAlpha(0.4)
-            local directionTex = directionBtn:CreateTexture(nil, "OVERLAY")
-            directionTex:SetAllPoints(); directionTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
-            directionBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            directionBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-            directionBtn:SetScript("OnClick", function(self) popupShow(self) end)
-            rgn._lastInline = directionBtn
+            local directionBtn = EllesmereUI.MakeCogBtn(rgn, popupShow, rgn._control, EllesmereUI.DIRECTIONS_ICON)
             EllesmereUI.BlizzStyle.BlockInline("damagemeters", directionBtn, 0.15)
         end
         if not EllesmereUI._prebuilding then
@@ -454,18 +433,7 @@ initFrame:SetScript("OnEvent", function(self)
                       set = function(v) Set("hideResetButton", v); ApplyHdr() end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", kbBtn, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+            EllesmereUI.MakeCogBtn(rgn, cogShow, kbBtn)
         end
         y = y - h
 
@@ -600,18 +568,7 @@ initFrame:SetScript("OnEvent", function(self)
                       set = function(v) Set("hdrMouseoverIcons", v); ApplyHdr() end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", accentSwatch, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+            EllesmereUI.MakeCogBtn(rgn, cogShow, accentSwatch)
 
             -- Classic WoW UI paints every header icon with vanilla art that
             -- carries its own colours: both swatches inert. (Blizzard Style
@@ -708,18 +665,7 @@ initFrame:SetScript("OnEvent", function(self)
                       set = function(v) Set("hdrTextOffY", v); ApplyHdr() end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", accentSwatch, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+            EllesmereUI.MakeCogBtn(rgn, cogShow, accentSwatch, EllesmereUI.DIRECTIONS_ICON)
 
             local function refreshHdrText()
                 updateCustom(); updateAccent()
@@ -1252,18 +1198,7 @@ initFrame:SetScript("OnEvent", function(self)
                       set = function(v) Set("showAllBreakdownSpells", v) end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+            EllesmereUI.MakeCogBtn(rgn, cogShow, rgn._control)
         end
         y = y - h
 
@@ -1650,18 +1585,7 @@ initFrame:SetScript("OnEvent", function(self)
                       set = function(v) Set("standaloneTimerStrata", v); ApplySAT() end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+            EllesmereUI.MakeCogBtn(rgn, cogShow, nil, EllesmereUI.RESIZE_ICON)
         end
         y = y - h
 
@@ -1699,18 +1623,7 @@ initFrame:SetScript("OnEvent", function(self)
                           set = function(v) Set("standaloneTimerDesatOOC", v); ApplySAT() end },
                     },
                 })
-                local cogBtn = CreateFrame("Button", nil, rgn)
-                cogBtn:SetSize(26, 26)
-                cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-                rgn._lastInline = cogBtn
-                cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-                cogBtn:SetAlpha(0.4)
-                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-                cogTex:SetAllPoints()
-                cogTex:SetTexture(EllesmereUI.COGS_ICON)
-                cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-                cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-                cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+                EllesmereUI.MakeCogBtn(rgn, cogShow)
             end
             y = y - h
 
@@ -1761,18 +1674,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", kbBtn, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+            EllesmereUI.MakeCogBtn(rgn, cogShow, kbBtn)
         end
         y = y - h
 

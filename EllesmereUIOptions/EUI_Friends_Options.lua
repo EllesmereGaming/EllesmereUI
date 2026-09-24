@@ -159,22 +159,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- and blocks (with a requirement tooltip) while disabledFn() is true --
     -- the standard inline-control disabled-state pattern.
     local function MakeCogBtn(rgn, showFn, disabledFn, disabledLabel)
-        local cogBtn = CreateFrame("Button", nil, rgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        local function baseAlpha()
-            return (disabledFn and disabledFn()) and 0.15 or 0.4
-        end
-        cogBtn:SetAlpha(baseAlpha())
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints()
-        cogTex:SetTexture(EllesmereUI.COGS_ICON)
-        cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
-        cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(baseAlpha()) end)
-        cogBtn:SetScript("OnClick", function(s) showFn(s) end)
-
+        local cogBtn = EllesmereUI.MakeCogBtn(rgn, showFn, nil, nil, disabledFn)
         if disabledFn then
             local block = CreateFrame("Frame", nil, cogBtn)
             block:SetAllPoints()
@@ -185,9 +170,7 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdateState()
-                local off = disabledFn()
-                cogBtn:SetAlpha(off and 0.15 or 0.4)
-                if off then block:Show() else block:Hide() end
+                if disabledFn() then block:Show() else block:Hide() end
             end
             EllesmereUI.RegisterWidgetRefresh(UpdateState)
             UpdateState()

@@ -2950,27 +2950,7 @@ initFrame:SetScript("OnEvent", function(self)
         return PREVIEW_H
     end
 
-    ---------------------------------------------------------------------------
-    --  Inline cog button beside a DualRow region, opening a BuildCogPopup.
-    --  The same shape the other option pages use (EUI_AuraBuffReminders_
-    --  Options.lua:588): parked left of the region's control, dim until
-    --  hovered, and handing itself to showFn as the popup's anchor.
-    ---------------------------------------------------------------------------
-    local function MakeCogBtn(rgn, showFn, anchorTo, iconPath)
-        local cogBtn = CreateFrame("Button", nil, rgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", anchorTo or rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        cogBtn:SetAlpha(0.4)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints()
-        cogTex:SetTexture(iconPath or EllesmereUI.COGS_ICON)
-        cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-        cogBtn:SetScript("OnClick", function(self) showFn(self) end)
-        return cogBtn
-    end
+    local MakeCogBtn = EllesmereUI.MakeCogBtn
 
     ---------------------------------------------------------------------------
     --  "Apply All Settings From" -- bulk copy between action menus, the Unit
@@ -3777,17 +3757,7 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) ASet("worldMarkerPip", v); Refresh() end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(self) wmCogShow(self) end)
+            EllesmereUI.MakeCogBtn(rgn, wmCogShow)
         end
 
         _, h = W:Spacer(parent, y, 10); y = y - h

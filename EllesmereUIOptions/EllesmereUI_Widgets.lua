@@ -6469,6 +6469,40 @@ end
 EllesmereUI.BuildInlineSwatches = BuildInlineSwatches
 
 -------------------------------------------------------------------------------
+--  MakeCogBtn(region, showFn, anchorTo, iconPath, disabledFn)
+--  Inline 26x26 cog button to the LEFT of anchorTo (default: the region's last inline item, else its control).
+--  Chains region._lastInline, so the next inline item lands left of the cog. Alpha 0.4, 0.7 on hover; a click
+--  calls showFn(cogBtn). iconPath defaults to COGS_ICON. With disabledFn, the cog dims to 0.15 and ignores the
+--  mouse while disabledFn() is true; re-evaluated on page refresh.
+-------------------------------------------------------------------------------
+local function MakeCogBtn(region, showFn, anchorTo, iconPath, disabledFn)
+    local cogBtn = CreateFrame("Button", nil, region)
+    cogBtn:SetSize(26, 26)
+    cogBtn:SetPoint("RIGHT", anchorTo or region._lastInline or region._control, "LEFT", -8, 0)
+    region._lastInline = cogBtn
+    cogBtn:SetFrameLevel(region:GetFrameLevel() + 5)
+    cogBtn:SetAlpha(0.4)
+    local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+    cogTex:SetAllPoints()
+    cogTex:SetTexture(iconPath or EllesmereUI.COGS_ICON)
+    local function isOff() return disabledFn and disabledFn() or false end
+    cogBtn:SetScript("OnEnter", function(self) if not isOff() then self:SetAlpha(0.7) end end)
+    cogBtn:SetScript("OnLeave", function(self) if not isOff() then self:SetAlpha(0.4) end end)
+    cogBtn:SetScript("OnClick", function(self) if not isOff() then showFn(self) end end)
+    if disabledFn then
+        local function applyCogState()
+            local off = isOff()
+            cogBtn:SetAlpha(off and 0.15 or 0.4)
+            cogBtn:EnableMouse(not off)
+        end
+        applyCogState()
+        RegisterWidgetRefresh(applyCogState)
+    end
+    return cogBtn
+end
+EllesmereUI.MakeCogBtn = MakeCogBtn
+
+-------------------------------------------------------------------------------
 --  Hidden-While-Disabled Section Gate
 --  For sections whose master toggle HIDES the dependent rows instead of graying them: the page builder simply
 --  skips building those rows while the toggle is off, and the toggle's setValue is wrapped with this so flipping it re-runs the page builder to reveal/hide them:

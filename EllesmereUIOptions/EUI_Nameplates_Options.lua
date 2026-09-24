@@ -4897,18 +4897,7 @@ initFrame:SetScript("OnEvent", function(self)
                               end },
                         },
                     })
-                    local btn = CreateFrame("Button", nil, rgn)
-                    btn:SetSize(26, 26)
-                    btn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-                    rgn._lastInline = btn
-                    btn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-                    btn:SetAlpha(0.4)
-                    local tex = btn:CreateTexture(nil, "OVERLAY")
-                    tex:SetAllPoints()
-                    tex:SetTexture(EllesmereUI.COGS_ICON)
-                    btn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
-                    btn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
-                    btn:SetScript("OnClick", function(s) cogShow(s) end)
+                    EllesmereUI.MakeCogBtn(rgn, cogShow)
                 end
                 PlateOffsetCog(classicPlateRow._leftRegion, "Level Position", "classicLevelX", "classicLevelY")
                 PlateOffsetCog(classicPlateRow._rightRegion, "Elite Icon Position", "classicSkullX", "classicSkullY")
@@ -5193,17 +5182,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local absorbCogBtn = CreateFrame("Button", nil, rgn)
-            absorbCogBtn:SetSize(26, 26)
-            absorbCogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = absorbCogBtn
-            absorbCogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            absorbCogBtn:SetAlpha(0.4)
-            local absorbCogTex = absorbCogBtn:CreateTexture(nil, "OVERLAY")
-            absorbCogTex:SetAllPoints(); absorbCogTex:SetTexture(EllesmereUI.COGS_ICON)
-            absorbCogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
-            absorbCogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
-            absorbCogBtn:SetScript("OnClick", function(s) absorbCogShow(s) end)
+            EllesmereUI.MakeCogBtn(rgn, absorbCogShow)
         end
 
         -- Eye icon: toggle absorb preview on the preview nameplate
@@ -10658,17 +10637,7 @@ initFrame:SetScript("OnEvent", function(self)
                       disabledTooltip="Full Coloring M+ Only" },
                 },
             })
-            local owCogBtn = CreateFrame("Button", nil, leftRgn)
-            owCogBtn:SetSize(26, 26)
-            owCogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
-            leftRgn._lastInline = owCogBtn
-            owCogBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-            owCogBtn:SetAlpha(0.4)
-            local owCogTex = owCogBtn:CreateTexture(nil, "OVERLAY")
-            owCogTex:SetAllPoints(); owCogTex:SetTexture(EllesmereUI.COGS_ICON)
-            owCogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
-            owCogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
-            owCogBtn:SetScript("OnClick", function(s) owCogShow(s) end)
+            EllesmereUI.MakeCogBtn(leftRgn, owCogShow)
         end
 
         -- Neutral & Mini Enemies | Darken Enemies Out of Combat
@@ -10726,17 +10695,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local miniCogBtn = CreateFrame("Button", nil, leftRgn)
-            miniCogBtn:SetSize(26, 26)
-            miniCogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
-            leftRgn._lastInline = miniCogBtn
-            miniCogBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-            miniCogBtn:SetAlpha(0.4)
-            local miniCogTex = miniCogBtn:CreateTexture(nil, "OVERLAY")
-            miniCogTex:SetAllPoints(); miniCogTex:SetTexture(EllesmereUI.COGS_ICON)
-            miniCogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
-            miniCogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
-            miniCogBtn:SetScript("OnClick", function(s) miniCogShow(s) end)
+            EllesmereUI.MakeCogBtn(leftRgn, miniCogShow)
 
             -- Inline cog on "Darken Enemies Out of Combat": recolor OOC enemy
             -- plates with a flat color instead of dimming them (MaybeDarken).
@@ -10775,17 +10734,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local darkenCogBtn = CreateFrame("Button", nil, rightRgn)
-            darkenCogBtn:SetSize(26, 26)
-            darkenCogBtn:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
-            rightRgn._lastInline = darkenCogBtn
-            darkenCogBtn:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
-            darkenCogBtn:SetAlpha(0.4)
-            local darkenCogTex = darkenCogBtn:CreateTexture(nil, "OVERLAY")
-            darkenCogTex:SetAllPoints(); darkenCogTex:SetTexture(EllesmereUI.COGS_ICON)
-            darkenCogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
-            darkenCogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
-            darkenCogBtn:SetScript("OnClick", function(s) darkenCogShow(s) end)
+            EllesmereUI.MakeCogBtn(rightRgn, darkenCogShow)
         end
 
         -- Enemy Name Text Reaction Color: colors the enemy nameplate NAME TEXT (not the
@@ -10927,17 +10876,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local ntCogBtn = CreateFrame("Button", nil, rgn)
-            ntCogBtn:SetSize(26, 26)
-            ntCogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = ntCogBtn
-            ntCogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            ntCogBtn:SetAlpha(0.4)
-            local ntCogTex = ntCogBtn:CreateTexture(nil, "OVERLAY")
-            ntCogTex:SetAllPoints(); ntCogTex:SetTexture(EllesmereUI.COGS_ICON)
-            ntCogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
-            ntCogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
-            ntCogBtn:SetScript("OnClick", function(s) ntCogShow(s) end)
+            EllesmereUI.MakeCogBtn(rgn, ntCogShow)
         end
 
         -- Disabled-state helpers (shared across Row 2 / Row 3 swatches)
