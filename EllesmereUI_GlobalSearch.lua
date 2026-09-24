@@ -32,8 +32,18 @@ function EllesmereUI._RegisterSearchEntry(label, labelLoc, tooltip, moduleFolder
     local key = moduleFolder .. "\1" .. page .. "\1" .. label
     if _seenKeys[key] then return end
     _seenKeys[key] = true
+    if labelLoc == "" then labelLoc = nil end
+    if type(tooltip) ~= "string" or tooltip == "" then tooltip = nil end
     _searchIndex[#_searchIndex + 1] = {
         label = label,
+        -- Lowercased once here so a keystroke never re-lowers the whole index.
+        lLabel = label:lower(),
+        lLoc = labelLoc and labelLoc:lower(),
+        lTip = tooltip and tooltip:lower(),
+        -- Space-free copies: "castbar" finds "Cast Bar", "mouse over" finds "Mouseover".
+        nLabel = (label:lower():gsub(" ", "")),
+        nLoc = labelLoc and (labelLoc:lower():gsub(" ", "")),
+        nTip = tooltip and (tooltip:lower():gsub(" ", "")),
         labelLoc = labelLoc,
         tooltip = tooltip,
         module = moduleFolder,
@@ -53,32 +63,36 @@ function EllesmereUI._RegisterSearchEntry(label, labelLoc, tooltip, moduleFolder
 end
 
 -------------------------------------------------------------------------------
---  Fuzzy scoring: subsequence match with a substring-match boost. Cheap
---  enough to run per keystroke over the whole index -- no Levenshtein needed.
+--  Fuzzy scoring: subsequence match, ranked below any exact substring by
+--  ScoreEntry's tiers. Cheap enough to run per keystroke over the whole
+--  index -- no Levenshtein needed.
 -------------------------------------------------------------------------------
 local function FuzzyScore(haystack, needle)
-    local subIdx = haystack:find(needle, 1, true)
-    if subIdx then
-        return 10000 - subIdx -- exact substring always outranks a subsequence match
-    end
     local hLen, nLen = #haystack, #needle
+    -- Forward pass only finds where the earliest full match ends.
     local hi, ni = 1, 1
-    local firstMatch, lastMatch = nil, nil
-    local consecutiveRun = 0
-    local score = 0
     while hi <= hLen and ni <= nLen do
-        if haystack:byte(hi) == needle:byte(ni) then
-            if not firstMatch then firstMatch = hi end
-            lastMatch = hi
-            consecutiveRun = consecutiveRun + 1
-            score = score + consecutiveRun -- reward tight clustering (a run of k scores 1+2+...+k)
-            ni = ni + 1
-        else
-            consecutiveRun = 0
-        end
+        if haystack:byte(hi) == needle:byte(ni) then ni = ni + 1 end
         hi = hi + 1
     end
     if ni <= nLen then return nil end -- not every needle char found in order
+    local lastMatch = hi - 1
+    -- Backward pass from there finds the latest start, so the match is not
+    -- anchored on a stray early letter ("stats" on "secondary stat display"
+    -- must start at "stat", not at the "s" of "secondary").
+    local consecutiveRun, score = 0, 0
+    hi, ni = lastMatch, nLen
+    while ni >= 1 do
+        if haystack:byte(hi) == needle:byte(ni) then
+            consecutiveRun = consecutiveRun + 1
+            score = score + consecutiveRun -- reward tight clustering (a run of k scores 1+2+...+k)
+            ni = ni - 1
+        else
+            consecutiveRun = 0
+        end
+        hi = hi - 1
+    end
+    local firstMatch = hi + 1
 
     -- Reject overly sparse matches. Without this, a long enough haystack makes almost
     -- any needle findable as SOME subsequence somewhere in it (e.g. "combat" scattering
@@ -91,26 +105,38 @@ local function FuzzyScore(haystack, needle)
     return (score * 100) / span -- density: tighter matches for the same needle score higher
 end
 
-local function ScoreEntry(entry, needle)
-    local best = nil
-    -- Score each field explicitly rather than looping a { } constructor with
-    -- ipairs: entry.labelLoc is nil on English clients (and for any entry
-    -- whose localized text matches the English key), which leaves a hole at
-    -- index 2 -- ipairs stops at the first nil, so entry.tooltip (index 3)
-    -- would never be reached and tooltip search would be silently dead in
-    -- the common case. type(f) == "string" also guards against a function-
-    -- typed tooltip (ShowWidgetTooltip supports dynamic tooltip functions,
-    -- re-evaluated on each show) which has no :lower() method.
-    local function Consider(f)
-        if type(f) == "string" and f ~= "" then
-            local s = FuzzyScore(f:lower(), needle)
-            if s and (not best or s > best) then best = s end
+-- Tiers, best first: label exact, label plural-stem exact, tooltip exact,
+-- tooltip stem, label fuzzy, tooltip fuzzy. A tier always outranks the one
+-- below it; within a tier, earlier position / denser match wins.
+local TIER = 10000
+local function FieldScore(h, nh, needle, stem, ns, exactTier, fuzzyTier)
+    if not h then return nil end
+    local i = h:find(needle, 1, true)
+    if i then return exactTier * TIER + math.max(0, TIER - 1 - i) end
+    if stem then
+        -- Singular form must end its word: "stat" in "stat display", not "status".
+        i = h:find(stem, 1, true)
+        while i do
+            local c = h:byte(i + #stem)
+            if not c or c < 97 or (c > 122 and c < 128) then
+                return (exactTier - 1) * TIER + math.max(0, TIER - 1 - i)
+            end
+            i = h:find(stem, i + 1, true)
         end
     end
-    Consider(entry.label)
-    Consider(entry.labelLoc)
-    Consider(entry.tooltip)
-    return best
+    i = nh:find(ns, 1, true)
+    if i then return (exactTier - 1) * TIER + math.max(0, TIER - 1 - i) end
+    local s = FuzzyScore(h, needle)
+    if s then return fuzzyTier * TIER + math.min(s, TIER - 1) end
+end
+
+local function ScoreEntry(entry, needle, stem, ns)
+    local a = FieldScore(entry.lLabel, entry.nLabel, needle, stem, ns, 5, 1)
+    local b = FieldScore(entry.lLoc, entry.nLoc, needle, stem, ns, 5, 1)
+    local c = FieldScore(entry.lTip, entry.nTip, needle, stem, ns, 3, 0)
+    if b and (not a or b > a) then a = b end
+    if c and (not a or c > a) then a = c end
+    return a
 end
 
 -------------------------------------------------------------------------------
@@ -135,6 +161,8 @@ local function BuildCoarseCandidates()
                     -- Combined haystack so a query spanning both module and page words
                     -- (e.g. "damage spell") still matches, not just one half of it.
                     label = moduleLabel .. " " .. pageLabel,
+                    lLabel = (moduleLabel .. " " .. pageLabel):lower(),
+                    nLabel = ((moduleLabel .. pageLabel):lower():gsub(" ", "")),
                     displayLabel = pageLabel,
                     moduleLabel = moduleLabel,
                     module = folder,
@@ -194,10 +222,61 @@ end
 -- Alternate spellings a query may use for a feature whose option labels
 -- name it differently; see the synonym pass in SearchIndex. Terms are
 -- plain lowercase words (no pattern characters) and engage from their
--- first SYNONYM_MIN_PREFIX letters.
+-- first SYNONYM_MIN_PREFIX letters (shorter terms need all of theirs).
+-- Only add pairs whose alternate really appears in option labels.
 local QUERY_SYNONYMS = {
-    { "skyriding",  { "dragon riding", "dragonriding" } },
-    { "sky riding", { "dragon riding", "dragonriding" } },
+    { "skyriding",       { "dragon riding", "dragonriding" } },
+    { "sky riding",      { "dragon riding", "dragonriding" } },
+    -- Abbreviations
+    { "cd",              { "cooldown" } },
+    { "cds",             { "cooldown" } },
+    { "global cooldown", { "gcd" } },
+    { "hp",              { "health" } },
+    { "ab",              { "action bar" } },
+    { "uf",              { "unit frame" } },
+    { "rf",              { "raid frame" } },
+    { "experience",      { "xp" } },
+    { "lfg",             { "group finder", "queue" } },
+    { "m+",              { "mythic", "keystone" } },
+    { "mplus",           { "mythic", "keystone" } },
+    -- Other words for the same thing
+    { "transparency",    { "opacity" } },
+    { "alpha",           { "opacity" } },
+    { "kick",            { "interrupt" } },
+    { "interrupt",       { "kick" } },
+    { "cleanse",         { "dispel" } },
+    { "purge",           { "dispel" } },
+    { "decurse",         { "dispel" } },
+    { "aggro",           { "threat" } },
+    { "hotkey",          { "keybind" } },
+    { "keybind",         { "hotkey" } },
+    { "binding",         { "hotkey" } },
+    { "inventory",       { "bag" } },
+    { "bags",            { "bag" } },
+    { "colour",          { "color" } },
+    { "shield",          { "absorb" } },
+    { "absorb",          { "shield" } },
+    { "stacks",          { "charges" } },
+    { "charges",         { "stacks" } },
+    { "plates",          { "nameplate" } },
+    { "hotbar",          { "action bar" } },
+    { "buffs",           { "aura" } },
+    { "debuffs",         { "aura" } },
+    { "aura",            { "buff", "debuff" } },
+    { "move",            { "position", "unlock" } },
+    { "drag",            { "position", "unlock" } },
+    { "layer",           { "strata" } },
+    { "level",           { "strata" } },
+    { "combo points",    { "resource" } },
+    { "holy power",      { "resource" } },
+    { "chi",             { "resource" } },
+    { "soul shards",     { "resource" } },
+    { "runes",           { "resource" } },
+    { "mouse",           { "mouseover" } },
+    { "hover",           { "mouseover" } },
+    { "transparent",     { "fade" } },
+    { "hide when",       { "fade" } },
+    { "quest",           { "objective", "tracker" } },
 }
 local SYNONYM_MIN_PREFIX = 3
 
@@ -261,6 +340,9 @@ local function SearchIndex(query, maxResults)
     -- of the query; a BARE module name (or name prefix) lists pages.
     local function ScorePass(folderSet, n)
         local scored = {}
+        -- "stats" also finds "stat" as a near-exact hit, one tier down.
+        local stem = #n >= 4 and n:sub(-1) == "s" and n:sub(1, -2) or nil
+        local ns = n:gsub(" ", "")
         local function Consider(list)
             for _, entry in ipairs(list) do
                 if not folderSet or folderSet[entry.module] then
@@ -269,7 +351,7 @@ local function SearchIndex(query, maxResults)
                             scored[#scored + 1] = { entry = entry, score = 1 }
                         end
                     else
-                        local s = ScoreEntry(entry, n)
+                        local s = ScoreEntry(entry, n, stem, ns)
                         if s then scored[#scored + 1] = { entry = entry, score = s } end
                     end
                 end
@@ -316,7 +398,7 @@ local function SearchIndex(query, maxResults)
     for _, syn in ipairs(QUERY_SYNONYMS) do
         local term = syn[1]
         local matched = false
-        for len = #term, SYNONYM_MIN_PREFIX, -1 do
+        for len = #term, math.min(SYNONYM_MIN_PREFIX, #term), -1 do
             local pre = term:sub(1, len)
             local s, e = needle:find(pre, 1, true)
             while s do
@@ -341,7 +423,7 @@ local function SearchIndex(query, maxResults)
         end
     end
     if filterSet then
-        Merge(ScorePass(filterSet, subNeedle), 20000)
+        Merge(ScorePass(filterSet, subNeedle), 6 * TIER) -- above every tier
     end
 
     table.sort(scored, function(a, b) return a.score > b.score end)
@@ -613,15 +695,15 @@ local function PrebuildOnce(config, folder, page, selectorSetter, selectorKey)
     EllesmereUI._prebuilding = nil
 end
 
--- One staggered tick = ONE hidden page build. Selector variants are expanded
--- into separate jobs at list-build time (not looped synchronously inside a
--- single tick) because the variant pages are the suite's heaviest -- building
--- the Unit Frames Display page once per unit in one frame is a visible hitch.
+-- One job = ONE hidden page build. Selector variants are expanded into
+-- separate jobs at list-build time (not looped synchronously inside a single
+-- job) because the variant pages are the suite's heaviest; the per-frame
+-- budget in RunPrebuildPass then spreads them across frames.
 local function PrebuildJob(job)
     local config = job.config
     if not config.buildPage then return end
-    -- Re-check (not just at job-list-build time): the staggered pass runs over several
-    -- seconds, so the player may have visited and cached this exact page live in the
+    -- Re-check (not just at job-list-build time): the staggered pass spans many
+    -- frames, so the player may have visited and cached this exact page live in the
     -- meantime -- rebuilding it hidden would be a redundant, wasted build. The selector
     -- restore still runs: the live visit happened at whatever selection the player made
     -- themselves, but an EARLIER variant job may have left the module's selector moved.
@@ -648,9 +730,11 @@ end
 -- CPU, so only users who actually use the search ever pay it. Since 2026-08-03 the pass
 -- builds NO frames (absorber layer above): its entire footprint is the index strings
 -- plus transient garbage, versus the old hidden-build's 10-25MB of permanent page
--- frames. The first non-empty query in the search box triggers this pass (see RunSearch
--- in EnsureSearchUI); coarse module/page results need no build and show immediately,
+-- frames. Focusing the search box (or its first query) triggers this pass (see
+-- EnsureSearchUI); coarse module/page results need no build and show immediately,
 -- and onComplete re-runs the query so late-indexed rows appear without retyping.
+local PREBUILD_BUDGET_MS = 4
+
 local function RunPrebuildPass(onComplete)
     if _prebuildDone then return end
     _prebuildDone = true
@@ -706,14 +790,19 @@ local function RunPrebuildPass(onComplete)
             combatWait:RegisterEvent("PLAYER_REGEN_ENABLED")
             return
         end
-        i = i + 1
-        local job = jobs[i]
-        if not job then
-            if onComplete then onComplete() end
-            return
-        end
-        PrebuildJob(job)
-        C_Timer.After(0.05, StepJob)
+        -- As many builds as fit in a small per-frame budget (at least one),
+        -- then yield a frame: fast to finish without a visible hitch.
+        local t0 = debugprofilestop()
+        repeat
+            i = i + 1
+            local job = jobs[i]
+            if not job then
+                if onComplete then onComplete() end
+                return
+            end
+            PrebuildJob(job)
+        until debugprofilestop() - t0 > PREBUILD_BUDGET_MS
+        C_Timer.After(0, StepJob)
     end
     if jobs[1] then
         -- Next frame, not synchronously: the trigger is a keystroke handler
@@ -736,6 +825,7 @@ end
 -------------------------------------------------------------------------------
 local _searchUIBuilt = false
 local popup, resultRows
+local results, selIdx = {}, 1 -- last shown results; Tab/arrows move selIdx, Enter opens it
 
 local RESULT_ROW_H = 34
 local RESULT_ROW_GAP = 4   -- breathing room between result rows
@@ -868,33 +958,45 @@ local function EnsureSearchUI()
         sub:SetJustifyH("LEFT")
 
         row:SetScript("OnEnter", function() hl:SetColorTexture(1, 1, 1, 0.08) end)
-        row:SetScript("OnLeave", function() hl:SetColorTexture(1, 1, 1, 0) end)
+        row:SetScript("OnLeave", function() hl:SetColorTexture(1, 1, 1, i == selIdx and 0.08 or 0) end)
 
+        row._hl = hl
         row._label = lbl
         row._sub = sub
         row:Hide()
         resultRows[i] = row
     end
 
+    local function SetSelected(i)
+        resultRows[selIdx]._hl:SetColorTexture(1, 1, 1, 0)
+        selIdx = i
+        resultRows[selIdx]._hl:SetColorTexture(1, 1, 1, 0.08)
+    end
+
     local RunSearch
+    -- Started on focus, before the first letter, so the index is usually
+    -- complete by the time a query is typed.
+    local function StartPrebuild()
+        if _prebuildDone then return end
+        RunPrebuildPass(function()
+            if sidebarSearchBox:GetText() ~= "" then RunSearch() end
+        end)
+    end
+    sidebarSearchBox:HookScript("OnEditFocusGained", StartPrebuild)
+
     RunSearch = function()
         local query = sidebarSearchBox:GetText()
-        -- First real use of the box is the feature's opt-in: kick the one-time
-        -- staggered index pass now, off the login path entirely. Coarse module/page
-        -- results show immediately; when the pass finishes, re-run the query so newly
-        -- indexed rows appear without retyping. While a search is active, every "Show
+        -- The index pass normally started on focus; a query typed without focus
+        -- (e.g. pasted) starts it here. Coarse module/page results show immediately;
+        -- the pass re-runs the query when it finishes. While a search is active, every "Show
         -- Less Common" section renders force-expanded with no link line; clearing the
         -- box collapses them back to their session state (transitions rebuild -- see
         -- SetLessCommonSearchActive in EllesmereUI_Widgets.lua).
         if EllesmereUI.SetLessCommonSearchActive then
             EllesmereUI.SetLessCommonSearchActive(query ~= "")
         end
-        if query ~= "" and not _prebuildDone then
-            RunPrebuildPass(function()
-                if sidebarSearchBox:GetText() ~= "" then RunSearch() end
-            end)
-        end
-        local results = SearchIndex(query, MAX_VISIBLE_RESULTS)
+        if query ~= "" then StartPrebuild() end
+        results = SearchIndex(query, MAX_VISIBLE_RESULTS)
         -- Accent-colored "Page:"/"Section:" prefixes. Hex is computed per
         -- search, so a live accent change is picked up on the next keystroke.
         local EG = EllesmereUI.ELLESMERE_GREEN
@@ -926,6 +1028,7 @@ local function EnsureSearchUI()
                 row:Hide()
             end
         end
+        SetSelected(1)
         if #results > 0 then
             local n = math.min(#results, MAX_VISIBLE_RESULTS)
             popup:SetHeight(n * (RESULT_ROW_H + RESULT_ROW_GAP) - RESULT_ROW_GAP + 8)
@@ -939,8 +1042,15 @@ local function EnsureSearchUI()
     -- them, so the sidebar addon/page filtering it already does keeps working.
     sidebarSearchBox:HookScript("OnTextChanged", RunSearch)
     sidebarSearchBox:HookScript("OnEnterPressed", function(self)
-        local results = SearchIndex(self:GetText(), 1)
-        if results[1] then JumpToResult(results[1], self) end
+        if results[selIdx] then JumpToResult(results[selIdx], self) end
+    end)
+    local function Step(d)
+        local n = #results
+        if n > 0 and popup:IsShown() then SetSelected((selIdx - 1 + d) % n + 1) end
+    end
+    sidebarSearchBox:HookScript("OnTabPressed", function() Step(IsShiftKeyDown() and -1 or 1) end)
+    sidebarSearchBox:HookScript("OnArrowPressed", function(_, key)
+        if key == "UP" then Step(-1) elseif key == "DOWN" then Step(1) end
     end)
 
     -- Click-anywhere-else closes the results: a global mouse-down listener

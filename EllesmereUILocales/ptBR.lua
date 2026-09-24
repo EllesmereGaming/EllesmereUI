@@ -73,7 +73,6 @@ L["Offset Y"]          = "Deslocamento Y"
 L["Shift X"]           = "Deslocamento X"
 L["Shift Y"]           = "Deslocamento Y"
 L["None"]              = "Nenhum"
-L["Border Offset"]     = "Deslocamento da borda"
 L["Thin"]              = "Fina"
 L["Normal"]            = "Normal"
 L["Heavy"]             = "Pesada"
@@ -1624,7 +1623,6 @@ L["Sidebar Visibility"] = "Visibilidade da Barra Lateral"
 L["Sync Border with Chat Panel"] = "Sincronizar Borda com o Painel de Bate-Papo"
 L["Tab Background Color"] = "Cor de Fundo da Aba"
 L["Tab Background Color Active"] = "Cor de Fundo da Aba Ativa"
-L["Tab Border Offset"] = "Deslocamento da Borda da Aba"
 L["Tab Font"] = "Fonte da Aba"
 L["Tab Font Color"] = "Cor da Fonte da Aba"
 L["Tab Font Color Active"] = "Cor da Fonte da Aba Ativa"
@@ -3228,7 +3226,7 @@ L["Tick Markers"] = "Marcadores de Pulso"
 L["Timer Settings"] = "Configurações do Cronômetro"
 L["Totem Bar"] = "Totens"
 L["Unlock Elements"] = "Desbloquear Elementos"
-L["Use unique backgrounds for each bar"] = "Usar fundos exclusivos para cada barra"
+L["Choose background per bar"] = "Usar fundos exclusivos para cada barra"
 L["Vertical (Down)"] = "Vertical (Baixo)"
 L["Vertical (Up)"] = "Vertical (Cima)"
 L["Vertical Down"] = "Vertical para Baixo"
@@ -3381,7 +3379,6 @@ L["This option does not work with Blizzard Bars. Please use Blizzard Edit Mode."
 L["This option is not supported for this bar type"] = "Esta opção não é compatível com este tipo de barra"
 L["This option requires a custom glow to be selected"] = "Esta opção requer que um brilho personalizado esteja selecionado"
 L["This option requires a non-custom shaped action bar"] = "Esta opção requer uma barra de ação sem formato personalizado"
-L["This option requires Blizzard Style Action Bars to be disabled"] = "Esta opção requer que as Barras de Ação no Estilo Blizzard estejam desativadas"
 L["This option requires Class Colors to be disabled"] = "Esta opção requer que as Cores de Classe estejam desativadas"
 L["Toggle between horizontal and vertical bar layout."] = "Alterna entre layout de barra horizontal e vertical."
 L["Toggles Blizzard's Show Numbers for Cooldowns setting, which will show number text on any spells that are on cooldown on your action bars."] = "Ativa a configuração Mostrar Números para Recargas da Blizzard, que exibe texto numérico em feitiços que estão em recarga nas suas barras de ação."
@@ -4414,7 +4411,6 @@ L["Portrait Zoom"] = "Zoom do Retrato"
 L["Power %"] = "Poder %"
 L["Power Bar Fill"] = "Preenchimento da Barra de Poder"
 L["Power Bar Height"] = "Altura da Barra de Poder"
-L["Power Border Offset"] = "Deslocamento da Borda de Poder"
 L["Power Colored Fill. Power colors can be adjusted in Global Settings -> Fonts & Colors."] = "Preenchimento colorido por poder. As cores de poder podem ser ajustadas em Configurações Globais -> Fontes e Cores."
 L["Power Colored Text"] = "Texto Colorido por Poder"
 L["Power Text"] = "Texto de Poder"
@@ -6078,9 +6074,7 @@ L["class"] = "classe"
 L["classes"] = "classes"
 
 -- == General Options / Donor Wall ==============================================
-L["ALL DONORS"] = "TODOS OS DOADORES"
 L["EUI STAFF"] = "EQUIPE EUI"
-L["Monthly Top Donors"] = "Principais Doadores do Mês"
 L["Thank you for making EllesmereUI possible."] = "Obrigado por tornar a EllesmereUI possível."
 L["Thank you to all who support EllesmereUI and its incredible support team!"] = "Obrigado a todos que apoiam a EllesmereUI e sua incrível equipe de suporte!"
 
@@ -6960,21 +6954,14 @@ L["Hearty Feast of Knowledge"] = "Banquete de Conhecimento Substancial"
 -- == WoW Forever ================================================
 L["%1$s is switched off on the WoW Forever beta until Blizzard's client can run secure handlers again."] = "%1$s: desativado no beta do WoW Forever até que o cliente da Blizzard volte a executar manipuladores seguros."
 L["A reload is required to apply this."] = "É necessário recarregar para aplicar isto."
-L["ALSO NEW"] = "TAMBÉM NOVO"
 L["BLIZZARD ART"] = "ARTE DA BLIZZARD"
 L["EllesmereUI Forever"] = true
-L["Everything from retail, ported to WoW Forever"] = "Tudo da versão retail, portado para o WoW Forever"
-L["Export and import your profiles between the two clients"] = "Exporte e importe seus perfis entre os dois clientes"
 L["Got It"] = "Entendi"
-L["Keep every EllesmereUI feature and setting, with Blizzard's own art. Pick the look per module in Global Settings -> Style."] = "Mantenha todos os recursos e configurações da EllesmereUI, com a arte original da Blizzard. Escolha o visual de cada módulo em Configurações globais -> Estilo."
 L["NOW ON WOW FOREVER"] = "AGORA NO WOW FOREVER"
-L["On WoW Forever the same install sets itself up on first login."] = "No WoW Forever, a mesma instalação se configura sozinha no primeiro login."
-L["One EllesmereUI: the same install runs on either game"] = "Uma só EllesmereUI: a mesma instalação funciona nos dois jogos"
 L["Profiles are switched off on the WoW Forever beta until Blizzard's client saves settings again."] = "Os perfis estão desativados no beta do WoW Forever até que o cliente da Blizzard volte a salvar as configurações."
 L["Reloading on the WoW Forever beta resets your EllesmereUI settings until Blizzard fixes the client."] = "Recarregar no beta do WoW Forever redefine suas configurações da EllesmereUI até que a Blizzard corrija o cliente."
 L["Reloading resets your settings on the WoW Forever beta until Blizzard fixes the client."] = "Recarregar redefine suas configurações no beta do WoW Forever até que a Blizzard corrija o cliente."
 L["The current WoW Forever client has a bug that prevents some Action Bars functionality. Bars, buttons and keybinds work; page switching on stance and form changes, conditional bar hiding and empty-slot handling do not. This resolves itself once Blizzard fixes the client."] = "O cliente atual do WoW Forever tem um bug que impede parte das funções das Barras de Ação. Barras, botões e atalhos funcionam; a troca de página em mudanças de postura e forma, o ocultamento condicional de barras e o tratamento de espaços vazios não funcionam. Isso se resolve sozinho assim que a Blizzard corrigir o cliente."
-L["The full suite now runs on WoW Forever, crafted with a clean base layout for your first login."] = "O conjunto completo agora roda no WoW Forever, com um layout base limpo para o seu primeiro login."
 L["This client has no Blizzard class resource bar to attach to the frame"] = "Este cliente não tem uma barra de recurso de classe da Blizzard para anexar ao quadro"
 L["Type /reload in chat to apply."] = "Digite /reload no bate-papo para aplicar."
 L["WOW FOREVER"] = true
@@ -6982,27 +6969,14 @@ L["WoW Forever"] = true
 
 -- == Global Settings / Style ================================================
 L["Blizzard Style"] = "Estilo Blizzard"
-L["Blizzard Style is active. Settings that only apply to the EllesmereUI look are hidden."] = "O Estilo Blizzard está ativo. As configurações que só valem para o visual da EllesmereUI ficam ocultas."
-L["Blizzard Style keeps every EllesmereUI feature and setting; only the art changes. Changing a style reloads the UI."] = "O Estilo Blizzard mantém todos os recursos e configurações da EllesmereUI; só a arte muda. Trocar um estilo recarrega a interface."
 L["Blizzard's aura borders on the buffs, debuffs and weapon enchants, with every EllesmereUI bar feature."] = "As bordas de aura da Blizzard nos buffs, debuffs e encantamentos de arma, com todos os recursos de barra da EllesmereUI."
-L["Blizzard's buff bar art with every EllesmereUI tracked bar feature."] = "A arte das barras de buffs da Blizzard com todos os recursos de barra rastreada da EllesmereUI."
-L["Blizzard's cast bar art with every EllesmereUI cast bar feature."] = "A arte da barra de lançamento da Blizzard com todos os recursos de barra de lançamento da EllesmereUI."
-L["Blizzard's frame art, portraits and bar shapes with every EllesmereUI frame feature."] = "A arte de quadros, os retratos e o formato das barras da Blizzard com todos os recursos de quadro da EllesmereUI."
-L["Blizzard's health and cast bar art with every EllesmereUI nameplate feature."] = "A arte das barras de vida e de lançamento da Blizzard com todos os recursos de placa de nome da EllesmereUI."
-L["Blizzard's meter window and bar art with every EllesmereUI meter feature."] = "A janela do medidor e a arte das barras da Blizzard com todos os recursos de medidor da EllesmereUI."
-L["Blizzard's round minimap and header with every EllesmereUI minimap feature."] = "O minimapa redondo e o cabeçalho da Blizzard com todos os recursos de minimapa da EllesmereUI."
-L["Blizzard's rounded button art with every EllesmereUI bar feature."] = "A arte de botões arredondados da Blizzard com todos os recursos de barra da EllesmereUI."
-L["Blizzard's rounded cooldown icons with every EllesmereUI icon feature."] = "Os ícones de recarga arredondados da Blizzard com todos os recursos de ícone da EllesmereUI."
 L["Changing the style requires a UI reload to apply."] = "Alterar o estilo requer recarregar a interface para aplicá-lo."
-L["Choose the look of each module."] = "Escolha o visual de cada módulo."
 L["Cooldown Manager Icons"] = "Ícones do Gerenciador de Recarga"
 L["EllesmereUI Style"] = "Estilo EllesmereUI"
 L["Enable %1$s to change its style."] = "Ative %1$s para alterar o estilo."
 L["MODULE STYLES"] = "ESTILOS DOS MÓDULOS"
 L["Open Style"] = "Abrir Estilo"
 L["Style changed for this profile. A UI reload is needed to apply it."] = "O estilo foi alterado para este perfil. É necessário recarregar a interface para aplicá-lo."
-L["Style to apply to every module below."] = "Estilo a aplicar a todos os módulos abaixo."
-L["The personal resource display's bar frame on the health, power and class resource bars, with every EllesmereUI bar feature."] = "A moldura de barra da exibição de recursos pessoais nas barras de vida, de poder e de recurso de classe, com todos os recursos de barra da EllesmereUI."
 L["This option requires Blizzard Style to be disabled"] = "Esta opção requer que o Estilo Blizzard esteja desativado"
 L["Tracked Buff Bars"] = "Barras de Buffs Rastreados"
 
@@ -7070,3 +7044,284 @@ L["Corner options place the bar flush with that corner of the target and set its
 
 -- == Blizzard Skin Options ================================================
 L["Themed Blizzard frames: window skins, tooltips, menus, popups."] = "Quadros da Blizzard com tema: aparências de janelas, dicas, menus, pop-ups."
+
+-- == Global Settings / Style (Classic WoW UI) ================================================
+L["%1$s is active. Settings that only apply to the EllesmereUI look are hidden."] = "%1$s está ativo. As configurações que só valem para o visual da EllesmereUI ficam ocultas."
+L["%1$s is active: chat keeps Blizzard's own background and tab art."] = "%1$s está ativo: o bate-papo mantém a arte original de fundo e das abas da Blizzard."
+L["%1$s is active: the tracker keeps Blizzard's own text."] = "%1$s está ativo: o rastreador mantém o texto original da Blizzard."
+L["Blizzard's buff bar art, or the classic cast bar frame, with every EllesmereUI tracked bar feature."] = "A arte das barras de buffs da Blizzard, ou o quadro clássico de barra de lançamento, com todos os recursos de barra rastreada da EllesmereUI."
+L["Blizzard's cast bar art, or the classic cast bar frame, with every EllesmereUI cast bar feature."] = "A arte da barra de lançamento da Blizzard, ou o quadro clássico de barra de lançamento, com todos os recursos de barra de lançamento da EllesmereUI."
+L["Blizzard's frame art, portraits and bar shapes, or the classic frames, with every EllesmereUI frame feature."] = "A arte de quadros, os retratos e o formato das barras da Blizzard, ou os quadros clássicos, com todos os recursos de quadro da EllesmereUI."
+L["Blizzard's health and cast bar art, or the classic flat plates, with every EllesmereUI nameplate feature."] = "A arte das barras de vida e de lançamento da Blizzard, ou as placas clássicas planas, com todos os recursos de placa de nome da EllesmereUI."
+L["Blizzard's meter window and bar art, or a window in the classic chat tabs' border, with every EllesmereUI meter feature."] = "A janela do medidor e a arte das barras da Blizzard, ou uma janela na borda clássica das abas de bate-papo, com todos os recursos de medidor da EllesmereUI."
+L["Blizzard's own character sheet with the EllesmereUI stats and slot text added; the socket panel and Calc tab stay with the EllesmereUI look."] = "A ficha de personagem original da Blizzard com as estatísticas e o texto de espaço da EllesmereUI adicionados; o Painel de Encaixes e a aba da Calculadora permanecem com o visual da EllesmereUI."
+L["Blizzard's own chat window, tabs and input box, or the same window with the classic tab art, with every EllesmereUI chat feature."] = "A janela, as abas e a caixa de texto originais de bate-papo da Blizzard, ou a mesma janela com a arte clássica das abas, com todos os recursos de bate-papo da EllesmereUI."
+L["Blizzard's own friends window and cards, with the EllesmereUI class icons, class-coloured names and region icons added. Both stock styles look the same here."] = "A janela e os cartões de amigos originais da Blizzard, com os ícones de classe, nomes coloridos por classe e ícones de região da EllesmereUI adicionados. Os dois estilos padrão têm a mesma aparência aqui."
+L["Blizzard's own tracker, with every EllesmereUI tracker feature. Both stock styles look the same here."] = "O rastreador original da Blizzard, com todos os recursos de rastreador da EllesmereUI. Os dois estilos padrão têm a mesma aparência aqui."
+L["Blizzard's raid frame edge and highlights, or the classic ones, with every EllesmereUI raid frame feature."] = "A borda e os destaques de quadro de raide originais da Blizzard, ou os clássicos, com todos os recursos de quadro de raide da EllesmereUI."
+L["Blizzard's round minimap and header, or the classic ring, with every EllesmereUI minimap feature."] = "O minimapa redondo e o cabeçalho da Blizzard, ou o anel clássico, com todos os recursos de minimapa da EllesmereUI."
+L["Blizzard's rounded button art, or the classic square slots, with every EllesmereUI bar feature."] = "A arte de botões arredondados da Blizzard, ou os espaços quadrados clássicos, com todos os recursos de barra da EllesmereUI."
+L["Blizzard's rounded cooldown icons, or the classic square slots, with every EllesmereUI icon feature."] = "Os ícones de recarga arredondados da Blizzard, ou os espaços quadrados clássicos, com todos os recursos de ícone da EllesmereUI."
+L["CHOOSE YOUR LOOK"] = "ESCOLHA SEU VISUAL"
+L["Classic WoW UI"] = "Interface Clássica do WoW"
+L["DEFAULT"] = "PADRÃO"
+L["Flat, clean and modern. The look EllesmereUI was designed around."] = "Plano, limpo e moderno. O visual em torno do qual a EllesmereUI foi projetada."
+L["Global Settings > Style sets the look for the whole UI or for each module."] = "Configurações globais > Estilo define o visual de toda a interface ou de cada módulo."
+L["IN USE"] = "EM USO"
+L["In Use"] = "Em Uso"
+L["NEW IN ELLESMEREUI"] = "NOVO NA ELLESMEREUI"
+L["Restyle My UI"] = "Reestilizar Minha Interface"
+L["Same setup, same EllesmereUI features, a new look: switch to Blizzard Style or the new Classic WoW UI in one click, and switch back any time."] = "Mesma configuração, mesmos recursos da EllesmereUI, um visual novo: mude para o Estilo Blizzard ou para a nova Interface Clássica do WoW com um clique, e volte quando quiser."
+L["The original frames, rings and slots where the game has them, with EllesmereUI's features."] = "Os quadros, anéis e espaços originais onde o jogo os possui, com os recursos da EllesmereUI."
+L["VANILLA ART"] = "ARTE CLÁSSICA"
+L["Your setup and every EllesmereUI feature carry over; only the look changes. Apply a style to every module in one click, or set each module below. Changing a style reloads the UI."] = "Sua configuração e todos os recursos da EllesmereUI são mantidos; só o visual muda. Aplique um estilo a todos os módulos com um clique, ou defina cada módulo abaixo. Trocar um estilo recarrega a interface."
+L["Your UI, Restyled in Seconds"] = "Sua Interface, Reestilizada em Segundos"
+
+-- == Player Aura Bars / Match Filters ================================================
+L["Match All Filters"] = "Corresponder a Todos os Filtros"
+L["Match Any Filter"] = "Corresponder a Qualquer Filtro"
+L["Shows debuffs that match any checked Show filter (the default)."] = "Mostra debuffs que correspondem a qualquer filtro Mostrar marcado (o padrão)."
+L["Shows only debuffs that match every checked Show filter (dispel types count as one); opposites like Non-Player Auras with Cast By You show nothing."] = "Mostra apenas debuffs que correspondem a todos os filtros Mostrar marcados (tipos de dissipação contam como um); opostos como Auras de Não-Jogadores com Lançado por Você não mostram nada."
+L["Shows only debuffs that match every checked Show filter (dispel types count as one); opposites like Non-Player Auras with Cast By You, or a filter an indicator shows, show nothing."] = "Mostra apenas debuffs que correspondem a todos os filtros Mostrar marcados (tipos de dissipação contam como um); opostos como Auras de Não-Jogadores com Lançado por Você, ou um filtro que um indicador já mostra, não mostram nada."
+L["Uncheck All Debuffs to choose how the Show filters combine."] = "Desmarque Todos os Debuffs para escolher como os filtros Mostrar se combinam."
+
+-- == EUI Legends ================================================
+L["($100 or more)"] = "($100 ou mais)"
+L["ALL-TIME DONORS"] = "DOADORES DE TODOS OS TEMPOS"
+L["Fall"] = "Outono"
+L["Seasonal Top Donors"] = "Principais Doadores da Temporada"
+L["Special thanks to:"] = "Agradecimentos especiais a:"
+L["Spring"] = "Primavera"
+L["Summer"] = "Verão"
+L["Unclaimed"] = "Não reivindicado"
+L["View EUI Legends"] = "Ver Lendas da EUI"
+L["Winter"] = "Inverno"
+
+-- == Resource Bars ================================================
+L["Border Around All"] = "Borda ao Redor de Todas"
+L["Draws one frame around the resource bars instead of one per bar."] = "Desenha um único quadro ao redor das barras de recurso, em vez de um por barra."
+
+-- == Action Bars ================================================
+L["Size matching is unavailable with Classic WoW UI Action Bars."] = "A correspondência de tamanho não está disponível com as Barras de Ação na Interface Clássica do WoW."
+
+-- == Beacon Reminders / Consumables Tracker Options ================================================
+L["Abbreviate Text"] = "Abreviar Texto"
+L["Border Opacity"] = "Opacidade da Borda"
+L["Border Thickness"] = "Espessura da Borda"
+L["Enable Modern Styling"] = "Ativar Estilização Moderna"
+L["Enable Mouseover Mode"] = "Ativar Modo Ao Passar o Mouse"
+L["Frame Style"] = "Estilo do Quadro"
+L["Global Scale"] = "Escala Global"
+L["Lock Position"] = "Bloquear Posição"
+L["Proc Glow Effect"] = "Efeito de Brilho de Proc"
+L["Pulse"] = "Pulso"
+L["Show Border"] = "Mostrar Borda"
+L["Show in Arena"] = "Mostrar em Arena"
+L["Show in Battlegrounds"] = "Mostrar em Campos de Batalha"
+L["Show in Combat"] = "Mostrar em Combate"
+L["Show in Open World"] = "Mostrar no Mundo Aberto"
+L["Show in Raids"] = "Mostrar em Raides"
+L["Show Keybind Text"] = "Mostrar Texto de Atalho"
+L["Show While Mounted"] = "Mostrar Montado"
+
+-- == Flight Timer ================================================
+L["Destination Text"] = "Texto de Destino"
+L["Enable Flight Timer"] = "Ativar Cronômetro de Voo"
+L["FLIGHT TIMER"] = "CRONÔMETRO DE VOO"
+L["Flight Timer"] = "Cronômetro de Voo"
+L["Flight Timer Preview"] = "Pré-visualização do Cronômetro de Voo"
+L["Flight times start as an estimate and get more accurate after each flight you finish. Reset to start over from the estimate."] = "Os tempos de voo começam como uma estimativa e ficam mais precisos após cada voo concluído. Redefina para recomeçar a partir da estimativa."
+L["Learned Flight Speed"] = "Velocidade de Voo Aprendida"
+L["Opacity of the bar fill."] = "Opacidade do preenchimento da barra."
+L["Show Total Time"] = "Mostrar Tempo Total"
+L["Shows a progress bar with the time left while you ride a flight path. Move and resize it in Unlock Mode."] = "Mostra uma barra de progresso com o tempo restante enquanto você viaja por uma rota de voo. Mova e redimensione-a no Modo de Desbloqueio."
+L["Shows the full flight time next to the time left, for example 1:23 / 4:19."] = "Mostra o tempo total de voo ao lado do tempo restante, por exemplo 1:23 / 4:19."
+L["Time Text"] = "Texto de Tempo"
+
+-- == Unit Frames / Chat Options ================================================
+L["Power Border Options"] = "Opções de Borda de Poder"
+L["Tab Border Options"] = "Opções de Borda da Aba"
+
+-- == Beacon Reminders ================================================
+L["Alerts"] = "Alertas"
+L["Beacon Reminders"] = "Lembretes de Foco"
+L["Configure alerts for missing Beacon of Light or Faith."] = "Configure alertas para a falta de Foco de Luz ou de Fé."
+
+-- == Global Settings / Addon Detection ================================================
+L["Core Addons"] = "Addons Principais"
+L["QoL Addons"] = "Addons de QoL"
+L["Incompatible Addon Detected"] = "Addon Incompatível Detectado"
+L["Out of Date"] = "Desatualizado"
+
+-- == Quality of Life ================================================
+L["Travel"] = "Viagem"
+L["bres"] = true
+L["brez"] = true
+L["crest"] = "brasão"
+L["cursor"] = "cursor"
+L["demodal"] = "desmodal"
+L["fps"] = true
+L["logging"] = "registro"
+
+-- == Global Settings / Fonts ================================================
+L["Outline style override for all "] = true
+L[" text. EUI Global Outline follows the global Outline Mode setting above."] = true
+
+-- == Raid Frames / Party Frames ================================================
+L["FRAME STYLE"] = "ESTILO DO QUADRO"
+L["Frame Style: Party Frames"] = "Estilo do Quadro: Quadros de Grupo"
+L["Party Frames switches the party to the stock portrait party frames."] = "Quadros de Grupo alterna o grupo para os quadros de grupo padrão com retrato."
+L["Party frames in arenas and small raids count as Party; Friendly Boss frames count as Raid."] = "Quadros de grupo em arenas e raides pequenas contam como Grupo; Quadros de Chefe Amigável contam como Raide."
+L["Changing the party frame style requires a UI reload."] = "Alterar o estilo do quadro de grupo requer um recarregamento da UI."
+L["Attached widens each frame by the portrait."] = "Anexado alarga cada quadro pela largura do retrato."
+L["Apply Border Size to all Frames"] = "Aplicar Tamanho da Borda a Todos os Quadros"
+L["Border size in pixels; for a textured style this is the size of its edge art."] = "Tamanho da borda em pixels; para um estilo texturizado, este é o tamanho da sua arte de borda."
+
+-- == Unit Frames ================================================
+L["Blizz Colored Target Header"] = "Cabeçalho do Alvo Colorido pela Blizzard"
+L["Colors the strip behind the target's name by its reaction."] = "Colore a faixa atrás do nome do alvo de acordo com sua reação."
+L["Texture for every unit frame cast bar. Inherit follows each unit's bar texture."] = "Textura para toda barra de conjuração dos quadros de unidade. Herdar segue a textura de barra de cada unidade."
+L["This client cannot run the safeguard that stops a drag from casting the spell, so actions stay on key up until Blizzard fixes it."] = "Este cliente não consegue executar a proteção que impede um arraste de conjurar o feitiço, então as ações permanecem em soltar tecla até a Blizzard corrigir isso."
+
+-- == Nameplates / Boss Frames ================================================
+L["Level Size"] = "Tamanho do Nível"
+L["Size of the icon that replaces the level on a boss. 0 follows the bar height."] = "Tamanho do ícone que substitui o nível em um chefe. 0 segue a altura da barra."
+L["Size of the level in the border's plate. 0 follows the bar height."] = "Tamanho do nível na placa da borda. 0 segue a altura da barra."
+
+-- == Blizzard Skin / Character Sheet ================================================
+L["Shows the item level and stat category titles in Blizzard's yellow, with values in the label color."] = "Mostra o nível de item e os títulos de categoria de estatística no amarelo da Blizzard, com os valores na cor do rótulo."
+
+-- == Party Mode ================================================
+L["Level Up"] = "Subiu de Nível"
+
+-- == Mythic+ Timer ================================================
+L["Current Pull Color"] = "Cor do Pull Atual"
+L["Opacity of the current pull on the enemy forces bar."] = "Opacidade do pull atual na barra de forças inimigas."
+L["Previews the forces of every enemy in combat with a visible nameplate on the enemy forces bar."] = "Mostra uma prévia das forças de todo inimigo em combate com uma placa de nome visível na barra de forças inimigas."
+L["Show Current Pull in Bar"] = "Mostrar Pull Atual na Barra"
+
+-- == Resource Bars ================================================
+L["Separator Border"] = "Borda do Separador"
+L["Separator Color"] = "Cor do Separador"
+
+-- == QoL Flight Timer ================================================
+L["Show Bar"] = "Mostrar Barra"
+
+-- == Style Options ================================================
+L["Size of the Classic frame around the bar."] = "Tamanho do quadro Clássico ao redor da barra."
+
+-- == General Options / Module Enable, Disable, Sync ================================================
+L["Disable Action Bars"] = "Desativar Barras de Ação"
+L["Disable AuraBuff Reminders"] = "Desativar Lembretes de Auras/Buffs"
+L["Disable Bags"] = "Desativar Bolsas"
+L["Disable Blizz UI Enhanced"] = "Desativar Interface Blizz Aprimorada"
+L["Disable Chat"] = "Desativar Bate-Papo"
+L["Disable Cooldown Manager"] = "Desativar Gerenciador de Recarga"
+L["Disable Damage Meters"] = "Desativar Medidor de Dano"
+L["Disable DataBars"] = "Desativar Barras de Dados"
+L["Disable Dragon Riding"] = "Desativar Pilotagem Aérea"
+L["Disable Friends List"] = "Desativar Lista de Amigos"
+L["Disable Minimap"] = "Desativar Minimapa"
+L["Disable Mythic+ Tools"] = "Desativar Ferramentas Mítica+"
+L["Disable Nameplates"] = "Desativar Placas de Nome"
+L["Disable Quality of Life"] = "Desativar Qualidade de Vida"
+L["Disable Resource & Cast Bars"] = "Desativar Barras de Recurso e Lançamento"
+L["Enable Action Bars"] = "Ativar Barras de Ação"
+L["Enable Bags"] = "Ativar Bolsas"
+L["Enable Blizz UI Enhanced"] = "Ativar Interface Blizz Aprimorada"
+L["Enable Chat"] = "Ativar Bate-Papo"
+L["Enable Cooldown Manager"] = "Ativar Gerenciador de Recarga"
+L["Enable Damage Meters"] = "Ativar Medidor de Dano"
+L["Enable DataBars"] = "Ativar Barras de Dados"
+L["Enable Dragon Riding"] = "Ativar Pilotagem Aérea"
+L["Enable Friends List"] = "Ativar Lista de Amigos"
+L["Enable Minimap"] = "Ativar Minimapa"
+L["Enable Mythic+ Tools"] = "Ativar Ferramentas Mítica+"
+L["Enable Nameplates"] = "Ativar Placas de Nome"
+L["Enable Quality of Life"] = "Ativar Qualidade de Vida"
+L["Enable Raid Frames"] = "Ativar Quadros de Raide"
+L["Enable Resource & Cast Bars"] = "Ativar Barras de Recurso e Lançamento"
+L["Sync Action Bars"] = "Sincronizar Barras de Ação"
+L["Sync AuraBuff Reminders"] = "Sincronizar Lembretes de Auras/Buffs"
+L["Sync Bags"] = "Sincronizar Bolsas"
+L["Sync Blizz UI Enhanced"] = "Sincronizar Interface Blizz Aprimorada"
+L["Sync Chat"] = "Sincronizar Bate-Papo"
+L["Sync Cooldown Manager"] = "Sincronizar Gerenciador de Recarga"
+L["Sync Damage Meters"] = "Sincronizar Medidor de Dano"
+L["Sync DataBars"] = "Sincronizar Barras de Dados"
+L["Sync Dragon Riding"] = "Sincronizar Pilotagem Aérea"
+L["Sync Friends List"] = "Sincronizar Lista de Amigos"
+L["Sync Minimap"] = "Sincronizar Minimapa"
+L["Sync Mythic+ Tools"] = "Sincronizar Ferramentas Mítica+"
+L["Sync Nameplates"] = "Sincronizar Placas de Nome"
+L["Sync Quality of Life"] = "Sincronizar Qualidade de Vida"
+L["Sync Quest Tracker"] = "Sincronizar Rastreador de Objetivo"
+L["Sync Quickdraw"] = "Sincronizar Lançamento Rápido"
+L["Sync Raid Frames"] = "Sincronizar Quadros de Raide"
+L["Sync Resource & Cast Bars"] = "Sincronizar Barras de Recurso e Lançamento"
+L["Sync Unit Frames"] = "Sincronizar Quadros de Unidade"
+
+-- == Raid Frames / Click Casting ================================================
+L["Please disable the addon \"Clique\" to use this feature."] = "Desative o addon \"Clique\" para usar este recurso."
+
+-- == Global Settings / Bar Texture Names ================================================
+L["Atrocity"] = "Atrocidade"
+L["Beautiful"] = "Bonita"
+L["Blizzard Raid Bar"] = "Barra de Raide da Blizzard"
+L["Blizzard Wood"] = "Madeira da Blizzard"
+L["Divide"] = "Divisão"
+L["Fade"] = "Esmaecido"
+L["Fade Right"] = "Esmaecido à Direita"
+L["Gradient Down"] = "Gradiente para Baixo"
+L["Gradient Left"] = "Gradiente à Esquerda"
+L["Gradient Right"] = "Gradiente à Direita"
+L["Gradient Up"] = "Gradiente para Cima"
+L["Matte"] = "Fosco"
+
+-- == Global Settings / Style Cards ================================================
+L["Blizzard's own frame and button art, with EllesmereUI's features."] = "A arte original de quadros e botões da Blizzard, com os recursos da EllesmereUI."
+L["Use Blizzard Style"] = "Usar Estilo Blizzard"
+L["Use Classic WoW UI"] = "Usar Interface Clássica do WoW"
+L["Use EllesmereUI Style"] = "Usar Estilo EllesmereUI"
+
+-- == Popups ================================================
+L["Disable & Reload"] = "Desativar e Recarregar"
+L["Don't show again"] = "Não mostrar novamente"
+L["Enable & Reload"] = "Ativar e Recarregar"
+L["Enter name..."] = "Digite o nome..."
+
+-- == General Options ================================================
+L["Centered Horizontal"] = "Centralizado na Horizontal"
+L["Centered Vertical"] = "Centralizado na Vertical"
+L["Custom Buff Display"] = "Exibição de Buff Personalizada"
+L["Dark"] = "Escuro"
+L["Faction (Auto)"] = "Facção (Automático)"
+L["Include Window Skins"] = "Incluir Aparências de Janelas"
+L["Modern Icons"] = "Ícones Modernos"
+
+-- == EUI Options Panel Scale ================================================
+L["Giant (150%)"] = "Gigante (150%)"
+L["Huge (125%)"] = "Enorme (125%)"
+L["Large (110%)"] = "Grande (110%)"
+L["Massive (200%)"] = "Colossal (200%)"
+L["Normal (100%)"] = "Normal (100%)"
+L["Small (90%)"] = "Pequeno (90%)"
+L["Tiny (75%)"] = "Minúsculo (75%)"
+
+-- == Raid Frames / Unit Frames ================================================
+L["Hostile"] = "Hostil"
+
+-- == Item Upgrade Calculator ================================================
+L["Hero Crest"] = true
+L["Myth Crest"] = true
+
+-- == QoL Cog Settings ================================================
+L["Desaturate when No Charges"] = "Dessaturar quando sem cargas"
+L["Desaturate when Sated"] = "Dessaturar quando Saciado"
+L["Destination Text Settings"] = "Configurações de Texto de Destino"
+L["Elite Icon Position"] = "Posição do Ícone de Elite"
+L["Height Offset"] = "Deslocamento de Altura"
+L["Level Position"] = "Posição do Nível"
+L["Sated Settings"] = "Configurações de Saciado"
+L["Time Text Settings"] = "Configurações de Texto de Tempo"
+L["Width Offset"] = "Deslocamento de Largura"

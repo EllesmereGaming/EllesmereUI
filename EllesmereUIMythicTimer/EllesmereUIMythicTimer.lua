@@ -49,7 +49,7 @@ local function ApplyBarTexture(tex, texKey, r, g, b, a)
     end
 end
 
--- One full physical pixel. ResourceBars can get away with half a pixel because a
+-- One full physical pixel. ResourceBars can get away with a sub-pixel inset because a
 -- StatusBar clips its own fill texture tightly; our plain SetTexture fills (Melli
 -- etc.) bilinear-filter a full pixel past their rect. Half-px left a visible fringe
 -- past the border on the long continuous TICKS bar (SEGMENTS hid it better between
@@ -1524,9 +1524,10 @@ do
                 if IsPlainTrue(UnitExists(unit)) and IsPlainTrue(UnitCanAttack("player", unit))
                    and IsPlainTrue(UnitAffectingCombat(unit)) and not IsPlainTrue(UnitIsDead(unit)) then
                     -- nil for enemies that give no forces. The value itself is
-                    -- only ever handed to SetValue, never read.
+                    -- only ever handed to SetValue, never read: the nil test
+                    -- reads its type tag, never the (secret) value.
                     local value = C_ScenarioInfo.GetUnitCriteriaProgressValues(unit)
-                    if value ~= nil then
+                    if type(value) ~= "nil" then
                         n = n + 1
                         anchor = PlaceSegment(f, n, anchor, value)
                     end

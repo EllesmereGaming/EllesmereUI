@@ -1401,93 +1401,21 @@ function ns.GetPandemicGlowBackgroundColor()
     return c.r or 0, c.g or 0, c.b or 0
 end
 
--- Offensive dispel capability. This asks what the PLAYER knows, never what an
--- aura is, so it keeps working in restricted content, where a tainted addon's
--- aura reads are denied outright rather than merely classified.
+-- Offensive dispel capability: the shared parent detector (AuraKit), which
+-- asks what the PLAYER knows, never what an aura is, so it keeps working in
+-- restricted content.
 do
-    local _, playerClass = UnitClass("player")
-    -- { spellID, category ("Magic", "Enrage", or "Both"), requiredClass or nil, requiredTalent or nil }
-    local OFFENSIVE_DISPEL_SPELLS = {
-        { 370,    "Magic",  nil       },  -- Purge (Shaman)
-        { 378773, "Magic",  nil       },  -- Greater Purge (Shaman)
-        { 528,    "Magic",  nil       },  -- Dispel Magic (Priest)
-        { 32375,  "Magic",  nil       },  -- Mass Dispel (Priest)
-        { 278326, "Magic",  nil       },  -- Consume Magic (Demon Hunter)
-        { 19505,  "Magic",  "WARLOCK" },  -- Devour Magic (Felhunter)
-        { 19801,  "Both",   nil       },  -- Tranquilizing Shot (Hunter)
-        { 2908,   "Enrage", nil       },  -- Soothe (Druid)
-        { 30449,  "Magic",  nil       },  -- Spellsteal (Mage)
-        { 115078, "Enrage", "MONK", 450432 },  -- Paralysis (w/ Pressure Points talent)
-    }
-    local canDispelMagic, canDispelEnrage = false, false
-    local built = false
-    local BANK = Enum and Enum.SpellBookSpellBank
-
-    -- IsSpellKnown answers "does the player have this", which is the question a
-    -- PASSIVE talent needs -- IsSpellInSpellBook says no for one. The globals
-    -- this used to call (IsPlayerSpell, IsSpellKnown) exist only in
-    -- Blizzard_DeprecatedSpellBook, behind the loadDeprecationFallbacks CVar and
-    -- removed next expansion; with that CVar off the talent branch never fired.
-    local function Knows(spellID, bank)
-        if not (C_SpellBook and C_SpellBook.IsSpellKnown and BANK) then return false end
-        local ok, v = pcall(C_SpellBook.IsSpellKnown, spellID, bank or BANK.Player)
-        return ok and v == true
-    end
-    local function InBook(spellID, bank)
-        if not (C_SpellBook and BANK) then return false end
-        if not C_SpellBook.IsSpellKnownOrInSpellBook then return Knows(spellID, bank) end
-        local ok, v = pcall(C_SpellBook.IsSpellKnownOrInSpellBook, spellID, bank or BANK.Player)
-        return ok and v == true
-    end
-
-    local function RebuildDispelTypes()
-        local wasMagic, wasEnrage = canDispelMagic, canDispelEnrage
-        canDispelMagic, canDispelEnrage = false, false
-        for _, entry in ipairs(OFFENSIVE_DISPEL_SPELLS) do
-            local spellID, cat, reqClass, reqTalent = entry[1], entry[2], entry[3], entry[4]
-            if not (reqClass and playerClass ~= reqClass) then
-                local known
-                if reqTalent then
-                    known = Knows(reqTalent)
-                elseif reqClass then
-                    -- Pet bank: true only while that pet is actually out, which
-                    -- is why UNIT_PET is registered below.
-                    known = InBook(spellID, BANK and BANK.Pet)
-                else
-                    known = InBook(spellID)
-                end
-                if known then
-                    if cat == "Magic" or cat == "Both" then canDispelMagic = true end
-                    if cat == "Enrage" or cat == "Both" then canDispelEnrage = true end
-                end
-            end
-        end
-        -- Capability picks the buff row's candidate filter, so a change has to
-        -- rebuild the containers, not merely repaint them. The first pass has
-        -- nothing to compare against and nothing built yet, so it never
-        -- notifies -- the pool build reads capability when it runs.
-        if built and (wasMagic ~= canDispelMagic or wasEnrage ~= canDispelEnrage) then
-            if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
-        end
-        built = true
-    end
-    local dispelFrame = CreateFrame("Frame")
-    dispelFrame:RegisterEvent("SPELLS_CHANGED")
-    dispelFrame:RegisterEvent("UNIT_PET")
-    -- A talent swap does not reliably reach SPELLS_CHANGED first, and without
-    -- these a talent-gated entry is only correct after a /reload.
-    dispelFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
-    dispelFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    dispelFrame:SetScript("OnEvent", function(_, event, unit)
-        if event == "UNIT_PET" and unit ~= "player" then return end
-        RebuildDispelTypes()
+    local AKd = EllesmereUI.AuraKit
+    -- Capability picks the buff row's candidate filter, so a change has to
+    -- rebuild the containers, not merely repaint them.
+    AKd.OnOffensiveDispelChange(function()
+        if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
     end)
-    RebuildDispelTypes()
 
     -- canDispelMagic, canDispelEnrage. Consumed by the buff row to pick its
     -- candidate filter and by the glow gate.
     ns.GetOffensiveDispelTypes = function()
-        return canDispelMagic, canDispelEnrage
+        return AKd.OffensiveDispelTypes()
     end
 
     ns.GetDispelGlow = function()

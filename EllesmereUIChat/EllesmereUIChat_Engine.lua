@@ -500,21 +500,24 @@ local CHANNEL_ABBR_LOOKUP = {
 }
 
 -- World channels use hyperlink keyword "channel:<N>": 1=General, 2=Trade,
--- 22=LocalDefense, 23=WorldDefense, 26=LookingForGroup.
-local WORLD_CHANNEL_ABBR = {
+-- 22=LocalDefense, 23=WorldDefense, 26=LookingForGroup. By default they show
+-- their channel number (what "/1" types); the Use Letters cog option paints
+-- these letters instead. A number with no letter stays a number either way.
+local WORLD_CHANNEL_LETTERS = {
     ["1"]  = "Ge",
     ["2"]  = "T",
     ["22"] = "LD",
     ["23"] = "WD",
     ["26"] = "LFG",
 }
+local _abbrevLetters = false  -- Shortened Channel Names > Use Letters user setting
 
 local function ShortChannelReplacer(hyperlinkTarget)
     local abbr = CHANNEL_ABBR_LOOKUP[hyperlinkTarget:upper()]
     if not abbr then
         local channelNum = hyperlinkTarget:match("^channel:(%d+)$")
         if channelNum then
-            abbr = WORLD_CHANNEL_ABBR[channelNum] or channelNum
+            abbr = (_abbrevLetters and WORLD_CHANNEL_LETTERS[channelNum]) or channelNum
         end
     end
     if not abbr then return nil end
@@ -555,6 +558,9 @@ end
 
 function ECHAT.EngineSetChannelAbbrev(on)
     _abbrevOn = on == true
+end
+function ECHAT.EngineSetChannelAbbrevLetters(on)
+    _abbrevLetters = on == true
 end
 
 -------------------------------------------------------------------------------

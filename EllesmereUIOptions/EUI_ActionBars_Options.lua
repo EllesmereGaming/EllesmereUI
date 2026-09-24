@@ -1010,6 +1010,10 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                         local sx = (settings.borderTextureShiftX or dsx) * ratio
                         local sy = (settings.borderTextureShiftY or dsy) * ratio
+                        -- Whole pixels at the preview's own scale, as ApplyBorderStyle snaps the live anchors.
+                        local snapES = (pvES > 0.01) and pvES or uiES
+                        offX, offY = gamePP.SnapForES(offX, snapES), gamePP.SnapForES(offY, snapES)
+                        sx, sy = gamePP.SnapForES(sx, snapES), gamePP.SnapForES(sy, snapES)
                         bdPv:ClearAllPoints()
                         bdPv:SetPoint("TOPLEFT", bf, "TOPLEFT", -offX + sx, offY + sy)
                         bdPv:SetPoint("BOTTOMRIGHT", bf, "BOTTOMRIGHT", offX + sx, -offY + sy)
@@ -1748,10 +1752,6 @@ initFrame:SetScript("OnEvent", function(self)
         local W = EllesmereUI.Widgets
         local _, h
 
-        -- Must be scoped HERE, not shared with BuildMenuBagsXPPage's identically named local:
-        -- otherwise the Icon Size rows below resolve it as a nil GLOBAL and the disabled-slider tooltip silently never shows.
-        local BLIZZ_DIS_TIP = "This option does not work with Blizzard Bars. Please use Blizzard Edit Mode."
-
         ---------------------------------------------------------------
         --  Unified Get / Set / DB abstraction
         ---------------------------------------------------------------
@@ -1783,26 +1783,20 @@ initFrame:SetScript("OnEvent", function(self)
             UpdatePreview()
         end
 
-        -- The stock spacing lives in the offset boxes, not in the placement: it is
-        -- seeded there on the way in, follows the position while the numbers are
-        -- still the seeded ones, and is cleared on the way back out to Default,
-        -- where the stock placement carries its own spacing again. The moment the
-        -- user types anything the boxes are theirs and nothing rewrites them.
+        -- The stock spacing lives in the offset boxes, not in the placement. A
+        -- position pick swaps the old placement's spacing for the new one's on each
+        -- axis and keeps whatever the user added on top (Default carries none: its
+        -- stock lines hold their own spacing). Opting in, moving between positions
+        -- and going back to Default therefore never move the text by the spacing,
+        -- whatever the boxes held (a Cropped shape's preset included).
         local function SSeedTextOffsets(kind, anchorKey, oxKey, oyKey, anchor)
             local prev = SVal(anchorKey, nil)
             if prev == anchor then return end
-            local ox, oy = SVal(oxKey, 0), SVal(oyKey, 0)
-            if prev then
-                local px, py = EAB.StockTextOffsets(kind, prev)
-                if ox ~= px or oy ~= py then return end
-            elseif ox ~= 0 or oy ~= 0 then
-                return
-            end
-            if anchor then
-                SB()[oxKey], SB()[oyKey] = EAB.StockTextOffsets(kind, anchor)
-            else
-                SB()[oxKey], SB()[oyKey] = nil, nil
-            end
+            local px, py, nx, ny = 0, 0, 0, 0
+            if prev then px, py = EAB.StockTextOffsets(kind, prev) end
+            if anchor then nx, ny = EAB.StockTextOffsets(kind, anchor) end
+            SB()[oxKey] = SVal(oxKey, 0) - px + nx
+            SB()[oyKey] = SVal(oyKey, 0) - py + ny
         end
         local function SUpdatePreviewAndResize()
             UpdatePreviewAndResize()
@@ -2276,15 +2270,15 @@ initFrame:SetScript("OnEvent", function(self)
             local iconSizeRow
             iconSizeRow, h = W:DualRow(parent, y,
                 { type="slider", text="Icon Size", min=16, max=120, step=1,
+                  -- Every style sizes from this slider (stock styles scale Blizzard's
+                  -- native-size button to it); only a size match locks it.
                   disabled=function()
                       local k = SelectedKey()
                       if EllesmereUI.GetWidthMatchTarget and EllesmereUI.GetWidthMatchTarget(k) then return true end
                       if EllesmereUI.GetHeightMatchTarget and EllesmereUI.GetHeightMatchTarget(k) then return true end
-                      return EllesmereUI.BlizzStyle.Get("actionbars")
+                      return false
                   end,
                   disabledTooltip=function()
-                      -- Blizzard Style wins the message: sizing is Edit Mode's despite any stale match link, so "unmatch to edit" would be a dead end.
-                      if EllesmereUI.BlizzStyle.Get("actionbars") then return BLIZZ_DIS_TIP end
                       local k = SelectedKey()
                       local wt = EllesmereUI.GetWidthMatchTarget and EllesmereUI.GetWidthMatchTarget(k)
                       local ht = EllesmereUI.GetHeightMatchTarget and EllesmereUI.GetHeightMatchTarget(k)
@@ -2293,7 +2287,7 @@ initFrame:SetScript("OnEvent", function(self)
                           local name = (EllesmereUI.GetBarLabel and EllesmereUI.GetBarLabel(target)) or target
                           return EllesmereUI.Lf("Size matched to %1$s. Unmatch in Unlock Mode to edit.", name)
                       end
-                      return BLIZZ_DIS_TIP
+                      return nil
                   end,
                   rawTooltip=true,
                   getValue=function()
@@ -3812,21 +3806,16 @@ initFrame:SetScript("OnEvent", function(self)
                               EAB.db.profile.bars[k].borderSize = entry.regular
                               EAB.db.profile.bars[k].borderEnabled = true
                           end
-                          -- Default keybind/count text for cropped vs normal
+                          -- Default keybind/count text for cropped vs normal (offsets keep a
+                          -- positioned text's corner spacing)
                           if v == "cropped" then
                               EAB.db.profile.bars[k].keybindFontSize = 11
-                              EAB.db.profile.bars[k].keybindOffsetX = 0
-                              EAB.db.profile.bars[k].keybindOffsetY = 1
                               EAB.db.profile.bars[k].countFontSize = 11
-                              EAB.db.profile.bars[k].countOffsetX = 0
-                              EAB.db.profile.bars[k].countOffsetY = -1
+                              EAB.ApplyShapeTextOffsets(EAB.db.profile.bars[k], 0, 1, 0, -1)
                           else
                               EAB.db.profile.bars[k].keybindFontSize = 12
-                              EAB.db.profile.bars[k].keybindOffsetX = 0
-                              EAB.db.profile.bars[k].keybindOffsetY = 0
                               EAB.db.profile.bars[k].countFontSize = 12
-                              EAB.db.profile.bars[k].countOffsetX = 0
-                              EAB.db.profile.bars[k].countOffsetY = 0
+                              EAB.ApplyShapeTextOffsets(EAB.db.profile.bars[k], 0, 0, 0, 0)
                           end
                           EAB:ApplyShapesForBar(k)
                           EAB:ApplyPaddingForBar(k)
@@ -3874,11 +3863,11 @@ initFrame:SetScript("OnEvent", function(self)
                                 bs.borderEnabled = true
                             end
                             if v == "cropped" then
-                                bs.keybindFontSize = 11; bs.keybindOffsetX = 0; bs.keybindOffsetY = 1
-                                bs.countFontSize = 11; bs.countOffsetX = 0; bs.countOffsetY = -1
+                                bs.keybindFontSize = 11; bs.countFontSize = 11
+                                EAB.ApplyShapeTextOffsets(bs, 0, 1, 0, -1)
                             else
-                                bs.keybindFontSize = 12; bs.keybindOffsetX = 0; bs.keybindOffsetY = 0
-                                bs.countFontSize = 12; bs.countOffsetX = 0; bs.countOffsetY = 0
+                                bs.keybindFontSize = 12; bs.countFontSize = 12
+                                EAB.ApplyShapeTextOffsets(bs, 0, 0, 0, 0)
                             end
                             EAB:ApplyShapesForBar(key)
                             EAB:ApplyPaddingForBar(key)
@@ -3919,11 +3908,11 @@ initFrame:SetScript("OnEvent", function(self)
                                     bs.borderEnabled = true
                                 end
                                 if v == "cropped" then
-                                    bs.keybindFontSize = 11; bs.keybindOffsetX = 0; bs.keybindOffsetY = 1
-                                    bs.countFontSize = 11; bs.countOffsetX = 0; bs.countOffsetY = -1
+                                    bs.keybindFontSize = 11; bs.countFontSize = 11
+                                    EAB.ApplyShapeTextOffsets(bs, 0, 1, 0, -1)
                                 else
-                                    bs.keybindFontSize = 12; bs.keybindOffsetX = 0; bs.keybindOffsetY = 0
-                                    bs.countFontSize = 12; bs.countOffsetX = 0; bs.countOffsetY = 0
+                                    bs.keybindFontSize = 12; bs.countFontSize = 12
+                                    EAB.ApplyShapeTextOffsets(bs, 0, 0, 0, 0)
                                 end
                                 EAB:ApplyShapesForBar(key)
                                 EAB:ApplyPaddingForBar(key)
@@ -4679,7 +4668,7 @@ initFrame:SetScript("OnEvent", function(self)
                             EAB.db.profile.bars[key].keybindFontSize = sz
                             EAB.db.profile.bars[key].keybindOffsetX = ox
                             EAB.db.profile.bars[key].keybindOffsetY = oy
-                            EAB.db.profile.bars[key].keybindAnchor = an
+                            EAB.db.profile.bars[key].keybindAnchor = an or false
                             EAB:ApplyFontsForBar(key)
                         end
                         EllesmereUI:RefreshPage()
@@ -4695,7 +4684,7 @@ initFrame:SetScript("OnEvent", function(self)
                             if (b.keybindFontSize or 12) ~= sz then return false end
                             if (b.keybindOffsetX or 0) ~= ox then return false end
                             if (b.keybindOffsetY or 0) ~= oy then return false end
-                            if b.keybindAnchor ~= s.keybindAnchor then return false end
+                            if (b.keybindAnchor or nil) ~= (s.keybindAnchor or nil) then return false end
                             if c then
                                 local bc = b.keybindFontColor
                                 if not bc or bc.r ~= c.r or bc.g ~= c.g or bc.b ~= c.b then return false end
@@ -4720,7 +4709,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 EAB.db.profile.bars[key].keybindFontSize = sz
                                 EAB.db.profile.bars[key].keybindOffsetX = ox
                                 EAB.db.profile.bars[key].keybindOffsetY = oy
-                                EAB.db.profile.bars[key].keybindAnchor = an
+                                EAB.db.profile.bars[key].keybindAnchor = an or false
                                 EAB:ApplyFontsForBar(key)
                             end
                             EllesmereUI:RefreshPage()
@@ -4757,7 +4746,8 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v)
                               local anchor = v ~= "default" and v or nil
                               SSeedTextOffsets("keybind", "keybindAnchor", "keybindOffsetX", "keybindOffsetY", anchor)
-                              SSet("keybindAnchor", anchor, function(k) EAB:ApplyFontsForBar(k) end)
+                              -- Default is stored false, not nil: profile sync copies only keys that exist.
+                              SSet("keybindAnchor", anchor or false, function(k) EAB:ApplyFontsForBar(k) end)
                               SUpdatePreview()
                           end },
                         { type="slider", label="X Offset", min=-150, max=150, step=1,
@@ -4846,7 +4836,7 @@ initFrame:SetScript("OnEvent", function(self)
                             EAB.db.profile.bars[key].macroFontSize = sz
                             EAB.db.profile.bars[key].macroOffsetX = ox
                             EAB.db.profile.bars[key].macroOffsetY = oy
-                            EAB.db.profile.bars[key].macroAnchor = an
+                            EAB.db.profile.bars[key].macroAnchor = an or false
                             EAB:ApplyFontsForBar(key)
                         end
                         EllesmereUI:RefreshPage()
@@ -4862,7 +4852,7 @@ initFrame:SetScript("OnEvent", function(self)
                             if (b.macroFontSize or 12) ~= sz then return false end
                             if (b.macroOffsetX or 0) ~= ox then return false end
                             if (b.macroOffsetY or 0) ~= oy then return false end
-                            if b.macroAnchor ~= s.macroAnchor then return false end
+                            if (b.macroAnchor or nil) ~= (s.macroAnchor or nil) then return false end
                             if c then
                                 local bc = b.macroFontColor
                                 if not bc or bc.r ~= c.r or bc.g ~= c.g or bc.b ~= c.b then return false end
@@ -4887,7 +4877,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 EAB.db.profile.bars[key].macroFontSize = sz
                                 EAB.db.profile.bars[key].macroOffsetX = ox
                                 EAB.db.profile.bars[key].macroOffsetY = oy
-                                EAB.db.profile.bars[key].macroAnchor = an
+                                EAB.db.profile.bars[key].macroAnchor = an or false
                                 EAB:ApplyFontsForBar(key)
                             end
                             EllesmereUI:RefreshPage()
@@ -4924,7 +4914,7 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v)
                               local anchor = v ~= "default" and v or nil
                               SSeedTextOffsets("macro", "macroAnchor", "macroOffsetX", "macroOffsetY", anchor)
-                              SSet("macroAnchor", anchor, function(k) EAB:ApplyFontsForBar(k) end)
+                              SSet("macroAnchor", anchor or false, function(k) EAB:ApplyFontsForBar(k) end)
                               SUpdatePreview()
                           end },
                         { type="slider", label="X Offset", min=-150, max=150, step=1,
@@ -4974,7 +4964,7 @@ initFrame:SetScript("OnEvent", function(self)
                             EAB.db.profile.bars[key].countFontSize = sz
                             EAB.db.profile.bars[key].countOffsetX = ox
                             EAB.db.profile.bars[key].countOffsetY = oy
-                            EAB.db.profile.bars[key].countAnchor = an
+                            EAB.db.profile.bars[key].countAnchor = an or false
                             EAB:ApplyFontsForBar(key)
                         end
                         EllesmereUI:RefreshPage()
@@ -4990,7 +4980,7 @@ initFrame:SetScript("OnEvent", function(self)
                             if (b.countFontSize or 12) ~= sz then return false end
                             if (b.countOffsetX or 0) ~= ox then return false end
                             if (b.countOffsetY or 0) ~= oy then return false end
-                            if b.countAnchor ~= s.countAnchor then return false end
+                            if (b.countAnchor or nil) ~= (s.countAnchor or nil) then return false end
                             if c then
                                 local bc = b.countFontColor
                                 if not bc or bc.r ~= c.r or bc.g ~= c.g or bc.b ~= c.b then return false end
@@ -5015,7 +5005,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 EAB.db.profile.bars[key].countFontSize = sz
                                 EAB.db.profile.bars[key].countOffsetX = ox
                                 EAB.db.profile.bars[key].countOffsetY = oy
-                                EAB.db.profile.bars[key].countAnchor = an
+                                EAB.db.profile.bars[key].countAnchor = an or false
                                 EAB:ApplyFontsForBar(key)
                             end
                             EllesmereUI:RefreshPage()
@@ -5052,7 +5042,7 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v)
                               local anchor = v ~= "default" and v or nil
                               SSeedTextOffsets("count", "countAnchor", "countOffsetX", "countOffsetY", anchor)
-                              SSet("countAnchor", anchor, function(k) EAB:ApplyFontsForBar(k) end)
+                              SSet("countAnchor", anchor or false, function(k) EAB:ApplyFontsForBar(k) end)
                               SUpdatePreview()
                           end },
                         { type="slider", label="X Offset", min=-150, max=150, step=1,

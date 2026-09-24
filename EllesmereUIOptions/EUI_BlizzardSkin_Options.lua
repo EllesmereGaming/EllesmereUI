@@ -1113,8 +1113,8 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Style page stock styles (Blizzard Style / Classic WoW UI) keep
-        -- Blizzard's own character sheet with our stats section and slot text:
-        -- the gem icons and the socket strip are the EllesmereUI sheet's own.
+        -- Blizzard's own character sheet with our stats section, slot text and
+        -- socket strip: the gem icons and Icon Zoom are the EllesmereUI sheet's own.
         local BS = EllesmereUI.BlizzStyle
         local function csGate(cfg)
             if BS then BS.Gate("charsheet", cfg) end
@@ -1148,17 +1148,15 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
         AttachDisabledOverlay(coreRow1)
 
-        local coreRow2
-        coreRow2, h = W:DualRow(parent, y,
-            { type="toggle", text="Upgrade Track",
+        local upgradeTrackCfg = { type="toggle", text="Upgrade Track",
               tooltip="Toggle visibility of upgrade track text on the character sheet.",
               getValue=function() return EllesmereUIDB and EllesmereUIDB.showUpgradeTrack ~= false end,
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.showUpgradeTrack = v
                   if EllesmereUI._refreshUpgradeTrackVisibility then EllesmereUI._refreshUpgradeTrackVisibility() end
-              end },
-            csGate({ type="toggle", text="Show Gems",
+              end }
+        local showGemsCfg = csGate({ type="toggle", text="Show Gems",
               tooltip="Toggle visibility of gem icons inside equipment slots.",
               getValue=function() return EllesmereUIDB and EllesmereUIDB.showGems ~= false end,
               setValue=function(v)
@@ -1166,22 +1164,19 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUIDB.showGems = v
                   if EllesmereUI._refreshGemsVisibility then EllesmereUI._refreshGemsVisibility() end
               end })
-        );  y = y - h
-        AttachDisabledOverlay(coreRow2)
-
-        local socketRow
-        socketRow, h = W:DualRow(parent, y,
-            csGate({ type="toggle", text="Socket Panel",
+        -- Both looks: under the stock styles the strip hangs below Blizzard's
+        -- sheet in its tab art (EllesmereUIBlizzardSkin_SocketPanel.lua).
+        local socketPanelCfg = { type="toggle", text="Socket Panel",
               tooltip="Show a panel of equipped-gear sockets on the character sheet; click a socket to gem it.",
               getValue=function() return EllesmereUIDB and EllesmereUIDB.charSheetSocketPanel ~= false end,
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.charSheetSocketPanel = v
                   if EllesmereUI._refreshCharSheetSocketPanel then EllesmereUI._refreshCharSheetSocketPanel() end
-              end }),
-            -- Gated with the socket panel, so the stock styles hide the whole row
-            -- (Blizzard's own slot icons; the inspect sheet keeps its stored zoom).
-            csGate({ type="slider", text="Icon Zoom", min=0, max=0.20, step=0.01,
+              end }
+        -- Blizzard's own slot icons under the stock styles (the inspect sheet
+        -- keeps its stored zoom).
+        local iconZoomCfg = csGate({ type="slider", text="Icon Zoom", min=0, max=0.20, step=0.01,
               tooltip="Crops the border of the equipment-slot item icons on the character and inspect sheets. 0 shows the full icon. Only affects the themed character sheet.",
               getValue=function() return (EllesmereUIDB and EllesmereUIDB.charSheetIconZoom) or 0.07 end,
               setValue=function(v)
@@ -1189,7 +1184,17 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUIDB.charSheetIconZoom = v
                   if EllesmereUI._refreshCharSheetIconZoom then EllesmereUI._refreshCharSheetIconZoom() end
               end })
-        );  y = y - h
+        -- Stock styles pair Socket Panel beside Upgrade Track and put the two
+        -- EllesmereUI-only controls together, so that row hides whole and no
+        -- blank slot is left; the EllesmereUI order is unchanged.
+        local stockSheet = BS and BS.Get("charsheet")
+
+        local coreRow2
+        coreRow2, h = W:DualRow(parent, y, upgradeTrackCfg, stockSheet and socketPanelCfg or showGemsCfg);  y = y - h
+        AttachDisabledOverlay(coreRow2)
+
+        local socketRow
+        socketRow, h = W:DualRow(parent, y, stockSheet and showGemsCfg or socketPanelCfg, iconZoomCfg);  y = y - h
         AttachDisabledOverlay(socketRow)
 
         local enchGemRow

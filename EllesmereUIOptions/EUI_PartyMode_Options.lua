@@ -383,15 +383,34 @@ do
             local rl = EllesmereUI._widgetRefreshList
             if rl then for i = 1, #rl do rl[i]() end end
         end }
+        -- Bloodlust is debuff-triggered with a hardcoded 40s celebration; it is
+        -- intentionally NOT wired into the Auto Celebration Duration slider, so
+        -- it has its own setValue rather than the shared TriggerSet.
+        local bloodlustCheckbox = { type = "checkbox", text = "Bloodlust",
+            getValue = TriggerGet("partyModeTriggerBloodlust"),
+            setValue = function(v)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.partyModeTriggerBloodlust = v
+                if EllesmereUI_UpdatePartyModeLustListener then EllesmereUI_UpdatePartyModeLustListener() end
+                local rl = EllesmereUI._widgetRefreshList
+                if rl then for i = 1, #rl do rl[i]() end end
+            end }
+        local levelUpCheckbox = { type = "checkbox", text = "Level Up",
+            getValue = TriggerGet("partyModeTriggerLevelUp"),
+            setValue = function(v)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.partyModeTriggerLevelUp = v
+                if EllesmereUI_UpdatePartyModeLevelUpListener then EllesmereUI_UpdatePartyModeLevelUpListener() end
+                local rl = EllesmereUI._widgetRefreshList
+                if rl then for i = 1, #rl do rl[i]() end end
+            end }
 
         if EllesmereUI.IS_FOREVER then
-            -- WoW Forever has no Mythic+, Mythic or Raid Finder difficulties and no
-            -- rated PvP, so those triggers can never fire there. Show only the ones
-            -- that can: Randomly | Normal Boss Kill | Heroic Boss Kill
+            -- WoW Forever has no keystones, no rated PvP and no Mythic, Heroic or
+            -- Raid Finder difficulties, and its vanilla raids report difficulty 9 or
+            -- 148, which no boss kill trigger maps. Show only what can fire there.
             _, h = W:TripleRow(parent, y,
-                randomlyCheckbox,
-                { type = "checkbox", text = "Normal Boss Kill", getValue = TriggerGet("partyModeTriggerNormalBoss"), setValue = TriggerSet("partyModeTriggerNormalBoss") },
-                { type = "checkbox", text = "Heroic Boss Kill", getValue = TriggerGet("partyModeTriggerHeroicBoss"), setValue = TriggerSet("partyModeTriggerHeroicBoss") },
+                randomlyCheckbox, bloodlustCheckbox, levelUpCheckbox,
                 CB_SPLITS
             );  y = y - h
         else
@@ -419,33 +438,12 @@ do
                 CB_SPLITS
             );  y = y - h
 
+            -- Row 4: Bloodlust | Level Up
+            _, h = W:TripleRow(parent, y,
+                bloodlustCheckbox, levelUpCheckbox, nil,
+                CB_SPLITS
+            );  y = y - h
         end
-
-        -- Row 4: Bloodlust (debuff-triggered, hardcoded 40s; intentionally NOT
-        -- wired into the Auto Celebration Duration slider, so it has its own
-        -- setValue rather than the shared TriggerSet).
-        _, h = W:TripleRow(parent, y,
-            { type = "checkbox", text = "Bloodlust",
-              getValue = TriggerGet("partyModeTriggerBloodlust"),
-              setValue = function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.partyModeTriggerBloodlust = v
-                  if EllesmereUI_UpdatePartyModeLustListener then EllesmereUI_UpdatePartyModeLustListener() end
-                  local rl = EllesmereUI._widgetRefreshList
-                  if rl then for i = 1, #rl do rl[i]() end end
-              end },
-            { type = "checkbox", text = "Level Up",
-              getValue = TriggerGet("partyModeTriggerLevelUp"),
-              setValue = function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.partyModeTriggerLevelUp = v
-                  if EllesmereUI_UpdatePartyModeLevelUpListener then EllesmereUI_UpdatePartyModeLevelUpListener() end
-                  local rl = EllesmereUI._widgetRefreshList
-                  if rl then for i = 1, #rl do rl[i]() end end
-              end },
-            nil,
-            CB_SPLITS
-        );  y = y - h
 
         -- Bottom border for the checkbox grid (matches SectionHeader separator style)
         -- Placed 1px above current y so the next row's background doesn't cover it
@@ -715,6 +713,9 @@ do
             end
             -- Stop random trigger timer
             EllesmereUI_StopRandomTrigger()
+            -- Drop the Bloodlust and Level Up event listeners with their keys
+            if EllesmereUI_UpdatePartyModeLustListener then EllesmereUI_UpdatePartyModeLustListener() end
+            if EllesmereUI_UpdatePartyModeLevelUpListener then EllesmereUI_UpdatePartyModeLevelUpListener() end
             -- Clear any override bindings
             if EllesmereUIPartyModeBindBtn then
                 ClearOverrideBindings(EllesmereUIPartyModeBindBtn)

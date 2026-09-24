@@ -475,15 +475,17 @@ local function TileRaidFrames(parent, y, W, tile)
         ["maxHealthStripes"]      = "Max Health Stripes",
         ["blizzardRaid"]          = "Blizzard Raid Bar",
     }
-    local absorbStyleOrder = { "none", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "blizzardModern", "largeStripes", "largeStripesR", "blizzardRaid" }
-    local healAbsorbStyleOrder = { "none", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "healBlizzModern", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR", "blizzardRaid" }
+    local absorbStyleOrder = { "none", "blizzardModern", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "largeStripes", "largeStripesR", "blizzardRaid" }
+    local healAbsorbStyleOrder = { "none", "healBlizzModern", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR", "blizzardRaid" }
     local maxHealthStyleOrder = { "none", "maxHealthStripes", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "healBlizzModern", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR", "blizzardRaid" }
     AppendSmTail(absorbStyleValues, { absorbStyleOrder, healAbsorbStyleOrder, maxHealthStyleOrder }, ns.healthBarTextureNames, ns.healthBarTextureOrder)
+    -- Default Blizz Frames' swatch draws its in-game compound (see the Raid Frames page).
+    local modernSwatch = { base = { 0.776, 0.784, 1.0 }, tint = { 0.569, 0.588, 1.0 }, tile = true }
     absorbStyleValues._menuOpts = {
         itemHeight = 28,
         background = function(key)
             if not key or key == "---" or key == "none" then return nil end
-            if key == "blizzardModern" then return ns.ResolveAbsorbStyleTex and ns.ResolveAbsorbStyleTex("striped") end
+            if key == "blizzardModern" then return ns.ResolveAbsorbStyleTex and ns.ResolveAbsorbStyleTex("striped"), modernSwatch end
             if key == "maxHealthStripes" then return "Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\striped-maxhp.png" end
             return ns.ResolveAbsorbStyleTex and ns.ResolveAbsorbStyleTex(key) or nil
         end,
@@ -510,6 +512,12 @@ local function TileRaidFrames(parent, y, W, tile)
           end,
           setValue = function(v)
               local p = db(); if not p then return end
+              -- Blizzard Glow Line follows the pick (see the Raid Frames page).
+              if v == "blizzardModern" then
+                  p.absorbGlowLine = true
+              elseif p.absorbStyle == "blizzardModern" then
+                  p.absorbGlowLine = false
+              end
               p.absorbStyle = v
               if v == "clean" then
                   p.absorbOpacity = 30
@@ -570,9 +578,16 @@ local function TileResourceBars(parent, y, W, tile)
     local gcdValues, gcdOrder = CopyBarDD(_G._ERB_BarTextureNames, _G._ERB_BarTextureOrder, _G._ERB_BarTextures, false)
     -- Cast bar tables carry the module-side "blizzard" ATLAS entry.
     local castValues, castOrder = CopyBarDD(_G._ERB_CastBarTextureNames, _G._ERB_CastBarTextureOrder, _G._ERB_CastBarTextures, false)
+    -- "Choose texture per bar" (the module's Texture cog): Bar Texture narrows to the
+    -- class resource and Health / Power get their own rows, as on the module page. The
+    -- cog drops this page's cached build, so reading the flag at build time holds.
+    local p0 = db()
+    local split = p0 and p0.splitTex == true
     local _, h = W:DualRow(parent, y,
-        { type = "dropdown", text = "Bar Texture", values = barValues, order = barOrder,
-          tooltip = "Texture for the health, power and class resource bars.",
+        { type = "dropdown", text = split and "Bar Texture (Class Resource)" or "Bar Texture",
+          values = barValues, order = barOrder,
+          tooltip = split and "Texture for the class resource bar."
+              or "Texture for the health, power and class resource bars.",
           getValue = function()
               local p = db()
               return (p and p.general and p.general.barTexture) or "none"
@@ -593,6 +608,31 @@ local function TileResourceBars(parent, y, W, tile)
               RBApply()
               if EllesmereUI.NotifyElementResized then EllesmereUI.NotifyElementResized("ERB_CastBar") end
           end });  y = y - h
+    if split then
+        local hpValues, hpOrder = CopyBarDD(_G._ERB_BarTextureNames, _G._ERB_BarTextureOrder, _G._ERB_BarTextures, false)
+        local ppValues, ppOrder = CopyBarDD(_G._ERB_BarTextureNames, _G._ERB_BarTextureOrder, _G._ERB_BarTextures, false)
+        _, h = W:DualRow(parent, y,
+            { type = "dropdown", text = "Health Bar Texture", values = hpValues, order = hpOrder,
+              getValue = function()
+                  local p = db()
+                  return (p and p.health and (p.health.barTexture or (p.general and p.general.barTexture))) or "none"
+              end,
+              setValue = function(v)
+                  local p = db(); if not (p and p.health) then return end
+                  p.health.barTexture = v
+                  RBApply()
+              end },
+            { type = "dropdown", text = "Power Bar Texture", values = ppValues, order = ppOrder,
+              getValue = function()
+                  local p = db()
+                  return (p and p.primary and (p.primary.barTexture or (p.general and p.general.barTexture))) or "none"
+              end,
+              setValue = function(v)
+                  local p = db(); if not (p and p.primary) then return end
+                  p.primary.barTexture = v
+                  RBApply()
+              end });  y = y - h
+    end
     _, h = W:DualRow(parent, y,
         { type = "dropdown", text = "GCD Bar Texture", values = gcdValues, order = gcdOrder,
           getValue = function()

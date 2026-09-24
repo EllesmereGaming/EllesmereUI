@@ -1851,3 +1851,107 @@ function AK.AurasRestricted()
     restrictedStamp = now
     return true
 end
+
+------------------------------------------------------------------------------
+-- Offensive dispel capability: can the PLAYER remove Magic buffs or enrages
+-- from an enemy (purge, spellsteal, soothe, tranquilizing shot). This asks
+-- what the player knows, never what an aura is, so it keeps working in
+-- restricted content. Shared by the nameplate and unit frame purge glows.
+-- Lazy: the watcher frame exists only once a consumer asks or subscribes.
+------------------------------------------------------------------------------
+do
+    -- { spellID, category ("Magic", "Enrage", or "Both"), requiredClass or nil, requiredTalent or nil }
+    local SPELLS = {
+        { 370,    "Magic",  nil       },  -- Purge (Shaman)
+        { 378773, "Magic",  nil       },  -- Greater Purge (Shaman)
+        { 528,    "Magic",  nil       },  -- Dispel Magic (Priest)
+        { 32375,  "Magic",  nil       },  -- Mass Dispel (Priest)
+        { 278326, "Magic",  nil       },  -- Consume Magic (Demon Hunter)
+        { 19505,  "Magic",  "WARLOCK" },  -- Devour Magic (Felhunter)
+        { 19801,  "Both",   nil       },  -- Tranquilizing Shot (Hunter)
+        { 2908,   "Enrage", nil       },  -- Soothe (Druid)
+        { 30449,  "Magic",  nil       },  -- Spellsteal (Mage)
+        { 115078, "Enrage", "MONK", 450432 },  -- Paralysis (w/ Pressure Points talent)
+    }
+    local magic, enrage, built, watcher = false, false, false, nil
+    local listeners = {}
+
+    -- IsSpellKnown answers "does the player have this", which is the question a
+    -- PASSIVE talent needs -- IsSpellInSpellBook says no for one. The globals
+    -- IsPlayerSpell / IsSpellKnown exist only in Blizzard_DeprecatedSpellBook,
+    -- behind the loadDeprecationFallbacks CVar, so they are never used here.
+    local function Knows(spellID, bank)
+        local BANK = Enum and Enum.SpellBookSpellBank
+        if not (C_SpellBook and C_SpellBook.IsSpellKnown and BANK) then return false end
+        local ok, v = pcall(C_SpellBook.IsSpellKnown, spellID, bank or BANK.Player)
+        return ok and v == true
+    end
+    local function InBook(spellID, bank)
+        local BANK = Enum and Enum.SpellBookSpellBank
+        if not (C_SpellBook and BANK) then return false end
+        if not C_SpellBook.IsSpellKnownOrInSpellBook then return Knows(spellID, bank) end
+        local ok, v = pcall(C_SpellBook.IsSpellKnownOrInSpellBook, spellID, bank or BANK.Player)
+        return ok and v == true
+    end
+
+    local function Rebuild()
+        local wasMagic, wasEnrage = magic, enrage
+        magic, enrage = false, false
+        local _, playerClass = UnitClass("player")
+        local BANK = Enum and Enum.SpellBookSpellBank
+        for i = 1, #SPELLS do
+            local e = SPELLS[i]
+            local spellID, cat, reqClass, reqTalent = e[1], e[2], e[3], e[4]
+            if not (reqClass and playerClass ~= reqClass) then
+                local known
+                if reqTalent then
+                    known = Knows(reqTalent)
+                elseif reqClass then
+                    -- Pet bank: true only while that pet is actually out, which
+                    -- is why UNIT_PET is registered below.
+                    known = InBook(spellID, BANK and BANK.Pet)
+                else
+                    known = InBook(spellID)
+                end
+                if known then
+                    if cat == "Magic" or cat == "Both" then magic = true end
+                    if cat == "Enrage" or cat == "Both" then enrage = true end
+                end
+            end
+        end
+        -- The first pass has nothing to compare against, so it never notifies:
+        -- consumers read the capability when they build.
+        if built and (wasMagic ~= magic or wasEnrage ~= enrage) then
+            for i = 1, #listeners do listeners[i]() end
+        end
+        built = true
+    end
+
+    local function Ensure()
+        if watcher then return end
+        watcher = CreateFrame("Frame")
+        watcher:RegisterEvent("SPELLS_CHANGED")
+        watcher:RegisterEvent("UNIT_PET")
+        -- A talent swap does not reliably reach SPELLS_CHANGED first, and without
+        -- these a talent-gated entry is only correct after a /reload.
+        watcher:RegisterEvent("TRAIT_CONFIG_UPDATED")
+        watcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+        watcher:SetScript("OnEvent", function(_, event, unit)
+            if event == "UNIT_PET" and unit ~= "player" then return end
+            Rebuild()
+        end)
+        Rebuild()
+    end
+
+    -- canDispelMagic, canDispelEnrage.
+    function AK.OffensiveDispelTypes()
+        Ensure()
+        return magic, enrage
+    end
+
+    -- fn() runs whenever either answer flips (talents, spec, pet).
+    function AK.OnOffensiveDispelChange(fn)
+        Ensure()
+        listeners[#listeners + 1] = fn
+    end
+end

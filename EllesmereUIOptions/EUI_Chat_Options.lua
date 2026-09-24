@@ -1650,15 +1650,17 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
-        -- Row 4: Shortened Channel Names | Class Colored Names
-        _, h = W:DualRow(parent, y,
+        -- Row 4: Shortened Channel Names (+ Use Letters cog) | Class Colored Names
+        local abbrevRow
+        abbrevRow, h = W:DualRow(parent, y,
             { type="toggle", text="Shortened Channel Names",
-              tooltip="Abbreviates channel prefixes, like [Party] to [P] and [Guild] to [G].",
+              tooltip="Abbreviates channel prefixes, like [Party] to [P] and [Guild] to [G]; world channels show their number.",
               getValue=function() return Cfg("abbreviateChannels") == true end,
               setValue=function(v)
                   Set("abbreviateChannels", v)
                   if ECHAT.EngineSetChannelAbbrev then ECHAT.EngineSetChannelAbbrev(v) end
                   if ECHAT.EngineQueueRebuildAll then ECHAT.EngineQueueRebuildAll() end
+                  EllesmereUI:RefreshPage()
               end },
             { type="toggle", text="Class Colored Names",
               tooltip="Colors group and raid member names by their class when they appear in the text of Say, Yell, Party, and Raid messages.",
@@ -1668,6 +1670,40 @@ initFrame:SetScript("OnEvent", function(self)
                   if ECHAT.ApplyClassColorNames then ECHAT.ApplyClassColorNames(v) end
                   if ECHAT.EngineQueueRebuildAll then ECHAT.EngineQueueRebuildAll() end
               end })
+        if not EllesmereUI._prebuilding then
+            -- Cog: world channels as letters (the old Ge / T / LD / WD / LFG)
+            -- instead of their numbers. Dimmed and inert while the toggle is off.
+            local lrgn = abbrevRow._leftRegion
+            local _, cogShow = EllesmereUI.BuildCogPopup({
+                title = "Shortened Channel Names",
+                rows = {
+                    { type="toggle", label="Use Letters",
+                      tooltip="Shows General, Trade, Local Defense, World Defense and LFG as letters instead of their channel numbers.",
+                      get=function() return Cfg("abbreviateChannelLetters") == true end,
+                      set=function(v)
+                          Set("abbreviateChannelLetters", v)
+                          if ECHAT.EngineSetChannelAbbrevLetters then ECHAT.EngineSetChannelAbbrevLetters(v) end
+                          if ECHAT.EngineQueueRebuildAll then ECHAT.EngineQueueRebuildAll() end
+                      end },
+                },
+            })
+            local cogBtn = CreateFrame("Button", nil, lrgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", lrgn._lastInline or lrgn._control, "LEFT", -8, 0)
+            lrgn._lastInline = cogBtn
+            cogBtn:SetFrameLevel(lrgn:GetFrameLevel() + 5)
+            local function UpdateCogAlpha()
+                cogBtn:SetAlpha(Cfg("abbreviateChannels") == true and 0.4 or 0.15)
+            end
+            UpdateCogAlpha(); EllesmereUI.RegisterWidgetRefresh(UpdateCogAlpha)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
+            cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function() UpdateCogAlpha() end)
+            cogBtn:SetScript("OnClick", function(s)
+                if Cfg("abbreviateChannels") == true then cogShow(s) end
+            end)
+        end
         y = y - h
 
         end -- isChat

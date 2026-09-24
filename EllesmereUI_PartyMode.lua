@@ -572,6 +572,10 @@ pmInit:SetScript("OnEvent", function(self, event, ...)
         end)
 
     elseif event == "PLAYER_LOGOUT" then
+        -- An automatic celebration only lives as long as its timer, so never save
+        -- it as on: the next login would start Party Mode with nothing to stop it.
+        -- A session the user turned on by hand has no timer and stays saved.
+        if celebrationTimer and EllesmereUIDB then EllesmereUIDB.partyMode = false end
         EllesmereUI_RestoreDimLights()
     end
 end)
