@@ -1369,6 +1369,13 @@ initFrame:SetScript("OnEvent", function(self)
                       if v then EllesmereUIDB.showSecondaryRaw = false end
                       if EllesmereUI._refreshStatFormats then EllesmereUI._refreshStatFormats() end
                   end },
+                { type="toggle", label="Highlight Items",
+                  tooltip="When hovering a secondary stat, highlight equipped items that grant it.",
+                  get=function() return EllesmereUIDB and EllesmereUIDB.highlightSecondaryItems or false end,
+                  set=function(v)
+                      if not EllesmereUIDB then EllesmereUIDB = {} end
+                      EllesmereUIDB.highlightSecondaryItems = v
+                  end },
             },
         }
         local tertiaryCogOpts = {
@@ -1389,6 +1396,13 @@ initFrame:SetScript("OnEvent", function(self)
                       EllesmereUIDB.showTertiaryBoth = v
                       if v then EllesmereUIDB.showTertiaryRaw = false end
                       if EllesmereUI._refreshStatFormats then EllesmereUI._refreshStatFormats() end
+                  end },
+                { type="toggle", label="Highlight Tertiary Items",
+                  tooltip="When hovering a tertiary stat, highlight equipped items that grant it.",
+                  get=function() return EllesmereUIDB and EllesmereUIDB.highlightTertiaryItems or false end,
+                  set=function(v)
+                      if not EllesmereUIDB then EllesmereUIDB = {} end
+                      EllesmereUIDB.highlightTertiaryItems = v
                   end },
             },
         }
