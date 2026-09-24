@@ -137,6 +137,16 @@ initFrame:SetScript("OnEvent", function(self)
         return "Action Menu " .. index
     end
 
+    -- Spec Overrides capture: label captured entries with the menu being edited
+    -- ("Quickdraw > Action Menu 2 > Action Menu Keybind"). The auto-name by
+    -- number, not the user's name for it: a rename must not orphan the entry's
+    -- label. The menu keybind is the only thing on the page that captures.
+    if EllesmereUI.RegisterCaptureContext then
+        EllesmereUI.RegisterCaptureContext("EllesmereUIQuickdraw", function()
+            return AutoName(editPalette)
+        end)
+    end
+
     -- The icon a menu is listed BY, everywhere one is listed: its first entry,
     -- so a "Mounts" menu looks like a mount without anyone having to pick an
     -- icon for it. Same rule the module's SlotDisplay applies to nested
@@ -271,6 +281,45 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         ApplyKey(palette, chord, stolenFrom)
+    end
+
+    -- While a Spec Overrides (or Conditional Overrides) session is being
+    -- edited, a menu's key is NOT a WoW binding -- those are one set for every
+    -- spec -- but the menu's specKey<n> profile key (see ns.MenuKeys), which
+    -- the session captures like any other setting. So binding F on a menu
+    -- while editing Blood means "in Blood, F opens this menu" and nothing
+    -- else: no binding is touched and nothing is taken for good. Whatever
+    -- other menu F opens here gives it up for this spec only -- its other key
+    -- if it has one, else none -- which is why there is no theft dialog. A
+    -- key that is bound to something outside Quickdraw is shadowed, only
+    -- here, and says so. Unbind means "no key in this spec".
+    --
+    -- The write is notified with the button itself, whose row carries the
+    -- capture config, so the session attributes it exactly.
+    local function CommitSpecKey(palette, chord, frame)
+        local p = DB()
+        if not p then return end
+        if chord then
+            local shadowed = GetBindingAction(chord)
+            if shadowed ~= "" and not shadowed:find("^" .. BINDING_PREFIX) then
+                EllesmereUI.Print("|cff0cd29fQuickdraw:|r "
+                    .. (GetBindingText(chord) or chord) .. " opens this menu in the spec "
+                    .. "being edited, instead of |cffffd100" .. BindingLabel(shadowed) .. "|r.")
+            end
+            for i = 1, PaletteCount() do
+                if i ~= palette and ns.MenuKeys then
+                    local k1, k2 = ns.MenuKeys(i)
+                    if k1 == chord or k2 == chord then
+                        p["specKey" .. i] = (k1 == chord and k2 or k1) or ""
+                    end
+                end
+            end
+            p["specKey" .. palette] = chord
+        else
+            p["specKey" .. palette] = ""
+        end
+        if EllesmereUI._NotifySettingWrite then EllesmereUI._NotifySettingWrite(frame) end
+        RebuildPage()
     end
 
     -- Keys can also change from Blizzard's Keybindings page or another addon.
@@ -2183,6 +2232,18 @@ initFrame:SetScript("OnEvent", function(self)
         end
         if any then SaveBindings(GetCurrentBindingSet()) end
 
+        -- Per-spec keys (specKey<n>, see ns.MenuKeys) close ranks with their
+        -- menus. Only this profile's live values can be followed like this, so
+        -- every per-spec key Spec Overrides banked is dropped rather than left
+        -- to open the wrong menu in some spec.
+        for n = index, count - 1 do
+            p["specKey" .. n] = p["specKey" .. (n + 1)]
+        end
+        p["specKey" .. count] = nil
+        if EllesmereUI.SpecOverrides_OnQuickdrawMenusRestructured then
+            EllesmereUI.SpecOverrides_OnQuickdrawMenusRestructured()
+        end
+
         -- Keep the editor pointed at the palette it was on, which now sits one
         -- index lower; deleting the edited palette itself falls to whichever
         -- palette took its number.
@@ -2513,8 +2574,35 @@ initFrame:SetScript("OnEvent", function(self)
         local palette = editPalette
         local action = BINDING_PREFIX .. palette
         local listening = false
-        local ReadKey = spec and spec.read or function() return GetBindingKey(action) end
-        local Commit = spec and spec.commit or function(chord) CommitKey(palette, chord) end
+        local ReadKey = spec and spec.read or function()
+            if ns.MenuKeys then return ns.MenuKeys(palette) end
+            return GetBindingKey(action)
+        end
+        -- The menu's own key is per spec while an override session is edited
+        -- (CommitSpecKey), a WoW binding otherwise. SlotOverridable, not
+        -- EditSessionActive: the session flag is global, and this has to know
+        -- the write can actually be banked.
+        local function SpecSession()
+            return not spec and EllesmereUI.SpecOverrides_SlotOverridable
+                and EllesmereUI.SpecOverrides_SlotOverridable()
+        end
+        local Commit = spec and spec.commit or function(chord)
+            if SpecSession() then
+                CommitSpecKey(palette, chord, kbBtn)
+            else
+                CommitKey(palette, chord)
+            end
+        end
+        -- The capture config Spec Overrides reads off the row: its label names
+        -- the captured entry, and its getter is what the gold-border trace runs
+        -- to find the specKey<n> this row reads. Only the menu's own key --
+        -- the Select and Cancel keys are profile-wide and stay out of it.
+        if not spec then
+            rgn._captureCfg = {
+                type = "keybind", text = "Action Menu Keybind",
+                getValue = ReadKey, setValue = function() end,
+            }
+        end
         local plainMouse = spec and spec.plainMouse
         -- What the key IS, shown above the how-to-bind instructions: the
         -- palette's own keybind row sits under a heading that already says,
@@ -2639,6 +2727,9 @@ initFrame:SetScript("OnEvent", function(self)
                     .. "Escape cancels. Right-click here to unbind.")
                 or EllesmereUI.L("Left-click to set a keybind.\nRight-click to unbind.")
             if intro then tip = EllesmereUI.L(intro) .. "\n\n" .. tip end
+            if SpecSession() then
+                tip = tip .. "\n\n" .. EllesmereUI.L("Editing an override: the key applies to it only, and takes over from any other menu there.")
+            end
             EllesmereUI.ShowWidgetTooltip(self, tip)
         end)
         kbBtn:SetScript("OnLeave", function()

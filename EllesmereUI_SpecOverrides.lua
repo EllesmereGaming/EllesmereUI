@@ -515,7 +515,12 @@ local function NumAllowedFKey(fkey)
         or fkey:sub(1, #RAID_SIZE_OV_PREFIX) == RAID_SIZE_OV_PREFIX
 end
 
-function EllesmereUI.SpecOverrides_OnCDMBarsRestructured()
+-- Scoped in a do-block: this file's main chunk sits near Lua's 200-local
+-- ceiling, and the helpers below need no file-level name.
+do
+-- Drops every captured entry (spec and conditional stores) holding an fkey the
+-- predicate matches. Shared by the restructure hooks below.
+local function DropEntriesMatching(pred)
     local function sweep(store, rebuild)
         if not store then return end
         local removed = false
@@ -524,10 +529,7 @@ function EllesmereUI.SpecOverrides_OnCDMBarsRestructured()
             local hit = false
             if e.values and e.values.default then
                 for fkey in pairs(e.values.default) do
-                    -- CDM bars ONLY: NumAllowedFKey also matches the raid-size tier
-                    -- subtree; sweeping on it here would destroy captured raid-size
-                    -- overrides whenever a CDM bar is deleted.
-                    if fkey:sub(1, #CDM_BARS_PREFIX) == CDM_BARS_PREFIX then hit = true; break end
+                    if pred(fkey) then hit = true; break end
                 end
             end
             if hit then
@@ -542,6 +544,27 @@ function EllesmereUI.SpecOverrides_OnCDMBarsRestructured()
         sweep(EllesmereUI._CondOv.GetStore(), EllesmereUI._CondOv.RebuildIndex)
     end
     RequestGoldWalk()
+end
+
+function EllesmereUI.SpecOverrides_OnCDMBarsRestructured()
+    -- CDM bars ONLY: NumAllowedFKey also matches the raid-size tier subtree;
+    -- sweeping on it here would destroy captured raid-size overrides whenever a
+    -- CDM bar is deleted.
+    DropEntriesMatching(function(fkey)
+        return fkey:sub(1, #CDM_BARS_PREFIX) == CDM_BARS_PREFIX
+    end)
+end
+
+-- Quickdraw's per-spec menu keys (specKey<n>) are keyed by menu NUMBER.
+-- Deleting a menu renumbers the ones above it, so every captured key is
+-- dropped -- same reasoning as the CDM bars above: re-capture beats silently
+-- opening the wrong menu in some spec.
+local QD_KEY_PREFIX = "EllesmereUIQuickdraw\31specKey"
+function EllesmereUI.SpecOverrides_OnQuickdrawMenusRestructured()
+    DropEntriesMatching(function(fkey)
+        return fkey:sub(1, #QD_KEY_PREFIX) == QD_KEY_PREFIX
+    end)
+end
 end
 
 -- Fkey paths store NUMERIC table keys as strings (DiffTables uses tostring(k)):
