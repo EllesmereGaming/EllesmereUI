@@ -17,6 +17,7 @@ local PAGE_UPGCALC  = "Upgrader"
 local PAGE_SHIFTER  = "Shifter"
 local PAGE_MOVEMENT = "MoveAlert"
 local PAGE_RAIDTOOLS = "Raid Tools"
+local PAGE_TRAVEL   = "Travel"
 
 -------------------------------------------------------------------------------
 --  Hide Item Transforms picker popup
@@ -2557,8 +2558,11 @@ initFrame:SetScript("OnEvent", function(self)
         ---------------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "GROUP FINDER", y);  y = y - h
 
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Auto Insert Keystone",
+        -- Auto Insert Keystone | Announce Instance Reset, then Quick Signup |
+        -- Persistent Signup Note. WoW Forever has no keystones: the first slot goes
+        -- and the other three fill in sequence, so the note lands alone on the
+        -- second row and its cog follows it there.
+        local autoKeyCfg = { type="toggle", text="Auto Insert Keystone",
               tooltip="Automatically inserts your key into the Font of Power.",
               getValue=function()
                   if not EllesmereUIDB then return true end
@@ -2567,8 +2571,8 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.autoInsertKeystone = v
-              end },
-            { type="toggle", text="Announce Instance Reset",
+              end }
+        local announceCfg = { type="toggle", text="Announce Instance Reset",
               tooltip="After a successful instance reset, automatically announces it in party or raid chat so your group knows they can re-enter.",
               getValue=function()
                   return EllesmereUIDB and EllesmereUIDB.instanceResetAnnounce or false
@@ -2580,11 +2584,7 @@ initFrame:SetScript("OnEvent", function(self)
                       EllesmereUI._applyInstanceResetAnnounce()
                   end
               end }
-        );  y = y - h
-
-        local quickSignupRow
-        quickSignupRow, h = W:DualRow(parent, y,
-            { type="toggle", text="Quick Signup",
+        local quickCfg = { type="toggle", text="Quick Signup",
               tooltip="Double-click a group listing to instantly sign up without pressing the Sign Up button. Hold Shift to keep the dialog open, e.g. to type a signup note.",
               getValue=function()
                   return EllesmereUIDB and EllesmereUIDB.quickSignup or false
@@ -2595,9 +2595,9 @@ initFrame:SetScript("OnEvent", function(self)
                   if EllesmereUI._applyQuickSignup then
                       EllesmereUI._applyQuickSignup()
                   end
-              end },
-            { type="toggle", text="Persistent Signup Note",
-              tooltip="Keeps your note text in the Sign Up dialog instead of clearing it each time you open it.",
+              end }
+        local persistCfg = { type="toggle", text="Persistent Signup Note",
+              tooltip="Keeps a saved signup note you can copy into the Sign Up dialog with the Copy button.",
               getValue=function()
                   return EllesmereUIDB and EllesmereUIDB.persistSignupNote or false
               end,
@@ -2607,8 +2607,79 @@ initFrame:SetScript("OnEvent", function(self)
                   if EllesmereUI._applyPersistSignupNote then
                       EllesmereUI._applyPersistSignupNote()
                   end
+                  EllesmereUI:RefreshPage()
               end }
-        );  y = y - h
+        local noteRow, noteRgnKey
+        if EllesmereUI.IS_FOREVER then
+            _, h = W:DualRow(parent, y, announceCfg, quickCfg);  y = y - h
+            noteRow, h = W:DualRow(parent, y, persistCfg, { type="label", text="" });  y = y - h
+            noteRgnKey = "_leftRegion"
+        else
+            _, h = W:DualRow(parent, y, autoKeyCfg, announceCfg);  y = y - h
+            noteRow, h = W:DualRow(parent, y, quickCfg, persistCfg);  y = y - h
+            noteRgnKey = "_rightRegion"
+        end
+
+        if not EllesmereUI._prebuilding then
+            local rightRgn = noteRow[noteRgnKey]
+            local function persistOff()
+                return not (EllesmereUIDB and EllesmereUIDB.persistSignupNote)
+            end
+
+            local noteCogBtn = CreateFrame("Button", nil, rightRgn)
+            noteCogBtn:SetSize(26, 26)
+            noteCogBtn:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -9, 0)
+            rightRgn._lastInline = noteCogBtn
+            noteCogBtn:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
+            noteCogBtn:SetAlpha(persistOff() and 0.15 or 0.4)
+            local noteCogTex = noteCogBtn:CreateTexture(nil, "OVERLAY")
+            noteCogTex:SetAllPoints()
+            noteCogTex:SetTexture(EllesmereUI.COGS_ICON)
+            noteCogBtn:SetScript("OnEnter", function(self)
+                self:SetAlpha(0.7)
+                EllesmereUI.ShowWidgetTooltip(self, "Edit the saved signup note.")
+            end)
+            noteCogBtn:SetScript("OnLeave", function(self)
+                self:SetAlpha(persistOff() and 0.15 or 0.4)
+                EllesmereUI.HideWidgetTooltip()
+            end)
+            noteCogBtn:SetScript("OnClick", function()
+                EllesmereUI:ShowInputPopup({
+                    title="Signup Note",
+                    message="Saved between reloads and relogs. In Group Finder, choose Copy, press Ctrl+C, then Ctrl+V.",
+                    placeholder="Enter signup note...",
+                    initialText=EllesmereUI.GetPersistentSignupNote
+                        and EllesmereUI.GetPersistentSignupNote() or "",
+                    maxLetters=63,
+                    inputHeight=70,
+                    multiline=true,
+                    showCount=true,
+                    allowEmpty=true,
+                    confirmText="Save",
+                    onConfirm=function(note)
+                        if EllesmereUI.SetPersistentSignupNote then
+                            EllesmereUI.SetPersistentSignupNote(note or "")
+                        end
+                    end,
+                })
+            end)
+
+            local noteCogBlock = CreateFrame("Frame", nil, noteCogBtn)
+            noteCogBlock:SetAllPoints()
+            noteCogBlock:SetFrameLevel(noteCogBtn:GetFrameLevel() + 10)
+            noteCogBlock:EnableMouse(true)
+            noteCogBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(noteCogBtn, EllesmereUI.DisabledTooltip("Persistent Signup Note"))
+            end)
+            noteCogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            EllesmereUI.RegisterWidgetRefresh(function()
+                local off = persistOff()
+                noteCogBtn:SetAlpha(off and 0.15 or 0.4)
+                if off then noteCogBlock:Show() else noteCogBlock:Hide() end
+            end)
+            if persistOff() then noteCogBlock:Show() else noteCogBlock:Hide() end
+        end
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
@@ -2752,10 +2823,15 @@ initFrame:SetScript("OnEvent", function(self)
         return math.abs(y)
     end
 
+    local pages = { PAGE_QOL, PAGE_RAIDTOOLS, PAGE_CURSOR, PAGE_SHIFTER, PAGE_MOVEMENT }
+    -- No item upgrade system on WoW Forever: the Upgrader tab is not offered there
+    -- (its resident file returns at load, so the page builder never exists either).
+    if not EllesmereUI.IS_FOREVER then pages[#pages + 1] = PAGE_UPGCALC end
+    if EllesmereUI.IS_FOREVER then pages[#pages + 1] = PAGE_TRAVEL end
     EllesmereUI:RegisterModule("EllesmereUIQoL", {
         title       = "Quality of Life",
         description = "Quality of life features and custom cursor.",
-        pages       = { PAGE_QOL, PAGE_RAIDTOOLS, PAGE_CURSOR, PAGE_SHIFTER, PAGE_MOVEMENT, PAGE_UPGCALC },
+        pages       = pages,
         searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "upgrade", "ilvl", "item level", "crest", "upgrade calculator", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "target distance", "distance to target", "range text", "yard", "yards", "movement", "mobility", "gap closer", "blink", "gateway", "warlock gateway", "control shard", "time spiral", "free movement", "raid tools", "raid", "pull timer", "pull", "ready check", "role check", "raid marker", "target marker", "world marker", "flare", "disband", "convert to raid", "countdown" },
         buildPage   = function(pageName, parent, yOffset)
             -- The Raid Tools settings preview ends when any OTHER QoL page
@@ -2784,6 +2860,9 @@ initFrame:SetScript("OnEvent", function(self)
             if pageName == PAGE_RAIDTOOLS and _G._EUI_BuildRaidToolsPage then
                 return _G._EUI_BuildRaidToolsPage(pageName, parent, yOffset)
             end
+            if pageName == PAGE_TRAVEL and _G._EUI_BuildFlightTimerPage then
+                return _G._EUI_BuildFlightTimerPage(pageName, parent, yOffset)
+            end
         end,
         -- Cached pages are restored WITHOUT a rebuild, so buildPage never runs
         -- on the warm path -- reopening the window onto Raid Tools would leave
@@ -2808,6 +2887,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.instanceResetAnnounceMsg = ""
                 EllesmereUIDB.quickSignup = false
                 EllesmereUIDB.persistSignupNote = false
+                EllesmereUIDB.signupNote = nil
                 EllesmereUIDB.ahCurrentExpansion = false
                 EllesmereUIDB.healthMacroEnabled = false
                 EllesmereUIDB.healthMacroPrio1 = 1
@@ -2856,6 +2936,10 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 EllesmereUIDB.hideTransforms = false
                 EllesmereUIDB.hideTransformItems = nil
+                EllesmereUIDB.flightTimer = nil
+                if EllesmereUIDB.unlockAnchors then
+                    EllesmereUIDB.unlockAnchors.EUI_FlightTimer = nil
+                end
             end
             EllesmereUIDB.autoLogging = nil
             if _G._EUI_ResetUpgradeCalc then _G._EUI_ResetUpgradeCalc() end
@@ -2866,6 +2950,11 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._applyCombatAlert then EllesmereUI._applyCombatAlert() end
             if EllesmereUI._applyTargetDistance then EllesmereUI._applyTargetDistance() end
             if EllesmereUI._applyHideTransforms then EllesmereUI._applyHideTransforms() end
+            if EllesmereUI._FlightTimer then
+                EllesmereUI._FlightTimer.Apply()
+                EllesmereUI._FlightTimer.ApplyStyle()
+                EllesmereUI._FlightTimer.ApplyPosition()
+            end
             if EllesmereUI._applyQuickSignup then EllesmereUI._applyQuickSignup() end
             if EllesmereUI._applyPersistSignupNote then EllesmereUI._applyPersistSignupNote() end
             if EllesmereUI._applyQuickLoot then EllesmereUI._applyQuickLoot() end

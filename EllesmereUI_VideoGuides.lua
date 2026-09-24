@@ -712,6 +712,17 @@ do
     local _decision
 
     local function ComputeDecision()
+        -- RETIRED 2026-09-19: superseded by a newer login announcement (now
+        -- EllesmereUI_StyleLaunchPopup.lua) -- only the newest
+        -- login announcement fires, so users upgrading across versions never
+        -- see two intro popups back to back. The guide itself stays reachable
+        -- from the Patch Notes video banner and /euivideos. Delete the next
+        -- line to revive the login trigger.
+        if true then return "done" end
+        -- WoW Forever never gets the retail launch guide. A session the
+        -- first-install picker owns is a fresh install whatever the profile
+        -- store holds (the picker's loader runs first and seeds data on Forever).
+        if EllesmereUI.IS_FOREVER or EllesmereUI._firstInstallPending then return "new" end
         if not EllesmereUIDB then return "new" end
         if HasSeen("midnight_121") then return "done" end
         local profiles = EllesmereUIDB.profiles
@@ -738,9 +749,12 @@ do
             end
         elseif event == "PLAYER_LOGIN" then
             self:UnregisterEvent("PLAYER_LOGIN")
-            if _decision == "new" then
+            if _decision == "new" or EllesmereUI._firstInstallPending then
                 -- Stamp fresh installs so the announcement never fires later.
+                -- The picker's pending flag is the authority on "fresh", so a
+                -- decision reached ahead of it still stands down here.
                 MarkSeen("midnight_121")
+                if EllesmereUI._launchVideoIntroPending then ReleaseLaunchChain() end
                 return
             end
             if _decision ~= "show" then return end

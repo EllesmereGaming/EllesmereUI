@@ -1,10 +1,10 @@
-## Interface: 120000, 120001, 120005, 120007, 120100
+## Interface: 120000, 120001, 120005, 120007, 120100, 16001
 ## Title: |cff0cd29fEllesmereUI|r Damage Meters
 ## Category: |cff0cd29fEllesmere|rUI
 ## Group: EllesmereUI
 ## Notes: Lightweight damage meters with simple but powerful customization.
 ## Author: Ellesmere
-## Version: 9.1.6
+## Version: 9.2.3
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIDamageMetersDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga

@@ -7,6 +7,23 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local L = EllesmereUI.RegisterLocale("itIT")
 if not L then return end
 
+L["WARLOCK"] = "STREGONE"
+L["Soulstone"] = "Pietra dell'Anima"
+L["Show a reminder until your own Soulstone is active on you or another group member."] = "Mostra un promemoria finché la tua Pietra dell'Anima non è attiva su di te o su un altro membro del gruppo."
+L["Wrong Demon"] = "Demone errato"
+L["Allowed Demons"] = "Demoni consentiti"
+L["Show a reminder when your Warlock's active pet isn't one of the demons picked in Allowed Demons. A demon only counts while its summon spell is known, so leaving only Felguard picked stays silent for specs/builds that haven't talented Summon Felguard."] = "Mostra un promemoria quando il famiglio attivo del tuo Stregone non è uno dei demoni scelti in Demoni consentiti. Un demone conta solo se conosci il relativo incantesimo di evocazione; selezionando soltanto la Guardia Vil, il promemoria resta inattivo per specializzazioni o configurazioni prive del talento Evoca Guardia Vil."
+L["Pick which demons count as correct for Wrong Demon. A demon only counts while its summon spell is known; with none picked (or everything picked), the reminder never fires."] = "Seleziona quali demoni sono considerati corretti per Demone errato. Un demone conta solo se conosci il relativo incantesimo di evocazione; se non ne selezioni nessuno o li selezioni tutti, il promemoria non si attiva mai."
+L["Name Font"] = "Carattere del nome"
+L["Font Outline"] = "Contorno del carattere"
+L["EUI Global Default"] = "Predefinito globale EUI"
+L["Drop Shadow"] = "Ombra esterna"
+L["Item Count Font"] = "Carattere della quantità oggetti"
+L["Mana Warning Font"] = "Carattere dell'avviso mana"
+L["Name Text Size"] = "Dimensione del testo del nome"
+L["Item Count Text Size"] = "Dimensione del testo della quantità oggetti"
+L["Mana Warning Text Size"] = "Dimensione del testo dell'avviso mana"
+
 L["BLIZZARD POPUPS & GAME MENU"] = "POPUP BLIZZARD E MENU DI GIOCO"
 L["Reskin Popups and Menus"] = "Rivesti popup e menu"
 L["Reskins Blizzard's right-click context menus and pop-up dialogs with the EUI dark style. Requires reload to apply."] = "Riveste i menu contestuali e le finestre popup di Blizzard con lo stile scuro EUI. Richiede il ricaricamento dell'interfaccia."

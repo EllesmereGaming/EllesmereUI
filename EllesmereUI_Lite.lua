@@ -3,13 +3,102 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EllesmereUI_Lite.lua
 --  Lightweight replacement for AceAddon-3.0, AceEvent-3.0, and AceDB-3.0
 --  Zero-overhead event dispatch (direct frame handlers, no CallbackHandler)
---  Reads existing AceDB SavedVariables format — no migration needed
+--  Reads existing AceDB SavedVariables format -- no migration needed
 --------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 
 local EUILite = {}
 EllesmereUI = EllesmereUI or {}
 EllesmereUI.Lite = EUILite
+
+-- WoW Forever (game type "camelot"): the 12.1 engine reporting a 1.60+ toc.
+-- Stamped by EllesmereUI_ClientGate.lua before any other file runs. Content
+-- that vanilla lacks gates on this, never on WOW_PROJECT_ID (Forever is
+-- classed as mainline on purpose).
+EllesmereUI.IS_FOREVER = (EUI_CLIENT_FOREVER == true)
+
+-- TEMPORARY (WoW Forever beta, 2026-09): the client saves addon settings only
+-- some of the time, and a reload wipes what it did not save. While this is
+-- true the first-install picker and the style picker stay off on Forever
+-- (their choices would not survive, and their forced reload resets the
+-- user) and the login notice says so. Retail is never affected. Flip to
+-- false the day Blizzard fixes SavedVariables on that client.
+EllesmereUI.FOREVER_SV_BUG = EllesmereUI.IS_FOREVER
+
+-- TEMPORARY, WoW Forever only (EllesmereUI.FOREVER_SV_BUG): nothing of ours
+-- reaches disk while the beta loses settings, so no half-saved state can
+-- pile up for the day Blizzard fixes it. The client writes SavedVariables at
+-- logout and reload only, and skips a variable that is nil at that moment,
+-- so the last logout handler in line nils every store the suite declares
+-- (the names mirror the TOC "## SavedVariables" lines). It registers at
+-- PLAYER_LOGIN so it runs after every writer registered at load (Lite's
+-- profile write-back below, the chat history snapshot, the CDM size cache,
+-- the spec-override harvest).
+--
+-- Retail can never reach this: the block is skipped unless the switch is
+-- true, the logout event is only registered once the live client build
+-- reports a Forever toc (16000-19999) and a 1.x version, and the handler
+-- reads the build again at logout before it nils anything.
+if EllesmereUI.FOREVER_SV_BUG then
+    local STORES = {
+        "EllesmereUIDB", "EllesmereUIChatScrollDB", "EllesmereUIMythicRunsDB",
+        "EllesmereUIActionBarsDB", "EllesmereUIAuraBuffRemindersDB", "EllesmereUIBagsDB",
+        "EllesmereUIBlizzardSkinDB", "EllesmereUIChatDB", "EllesmereUICooldownManagerDB",
+        "EllesmereUIDamageMetersDB", "EllesmereUIDataBarsDB", "EllesmereUIDragonRidingDB",
+        "EllesmereUIFriendsDB", "EllesmereUIMinimapDB", "EllesmereUIMythicTimerDB",
+        "EllesmereUINameplatesDB", "EllesmereUIQoLDB", "EllesmereUIQuestTrackerDB",
+        "EllesmereUIQuickdrawDB", "EllesmereUIRaidFramesDB", "EllesmereUIResourceBarsDB",
+        "EllesmereUIUnitFramesDB",
+    }
+    local function ClientIsForever()
+        local version, _, _, iface = GetBuildInfo()
+        return type(iface) == "number" and iface >= 16000 and iface < 20000
+            and type(version) == "string" and version:sub(1, 2) == "1."
+    end
+    local killer = CreateFrame("Frame")
+    killer:RegisterEvent("PLAYER_LOGIN")
+    killer:SetScript("OnEvent", function(self, event)
+        if event == "PLAYER_LOGIN" then
+            self:UnregisterEvent("PLAYER_LOGIN")
+            if ClientIsForever() then self:RegisterEvent("PLAYER_LOGOUT") end
+            return
+        end
+        if event ~= "PLAYER_LOGOUT" then return end
+        if not (EUI_CLIENT_FOREVER == true and EllesmereUI.IS_FOREVER
+                and EllesmereUI.FOREVER_SV_BUG and ClientIsForever()) then
+            return
+        end
+        for i = 1, #STORES do _G[STORES[i]] = nil end
+    end)
+end
+
+-- Secure snippet support. The Forever beta client (1.60.1) ships without the
+-- snippet compiler the restricted environment captures at load
+-- (loadstring_untainted), so every WrapScript, _onstate-*, initialConfigFunction
+-- and Execute body throws "attempt to call a nil value". Probed ONCE on that
+-- client; retail is never probed (always true, zero cost). Modules that are
+-- secure handlers end to end declare `requiresSecureSnippets`, their files
+-- stand down at load and the enable drain skips them (Blizzard's own frames
+-- stay); the per-site users guard their snippet frames with this. Comes back
+-- on its own the day the client is fixed.
+--
+-- No snippet is ever run to find out: a snippet compiles inside Blizzard's
+-- attribute handler, so its failure neither reaches a pcall around the call
+-- nor stays quiet under a parked error handler (error grabbers record it
+-- anyway). The answer is the loader itself: the restricted environment
+-- captures the global loadstring_untainted at load, and that global is the
+-- exact piece the beta client lacks. Its return is what brings the modules back.
+function EllesmereUI.SecureSnippetsOK()
+    local v = EllesmereUI._secureSnippetsOK
+    if v == nil then
+        v = true
+        if EllesmereUI.IS_FOREVER then
+            v = (type(_G.loadstring_untainted) == "function")
+        end
+        EllesmereUI._secureSnippetsOK = v
+    end
+    return v
+end
 
 -- The options-panel scale is exposed as a fixed-step dropdown ("EUI Options
 -- Panel Scale"), NOT a free slider, and its getValue matches exact percentages
@@ -471,8 +560,17 @@ local function FlushEnableQueue()
     while #enableQueue > 0 do
         local addon = tremove(enableQueue, 1)
         if addon.enabledState then
-            statuses[addon.name] = true
-            safecall(addon.OnEnable, addon)
+            if addon.requiresSecureSnippets and not EllesmereUI.SecureSnippetsOK() then
+                -- Secure handlers end to end: stands down on a client that
+                -- cannot compile snippets (WoW Forever beta); Blizzard's own
+                -- frames stay. OnInitialize ran, so its DB exists; its options
+                -- pages read standDown and keep out of the sidebar.
+                statuses[addon.name] = false
+                addon.standDown = "snippets"
+            else
+                statuses[addon.name] = true
+                safecall(addon.OnEnable, addon)
+            end
         end
     end
 end
@@ -487,6 +585,11 @@ lifecycleFrame:SetScript("OnEvent", function(self, event, arg1)
             if IS_STANDALONE then
                 _svLoaded = true
                 RerootPreSVDBs()
+                -- Runtime files can cache default fonts before this addon's
+                -- SavedVariables load. Resolve the saved choice when frames init.
+                if EllesmereUI.InvalidateFontCache then
+                    EllesmereUI.InvalidateFontCache()
+                end
             end
         elseif _dbGuardArmed and _parentDBRef and EllesmereUIDB ~= _parentDBRef then
             -- A stale SavedVariables copy from a child's WTF file replaced the central

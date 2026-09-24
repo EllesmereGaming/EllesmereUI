@@ -52,9 +52,25 @@ local pabInhSel = nil
 -- session-sticky file local defaulting to the Buffs bar, so a nav targeting a
 -- debuff-side section must pre-select the right pane or the section scan
 -- silently misses.
-EllesmereUI._setPABSelection = function(kind, id)
+--
+-- `bucket` = the bar's owning editing-spec bucket, passed by unlock mode's
+-- "Element Options". The view is session-sticky too and BuildPage validates the
+-- selection against the current view's bucket only, so a bar from another bucket
+-- would be dropped back to the default tile. Same move as the inherited pane's
+-- "Edit in <group>" link.
+EllesmereUI._setPABSelection = function(kind, id, bucket)
     pabSel = { kind = kind, id = id or "default" }
     pabInhSel = nil
+    if bucket then
+        pabSpecSel = bucket
+    elseif pabSel.id == "default" and pabSpecSel ~= "allspecs"
+        and not (type(pabSpecSel) == "string" and pabSpecSel:match("^spec%d")) then
+        -- The two built-in bars are All Specs content: they are listed in the All
+        -- Specs view and in concrete spec views, but never in a group bucket, so a
+        -- stale group view would drop this selection. Concrete spec views list
+        -- them, so those stay untouched.
+        pabSpecSel = "allspecs"
+    end
 end
 
 -- Editing-spec group buckets (labels/icons mirror the RaidFrames roster in
@@ -299,48 +315,11 @@ local function TruncateFilterName(name)
     return (name or ""):sub(1, 3) .. "..."
 end
 
--- Both defined in EllesmereUIUnitFrames_PlayerAuraBars.lua next to the cfg they
--- read, so this page and the unlock-mode mover label cannot drift apart. The
--- module returns raw English keys; only the options page translates them.
-local function IsWeaponEnchantsOnly(cfg)
-    return ns.PAB_IsWeaponEnchantsOnly ~= nil
-        and ns.PAB_IsWeaponEnchantsOnly(cfg)
-end
-
+-- Defined in EllesmereUIUnitFrames_PlayerAuraBars.lua next to the cfg it
+-- reads, so this page and the unlock-mode mover label cannot drift apart. The
+-- module returns the raw English key; only the options page translates it.
 local function DefaultBuffBarName(cfg)
     return L(ns.PAB_DefaultBuffsName and ns.PAB_DefaultBuffsName(cfg) or "Buffs")
-end
-
--- Weapon-enchants-only is a fundamentally different shape of bar -- at most
--- three cells (main hand / off hand / ranged, see EUI_UnitFrames_
--- WeaponEnchants.lua's SLOTS, which matches Blizzard's own
--- UpdateTemporaryEnchantmentBuffs) instead of a wrapping buff grid. Resize the
--- grid to fit on the way in and restore it on the way out.
---
--- The user's own iconsPerRow/maxRows/maxTotal are stashed rather than assumed:
--- restoring hardcoded defaults would silently eat a customized grid. Storing
--- nil for an unset key is intentional -- the stash is then empty and restoring
--- puts the keys back to nil, i.e. ComputeGrid's own 11/3/32 buff fallbacks.
---
--- Returns true when it actually crossed the boundary. Callers use that to pick
--- a FORCE page rebuild: crossing rewrites the three grid sliders and the bar's
--- name, and none of those are RegisterWidgetRefresh clients, so the usual
--- lightweight refresh would leave them showing stale numbers.
-local function SyncWeaponEnchantsGrid(cfg)
-    if not cfg then return false end
-    if IsWeaponEnchantsOnly(cfg) then
-        if cfg.enchGridSaved then return false end
-        cfg.enchGridSaved = { iconsPerRow = cfg.iconsPerRow,
-            maxRows = cfg.maxRows, maxTotal = cfg.maxTotal }
-        cfg.iconsPerRow, cfg.maxRows, cfg.maxTotal = 3, 1, 3
-        return true
-    end
-    if not cfg.enchGridSaved then return false end
-    local saved = cfg.enchGridSaved
-    cfg.iconsPerRow, cfg.maxRows, cfg.maxTotal =
-        saved.iconsPerRow, saved.maxRows, saved.maxTotal
-    cfg.enchGridSaved = nil
-    return true
 end
 
 local function BuildBuffBarSubtitle(bar)
@@ -457,13 +436,9 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply, isDefau
     --                      its own, MUTUALLY EXCLUSIVE with All Buffs:
     --                      the catch-all narrowed to duration-carrying
     --                      buffs via candidateFilters.maxDuration)
-    --   [ ] Weapon Enchants (cfg.showWeaponEnchants, default-bar only --
-    --                      the enchant cells publish from the default
-    --                      Buffs bar alone. INDEPENDENT of the two modes
-    --                      above and of the real filters: oils/imbues are
-    --                      not auras, so they come from their own source
-    --                      rather than the catch-all group, and a mode
-    --                      flip must not clear it)
+    --   (weapon enchants have no row of their own: the default Buffs
+    --    bar's enchant cells ride All Buffs / Has Duration --
+    --    ns.PAB_EnchantsOn)
     --   ------------------ (isHeader divider)
     --   [ ] <real filters, alphabetical>
     --
@@ -496,7 +471,6 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply, isDefau
     ); sy = sy - hh
 
     local PAB_ALL_BUFFS_KEY, PAB_HAS_DURATION_KEY = "__allBuffs", "__hasDuration"
-    local PAB_WEAPON_ENCH_KEY = "__weaponEnchants"
 
     -- Empty selections are LEGAL (user directive 2026-08-15, reversing the
     -- phase-2 no-empty rule on PAB): any content source can be unchecked,
@@ -550,12 +524,6 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply, isDefau
                 { key = PAB_HAS_DURATION_KEY, label = "Has Duration",
                   tooltip = "Show every buff that has a duration (hides permanent buffs). Use the Hide lane below to remove specific filters." },
             }
-            -- Default Buffs bar only: the enchant cells publish from that bar
-            -- alone, so the row would be a dead switch on custom buff bars.
-            if isDefault then
-                items[#items + 1] = { key = PAB_WEAPON_ENCH_KEY, label = "Weapon Enchants",
-                  tooltip = "Show weapon oil and imbue icons at the front of this bar. They are weapon enchants rather than auras, so they show independently of the options above -- and the aura grid is shifted inward to make room for them, with every row shifting over by the same amount." }
-            end
             items[#items + 1] = { isHeader = true, label = "Show", rightLabel = "Hide" }
             for i = 1, #filters do
                 items[#items + 1] = { key = filters[i].id, label = filters[i].name,
@@ -564,21 +532,12 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply, isDefau
             return items
         end
         local warnClosed
-        -- Crossing the enchants-only boundary rewrites the grid sliders and the
-        -- bar's name, which aren't lightweight-refresh clients -- but a forced
-        -- RefreshPage(true) mid-click would also tear down this open dropdown.
-        -- So the force is DEFERRED: the setters mark it and onMenuClosed flushes
-        -- it once the menu hides (the widget's documented defer pattern). While
-        -- the menu stays open the sliders behind it are briefly stale; they
-        -- rebuild the moment it closes.
-        local pendingForce
         local cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
             rgn, 190, rgn:GetFrameLevel() + 2,
             FilterItems,
             function(k, neg)
                 if k == PAB_ALL_BUFFS_KEY then return AllBuffsOn() end
                 if k == PAB_HAS_DURATION_KEY then return cfg.hasDuration == true end
-                if k == PAB_WEAPON_ENCH_KEY then return cfg.showWeaponEnchants == true end
                 if neg then
                     local nf = cfg.negFilters
                     return nf and nf[k] == true
@@ -594,13 +553,10 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply, isDefau
                     -- lane subtracts in both modes; the show lane simply goes dormant
                     -- while broad content is on). Extra Spells stay untouched.
                     cfg.hasDuration = nil
-                    if SyncWeaponEnchantsGrid(cfg) then pendingForce = true end
                     apply()
                     -- Non-force, same as every other row: the open menu
                     -- refreshes its own checks/locks in place, so a mode
-                    -- flip must not tear the page down under it. Crossing the
-                    -- enchants-only boundary defers its rebuild to menu close
-                    -- (pendingForce above).
+                    -- flip must not tear the page down under it.
                     EllesmereUI:RefreshPage()
                     return
                 end
@@ -609,24 +565,7 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply, isDefau
                     -- Mutually exclusive with All Buffs (a broad-content mode of its
                     -- own); lanes persist, same as All Buffs.
                     if v then cfg.showAllBuffs = false end
-                    if SyncWeaponEnchantsGrid(cfg) then pendingForce = true end
                     apply()
-                    EllesmereUI:RefreshPage()
-                    return
-                end
-                if k == PAB_WEAPON_ENCH_KEY then
-                    -- Its own content source (oils/imbues are not auras), so it
-                    -- neither clears nor is cleared by the two modes above and
-                    -- never touches the filter lanes.
-                    cfg.showWeaponEnchants = v and true or nil
-                    if SyncWeaponEnchantsGrid(cfg) then pendingForce = true end
-                    apply()
-                    -- Non-force so this open dropdown survives the click, same
-                    -- as every other row. Entering/leaving enchants-only
-                    -- rewrites the grid sliders (Icons per Row / Max Rows /
-                    -- Max Total) and the bar's name, none of which are
-                    -- RegisterWidgetRefresh clients -- that rebuild is
-                    -- deferred to menu close (pendingForce).
                     EllesmereUI:RefreshPage()
                     return
                 end
@@ -655,12 +594,6 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply, isDefau
             end,
             nil, 12, nil, nil, function()
                 if warnClosed then warnClosed() end
-                -- Flush the deferred enchants-only rebuild now that closing
-                -- can no longer strand an open menu.
-                if pendingForce then
-                    pendingForce = nil
-                    EllesmereUI:RefreshPage(true)
-                end
             end)
         PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
         rgn._control = cbDD; rgn._lastInline = nil
@@ -813,7 +746,10 @@ local function BuildAssignedDebuffsFields(frame, fontPath, sy, cfg, apply)
         if rgn._control then rgn._control:Hide() end
         local PAB_ALL_DEBUFFS_KEY = "__allDebuffs"
         local PAB_DEBUFF_HAS_DUR_KEY = "__debuffHasDuration"
+        local PAB_MATCH_ANY_KEY = "__matchAny"
+        local PAB_MATCH_ALL_KEY = "__matchAll"
         local function AllOn() return cfg.showAllDebuffs ~= false end
+        local function MatchAll() return cfg.debuffMatch == "all" end
         -- Hovering a dimmed Show box explains the dim (the lane is inert
         -- while All Debuffs already shows everything). Has Duration is an
         -- AND-modifier, not a mode: it never locks the lane.
@@ -824,6 +760,20 @@ local function BuildAssignedDebuffsFields(frame, fontPath, sy, cfg, apply)
                   tooltip = "Show every debuff. Use the Hide lane below to remove specific filters." },
                 { key = PAB_DEBUFF_HAS_DUR_KEY, label = "Has Duration",
                   tooltip = "Only show debuffs that have a duration, excluding permanent ones. Combines with the filters below; checked alone it shows every timed debuff." },
+                -- Modifiers, not filters: how the Show picks combine (engine side:
+                -- DebuffChainFor). A radio pair over cfg.debuffMatch (nil = Match
+                -- Any, the union), kept out of the summary; locked while All
+                -- Debuffs leaves nothing to combine. Never in ns.PAB_ClassItems:
+                -- the player frame's dropdown shares that list.
+                { isHeader = true, label = EllesmereUI.L("Match Mode") },
+                { key = PAB_MATCH_ANY_KEY, label = EllesmereUI.L("Match Any Filter"), isModifier = true,
+                  lockedFn = AllOn,
+                  lockedTooltip = EllesmereUI.L("Uncheck All Debuffs to choose how the Show filters combine."),
+                  tooltip = EllesmereUI.L("Shows debuffs that match any checked Show filter (the default).") },
+                { key = PAB_MATCH_ALL_KEY, label = EllesmereUI.L("Match All Filters"), isModifier = true,
+                  lockedFn = AllOn,
+                  lockedTooltip = EllesmereUI.L("Uncheck All Debuffs to choose how the Show filters combine."),
+                  tooltip = EllesmereUI.L("Shows only debuffs that match every checked Show filter (dispel types count as one); opposites like Non-Player Auras with Cast By You show nothing.") },
                 { isHeader = true, label = "Show", rightLabel = "Hide" },
             }
             local classItems = ns.PAB_ClassItems and ns.PAB_ClassItems(false) or {}
@@ -860,6 +810,9 @@ local function BuildAssignedDebuffsFields(frame, fontPath, sy, cfg, apply)
             function(k, neg)
                 if k == PAB_ALL_DEBUFFS_KEY then return AllOn() end
                 if k == PAB_DEBUFF_HAS_DUR_KEY then return cfg.hasDuration == true end
+                if k == PAB_MATCH_ANY_KEY or k == PAB_MATCH_ALL_KEY then
+                    return (k == PAB_MATCH_ALL_KEY) == MatchAll()
+                end
                 if neg then
                     local nf = cfg.negClassFilters
                     return nf and nf[k] == true
@@ -887,6 +840,17 @@ local function BuildAssignedDebuffsFields(frame, fontPath, sy, cfg, apply)
                     EllesmereUI:RefreshPage()
                     return
                 end
+                if k == PAB_MATCH_ANY_KEY or k == PAB_MATCH_ALL_KEY then
+                    -- Radio pair: the clicked row always wins (the toggled value
+                    -- is ignored), so clicking the active row keeps it. nil =
+                    -- Match Any keeps untouched bars byte-identical.
+                    local want = (k == PAB_MATCH_ALL_KEY) and "all" or nil
+                    if cfg.debuffMatch == want then return end
+                    cfg.debuffMatch = want
+                    apply()
+                    EllesmereUI:RefreshPage()
+                    return
+                end
                 -- Two-lane class write: checking one lane clears the other;
                 -- emptied lane tables drop to nil (saved-variable hygiene).
                 if v then ClearExclusive(k) end
@@ -910,7 +874,9 @@ local function BuildAssignedDebuffsFields(frame, fontPath, sy, cfg, apply)
                 -- without closing this open dropdown.
                 EllesmereUI:RefreshPage()
             end,
-            nil, 12, nil, nil, function() if warnClosed then warnClosed() end end)
+            nil, 12, nil, nil, function() if warnClosed then warnClosed() end end,
+            -- The summary joins picks the way they combine.
+            { separatorFn = function() return (MatchAll() and not AllOn()) and " & " or ", " end })
         PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
         rgn._control = cbDD; rgn._lastInline = nil
         EllesmereUI.RegisterWidgetRefresh(cbRefresh)
@@ -918,6 +884,8 @@ local function BuildAssignedDebuffsFields(frame, fontPath, sy, cfg, apply)
             L("You are displaying NO debuffs at all."),
             function()
                 if not ns.PAB_DebuffBarHasContent then return true end
+                -- Match All picks that can never match together build nothing.
+                if ns.PAB_DebuffMatchEmpty and ns.PAB_DebuffMatchEmpty(cfg) then return false end
                 return ns.PAB_DebuffBarHasContent(cfg) and true or false
             end)
     end
@@ -1115,18 +1083,36 @@ local function BuildCoreFields(frame, fontPath, sy, cfg, apply, isBuff)
     return sy
 end
 
--- "Display": Border Size [swatch] | Spacing; Icons per Row (+Max Rows/Max
--- Total/Row Spacing cog) | spacer.
+local function FontOutlineField(cfg, apply)
+    return {
+        type = "dropdown", text = "Font Outline",
+        values = FONT_OUTLINE_VALUES, order = FONT_OUTLINE_ORDER,
+        getValue = function() return cfg.fontOutline or "default" end,
+        setValue = function(v) cfg.fontOutline = v; apply() end,
+    }
+end
+
+-- "Display": Border Style (+shift/behind cog) | Border Size [swatch]; Width
+-- Offset | Height Offset (textured style only); Icons Per Row (+grid cog) |
+-- Spacing (+row-spacing cog); Icon Shape | Icon Zoom; remaining toggles are
+-- packed by polarity without placeholder slots.
 local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
     local W = EllesmereUI.Widgets
     local PP = EllesmereUI.PanelPP
     local _, hh = 0, 0
 
     _, hh = W:SectionHeader(frame, "DISPLAY", sy); sy = sy - hh
+    sy = EllesmereUI.BlizzStyle.Note(frame, sy, "playerauras")
 
-    local borderRow
-    borderRow, hh = W:DualRow(frame, sy,
-        {
+    local textureValues, textureOrder = EllesmereUI.GetBorderTextureDropdown()
+    -- Border Size: the pixel slider over cfg.borderSize and its borderSizePx
+    -- companion (EllesmereUI.BorderPxSliderCfg). A custom Icon Shape keeps the
+    -- None..Strong dropdown instead: its ring is on/off (PabShapeBorderSize), so a
+    -- pixel count means nothing there. The Icon Shape setter rebuilds the page when
+    -- the shape crosses none/custom, which swaps the control in this slot.
+    local sizeCfg
+    if cfg.iconShape and cfg.iconShape ~= "none" then
+        sizeCfg = {
             type = "dropdown", text = "Border Size",
             values = BORDER_SIZE_VALUES, order = BORDER_SIZE_LEVELS,
             itemDisabled = function(v)
@@ -1137,7 +1123,191 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
                 return "This option requires a non-custom shape to be selected"
             end,
             getValue = function() return BORDER_SIZE_KEY[cfg.borderSize or 1] or "thin" end,
-            setValue = function(v) cfg.borderSize = BORDER_SIZE_NUM[v] or 1; apply() end
+            setValue = function(v) cfg.borderSize = BORDER_SIZE_NUM[v] or 1; apply() end,
+        }
+    else
+        sizeCfg = EllesmereUI.BorderPxSliderCfg({
+            text = "Border Size", trackWidth = 120,
+            -- The step BuildStyle renders with (cfg.borderSize or 1), as a number.
+            getStep = function() return cfg.borderSize or 1 end,
+            setStep = function(step) cfg.borderSize = step end,
+            getTex = function() return cfg.borderTexture or "solid" end,
+            getPx = function() return cfg.borderSizePx end,
+            setPx = function(v) cfg.borderSizePx = v end,
+            apply = apply,
+        })
+    end
+    local styleRow
+    styleRow, hh = W:DualRow(frame, sy,
+        EllesmereUI.BlizzStyle.Gate("playerauras", {
+            type = "dropdown", text = "Border Style",
+            disabled = function()
+                return cfg.iconShape and cfg.iconShape ~= "none"
+            end,
+            disabledTooltip = "This option requires a non-custom shape to be selected",
+            rawTooltip = true,
+            values = textureValues, order = textureOrder,
+            getValue = function() return cfg.borderTexture or "solid" end,
+            setValue = function(v)
+                cfg.borderTexture = v
+                cfg.borderTextureOffset = nil
+                cfg.borderTextureOffsetY = nil
+                cfg.borderTextureShiftX = nil
+                cfg.borderTextureShiftY = nil
+                local color, behind = EllesmereUI.GetBorderStyleSelectDefaults(v)
+                cfg.borderR, cfg.borderG, cfg.borderB, cfg.borderA = color.r, color.g, color.b, 1
+                cfg.borderBehind = behind
+                local defaultSize = EllesmereUI.GetBorderDefaultSize("unitframes", v)
+                if defaultSize then cfg.borderSize = defaultSize end
+                -- A style pick resets the size: the exact size paired with the old
+                -- step and texture goes with it (false, never nil, once it was set).
+                if cfg.borderSizePx then cfg.borderSizePx = false end
+                apply()
+                -- The Width Offset | Height Offset row below exists only for a
+                -- textured style: a Solid/textured crossing rebuilds the page.
+                EllesmereUI:RefreshPage(true)
+            end,
+        }),
+        EllesmereUI.BlizzStyle.Gate("playerauras", sizeCfg)
+    ); sy = sy - hh
+    do
+        local rgn = styleRow._leftRegion
+        local _, cogShow = EllesmereUI.BuildCogPopup({
+            title = "Border Options",
+            rows = {
+                { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
+                  get = function()
+                      if cfg.borderTextureShiftX ~= nil then return cfg.borderTextureShiftX end
+                      local _, _, x = EllesmereUI.GetBorderDefaults("unitframes", cfg.borderTexture or "solid", cfg.borderSize or 1)
+                      return x
+                  end,
+                  set = function(v)
+                      if v == 0 then v = nil end
+                      cfg.borderTextureShiftX = v; apply()
+                  end },
+                { type = "slider", label = "Shift Y", min = -10, max = 10, step = 1,
+                  get = function()
+                      if cfg.borderTextureShiftY ~= nil then return cfg.borderTextureShiftY end
+                      local _, _, _, y = EllesmereUI.GetBorderDefaults("unitframes", cfg.borderTexture or "solid", cfg.borderSize or 1)
+                      return y
+                  end,
+                  set = function(v)
+                      if v == 0 then v = nil end
+                      cfg.borderTextureShiftY = v; apply()
+                  end },
+                { type = "toggle", label = "Show Behind",
+                  get = function() return cfg.borderBehind == true end,
+                  set = function(v) cfg.borderBehind = v; apply() end },
+            },
+        })
+        local cogBtn = ns._PAMakeCogBtn(rgn, cogShow)
+        local function UpdateBorderCogVisibility()
+            cogBtn:SetShown((cfg.borderTexture or "solid") ~= "solid"
+                and not (cfg.iconShape and cfg.iconShape ~= "none")
+                and not EllesmereUI.BlizzStyle.Get("playerauras"))
+        end
+        EllesmereUI.RegisterWidgetRefresh(UpdateBorderCogVisibility)
+        UpdateBorderCogVisibility()
+
+        local keys, labels = {}, {}
+        for _, entry in ipairs(PabAllBarEntries()) do
+            keys[#keys + 1] = entry.key
+            labels[entry.key] = entry.label
+        end
+        local function CopyBorderStyleTo(entry)
+            local target = entry.cfg
+            target.borderTexture = cfg.borderTexture
+            target.borderTextureOffset = cfg.borderTextureOffset
+            target.borderTextureOffsetY = cfg.borderTextureOffsetY
+            target.borderTextureShiftX = cfg.borderTextureShiftX
+            target.borderTextureShiftY = cfg.borderTextureShiftY
+            target.borderBehind = cfg.borderBehind
+            target.borderR, target.borderG, target.borderB, target.borderA =
+                cfg.borderR, cfg.borderG, cfg.borderB, cfg.borderA
+            -- Border textures and custom shape masks are mutually exclusive in
+            -- the editor. A bulk style sync follows the same "last choice wins"
+            -- rule as a direct selection so it cannot create a locked combination.
+            if (cfg.borderTexture or "solid") ~= "solid" then
+                target.iconShape = "none"
+            end
+            PabApplyBarEntry(entry)
+        end
+        EllesmereUI.BuildSyncIcon({
+            region = rgn,
+            tooltip = "Apply Border Style to all Bars",
+            onClick = function()
+                for _, entry in ipairs(PabAllBarEntries()) do
+                    if entry.cfg ~= cfg then CopyBorderStyleTo(entry) end
+                end
+                EllesmereUI:RefreshPage()
+            end,
+            isSynced = function()
+                local texture = cfg.borderTexture or "solid"
+                for _, entry in ipairs(PabAllBarEntries()) do
+                    local c = entry.cfg
+                    if (c.borderTexture or "solid") ~= texture
+                        or c.borderTextureOffset ~= cfg.borderTextureOffset
+                        or c.borderTextureOffsetY ~= cfg.borderTextureOffsetY
+                        or c.borderTextureShiftX ~= cfg.borderTextureShiftX
+                        or c.borderTextureShiftY ~= cfg.borderTextureShiftY
+                        or (c.borderBehind == true) ~= (cfg.borderBehind == true) then
+                        return false
+                    end
+                end
+                return true
+            end,
+            flashTargets = function() return { rgn } end,
+            multiApply = {
+                elementKeys = keys,
+                elementLabels = labels,
+                getCurrentKey = function() return PabBarKeyOf(cfg, isBuff) end,
+                onApply = function(checkedKeys)
+                    local byKey = {}
+                    for _, entry in ipairs(PabAllBarEntries()) do byKey[entry.key] = entry end
+                    for _, key in ipairs(checkedKeys) do
+                        local entry = byKey[key]
+                        if entry then CopyBorderStyleTo(entry) end
+                    end
+                    EllesmereUI:RefreshPage()
+                end,
+            },
+        })
+    end
+
+    -- Width Offset | Height Offset: the textured border's outward offsets, their
+    -- own row right under the style row and present only for a textured style
+    -- (the Border Style setter rebuilds the page on a Solid/textured crossing).
+    -- addonKey/getSizeKey mirror what BuildStyle hands AuraKit ("unitframes",
+    -- sizeKey = the borderSize step), so the shown default is the drawn one.
+    do
+        local tex = cfg.borderTexture
+        if tex and tex ~= "" and tex ~= "solid" then
+            local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs({
+                addonKey = "unitframes",
+                trackWidth = 120,
+                getTex = function() return cfg.borderTexture or "solid" end,
+                getStep = function() return cfg.borderSize or 1 end,
+                getSizeKey = function() return cfg.borderSize or 1 end,
+                getPx = function() return cfg.borderSizePx end,
+                getX = function() return cfg.borderTextureOffset end,
+                setX = function(v) cfg.borderTextureOffset = v end,
+                getY = function() return cfg.borderTextureOffsetY end,
+                setY = function(v) cfg.borderTextureOffsetY = v end,
+                apply = apply,
+            })
+            _, hh = W:DualRow(frame, sy,
+                EllesmereUI.BlizzStyle.Gate("playerauras", ocfgL),
+                EllesmereUI.BlizzStyle.Gate("playerauras", ocfgR)
+            ); sy = sy - hh
+        end
+    end
+
+    local rowRow
+    rowRow, hh = W:DualRow(frame, sy,
+        {
+            type = "slider", text = "Icons Per Row", min = 1, max = 20, step = 1, trackWidth = 120,
+            getValue = function() return cfg.iconsPerRow or (isBuff and 11 or 8) end,
+            setValue = function(v) cfg.iconsPerRow = v; apply() end
         },
         {
             type = "slider", text = "Spacing", min = -5, max = 20, step = 1, trackWidth = 120,
@@ -1146,9 +1316,9 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
         }
     ); sy = sy - hh
     do
-        local rgn = borderRow._leftRegion
+        local rgn = styleRow._rightRegion
         local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
-            rgn, borderRow:GetFrameLevel() + 3,
+            rgn, styleRow:GetFrameLevel() + 3,
             function()
                 return (cfg.borderR or 0), (cfg.borderG or 0), (cfg.borderB or 0), (cfg.borderA or 1)
             end,
@@ -1162,7 +1332,7 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
         EllesmereUI.RegisterWidgetRefresh(updateSwatch)
     end
     do
-        local rgn = borderRow._leftRegion
+        local rgn = styleRow._rightRegion
         local keys, labels = {}, {}
         for _, entry in ipairs(PabAllBarEntries()) do
             keys[#keys + 1] = entry.key
@@ -1170,6 +1340,11 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
         end
         local function CopyBorderTo(entry)
             entry.cfg.borderSize = cfg.borderSize
+            -- The exact size travels with its step, verbatim (string/false/nil);
+            -- a target whose value was set is cleared with false, never nil.
+            local px = cfg.borderSizePx
+            if px == nil and entry.cfg.borderSizePx ~= nil then px = false end
+            entry.cfg.borderSizePx = px
             -- A SHAPED target can't render Thin/Normal/Heavy (its shape border
             -- has only off/Strong states; the dropdown disables those levels).
             -- Snap to Strong so a sync can't strand a shaped bar on a level it
@@ -1198,7 +1373,8 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
                 for _, entry in ipairs(PabAllBarEntries()) do
                     local c = entry.cfg
                     if (c.borderSize or 1) ~= size or (c.borderR or 0) ~= r or (c.borderG or 0) ~= g
-                        or (c.borderB or 0) ~= b or (c.borderA or 1) ~= a then
+                        or (c.borderB or 0) ~= b or (c.borderA or 1) ~= a
+                        or (c.borderSizePx or false) ~= (cfg.borderSizePx or false) then
                         return false
                     end
                 end
@@ -1225,7 +1401,7 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
         -- Row Spacing lives here, not in Icons Per Row's cog -- it's spacing between
         -- rows, same family as Spacing (icon-to-icon gap), not a grid-size concern like
         -- Icons Per Row/ Max Rows/Max Total.
-        local rgn = borderRow._rightRegion
+        local rgn = rowRow._rightRegion
         local _, cogShow = EllesmereUI.BuildCogPopup({
             title = "Spacing",
             rows = {
@@ -1239,20 +1415,6 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
         ns._PAMakeCogBtn(rgn, cogShow)
     end
 
-    local rowRow
-    rowRow, hh = W:DualRow(frame, sy,
-        {
-            type = "slider", text = "Icons Per Row", min = 1, max = 20, step = 1, trackWidth = 120,
-            getValue = function() return cfg.iconsPerRow or (isBuff and 11 or 8) end,
-            setValue = function(v) cfg.iconsPerRow = v; apply() end
-        },
-        {
-            type = "dropdown", text = "Font Outline",
-            values = FONT_OUTLINE_VALUES, order = FONT_OUTLINE_ORDER,
-            getValue = function() return cfg.fontOutline or "default" end,
-            setValue = function(v) cfg.fontOutline = v; apply() end
-        }
-    ); sy = sy - hh
     do
         -- Verified against EUI_RaidFrames_BuffManager.lua's "legacy layout"
         -- branch: perRowCfg paired with a blank spacer, cog on
@@ -1279,8 +1441,17 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
         {
             type = "dropdown", text = "Icon Shape",
             values = SHAPE_VALUES, order = SHAPE_ORDER,
+            itemDisabled = function(v)
+                return v ~= "none" and (cfg.borderTexture or "solid") ~= "solid"
+            end,
+            itemDisabledTooltip = function(v)
+                if v ~= "none" and (cfg.borderTexture or "solid") ~= "solid" then
+                    return "This option requires the Border Style to be set to Solid"
+                end
+            end,
             getValue = function() return cfg.iconShape or "none" end,
             setValue = function(v)
+                local wasShaped = cfg.iconShape ~= nil and cfg.iconShape ~= "none"
                 cfg.iconShape = v
                 -- Entering shape mode with a now-disabled Border Size level selected:
                 -- snap to the shape default, same as Action Bars' own shape dropdown
@@ -1290,15 +1461,22 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
                     cfg.borderSize = BORDER_SIZE_NUM[BORDER_SIZE_DEFAULT_SHAPE]
                 end
                 apply()
+                -- The Border Size slots (here and in Icon Effects) hold a pixel
+                -- slider without a shape and the None..Strong dropdown with one, so
+                -- a none/custom crossing rebuilds the page to swap the control.
+                if wasShaped ~= (v ~= nil and v ~= "none") then
+                    EllesmereUI:RefreshPage(true)
+                end
             end
         },
-        {
+        EllesmereUI.BlizzStyle.Gate("playerauras", {
             -- cfg.iconZoom stays a raw 0-1 fraction (SetTexCoord's own units); the
             -- slider itself works in percent, like Action Bars' Icon Zoom.
+            -- Blizzard Style draws the whole icon (zoom 0).
             type = "slider", text = "Icon Zoom", min = 0, max = 15, step = 0.5, trackWidth = 120,
             getValue = function() return (cfg.iconZoom or 0.055) * 100 end,
             setValue = function(v) cfg.iconZoom = v / 100; apply() end
-        }
+        })
     ); sy = sy - hh
     do
         local rgn = shapeRow._leftRegion
@@ -1314,6 +1492,14 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
         local function CopyShapeTo(entry)
             local shape = cfg.iconShape
             entry.cfg.iconShape = shape
+            if shape and shape ~= "none" then
+                entry.cfg.borderTexture = "solid"
+                entry.cfg.borderTextureOffset = nil
+                entry.cfg.borderTextureOffsetY = nil
+                entry.cfg.borderTextureShiftX = nil
+                entry.cfg.borderTextureShiftY = nil
+                entry.cfg.borderBehind = false
+            end
             local sz = entry.cfg.borderSize or 1
             if shape and shape ~= "none" and sz >= 1 and sz <= 3 then
                 entry.cfg.borderSize = BORDER_SIZE_NUM[BORDER_SIZE_DEFAULT_SHAPE]
@@ -1385,19 +1571,16 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
     end
 
     -- Buff bars only: debuffs are never player-cancelable, so the row would
-    -- be a dead switch there. (Weapon enchants used to share this row as a
-    -- second toggle; they are a content source rather than a display tweak,
-    -- so they now live as the "Weapon Enchants" pinned row in the Filters
-    -- dropdown -- see BuildAssignedBuffsFields.)
+    -- be a dead switch there.
     if isBuff then
         _, hh = W:DualRow(frame, sy,
+            FontOutlineField(cfg, apply),
             {
                 type = "toggle", text = "Right-Click to Cancel",
                 tooltip = "Right-clicking a buff icon cancels the buff. Turning this off makes the bar's icons click-through; tooltips still follow the Show Tooltips setting.",
                 getValue = function() return cfg.rightClickCancel ~= false end,
                 setValue = function(v) cfg.rightClickCancel = v; apply() end
-            },
-            { type = "label", text = "" }
+            }
         ); sy = sy - hh
     end
 
@@ -1426,7 +1609,7 @@ local function BuildDispelColorFields(frame, fontPath, sy, cfg, apply)
 
     -- Dispel-type indicator icon on each debuff bar (engine-driven, mirrors
     -- Raid Frames' "Type Icon Position"). "none" (default) = feature off.
-    _, hh = W:SectionHeader(frame, "DEBUFF TYPE ICON", sy); sy = sy - hh
+    _, hh = W:SectionHeader(frame, "DEBUFF DISPLAY", sy); sy = sy - hh
     do
         local function IconOn() return (cfg.dispelIconPosition or "none") ~= "none" end
         local row
@@ -1440,7 +1623,7 @@ local function BuildDispelColorFields(frame, fontPath, sy, cfg, apply)
                   apply()
                   EllesmereUI:RefreshPage()
               end },
-            { type = "label", text = "" }
+            FontOutlineField(cfg, apply)
         ); sy = sy - hh
         local rgn = row._leftRegion
         local _, cogShow = EllesmereUI.BuildCogPopup({
@@ -1464,6 +1647,10 @@ local function BuildDispelColorFields(frame, fontPath, sy, cfg, apply)
         cogBtn:SetScript("OnEnter", function(self) if IconOn() then self:SetAlpha(0.7) end end)
         cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(IconOn() and 0.4 or 0.15) end)
     end
+
+    -- Blizzard Style paints the stock per-type border art, so the palette has
+    -- nothing to colour: the whole section stays out (fully gated rows hide).
+    if EllesmereUI.BlizzStyle.Get("playerauras") then return sy end
 
     _, hh = W:SectionHeader(frame, "DISPEL COLORS", sy); sy = sy - hh
 
@@ -1663,9 +1850,13 @@ local function BuildFxEffects(frame, sy, cfg, apply)
 
         -- Row 2: Border (+ swatch) | Size (icon size for the matched
         -- filters; 0 = the bar's own icon size).
-        local bRow
-        bRow, hh = W:DualRow(frame, sy,
-            { type = "dropdown", text = "Border",
+        -- Border: solid px only (no Border Style here), so a plain 0-4 slider view
+        -- over e.borderSize, the same number the dropdown wrote. A custom Icon
+        -- Shape keeps the None..Strong dropdown (the shape ring is on/off); the
+        -- Icon Shape setter rebuilds the page on a none/custom crossing.
+        local fxBorderCfg
+        if cfg.iconShape and cfg.iconShape ~= "none" then
+            fxBorderCfg = { type = "dropdown", text = "Border",
               values = BORDER_SIZE_VALUES, order = BORDER_SIZE_LEVELS,
               itemDisabled = function(v)
                   local shape = cfg.iconShape
@@ -1675,7 +1866,15 @@ local function BuildFxEffects(frame, sy, cfg, apply)
                   return "This option requires a non-custom shape to be selected"
               end,
               getValue = function() return BORDER_SIZE_KEY[e.borderSize or 0] or "none" end,
-              setValue = function(v) e.borderSize = BORDER_SIZE_NUM[v] or 0; apply() end },
+              setValue = function(v) e.borderSize = BORDER_SIZE_NUM[v] or 0; apply() end }
+        else
+            fxBorderCfg = { type = "slider", text = "Border", min = 0, max = 4, step = 1, trackWidth = 120,
+              getValue = function() return e.borderSize or 0 end,
+              setValue = function(v) e.borderSize = v; apply() end }
+        end
+        local bRow
+        bRow, hh = W:DualRow(frame, sy,
+            fxBorderCfg,
             { type = "slider", text = "Size", min = 0, max = 400, step = 1, trackWidth = 120,
               getValue = function() return e.size or 0 end,
               setValue = function(v)
@@ -3140,7 +3339,7 @@ function ns.PABMP_BuildPage(pageName, parent, yOffset)
                     message     = L("Player Aura Bars are disabled and Blizzard's default display is back. A UI reload is recommended to finish cleanup."),
                     confirmText = "Reload Now",
                     cancelText  = "Later",
-                    onConfirm   = function() ReloadUI() end,
+                    reload      = true,
                 })
             end
         end)

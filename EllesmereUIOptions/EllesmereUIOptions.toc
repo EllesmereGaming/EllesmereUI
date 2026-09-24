@@ -1,10 +1,10 @@
-## Interface: 120000, 120001, 120005, 120007, 120100
+## Interface: 120000, 120001, 120005, 120007, 120100, 16001
 ## Title: |cff0cd29fEllesmereUI|r Options
 ## Category: |cff0cd29fEllesmere|rUI
 ## Group: EllesmereUI
 ## Notes: EllesmereUI settings panel. Loads on demand when you open EllesmereUI options.
 ## Author: Ellesmere
-## Version: 9.1.6
+## Version: 9.2.3
 ## Dependencies: EllesmereUI
 ## LoadOnDemand: 1
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -15,6 +15,7 @@ EllesmereUI_Widgets.lua
 EUI__General_Options.lua
 EUI_Fonts_Options.lua
 EUI_Textures_Options.lua
+EUI_Style_Options.lua
 EUI_PartyMode_Options.lua
 
 EUI_ActionBars_Options.lua
@@ -36,6 +37,7 @@ EUI_QoL_AutoLogging_Options.lua
 EUI_QoL_Shifter_Options.lua
 EUI_QoL_MovementAlert_Options.lua
 EUI_QoL_RaidTools_Options.lua
+EUI_QoL_FlightTimer_Options.lua
 EUI_UpgradeCalc_Options.lua
 EUI_QuestTracker_Options.lua
 EUI_Quickdraw_Options.lua

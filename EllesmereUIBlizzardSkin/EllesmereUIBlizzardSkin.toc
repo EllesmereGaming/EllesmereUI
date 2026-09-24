@@ -1,10 +1,10 @@
-## Interface: 120000, 120001, 120005, 120007, 120100
+## Interface: 120000, 120001, 120005, 120007, 120100, 16001
 ## Title: |cff0cd29fEllesmereUI|r Blizz UI Enhanced
 ## Category: |cff0cd29fEllesmere|rUI
 ## Group: EllesmereUI
 ## Notes: Clean and beautiful visual refreshes for Blizzard UI elements.
 ## Author: Ellesmere
-## Version: 9.1.6
+## Version: 9.2.3
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIBlizzardSkinDB, EllesmereUIDragonRidingDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -22,6 +22,10 @@ EllesmereUIBlizzardSkin_GroupFinder.lua
 # Window Skins (shared engine + per-window packs)
 EllesmereUIBlizzardSkin_WindowEngine.lua
 EllesmereUIBlizzardSkin_WindowPacks.lua
+# WoW Forever only: plain window treatment + stats sidebar for the character sheet
+EllesmereUIBlizzardSkin_CharacterSheetForever.lua
+# WoW Forever only: the stock friends list under the standard window treatment
+EllesmereUIBlizzardSkin_FriendsForever.lua
 EllesmereUIBlizzardSkin_SkinAPI.lua
 
 # Options

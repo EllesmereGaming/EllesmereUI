@@ -1514,6 +1514,140 @@ local function PixelizeSliderCfg(cfg)
 end
 
 -------------------------------------------------------------------------------
+--  Border Size in pixels (the one control every bordered surface uses). Builds a
+--  DualRow slider cfg over a surface's legacy size key and its "<key>Px" companion
+--  (see EllesmereUI.BorderPx in EllesmereUI.lua). The slider SHOWS the pixels on
+--  screen: the exact size when one is set and still paired with the legacy step +
+--  texture, else the legacy size (solid = the step; textured = its edge at UIParent
+--  scale, 0 = hidden). It WRITES only on a real change: solid 0-4 keeps writing the
+--  legacy key alone (clearing a set exact size with false); anything else writes
+--  the nearest legacy step (old builds, legacy syncs and overrides keep working)
+--  and the exact size beside it. The range is the same on both styles, so a style
+--  pick never needs the row rebuilt.
+--  spec: getStep() -> number step (labels mapped by the caller), setStep(step),
+--        getTex() -> texture key, getPx() -> raw *Px value, setPx(v), apply()
+--        (refresh/render after a write), plus any cfg fields to pass through
+--        (disabled, disabledTooltip, requireState, rawTooltip, tooltip, text).
+-------------------------------------------------------------------------------
+function EllesmereUI.BorderPxSliderCfg(spec)
+    local gamePP = EllesmereUI.PP
+    local mult = (gamePP and gamePP.mult) or 1
+    -- The largest legacy edge (Strong = 32 units) must stay reachable at any UI
+    -- scale, to the next multiple of 8.
+    local maxPx = math.max(32, math.ceil(32 / mult))
+    maxPx = math.ceil(maxPx / 8) * 8
+    local function Shown()
+        local step, tex = spec.getStep(), spec.getTex()
+        local px = EllesmereUI.BorderPx(spec.getPx(), step, tex)
+        if px then return px end
+        return EllesmereUI.BorderLegacyPx(step, tex)
+    end
+    local cfg = {
+        type = "slider", text = spec.text or "Border Size",
+        min = 0, max = spec.max or maxPx, step = 1,
+        tooltip = spec.tooltip or "Border size in pixels; for a textured style this is the size of its edge art.",
+        getValue = Shown,
+        setValue = function(v)
+            v = math.floor(v + 0.5)
+            if v == Shown() then return end          -- a click that changed nothing
+            local tex = spec.getTex()
+            local solid = not tex or tex == "" or tex == "solid"
+            if solid and v <= 4 then
+                spec.setStep(v)
+                if spec.getPx() then spec.setPx(false) end
+            else
+                local step = EllesmereUI.BorderPxStep(v, tex)
+                if v <= 0 then
+                    spec.setStep(0)
+                    if spec.getPx() then spec.setPx(false) end
+                else
+                    spec.setStep(step)
+                    spec.setPx(EllesmereUI.BorderPxString(v, step, tex))
+                end
+            end
+            if spec.apply then spec.apply() end
+        end,
+    }
+    for k, v in pairs(spec) do
+        if cfg[k] == nil and k ~= "getStep" and k ~= "setStep" and k ~= "getTex"
+           and k ~= "getPx" and k ~= "setPx" and k ~= "apply" and k ~= "max" then
+            cfg[k] = v
+        end
+    end
+    return cfg
+end
+
+-------------------------------------------------------------------------------
+--  Width Offset | Height Offset: the textured border's outward offsets as their
+--  own DualRow (shown only while a textured style is selected; the caller builds
+--  the row conditionally). Each slider SHOWS what is drawn: the stored override
+--  when one is set, else the texture's default for the surface's registry row,
+--  scaled to an active exact size exactly as ApplyBorderStyle scales it. It
+--  compares in whole slider units: it WRITES nothing on a click that changes
+--  nothing, writes nil (follow the default again) when the value lands on the
+--  default the slider shows, and stores an override otherwise -- so the
+--  per-texture defaults keep seeding the value. With no exact size the shown
+--  default is the registry's own whole number.
+--  spec: addonKey (nil = the renderer passes none: global per-texture defaults),
+--        getTex(), getStep() (the numeric step the renderer passes), getSizeKey()
+--        (the registry sizeKey the renderer passes), getPx() (raw companion),
+--        getX()/setX(v), getY()/setY(v), apply(), plus pass-through cfg fields.
+--  Returns leftCfg, rightCfg.
+-------------------------------------------------------------------------------
+function EllesmereUI.BorderOffsetRowCfgs(spec)
+    local function Defaults()
+        local tex = spec.getTex()
+        local dx, dy
+        if spec.addonKey then
+            dx, dy = EllesmereUI.GetBorderDefaults(spec.addonKey, tex, spec.getSizeKey())
+        else
+            dx = EllesmereUI.GetBorderTextureDefaultOffset(tex)
+            dy = EllesmereUI.GetBorderTextureDefaultOffsetY(tex)
+        end
+        -- An active exact size scales the step's defaults (ApplyBorderStyle's rule).
+        local px = EllesmereUI.BorderPx(spec.getPx(), spec.getStep(), tex)
+        if px then
+            local PPg = EllesmereUI.PP
+            local EM = EllesmereUI.BORDER_EDGE_MAP
+            local f = (px * PPg.mult) / (EM[spec.getStep()] or EM[1])
+            return PPg.Snap(dx * f), PPg.Snap(dy * f)
+        end
+        return dx, dy
+    end
+    local lo, hi = spec.min or -10, spec.max or 10
+    -- A value as the slider shows it (SnapStep: whole units, clamped).
+    local function Unit(x) return math.max(lo, math.min(hi, math.floor(x + 0.5))) end
+    local function Make(text, get, set, pick)
+        local cfg = {
+            type = "slider", text = text, min = lo, max = hi, step = 1,
+            getValue = function()
+                local v = get()
+                if v ~= nil then return v end
+                return Unit(pick(Defaults()))
+            end,
+            setValue = function(v)
+                v = Unit(v)
+                local cur = get()
+                local def = Unit(pick(Defaults()))
+                if v == (cur ~= nil and Unit(cur) or def) then return end
+                if v == def then set(nil) else set(v) end
+                if spec.apply then spec.apply() end
+            end,
+        }
+        for k, val in pairs(spec) do
+            if cfg[k] == nil and k ~= "addonKey" and k ~= "getTex" and k ~= "getStep" and k ~= "getSizeKey"
+               and k ~= "getPx" and k ~= "getX" and k ~= "setX" and k ~= "getY" and k ~= "setY"
+               and k ~= "apply" and k ~= "min" and k ~= "max" then
+                cfg[k] = val
+            end
+        end
+        return cfg
+    end
+    return Make("Width Offset", spec.getX, spec.setX, function(x) return x end),
+           Make("Height Offset", spec.getY, spec.setY, function(_, y) return y end)
+end
+
+-------------------------------------------------------------------------------
 --  WIDGET FACTORY
 -------------------------------------------------------------------------------
 local WidgetFactory = {}
@@ -2833,18 +2967,23 @@ end
 function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
     local ROW_H = 50
     local SIDE_PAD = 20  -- padding inside each half
+    -- Blizzard Style: a row whose every control is gated for the active style is built (callers still hang cogs and sync icons on its regions) but hidden, takes no row background or search entry, and returns no height, so the page reads as if it were not there.
+    local BS = EllesmereUI.BlizzStyle
+    local hiddenRow = BS and BS.RowHidden and BS.RowHidden(leftCfg, rightCfg)
     local frame = CreateFrame("Frame", nil, parent)
     local totalW = parent:GetWidth() - CONTENT_PAD * 2
     PP.Size(frame, totalW, ROW_H)
     PP.Point(frame, "TOPLEFT", parent, "TOPLEFT", CONTENT_PAD, yOffset)
     if not rightCfg then frame._skipRowDivider = true end
-    RowBg(frame, parent)
-    -- Search metadata: combined label on the frame (inline page search), one global-index entry per slot.
-    local dualLabel = (leftCfg and leftCfg.text or "")
-    if rightCfg and rightCfg.text then dualLabel = dualLabel .. " " .. rightCfg.text end
-    TagOptionRow(frame, parent, dualLabel, nil, true)
-    IndexSlotForSearch(parent, leftCfg and leftCfg.text, leftCfg and leftCfg.tooltip)
-    IndexSlotForSearch(parent, rightCfg and rightCfg.text, rightCfg and rightCfg.tooltip)
+    if not hiddenRow then
+        RowBg(frame, parent)
+        -- Search metadata: combined label on the frame (inline page search), one global-index entry per slot.
+        local dualLabel = (leftCfg and leftCfg.text or "")
+        if rightCfg and rightCfg.text then dualLabel = dualLabel .. " " .. rightCfg.text end
+        TagOptionRow(frame, parent, dualLabel, nil, true)
+        IndexSlotForSearch(parent, leftCfg and leftCfg.text, leftCfg and leftCfg.tooltip)
+        IndexSlotForSearch(parent, rightCfg and rightCfg.text, rightCfg and rightCfg.tooltip)
+    end
 
     -- Half regions: invisible, anchoring only
     local fullWidth = not rightCfg
@@ -2982,7 +3121,9 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
                     if cfg.itemDisabled(v) then
                         if cfg.itemDisabledTooltip then
                             local tip = cfg.itemDisabledTooltip(v)
-                            if tip then return DisabledTooltip(tip) end
+                            -- cfg.itemRequireState: "disabled" flips the wrapper's verb
+                            -- for a bare requirement noun (nil = "enabled", as before).
+                            if tip then return DisabledTooltip(tip, cfg.itemRequireState) end
                         end
                         return true
                     end
@@ -3270,6 +3411,13 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
     frame._leftRegion  = leftRegion
     frame._rightRegion = rightRegion
 
+    if hiddenRow then
+        -- The inline page search re-shows and re-anchors every row it has
+        -- collected whenever it resets; keep this one out of its hands.
+        frame._searchIgnore = true
+        frame:Hide()
+        return frame, 0
+    end
     return frame, ROW_H
 end
 
@@ -3406,7 +3554,9 @@ function WidgetFactory:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, spl
                     if cfg.itemDisabled(v) then
                         if cfg.itemDisabledTooltip then
                             local tip = cfg.itemDisabledTooltip(v)
-                            if tip then return DisabledTooltip(tip) end
+                            -- cfg.itemRequireState: "disabled" flips the wrapper's verb
+                            -- for a bare requirement noun (nil = "enabled", as before).
+                            if tip then return DisabledTooltip(tip, cfg.itemRequireState) end
                         end
                         return true
                     end
@@ -6549,7 +6699,7 @@ local function BuildCursorAnchorRow(opts)
                       message = "Changing cursor anchor requires a UI reload to take effect.",
                       confirmText = "Reload Now",
                       cancelText = "Later",
-                      onConfirm = function() ReloadUI() end,
+                      reload    = true,
                   })
               else
                   onApply()

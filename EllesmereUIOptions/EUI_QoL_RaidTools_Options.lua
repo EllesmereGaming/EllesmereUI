@@ -353,7 +353,7 @@ initFrame:SetScript("OnEvent", function(self)
                 PP.Size(button, 126, 29)
                 PP.Point(button, "RIGHT", region, "RIGHT", -20, 0)
                 button:SetFrameLevel(region:GetFrameLevel() + 4)
-                button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+                button:RegisterForClicks("AnyUp")
 
                 local bg = EllesmereUI.SolidTex(button, "BACKGROUND",
                     EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G,
@@ -393,6 +393,22 @@ initFrame:SetScript("OnEvent", function(self)
 
                 button:SetScript("OnClick", function(self, mouseButton)
                     if QuickFireDisabled() then return end
+                    -- OnKeyDown never fires for mouse buttons, so a listening
+                    -- capture takes them here instead. Plain Left/Right stay
+                    -- excluded (arm/unbind); modified Left/Right are fine.
+                    if listening and ((mouseButton ~= "LeftButton" and mouseButton ~= "RightButton")
+                        or IsModifierKeyDown()) then
+                        listening = false
+                        self:EnableKeyboard(false)
+                        Set(key, CreateKeyChordStringUsingMetaKeyState(
+                            GetConvertedKeyOrButton(mouseButton)))
+                        Refresh()
+                        RefreshState()
+                        if EllesmereUI._NotifySettingWrite then
+                            EllesmereUI._NotifySettingWrite(region)
+                        end
+                        return
+                    end
                     if mouseButton == "RightButton" then
                         if listening then
                             listening = false
@@ -406,6 +422,10 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                         return
                     end
+                    -- Only a plain left click arms the capture: with AnyUp
+                    -- registered, an idle side-button click would otherwise
+                    -- fall through here and start listening.
+                    if mouseButton ~= "LeftButton" then return end
                     if listening then return end
                     listening = true
                     label:SetText(EllesmereUI.L("Press a key..."))

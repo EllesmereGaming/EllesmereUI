@@ -5,6 +5,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Visually matches the Bags module with sidebar, search, and sorting
 -------------------------------------------------------------------------------
 local EUI = EllesmereUI
+local GetItemInfo = C_Item.GetItemInfo
+local GetItemInfoInstant = C_Item.GetItemInfoInstant
+local GetItemQualityColor = C_Item.GetItemQualityColor
 -- Profile access helper (DB created in EUI_Bags_Options.lua, loaded first per TOC)
 local _emptyP = {}
 local function BP() return (EUI._bagsDB and EUI._bagsDB.profile) or _emptyP end
@@ -1210,6 +1213,22 @@ function EUI_Bank:GetSelectedTabBagID()
     return tab and tab.bagID or nil
 end
 
+--- Bags an Auto Split from srcBag may fill: the source tab first, then the
+--- other tabs of the same bank type. Character and warband slots never mix.
+function EUI_Bank:GetSplitTargetBags(srcBag)
+    local targets = { srcBag }
+    local isWarband = false
+    for _, tab in ipairs(_allTabs) do
+        if tab.bagID == srcBag then isWarband = tab.isWarband end
+    end
+    for _, tab in ipairs(_allTabs) do
+        if tab.bagID ~= srcBag and tab.isWarband == isWarband then
+            targets[#targets + 1] = tab.bagID
+        end
+    end
+    return targets
+end
+
 --- Returns true if the current view is any warband view (all warbank,
 --- onewarbank, or an individual warband tab).
 function EUI_Bank:IsWarbandView()
@@ -1459,6 +1478,10 @@ local function GetOrCreateBankSlot(idx)
     btn:SetAllPoints(slotParent)
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     btn:RegisterForDrag("LeftButton")
+
+    btn:HookScript("PostClick", function(self)
+        EUI_Bags.ShowStackSplitter(self, EUI_Bank:GetSplitTargetBags(self:GetParent():GetID()), EUI_Bank)
+    end)
 
     -- OnReceiveDrag: handles native Blizzard drags (shift-click pickup etc.)
     btn:SetScript("OnReceiveDrag", function(self)
@@ -2423,6 +2446,11 @@ function EUI_Bank:RefreshBank()
                             r, g, b = BP().itemlevelCustomColor.r, BP().itemlevelCustomColor.g, BP().itemlevelCustomColor.b
                         elseif rankText and rankText ~= "" and trackColor then
                             r, g, b = trackColor.r, trackColor.g, trackColor.b
+                        else
+                            local craftedColor = EUI.GetCraftedTrackColor(itemLink)
+                            if craftedColor then
+                                r, g, b = craftedColor.r, craftedColor.g, craftedColor.b
+                            end
                         end
                     end
                     if not r then
@@ -2697,7 +2725,9 @@ function BuildBankSidebar()
         if isAtlas and btn._icon.SetAtlas then
             btn._icon:SetAtlas(icon)
         else
-            btn._icon:SetTexture(icon)
+            -- Through the client icon map, like the bag window's sidebar: a
+            -- default the Forever client cannot draw takes its stand-in there.
+            btn._icon:SetTexture(EllesmereUI.ClientIcon(icon))
         end
         btn._icon:SetAlpha(isSelected and 1 or 0.75)
 

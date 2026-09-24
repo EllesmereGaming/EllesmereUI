@@ -1,16 +1,23 @@
-## Interface: 120000, 120001, 120005, 120007, 120100
+## Interface: 120000, 120001, 120005, 120007, 120100, 16001
+## AllowLoadGameType: standard
 ## Title: |cff0cd29fEllesmereUI|r Raid Frames
 ## Category: |cff0cd29fEllesmere|rUI
 ## Group: EllesmereUI
 ## Notes: Incredibly light performance, modern raid frames with endless flexibility.
 ## Author: Ellesmere
-## Version: 9.1.6
+## Version: 9.2.3
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIRaidFramesDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
 # Main Luas
 EllesmereUIRaidFrames.lua
+
+# Blizzard Style / Classic WoW UI (edge, highlights, defaults)
+EUI_RaidFrames_Stock.lua
+
+# Party portrait (every style)
+EUI_RaidFrames_Portrait.lua
 
 # Click Casting
 EUI_RaidFrames_ClickCast.lua

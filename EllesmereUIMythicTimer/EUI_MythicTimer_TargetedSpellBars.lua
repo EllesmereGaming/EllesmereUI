@@ -86,8 +86,12 @@ local function CurrentWhereBucket()
     if C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive and C_ChallengeMode.IsChallengeModeActive() then
         return "dungeon_mythic"
     end
-    local _, iType, diffID = GetInstanceInfo()
+    local _, iType, diffID, _, _, _, _, _, _, _, hasWorldTier = GetInstanceInfo()
     diffID = tonumber(diffID) or 0
+    -- Lairs carry the World Tier flag instead of a difficulty id the branches
+    -- below know; the instance gate keeps the flag from ever reclassifying
+    -- the open world, whatever else it may be set on.
+    if hasWorldTier == true and iType ~= "none" then return "lair" end
     if iType == "party" then
         if diffID == 23 or diffID == 8 then return "dungeon_mythic" end
         if diffID == 2 or diffID == 1 or diffID == 205 then return "dungeon_nonmythic" end
@@ -111,7 +115,7 @@ end
 -- (PvP, arena) never hides.
 local LOCATION_KEYS = {
     "open_world", "raid_mythic", "raid_heroic", "raid_normal_lfr",
-    "dungeon_mythic", "dungeon_nonmythic", "timewalking", "delve",
+    "dungeon_mythic", "dungeon_nonmythic", "timewalking", "delve", "lair",
 }
 
 -- Combat state is TRACKED from PLAYER_REGEN_DISABLED / _ENABLED instead of
@@ -382,9 +386,13 @@ local function StyleBar(holder, cfg)
     local un = cfg.uninterruptible
     if un then holder.overlay:SetVertexColor(un.r, un.g, un.b) end
 
-    -- Solid black border on the holder; size 0 removes it.
+    -- Solid black border on the holder; size 0 removes it. The Border Size
+    -- slider stores coordinate units (px * PP.mult) while PP borders take
+    -- physical pixels, so convert here: the bar draws the number the slider
+    -- shows, and the icon divider below follows the same count.
     local bsz = cfg.borderSize
     if bsz == nil then bsz = 1 end
+    if pp and pp.ToPixels then bsz = pp.ToPixels(bsz) end
     if pp and pp.CreateBorder then
         if bsz > 0 then
             if not holder._tsbBorder then

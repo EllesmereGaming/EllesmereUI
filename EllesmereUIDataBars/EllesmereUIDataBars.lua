@@ -258,6 +258,16 @@ ns.BLOCK_DEFAULTS = {
 -- Factories are registered by EllesmereUIDataBars_Blocks.lua.
 ns.BlockFactories = {}
 
+-- WoW Forever has no Great Vault: the block leaves the picker (BLOCK_TYPES),
+-- the add path refuses it (no default) and the blocks file registers no
+-- factory, so a bar saved with one shows an empty slot there instead of erroring.
+if EllesmereUI.IS_FOREVER then
+    for i = #ns.BLOCK_TYPES, 1, -1 do
+        if ns.BLOCK_TYPES[i].key == "greatvault" then table.remove(ns.BLOCK_TYPES, i) end
+    end
+    ns.BLOCK_DEFAULTS.greatvault = nil
+end
+
 local DeepCopy = EllesmereUI.Lite.DeepCopy
 
 -------------------------------------------------------------------------------

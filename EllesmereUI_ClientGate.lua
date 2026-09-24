@@ -17,10 +17,21 @@
 --
 -- Fail-open by design: if the interface number cannot be read as a number,
 -- the suite runs normally -- the failsafe must never break a healthy client.
--- On 12.1+ this file is a single comparison and exits; no globals, no frames.
+-- On 12.1+ this file is two comparisons and exits; no globals, no frames.
 
 local iface = select(4, GetBuildInfo())
-if not (type(iface) == "number" and iface < 120100) then return end
+if type(iface) ~= "number" then return end
+
+-- WoW Forever (Blizzard game type "camelot"): the 12.1 engine with vanilla
+-- content, reporting a 1.60+ toc (16001). Classic Era reports 115xx and
+-- retail 12xxxx, so the ranges never meet. Flagged for the suite before any
+-- other file runs (EllesmereUI.IS_FOREVER, EllesmereUI_Lite.lua); nothing is
+-- blocked there.
+if iface >= 16000 and iface < 20000 then
+    EUI_CLIENT_FOREVER = true
+    return
+end
+if iface >= 120100 then return end
 
 EUI_CLIENT_BLOCKED = true
 

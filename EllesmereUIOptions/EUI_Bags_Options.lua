@@ -549,6 +549,7 @@ initFrame:SetScript("OnEvent", function(self)
                                         local cName = cInfo and cInfo.name or info.name
                                         currencyItems[#currencyItems + 1] = {
                                             key = cID, label = cName,
+                                            icon = (cInfo and cInfo.iconFileID) or info.iconFileID,
                                         }
                                     end
                                 end
@@ -597,6 +598,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 block[#block + 1] = {
                                     key = cID,
                                     label = (cInfo and cInfo.name) or ("Currency " .. cID),
+                                    icon = cInfo and cInfo.iconFileID,
                                 }
                             end
                             for i = #block, 1, -1 do
@@ -962,7 +964,10 @@ initFrame:SetScript("OnEvent", function(self)
                       ResetAndRefreshBagLayout()
                       EllesmereUI:RefreshPage()
                   end },
-                { type="label", text="" }
+                { type="toggle", text="Stack Splitter",
+                  tooltip="Also use the split dialog with Auto Split in OneBag, MultiBag, the reagent bag, the bank and the guild bank, replacing Blizzard's split popup there. All Items and category views always use it.",
+                  getValue=function() return db.profile.bagStackSplitter == true end,
+                  setValue=function(v) db.profile.bagStackSplitter = v and true or false end }
             ); y = y - h
 
             -- Inline cog for Group Armory by Slot: compact layout

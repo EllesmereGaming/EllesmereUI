@@ -10,6 +10,7 @@ if not ns then return end  -- module disabled: no options page
 local PAGE_DISPLAY = "Mythic+ Timer"
 local PAGE_TSB = "Targeted Spell Bars"
 local PAGE_TFB = "Target/Focus Bars"
+local PAGE_RS = "Run Summary"
 
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
@@ -346,14 +347,21 @@ initFrame:SetScript("OnEvent", function(self)
         -- click the custom swatch to switch to a custom colour (opens the picker).
         -- The inactive swatch dims to 0.3; both are blocked + dimmed with the
         -- requirement tooltip while isDisabled() is true (mirrors _AttachInlineSwatch).
-        local function _AttachInlineAccentSwatches(rgn, useAccentKey, colorKey, defR, defG, defB, isDisabled, disabledTip)
+        -- followTip/followColor optionally replace the accent swatch's label and
+        -- color source when the "follow" color is not the theme accent.
+        local function _AttachInlineAccentSwatches(rgn, useAccentKey, colorKey, defR, defG, defB, isDisabled, disabledTip, followTip, followColor)
             local PP = EllesmereUI.PP
 
             -- Accent swatch (nearest the control): live theme accent.
             local accentSwatch, updateAccent = EllesmereUI.BuildColorSwatch(
                 rgn, rgn:GetFrameLevel() + 5,
                 function()
-                    local ar, ag, ab = EllesmereUI.ResolveActiveAccent()
+                    local ar, ag, ab
+                    if followColor then
+                        ar, ag, ab = followColor()
+                    else
+                        ar, ag, ab = EllesmereUI.ResolveActiveAccent()
+                    end
                     return ar, ag, ab, 1
                 end,
                 function() end, false, 18)
@@ -394,12 +402,15 @@ initFrame:SetScript("OnEvent", function(self)
                 local block = CreateFrame("Frame", nil, sw)
                 block:SetAllPoints(); block:SetFrameLevel(sw:GetFrameLevel() + 10); block:EnableMouse(true)
                 block:SetScript("OnEnter", function()
-                    EllesmereUI.ShowWidgetTooltip(sw, EllesmereUI.DisabledTooltip(disabledTip or "the module"))
+                    -- disabledTip may be a function, like a DualRow cfg.disabledTooltip.
+                    local tip = disabledTip
+                    if type(tip) == "function" then tip = tip() end
+                    EllesmereUI.ShowWidgetTooltip(sw, EllesmereUI.DisabledTooltip(tip or "the module"))
                 end)
                 block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                 sw._block = block
             end
-            AddBlock(accentSwatch, "Accent Color")
+            AddBlock(accentSwatch, followTip or "Accent Color")
             AddBlock(customSwatch, "Custom Color")
 
             local function UpdateState()
@@ -638,14 +649,38 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                     local defSz = EllesmereUI.GetBorderDefaultSize("MythicPlus", v)
                     if defSz then Set("borderSize", defSz) end
-                    ApplyBorder(); EllesmereUI:RefreshPage()
+                    if Cfg("borderSizePx") then Set("borderSizePx", false) end
+                    ApplyBorder(); EllesmereUI:RefreshPage(true)
                 end },
-            { type="slider", text="Border Size",
-                min=0, max=4, step=1,
-                getValue=function() return Cfg("borderSize") or 1 end,
-                setValue=function(v) Set("borderSize", v); ApplyBorder(); EllesmereUI:RefreshPage() end })
+            EllesmereUI.BorderPxSliderCfg({ text="Border Size",
+                getStep=function() return Cfg("borderSize") or 0 end,
+                setStep=function(step) Set("borderSize", step) end,
+                getTex=function() return Cfg("borderTexture") or "solid" end,
+                getPx=function() return Cfg("borderSizePx") end,
+                setPx=function(v) Set("borderSizePx", v) end,
+                apply=function() ApplyBorder(); EllesmereUI:RefreshPage() end }))
             y = y - h
-            -- Inline cog for border offset (left region)
+            -- Width Offset | Height Offset: only while a textured style is
+            -- selected (a solid border has no outward offsets). Built during
+            -- prebuild too so the y advance is identical whenever it is present.
+            local borderTex = Cfg("borderTexture") or "solid"
+            if borderTex ~= "" and borderTex ~= "solid" then
+                local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs({
+                    addonKey = "MythicPlus",
+                    getTex = function() return Cfg("borderTexture") or "solid" end,
+                    getStep = function() return Cfg("borderSize") or 0 end,
+                    getSizeKey = function() return Cfg("borderSize") or 0 end,
+                    getPx = function() return Cfg("borderSizePx") end,
+                    getX = function() return Cfg("borderTextureOffset") end,
+                    setX = function(v) Set("borderTextureOffset", v) end,
+                    getY = function() return Cfg("borderTextureOffsetY") end,
+                    setY = function(v) Set("borderTextureOffsetY", v) end,
+                    apply = function() ApplyBorder() end,
+                })
+                row, h = W:DualRow(parent, y, ocfgL, ocfgR)
+                y = y - h
+            end
+            -- Inline cog for border options (left region)
             if not EllesmereUI._prebuilding then
                 local rgn = bsRow._leftRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
@@ -654,26 +689,6 @@ initFrame:SetScript("OnEvent", function(self)
                         { type = "toggle", label = "Apply to Forces Bar",
                             get = function() return Cfg("borderApplyToForces") ~= false end,
                             set = function(v) Set("borderApplyToForces", v); ApplyBorder() end },
-                        { type = "slider", label = "Offset X", min = -10, max = 10, step = 1,
-                            get = function()
-                                local v = Cfg("borderTextureOffset")
-                                if v then return v end
-                                local tex = Cfg("borderTexture") or "solid"
-                                local sz = Cfg("borderSize") or 1
-                                local dox = EllesmereUI.GetBorderDefaults("MythicPlus", tex, sz)
-                                return dox
-                            end,
-                            set = function(v) Set("borderTextureOffset", v); ApplyBorder() end },
-                        { type = "slider", label = "Offset Y", min = -10, max = 10, step = 1,
-                            get = function()
-                                local v = Cfg("borderTextureOffsetY")
-                                if v then return v end
-                                local tex = Cfg("borderTexture") or "solid"
-                                local sz = Cfg("borderSize") or 1
-                                local _, doy = EllesmereUI.GetBorderDefaults("MythicPlus", tex, sz)
-                                return doy
-                            end,
-                            set = function(v) Set("borderTextureOffsetY", v); ApplyBorder() end },
                         { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
                             get = function()
                                 local v = Cfg("borderTextureShiftX")
@@ -892,6 +907,45 @@ initFrame:SetScript("OnEvent", function(self)
         }, function() return Cfg("enabled") == false or Cfg("showEnemyBar") == false end)
         y = y - h
 
+        -- The pull bar's default color is the forces fill color (accent or custom).
+        local function _enemyBarColor()
+            if Cfg("enemyBarUseAccent") ~= false then
+                return EllesmereUI.ResolveActiveAccent()
+            end
+            local c = Cfg("enemyBarColor")
+            if c then return c.r or 0.35, c.g or 0.55, c.b or 0.8 end
+            return 0.35, 0.55, 0.8
+        end
+        local function _pullBarOff()
+            return Cfg("enabled") == false or Cfg("showEnemyBar") == false or Cfg("showPullBar") ~= true
+        end
+        -- Names whichever requirement actually disables the pull controls.
+        local function _pullBarReq()
+            if Cfg("enabled") == false then return "the module" end
+            if Cfg("showEnemyBar") == false then return "Show Enemy Forces" end
+            return "Show Current Pull in Bar"
+        end
+        row, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Current Pull in Bar",
+              disabled=function() return Cfg("enabled") == false or Cfg("showEnemyBar") == false end,
+              disabledTooltip="Show Enemy Forces",
+              tooltip="Previews the forces of every enemy in combat with a visible nameplate on the enemy forces bar.",
+              getValue=function() return Cfg("showPullBar") == true end,
+              setValue=function(v) Set("showPullBar", v); Refresh(); EllesmereUI:RefreshPage() end },
+            { type="slider", text="Current Pull Color", min=0, max=100, step=5, isPercent=false, trackWidth=130,
+              disabled=_pullBarOff,
+              disabledTooltip=_pullBarReq,
+              tooltip="Opacity of the current pull on the enemy forces bar.",
+              -- Stored 0..1 internally; displayed 0..100 to the user.
+              getValue=function() return (Cfg("pullBarAlpha") or 0.35) * 100 end,
+              setValue=function(v) Set("pullBarAlpha", v / 100); Refresh() end })
+        if not EllesmereUI._prebuilding then
+        -- Pull color: follows the enemy bar color by default, or a custom color.
+        _AttachInlineAccentSwatches(row._rightRegion, "pullBarUseBarColor", "pullBarColor", 1, 0.55, 0.1,
+            _pullBarOff, _pullBarReq, "Enemy Bar Color", _enemyBarColor)
+        end
+        y = y - h
+
         _, h = W:SectionHeader(parent, "BOSS OBJECTIVES", y); y = y - h
 
         row, h = W:DualRow(parent, y,
@@ -966,6 +1020,12 @@ initFrame:SetScript("OnEvent", function(self)
               disabledTooltip="This option requires Split Compare to include a key level",
               get=function() return Cfg("objectiveCompareStrict") == true end,
               set=function(v) Set("objectiveCompareStrict", v); Refresh() end },
+            { type="toggle", label="Fastest Run Splits",
+              tooltip="Compare against the splits of your fastest completed run instead of your best individual splits.",
+              disabled=function() return (Cfg("objectiveCompareMode") or "NONE") == "NONE" end,
+              disabledTooltip="This option requires a Split Compare mode",
+              get=function() return Cfg("showFastestRunSplits") == true end,
+              set=function(v) Set("showFastestRunSplits", v); Refresh() end },
         }, function() return Cfg("enabled") == false or Cfg("showObjectives") == false end)
         end
         y = y - h
@@ -1008,6 +1068,7 @@ initFrame:SetScript("OnEvent", function(self)
         { key="dungeon_nonmythic", label="Non-Mythic Dungeons" },
         { key="timewalking",       label="Timewalking" },
         { key="delve",             label="Delve" },
+        { key="lair",              label="Lair" },
         { key="in_combat",         label="In Combat" },
         { key="out_of_combat",     label="Out of Combat" },
     }
@@ -1868,16 +1929,181 @@ initFrame:SetScript("OnEvent", function(self)
         parent:SetHeight(math.abs(y - yOffset))
     end
 
+    -----------------------------------------------------------------------
+    --  Run Summary page
+    -----------------------------------------------------------------------
+    local function RSCfg()
+        local p = DB()
+        return p and p.runSummary
+    end
+
+    local function RSGet(key, fallback)
+        local c = RSCfg()
+        local v = c and c[key]
+        if v == nil then return fallback end
+        return v
+    end
+
+    local function RSSet(key, val)
+        local c = RSCfg()
+        if c then c[key] = val end
+        if ns.RS_Apply then ns.RS_Apply() end
+        -- Column toggles and the scale change how an already open panel looks,
+        -- so repaint it instead of waiting for the next time it is opened.
+        if ns.RS_Refresh then ns.RS_Refresh() end
+    end
+
+    local function RSOn() return RSCfg() ~= nil and RSCfg().enabled == true end
+    local function RSOff() return not RSOn() end
+
+    local function BuildRSPage(pageName, parent, yOffset)
+        local W = EllesmereUI.Widgets
+        local y = yOffset
+        local row, h
+
+        if EllesmereUI.ClearContentHeader then EllesmereUI:ClearContentHeader() end
+        parent._showRowDivider = true
+
+        local REQ = "Enable Run Summary"
+
+        -----------------------------------------------------------------
+        --  Top action buttons: Show Preview + Clear Run History, the same
+        --  pair layout as the Action Bars page's Quick Keybind / Blizzard
+        --  Style buttons.
+        -----------------------------------------------------------------
+        do
+            local PPn = EllesmereUI.PanelPP
+            local BTN_W = 312
+            local BTN_H = 38
+            local GAP = 40
+            local ROW_H = BTN_H + 20
+            local rowFrame = CreateFrame("Frame", nil, parent)
+            local totalW = parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2
+            PPn.Size(rowFrame, totalW, ROW_H)
+            PPn.Point(rowFrame, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
+
+            local previewBtn = CreateFrame("Button", nil, rowFrame)
+            PPn.Size(previewBtn, BTN_W, BTN_H)
+            PPn.Point(previewBtn, "RIGHT", rowFrame, "CENTER", -(GAP / 2), 0)
+            previewBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 1)
+            EllesmereUI.MakeStyledButton(previewBtn, "Show Preview", 14,
+                EllesmereUI.WB_COLOURS, function()
+                    if ns.RS_ShowPreview then ns.RS_ShowPreview() end
+                end)
+
+            local clearBtn = CreateFrame("Button", nil, rowFrame)
+            PPn.Size(clearBtn, BTN_W, BTN_H)
+            PPn.Point(clearBtn, "LEFT", rowFrame, "CENTER", GAP / 2, 0)
+            clearBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 1)
+            EllesmereUI.MakeStyledButton(clearBtn, "Clear Run History", 14,
+                EllesmereUI.WB_COLOURS, function()
+                    EllesmereUI:ShowConfirmPopup({
+                        title = "Clear Run History",
+                        message = "Delete every recorded Mythic+ run for this character?",
+                        confirmText = "Delete",
+                        cancelText = "Cancel",
+                        onConfirm = function()
+                            if ns.RS_ClearHistory then ns.RS_ClearHistory() end
+                        end,
+                    })
+                end)
+
+            y = y - ROW_H
+        end
+
+        row, h = W:SectionHeader(parent, "RUN SUMMARY", y); y = y - h
+
+        row, h = W:DualRow(parent, y,
+            { type="toggle", text="Enable Run Summary",
+              tooltip="Records every finished Mythic+ key and shows an overview of the group when the run ends. Nothing is registered or created while this is off.",
+              getValue=RSOn,
+              setValue=function(v) RSSet("enabled", v and true or false); EllesmereUI:RefreshPage() end },
+            { type="toggle", text="Show After Looting",
+              tooltip="Open the overview once the end of run chest has been looted. With this off it opens as soon as the key ends. /ov reopens it at any time.",
+              disabled=RSOff, disabledTooltip=REQ,
+              getValue=function() return RSGet("showAfterLoot", true) == true end,
+              setValue=function(v) RSSet("showAfterLoot", v and true or false) end });  y = y - h
+
+        row, h = W:DualRow(parent, y,
+            { type="slider", text="History Size", min=5, max=50, step=1,
+              disabled=RSOff, disabledTooltip=REQ,
+              getValue=function() return RSGet("historySize", 20) end,
+              setValue=function(v) RSSet("historySize", v) end },
+            { type="slider", text="Panel Scale", min=0.5, max=2, step=0.05,
+              disabled=RSOff, disabledTooltip=REQ,
+              getValue=function() return RSGet("scale", 1) end,
+              setValue=function(v) RSSet("scale", v) end });  y = y - h
+
+        row, h = W:DualRow(parent, y,
+            { type="slider", text="Text Size", min=10, max=20, step=1,
+              tooltip="Size of the player rows. The title and column headers keep their own size.",
+              disabled=RSOff, disabledTooltip=REQ,
+              getValue=function() return RSGet("textSize", 14) end,
+              setValue=function(v) RSSet("textSize", v) end },
+            { type="label", text="" });  y = y - h
+
+        row, h = W:SectionHeader(parent, "COLUMNS", y); y = y - h
+
+        row, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Spec Icons",
+              disabled=RSOff, disabledTooltip=REQ,
+              getValue=function() return RSGet("showSpecIcons", true) == true end,
+              setValue=function(v) RSSet("showSpecIcons", v and true or false) end },
+            { type="toggle", text="Item Level",
+              tooltip="Shown in grey next to each name. Item levels are read by inspecting party members during the run, so a member who stayed out of range shows none.",
+              disabled=RSOff, disabledTooltip=REQ,
+              getValue=function() return RSGet("colItemLevel", true) == true end,
+              setValue=function(v) RSSet("colItemLevel", v and true or false) end });  y = y - h
+
+        row, h = W:DualRow(parent, y,
+            { type="toggle", text="M+ Score",
+              tooltip="Current season score plus the gain from this run. Your own gain is the exact value the server reports; for party members it is their score before the key subtracted from their score after it.",
+              disabled=RSOff, disabledTooltip=REQ,
+              getValue=function() return RSGet("colScore", true) == true end,
+              setValue=function(v) RSSet("colScore", v and true or false) end },
+            { type="toggle", text="Loot",
+              tooltip="What each player looted. Your own chest reward always appears; other players' items only when the server announces the loot to the group, which it does not always do for the end of run chest.",
+              disabled=RSOff, disabledTooltip=REQ,
+              getValue=function() return RSGet("colLoot", true) == true end,
+              setValue=function(v) RSSet("colLoot", v and true or false) end });  y = y - h
+
+        row, h = W:DualRow(parent, y,
+            { type="toggle", text="DPS",
+              tooltip="Read from Blizzard's own damage meter. With that meter switched off this column, Damage Taken and Interrupts stay empty.",
+              disabled=RSOff, disabledTooltip=REQ,
+              getValue=function() return RSGet("colDps", true) == true end,
+              setValue=function(v) RSSet("colDps", v and true or false) end },
+            { type="toggle", text="Damage Taken",
+              disabled=RSOff, disabledTooltip=REQ,
+              getValue=function() return RSGet("colDamageTaken", true) == true end,
+              setValue=function(v) RSSet("colDamageTaken", v and true or false) end });  y = y - h
+
+        row, h = W:DualRow(parent, y,
+            { type="toggle", text="Interrupts",
+              disabled=RSOff, disabledTooltip=REQ,
+              getValue=function() return RSGet("colInterrupts", true) == true end,
+              setValue=function(v) RSSet("colInterrupts", v and true or false) end },
+            { type="toggle", text="Deaths",
+              disabled=RSOff, disabledTooltip=REQ,
+              getValue=function() return RSGet("colDeaths", true) == true end,
+              setValue=function(v) RSSet("colDeaths", v and true or false) end });  y = y - h
+
+        row, h = W:Spacer(parent, y, 20); y = y - h
+        parent:SetHeight(math.abs(y - yOffset))
+    end
+
     -- RegisterModule
     EllesmereUI:RegisterModule("EllesmereUIMythicTimer", {
         title       = "Mythic+ Tools",
         description = "Mythic+ timer, targeted spell bars, and standalone cast bars.",
-        pages    = { PAGE_DISPLAY, PAGE_TSB, PAGE_TFB },
+        pages    = { PAGE_DISPLAY, PAGE_TSB, PAGE_TFB, PAGE_RS },
         buildPage = function(pageName, parent, yOffset)
             if pageName == PAGE_TSB then
                 return BuildTSBPage(pageName, parent, yOffset)
             elseif pageName == PAGE_TFB then
                 return BuildTFBPage(pageName, parent, yOffset)
+            elseif pageName == PAGE_RS then
+                return BuildRSPage(pageName, parent, yOffset)
             end
             return BuildPage(pageName, parent, yOffset)
         end,

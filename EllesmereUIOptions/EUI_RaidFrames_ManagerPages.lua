@@ -10,6 +10,9 @@
 
 local ns = EllesmereUI._ModuleNS["EllesmereUIRaidFrames"]  -- module namespace (published by the module at its load)
 if not ns then return end  -- module disabled: no options page
+-- Stood down for the session (secure snippets unavailable: WoW Forever beta):
+-- the module is not running, so its pages stay out of the sidebar.
+if (EllesmereUI.Lite.GetAddon("EllesmereUIRaidFrames", true) or ns).standDown then return end
 local EllesmereUI = _G.EllesmereUI
 
 local floor = math.floor
@@ -1100,12 +1103,25 @@ local function BuildBaseDetailDM(frame, fontPath)
         if rgn._control then rgn._control:Hide() end
         local DM_ALL_KEY = "__all"
         local DM_DUR_KEY = "__hasDuration"
+        local DM_MATCH_ANY = "__matchAny"
+        local DM_MATCH_ALL = "__matchAll"
         local function AllOn() return dm.all ~= false end
+        local matchLockTip = EllesmereUI.L("Uncheck All Debuffs to choose how the Show filters combine.")
         local FILTER_ITEMS = {
             { key = DM_ALL_KEY, label = "All Debuffs",
               tooltip = "Show every debuff. Use the Hide lane below to remove specific filters." },
             { key = DM_DUR_KEY, label = "Has Duration",
               tooltip = "Only show debuffs that have a duration, excluding permanent ones. Combines with the filters below; checked alone it shows every timed debuff." },
+            -- Match Mode: modifier rows (out of the summary and the count), a
+            -- radio pair over dm.match (nil = Match Any = the union). Locked
+            -- while All Debuffs shows everything; the setting is kept.
+            { isHeader = true, label = "Match Mode" },
+            { key = DM_MATCH_ANY, label = EllesmereUI.L("Match Any Filter"), isModifier = true,
+              lockedFn = AllOn, lockedTooltip = matchLockTip,
+              tooltip = EllesmereUI.L("Shows debuffs that match any checked Show filter (the default).") },
+            { key = DM_MATCH_ALL, label = EllesmereUI.L("Match All Filters"), isModifier = true,
+              lockedFn = AllOn, lockedTooltip = matchLockTip,
+              tooltip = EllesmereUI.L("Shows only debuffs that match every checked Show filter (dispel types count as one); opposites like Non-Player Auras with Cast By You, or a filter an indicator shows, show nothing.") },
             { isHeader = true, label = "Show", rightLabel = "Hide" },
             { key = "nonplayer", label = "Non-Player Auras", dual = true, showLockedFn = AllOn,
               tooltip = "Debuffs not caused by any player or player pet (this is what shows most pve debuffs)." },
@@ -1190,9 +1206,16 @@ local function BuildBaseDetailDM(frame, fontPath)
         -- base selection (EffectiveState forces eff[cat] on for claims and
         -- fx routing), so a claims-only grid displays debuffs and must not
         -- warn -- the same rule that keeps fx-forced PAB bars silent.
+        -- Match All picks that can never match build nothing, so they count
+        -- as an empty base (the runtime's own test, ns.DM_MatchEmpty).
         local warnClosed
         local function DmHasContent()
-            if AllOn() or dm.hasDuration == true or AnyShowCat() then return true end
+            if AllOn() then return true end
+            if AnyShowCat() then
+                if not (ns.DM_MatchEmpty and ns.DM_MatchEmpty(dm)) then return true end
+            elseif dm.hasDuration == true then
+                return true
+            end
             local tiles = ns.DM_ActiveTiles and ns.DM_ActiveTiles()
             if tiles then
                 for i = 1, #tiles do
@@ -1215,6 +1238,8 @@ local function BuildBaseDetailDM(frame, fontPath)
             function(k, neg)
                 if k == DM_ALL_KEY then return AllOn() end
                 if k == DM_DUR_KEY then return dm.hasDuration == true end
+                if k == DM_MATCH_ALL then return dm.match == "all" end
+                if k == DM_MATCH_ANY then return dm.match ~= "all" end
                 if k == "dispel_you" then
                     if neg then return NegHas("dispel") and dm.dispelMode ~= "typed" end
                     return dm.dispel == true and dm.dispelMode ~= "typed"
@@ -1244,6 +1269,14 @@ local function BuildBaseDetailDM(frame, fontPath)
                     -- AND-modifier: combines with All Debuffs or any show-lane
                     -- selection; checked alone it acts as the timed catch-all.
                     dm.hasDuration = v or nil
+                    DmApply()
+                    EllesmereUI:RefreshPage()
+                    return
+                end
+                if k == DM_MATCH_ANY or k == DM_MATCH_ALL then
+                    -- Radio pair: the clicked row wins whatever its checked
+                    -- state (re-clicking the active row keeps it).
+                    dm.match = (k == DM_MATCH_ALL) and "all" or nil
                     DmApply()
                     EllesmereUI:RefreshPage()
                     return
@@ -1308,7 +1341,12 @@ local function BuildBaseDetailDM(frame, fontPath)
             end,
             nil, 12, nil, nil, function()
                 if warnClosed then warnClosed() end
-            end)
+            end,
+            -- The summary joins picks the way they combine; Match Any (and
+            -- the locked state under All Debuffs) keeps the plain list.
+            { separatorFn = function()
+                return (dm.match == "all" and not AllOn()) and " & " or ", "
+            end })
         PPl.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
         rgn._control = cbDD
         rgn._lastInline = nil
@@ -2306,11 +2344,13 @@ function ns.DMP_RefreshPreview()
         return fr
     end
 
-    -- One icon run (the base grid or an icon-container tile). Base style
-    -- (zoom/border/swipe/duration/stacks) applies to both, matching the
-    -- live renderer where icon tiles inherit the base debuff style.
+    -- One icon run (the base grid or an icon-container tile). Display keys
+    -- (zoom/border/swipe/duration/stacks) resolve through cfg.sv: the base
+    -- profile for the base grid, the tile's inherit-until-set view for a
+    -- tile -- the same view the live renderer styles that tile with.
     local function RenderRun(cfg)
         if cfg.count <= 0 then return end
+        local sv = cfg.sv or p
         local anchor = string.upper(cfg.pos or "center")
         local sz = cfg.size or 18
         local gap = cfg.spacing or 1
@@ -2370,14 +2410,14 @@ function ns.DMP_RefreshPreview()
                     cfg.color.b or 0.35, cfg.color.a or 1)
             else
                 fr._tex:SetTexture(SampleDebuffTexture(i))
-                local z = p.debuffIconZoom or 0.08
+                local z = sv.debuffIconZoom or 0.08
                 fr._tex:SetTexCoord(z, 1 - z, z, 1 - z)
             end
             fr:SetAlpha(cfg.alpha)
             if fr._borderFrame and PP then
-                local bsz = p.debuffBorderSize or 1
+                local bsz = sv.debuffBorderSize or 1
                 if bsz > 0 then
-                    local bc = p.debuffBorderColor or { r = 0, g = 0, b = 0 }
+                    local bc = sv.debuffBorderColor or { r = 0, g = 0, b = 0 }
                     PP.UpdateBorder(fr._borderFrame, bsz, bc.r or 0, bc.g or 0, bc.b or 0, 1)
                     fr._borderFrame:Show()
                 else
@@ -2386,8 +2426,8 @@ function ns.DMP_RefreshPreview()
             end
             local cd = fr._cooldown
             if cd then
-                local wantSwipe = p.debuffShowSwipe ~= false
-                local wantDurText = p.debuffShowDurText and true or false
+                local wantSwipe = sv.debuffShowSwipe ~= false
+                local wantDurText = sv.debuffShowDurText and true or false
                 if wantSwipe or wantDurText then
                     -- Randomized FROZEN sweep: stable per-slot fraction on an hour-long
                     -- cooldown, so the preview shows varied mid-flight states without
@@ -2406,12 +2446,12 @@ function ns.DMP_RefreshPreview()
                     end
                     if wantDurText then
                         local dt = fr._pvDurText
-                        local dtc = p.debuffDurTextColor or { r = 1, g = 1, b = 1 }
-                        EllesmereUI.ApplyIconTextFont(dt, fontPath, p.debuffDurTextSize or 10, "raidFrames")
+                        local dtc = sv.debuffDurTextColor or { r = 1, g = 1, b = 1 }
+                        EllesmereUI.ApplyIconTextFont(dt, fontPath, sv.debuffDurTextSize or 10, "raidFrames")
                         dt:SetTextColor(dtc.r or 1, dtc.g or 1, dtc.b or 1)
                         dt:ClearAllPoints()
                         dt:SetPoint("CENTER", fr, "CENTER",
-                            p.debuffDurTextOffsetX or 0, p.debuffDurTextOffsetY or 0)
+                            sv.debuffDurTextOffsetX or 0, sv.debuffDurTextOffsetY or 0)
                         dt:SetText(tostring(math.floor(3 + seed * 17)))
                         dt:Show()
                     else
@@ -2423,13 +2463,13 @@ function ns.DMP_RefreshPreview()
                 end
             end
             if fr._count then
-                if p.debuffShowStacks ~= false then
-                    local sc = p.debuffStacksTextColor or { r = 1, g = 1, b = 1 }
-                    EllesmereUI.ApplyIconTextFont(fr._count, fontPath, p.debuffStacksTextSize or 11, "raidFrames")
+                if sv.debuffShowStacks ~= false then
+                    local sc = sv.debuffStacksTextColor or { r = 1, g = 1, b = 1 }
+                    EllesmereUI.ApplyIconTextFont(fr._count, fontPath, sv.debuffStacksTextSize or 11, "raidFrames")
                     fr._count:SetTextColor(sc.r or 1, sc.g or 1, sc.b or 1)
                     fr._count:ClearAllPoints()
                     fr._count:SetPoint("BOTTOMRIGHT", fr, "BOTTOMRIGHT",
-                        p.debuffStacksOffsetX or -1, p.debuffStacksOffsetY or 2)
+                        sv.debuffStacksOffsetX or -1, sv.debuffStacksOffsetY or 2)
                     fr._count:SetText("3")
                 else
                     -- Only the stacks-on branch ever fonts this FontString: a
@@ -2499,6 +2539,8 @@ function ns.DMP_RefreshPreview()
             if t.type == "icons" or t.type == "square" then
                 RenderRun({
                     selKey = t.id,
+                    -- Tile Display values: the tile's own keys over the base (nil = inherit).
+                    sv = (ns.DM_TileStyleView and ns.DM_TileStyleView(p, t)) or p,
                     count = math.min(t.cap or 3, (sel or allVis) and 4 or 2),
                     size = t.size or 18,
                     spacing = t.spacing or 1,
@@ -4455,10 +4497,35 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
         EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
     end
 
-    -- CUSTOM ORDER (icon/square indicators): opt-in fixed arrangement. The
-    -- cog's drag list writes ind.spellOrder; the runtime renders one engine
-    -- group per arranged spell in that order (BmSegments in the containers
-    -- file) instead of the engine's default in-group sorting.
+    -- SHOW IN (every type): which frames build the indicator. ind.showIn nil =
+    -- raid and party frames, "raid" / "party" = only those. The runtime reads
+    -- the button's frame kind, so party frames shown in arenas and small raids
+    -- count as party. An anchored indicator follows its Anchor To root (one
+    -- run), so the dropdown shows the root's value and is locked.
+    local showInCfg = { type = "dropdown", text = "Show In",
+        values = { both = "Raid and Party", raid = "Raid Only", party = "Party Only" },
+        order = { "both", "raid", "party" },
+        tooltip = "Party frames in arenas and small raids count as Party; Friendly Boss frames count as Raid.",
+        disabled = function() return ind.anchorTo ~= nil end,
+        disabledTooltip = "Remove the Anchor To position",
+        getValue = function()
+            local v = ind.showIn
+            if ind.anchorTo ~= nil and ns.BM2_EffectiveShowIn then
+                local key = ns._bmSelectedSpecKey
+                v = ns.BM2_EffectiveShowIn(ind, key and ns.BM2_SpecInds and ns.BM2_SpecInds(key) or nil)
+            end
+            return (v == "raid" or v == "party") and v or "both"
+        end,
+        setValue = function(v)
+            if v == "raid" or v == "party" then ind.showIn = v else ind.showIn = nil end
+            if ns.BM2_Invalidate then ns.BM2_Invalidate() end
+            if ns.ReloadFrames then ns.ReloadFrames() end
+        end }
+
+    -- CUSTOM ORDER (icon/square indicators, beside Show In): opt-in fixed
+    -- arrangement. The cog's drag list writes ind.spellOrder; the runtime
+    -- renders one engine group per arranged spell in that order (BmSegments
+    -- in the containers file) instead of the engine's default in-group sorting.
     if ind.type == "icon" or ind.type == "square" then
         -- Default presentation for anything the user has not arranged yet:
         -- the editing spec's own class spells lead, then class-agnostic
@@ -4495,7 +4562,7 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
             return mine
         end
         local orow
-        orow, hh = W:DualRow(parent, sy,
+        orow, hh = W:DualRow(parent, sy, showInCfg,
             { type = "toggle", text = "Custom Order",
               tooltip = "Show this indicator's buffs in the exact order you arrange (the first 10 arranged buffs are guaranteed; any beyond follow the default sorting).",
               getValue = function() return ind.customOrder == true end,
@@ -4509,10 +4576,9 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
                       ind.spellOrder = PrioritizeResolved(r)
                   end
                   if ns.ReloadFrames then ns.ReloadFrames() end
-              end },
-            { type = "label", text = "" }); sy = sy - hh
+              end }); sy = sy - hh
         do
-            local rgn = orow._leftRegion
+            local rgn = orow._rightRegion
             -- Effective arrangement: stored order first (stale ids skipped),
             -- then any newly-resolved spells appended in prioritized order.
             -- Items snapshot at popup build like the Class Sorting cog; a
@@ -4570,6 +4636,8 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
             cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
             cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
         end
+    else
+        _r, hh = W:DualRow(parent, sy, showInCfg, { type = "label", text = "" }); sy = sy - hh
     end
 
     return sy

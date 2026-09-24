@@ -36,10 +36,13 @@ local ALWAYS_HIDE_DEBUFFS = {
 -- exclusive by negating the ENABLED classes before them in priority order --
 -- negating disabled classes would eat auras that belong to an enabled class
 -- (union semantics, not chain semantics). Candidate classes are engine
--- boolean selectors that cannot be token-negated; they sit after the token
--- chain and may rarely duplicate an aura matching two candidate classes.
--- Because group filter strings are fixed at declaration (no group filter
--- setter exists), a change to the enabled set swaps in a fresh container.
+-- selectors that cannot be token-negated; they sit after the token chain and
+-- partition by carrying complements between links (booleans, dispel-type
+-- excludes, or a shrunk include map), so an aura matching several shown
+-- classes renders once, in the highest class of one linear owner order -- see
+-- BuildChain. Groups are additive and the container is never swapped: the
+-- config pass re-sets each active group's filter string and candidates from
+-- the current chain (ApplyGroupConfig).
 local TOKEN_CLASSES = {
     { key = "raid",        token = "RAID",                    skey = "Raid" },
     { key = "raidcombat",  token = "RAID_IN_COMBAT",          skey = "RaidInCombat" },
@@ -97,8 +100,8 @@ local CANDIDATE_CLASSES = {
     -- kept as this module's own copy rather than a cross-addon reference.
     -- Set-valued candidate (includeDispelTypes takes a SET table, not a
     -- boolean); rides the same cand-table merge as every class above.
-    -- Offered by Player Aura Bars only: no per-unit options widget writes
-    -- debuffDispelTyped, so ClassEnabled never turns it on for unit frames.
+    -- Offered by Player Aura Bars and the player frame (both dropdowns list it
+    -- through ns.PAB_ClassItems as "Dispels"); target/focus/boss never read it.
     { key = "dispeltyped",
       cand = { includeDispelTypes = { Magic = true, Curse = true, Disease = true, Poison = true, Bleed = true } },
       skey = "DispelTyped", debuffOnly = true },
@@ -120,10 +123,12 @@ ns.UF_CandidateClasses = CANDIDATE_CLASSES
 -- Static table: BuildChain runs per settings apply.
 local PRIORITY_NONPLAYER_CAND = { nameplateShowPersonal = true, isPriorityAura = false }
 
--- Order-independent fingerprint of a candidate-filter table. Candidate payloads are
--- DECLARATION-FIXED on an existing group (field truth from the sibling modules:
--- SetAuraGroupCandidateFilters on a live group does not retake) -- so any payload
--- change must land in the group KEY and declare a fresh variant. Number-keyed sets
+-- Order-independent fingerprint of a candidate-filter table. The config pass re-sets
+-- candidates on live groups (SetAuraGroupCandidateFilters clears the group and
+-- re-parses). Lane-shaped and carried links embed their payload in the group KEY
+-- (LaneKey), so each such payload is its own declared variant; plain keys whose
+-- payload follows the enabled set (the Non-Player handoff and the flip-case links
+-- that skip it) rely on that live retake (ApplyGroupConfig). Number-keyed sets
 -- (spell ids) fingerprint as count:sum; string-keyed sets join outright.
 local function CandFP(cf)
     if not cf then return "-" end
@@ -157,10 +162,14 @@ local function CandFP(cf)
 end
 
 -- The "priority" candidate payload (isPriorityAura), shared by the
--- non-player debuff modes below and the class vocabulary above.
-local PRIORITY_CAND
+-- non-player debuff modes below and the class vocabulary above; its class
+-- entry drives the player frame's Important ownership in BuildChain.
+local PRIORITY_CAND, PRIORITY_CLASS
 for i = 1, #CANDIDATE_CLASSES do
-    if CANDIDATE_CLASSES[i].key == "priority" then PRIORITY_CAND = CANDIDATE_CLASSES[i].cand end
+    if CANDIDATE_CLASSES[i].key == "priority" then
+        PRIORITY_CLASS = CANDIDATE_CLASSES[i]
+        PRIORITY_CAND = PRIORITY_CLASS.cand
+    end
 end
 
 -- Non-player DEBUFF filter (target/focus/boss): ONE single-select mode,
@@ -246,7 +255,7 @@ end
 
 -- Non-player DEBUFF chain: a fixed, mutually exclusive group set per mode.
 -- Own Only is the PLAYER filter token (the isFromPlayerOrPlayerPet candidate
--- is identity-gated on hostile units; the token filters everywhere), and
+-- matches ANY player's casts, not only yours), and
 -- "Important or Own" partitions with !PLAYER so an aura renders once.
 -- Important covers both importance concepts (see PRIORITY_NONPLAYER_CAND).
 -- Show All emits no include links: the catch-all already shows the tracked
@@ -410,6 +419,10 @@ local function BuildChain(base, isBuff, s, unit)
                     end
                 end
                 if m then out.includeDispelTypes = m end
+            elseif out.excludeDispelTypes then
+                -- A link already carrying shown types forward (see the positive
+                -- pass) keeps them: the hidden types join the same exclude.
+                out.excludeDispelTypes = MergeDispelTypes(out.excludeDispelTypes, negDispelTypes)
             else
                 out.excludeDispelTypes = negDispelTypes
             end
@@ -423,11 +436,11 @@ local function BuildChain(base, isBuff, s, unit)
         end
         return out
     end
-    -- Candidate payloads (and token sets) are declaration-fixed, so lane-shaped
-    -- links need self-describing keys; legacy plain keys survive untouched
-    -- configs byte-identically.
-    local function LaneKey(key, tokens, cand)
-        if not lanesActive then return key end
+    -- Lane-shaped links (and links carrying a partition from the positive pass,
+    -- `carried`) get self-describing keys, so each payload is its own declared
+    -- variant; legacy plain keys survive untouched configs byte-identically.
+    local function LaneKey(key, tokens, cand, carried)
+        if not (lanesActive or carried) then return key end
         return key .. "|" .. table.concat(tokens, "") .. "|" .. CandFP(cand)
     end
 
@@ -448,21 +461,136 @@ local function BuildChain(base, isBuff, s, unit)
     -- candidate class carries the complementary TRUE so the two sides
     -- partition instead of double-displaying (an aura is shown by exactly
     -- one group; candidate booleans cannot be token-negated).
+    -- EXCEPT Important, which OWNS its overlap with Non-Player (the owner Raid
+    -- Frames and Player Aura Bars use): the Important link takes no handoff and
+    -- the Non-Player link carries isPriorityAura = false instead, while
+    -- Important is shown (the classes ranked above Important follow it; see
+    -- the pre-scan below). Only the player frame offers Non-Player, so this
+    -- never reaches another unit.
     local npOwned, anyOwned = false, false
-    -- Shown per-type dispel maps forward an exclude onto later candidate links
-    -- (the typed dispel class), so a type shown on its own renders once.
+    local prioShown = PRIORITY_CLASS ~= nil and ClassEnabled(PRIORITY_CLASS, isBuff, s, unit)
+    -- A shown Important carries isPriorityAura = false onto every later link
+    -- (the typed dispel class), so an Important typed debuff renders once.
+    local prioOwned = false
+    -- Shown Boss / Role / Can Apply rows carry their false boolean (isBossAura /
+    -- isRoleAura / canApplyAura = false) onto every later link, so the owner
+    -- order below Non-Player / From Any Player is Boss > Role > Can Apply >
+    -- per-type > Important > Dispels.
+    local boolCarry
+    -- Shown per-type dispel maps forward an exclude onto later candidate links:
+    -- the typed dispel class drops the shown types from its include map, and a
+    -- later link with no include map (Important) carries them as
+    -- excludeDispelTypes, so a type shown on its own renders once.
     local shownTypes
+    -- Non-Player + Important: Important ranks ABOVE Non-Player, so every class
+    -- ranked above Important (Boss, Role, Can Apply, the per-type dispel rows)
+    -- must rank above Non-Player too, or the order cycles and an NPC Important
+    -- debuff of a shown type (or an NPC Important Boss debuff) matches no link
+    -- at all. Non-Player sits FIRST, so the pair is pre-scanned: those links skip
+    -- the Non-Player handoff, and the Non-Player link excludes their types and
+    -- carries their false booleans. Owner order then: Boss > Role > Can Apply >
+    -- per-type > Important > Non-Player > Dispels (as Raid Frames and Player
+    -- Aura Bars rank Important over Non-Player). Nothing changes unless
+    -- Non-Player, Important and one of those rows are all shown.
+    local flipTypes, flipBools, npFlip
+    if prioShown then
+        local npShown
+        for i = 1, #CANDIDATE_CLASSES do
+            local class = CANDIDATE_CLASSES[i]
+            if class == PRIORITY_CLASS then break end
+            if ClassEnabled(class, isBuff, s, unit) then
+                if class.key == "nonplayer" then npShown = true
+                elseif class.cand.includeDispelTypes then
+                    flipTypes = MergeDispelTypes(flipTypes, class.cand.includeDispelTypes)
+                elseif class.cand.isBossAura or class.cand.isRoleAura or class.cand.canApplyAura then
+                    flipBools = flipBools or {}
+                    for k, v in pairs(class.cand) do flipBools[k] = not v end
+                end
+            end
+        end
+        if npShown then npFlip = true else flipTypes, flipBools = nil, nil end
+    end
     for i = 1, #CANDIDATE_CLASSES do
         local class = CANDIDATE_CLASSES[i]
         if ClassEnabled(class, isBuff, s, unit) then
             local tokens = { base }
             for n = 1, #negations do tokens[#tokens + 1] = negations[n] end
             local cand = class.cand
-            if npOwned or anyOwned then
+            -- Set when one of the partitions below lands on this link: its
+            -- payload then joins the key (see LaneKey), so a setup none of
+            -- them touches keeps its legacy plain keys.
+            local carried = false
+            local owned = false -- cand is already this link's own copy
+            local boolOwner = class.cand.isBossAura or class.cand.isRoleAura or class.cand.canApplyAura
+            local skipNp = npOwned and (class.key == "priority"
+                or (npFlip and boolOwner)
+                or (flipTypes ~= nil and class.cand.includeDispelTypes ~= nil and class.key ~= "dispeltyped"))
+            if (npOwned or anyOwned) and not skipNp then
                 local src = cand
                 cand = {}
                 for k, v in pairs(src) do cand[k] = v end
+                owned = true
                 if cand.isFromPlayerOrPlayerPet == nil then cand.isFromPlayerOrPlayerPet = npOwned end
+            end
+            if (prioOwned or (prioShown and class.key == "nonplayer")) and cand.isPriorityAura == nil then
+                if not owned then
+                    local src = cand
+                    cand = {}
+                    for k, v in pairs(src) do cand[k] = v end
+                    owned = true
+                end
+                cand.isPriorityAura = false
+                carried = true
+            end
+            -- Boss / Role / Can Apply ownership: the false booleans of the shown
+            -- rows before this link, or on the Non-Player link (always first, so
+            -- nothing reaches it that way) the flip set pre-scanned above.
+            local bools = boolCarry
+            if class.key == "nonplayer" then bools = flipBools end
+            -- A dispel-type link the Hide lane empties matches nothing, so it
+            -- takes no carry and keeps its key.
+            if bools and cand.includeDispelTypes and negDispelTypes then
+                local live = false
+                for T in pairs(cand.includeDispelTypes) do
+                    if not negDispelTypes[T] then live = true break end
+                end
+                if not live then bools = nil end
+            end
+            if bools then
+                for k, v in pairs(bools) do
+                    if cand[k] == nil then
+                        if not owned then
+                            local src = cand
+                            cand = {}
+                            for sk, sv in pairs(src) do cand[sk] = sv end
+                            owned = true
+                        end
+                        cand[k] = v
+                        carried = true
+                    end
+                end
+            end
+            if class.key == "nonplayer" and flipTypes then
+                if not owned then
+                    local src = cand
+                    cand = {}
+                    for k, v in pairs(src) do cand[k] = v end
+                    owned = true
+                end
+                cand.excludeDispelTypes = flipTypes
+                carried = true
+            end
+            if shownTypes and not cand.includeDispelTypes and cand.excludeDispelTypes == nil then
+                if not owned then
+                    local src = cand
+                    cand = {}
+                    for k, v in pairs(src) do cand[k] = v end
+                    owned = true
+                end
+                -- Never mutated after this (MergeDispelTypes builds new sets),
+                -- so later links may share it.
+                cand.excludeDispelTypes = shownTypes
+                carried = true
             end
             if shownTypes and cand.includeDispelTypes then
                 local inc = cand.includeDispelTypes
@@ -481,7 +609,7 @@ local function BuildChain(base, isBuff, s, unit)
                 end
             end
             cand = NegCand(cand)
-            chain[#chain + 1] = { key = LaneKey(class.key, tokens, cand), tokens = tokens, cand = cand }
+            chain[#chain + 1] = { key = LaneKey(class.key, tokens, cand, carried), tokens = tokens, cand = cand }
             -- Important on non-player frames covers BOTH importance concepts (the
             -- unit's hostility is dynamic -- a target can be an ally or an enemy): a
             -- second group adds the nameplate-importance flag, partitioned against the
@@ -494,6 +622,11 @@ local function BuildChain(base, isBuff, s, unit)
             end
             if class.key == "nonplayer" then npOwned = true end
             if class.key == "anyplayer" then anyOwned = true end
+            if class.key == "priority" then prioOwned = true end
+            if boolOwner then
+                boolCarry = boolCarry or {}
+                for k, v in pairs(class.cand) do boolCarry[k] = not v end
+            end
             if class.cand.includeDispelTypes and class.key ~= "dispeltyped" then
                 shownTypes = MergeDispelTypes(shownTypes, class.cand.includeDispelTypes)
             end
@@ -708,6 +841,126 @@ local function PlayerBuffChain(s)
     return chain
 end
 
+-- Show-lane rows the player frame's Debuff Filter dropdown offers ([skey] = true,
+-- from the same ns.PAB_ClassItems list the dropdown builds from). Match All combines
+-- only these: a retired row's stale key would otherwise silently empty the display.
+-- Static list, resolved once.
+local matchVocab
+local function MatchVocab()
+    if matchVocab then return matchVocab end
+    local items = ns.PAB_ClassItems and ns.PAB_ClassItems(false)
+    if not items then return nil end
+    local v = {}
+    for i = 1, #items do
+        if items[i].key then v[items[i].key] = true end
+    end
+    matchVocab = v
+    return v
+end
+
+-- Match All for the player frame's debuffs (s.debuffFilterMatch == "all"; nil =
+-- Match Any = the union BuildChain renders). Every Show pick ANDs into ONE group:
+-- HARMFUL + every shown token + every shown candidate field, so a debuff renders at
+-- most once and one group replaces N. The dispel types stay one OR'd axis (one
+-- includeDispelTypes set; Dispels ANDed onto it changes nothing), and the Hide lane
+-- is a plain veto on the same group (!TOKEN, false booleans, the Non-Player
+-- opposite, excludeDispelTypes). Runs only with All Debuffs off and at least two
+-- Show picks; otherwise returns nil and the caller builds today's chain unchanged.
+-- Returns true plus the link, or true plus nil for picks that can never match
+-- together (Non-Player with Cast By You, Cast By You with Hide From Any Player, a
+-- dispel type with Hide Dispels): the chain is then empty and the options page
+-- warns through ns.UF_DebuffMatchEmpty. Settings-apply time only.
+local function PlayerDebuffMatch(s)
+    if s.debuffFilterMatch ~= "all" or s.debuffShowAll ~= false then return nil end
+    local vocab = MatchVocab()
+    if not vocab then return nil end
+    local neg = s.debuffNegClasses
+    local picks = 0
+    local tokens = { "HARMFUL" }
+    local cand, hideBool = {}, nil
+    local inc, exc, typedShown, playerTok, clash, dispTok
+    for i = 1, #TOKEN_CLASSES do
+        local class = TOKEN_CLASSES[i]
+        if not class.buffOnly then
+            if vocab[class.skey] and s["debuff" .. class.skey] == true then
+                picks = picks + 1
+                tokens[#tokens + 1] = class.token
+                if class.key == "castbyme" then playerTok = true end
+                if class.key == "dispellable" then dispTok = true end
+            elseif neg and neg[class.skey] == true then
+                tokens[#tokens + 1] = class.neg or ("!" .. class.token)
+            end
+        end
+    end
+    for i = 1, #CANDIDATE_CLASSES do
+        local class = CANDIDATE_CLASSES[i]
+        local cc = class.cand
+        if cc and not class.buffOnly then
+            if vocab[class.skey] and s["debuff" .. class.skey] == true then
+                picks = picks + 1
+                if class.key == "dispeltyped" then
+                    typedShown = cc.includeDispelTypes
+                elseif cc.includeDispelTypes then
+                    inc = MergeDispelTypes(inc, cc.includeDispelTypes)
+                else
+                    for k, v in pairs(cc) do
+                        -- Two picks on one field (stale data only: the setters keep
+                        -- Non-Player and From Any Player exclusive) never match.
+                        if cand[k] ~= nil and cand[k] ~= v then clash = true end
+                        cand[k] = v
+                    end
+                end
+            elseif neg and neg[class.skey] == true then
+                if cc.includeDispelTypes then
+                    exc = MergeDispelTypes(exc, cc.includeDispelTypes)
+                else
+                    hideBool = hideBool or {}
+                    for k, v in pairs(cc) do
+                        if type(v) == "boolean" then hideBool[k] = not v end
+                    end
+                end
+            end
+        end
+    end
+    if picks < 2 then return nil end
+    if hideBool then
+        for k, v in pairs(hideBool) do
+            if cand[k] == nil then cand[k] = v end
+        end
+    end
+    -- Dispels alone = every type; ANDed onto shown types it changes nothing.
+    if typedShown and not inc then inc = MergeDispelTypes(nil, typedShown) end
+    if inc then
+        if exc then
+            for T in pairs(exc) do inc[T] = nil end
+        end
+        if next(inc) == nil then clash = true end
+        cand.includeDispelTypes = inc
+    elseif exc then
+        cand.excludeDispelTypes = exc
+        -- Dispellable By You passes only debuffs of a dispellable type, so
+        -- hiding all five leaves it nothing.
+        if dispTok and exc.Magic and exc.Curse and exc.Disease and exc.Poison and exc.Bleed then
+            clash = true
+        end
+    end
+    -- PLAYER (Cast By You: you or your pet) inside isFromPlayerOrPlayerPet = false
+    -- (a shown Non-Player, or a hidden From Any Player) is always empty.
+    if playerTok and cand.isFromPlayerOrPlayerPet == false then clash = true end
+    if clash then return true, nil end
+    if next(cand) == nil then cand = nil end
+    return true, { key = "pdand|" .. table.concat(tokens, "") .. "|" .. CandFP(cand),
+        tokens = tokens, cand = cand }
+end
+
+-- Options-page empty warning: true when Match All is active and its picks can never
+-- match together (the same test the chain builder uses, so the two never disagree).
+function ns.UF_DebuffMatchEmpty(s)
+    if not s then return false end
+    local on, link = PlayerDebuffMatch(s)
+    return on == true and link == nil
+end
+
 -- Player-frame debuffs run the Player Aura Bars debuff model (identical
 -- dropdown, identical engine behavior; see the player branch of the
 -- Debuff Filter slot in EUI_UnitFrames_Options.lua). Two-lane keys:
@@ -718,14 +971,17 @@ end
 -- become parked links whose negations / forward excludes remove them from
 -- the catch-all, and pure boolean classes invert onto the catch-all's
 -- candidates (the shared complementary-boolean mechanism).
--- Link keys embed their token sets (token strings are declaration-fixed, same as
--- candidates) plus the catch-all's candidate fingerprint, so every payload shape
--- declares its own variant through the existing sig/declare machinery and stale
--- variants park at 0. The sated/ always-hide excludes ride the catch-all's DECLARED
--- candidates and its fingerprint.
+-- Link keys embed their token sets plus the catch-all's candidate fingerprint, so
+-- every payload shape declares its own variant through the existing sig/declare
+-- machinery and stale variants park at 0. The sated/ always-hide excludes ride the
+-- catch-all's DECLARED candidates and its fingerprint. Match All (add mode only)
+-- replaces the class chain with its one "pdand|" link (PlayerDebuffMatch), or with
+-- nothing when its picks can never match.
 local function PlayerDebuffChain(s)
     EnsurePlayerAuraLanes(s)
     if s.debuffShowAll == false then
+        local matchOn, link = PlayerDebuffMatch(s)
+        if matchOn then return { link } end
         return BuildChain("HARMFUL", false, s, "player")
     end
     local chain, negations = {}, {}
@@ -990,25 +1246,24 @@ local function StyleTableFP(st, font)
     return FP(font, st.width, st.height, tc[1], tc[2], tc[3], tc[4],
         st.hideDurationText, st.durationPrecisionThreshold, st.cdTextSize, CK(st.cdTextColor), st.cdOffX, st.cdOffY,
         st.stackSize, CK(st.stackColor), st.stackPos, st.stackOffX, st.stackOffY,
-        b and b.texture, b and b.size, b and b[1], b and b[2], b and b[3], b and b[4],
+        b and b.texture, b and b.size, b and b.edgePx, b and b[1], b and b[2], b and b[3], b and b[4],
         b and b.offsetX, b and b.offsetY, b and b.shiftX, b and b.shiftY,
         b and b.behind, b and b.behindUnitFrame, b and b.unitFrameLevel,
-        st.noTooltips)
+        st.noTooltips, st.blizzBorder)
 end
 
 -- Declares one chain group and records it in the element's declared-set
--- registry (filter strings are declaration-fixed, so every distinct token set
--- is its own group; containers are never swapped -- the ever-used set
--- accumulates and inactive groups sit at count 0). Used at creation and by
+-- registry (one group per chain key; containers are never swapped -- the
+-- ever-used set accumulates, inactive groups sit at count 0, and the config
+-- pass re-sets each active group's filter string). Used at creation and by
 -- the additive reload path (AddAuraGroup on an existing container is
 -- combat-legal -- probe T1/T1b).
 local function DeclareElementGroup(container, declared, styleKey, key, tokens, cand)
     AK.AddGroupToContainer(container, {
         key = key, filter = tokens, maxFrameCount = 0, style = styleKey,
-        -- Candidates ride the declaration too: payloads are declaration- fixed on a
-        -- live group, and the player-buff chain keys embed a candidate fingerprint
-        -- precisely so a changed payload arrives here as a fresh variant (the config
-        -- pass still live-sets candidates on top for the shared debuff excludes).
+        -- Candidates ride the declaration too: chain keys that embed a candidate
+        -- fingerprint bring a changed payload here as a fresh variant, and the
+        -- config pass live-sets candidates on top (the shared debuff excludes).
         candidateFilters = cand or nil,
     })
     declared[key] = { cand = cand or false }
@@ -1066,14 +1321,20 @@ local function BuildStyle(unit, base, s, unitFrame)
         cdSizeDefault = 14
     end
 
-    return {
-        width = size,
-        height = h,
-        texCoord = CropCoords(cropped, size, h, Pick(isBuff, s.buffIconZoom, s.debuffIconZoom)),
+    -- Blizzard Style: buffs borderless like the stock frames, debuffs on the
+    -- engine-stamped stock dispel border (AuraKit blizzBorder); no EUI ring.
+    local blizz = ns.UF_Blizz and ns.UF_Blizz() or false
+    local border, dispel, blizzBorder
+    if blizz then
+        if not isBuff then dispel = true; blizzBorder = true end
+    else
         border = {
             s.auraBorderR or 0, s.auraBorderG or 0, s.auraBorderB or 0, s.auraBorderA or 1,
             size = s.auraBorderSize or 1,
             texture = s.auraBorderTexture or "solid",
+            -- Exact size (nil = the legacy step path); a pure function of the three
+            -- keys, so the built-style fingerprint above covers it.
+            edgePx = EllesmereUI.BorderPx(s.auraBorderSizePx, s.auraBorderSize or 1, s.auraBorderTexture or "solid"),
             offsetX = s.auraBorderTextureOffset,
             offsetY = s.auraBorderTextureOffsetY,
             shiftX = s.auraBorderTextureShiftX,
@@ -1081,7 +1342,24 @@ local function BuildStyle(unit, base, s, unitFrame)
             behind = s.auraBorderBehind,
             behindUnitFrame = s.auraBorderBehindUnitFrame,
             unitFrameLevel = unitFrame and unitFrame:GetFrameLevel() or 1,
-        },
+        }
+        -- Dispel-type border recolor (per-unit debuffDispelBorder): the engine
+        -- shows the ring only on typed (dispellable) debuffs and picks the
+        -- dispel color itself -- the user palette cannot apply under secrecy
+        -- (same documented delta as the RF debuff border).
+        dispel = (not isBuff and s.debuffDispelBorder) and true or nil
+    end
+
+    return {
+        width = size,
+        height = h,
+        -- Blizzard Style: zoom 0 -- the stock frames draw the whole icon, and
+        -- the icon art's own dark edge is the border a stock buff shows.
+        texCoord = CropCoords(cropped, size, h, blizz and 0 or Pick(isBuff, s.buffIconZoom, s.debuffIconZoom)),
+        border = border,
+        blizzBorder = blizzBorder,
+        -- Weapon enchant buttons mirror this style: the stock purple ring.
+        blizzEnchant = blizz or nil,
         cooldownReverse = true,
         cooldownDrawEdge = false,
         noDefaultFonts = true,
@@ -1100,11 +1378,7 @@ local function BuildStyle(unit, base, s, unitFrame)
         -- Show Tooltip For -> Buffs & Debuffs (per-unit, default on). Motion
         -- goes off with the tooltips; clicks (player buff cancel) unaffected.
         noTooltips = (s.showAuraTooltips == false) or nil,
-        -- Dispel-type border recolor (per-unit debuffDispelBorder): the engine
-        -- shows the ring only on typed (dispellable) debuffs and picks the
-        -- dispel color itself -- the user palette cannot apply under secrecy
-        -- (same documented delta as the RF debuff border).
-        dispelBorder = (not isBuff and s.debuffDispelBorder) and true or nil,
+        dispelBorder = dispel,
         -- Resolved once per (fingerprint-gated) style rebuild instead of on
         -- every ApplyUFText call -- GetFontPath's result only changes when
         -- font settings change, which already forces a fresh style table.
@@ -1140,6 +1414,19 @@ local CB_FRAME_NAMES = {
 local function CastbarBelowFrame(unit, frame)
     if not CB_FRAME_NAMES[unit] then return true end
     frame = frame or _G[CB_FRAME_NAMES[unit]]
+    local vb = 0
+    if ns.UF_Blizz and ns.UF_Blizz() then
+        -- Blizzard Style: the bar hangs off the frame's aura block (an engine
+        -- anchor whose edges are secret values under aura restriction, so no
+        -- Lua compare may touch them) and the bottom stacks reserve nothing
+        -- for it, so the strip test is moot: report it below the frame without
+        -- reading it. Without the layout aspect (ns.UF_LayoutAspectOK) the bar
+        -- rests on the visible art's bottom instead, so the strip is measured
+        -- from there.
+        if ns.UF_LayoutAspectOK and ns.UF_LayoutAspectOK() then return true end
+        local _, _, _, b = ns.UF_BlizzVis(frame)
+        vb = b or 0
+    end
     -- frame.Castbar is the status bar; its PARENT is the holder the unlock
     -- system moves (see CreateCastBar in EllesmereUIUnitFrames.lua).
     local cb = frame and frame.Castbar and frame.Castbar:GetParent()
@@ -1150,7 +1437,7 @@ local function CastbarBelowFrame(unit, frame)
     -- Physical pixels: the holder is positioned independently of the frame and
     -- can carry its own effective scale, so raw coordinates are not comparable.
     local fs, cs = frame:GetEffectiveScale(), cb:GetEffectiveScale()
-    fl, fr, fb = fl * fs, fr * fs, fb * fs
+    fl, fr, fb = fl * fs, fr * fs, (fb + vb) * fs
     cl, cr, ct, cbot = cl * cs, cr * cs, ct * cs, cbot * cs
     -- Beside the frame rather than under it: nothing to reserve.
     if cl >= fr or cr <= fl then return false end
@@ -1169,6 +1456,35 @@ ns.UF_CastbarBelowFrame = CastbarBelowFrame
 -- Cross-addon: the options preview mirrors this decision so its layout matches
 -- the live frames (EllesmereUIOptions/EUI_UnitFrames_Options.lua).
 EllesmereUI.UF_CastbarBelowFrame = CastbarBelowFrame
+
+-- Blizzard Style: point the frame's aura block (ns.UF_BlizzAuraBlock, the
+-- edge a cast bar linked under the frame follows) at the lowest
+-- bottom-anchored stack. `container` nil = this display is off; `ia` is its
+-- anchor point and `xOff` its x offset from the frame's corner (the fixed
+-- edge under `ia`), so the block's corner lands on the frame's own edge.
+-- Merged buffs ride the debuff anchor with the debuff container below them
+-- (above for upward growth); otherwise a bottom-anchored debuff stack wins
+-- over a bottom-anchored buff stack. Nothing below: the visible art's bottom.
+local function PointBlizzAuraBlock(frame, unit, s, isBuff, container, ia, xOff, merged, gY)
+    if not (CB_FRAME_NAMES[unit] and ns.UF_BlizzAuraBlock and ns.UF_BlizzAuraBlock(frame)) then return end
+    local dA, bA = s.debuffAnchor or "none", s.buffAnchor or "topleft"
+    local dBottom = (dA == "bottomleft" or dA == "bottomright")
+    local bBottom = (bA == "bottomleft" or bA == "bottomright") and s.showBuffs ~= false
+    local lowestIsBuff
+    if merged then
+        if dBottom then lowestIsBuff = (gY == "UP") end
+    elseif dBottom then
+        lowestIsBuff = false
+    elseif bBottom then
+        lowestIsBuff = true
+    end
+    if lowestIsBuff == nil then
+        ns.UF_BlizzAuraBlockBottom(frame, nil)
+    elseif container and lowestIsBuff == isBuff then
+        local corner = (ia and ia:find("RIGHT", 1, true)) and "BOTTOMRIGHT" or "BOTTOMLEFT"
+        ns.UF_BlizzAuraBlockBottom(frame, container, corner, -(xOff or 0))
+    end
+end
 
 -- Container anchoring: mirrors the legacy element's SetPoint(ia, frame, fp,
 -- ox + userX, oy + castbarPush + userY) with gap = 1.
@@ -1213,17 +1529,36 @@ local function AnchorContainer(container, frame, unit, base, s, buffContainer)
     local mergedBuff = merged and isBuff
     if mergedBuff then anchor = s.debuffAnchor end
     if anchor == "none" then
-        -- Player buffs hidden: retire the weapon-enchant lead strip too.
-        if unit == "player" and isBuff and ns._weaponEnchUF then
-            ns._weaponEnchUF = nil
-            if ns.WeaponEnchants_Layout then ns.WeaponEnchants_Layout() end
-        end
+        -- Player buffs hidden: the weapon enchants ride this container (see
+        -- the declaration below), so ApplyGroupConfig's SetShown(false) takes
+        -- them down with it -- nothing to retire here.
+        PointBlizzAuraBlock(frame, unit, s, isBuff, nil, nil, nil, merged, nil)
         return anchor
     end
 
     local growth = Pick(isBuff, s.buffGrowth, s.debuffGrowth)
     if mergedBuff then growth = s.debuffGrowth end
     local ia, fp, ox, oy, gX, gY = ResolveLayout(anchor, growth)
+
+    -- Blizzard Style: the frame is the stock box with transparent padding round
+    -- the art, so the anchors move in to the visible art's edges; and on the
+    -- frames with a movable cast bar the bottom stacks no longer reserve the
+    -- bar's strip -- the bar hangs below them instead, off the frame's aura
+    -- block (ns.UF_BlizzAuraBlock), as the stock spell bar does.
+    local vl, vr, vt, vb
+    if ns.UF_BlizzVis then vl, vr, vt, vb = ns.UF_BlizzVis(frame) end
+    if vl then
+        if anchor == "topleft" or anchor == "bottomleft" or anchor == "left" then
+            ox = ox + vl
+        elseif anchor == "topright" or anchor == "bottomright" or anchor == "right" then
+            ox = ox - vr
+        end
+        if anchor == "topleft" or anchor == "topright" then
+            oy = oy - vt
+        elseif anchor == "bottomleft" or anchor == "bottomright" then
+            oy = oy + vb
+        end
+    end
 
     local cbOff = 0
     local showCb, cbH
@@ -1239,6 +1574,7 @@ local function AnchorContainer(container, frame, unit, base, s, buffContainer)
     -- (field case: boss left-anchored debuffs sat ~castbarHeight low). The
     -- oUF-element anchor path has always been bottom-only; this matches it.
     if showCb and (anchor == "bottomleft" or anchor == "bottomright")
+        and not (vl and CB_FRAME_NAMES[unit] and ns.UF_LayoutAspectOK and ns.UF_LayoutAspectOK())
         and CastbarBelowFrame(unit, frame) then
         if not cbH or cbH <= 0 then cbH = 14 end
         cbOff = -cbH
@@ -1268,6 +1604,7 @@ local function AnchorContainer(container, frame, unit, base, s, buffContainer)
         local gap = PP.FromPixels(s.debuffSpacingY or 1)
         container:SetPoint(vert .. horiz, buffContainer, relVert .. horiz, 0, gap * gapSign)
         AK.SetContainerAnchor(container, vert .. horiz)
+        PointBlizzAuraBlock(frame, unit, s, isBuff, container, ia, ox + offX, merged, gY)
     else
         -- Side anchors ("left"/"right") pin the container's vertical CENTER to
         -- the frame's LEFT/RIGHT point -- a center-class axis. An odd-physical-
@@ -1307,42 +1644,154 @@ local function AnchorContainer(container, frame, unit, base, s, buffContainer)
         end
         container:SetPoint(ia, frame, fp, ox + offX, oy + cbOff + offY)
         AK.SetContainerAnchor(container, ia)
-        if unit == "player" and isBuff then
-            -- Weapon enchant lead icons (oils/imbues are not auras; see
-            -- EUI_UnitFrames_WeaponEnchants.lua): ride the SAME resolved
-            -- anchor as the player's buff container so the strip leads it.
-            -- Published only while the broad-content mode admits generic
-            -- duration buffs (All Buffs or Has Duration -- the catch-all
-            -- gate) AND the buff display itself is on; renders with the
-            -- container's live style so customizations follow.
-            local broad = s.buffShowAll ~= false or s.buffHasDuration == true
-            local shownBuffs = (s.showBuffs ~= false)
-                or (s.debuffAnchorBuffs == true and (s.debuffAnchor or "none") ~= "none")
-            if broad and shownBuffs then
-                ns._weaponEnchUF = { frame = frame, ia = ia, fp = fp,
-                    x = ox + offX, y = oy + cbOff + offY, gX = gX,
-                    pad = EllesmereUI.PP.FromPixels(s.buffSpacingX or 1),
-                    styleKey = StyleKey("player", "HELPFUL") }
-                -- Shift the engine run inward past the enchant cells (main
-                -- hand adjacent to the run; zero enchants = zero shift).
-                local n = (ns.WeaponEnchants_Count and ns.WeaponEnchants_Count()) or 0
-                if n > 0 then
-                    local st = AK.styles[StyleKey("player", "HELPFUL")]
-                    local w = (st and st.width) or 22
-                    local sign = (gX == "RIGHT") and 1 or -1
-                    local shift = sign * n * (w + EllesmereUI.PP.FromPixels(s.buffSpacingX or 1))
-                    container:ClearAllPoints()
-                    container:SetPoint(ia, frame, fp, ox + offX + shift, oy + cbOff + offY)
-                end
-            else
-                ns._weaponEnchUF = nil
-            end
-            if ns.WeaponEnchants_Layout then ns.WeaponEnchants_Layout() end
+        PointBlizzAuraBlock(frame, unit, s, isBuff, container, ia, ox + offX, merged, gY)
+        -- Weapon enchants are not auras: the engine's own item-enchantment
+        -- source renders them as a layout group flowed AHEAD of the aura
+        -- groups on this container (see AK.AddItemEnchantmentsToContainer),
+        -- so nothing is anchored and no cells are reserved. They ride the
+        -- broad-content modes (All Buffs or Has Duration), like every other
+        -- generic buff: declared once the first time a broad mode is on
+        -- (this pass re-runs on a chain change), and -- the engine has no
+        -- addon-facing unregister -- kept until the next reload should the
+        -- mode turn off again.
+        if unit == "player" and isBuff and (s.buffShowAll ~= false or s.buffHasDuration == true) then
+            local PP = EllesmereUI.PP
+            local w, h = ElementSize(unit, base, s)
+            local gap = PP.FromPixels(s.buffSpacingX or 1)
+            local lineGap = PP.FromPixels(s.buffSpacingY or 1)
+            local placement = CustomAuraContainerItemEnchantmentPlacement
+            local sortMethods = AuraContainerItemEnchantmentSortMethod
+            local sortDirs = AuraContainerSortDirection
+            AK.AddItemEnchantmentsToContainer(container, {
+                style = StyleKey("player", "HELPFUL"),
+                -- Marks the cell as a weapon enchant for the style pass
+                -- (Blizzard Style draws the stock temp-enchant ring on those only).
+                extraInit = AK.EnchantCellInit,
+                hidePermanent = true,
+                -- REVERSE keeps main hand adjacent to the aura run: the
+                -- engine puts the group's first element at the leading edge,
+                -- and Slot order is main hand, off hand, ranged.
+                sortMethod = sortMethods and sortMethods.Slot,
+                sortDirection = sortDirs and sortDirs.Reverse,
+                layout = {
+                    elementWidth = w,
+                    elementHeight = h,
+                    elementSpacing = gap,
+                    lineSpacing = lineGap,
+                    -- No groupSpacing, see the aura groups' layout below.
+                    groupLineSpacing = lineGap,
+                    placement = placement and placement.BeforeAuraGroups,
+                },
+            })
         end
     end
     AK.SetContainerGrowth(container, FlowDir(gX), FlowDir(gY))
 
     return anchor
+end
+
+------------------------------------------------------------------------------
+-- Tracked Auras on a FRIENDLY target / focus
+--
+-- The include links ("inc" / "incmine") filter by spell ID alone, and the engine
+-- skips spell-ID candidates for debuffs on a unit the player can assist -- so on
+-- a friendly target or focus those groups would accept EVERY debuff (and the
+-- other groups' tracked-spell excludes are skipped too, doubling every debuff the
+-- mode shows). While the unit can be assisted the include groups park at 0;
+-- everything else on the frame is unchanged. An unreadable answer (pcall failure
+-- or a secret value) leaves them live, as before. Re-checked only on the unit's
+-- own change event and UNIT_FACTION, registered only while that unit has an
+-- active include group (zero cost otherwise). Boss frames are left as they are.
+--   state[unit] = { keys = { [groupKey] = true }, num = liveCount, parked = bool }
+------------------------------------------------------------------------------
+local IncGate = { state = {} }
+
+function IncGate.Assistable(unit)
+    local ok, can = pcall(UnitCanAssist, "player", unit)
+    if ok and not (issecretvalue and issecretvalue(can)) and can == true then return true end
+    return false
+end
+
+-- Events follow the live state: registered per unit only while it holds keys.
+function IncGate.Sync()
+    local st = IncGate.state
+    local sig = (st.target and 1 or 0) + (st.focus and 2 or 0)
+    if IncGate.sig == sig then return end
+    IncGate.sig = sig
+    local f = IncGate.frame
+    if sig == 0 then
+        if f then f:UnregisterAllEvents() end
+        return
+    end
+    if not f then
+        f = CreateFrame("Frame")
+        IncGate.frame = f
+        f:SetScript("OnEvent", IncGate.OnEvent)
+    end
+    if st.target then f:RegisterEvent("PLAYER_TARGET_CHANGED") else f:UnregisterEvent("PLAYER_TARGET_CHANGED") end
+    if st.focus then f:RegisterEvent("PLAYER_FOCUS_CHANGED") else f:UnregisterEvent("PLAYER_FOCUS_CHANGED") end
+    f:UnregisterEvent("UNIT_FACTION")
+    if st.target and st.focus then
+        f:RegisterUnitEvent("UNIT_FACTION", "target", "focus")
+    elseif st.target then
+        f:RegisterUnitEvent("UNIT_FACTION", "target")
+    else
+        f:RegisterUnitEvent("UNIT_FACTION", "focus")
+    end
+end
+
+-- ApplyGroupConfig (debuff element): record the unit's active include keys and
+-- their live count; returns whether they park right now.
+function IncGate.Store(unit, keys, num)
+    if unit ~= "target" and unit ~= "focus" then return false end
+    local st = IncGate.state
+    local g
+    if keys then
+        g = st[unit] or {}
+        st[unit] = g
+        g.keys, g.num = keys, num
+        g.parked = IncGate.Assistable(unit)
+    else
+        st[unit] = nil
+    end
+    IncGate.Sync()
+    return g ~= nil and g.parked
+end
+
+-- Re-check one unit; work runs only when the answer flips. The other groups'
+-- tracked-spell excludes follow the park state too (ApplyGroupConfig), so a flip
+-- forces the element's config pass (which re-stores the counts) and then
+-- re-parses: membership was decided under the old answer, and re-setting
+-- candidates is what makes the engine re-decide it.
+function IncGate.Apply(unit)
+    local g = IncGate.state[unit]
+    local entry = registry[unit]
+    if not (g and entry and entry.debuffs) or entry.building then return end
+    local park = IncGate.Assistable(unit)
+    if park == g.parked then return end
+    g.parked = park
+    entry.cfgDirty = true
+    if entry.frame and ns.UF_ReloadAuraContainers then ns.UF_ReloadAuraContainers(entry.frame, unit) end
+    entry.debuffs:UpdateAllAuras()
+end
+
+-- UNIT_FACTION can fire in bursts: one coalesced check a frame later.
+function IncGate.Flush()
+    local t, f = IncGate.pendT, IncGate.pendF
+    IncGate.pendT, IncGate.pendF = nil, nil
+    if t then IncGate.Apply("target") end
+    if f then IncGate.Apply("focus") end
+end
+
+function IncGate.OnEvent(_, event, unit)
+    if event == "PLAYER_TARGET_CHANGED" then
+        IncGate.Apply("target")
+    elseif event == "PLAYER_FOCUS_CHANGED" then
+        IncGate.Apply("focus")
+    elseif unit == "target" or unit == "focus" then
+        if not (IncGate.pendT or IncGate.pendF) then C_Timer.After(0, IncGate.Flush) end
+        if unit == "target" then IncGate.pendT = true else IncGate.pendF = true end
+    end
 end
 
 local function ApplyGroupConfig(container, unit, base, s, chain, declared)
@@ -1416,7 +1865,10 @@ local function ApplyGroupConfig(container, unit, base, s, chain, declared)
             for i = 1, #chain do
                 if chain[i].inc then incLink = true break end
             end
-            if incLink then
+            -- Not while IncGate parks the include links (a friendly target or
+            -- focus): a never-secret tracked spell still honours the excludes
+            -- there and would show nowhere.
+            if incLink and not ((unit == "target" or unit == "focus") and IncGate.Assistable(unit)) then
                 for id, v in pairs(uinc) do if v then ex[id] = true end end
             end
         end
@@ -1424,24 +1876,33 @@ local function ApplyGroupConfig(container, unit, base, s, chain, declared)
         cand.excludeSpellIDs = ex
     end
 
+    -- No groupSpacing: the engine trails every element with elementSpacing,
+    -- the last one of a group included, so a group boundary -- the seam
+    -- between the weapon-enchant cells and the first aura -- already sits one
+    -- spX away, and groupSpacing would double it.
     local layout = { elementWidth = size, elementHeight = h, elementSpacing = spX, lineSpacing = spY }
 
     -- Active set = "all" (a non-player BUFF element with no classes enabled)
     -- or each chain link. Every other declared group -- disabled classes and
     -- retired variants -- parks at count 0 (declared sets only ever grow;
     -- setters run per declared key only).
-    local active, hiddenKeys = {}, nil
+    local active, hiddenKeys, tokensOf, incKeys = {}, nil, {}, nil
     if num > 0 then
         if anyClass then
             for i = 1, #chain do
                 local c = chain[i]
                 active[c.key] = c.cand or false
+                tokensOf[c.key] = c.tokens
                 -- Subtracted classes (the player PAB model) stay declared
                 -- so their negations keep them out of the catch-all, but
                 -- render nothing themselves.
                 if c.hidden then
                     hiddenKeys = hiddenKeys or {}
                     hiddenKeys[c.key] = true
+                end
+                if c.inc then
+                    incKeys = incKeys or {}
+                    incKeys[c.key] = true
                 end
             end
         elseif isBuff and unit ~= "player" then
@@ -1453,9 +1914,24 @@ local function ApplyGroupConfig(container, unit, base, s, chain, declared)
             active.all = false
         end
     end
+    -- Tracked Auras include groups park while a target/focus can be assisted
+    -- (IncGate above); the debuff element owns the unit's gate state.
+    local incPark = false
+    if not isBuff then incPark = IncGate.Store(unit, incKeys, num) end
     for eff, info in pairs(declared) do
         if active[eff] ~= nil then
-            container:SetAuraGroupMaxFrameCount(eff, (hiddenKeys and hiddenKeys[eff]) and 0 or num)
+            local n = num
+            if (hiddenKeys and hiddenKeys[eff]) or (incPark and incKeys[eff]) then n = 0 end
+            container:SetAuraGroupMaxFrameCount(eff, n)
+            -- Filter strings follow the CURRENT chain too: a plain key's tokens
+            -- depend on which earlier token classes are enabled, so a group first
+            -- declared under another set would keep a stale string (a debuff shown
+            -- twice, or not at all) until /reload. The setter no-ops on an
+            -- unchanged string, so untouched groups cost nothing.
+            local toks = tokensOf[eff]
+            if toks and container.SetAuraGroupFilterString then
+                container:SetAuraGroupFilterString(eff, AK.Filter(unpack(toks)))
+            end
             local groupCand = cand
             -- Candidate-class groups carry their defining booleans on top of the shared
             -- candidates (fresh table: setter securecopies). Read from the CURRENT

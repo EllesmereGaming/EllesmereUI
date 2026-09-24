@@ -844,7 +844,10 @@ local function ApplyEffectBorder(borderFrame, ind, r, g, b, a, w, h)
         if EllesmereUI.ApplyBorderStyle then
             -- Solid takes width as literal pixels; textured styles index the edge-size map (steps 1-4 only), so cap to dodge the >4 fallback.
             local sz = (style == "solid") and bw or math.min(bw, 4)
-            EllesmereUI.ApplyBorderStyle(borderFrame, sz, r, g, b, a, style)
+            -- Exact size (borderWidthPx, against the step and style drawn): 15th argument.
+            EllesmereUI.ApplyBorderStyle(borderFrame, sz, r, g, b, a, style,
+                nil, nil, nil, nil, nil, nil, nil,
+                EllesmereUI.BorderPx(ind.borderWidthPx, sz, style))
         end
     end
 end
@@ -1069,6 +1072,7 @@ function ns.BM_CreatePreviewIndicators(f, health, PP)
         fr:Hide()
 
         local tex = fr:CreateTexture(nil, "ARTWORK")
+        if PP then PP.DisablePixelSnap(tex) end
         tex:SetAllPoints()
         tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
         fr._tex = tex
@@ -1799,7 +1803,11 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, noGrid
         local pbc = (s.powerBgPowerColored and pInfo) or s.powerBgColor or { r=0, g=0, b=0 }
         local pbF = (s.powerBgPowerColored and pInfo) and EllesmereUI.GetPowerBgDarkenFactor() or 1
         pwBg:SetColorTexture(pbc.r * pbF, pbc.g * pbF, pbc.b * pbF, (s.powerBgDarkness or 70) / 100)
-        if PP and s.powerBorderStyle and s.powerBorderStyle ~= "none" then
+        -- Classic WoW UI: the stock edge and divider stand in (as live).
+        if PP and ns.RF_Classic and ns.RF_Classic() then
+            ns.RF_StockBuild(pvFrame, pvFrame, power)
+            ns.RF_StockDivider(pvFrame)
+        elseif PP and s.powerBorderStyle and s.powerBorderStyle ~= "none" then
             local pbSize = s.powerBorderSize or 1
             if pbSize > 0 then
                 local pwBdr = CreateFrame("Frame", nil, pvFrame)
@@ -1819,7 +1827,9 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, noGrid
     end
 
     if PP then
-        local bsz = s.borderSize or 1
+        -- Stock styles: the stock edge stands in for the EllesmereUI border.
+        if ns.RF_Stock and ns.RF_Stock() then ns.RF_StockBuild(pvFrame, pvFrame) end
+        local bsz = ns.RF_EffBorderSize and ns.RF_EffBorderSize(s) or (s.borderSize or 1)
         if bsz > 0 then
             local bdr = CreateFrame("Frame", nil, pvFrame)
             bdr:SetAllPoints(pvFrame)
@@ -3680,8 +3690,11 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             local pbF = (s.powerBgPowerColored and pInfo) and EllesmereUI.GetPowerBgDarkenFactor() or 1
             pwBg:SetColorTexture(pbc.r * pbF, pbc.g * pbF, pbc.b * pbF, (s.powerBgDarkness or 70) / 100)
 
-            -- Power border
-            if PP and s.powerBorderStyle and s.powerBorderStyle ~= "none" then
+            -- Power border (Classic WoW UI: the stock edge and divider)
+            if PP and ns.RF_Classic and ns.RF_Classic() then
+                ns.RF_StockBuild(pvFrame, pvFrame, power)
+                ns.RF_StockDivider(pvFrame)
+            elseif PP and s.powerBorderStyle and s.powerBorderStyle ~= "none" then
                 local pbSize = s.powerBorderSize or 1
                 if pbSize > 0 then
                     local pwBdr = CreateFrame("Frame", nil, pvFrame)
@@ -3700,9 +3713,10 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
             end
         end
 
-        -- Border
+        -- Border (stock styles: the stock edge stands in)
         if PP then
-            local bs = s.borderSize or 1
+            if ns.RF_Stock and ns.RF_Stock() then ns.RF_StockBuild(pvFrame, pvFrame) end
+            local bs = ns.RF_EffBorderSize and ns.RF_EffBorderSize(s) or (s.borderSize or 1)
             if bs > 0 then
                 local bdr = CreateFrame("Frame", nil, pvFrame)
                 bdr:SetAllPoints(pvFrame)
@@ -5134,6 +5148,35 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     end
                 end
 
+                -- Border Width: the dashed ants keep their 1-6 width; every other style
+                -- takes an exact pixel size (borderWidthPx beside borderWidth). The step
+                -- read here is the one ApplyEffectBorder draws (a textured width caps at 4).
+                local bwSlot
+                if (ind.borderStyle or "solid") == "dashed" then
+                    bwSlot = { type="slider", text="Border Width", min=1, max=6, step=1, trackWidth=120,
+                      getValue=function() return ind.borderWidth or 2 end,
+                      setValue=function(v) ind.borderWidth = v; ReloadAndUpdate() end }
+                else
+                    local function BwStyle()
+                        local s = ind.borderStyle or "solid"
+                        if s == "sweepcw" or s == "sweepccw" then s = "solid" end
+                        return s
+                    end
+                    bwSlot = EllesmereUI.BorderPxSliderCfg({
+                        text = "Border Width", trackWidth = 120,
+                        getStep = function()
+                            local bw = ind.borderWidth or 2
+                            return (BwStyle() == "solid") and bw or math.min(bw, 4)
+                        end,
+                        setStep = function(v) ind.borderWidth = v end,
+                        getTex = BwStyle,
+                        getPx = function() return ind.borderWidthPx end,
+                        setPx = function(v) ind.borderWidthPx = v end,
+                        apply = ReloadAndUpdate,
+                    })
+                    -- This surface never allowed 0 (the dashed style would inherit it).
+                    bwSlot.min = 1
+                end
                 SettingsRow(
                     { type="dropdown", text="Border Style", values=bsVals, order=bsOrder,
                       -- Fall back to Solid if the stored style is no longer offered.
@@ -5142,9 +5185,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                           return bsVals[s] and s or "solid"
                       end,
                       setValue=function(v) ind.borderStyle = v; ReloadAndRebuild() end },
-                    { type="slider", text="Border Width", min=1, max=6, step=1, trackWidth=120,
-                      getValue=function() return ind.borderWidth or 2 end,
-                      setValue=function(v) ind.borderWidth = v; ReloadAndUpdate() end })
+                    bwSlot)
 
                 -- Dashes slot applies only to the dashed style; blank label otherwise (allowed on a section's last row).
                 local ac = EllesmereUI.ACCENT_COLOR or { r = 0.05, g = 0.82, b = 0.62 }

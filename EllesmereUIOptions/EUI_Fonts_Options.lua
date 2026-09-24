@@ -38,7 +38,7 @@ local function FontReload()
         message     = "Font changed. A UI reload is needed to apply the new font.",
         confirmText = "Reload Now",
         cancelText  = "Later",
-        onConfirm   = function() ReloadUI() end,
+        reload      = true,
     })
 end
 
@@ -401,7 +401,20 @@ local function TileAuraBuffReminders(parent, y, W, tile)
         return NoteRow(parent, y, EllesmereUI.Lf("Enable %1$s to edit its text settings.", EllesmereUI.L(tile.display)))
     end
     local function db() return _G._EABR_AceDB and _G._EABR_AceDB.profile end
-    _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display),
+    local nameFontValues, nameFontOrder = EllesmereUI.BuildFontDropdownData()
+    _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display), BLANK());  y = y - h
+    _, h = W:DualRow(parent, y,
+        { type = "dropdown", text = "Name Font",
+          values = nameFontValues, order = nameFontOrder,
+          getValue = function()
+              local p = db()
+              return (p and p.display and p.display.nameFont) or "__global"
+          end,
+          setValue = function(v)
+              local p = db(); if not (p and p.display) then return end
+              p.display.nameFont = (v ~= "__global") and v or nil
+              if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
+          end },
         { type = "slider", text = "Name Text Size", min = 6, max = 30, step = 1,
           getValue = function()
               local p = db()
@@ -413,6 +426,17 @@ local function TileAuraBuffReminders(parent, y, W, tile)
               if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
           end });  y = y - h
     _, h = W:DualRow(parent, y,
+        { type = "dropdown", text = "Item Count Font",
+          values = nameFontValues, order = nameFontOrder,
+          getValue = function()
+              local p = db()
+              return (p and p.display and p.display.countFont) or "__global"
+          end,
+          setValue = function(v)
+              local p = db(); if not (p and p.display) then return end
+              p.display.countFont = (v ~= "__global") and v or nil
+              if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
+          end },
         { type = "slider", text = "Item Count Text Size", min = 6, max = 30, step = 1,
           getValue = function()
               local p = db()
@@ -422,6 +446,18 @@ local function TileAuraBuffReminders(parent, y, W, tile)
               local p = db(); if not (p and p.display) then return end
               p.display.countSize = v
               if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
+          end });  y = y - h
+    _, h = W:DualRow(parent, y,
+        { type = "dropdown", text = "Mana Warning Font",
+          values = nameFontValues, order = nameFontOrder,
+          getValue = function()
+              local p = db()
+              return (p and p.consumables and p.consumables.rcManaWarnFont) or "__global"
+          end,
+          setValue = function(v)
+              local p = db(); if not (p and p.consumables) then return end
+              p.consumables.rcManaWarnFont = (v ~= "__global") and v or nil
+              if _G._EABR_RCWarnApply then _G._EABR_RCWarnApply() end
           end },
         { type = "slider", text = "Mana Warning Text Size", min = 10, max = 72, step = 1,
           getValue = function()
@@ -599,7 +635,7 @@ local function TileChat(parent, y, W, tile)
             message     = msg,
             confirmText = "Reload Now",
             cancelText  = "Later",
-            onConfirm   = function() ReloadUI() end,
+            reload      = true,
         })
     end
     _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display),
@@ -646,8 +682,15 @@ local function TileChat(parent, y, W, tile)
               p.chatFontSize = v
               if ECHAT and ECHAT.ApplyChatFontSize then ECHAT.ApplyChatFontSize(v) end
           end });  y = y - h
+    -- Blizzard Style shows Blizzard's own chat tabs (their stock font), so the
+    -- tab font row hides there; Classic's painted tabs still use it.
+    local BS = EllesmereUI.BlizzStyle
+    local function TabFontGate(cfg)
+        if BS and BS.Active("chat") == "blizzard" then BS.Gate("chat", cfg) end
+        return cfg
+    end
     _, h = W:DualRow(parent, y,
-        { type = "dropdown", text = "Tab Font",
+        TabFontGate({ type = "dropdown", text = "Tab Font",
           values = fontValues, order = fontOrder,
           getValue = function()
               local p = db()
@@ -658,8 +701,8 @@ local function TileChat(parent, y, W, tile)
               p.tabFont = v
               if ECHAT and ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
               if ECHAT and ECHAT.ApplyTabLayout then ECHAT.ApplyTabLayout() end
-          end },
-        { type = "slider", text = "Tab Font Size", min = 8, max = 24, step = 1,
+          end }),
+        TabFontGate({ type = "slider", text = "Tab Font Size", min = 8, max = 24, step = 1,
           getValue = function()
               local p = db()
               return (p and p.tabFontSize) or 11
@@ -669,7 +712,7 @@ local function TileChat(parent, y, W, tile)
               p.tabFontSize = v
               if ECHAT and ECHAT.ApplyTabAppearance then ECHAT.ApplyTabAppearance() end
               if ECHAT and ECHAT.ApplyTabLayout then ECHAT.ApplyTabLayout() end
-          end });  y = y - h
+          end }));  y = y - h
     _, h = W:DualRow(parent, y,
         { type = "dropdown", text = "Edit Box Font",
           values = ebValues, order = ebOrder,
@@ -938,6 +981,12 @@ local function TileQuestTracker(parent, y, W, tile)
         _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display), BLANK());  y = y - h
         return NoteRow(parent, y, EllesmereUI.Lf("Enable %1$s to edit its text settings.", EllesmereUI.L(tile.display)))
     end
+    -- Stock styles keep Blizzard's own tracker text (sized by Edit Mode's
+    -- Text Size), so none of these settings apply there.
+    local BS = EllesmereUI.BlizzStyle
+    if BS and BS.Get("questtracker") then
+        return NoteRow(parent, y, EllesmereUI.Lf("%1$s is active: the tracker keeps Blizzard's own text.", EllesmereUI.L(BS.Label("questtracker"))))
+    end
     local function db()
         return _G._EQT_DB and _G._EQT_DB.profile and _G._EQT_DB.profile.questTracker
     end
@@ -1067,6 +1116,13 @@ end
 --  consumers and no addon key in the per-module font system), plus the
 --  synthetic Combat Text card at the end.
 -------------------------------------------------------------------------------
+
+-- Modules whose stock styles (Style page key) keep Blizzard's own text, so the
+-- card's module font override is blocked while one of them is active.
+local TILE_STYLE_KEYS = {
+    EllesmereUIQuestTracker = "questtracker",
+    EllesmereUIFriends      = "friends",
+}
 
 local TILE_BUILDERS = {
     EllesmereUIActionBars        = { TileActionBars,       "Bar button text, XP/Rep bar text" },
@@ -1228,6 +1284,10 @@ local function BuildFontCard(parent, y, W, tile)
                 FontReload()
             end)
         PP.Point(dd, "RIGHT", hdr, "RIGHT", -44, 0)
+        -- A module whose stock style keeps Blizzard's own text: the override
+        -- has nothing to apply to there.
+        local styleKey = TILE_STYLE_KEYS[tile.folder]
+        if styleKey and EllesmereUI.BlizzStyle then EllesmereUI.BlizzStyle.BlockInline(styleKey, dd) end
     end
 
     local strip

@@ -1,6 +1,6 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
---  EllesmereUIMythicTimer.lua  —  M+ Timer overlay for EllesmereUI
+--  EllesmereUIMythicTimer.lua  --  M+ Timer overlay for EllesmereUI
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
@@ -47,6 +47,66 @@ local function ApplyBarTexture(tex, texKey, r, g, b, a)
         tex:SetVertexColor(1, 1, 1, 1)
         tex:SetColorTexture(r, g, b, a)
     end
+end
+
+-- One full physical pixel. ResourceBars can get away with half a pixel because a
+-- StatusBar clips its own fill texture tightly; our plain SetTexture fills (Melli
+-- etc.) bilinear-filter a full pixel past their rect. Half-px left a visible fringe
+-- past the border on the long continuous TICKS bar (SEGMENTS hid it better between
+-- per-segment borders). Solid ColorTexture bars don't need this; same inset is
+-- harmless and keeps timer/forces paths identical.
+local function GetBarBleedInset(p, forForces)
+    if not p or p.customBorderStyle ~= true then return 0 end
+    if (p.borderSize or 0) <= 0 then return 0 end
+    if forForces and p.borderApplyToForces == false then return 0 end
+    local PP = EllesmereUI and EllesmereUI.PP
+    return (PP and PP.mult or 1) * 1
+end
+
+-- Outer host = border/geometry anchor. Inner clip = bg+fill parent, inset so the
+-- texture cannot sample past the border. Host clips its children so any residual
+-- filter fringe from the clip's textures is still cut off at the host edge
+-- (SetClipsChildren only affects child frames, not a frame's own textures -- so the
+-- fill must live on `clip`, not on `host`).
+local function EnsureBarShell(parent, hostKey)
+    local host = parent[hostKey]
+    if host then
+        -- Re-assert: shells created before the TICKS bleed fix may lack this.
+        host:SetClipsChildren(true)
+        return host, host._clip
+    end
+    host = CreateFrame("Frame", nil, parent)
+    host:EnableMouse(false)
+    -- Clip child rendering (the inset `clip` frame + its textures' filter fringe)
+    -- to the host rect so nothing paints past the border's outer edge.
+    host:SetClipsChildren(true)
+    local clip = CreateFrame("Frame", nil, host)
+    clip:EnableMouse(false)
+    host._clip = clip
+    parent[hostKey] = host
+    return host, clip
+end
+
+local function LayoutBarClip(host, clip, inset)
+    clip:ClearAllPoints()
+    if inset > 0 then
+        clip:SetPoint("TOPLEFT", host, "TOPLEFT", inset, -inset)
+        clip:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", -inset, inset)
+    else
+        clip:SetAllPoints(host)
+    end
+end
+
+-- Build (or reuse) bg+fill textures as children of clip so host clipping applies.
+local function EnsureShellTextures(clip, owner, bgKey, fillKey)
+    if not owner[bgKey] then
+        owner[bgKey] = clip:CreateTexture(nil, "BACKGROUND", nil, 1)
+        owner[bgKey]:SetAllPoints(clip)
+    end
+    if not owner[fillKey] then
+        owner[fillKey] = clip:CreateTexture(nil, "ARTWORK")
+    end
+    return owner[bgKey], owner[fillKey]
 end
 
 local CopyTable = EllesmereUI.Lite.DeepCopy
@@ -153,6 +213,7 @@ local DB_DEFAULTS = {
         objectiveCompareDeltaOnly = false,
         objectiveCompareStrict = false,
         showUpcomingSplitTargets = false,
+        showFastestRunSplits = false,
         frameWidth        = 260,
         barWidth          = 210,
         barHeight         = 8,
@@ -186,6 +247,12 @@ local DB_DEFAULTS = {
         deathTextColor    = { r = 0.93, g = 0.33, b = 0.33 },
         enemyBarUseAccent = true,
         enemyBarColor     = { r = 0.35, g = 0.55, b = 0.8 },
+        -- Current pull: the bar previews the forces of every enemy in combat
+        -- behind the forces fill (by default in the fill color at reduced alpha).
+        showPullBar        = false,
+        pullBarUseBarColor = true,
+        pullBarColor       = { r = 1, g = 0.55, b = 0.1 },
+        pullBarAlpha       = 0.35,
         -- Targeted Spell Bars (Mythic+ Tools tab): replica nameplate cast bars
         -- collected into one movable group. Disabled by default; the feature
         -- registers its events only while enabled (zero cost off). Runtime in
@@ -279,6 +346,29 @@ local DB_DEFAULTS = {
                 showTimer = true, timerSize = 11,
                 targetSize = 10,
             },
+        },
+        -- Run Summary (Mythic+ Tools tab): end-of-key overview panel with one
+        -- row per party member, plus a per-character history of finished runs.
+        -- Disabled by default; the collector registers its events only while
+        -- enabled (zero cost off). Runtime in EUI_MythicTimer_RunSummary.lua.
+        -- The run records themselves live in the per-character SavedVariable
+        -- EllesmereUIMythicRunsDB, not here -- profile data is settings only.
+        runSummary = {
+            enabled          = false,
+            showAfterLoot    = true,
+            historySize      = 20,
+            scale            = 1,
+            textSize         = 14,   -- member rows only; header/title sizes are fixed
+            sortKey          = "dps", -- dps | damageTaken | interrupts | deaths (header click)
+            sortAsc          = false,
+            showSpecIcons    = true,
+            colItemLevel     = true,
+            colScore         = true,
+            colLoot          = true,
+            colDps           = true,
+            colDamageTaken   = true,
+            colInterrupts    = true,
+            colDeaths        = true,
         },
     },
 }
@@ -506,7 +596,7 @@ end
 local function GetReferenceObjectiveTime(run, objectiveIndex, mode)
     if mode == COMPARE_NONE then return nil end
 
-    local store = EnsureProfileStore("bestObjectiveSplits")
+    local store  = (db.profile.showFastestRunSplits and EnsureProfileStore("fastestRunSplits"))  or EnsureProfileStore("bestObjectiveSplits")
     if not store then return nil end
 
     -- Try exact scope first, then fall back to broader scopes
@@ -559,6 +649,34 @@ local function UpdateObjectiveCompletion(obj, objectiveIndex)
     obj.isNewBest = reference == nil or obj.elapsed < reference
 
     UpdateBestObjectiveSplits(currentRun, objectiveIndex, obj.elapsed)
+end
+
+-- The splits of the fastest COMPLETED run per scope, beside the per-objective
+-- bests: same shape (store[scopeKey][objectiveIndex] = elapsed) plus the
+-- run's own time under "overallRunTime", which decides whether a run
+-- replaces the stored one. Called once per completion from CompleteRun.
+local FASTEST_RUN_SCOPES = { COMPARE_DUNGEON, COMPARE_LEVEL, COMPARE_LEVEL_AFFIX }
+local function SaveFastestRunSplits()
+    local store = EnsureProfileStore("fastestRunSplits")
+    if not store then return end
+    local run = currentRun
+    local elapsed = run.elapsed
+    -- The completion time can come from GetWorldElapsedTime after a
+    -- depletion, which may hand back a secret: no compare on that.
+    if type(elapsed) ~= "number" or (issecretvalue and issecretvalue(elapsed)) then return end
+    for _, mode in ipairs(FASTEST_RUN_SCOPES) do
+        local scopeKey = GetScopeKey(run, mode)
+        if scopeKey then
+            if not store[scopeKey] then store[scopeKey] = {} end
+            local previousRunTime = store[scopeKey].overallRunTime
+            if not previousRunTime or elapsed < previousRunTime then
+                store[scopeKey].overallRunTime = elapsed
+                for objectiveIndex, objective in ipairs(run.objectives) do
+                    store[scopeKey][objectiveIndex] = objective.elapsed
+                end
+            end
+        end
+    end
 end
 
 local function BuildSplitCompareText(referenceTime, currentTime, deltaOnly, fasterColor, slowerColor)
@@ -709,6 +827,10 @@ local function UpdateObjectives()
                 end
             end
         end
+    end
+
+    if currentRun.completed then
+        SaveFastestRunSplits()
     end
 
     for i = numCriteria + 1, #currentRun.objectives do
@@ -994,6 +1116,8 @@ local PREVIEW_RUN = {
     preciseCompletedElapsed = nil,
     _previewAffixNames = { "Tyrannical", "Xal'atath's Bargain: Ascendant" },
     _previewAffixIDs = { 9, 152 },
+    -- Current pull sample: two pulled mobs worth 18 and 14 forces (~13%).
+    _previewPullValues = { 18, 14 },
     objectives    = {
         { name = "Kyrioss",                 completed = true,  elapsed = 510,  quantity = 1,     totalQuantity = 1,   rawQuantity = 1, rawTotalQuantity = 1, percent = 0, isWeighted = false, previewSplit = 528 },
         { name = "Stormguard Gorren",       completed = true,  elapsed = 1005, quantity = 1,     totalQuantity = 1,   rawQuantity = 1, rawTotalQuantity = 1, percent = 0, isWeighted = false, previewSplit = 972 },
@@ -1066,11 +1190,17 @@ local unlockLayoutActive = false -- force preview layout while Unlock Mode is op
 --   - "solid"           -> PP 4-strip system (as everywhere else in the addon)
 --   - any other key     -> textured BackdropTemplate border (Glow, Blizzard,
 --                          Lightspark, SharedMedia, ...)
--- ApplyBorderStyle needs a frame WE own ("borderFrame"). The bars ("_barBg",
--- "_enemyBarBg", segments in "_timerSegBgs") are only textures, so we give each
--- bar a slim carrier frame that sits exactly over its texture (SetAllPoints)
--- and hand THAT frame to ApplyBorderStyle.
-local function ApplyBorderTo(parent, anchor, key, p, size, texKey, r, g, b, a)
+-- ApplyBorderStyle needs a frame WE own ("borderFrame"). Bar shells ("_barHost",
+-- "_enemyBarHost", "_timerSegHosts") are the outer geometry anchors; each holds
+-- an inset clip child for the bg/fill textures so textured fills cannot bleed
+-- past the border (see GetBarBleedInset / EnsureBarShell).
+--
+-- Border carrier is parented to the STANDALONE frame (not the host): the host
+-- uses SetClipsChildren to cut fill fringe, which would also clip an outward
+-- textured border if the border lived inside the host. Frame level is raised
+-- above the host's tick layer every apply so the continuous TICKS fill cannot
+-- paint over the border strips.
+local function ApplyBorderTo(parent, anchor, key, p, size, texKey, r, g, b, a, px)
     if not parent or not anchor then
         return
     end
@@ -1085,7 +1215,6 @@ local function ApplyBorderTo(parent, anchor, key, p, size, texKey, r, g, b, a)
     if not bf then
         bf = CreateFrame("Frame", nil, parent)
         bf:EnableMouse(false)
-        bf:SetFrameLevel(parent:GetFrameLevel() + 10)
         -- Clip every border (including textured styles with an outward
         -- offsetX/offsetY, e.g. Glow/Blizzard) strictly to the area of "bf"
         -- (== the bar/segment). Without this, textured border styles spill past
@@ -1097,6 +1226,12 @@ local function ApplyBorderTo(parent, anchor, key, p, size, texKey, r, g, b, a)
 
     bf:ClearAllPoints()
     bf:SetAllPoints(anchor)
+    -- Always re-assert above the bar host tree (clip + tick layer). A one-time
+    -- level at create time can lose to a later tick-layer bump on the continuous
+    -- TICKS bar, letting the melli fill paint over the border.
+    local anchorLevel = anchor.GetFrameLevel and anchor:GetFrameLevel() or 0
+    local parentLevel = parent.GetFrameLevel and parent:GetFrameLevel() or 0
+    bf:SetFrameLevel(max(parentLevel + 10, anchorLevel + 20))
 
     if size <= 0 or not anchor:IsShown() then
         bf:Hide()
@@ -1109,8 +1244,16 @@ local function ApplyBorderTo(parent, anchor, key, p, size, texKey, r, g, b, a)
         bf, size, r, g, b, a, texKey,
         p.borderTextureOffset, p.borderTextureOffsetY,
         p.borderTextureShiftX, p.borderTextureShiftY,
-        "MythicPlus", size
+        "MythicPlus", size, nil, px
     )
+    -- PP strip container keeps an absolute level from create time; bump it with
+    -- the carrier or the strips can sit under the TICKS tick layer while the
+    -- empty carrier frame alone is "above".
+    local PP = EllesmereUI and EllesmereUI.PP
+    local edges = PP and PP.GetBorders and PP.GetBorders(bf)
+    if edges then
+        edges:SetFrameLevel(bf:GetFrameLevel() + 1)
+    end
 end
 
 ns.ApplyBorder = function()
@@ -1131,30 +1274,41 @@ ns.ApplyBorder = function()
     end
     local texKey = p.borderTexture or "solid"
     local r, g, b, a = p.borderR or 0, p.borderG or 0, p.borderB or 0, p.borderA or 1
+    -- Exact pixel size (nil = the legacy path), resolved once against the bar's
+    -- own step: every carrier below draws either this size or a forced 0.
+    local px = EllesmereUI.BorderPx(p.borderSizePx, size, texKey)
 
-    -- Main timer bar. In SEGMENTS mode "_barBg" is only an invisible (Alpha 0) but
-    -- still :IsShown() texture that spans the ENTIRE bar width (including the gaps
-    -- between segments). Bordering it here would draw a border line in the gaps too
-    -- (left/right is hidden by the adjacent segment border, top/bottom is not), so in
-    -- SEGMENTS mode the main border is disabled here; the individual segment borders
-    -- below draw the complete outline.
+    -- Main timer bar. In SEGMENTS mode "_barHost" is only a layout spacer that
+    -- spans the ENTIRE bar width (including the gaps between segments). Bordering
+    -- it here would draw a border line in the gaps too (left/right is hidden by
+    -- the adjacent segment border, top/bottom is not), so in SEGMENTS mode the
+    -- main border is disabled here; the individual segment borders below draw
+    -- the complete outline.
     local isSegmented = (p.timerBarStyle == "SEGMENTS")
+    local barAnchor = f._barHost or f._barBg
     if isSegmented then
-        ApplyBorderTo(f, f._barBg, "_emtBarBorderFrame", p, 0, texKey, r, g, b, a)
+        ApplyBorderTo(f, barAnchor, "_emtBarBorderFrame", p, 0, texKey, r, g, b, a, nil)
     else
-        ApplyBorderTo(f, f._barBg, "_emtBarBorderFrame", p, size, texKey, r, g, b, a)
+        ApplyBorderTo(f, barAnchor, "_emtBarBorderFrame", p, size, texKey, r, g, b, a, px)
     end
 
     -- Forces bar (skipped when "Apply to Forces Bar" is off in the border cog).
-    local forcesSize = size
-    if p.borderApplyToForces == false then forcesSize = 0 end
-    ApplyBorderTo(f, f._enemyBarBg, "_emtEnemyBorderFrame", p, forcesSize, texKey, r, g, b, a)
+    local forcesSize, forcesPx = size, px
+    if p.borderApplyToForces == false then forcesSize, forcesPx = 0, nil end
+    ApplyBorderTo(f, f._enemyBarHost or f._enemyBarBg, "_emtEnemyBorderFrame", p, forcesSize, texKey, r, g, b, a, forcesPx)
 
-    -- Segment bars (timer bar SEGMENTS mode)
-    if f._timerSegBgs then
+    -- Segment bars (timer bar SEGMENTS mode) -- border each segment host.
+    local segSize, segPx = 0, nil
+    if isSegmented then segSize, segPx = size, px end
+    if f._timerSegHosts then
+        for i, host in ipairs(f._timerSegHosts) do
+            ApplyBorderTo(f, host, "_emtSegBorderFrame" .. i, p, segSize, texKey, r, g, b, a, segPx)
+        end
+    elseif f._timerSegBgs then
+        -- Legacy texture-only segments (pre-shell); keep border working if hosts
+        -- were never built this session.
         for i, seg in ipairs(f._timerSegBgs) do
-            local segSize = isSegmented and size or 0
-            ApplyBorderTo(f, seg, "_emtSegBorderFrame" .. i, p, segSize, texKey, r, g, b, a)
+            ApplyBorderTo(f, seg, "_emtSegBorderFrame" .. i, p, segSize, texKey, r, g, b, a, segPx)
         end
     end
 end
@@ -1293,6 +1447,182 @@ local function GetAccentColor()
     return 0.05, 0.83, 0.62
 end
 
+-- Current pull bar: one StatusBar per enemy in combat, chained off the end of
+-- the forces fill. In M+ the per-unit forces values are secret (tainted code
+-- can neither add nor compare them) and unit identity is restricted, so the
+-- pull total is never computed in Lua: each value goes straight into SetValue
+-- and the segments add up on screen by anchoring each one to the previous
+-- segment's fill edge. The host clips anything past 100%.
+-- The full render stores the layout and style on the frame (f._pull*); plate
+-- and regen events then only re-place the segments via UpdatePullSegments.
+local RenderPullSegments, HidePullSegments, SyncPullEvents
+do
+    local PLATE_UNITS = {}
+    for i = 1, 40 do PLATE_UNITS[i] = "nameplate" .. i end
+    local GROUP_UNITS = { "player", "party1", "party2", "party3", "party4" }
+
+    -- A secret never counts as true.
+    local function IsPlainTrue(v)
+        if v == nil or (issecretvalue and issecretvalue(v)) then return false end
+        return v == true
+    end
+
+    -- Enemies only count while someone in the group fights, so the plate scan
+    -- is skipped between pulls. Party members keep it alive after a death.
+    local function GroupInCombat()
+        for i = 1, #GROUP_UNITS do
+            if IsPlainTrue(UnitAffectingCombat(GROUP_UNITS[i])) then return true end
+        end
+        return false
+    end
+
+    -- Without `from` this is a full hide: it also stops event-driven updates
+    -- from re-showing segments until the next full render turns them back on.
+    HidePullSegments = function(f, from)
+        if not from then f._pullOn = false end
+        local segs = f._pullSegs
+        if not segs then return end
+        for i = from or 1, #segs do segs[i]:Hide() end
+    end
+
+    -- Returns the placed segment's fill texture, the anchor for the next one.
+    -- Texture, color, range and size are re-applied only when the render's
+    -- style version changed; per update a segment just re-anchors and SetValues.
+    local function PlaceSegment(f, n, anchor, value)
+        local seg = f._pullSegs[n]
+        if not seg then
+            seg = CreateFrame("StatusBar", nil, f._pullClip)
+            seg:EnableMouse(false)
+            f._pullSegs[n] = seg
+        end
+        if seg._styleVer ~= f._pullStyleVer then
+            seg._styleVer = f._pullStyleVer
+            seg:SetStatusBarTexture(f._pullTex)
+            seg:SetStatusBarColor(f._pullR, f._pullG, f._pullB, f._pullA)
+            seg:SetMinMaxValues(0, f._pullTotal)
+            seg:SetSize(f._pullW, f._pullH)
+        end
+        seg:ClearAllPoints()
+        seg:SetPoint("TOPLEFT", anchor, "TOPRIGHT", 0, 0)
+        seg:SetValue(value)
+        seg:Show()
+        return seg:GetStatusBarTexture()
+    end
+
+    local function UpdatePullSegments(f)
+        if not (f and f._pullOn) then return end
+        local anchor, n = f._enemyBarFill, 0
+        local previewValues = f._pullPreview
+        if previewValues then
+            for i = 1, #previewValues do
+                n = n + 1
+                anchor = PlaceSegment(f, n, anchor, previewValues[i])
+            end
+        elseif C_ScenarioInfo and C_ScenarioInfo.GetUnitCriteriaProgressValues and GroupInCombat() then
+            for i = 1, #PLATE_UNITS do
+                local unit = PLATE_UNITS[i]
+                if IsPlainTrue(UnitExists(unit)) and IsPlainTrue(UnitCanAttack("player", unit))
+                   and IsPlainTrue(UnitAffectingCombat(unit)) and not IsPlainTrue(UnitIsDead(unit)) then
+                    -- nil for enemies that give no forces. The value itself is
+                    -- only ever handed to SetValue, never read.
+                    local value = C_ScenarioInfo.GetUnitCriteriaProgressValues(unit)
+                    if value ~= nil then
+                        n = n + 1
+                        anchor = PlaceSegment(f, n, anchor, value)
+                    end
+                end
+            end
+        end
+        HidePullSegments(f, n + 1)
+    end
+
+    RenderPullSegments = function(f, clip, run, enemyObj, p, w, h, barR, barG, barB)
+        SyncPullEvents()
+        local total = enemyObj.rawTotalQuantity
+        if p.showPullBar ~= true or enemyObj.completed or not total or total <= 0 then
+            HidePullSegments(f)
+            return
+        end
+        if not f._pullSegs then f._pullSegs = {} end
+
+        local r, g, b = barR, barG, barB
+        if p.pullBarUseBarColor == false then
+            r, g, b = GetColor(p.pullBarColor, 1, 0.55, 0.1)
+        end
+        local a = p.pullBarAlpha or 0.35
+        local texPath = EllesmereUI.ResolveTexturePath
+            and EllesmereUI.ResolveTexturePath(barTextures, p.enemyBarTexture or "none", nil)
+            or "Interface\\Buttons\\WHITE8X8"
+
+        if f._pullTex ~= texPath or f._pullR ~= r or f._pullG ~= g or f._pullB ~= b
+           or f._pullA ~= a or f._pullTotal ~= total or f._pullW ~= w or f._pullH ~= h
+           or f._pullClip ~= clip then
+            f._pullTex, f._pullR, f._pullG, f._pullB, f._pullA = texPath, r, g, b, a
+            f._pullTotal, f._pullW, f._pullH, f._pullClip = total, w, h, clip
+            f._pullStyleVer = (f._pullStyleVer or 0) + 1
+        end
+        f._pullOn = true
+        f._pullPreview = run._previewPullValues
+        UpdatePullSegments(f)
+    end
+
+    -- Event side. Regen events (twice per pull) are registered while a run is
+    -- active with the bar enabled; nameplate events additionally only while
+    -- the player is in combat, so segments follow enemies joining the fight
+    -- between the 1/sec ticks. SyncPullEvents runs from the run-event toggle,
+    -- the regen events and every full render, so enabling the option mid-run,
+    -- mid-combat or after a mid-key /reload converges within a second.
+    local pullFrame = CreateFrame("Frame")
+    local PLATE_EVENTS = { "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED" }
+    local regenOn, platesOn = false, false
+    local updatePending = false
+
+    local function RunPendingUpdate()
+        updatePending = false
+        UpdatePullSegments(standaloneFrame)
+    end
+
+    SyncPullEvents = function(inCombat)
+        local p = db and db.profile
+        local on = (currentRun.active and p and p.showPullBar == true and p.showEnemyBar ~= false) and true or false
+        if inCombat == nil then inCombat = InCombatLockdown() end
+        local plates = on and inCombat and true or false
+        if on ~= regenOn then
+            regenOn = on
+            if on then
+                pullFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+                pullFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+            else
+                pullFrame:UnregisterEvent("PLAYER_REGEN_DISABLED")
+                pullFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
+            end
+        end
+        if plates ~= platesOn then
+            platesOn = plates
+            for i = 1, #PLATE_EVENTS do
+                if plates then
+                    pullFrame:RegisterEvent(PLATE_EVENTS[i])
+                else
+                    pullFrame:UnregisterEvent(PLATE_EVENTS[i])
+                end
+            end
+        end
+    end
+
+    pullFrame:SetScript("OnEvent", function(_, event)
+        if event == "PLAYER_REGEN_DISABLED" then
+            SyncPullEvents(true)
+        elseif event == "PLAYER_REGEN_ENABLED" then
+            SyncPullEvents(false)
+        end
+        -- Coalesce plate bursts (a pack scrolling into view) into one update.
+        if not updatePending then
+            updatePending = true
+            C_Timer.After(0.05, RunPendingUpdate)
+        end
+    end)
+end
+
 local function StripDefeated(name)
     if not name then return name end
     name = name:gsub("[Dd]efeated", "")
@@ -1374,10 +1704,18 @@ local function CreateStandaloneFrame()
     f._timerDetailFS = f:CreateFontString(nil, "OVERLAY")
     f._timerDetailFS:SetWordWrap(false)
     f._timerDetailFS:SetNonSpaceWrap(false)
-    f._barBg = f:CreateTexture(nil, "BACKGROUND", nil, 1)
-    f._barFill = f:CreateTexture(nil, "ARTWORK")
-    f._seg3 = f:CreateTexture(nil, "OVERLAY")
-    f._seg2 = f:CreateTexture(nil, "OVERLAY")
+    -- Timer bar shell: outer host is the border/geometry anchor; inset clip holds
+    -- bg+fill so textured fills (Melli etc.) cannot bleed past the border.
+    -- Tick markers sit on a sibling layer ABOVE the clip frame (child frames draw
+    -- after parent textures, so ticks cannot live on the host itself).
+    local barHost, barClip = EnsureBarShell(f, "_barHost")
+    f._barBg, f._barFill = EnsureShellTextures(barClip, f, "_barBg", "_barFill")
+    f._barTickLayer = CreateFrame("Frame", nil, barHost)
+    f._barTickLayer:SetAllPoints(barHost)
+    f._barTickLayer:EnableMouse(false)
+    f._barTickLayer:SetFrameLevel(barClip:GetFrameLevel() + 2)
+    f._seg3 = f._barTickLayer:CreateTexture(nil, "OVERLAY")
+    f._seg2 = f._barTickLayer:CreateTexture(nil, "OVERLAY")
     f._threshFS = f:CreateFontString(nil, "OVERLAY")
     f._threshFS:SetParent(f._emtTextLayer)
     f._threshFS:SetWordWrap(false)
@@ -1497,8 +1835,8 @@ local function CreateStandaloneFrame()
     f._enemyFS = f:CreateFontString(nil, "OVERLAY")
     f._enemyFS:SetParent(f._emtTextLayer)
     f._enemyFS:SetWordWrap(false)
-    f._enemyBarBg = f:CreateTexture(nil, "BACKGROUND", nil, 1)
-    f._enemyBarFill = f:CreateTexture(nil, "ARTWORK")
+    local enemyHost, enemyClip = EnsureBarShell(f, "_enemyBarHost")
+    f._enemyBarBg, f._enemyBarFill = EnsureShellTextures(enemyClip, f, "_enemyBarBg", "_enemyBarFill")
     f._previewFS = f:CreateFontString(nil, "OVERLAY")
     f._previewFS:SetWordWrap(false)
 
@@ -1823,9 +2161,9 @@ local function RenderStandalone()
             local segmentGap = segmentedThresholds and max(0, p.timerBarSegmentGap or 2) or 0
             local plusThreeLabelX = max(0, min(_barW_for_thresh, _barW_for_thresh * (plusThreeT / maxTime) - segmentGap / 2))
             local plusTwoLabelX = max(0, min(_barW_for_thresh, _barW_for_thresh * (plusTwoT / maxTime) - segmentGap / 2))
-            local thresholdAnchorBar = f._barBg
+            local thresholdAnchorBar = f._barHost or f._barBg
             if underBarMode and p.showTimerBar == false and p.showEnemyBar ~= false then
-                thresholdAnchorBar = f._enemyBarBg
+                thresholdAnchorBar = f._enemyBarHost or f._enemyBarBg
             end
 
             -- Anchor a FontString at bar-local x = cx in the threshold row.
@@ -2001,9 +2339,11 @@ local function RenderStandalone()
     local function RenderEnemyForces()
         if p.showEnemyBar == false then
             f._enemyFS:Hide()
+            if f._enemyBarHost then f._enemyBarHost:Hide() end
             f._enemyBarBg:Hide()
             f._enemyBarFill:Hide()
             if f._enemyBarText then f._enemyBarText:Hide() end
+            HidePullSegments(f)
             return
         end
 
@@ -2016,8 +2356,11 @@ local function RenderStandalone()
             end
         end
         if not enemyObj then
-            f._enemyFS:Hide(); f._enemyBarBg:Hide(); f._enemyBarFill:Hide()
+            f._enemyFS:Hide()
+            if f._enemyBarHost then f._enemyBarHost:Hide() end
+            f._enemyBarBg:Hide(); f._enemyBarFill:Hide()
             if f._enemyBarText then f._enemyBarText:Hide() end
+            HidePullSegments(f)
             return
         end
 
@@ -2059,16 +2402,22 @@ local function RenderStandalone()
             local besideRoom = (not enemyObj.completed and pctPos == "BESIDE") and 62 or 0
             local barW = math.min(p.barWidth or 210, innerW - TBAR_PAD * 2) - besideRoom
             if barW < 60 then barW = 60 end
-            f._enemyBarBg:ClearAllPoints()
+            local enemyHost, enemyClip = EnsureBarShell(f, "_enemyBarHost")
+            EnsureShellTextures(enemyClip, f, "_enemyBarBg", "_enemyBarFill")
+            local eInset = GetBarBleedInset(p, true)
+            enemyHost:ClearAllPoints()
             if objAlign == "RIGHT" then
-                f._enemyBarBg:SetPoint("TOPRIGHT", f, "TOPRIGHT", -(PAD + TBAR_PAD), y)
+                enemyHost:SetPoint("TOPRIGHT", f, "TOPRIGHT", -(PAD + TBAR_PAD), y)
             elseif objAlign == "CENTER" then
-                f._enemyBarBg:SetPoint("TOP", f, "TOP", 0, y)
+                enemyHost:SetPoint("TOP", f, "TOP", 0, y)
             else
-                f._enemyBarBg:SetPoint("TOPLEFT", f, "TOPLEFT", PAD + TBAR_PAD, y)
+                enemyHost:SetPoint("TOPLEFT", f, "TOPLEFT", PAD + TBAR_PAD, y)
             end
-            f._enemyBarBg:SetSize(barW, ENEMY_BAR_H)
+            enemyHost:SetSize(barW, ENEMY_BAR_H)
+            LayoutBarClip(enemyHost, enemyClip, eInset)
+            enemyHost:Show()
             ApplyBarTexture(f._enemyBarBg, p.enemyBarBgTexture, 0.12, 0.12, 0.12, 0.9)
+            f._enemyBarBg:SetAllPoints(enemyClip)
             f._enemyBarBg:Show()
 
             local eR, eG, eB
@@ -2081,12 +2430,15 @@ local function RenderStandalone()
             end
 
             local epct = enemyObj.completed and 1 or min(1, max(0, pctRaw / 100))
-            local eFillW = max(1, barW * epct)
+            local clipW = max(1, barW - eInset * 2)
+            local clipH = max(1, ENEMY_BAR_H - eInset * 2)
+            local eFillW = max(1, clipW * epct)
             f._enemyBarFill:ClearAllPoints()
-            f._enemyBarFill:SetPoint("TOPLEFT", f._enemyBarBg, "TOPLEFT", 0, 0)
-            f._enemyBarFill:SetSize(eFillW, ENEMY_BAR_H)
+            f._enemyBarFill:SetPoint("TOPLEFT", enemyClip, "TOPLEFT", 0, 0)
+            f._enemyBarFill:SetSize(eFillW, clipH)
             ApplyBarTexture(f._enemyBarFill, p.enemyBarTexture, eR, eG, eB, 0.8)
             f._enemyBarFill:Show()
+            RenderPullSegments(f, enemyClip, run, enemyObj, p, clipW, clipH, eR, eG, eB)
 
             if not f._enemyBarText then
                 f._enemyBarText = f:CreateFontString(nil, "OVERLAY")
@@ -2101,7 +2453,7 @@ local function RenderStandalone()
                 f._enemyBarText:SetTextColor(1, 1, 1)
                 f._enemyBarText:SetText(FormatEnemyForcesText(enemyObj, enemyTextFormat, true))
                 f._enemyBarText:ClearAllPoints()
-                f._enemyBarText:SetPoint("CENTER", f._enemyBarBg, "CENTER", 0, 0)
+                f._enemyBarText:SetPoint("CENTER", enemyHost, "CENTER", 0, 0)
                 f._enemyBarText:Show()
             elseif pctPos == "BESIDE" then
                 SetFS(f._enemyBarText, enemyTextSize)
@@ -2114,9 +2466,9 @@ local function RenderStandalone()
                 f._enemyBarText:SetText(FormatEnemyForcesText(enemyObj, enemyTextFormat, true))
                 f._enemyBarText:ClearAllPoints()
                 if objAlign == "RIGHT" then
-                    f._enemyBarText:SetPoint("RIGHT", f._enemyBarBg, "LEFT", -4, 0)
+                    f._enemyBarText:SetPoint("RIGHT", enemyHost, "LEFT", -4, 0)
                 else
-                    f._enemyBarText:SetPoint("LEFT", f._enemyBarBg, "RIGHT", 4, 0)
+                    f._enemyBarText:SetPoint("LEFT", enemyHost, "RIGHT", 4, 0)
                 end
                 f._enemyBarText:Show()
             else
@@ -2333,7 +2685,8 @@ local function RenderStandalone()
         y = y - (barGap - defaultSandwichGap)
     end
 
-    if underBarMode then
+    -- Gaps style renders threshold labels above the bar too; reserve space early like under-bar mode.
+    if underBarMode or p.timerBarStyle == "SEGMENTS" then
         RenderThresholdText()
     end
 
@@ -2342,25 +2695,34 @@ local function RenderStandalone()
         local barW = math.min(p.barWidth or 210, innerW - TBAR_PAD * 2)
         if barW < 60 then barW = 60 end
 
-        f._barBg:ClearAllPoints()
+        local barHost, barClip = EnsureBarShell(f, "_barHost")
+        EnsureShellTextures(barClip, f, "_barBg", "_barFill")
+        local barInset = GetBarBleedInset(p, false)
+        barHost:ClearAllPoints()
         local _barAlign = _ra(p.timerAlign or "CENTER")
         if _barAlign == "RIGHT" then
-            f._barBg:SetPoint("TOPRIGHT", f, "TOPRIGHT", -(PAD + TBAR_PAD), y)
+            barHost:SetPoint("TOPRIGHT", f, "TOPRIGHT", -(PAD + TBAR_PAD), y)
         elseif _barAlign == "LEFT" then
-            f._barBg:SetPoint("TOPLEFT", f, "TOPLEFT", PAD + TBAR_PAD, y)
+            barHost:SetPoint("TOPLEFT", f, "TOPLEFT", PAD + TBAR_PAD, y)
         else
-            f._barBg:SetPoint("TOP", f, "TOP", 0, y)
+            barHost:SetPoint("TOP", f, "TOP", 0, y)
         end
-        f._barBg:SetSize(barW, TBAR_H)
+        barHost:SetSize(barW, TBAR_H)
+        LayoutBarClip(barHost, barClip, barInset)
+        barHost:Show()
+
+        local clipW = max(1, barW - barInset * 2)
+        local clipH = max(1, TBAR_H - barInset * 2)
         ApplyBarTexture(f._barBg, p.barBgTexture, 0.12, 0.12, 0.12, 0.9)
+        f._barBg:SetAllPoints(barClip)
         f._barBg:SetAlpha(1)
         f._barBg:Show()
 
         local fillPct = min(1, elapsed / maxTime)
-        local fillW = max(1, barW * fillPct)
+        local fillW = max(1, clipW * fillPct)
         f._barFill:ClearAllPoints()
-        f._barFill:SetPoint("TOPLEFT", f._barBg, "TOPLEFT", 0, 0)
-        f._barFill:SetSize(fillW, TBAR_H)
+        f._barFill:SetPoint("TOPLEFT", barClip, "TOPLEFT", 0, 0)
+        f._barFill:SetSize(fillW, clipH)
         local _fillA = p.timerInBar and (p.barFillAlphaExpanded or 0.85) or 0.85
         ApplyBarTexture(f._barFill, p.barTexture, timerBarR, timerBarG, timerBarB, _fillA)
         f._barFill:Show()
@@ -2372,6 +2734,9 @@ local function RenderStandalone()
         local function _snap(v) return _PP and _PP.SnapForES(v, _es) or v end
 
         local function HideTimerSegments()
+            if f._timerSegHosts then
+                for _, host in ipairs(f._timerSegHosts) do host:Hide() end
+            end
             if f._timerSegBgs then
                 for _, tex in ipairs(f._timerSegBgs) do tex:Hide() end
             end
@@ -2381,14 +2746,25 @@ local function RenderStandalone()
         end
 
         local function EnsureTimerSegments()
+            f._timerSegHosts = f._timerSegHosts or {}
             f._timerSegBgs = f._timerSegBgs or {}
             f._timerSegFills = f._timerSegFills or {}
             for i = 1, 3 do
-                if not f._timerSegBgs[i] then
-                    f._timerSegBgs[i] = f:CreateTexture(nil, "BACKGROUND", nil, 1)
-                end
-                if not f._timerSegFills[i] then
-                    f._timerSegFills[i] = f:CreateTexture(nil, "ARTWORK")
+                if not f._timerSegHosts[i] then
+                    -- Per-segment shell so each segment border can clip its own
+                    -- melli fill without a shared outer border spanning the gaps.
+                    local host = CreateFrame("Frame", nil, f)
+                    host:EnableMouse(false)
+                    host:SetClipsChildren(true)
+                    local clip = CreateFrame("Frame", nil, host)
+                    clip:EnableMouse(false)
+                    host._clip = clip
+                    f._timerSegHosts[i] = host
+                    f._timerSegBgs[i] = clip:CreateTexture(nil, "BACKGROUND", nil, 1)
+                    f._timerSegBgs[i]:SetAllPoints(clip)
+                    f._timerSegFills[i] = clip:CreateTexture(nil, "ARTWORK")
+                else
+                    f._timerSegHosts[i]:SetClipsChildren(true)
                 end
             end
         end
@@ -2396,6 +2772,8 @@ local function RenderStandalone()
         local barStyle = p.timerBarStyle or "TICKS"
         if barStyle == "SEGMENTS" then
             EnsureTimerSegments()
+            -- Host stays shown as the layout spacer for ticks/thresholds; hide
+            -- the continuous fill path so only the three segment shells draw.
             f._barBg:SetAlpha(0)
             f._barFill:Hide()
             f._seg3:Hide()
@@ -2421,19 +2799,27 @@ local function RenderStandalone()
                 local w = x2v - x1
                 if w < 1 then w = 1 end
 
+                local host = f._timerSegHosts[i]
+                local clip = host._clip
+                host:ClearAllPoints()
+                host:SetPoint("TOPLEFT", barHost, "TOPLEFT", x1, 0)
+                host:SetSize(w, TBAR_H)
+                LayoutBarClip(host, clip, barInset)
+                host:Show()
+
                 local bg = f._timerSegBgs[i]
-                bg:ClearAllPoints()
-                bg:SetPoint("TOPLEFT", f._barBg, "TOPLEFT", x1, 0)
-                bg:SetSize(w, TBAR_H)
+                bg:SetAllPoints(clip)
                 ApplyBarTexture(bg, p.barBgTexture, 0.12, 0.12, 0.12, 0.9)
                 bg:Show()
 
                 local segDur = max(1, seg.t2 - seg.t1)
                 local segPct = min(1, max(0, (elapsed - seg.t1) / segDur))
+                local segClipW = max(1, w - barInset * 2)
+                local segClipH = max(1, TBAR_H - barInset * 2)
                 local fill = f._timerSegFills[i]
                 fill:ClearAllPoints()
-                fill:SetPoint("TOPLEFT", bg, "TOPLEFT", 0, 0)
-                fill:SetSize(max(1, w * segPct), TBAR_H)
+                fill:SetPoint("TOPLEFT", clip, "TOPLEFT", 0, 0)
+                fill:SetSize(max(1, segClipW * segPct), segClipH)
                 ApplyBarTexture(fill, p.barTexture, timerBarR, timerBarG, timerBarB, _fillA)
                 if segPct > 0 then fill:Show() else fill:Hide() end
             end
@@ -2449,9 +2835,15 @@ local function RenderStandalone()
             f._seg3:Hide()
             f._seg2:Hide()
         else
+            -- Ticks sit in the inset clip band so they cannot stick past the
+            -- border the way a full-height mark on the outer host edge would.
+            if f._barTickLayer then
+                f._barTickLayer:SetFrameLevel(barClip:GetFrameLevel() + 2)
+            end
             f._seg3:ClearAllPoints()
-            f._seg3:SetSize(_tickW, TBAR_H)
-            f._seg3:SetPoint("TOPLEFT", f._barBg, "TOPLEFT", _snap(barW * (plusThreeT / maxTime)) - _tickW / 2, 0)
+            f._seg3:SetSize(_tickW, clipH)
+            f._seg3:SetPoint("TOPLEFT", barHost, "TOPLEFT",
+                _snap(barW * (plusThreeT / maxTime)) - _tickW / 2, -barInset)
             if p.timerTickColor or whiteTicks or elapsed > plusThreeT then
                 f._seg3:SetColorTexture(tickR, tickG, tickB, tickA)
             else
@@ -2460,8 +2852,9 @@ local function RenderStandalone()
             f._seg3:Show()
 
             f._seg2:ClearAllPoints()
-            f._seg2:SetSize(_tickW, TBAR_H)
-            f._seg2:SetPoint("TOPLEFT", f._barBg, "TOPLEFT", _snap(barW * (plusTwoT / maxTime)) - _tickW / 2, 0)
+            f._seg2:SetSize(_tickW, clipH)
+            f._seg2:SetPoint("TOPLEFT", barHost, "TOPLEFT",
+                _snap(barW * (plusTwoT / maxTime)) - _tickW / 2, -barInset)
             if p.timerTickColor or whiteTicks or elapsed > plusTwoT then
                 f._seg2:SetColorTexture(tickR, tickG, tickB, tickA)
             else
@@ -2496,9 +2889,9 @@ local function RenderStandalone()
             SetTextDiff(f._barTimerFS, barTimerText)
             f._barTimerFS:ClearAllPoints()
             if p.timerInBarLeftText then
-                f._barTimerFS:SetPoint("LEFT", f._barBg, "LEFT", 5, 0)
+                f._barTimerFS:SetPoint("LEFT", barHost, "LEFT", 5, 0)
             else
-                f._barTimerFS:SetPoint("CENTER", f._barBg, "CENTER", 0, 0)
+                f._barTimerFS:SetPoint("CENTER", barHost, "CENTER", 0, 0)
             end
             f._barTimerFS:Show()
         elseif f._barTimerFS then
@@ -2507,8 +2900,12 @@ local function RenderStandalone()
 
         y = y - TBAR_H - ROW_GAP - 2
     else
+        if f._barHost then f._barHost:Hide() end
         f._barBg:Hide(); f._barFill:Hide()
         f._seg3:Hide(); f._seg2:Hide()
+        if f._timerSegHosts then
+            for _, host in ipairs(f._timerSegHosts) do host:Hide() end
+        end
         if f._timerSegBgs then
             for _, tex in ipairs(f._timerSegBgs) do tex:Hide() end
         end
@@ -2522,7 +2919,7 @@ local function RenderStandalone()
         RenderEnemyForces()
     end
 
-    if not underBarMode then
+    if not (underBarMode or p.timerBarStyle == "SEGMENTS") then
         RenderThresholdText()
     end
 
@@ -2825,9 +3222,11 @@ local _RUN_EVENTS = { "SCENARIO_CRITERIA_UPDATE", "ZONE_CHANGED_NEW_AREA" }
 
 local function _registerRunEvents()
     for _, ev in ipairs(_RUN_EVENTS) do runtimeFrame:RegisterEvent(ev) end
+    SyncPullEvents()
 end
 local function _unregisterRunEvents()
     for _, ev in ipairs(_RUN_EVENTS) do runtimeFrame:UnregisterEvent(ev) end
+    SyncPullEvents()
 end
 
 for _, ev in ipairs(_ALWAYS_EVENTS) do runtimeFrame:RegisterEvent(ev) end
@@ -2890,6 +3289,15 @@ function EMT:OnInitialize()
                 end
             end
         end
+        if db.profile.fastestRunSplits then
+            for scopeKey in pairs(db.profile.fastestRunSplits) do
+                local mapIDStr = tostring(scopeKey):match("^(%d+)")
+                local mapID = tonumber(mapIDStr)
+                if mapID and not validMapIDs[mapID] then
+                    db.profile.fastestRunSplits[scopeKey] = nil
+                end
+            end
+        end
     end)
 
     -- runtimeFrame is now event-driven (registered above); no OnUpdate needed.
@@ -2901,6 +3309,7 @@ function EMT:OnEnable()
     -- timer feature turned off. Both are no-ops while their flags are off.
     if ns.TSB_OnEnable then ns.TSB_OnEnable(db) end
     if ns.TFB_OnEnable then ns.TFB_OnEnable(db) end
+    if ns.RS_OnEnable then ns.RS_OnEnable(db) end
     if not db or not db.profile.enabled then return end
 
     if EllesmereUI and EllesmereUI.RegisterUnlockModeListener then
@@ -3016,4 +3425,3 @@ function EMT:OnEnable()
         })
     end
 end
-

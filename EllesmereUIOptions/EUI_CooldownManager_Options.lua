@@ -8,6 +8,15 @@ local ADDON_NAME = "EllesmereUICooldownManager"
 local ns = EllesmereUI._ModuleNS[ADDON_NAME]  -- module namespace (published by the module at its load)
 if not ns then return end  -- module disabled: no options page
 
+-- Gates a row under Blizzard Style only: the classic kit draws chrome round
+-- the user's own fill and background, so those settings stay live there.
+local function GateBlizzardOnly(key, cfg)
+    if EllesmereUI.BlizzStyle.Active(key) == "blizzard" then
+        return EllesmereUI.BlizzStyle.Gate(key, cfg)
+    end
+    return cfg
+end
+
 local PAGE_BAR_GLOWS    = "Bar Glows"
 local PAGE_BUFF_BARS    = "Tracking Bars"
 local PAGE_CDM_BARS     = "CDM Bars"
@@ -326,9 +335,12 @@ initFrame:SetScript("OnEvent", function(self)
         glowOvr:SetAllPoints(iconFrame)
         glowOvr:SetFrameLevel(iconFrame:GetFrameLevel() + 2)
         glowOvr:EnableMouse(false)
+        glowOvr._euiGlowPreview = true  -- exempt from Show Glows Only in Combat
 
         local function RefreshPreview()
-            EllesmereUI.Glows.StopAllGlows(glowOvr)
+            -- Through the CDM wrapper, not Glows directly: it also clears this
+            -- overlay's glow record, so a preview left off keeps no stale one.
+            ns.StopNativeGlow(glowOvr)
             if isOffFn() then
                 iconFrame:SetAlpha(0.3)
                 return
@@ -892,6 +904,26 @@ initFrame:SetScript("OnEvent", function(self)
 
         local ACCENT = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
 
+        -- Small inline gear button anchored to the left of a DualRow half's
+        -- control (mirrors the cog pattern used throughout the options UI,
+        -- e.g. the Name Text cog on BuildCDMBarsPage).
+        local function MakeCogBtn(rgn, showFn, anchorTo, iconPath)
+            local anchor = anchorTo or (rgn and (rgn._lastInline or rgn._control)) or rgn
+            local cogBtn = CreateFrame("Button", nil, rgn)
+            cogBtn:SetSize(26, 26)
+            cogBtn:SetPoint("RIGHT", anchor, "LEFT", -8, 0)
+            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            cogBtn:SetAlpha(0.4)
+            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+            cogTex:SetAllPoints()
+            cogTex:SetTexture(iconPath or EllesmereUI.RESIZE_ICON)
+            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(self) showFn(self) end)
+            if rgn then rgn._lastInline = cogBtn end
+            return cogBtn
+        end
+
         -------------------------------------------------------------------
         --  Content Header: Live Action Bar Preview (replica of BuildLivePreview)
         -------------------------------------------------------------------
@@ -1088,15 +1120,20 @@ initFrame:SetScript("OnEvent", function(self)
             local brdColor, brdClassColor
             if isCDMBar and cdmBd then
                 brdSize = cdmBd.borderSize or 1
+                -- This preview draws a solid border, so an exact size (borderSizePx)
+                -- shows here only while the bar's style is Solid.
+                local cdmTex = cdmBd.borderTexture or "solid"
+                local cdmPx = EllesmereUI.BorderPx(cdmBd.borderSizePx, brdSize, cdmTex)
+                if cdmPx and cdmTex == "solid" then brdSize = cdmPx end
                 brdColor = { r = cdmBd.borderR or 0, g = cdmBd.borderG or 0, b = cdmBd.borderB or 0, a = cdmBd.borderA or 1 }
                 brdClassColor = cdmBd.borderClassColor
             elseif not isCDMBar and barSettings then
+                -- None..Strong are the steps 0-4; an unknown or numeric value renders as Thin, as the bar does.
                 local thickness = barSettings.borderThickness or "thin"
-                if thickness == "none" then brdSize = 0
-                elseif thickness == "thin" then brdSize = 1
-                elseif thickness == "medium" then brdSize = 2
-                elseif thickness == "thick" then brdSize = 3
-                else brdSize = 1 end
+                brdSize = EllesmereUI.BORDER_STEP_OF_LABEL[thickness] or 1
+                local abTex = barSettings.borderTexture or "solid"
+                local abPx = EllesmereUI.BorderPx(barSettings.borderThicknessPx, brdSize, abTex)
+                if abPx and abTex == "solid" then brdSize = abPx end
                 brdColor = barSettings.borderColor
                 brdClassColor = barSettings.borderClassColor
             end
@@ -1533,6 +1570,7 @@ initFrame:SetScript("OnEvent", function(self)
                           setValue = function(v)
                               entry.mode = v
                               Refresh()
+                              EllesmereUI:RefreshPage()
                           end,
                         },
                         { type = "toggle", text = "Only In Combat",
@@ -1562,9 +1600,24 @@ initFrame:SetScript("OnEvent", function(self)
                         ns.StartNativeGlow(ov, style, cr, cg, cb)
                     end
 
-                    -- Row 2: Glow Type (with eyeball) | Glow Color Swatch Selectors
-                    local glowRow
-                    glowRow, h = W:DualRow(parent, y,
+                    -- At Stacks (toggle) + gear (Comparison / Stack Count), paired with
+                    -- Glow Type so every row stays filled. Same operator set and same
+                    -- fail-open bias as the per-icon Glow at Stacks feature (Stack Text
+                    -- and Glows cog): an unknown/secret application count never blocks
+                    -- the glow.
+                    local stackRow
+                    stackRow, h = W:DualRow(parent, y,
+                        { type = "toggle", text = "At Stacks",
+                          tooltip = "Only glow once the buff's stack count matches the comparison set via the gear.",
+                          disabled = function() return entry.mode == "MISSING" end,
+                          disabledTooltip = "Not available in Buff Missing mode",
+                          getValue = function() return entry.stackEnabled == true end,
+                          setValue = function(v)
+                              entry.stackEnabled = v or nil
+                              Refresh()
+                              EllesmereUI:RefreshPage()
+                          end,
+                        },
                         { type = "dropdown", text = "Glow Type",
                           values = glowLabels, order = glowOrder,
                           disabled = function() return BarHasCustomShape(curBar) end,
@@ -1578,15 +1631,60 @@ initFrame:SetScript("OnEvent", function(self)
                               Refresh()
                               RefreshPreviewGlow()
                           end,
-                        },
-                        { type = "label", text = "Glow Color" }
+                        }
                     );  y = y - h
+                    do
+                        local rgn = stackRow._leftRegion
+                        local _, cogShow = EllesmereUI.BuildCogPopup({
+                            title = "At Stacks", noOwnerDim = true,
+                            frameStrata = "FULLSCREEN_DIALOG", frameLevel = 350,
+                            rows = {
+                                { type = "dropdown", label = "Comparison",
+                                  values = { lt = "Below (<)", lte = "At Most (<=)", eq = "Exactly (=)", gte = "At Least (>=)", gt = "Above (>)" },
+                                  order = { "lt", "lte", "eq", "gte", "gt" },
+                                  get = function() return entry.stackOperator or "gte" end,
+                                  set = function(v)
+                                      entry.stackOperator = v ~= "gte" and v or nil
+                                      Refresh()
+                                  end },
+                                { type = "input", label = "Stack Count", inputWidth = 42, commitOnBlur = true,
+                                  get = function() return tostring(tonumber(entry.stackThreshold) or 2) end,
+                                  set = function(v)
+                                      local t = math.floor(tonumber(v) or 2)
+                                      if t < 1 then t = 1 end
+                                      if t > 99 then t = 99 end
+                                      entry.stackThreshold = t
+                                      Refresh()
+                                  end },
+                            },
+                        })
+                        local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.COGS_ICON)
+                        local cogDis = CreateFrame("Frame", nil, rgn)
+                        cogDis:SetAllPoints(cogBtn); cogDis:SetFrameLevel(cogBtn:GetFrameLevel() + 5)
+                        cogDis:EnableMouse(true)
+                        cogDis:SetScript("OnEnter", function()
+                            local tip = entry.mode == "MISSING" and "Not available in Buff Missing mode" or "Enable At Stacks"
+                            EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip(tip))
+                        end)
+                        cogDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                        local function UpdateCogDisStack()
+                            if entry.mode == "MISSING" or not entry.stackEnabled then
+                                cogBtn:SetAlpha(0.4)
+                                cogDis:Show()
+                            else
+                                cogDis:Hide()
+                            end
+                        end
+                        cogBtn:HookScript("OnShow", UpdateCogDisStack)
+                        EllesmereUI.RegisterWidgetRefresh(UpdateCogDisStack)
+                        UpdateCogDisStack()
+                    end
 
-                    -- Eyeball preview toggle (on left region of glow type row)
+                    -- Eyeball preview toggle (on right region of the At Stacks / Glow Type row)
                     if not EllesmereUI._prebuilding then
                         local EYE_VIS   = EllesmereUI.EYE_VISIBLE_ICON
                         local EYE_INVIS = EllesmereUI.EYE_INVISIBLE_ICON
-                        local leftRgn = glowRow._leftRegion
+                        local leftRgn = stackRow._rightRegion
                         if leftRgn and leftRgn._control then
                             local eyeBtn = CreateFrame("Button", nil, leftRgn)
                             eyeBtn:SetSize(26, 26)
@@ -1606,6 +1704,7 @@ initFrame:SetScript("OnEvent", function(self)
                                     local ov = CreateFrame("Frame", nil, previewBtn)
                                     ov:SetAllPoints(previewBtn)
                                     ov:SetFrameLevel(previewBtn:GetFrameLevel() + 10)
+                                    ov._euiGlowPreview = true  -- exempt from Show Glows Only in Combat
                                     _bgPreviewGlowOverlays[pvKey] = ov
                                 end
                                 local ov = _bgPreviewGlowOverlays[pvKey]
@@ -1635,12 +1734,28 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                     end
 
-                    -- Inline color swatch for glow color (on right region of row 2)
+                    -- Row: Glow Color (swatches) | Remove Glow
+                    local colorRow
+                    colorRow, h = W:DualRow(parent, y,
+                        { type = "label", text = "Glow Color" },
+                        { type = "labeledButton", text = "Remove Glow", buttonText = "Remove", width = 150,
+                          onClick = function()
+                              table.remove(buffList, removeAIdx)
+                              if #buffList == 0 then
+                                  bg.assignments[assignKey] = nil
+                              end
+                              Refresh()
+                              EllesmereUI:RefreshPage(true)
+                          end,
+                        }
+                    );  y = y - h
+
+                    -- Inline color swatch for glow color (on left region)
                     if not EllesmereUI._prebuilding then
-                        local rightRgn = glowRow._rightRegion
-                        if rightRgn and EllesmereUI.BuildTrioColorSwatch then
+                        local leftRgn = colorRow._leftRegion
+                        if leftRgn and EllesmereUI.BuildTrioColorSwatch then
                             local glowSwatch, defaultSwatch, classSwatch = EllesmereUI.BuildTrioColorSwatch(
-                                rightRgn, glowRow:GetFrameLevel() + 3,
+                                leftRgn, colorRow:GetFrameLevel() + 3,
                                 {
                                     getMode = function() return entry.colorMode or "default" end,
                                     setMode = function(m) entry.colorMode = m end,
@@ -1655,35 +1770,19 @@ initFrame:SetScript("OnEvent", function(self)
                                     onChange = function() Refresh(); RefreshPreviewGlow(); EllesmereUI:RefreshPage() end,
                                     overrideSize = 20,
                                 })
-                            PP.Point(classSwatch, "RIGHT", rightRgn, "RIGHT", -20, 0)
+                            PP.Point(classSwatch, "RIGHT", leftRgn, "RIGHT", -20, 0)
                             PP.Point(glowSwatch, "RIGHT", classSwatch, "LEFT", -8, 0)
                             PP.Point(defaultSwatch, "RIGHT", glowSwatch, "LEFT", -8, 0)
                         end
                     end
 
-                    -- Row 3: Remove Glow on its own row (left slot), after the glow config.
-                    local removeRow
-                    removeRow, h = W:DualRow(parent, y,
-                        { type = "labeledButton", text = "Remove Glow", buttonText = "Remove", width = 150,
-                          onClick = function()
-                              table.remove(buffList, removeAIdx)
-                              if #buffList == 0 then
-                                  bg.assignments[assignKey] = nil
-                              end
-                              Refresh()
-                              EllesmereUI:RefreshPage(true)
-                          end,
-                        },
-                        { type = "spacer" }
-                    );  y = y - h
-
                     -- Buff icon to the LEFT of the Remove button
                     do
-                        local leftRgn = removeRow._leftRegion
-                        if leftRgn and leftRgn._control then
-                            local btn = leftRgn._control
+                        local rightRgn = colorRow._rightRegion
+                        if rightRgn and rightRgn._control then
+                            local btn = rightRgn._control
                             local btnH = btn:GetHeight()
-                            local ico = leftRgn:CreateTexture(nil, "ARTWORK")
+                            local ico = rightRgn:CreateTexture(nil, "ARTWORK")
                             ico:SetSize(btnH, btnH)
                             PP.Point(ico, "RIGHT", btn, "LEFT", -8, 0)
                             ico:SetTexCoord(0.08, 0.92, 0.08, 0.92)
@@ -3279,7 +3378,7 @@ initFrame:SetScript("OnEvent", function(self)
                         message = "Switching to EllesmereUI Tracking Bars requires a reload.",
                         confirmText = "Reload Now",
                         cancelText = "Later",
-                        onConfirm = function() ReloadUI() end,
+                        reload    = true,
                     })
                 end,
                 function()
@@ -4098,12 +4197,12 @@ initFrame:SetScript("OnEvent", function(self)
                         message = "This will disable EllesmereUI Tracking Bars and show Blizzard's default Tracked Bars display instead.",
                         confirmText = "Switch & Reload",
                         cancelText = "Cancel",
+                        reload = true,
                         onConfirm = function()
                             local p = DB()
                             if p and p.cdmBars then
                                 p.cdmBars.useBlizzardBuffBars = true
                             end
-                            ReloadUI()
                         end,
                     })
                 end)
@@ -4908,13 +5007,13 @@ initFrame:SetScript("OnEvent", function(self)
                   -- Full rebuild: the Width slider's floor and sync tooltips are orientation-dependent.
                   EllesmereUI:RefreshPage(true)
               end },
-            { type = "dropdown", text = "Bar Texture",
+            GateBlizzardOnly("cdmbars", { type = "dropdown", text = "Bar Texture",
               values = texValues, order = texOrder,
               getValue = function() local bd = SelectedTBB(); return bd and bd.texture or "none" end,
               setValue = function(v)
                   local bd = SelectedTBB(); if not bd then return end
                   bd.texture = v; RefreshTBB()
-              end }
+              end })
         );  y = y - h
 
         -- Name Text (dropdown + cog) | Duration Text (dropdown + cog)
@@ -5455,6 +5554,31 @@ initFrame:SetScript("OnEvent", function(self)
                           bd.chargeHashLineB, bd.chargeHashLineA = b, a
                           RefreshTBB()
                       end },
+                    { type = "toggle", label = "Partial Charge Shade",
+                      tooltip = "Darkens the section of the bar that is still recharging the next charge.",
+                      get = function()
+                          local bd = SelectedTBB()
+                          return bd and bd.chargeHashShade == true
+                      end,
+                      set = function(v)
+                          local bd = SelectedTBB(); if not bd then return end
+                          bd.chargeHashShade = v and true or nil
+                          RefreshTBB()
+                      end },
+                    { type = "slider", label = "Shade Darkness", min = 5, max = 95, step = 5,
+                      disabled = function()
+                          local bd = SelectedTBB()
+                          return not bd or bd.chargeHashShade ~= true
+                      end,
+                      get = function()
+                          local bd = SelectedTBB()
+                          return bd and math.floor(((bd.chargeHashShadeAlpha or 0.5) * 100) + 0.5) or 50
+                      end,
+                      set = function(v)
+                          local bd = SelectedTBB(); if not bd then return end
+                          bd.chargeHashShadeAlpha = (v or 50) / 100
+                          RefreshTBB()
+                      end },
                 },
             })
             local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.COGS_ICON)
@@ -5514,6 +5638,7 @@ initFrame:SetScript("OnEvent", function(self)
         -------------------------------------------------------------------
         local displayHeader
         displayHeader, h = W:SectionHeader(parent, "Display", y);  y = y - h
+        y = EllesmereUI.BlizzStyle.Note(parent, y, "cdmbars")
 
         -- Visibility: one control, the shared axis list plus the TBB-only Hide When
         -- Inactive row (single-lane, so it rides in as an extraItem). No mouseover for
@@ -5563,7 +5688,7 @@ initFrame:SetScript("OnEvent", function(self)
               end },
             { type = "multiSwatch", text = "Background Color",
               swatches = {
-                  { tooltip = "Background Color", hasAlpha = true,
+                  GateBlizzardOnly("cdmbars", { tooltip = "Background Color", hasAlpha = true,
                     getValue = function()
                         local bd = SelectedTBB()
                         return (bd and bd.bgR or 0), (bd and bd.bgG or 0), (bd and bd.bgB or 0), (bd and bd.bgA or 0.4)
@@ -5571,14 +5696,14 @@ initFrame:SetScript("OnEvent", function(self)
                     setValue = function(r, g, b, a)
                         local bd = SelectedTBB(); if not bd then return end
                         bd.bgR, bd.bgG, bd.bgB, bd.bgA = r, g, b, a; RefreshTBB()
-                    end },
+                    end }),
               } }
         );  y = y - h
 
         -- Fill Color (dropdown: auto/custom + gradient mode + 2 inline swatches) | Show Spark
         local fillRow
         fillRow, h = W:DualRow(parent, y,
-            { type = "dropdown", text = "Fill Color",
+            EllesmereUI.BlizzStyle.Gate("cdmbars", { type = "dropdown", text = "Fill Color",
               values = {
                   none = "Custom Color",
                   VERTICAL = "Vertical Gradient",
@@ -5601,7 +5726,7 @@ initFrame:SetScript("OnEvent", function(self)
                       bd.gradientDir = v
                   end
                   RefreshTBB(); EllesmereUI:RefreshPage()
-              end },
+              end }),
             { type = "toggle", text = "Show Spark",
               getValue = function() local bd = SelectedTBB(); return bd and bd.showSpark end,
               setValue = function(v)
@@ -5673,7 +5798,8 @@ initFrame:SetScript("OnEvent", function(self)
             local function UpdateSwatchStates()
                 local bd = SelectedTBB()
                 local isAuto = false
-                local noGrad = not bd or not bd.gradientEnabled
+                -- Blizzard Style keeps the flat atlas fill, so the gradient end colour is inert there.
+                local noGrad = not bd or not bd.gradientEnabled or EllesmereUI.BlizzStyle.Get("cdmbars")
                 -- Fill swatch: disabled in auto mode
                 if isAuto then fillSwatch:SetAlpha(0.3); fillBlock:Show()
                 else fillSwatch:SetAlpha(1); fillBlock:Hide() end
@@ -5690,7 +5816,7 @@ initFrame:SetScript("OnEvent", function(self)
             local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
             local tbbBsRow
             tbbBsRow, h = W:DualRow(parent, y,
-                { type="dropdown", text="Border Texture",
+                EllesmereUI.BlizzStyle.Gate("cdmbars", { type="dropdown", text="Border Texture",
                   values=texValues, order=texOrder,
                   getValue=function() local bd = SelectedTBB(); return bd and bd.borderTexture or "solid" end,
                   setValue=function(v)
@@ -5701,17 +5827,51 @@ initFrame:SetScript("OnEvent", function(self)
                       bd.borderBehind = _bbehind
                       local defSz = EllesmereUI.GetBorderDefaultSize("resourcebars", v)
                       if defSz then bd.borderSize = defSz end
-                      RefreshTBB(); EllesmereUI:RefreshPage()
-                  end },
-                { type = "slider", text = "Border Size",
-                  min = 0, max = 5, step = 1,
-                  getValue = function() local bd = SelectedTBB(); return bd and bd.borderSize or 0 end,
-                  setValue = function(v)
-                      local bd = SelectedTBB(); if not bd then return end
-                      bd.borderSize = v; RefreshTBB()
-                  end });  y = y - h
-            -- Inline border color swatch on Border Size (right region)
+                      if bd.borderSizePx then bd.borderSizePx = false end
+                      RefreshTBB(); EllesmereUI:RefreshPage(true)
+                  end }),
+                -- Classic WoW UI: the slot sizes the vanilla frame instead.
+                (EllesmereUI.BlizzStyle.Active("cdmbars") == "classic") and EllesmereUI.BlizzStyle.ClassicBorderSizeCfg(
+                    function() local bd = SelectedTBB(); return bd and bd.stockBorderScale end,
+                    function(v)
+                        local bd = SelectedTBB(); if not bd then return end
+                        bd.stockBorderScale = v; RefreshTBB()
+                    end) or
+                EllesmereUI.BlizzStyle.Gate("cdmbars", EllesmereUI.BorderPxSliderCfg({ text = "Border Size",
+                  getStep = function() local bd = SelectedTBB(); return bd and bd.borderSize or 0 end,
+                  setStep = function(step) local bd = SelectedTBB(); if bd then bd.borderSize = step end end,
+                  getTex = function() local bd = SelectedTBB(); return bd and bd.borderTexture or "solid" end,
+                  getPx = function() local bd = SelectedTBB(); return bd and bd.borderSizePx end,
+                  setPx = function(v) local bd = SelectedTBB(); if bd then bd.borderSizePx = v end end,
+                  apply = function() RefreshTBB() end,
+                })));  y = y - h
+            -- Width Offset | Height Offset: the textured border's outward offsets,
+            -- present only while a textured style is selected (built on the
+            -- prebuild pass too, so the y advance is identical).
             do
+                local bd0 = SelectedTBB()
+                local tex0 = bd0 and bd0.borderTexture or "solid"
+                if tex0 ~= "" and tex0 ~= "solid" then
+                    local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs({
+                        addonKey = "resourcebars",
+                        getTex = function() local bd = SelectedTBB(); return bd and bd.borderTexture or "solid" end,
+                        getStep = function() local bd = SelectedTBB(); return bd and bd.borderSize or 0 end,
+                        getSizeKey = function() local bd = SelectedTBB(); return bd and bd.borderSize or 0 end,
+                        getPx = function() local bd = SelectedTBB(); return bd and bd.borderSizePx end,
+                        getX = function() local bd = SelectedTBB(); return bd and bd.borderTextureOffset end,
+                        setX = function(v) local bd = SelectedTBB(); if bd then bd.borderTextureOffset = v end end,
+                        getY = function() local bd = SelectedTBB(); return bd and bd.borderTextureOffsetY end,
+                        setY = function(v) local bd = SelectedTBB(); if bd then bd.borderTextureOffsetY = v end end,
+                        apply = function() RefreshTBB() end,
+                    })
+                    _, h = W:DualRow(parent, y,
+                        EllesmereUI.BlizzStyle.Gate("cdmbars", ocfgL),
+                        EllesmereUI.BlizzStyle.Gate("cdmbars", ocfgR));  y = y - h
+                end
+            end
+            -- Inline border color swatch on Border Size (right region); none
+            -- under Classic WoW UI, whose slider sizes the vanilla frame.
+            if EllesmereUI.BlizzStyle.Active("cdmbars") ~= "classic" then
                 local rgn = tbbBsRow._rightRegion
                 local ctrl = rgn._control
                 local borderSwatch, updateBorderSwatch = EllesmereUI.BuildColorSwatch(
@@ -5727,36 +5887,13 @@ initFrame:SetScript("OnEvent", function(self)
                     false, 20)
                 PP.Point(borderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
                 EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
+                EllesmereUI.BlizzStyle.BlockInline("cdmbars", borderSwatch)
             end
             do
                 local rgn = tbbBsRow._leftRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
-                    title = "Border Offset",
+                    title = "Border Options",
                     rows = {
-                        { type = "slider", label = "Offset X", min = -10, max = 10, step = 1,
-                          get = function()
-                              local bd = SelectedTBB(); if not bd then return 0 end
-                              local v = bd.borderTextureOffset
-                              if v then return v end
-                              local dox = EllesmereUI.GetBorderDefaults("resourcebars", bd.borderTexture or "solid", bd.borderSize or 0)
-                              return dox
-                          end,
-                          set = function(v)
-                              local bd = SelectedTBB(); if not bd then return end
-                              bd.borderTextureOffset = v; RefreshTBB()
-                          end },
-                        { type = "slider", label = "Offset Y", min = -10, max = 10, step = 1,
-                          get = function()
-                              local bd = SelectedTBB(); if not bd then return 0 end
-                              local v = bd.borderTextureOffsetY
-                              if v then return v end
-                              local _, doy = EllesmereUI.GetBorderDefaults("resourcebars", bd.borderTexture or "solid", bd.borderSize or 0)
-                              return doy
-                          end,
-                          set = function(v)
-                              local bd = SelectedTBB(); if not bd then return end
-                              bd.borderTextureOffsetY = v; RefreshTBB()
-                          end },
                         { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
                           get = function()
                               local bd = SelectedTBB(); if not bd then return 0 end
@@ -5795,7 +5932,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local function UpdateCogVis()
                     local bd = SelectedTBB()
                     local tex = bd and bd.borderTexture or "solid"
-                    if tex == "solid" then cogBtn:Hide() else cogBtn:Show() end
+                    if tex == "solid" or EllesmereUI.BlizzStyle.Get("cdmbars") then cogBtn:Hide() else cogBtn:Show() end
                 end
                 EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
                 UpdateCogVis()
@@ -6290,7 +6427,10 @@ initFrame:SetScript("OnEvent", function(self)
             cd:SetDrawBling(false)
             cd:SetReverse(false)
             cd:SetHideCountdownNumbers(false)
-            cd:SetSwipeTexture("Interface\\Buttons\\WHITE8x8")
+            -- Blizzard Style: the viewer's rounded swipe, matching its mask
+            -- (classic icons are square and keep the plain swipe).
+            cd:SetSwipeTexture((EllesmereUI.BlizzStyle.Active("cdmicons") == "blizzard" and ns.CDM_BLIZZ_SWIPE)
+                or "Interface\\Buttons\\WHITE8x8")
             if cd.SetSnapToPixelGrid then cd:SetSnapToPixelGrid(false); cd:SetTexelSnappingBias(0) end
             slot._previewCD = cd
         end
@@ -6318,8 +6458,10 @@ initFrame:SetScript("OnEvent", function(self)
         if not slot._glowOverlay then
             local ov = CreateFrame("Frame", nil, slot)
             ov:SetAllPoints(slot)
-            ov:SetFrameLevel(slot:GetFrameLevel() + 3)
+            -- Above the Blizzard Style ring (+15) as on the live icons (+16).
+            ov:SetFrameLevel(slot:GetFrameLevel() + (EllesmereUI.BlizzStyle.Get("cdmicons") and 16 or 3))
             ov:SetAlpha(0)
+            ov._euiGlowPreview = true  -- exempt from Show Glows Only in Combat
             slot._glowOverlay = ov
         end
         _cdmActivePreviewOverlay = slot._glowOverlay
@@ -7486,7 +7628,7 @@ initFrame:SetScript("OnEvent", function(self)
                     local sIco = si:CreateTexture(nil, "ARTWORK")
                     sIco:SetSize(ITEM_H - 4, ITEM_H - 4)
                     sIco:SetPoint("LEFT", 4, 0)
-                    sIco:SetTexture(preset.icon); sIco:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                    sIco:SetTexture(EllesmereUI.ClientIcon(preset.icon)); sIco:SetTexCoord(0.08, 0.92, 0.08, 0.92)
                     local sLbl = si:CreateFontString(nil, "OVERLAY")
                     sLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
                     sLbl:SetPoint("LEFT", sIco, "RIGHT", 6, 0); sLbl:SetPoint("RIGHT", -4, 0)
@@ -7651,7 +7793,11 @@ initFrame:SetScript("OnEvent", function(self)
     -- Lists the class's CDM-trackable buffs plus a Custom Spell ID entry. No
     -- durations (aura-driven, never cast-timed) and no item/preset rows (those are
     -- cast-timer / CD-utility concepts that do not belong on an aura tracker).
-    local function ShowBuffToCDPicker(anchorFrame, targetBarKey, onChanged)
+    -- onPicked(spellID, collidedCdID) = selection mode ("Replace with Buff"): every
+    -- catalog buff is listed, a "None" row clears, one click picks and closes;
+    -- nothing is hosted and no Custom Spell ID row (a replacement needs a
+    -- Blizzard viewer frame to route). Absent = the hosting picker below.
+    local function ShowBuffToCDPicker(anchorFrame, targetBarKey, onChanged, onPicked)
         if _spellPickerMenu and _spellPickerMenu:IsShown() then
             _spellPickerMenu:Hide()
             if _spellPickerMenu._anchorFrame == anchorFrame then return end
@@ -7687,6 +7833,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- cooldownID, not by the shared spellID in `already` -- filter those out
         -- per-slot so only the specific claimed slot disappears, not both.
         local alreadyCd = sdCur and ns.CollectCdClaimSet(sdCur)
+        -- Both modes skip buffs already HOSTED on this bar: a hosted buff owns a
+        -- slot of its own, and doubling it as a replacement would leave that
+        -- slot empty while the aura is active (Pass 3b and 3c would both route it).
         local knownSpells = {}
         for _, sp in ipairs(allSpells) do
             if sp.cdmCatGroup == "buff" and sp.spellID and not already[sp.spellID]
@@ -7720,7 +7869,8 @@ initFrame:SetScript("OnEvent", function(self)
             if onChanged then onChanged() end
         end
 
-        -- Custom Spell ID (no duration -- aura-driven).
+        -- Custom Spell ID (no duration -- aura-driven). Selection mode gets a
+        -- "None" row in this seat instead.
         do
             local csItem = CreateFrame("Button", nil, inner)
             csItem:SetHeight(ITEM_H)
@@ -7732,12 +7882,16 @@ initFrame:SetScript("OnEvent", function(self)
             local csLbl = csItem:CreateFontString(nil, "OVERLAY")
             csLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
             csLbl:SetPoint("LEFT", 10, 0); csLbl:SetJustifyH("LEFT")
-            csLbl:SetText(EllesmereUI.L("Custom Spell ID"))
+            csLbl:SetText(onPicked and EllesmereUI.L("None (use cooldown icon)") or EllesmereUI.L("Custom Spell ID"))
             csLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
             csItem:SetScript("OnEnter", function() csLbl:SetTextColor(1, 1, 1, 1); csHl:SetColorTexture(1, 1, 1, hlA); csHl:SetAlpha(1) end)
             csItem:SetScript("OnLeave", function() csLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA); csHl:SetAlpha(0) end)
             csItem:SetScript("OnClick", function()
                 menu:Hide()
+                if onPicked then
+                    onPicked(nil, nil)
+                    return
+                end
                 ShowCustomSpellIDPopup(targetBarKey, false, function(sid)
                     ns.AddBuffToCDUtilBar(targetBarKey, sid)
                     AfterAdd()
@@ -7787,6 +7941,15 @@ initFrame:SetScript("OnEvent", function(self)
             end)
             item:SetScript("OnClick", function()
                 if notLearned then EllesmereUI.HideWidgetTooltip() end
+                if onPicked then
+                    -- Selection mode: hand back the identity the runtime routes by
+                    -- (cooldownID only for a collided pair, else the spellID) and close.
+                    local cdPick = sp.cdID and ns.IsCollidedBuffSid
+                        and ns.IsCollidedBuffSid(sp.spellID) and sp.cdID or nil
+                    menu:Hide()
+                    onPicked(sp.spellID, cdPick)
+                    return
+                end
                 -- Collided pair (two viewer slots, one shared spellID): claim by cooldownID
                 -- so each slot is hostable on its own; non-collided buffs keep the sid path (identity survives talent swaps, cooldownIDs drift).
                 if sp.cdID and ns.IsCollidedBuffSid and ns.IsCollidedBuffSid(sp.spellID)
@@ -8339,10 +8502,15 @@ initFrame:SetScript("OnEvent", function(self)
             return sid
         end
 
+        -- No early return on an empty Blizzard list: the picker also hosts the Custom
+        -- Spell ID / Custom Item ID / Equipment Slot entries and the trinket / racial /
+        -- potion presets, which are the only way onto the bar while the viewer has no
+        -- data for it (before COOLDOWN_VIEWER_DATA_LOADED, or every entry set to Not
+        -- Displayed). The list sections below already render nothing for an empty set,
+        -- and the "Missing Spells?" footer is the right prompt in that state.
         local allSpells = {}
         if not removeOnly and not isCustomBuff then
             allSpells = ns.GetCDMSpellsForBar(barKey) or {}
-            if #allSpells == 0 and not isCustomBuff then return end
         end
 
         -- Standard EllesmereUI dropdown colors
@@ -8592,7 +8760,7 @@ initFrame:SetScript("OnEvent", function(self)
                     -- chained to the bar tiers, so the menu shows the values the icon actually renders with; EnsureSS() persists the entry on first WRITE.
                     local ss = store and store[spellID]
                     if not ss then ss = {} end
-                    ns.ChainSettings(ss, isHostedBuff and nil or ns.GetBarTierSettings(sd, barKey))
+                    ns.ChainSettings(ss, (not isHostedBuff) and ns.GetBarTierSettings(sd, barKey) or nil)
                     local function EnsureSS()
                         if store and not store[spellID] then
                             store[spellID] = ss
@@ -10692,7 +10860,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 rows = {
                                     { type="toggle", label="Show Duration",
                                       get=function() if ss.showCooldownText ~= nil then return ss.showCooldownText end return (cdmBd and cdmBd.showCooldownText) ~= false end,
-                                      set=function(v) EnsureSS(); ss.showCooldownText = v; if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end if row._updateLabel then row._updateLabel() end end },
+                                      set=function(v) EnsureSS(); ss.showCooldownText = v; ns._cdmAnySpellDurationText = true; if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end if row._updateLabel then row._updateLabel() end end },
                                     { type="slider", label="Size", min=6, max=30, step=1,
                                       get=function() return ss.cooldownFontSize or (cdmBd and cdmBd.cooldownFontSize) or 12 end,
                                       set=function(v) EnsureSS(); ss.cooldownFontSize = v; if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end if row._updateLabel then row._updateLabel() end end },
@@ -11999,6 +12167,51 @@ initFrame:SetScript("OnEvent", function(self)
                     -- (The per-setting "Apply to Bar / (All Specs)" strip superseded
                     -- "Sync All Bar Buttons"; cdm_spell_settings_tiers_v1 migrated it.)
 
+                    -- Replace with Buff (cd/util family, real spells only; per-spell ONLY like
+                    -- Custom Icon -- a slot identity choice, no tiers, no apply strip). Picks a
+                    -- tracked buff whose viewer frame takes this cooldown's slot while the aura
+                    -- is active; the cooldown returns when it ends. Closes the menu (popup flow).
+                    if not isBuffBar and not isHostedBuff and not (bd and bd.isGhostBar)
+                       and type(spellID) == "number" and spellID > 0
+                       and not ((ns._myRacialsSet and ns._myRacialsSet[spellID])
+                                or (sd.customSpellIDs and sd.customSpellIDs[spellID])) then
+                        local repSID = rawget(ss, "replaceBuffID")
+                        local repName = repSID and C_Spell.GetSpellName(repSID)
+                        local rbRow = CreateFrame("Button", nil, inner)
+                        rbRow:SetHeight(ITEM_H)
+                        rbRow:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+                        rbRow:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+                        rbRow:SetFrameLevel(menu:GetFrameLevel() + 2)
+                        local rbLbl = rbRow:CreateFontString(nil, "OVERLAY")
+                        rbLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                        rbLbl:SetPoint("LEFT", 10, 0); rbLbl:SetPoint("RIGHT", -10, 0)
+                        rbLbl:SetJustifyH("LEFT"); rbLbl:SetWordWrap(false); rbLbl:SetMaxLines(1)
+                        rbLbl:SetText(EllesmereUI.L("Replace with Buff") .. ": " .. (repName or EllesmereUI.L("None")))
+                        rbLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                        local rbHl = rbRow:CreateTexture(nil, "ARTWORK")
+                        rbHl:SetAllPoints(); rbHl:SetColorTexture(1, 1, 1, 0); rbHl:SetAlpha(0)
+                        rbRow:SetScript("OnEnter", function()
+                            rbLbl:SetTextColor(1, 1, 1, 1)
+                            rbHl:SetColorTexture(1, 1, 1, hlA); rbHl:SetAlpha(1)
+                            EllesmereUI.ShowWidgetTooltip(rbRow, EllesmereUI.L("Show a tracked buff in this slot while it is active."))
+                        end)
+                        rbRow:SetScript("OnLeave", function()
+                            rbLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA); rbHl:SetAlpha(0)
+                            EllesmereUI.HideWidgetTooltip()
+                        end)
+                        rbRow:SetScript("OnClick", function()
+                            EllesmereUI.HideWidgetTooltip()
+                            menu:Hide()
+                            ShowBuffToCDPicker(rbRow, barKey, nil, function(buffSID, buffCdID)
+                                if ns.SetCooldownBuffReplacement then
+                                    ns.SetCooldownBuffReplacement(barKey, spellID, buffSID, buffCdID)
+                                end
+                                RefreshCDPreview()
+                            end)
+                        end)
+                        mH = mH + ITEM_H
+                    end
+
                     -- Custom Icon (per-spell ONLY -- deliberately outside the Apply-to-Bar
                     -- tiers: an icon replacement is a per-slot identity choice, so no tiers, no
                     -- apply strip, no false-blocking; a plain nil write removes it). The render
@@ -12040,6 +12253,10 @@ initFrame:SetScript("OnEvent", function(self)
                                 -- Stamp/restore on every claimed frame now: DecorateFrame runs from
                                 -- the reanchor pass (the only re-style path for the default Essential/Utility bars).
                                 if ns.QueueReanchor then ns.QueueReanchor() end
+                                -- Aura-tracked custom buffs render in an engine container the
+                                -- reanchor never reaches; their sync pass rebuilds it when the
+                                -- icon changes (a signature no-op for every other bar).
+                                if ns.UpdateCustomBuffAuraTracking then ns.UpdateCustomBuffAuraTracking() end
                             end)
                         end)
                         mH = mH + ITEM_H
@@ -13112,7 +13329,7 @@ initFrame:SetScript("OnEvent", function(self)
                         local icoSz = SUB_ITEM_H - 2
                         sIco:SetSize(icoSz, icoSz)
                         sIco:SetPoint("RIGHT", si, "RIGHT", -6, 0)
-                        sIco:SetTexture(preset.icon or (preset.itemID and C_Item.GetItemIconByID(preset.itemID)))
+                        sIco:SetTexture(EllesmereUI.ClientIcon(preset.icon or (preset.itemID and C_Item.GetItemIconByID(preset.itemID))))
                         sIco:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
                         local sLbl = si:CreateFontString(nil, "OVERLAY")
@@ -13230,7 +13447,7 @@ initFrame:SetScript("OnEvent", function(self)
                     local icoSz = ITEM_H - 2
                     sIco:SetSize(icoSz, icoSz)
                     sIco:SetPoint("RIGHT", si, "RIGHT", -6, 0)
-                    sIco:SetTexture(preset.icon)
+                    sIco:SetTexture(EllesmereUI.ClientIcon(preset.icon))
                     sIco:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
                     local sLbl = si:CreateFontString(nil, "OVERLAY")
@@ -15237,6 +15454,10 @@ initFrame:SetScript("OnEvent", function(self)
                 end
 
                 local bSz = bd.borderSize or 1
+                -- The art inset follows an exact Solid size (borderSizePx) so the border keeps sitting outside the art here.
+                local bTex = bd.borderTexture or "solid"
+                local bPx = EllesmereUI.BorderPx(bd.borderSizePx, bSz, bTex)
+                if bPx and bTex == "solid" then bSz = bPx end
                 slot._icon:ClearAllPoints()
                 PP.Point(slot._icon, "TOPLEFT", slot, "TOPLEFT", bSz, -bSz)
                 PP.Point(slot._icon, "BOTTOMRIGHT", slot, "BOTTOMRIGHT", -bSz, bSz)
@@ -15250,9 +15471,26 @@ initFrame:SetScript("OnEvent", function(self)
                 if slot._bg.SetSnapToPixelGrid then slot._bg:SetSnapToPixelGrid(false); slot._bg:SetTexelSnappingBias(0) end
 
                 ns.ApplyShapeToCDMIcon(slot, shape, bd)
+                -- Blizzard Style: no EUI border or background; the live art pass
+                -- adds the viewer's rounded mask and ring to the slot exactly as
+                -- it does to a bar's own icons. The preview's overlays (text,
+                -- hover and hosted-buff borders, glow) move above the ring, at
+                -- the levels their live counterparts use.
+                if EllesmereUI.BlizzStyle.Get("cdmicons") and ns.CdmApplyBlizzIconArt then
+                    if PP.GetBorders(slot) then PP.HideBorder(slot) end
+                    slot._bg:Hide()
+                    ns.CdmApplyBlizzIconArt(slot)
+                    local lvl = slot:GetFrameLevel()
+                    if slot._pvTextOverlay then slot._pvTextOverlay:SetFrameLevel(lvl + 23) end
+                    if slot._hlBrd then slot._hlBrd:GetParent():SetFrameLevel(lvl + 17) end
+                    if slot._hostBrd then slot._hostBrd:GetParent():SetFrameLevel(lvl + 16) end
+                    if slot._glowOverlay then slot._glowOverlay:SetFrameLevel(lvl + 16) end
+                end
                 -- For custom shapes, ensure the square highlight border stays hidden
                 -- (ApplyShapeToCDMIcon hides the slot's own PP border but not _hlBrd)
-                if slot._hlBrd and shape ~= "square" and shape ~= "csquare" and shape ~= "none" then
+                -- (Blizzard Style forces shape none, whatever the profile carries.)
+                if slot._hlBrd and shape ~= "square" and shape ~= "csquare" and shape ~= "none"
+                   and not EllesmereUI.BlizzStyle.Get("cdmicons") then
                     slot._hlBrd:Hide()
                 end
                 -- Hosted-buff gold border: always on for a buff icon hosted on
@@ -17311,6 +17549,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- (The per-icon hint now lives directly below the preview icons -- see
         -- the reorder hint in BuildCDMLivePreview's pf.Update.)
         _, h = W:SectionHeader(parent, "ICON DISPLAY", y);  y = y - h
+        y = EllesmereUI.BlizzStyle.Note(parent, y, "cdmicons")
 
         -- Active State Animation dropdown values
         local ACTIVE_ANIM_VALUES = {
@@ -17513,7 +17752,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Row 3: Custom Icon Shape | Icon Zoom
             local buffShapeZoomRow
             buffShapeZoomRow, h = W:DualRow(parent, y,
-                { type="dropdown", text="Custom Icon Shape",
+                EllesmereUI.BlizzStyle.Gate("cdmicons", { type="dropdown", text="Custom Icon Shape",
                   values=SHAPE_VALUES, order=SHAPE_ORDER,
                   itemDisabled=function(val)
                       if val ~= "none" and val ~= "cropped" and (BD().borderTexture or "solid") ~= "solid" then return true end
@@ -17542,14 +17781,16 @@ initFrame:SetScript("OnEvent", function(self)
                       bd._matchExtraPixelsH = nil
                       bd._matchStrideH = nil
                       ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
-                  end },
-                { type="slider", text="Icon Zoom",
+                      -- The Border Size slot is a different control under a custom shape: rebuild the page.
+                      EllesmereUI:RefreshPage(true)
+                  end }),
+                EllesmereUI.BlizzStyle.Gate("cdmicons", { type="slider", text="Icon Zoom",
                   min=0, max=0.20, step=0.01,
                   getValue=function() return BD().iconZoom or 0.08 end,
                   setValue=function(v)
                       BD().iconZoom = v
                       ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
-                  end });  y = y - h
+                  end }));  y = y - h
 
             -- Sync icon on Custom Icon Shape (left of row 3)
             if not EllesmereUI._prebuilding then
@@ -17606,8 +17847,11 @@ initFrame:SetScript("OnEvent", function(self)
             do
                 local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
                 local buffBsRow
-                buffBsRow, h = W:DualRow(parent, y,
-                    { type="dropdown", text="Border Size",
+                -- Border Size: the exact-size slider, except under a custom shape, whose
+                -- ring is on (Strong) or off (None): that keeps the None..Strong dropdown.
+                local buffSizeCfg
+                if IsCustomShape() then
+                    buffSizeCfg = { type="dropdown", text="Border Size",
                       values=BORDER_LABELS, order=BORDER_ORDER,
                       itemDisabled=function(val)
                           if IsCustomShape() and (val == "thin" or val == "normal" or val == "heavy") then return true end
@@ -17622,8 +17866,23 @@ initFrame:SetScript("OnEvent", function(self)
                       setValue=function(v)
                           BD().borderThickness = v; BD().borderSize = BORDER_SIZES[v] or 1
                           ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview()
-                      end },
-                    { type="dropdown", text="Border Style",
+                      end }
+                else
+                    buffSizeCfg = EllesmereUI.BorderPxSliderCfg({ text="Border Size",
+                      getStep=function() return BD().borderSize or 1 end,
+                      setStep=function(step)
+                          local bd = BD()
+                          bd.borderThickness = EllesmereUI.BORDER_LABEL_OF_STEP[step] or "thin"; bd.borderSize = step
+                      end,
+                      getTex=function() return BD().borderTexture or "solid" end,
+                      getPx=function() return BD().borderSizePx end,
+                      setPx=function(v) BD().borderSizePx = v end,
+                      apply=function() ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview() end,
+                    })
+                end
+                buffBsRow, h = W:DualRow(parent, y,
+                    EllesmereUI.BlizzStyle.Gate("cdmicons", buffSizeCfg),
+                    EllesmereUI.BlizzStyle.Gate("cdmicons", { type="dropdown", text="Border Style",
                       disabled=function() return IsCustomShape() end,
                       disabledTooltip="This option requires a non-custom button shape",
                       values=texValues, order=texOrder,
@@ -17636,46 +17895,47 @@ initFrame:SetScript("OnEvent", function(self)
                           bd.borderClassColor = false
                           bd.borderBehind = _bbehind
                           local defTh = EllesmereUI.GetBorderDefaultSize("cdm", v)
+                          -- An unregistered SharedMedia border defaults to the NUMBER 1: store its label.
+                          if type(defTh) == "number" then defTh = EllesmereUI.BORDER_LABEL_OF_STEP[defTh] or "thin" end
                           if defTh then
                               bd.borderThickness = defTh; bd.borderSize = BORDER_SIZES[defTh] or 1
                           end
+                          if bd.borderSizePx then bd.borderSizePx = false end
                           ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview()
-                          EllesmereUI:RefreshPage()
-                      end });  y = y - h
+                          EllesmereUI:RefreshPage(true)
+                      end }));  y = y - h
+                -- Width Offset | Height Offset: the textured border's outward offsets,
+                -- present only while a textured style is selected (built on the
+                -- prebuild pass too, so the y advance is identical). Disabled under a
+                -- custom shape exactly like the Border Style dropdown it belongs to.
+                do
+                    local tex0 = BD().borderTexture or "solid"
+                    if tex0 ~= "" and tex0 ~= "solid" then
+                        local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs({
+                            addonKey = "cdm",
+                            disabled = function() return IsCustomShape() end,
+                            disabledTooltip = "This option requires a non-custom button shape",
+                            getTex = function() return BD().borderTexture or "solid" end,
+                            getStep = function() return BD().borderSize or 1 end,
+                            getSizeKey = function() return BD().borderThickness or "thin" end,
+                            getPx = function() return BD().borderSizePx end,
+                            getX = function() return BD().borderTextureOffset end,
+                            setX = function(v) BD().borderTextureOffset = v end,
+                            getY = function() return BD().borderTextureOffsetY end,
+                            setY = function(v) BD().borderTextureOffsetY = v end,
+                            apply = function() ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview() end,
+                        })
+                        _, h = W:DualRow(parent, y,
+                            EllesmereUI.BlizzStyle.Gate("cdmicons", ocfgL),
+                            EllesmereUI.BlizzStyle.Gate("cdmicons", ocfgR));  y = y - h
+                    end
+                end
                 -- Inline cog for border offset
                 if not EllesmereUI._prebuilding then
                     local rgn = buffBsRow._rightRegion
                     local _, cogShow = EllesmereUI.BuildCogPopup({
-                        title = "Border Offset",
+                        title = "Border Options",
                         rows = {
-                            { type = "slider", label = "Offset X", min = -10, max = 10, step = 1,
-                              get = function()
-                                  local v = BD().borderTextureOffset
-                                  if v then return v end
-                                  local bd = BD()
-                                  local tex = bd.borderTexture or "solid"
-                                  local th = bd.borderThickness or "thin"
-                                  local dox = EllesmereUI.GetBorderDefaults("cdm", tex, th)
-                                  return dox
-                              end,
-                              set = function(v)
-                                  BD().borderTextureOffset = v
-                                  ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview()
-                              end },
-                            { type = "slider", label = "Offset Y", min = -10, max = 10, step = 1,
-                              get = function()
-                                  local v = BD().borderTextureOffsetY
-                                  if v then return v end
-                                  local bd = BD()
-                                  local tex = bd.borderTexture or "solid"
-                                  local th = bd.borderThickness or "thin"
-                                  local _, doy = EllesmereUI.GetBorderDefaults("cdm", tex, th)
-                                  return doy
-                              end,
-                              set = function(v)
-                                  BD().borderTextureOffsetY = v
-                                  ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview()
-                              end },
                             { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
                               get = function()
                                   local v = BD().borderTextureShiftX
@@ -17715,7 +17975,7 @@ initFrame:SetScript("OnEvent", function(self)
                     local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.DIRECTIONS_ICON)
                     local function UpdateCogVis()
                         local tex = BD().borderTexture or "solid"
-                        if tex == "solid" then cogBtn:Hide() else cogBtn:Show() end
+                        if tex == "solid" or EllesmereUI.BlizzStyle.Get("cdmicons") then cogBtn:Hide() else cogBtn:Show() end
                     end
                     EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
                     UpdateCogVis()
@@ -17737,6 +17997,7 @@ initFrame:SetScript("OnEvent", function(self)
                         false, 20)
                     PP.Point(classBorderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
                     classBorderSwatch:SetScript("OnClick", function()
+                        if EllesmereUI.BlizzStyle.Get("cdmicons") then return end
                         BD().borderClassColor = true
                         ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
                         EllesmereUI:RefreshPage()
@@ -17768,8 +18029,8 @@ initFrame:SetScript("OnEvent", function(self)
                     -- leaves the border black and the swatch looking stuck).
                     local origClick = swatch:GetScript("OnClick")
                     swatch:SetScript("OnClick", function(self, ...)
-                        -- No border selected: don't open the color picker
-                        if (BD().borderThickness or "thin") == "none" then return end
+                        -- No border selected (or Blizzard Style): don't open the color picker
+                        if (BD().borderThickness or "thin") == "none" or EllesmereUI.BlizzStyle.Get("cdmicons") then return end
                         if BD().borderClassColor then
                             BD().borderClassColor = false
                             ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
@@ -17780,7 +18041,7 @@ initFrame:SetScript("OnEvent", function(self)
 
                     function UpdateBorderState()
                         local isClassColored = BD().borderClassColor
-                        local isNone = (BD().borderThickness or "thin") == "none"
+                        local isNone = (BD().borderThickness or "thin") == "none" or EllesmereUI.BlizzStyle.Get("cdmicons")
                         swatch:SetAlpha((isClassColored or isNone) and 0.3 or 1)
                         classBorderSwatch:SetAlpha((isClassColored and not isNone) and 1 or 0.3)
                     end
@@ -17795,18 +18056,23 @@ initFrame:SetScript("OnEvent", function(self)
                     isSynced = function()
                         local bd = BD()
                         local v = bd.borderThickness or "thin"
+                        local px = bd.borderSizePx or false
                         local cc = bd.borderClassColor
                         local synced = true
-                        ForEachSyncBar(function(b) if (b.borderThickness or "thin") ~= v or b.borderClassColor ~= cc then synced = false end end)
+                        ForEachSyncBar(function(b) if (b.borderThickness or "thin") ~= v or (b.borderSizePx or false) ~= px or b.borderClassColor ~= cc then synced = false end end)
                         return synced
                     end,
                     onClick = function()
                         local bd = BD()
                         local v = bd.borderThickness or "thin"
                         local sz = bd.borderSize or 1
+                        local px = bd.borderSizePx
                         local cc = bd.borderClassColor
                         ForEachSyncBar(function(b)
                             b.borderThickness = v; b.borderSize = sz
+                            local pxv = px
+                            if pxv == nil and b.borderSizePx ~= nil then pxv = false end
+                            b.borderSizePx = pxv
                             b.borderClassColor = cc
                         end)
                         ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview(); EllesmereUI:RefreshPage()
@@ -17827,6 +18093,7 @@ initFrame:SetScript("OnEvent", function(self)
                         local sy = bd.borderTextureShiftY
                         local th = bd.borderThickness or "thin"
                         local sz = bd.borderSize or 1
+                        local px = bd.borderSizePx
                         local bh = bd.borderBehind
                         local br, bg, bb, ba = bd.borderR, bd.borderG, bd.borderB, bd.borderA
                         local cc = bd.borderClassColor
@@ -17837,6 +18104,9 @@ initFrame:SetScript("OnEvent", function(self)
                             b.borderTextureShiftX = sx
                             b.borderTextureShiftY = sy
                             b.borderThickness = th; b.borderSize = sz
+                            local pxv = px
+                            if pxv == nil and b.borderSizePx ~= nil then pxv = false end
+                            b.borderSizePx = pxv
                             b.borderBehind = bh
                             b.borderR = br; b.borderG = bg; b.borderB = bb; b.borderA = ba
                             b.borderClassColor = cc
@@ -17979,27 +18249,11 @@ initFrame:SetScript("OnEvent", function(self)
         do
             local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
             local bsRow
-            bsRow, h = W:DualRow(parent, y,
-                { type="dropdown", text="Border Style",
-                  disabled=function() return IsCustomShape() end,
-                  disabledTooltip="This option requires a non-custom button shape",
-                  values=texValues, order=texOrder,
-                  getValue=function() return BD().borderTexture or "solid" end,
-                  setValue=function(v)
-                      local bd = BD()
-                      bd.borderTexture = v; bd.borderTextureOffset = nil; bd.borderTextureOffsetY = nil; bd.borderTextureShiftX = nil; bd.borderTextureShiftY = nil
-                      local _bcol, _bbehind = EllesmereUI.GetBorderStyleSelectDefaults(v)
-                      bd.borderR = _bcol.r; bd.borderG = _bcol.g; bd.borderB = _bcol.b; bd.borderA = 1
-                      bd.borderClassColor = false
-                      bd.borderBehind = _bbehind
-                      local defTh = EllesmereUI.GetBorderDefaultSize("cdm", v)
-                      if defTh then
-                          bd.borderThickness = defTh; bd.borderSize = BORDER_SIZES[defTh] or 1
-                      end
-                      ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview()
-                      EllesmereUI:RefreshPage()
-                  end },
-                { type="dropdown", text="Border Size",
+            -- Border Size: the exact-size slider, except under a custom shape, whose
+            -- ring is on (Strong) or off (None): that keeps the None..Strong dropdown.
+            local sizeCfg
+            if IsCustomShape() then
+                sizeCfg = { type="dropdown", text="Border Size",
                   values=BORDER_LABELS, order=BORDER_ORDER,
                   itemDisabled=function(val)
                       if IsCustomShape() and (val == "thin" or val == "normal" or val == "heavy") then return true end
@@ -18014,41 +18268,76 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v)
                       BD().borderThickness = v; BD().borderSize = BORDER_SIZES[v] or 1
                       ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview()
-                  end });  y = y - h
+                  end }
+            else
+                sizeCfg = EllesmereUI.BorderPxSliderCfg({ text="Border Size",
+                  getStep=function() return BD().borderSize or 1 end,
+                  setStep=function(step)
+                      local bd = BD()
+                      bd.borderThickness = EllesmereUI.BORDER_LABEL_OF_STEP[step] or "thin"; bd.borderSize = step
+                  end,
+                  getTex=function() return BD().borderTexture or "solid" end,
+                  getPx=function() return BD().borderSizePx end,
+                  setPx=function(v) BD().borderSizePx = v end,
+                  apply=function() ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview() end,
+                })
+            end
+            bsRow, h = W:DualRow(parent, y,
+                EllesmereUI.BlizzStyle.Gate("cdmicons", { type="dropdown", text="Border Style",
+                  disabled=function() return IsCustomShape() end,
+                  disabledTooltip="This option requires a non-custom button shape",
+                  values=texValues, order=texOrder,
+                  getValue=function() return BD().borderTexture or "solid" end,
+                  setValue=function(v)
+                      local bd = BD()
+                      bd.borderTexture = v; bd.borderTextureOffset = nil; bd.borderTextureOffsetY = nil; bd.borderTextureShiftX = nil; bd.borderTextureShiftY = nil
+                      local _bcol, _bbehind = EllesmereUI.GetBorderStyleSelectDefaults(v)
+                      bd.borderR = _bcol.r; bd.borderG = _bcol.g; bd.borderB = _bcol.b; bd.borderA = 1
+                      bd.borderClassColor = false
+                      bd.borderBehind = _bbehind
+                      local defTh = EllesmereUI.GetBorderDefaultSize("cdm", v)
+                      -- An unregistered SharedMedia border defaults to the NUMBER 1: store its label.
+                      if type(defTh) == "number" then defTh = EllesmereUI.BORDER_LABEL_OF_STEP[defTh] or "thin" end
+                      if defTh then
+                          bd.borderThickness = defTh; bd.borderSize = BORDER_SIZES[defTh] or 1
+                      end
+                      if bd.borderSizePx then bd.borderSizePx = false end
+                      ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview()
+                      EllesmereUI:RefreshPage(true)
+                  end }),
+                EllesmereUI.BlizzStyle.Gate("cdmicons", sizeCfg));  y = y - h
+            -- Width Offset | Height Offset: the textured border's outward offsets,
+            -- present only while a textured style is selected (built on the
+            -- prebuild pass too, so the y advance is identical). Disabled under a
+            -- custom shape exactly like the Border Style dropdown it belongs to.
+            do
+                local tex0 = BD().borderTexture or "solid"
+                if tex0 ~= "" and tex0 ~= "solid" then
+                    local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs({
+                        addonKey = "cdm",
+                        disabled = function() return IsCustomShape() end,
+                        disabledTooltip = "This option requires a non-custom button shape",
+                        getTex = function() return BD().borderTexture or "solid" end,
+                        getStep = function() return BD().borderSize or 1 end,
+                        getSizeKey = function() return BD().borderThickness or "thin" end,
+                        getPx = function() return BD().borderSizePx end,
+                        getX = function() return BD().borderTextureOffset end,
+                        setX = function(v) BD().borderTextureOffset = v end,
+                        getY = function() return BD().borderTextureOffsetY end,
+                        setY = function(v) BD().borderTextureOffsetY = v end,
+                        apply = function() ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview() end,
+                    })
+                    _, h = W:DualRow(parent, y,
+                        EllesmereUI.BlizzStyle.Gate("cdmicons", ocfgL),
+                        EllesmereUI.BlizzStyle.Gate("cdmicons", ocfgR));  y = y - h
+                end
+            end
             -- Inline cog for border offset
             if not EllesmereUI._prebuilding then
                 local rgn = bsRow._leftRegion
                 local _, cogShow = EllesmereUI.BuildCogPopup({
-                    title = "Border Offset",
+                    title = "Border Options",
                     rows = {
-                        { type = "slider", label = "Offset X", min = -10, max = 10, step = 1,
-                          get = function()
-                              local v = BD().borderTextureOffset
-                              if v then return v end
-                              local bd = BD()
-                              local tex = bd.borderTexture or "solid"
-                              local th = bd.borderThickness or "thin"
-                              local dox = EllesmereUI.GetBorderDefaults("cdm", tex, th)
-                              return dox
-                          end,
-                          set = function(v)
-                              BD().borderTextureOffset = v
-                              ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview()
-                          end },
-                        { type = "slider", label = "Offset Y", min = -10, max = 10, step = 1,
-                          get = function()
-                              local v = BD().borderTextureOffsetY
-                              if v then return v end
-                              local bd = BD()
-                              local tex = bd.borderTexture or "solid"
-                              local th = bd.borderThickness or "thin"
-                              local _, doy = EllesmereUI.GetBorderDefaults("cdm", tex, th)
-                              return doy
-                          end,
-                          set = function(v)
-                              BD().borderTextureOffsetY = v
-                              ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreview()
-                          end },
                         { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
                           get = function()
                               local v = BD().borderTextureShiftX
@@ -18088,7 +18377,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local cogBtn = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.DIRECTIONS_ICON)
                 local function UpdateCogVis()
                     local tex = BD().borderTexture or "solid"
-                    if tex == "solid" then cogBtn:Hide() else cogBtn:Show() end
+                    if tex == "solid" or EllesmereUI.BlizzStyle.Get("cdmicons") then cogBtn:Hide() else cogBtn:Show() end
                 end
                 EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
                 UpdateCogVis()
@@ -18107,6 +18396,7 @@ initFrame:SetScript("OnEvent", function(self)
                     local sy = bd.borderTextureShiftY
                     local th = bd.borderThickness or "thin"
                     local sz = bd.borderSize or 1
+                    local px = bd.borderSizePx
                     local bh = bd.borderBehind
                     local br, bg, bb, ba = bd.borderR, bd.borderG, bd.borderB, bd.borderA
                     local cc = bd.borderClassColor
@@ -18115,6 +18405,9 @@ initFrame:SetScript("OnEvent", function(self)
                         b.borderTextureOffset = ox; b.borderTextureOffsetY = oy
                         b.borderTextureShiftX = sx; b.borderTextureShiftY = sy
                         b.borderThickness = th; b.borderSize = sz
+                            local pxv = px
+                            if pxv == nil and b.borderSizePx ~= nil then pxv = false end
+                            b.borderSizePx = pxv
                         b.borderBehind = bh
                         b.borderR = br; b.borderG = bg; b.borderB = bb; b.borderA = ba
                         b.borderClassColor = cc
@@ -18158,6 +18451,7 @@ initFrame:SetScript("OnEvent", function(self)
                     false, 20)
                 PP.Point(classBorderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
                 classBorderSwatch:SetScript("OnClick", function()
+                    if EllesmereUI.BlizzStyle.Get("cdmicons") then return end
                     BD().borderClassColor = true
                     ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
                     EllesmereUI:RefreshPage()
@@ -18185,6 +18479,7 @@ initFrame:SetScript("OnEvent", function(self)
                 -- Click the dimmed custom swatch to switch back from class color (no block overlay)
                 local origClick = swatch:GetScript("OnClick")
                 swatch:SetScript("OnClick", function(self, ...)
+                    if EllesmereUI.BlizzStyle.Get("cdmicons") then return end
                     if BD().borderClassColor then
                         BD().borderClassColor = false
                         ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
@@ -18198,7 +18493,7 @@ initFrame:SetScript("OnEvent", function(self)
 
                 local function UpdateBorderSwatchState()
                     local isClassColored = BD().borderClassColor
-                    local isNone = (BD().borderThickness or "thin") == "none"
+                    local isNone = (BD().borderThickness or "thin") == "none" or EllesmereUI.BlizzStyle.Get("cdmicons")
                     swatch:SetAlpha((isClassColored or isNone) and 0.3 or 1)
                     classBorderSwatch:SetAlpha((isClassColored and not isNone) and 1 or 0.3)
                 end
@@ -18213,6 +18508,7 @@ initFrame:SetScript("OnEvent", function(self)
                 isSynced = function()
                     local bd = BD()
                     local v = bd.borderThickness or "thin"
+                    local px = bd.borderSizePx or false
                     local cc = bd.borderClassColor
                     local bt = bd.borderTexture or "solid"
                     local sx = bd.borderTextureShiftX
@@ -18220,7 +18516,7 @@ initFrame:SetScript("OnEvent", function(self)
                     local br, bg, bb, ba = bd.borderR or 0, bd.borderG or 0, bd.borderB or 0, bd.borderA or 1
                     local synced = true
                     ForEachSyncBar(function(b)
-                        if (b.borderThickness or "thin") ~= v or b.borderClassColor ~= cc or (b.borderTexture or "solid") ~= bt then synced = false end
+                        if (b.borderThickness or "thin") ~= v or (b.borderSizePx or false) ~= px or b.borderClassColor ~= cc or (b.borderTexture or "solid") ~= bt then synced = false end
                         if b.borderTextureShiftX ~= sx or b.borderTextureShiftY ~= sy then synced = false end
                         if (b.borderR or 0) ~= br or (b.borderG or 0) ~= bg or (b.borderB or 0) ~= bb or (b.borderA or 1) ~= ba then synced = false end
                     end)
@@ -18230,6 +18526,7 @@ initFrame:SetScript("OnEvent", function(self)
                     local bd = BD()
                     local v = bd.borderThickness or "thin"
                     local sz = bd.borderSize or 1
+                    local px = bd.borderSizePx
                     local cc = bd.borderClassColor
                     local bt = bd.borderTexture or "solid"
                     local sx = bd.borderTextureShiftX
@@ -18237,6 +18534,9 @@ initFrame:SetScript("OnEvent", function(self)
                     local br, bg, bb, ba = bd.borderR, bd.borderG, bd.borderB, bd.borderA
                     ForEachSyncBar(function(b)
                         b.borderThickness = v; b.borderSize = sz
+                            local pxv = px
+                            if pxv == nil and b.borderSizePx ~= nil then pxv = false end
+                            b.borderSizePx = pxv
                         b.borderClassColor = cc; b.borderTexture = bt
                         b.borderTextureShiftX = sx; b.borderTextureShiftY = sy
                         b.borderR = br; b.borderG = bg; b.borderB = bb; b.borderA = ba
@@ -18255,7 +18555,7 @@ initFrame:SetScript("OnEvent", function(self)
         if not isBuffGlowBar then
         local shapeRow
         shapeRow, h = W:DualRow(parent, y,
-            { type="dropdown", text="Custom Icon Shape",
+            EllesmereUI.BlizzStyle.Gate("cdmicons", { type="dropdown", text="Custom Icon Shape",
                 values=SHAPE_VALUES, order=SHAPE_ORDER,
                 itemDisabled=function(val)
                     if val ~= "none" and val ~= "cropped" and (BD().borderTexture or "solid") ~= "solid" then return true end
@@ -18284,14 +18584,16 @@ initFrame:SetScript("OnEvent", function(self)
                     bd._matchExtraPixelsH = nil
                     bd._matchStrideH = nil
                     ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
-                end },
-            { type="slider", text="Icon Zoom",
+                    -- The Border Size slot is a different control under a custom shape: rebuild the page.
+                    EllesmereUI:RefreshPage(true)
+                end }),
+            EllesmereUI.BlizzStyle.Gate("cdmicons", { type="slider", text="Icon Zoom",
                 min=0, max=0.20, step=0.01,
                 getValue=function() return BD().iconZoom or 0.08 end,
                 setValue=function(v)
                     BD().iconZoom = v
                     ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
-                end });  y = y - h
+                end }));  y = y - h
 
         if not EllesmereUI._prebuilding then
         EllesmereUI.BuildSyncIcon({
@@ -18924,6 +19226,188 @@ initFrame:SetScript("OnEvent", function(self)
                   end
               end });  y = y - h
 
+        -- Rotation Assist styling is profile-wide (not tied to the selected
+        -- bar). Keeping it on this override-eligible page lets the existing
+        -- spec/conditional override system capture every scalar below.
+        -- Read and write the runtime addon's authoritative profile. The options
+        -- DB reference can lag behind a profile/override proxy swap, which made
+        -- the swatches display Class while the renderer still read Custom.
+        local function RotationBars()
+            local runtime = ns.ECME and ns.ECME.db and ns.ECME.db.profile
+            local fallback = DB()
+            return (runtime and runtime.cdmBars) or (fallback and fallback.cdmBars)
+        end
+        -- Which of the Thickness / Outset rows the current style reads (the renderer
+        -- uses thickness for Solid Border and Pixel Glow, outset for every style but
+        -- Blizzard Default): 0 = neither, 1 = outset only, 3 = both. The rows below
+        -- exist only for the styles that read them, so the Style dropdown forces a
+        -- rebuild when this key flips.
+        local function RotRowsKey()
+            local c = RotationBars()
+            local s = (c and c.rotationAssistStyle) or "blizzard"
+            local key = 0
+            if s ~= "blizzard" then key = 1 end
+            if s == "solid" or s == "pixel" then key = key + 2 end
+            return key
+        end
+
+        local rotStyleRow
+        rotStyleRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Rotation Assist Style",
+              values={
+                  blizzard="Blizzard Default", solid="Solid Border",
+                  pixel="Pixel Glow", shape="Shape Glow",
+                  button="Action Button Glow", autocast="Auto-Cast Shine",
+                  gcd="GCD", modern="Modern WoW Glow", classic="Classic WoW Glow",
+              },
+              order={ "blizzard", "solid", "pixel", "shape", "button", "autocast", "gcd", "modern", "classic" },
+              tooltip="Choose the profile-wide border or glow used for Blizzard's Assisted Combat suggestion.",
+              getValue=function()
+                  local c = RotationBars(); return (c and c.rotationAssistStyle) or "blizzard"
+              end,
+              setValue=function(v)
+                  local c = RotationBars()
+                  if c then
+                      local before = RotRowsKey()
+                      c.rotationAssistStyle = v
+                      if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+                      -- Full rebuild only when the Thickness / Outset row set changes;
+                      -- the in-place refresh otherwise.
+                      EllesmereUI:RefreshPage(RotRowsKey() ~= before)
+                  end
+              end },
+            { type="label", text="Rotation Assist Color" });  y = y - h
+
+        do
+            local colorRgn = rotStyleRow._rightRegion
+            if colorRgn and EllesmereUI.BuildTrioColorSwatch then
+                -- Same trio as the Pandemic Glow row above. The helper opens the
+                -- picker only while custom mode is already active, so a picker
+                -- cancel can never flip the mode. Dimmed while Blizzard Default
+                -- owns the highlight; clicks are ignored there.
+                local function rotColorOff()
+                    local c = RotationBars()
+                    return not c or c.rotationAssistStyle == "blizzard"
+                end
+                local swatch, defaultSwatch, classSwatch = EllesmereUI.BuildTrioColorSwatch(
+                    colorRgn, rotStyleRow:GetFrameLevel() + 3,
+                    {
+                        getMode = function()
+                            local c = RotationBars()
+                            return (c and c.rotationAssistColorMode) or "default"
+                        end,
+                        setMode = function(mode)
+                            local c = RotationBars()
+                            if not c or c.rotationAssistStyle == "blizzard" then return end
+                            c.rotationAssistColorMode = mode
+                            if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+                            if EllesmereUI._NotifySettingWrite then
+                                EllesmereUI._NotifySettingWrite(colorRgn)
+                            end
+                        end,
+                        getCustomRGB = function()
+                            local c = RotationBars()
+                            return (c and c.rotationAssistColorR) or 1,
+                                   (c and c.rotationAssistColorG) or 0,
+                                   (c and c.rotationAssistColorB) or 0
+                        end,
+                        setCustomRGB = function(r, g, b)
+                            local c = RotationBars()
+                            if c then
+                                c.rotationAssistColorR = r
+                                c.rotationAssistColorG = g
+                                c.rotationAssistColorB = b
+                            end
+                            if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+                        end,
+                        hasClassColor = true,
+                        onChange = function() EllesmereUI:RefreshPage() end,
+                        disabled = rotColorOff,
+                        disabledAlpha = 0.15,
+                    })
+                PP.Point(classSwatch, "RIGHT", colorRgn, "RIGHT", -20, 0)
+                PP.Point(swatch, "RIGHT", classSwatch, "LEFT", -8, 0)
+                PP.Point(defaultSwatch, "RIGHT", swatch, "LEFT", -8, 0)
+
+                local function UpdateRotSwatchMouse()
+                    local off = rotColorOff()
+                    swatch:EnableMouse(not off)
+                    defaultSwatch:EnableMouse(not off)
+                    classSwatch:EnableMouse(not off)
+                end
+                EllesmereUI.RegisterWidgetRefresh(UpdateRotSwatchMouse)
+                UpdateRotSwatchMouse()
+                colorRgn._captureCfg = {
+                    type = "multi", text = "Rotation Assist Color",
+                    accessors = {
+                        {
+                            type = "dropdown", text = "Rotation Assist Color Mode",
+                            values = { default = "Default", custom = "Custom", class = "Class Color" },
+                            order = { "default", "custom", "class" },
+                            getValue = function()
+                                local c = RotationBars()
+                                return (c and c.rotationAssistColorMode) or "default"
+                            end,
+                            setValue = function(mode)
+                                local c = RotationBars()
+                                if c then c.rotationAssistColorMode = mode end
+                                if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+                            end,
+                        },
+                        {
+                            type = "colorpicker", text = "Rotation Assist Custom Color",
+                            getValue = function()
+                                local c = RotationBars()
+                                return (c and c.rotationAssistColorR) or 1,
+                                       (c and c.rotationAssistColorG) or 0,
+                                       (c and c.rotationAssistColorB) or 0, 1
+                            end,
+                            setValue = function(r, g, b)
+                                local c = RotationBars()
+                                if c then
+                                    c.rotationAssistColorR = r
+                                    c.rotationAssistColorG = g
+                                    c.rotationAssistColorB = b
+                                end
+                                if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+                            end,
+                        },
+                    },
+                }
+            end
+        end
+
+        -- Thickness | Outset: built only for the styles that read them (see
+        -- RotRowsKey). Outset alone takes the left slot with a blank right slot.
+        local rotRows = RotRowsKey()
+        if rotRows > 0 then
+            local thicknessCfg = { type="slider", text="Rotation Assist Thickness", min=1, max=8, step=1, trackWidth=120,
+              tooltip="Thickness in physical pixels for Solid Border and Pixel Glow.",
+              getValue=function()
+                  local c = RotationBars(); return (c and c.rotationAssistThickness) or 3
+              end,
+              setValue=function(v)
+                  local c = RotationBars()
+                  if c then c.rotationAssistThickness = v end
+                  if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+              end }
+            local outsetCfg = { type="slider", text="Rotation Assist Outset", min=0, max=12, step=1, trackWidth=120,
+              tooltip="How many pixels the custom effect extends beyond the icon.",
+              getValue=function()
+                  local c = RotationBars(); return (c and c.rotationAssistOutset) or 1
+              end,
+              setValue=function(v)
+                  local c = RotationBars()
+                  if c then c.rotationAssistOutset = v end
+                  if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
+              end }
+            if rotRows >= 2 then
+                _, h = W:DualRow(parent, y, thicknessCfg, outsetCfg);  y = y - h
+            else
+                _, h = W:DualRow(parent, y, outsetCfg, { type="label", text="" });  y = y - h
+            end
+        end
+
         -- Hide Items if Missing | Mirror Key Presses -- CD/utility bars only.
         -- Buff bars host Hide Items if Missing in the tooltip row above (their
         -- copy of this row would be empty), and Mirror Key Presses is not for
@@ -18976,6 +19460,38 @@ initFrame:SetScript("OnEvent", function(self)
                   end
               end });  y = y - h
 
+        -- Global, not per-bar: one gate for every glow the Cooldown Manager
+        -- draws, hence the label. Same hosting trick as Hide Items if Missing
+        -- above -- it takes the cooldown edge row's free slot where that row
+        -- exists, and closes the section on its own for buff-family bars.
+        local glowCombatCfg = { type="toggle", text="Show Glows Only in Combat (global)",
+              tooltip = "Hide every Cooldown Manager glow out of combat and bring them all back the moment you enter combat.",
+              getValue=function()
+                  local p = DB()
+                  return (p and p.cdmBars and p.cdmBars.glowsOnlyInCombat) == true
+              end,
+              setValue=function(v)
+                  local p = DB()
+                  if not p or not p.cdmBars then return end
+                  p.cdmBars.glowsOnlyInCombat = v and true or false
+                  -- Re-read the cached gate, then let the sweep take the running
+                  -- glows down (or bring the suppressed ones back) right away
+                  -- instead of waiting for the next combat edge.
+                  local first = v and ns._cdmGlowGateEverOn ~= true
+                  if ns.RefreshGlowCombatGate then ns.RefreshGlowCombatGate() end
+                  if ns.CDMGlowCombatSync then ns.CDMGlowCombatSync() end
+                  -- First enable of the session: glows lit before this point carry
+                  -- no record (StartNativeGlow records only once the gate has been
+                  -- on), so re-issue the bar and buff glows now -- they restart
+                  -- suppressed. Proc, CD-ready and preset glows already lit follow
+                  -- on their own next edge; every later login is exact from the start.
+                  if first then
+                      if ns.RequestBarGlowUpdate then ns.RequestBarGlowUpdate() end
+                      if ns.RefreshBuffGlows then ns.RefreshBuffGlows() end
+                  end
+                  EllesmereUI:RefreshPage()
+              end }
+
         -- Cooldown/utility bars only: buff bars have no cooldown edge.
         if barData.barType == "cooldowns" or barData.barType == "utility" then
         _, h = W:DualRow(parent, y,
@@ -18986,7 +19502,9 @@ initFrame:SetScript("OnEvent", function(self)
                   BD().showCooldownEdge = v and true or nil
                   ns.BuildAllCDMBars(); Refresh()
               end },
-            { type="label", text="" });  y = y - h
+            glowCombatCfg);  y = y - h
+        else
+        _, h = W:DualRow(parent, y, glowCombatCfg, { type="label", text="" });  y = y - h
         end
 
         end -- custom_buff extras guard
@@ -19057,6 +19575,9 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     local _cdmButtonTip
     local function ShowCDMButtonTip()
+        -- TEMPORARY, WoW Forever only (EllesmereUI.FOREVER_SV_BUG): the seen stamp
+        -- cannot persist there, so the tip would greet every login.
+        if EllesmereUI.FOREVER_SV_BUG then return end
         if EllesmereUIDB and EllesmereUIDB.cdmButtonTipSeen then return end
         local preview = EllesmereUI._contentHeaderPreview
         if not preview then return end
@@ -19073,7 +19594,6 @@ initFrame:SetScript("OnEvent", function(self)
             tip:SetFrameLevel(200)
             if PP and PP.Size then PP.Size(tip, TIP_W, TIP_H) else tip:SetSize(TIP_W, TIP_H) end
             tip:EnableMouse(true)
-            tip:SetPoint("TOP", preview, "BOTTOM", 0, -12)
 
             -- Background
             local bg = tip:CreateTexture(nil, "BACKGROUND")
@@ -19136,7 +19656,22 @@ initFrame:SetScript("OnEvent", function(self)
             _cdmButtonTip = tip
         end
 
+        -- The preview is rebuilt with its page, so anchor on every show.
+        _cdmButtonTip:ClearAllPoints()
+        _cdmButtonTip:SetPoint("TOP", preview, "BOTTOM", 0, -12)
         _cdmButtonTip:Show()
+    end
+    -- Hidden whenever the player leaves the CDM Bars page (page switch, module
+    -- switch, panel close); it returns on that page until dismissed with Okay.
+    local function HideCDMButtonTip()
+        if _cdmButtonTip then _cdmButtonTip:Hide() end
+    end
+    -- Shown a beat after the Bars page renders; the player may already have
+    -- moved on by then, so the timer re-checks the page before showing.
+    local function QueueCDMButtonTip()
+        C_Timer.After(0.1, function()
+            if ns._cdmBarsPageOpen then ShowCDMButtonTip() end
+        end)
     end
 
     ---------------------------------------------------------------------------
@@ -19157,7 +19692,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- Hook: show tip when CDM Bars page first renders with a preview visible
     local _cdmButtonTipQueued = false
     EllesmereUI:RegisterOnHide(function()
-        if _cdmButtonTip then _cdmButtonTip:Hide() end
+        HideCDMButtonTip()
         -- Hide overlay and custom aura preview when panel closes
         HideBuffBarOverlay()
         ns._cdmBarsPageOpen = false
@@ -19207,6 +19742,7 @@ initFrame:SetScript("OnEvent", function(self)
                 -- that were shown for configuration (cdmPageOpen) hide unless active.
                 if ns.QueueReanchor then ns.QueueReanchor() end
                 HideBuffBarOverlay()
+                HideCDMButtonTip()
             end
             if pageName == PAGE_CDM_BARS then
                 ns._cdmBarsPageOpen = true
@@ -19214,7 +19750,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if ns.UpdateCustomBuffBars then ns.UpdateCustomBuffBars() end
                 ShowBuffBarOverlay()
                 -- Show one-time button settings tip after preview renders
-                C_Timer.After(0.1, ShowCDMButtonTip)
+                QueueCDMButtonTip()
                 return h2
             elseif pageName == PAGE_BAR_GLOWS then
                 return BuildBarGlowsPage(pageName, parent, yOffset)
@@ -19275,6 +19811,7 @@ initFrame:SetScript("OnEvent", function(self)
                 -- that were shown for configuration (cdmPageOpen) hide unless active.
                 if ns.QueueReanchor then ns.QueueReanchor() end
                 HideBuffBarOverlay()
+                HideCDMButtonTip()
             end
             if pageName == PAGE_BUFF_BARS then
                 if ns.ShowTBBPlaceholders then ns.ShowTBBPlaceholders() end
@@ -19284,6 +19821,8 @@ initFrame:SetScript("OnEvent", function(self)
                 ns._cdmBarsPageOpen = true
                 if ns.UpdateCustomBuffBars then ns.UpdateCustomBuffBars() end
                 ShowBuffBarOverlay()
+                -- The undismissed tip returns with the Bars page
+                QueueCDMButtonTip()
                 -- Re-sync _cdmPreview after cache restore and refresh the preview
                 if not _cdmPreview and EllesmereUI._contentHeaderPreview then
                     _cdmPreview = EllesmereUI._contentHeaderPreview
@@ -19292,6 +19831,11 @@ initFrame:SetScript("OnEvent", function(self)
                     _cdmPreview:Update()
                 end
             end
+        end,
+        -- Leaving the module: the button settings tip is a child of the main
+        -- frame, so nothing else would take it down with the page.
+        onModuleLeave = function()
+            HideCDMButtonTip()
         end,
         onReset = function()
             if _G._ECME_AceDB then

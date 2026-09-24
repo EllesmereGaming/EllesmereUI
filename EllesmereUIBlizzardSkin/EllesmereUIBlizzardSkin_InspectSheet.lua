@@ -7,6 +7,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 local skinned = false
+local GetItemInfo = C_Item.GetItemInfo
+local GetItemInfoInstant = C_Item.GetItemInfoInstant
+local GetItemQualityColor = C_Item.GetItemQualityColor
 
 -- External weak-keyed lookup table for frame state (prevents tainting Blizzard frames)
 local FFD = setmetatable({}, { __mode = "k" })
@@ -1113,7 +1116,7 @@ local DOCK_MARGIN = 4
 -- since secure repositioning of a protected frame is blocked in combat.
 local securePositioner = CreateFrame("Frame", nil, UIParent, "SecureHandlerBaseTemplate")
 local function SecureSetPoint(frame, point, relPoint, x, y)
-    if InCombatLockdown() then return false end
+    if InCombatLockdown() or not EllesmereUI.SecureSnippetsOK() then return false end
     securePositioner:SetFrameRef("f", frame)
     securePositioner:SetAttribute("p", point)
     securePositioner:SetAttribute("rp", relPoint)

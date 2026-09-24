@@ -972,8 +972,10 @@ local function Skin_LFGList()
         end
     end
 
+    -- ApplicationViewer sits under PVEFrame's protected tree; plain SetAlpha/
+    -- CreateTexture writes taint it the same way SetMovable did (see Shifter.lua).
     local AV = LFGListFrame.ApplicationViewer
-    if AV then
+    if AV and not AV:IsProtected() then
         SkinPanel(AV, { noBg = true, noBorder = true })
         if AV.Inset then FadeInset(AV.Inset) end
         if AV.RefreshButton then SkinRefreshGlyph(AV.RefreshButton) end

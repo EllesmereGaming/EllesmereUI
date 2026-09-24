@@ -384,10 +384,18 @@ local function ModifyReopenedMenu(owner, rootDescription, contextData)
     local setFocus = SET_FOCUS or "Set Focus"
     local follow = FOLLOW or "Follow"
     local raidTarget = RAID_TARGET_ICON or "Raid Target Icon"
+    local trade = TRADE or "Trade"
+    local duel = DUEL or "Duel"
+    local petDuel = PET_BATTLE_PVP_DUEL or "Pet Battle Duel"
+    local achievements = COMPARE_ACHIEVEMENTS or "Compare Achievements"
     for _, d in rootDescription:EnumerateElementDescriptions() do
         local text = MenuUtil.GetElementText(d)
         if d.SetEnabled and (text == setFocus or text == follow or text == raidTarget
+                or text == trade or text == duel or text == petDuel or text == achievements
                 or (HOUSING_OK and text == viewHouses)) then
+            -- Range-gated entries call CheckInteractDistance from Blizzard's
+            -- enabled predicate. Disable them before that predicate can run in
+            -- this tainted reopen; normal secure menus keep their range checks.
             -- Protected from a tainted menu: throws (focus/follow, and every
             -- marker under Raid Target Icon -- SetRaidTarget) or poisons
             -- HouseListFrame for the session (View Houses; the docked button

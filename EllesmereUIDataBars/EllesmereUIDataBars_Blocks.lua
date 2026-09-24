@@ -1028,7 +1028,12 @@ ns.BlockFactories.fps = function(blockCfg, slot, content, barCtx)
 
         local now = GetTime()
         -- UpdateAddOnMemoryUsage() iterates every loaded addon and is a noticeable spike; amortise the rescan to once per 30s.
-        if not skipMemoryScan and (now - sysLastMemScanTime) >= 30 then
+        -- Skipped entirely in combat: on a busy pull that spike can push the
+        -- hovered tooltip's whole script past the "script ran too long" watchdog
+        -- (field report: Murder Row, adds casting Felfire Orb). The data is
+        -- already tolerated at up to 30s stale, so holding it longer is not a
+        -- new behaviour; the next out-of-combat hover rescans normally.
+        if not skipMemoryScan and not InCombatLockdown() and (now - sysLastMemScanTime) >= 30 then
             sysLastMemScanTime = now
             UpdateAddOnMemoryUsage()
             local count = 0
@@ -1631,7 +1636,7 @@ local function MakeLocationBlock(blockCfg, slot, content, barCtx, opts)
     -- click; PLAYER_REGEN_ENABLED drives Refresh's retry so a block built mid-fight becomes clickable once combat ends.
     local clickBtn
     local function EnsureClickButton()
-        if clickBtn or InCombatLockdown() then return clickBtn end
+        if clickBtn or InCombatLockdown() or not EllesmereUI.SecureSnippetsOK() then return clickBtn end
         local micro = _G.QuestLogMicroButton
         if not micro then return nil end
         clickBtn = CreateFrame("Button", "EWB_LOC_" .. inst.key, frame,
@@ -3363,16 +3368,19 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
     local function D() return blockCfg.settings or {} end
     local function BC() return barCtx.cfg end
 
+    -- Spec reads go through C_SpecializationInfo: the legacy globals are not
+    -- registered on WoW Forever (same native functions on retail). The loot
+    -- spec pair and GetNumSpecializations are plain globals on both clients.
     local function BuildSpecCache()
         specCache = {}; numSpecs = GetNumSpecializations() or 0
         for i = 1, numSpecs do
-            local id, name, _, icon, role = GetSpecializationInfo(i)
+            local id, name, _, icon, role = C_SpecializationInfo.GetSpecializationInfo(i)
             if id then specCache[i] = { id = id, name = name, icon = icon, role = role } end
         end
     end
 
     local function UpdateCurrentSpec()
-        currentSpecIdx    = GetSpecialization()
+        currentSpecIdx    = C_SpecializationInfo.GetSpecialization()
         currentLootSpecID = GetLootSpecialization() or 0
     end
 
@@ -3727,7 +3735,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
         local inCombat = InCombatLockdown()
         BuildPopup(lootPool, specButton, L["CHANGE_LOOT_SPEC"], entries, function(e)
             local id = 0
-            if e.specIndex > 0 then id = select(1, GetSpecializationInfo(e.specIndex)) or 0 end
+            if e.specIndex > 0 then id = select(1, C_SpecializationInfo.GetSpecializationInfo(e.specIndex)) or 0 end
             SetLootSpecialization(id)
         end, inCombat, nil, true)
         if inCombat and hoverWatch then
@@ -4519,7 +4527,7 @@ local mmHiders = {}
 local function MMGetHider(frame)
     local hider = mmHiders[frame]
     if hider then return hider end
-    if InCombatLockdown() then return nil end
+    if InCombatLockdown() or not EllesmereUI.SecureSnippetsOK() then return nil end
     hider = CreateFrame("Frame", nil, nil, "SecureHandlerStateTemplate")
     hider:SetFrameRef("target", frame)
     hider:SetAttribute("_onstate-vis", [[
@@ -4585,9 +4593,9 @@ end
 local CS_DIM = "|cffaaaaaa"
 
 local function MMPrimaryStat()
-    local specIndex = GetSpecialization and GetSpecialization()
+    local specIndex = C_SpecializationInfo.GetSpecialization()
     if not specIndex or specIndex <= 0 then return nil end
-    local _, _, _, _, _, statID = GetSpecializationInfo(specIndex)
+    local _, _, _, _, _, statID = C_SpecializationInfo.GetSpecializationInfo(specIndex)
     if statID == LE_UNIT_STAT_STRENGTH  then return SPELL_STAT1_NAME or "Strength",  1 end
     if statID == LE_UNIT_STAT_AGILITY   then return SPELL_STAT2_NAME or "Agility",   2 end
     if statID == LE_UNIT_STAT_INTELLECT then return SPELL_STAT4_NAME or "Intellect", 4 end
@@ -4673,7 +4681,9 @@ local function MMOpenWhisper(charName, bnetName)
     end
     if charName and charName ~= "" then
         local sendTell = (ChatFrameUtil and ChatFrameUtil.SendTell) or ChatFrame_SendTell
-        if sendTell then sendTell(charName, DEFAULT_CHAT_FRAME) end
+        -- Fix "Name-Realm-Realm" to "Name-Realm"
+        local target = EllesmereUI.BuildFullName(charName) or charName
+        if sendTell then sendTell(target, DEFAULT_CHAT_FRAME) end
     end
 end
 
@@ -4703,10 +4713,24 @@ local function MMBuildSocialTip()
             if acc.isDND or ga.isGameBusy then icon = FRIENDS_TEXTURE_DND end
             -- Left text carries NO |c codes so hover recolor (Tip_Show) shows; its blue rides the left-color args. Right column keeps its codes.
             local left  = format("|T%s:16|t %s", icon, acc.accountName or "?")
-            local right = format("|cffecd672%s|r %s", charName or "?", ga.areaName or "")
+            -- A cross-faction BNet friend's characterName can be secret; format("%s", ...)
+            -- rejects it outright, so display text uses a nil'd-out copy. The real
+            -- charName below is kept whole for BuildFullName (invite/whisper). The
+            -- area name rides the same format call and the faction feeds a compare,
+            -- so a secret in either is dropped the same way: no area shown, and a
+            -- friend whose faction cannot be read is treated as not ours to invite.
+            local displayCharName, displayArea = charName, ga.areaName
+            local secretFaction = false
+            if issecretvalue then
+                if issecretvalue(displayCharName) then displayCharName = nil end
+                if issecretvalue(displayArea) then displayArea = nil end
+                secretFaction = issecretvalue(faction)
+            end
+            local right = format("|cffecd672%s|r %s", displayCharName or "?", displayArea or "")
             local bnetName   = acc.accountName
-            local sameFaction = (not faction) or (faction == playerFaction)
-            local inviteName  = (charName and realmName) and (charName .. "-" .. realmName) or charName
+            local sameFaction = (not secretFaction) and ((not faction) or (faction == playerFaction))
+            -- Fix "Name-Realm-Realm" to "Name-Realm"
+            local inviteName  = EllesmereUI.BuildFullName(charName, realmName)
             ns.Tip_AddClickable(left, right, function(mouseButton)
                 if mouseButton == "LeftButton" then
                     if IsShiftKeyDown() and sameFaction and inviteName then
@@ -4791,7 +4815,7 @@ local function MMBuildGuildTip()
             ns.Tip_AddClickable(left, zone or "", function(mouseButton)
                 if not fname then return end
                 if mouseButton == "LeftButton" then
-                    if IsShiftKeyDown() then C_PartyInfo.InviteUnit(fname)
+                    if IsShiftKeyDown() then C_PartyInfo.InviteUnit(EllesmereUI.BuildFullName(fname) or fname)
                     else MMOpenWhisper(fname, nil) end
                 end
             end, clr, clg, clb, 1, 1, 1)
@@ -4985,7 +5009,7 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
         end
         local frame
         local gname = "EWB_MM_" .. inst.key .. "_" .. key
-        if microRef then
+        if microRef and EllesmereUI.SecureSnippetsOK() then
             -- Taint-safe: pass clicks through to the Blizzard MicroButton.
             frame = CreateFrame("Button", gname, content,
                 "SecureActionButtonTemplate,SecureHandlerStateTemplate")
@@ -6215,7 +6239,6 @@ local function GVToggleVault()
     end
     local wrf = _G.WeeklyRewardsFrame
     if not wrf then return end
-    if EllesmereUI.RegisterEscapeClose then EllesmereUI.RegisterEscapeClose(wrf) end
     wrf:SetShown(not wrf:IsShown())
 end
 
@@ -6383,6 +6406,8 @@ ns.BlockFactories.greatvault = function(blockCfg, slot, content, barCtx)
 
     return inst
 end
+-- No Great Vault on WoW Forever: no factory, so no instance, no keystone feed (the main file drops the block from BLOCK_TYPES too).
+if EllesmereUI.IS_FOREVER then ns.BlockFactories.greatvault = nil end
 
 -------------------------------------------------------------------------------
 --  SPACER (transparent block; the slot's optional bg tint still applies)

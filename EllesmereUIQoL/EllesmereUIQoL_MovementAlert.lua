@@ -791,9 +791,9 @@ local function SafeGetBaseDuration(spellId)
 end
 
 local function ResolvePlayerSpecId()
-    local spec = GetSpecialization()
+    local spec = C_SpecializationInfo.GetSpecialization()
     if not spec then return nil end
-    local specId = select(1, GetSpecializationInfo(spec))
+    local specId = C_SpecializationInfo.GetSpecializationInfo(spec)
     if specId and specId > 0 then return specId end
     return nil
 end

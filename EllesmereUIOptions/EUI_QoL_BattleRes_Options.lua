@@ -45,8 +45,23 @@ local SHAPE_VALUES = {
 }
 local SHAPE_ORDER = { "none", "cropped", "---", "square", "circle", "csquare", "diamond", "hexagon", "portrait", "shield" }
 
-local BORDER_VALUES = { none = "None", thin = "Thin", normal = "Normal", heavy = "Heavy", strong = "Strong" }
-local BORDER_ORDER  = { "none", "thin", "normal", "heavy", "strong" }
+-- Border Size as a 0-4 pixel slider over the stored word (none..strong): the
+-- border is solid only, so the step is the pixel count. It writes the same
+-- word the dropdown wrote and only on a real change, so a Bloodlust value that
+-- inherits Battle Res (nil) keeps inheriting while the slider merely shows it.
+-- get/set/refresh are the page's accessors (Cfg/Set/Refresh or the BL_ trio).
+local function BorderSizeSliderCfg(get, set, refresh, disabled, disabledTooltip)
+    return { type="slider", text="Border Size", min=0, max=4, step=1,
+      disabled=disabled, disabledTooltip=disabledTooltip,
+      getValue=function()
+          return EllesmereUI.BORDER_STEP_OF_LABEL[get("borderSize") or "thin"] or 1
+      end,
+      setValue=function(v)
+          local word = EllesmereUI.BORDER_LABEL_OF_STEP[math.floor(v + 0.5)] or "thin"
+          if word == (get("borderSize") or "thin") then return end
+          set("borderSize", word); refresh()
+      end }
+end
 
 local VIS_VALUES = {
     MPLUS_AND_RAID = "M+ and Raid",
@@ -110,6 +125,44 @@ end
 local ICON_ROWS_TIP = "This option requires Display Style to be set to Icon"
 local TEXT_ROWS_TIP = "This option requires Display Style to be set to Text"
 
+-- Settings cog holding one toggle, placed left of the row region's inline
+-- controls (same shape as the Skip Cinematics cog). offFn greys and blocks
+-- it; offReq is the DisabledTooltip requirement shown while blocked.
+local function AttachToggleCog(rgn, title, label, get, set, offFn, offReq)
+    local _, cogShow = EllesmereUI.BuildCogPopup({
+        title = title,
+        rows = { { type="toggle", label=label, get=get, set=set } },
+    })
+    local cogBtn = CreateFrame("Button", nil, rgn)
+    cogBtn:SetSize(26, 26)
+    cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -9, 0)
+    rgn._lastInline = cogBtn
+    cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+    local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
+    cogTex:SetAllPoints()
+    cogTex:SetTexture(EllesmereUI.COGS_ICON)
+    cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
+    cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(offFn() and 0.15 or 0.4) end)
+    cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
+
+    local block = CreateFrame("Frame", nil, cogBtn)
+    block:SetAllPoints()
+    block:SetFrameLevel(cogBtn:GetFrameLevel() + 10)
+    block:EnableMouse(true)
+    block:SetScript("OnEnter", function()
+        EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip(offReq))
+    end)
+    block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+    local function UpdateState()
+        local off = offFn()
+        cogBtn:SetAlpha(off and 0.15 or 0.4)
+        block:SetShown(off)
+    end
+    EllesmereUI.RegisterWidgetRefresh(UpdateState)
+    UpdateState()
+end
+
 local function BuildBattleResPage(pageName, parent, yOffset)
     local W = EllesmereUI.Widgets
     local PP = EllesmereUI.PP
@@ -154,13 +207,9 @@ local function BuildBattleResPage(pageName, parent, yOffset)
 
     -- Border Size | Icon Zoom
     row, h = W:DualRow(parent, y,
-        { type="dropdown", text="Border Size",
-          disabled=function() return Cfg("visibility") == "NEVER" end,
-          disabledTooltip="BattleRes Icon",
-          values=BORDER_VALUES,
-          order=BORDER_ORDER,
-          getValue=function() return Cfg("borderSize") or "thin" end,
-          setValue=function(v) Set("borderSize", v); Refresh() end },
+        BorderSizeSliderCfg(Cfg, Set, Refresh,
+          function() return Cfg("visibility") == "NEVER" end,
+          "BattleRes Icon"),
         { type="slider", text="Icon Zoom",
           disabled=function()
               if Cfg("visibility") == "NEVER" then return true end
@@ -244,6 +293,29 @@ _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
 
     _, h = W:SectionHeader(parent, "BATTLE RES", y); y = y - h
 
+    -- Live preview: forces the icon on screen for as long as this page is (mirrors
+    -- the Bloodlust Tracker section below). PollCharges falls back to stand-in
+    -- charge data wherever the brez pool reports none, so it previews from anywhere.
+    -- The OnSHOW hook is what makes revisits work: the options panel caches built
+    -- pages and re-shows the wrapper without re-running this builder, so without it
+    -- the preview would arm on the first visit only.
+    if not EllesmereUI._prebuilding and _G._EUI_BattleRes_SetPreviewOwner then
+        _G._EUI_BattleRes_SetPreviewOwner(parent)
+        if not parent._brPreviewHooked then
+            parent._brPreviewHooked = true
+            parent:HookScript("OnShow", function()
+                if _G._EUI_BattleRes_SetPreviewOwner then
+                    _G._EUI_BattleRes_SetPreviewOwner(parent)
+                end
+            end)
+            parent:HookScript("OnHide", function()
+                if _G._EUI_BattleRes_UpdateVisibility then
+                    _G._EUI_BattleRes_UpdateVisibility()
+                end
+            end)
+        end
+    end
+
     row, h = W:DualRow(parent, y,
         { type="dropdown", text="Enable BattleRes Icon",
           values=VIS_VALUES, order=VIS_ORDER,
@@ -281,12 +353,7 @@ _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
     y = y - h
 
     row, h = W:DualRow(parent, y,
-        { type="dropdown", text="Border Size",
-          disabled=TextModeOn,
-          disabledTooltip=ICON_ROWS_TIP,
-          values=BORDER_VALUES, order=BORDER_ORDER,
-          getValue=function() return Cfg("borderSize") or "thin" end,
-          setValue=function(v) Set("borderSize", v); Refresh() end },
+        BorderSizeSliderCfg(Cfg, Set, Refresh, TextModeOn, ICON_ROWS_TIP),
         { type="slider", text="Icon Zoom",
           disabled=function()
               if TextModeOn() then return true end
@@ -411,6 +478,11 @@ _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
         local timerSwatch = MakeInlineTextSwatch("textTimerColor", "Timer Color", rgn._control)
         local countSwatch = MakeInlineTextSwatch("textCountColor", "Count Color", timerSwatch)
         rgn._lastInline = countSwatch
+
+        AttachToggleCog(rgn, "Icon Settings", "Desaturate when No Charges",
+            function() return Cfg("desaturateNoCharges") == true end,
+            function(v) Set("desaturateNoCharges", v); Refresh() end,
+            TextModeOn, ICON_ROWS_TIP)
     end
 
     -- Font | Font Outline: text-display-only controls (the icon's duration /
@@ -471,7 +543,11 @@ local function BL_BR()
 end
 
 -- Keys stored independently on the bloodlust profile (everything else proxies).
-local BL_OWN_KEYS = { visibility = true, enabled = true, pos = true }
+local BL_OWN_KEYS = {
+    visibility = true, enabled = true, pos = true,
+    showSated = true, showReady = true, readySize = true, readyColor = true,
+    readyOffsetX = true, readyOffsetY = true, desaturateSated = true,
+}
 
 local function BL_Cfg(key, fallback)
     local bl = BL_P()
@@ -549,6 +625,30 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
 
     _, h = W:SectionHeader(parent, "BLOODLUST TRACKER", y); y = y - h
 
+    -- Live preview: the icon is forced on screen for as long as this page is, so the
+    -- ready label, sizes and offsets can be judged without waiting for a real lust.
+    -- The runtime keys off the page's own visibility, so the OnHide hook only has to
+    -- poke it; a hidden search pre-build never owns the preview.
+    -- The OnSHOW hook is what makes revisits work: the options panel caches built
+    -- pages and re-shows the wrapper without re-running this builder, so without it
+    -- the preview would arm on the first visit only.
+    if not EllesmereUI._prebuilding and _G._EUI_Bloodlust_SetPreviewOwner then
+        _G._EUI_Bloodlust_SetPreviewOwner(parent)
+        if not parent._blPreviewHooked then
+            parent._blPreviewHooked = true
+            parent:HookScript("OnShow", function()
+                if _G._EUI_Bloodlust_SetPreviewOwner then
+                    _G._EUI_Bloodlust_SetPreviewOwner(parent)
+                end
+            end)
+            parent:HookScript("OnHide", function()
+                if _G._EUI_Bloodlust_UpdateVisibility then
+                    _G._EUI_Bloodlust_UpdateVisibility()
+                end
+            end)
+        end
+    end
+
     row, h = W:DualRow(parent, y,
         { type="dropdown", text="Enable Bloodlust Icon",
           values=VIS_VALUES, order=VIS_ORDER,
@@ -586,10 +686,7 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
     y = y - h
 
     row, h = W:DualRow(parent, y,
-        { type="dropdown", text="Border Size",
-          values=BORDER_VALUES, order=BORDER_ORDER,
-          getValue=function() return BL_Cfg("borderSize") or "thin" end,
-          setValue=function(v) BL_Set("borderSize", v); BL_Refresh() end },
+        BorderSizeSliderCfg(BL_Cfg, BL_Set, BL_Refresh),
         { type="slider", text="Icon Zoom",
           disabled=function()
               local s = BL_Cfg("shape") or "none"
@@ -613,7 +710,13 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
     y = y - h
 
     do
-        local function _attachOffsetCog(rgn, popupTitle, xKey, yKey)
+        -- disabledFn/disabledText: optional, block the popup + grey the cog while
+        -- the row it belongs to is disabled (Duration/Count Position pass neither
+        -- and stay always-on, unchanged). anchorTo: optional, anchor the cog to
+        -- something other than the row's own control while keeping rgn as parent
+        -- (parenting it to the anchor instead would multiply the cog's disabled
+        -- alpha by that anchor's, greying it into invisibility).
+        local function _attachOffsetCog(rgn, popupTitle, xKey, yKey, disabledFn, disabledText, anchorTo)
             local _, cogShow = EllesmereUI.BuildCogPopup({
                 title = popupTitle,
                 rows = {
@@ -627,18 +730,116 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
             })
             local cogBtn = CreateFrame("Button", nil, rgn)
             cogBtn:SetSize(26, 26)
-            PP.Point(cogBtn, "RIGHT", rgn._control or rgn, "LEFT", -6, 0)
+            PP.Point(cogBtn, "RIGHT", anchorTo or rgn._control or rgn, "LEFT", -6, 0)
             cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
             local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
             cogTex:SetAllPoints()
             cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
             cogBtn:SetAlpha(0.4)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.75) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+            cogBtn:SetScript("OnClick", function(self)
+                if disabledFn and disabledFn() then return end
+                cogShow(self)
+            end)
+            cogBtn:SetScript("OnEnter", function(self)
+                if disabledFn and disabledFn() then
+                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip(disabledText))
+                    return
+                end
+                self:SetAlpha(0.75)
+            end)
+            cogBtn:SetScript("OnLeave", function(self)
+                if disabledFn and disabledFn() then EllesmereUI.HideWidgetTooltip(); return end
+                self:SetAlpha(0.4)
+            end)
+            if disabledFn then
+                EllesmereUI.RegisterWidgetRefresh(function()
+                    cogBtn:SetAlpha(disabledFn() and 0.15 or 0.4)
+                end)
+            end
         end
         _attachOffsetCog(row._leftRegion,  "Duration Position", "durationOffsetX", "durationOffsetY")
         _attachOffsetCog(row._rightRegion, "Count Position",    "countOffsetX",    "countOffsetY")
+
+        -- Show Sated / Show Ready: independent toggles. Sated gates the real lockout
+        -- countdown, Ready gates the label shown once that lockout is gone -- either,
+        -- both or neither can be on.
+        -- Toggle controls don't self-trigger a refresh pass (unlike sliders/
+        -- dropdowns), so without the explicit RefreshPage() the Ready row below
+        -- stays stale (not greyed/ungreyed) until something else repaints the page.
+        row, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Icon when Sated",
+              tooltip="Show the Sated/Exhaustion lockout countdown on the icon.",
+              getValue=function() return BL_Cfg("showSated") ~= false end,
+              setValue=function(v)
+                  BL_Set("showSated", v); BL_Refresh(); EllesmereUI:RefreshPage()
+              end },
+            { type="toggle", text="Show Icon with Ready Text",
+              tooltip="Once the lockout expires, show a Ready label on the icon in place of the countdown. The visibility rule above still applies.",
+              getValue=function() return BL_Cfg("showReady") == true end,
+              setValue=function(v)
+                  BL_Set("showReady", v); BL_Refresh(); EllesmereUI:RefreshPage()
+              end })
+        y = y - h
+
+        if not EllesmereUI._prebuilding then
+            AttachToggleCog(row._leftRegion, "Sated Settings", "Desaturate when Sated",
+                function() return BL_Cfg("desaturateSated") == true end,
+                function(v) BL_Set("desaturateSated", v); BL_Refresh() end,
+                function() return BL_Cfg("showSated") == false end, "Show Icon when Sated")
+        end
+
+        -- Ready appearance: offset cog, colour swatch and size slider on one row,
+        -- disabled (not hidden) while Show Ready is off so the layout never
+        -- reshuffles on the toggle.
+        local function readyOff() return BL_Cfg("showReady") ~= true end
+        row, h = W:DualRow(parent, y,
+            { type="slider", text="Ready Size",
+              disabled=readyOff,
+              disabledTooltip="Show Icon with Ready Text",
+              min=8, max=30, step=1, isPercent=false,
+              getValue=function() return BL_Cfg("readySize") or 12 end,
+              setValue=function(v) BL_Set("readySize", v); BL_Refresh() end },
+            { type="label", text="" })
+        y = y - h
+        do
+            local leftRgn = row._leftRegion
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5,
+                function()
+                    local c = BL_Cfg("readyColor")
+                    if c then return c.r or 1, c.g or 1, c.b or 1 end
+                    return 1, 1, 1
+                end,
+                function(r, g, b)
+                    BL_Set("readyColor", { r = r, g = g, b = b })
+                    BL_Refresh()
+                end, false, 20)
+            PP.Point(swatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
+            EllesmereUI.RegisterWidgetRefresh(function()
+                local off = readyOff()
+                swatch:SetAlpha(off and 0.3 or 1)
+                updateSwatch()
+            end)
+            -- The slider's own "disabled" already blocks clicks on itself; the
+            -- swatch is a manual inline extra, so it needs the same click-block
+            -- overlay the ActionBars range-colour swatch uses.
+            local readyColorBlock = CreateFrame("Frame", nil, swatch)
+            readyColorBlock:SetAllPoints()
+            readyColorBlock:SetFrameLevel(swatch:GetFrameLevel() + 10)
+            readyColorBlock:EnableMouse(true)
+            readyColorBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("Show Icon with Ready Text"))
+            end)
+            readyColorBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            EllesmereUI.RegisterWidgetRefresh(function()
+                readyColorBlock:SetShown(readyOff())
+            end)
+            readyColorBlock:SetShown(readyOff())
+            -- Cog anchors LEFT of the swatch (not the slider) so it lands in the
+            -- empty gap instead of stacking both on the slider's left edge, while
+            -- staying parented to the row region like the other two.
+            _attachOffsetCog(leftRgn, "Ready Position", "readyOffsetX", "readyOffsetY",
+                readyOff, "Show Icon with Ready Text", swatch)
+        end
     end
     end   -- close Bloodlust hidden-while-Never gate
 

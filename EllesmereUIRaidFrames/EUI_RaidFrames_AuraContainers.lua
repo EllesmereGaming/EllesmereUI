@@ -132,16 +132,24 @@ end
 -- Debuff text: duration centered, stack bottom-right, via the shared icon-text font
 -- pipeline. DM EFFECTS (style.fxList, per-filter blocks): category comes from d.dmCat
 -- (stamped at group declare) or the cc style's ccGroup marker for cc-group buttons;
--- boss/role matches either check, FIRST match wins. A block may add an Icon Glow
+-- boss/role matches either check, FIRST match wins. A Match All or Icon Effect split
+-- record stamps a category LIST: the first block matching any of them wins. A block may add an Icon Glow
 -- (rides button visibility, remaps to FlipBook under restriction, params cached) and/or
 -- a Border override (own PP host one level above the style border, so equal-or-larger
 -- size covers it).
 local function DmFxBlockFor(list, cat)
     if not (list and cat) then return nil end
+    local multi = type(cat) == "table"
     for i = 1, #list do
         local f = list[i].filters
-        if f and (f[cat] or (cat == "bossrole" and (f.boss or f.role))) then
-            return list[i]
+        if f then
+            if multi then
+                for j = 1, #cat do
+                    if f[cat[j]] then return list[i] end
+                end
+            elseif f[cat] or (cat == "bossrole" and (f.boss or f.role)) then
+                return list[i]
+            end
         end
     end
 end
@@ -693,8 +701,9 @@ local function ApplyRFDispelSlot(button, dd, style)
         dd.iconHost:SetSize(size, size)
         local corner = CORNERS[style.iconPos or "right"] or "RIGHT"
         -- Uniform Icon Anchoring: the type icon is positional (unlike the
-        -- overlay/border above, which decorate the bar itself).
-        local iconAnchor = (style.uniformAnchors and health._euiUniformRef) or health
+        -- overlay/border above, which decorate the bar itself). The Party
+        -- Frames kit positions it on the visible party frame.
+        local iconAnchor = health._euiKitRef or (style.uniformAnchors and health._euiUniformRef) or health
         dd.iconHost:ClearAllPoints()
         dd.iconHost:SetPoint(corner, iconAnchor, corner, style.iconOffX or 0, style.iconOffY or 0)
         dd.iconHost:Show()
@@ -914,12 +923,15 @@ local function BmScaleFor(d)
     return ns._bmScale or 1
 end
 
-local function BmIndicators()
+local function BmIndicators(d)
     -- Buff Manager v2 (spell -> filter -> indicator): the adapter returns legacy-
     -- shaped indicators with resolved spell unions, gated on the activation flag so
-    -- dormant v2 leaves the legacy system untouched.
+    -- dormant v2 leaves the legacy system untouched. d: the button asking; its
+    -- frame kind applies each indicator's Show In (party header buttons are party,
+    -- also in arena and small-raid party mode; extra and friendly boss frames are
+    -- raid). nil d = every indicator.
     if ns.BM2_Enabled and ns.BM2_SpecIndicators then
-        return ns.BM2_SpecIndicators()
+        return ns.BM2_SpecIndicators(d and (d._isParty and "party" or "raid") or nil)
     end
     if not (ns.BM_GetSpecIndicators and ns.db) then return nil, nil, "custom" end
     local specKey = ns.BM_CurrentSpecKey and ns.BM_CurrentSpecKey()
@@ -1018,6 +1030,8 @@ local function BmChainMode(ind)
     end
     return "g"
 end
+-- (The Party Frames kit's Buff Manager view picks its runs with it.)
+ns.RFC_BmChainMode = BmChainMode
 
 -- Own-only state feeds slot filter strings and the chain group's filter,
 -- so it is part of the swap signature.
@@ -1236,6 +1250,8 @@ local function ApplyBmIconExtra(button, dd, style)
     -- uninstall): Show post-hook re-hides, alpha 0 covers engine paths that
     -- re-show outside the hooked Lua method. Hook installs lazily on first hide.
     if dd.icon then
+        -- Match the unsnapped border strips at fractional icon edges.
+        if EllesmereUI.PP then EllesmereUI.PP.DisablePixelSnap(dd.icon) end
         dd.bmHideIcon = style.hideIcon == true
         dd.icon:SetShown(not dd.bmHideIcon)
         if dd.bmHideIcon and not dd.bmIconHooked then
@@ -1563,11 +1579,14 @@ local function BmEffectInit(button, dd, style, ind, health)
             -- (sweep) -- exact live parity.
             button:SetFrameLevel(unitButton:GetFrameLevel())
             dd.borderHost = CreateFrame("Frame", nil, button)
-            dd.borderHost:SetAllPoints(unitButton)
-            -- OUR secure unit button, outside the forbidden subtree: apply pass reads
-            -- its rect for the dashed-style animated ants (border host is unmeasurable
-            -- outside this window).
-            dd.bmFxHost = unitButton
+            -- The Party Frames kit outlines the visible party frame (our
+            -- host frame) instead of the whole button box.
+            local fxHost = (health and health._euiKitRef) or unitButton
+            dd.borderHost:SetAllPoints(fxHost)
+            -- OUR secure unit button (or the kit host), outside the forbidden
+            -- subtree: apply pass reads its rect for the dashed-style animated
+            -- ants (border host is unmeasurable outside this window).
+            dd.bmFxHost = fxHost
         end
     end
     BmApplyEffect(button, dd, style)
@@ -1877,7 +1896,8 @@ local function AnchorBmChainContainer(container, health, members, iscale)
         -- component only applies once wrapping is on; unwrapped = legacy single-run.
         if per > 0 then
             if grow == "LEFT" or grow == "RIGHT" then
-                gV = posB and "UP" or "DOWN"
+                -- (wrapUp: the Party Frames kit's run above a frame.)
+                gV = (posB or ind.wrapUp) and "UP" or "DOWN"
             else
                 gH = posR and "LEFT" or "RIGHT"
             end
@@ -2015,7 +2035,7 @@ local function BmVisualKey(kind, ind, size, font, spellID)
             CK(ind.barBgColor), ind.barBgOpacity, ind.frameLevel, tostring(BmTipMode()))
     end
     return FP(ind.type, CK(ind.color), ind.opacity, ind.borderWidth, ind.borderOpacity,
-        ind.borderStyle, ind.borderDashCount)
+        ind.borderStyle, ind.borderDashCount, ind.borderWidthPx)
 end
 
 local function BmOwnKey(meta)
@@ -2555,7 +2575,9 @@ local function BmParkUnbound(d, counters)
 end
 
 local function CreateBmContainer(button, health, d, unit)
-    local inds, specKey, mode = BmIndicators()
+    local inds, specKey, mode = BmIndicators(d)
+    -- Party Frames kit: every buff icon joins one run right of the frame.
+    if d.kit and inds and ns.RF_KitBmView then inds = ns.RF_KitBmView(inds) end
     local sig = BmSignature(inds, specKey, mode)
     -- Base grid: independent of the custom side (coexistence). Built here
     -- when active; mid-session enables build via ReloadBmSimple's ensure.
@@ -2738,7 +2760,10 @@ end
 -- strings 40x in raids). The cls table is cached by the caller for one RFC_ReloadAll pass.
 local function BmClassPass(d)
     local cls = {}
-    cls.inds, cls.specKey, cls.mode = BmIndicators()
+    cls.inds, cls.specKey, cls.mode = BmIndicators(d)
+    -- (Same frame-kind filter and kit view as CreateBmContainer, so the
+    -- signatures agree.)
+    if d.kit and cls.inds and ns.RF_KitBmView then cls.inds = ns.RF_KitBmView(cls.inds) end
     cls.sig = BmSignature(cls.inds, cls.specKey, cls.mode)
     cls.iscale = BmScaleFor(d)
     cls.styleKey = StyleKeyFor(d)
@@ -3235,9 +3260,8 @@ local function ApplyAssistGate(button, d, unit)
         d.rfcBmSimple:SetShown(assist and baseOn and specKey ~= nil
             and (bs and bs.showBuffs) and true or false)
     end
-    -- Debuff Manager: its identity-gated (candidate-boolean) records hide
-    -- for untrusted units; token records stay on like the legacy row.
-    if ns.DM_OnAssistChanged then ns.DM_OnAssistChanged(d) end
+    -- The Debuff Manager takes no part: candidate booleans are never
+    -- identity-gated, so its records and tiles render on every unit.
     -- Regain refresh: content parsed during the degraded window is WRONG
     -- ("any buff"), and no aura edge is guaranteed to follow the transition
     -- back (cinematic end, vehicle exit) -- the display would show stale

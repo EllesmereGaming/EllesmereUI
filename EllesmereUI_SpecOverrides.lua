@@ -44,6 +44,41 @@ local PS  = "\30"   -- path segment separator
 local FS  = "\31"   -- folder/path separator inside an fkey
 local NIL_SENT = "__SPECOV_NIL__"
 
+-- Exact border sizes ride a companion key beside a surface's border size key
+-- ("<key>Px", see EllesmereUI.BorderPx). An entry that captured a size key
+-- captures the companion with it (AutoCapture), so a spec or condition holding
+-- only the legacy size also clears an exact size set on the shared baseline
+-- (NIL_SENT: no registered default, so the apply writes nil) instead of that
+-- size riding along wherever the steps coincide. An entry made before the
+-- companion existed gains it only once the profile really has an exact size
+-- (PxCo.Pair); a store on a profile without one is never rewritten.
+-- One table: this file is local-heavy. Partner() names exactly the size keys
+-- that gained a companion (last path segment, Raid Frames party twins
+-- included); shared names on solid-only surfaces (a boss powerBorderSize) are
+-- harmless, their companion is never read.
+local PxCo = {
+    keys = {
+        borderSize = true, borderThickness = true, bgBorderThickness = true,
+        auraBorderSize = true, powerBorderSize = true, customBorderSize = true,
+        panelBorderThickness = true, tabBorderThickness = true,
+        windowBorderSize = true, iconBorderSize = true,
+        hoverBorderSize = true, targetBorderSize = true, borderWidth = true,
+        party_borderSize = true, party_hoverBorderSize = true,
+        party_targetBorderSize = true,
+    },
+    memo = {},
+}
+function PxCo.Partner(fkey)
+    if type(fkey) ~= "string" then return nil end
+    local p = PxCo.memo[fkey]
+    if p == nil then
+        local leaf = fkey:match("([^\30\31]+)$")
+        p = (leaf and PxCo.keys[leaf]) and (fkey .. "Px") or false
+        PxCo.memo[fkey] = p
+    end
+    return p or nil
+end
+
 -- Theme color #c7a65a (antique gold): slot borders and all accent work in the
 -- cards popup / creation popup.
 local ACCENT_R, ACCENT_G, ACCENT_B = 199/255, 166/255, 90/255
@@ -95,12 +130,12 @@ local REFRESH_FNS = {
     EllesmereUINameplates        = { "_ENP_RefreshAllSettings" },
     EllesmereUIQuestTracker      = { "_EQT_RefreshAll" },
     EllesmereUIChat              = { "_ECHAT_RefreshAll" },
-    EllesmereUIFriends           = { "_EFR_ApplyFriends" },
+    EllesmereUIFriends           = { "_EFR_ApplyFriends", "_EFR_ProcessFriendButtons", "_EFR_RedecorateTiles" },
     EllesmereUIMythicTimer       = { "_EMT_Apply" },
     EllesmereUIDamageMeters      = { "_EDM_Apply" },
     EllesmereUIDataBars          = { "_EDB_Apply" },
     EllesmereUIQuickdraw         = { "_EQD_Apply" },
-    EllesmereUIAuraBuffReminders = { "_EABR_RequestRefresh", "_EABR_ApplyUnlockPos" },
+    EllesmereUIAuraBuffReminders = { "_EABR_UpdateGroupAuraRegistration", "_EABR_ApplyAllIconBorders", "_EABR_RequestRefresh", "_EABR_ApplyUnlockPos" },
     -- Capture/apply-blacklisted (see FOLDER_BLACKLIST); insurance so a leaked
     -- key can never hit the unmapped-folder fallback's full RefreshAllAddons.
     EllesmereUIDragonRiding      = { "_EDR_Rebuild" },
@@ -340,6 +375,7 @@ local SETTING_BLACKLIST = {
         bmIconZoom    = true,   -- buff-manager layer territory
         bm2           = true,   -- buff-manager v2 layer territory
         dmDebuff      = true,   -- debuff-manager layer territory
+        partyFrameStyle = true, -- reload-gated Party page Frame Style (latched at load, like the Style flags)
     },
 }
 
@@ -435,6 +471,8 @@ local MATCH_OWNED_FKEYS = {
     ["EllesmereUIResourceBars\31castBar\30height"]      = { elem = "ERB_CastBar",       dim = "h" },
     ["EllesmereUIResourceBars\31gcdBar\30width"]        = { elem = "ERB_GCDBar",        dim = "both" },
     ["EllesmereUIResourceBars\31gcdBar\30height"]       = { elem = "ERB_GCDBar",        dim = "both" },
+    ["EllesmereUIResourceBars\31swingTimer\30width"]    = { elem = "ERB_SwingTimer",    dim = "w" },
+    ["EllesmereUIResourceBars\31swingTimer\30height"]   = { elem = "ERB_SwingTimer",    dim = "h" },
 }
 
 local function MatchOwnedFKey(fkey)
@@ -742,6 +780,11 @@ local function PruneRedundantValues()
                     end
                 end
                 if not held then
+                    -- An exact-size companion stays while its size key does (PxCo).
+                    local base = fkey:sub(-2) == "Px" and fkey:sub(1, -3) or nil
+                    if base and def[base] ~= nil and PxCo.Partner(base) == fkey then held = true end
+                end
+                if not held then
                     -- GC only when live actually matches the recorded default: a cleared
                     -- holder whose repaint has not landed (spec-nil login window,
                     -- deferred heal apply) still has the override LIVE, and dropping the
@@ -829,11 +872,64 @@ local function HarvestGroup(group)
     PruneRedundantValues()
 end
 
+-- Pairs every captured size key with its exact-size companion, run before an
+-- apply or a default bank walks a store (cond = the conditional store). A size
+-- key whose companion no entry records (an entry from before the companion
+-- existed) adopts the live baseline exact size into its default map -- a store
+-- write only on a profile that has one. Once a default holds a real exact size,
+-- every override map holding its own legacy size gets NIL_SENT for the
+-- companion, so that spec or condition draws its own size, not the baseline's.
+-- Defined here, after the locals it reads.
+function PxCo.Pair(store, cond)
+    if not store then return end
+    local CO = EllesmereUI._CondOv
+    local changed = false
+    for _, entry in ipairs(store) do
+        local def = entry.values and entry.values.default
+        if def then
+            local adopt
+            for fkey in pairs(def) do
+                local p = PxCo.Partner(fkey)
+                if p and def[p] == nil and FKeyLoaded(p) and not EntryOwning(p)
+                   and not (CO and CO.EntryOwning and CO.EntryOwning(p)) then
+                    local cur = ReadLive(p)
+                    if cur ~= nil and type(cur) ~= "table" then
+                        adopt = adopt or {}
+                        adopt[p] = cur
+                    end
+                end
+            end
+            if adopt then
+                for p, v in pairs(adopt) do def[p] = v end
+                changed = true
+            end
+            for fkey in pairs(def) do
+                local p = PxCo.Partner(fkey)
+                local pv = p and def[p]
+                if type(pv) == "string" and pv ~= NIL_SENT then
+                    for k, m in pairs(entry.values) do
+                        if k ~= "default" and type(m) == "table"
+                           and m[fkey] ~= nil and m[p] == nil then
+                            m[p] = NIL_SENT
+                            changed = true
+                        end
+                    end
+                end
+            end
+        end
+    end
+    if changed then
+        if cond then CO.RebuildIndex() else RebuildFKeyIndex() end
+        RequestGoldWalk()
+    end
+end
+
 -- Raw writer: puts the given spec's stored values into the live profile
 -- tables. Returns the set of folders whose values actually changed, or nil.
 local function WriteSpecValues(specID)
     local store = GetStore()
     if not store or #store == 0 or not specID then return nil end
+    PxCo.Pair(store)
     local touched = nil
     for _, entry in ipairs(store) do
         local m = entry.values[specID] or entry.values.default
@@ -915,6 +1011,9 @@ end
 -- edits are edits to the shared baseline).
 local function HarvestDefaults()
     local store = GetStore()
+    -- A Default view edit to an exact size an entry does not record yet is a
+    -- baseline edit: pair it first so it banks.
+    PxCo.Pair(store)
     local maps = HarvestMap()
     if not maps then return end
     for i, entry in ipairs(store) do
@@ -1270,6 +1369,37 @@ local function GetUnlockStore(create)
     return s
 end
 
+--- True when any override entry -- spec or conditional -- holds this setting
+--- (a module folder plus its path segments from the module's profile root),
+--- or a table above it. A caller that writes settings outside a tracked
+--- widget (the Style page's per-style slots and first-visit defaults) leaves
+--- such a setting alone, so the override keeps winning (an applied
+--- conditional's value would otherwise be banked over at logout). Read-only.
+function EllesmereUI.SpecOverrides_IsCaptured(folder, ...)
+    local fkey = folder .. FS .. table.concat({ ... }, PS)
+    local C = EllesmereUI._CondOv
+    for pass = 1, 2 do
+        local store
+        if pass == 1 then store = GetStore()
+        elseif C and C.GetStore then store = C.GetStore() end
+        if store then
+            for _, e in ipairs(store) do
+                local vals = e.values
+                if type(vals) == "table" then
+                    for _, map in pairs(vals) do
+                        if type(map) == "table" then
+                            for k in pairs(map) do
+                                if k == fkey or (#k < #fkey and fkey:sub(1, #k + 1) == k .. PS) then return true end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
 function EllesmereUI.SpecOverrides_CurrentSpec()
     return CurrentSpecID()
 end
@@ -1466,6 +1596,7 @@ end
 --  A LAYER is the complete unlock layout, captured and applied WHOLESALE:
 --    anchors / widthMatch / heightMatch   global unlock link tables, verbatim
 --                                         (incl. offsets, growth-edge pins)
+--    widthMatchExtra / heightMatchExtra   the matches' extra px, by child key
 --    cdmPos / abPos                       raw saved-edge stores incl. the
 --                                         tgt* follow baselines
 --    cdmGrow / abGrow                     grow directions by bar key
@@ -1502,7 +1633,12 @@ local function IsTBBChildKey(key)
     return type(key) == "string" and key:find("^TBB_%d+$") ~= nil
 end
 
-local function HarvestLayer()
+-- carry / base: the layer the harvest banks into and the baseline. An element
+-- whose size the current look fixes (sizeFixedByLook: Blizzard Style unit
+-- frames) reports that look's size, not its own setting, so its size is taken
+-- from carry, else base, else its own setting (getSettingSize): every entry
+-- keeps a size, since the layer apply treats an entry as owning the key.
+local function HarvestLayer(carry, base)
     local layer = {
         anchors     = DeepCopy(EllesmereUIDB and EllesmereUIDB.unlockAnchors or {}),
         widthMatch  = DeepCopy(EllesmereUIDB and EllesmereUIDB.unlockWidthMatch or {}),
@@ -1521,6 +1657,21 @@ local function HarvestLayer()
         end
         if kill then
             for _, k in ipairs(kill) do t[k] = nil end
+        end
+    end
+    -- Match extras ride with the links: kept only beside a link this layer
+    -- carries (so the TBB child entries stripped above drop out too).
+    layer.widthMatchExtra, layer.heightMatchExtra = {}, {}
+    local wx = EllesmereUIDB and EllesmereUIDB.unlockWidthMatchExtra
+    if wx then
+        for k, v in pairs(wx) do
+            if layer.widthMatch[k] ~= nil then layer.widthMatchExtra[k] = v end
+        end
+    end
+    local hx = EllesmereUIDB and EllesmereUIDB.unlockHeightMatchExtra
+    if hx then
+        for k, v in pairs(hx) do
+            if layer.heightMatch[k] ~= nil then layer.heightMatchExtra[k] = v end
         end
     end
     local cdm = LiteProfile("EllesmereUICooldownManager")
@@ -1550,14 +1701,51 @@ local function HarvestLayer()
         for key, elem in pairs(elems) do
             if not LayerSkipsKey(key) then
                 local e
-                if elem.loadPosition then
+                -- Elements whose STORED position is not the visual one loadPosition
+                -- reports (PlayerAuraBars' rounding-shifted bars) expose
+                -- loadRawPosition/saveRawPosition: bank that flat table verbatim, so
+                -- a layer harvested at one resolution stays valid at another and
+                -- keeps the element's own position flags.
+                if elem.loadRawPosition and elem.saveRawPosition then
+                    local ok, p = pcall(elem.loadRawPosition, key)
+                    if ok and type(p) == "table" and p.point then
+                        e = {}
+                        for k, v in pairs(p) do
+                            if type(v) ~= "table" then e[k] = v end
+                        end
+                        e.relPoint = e.relPoint or e.point
+                        e.rawPos = true
+                    end
+                elseif elem.loadPosition then
                     local ok, p = pcall(elem.loadPosition, key)
                     if ok and p and p.point then
                         e = { point = p.point, relPoint = p.relPoint or p.point,
                               x = p.x, y = p.y }
                     end
                 end
-                if elem.getSize then
+                if elem.sizeFixedByLook then
+                    local w, h
+                    for i = 1, 2 do
+                        local src = base
+                        if i == 1 then src = carry end
+                        local ce = src and src.elems and src.elems[key]
+                        if ce and (ce.w or ce.h) then
+                            w, h = ce.w, ce.h
+                            break
+                        end
+                    end
+                    if w == nil and h == nil and elem.getSettingSize then
+                        local ok, sw, sh = pcall(elem.getSettingSize, key)
+                        if ok then
+                            if type(sw) == "number" and sw > 0 then w = sw end
+                            if type(sh) == "number" and sh > 0 then h = sh end
+                        end
+                    end
+                    if w or h then
+                        e = e or {}
+                        e.w, e.h = w, h
+                    end
+                elseif elem.getSize then
                     local ok, w, h = pcall(elem.getSize, key)
                     if ok then
                         if type(w) == "number" and w > 0 then e = e or {}; e.w = w end
@@ -1612,6 +1800,22 @@ local function ElemNear(a, b)
         return math.abs(x - y) < 0.5
     end
     return near(a.x, b.x) and near(a.y, b.y) and near(a.w, b.w) and near(a.h, b.h)
+end
+
+-- Exact equality for RAW element positions (loadRawPosition): the element's own
+-- stored fields, so a position flag it carries counts as a difference too. The
+-- layer's own bookkeeping keys are not part of the position.
+local RAW_POS_LAYER_KEYS = { w = true, h = true, rawPos = true, relPoint = true }
+local function RawPosEqual(cur, e)
+    if not cur then return false end
+    if (cur.relPoint or cur.point) ~= (e.relPoint or e.point) then return false end
+    for k, v in pairs(e) do
+        if not RAW_POS_LAYER_KEYS[k] and cur[k] ~= v then return false end
+    end
+    for k, v in pairs(cur) do
+        if not RAW_POS_LAYER_KEYS[k] and e[k] ~= v then return false end
+    end
+    return true
 end
 
 --- Writes a layer into the live stores. CRITICAL: the raw CDM/AB position tables
@@ -1683,6 +1887,34 @@ local function ApplyLayer(layer, baseline)
         end
         if hmKept then
             for k, v in pairs(hmKept) do hm[k] = v end
+        end
+        -- Match extras follow the links above, the same way for both axes: TBB
+        -- child entries stay, the rest become the layer's (none when it has none).
+        for pass = 1, 2 do
+            local field, src = "unlockWidthMatchExtra", layer.widthMatchExtra
+            if pass == 2 then field, src = "unlockHeightMatchExtra", layer.heightMatchExtra end
+            local t = EllesmereUIDB[field]
+            local kept
+            if t then
+                for k, v in pairs(t) do
+                    if IsTBBChildKey(k) then
+                        kept = kept or {}
+                        kept[k] = v
+                    end
+                end
+                wipe(t)
+            end
+            if type(src) == "table" then
+                for k, v in pairs(src) do
+                    if not IsTBBChildKey(k) then
+                        if not t then t = {}; EllesmereUIDB[field] = t end
+                        t[k] = v
+                    end
+                end
+            end
+            if kept then
+                for k, v in pairs(kept) do t[k] = v end
+            end
         end
     end
     local cdm = LiteProfile("EllesmereUICooldownManager")
@@ -1928,7 +2160,17 @@ function EllesmereUI.SpecOverrides_HarvestUnlockLayout(userCommit)
     -- banks. (_CondOv, not the Cond local: Cond is declared later and would read nil here.)
     if _defaultView or _editGroup
        or (EllesmereUI._CondOv and EllesmereUI._CondOv._edit) then return end
-    local snap = HarvestLayer()
+    -- Resolve the live layer's owning bucket: group layer (numeric active),
+    -- conditional layer ("cond:<gid>" active), else baseline.
+    local condGid = type(s.active) == "string" and tonumber(s.active:match("^cond:(%d+)$")) or nil
+    local condBucket = condGid and condStore and condStore.layouts[condGid] or nil
+    local prev
+    if condGid then
+        prev = condBucket or s.baselineLayout
+    else
+        prev = s.active and s.layouts[s.active] or s.baselineLayout
+    end
+    local snap = HarvestLayer(prev, s.baselineLayout)
     -- Deferred entries still awaiting their element are the layer's INTENDED state:
     -- live (the shared module store) hasn't caught up, so bank the intent, not the
     -- stale value. Pending BASELINE fallback entries are intent too -- without them a
@@ -1943,19 +2185,9 @@ function EllesmereUI.SpecOverrides_HarvestUnlockLayout(userCommit)
             snap.elems[key] = DeepCopy(e)
         end
     end
-    -- Resolve the live layer's owning bucket: group layer (numeric active),
-    -- conditional layer ("cond:<gid>" active), else baseline.
-    local condGid = type(s.active) == "string" and tonumber(s.active:match("^cond:(%d+)$")) or nil
-    local condBucket = condGid and condStore and condStore.layouts[condGid] or nil
     -- Preserve entries for elements not currently registered (conditional /
     -- late registration: party+raid containers, CDM bars mid-rebuild).
     -- Absence from the registry means "unknown right now", never "deleted".
-    local prev
-    if condGid then
-        prev = condBucket or s.baselineLayout
-    else
-        prev = s.active and s.layouts[s.active] or s.baselineLayout
-    end
     if prev and prev.elems then
         local elems = EllesmereUI._unlockRegisteredElements
         for key, e in pairs(prev.elems) do
@@ -1996,13 +2228,16 @@ end
 
 --- Baseline link tables for profile unlockLayout snapshots: while a group layer
 --- is LIVE the snapshot must come from the stored baseline, never the live
---- (group-valued) globals. Returns nil when live IS baseline.
+--- (group-valued) globals. Returns nil when live IS baseline. The 4th/5th
+--- returns are the baseline's match extras (width, height), empty when none.
 function EllesmereUI.SpecOverrides_UnlockBaselineLinks()
     local s = GetUnlockStore()
     if s and s.active and s.baselineLayout then
         return s.baselineLayout.anchors or {},
                s.baselineLayout.widthMatch or {},
-               s.baselineLayout.heightMatch or {}
+               s.baselineLayout.heightMatch or {},
+               s.baselineLayout.widthMatchExtra or {},
+               s.baselineLayout.heightMatchExtra or {}
     end
     return nil
 end
@@ -2074,7 +2309,15 @@ function EllesmereUI.SpecOverrides_FlushUnlock()
                 -- live for most elements; only real deltas write and settle.
                 -- Anchor-owned keys never take elem positions (see
                 -- UnlockElemAnchorOwned): the anchor is the authority.
-                if e.point and elem.savePosition and not UnlockElemAnchorOwned(key) then
+                -- Raw-position elements take their stored table back verbatim,
+                -- flags included (see the harvest).
+                if e.rawPos and elem.saveRawPosition and not UnlockElemAnchorOwned(key) then
+                    if not RawPosEqual(elem.loadRawPosition and elem.loadRawPosition(key), e) then
+                        pcall(elem.saveRawPosition, key, e)
+                        if elem.applyPosition then pcall(elem.applyPosition, key) end
+                        _unlockSettleWanted = true
+                    end
+                elseif e.point and elem.savePosition and not UnlockElemAnchorOwned(key) then
                     local cur = elem.loadPosition and elem.loadPosition(key)
                     if not (cur and cur.point == e.point
                         and (cur.relPoint or cur.point) == (e.relPoint or e.point)
@@ -2089,14 +2332,18 @@ function EllesmereUI.SpecOverrides_FlushUnlock()
                         _unlockSettleWanted = true
                     end
                 end
+                -- A size the current look fixes (sizeFixedByLook) is never
+                -- written: its setters refuse it under that look anyway.
                 local curW, curH
                 if elem.getSize then curW, curH = elem.getSize(key) end
-                if e.w and elem.setWidth and not (curW and math.abs(curW - e.w) < 0.5) then
+                if e.w and elem.setWidth and not elem.sizeFixedByLook
+                   and not (curW and math.abs(curW - e.w) < 0.5) then
                     pcall(elem.setWidth, key, e.w)
                     _unlockSettleWanted = true
                     wroteLayerSizes = true
                 end
-                if e.h and elem.setHeight and not (curH and math.abs(curH - e.h) < 0.5) then
+                if e.h and elem.setHeight and not elem.sizeFixedByLook
+                   and not (curH and math.abs(curH - e.h) < 0.5) then
                     pcall(elem.setHeight, key, e.h)
                     _unlockSettleWanted = true
                     wroteLayerSizes = true
@@ -2121,7 +2368,14 @@ function EllesmereUI.SpecOverrides_FlushUnlock()
             elseif elems and elems[key] then
                 local elem = elems[key]
                 -- Same anchor-owned skip as the pend path above.
-                if e.point and elem.savePosition and not UnlockElemAnchorOwned(key) then
+                -- Same raw-position branch as the pend path above.
+                if e.rawPos and elem.saveRawPosition and not UnlockElemAnchorOwned(key) then
+                    if not RawPosEqual(elem.loadRawPosition and elem.loadRawPosition(key), e) then
+                        pcall(elem.saveRawPosition, key, e)
+                        if elem.applyPosition then pcall(elem.applyPosition, key) end
+                        _unlockSettleWanted = true
+                    end
+                elseif e.point and elem.savePosition and not UnlockElemAnchorOwned(key) then
                     local cur = elem.loadPosition and elem.loadPosition(key)
                     if not (cur and cur.point == e.point
                         and (cur.relPoint or cur.point) == (e.relPoint or e.point)
@@ -2133,14 +2387,18 @@ function EllesmereUI.SpecOverrides_FlushUnlock()
                         _unlockSettleWanted = true
                     end
                 end
+                -- A size the current look fixes (sizeFixedByLook) is never
+                -- written: its setters refuse it under that look anyway.
                 local curW, curH
                 if elem.getSize then curW, curH = elem.getSize(key) end
-                if e.w and elem.setWidth and not (curW and math.abs(curW - e.w) < 0.5) then
+                if e.w and elem.setWidth and not elem.sizeFixedByLook
+                   and not (curW and math.abs(curW - e.w) < 0.5) then
                     pcall(elem.setWidth, key, e.w)
                     _unlockSettleWanted = true
                     wroteLayerSizes = true
                 end
-                if e.h and elem.setHeight and not (curH and math.abs(curH - e.h) < 0.5) then
+                if e.h and elem.setHeight and not elem.sizeFixedByLook
+                   and not (curH and math.abs(curH - e.h) < 0.5) then
                     pcall(elem.setHeight, key, e.h)
                     _unlockSettleWanted = true
                     wroteLayerSizes = true
@@ -2960,7 +3218,7 @@ function EllesmereUI.Conditions_EnterUnlockForGroup(g)
                 if not s.baselineLayout and not s.active then
                     s.baselineLayout = HarvestLayer()
                 end
-                cs.layouts[g.id] = HarvestLayer()
+                cs.layouts[g.id] = HarvestLayer(s.baselineLayout)
                 s.active = "cond:" .. g.id
                 EllesmereUI.Conditions_EnterUnlockForGroup(g)
             end,
@@ -3046,7 +3304,7 @@ function EllesmereUI.SpecOverrides_EnterUnlockForGroup(g)
                 if (fromCond or fromOtherGroup) and s2.baselineLayout then
                     s2.layouts[g.id] = DeepCopy(s2.baselineLayout)
                 else
-                    s2.layouts[g.id] = HarvestLayer()
+                    s2.layouts[g.id] = HarvestLayer(s2.baselineLayout)
                 end
                 if OwnerGid(cur) == g.id then
                     s2.active = g.id
@@ -3584,6 +3842,7 @@ end
 function Cond.WriteValues(gid, forSession)
     local store = Cond.GetStore()
     if not store or #store == 0 then return nil end
+    PxCo.Pair(store, true)
     local touched = nil
     for _, entry in ipairs(store) do
         local map = gid and entry.values[gid] or nil
@@ -3632,7 +3891,7 @@ function Cond.RestoreEntryDefaults(entry, touched)
     for fkey, dv in pairs(def) do
         if not BlacklistedFKey(fkey) and not MatchOwnedFKey(fkey)
            and not EntryOwning(fkey) and FKeyLoaded(fkey) then
-            local v = (dv == NIL_SENT) and nil or dv
+            local v = dv; if v == NIL_SENT then v = nil end
             local nilPoison = (v == nil) and HasRegisteredDefault(fkey)
             local cur = ReadLive(fkey)
             if not nilPoison and type(v) ~= "table" and type(cur) ~= "table"
@@ -3666,6 +3925,11 @@ function Cond.PruneRedundant()
                         held = true
                         break
                     end
+                end
+                if not held then
+                    -- An exact-size companion stays while its size key does (PxCo).
+                    local base = fkey:sub(-2) == "Px" and fkey:sub(1, -3) or nil
+                    if base and def[base] ~= nil and PxCo.Partner(base) == fkey then held = true end
                 end
                 if not held then
                     def[fkey] = nil
@@ -3716,7 +3980,7 @@ function Cond.Harvest(gid)
                    and not MatchOwnedFKey(fkey) then
                     local live = ReadLive(fkey)
                     if type(live) ~= "table" then
-                        local defVal = (dv == NIL_SENT) and nil or dv
+                        local defVal = dv; if defVal == NIL_SENT then defVal = nil end
                         if live == defVal then
                             -- Equality is NOT proof of a revert outside an edit session
                             -- (the default may have been edited onto the group's
@@ -5072,6 +5336,28 @@ local function AutoCapture(changes)
             end
         end
     end
+    -- A border size key brings its exact-size companion along (see PxCo): a write
+    -- of the legacy size alone must still own "<key>Px" from now on, unless
+    -- another entry of this store already owns it. Seeded as the main loop seeds.
+    for _, fkey in ipairs(paths) do
+        local partner = PxCo.Partner(fkey)
+        local other = partner and (condSession and Cond.EntryOwning(partner) or EntryOwning(partner))
+        if partner and entry.values.default[partner] == nil and not (other and other ~= entry) then
+            local orig = SnapValue(_watchSnap, partner)
+            local ce = Cond.EntryOwning(partner)
+            if ce then
+                orig = ce.values.default[partner]
+                if orig == NIL_SENT then orig = nil end
+            end
+            if type(orig) == "table" then orig = nil end
+            entry.values.default[partner] = (orig == nil) and NIL_SENT or orig
+            if condSession then
+                local gm = entry.values[condSession.id]
+                if not gm then gm = {}; entry.values[condSession.id] = gm end
+                gm[partner] = entry.values.default[partner]
+            end
+        end
+    end
 
     if condSession then Cond.RebuildIndex() else RebuildFKeyIndex() end
     RequestGoldWalk()
@@ -5891,7 +6177,7 @@ function Cond.HarvestEdit(g)
                 -- spec-side Harvest); the held value stays as-is.
                 if FKeyLoaded(fkey) and type(live) ~= "table"
                    and not MatchOwnedFKey(fkey) then
-                    local defVal = (dv == NIL_SENT) and nil or dv
+                    local defVal = dv; if defVal == NIL_SENT then defVal = nil end
                     if live == defVal then
                         -- Equal to the default: a REVERT only if this session
                         -- moved it there. An untouched key that merely compares
@@ -8130,6 +8416,14 @@ local function PromoteGroupToProfile(g)
             end
             for k, v in pairs(layer.heightMatch or {}) do
                 if not IsTBBChildKey(k) then nb.heightMatch[k] = v end
+            end
+            -- Match extras ride with the links (a fork without them promotes none).
+            nb.widthMatchExtra, nb.heightMatchExtra = {}, {}
+            for k, v in pairs(layer.widthMatchExtra or {}) do
+                if not IsTBBChildKey(k) then nb.widthMatchExtra[k] = v end
+            end
+            for k, v in pairs(layer.heightMatchExtra or {}) do
+                if not IsTBBChildKey(k) then nb.heightMatchExtra[k] = v end
             end
             local function MergePos(lp, bp)
                 local out = lp and DeepCopy(lp) or (bp and DeepCopy(bp) or nil)

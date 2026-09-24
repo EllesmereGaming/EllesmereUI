@@ -5,6 +5,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ADDON_NAME = "EllesmereUIQuickdraw"
 local ns = EllesmereUI._ModuleNS[ADDON_NAME]  -- module namespace (published by the module at its load)
 if not ns then return end  -- module disabled: no options page
+-- Stood down for the session (secure snippets unavailable: WoW Forever beta):
+-- the module is not running, so its page stays out of the sidebar.
+if (EllesmereUI.Lite.GetAddon(ADDON_NAME, true) or ns).standDown then return end
 
 local PAGE_DISPLAY = "Quickdraw"
 local BINDING_PREFIX = "EUI_RADIAL"
@@ -1007,6 +1010,15 @@ initFrame:SetScript("OnEvent", function(self)
         return out
     end
 
+    local function OutfitEntries()
+        local out = {}
+        for _, slot in ipairs(ns.OutfitSlots and ns.OutfitSlots() or {}) do
+            local icon, name = ns.SlotDisplay(slot)
+            out[#out + 1] = { icon = icon, name = name, slot = slot }
+        end
+        return out
+    end
+
     -- Every palette this one may open. Not a list of things the game owns, so
     -- it is rebuilt on each use rather than cached: adding a palette or filling
     -- one in has to show up here without reopening the picker.
@@ -1053,6 +1065,8 @@ initFrame:SetScript("OnEvent", function(self)
           keywordHint = true },
         { key = "macro",     label = "Macros",       build = MacroEntries },
         { key = "battlepet", label = "Battle Pets",  build = PetEntries },
+        { key = "outfit",    label = "Outfits",      build = OutfitEntries,
+          keepOrder = true },
         -- keepOrder on both: the markers run star to skull, the order every
         -- marker menu in the game shows. noSearch on both too -- a fixed
         -- handful of rows has nothing worth filtering, and the nav strip
@@ -1754,6 +1768,14 @@ initFrame:SetScript("OnEvent", function(self)
         return out, dropped
     end
 
+    -- Keep Blizzard's order and report anything over the menu cap.
+    local function OutfitSlots()
+        local out = ns.OutfitSlots and ns.OutfitSlots() or {}
+        local dropped = math.max(0, #out - MAX_SLOTS)
+        for i = #out, MAX_SLOTS + 1, -1 do out[i] = nil end
+        return out, dropped
+    end
+
     -- Self-teleports only, keyed by class. Mage portals are deliberately not
     -- here: a palette entry fires for its owner, and the teleport is the spell
     -- an owner wants.
@@ -1874,7 +1896,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- profile an alt shares -- and the only preset here whose slots would
     -- otherwise all go dead on arrival.
     --
-    -- No dropped count: four positions against a sixteen-slot menu, so unlike
+    -- No dropped count: four positions against a twenty-slot menu, so unlike
     -- the collection presets this one can never be the thing that does not
     -- fit. Empty is the stale-module case, and leaves the preset unoffered.
     local function SpecSlots()
@@ -1939,7 +1961,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- By position rather than by identity, the same reasoning as SpecSlots
     -- above and for the same reason: a preset is the palette most likely to
     -- be copied to an alt, and only a position survives that trip. Ten
-    -- positions against a sixteen-slot menu, so no dropped count either --
+    -- positions against a twenty-slot menu, so no dropped count either --
     -- see DynamicProfessionEntries for what each position means.
     local function ProfessionSlots()
         local slots = {}
@@ -1963,6 +1985,7 @@ initFrame:SetScript("OnEvent", function(self)
         { label = "World Markers",  build = WorldMarkerSlots },
         { label = "Pings",          build = PingSlots },
         { label = "Hearthstones",   build = HearthstoneSlots },
+        { label = "Outfits",        build = OutfitSlots },
         { label = "Teleports",      build = TeleportSlots },
         { label = "Potions",        build = PotionSlots },
         { label = "Druid Forms",    build = FormSlots },

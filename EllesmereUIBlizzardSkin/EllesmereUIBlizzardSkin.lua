@@ -137,13 +137,84 @@ do
             end
         end
     end
+    -- The font look record a whole-UI style switch writes beside the window
+    -- swap (fonts._styleSlots.active); the active profile's lives in the live
+    -- font store, every other profile's in its own snapshot.
+    local function FontLookOf(db, name, prof)
+        local fonts = (name == (db.activeProfile or "Default")) and db.fonts or prof.fonts
+        local fs = type(fonts) == "table" and fonts._styleSlots
+        local look = type(fs) == "table" and fs.active
+        if look == "eui" or look == "blizzard" or look == "classic" then return look end
+        return nil
+    end
+
+    -- The Character Sheet style lives on each profile's root. Style flags
+    -- found on the ACCOUNT root (older builds kept them there, and an older
+    -- export string's Window Skins bundle can still write them) are handed
+    -- to every profile whose whole-UI look (the font look record, written
+    -- by the same switch) is that style -- the switch that set it -- or, when
+    -- no profile matches (the row was set on its own), to the active
+    -- profile; the root flags are then cleared.
+    local function AdoptLegacyCharSheetStyle(db)
+        if db.charSheetUseClassicStyle == nil and db.charSheetUseBlizzardStyle == nil then return end
+        local legacy = (db.charSheetUseClassicStyle and "classic")
+            or (db.charSheetUseBlizzardStyle and "blizzard") or nil
+        db.charSheetUseClassicStyle, db.charSheetUseBlizzardStyle = nil, nil
+        local profiles = db.profiles
+        if not legacy or type(profiles) ~= "table" then return end
+        local function Give(p)
+            p.charSheetUseBlizzardStyle = (legacy == "blizzard") or nil
+            p.charSheetUseClassicStyle  = (legacy == "classic") or nil
+        end
+        local matched = false
+        for name, p in pairs(profiles) do
+            if type(p) == "table" and FontLookOf(db, name, p) == legacy then
+                Give(p)
+                matched = true
+            end
+        end
+        if not matched then
+            local p = profiles[db.activeProfile or "Default"]
+            if type(p) == "table" then Give(p) end
+        end
+    end
+
+    -- Once per account: windows on a stock look with NO profile recording a
+    -- look (no windowSkinLook, no font look record -- a glyph-fallback locale
+    -- never writes the latter) -- the active profile adopts the look its
+    -- windows are on, so nothing moves.
+    local function AdoptLegacyWindowLook(db)
+        if db.windowLookPerProfile then return end
+        db.windowLookPerProfile = true
+        local slots = db.windowSkinStyleSlots
+        local live = type(slots) == "table" and slots.active
+        if not live or live == "eui" or type(db.profiles) ~= "table" then return end
+        for name, p in pairs(db.profiles) do
+            if type(p) == "table" and (p.windowSkinLook or FontLookOf(db, name, p)) then return end
+        end
+        local p = db.profiles[db.activeProfile or "Default"]
+        if type(p) == "table" then p.windowSkinLook = live end
+    end
+
     local seedFrame = CreateFrame("Frame")
     seedFrame:RegisterEvent("ADDON_LOADED")
-    seedFrame:SetScript("OnEvent", function(self, _, name)
+    -- Registered here, first among this addon's frames, so the login pass
+    -- runs after the spec profile pre-seed and before any window skin or
+    -- character sheet reads its settings.
+    seedFrame:RegisterEvent("PLAYER_LOGIN")
+    seedFrame:SetScript("OnEvent", function(self, event, name)
+        if event == "PLAYER_LOGIN" then
+            self:UnregisterEvent("PLAYER_LOGIN")
+            EllesmereUI.ReconcileWindowSkinLook()
+            return
+        end
         if name ~= ADDON_NAME then return end
         self:UnregisterEvent("ADDON_LOADED")
         if not EllesmereUIDB then EllesmereUIDB = {} end
         for _, batch in ipairs(BATCHES) do SeedBatch(batch.marker, batch.keys) end
+        AdoptLegacyCharSheetStyle(EllesmereUIDB)
+        AdoptLegacyWindowLook(EllesmereUIDB)
+        EllesmereUI.ReconcileWindowSkinLook()
     end)
 end
 
@@ -168,10 +239,24 @@ end
 --- the SkinAPI dispatcher (reload-bound there), so live refreshes only ever swap between the two themes.
 function EllesmereUI.GetThirdPartySkinStyle()
     local eui, modern = 0, 0
-    for winKey in pairs(WINDOW_ENABLE_KEYS) do
-        local s = EllesmereUI.GetBlizzWindowStyle(winKey)
-        if s == "modern" then modern = modern + 1
-        elseif s == "eui" then eui = eui + 1 end
+    local styles = EllesmereUIDB and EllesmereUIDB.blizzWindowSkinStyles
+    -- Under a stock look (windowSkinStyleSlots.active) a window still votes
+    -- as it stands in the EllesmereUI look's slot, so switching the whole UI
+    -- leaves the vote where it was.
+    local slots = EllesmereUIDB and EllesmereUIDB.windowSkinStyleSlots
+    local euiSlot = type(slots) == "table" and slots.active and slots.active ~= "eui"
+        and type(slots.eui) == "table" and slots.eui or nil
+    local killed = EllesmereUI.BlizzWindowSkinsKilled()
+    for winKey, ek in pairs(WINDOW_ENABLE_KEYS) do
+        -- The inspect sheet renders in the character sheet's style: one vote.
+        if winKey ~= "inspect" then
+            local s = EllesmereUI.GetBlizzWindowStyle(winKey)
+            if s == "off" and not killed and euiSlot and euiSlot[ek] ~= false then
+                s = (styles and styles[winKey] == "modern") and "modern" or "eui"
+            end
+            if s == "modern" then modern = modern + 1
+            elseif s == "eui" then eui = eui + 1 end
+        end
     end
     return (modern > eui) and "modern" or "eui"
 end
@@ -183,6 +268,104 @@ function EllesmereUI.DisableAllBlizzWindowSkins()
     for _, ek in pairs(WINDOW_ENABLE_KEYS) do
         EllesmereUIDB[ek] = false
     end
+end
+
+-- A style chosen for the whole UI (the first-install picker, the Style page's
+-- Apply to All) swaps the window skins through per-style slots:
+-- EllesmereUIDB.windowSkinStyleSlots = { active = the look whose windows are
+-- live, eui/blizzard/classic = that look's enable keys }. Leaving a look saves
+-- its windows into its slot; entering one loads its slot, so each look comes
+-- back as it was left, per-window picks included. First visit: a stock look
+-- (Blizzard Style, Classic WoW UI) keeps Blizzard's own windows, every one at
+-- Blizz Default; the EllesmereUI look puts every one back to its default
+-- (on). The character sheet (and the inspect sheet riding its card) stays out
+-- of the slots: its Style row owns it. The Friends List window rides them
+-- whatever the Friends module's state (its pack stands down by itself under a
+-- stock Friends style), so a key saved in one swap is always loaded back in
+-- the next. A slot holds on/off booleans; a window a slot never recorded (one
+-- added later) takes the look's first-visit value. Styles
+-- (blizzWindowSkinStyles) are never touched, so a window turned back on keeps
+-- its skin. A one-way seed record from before the slots
+-- (windowSkinsStockSeeded) converts on the first swap: its windows were on
+-- under the EllesmereUI look, and legacyStock names the look it belongs to.
+-- dryRun: only report whether the whole UI's window look would change.
+local function WindowInSlots(winKey)
+    return winKey ~= "charsheet" and winKey ~= "inspect"
+end
+function EllesmereUI.SwapWindowSkinStyle(to, dryRun, legacyStock)
+    if not EllesmereUIDB then EllesmereUIDB = {} end
+    local slots = EllesmereUIDB.windowSkinStyleSlots
+    if type(slots) ~= "table" then slots = nil end
+    local rec = EllesmereUIDB.windowSkinsStockSeeded
+    local from = (slots and slots.active)
+        or (type(rec) == "table" and (legacyStock or "blizzard")) or "eui"
+    if from == to then return false end
+    if dryRun then return true end
+    if not slots then
+        slots = {}
+        if type(rec) == "table" then
+            local eui = {}
+            for winKey, ek in pairs(WINDOW_ENABLE_KEYS) do
+                if WindowInSlots(winKey) then
+                    eui[ek] = rec[winKey] and true or (EllesmereUIDB[ek] ~= false)
+                end
+            end
+            slots.eui = eui
+        end
+        EllesmereUIDB.windowSkinStyleSlots = slots
+    end
+    EllesmereUIDB.windowSkinsStockSeeded = nil
+    local out = {}
+    for winKey, ek in pairs(WINDOW_ENABLE_KEYS) do
+        if WindowInSlots(winKey) then out[ek] = EllesmereUIDB[ek] ~= false end
+    end
+    slots[from] = out
+    local saved = slots[to]
+    if type(saved) ~= "table" then saved = nil end
+    for winKey, ek in pairs(WINDOW_ENABLE_KEYS) do
+        if WindowInSlots(winKey) then
+            local v = saved and saved[ek]
+            if v == nil then v = (to == "eui") end
+            -- On = nil (the install default), off = false. An explicit
+            -- branch: `x and false or nil` can only ever yield nil.
+            if v then EllesmereUIDB[ek] = nil else EllesmereUIDB[ek] = false end
+        end
+    end
+    slots.active = to
+    return true
+end
+
+-- The whole-UI window look belongs to a PROFILE: the look the whole-UI
+-- switch last gave it (profile-root windowSkinLook; a profile from before
+-- that key falls back to its font look record, written by the same switch).
+-- A profile no whole-UI switch ever touched is on the EllesmereUI look --
+-- once the account's windows have been switched at all; before that there
+-- is nothing to follow (nil). liveFonts: the live font store, for the
+-- active profile (its own snapshot is stale until the next switch).
+function EllesmereUI.ProfileWindowSkinLook(prof, liveFonts)
+    if type(prof) ~= "table" then return nil end
+    local look = prof.windowSkinLook
+    if look == "eui" or look == "blizzard" or look == "classic" then return look end
+    local fonts = liveFonts or prof.fonts
+    local fs = type(fonts) == "table" and fonts._styleSlots
+    look = type(fs) == "table" and fs.active
+    if look == "eui" or look == "blizzard" or look == "classic" then return look end
+    if EllesmereUIDB and type(EllesmereUIDB.windowSkinStyleSlots) == "table" then return "eui" end
+    return nil
+end
+
+-- Swap the account-wide window skins to the active profile's look (a no-op
+-- when they are on it already). Runs at this addon's load, at login after the
+-- spec profile pre-seed, and on every profile switch (RepointAllDBs), so each
+-- profile keeps its own window look and a per-window pick always banks into
+-- the look it was made under. Skins install at load: a switch that changes
+-- the look offers the reload (ProfileChangesWindowSkins).
+function EllesmereUI.ReconcileWindowSkinLook()
+    local db = EllesmereUIDB
+    if type(db) ~= "table" then return end
+    local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+    local look = EllesmereUI.ProfileWindowSkinLook(prof, db.fonts)
+    if look then EllesmereUI.SwapWindowSkinStyle(look, false, look ~= "eui" and look or nil) end
 end
 
 -------------------------------------------------------------------------------
@@ -254,10 +437,13 @@ end
         -- glow overlay sits at +5 on the same buttons and a tie goes to the later-created sibling, so the border must never bury it.
         data.configBorder:SetFrameLevel(db[prefix .. "BorderBehind"]
             and math.max(0, ownerLevel - 1) or (ownerLevel + 4))
+        local tex = db[prefix .. "BorderTexture"] or "solid"
+        -- Exact Border Size (the <prefix>BorderThicknessPx companion); nil = the legacy step above, unchanged.
+        local px = EllesmereUI.BorderPx(db[prefix .. "BorderThicknessPx"], size, tex)
         EllesmereUI.ApplyBorderStyle(data.configBorder, size, color.r, color.g, color.b, alpha,
-            db[prefix .. "BorderTexture"] or "solid", db[prefix .. "BorderOffsetX"],
+            tex, db[prefix .. "BorderOffsetX"],
             db[prefix .. "BorderOffsetY"], db[prefix .. "BorderShiftX"], db[prefix .. "BorderShiftY"],
-            "blizzardSkin", key)
+            "blizzardSkin", key, nil, px)
     end
     EllesmereUI._applyBlizzardConfiguredBorder = _applyConfiguredBorder
 
@@ -1547,6 +1733,52 @@ end
             status:HookScript("OnShow", function() SkinQueueStatus() end)
         end
 
+        -- Accept/Decline both inherit stock UIPanelButtonTemplate and were never
+        -- touched, same treatment as SkinQueuePopup's enterButton/leaveButton.
+        local function SkinRoleCheckButton(btn)
+            if not btn then return end
+            for j = 1, select("#", btn:GetRegions()) do
+                local r = select(j, btn:GetRegions())
+                if r and r:IsObjectType("Texture") and not GetFFD(r).owned and r ~= btn:GetFontString() then
+                    r:SetAlpha(0)
+                end
+            end
+            if btn.Left then btn.Left:SetAlpha(0) end
+            if btn.Middle then btn.Middle:SetAlpha(0) end
+            if btn.Right then btn.Right:SetAlpha(0) end
+            if not GetFFD(btn).skinned then
+                GetFFD(btn).skinned = true
+                for _, texKey in ipairs({ "Left", "Middle", "Right" }) do
+                    local tex = btn[texKey]
+                    if tex and tex.SetAlpha then
+                        hooksecurefunc(tex, "SetAlpha", function(self, a)
+                            if a > 0 then self:SetAlpha(0) end
+                        end)
+                    end
+                end
+                local btnBg = btn:CreateTexture(nil, "BACKGROUND", nil, -6)
+                btnBg:SetAllPoints()
+                GetFFD(btnBg).owned = true
+                GetFFD(btn).bg = btnBg
+                local hov = btn:CreateTexture(nil, "HIGHLIGHT")
+                hov:SetColorTexture(1, 1, 1, 0.1)
+                hov:SetAllPoints()
+                GetFFD(hov).owned = true
+            end
+            local c = EllesmereUIDB and EllesmereUIDB.popupMenuButtonBackgroundColor or { r=.1,g=.1,b=.1,a=.8 }
+            if GetFFD(btn).bg then GetFFD(btn).bg:SetColorTexture(c.r,c.g,c.b,c.a == nil and .8 or c.a) end
+            _applyConfiguredBorder(btn, "popupMenuButton", 1)
+            local fs = btn:GetFontString()
+            if fs then
+                if _elementColorMode() == "native" then
+                    fs:SetTextColor(1, 1, 1, 1)
+                else
+                    local r, g, b = _getElementColor()
+                    fs:SetTextColor(r, g, b, 1)
+                end
+            end
+        end
+
         -- The "Confirm your role" popup shown to the whole party when ANYONE queues
         -- (leader or otherwise) and roles aren't already locked in. LFG_PROPOSAL_SHOW
         -- only fires for the later group-found step, so this frame is hooked directly.
@@ -1576,6 +1808,8 @@ end
                     _PP.CreateBorder(popup, 1, 1, 1, RS.BRD_ALPHA, 1, "OVERLAY", 7)
                 end
             end
+            SkinRoleCheckButton(_G.LFDRoleCheckPopupAcceptButton)
+            SkinRoleCheckButton(_G.LFDRoleCheckPopupDeclineButton)
         end
 
         -- Not gated behind any LFG event: unlike the proposal/status popups above,
@@ -1588,6 +1822,10 @@ end
             if not popup then return end
             _roleCheckHooked = true
             popup:HookScript("OnShow", function() SkinRoleCheckPopup() end)
+            -- Blizzard may have already called :Show() before we got here (e.g. a
+            -- party member who never opened the LFG UI themselves) -- HookScript
+            -- only catches future shows, so skin the current one too.
+            if popup:IsShown() then SkinRoleCheckPopup() end
         end
         HookRoleCheckOnShow()
 
@@ -1853,7 +2091,7 @@ do
     local function SkinApplicationDialog()
         local dialog = _G.LFGListApplicationDialog
         if not dialog then return end
-        if not EllesmereUIDB or not EllesmereUIDB.reskinQueuePopup then return end
+        if EllesmereUIDB and EllesmereUIDB.reskinQueuePopup == false then return end
         if GetFFD(dialog).skinned then return end
         GetFFD(dialog).skinned = true
 
@@ -2374,7 +2612,13 @@ do
         if not af then return end
         local corner = CornerFor(af)
         local point, relTo = tooltip:GetPoint(1)
-        if tooltip:GetNumPoints() == 1 and point == corner and relTo == af then return end
+        -- GetPoint can hand back a SECRET point: Blizzard anchors the world cursor
+        -- tooltip (SetWorldCursor -> GameTooltip_SetDefaultAnchor) from restricted
+        -- code, and comparing a secret raises, so the classification MUST short-circuit
+        -- ahead of the compares. A secret anchor is by definition not ours: treat it as
+        -- a deviation and re-point. Our own write reads back clean, so the early-out works again from the next call on.
+        local secretPt = issecretvalue and (issecretvalue(point) or issecretvalue(relTo))
+        if not secretPt and tooltip:GetNumPoints() == 1 and point == corner and relTo == af then return end
         _fixedEnforcing = true
         tooltip:ClearAllPoints()
         tooltip:SetPoint(corner, af, corner, 0, 0)
@@ -2536,6 +2780,10 @@ do
         if not dir then return end
         if tooltip:IsForbidden() then return end
         local point, relTo, _, x, y = tooltip:GetPoint(1)
+        -- A point written by restricted code (world cursor tooltip) is SECRET:
+        -- find() and == on it raise, and the forced corner cannot be derived from it
+        -- at all. Skip this pass; the next one, after a clean re-anchor, enforces normally.
+        if issecretvalue and (issecretvalue(point) or issecretvalue(x) or issecretvalue(y)) then return end
         if not point then return end
         relTo = relTo or GameTooltipDefaultContainer
         if not relTo then return end

@@ -138,15 +138,19 @@ end
 
 -- Public: run all migrations. Called once from the parent ADDON_LOADED handler.
 function EllesmereUI.RunRegisteredMigrations()
-    if not EllesmereUIDB then
-        -- Fresh install: no SavedVariables yet. Must stamp globals now, not skip --
-        -- an unstamped catalog would run the whole chain at next load against
-        -- whatever exists by then (e.g. an imported profile), treating current-format
-        -- data as legacy (concretely: CDM consolidate/detach would rebuild an
-        -- imported spell store, pixel-rounding would floor imported positions/sizes,
-        -- the colors seed would replace imported palettes). Profile-scoped stamps
-        -- live inside each profile (and ride exports), so they need no genesis pass.
-        EllesmereUIDB = {}
+    if not EllesmereUIDB then EllesmereUIDB = {} end
+    if not (EllesmereUIDB.profiles and next(EllesmereUIDB.profiles)) then
+        -- Fresh install (no SavedVariables yet) or the Reset All wipe (a table
+        -- with no profiles: a few preserved keys, nothing to migrate). Must
+        -- stamp globals now, not skip -- an unstamped catalog would run the
+        -- whole chain at next load against whatever exists by then (e.g. an
+        -- imported profile), treating current-format data as legacy
+        -- (concretely: CDM consolidate/detach would rebuild an imported spell
+        -- store, pixel-rounding would floor imported positions/sizes, the
+        -- colors seed would replace imported palettes) -- and, on the reset
+        -- table, every "preserve the old default for veterans" migration would
+        -- hand a reset user the OLD default. Profile-scoped stamps live inside
+        -- each profile (and ride exports), so they need no genesis pass.
         local flags = GetFlagTable(EllesmereUIDB)
         for _, spec in ipairs(_migrations) do
             if spec.scope == "global" then
@@ -2036,6 +2040,9 @@ EllesmereUI.RegisterMigration({
     scope       = "global",
     description = "Preserve disabled default for existing users when flipping themedCharacterSheet to default-on.",
     body = function(ctx)
+        -- Veterans only: a database with no profiles is a fresh install or a
+        -- reset, and it must take the new default, not the preserved old one.
+        if not (ctx.db.profiles and next(ctx.db.profiles)) then return end
         -- nil = never touched (old default = disabled): stamp false so the new
         -- nil-means-enabled logic can't flip them on. Explicit values are kept.
         if ctx.db.themedCharacterSheet == nil then
@@ -4353,5 +4360,65 @@ EllesmereUI.RegisterMigration({
         end
         strip(ctx.profile.specOverrides)
         strip(ctx.profile.condOverrides)
+    end,
+})
+
+-- Damage Meters barHeight and Spell History shBarHeight/iconSize now render in UI
+-- units instead of physical pixels (value * perfect / ppUIScale, UIParent-parented
+-- frames). Multiply by that factor once so existing profiles keep their exact size.
+-- GLOBAL on purpose: a profile stamp rides exports, so an old string would get the
+-- RECIPIENT's factor frozen in; imports after this ran are read as UI units.
+-- Per-profile stamps keep it idempotent when a full-account import resets flags.
+EllesmereUI.RegisterMigration({
+    id          = "dm_bar_height_ui_units_v1",
+    scope       = "global",
+    description = "Convert Damage Meters bar height and Spell History bar height/icon size from physical pixels to UI units, keeping every existing profile's rendered size.",
+    body        = function(ctx)
+        local ID = "dm_bar_height_ui_units_v1"
+        local db = ctx.db
+        if not db or type(db.profiles) ~= "table" then return end
+        -- No stamp without the real factor: an error retries next session
+        -- (Startup seeds ppUIScale at login).
+        local _, physH = GetPhysicalScreenSize()
+        if type(physH) ~= "number" or physH <= 0 then error("physical screen size not available") end
+        local uiScale = db.ppUIScale
+        if type(uiScale) ~= "number" or uiScale <= 0 then error("ppUIScale not set yet") end
+        -- Same legacy normalization EllesmereUI_Startup applies before SetScale.
+        if uiScale == 0.53 then uiScale = 0.5333333333
+        elseif uiScale == 0.71 then uiScale = 0.7111111111 end
+        local factor = (768 / physH) / uiScale
+        -- Within 1% the 40px slider maximum moves by under half a pixel, so the
+        -- snapped size is identical: pixel-perfect setups keep their values as-is.
+        local convert = math.abs(factor - 1) > 0.01
+        local function conv(v, default)
+            local n = type(v) == "number" and v or default
+            return floor(n * factor * 10000 + 0.5) / 10000
+        end
+        for _, profData in pairs(db.profiles) do
+            if type(profData) == "table" then
+                local stamps = profData._migrations
+                if type(stamps) ~= "table" then
+                    stamps = {}
+                    profData._migrations = stamps
+                end
+                if not stamps[ID] then
+                    -- Folder present = DM ran in this profile; dm itself is
+                    -- missing when every value was a stripped default.
+                    local addon = convert and type(profData.addons) == "table"
+                        and profData.addons.EllesmereUIDamageMeters
+                    if type(addon) == "table" then
+                        if type(addon.dm) ~= "table" then addon.dm = {} end
+                        local dm = addon.dm
+                        dm.barHeight = conv(dm.barHeight, 18)
+                        local sh = dm.spellHistory
+                        if type(sh) == "table" then
+                            sh.shBarHeight = conv(sh.shBarHeight, 20)
+                            sh.iconSize    = conv(sh.iconSize, 36)
+                        end
+                    end
+                    stamps[ID] = true
+                end
+            end
+        end
     end,
 })

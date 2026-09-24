@@ -84,19 +84,22 @@ end
 -- vertical texcoords derive from the shared crop math.
 ------------------------------------------------------------------------------
 
-local function CropCoords(cropped)
+local function CropCoords(cropped, zoom)
+    -- Horizontal zoom 0.08 (Blizzard Style passes 0: the stock item draws the
+    -- whole icon under its rounded mask, same as PAB and the unit frames).
+    local z = zoom or 0.08
     if cropped then
-        -- Horizontal zoom 0.08; vertical span scaled to the cropped aspect so
-        -- the artwork never squishes (same math as ns.SetAuraIconCrop).
+        -- Vertical span scaled to the cropped aspect so the artwork never
+        -- squishes (same math as ns.SetAuraIconCrop).
         -- `cropped` carries the height factor from GetAuraCrop (Adjust Crop
         -- slider); plain true from a legacy caller falls back to the classic
         -- 0.80, which reproduces the old fixed coords exactly (0.164/0.836).
         local factor = (type(cropped) == "number") and cropped or 0.80
-        local vSpan = (1 - 2 * 0.08) * factor
+        local vSpan = (1 - 2 * z) * factor
         local v0 = 0.5 - vSpan / 2
-        return { 0.08, 0.92, v0, 1 - v0 }
+        return { z, 1 - z, v0, 1 - v0 }
     end
-    return { 0.08, 0.92, 0.08, 0.92 }
+    return { z, 1 - z, z, 1 - z }
 end
 
 local function NPSize(kind)
@@ -357,11 +360,23 @@ local function BuildNPStyle(kind, variant)
     local kindKey = (kind == "debuffs" and "debuff") or (kind == "buffs" and "buff") or "cc"
     local dur = AuraDurCfg(kindKey)
     local stk = StackCfg()
+    -- Stock styles: the whole icon (zoom 0), no EUI border (GetIconBorderEnabled
+    -- is false for every kind under them). Blizzard Style: the stock nameplate
+    -- aura item -- the rounded mask with the ring overlay (AuraKit
+    -- blizzRoundArt). Classic WoW UI: square icons, buffs borderless, debuffs
+    -- and crowd control on the engine-stamped stock dispel-type border (AuraKit
+    -- blizzBorder). Text, stacks, sizes and the dispel glow all stay the user's.
+    local blizz = ns.NP_Blizz()
+    local classic = blizz and ns.NP_Classic()
+    local harmfulClassic = (classic and kind ~= "buffs") or nil
     local style = {
         width = size,
         height = height,
-        texCoord = CropCoords(cropped),
+        texCoord = CropCoords(cropped, blizz and 0 or nil),
         border = (not ns.GetIconBorderEnabled or ns.GetIconBorderEnabled(kind)) and { 0, 0, 0, 1, size = 1 } or false,
+        blizzRoundArt = (blizz and not classic) or nil,
+        dispelBorder = harmfulClassic,
+        blizzBorder = harmfulClassic,
         cooldownReverse = true,
         noDefaultFonts = true,
         noTooltips = true,
@@ -1134,11 +1149,15 @@ local function AnchorNPContainer(container, kind, plate, slotVal)
         container:SetPoint("TOP", plate.cast or plate.health, "BOTTOM", xOff, -2 + yOff)
         anchorPoint, gH, gV = "TOPLEFT", "RIGHT", "DOWN"
     elseif slotVal == "left" then
-        local sideOff = (ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2
+        -- Classic WoW UI: gap off the border art, not the bare bar edge
+        -- (ns.NP_ClassicSide is 0 on every other style).
+        local sideOff = ((ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2)
+            + ((ns.NP_ClassicSide and ns.NP_ClassicSide("left")) or 0)
         container:SetPoint("BOTTOMRIGHT", plate.health, "BOTTOMLEFT", -sideOff + xOff, yOff)
         anchorPoint, gH, gV = "BOTTOMRIGHT", "LEFT", "UP"
     elseif slotVal == "right" then
-        local sideOff = (ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2
+        local sideOff = ((ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2)
+            + ((ns.NP_ClassicSide and ns.NP_ClassicSide("right")) or 0)
         container:SetPoint("BOTTOMLEFT", plate.health, "BOTTOMRIGHT", sideOff + xOff, yOff)
         anchorPoint, gH, gV = "BOTTOMLEFT", "RIGHT", "UP"
     elseif slotVal == "topleft" or slotVal == "topright" then
@@ -1239,10 +1258,13 @@ local function PositionLockout(plate, f, slotVal)
     elseif slotVal == "bottom" then
         f:SetPoint("TOP", plate.cast or plate.health, "BOTTOM", xOff, -2 + yOff)
     elseif slotVal == "left" then
-        local sideOff = (ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2
+        -- Classic WoW UI: gap off the border art, as the containers above do.
+        local sideOff = ((ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2)
+            + ((ns.NP_ClassicSide and ns.NP_ClassicSide("left")) or 0)
         f:SetPoint("BOTTOMRIGHT", plate.health, "BOTTOMLEFT", -sideOff + xOff, yOff)
     elseif slotVal == "right" then
-        local sideOff = (ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2
+        local sideOff = ((ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2)
+            + ((ns.NP_ClassicSide and ns.NP_ClassicSide("right")) or 0)
         f:SetPoint("BOTTOMLEFT", plate.health, "BOTTOMRIGHT", sideOff + xOff, yOff)
     else -- topleft / topright
         local debuffY = (ns.GetDebuffYOffset and ns.GetDebuffYOffset()) or 2
@@ -1265,12 +1287,19 @@ function ns.NPC_UpdateLockout(plate)
             f:SetFrameStrata("MEDIUM")
             f:SetFrameLevel(800)
             f.icon = f:CreateTexture(nil, "ARTWORK")
-            f.icon:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1)
-            f.icon:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1)
+            -- Stock styles: no border, so the icon fills the cell; Blizzard
+            -- Style also takes the stock rounded swipe under its ring (the
+            -- classic square icon keeps the default swipe).
+            local px = ns.NP_Blizz() and 0 or 1
+            f.icon:SetPoint("TOPLEFT", f, "TOPLEFT", px, -px)
+            f.icon:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -px, px)
             f.cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
             f.cd:SetAllPoints(f)
             f.cd:SetReverse(true)
             f.cd:SetDrawEdge(false)
+            local kit = AK or EllesmereUI.AuraKit
+            local swipe = px == 0 and not ns.NP_Classic() and kit and kit.BLIZZ_ROUND_SWIPE
+            if swipe and f.cd.SetSwipeTexture then f.cd:SetSwipeTexture(swipe) end
             local PP = EllesmereUI.PP
             if PP and PP.CreateBorder then PP.CreateBorder(f, 0, 0, 0, 1, 1) end
             if ns.ApplyFrameIconBorder then
@@ -1281,10 +1310,20 @@ function ns.NPC_UpdateLockout(plate)
         local size = NPSize("cc")
         local height, cropped = NPHeight("cc", size)
         f:SetSize(size, height)
-        local tc = CropCoords(cropped)
+        local blizz = ns.NP_Blizz()
+        local tc = CropCoords(cropped, blizz and 0 or nil)
         f.icon:SetTexture(lockout.icon)
         f.icon:SetTexCoord(tc[1], tc[2], tc[3], tc[4])
         f.cd:SetCooldown(lockout.start, lockout.duration)
+        -- Blizzard Style: the stock rounded mask and ring, sized with the cell.
+        -- Classic WoW UI: the stock debuff border round the square icon.
+        if blizz then
+            if ns.NP_Classic() then
+                if ns.NP_ApplyClassicIconArt then ns.NP_ApplyClassicIconArt(f, size, height) end
+            elseif ns.NP_ApplyBlizzIconArt then
+                ns.NP_ApplyBlizzIconArt(f, f.icon, size, height)
+            end
+        end
         PositionLockout(plate, f, cs)
         if ns.ApplyFrameIconBorder then
             ns.ApplyFrameIconBorder(f, ns.GetIconBorderEnabled and ns.GetIconBorderEnabled("ccs"))
@@ -1321,7 +1360,19 @@ local function ReanchorArrows(plate)
     local ds, bs, cs = ns.GetAuraSlots()
     local leftC, rightC, leftKey, rightKey
     local function consider(slotVal, c, key)
-        if not c then return end
+        -- The buffs container hides itself (AnchorNPContainer) for non-attackable
+        -- units, but stays a live, non-nil frame -- anchoring an arrow to a hidden
+        -- container's geometry pins it to whatever stale layout it had before being
+        -- hidden, instead of collapsing with it. Skip anything not actually shown.
+        if not c or not c:IsShown() then return end
+        -- A settings change (e.g. moving this row to a different slot) doesn't
+        -- retroactively re-anchor every already-visible plate's container --
+        -- AnchorNPContainer stamps container._npcSlotVal with whatever slot it
+        -- was ACTUALLY last anchored at, which can lag behind the live slotVal
+        -- this function just read from GetAuraSlots() for a plate that hasn't
+        -- been re-attached since. Trusting a stale container's geometry here
+        -- anchors the arrow to wherever the row used to be, not where it is.
+        if c._npcSlotVal ~= slotVal then return end
         if slotVal == "left" and not leftC then leftC = c; leftKey = key end
         if slotVal == "right" and not rightC then rightC = c; rightKey = key end
     end

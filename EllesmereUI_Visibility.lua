@@ -105,7 +105,11 @@ local MouseoverScan  -- defined with the scan below; bound here for the subscrib
 
 function EUI.RegisterMouseoverTarget(frame, isActive)
     if not frame or type(isActive) ~= "function" then return end
-    mouseoverTargets[#mouseoverTargets + 1] = { frame = frame, visible = false, isActive = isActive }
+    -- visible starts nil = "state not applied yet", not false: the scan below treats nil
+    -- as unknown and applies the hidden state on its first active tick. Seeding false
+    -- would make that first tick a no-op (already-false edge), so a target that becomes
+    -- active with the cursor away never received its Hide() until the first real hover.
+    mouseoverTargets[#mouseoverTargets + 1] = { frame = frame, visible = nil, isActive = isActive }
     -- First target arms the shared 0.15s scan on the Mouse service (same-key
     -- subscribe is idempotent). No targets registered = the scan never runs.
     EllesmereUI.Mouse.SubscribeTick("visMouseover", 0.15, MouseoverScan)
@@ -238,10 +242,15 @@ MouseoverScan = function(rawX, rawY)
             if active then
                 t._wasActive = true
                 local over = IsCursorOver(frame, rawX, rawY)
-                if over and not t.visible then
-                    t.visible = true
-                    frame:SetAlpha(1); frame:EnableMouse(true); frame:Show()
-                elseif not over and t.visible then
+                -- Compared against true/false rather than truthiness, so the unknown
+                -- state (nil, at registration and after a deactivation) applies once
+                -- instead of being read as "already hidden".
+                if over then
+                    if t.visible ~= true then
+                        t.visible = true
+                        frame:SetAlpha(1); frame:EnableMouse(true); frame:Show()
+                    end
+                elseif t.visible ~= false then
                     t.visible = false
                     frame:Hide()
                 end
