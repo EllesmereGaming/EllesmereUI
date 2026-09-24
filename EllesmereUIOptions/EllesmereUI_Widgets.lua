@@ -6528,6 +6528,171 @@ EllesmereUI.SectionToggleSetValue     = SectionToggleSetValue
 EllesmereUI.DependentSetValue         = DependentSetValue
 
 -------------------------------------------------------------------------------
+--  BuildKeybindButton -- click-to-capture keybind button
+--  Left-click arms the capture, the next key (with its modifiers) is the
+--  chord, Escape cancels, right-click unbinds. One copy so the chord capture
+--  cannot drift apart between pages: Blizzard's own key conversion and ignore
+--  test, and CreateKeyChordStringUsingMetaKeyState for the canonical
+--  ALT-CTRL-SHIFT order (hand-rolled modifiers in any other order store a
+--  string the engine never matches).
+--
+--  opts = {
+--      get            = function() return chord end,  -- nil, false or "" = not bound
+--      set            = function(chord) end,          -- nil = unbind
+--      width, height  = 126, 29
+--      fontSize       = 12
+--      point          = { "CENTER", popup, "CENTER", 0, 0 },  -- default: parent's RIGHT, -20
+--      levelOffset    = 4,            -- frame level above parent
+--      tooltip        = string or function (default: the left/right-click hint)
+--      disabled       = function,     -- true: clicks do nothing, tooltip names disabledReason
+--      disabledReason = "Show Raid Tools",
+--      mouse          = true,         -- while armed, middle/side buttons and
+--                                     -- modified left/right clicks are chords
+--      plainMouse     = true,         -- while armed, bare left/right are chords too
+--      canArm         = function,     -- false: refuse to arm (e.g. in combat)
+--  }
+--  Returns the button with:
+--      btn.RefreshLabel()   repaint the bound key (skipped while armed)
+--      btn.Refresh()        with opts.disabled: dim and lock the button and the
+--                           parent's _label while disabled, then RefreshLabel
+--      btn.CancelCapture()  disarm without a change
+--      btn.IsListening()    true while armed
+-------------------------------------------------------------------------------
+local KEYBIND_HINT = "Left-click to set a keybind.\nRight-click to unbind."
+
+local function FormatKeybind(key)
+    if not key or key == "" then return EllesmereUI.L("Not Bound") end
+    local parts = {}
+    for mod in key:gmatch("(%u+)%-") do
+        parts[#parts + 1] = mod:sub(1, 1) .. mod:sub(2):lower()
+    end
+    parts[#parts + 1] = key:match("[^%-]+$") or key
+    return table.concat(parts, " + ")
+end
+
+function EllesmereUI.BuildKeybindButton(parent, opts)
+    local btn = CreateFrame("Button", nil, parent)
+    PP.Size(btn, opts.width or 126, opts.height or 29)
+    local pt = opts.point
+    if pt then
+        PP.Point(btn, pt[1], pt[2], pt[3], pt[4], pt[5])
+    else
+        PP.Point(btn, "RIGHT", parent, "RIGHT", -20, 0)
+    end
+    btn:SetFrameLevel(parent:GetFrameLevel() + (opts.levelOffset or 4))
+    if opts.mouse then
+        btn:RegisterForClicks("AnyUp")
+    else
+        btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    end
+    local bg = SolidTex(btn, "BACKGROUND", EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
+    bg:SetAllPoints()
+    btn._border = MakeBorder(btn, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+    local lbl = MakeFont(btn, opts.fontSize or 12, nil, 1, 1, 1)
+    lbl:SetAlpha(EllesmereUI.DD_TXT_A)
+    lbl:SetPoint("CENTER")
+
+    local Disabled = opts.disabled
+    local listening = false
+
+    local function RefreshLabel()
+        if listening then return end
+        lbl:SetText(FormatKeybind(opts.get()))
+    end
+    local function StopListening()
+        listening = false
+        btn:EnableKeyboard(false)
+    end
+    local function CancelCapture()
+        if not listening then return end
+        StopListening()
+        RefreshLabel()
+    end
+    -- Read the key back AFTER the set, never before: a set that declines
+    -- (combat, a refused binding) then shows the key that is really bound
+    local function Commit(chord)
+        StopListening()
+        opts.set(chord)
+        RefreshLabel()
+    end
+
+    btn:SetScript("OnClick", function(self, button)
+        if Disabled and Disabled() then return end
+        -- OnKeyDown never fires for mouse buttons, so an armed mouse picker
+        -- takes them from the click. Bare left and right keep their widget
+        -- meanings (arm, unbind) unless plainMouse makes them chords too.
+        if listening and opts.mouse and ((button ~= "LeftButton" and button ~= "RightButton")
+            or IsModifierKeyDown() or opts.plainMouse) then
+            Commit(CreateKeyChordStringUsingMetaKeyState(GetConvertedKeyOrButton(button)))
+            return
+        end
+        if button == "RightButton" then
+            Commit(nil)
+            return
+        end
+        -- With AnyUp registered, an idle side-button click must not arm
+        if button ~= "LeftButton" or listening then return end
+        if opts.canArm and not opts.canArm() then return end
+        listening = true
+        lbl:SetText(EllesmereUI.L("Press a key..."))
+        self:EnableKeyboard(true)
+    end)
+
+    btn:SetScript("OnKeyDown", function(self, key)
+        if not listening then self:SetPropagateKeyboardInput(true); return end
+        key = GetConvertedKeyOrButton(key)
+        -- Bare modifiers pass through so they can be held for the chord
+        if IsKeyPressIgnoredForBinding(key) then self:SetPropagateKeyboardInput(true); return end
+        self:SetPropagateKeyboardInput(false)
+        if key == "ESCAPE" then
+            CancelCapture()
+        else
+            Commit(CreateKeyChordStringUsingMetaKeyState(key))
+        end
+    end)
+
+    btn:SetScript("OnEnter", function(self)
+        if Disabled and Disabled() then
+            EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip(opts.disabledReason))
+            return
+        end
+        bg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
+        if btn._border and btn._border.SetColor then btn._border:SetColor(1, 1, 1, 0.3) end
+        EllesmereUI.ShowWidgetTooltip(self, opts.tooltip or KEYBIND_HINT)
+    end)
+    btn:SetScript("OnLeave", function()
+        if listening then return end
+        bg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
+        if btn._border and btn._border.SetColor then btn._border:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A) end
+        EllesmereUI.HideWidgetTooltip()
+    end)
+    btn:SetScript("OnHide", function()
+        -- Closing the window mid-capture must cancel the capture AND hide the
+        -- tooltip: OnLeave skips the hide while listening and may not fire
+        CancelCapture()
+        EllesmereUI.HideWidgetTooltip()
+    end)
+
+    local function Refresh()
+        if Disabled then
+            local off = Disabled()
+            btn:SetAlpha(off and 0.3 or 1)
+            btn:EnableMouse(not off)
+            if parent._label then parent._label:SetAlpha(off and 0.3 or 1) end
+            if off then CancelCapture() end
+        end
+        RefreshLabel()
+    end
+
+    btn.RefreshLabel = RefreshLabel
+    btn.Refresh = Refresh
+    btn.CancelCapture = CancelCapture
+    btn.IsListening = function() return listening end
+    RefreshLabel()
+    return btn
+end
+
+-------------------------------------------------------------------------------
 --  ShowPickMenu -- generic pick-one context menu (right-click "Add To" on
 --  manager tiles). Dark popup at the CURSOR with icon+label rows; disabled
 --  rows dim and ignore clicks; scrolls past maxHeight; closes on any outside

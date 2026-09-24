@@ -1248,142 +1248,22 @@ initFrame:SetScript("OnEvent", function(self)
         -- FPS Toggle Keybind (built into right region of fpsRow)
         if not EllesmereUI._prebuilding then
             local rightRgn = fpsRow._rightRegion
-            local SIDE_PAD = 20
-
-            local KB_W, KB_H = 140, 30
-            local kbBtn = CreateFrame("Button", nil, rightRgn)
-            PP.Size(kbBtn, KB_W, KB_H)
-            PP.Point(kbBtn, "RIGHT", rightRgn, "RIGHT", -SIDE_PAD, 0)
-            kbBtn:SetFrameLevel(rightRgn:GetFrameLevel() + 2)
-            kbBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-            local kbBg = EllesmereUI.SolidTex(kbBtn, "BACKGROUND", EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
-            kbBg:SetAllPoints()
-            kbBtn._border = EllesmereUI.MakeBorder(kbBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, EllesmereUI.PanelPP)
-            local kbLbl = EllesmereUI.MakeFont(kbBtn, 13, nil, 1, 1, 1)
-            kbLbl:SetAlpha(EllesmereUI.DD_TXT_A)
-            kbLbl:SetPoint("CENTER")
-
-            local function FormatKey(key)
-                if not key then return EllesmereUI.L("Not Bound") end
-                local parts = {}
-                for mod in key:gmatch("(%u+)%-") do
-                    parts[#parts + 1] = mod:sub(1, 1) .. mod:sub(2):lower()
-                end
-                local actualKey = key:match("[^%-]+$") or key
-                parts[#parts + 1] = actualKey
-                return table.concat(parts, " + ")
-            end
-
-            local function RefreshLabel()
-                local key = EllesmereUIDB and EllesmereUIDB.fpsToggleKey
-                kbLbl:SetText(FormatKey(key))
-            end
-            RefreshLabel()
-
-            local listening = false
-
-            kbBtn:SetScript("OnClick", function(self, button)
-                if button == "RightButton" then
-                    if listening then
-                        listening = false
-                        self:EnableKeyboard(false)
-                    end
+            local kbBtn = EllesmereUI.BuildKeybindButton(rightRgn, {
+                width = 140, height = 30, fontSize = 13, levelOffset = 2,
+                get = function() return EllesmereUIDB and EllesmereUIDB.fpsToggleKey end,
+                set = function(key)
                     if not EllesmereUIDB then EllesmereUIDB = {} end
-                    if EllesmereUIDB.fpsToggleKey and _G["EUI_FPSBindBtn"] then
-                        ClearOverrideBindings(_G["EUI_FPSBindBtn"])
+                    local bindBtn = _G["EUI_FPSBindBtn"]
+                    if bindBtn then
+                        -- Override bindings cannot change in combat: keep the old key
+                        if key and InCombatLockdown() then return end
+                        if key or EllesmereUIDB.fpsToggleKey then ClearOverrideBindings(bindBtn) end
+                        if key then SetOverrideBindingClick(bindBtn, true, key, "EUI_FPSBindBtn") end
                     end
-                    EllesmereUIDB.fpsToggleKey = nil
-                    RefreshLabel()
-                    return
-                end
-                if listening then return end
-                listening = true
-                kbLbl:SetText(EllesmereUI.L("Press a key..."))
-                kbBtn:EnableKeyboard(true)
-            end)
-
-            kbBtn:SetScript("OnKeyDown", function(self, key)
-                if not listening then
-                    self:SetPropagateKeyboardInput(true)
-                    return
-                end
-                if key == "LSHIFT" or key == "RSHIFT" or key == "LCTRL" or key == "RCTRL"
-                   or key == "LALT" or key == "RALT" or key == "LMETA" or key == "RMETA" then
-                    self:SetPropagateKeyboardInput(true)
-                    return
-                end
-                self:SetPropagateKeyboardInput(false)
-                if key == "ESCAPE" then
-                    listening = false
-                    self:EnableKeyboard(false)
-                    RefreshLabel()
-                    return
-                end
-                -- Blizzard's canonical chord order is ALT-CTRL-SHIFT-KEY, and
-                -- CreateKeyChordStringUsingMetaKeyState is what produces it.
-                -- Hand-rolling the modifiers built SHIFT-CTRL-ALT-KEY, a chord
-                -- string the engine never generates, so any bind using more
-                -- than one modifier was stored in a form nothing could match.
-                -- Single-modifier binds happen to agree, which is why this
-                -- survived.
-                local fullKey
-                if CreateKeyChordStringUsingMetaKeyState then
-                    fullKey = CreateKeyChordStringUsingMetaKeyState(key)
-                else
-                    local mods = ""
-                    if IsAltKeyDown() then mods = mods .. "ALT-" end
-                    if IsControlKeyDown() then mods = mods .. "CTRL-" end
-                    if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
-                    if IsMetaKeyDown and IsMetaKeyDown() then
-                        mods = mods .. "META-"
-                    end
-                    fullKey = mods .. key
-                end
-
-                if not EllesmereUIDB then EllesmereUIDB = {} end
-                local bindBtn = _G["EUI_FPSBindBtn"]
-                if bindBtn then
-                    if InCombatLockdown() then
-                        listening = false
-                        self:EnableKeyboard(false)
-                        RefreshLabel()
-                        return
-                    end
-                    ClearOverrideBindings(bindBtn)
-                    SetOverrideBindingClick(bindBtn, true, fullKey, "EUI_FPSBindBtn")
-                end
-                EllesmereUIDB.fpsToggleKey = fullKey
-
-                listening = false
-                self:EnableKeyboard(false)
-                RefreshLabel()
-            end)
-
-            kbBtn:SetScript("OnEnter", function(self)
-                kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
-                if kbBtn._border and kbBtn._border.SetColor then
-                    kbBtn._border:SetColor(1, 1, 1, 0.3)
-                end
-                EllesmereUI.ShowWidgetTooltip(self, "Left-click to set a keybind.\nRight-click to unbind.")
-            end)
-            kbBtn:SetScript("OnLeave", function()
-                if listening then return end
-                kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
-                if kbBtn._border and kbBtn._border.SetColor then
-                    kbBtn._border:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A)
-                end
-                EllesmereUI.HideWidgetTooltip()
-            end)
-
-            EllesmereUI.RegisterWidgetRefresh(RefreshLabel)
-
-            rightRgn:SetScript("OnHide", function()
-                if listening then
-                    listening = false
-                    kbBtn:EnableKeyboard(false)
-                    RefreshLabel()
-                end
-            end)
+                    EllesmereUIDB.fpsToggleKey = key
+                end,
+            })
+            EllesmereUI.RegisterWidgetRefresh(kbBtn.RefreshLabel)
         end
 
         -- Row 2: Low Durability Warning (left, with cog+eye+swatch) | Disable Right Click Targeting (right)

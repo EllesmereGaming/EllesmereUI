@@ -3961,17 +3961,6 @@ initFrame:SetScript("OnEvent", function(self)
 
         local ShowImportPage  -- forward declaration (defined after import page builder)
 
-        local function FormatKey(key)
-            if not key then return EllesmereUI.L("Not Bound") end
-            local parts = {}
-            for mod in key:gmatch("(%u+)%-") do
-                parts[#parts + 1] = mod:sub(1, 1) .. mod:sub(2):lower()
-            end
-            local actualKey = key:match("[^%-]+$") or key
-            parts[#parts + 1] = actualKey
-            return table.concat(parts, " + ")
-        end
-
         local _kbPopup
         local function ShowProfileKeybindPopup(profileName)
             if _kbPopup then _kbPopup:Hide() end
@@ -4015,124 +4004,25 @@ initFrame:SetScript("OnEvent", function(self)
             title:SetPoint("TOP", popup, "TOP", 0, -14)
             title:SetText(EllesmereUI.Lf("Keybind: %1$s", profileName))
 
-            local KB_W, KB_H = 160, 30
-            local kbBtn = CreateFrame("Button", nil, popup)
-            PP.Size(kbBtn, KB_W, KB_H)
-            kbBtn:SetPoint("CENTER", popup, "CENTER", 0, -2)
-            kbBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
-            kbBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-            local kbBg = EllesmereUI.SolidTex(kbBtn, "BACKGROUND", EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
-            kbBg:SetAllPoints()
-            kbBtn._border = EllesmereUI.MakeBorder(kbBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
-            local kbLbl = EllesmereUI.MakeFont(kbBtn, 13, nil, 1, 1, 1)
-            kbLbl:SetAlpha(EllesmereUI.DD_TXT_A or 0.85)
-            kbLbl:SetPoint("CENTER")
-
-            local function RefreshLabel()
-                local kkey = EllesmereUI.GetProfileKeybind(profileName)
-                kbLbl:SetText(FormatKey(kkey))
-            end
-            RefreshLabel()
+            local kbBtn = EllesmereUI.BuildKeybindButton(popup, {
+                width = 160, height = 30, fontSize = 13, levelOffset = 2,
+                point = { "CENTER", popup, "CENTER", 0, -2 },
+                get = function() return EllesmereUI.GetProfileKeybind(profileName) end,
+                set = function(key) EllesmereUI.SetProfileKeybind(profileName, key) end,
+            })
 
             local hint = EllesmereUI.MakeFont(popup, 10, nil, 1, 1, 1, 0.35)
             hint:SetPoint("BOTTOM", popup, "BOTTOM", 0, 12)
             hint:SetText(EllesmereUI.L("Left-click to set  |  Right-click to unbind  |  Esc to close"))
 
-            local listening = false
-
-            kbBtn:SetScript("OnClick", function(self, button)
-                if button == "RightButton" then
-                    if listening then
-                        listening = false
-                        self:EnableKeyboard(false)
-                    end
-                    EllesmereUI.SetProfileKeybind(profileName, nil)
-                    RefreshLabel()
-                    return
-                end
-                if listening then return end
-                listening = true
-                kbLbl:SetText(EllesmereUI.L("Press a key..."))
-                kbBtn:EnableKeyboard(true)
-            end)
-
-            kbBtn:SetScript("OnKeyDown", function(self, kkey)
-                if not listening then
-                    if kkey == "ESCAPE" then
-                        self:SetPropagateKeyboardInput(false)
-                        dimmer:Hide()
-                        return
-                    end
-                    self:SetPropagateKeyboardInput(true)
-                    return
-                end
-                if kkey == "LSHIFT" or kkey == "RSHIFT" or kkey == "LCTRL" or kkey == "RCTRL"
-                   or kkey == "LALT" or kkey == "RALT" or kkey == "LMETA" or kkey == "RMETA" then
-                    self:SetPropagateKeyboardInput(true)
-                    return
-                end
-                self:SetPropagateKeyboardInput(false)
-                if kkey == "ESCAPE" then
-                    listening = false
-                    self:EnableKeyboard(false)
-                    RefreshLabel()
-                    return
-                end
-                -- Blizzard's canonical chord order is ALT-CTRL-SHIFT-KEY, and
-                -- CreateKeyChordStringUsingMetaKeyState is what produces it.
-                -- Hand-rolling the modifiers built SHIFT-CTRL-ALT-KEY, a chord
-                -- string the engine never generates, so any bind using more
-                -- than one modifier was stored in a form nothing could match.
-                -- Single-modifier binds happen to agree, which is why this
-                -- survived.
-                local fullKey
-                if CreateKeyChordStringUsingMetaKeyState then
-                    fullKey = CreateKeyChordStringUsingMetaKeyState(kkey)
-                else
-                    local mods = ""
-                    if IsAltKeyDown() then mods = mods .. "ALT-" end
-                    if IsControlKeyDown() then mods = mods .. "CTRL-" end
-                    if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
-                    if IsMetaKeyDown and IsMetaKeyDown() then
-                        mods = mods .. "META-"
-                    end
-                    fullKey = mods .. kkey
-                end
-
-                EllesmereUI.SetProfileKeybind(profileName, fullKey)
-                listening = false
-                self:EnableKeyboard(false)
-                RefreshLabel()
-            end)
-
-            kbBtn:SetScript("OnEnter", function()
-                kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA or 0.98)
-                if kbBtn._border and kbBtn._border.SetColor then
-                    kbBtn._border:SetColor(1, 1, 1, 0.3)
-                end
-                EllesmereUI.ShowWidgetTooltip(kbBtn, EllesmereUI.L("Left-click to set a keybind.\nRight-click to unbind."))
-            end)
-            kbBtn:SetScript("OnLeave", function()
-                if listening then return end
-                kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
-                if kbBtn._border and kbBtn._border.SetColor then
-                    kbBtn._border:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A)
-                end
-                EllesmereUI.HideWidgetTooltip()
-            end)
-
             popup:SetScript("OnHide", function()
-                if listening then
-                    listening = false
-                    kbBtn:EnableKeyboard(false)
-                end
                 if popup._dimmer then popup._dimmer:Hide() end
                 _kbPopup = nil
             end)
 
             popup:EnableKeyboard(true)
             popup:SetScript("OnKeyDown", function(self, kkey)
-                if kkey == "ESCAPE" and not listening then
+                if kkey == "ESCAPE" and not kbBtn.IsListening() then
                     self:SetPropagateKeyboardInput(false)
                     dimmer:Hide()
                 else

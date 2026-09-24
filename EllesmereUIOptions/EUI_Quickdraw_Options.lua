@@ -2496,30 +2496,9 @@ initFrame:SetScript("OnEvent", function(self)
     --
     -- so BUTTON1 and BUTTON2 are both reachable and unbind is still one click.
     local function BuildKeybindButton(rgn, spec)
-        local PPQ = EllesmereUI.PanelPP
-        local kbBtn = CreateFrame("Button", nil, rgn)
-        PPQ.Size(kbBtn, 126, 29)
-        PPQ.Point(kbBtn, "RIGHT", rgn, "RIGHT", -20, 0)
-        kbBtn:SetFrameLevel(rgn:GetFrameLevel() + 4)
-        kbBtn:RegisterForClicks("AnyUp")
-        local kbBg = EllesmereUI.SolidTex(kbBtn, "BACKGROUND", EllesmereUI.DD_BG_R,
-            EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
-        kbBg:SetAllPoints()
-        kbBtn._border = EllesmereUI.MakeBorder(kbBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, PPQ)
-        local kbLbl = EllesmereUI.MakeFont(kbBtn, 12, nil, 1, 1, 1)
-        kbLbl:SetAlpha(EllesmereUI.DD_TXT_A)
-        kbLbl:SetPoint("CENTER")
-
         local palette = editPalette
         local action = BINDING_PREFIX .. palette
-        local listening = false
-        local ReadKey = spec and spec.read or function() return GetBindingKey(action) end
-        local Commit = spec and spec.commit or function(chord) CommitKey(palette, chord) end
         local plainMouse = spec and spec.plainMouse
-        -- What the key IS, shown above the how-to-bind instructions: the
-        -- palette's own keybind row sits under a heading that already says,
-        -- but a spec-driven picker (the Select Key) has only its label.
-        local intro = spec and spec.intro
         -- BuildPage's own Disabled() is a local of that function and out of
         -- scope here, the same reason BuildMenuSelector reads Cfg directly.
         -- A spec may widen the gate (the Select Key: also disabled while the
@@ -2527,143 +2506,37 @@ initFrame:SetScript("OnEvent", function(self)
         -- latched menus) and name the requirement for the disabled tooltip.
         local Disabled = (spec and spec.disabled)
             or function() return Cfg("enabled") ~= true end
-        local disabledReason = (spec and spec.disabledReason) or "the module"
 
-        local function FormatKey(key)
-            if not key then return EllesmereUI.L("Not Bound") end
-            local parts = {}
-            for mod in key:gmatch("(%u+)%-") do
-                parts[#parts + 1] = mod:sub(1, 1) .. mod:sub(2):lower()
-            end
-            parts[#parts + 1] = key:match("[^%-]+$") or key
-            return table.concat(parts, " + ")
-        end
+        -- Right-click means two different things on a plainMouse picker
+        -- depending on whether it is armed, so it has to say which.
+        local tip = plainMouse
+            and EllesmereUI.L("Left-click to set a keybind, then press any key or\n"
+                .. "click any mouse button to use it.\n"
+                .. "Escape cancels. Right-click here to unbind.")
+            or EllesmereUI.L("Left-click to set a keybind.\nRight-click to unbind.")
+        -- What the key IS, shown above the how-to-bind instructions: the
+        -- palette's own keybind row sits under a heading that already says,
+        -- but a spec-driven picker (the Select Key) has only its label.
+        if spec and spec.intro then tip = EllesmereUI.L(spec.intro) .. "\n\n" .. tip end
 
-        -- Always AFTER the commit, never before it. Reading first and painting
-        -- the old key was the same answer for the palette's keybind -- a
-        -- CommitKey the user declines or combat refuses leaves the binding
-        -- alone, and one that lands rebuilds the whole page over this button --
-        -- but the Select key's commit only writes the profile, so a label
-        -- painted before it stayed a whole interaction behind the value: the
-        -- click that bound BUTTON1 still read "Not Bound", and the right-click
-        -- that unbound it still read BUTTON1. Reading after is correct for
-        -- both, because a refused commit leaves exactly what the pre-read was
-        -- there to preserve.
-        local function RefreshLabel()
-            kbLbl:SetText(FormatKey(ReadKey()))
-        end
-
-        kbBtn:SetScript("OnClick", function(self, button)
-            if Disabled() then return end
-            -- Mouse chords. OnKeyDown never fires for mouse buttons, so an
-            -- armed listener takes them from the click itself, through the
-            -- same conversion the keyboard path uses (GetConvertedKeyOrButton
-            -- maps "Button4" -> "BUTTON4" and so on). The extra buttons --
-            -- middle, Button4 and up -- bind bare or modified; left and right
-            -- bind only WITH a modifier held, since plain they keep their
-            -- widget meanings (left arms, right unbinds) -- the same rule the
-            -- Blizzard bindings page applies to mouse input. The wheel stays
-            -- uncapturable on purpose: a tick cannot be HELD, and hold is the
-            -- palette's whole input model -- key down opens, key up fires.
-            -- plainMouse takes every bare click while LISTENING as a chord,
-            -- left and right alike, which is what makes BUTTON1 and BUTTON2
-            -- reachable at all. It costs nothing: unbind moves to a right-click
-            -- from the resting state, which is where a user reaches for it
-            -- anyway, and Escape still backs out of an armed picker. Without
-            -- this the two most obvious Select keys are the two this widget
-            -- cannot take.
-            if listening and ((button ~= "LeftButton" and button ~= "RightButton")
-                or IsModifierKeyDown()
-                or plainMouse) then
-                listening = false
-                self:EnableKeyboard(false)
-                Commit(CreateKeyChordStringUsingMetaKeyState(
-                    GetConvertedKeyOrButton(button)))
-                RefreshLabel()
-                return
-            end
-            if button == "RightButton" then
-                if listening then
-                    listening = false
-                    self:EnableKeyboard(false)
-                end
-                Commit(nil)
-                RefreshLabel()
-                return
-            end
-            -- The extra mouse buttons only mean something while listening.
-            if button ~= "LeftButton" then return end
-            if listening then return end
-            if InCombatLockdown() then
+        -- The wheel stays uncapturable on purpose: a tick cannot be HELD, and
+        -- hold is the palette's whole input model -- key down opens, key up fires.
+        local kbBtn = EllesmereUI.BuildKeybindButton(rgn, {
+            mouse = true,
+            plainMouse = plainMouse,
+            tooltip = tip,
+            disabled = Disabled,
+            disabledReason = (spec and spec.disabledReason) or "the module",
+            get = (spec and spec.read) or function() return GetBindingKey(action) end,
+            set = (spec and spec.commit) or function(chord) CommitKey(palette, chord) end,
+            canArm = function()
+                if not InCombatLockdown() then return true end
                 Complain("Quickdraw: keybinds can't be changed in combat.")
-                return
-            end
-            listening = true
-            kbLbl:SetText(EllesmereUI.L("Press a key..."))
-            self:EnableKeyboard(true)
-        end)
-
-        kbBtn:SetScript("OnKeyDown", function(self, key)
-            if not listening then self:SetPropagateKeyboardInput(true); return end
-            key = GetConvertedKeyOrButton(key)
-            -- Bare modifiers pass through so the user can hold them for the
-            -- chord; everything the binding system ignores does too.
-            if IsKeyPressIgnoredForBinding(key) then
-                self:SetPropagateKeyboardInput(true); return
-            end
-            self:SetPropagateKeyboardInput(false)
-            listening = false
-            self:EnableKeyboard(false)
-            if key ~= "ESCAPE" then
-                Commit(CreateKeyChordStringUsingMetaKeyState(key))
-            end
-            RefreshLabel()
-        end)
-
-        kbBtn:SetScript("OnEnter", function(self)
-            if Disabled() then
-                EllesmereUI.ShowWidgetTooltip(self,
-                    EllesmereUI.DisabledTooltip(disabledReason))
-                return
-            end
-            kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G,
-                EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
-            if kbBtn._border and kbBtn._border.SetColor then
-                kbBtn._border:SetColor(1, 1, 1, 0.3)
-            end
-            -- Right-click means two different things on a plainMouse picker
-            -- depending on whether it is armed, so it has to say which.
-            local tip = plainMouse
-                and EllesmereUI.L("Left-click to set a keybind, then press any key or\n"
-                    .. "click any mouse button to use it.\n"
-                    .. "Escape cancels. Right-click here to unbind.")
-                or EllesmereUI.L("Left-click to set a keybind.\nRight-click to unbind.")
-            if intro then tip = EllesmereUI.L(intro) .. "\n\n" .. tip end
-            EllesmereUI.ShowWidgetTooltip(self, tip)
-        end)
-        kbBtn:SetScript("OnLeave", function()
-            if listening then return end
-            kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G,
-                EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
-            if kbBtn._border and kbBtn._border.SetColor then
-                kbBtn._border:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A)
-            end
-            EllesmereUI.HideWidgetTooltip()
-        end)
-        kbBtn:SetScript("OnHide", function()
-            -- Closing the window mid-capture must cancel the capture AND hide
-            -- the tooltip: OnLeave skips the hide while listening and may not
-            -- fire, so it would linger.
-            if listening then
-                listening = false
-                kbBtn:EnableKeyboard(false)
-                RefreshLabel()
-            end
-            EllesmereUI.HideWidgetTooltip()
-        end)
+                return false
+            end,
+        })
 
         if Disabled() then kbBtn:SetAlpha(0.4) end
-        RefreshLabel()
         rgn._lastInline = kbBtn
         return kbBtn
     end

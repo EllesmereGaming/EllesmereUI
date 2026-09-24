@@ -85,131 +85,19 @@ do
             PP.Point(label, "LEFT", kbFrame, "LEFT", SIDE_PAD, 0)
             label:SetText(EllesmereUI.L("Toggle On/Off Keybind"))
 
-            local KB_W, KB_H = 140, 30
-            local kbBtn = CreateFrame("Button", nil, kbFrame)
-            PP.Size(kbBtn, KB_W, KB_H)
-            PP.Point(kbBtn, "RIGHT", kbFrame, "RIGHT", -SIDE_PAD, 0)
-            kbBtn:SetFrameLevel(kbFrame:GetFrameLevel() + 2)
-            kbBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-            local kbBg = EllesmereUI.SolidTex(kbBtn, "BACKGROUND", EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
-            kbBg:SetAllPoints()
-            kbBtn._border = EllesmereUI.MakeBorder(kbBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, EllesmereUI.PanelPP)
-            local kbLbl = EllesmereUI.MakeFont(kbBtn, 13, nil, 1, 1, 1)
-            kbLbl:SetAlpha(EllesmereUI.DD_TXT_A)
-            kbLbl:SetPoint("CENTER")
-
-            local function FormatKey(key)
-                if not key then return EllesmereUI.L("Not Bound") end
-                local parts = {}
-                for mod in key:gmatch("(%u+)%-") do
-                    parts[#parts + 1] = mod:sub(1, 1) .. mod:sub(2):lower()
-                end
-                local actualKey = key:match("[^%-]+$") or key
-                parts[#parts + 1] = actualKey
-                return table.concat(parts, " + ")
-            end
-
-            local function RefreshLabel()
-                local key = EllesmereUIDB and EllesmereUIDB.partyModeKey
-                kbLbl:SetText(FormatKey(key))
-            end
-            RefreshLabel()
-
-            local listening = false
-
-            kbBtn:SetScript("OnClick", function(self, button)
-                if button == "RightButton" then
-                    if listening then
-                        listening = false
-                        self:EnableKeyboard(false)
-                    end
+            local kbBtn = EllesmereUI.BuildKeybindButton(kbFrame, {
+                width = 140, height = 30, fontSize = 13, levelOffset = 2,
+                get = function() return EllesmereUIDB and EllesmereUIDB.partyModeKey end,
+                set = function(key)
                     if not EllesmereUIDB then EllesmereUIDB = {} end
-                    if EllesmereUIDB.partyModeKey then
-                        ClearOverrideBindings(EllesmereUIPartyModeBindBtn)
+                    ClearOverrideBindings(EllesmereUIPartyModeBindBtn)
+                    if key then
+                        SetOverrideBindingClick(EllesmereUIPartyModeBindBtn, true, key, "EllesmereUIPartyModeBindBtn")
                     end
-                    EllesmereUIDB.partyModeKey = nil
-                    RefreshLabel()
-                    return
-                end
-                if listening then return end
-                listening = true
-                kbLbl:SetText(EllesmereUI.L("Press a key..."))
-                kbBtn:EnableKeyboard(true)
-            end)
-
-            kbBtn:SetScript("OnKeyDown", function(self, key)
-                if not listening then
-                    self:SetPropagateKeyboardInput(true)
-                    return
-                end
-                if key == "LSHIFT" or key == "RSHIFT" or key == "LCTRL" or key == "RCTRL"
-                   or key == "LALT" or key == "RALT" or key == "LMETA" or key == "RMETA" then
-                    self:SetPropagateKeyboardInput(true)
-                    return
-                end
-                self:SetPropagateKeyboardInput(false)
-                if key == "ESCAPE" then
-                    listening = false
-                    self:EnableKeyboard(false)
-                    RefreshLabel()
-                    return
-                end
-                -- Blizzard's canonical chord order is ALT-CTRL-SHIFT-KEY, and
-                -- CreateKeyChordStringUsingMetaKeyState is what produces it.
-                -- Hand-rolling the modifiers built SHIFT-CTRL-ALT-KEY, a chord
-                -- string the engine never generates, so any bind using more
-                -- than one modifier was stored in a form nothing could match.
-                -- Single-modifier binds happen to agree, which is why this
-                -- survived.
-                local fullKey
-                if CreateKeyChordStringUsingMetaKeyState then
-                    fullKey = CreateKeyChordStringUsingMetaKeyState(key)
-                else
-                    local mods = ""
-                    if IsAltKeyDown() then mods = mods .. "ALT-" end
-                    if IsControlKeyDown() then mods = mods .. "CTRL-" end
-                    if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
-                    if IsMetaKeyDown and IsMetaKeyDown() then
-                        mods = mods .. "META-"
-                    end
-                    fullKey = mods .. key
-                end
-
-                if not EllesmereUIDB then EllesmereUIDB = {} end
-                ClearOverrideBindings(EllesmereUIPartyModeBindBtn)
-                SetOverrideBindingClick(EllesmereUIPartyModeBindBtn, true, fullKey, "EllesmereUIPartyModeBindBtn")
-                EllesmereUIDB.partyModeKey = fullKey
-
-                listening = false
-                self:EnableKeyboard(false)
-                RefreshLabel()
-            end)
-
-            kbBtn:SetScript("OnEnter", function(self)
-                kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
-                if kbBtn._border and kbBtn._border.SetColor then
-                    kbBtn._border:SetColor(1, 1, 1, 0.3)
-                end
-                EllesmereUI.ShowWidgetTooltip(self, "Left-click to set a keybind.\nRight-click to unbind.")
-            end)
-            kbBtn:SetScript("OnLeave", function()
-                if listening then return end
-                kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
-                if kbBtn._border and kbBtn._border.SetColor then
-                    kbBtn._border:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A)
-                end
-                EllesmereUI.HideWidgetTooltip()
-            end)
-
-            EllesmereUI.RegisterWidgetRefresh(RefreshLabel)
-
-            kbFrame:SetScript("OnHide", function()
-                if listening then
-                    listening = false
-                    kbBtn:EnableKeyboard(false)
-                    RefreshLabel()
-                end
-            end)
+                    EllesmereUIDB.partyModeKey = key
+                end,
+            })
+            EllesmereUI.RegisterWidgetRefresh(kbBtn.RefreshLabel)
 
             y = y - ROW_H
         end

@@ -4194,150 +4194,36 @@ initFrame:SetScript("OnEvent", function(self)
             end
             if not EllesmereUI._prebuilding then
                 local rgn = row._leftRegion
-                local kbBtn = CreateFrame("Button", nil, row)
-                kbBtn:SetSize(140, 26)
-                kbBtn:SetPoint("RIGHT", rgn, "RIGHT", -20, 0)
-                kbBtn:SetFrameLevel(row:GetFrameLevel() + 5)
-                kbBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-                local kbBg = kbBtn:CreateTexture(nil, "BACKGROUND")
-                kbBg:SetAllPoints()
-                kbBg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
-                if EllesmereUI.MakeBorder then
-                    EllesmereUI.MakeBorder(kbBtn, 1, 1, 1, 0.25)
-                end
-                local kbLbl = kbBtn:CreateFontString(nil, "OVERLAY")
-                if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(kbLbl, GetUseShadow()) end
-                kbLbl:SetFont(EllesmereUI.GetFontPath("raidFrames"), 13, GetOutline())
-                kbLbl:SetPoint("CENTER")
-
-                local function FormatKey(key)
-                    if not key then return EllesmereUI.L("Not Bound") end
-                    local parts = {}
-                    for mod in key:gmatch("(%u+)%-") do
-                        parts[#parts + 1] = mod:sub(1, 1) .. mod:sub(2):lower()
-                    end
-                    local actualKey = key:match("[^%-]+$") or key
-                    parts[#parts + 1] = actualKey
-                    return table.concat(parts, " + ")
-                end
-
-                local function RefreshLabel()
-                    kbLbl:SetText(FormatKey(EllesmereUIDB and EllesmereUIDB.extraFramesKey))
-                end
-                RefreshLabel()
-
-                local listening = false
-
-                kbBtn:SetScript("OnClick", function(self, button)
-                    if button == "RightButton" then
-                        if listening then
-                            listening = false
-                            self:EnableKeyboard(false)
-                        end
+                local kbBtn = EllesmereUI.BuildKeybindButton(row, {
+                    width = 140, height = 26, fontSize = 13, levelOffset = 5,
+                    point = { "RIGHT", rgn, "RIGHT", -20, 0 },
+                    tooltip = "Left-click to set a keybind. Right-click to unbind.\nPress the key while hovering a raid frame to add or remove that player from the Extra Frames group.",
+                    get = function() return EllesmereUIDB and EllesmereUIDB.extraFramesKey end,
+                    set = function(key)
                         if not EllesmereUIDB then EllesmereUIDB = {} end
-                        if EllesmereUIDB.extraFramesKey and _G["ERFExtraFramesBindBtn"] then
-                            ClearOverrideBindings(_G["ERFExtraFramesBindBtn"])
+                        local bindBtn = _G["ERFExtraFramesBindBtn"]
+                        if bindBtn then
+                            -- Override bindings cannot change in combat: keep the old key
+                            if key and InCombatLockdown() then return end
+                            if key or EllesmereUIDB.extraFramesKey then ClearOverrideBindings(bindBtn) end
+                            if key then SetOverrideBindingClick(bindBtn, true, key, "ERFExtraFramesBindBtn") end
                         end
                         local wasConfigured = XFConfigured()
-                        EllesmereUIDB.extraFramesKey = nil
-                        RefreshLabel()
+                        EllesmereUIDB.extraFramesKey = key
                         -- The mover can't stay up once the feature goes dark.
-                        if not XFConfigured() and ns.XF_SetMoverShown then
+                        if not key and not XFConfigured() and ns.XF_SetMoverShown then
                             ns.XF_SetMoverShown(false)
                         end
-                        -- Hidden rows below: a configured-state flip needs the full rebuild, not the fast refresh.
+                        -- Binding the first hotkey (or unbinding the last) flips the configured
+                        -- state, so the hidden rows below need the full rebuild.
                         if XFConfigured() ~= wasConfigured then
                             EllesmereUI:RefreshPage(true)
                         else
                             EllesmereUI:RefreshPage()
                         end
-                        return
-                    end
-                    if listening then return end
-                    listening = true
-                    kbLbl:SetText(EllesmereUI.L("Press a key..."))
-                    kbBtn:EnableKeyboard(true)
-                end)
-
-                kbBtn:SetScript("OnKeyDown", function(self, key)
-                    if not listening then
-                        self:SetPropagateKeyboardInput(true)
-                        return
-                    end
-                    if key == "LSHIFT" or key == "RSHIFT" or key == "LCTRL" or key == "RCTRL"
-                       or key == "LALT" or key == "RALT" or key == "LMETA" or key == "RMETA" then
-                        self:SetPropagateKeyboardInput(true)
-                        return
-                    end
-                    self:SetPropagateKeyboardInput(false)
-                    if key == "ESCAPE" then
-                        listening = false
-                        self:EnableKeyboard(false)
-                        RefreshLabel()
-                        return
-                    end
-                    -- Blizzard's canonical chord order is ALT-CTRL-SHIFT-KEY,
-                    -- and CreateKeyChordStringUsingMetaKeyState is what
-                    -- produces it. Hand-rolling the modifiers built
-                    -- SHIFT-CTRL-ALT-KEY, a chord string the engine never
-                    -- generates, so any bind using more than one modifier was
-                    -- stored in a form nothing could match. Single-modifier
-                    -- binds happen to agree, which is why this survived.
-                    local fullKey
-                    if CreateKeyChordStringUsingMetaKeyState then
-                        fullKey = CreateKeyChordStringUsingMetaKeyState(key)
-                    else
-                        local mods = ""
-                        if IsAltKeyDown() then mods = mods .. "ALT-" end
-                        if IsControlKeyDown() then mods = mods .. "CTRL-" end
-                        if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
-                        if IsMetaKeyDown and IsMetaKeyDown() then
-                            mods = mods .. "META-"
-                        end
-                        fullKey = mods .. key
-                    end
-
-                    if not EllesmereUIDB then EllesmereUIDB = {} end
-                    local bindBtn = _G["ERFExtraFramesBindBtn"]
-                    if bindBtn then
-                        if InCombatLockdown() then
-                            listening = false
-                            self:EnableKeyboard(false)
-                            RefreshLabel()
-                            return
-                        end
-                        ClearOverrideBindings(bindBtn)
-                        SetOverrideBindingClick(bindBtn, true, fullKey, "ERFExtraFramesBindBtn")
-                    end
-                    local wasConfigured = XFConfigured()
-                    EllesmereUIDB.extraFramesKey = fullKey
-
-                    listening = false
-                    self:EnableKeyboard(false)
-                    RefreshLabel()
-                    -- Binding the first hotkey flips the configured state, so the hidden rows below need the full rebuild.
-                    if XFConfigured() ~= wasConfigured then
-                        EllesmereUI:RefreshPage(true)
-                    else
-                        EllesmereUI:RefreshPage()
-                    end
-                end)
-
-                kbBtn:SetScript("OnEnter", function(self)
-                    EllesmereUI.ShowWidgetTooltip(self,
-                        "Left-click to set a keybind. Right-click to unbind.\nPress the key while hovering a raid frame to add or remove that player from the Extra Frames group.")
-                end)
-                kbBtn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
-                EllesmereUI.RegisterWidgetRefresh(RefreshLabel)
-
-                rgn:SetScript("OnHide", function()
-                    if listening then
-                        listening = false
-                        kbBtn:EnableKeyboard(false)
-                        RefreshLabel()
-                    end
-                end)
+                    end,
+                })
+                EllesmereUI.RegisterWidgetRefresh(kbBtn.RefreshLabel)
             end
 
             -- Rows 2-4 are HIDDEN while unconfigured (no tanks toggle AND no hotkey); the triggers above rebuild when that state flips.

@@ -2087,130 +2087,22 @@ initFrame:SetScript("OnEvent", function(self)
             -- only. Its label sits in the Visibility row, so the button goes there too.
             do
                 local rgn = visRow1._rightRegion
-                local kbBtn = CreateFrame("Button", nil, rgn)
-                PP.Size(kbBtn, 126, 29)
-                PP.Point(kbBtn, "RIGHT", rgn, "RIGHT", -20, 0)
-                kbBtn:SetFrameLevel(rgn:GetFrameLevel() + 4)
-                kbBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-                local kbBg = EllesmereUI.SolidTex(kbBtn, "BACKGROUND", EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
-                kbBg:SetAllPoints()
-                kbBtn._border = EllesmereUI.MakeBorder(kbBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, EllesmereUI.PanelPP)
-                local kbLbl = EllesmereUI.MakeFont(kbBtn, 12, nil, 1, 1, 1)
-                kbLbl:SetAlpha(EllesmereUI.DD_TXT_A)
-                kbLbl:SetPoint("CENTER")
-
-                local listening = false
-
-                local function FormatKey(key)
-                    if not key then return EllesmereUI.L("Not Bound") end
-                    local parts = {}
-                    for mod in key:gmatch("(%u+)%-") do
-                        parts[#parts + 1] = mod:sub(1, 1) .. mod:sub(2):lower()
-                    end
-                    parts[#parts + 1] = key:match("[^%-]+$") or key
-                    return table.concat(parts, " + ")
-                end
-
-                local function IsDisabled()
-                    local v = SB().barVisibility or "always"
-                    return v ~= "always" and v ~= "never"
-                end
-
-                local function RefreshLabel()
-                    if listening then return end
-                    kbLbl:SetText(FormatKey(SB().toggleVisKey))
-                end
-
-                local function RefreshState()
-                    local off = IsDisabled()
-                    kbBtn:SetAlpha(off and 0.3 or 1)
-                    kbBtn:EnableMouse(not off)
-                    if rgn._label then rgn._label:SetAlpha(off and 0.3 or 1) end
-                    if off and listening then
-                        listening = false
-                        kbBtn:EnableKeyboard(false)
-                    end
-                    RefreshLabel()
-                end
-
-                kbBtn:SetScript("OnClick", function(self, button)
-                    if IsDisabled() then return end
-                    if button == "RightButton" then
-                        if listening then listening = false; self:EnableKeyboard(false) end
-                        SB().toggleVisKey = nil
+                local kbBtn = EllesmereUI.BuildKeybindButton(rgn, {
+                    tooltip = "Toggling an action bar is only available out of combat\n\nLeft-click to set a keybind.\nRight-click to unbind.",
+                    disabled = function()
+                        local v = SB().barVisibility or "always"
+                        return v ~= "always" and v ~= "never"
+                    end,
+                    disabledReason = "Visibility set to Always or Never",
+                    get = function() return SB().toggleVisKey end,
+                    set = function(key)
+                        SB().toggleVisKey = key
                         EAB:RebuildVisToggleBindings()
-                        RefreshLabel()
                         if EllesmereUI._NotifySettingWrite then EllesmereUI._NotifySettingWrite(rgn) end
-                        return
-                    end
-                    if listening then return end
-                    listening = true
-                    kbLbl:SetText(EllesmereUI.L("Press a key..."))
-                    self:EnableKeyboard(true)
-                end)
-
-                kbBtn:SetScript("OnKeyDown", function(self, key)
-                    if not listening then self:SetPropagateKeyboardInput(true); return end
-                    if key == "LSHIFT" or key == "RSHIFT" or key == "LCTRL" or key == "RCTRL"
-                       or key == "LALT" or key == "RALT" or key == "LMETA" or key == "RMETA" then
-                        self:SetPropagateKeyboardInput(true); return
-                    end
-                    self:SetPropagateKeyboardInput(false)
-                    if key == "ESCAPE" then
-                        listening = false; self:EnableKeyboard(false); RefreshLabel(); return
-                    end
-                    -- Blizzard's canonical chord order is ALT-CTRL-SHIFT-KEY,
-                    -- and CreateKeyChordStringUsingMetaKeyState is what
-                    -- produces it. Hand-rolling the modifiers built
-                    -- SHIFT-CTRL-ALT-KEY, a chord string the engine never
-                    -- generates, so any bind using more than one modifier was
-                    -- stored in a form nothing could match. Single-modifier
-                    -- binds happen to agree, which is why this survived.
-                    local fullKey
-                    if CreateKeyChordStringUsingMetaKeyState then
-                        fullKey = CreateKeyChordStringUsingMetaKeyState(key)
-                    else
-                        local mods = ""
-                        if IsAltKeyDown() then mods = mods .. "ALT-" end
-                        if IsControlKeyDown() then mods = mods .. "CTRL-" end
-                        if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
-                        if IsMetaKeyDown and IsMetaKeyDown() then
-                            mods = mods .. "META-"
-                        end
-                        fullKey = mods .. key
-                    end
-                    SB().toggleVisKey = fullKey
-                    EAB:RebuildVisToggleBindings()
-                    listening = false
-                    self:EnableKeyboard(false)
-                    RefreshLabel()
-                    if EllesmereUI._NotifySettingWrite then EllesmereUI._NotifySettingWrite(rgn) end
-                end)
-
-                kbBtn:SetScript("OnEnter", function(self)
-                    if IsDisabled() then
-                        EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("Visibility set to Always or Never"))
-                        return
-                    end
-                    kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
-                    if kbBtn._border and kbBtn._border.SetColor then kbBtn._border:SetColor(1, 1, 1, 0.3) end
-                    EllesmereUI.ShowWidgetTooltip(self, "Toggling an action bar is only available out of combat\n\nLeft-click to set a keybind.\nRight-click to unbind.")
-                end)
-                kbBtn:SetScript("OnLeave", function()
-                    if listening then return end
-                    kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
-                    if kbBtn._border and kbBtn._border.SetColor then kbBtn._border:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A) end
-                    EllesmereUI.HideWidgetTooltip()
-                end)
-                kbBtn:SetScript("OnHide", function()
-                    -- Closing the window mid-capture must cancel the capture AND hide the tooltip:
-                    -- OnLeave skips the hide while listening and may not fire, so it would linger.
-                    if listening then listening = false; kbBtn:EnableKeyboard(false); RefreshLabel() end
-                    EllesmereUI.HideWidgetTooltip()
-                end)
-
-                RefreshState()
-                EllesmereUI.RegisterWidgetRefresh(RefreshState)
+                    end,
+                })
+                kbBtn.Refresh()
+                EllesmereUI.RegisterWidgetRefresh(kbBtn.Refresh)
 
                 -- Spec Overrides capture: bespoke widget opts in with a synthetic accessor (left half is a plain label cfg, no get/set).
                 EllesmereUI.AddCaptureAccessor(rgn, {
@@ -2219,7 +2111,7 @@ initFrame:SetScript("OnEvent", function(self)
                     setValue = function(v)
                         SB().toggleVisKey = v
                         EAB:RebuildVisToggleBindings()
-                        RefreshLabel()
+                        kbBtn.RefreshLabel()
                     end,
                 })
             end
