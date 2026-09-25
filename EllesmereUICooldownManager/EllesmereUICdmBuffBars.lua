@@ -3989,6 +3989,16 @@ local function UpdateStacks(bar, blzChild, cfg)
                 end
                 bar._stackCount = ReadStackApplications(blzChild) or 0
                 return
+            else
+                local apps = ReadStackApplications(blzChild)
+                if apps then
+                    if bar._stacksText and not bar._stacksHidden then
+                        bar._stacksText:SetText(apps)
+                        bar._stacksText:Show()
+                    end
+                    bar._stackCount = apps
+                    return
+                end
             end
         end
     end

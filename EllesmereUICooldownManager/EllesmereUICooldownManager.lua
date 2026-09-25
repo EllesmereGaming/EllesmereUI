@@ -5575,6 +5575,82 @@ do
     end
 end
 
+do
+    local function HasAuraInstanceID(value)
+        if value == nil then return false end
+        if issecretvalue and issecretvalue(value) then return true end
+        if type(value) == "number" and value == 0 then return false end
+        return true
+    end
+
+    local function SetSecretSafeStackText(fs, apps)
+        if not fs then return end
+        if apps == nil then
+            fs:SetText("1")
+            return
+        end
+        if issecretvalue and issecretvalue(apps) then
+            fs:SetText(apps)
+            return
+        end
+        if type(apps) == "number" and apps > 0 then
+            fs:SetText(apps)
+        else
+            fs:SetText("1")
+        end
+    end
+
+    -- Single-Stack Display: Updates custom stack count text for CDM buff/debuff frames.
+    -- Shows the stack count even when at 1 stack (which Blizzard's native Applications frame hides).
+    -- Supports player buffs and player-applied target debuffs.
+    function ns.UpdateSingleStackText(icon)
+        local fs = icon and icon._euiStackText
+        if not fs then return end
+        if icon._euiStackDisabled then
+            fs:SetText("")
+            return
+        end
+        local auraID = icon.auraInstanceID
+        if not HasAuraInstanceID(auraID) then
+            fs:SetText("")
+            return
+        end
+
+        -- 1. Check Blizzard's cached aura table (fast, secret-safe)
+        local ad = icon.auraDataCached
+        if ad and ad.applications ~= nil then
+            SetSecretSafeStackText(fs, ad.applications)
+            return
+        end
+
+        -- 2. Query C_UnitAuras using the frame's specific unit (player or target)
+        local unit = icon.auraDataUnit or "player"
+        local ok, data
+        if not (issecretvalue and issecretvalue(auraID)) then
+            ok, data = pcall(C_UnitAuras.GetAuraDataByAuraInstanceID, unit, auraID)
+        end
+        if ok and data and data.applications ~= nil then
+            SetSecretSafeStackText(fs, data.applications)
+        else
+            fs:SetText("1")
+        end
+    end
+
+    local targetStackWatcher = CreateFrame("Frame")
+    targetStackWatcher:RegisterEvent("PLAYER_TARGET_CHANGED")
+    targetStackWatcher:SetScript("OnEvent", function()
+        if not ns.UpdateSingleStackText then return end
+        for _, icons in pairs(cdmBarIcons) do
+            for i = 1, #icons do
+                local icon = icons[i]
+                if icon and icon.auraDataUnit == "target" and icon._euiStackText then
+                    ns.UpdateSingleStackText(icon)
+                end
+            end
+        end
+    end)
+end
+
 -- Styles the custom-spell "Show Charges" count text (created lazily by the CdmHooks ticker) to
 -- match the bar's native stack/charge text: font, size, color, anchor position and X/Y offset.
 -- Called at creation and from every RefreshCDMIconAppearance pass so option changes apply live. With no bar data the defaults resolve to size 11, bottom-right, +2 nudge.
@@ -5934,7 +6010,7 @@ local function RefreshCDMIconAppearance(barKey)
         end
         -- Text must render above borders. Levels are relative to the icon's own frame level (CdmHooks: border +13, text +23).
         local textLvl = icon:GetFrameLevel() + 23
-        -- Applications (buff stacks/aura applications) -- not an item count. Blizzard manages show/hide based on whether stacks exist; we only restyle position/font and never gate visibility on showItemCount.
+        -- Applications (buff stacks/aura applications) -- not an item count; never gate visibility on showItemCount. Custom mirror shows stacks including 1 stack (native Blizzard fontstring suppressed via alpha).
         if icon.Applications then
             pcall(icon.Applications.SetFrameLevel, icon.Applications, textLvl)
             if icon.Applications.Applications then
@@ -5942,7 +6018,72 @@ local function RefreshCDMIconAppearance(barKey)
                 SetBlizzCDMFont(appsFS, scFont, scSize, scR, scG, scB)
                 appsFS:ClearAllPoints()
                 appsFS:SetPoint(scPoint, icon, scPoint, scX, scY)
-                if csAlpha then appsFS:SetAlpha(csAlpha) end
+                -- Suppress native Blizzard Applications so our 1-stack capable mirror controls rendering:
+                appsFS:SetAlpha(0)
+            end
+
+            -- Ensure custom single-stack FontString mirror exists
+            if not icon._euiStackText then
+                local carrier = txOverlay or icon
+                local fs = carrier:CreateFontString(nil, "OVERLAY", nil, 7)
+                icon._euiStackText = fs
+            end
+
+            local fs = icon._euiStackText
+            if fs then
+                local carrier = txOverlay or icon
+                if fs:GetParent() ~= carrier then fs:SetParent(carrier) end
+                SetBlizzCDMFont(fs, scFont, scSize, scR, scG, scB)
+                fs:ClearAllPoints()
+                fs:SetPoint(scPoint, carrier, scPoint, scX, scY)
+                if csAlpha == 0 then
+                    icon._euiStackDisabled = true
+                    fs:SetText("")
+                    fs:Hide()
+                else
+                    icon._euiStackDisabled = nil
+                    fs:Show()
+                    if ns.UpdateSingleStackText then
+                        ns.UpdateSingleStackText(icon)
+                    end
+                end
+            end
+
+            -- Hook aura lifecycle events once per frame
+            if not icon._euiStackHooked then
+                icon._euiStackHooked = true
+                if icon.OnAuraInstanceInfoSet then
+                    hooksecurefunc(icon, "OnAuraInstanceInfoSet", function(self)
+                        if ns.UpdateSingleStackText then ns.UpdateSingleStackText(self) end
+                    end)
+                end
+                if icon.OnUnitAuraUpdatedEvent then
+                    hooksecurefunc(icon, "OnUnitAuraUpdatedEvent", function(self)
+                        if ns.UpdateSingleStackText then ns.UpdateSingleStackText(self) end
+                    end)
+                end
+                if icon.OnUnitAuraAddedEvent then
+                    hooksecurefunc(icon, "OnUnitAuraAddedEvent", function(self)
+                        if ns.UpdateSingleStackText then ns.UpdateSingleStackText(self) end
+                    end)
+                end
+                if icon.ClearAuraInstanceInfo then
+                    hooksecurefunc(icon, "ClearAuraInstanceInfo", function(self)
+                        if self._euiStackText then self._euiStackText:SetText("") end
+                    end)
+                end
+                if icon.OnAuraInstanceInfoCleared then
+                    hooksecurefunc(icon, "OnAuraInstanceInfoCleared", function(self)
+                        if self._euiStackText then self._euiStackText:SetText("") end
+                    end)
+                end
+                if icon.OnCooldownIDSet then
+                    hooksecurefunc(icon, "OnCooldownIDSet", function(self)
+                        C_Timer.After(0, function()
+                            if ns.UpdateSingleStackText then ns.UpdateSingleStackText(self) end
+                        end)
+                    end)
+                end
             end
         end
         -- ChargeCount (spell charges like Sigil/Roll) -- not an item count. Blizzard manages show/hide based on charge state.
