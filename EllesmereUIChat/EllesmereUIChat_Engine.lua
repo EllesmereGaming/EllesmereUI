@@ -69,6 +69,10 @@ void:Hide()
 -------------------------------------------------------------------------------
 local WINS = {}
 ns._chatWins = WINS
+-- Display transforms are written back into Blizzard's buffer to keep secure
+-- hyperlink hit-zones aligned. Keep the pre-transform value privately so
+-- toggling a display option can restore existing scrollback on rebuild.
+local RAW_MESSAGES = setmetatable({}, { __mode = "k" })
 
 -------------------------------------------------------------------------------
 --  Render suppression, alpha-only:
@@ -300,6 +304,128 @@ local _stampAllOn = false   -- Timestamp All Messages user setting (resolved)
 local _stampFmt = nil       -- its resolved format string
 local _protActive = false   -- protected content / dev mode: transforms dormant
 
+-- Keep the timestamp column preference in one place. The visible message
+-- frame and Blizzard's hidden frame must use the same wrap mode or their
+-- hyperlink hit-zones drift away from the text after a message wraps.
+local function TimestampColumnEnabled()
+    local db = ECHAT.DB and ECHAT.DB()
+    return db and db.timestampIndent == true or false
+end
+
+local function SplitTimestamp(msg)
+    if _G.issecretvalue and _G.issecretvalue(msg) then return end
+    if type(msg) ~= "string" then return end
+    local stamp, body = msg:match("^(%d%d?:%d%d:%d%d%s*[AP]M)%s+(.*)$")
+    if not stamp then stamp, body = msg:match("^(%d%d?:%d%d:%d%d)%s+(.*)$") end
+    if not stamp then stamp, body = msg:match("^(%d%d?:%d%d%s*[AP]M)%s+(.*)$") end
+    if not stamp then stamp, body = msg:match("^(%d%d?:%d%d)%s+(.*)$") end
+    return stamp, body
+end
+
+-- Each visibleLines FontString represents an entire message, including its
+-- wraps. Narrow that body and draw an independent timestamp and divider.
+-- Run the same geometry on the hidden Blizzard surface for native link zones.
+-- Never write fields on Blizzard frames/fontstrings; all state is ours.
+local function LayoutTimestampColumn(win, frame)
+    local state = win.timestampColumn
+    if not state then return end
+    local enabled = TimestampColumnEnabled() and not _protActive
+    local wasActive = state.active[frame]
+    if not enabled and not wasActive then return end
+    state.active[frame] = enabled
+    local lines = frame.visibleLines
+    if not lines then return end
+    local visible = frame == win.smf
+    if visible then
+        for _, row in pairs(state.rows) do row.stamp:Hide(); row.divider:Hide() end
+    end
+    local previousInset = 0
+    local topDown = frame:GetInsertMode() == SCROLLING_MESSAGE_FRAME_INSERT_MODE_TOP
+    for i, line in ipairs(lines) do
+        local entry = line.messageInfo
+        local text = entry and entry.message
+        local stamp, body
+        if enabled then stamp, body = SplitTimestamp(text) end
+        local inset = 0
+        if stamp then
+            local measure = state.measure
+            measure:SetFontObject(frame:GetFontObject())
+            measure:SetText(stamp:gsub("%d", "8"))
+            inset = math.ceil(measure:GetStringWidth()) + 10
+            -- Very narrow frames must retain room for at least one glyph.
+            if frame:GetWidth() - inset < 30 then stamp = nil; inset = 0 end
+        end
+        line:SetIndentedWordWrap(not stamp)
+        line:SetWidth(math.max(1, frame:GetWidth() - inset))
+        line:ClearAllPoints()
+        if i == 1 then
+            local point = topDown and "TOPLEFT" or "BOTTOMLEFT"
+            line:SetPoint(point, frame, point, inset, 0)
+        elseif topDown then
+            line:SetPoint("TOPLEFT", lines[i - 1], "BOTTOMLEFT", inset - previousInset, -line:GetSpacing())
+        else
+            line:SetPoint("BOTTOMLEFT", lines[i - 1], "TOPLEFT", inset - previousInset, line:GetSpacing())
+        end
+        previousInset = inset
+        if stamp then
+            line:SetText(body)
+            if visible then
+                local row = state.rows[i]
+                if not row then
+                    row = {
+                        stamp = frame.FontStringContainer:CreateFontString(nil, "OVERLAY"),
+                        divider = frame.FontStringContainer:CreateTexture(nil, "OVERLAY"),
+                    }
+                    row.stamp:SetJustifyH("LEFT")
+                    row.stamp:SetTextColor(0.6, 0.6, 0.6)
+                    row.divider:SetColorTexture(0.6, 0.6, 0.6, 0.65)
+                    row.divider:SetWidth(1)
+                    state.rows[i] = row
+                end
+                row.stamp:SetFontObject(frame:GetFontObject())
+                row.stamp:ClearAllPoints()
+                row.stamp:SetPoint("TOPLEFT", line, "TOPLEFT", -inset, 0)
+                row.stamp:SetText(stamp)
+                row.divider:ClearAllPoints()
+                -- Leave a small gap between separate messages while the
+                -- divider still follows every wrapped line in this message.
+                row.divider:SetPoint("TOPLEFT", line, "TOPLEFT", -5, -1)
+                row.divider:SetPoint("BOTTOMLEFT", line, "BOTTOMLEFT", -5, 1)
+                row.stamp:SetShown(line:IsShown())
+                row.divider:SetShown(line:IsShown())
+            end
+        elseif entry then
+            -- Restore the original complete line on disable/protected entry.
+            line:SetText(text)
+        end
+    end
+end
+
+local function ApplyTimestampIndent(win, on)
+    if not win then return end
+    -- Preserve the pre-feature native wrap mode while the column is disabled.
+    win.smf:SetIndentedWordWrap(true)
+    win.cf:SetIndentedWordWrap(true)
+    if on and not win.timestampColumn then
+        local measure = win.smf:CreateFontString(nil, "OVERLAY")
+        measure:Hide()
+        win.timestampColumn = { measure = measure, rows = {}, active = {} }
+        win.smf:AddOnDisplayRefreshedCallback(function(frame) LayoutTimestampColumn(win, frame) end)
+        win.cf:AddOnDisplayRefreshedCallback(function(frame) LayoutTimestampColumn(win, frame) end)
+    end
+    if win.timestampColumn then
+        LayoutTimestampColumn(win, win.cf)
+        LayoutTimestampColumn(win, win.smf)
+    end
+end
+
+function ECHAT.EngineSetTimestampIndent(on)
+    on = on == true
+    for cf, win in pairs(WINS) do
+        ApplyTimestampIndent(win, on)
+    end
+end
+
 local function CreateWindowSMF(cf)
     local d = CFD(cf)
     if not d.bg then return nil end
@@ -443,6 +569,8 @@ function ECHAT.EngineApplyFontTo(cf)
         end
         win.smf:SetShadowOffset(1, -1)
         win.smf:SetShadowColor(0, 0, 0, 0.8)
+        -- Re-measure the timestamp gutter after font changes.
+        ApplyTimestampIndent(win, TimestampColumnEnabled())
     end
 end
 
@@ -502,7 +630,8 @@ local CHANNEL_ABBR_LOOKUP = {
 -- World channels use hyperlink keyword "channel:<N>": 1=General, 2=Trade,
 -- 22=LocalDefense, 23=WorldDefense, 26=LookingForGroup. By default they show
 -- their channel number (what "/1" types); the Use Letters cog option paints
--- these letters instead. A number with no letter stays a number either way.
+-- these letters instead. Compact Channel Labels removes brackets and adds a
+-- period, while retaining numbers unless Use Letters is also enabled.
 local WORLD_CHANNEL_LETTERS = {
     ["1"]  = "Ge",
     ["2"]  = "T",
@@ -510,17 +639,32 @@ local WORLD_CHANNEL_LETTERS = {
     ["23"] = "WD",
     ["26"] = "LFG",
 }
+local WORLD_CHANNEL_COMPACT = {
+    ["1"] = "W",
+    ["2"] = "T",
+    ["22"] = "L",
+    ["23"] = "D",
+    ["26"] = "F",
+}
 local _abbrevLetters = false  -- Shortened Channel Names > Use Letters user setting
+local _compactChannels = false
 
 local function ShortChannelReplacer(hyperlinkTarget)
     local abbr = CHANNEL_ABBR_LOOKUP[hyperlinkTarget:upper()]
     if not abbr then
         local channelNum = hyperlinkTarget:match("^channel:(%d+)$")
         if channelNum then
-            abbr = (_abbrevLetters and WORLD_CHANNEL_LETTERS[channelNum]) or channelNum
+            abbr = (_abbrevLetters and WORLD_CHANNEL_LETTERS[channelNum])
+                or channelNum
+            if _compactChannels and _abbrevLetters then
+                abbr = WORLD_CHANNEL_COMPACT[channelNum] or abbr
+            end
         end
     end
     if not abbr then return nil end
+    if _compactChannels then
+        return "|Hchannel:" .. hyperlinkTarget .. "|h" .. abbr:sub(1, 1) .. ".|h"
+    end
     return "|Hchannel:" .. hyperlinkTarget .. "|h[" .. abbr .. "]|h"
 end
 
@@ -561,6 +705,81 @@ function ECHAT.EngineSetChannelAbbrev(on)
 end
 function ECHAT.EngineSetChannelAbbrevLetters(on)
     _abbrevLetters = on == true
+end
+function ECHAT.EngineSetCompactChannelNames(on)
+    _compactChannels = on == true
+end
+
+-------------------------------------------------------------------------------
+--  Optional plain speaker formatting. Blizzard composes player chat as a
+--  player hyperlink followed by a localized "says:" / "yells:" label. We
+--  alter only the visible copy, leaving the secure source and link target
+--  untouched.
+-------------------------------------------------------------------------------
+local _plainSpeakerNames = false
+local _removeChatVerbs = false
+
+local function PlainSpeakerText(text, event)
+    if (not _plainSpeakerNames and not _removeChatVerbs)
+        or type(text) ~= "string" then
+        return text
+    end
+
+    local stripVerb = _removeChatVerbs
+        and not (issecretvalue and issecretvalue(event))
+        and (event == "CHAT_MSG_SAY" or event == "CHAT_MSG_YELL")
+    local pieces, pos, changed = {}, 1, false
+    local searchPos = 1
+    while true do
+        local start = text:find("|Hplayer:", searchPos, true)
+        if not start then break end
+        local targetEnd = text:find("|h", start + 9, true)
+        if not targetEnd then break end
+        local labelEnd = text:find("|h", targetEnd + 2, true)
+        if not labelEnd then break end
+
+        local label = text:sub(targetEnd + 2, labelEnd - 1)
+        local newLabel = label
+        if _plainSpeakerNames then
+            newLabel = newLabel:gsub("^%[", ""):gsub("%]$", "")
+        end
+
+        local nextPos = labelEnd + 2
+        if stripVerb then
+            local colon = text:find(":", labelEnd + 2, true)
+            if colon then
+                -- The localized verb and colon are removed while retaining
+                -- one separator before the message body.
+                nextPos = colon + 1
+                while text:sub(nextPos, nextPos):match("%s") do
+                    nextPos = nextPos + 1
+                end
+            end
+        end
+
+        if newLabel ~= label or nextPos ~= labelEnd + 2 then
+            pieces[#pieces + 1] = text:sub(pos, targetEnd + 1)
+            pieces[#pieces + 1] = newLabel
+            pieces[#pieces + 1] = "|h"
+            if stripVerb and nextPos ~= labelEnd + 2 then
+                pieces[#pieces + 1] = ": "
+            end
+            pos = nextPos
+            changed = true
+        end
+        searchPos = math.max(searchPos + 1, nextPos)
+    end
+
+    if not changed then return text end
+    pieces[#pieces + 1] = text:sub(pos)
+    return table.concat(pieces)
+end
+
+function ECHAT.EngineSetPlainSpeakerNames(on)
+    _plainSpeakerNames = on == true
+end
+function ECHAT.EngineSetRemoveChatVerbs(on)
+    _removeChatVerbs = on == true
 end
 
 -------------------------------------------------------------------------------
@@ -760,11 +979,17 @@ end
 -- history passes no event, so name coloring never runs there (stored lines
 -- were captured in display form already).
 local function DisplayText(msg, event)
-    if not _abbrevOn and not _ccnOn then return msg end
+    if not _abbrevOn and not _ccnOn
+        and not _plainSpeakerNames and not _removeChatVerbs then
+        return msg
+    end
     if issecretvalue and issecretvalue(msg) then return msg end
     if type(msg) ~= "string" then return msg end
     if _abbrevOn and not _protActive and msg:find("|Hchannel:", 1, true) then
         msg = AbbreviateChannelText(msg)
+    end
+    if not _protActive and (_plainSpeakerNames or _removeChatVerbs) then
+        msg = PlainSpeakerText(msg, event)
     end
     if _ccnOn and event ~= nil
         and not (issecretvalue and issecretvalue(event))
@@ -848,6 +1073,7 @@ local function EngineTail(cf, msg, r, g, b, chatTypeID, accessID, typeID, event,
         if e and type(e.message) == "string"
             and not (issecretvalue and issecretvalue(e.message))
             and e.message == msg then
+            RAW_MESSAGES[e] = RAW_MESSAGES[e] or msg
             e.message = display
         end
     end
@@ -876,7 +1102,7 @@ local function EngineTail(cf, msg, r, g, b, chatTypeID, accessID, typeID, event,
     if EngineTailObserver then
         -- Session history captures the display form (what the user saw), so
         -- replayed lines match the surrounding scrollback.
-        EngineTailObserver(cf, display, r, g, b, chatTypeID, event)
+        EngineTailObserver(cf, display, r, g, b, chatTypeID, event, ExtractLineID(eventArgs))
     end
     if EngineTabObserver then
         EngineTabObserver(cf, event)
@@ -1000,26 +1226,41 @@ local function RebuildWindowFromBuffer(cf)
     for i = 1, n do
         local msg, r, g, b, chatTypeID, accessID, typeID, event, eventArgs = cf:GetMessageInfo(i)
         if msg ~= nil then
-            local display = DisplayText(msg, event)
             local entry = hb and hb:GetEntryAtIndex(hb:GetNumElements() - i + 1)
+            local raw
+            if entry and not (issecretvalue and issecretvalue(msg))
+                and type(entry.message) == "string"
+                and not (issecretvalue and issecretvalue(entry.message))
+                and entry.message == msg then
+                raw = RAW_MESSAGES[entry]
+            end
+            if not raw then
+                raw = msg
+                if entry and not (issecretvalue and issecretvalue(msg)) then
+                    RAW_MESSAGES[entry] = nil
+                end
+            end
+            local display = DisplayText(raw, event)
             if nowT then
                 local ts = entry and entry.timestamp
                 if type(ts) == "number" then
                     display = StampDisplay(display, nowT - (nowG - ts))
                 end
             end
-            if entry and not (issecretvalue and issecretvalue(msg))
+            if entry and not (issecretvalue and issecretvalue(raw))
                 and type(display) == "string" and display ~= msg
                 and type(entry.message) == "string"
                 and not (issecretvalue and issecretvalue(entry.message))
                 and entry.message == msg then
                 entry.message = display
+                RAW_MESSAGES[entry] = RAW_MESSAGES[entry] or raw
             end
             smf:AddMessage(display, r, g, b, chatTypeID, ExtractLineID(eventArgs), event)
         end
     end
     smf:ScrollToBottom()
     SyncBlizzardScroll(win)
+    if win.timestampColumn then cf:MarkDisplayDirty() end
 end
 ECHAT.EngineRebuildWindow = RebuildWindowFromBuffer
 

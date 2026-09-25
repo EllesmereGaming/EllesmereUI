@@ -1514,7 +1514,8 @@ initFrame:SetScript("OnEvent", function(self)
                 "%I:%M ", "%I:%M:%S ", "%I:%M %p ", "%I:%M:%S %p ", "---",
                 "%H:%M ", "%H:%M:%S ",
             }
-            _, h = W:DualRow(parent, y,
+            local timestampRow
+            timestampRow, h = W:DualRow(parent, y,
                 { type="toggle", text="Timestamp All Messages",
                   tooltip="Adds timestamps to system messages, loot, achievements, and addon messages, not just player chat.",
                   disabled=function() return (Cfg("timestampFormat") or "%I:%M ") == "none" end,
@@ -1533,10 +1534,46 @@ initFrame:SetScript("OnEvent", function(self)
                       if ECHAT.ApplyTimestampCVar then ECHAT.ApplyTimestampCVar() end
                       EllesmereUI:RefreshPage()
                   end })
+            if not EllesmereUI._prebuilding then
+                EllesmereUI.BuildInlineCog(timestampRow._rightRegion, {
+                    disabled = function() return (Cfg("timestampFormat") or "%I:%M ") == "none" end,
+                    disabledTooltip = "Set a Timestamps format first",
+                    title = "Timestamps",
+                    rows = {
+                        { type="toggle", label="Timestamp Column",
+                          tooltip="Uses a timestamp column so wrapped lines begin under the message text.",
+                          get=function() return Cfg("timestampIndent") == true end,
+                          set=function(v)
+                              Set("timestampIndent", v)
+                              if ECHAT.EngineSetTimestampIndent then ECHAT.EngineSetTimestampIndent(v) end
+                              if ECHAT.EngineQueueRebuildAll then ECHAT.EngineQueueRebuildAll() end
+                          end },
+                    },
+                })
+            end
         end
         y = y - h
 
-        -- Row 4: Shortened Channel Names (+ Use Letters cog) | Class Colored Names
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Plain Speaker Names",
+              tooltip="Removes the brackets around player names in chat messages.",
+              getValue=function() return Cfg("plainSpeakerNames") == true end,
+              setValue=function(v)
+                  Set("plainSpeakerNames", v)
+                  if ECHAT.EngineSetPlainSpeakerNames then ECHAT.EngineSetPlainSpeakerNames(v) end
+                  if ECHAT.EngineQueueRebuildAll then ECHAT.EngineQueueRebuildAll() end
+              end },
+            { type="toggle", text="Remove Chat Verbs",
+              tooltip="Removes localized 'says' and 'yells' labels so chat-type colors are the indicator.",
+              getValue=function() return Cfg("removeChatVerbs") == true end,
+              setValue=function(v)
+                  Set("removeChatVerbs", v)
+                  if ECHAT.EngineSetRemoveChatVerbs then ECHAT.EngineSetRemoveChatVerbs(v) end
+                  if ECHAT.EngineQueueRebuildAll then ECHAT.EngineQueueRebuildAll() end
+              end })
+        y = y - h
+
+        -- Row 4: Shortened Channel Names (+ letter-style cog) | Class Colored Names
         local abbrevRow
         abbrevRow, h = W:DualRow(parent, y,
             { type="toggle", text="Shortened Channel Names",
@@ -1557,8 +1594,8 @@ initFrame:SetScript("OnEvent", function(self)
                   if ECHAT.EngineQueueRebuildAll then ECHAT.EngineQueueRebuildAll() end
               end })
         if not EllesmereUI._prebuilding then
-            -- Cog: world channels as letters (the old Ge / T / LD / WD / LFG)
-            -- instead of their numbers. Dimmed and inert while the toggle is off.
+            -- Cog: independently choose letter labels and compact formatting.
+            -- It is dimmed and inert while the parent abbreviation toggle is off.
             local lrgn = abbrevRow._leftRegion
             EllesmereUI.BuildInlineCog(lrgn, {
                 disabled = function() return Cfg("abbreviateChannels") ~= true end,
@@ -1566,11 +1603,19 @@ initFrame:SetScript("OnEvent", function(self)
                 title = "Shortened Channel Names",
                 rows = {
                     { type="toggle", label="Use Letters",
-                      tooltip="Shows General, Trade, Local Defense, World Defense and LFG as letters instead of their channel numbers.",
+                      tooltip="Uses bracketed abbreviations for world channels, for example General becomes [Ge].",
                       get=function() return Cfg("abbreviateChannelLetters") == true end,
                       set=function(v)
                           Set("abbreviateChannelLetters", v)
                           if ECHAT.EngineSetChannelAbbrevLetters then ECHAT.EngineSetChannelAbbrevLetters(v) end
+                          if ECHAT.EngineQueueRebuildAll then ECHAT.EngineQueueRebuildAll() end
+                      end },
+                    { type="toggle", label="Compact Channel Labels",
+                      tooltip="Removes brackets and adds a period: [1] becomes 1.; with Use Letters, [Ge] becomes W.",
+                      get=function() return Cfg("compactChannelNames") == true end,
+                      set=function(v)
+                          Set("compactChannelNames", v)
+                          if ECHAT.EngineSetCompactChannelNames then ECHAT.EngineSetCompactChannelNames(v) end
                           if ECHAT.EngineQueueRebuildAll then ECHAT.EngineQueueRebuildAll() end
                       end },
                 },
@@ -1853,7 +1898,7 @@ initFrame:SetScript("OnEvent", function(self)
         description = "Chat frame reskin, clickable URLs, copy chat, sidebar icons.",
         pages       = chatPages,
         buildPage   = function(pageName, p, yOffset) return BuildPage(pageName, p, yOffset) end,
-        searchTerms = "chat tabs border spacing background sidebar friends voice url copy whisper channel abbreviate shortened class color names timestamps timestamp all messages font size bubbles bubble speech balloon nameplate",
+        searchTerms = "chat tabs border spacing background sidebar friends voice url copy whisper channel abbreviate shortened compact plain speaker names remove chat verbs says yells class color names timestamps timestamp column wrapped messages all messages font size bubbles bubble speech balloon nameplate",
         onReset = function()
             local d = _G._ECHAT_DB
             if d and d.ResetProfile then d:ResetProfile() end

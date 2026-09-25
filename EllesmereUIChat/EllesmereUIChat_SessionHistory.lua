@@ -50,6 +50,7 @@ local CAPTURE_EVENTS = {
     CHAT_MSG_GUILD = true, CHAT_MSG_OFFICER = true,
     CHAT_MSG_CHANNEL = true,
     CHAT_MSG_RAID = true, CHAT_MSG_RAID_LEADER = true, CHAT_MSG_RAID_WARNING = true,
+    CHAT_MSG_INSTANCE_CHAT = true, CHAT_MSG_INSTANCE_CHAT_LEADER = true,
     CHAT_MSG_WHISPER = true, CHAT_MSG_WHISPER_INFORM = true,
     CHAT_MSG_BN_WHISPER = true, CHAT_MSG_BN_WHISPER_INFORM = true,
 }
@@ -72,7 +73,7 @@ local function SessionHistorySafe()
 end
 
 local function InOpenWorld()
-    -- Housing plots register as "scenario" but chat is unrestricted there
+    -- Housing plots register as "scenario" but chat is unrestricted there.
     if C_Housing and C_Housing.IsInsideHouseOrPlot and C_Housing.IsInsideHouseOrPlot() then
         return true
     end
@@ -83,8 +84,10 @@ end
 
 local function CaptureAllowed()
     if not PersistEnabled() then return false end
-    if GetCVarBool and GetCVarBool("addonChatRestrictionsForced") then return false end
     if not InOpenWorld() then return false end
+    -- Secret values are rejected by IsValidMessage before storage. Do not
+    -- additionally discard an ordinary, already-validated line solely because
+    -- the client reports a restriction CVar.
     return true
 end
 
@@ -270,6 +273,7 @@ local function SanitizeLineList(lines)
                     timestamp = (type(L.timestamp) == "number" and L.timestamp) or GetTime(),
                     serverTime = (type(L.serverTime) == "number" and L.serverTime) or GetServerTime(),
                     captureSeq = (type(L.captureSeq) == "number" and L.captureSeq) or nil,
+                    lineID = (type(L.lineID) == "number" and L.lineID) or nil,
                 }
             end
         end
@@ -287,30 +291,53 @@ local function SanitizeSV()
     end
 end
 
+local function MessageListShowsEvent(list, chatType)
+    if type(list) ~= "table" then return false end
+    if list[chatType] then return true end
+    for _, value in pairs(list) do
+        if value == chatType then return true end
+    end
+    return false
+end
+
+-- The display bridge reports instance chat through CHAT_MSG_CHANNEL, while
+-- the chat-frame filter identifies it as INSTANCE_CHAT. Keep the persisted
+-- event aligned with the frame filter so restores return to the configured
+-- instance-chat tab rather than a generic channel tab.
+local function ClassifyChannelEvent(event, msg)
+    if event == "CHAT_MSG_CHANNEL" and type(msg) == "string"
+        and msg:find("|Hchannel:INSTANCE_CHAT|h", 1, true) then
+        return "CHAT_MSG_INSTANCE_CHAT"
+    end
+    return event
+end
+
 local function FrameShowsEvent(cf, event)
     if not cf or not event then return false end
     local chatType = gsub(strsub(event, 10), "_INFORM", "")
-    local list = cf.messageTypeList
-    if type(list) ~= "table" then return true end
-    for i = 1, #list do
-        if list[i] == chatType then
-            return true
+    if FCF_GetChatWindowMessages and cf.GetID then
+        local messages = { FCF_GetChatWindowMessages(cf:GetID()) }
+        if #messages == 1 and type(messages[1]) == "table" then
+            messages = messages[1]
+        end
+        -- Depending on client version this API returns either a table or a
+        -- vararg list of message-type strings. Both forms are authoritative.
+        if type(messages) == "table" and next(messages) ~= nil then
+            return MessageListShowsEvent(messages, chatType)
         end
     end
-    return false
+    return MessageListShowsEvent(cf.messageTypeList, chatType)
 end
 
 local function AppendLogEntry(entry)
     local sv = GetSV()
     local log = sv.sessionLog
-    local norm = NormalizeForDedup(entry.message)
-    if norm then
-        -- The bridge tail fires once per window that displays the line, so
-        -- the same message can arrive more than once back to back.
-        local checkN = math.min(#log, 10)
-        for i = #log, #log - checkN + 1, -1 do
-            if NormalizeForDedup(log[i].message) == norm then return end
-        end
+    -- The bridge tail fires once per window that displays the same message.
+    -- Use Blizzard's line ID to collapse only that fan-out; comparing text
+    -- would incorrectly discard real repeated messages such as two "."s.
+    local previous = log[#log]
+    if type(entry.lineID) == "number" and previous and previous.lineID == entry.lineID then
+        return
     end
     log[#log + 1] = entry
     sv.sessionLog = TrimLinesToMax(log, MaxLines())
@@ -362,7 +389,8 @@ local function ResolveBNetTokens(text)
     return text
 end
 
-local function OnBridgeLine(cf, msg, r, g, b, chatTypeID, event)
+local function OnBridgeLine(cf, msg, r, g, b, chatTypeID, event, lineID)
+    event = ClassifyChannelEvent(event, msg)
     if not event or not CAPTURE_EVENTS[event] then return end
     if not sessionEpochTime or GetTime() < sessionEpochTime then return end
     if not CaptureAllowed() then return end
@@ -386,6 +414,7 @@ local function OnBridgeLine(cf, msg, r, g, b, chatTypeID, event)
         timestamp = GetTime(),
         serverTime = GetServerTime(),
         captureSeq = captureSeq,
+        lineID = type(lineID) == "number" and lineID or nil,
     })
 end
 
@@ -461,7 +490,8 @@ local function RestoreWindow(cf, frameName, log)
     -- on-screen order is chronological, above whatever login produced.
     for i = #lines, 1, -1 do
         local entry = lines[i]
-        if entry and entry.event and entry.message and FrameShowsEvent(cf, entry.event) then
+        local event = entry and ClassifyChannelEvent(entry.event, entry.message)
+        if entry and event and entry.message and FrameShowsEvent(cf, event) then
             local norm = NormalizeForDedup(entry.message)
             if not (norm and existingSet[norm]) then
                 local text = RestoreDisplayMessage(entry)

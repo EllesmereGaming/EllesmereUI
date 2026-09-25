@@ -75,6 +75,7 @@ local CHAT_DEFAULTS = {
             bgTexture  = "none",  -- chat background texture key (Unit Frames bar texture catalogue)
             timestampFormat = "%I:%M ",
             timestampAll = false,
+            timestampIndent = false,
             font = "__global",
             outlineMode = "__global",
             fontSize = 12,
@@ -140,6 +141,9 @@ local CHAT_DEFAULTS = {
             lockChatSize = false,
             abbreviateChannels = true,  -- same key as live: saved settings carry over
             abbreviateChannelLetters = false,  -- world channels as letters (Ge, T, LD, WD, LFG) instead of their numbers
+            compactChannelNames = false,
+            plainSpeakerNames = false,
+            removeChatVerbs = false,
             classColorNames = true,
             hideSidebarBg = false,
             sidebarIconScale = 1.0,
@@ -4777,7 +4781,7 @@ local function SkinChatFrame(cf)
     if cf.SetShadowOffset then cf:SetShadowOffset(1, -1) end
     if cf.SetShadowColor then cf:SetShadowColor(0, 0, 0, 0.8) end
     cf:SetFading(false)
-    -- Must match win.smf's SetIndentedWordWrap(true) (Engine.lua CreateWindowSMF):
+    -- Must match win.smf's timestampIndent setting (Engine.lua CreateWindowSMF):
     -- Blizzard's own hyperlink hit-zone positions for this frame are computed
     -- against ITS OWN indent setting, not just its text. Leaving this at the
     -- default (false) here while our visible copy indents wrapped lines desyncs
@@ -5079,6 +5083,15 @@ initFrame:SetScript("OnEvent", function(self)
     end
     if ECHAT.EngineSetChannelAbbrevLetters then
         ECHAT.EngineSetChannelAbbrevLetters(p.abbreviateChannelLetters == true)
+    end
+    if ECHAT.EngineSetCompactChannelNames then
+        ECHAT.EngineSetCompactChannelNames(p.compactChannelNames == true)
+    end
+    if ECHAT.EngineSetPlainSpeakerNames then
+        ECHAT.EngineSetPlainSpeakerNames(p.plainSpeakerNames == true)
+    end
+    if ECHAT.EngineSetRemoveChatVerbs then
+        ECHAT.EngineSetRemoveChatVerbs(p.removeChatVerbs == true)
     end
     if p.classColorNames == true then
         ECHAT.ApplyClassColorNames(true)
@@ -5681,8 +5694,11 @@ initFrame:SetScript("OnEvent", function(self)
 
     local function ApplyTimestampCVar()
         ApplyStampAll()
-        if not SetCVar then return end
         local cfg = ECHAT.DB()
+        if ECHAT.EngineSetTimestampIndent then
+            ECHAT.EngineSetTimestampIndent(cfg.timestampIndent == true)
+        end
+        if not SetCVar then return end
         local fmt = cfg.timestampFormat or "%I:%M "
         if fmt == "__blizzard" then return end
         SetCVar("showTimestamps", fmt)
