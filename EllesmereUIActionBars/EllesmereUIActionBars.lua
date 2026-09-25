@@ -11804,8 +11804,6 @@ local function UpdateKeybinds()
                and (bs.disableFormPaging or bs.disableSkyridingPaging) then
                 barHasCustomPaging = true
             end
-            -- Forever pages bar 1 through bonusbar on its own, so native
-            -- ACTIONBUTTONn keys land on a slot the icons don't show.
             if info.key == "MainBar" and EllesmereUI.IS_FOREVER then
                 barHasCustomPaging = true
             end
