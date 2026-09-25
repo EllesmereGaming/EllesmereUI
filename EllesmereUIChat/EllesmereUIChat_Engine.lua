@@ -712,7 +712,8 @@ end
 
 -------------------------------------------------------------------------------
 --  Optional plain speaker formatting. Blizzard composes player chat as a
---  player hyperlink followed by a localized "says:" / "yells:" label. We
+--  player, community player, or Battle.net player hyperlink followed by a localized
+--  "says:" / "yells:" label. We
 --  alter only the visible copy, leaving the secure source and link target
 --  untouched.
 -------------------------------------------------------------------------------
@@ -732,8 +733,14 @@ local function PlainSpeakerText(text, event)
     local searchPos = 1
     while true do
         local start = text:find("|Hplayer:", searchPos, true)
+        local bnetStart = text:find("|HBNplayer:", searchPos, true)
+        if bnetStart and (not start or bnetStart < start) then start = bnetStart end
+        local communityStart = text:find("|HplayerCommunity:", searchPos, true)
+        if communityStart and (not start or communityStart < start) then start = communityStart end
+        local bnetCommunityStart = text:find("|HBNplayerCommunity:", searchPos, true)
+        if bnetCommunityStart and (not start or bnetCommunityStart < start) then start = bnetCommunityStart end
         if not start then break end
-        local targetEnd = text:find("|h", start + 9, true)
+        local targetEnd = text:find("|h", start + 2, true)
         if not targetEnd then break end
         local labelEnd = text:find("|h", targetEnd + 2, true)
         if not labelEnd then break end
@@ -1102,7 +1109,7 @@ local function EngineTail(cf, msg, r, g, b, chatTypeID, accessID, typeID, event,
     if EngineTailObserver then
         -- Session history captures the display form (what the user saw), so
         -- replayed lines match the surrounding scrollback.
-        EngineTailObserver(cf, display, r, g, b, chatTypeID, event, ExtractLineID(eventArgs))
+        EngineTailObserver(cf, display, r, g, b, chatTypeID, event)
     end
     if EngineTabObserver then
         EngineTabObserver(cf, event)
