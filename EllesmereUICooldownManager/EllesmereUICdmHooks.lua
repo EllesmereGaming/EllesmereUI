@@ -9094,7 +9094,7 @@ function _AC.BuildStyle(bd, fixedIcon)
         if cc then brdR, brdG, brdB = cc.r, cc.g, cc.b end
     end
     local brdA = (bd and bd.borderA) or 1
-    local cdFont = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("cdm"))
+    local cdFont = (EllesmereUI.GetFontPath("cdm"))
         or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
 
     -- Icon rect. A shaped icon samples OUTSIDE its texture to fill the mask, so

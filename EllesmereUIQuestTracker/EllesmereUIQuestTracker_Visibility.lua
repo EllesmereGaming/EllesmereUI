@@ -507,12 +507,10 @@ function EQT.InitVisibility()
 
     -- Register with the shared visibility dispatcher for combat/mount
     -- visibility modes. Bails immediately when suppressed (M+/raid).
-    if EllesmereUI.RegisterVisibilityUpdater then
-        EllesmereUI.RegisterVisibilityUpdater(function()
-            if _eqtSuppressed then return end
-            UpdateVisibility()
-        end)
-    end
+    EllesmereUI.RegisterVisibilityUpdater(function()
+        if _eqtSuppressed then return end
+        UpdateVisibility()
+    end)
 
     -- Mouseover mode: poll both the tracker and our BG frame as one target
     -- so hovering either fades them in together. SetAlpha on the proxy

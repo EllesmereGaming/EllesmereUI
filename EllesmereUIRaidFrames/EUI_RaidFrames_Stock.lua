@@ -275,9 +275,11 @@ function ns.RF_SeedStock(p, styleKey)
     p.cellSpacing, p.groupSpacing = 0, 0
     if rawget(p, "partyCellSpacing") ~= nil then p.partyCellSpacing = 0 end
     -- The stock raid role art, and the stock absorb looks (Classic's with
-    -- the opacity its dropdown pairs with it).
+    -- the opacity its dropdown pairs with it; each with the Blizzard Glow
+    -- Line its pick sets: on for Default Blizz Frames, off for Classic's).
     SeedBoth(p, "roleIconStyle", "classicCircle")
     SeedBoth(p, "absorbStyle", classic and "blizzard" or "blizzardModern")
+    SeedBoth(p, "absorbGlowLine", not classic)
     if classic then SeedBoth(p, "absorbOpacity", 90) end
     SeedBoth(p, "healAbsorbStyle", classic and "blizzard" or "healBlizzModern")
 end

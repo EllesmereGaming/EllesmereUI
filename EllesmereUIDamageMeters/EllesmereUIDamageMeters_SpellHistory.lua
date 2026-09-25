@@ -96,21 +96,7 @@ local function DB()
     return sh
 end
 
-local function GetDMFont()
-    if EUI and EUI.GetFontPath then return EUI.GetFontPath("damageMeters") end
-    return "Fonts\\FRIZQT__.TTF"
-end
-
-local function GetDMOutline()
-    return (EUI and EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("damageMeters")) or ""
-end
-
-local function SetFont(fs, size)
-    if not (fs and fs.SetFont) then return end
-    local font, flags = GetDMFont(), GetDMOutline()
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, flags == "") end
-    fs:SetFont(font, size, flags)
-end
+local function SetFont(fs, size) EllesmereUI.ApplyModuleFont(fs, nil, size, "damageMeters") end
 
 -- Icon size is a coordinate value like the window width and icon spacing, so it
 -- keeps its proportion at any UI scale; only snapped onto the pixel grid.
@@ -1159,14 +1145,14 @@ local function BuildBarWindow()
             end
             btn:SetScript("OnEnter", function()
                 if not ns.DMHdrHover(icon, true) then icon:SetVertexColor(1, 1, 1, ICON_HA) end
-                if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(btn, tooltip) end
+                EUI.ShowWidgetTooltip(btn, tooltip)
             end)
             btn:SetScript("OnLeave", function()
                 if not ns.DMHdrHover(icon, false) then icon:SetVertexColor(1, 1, 1, ICON_A) end
-                if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+                EUI.HideWidgetTooltip()
             end)
             btn:SetScript("OnClick", function()
-                if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+                EUI.HideWidgetTooltip()
                 onClick(btn)
             end)
             btn._icon = icon
@@ -1176,13 +1162,13 @@ local function BuildBarWindow()
         -- Btn 1 (rightmost): Settings
         MakeHdrBtn(MEDIA .. "dm_settings.png", -(btnPad + 2), "Settings", function()
             if ns._optionsOpen then
-                if EUI.Hide then EUI:Hide() end
+                EUI:Hide()
                 return
             end
             if EUI.ShowModule then
                 EUI:ShowModule("EllesmereUIDamageMeters")
                 C_Timer.After(0, function()
-                    if EUI.SelectPage then EUI:SelectPage("Spell History") end
+                    EUI:SelectPage("Spell History")
                 end)
             end
         end, "settings")
@@ -1204,9 +1190,7 @@ local function BuildBarWindow()
         frame._lockBtn = lockBtnHdr
         lockBtnHdr:SetScript("OnEnter", function()
             if not ns.DMHdrHover(lockBtnHdr._icon, true) then lockBtnHdr._icon:SetVertexColor(1, 1, 1, ICON_HA) end
-            if EUI.ShowWidgetTooltip then
-                EUI.ShowWidgetTooltip(lockBtnHdr, frame._locked and "Locked" or "Unlocked")
-            end
+            EUI.ShowWidgetTooltip(lockBtnHdr, frame._locked and "Locked" or "Unlocked")
         end)
 
         -- Btn 3: Resize (width drag)
@@ -1337,7 +1321,7 @@ RefreshBarWindow = function()
     else local tc = sh.textColor; txR = tc and tc.r or 1; txG = tc and tc.g or 1; txB = tc and tc.b or 1 end
 
     -- Re-apply fonts to ALL pool bars when settings change (not just visible ones)
-    local fontKey = fontSize .. "|" .. GetDMFont() .. "|" .. GetDMOutline()
+    local fontKey = fontSize .. "|" .. EUI.GetFontPath("damageMeters") .. "|" .. EUI.GetFontOutlineFlag("damageMeters")
     local fontChanged = (fontKey ~= _barFontCache)
     if fontChanged then
         _barFontCache = fontKey
@@ -1522,14 +1506,6 @@ end
 function ns.RefreshSpellHistoryProfile()
     _shDB = nil
     _iconLayoutKey = ""
-    ns.ApplySpellHistory()
-end
-
-function ns.ClearSpellHistory()
-    wipe(_history)
-    wipe(_pendingCasts)
-    wipe(_pendingTargets)
-    _activeChannelSpell = nil
     ns.ApplySpellHistory()
 end
 

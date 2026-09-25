@@ -90,14 +90,14 @@ local db  -- set in EABR:OnInitialize()
 local texCache = {}
 local function Tex(id)
     local c = texCache[id]; if c then return c end
-    local t = (C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id)) or GetSpellTexture(id)
+    local t = C_Spell.GetSpellTexture(id)
     if t then texCache[id] = t end; return t
 end
 
 local spellNameCache = {}
 local function SpellName(id)
     local c = spellNameCache[id]; if c then return c end
-    local n = (C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(id)) or GetSpellInfo(id)
+    local n = C_Spell.GetSpellName(id)
     if n then spellNameCache[id] = n end; return n
 end
 
@@ -129,17 +129,11 @@ local function ResolveFontPath(fontName)
     end
     return "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
 end
-local function GetABROutline()
-    return (EllesmereUI and EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("auraBuff")) or ""
-end
-local function GetABRUseShadow()
-    return not EllesmereUI or not EllesmereUI.GetFontUseShadow or EllesmereUI.GetFontUseShadow("auraBuff")
-end
 local _cachedOutline
 local function SetABRFont(fs, font, size)
     if not (fs and fs.SetFont) then return end
-    if not _cachedOutline then _cachedOutline = GetABROutline() end
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, _cachedOutline == "" and GetABRUseShadow()) end
+    if not _cachedOutline then _cachedOutline = EllesmereUI.GetFontOutlineFlag("auraBuff") end
+    EllesmereUI.PrimeFontShadow(fs, _cachedOutline == "" and EllesmereUI.GetFontUseShadow("auraBuff"))
     fs:SetFont(font, size, _cachedOutline)
 end
 
@@ -246,13 +240,6 @@ end
 local function InPreKeyDungeon()
     if InMythicPlusKey() then return false end
     return _cachedIType == "party" and _cachedDiffID == 8
-end
-
--- Mythic 0 dungeon or Mythic raid (fixed or flex)
-local function InMythicZeroDungeonOrMythicRaid()
-    if EABR.InMythicZeroDungeon() then return true end
-    if IsInRaid() and IsMythicRaidDiff(_cachedDiffID) then return true end
-    return false
 end
 
 local function InPvPInstance()
@@ -1464,7 +1451,7 @@ local WEAPON_ENCHANT_CHOICES = {
 }
 
 -- Augment Runes (item IDs inlined at usage site in CollectConsumables)
-local RUNE_BUFF_IDS = {1264426, 453250, 1234969, 1242347, 393438, 347901}
+local RUNE_BUFF_IDS = {1295329, 1264426, 453250, 1234969, 1242347, 393438, 347901} -- 1295329 = Tidesworn (12.1)
 
 -- Inky Black Potion
 local INKY_BLACK_ITEM = 124640
@@ -1808,11 +1795,12 @@ function EABR.ResolveConsumables()
     local lufd = db.profile and db.profile.lastUsedFood or nil
     local luwe = db.profile and db.profile.lastUsedWeaponEnchant or nil
 
-    -- Augment Rune: void preferred over ethereal; fall back to the current
-    -- rune so an out-of-stock restock reminder can still render.
+    -- Augment Rune: void, then ethereal, then Tidesworn (12.1); fall back to the
+    -- void rune so an out-of-stock restock reminder can still render.
     local runeItem = nil
     if CachedGetItemCount(259085) > 0 then runeItem = 259085
-    elseif CachedGetItemCount(243191) > 0 then runeItem = 243191 end
+    elseif CachedGetItemCount(243191) > 0 then runeItem = 243191
+    elseif CachedGetItemCount(274797) > 0 then runeItem = 274797 end
     R.rune.hasBags = (runeItem ~= nil)
     R.rune.itemID = runeItem or 259085
 
@@ -5002,16 +4990,12 @@ function EABR:OnEnable()
 
     -- Hook EUI panel show/hide
     if EllesmereUI then
-        if EllesmereUI.RegisterOnShow then
-            EllesmereUI:RegisterOnShow(function()
-                euiPanelOpen = true; HideAllIcons(); BeaconRefresh()
-            end)
-        end
-        if EllesmereUI.RegisterOnHide then
-            EllesmereUI:RegisterOnHide(function()
-                euiPanelOpen = false; RequestRefresh(); BeaconRefresh()
-            end)
-        end
+        EllesmereUI:RegisterOnShow(function()
+            euiPanelOpen = true; HideAllIcons(); BeaconRefresh()
+        end)
+        EllesmereUI:RegisterOnHide(function()
+            euiPanelOpen = false; RequestRefresh(); BeaconRefresh()
+        end)
     end
 
     -- Group spec intel over addon comms (LibSpecialization): the lib
@@ -5459,7 +5443,7 @@ local SetupReadyCheckManaWarning = function()
         local c = p and p.consumables
         local col = c and c.rcManaWarnColor
         if col and col.r then return col.r, col.g, col.b end
-        local mc = EllesmereUI.GetPowerColor and EllesmereUI.GetPowerColor("MANA")
+        local mc = EllesmereUI.GetPowerColor("MANA")
         if mc then
             return math.min(mc.r * 1.5, 1), math.min(mc.g * 1.5, 1), math.min(mc.b * 1.5, 1)
         end
@@ -5483,8 +5467,8 @@ local SetupReadyCheckManaWarning = function()
         warnFrame:SetPoint("CENTER", UIParent, "CENTER",
             (c and c.rcManaWarnX) or 0, 75 + ((c and c.rcManaWarnY) or 0))
         local font = ResolveFontPath(c and c.rcManaWarnFont)
-        local outline = GetABROutline()
-        if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(warnFS, outline == "" and GetABRUseShadow()) end
+        local outline = EllesmereUI.GetFontOutlineFlag("auraBuff")
+        EllesmereUI.PrimeFontShadow(warnFS, outline == "" and EllesmereUI.GetFontUseShadow("auraBuff"))
         warnFS:SetFont(font, (c and c.rcManaWarnSize) or 48, outline)
         -- Explicit white instance color: tinted purely via SetVertexColor (curve result); with no instance color it would inherit the primed shadow FontObject's color, which resolves BLACK.
         warnFS:SetTextColor(1, 1, 1, 1)

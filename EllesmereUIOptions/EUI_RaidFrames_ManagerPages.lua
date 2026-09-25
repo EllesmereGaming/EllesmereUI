@@ -1,24 +1,19 @@
 ﻿if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -- EUI_RaidFrames_ManagerPages.lua
 -- 12.1 redesigned manager options: the Debuff Manager page (sidebar of
--- tiles with the undeletable Base Icons tile first) and the Buff Manager page's Base
--- Icons pieces (pinned sidebar tile + left detail pane) that the page file splices in.
+-- tiles with the undeletable Base Icons tile first) plus the Buff Manager v2
+-- Filter Editor and Assigned Filters section the Buff Manager page splices in.
 --
--- All settings written here are new additive keys (dmDebuff table,
--- bmBaseEnabled/bmIndicatorsEnabled shims, bmSimple keys that already
--- exist); the legacy mode/preset keys are never written.
+-- All settings written here are new additive keys (dmDebuff table); the
+-- legacy mode/preset keys are never written.
 
 local ns = EllesmereUI._ModuleNS["EllesmereUIRaidFrames"]  -- module namespace (published by the module at its load)
 if not ns then return end  -- module disabled: no options page
--- Stood down for the session (secure snippets unavailable: WoW Forever beta):
--- the module is not running, so its pages stay out of the sidebar.
-if (EllesmereUI.Lite.GetAddon("EllesmereUIRaidFrames", true) or ns).standDown then return end
 local EllesmereUI = _G.EllesmereUI
 
 local floor = math.floor
 local max = math.max
 
-local TILE_H = 66 -- Buff Manager sidebar tile height (visual parity)
 
 local POS_VALUES = { topleft = "Top Left", top = "Top", topright = "Top Right", left = "Left",
     center = "Center", right = "Right", bottomleft = "Bottom Left", bottom = "Bottom", bottomright = "Bottom Right" }
@@ -66,7 +61,7 @@ local dmSpecSel = "allspecs"
 -- Inherited-tile selection ({ group, id }); wins over dmSel while set.
 local dmInhSel = nil
 
-local function L(s) return EllesmereUI.L and EllesmereUI.L(s) or s end
+local function L(s) return EllesmereUI.L(s) or s end
 
 -- Stable random preview swipe seeds (fraction remaining, 0.2-0.9), keyed by preview
 -- slot index -- generated once and reused so refreshes never reshuffle the frozen swipe
@@ -95,523 +90,6 @@ local function DmTable()
     local dm = p.dmDebuff
     if not dm then dm = {}; p.dmDebuff = dm end
     return dm
-end
-
--------------------------------------------------------------------------------
--- Shared tile widget (used by the DM sidebar and the BM Base Icons splice)
--------------------------------------------------------------------------------
--- opts: { width, fontPath, title, subtitle, selected, enabled,
---         showToggle, onSelect(), onToggle(newState), onDelete(),
---         icon (texture), posText ("(Top Left)" gray inline suffix),
---         inheritedTooltip (string; marks the INHERITED variant: blue
---         identity tint on title/subtitle, always-on blue edge strip, hover
---         tooltip -- callers pass no onDelete/onEdit and wire onToggle to
---         the per-spec disable) }
--- Mirrors the Buff Manager sidebar tile exactly (66px rows, 36px icon face, 13px title
--- + gray position suffix, 11px gray subtitle, pill toggle with the active accent, atlas
--- delete icon, accent selected bar, hairline separator) so both manager pages stay
--- visually and structurally identical.
-local INH_R, INH_G, INH_B = 0.55, 0.72, 1
-local function BuildTile(parentFrame, y, opts)
-    local fontPath = opts.fontPath
-    local PP = EllesmereUI.PanelPP or EllesmereUI.PP
-    local tile = CreateFrame("Button", nil, parentFrame)
-    tile:SetSize(opts.width, TILE_H)
-    tile:SetPoint("TOPLEFT", parentFrame, "TOPLEFT", 0, y)
-    tile:SetFrameLevel(parentFrame:GetFrameLevel() + 1)
-
-    local bg = tile:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(1, 1, 1, opts.selected and 0.06 or 0)
-
-    if opts.selected then
-        local accent = tile:CreateTexture(nil, "ARTWORK", nil, 2)
-        accent:SetSize(2, TILE_H)
-        accent:SetPoint("TOPLEFT", tile, "TOPLEFT", 0, 0)
-        if opts.inheritedTooltip then
-            accent:SetColorTexture(INH_R, INH_G, INH_B, 1)
-        else
-            local ac = EllesmereUI.ELLESMERE_GREEN
-            if ac then accent:SetColorTexture(ac.r, ac.g, ac.b, 1)
-            else accent:SetColorTexture(0.05, 0.82, 0.62, 1) end
-        end
-    elseif opts.inheritedTooltip then
-        local edge = tile:CreateTexture(nil, "ARTWORK", nil, 2)
-        edge:SetSize(2, TILE_H)
-        edge:SetPoint("TOPLEFT", tile, "TOPLEFT", 0, 0)
-        edge:SetColorTexture(INH_R, INH_G, INH_B, 0.45)
-    end
-
-    local textX = 12
-    local titleY = -10
-    local textRight = -52 -- room for toggle + delete (BM parity)
-
-    -- Icon face (BM tile parity: 36px, zoom crop, black border)
-    if opts.icon then
-        local ICON_SZ = 36
-        local iconFrame = CreateFrame("Frame", nil, tile)
-        iconFrame:SetSize(ICON_SZ, ICON_SZ)
-        iconFrame:SetPoint("TOPLEFT", tile, "TOPLEFT", 8, -8)
-        iconFrame:SetFrameLevel(tile:GetFrameLevel() + 1)
-        local iconTex = iconFrame:CreateTexture(nil, "ARTWORK")
-        iconTex:SetAllPoints()
-        iconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        iconTex:SetTexture(opts.icon)
-        if PP then
-            local iconBdr = CreateFrame("Frame", nil, iconFrame)
-            iconBdr:SetAllPoints()
-            iconBdr:SetFrameLevel(iconFrame:GetFrameLevel() + 1)
-            PP.CreateBorder(iconBdr, 0, 0, 0, 0.6, 1)
-        end
-        textX = 8 + ICON_SZ + 8
-        titleY = -8
-    end
-
-    local title = tile:CreateFontString(nil, "OVERLAY")
-    title:SetFont(fontPath, 13, "")
-    title:SetPoint("TOPLEFT", tile, "TOPLEFT", textX, titleY)
-    if not opts.posText then
-        title:SetPoint("RIGHT", tile, "RIGHT", textRight, 0)
-    end
-    title:SetJustifyH("LEFT")
-    title:SetWordWrap(false)
-    title:SetText(opts.title or "")
-    if opts.inheritedTooltip then
-        title:SetTextColor(INH_R, INH_G, INH_B)
-    else
-        title:SetTextColor(1, 1, 1)
-    end
-
-    -- Position suffix (smaller, grayer, inline after the title -- BM parity)
-    if opts.posText then
-        local posFS = tile:CreateFontString(nil, "OVERLAY")
-        posFS:SetPoint("LEFT", title, "RIGHT", 4, 0)
-        posFS:SetPoint("RIGHT", tile, "RIGHT", textRight, 0)
-        posFS:SetFont(fontPath, 11, "")
-        posFS:SetJustifyH("LEFT")
-        posFS:SetWordWrap(false)
-        posFS:SetText(opts.posText)
-        posFS:SetTextColor(0.75, 0.75, 0.75, 0.65)
-    end
-
-    if opts.subtitle then
-        local sub = tile:CreateFontString(nil, "OVERLAY")
-        sub:SetFont(fontPath, 11, "")
-        sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -4)
-        sub:SetPoint("RIGHT", tile, "RIGHT", textRight, 0)
-        sub:SetJustifyH("LEFT")
-        sub:SetWordWrap(false)
-        sub:SetText(opts.subtitle)
-        if opts.inheritedTooltip then
-            sub:SetTextColor(INH_R, INH_G, INH_B, 0.55)
-        else
-            sub:SetTextColor(0.4, 0.4, 0.4)
-        end
-    end
-
-    tile:SetScript("OnEnter", function()
-        if not opts.selected then bg:SetColorTexture(1, 1, 1, 0.04) end
-        if opts.inheritedTooltip then
-            EllesmereUI.ShowWidgetTooltip(tile, opts.inheritedTooltip)
-        end
-    end)
-    tile:SetScript("OnLeave", function()
-        bg:SetColorTexture(1, 1, 1, opts.selected and 0.06 or 0)
-        if opts.inheritedTooltip then
-            EllesmereUI.HideWidgetTooltip()
-        end
-    end)
-    -- Right-click routes to opts.onContext (the "Add To" menu) when the
-    -- caller provides it; tiles without it ignore right-clicks.
-    tile:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    tile:SetScript("OnClick", function(self, btn)
-        if btn == "RightButton" then
-            if opts.onContext then opts.onContext(tile) end
-            return
-        end
-        if opts.onSelect then opts.onSelect() end
-    end)
-
-    if opts.showToggle then
-        local toggleW, toggleH = 32, 16
-        local toggleBtn = CreateFrame("Button", nil, tile)
-        toggleBtn:SetSize(toggleW, toggleH)
-        toggleBtn:SetPoint("TOPRIGHT", tile, "TOPRIGHT", -8, -8)
-        toggleBtn:SetFrameLevel(tile:GetFrameLevel() + 2)
-        -- Inherited rows: the pill is the per-spec CONTROL and stays
-        -- full-brightness even when the row dims (opts.dimmed) or wears the
-        -- inherited tint -- SetAlpha on the tile inherits to children.
-        if opts.inheritedTooltip and toggleBtn.SetIgnoreParentAlpha then
-            toggleBtn:SetIgnoreParentAlpha(true)
-        end
-        local toggleBg = toggleBtn:CreateTexture(nil, "BACKGROUND")
-        toggleBg:SetAllPoints()
-        local toggleKnob = toggleBtn:CreateTexture(nil, "ARTWORK")
-        toggleKnob:SetSize(toggleH - 4, toggleH - 4)
-        local function UpdateToggleVisual()
-            toggleKnob:ClearAllPoints()
-            if opts.enabled then
-                local acr, acg, acb = 0.05, 0.82, 0.62
-                if EllesmereUI.ResolveActiveAccent then
-                    acr, acg, acb = EllesmereUI.ResolveActiveAccent()
-                end
-                toggleBg:SetColorTexture(acr, acg, acb, 1)
-                toggleKnob:SetPoint("RIGHT", toggleBtn, "RIGHT", -2, 0)
-                toggleKnob:SetColorTexture(1, 1, 1, 1)
-            else
-                toggleBg:SetColorTexture(0.25, 0.25, 0.25, 1)
-                toggleKnob:SetPoint("LEFT", toggleBtn, "LEFT", 2, 0)
-                toggleKnob:SetColorTexture(0.5, 0.5, 0.5, 1)
-            end
-        end
-        UpdateToggleVisual()
-        toggleBtn:SetScript("OnClick", function()
-            if opts.onToggle then opts.onToggle(not opts.enabled) end
-        end)
-    end
-
-    local delBtn
-    if opts.onDelete then
-        delBtn = CreateFrame("Button", nil, tile)
-        delBtn:SetSize(16, 16)
-        delBtn:SetPoint("BOTTOMRIGHT", tile, "BOTTOMRIGHT", -8, 6)
-        delBtn:SetFrameLevel(tile:GetFrameLevel() + 2)
-        local delTex = delBtn:CreateTexture(nil, "OVERLAY")
-        delTex:SetAllPoints()
-        delTex:SetAtlas("common-icon-delete")
-        delTex:SetDesaturated(true)
-        delTex:SetVertexColor(0.75, 0.75, 0.75)
-        delBtn:SetAlpha(0.5)
-        delBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.9) end)
-        delBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.5) end)
-        delBtn:SetScript("OnClick", function() opts.onDelete() end)
-    end
-
-    -- Rename pencil beside the trash (the suite's standard eui-edit inline
-    -- button, delete-icon size).
-    if opts.onEdit then
-        local editBtn = CreateFrame("Button", nil, tile)
-        editBtn:SetSize(16, 16)
-        if delBtn then
-            editBtn:SetPoint("RIGHT", delBtn, "LEFT", -4, 0)
-        else
-            editBtn:SetPoint("BOTTOMRIGHT", tile, "BOTTOMRIGHT", -8, 6)
-        end
-        editBtn:SetFrameLevel(tile:GetFrameLevel() + 2)
-        local editTex = editBtn:CreateTexture(nil, "OVERLAY")
-        editTex:SetAllPoints()
-        if editTex.SetSnapToPixelGrid then editTex:SetSnapToPixelGrid(false); editTex:SetTexelSnappingBias(0) end
-        editTex:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-edit.png")
-        editBtn:SetAlpha(0.5)
-        editBtn:SetScript("OnEnter", function(self)
-            self:SetAlpha(0.9)
-            EllesmereUI.ShowWidgetTooltip(self, L("Rename Indicator"))
-        end)
-        editBtn:SetScript("OnLeave", function(self)
-            self:SetAlpha(0.5)
-            EllesmereUI.HideWidgetTooltip()
-        end)
-        editBtn:SetScript("OnClick", function() opts.onEdit() end)
-    end
-
-    -- Thin separator line at bottom of tile (BM parity)
-    local sep = tile:CreateTexture(nil, "ARTWORK")
-    sep:SetHeight(1)
-    sep:SetPoint("BOTTOMLEFT", tile, "BOTTOMLEFT", 0, 0)
-    sep:SetPoint("BOTTOMRIGHT", tile, "BOTTOMRIGHT", 0, 0)
-    sep:SetColorTexture(1, 1, 1, 0.04)
-
-    -- Dimmed rows (inherited tiles whose GROUP disabled the entry): the
-    -- whole tile fades; the pill stays the per-spec layer's own state.
-    if opts.dimmed then tile:SetAlpha(0.55) end
-
-    return TILE_H
-end
-
--------------------------------------------------------------------------------
--- BUFF MANAGER splice pieces (called from the Buff Manager page)
--------------------------------------------------------------------------------
-
--- The pinned Base Icons sidebar tile. Returns the height consumed.
-function ns.BMP_BuildBaseTile(sidebarFrame, sidebarW, tileY, opts)
-    local p = DmProfile()
-    local bs = p and p.bmSimple
-    local enabled = (ns.BM_BaseActive and ns.BM_BaseActive())
-        and (bs and bs.showBuffs ~= false) and true or false
-    return BuildTile(sidebarFrame, tileY, {
-        width = sidebarW, height = TILE_H, fontPath = opts.fontPath,
-        title = L("Base Icons"),
-        subtitle = L("The standard buff grid"),
-        selected = opts.selected,
-        enabled = enabled,
-        showToggle = true,
-        onSelect = opts.onSelect,
-        onToggle = function(v)
-            if p then
-                -- Interacting adopts the coexistence keys: the shim default
-                -- (derived from the old mode) is replaced by explicit state.
-                p.bmBaseEnabled = true
-                local b = p.bmSimple
-                if not b then b = {}; p.bmSimple = b end
-                b.showBuffs = v and true or false
-            end
-            DmApply()
-            EllesmereUI:RefreshPage(true)
-        end,
-    })
-end
-
--- The Base Icons detail pane for the Buff Manager page: the simple-setup
--- preview plus its full settings block, built at left-column width. A
--- faithful transcription of the legacy Simple Setup body over the SAME
--- bmSimple keys (the legacy inline builder stays untouched for 12.0).
-function ns.BMP_BuildBaseDetail(root, leftW, visibleH, s, fontPath, PP)
-    local W = EllesmereUI.Widgets
-    if not W then return end
-    ns._bmPreviewFrame = nil
-
-    local bs = s.bmSimple
-    if not bs then bs = {}; s.bmSimple = bs end
-
-    local PREVIEW_TOP = -16
-    local _pv, pvSectionH, RefreshSimplePreview =
-        ns.BM_BuildSimplePreview(root, s, fontPath, PP, leftW / 2, PREVIEW_TOP)
-
-    local function BVal(key, default) local v = bs[key]; if v == nil then return default end; return v end
-    local function BApply()
-        if ns.ReloadFrames then ns.ReloadFrames() end
-        if RefreshSimplePreview then RefreshSimplePreview() end
-    end
-    local function BSet(key, v) bs[key] = v; BApply() end
-    local function BuffsOff() return not (bs.showBuffs ~= false) end
-
-    local function GetDefaultGrow(pos)
-        if pos == "right" or pos == "topright" or pos == "bottomright" then return "LEFT" end
-        if pos == "left" or pos == "topleft" or pos == "bottomleft" then return "RIGHT" end
-        if pos == "top" then return "DOWN" end
-        if pos == "bottom" then return "UP" end
-        return "CENTER"
-    end
-
-    local PADX = 20
-    local optsFrame = CreateFrame("Frame", nil, root)
-    optsFrame:SetPoint("TOPLEFT", root, "TOPLEFT", PADX, PREVIEW_TOP - pvSectionH - 4)
-    optsFrame:SetPoint("TOPRIGHT", root, "TOPLEFT", leftW - PADX, PREVIEW_TOP - pvSectionH - 4)
-    optsFrame:SetHeight(400)
-    optsFrame._showRowDivider = true
-
-    local sy, hh = 0, 0
-
-    _, hh = W:DualRow(optsFrame, sy,
-        { type = "toggle", text = "Show Buffs",
-          getValue = function() return bs.showBuffs ~= false end,
-          setValue = function(v)
-              bs.showBuffs = v
-              s.bmBaseEnabled = true -- adopt the coexistence key on interaction
-              BApply(); EllesmereUI:RefreshPage()
-          end },
-        { type = "slider", text = "Max Buffs", min = 1, max = 10, step = 1,
-          disabled = BuffsOff, disabledTooltip = "Show Buffs",
-          getValue = function() return BVal("maxBuffs", 10) end,
-          setValue = function(v) BSet("maxBuffs", v) end }); sy = sy - hh
-
-    _, hh = W:SectionHeader(optsFrame, "BUFF DISPLAY", sy); sy = sy - hh
-
-    local row1
-    row1, hh = W:DualRow(optsFrame, sy,
-        { type = "slider", text = "Icons Per Row", min = 1, max = 8, step = 1,
-          disabled = BuffsOff, disabledTooltip = "Show Buffs",
-          getValue = function() return BVal("iconsPerRow", 4) end,
-          setValue = function(v) BSet("iconsPerRow", v) end },
-        { type = "dropdown", text = "Position", values = POS_VALUES, order = POS_ORDER,
-          disabled = BuffsOff, disabledTooltip = "Show Buffs",
-          getValue = function() return BVal("position", "topright") end,
-          setValue = function(v)
-              bs.position = v
-              bs.growDirection = GetDefaultGrow(v)
-              BApply()
-              EllesmereUI:RefreshPage()
-          end }); sy = sy - hh
-    do
-        local rgn = row1._rightRegion
-        local _, cogShow = EllesmereUI.BuildCogPopup({
-            title = "Buff Offset",
-            rows = {
-                { type = "slider", label = "Offset X", min = -50, max = 50, step = 1,
-                  get = function() return BVal("offsetX", 0) end, set = function(v) BSet("offsetX", v) end },
-                { type = "slider", label = "Offset Y", min = -50, max = 50, step = 1,
-                  get = function() return BVal("offsetY", 0) end, set = function(v) BSet("offsetY", v) end },
-            },
-        })
-        local cogBtn = CreateFrame("Button", nil, rgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
-        local function UpdCog() local off = BuffsOff(); cogBtn:SetAlpha(off and 0.15 or 0.4); cogBtn:EnableMouse(not off) end
-        cogBtn:SetScript("OnEnter", function(self) if not BuffsOff() then self:SetAlpha(0.7) end end)
-        cogBtn:SetScript("OnLeave", function() UpdCog() end)
-        cogBtn:SetScript("OnClick", function(self) if not BuffsOff() then cogShow(self) end end)
-        UpdCog(); EllesmereUI.RegisterWidgetRefresh(UpdCog)
-    end
-
-    local row2
-    row2, hh = W:DualRow(optsFrame, sy,
-        { type = "dropdown", text = "Growth Direction", values = GROW_VALUES, order = GROW_ORDER,
-          disabled = BuffsOff, disabledTooltip = "Show Buffs",
-          getValue = function() return BVal("growDirection", "LEFT") end,
-          setValue = function(v) BSet("growDirection", v) end },
-        { type = "slider", text = "Size", min = 10, max = 40, step = 1,
-          disabled = BuffsOff, disabledTooltip = "Show Buffs",
-          getValue = function() return BVal("size", 22) end,
-          setValue = function(v) BSet("size", v) end }); sy = sy - hh
-    do
-        local rgn = row2._rightRegion
-        local _, cogShow = EllesmereUI.BuildCogPopup({
-            title = "Icon Zoom",
-            rows = {
-                { type = "slider", label = "Zoom", min = 0, max = 0.20, step = 0.01,
-                  get = function() return BVal("iconZoom", 0.08) end,
-                  set = function(v) BSet("iconZoom", v) end },
-            },
-        })
-        local cogBtn = CreateFrame("Button", nil, rgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
-        local function UpdCog() local off = BuffsOff(); cogBtn:SetAlpha(off and 0.15 or 0.4); cogBtn:EnableMouse(not off) end
-        cogBtn:SetScript("OnEnter", function(self) if not BuffsOff() then self:SetAlpha(0.7) end end)
-        cogBtn:SetScript("OnLeave", function() UpdCog() end)
-        cogBtn:SetScript("OnClick", function(self) if not BuffsOff() then cogShow(self) end end)
-        UpdCog(); EllesmereUI.RegisterWidgetRefresh(UpdCog)
-    end
-
-    local row3
-    row3, hh = W:DualRow(optsFrame, sy,
-        { type = "slider", pixel = true, text = "Spacing", min = -1, max = 10, step = 1,
-          disabled = BuffsOff, disabledTooltip = "Show Buffs",
-          getValue = function() return BVal("spacing", 1) end,
-          setValue = function(v) BSet("spacing", v) end },
-        { type = "slider", text = "Border Size", min = 0, max = 4, step = 1, trackWidth = 120,
-          disabled = BuffsOff, disabledTooltip = "Show Buffs",
-          getValue = function() return BVal("borderSize", 1) end,
-          setValue = function(v) BSet("borderSize", v) end }); sy = sy - hh
-    do
-        local rgn = row3._rightRegion
-        local swatch = EllesmereUI.BuildColorSwatch(rgn, row3:GetFrameLevel() + 3,
-            function() local c = bs.borderColor or { r = 0, g = 0, b = 0 }; return c.r, c.g, c.b, 1 end,
-            function(r, g, b) bs.borderColor = { r = r, g = g, b = b }; BApply() end, false, 20)
-        swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = swatch
-    end
-
-    local row4
-    row4, hh = W:DualRow(optsFrame, sy,
-        { type = "toggle", text = "Show Duration Swipe",
-          disabled = BuffsOff, disabledTooltip = "Show Buffs",
-          getValue = function() return BVal("showSwipe", true) end,
-          setValue = function(v) BSet("showSwipe", v) end },
-        { type = "toggle", text = "Show Duration Text",
-          disabled = BuffsOff, disabledTooltip = "Show Buffs",
-          getValue = function() return BVal("showDurText", false) end,
-          setValue = function(v) BSet("showDurText", v) end }); sy = sy - hh
-    do
-        local rgn = row4._rightRegion
-        local swatch = EllesmereUI.BuildColorSwatch(rgn, row4:GetFrameLevel() + 3,
-            function() local c = bs.durTextColor or { r = 1, g = 1, b = 1 }; return c.r, c.g, c.b, 1 end,
-            function(r, g, b) bs.durTextColor = { r = r, g = g, b = b }; BApply() end, false, 20)
-        swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = swatch
-
-        local _, cogShow = EllesmereUI.BuildCogPopup({
-            title = "Duration Text",
-            rows = {
-                { type = "slider", label = "Text Size", min = 6, max = 26, step = 1,
-                  get = function() return BVal("durTextSize", 8) end, set = function(v) BSet("durTextSize", v) end },
-                { type = "slider", label = "Offset X", min = -20, max = 20, step = 1,
-                  get = function() return BVal("durTextOffsetX", 0) end, set = function(v) BSet("durTextOffsetX", v) end },
-                { type = "slider", label = "Offset Y", min = -20, max = 20, step = 1,
-                  get = function() return BVal("durTextOffsetY", 0) end, set = function(v) BSet("durTextOffsetY", v) end },
-            },
-        })
-        local cogBtn = CreateFrame("Button", nil, rgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        cogBtn:SetAlpha(0.4)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-        cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-        cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
-    end
-
-    local row5
-    row5, hh = W:DualRow(optsFrame, sy,
-        { type = "toggle", text = "Show Stacks",
-          disabled = BuffsOff, disabledTooltip = "Show Buffs",
-          getValue = function() return BVal("showStacks", true) end,
-          setValue = function(v) BSet("showStacks", v) end },
-        { type = "toggle", text = "Own Only", tooltip = "Shows only the buffs you apply",
-          disabled = BuffsOff, disabledTooltip = "Show Buffs",
-          getValue = function() return BVal("ownOnly", true) end,
-          setValue = function(v) BSet("ownOnly", v) end }); sy = sy - hh
-    do
-        local rgn = row5._leftRegion
-        local swatch = EllesmereUI.BuildColorSwatch(rgn, row5:GetFrameLevel() + 3,
-            function() local c = bs.stacksTextColor or { r = 1, g = 1, b = 1 }; return c.r, c.g, c.b, 1 end,
-            function(r, g, b) bs.stacksTextColor = { r = r, g = g, b = b }; BApply() end, false, 20)
-        swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = swatch
-
-        local _, cogShow = EllesmereUI.BuildCogPopup({
-            title = "Stacks Text",
-            rows = {
-                { type = "slider", label = "Text Size", min = 6, max = 26, step = 1,
-                  get = function() return BVal("stacksTextSize", 8) end, set = function(v) BSet("stacksTextSize", v) end },
-                { type = "slider", label = "Offset X", min = -20, max = 20, step = 1,
-                  get = function() return BVal("stacksOffsetX", -1) end, set = function(v) BSet("stacksOffsetX", v) end },
-                { type = "slider", label = "Offset Y", min = -20, max = 20, step = 1,
-                  get = function() return BVal("stacksOffsetY", 2) end, set = function(v) BSet("stacksOffsetY", v) end },
-            },
-        })
-        local cogBtn = CreateFrame("Button", nil, rgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        cogBtn:SetAlpha(0.4)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-        local function UpdateStacksCog()
-            local off = BuffsOff() or not BVal("showStacks", true)
-            cogBtn:SetAlpha(off and 0.15 or 0.4)
-            cogBtn:EnableMouse(not off)
-        end
-        cogBtn:SetScript("OnEnter", function(self) if not (BuffsOff() or not BVal("showStacks", true)) then self:SetAlpha(0.7) end end)
-        cogBtn:SetScript("OnLeave", function() UpdateStacksCog() end)
-        cogBtn:SetScript("OnClick", function(self) if not (BuffsOff() or not BVal("showStacks", true)) then cogShow(self) end end)
-        UpdateStacksCog()
-        EllesmereUI.RegisterWidgetRefresh(UpdateStacksCog)
-    end
-
-    _, hh = W:DualRow(optsFrame, sy,
-        { type = "toggle", text = "Show Own on All Specs",
-          tooltip = "Show your own class buffs on every spec, not only on the tracked healer spec.",
-          disabled = BuffsOff, disabledTooltip = "Show Buffs",
-          getValue = function() return BVal("showOwnAllSpecs", false) end,
-          setValue = function(v)
-              bs.showOwnAllSpecs = v and true or false
-              if ns.BM_RebuildLookup then ns.BM_RebuildLookup(ns.db) end
-              BApply()
-          end },
-        { type = "label", text = "" }); sy = sy - hh
 end
 
 -------------------------------------------------------------------------------
@@ -739,21 +217,35 @@ local TILE_LANE_ITEMS = {
     { key = "canapply", label = "Can Apply Aura", dual = true,
       tooltip = "Debuffs your own class is able to apply." },
 }
+-- Two-lane filter write (base grid and tiles): the show lane lives in
+-- `show`, the hide lane in `owner.neg`, and the dispel / nonplayer flavors
+-- are global (dm). Checking one lane clears the other.
+local function DmSetLane(show, owner, dm, k, v, neg)
+    local cat, modeKey, mode = k, nil, nil
+    if k == "dispel_you" or k == "dispel_typed" then
+        cat, modeKey, mode = "dispel", "dispelMode", (k == "dispel_typed") and "typed" or "you"
+    elseif k == "nonplayer" or k == "anyplayer" then
+        cat, modeKey, mode = "nonplayer", "nonplayerMode", (k == "anyplayer") and "any" or nil
+    end
+    if neg and v then
+        owner.neg = owner.neg or {}
+        owner.neg[cat] = true
+        show[cat] = nil
+    else
+        if not neg then show[cat] = v and true or nil end
+        if (neg or v) and owner.neg then
+            owner.neg[cat] = nil
+            if not next(owner.neg) then owner.neg = nil end
+        end
+    end
+    if v and modeKey then dm[modeKey] = mode end
+end
 local function BuildTileFiltersDD(rgn, t, dm)
     local PP = EllesmereUI.PP or EllesmereUI.PanelPP
     if rgn._control then rgn._control:Hide() end
     if not t.claim then t.claim = {} end
     local claim = t.claim
     local function NegHas(cat) return t.neg ~= nil and t.neg[cat] == true end
-    local function SetNeg(cat, v)
-        if v then
-            t.neg = t.neg or {}
-            t.neg[cat] = true
-        elseif t.neg then
-            t.neg[cat] = nil
-            if not next(t.neg) then t.neg = nil end
-        end
-    end
     local cbDD = EllesmereUI.BuildVisOptsCBDropdown(
         rgn, 190, rgn:GetFrameLevel() + 2,
         TILE_LANE_ITEMS,
@@ -789,57 +281,8 @@ local function BuildTileFiltersDD(rgn, t, dm)
                 EllesmereUI:RefreshPage()
                 return
             end
-            if k == "dispel_you" or k == "dispel_typed" then
-                -- ONE dispel category, one global flavor (shared with the base
-                -- grid): any checked lane owns both the lane and dm.dispelMode;
-                -- checking one lane/flavor clears the other.
-                if neg then
-                    SetNeg("dispel", v and true or false)
-                    if v then
-                        claim.dispel = nil
-                        dm.dispelMode = (k == "dispel_typed") and "typed" or "you"
-                    end
-                else
-                    claim.dispel = v and true or nil
-                    if v then
-                        SetNeg("dispel", false)
-                        dm.dispelMode = (k == "dispel_typed") and "typed" or "you"
-                    end
-                end
-                DmApply()
-                EllesmereUI:RefreshPage()
-                return
-            end
-            if k == "nonplayer" or k == "anyplayer" then
-                -- ONE nonplayer category, one global flavor (shared with the base
-                -- grid): any checked lane owns both the lane and dm.nonplayerMode;
-                -- checking one lane/flavor clears the other.
-                local mode = (k == "anyplayer") and "any" or nil
-                if neg then
-                    SetNeg("nonplayer", v and true or false)
-                    if v then
-                        claim.nonplayer = nil
-                        dm.nonplayerMode = mode
-                    end
-                else
-                    claim.nonplayer = v and true or nil
-                    if v then
-                        SetNeg("nonplayer", false)
-                        dm.nonplayerMode = mode
-                    end
-                end
-                DmApply()
-                EllesmereUI:RefreshPage()
-                return
-            end
-            -- Two-lane category write: checking one lane clears the other.
-            if neg then
-                SetNeg(k, v and true or false)
-                if v then claim[k] = nil end
-            else
-                claim[k] = v and true or nil
-                if v then SetNeg(k, false) end
-            end
+            -- The dispel and nonplayer flavors are shared with the base grid.
+            DmSetLane(claim, t, dm, k, v, neg)
             DmApply()
             -- Non-force: re-evaluates the base dropdown's empty-selection
             -- warning (tile claims count as grid content) without closing
@@ -1037,7 +480,7 @@ local function BuildFxEffects(frame, sy, fxOwner)
         addBtn:SetPoint("TOP", frame, "TOP", 0, sy - 17)
         addBtn:SetFrameLevel(frame:GetFrameLevel() + 2)
         local lbl = addBtn:CreateFontString(nil, "OVERLAY")
-        local fp = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("options")) or "Fonts\\FRIZQT__.TTF"
+        local fp = (EllesmereUI.GetFontPath("options")) or "Fonts\\FRIZQT__.TTF"
         lbl:SetFont(fp, 16, "")
         lbl:SetPoint("CENTER", addBtn, "CENTER", 0, 0)
         lbl:SetText(EllesmereUI.L("Add Icon Effects Per-Filter"))
@@ -1178,15 +621,6 @@ local function BuildBaseDetailDM(frame, fontPath)
         local function NegHas(cat)
             return dm.neg ~= nil and dm.neg[cat] == true
         end
-        local function SetNeg(cat, v)
-            if v then
-                dm.neg = dm.neg or {}
-                dm.neg[cat] = true
-            elseif dm.neg then
-                dm.neg[cat] = nil
-                if not next(dm.neg) then dm.neg = nil end
-            end
-        end
         -- One of the grid's content sources (with All Debuffs and enabled
         -- claiming tiles -- see DmHasContent).
         local function AnyShowCat()
@@ -1281,59 +715,7 @@ local function BuildBaseDetailDM(frame, fontPath)
                     EllesmereUI:RefreshPage()
                     return
                 end
-                if k == "dispel_you" or k == "dispel_typed" then
-                    -- ONE dispel category, one global flavor: any checked lane owns
-                    -- both the lane and dm.dispelMode; checking one lane/flavor
-                    -- clears the other lane.
-                    if neg then
-                        SetNeg("dispel", v and true or false)
-                        if v then
-                            dm.dispel = nil
-                            dm.dispelMode = (k == "dispel_typed") and "typed" or "you"
-                        end
-                    else
-                        dm.dispel = v and true or nil
-                        if v then
-                            SetNeg("dispel", false)
-                            dm.dispelMode = (k == "dispel_typed") and "typed" or "you"
-                        end
-                    end
-                    DmApply()
-                    -- Non-force: re-evaluates the empty-selection warning (and
-                    -- any other widget refreshers) without closing the menu.
-                    EllesmereUI:RefreshPage()
-                    return
-                end
-                if k == "nonplayer" or k == "anyplayer" then
-                    -- ONE nonplayer category, one flavor (shared with tiles): any
-                    -- checked lane owns both the lane and dm.nonplayerMode;
-                    -- checking one lane/flavor clears the other.
-                    local mode = (k == "anyplayer") and "any" or nil
-                    if neg then
-                        SetNeg("nonplayer", v and true or false)
-                        if v then
-                            dm.nonplayer = nil
-                            dm.nonplayerMode = mode
-                        end
-                    else
-                        dm.nonplayer = v and true or nil
-                        if v then
-                            SetNeg("nonplayer", false)
-                            dm.nonplayerMode = mode
-                        end
-                    end
-                    DmApply()
-                    EllesmereUI:RefreshPage()
-                    return
-                end
-                -- Two-lane category write: checking one lane clears the other.
-                if neg then
-                    SetNeg(k, v and true or false)
-                    if v then dm[k] = nil end
-                else
-                    dm[k] = v and true or nil
-                    if v then SetNeg(k, false) end
-                end
+                DmSetLane(dm, dm, dm, k, v, neg)
                 DmApply()
                 -- Non-force: re-evaluates the empty-selection warning (and
                 -- any other widget refreshers) without closing the menu.
@@ -1368,7 +750,7 @@ local function BuildBaseDetailDM(frame, fontPath)
           setValue = function(v) p.debuffCap = v; DmApply() end }); sy = sy - hh
     do
         local rgn = sizeRow._leftRegion
-        local _, cogShow = EllesmereUI.BuildCogPopup({
+        EllesmereUI.BuildInlineCog(rgn, {
             title = "Icon Zoom",
             rows = {
                 { type = "slider", label = "Zoom", min = 0, max = 0.20, step = 0.01,
@@ -1376,17 +758,6 @@ local function BuildBaseDetailDM(frame, fontPath)
                   set = function(v) p.debuffIconZoom = v; DmApply() end },
             },
         })
-        local cogBtn = CreateFrame("Button", nil, rgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        cogBtn:SetAlpha(0.4)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
-        cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-        cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
     end
 
     -- Row: Position (+ offsets cog) | Growth Direction
@@ -1405,7 +776,8 @@ local function BuildBaseDetailDM(frame, fontPath)
           setValue = function(v) p.debuffGrowDirection = v; DmApply() end }); sy = sy - hh
     do
         local rgn = posRow2._leftRegion
-        local _, cogShow = EllesmereUI.BuildCogPopup({
+        EllesmereUI.BuildInlineCog(rgn, {
+            icon = EllesmereUI.DIRECTIONS_ICON,
             title = "Position Offset",
             rows = {
                 { type = "slider", label = "Offset X", min = -50, max = 50, step = 1,
@@ -1416,17 +788,6 @@ local function BuildBaseDetailDM(frame, fontPath)
                   set = function(v) p.debuffOffsetY = v; DmApply() end },
             },
         })
-        local cogBtn = CreateFrame("Button", nil, rgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        cogBtn:SetAlpha(0.4)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
-        cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-        cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
     end
 
     -- Row: Icons Per Row (end of CORE). The key predates this UI (its row
@@ -1493,7 +854,8 @@ local function BuildBaseDetailDM(frame, fontPath)
         swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         rgn._lastInline = swatch
 
-        local _, cogShow = EllesmereUI.BuildCogPopup({
+        EllesmereUI.BuildInlineCog(rgn, {
+            icon = EllesmereUI.RESIZE_ICON,
             title = "Duration Text",
             rows = {
                 { type = "slider", label = "Text Size", min = 6, max = 26, step = 1,
@@ -1507,17 +869,6 @@ local function BuildBaseDetailDM(frame, fontPath)
                   set = function(v) p.debuffDurTextOffsetY = v; DmApply() end },
             },
         })
-        local cogBtn = CreateFrame("Button", nil, rgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        cogBtn:SetAlpha(0.4)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-        cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-        cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
     end
     do
         local rgn = dtRow._rightRegion
@@ -1533,7 +884,8 @@ local function BuildBaseDetailDM(frame, fontPath)
         swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         rgn._lastInline = swatch
 
-        local _, cogShow = EllesmereUI.BuildCogPopup({
+        EllesmereUI.BuildInlineCog(rgn, {
+            icon = EllesmereUI.RESIZE_ICON,
             title = "Stacks Text",
             rows = {
                 { type = "slider", label = "Text Size", min = 6, max = 26, step = 1,
@@ -1547,17 +899,6 @@ local function BuildBaseDetailDM(frame, fontPath)
                   set = function(v) p.debuffStacksOffsetY = v; DmApply() end },
             },
         })
-        local cogBtn = CreateFrame("Button", nil, rgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        cogBtn:SetAlpha(0.4)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-        cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-        cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
     end
 
     -- Row: Tooltips | Show Duration Swipe. The swipe toggle was not in
@@ -1584,7 +925,11 @@ local function BuildBaseDetailDM(frame, fontPath)
         local function tipOff()
             return TipModeKey(p.debuffHideTooltips) ~= "modifier"
         end
-        local _, tipModShow = EllesmereUI.BuildCogPopup({
+        local tipModBtn = EllesmereUI.BuildInlineCog(leftRgn, {
+            gap = 9,
+            disabled = tipOff,
+            -- Whole sentence: DisabledTooltip passes "This option..." strings through verbatim (still localized).
+            disabledTooltip = "This option requires Tooltips to be set to Shown on Modifier",
             title = "Tooltips",
             rows = {
                 { type = "dropdown", label = "Use Modifier",
@@ -1597,54 +942,22 @@ local function BuildBaseDetailDM(frame, fontPath)
                   end },
             },
         })
-        local tipModBtn = CreateFrame("Button", nil, leftRgn)
-        tipModBtn:SetSize(26, 26)
-        tipModBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
-        leftRgn._lastInline = tipModBtn
-        tipModBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-        tipModBtn:SetAlpha(tipOff() and 0.15 or 0.4)
-        local tipModTex = tipModBtn:CreateTexture(nil, "OVERLAY")
-        tipModTex:SetAllPoints()
-        tipModTex:SetTexture(EllesmereUI.COGS_ICON)
-        tipModBtn:SetScript("OnEnter", function(self)
-            self:SetAlpha(0.7)
-            if (p.debuffTooltipModifier or "none") == "none" then
-                EllesmereUI.ShowWidgetTooltip(self,
-                    "Select a modifier key here, or tooltips will always be shown")
-            end
-        end)
-        tipModBtn:SetScript("OnLeave", function(self)
-            self:SetAlpha(tipOff() and 0.15 or 0.4)
-            EllesmereUI.HideWidgetTooltip()
-        end)
-        tipModBtn:SetScript("OnClick", function(self) tipModShow(self) end)
-
-        -- Blocking overlay + disabled tooltip while the mode is Hidden
-        local tipModBlock = CreateFrame("Frame", nil, tipModBtn)
-        tipModBlock:SetAllPoints()
-        tipModBlock:SetFrameLevel(tipModBtn:GetFrameLevel() + 10)
-        tipModBlock:EnableMouse(true)
-        tipModBlock:SetScript("OnEnter", function()
-            -- Whole sentence: DisabledTooltip passes "This option..." strings
-            -- through verbatim (still localized).
-            EllesmereUI.ShowWidgetTooltip(tipModBtn,
-                EllesmereUI.DisabledTooltip("This option requires Tooltips to be set to Shown on Modifier"))
-        end)
-        tipModBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        local function UpdateTipModState()
-            local off = tipOff()
-            tipModBtn:SetAlpha(off and 0.15 or 0.4)
-            if off then tipModBlock:Show() else tipModBlock:Hide() end
-        end
-        UpdateTipModState(); EllesmereUI.RegisterWidgetRefresh(UpdateTipModState)
-
-        -- Persistent red bubble above the cog while Shown on Modifier is
-        -- selected with no key picked (the standard empty-selection warning);
-        -- the hover tooltip above keeps the explanation.
-        EllesmereUI.AttachEmptyFilterWarn(leftRgn, tipModBtn, L("Select a Modifier"),
-            function()
-                return tipOff() or (p.debuffTooltipModifier or "none") ~= "none"
+        if tipModBtn then
+            tipModBtn:HookScript("OnEnter", function(self)
+                if (p.debuffTooltipModifier or "none") == "none" then
+                    EllesmereUI.ShowWidgetTooltip(self, "Select a modifier key here, or tooltips will always be shown")
+                end
             end)
+            tipModBtn:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            -- Persistent red bubble above the cog while Shown on Modifier is
+            -- selected with no key picked (the standard empty-selection warning);
+            -- the hover tooltip above keeps the explanation.
+            EllesmereUI.AttachEmptyFilterWarn(leftRgn, tipModBtn, L("Select a Modifier"),
+                function()
+                    return tipOff() or (p.debuffTooltipModifier or "none") ~= "none"
+                end)
+        end
     end
 
     sy = BuildFxEffects(frame, sy, dm)
@@ -1708,7 +1021,7 @@ local function BuildTileDetail(frame, fontPath, t)
               setValue = function(v) TSet("cap", v) end }); sy = sy - hh
         do
             local rgn = sizeRow._leftRegion
-            local _, cogShow = EllesmereUI.BuildCogPopup({
+            EllesmereUI.BuildInlineCog(rgn, {
                 title = "Icon Zoom",
                 rows = {
                     { type = "slider", label = "Zoom", min = 0, max = 0.20, step = 0.01,
@@ -1716,17 +1029,6 @@ local function BuildTileDetail(frame, fontPath, t)
                       set = function(v) TSet("iconZoom", v) end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
         end
 
         -- Row: Position (+ offsets cog) | Growth Direction
@@ -1744,7 +1046,8 @@ local function BuildTileDetail(frame, fontPath, t)
               setValue = function(v) TSet("growDirection", v) end }); sy = sy - hh
         do
             local rgn = posRow2._leftRegion
-            local _, cogShow = EllesmereUI.BuildCogPopup({
+            EllesmereUI.BuildInlineCog(rgn, {
+                icon = EllesmereUI.DIRECTIONS_ICON,
                 title = "Position Offset",
                 rows = {
                     { type = "slider", label = "Offset X", min = -50, max = 50, step = 1,
@@ -1755,17 +1058,6 @@ local function BuildTileDetail(frame, fontPath, t)
                       set = function(v) TSet("offsetY", v) end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
         end
 
         -- Row: Icons Per Row (end of CORE). Tile-local key, no base
@@ -1828,7 +1120,8 @@ local function BuildTileDetail(frame, fontPath, t)
             swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = swatch
 
-            local _, cogShow = EllesmereUI.BuildCogPopup({
+            EllesmereUI.BuildInlineCog(rgn, {
+                icon = EllesmereUI.RESIZE_ICON,
                 title = "Duration Text",
                 rows = {
                     { type = "slider", label = "Text Size", min = 6, max = 26, step = 1,
@@ -1842,17 +1135,6 @@ local function BuildTileDetail(frame, fontPath, t)
                       set = function(v) TSet("durTextOffsetY", v) end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
         end
         do
             local rgn = dtRow._rightRegion
@@ -1868,7 +1150,8 @@ local function BuildTileDetail(frame, fontPath, t)
             swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = swatch
 
-            local _, cogShow = EllesmereUI.BuildCogPopup({
+            EllesmereUI.BuildInlineCog(rgn, {
+                icon = EllesmereUI.RESIZE_ICON,
                 title = "Stacks Text",
                 rows = {
                     { type = "slider", label = "Text Size", min = 6, max = 26, step = 1,
@@ -1882,17 +1165,6 @@ local function BuildTileDetail(frame, fontPath, t)
                       set = function(v) TSet("stacksOffsetY", v) end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
         end
 
         -- Row: Tooltips | Show Duration Swipe (base pane parity)
@@ -2020,7 +1292,8 @@ local function BuildTileDetail(frame, fontPath, t)
               setValue = function(v) TSet("position", v) end }); sy = sy - hh
         do
             local rgn = coreRow._rightRegion
-            local _, cogShow = EllesmereUI.BuildCogPopup({
+            EllesmereUI.BuildInlineCog(rgn, {
+                icon = EllesmereUI.DIRECTIONS_ICON,
                 title = "Position Offset",
                 rows = {
                     { type = "slider", label = "Offset X", min = -50, max = 50, step = 1,
@@ -2037,17 +1310,6 @@ local function BuildTileDetail(frame, fontPath, t)
                       set = function(v) TSet("frameLevel", v) end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
         end
         _, hh = W:DualRow(frame, sy,
             { type = "toggle", text = "Reverse Fill",
@@ -2218,7 +1480,7 @@ function ns.DMP_RefreshPreview()
     if not p then return end
     local PP = EllesmereUI.PanelPP or EllesmereUI.PP
     local fontPath = pv._dmFontPath
-        or (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("raidFrames"))
+        or (EllesmereUI.GetFontPath("raidFrames"))
         or "Fonts\\FRIZQT__.TTF"
     local health = pv._health
     local host = (ns.RF_AnchorHost and ns.RF_AnchorHost(health, p)) or health
@@ -2685,7 +1947,7 @@ end
 function ns.DMP_BuildPage(pageName, parent, yOffset)
     local scrollFrame = EllesmereUI._scrollFrame
     if not scrollFrame then return 0 end
-    local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("raidFrames")) or "Fonts\\FRIZQT__.TTF"
+    local fontPath = (EllesmereUI.GetFontPath("raidFrames")) or "Fonts\\FRIZQT__.TTF"
     local PP = EllesmereUI.PanelPP
 
     local parentW = scrollFrame:GetWidth()
@@ -2704,8 +1966,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
     -- Override-session gate: heals a stale Debuff Manager layer FIRST (so
     -- the page content below renders the edited group's fork) and reports
     -- the full-page overlay to build at the end. nil = normal page.
-    local dmOverlayState = EllesmereUI.SpecOverrides_DmPagePrelude
-        and EllesmereUI.SpecOverrides_DmPagePrelude() or nil
+    local dmOverlayState = EllesmereUI.SpecOverrides_DmPagePrelude() or nil
 
     local dm = DmTable()
 
@@ -2765,53 +2026,6 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
         inhSelBase = true
     end
 
-    -- Editing-spec roster, shared by the Editing Spec dropdown and the
-    -- right-click "Add To" menu: the group buckets lead, then every spec in
-    -- the game as its own "spec<ID>" bucket (healer specs included -- the DM
-    -- has no healer-key legacy).
-    local function BuildDmSpecRoster()
-        local values, order, icons = {}, {}, {}
-        local groups = ns.BM_GROUP_BUCKETS or {}
-        for i = 1, #groups do
-            values[groups[i].key] = L(groups[i].name)
-            order[#order + 1] = groups[i].key
-            icons[groups[i].key] = groups[i].icon
-        end
-        order[#order + 1] = "---a"
-        for classID = 1, (GetNumClasses and GetNumClasses() or 0) do
-            local className = GetClassInfo(classID)
-            local numSpecs = GetNumSpecializationsForClassID
-                and GetNumSpecializationsForClassID(classID) or 0
-            for si = 1, numSpecs do
-                local specID, specName, _, sIcon = GetSpecializationInfoForClassID(classID, si)
-                if specID then
-                    local key = "spec" .. specID
-                    values[key] = (specName or "") .. " " .. (className or "")
-                    order[#order + 1] = key
-                    icons[key] = sIcon
-                end
-            end
-        end
-        return values, order, icons
-    end
-
-    -- Right-click "Add To" items: the roster minus dividers, the edited
-    -- bucket (= the source) disabled.
-    local function DmBucketMenuItems()
-        local values, order, icons = BuildDmSpecRoster()
-        local items = {}
-        for i = 1, #order do
-            local key = order[i]
-            if not key:match("^%-%-%-") then
-                items[#items + 1] = {
-                    key = key, label = values[key], icon = icons[key],
-                    disabled = key == dmSpecSel,
-                }
-            end
-        end
-        return items
-    end
-
     local p = DmProfile()
     if not p then return 0 end
 
@@ -2852,7 +2066,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
     -- Pinned Base Icons tile (All Specs view): undeletable, no toggle (an
     -- empty grid is expressed through the filters).
     if baseOwn then
-        tileY = tileY - BuildTile(sidebarChild, tileY, {
+        tileY = tileY - EllesmereUI.BuildManagerTile(sidebarChild, tileY, {
             width = sidebarW, fontPath = fontPath,
             icon = SampleDebuffTexture(1),
             title = L("Base Icons"),
@@ -2870,7 +2084,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
         -- Concrete spec view: the All Specs base grid as an INHERITED row
         -- (read-only here; the pill is this spec's own on/off).
         local disHere = ns.DM_BaseDisabled and ns.DM_BaseDisabled(dmSpecSel)
-        tileY = tileY - BuildTile(sidebarChild, tileY, {
+        tileY = tileY - EllesmereUI.BuildManagerTile(sidebarChild, tileY, {
             width = sidebarW, fontPath = fontPath,
             icon = SampleDebuffTexture(1),
             title = L("Base Icons"),
@@ -2907,7 +2121,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
                     posText = "(" .. L(POS_VALUES[t.position or "top"] or "") .. ")"
                 end
                 local disHere = ns.DM_InhDisabled and ns.DM_InhDisabled(dmSpecSel, t.id)
-                tileY = tileY - BuildTile(sidebarChild, tileY, {
+                tileY = tileY - EllesmereUI.BuildManagerTile(sidebarChild, tileY, {
                     width = sidebarW, fontPath = fontPath,
                     icon = TileFaceTexture(t),
                     title = t.name or L(TYPE_NAMES[t.type] or t.type),
@@ -2944,7 +2158,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
         if t.type == "icons" or t.type == "square" or t.type == "bar" then
             posText = "(" .. L(POS_VALUES[t.position or "top"] or "") .. ")"
         end
-        tileY = tileY - BuildTile(sidebarChild, tileY, {
+        tileY = tileY - EllesmereUI.BuildManagerTile(sidebarChild, tileY, {
             width = sidebarW, fontPath = fontPath,
             icon = TileFaceTexture(t),
             -- User-typed name over the type-name default. Display-only
@@ -2968,7 +2182,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
                 EllesmereUI.ShowPickMenu(tileFrame, {
                     title = L("Add To"),
                     fontPath = fontPath,
-                    items = DmBucketMenuItems(),
+                    items = EllesmereUI.SpecBucketMenuItems(dmSpecSel),
                     onPick = function(key)
                         if ns.DM_CopyTile and ns.DM_CopyTile(t, key) then
                             DmApply()
@@ -2982,6 +2196,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
                 DmApply()
                 EllesmereUI:RefreshPage(true)
             end,
+            editTooltip = L("Rename Indicator"),
             onEdit = function()
                 local cur = t.name or L(TYPE_NAMES[t.type] or t.type)
                 EllesmereUI:ShowInputPopup({
@@ -3036,7 +2251,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
         local addLabel = addBtn:CreateFontString(nil, "OVERLAY")
         -- Drop shadow via the shadow FontObject, primed BEFORE SetFont
         -- (SetShadowOffset alone does not render).
-        if EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(addLabel, true) end
+        EllesmereUI.PrimeFontShadow(addLabel, true)
         addLabel:SetFont(fontPath, 12, "")
         addLabel:SetPoint("CENTER")
         addLabel:SetText(L("Add New"))
@@ -3264,7 +2479,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
     -- Preview: the shared health-bar replica in replica-only mode; the DM
     -- renderer draws the base grid + tiles on it. Centered in the LEFT 65%
     -- (the Editing Spec section owns the right 35%).
-    local pvFrame, sectionH = ns.BM_BuildSimplePreview(leftFixed, p, fontPath, PP, pvSplitW / 2, -PAD, true)
+    local pvFrame, sectionH = ns.BM_BuildSimplePreview(leftFixed, p, fontPath, PP, pvSplitW / 2, -PAD)
     ns._dmPreviewFrame = pvFrame
     pvFrame._dmFontPath = fontPath
 
@@ -3321,7 +2536,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
         local specCenterX = pvSplitW + specSplitW / 2
         -- Roster shared with the right-click "Add To" menu (the menu
         -- rebuilds it lazily per open).
-        local specDDValues, specDDOrder, specDDIcons = BuildDmSpecRoster()
+        local specDDValues, specDDOrder, specDDIcons = EllesmereUI.BuildSpecBucketRoster()
         specDDValues._menuOpts = {
             maxHeight = 300,
             icon = function(key) return specDDIcons[key] end,
@@ -3440,74 +2655,9 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
     settingsChild:SetSize(settingsW, viewportH)
     settingsScroll:SetScrollChild(settingsChild)
 
-    local SBAR_W = 5
-    local sbTrack = CreateFrame("Frame", nil, settingsScroll)
-    sbTrack:SetPoint("TOPRIGHT", settingsScroll, "TOPRIGHT", -31, -12)
-    sbTrack:SetPoint("BOTTOMRIGHT", settingsScroll, "BOTTOMRIGHT", -31, 12)
-    sbTrack:SetWidth(SBAR_W)
-    sbTrack:SetFrameLevel(settingsScroll:GetFrameLevel() + 20)
-    do local t = sbTrack:CreateTexture(nil, "BACKGROUND"); t:SetAllPoints(); t:SetColorTexture(1, 1, 1, 0.05) end
-    local sbThumb = CreateFrame("Frame", nil, sbTrack)
-    sbThumb:SetWidth(SBAR_W); sbThumb:SetHeight(30)
-    sbThumb:SetPoint("TOP", sbTrack, "TOP", 0, 0)
-    sbThumb:EnableMouse(true)
-    do local t = sbThumb:CreateTexture(nil, "ARTWORK"); t:SetAllPoints(); t:SetColorTexture(1, 1, 1, 0.22) end
-    sbTrack:Hide()
-
-    local SCROLL_STEP, SMOOTH_SPEED = 60, 12
-    local scrollTarget = 0
-    local function MaxScroll() return max(0, settingsChild:GetHeight() - settingsScroll:GetHeight()) end
-    local function UpdateThumb()
-        local ms = MaxScroll()
-        if ms <= 0 then sbTrack:Hide(); return end
-        sbTrack:Show()
-        local trackH = sbTrack:GetHeight()
-        local visH = settingsScroll:GetHeight()
-        local thumbH = max(30, trackH * (visH / (visH + ms)))
-        sbThumb:SetHeight(thumbH)
-        local ratio = (settingsScroll:GetVerticalScroll() or 0) / ms
-        sbThumb:ClearAllPoints()
-        sbThumb:SetPoint("TOP", sbTrack, "TOP", 0, -(ratio * (trackH - thumbH)))
-    end
-    local smoothFrame = CreateFrame("Frame", nil, root)
-    smoothFrame:Hide()
-    smoothFrame:SetScript("OnUpdate", function(_, elapsed)
-        local cur = settingsScroll:GetVerticalScroll()
-        local ms = MaxScroll()
-        scrollTarget = max(0, math.min(ms, scrollTarget))
-        local diff = scrollTarget - cur
-        if math.abs(diff) < 0.3 then
-            settingsScroll:SetVerticalScroll(scrollTarget); UpdateThumb(); smoothFrame:Hide(); return
-        end
-        local nv = max(0, math.min(ms, cur + diff * math.min(1, SMOOTH_SPEED * elapsed)))
-        settingsScroll:SetVerticalScroll(nv); UpdateThumb()
-    end)
-    local function SmoothTo(t)
-        scrollTarget = max(0, math.min(MaxScroll(), t))
-        smoothFrame:Show()
-    end
-    settingsScroll:EnableMouseWheel(true)
-    settingsScroll:SetScript("OnMouseWheel", function(_, delta)
-        if MaxScroll() <= 0 then return end
-        local base = smoothFrame:IsShown() and scrollTarget or settingsScroll:GetVerticalScroll()
-        SmoothTo(base - delta * SCROLL_STEP)
-    end)
-    sbThumb:SetScript("OnMouseDown", function()
-        smoothFrame:Hide()
-        local _, cy0 = GetCursorPosition()
-        local startY = cy0 / settingsScroll:GetEffectiveScale()
-        local startScroll = settingsScroll:GetVerticalScroll()
-        sbThumb:SetScript("OnUpdate", function(self)
-            if not IsMouseButtonDown("LeftButton") then self:SetScript("OnUpdate", nil); return end
-            local ms = MaxScroll()
-            local travel = sbTrack:GetHeight() - sbThumb:GetHeight()
-            if travel <= 0 then return end
-            local _, cy = GetCursorPosition(); cy = cy / settingsScroll:GetEffectiveScale()
-            local nv = max(0, math.min(ms, startScroll + ((startY - cy) / travel) * ms))
-            scrollTarget = nv
-            settingsScroll:SetVerticalScroll(nv); UpdateThumb()
-        end)
-    end)
+    local UpdateThumb = EllesmereUI.AttachSmoothScrollbar(settingsScroll, {
+        step = 60, width = 5, rightInset = 31, topInset = 12, level = 20,
+        trackAlpha = 0.05, thumbAlpha = 0.22, child = settingsChild })
 
     -- Read-only pane for an INHERITED row (group tile or the All Specs base
     -- grid): where it lives, a jump link to the owning group, and a pointer
@@ -3582,56 +2732,14 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
     -- child of outerRoot so every teardown path destroys it.
     if dmOverlayState then
         local st = dmOverlayState
-        local ov = CreateFrame("Frame", nil, outerRoot)
-        ov:SetAllPoints(outerRoot)
-        ov:SetFrameLevel(outerRoot:GetFrameLevel() + 60)
-        ov:EnableMouse(true)
-        ov._searchIgnore = true
-        local bg = ov:CreateTexture(nil, "OVERLAY")
-        bg:SetAllPoints()
-        bg:SetColorTexture(13/255, 17/255, 25/255, 0.98)
-        local title = ov:CreateFontString(nil, "OVERLAY")
-        title:SetFont(fontPath, 15, "")
-        title:SetPoint("CENTER", ov, "CENTER", 0, 60)
-        title:SetTextColor(1, 1, 1, 0.9)
-        title:SetText(EllesmereUI.L("Custom Debuff Manager"))
-        local body = ov:CreateFontString(nil, "OVERLAY")
-        body:SetFont(fontPath, 13, "")
-        body:SetPoint("TOP", title, "BOTTOM", 0, -14)
-        body:SetWidth(floor(parentW * 0.7))
-        body:SetJustifyH("CENTER")
-        body:SetTextColor(1, 1, 1, 0.56)
-        body:SetText(st.text or "")
-        local sub
-        if st.sub then
-            sub = ov:CreateFontString(nil, "OVERLAY")
-            sub:SetFont(fontPath, 12, "")
-            sub:SetPoint("TOP", body, "BOTTOM", 0, -8)
-            sub:SetWidth(floor(parentW * 0.7))
-            sub:SetJustifyH("CENTER")
-            sub:SetTextColor(1, 1, 1, 0.45)
-            sub:SetText(st.sub)
-        end
-        if st.mode == "activate" then
-            local btn = CreateFrame("Button", nil, ov)
-            btn:SetSize(240, 28)
-            btn:SetPoint("TOP", sub or body, "BOTTOM", 0, -22)
-            EllesmereUI.SolidTex(btn, "BACKGROUND", 0.10, 0.10, 0.11, 0.9):SetAllPoints(btn)
-            local brd = EllesmereUI.MakeBorder(btn, 1, 1, 1, 0.22)
-            local lbl = EllesmereUI.MakeFont(btn, 12, nil, 1, 1, 1, 0.85)
-            lbl:SetPoint("CENTER")
-            lbl:SetText(EllesmereUI.L("Activate Custom Debuff Manager"))
-            local eg = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.83, b = 0.62 }
-            btn:SetScript("OnEnter", function()
-                if brd and brd.SetColor then brd:SetColor(eg.r, eg.g, eg.b, 0.9) end
-            end)
-            btn:SetScript("OnLeave", function()
-                if brd and brd.SetColor then brd:SetColor(1, 1, 1, 0.22) end
-            end)
+        local _, btn = EllesmereUI.BuildActivationOverlay(outerRoot, {
+            fontPath = fontPath, width = parentW,
+            title = EllesmereUI.L("Custom Debuff Manager"), text = st.text, sub = st.sub,
+            buttonLabel = st.mode == "activate" and EllesmereUI.L("Activate Custom Debuff Manager") or nil,
+        })
+        if btn then
             btn:SetScript("OnClick", function()
-                if EllesmereUI.SpecOverrides_ActivateDm then
-                    EllesmereUI.SpecOverrides_ActivateDm(st.kind, st.gid)
-                end
+                EllesmereUI.SpecOverrides_ActivateDm(st.kind, st.gid)
             end)
         end
     end
@@ -3666,8 +2774,8 @@ function ns.BMP_ShowFilterEditor()
     if ns._bm2FilterEditor then ns._bm2FilterEditor:Hide(); ns._bm2FilterEditor = nil end
     local filters = ns.BM2_Filters and ns.BM2_Filters()
     if not filters then return end
-    local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("options"))
-        or (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("raidFrames"))
+    local fontPath = (EllesmereUI.GetFontPath("options"))
+        or (EllesmereUI.GetFontPath("raidFrames"))
         or "Fonts\\FRIZQT__.TTF"
     local ar, ag, ab = 1, 0.82, 0.30
     if EllesmereUI.GetAccentColor then ar, ag, ab = EllesmereUI.GetAccentColor() end
@@ -3701,36 +2809,12 @@ function ns.BMP_ShowFilterEditor()
     local popBg = EllesmereUI.SolidTex(popup, "BACKGROUND", 0.06, 0.08, 0.10, 1)
     popBg:SetAllPoints()
     EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15)
-    local ppScale = EllesmereUI.GetPopupScale and EllesmereUI.GetPopupScale() or 1
+    local ppScale = EllesmereUI.GetPopupScale() or 1
     popup:SetScale(ppScale)
 
     local title = EllesmereUI.MakeFont(popup, 16, "", 1, 1, 1)
     title:SetPoint("TOP", popup, "TOP", 0, -18)
     title:SetText(EllesmereUI.L("Edit Filters"))
-
-    -- Standard popup-style button (SolidTex bg + border + hover fade-lite).
-    local function PopupButton(parent, w, h, label, onClick)
-        local btn = CreateFrame("Button", nil, parent)
-        btn:SetSize(w, h)
-        btn:SetFrameLevel(parent:GetFrameLevel() + 2)
-        local bg = EllesmereUI.SolidTex(btn, "BACKGROUND", 0, 0, 0, 0.5)
-        bg:SetAllPoints()
-        local brd = EllesmereUI.MakeBorder(btn, 1, 1, 1, 0.25)
-        local lbl = EllesmereUI.MakeFont(btn, 12, nil, 1, 1, 1)
-        lbl:SetAlpha(0.6)
-        lbl:SetPoint("CENTER")
-        lbl:SetText(EllesmereUI.L(label))
-        btn:SetScript("OnEnter", function()
-            lbl:SetAlpha(0.9)
-            if brd and brd.SetColor then brd:SetColor(ar, ag, ab, 0.6) end
-        end)
-        btn:SetScript("OnLeave", function()
-            lbl:SetAlpha(0.6)
-            if brd and brd.SetColor then brd:SetColor(1, 1, 1, 0.25) end
-        end)
-        btn:SetScript("OnClick", onClick)
-        return btn
-    end
 
     -- Close button (top-right): the borderless X (the boxed close-popup
     -- variant reads as a framed button here).
@@ -3787,87 +2871,9 @@ function ns.BMP_ShowFilterEditor()
     -- region (the settings-viewport pattern). Track shows only on overflow.
     -- Returns UpdateThumb and a SetScrollTo(v) that syncs bar + target.
     local function AttachEditorScroll(scroll, child, onScroll)
-        local SBAR_W = 4
-        local track = CreateFrame("Frame", nil, scroll)
-        track:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", -2, -2)
-        track:SetPoint("BOTTOMRIGHT", scroll, "BOTTOMRIGHT", -2, 2)
-        track:SetWidth(SBAR_W)
-        track:SetFrameLevel(scroll:GetFrameLevel() + 5)
-        do local tx = track:CreateTexture(nil, "BACKGROUND"); tx:SetAllPoints(); tx:SetColorTexture(1, 1, 1, 0.05) end
-        local thumb = CreateFrame("Frame", nil, track)
-        thumb:SetWidth(SBAR_W); thumb:SetHeight(30)
-        thumb:SetPoint("TOP", track, "TOP", 0, 0)
-        thumb:EnableMouse(true)
-        do local tx = thumb:CreateTexture(nil, "ARTWORK"); tx:SetAllPoints(); tx:SetColorTexture(1, 1, 1, 0.22) end
-        track:Hide()
-
-        local function MaxScroll() return max(0, child:GetHeight() - scroll:GetHeight()) end
-        local function UpdateThumb()
-            local ms = MaxScroll()
-            if ms <= 0 then track:Hide(); return end
-            track:Show()
-            local trackH = track:GetHeight()
-            local visH = scroll:GetHeight()
-            local thumbH = max(20, trackH * (visH / (visH + ms)))
-            thumb:SetHeight(thumbH)
-            local ratio = (scroll:GetVerticalScroll() or 0) / ms
-            thumb:ClearAllPoints()
-            thumb:SetPoint("TOP", track, "TOP", 0, -(ratio * (trackH - thumbH)))
-        end
-
-        local SCROLL_STEP, SMOOTH_SPEED = 60, 12
-        local target = 0
-        local smooth = CreateFrame("Frame", nil, scroll)
-        smooth:Hide()
-        smooth:SetScript("OnUpdate", function(_, elapsed)
-            local cur = scroll:GetVerticalScroll()
-            local ms = MaxScroll()
-            target = max(0, math.min(ms, target))
-            local diff = target - cur
-            if math.abs(diff) < 0.3 then
-                scroll:SetVerticalScroll(target); UpdateThumb(); smooth:Hide()
-                if onScroll then onScroll(target) end
-                return
-            end
-            local nv = max(0, math.min(ms, cur + diff * math.min(1, SMOOTH_SPEED * elapsed)))
-            scroll:SetVerticalScroll(nv); UpdateThumb()
-            if onScroll then onScroll(nv) end
-        end)
-        scroll:EnableMouseWheel(true)
-        scroll:SetScript("OnMouseWheel", function(_, delta)
-            if MaxScroll() <= 0 then return end
-            local base = smooth:IsShown() and target or scroll:GetVerticalScroll()
-            target = max(0, math.min(MaxScroll(), base - delta * SCROLL_STEP))
-            smooth:Show()
-        end)
-        thumb:SetScript("OnMouseDown", function()
-            smooth:Hide()
-            local _, cy0 = GetCursorPosition()
-            local startY = cy0 / scroll:GetEffectiveScale()
-            local startScroll = scroll:GetVerticalScroll()
-            thumb:SetScript("OnUpdate", function(self2)
-                if not IsMouseButtonDown("LeftButton") then self2:SetScript("OnUpdate", nil); return end
-                local ms = MaxScroll()
-                local travel = track:GetHeight() - thumb:GetHeight()
-                if travel <= 0 then return end
-                local _, cy = GetCursorPosition(); cy = cy / scroll:GetEffectiveScale()
-                local nv = max(0, math.min(ms, startScroll + ((startY - cy) / travel) * ms))
-                target = nv
-                scroll:SetVerticalScroll(nv); UpdateThumb()
-                if onScroll then onScroll(nv) end
-            end)
-        end)
-
-        local function SetScrollTo(v)
-            local ms = MaxScroll()
-            if v > ms then v = ms end
-            if v < 0 then v = 0 end
-            target = v
-            scroll:SetVerticalScroll(v)
-            UpdateThumb()
-            if onScroll then onScroll(v) end
-        end
-        return UpdateThumb, SetScrollTo
+        return EllesmereUI.AttachSmoothScrollbar(scroll, {
+            step = 60, thumbMin = 20, topInset = 2, level = 5,
+            trackAlpha = 0.05, thumbAlpha = 0.22, child = child, onScroll = onScroll })
     end
 
     -- RIGHT: filter list (dropdown-item styling: hover wash, accent-washed
@@ -3994,7 +3000,7 @@ function ns.BMP_ShowFilterEditor()
         end
         fy = fy - 27
     end
-    local addFilterBtn = PopupButton(sideChild, SIDE_W - 16, 26, "Add Filter", function()
+    local addFilterBtn = EllesmereUI.BuildPopupButton(sideChild, SIDE_W - 16, 26, "Add Filter", function()
         EditorInput({
             title = EllesmereUI.L("Add Filter"),
             message = EllesmereUI.L("Name the new filter."),
@@ -4014,7 +3020,7 @@ function ns.BMP_ShowFilterEditor()
     -- never change, so indicator assignments and banked spec-override forks
     -- stay valid. Hidden while that module is disabled.
     if EllesmereUI._PABFilterBridge then
-        local copyBtn = PopupButton(sideChild, SIDE_W - 16, 26, EllesmereUI.L("Copy Player Auras Filters"), function()
+        local copyBtn = EllesmereUI.BuildPopupButton(sideChild, SIDE_W - 16, 26, EllesmereUI.L("Copy Player Auras Filters"), function()
             EllesmereUI:ShowConfirmPopup({
                 title = EllesmereUI.L("Copy Player Auras Filters"),
                 message = EllesmereUI.L("One-time copy of your Player Aura Bars filter setups into these filters. Same-named filters are OVERWRITTEN; the two lists stay separate afterwards."),
@@ -4125,7 +3131,7 @@ function ns.BMP_ShowFilterEditor()
         end
     end
 
-    local addSpellBtn = PopupButton(left, 110, 24, "Add Spell ID", function()
+    local addSpellBtn = EllesmereUI.BuildPopupButton(left, 110, 24, "Add Spell ID", function()
         EditorInput({
             title = EllesmereUI.L("Add Spell ID"),
             message = EllesmereUI.L("Enter the spell ID to add to this filter."),
@@ -4610,7 +3616,7 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
                 for i = 1, #rest do Add(rest[i]) end
                 return out
             end
-            local _, cogShow = EllesmereUI.BuildCogPopup({
+            EllesmereUI.BuildInlineCog(rgn, {
                 title = "Custom Order",
                 rows = {
                     { type = "reorder", label = "Buff Order", hint = "Drag to Reorder",
@@ -4624,17 +3630,6 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
                       disabledTooltip = "Custom Order" },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
         end
     else
         _r, hh = W:DualRow(parent, sy, showInCfg, { type = "label", text = "" }); sy = sy - hh

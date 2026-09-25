@@ -26,7 +26,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --       retail too; the Action Bars module only follows the micro menu and
 --       the bag bar), so those come from
 --       an account layout named "EllesmereUI Forever", written once the
---       layouts have loaded and only while no layout of that name exists.
+--       layouts have loaded while the account has none of ours; an older
+--       version of ours is upgraded in place instead (UpgradeLayout).
 --       Edit Mode keeps the layout account-wide but the active choice per
 --       character, so each character is switched to it once, on its first
 --       login (while still on a Blizzard preset), and owns its choice from
@@ -89,11 +90,14 @@ local MINIMAP_SIZE = 200
 EllesmereUI.FOREVER_MINIMAP_SIZE = MINIMAP_SIZE   -- the minimap's own first-activation default there
 
 -- The Edit Mode layout carries a version in its name from v2 on ("EllesmereUI
--- Forever v2"); the first shipped without one. A newer version replaces the
--- older layouts of ours and takes over as active, so a base layout change
--- lands without anyone deleting the old one by hand. Bump on every change.
+-- Forever v2"); the first shipped without one. A newer version UPGRADES the
+-- older layout of ours in place (UpgradeLayout): same slot, so characters on
+-- it stay on it, and everything the player saved into it survives -- only the
+-- pieces that version changed move, and only where the player left them
+-- alone. Never rebuild an existing one. Bump on every change AND add that
+-- version's step to UpgradeLayout.
 local LAYOUT_NAME    = "EllesmereUI Forever"
-local LAYOUT_VERSION = 3
+local LAYOUT_VERSION = 4
 
 local function LayoutFullName()
     if LAYOUT_VERSION > 1 then return LAYOUT_NAME .. " v" .. LAYOUT_VERSION end
@@ -245,6 +249,55 @@ local function SetSetting(entry, setting, value)
     rows[#rows + 1] = { setting = setting, value = value }
 end
 
+local function GetSetting(entry, setting)
+    for _, row in ipairs(entry.settings or {}) do
+        if row.setting == setting then return row.value end
+    end
+    return nil
+end
+
+-- Version of one of our layouts from its name (the first shipped unversioned).
+local function LayoutVersionOf(name)
+    if name == LAYOUT_NAME then return 1 end
+    return tonumber(type(name) == "string" and name:match(" v(%d+)$") or nil) or 1
+end
+
+-- Brings an older version of our layout up to date IN PLACE: only what each
+-- newer version changed, and only where the player has not changed it, so
+-- the positions a player saved into it survive the update. modern = a copy
+-- of the Modern preset (the base every version was built from).
+local function UpgradeLayout(layout, from, modern)
+    -- v3: the encounter bar left the Modern preset's bottom-centre spot,
+    -- which lands between the player and target frames here. Moved only while
+    -- it still sits where the preset put it.
+    if from < 3 then
+        local enc = Enum.EditModeSystem.EncounterBar and FindSystem(layout, Enum.EditModeSystem.EncounterBar, nil)
+        if enc and enc.isInDefaultPosition ~= false then
+            AnchorSystem(enc, "BOTTOM", UF_SPREAD, UF_BOTTOM + TARGET_H + ENCOUNTER_GAP)
+        end
+    end
+    -- v4: Blizzard's other action bars no longer start Hidden (the layout
+    -- outlives the addon, and Hidden beats Blizzard's own Action Bars
+    -- checkboxes). A bar still Hidden takes the Modern preset's visibility.
+    if from < 4 then
+        local AB = Enum.EditModeSystem.ActionBar
+        local idx = Enum.EditModeActionBarSystemIndices or {}
+        local visSetting = Enum.EditModeActionBarSetting and Enum.EditModeActionBarSetting.VisibleSetting
+        local vis = Enum.ActionBarVisibleSetting
+        if AB ~= nil and visSetting ~= nil and vis and vis.Hidden ~= nil then
+            for _, name in ipairs({ "Bar2", "Bar3", "RightBar1", "RightBar2", "ExtraBar1", "ExtraBar2", "ExtraBar3" }) do
+                local entry = idx[name] ~= nil and FindSystem(layout, AB, idx[name])
+                if entry and GetSetting(entry, visSetting) == vis.Hidden then
+                    local pe = FindSystem(modern, AB, idx[name])
+                    local v = pe and GetSetting(pe, visSetting)
+                    if v == nil then v = vis.Always end
+                    if v ~= nil then SetSetting(entry, visSetting, v) end
+                end
+            end
+        end
+    end
+end
+
 -- Returns true once the layout exists and this character is on it for its
 -- first time (written now, or found and switched to), false to retry.
 local function WriteEditModeLayout()
@@ -267,7 +320,10 @@ local function WriteEditModeLayout()
     local presetCount = #presets
     local fullName = LayoutFullName()
     for i, l in ipairs(info.layouts) do
-        if l.layoutName == fullName then
+        -- A layout of ours from a newer build (a tester build, then back to
+        -- this one) counts as current too: never renamed down, never re-stepped.
+        if l.layoutName == fullName
+            or (IsOurLayout(l.layoutName) and LayoutVersionOf(l.layoutName) > LAYOUT_VERSION) then
             -- Already written, by an earlier session or another character:
             -- the layout is account-wide, the active choice per character.
             -- A character still on a Blizzard preset has never had its
@@ -281,83 +337,106 @@ local function WriteEditModeLayout()
         end
     end
 
-    -- A copy of the Modern preset, with the pieces moved.
+    -- The Modern preset: the base every version of ours was built from.
     local base = presets[1]
     local modernIndex = Enum.EditModePresetLayouts and Enum.EditModePresetLayouts.Modern
     for _, p in ipairs(presets) do
         if modernIndex ~= nil and p.layoutIndex == modernIndex then base = p end
     end
-    local layout = CopyTable(base)
-    layout.layoutIndex = nil
-    layout.layoutType = Enum.EditModeLayoutType.Account
-    layout.layoutName = fullName
 
-    local AB = Enum.EditModeSystem.ActionBar
-    local idx = Enum.EditModeActionBarSystemIndices or {}
-    local main = FindSystem(layout, AB, idx.MainBar)
-    if main then AnchorSystem(main, "BOTTOM", 0, BAR_BOTTOM) end
-    local visSetting = Enum.EditModeActionBarSetting and Enum.EditModeActionBarSetting.VisibleSetting
-    local hidden = Enum.ActionBarVisibleSetting and Enum.ActionBarVisibleSetting.Hidden
-    if visSetting ~= nil and hidden ~= nil then
-        for _, name in ipairs({ "Bar2", "Bar3", "RightBar1", "RightBar2", "ExtraBar1", "ExtraBar2", "ExtraBar3" }) do
-            local entry = idx[name] ~= nil and FindSystem(layout, AB, idx[name])
-            if entry then SetSetting(entry, visSetting, hidden) end
-        end
-    end
-    local micro = Enum.EditModeSystem.MicroMenu and FindSystem(layout, Enum.EditModeSystem.MicroMenu, nil)
-    if micro then AnchorSystem(micro, "BOTTOMLEFT", EDGE, GAP) end
-    local bags = Enum.EditModeSystem.Bags and FindSystem(layout, Enum.EditModeSystem.Bags, nil)
-    if bags then AnchorSystem(bags, "BOTTOMRIGHT", -EDGE, GAP) end
-    -- The encounter bar keeps the Modern preset's bottom-centre spot
-    -- otherwise, which lands between the player and target frames here.
-    local enc = Enum.EditModeSystem.EncounterBar and FindSystem(layout, Enum.EditModeSystem.EncounterBar, nil)
-    if enc then AnchorSystem(enc, "BOTTOM", UF_SPREAD, UF_BOTTOM + TARGET_H + ENCOUNTER_GAP) end
-    -- Blizzard's experience bar: bottom centre, three quarters wide. The
-    -- stored size is a slider STEP, not the percentage: Edit Mode shows
-    -- raw * step + min (50 to 130 in steps of 5, so the preset's 10 reads
-    -- 100). The live display info converts when the system frame is up;
-    -- the same formula stands in for it otherwise.
-    local stbIdx = Enum.EditModeStatusTrackingBarSystemIndices
-    local xp = Enum.EditModeSystem.StatusTrackingBar and stbIdx and stbIdx.StatusTrackingBar1 ~= nil
-        and FindSystem(layout, Enum.EditModeSystem.StatusTrackingBar, stbIdx.StatusTrackingBar1)
-    if xp then
-        AnchorSystem(xp, "BOTTOM", 0, 0)
-        local sizeSetting = Enum.EditModeStatusTrackingBarSetting and Enum.EditModeStatusTrackingBarSetting.Size
-        if sizeSetting ~= nil then
-            local raw = (XP_WIDTH_PCT - 50) / 5
-            local sys = _G.MainStatusTrackingBarContainer
-            local di = sys and sys.settingDisplayInfoMap and sys.settingDisplayInfoMap[sizeSetting]
-            if di and di.ConvertValue then
-                local ok, v = pcall(di.ConvertValue, di, XP_WIDTH_PCT, false)
-                if ok and type(v) == "number" then raw = v end
-            end
-            SetSetting(xp, sizeSetting, raw)
-        end
-    end
-
-    if mgr.ReconcileWithModern then
-        mgr:ReconcileWithModern(layout)
-        for _, l in ipairs(info.layouts) do mgr:ReconcileWithModern(l) end
-    end
+    -- This character's layout before the list changes: it moves to ours only
+    -- from a Blizzard preset; any saved layout, its own or ours, stays its choice.
+    local wasActive = info.activeLayout or 0
+    local activeSaved = wasActive > presetCount and info.layouts[wasActive - presetCount] or nil
+    -- A character on our older layout needs no move: the upgrade keeps its slot.
+    local takeOver = activeSaved == nil
 
     -- SaveLayouts takes the whole set the way the game keeps it: the presets
     -- first (read-only, carried for index alignment), then the saved layouts,
-    -- with activeLayout indexing that merged list. Ours goes in ahead of the
-    -- first character layout, with the account layouts.
+    -- with activeLayout indexing that merged list. Every character stores its
+    -- active layout as an index, so the saved layouts never change order.
+    -- An older version of ours is UPGRADED IN PLACE (UpgradeLayout): it keeps
+    -- its slot and everything the player saved into it, and only the pieces a
+    -- newer version changed move, where the player left them alone. Only an
+    -- account with none of ours gets a fresh one, ahead of the first
+    -- character layout, with the account layouts.
     local merged = presets
-    -- Older versions of ours drop out here; every other saved layout rides along.
+    local slot
     for _, l in ipairs(info.layouts) do
-        if not IsOurLayout(l.layoutName) then merged[#merged + 1] = l end
+        merged[#merged + 1] = l
+        if not slot and IsOurLayout(l.layoutName) then
+            UpgradeLayout(l, LayoutVersionOf(l.layoutName), base)
+            l.layoutName = fullName
+            slot = #merged
+        end
     end
-    local slot = #merged + 1
-    for i = presetCount + 1, #merged do
-        if merged[i].layoutType == Enum.EditModeLayoutType.Character then slot = i; break end
+    if not slot then
+        -- A copy of the Modern preset, with the pieces moved.
+        local layout = CopyTable(base)
+        layout.layoutIndex = nil
+        layout.layoutType = Enum.EditModeLayoutType.Account
+        layout.layoutName = fullName
+
+        -- Blizzard's other action bars keep the Modern preset's visibility: the
+        -- Action Bars module hides Blizzard's bars itself while it runs (bars 2+
+        -- start hidden in its own settings), and this layout outlives the addon,
+        -- so hiding them here would keep them hidden after EllesmereUI is removed.
+        local AB = Enum.EditModeSystem.ActionBar
+        local idx = Enum.EditModeActionBarSystemIndices or {}
+        local main = FindSystem(layout, AB, idx.MainBar)
+        if main then AnchorSystem(main, "BOTTOM", 0, BAR_BOTTOM) end
+        local micro = Enum.EditModeSystem.MicroMenu and FindSystem(layout, Enum.EditModeSystem.MicroMenu, nil)
+        if micro then AnchorSystem(micro, "BOTTOMLEFT", EDGE, GAP) end
+        local bags = Enum.EditModeSystem.Bags and FindSystem(layout, Enum.EditModeSystem.Bags, nil)
+        if bags then AnchorSystem(bags, "BOTTOMRIGHT", -EDGE, GAP) end
+        -- The encounter bar keeps the Modern preset's bottom-centre spot
+        -- otherwise, which lands between the player and target frames here.
+        local enc = Enum.EditModeSystem.EncounterBar and FindSystem(layout, Enum.EditModeSystem.EncounterBar, nil)
+        if enc then AnchorSystem(enc, "BOTTOM", UF_SPREAD, UF_BOTTOM + TARGET_H + ENCOUNTER_GAP) end
+        -- Blizzard's experience bar: bottom centre, three quarters wide. The
+        -- stored size is a slider STEP, not the percentage: Edit Mode shows
+        -- raw * step + min (50 to 130 in steps of 5, so the preset's 10 reads
+        -- 100). The live display info converts when the system frame is up;
+        -- the same formula stands in for it otherwise.
+        local stbIdx = Enum.EditModeStatusTrackingBarSystemIndices
+        local xp = Enum.EditModeSystem.StatusTrackingBar and stbIdx and stbIdx.StatusTrackingBar1 ~= nil
+            and FindSystem(layout, Enum.EditModeSystem.StatusTrackingBar, stbIdx.StatusTrackingBar1)
+        if xp then
+            AnchorSystem(xp, "BOTTOM", 0, 0)
+            local sizeSetting = Enum.EditModeStatusTrackingBarSetting and Enum.EditModeStatusTrackingBarSetting.Size
+            if sizeSetting ~= nil then
+                local raw = (XP_WIDTH_PCT - 50) / 5
+                local sys = _G.MainStatusTrackingBarContainer
+                local di = sys and sys.settingDisplayInfoMap and sys.settingDisplayInfoMap[sizeSetting]
+                if di and di.ConvertValue then
+                    local ok, v = pcall(di.ConvertValue, di, XP_WIDTH_PCT, false)
+                    if ok and type(v) == "number" then raw = v end
+                end
+                SetSetting(xp, sizeSetting, raw)
+            end
+        end
+
+        slot = #merged + 1
+        for i = presetCount + 1, #merged do
+            if merged[i].layoutType == Enum.EditModeLayoutType.Character then slot = i; break end
+        end
+        table.insert(merged, slot, layout)
     end
-    table.insert(merged, slot, layout)
+
+    if mgr.ReconcileWithModern then
+        for i = presetCount + 1, #merged do mgr:ReconcileWithModern(merged[i]) end
+    end
+
+    local active = slot
+    if not takeOver then
+        for i = presetCount + 1, #merged do
+            if merged[i] == activeSaved then active = i; break end
+        end
+    end
     info.layouts = merged
-    info.activeLayout = slot
+    info.activeLayout = active
     C_EditMode.SaveLayouts(info)
-    C_EditMode.SetActiveLayout(slot)
+    C_EditMode.SetActiveLayout(active)
     return true
 end
 
@@ -366,7 +445,7 @@ end
 -- screen size once that is final, in the world, over the skin's own login
 -- seed (Blizzard's Edit Mode spot), and the box is re-parked at once.
 local function PlaceTooltipAnchor()
-    local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+    local prof = EllesmereUI.GetActiveProfileData()
     if not prof then return end
     local uw, uh = UIParent:GetWidth(), UIParent:GetHeight()
     if not uw or not uh or uw <= 0 or uh <= 0 then return end
@@ -393,7 +472,7 @@ end
 
 -- Every login of a character that has not had its first look at this version
 -- of the layout (stamped by character with the version below, in the
--- account's saved data, so a rebuilt layout lands once more for everyone; a
+-- account's saved data, so a bump's in-place upgrade runs once more; a
 -- fresh install is such a login too), and never when an external installer
 -- owns the first run. Retried on the layouts event and a few times after
 -- entering the world; drops out for good once done, and at once for a

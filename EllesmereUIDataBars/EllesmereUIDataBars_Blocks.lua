@@ -32,9 +32,7 @@ ns.barTextureOrder = barTextureOrder
 ns.barTextureNames = barTextureNames
 
 -- Seed SharedMedia statusbar textures once at load so a saved LSM key resolves at login; the parent helper also registers for late LSM packs.
-if EllesmereUI.AppendSharedMediaTextures then
-    EllesmereUI.AppendSharedMediaTextures(barTextureNames, barTextureOrder, nil, barTextures)
-end
+EllesmereUI.AppendSharedMediaTextures(barTextureNames, barTextureOrder, nil, barTextures)
 
 
 -- Upvalues
@@ -704,7 +702,7 @@ ns.BlockFactories.clock = function(blockCfg, slot, content, barCtx)
         if button == "MiddleButton" and IsShiftKeyDown() then
             -- Never reload mid-combat: it drops the player out of the fight.
             if InCombatLockdown() then return end
-            ReloadUI()
+            EllesmereUI.RequestReload(EllesmereUI.L("Reload UI"), EllesmereUI.L("Reload the UI now?"))
         elseif button == "LeftButton" then
             if ToggleCalendar then ToggleCalendar() end
         elseif button == "RightButton" then
@@ -1636,7 +1634,7 @@ local function MakeLocationBlock(blockCfg, slot, content, barCtx, opts)
     -- click; PLAYER_REGEN_ENABLED drives Refresh's retry so a block built mid-fight becomes clickable once combat ends.
     local clickBtn
     local function EnsureClickButton()
-        if clickBtn or InCombatLockdown() or not EllesmereUI.SecureSnippetsOK() then return clickBtn end
+        if clickBtn or InCombatLockdown() then return clickBtn end
         local micro = _G.QuestLogMicroButton
         if not micro then return nil end
         clickBtn = CreateFrame("Button", "EWB_LOC_" .. inst.key, frame,
@@ -2029,7 +2027,7 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
             else r, g, b = BlockColorOf(blockCfg) end
             goldText:SetTextColor(r, g, b, 1)
         elseif mouseOver then
-            goldText:SetText(ns.FormatMoneyPlain(money, dg.showSmall == true, ci, ab, fe))
+            goldText:SetText(ns.FormatMoney(money, false, dg.showSmall == true, ci, ab, fe))
             local r, g, b = ns.GetAccent()
             goldText:SetTextColor(r, g, b, 1)
         else
@@ -2100,7 +2098,7 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
         else
             local slotW = HBudget(inst, 100)
             -- Fit against BOTH money formats so font/icon size and frame width stay identical hovered or not; otherwise it resizes on mouseover.
-            local plainText = ns.FormatMoneyPlain(money, dg.showSmall == true, ci, ab, fe)
+            local plainText = ns.FormatMoney(money, false, dg.showSmall == true, ci, ab, fe)
             local fancyText = ns.FormatMoney(money, blockCfg.useCoinColor == true, dg.showSmall == true, ci, ab, fe)
             local moneyText
             if mouseOver then moneyText = plainText else moneyText = fancyText end
@@ -4261,7 +4259,7 @@ local function MakeProfessionBlock(blockCfg, slot, content, barCtx, secondary)
                 ns.Tip_AddLine(" ")
                 local function AddLine(p)
                     if not p or not p.name then return end
-                    ns.Tip_AddDouble(p.name, "|cffFFFFFF" .. p.rank .. "|r / " .. p.maxRank, 1, 1, 1, 1, 1, 1)
+                    ns.Tip_AddDouble(p.name, EllesmereUI.COLOR_CODES.WHITE .. p.rank .. "|r / " .. p.maxRank, 1, 1, 1, 1, 1, 1)
                 end
                 if prof1.idx then AddLine(prof1) end
                 if prof2.idx then AddLine(prof2) end
@@ -4471,7 +4469,7 @@ mmClickFunctions.menu = function(_, button)
     if button == "LeftButton" then
         if not InCombatLockdown() then ToggleFrame(GameMenuFrame) end
     elseif button == "RightButton" then
-        if IsShiftKeyDown() then C_UI.Reload()
+        if IsShiftKeyDown() then EllesmereUI.RequestReload(EllesmereUI.L("Reload UI"), EllesmereUI.L("Reload the UI now?"))
         elseif not InCombatLockdown() then ToggleFrame(AddonList) end
     end
 end
@@ -4527,7 +4525,7 @@ local mmHiders = {}
 local function MMGetHider(frame)
     local hider = mmHiders[frame]
     if hider then return hider end
-    if InCombatLockdown() or not EllesmereUI.SecureSnippetsOK() then return nil end
+    if InCombatLockdown() then return nil end
     hider = CreateFrame("Frame", nil, nil, "SecureHandlerStateTemplate")
     hider:SetFrameRef("target", frame)
     hider:SetAttribute("_onstate-vis", [[
@@ -4666,9 +4664,9 @@ local function MMOpenWhisper(charName, bnetName)
     -- as a real Mythic+. InProtectedInstance() itself reports true in dev mode; the
     -- separate branch exists only for the clearer message.
     local blocked
-    if EllesmereUI and EllesmereUI.IsDevModeActive and EllesmereUI.IsDevModeActive() then
+    if EllesmereUI.IsDevModeActive() then
         blocked = "This action is protected while dev mode (/euidev) is on."
-    elseif EllesmereUI and EllesmereUI.InProtectedInstance and EllesmereUI.InProtectedInstance() then
+    elseif EllesmereUI.InProtectedInstance() then
         blocked = "This action is protected in Mythic+ and raid combat."
     end
     if blocked then
@@ -5009,7 +5007,7 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
         end
         local frame
         local gname = "EWB_MM_" .. inst.key .. "_" .. key
-        if microRef and EllesmereUI.SecureSnippetsOK() then
+        if microRef then
             -- Taint-safe: pass clicks through to the Blizzard MicroButton.
             frame = CreateFrame("Button", gname, content,
                 "SecureActionButtonTemplate,SecureHandlerStateTemplate")
@@ -5983,8 +5981,7 @@ local function GVTokenColor(state)
 end
 
 local function GVColorize(text, r, g, b)
-    return format("|cff%02x%02x%02x%s|r",
-        floor(r * 255 + 0.5), floor(g * 255 + 0.5), floor(b * 255 + 0.5), text)
+    return format("%s%s|r", EllesmereUI.HexColor(r, g, b), text)
 end
 
 local function GVSortActivities(a, b)
@@ -6232,10 +6229,8 @@ local function GVBuildPartyRows()
 end
 
 local function GVToggleVault()
-    local IsLoaded = (C_AddOns and C_AddOns.IsAddOnLoaded) or _G.IsAddOnLoaded
-    local Load     = (C_AddOns and C_AddOns.LoadAddOn)     or _G.LoadAddOn
-    if Load and IsLoaded and not IsLoaded("Blizzard_WeeklyRewards") then
-        Load("Blizzard_WeeklyRewards")
+    if not C_AddOns.IsAddOnLoaded("Blizzard_WeeklyRewards") then
+        C_AddOns.LoadAddOn("Blizzard_WeeklyRewards")
     end
     local wrf = _G.WeeklyRewardsFrame
     if not wrf then return end

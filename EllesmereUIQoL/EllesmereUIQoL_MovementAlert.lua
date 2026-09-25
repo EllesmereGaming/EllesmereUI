@@ -27,13 +27,6 @@ local function IsSecret(value)
     return issecretvalue and issecretvalue(value) or false
 end
 
--- Secret values throw on any comparison (==, <, ...) once execution is
--- tainted, so route a payload field through this before comparing it.
-local function PlainValue(value)
-    if IsSecret(value) then return nil end
-    return value
-end
-
 local inCombat = false
 local playerClassToken = select(2, UnitClass("player")) -- class never changes: resolved once
 
@@ -323,10 +316,10 @@ end
 -------------------------------------------------------------------------------
 local FALLBACK_FONT = "Fonts\\FRIZQT__.TTF"
 local function AlertFontPath()
-    return (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or FALLBACK_FONT
+    return (EllesmereUI.GetFontPath("extras")) or FALLBACK_FONT
 end
 local function AlertFontOutline()
-    local o = (EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("extras")) or ""
+    local o = (EllesmereUI.GetFontOutlineFlag("extras")) or ""
     if not o:find("OUTLINE") then o = (o == "") and "OUTLINE" or (o .. ", OUTLINE") end
     return o
 end
@@ -568,8 +561,7 @@ local function StyleSlot(slot)
     movementCdFont:SetTextColor(tR, tG, tB)
 
     -- Bar texture (change-guarded: StyleSlot runs on every poll tick)
-    local texPath = (EllesmereUI.ResolveTexturePath
-        and EllesmereUI.ResolveTexturePath(BAR_TEXTURES, ma.barTexture or "none", "Interface\\Buttons\\WHITE8x8"))
+    local texPath = (EllesmereUI.ResolveTexturePath(BAR_TEXTURES, ma.barTexture or "none", "Interface\\Buttons\\WHITE8x8"))
         or "Interface\\Buttons\\WHITE8x8"
     if slot.bar._lastTexPath ~= texPath then
         slot.bar:SetStatusBarTexture(texPath)
@@ -1367,7 +1359,7 @@ local function BuffAlertApplyExtra(button, d, style)
     local entry = style.maEntry
     local label = (entry and (entry.customText or entry.spellName)) or "Active!"
     local r, g, b = ResolveAlertColor("textColor", "textColorUseClass")
-    local fp = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("qol")) or STANDARD_TEXT_FONT
+    local fp = (EllesmereUI.GetFontPath("qol")) or STANDARD_TEXT_FONT
     d.maText:SetFont(fp, ma.textSize or 16, "OUTLINE")
     d.maText:SetTextColor(r, g, b)
     d.maText:ClearAllPoints()
@@ -1796,8 +1788,8 @@ local function PreviewTick()
     -- page/module. (Page name must match PAGE_MOVEMENT in EUI_QoL_Options.lua.)
     local shown = EllesmereUI._mainFrame and EllesmereUI._mainFrame:IsShown()
     local onPage = shown
-        and EllesmereUI.GetActiveModule and EllesmereUI:GetActiveModule() == "EllesmereUIQoL"
-        and EllesmereUI.GetActivePage and EllesmereUI:GetActivePage() == "MoveAlert"
+        and EllesmereUI:GetActiveModule() == "EllesmereUIQoL"
+        and EllesmereUI:GetActivePage() == "MoveAlert"
     if not ma or not onPage then StopMovementPreview(); return end
 
     local now = GetTime()
@@ -2113,9 +2105,7 @@ local function UpdateEventRegistration()
         -- installs the session-long late-registration callback), matching the
         -- CDM Tracking Bars setup: a saved SM texture renders correctly
         -- without the options panel ever opening.
-        if EllesmereUI.AppendSharedMediaTextures then
-            EllesmereUI.AppendSharedMediaTextures(BAR_TEXTURE_NAMES, BAR_TEXTURE_ORDER, nil, BAR_TEXTURES)
-        end
+        EllesmereUI.AppendSharedMediaTextures(BAR_TEXTURE_NAMES, BAR_TEXTURE_ORDER, nil, BAR_TEXTURES)
     elseif not anyEnabled and baselineEventsRegistered then
         for _, ev in ipairs(BASELINE_EVENTS) do loader:UnregisterEvent(ev) end
         baselineEventsRegistered = false

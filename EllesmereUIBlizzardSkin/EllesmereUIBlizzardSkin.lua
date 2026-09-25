@@ -78,7 +78,7 @@ local WINDOW_ENABLE_KEYS = {
 --- PRESERVED while killed. Skins install at load, so crossings need a reload
 --- (callers show the popup). Queue Popup, Pause Menu, and Dragon Riding are not windows and stay untouched.
 function EllesmereUI.BlizzWindowSkinsKilled()
-    local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+    local prof = EllesmereUI.GetActiveProfileData()
     return (prof and prof.disableWindowSkins) and true or false
 end
 
@@ -363,7 +363,7 @@ end
 function EllesmereUI.ReconcileWindowSkinLook()
     local db = EllesmereUIDB
     if type(db) ~= "table" then return end
-    local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+    local prof = EllesmereUI.GetActiveProfileData()
     local look = EllesmereUI.ProfileWindowSkinLook(prof, db.fonts)
     if look then EllesmereUI.SwapWindowSkinStyle(look, false, look ~= "eui" and look or nil) end
 end
@@ -497,8 +497,8 @@ end
 
     local function _ttFonts(tt, startFrom)
         if not tt or tt:IsForbidden() or not _enabled() then return end
-        local fp = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
-        local ol = EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("blizzardSkin") or ""
+        local fp = EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
+        local ol = EllesmereUI.GetFontOutlineFlag("blizzardSkin") or ""
         local scale = EllesmereUIDB and EllesmereUIDB.tooltipFontScale or 1.0
         local titleSize = math.floor(13 * scale + 0.5)
         local bodySize  = math.floor(11 * scale + 0.5)
@@ -1594,9 +1594,9 @@ end
             local db = EllesmereUIDB or {}
             local QT = EllesmereUI.QUEUE_TIMER
             local c = db.queueTimerTextColor
-            local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras"))
+            local fontPath = (EllesmereUI.GetFontPath("extras"))
                 or "Fonts\\FRIZQT__.TTF"
-            if EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(timerText, true) end
+            EllesmereUI.PrimeFontShadow(timerText, true)
             timerText:SetFont(fontPath, db.queueTimerTextSize or QT.TEXT_SIZE, "")
             timerText:SetTextColor((c and c.r) or QT.TEXT_R, (c and c.g) or QT.TEXT_G,
                 (c and c.b) or QT.TEXT_B, 1)
@@ -1628,14 +1628,12 @@ end
 
                 timerText = timerBar:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 
-                if EllesmereUI.RegAccent then
-                    EllesmereUI.RegAccent({ type = "callback", fn = function()
-                        if GetFFD(timerBar).style then
-                            local r, g, b = EllesmereUI.GetAccentColor()
-                            timerBar:SetStatusBarColor(r, g, b, 0.75)
-                        end
-                    end })
-                end
+                EllesmereUI.RegAccent({ type = "callback", fn = function()
+                    if GetFFD(timerBar).style then
+                        local r, g, b = EllesmereUI.GetAccentColor()
+                        timerBar:SetStatusBarColor(r, g, b, 0.75)
+                    end
+                end })
             end
 
             -- Anchor to the dialog, not the popup wrapper, so the timer follows it when a mover addon drags the dialog independently.
@@ -2219,7 +2217,7 @@ do
             if headerText and headerText.SetTextColor then
                 local r, g, b = EllesmereUI._getPopupMenuButtonTextColor()
                 headerText:SetTextColor(r, g, b, 1)
-                local euiFont = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or "Fonts\\FRIZQT__.TTF"
+                local euiFont = EllesmereUI.GetFontPath("blizzardSkin") or "Fonts\\FRIZQT__.TTF"
                 local _, hSize = headerText:GetFont()
                 headerText:SetFont(euiFont, hSize or 16, "")
             end
@@ -2253,7 +2251,7 @@ do
                 for btn in GameMenuFrame.buttonPool:EnumerateActive() do ApplyButtonStyle(btn) end
             end
             -- The EUI/Unlock custom buttons are created by the PARENT addon and stored in ITS namespace FFD (EllesmereUI._GetFFD), not this file's local FFD; wrong table = dead code.
-            local pd = EllesmereUI._GetFFD and EllesmereUI._GetFFD(GameMenuFrame)
+            local pd = EllesmereUI._GetFFD(GameMenuFrame)
             if pd and pd.euiBtn then ApplyButtonStyle(pd.euiBtn) end
             if pd and pd.unlockBtn then ApplyButtonStyle(pd.unlockBtn) end
         end
@@ -2295,7 +2293,7 @@ do
                     hl:SetColorTexture(1, 1, 1, 0.1)
                     local fs = menuBtn:GetFontString()
                     if fs then
-                        local euiFont = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or nil
+                        local euiFont = EllesmereUI.GetFontPath("blizzardSkin") or nil
                         local _, size, flags = fs:GetFont()
                         fs:SetFont(euiFont or "Fonts\\FRIZQT__.TTF", (size or 14) - 2, flags or "")
                     end
@@ -2506,7 +2504,7 @@ do
     local anchorFrame
 
     local function ActiveProfile()
-        return EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+        return EllesmereUI.GetActiveProfileData()
     end
 
     -- Fixed mode is the permanent baseline: no toggle. Only the reskin master (off = vanilla tooltips) and Anchor to Cursor sideline it.
@@ -3236,7 +3234,7 @@ do
         return frame and frame.IsProtected and frame:IsProtected()
     end
     local function FireHoveredOnEnter()
-        local foci = (GetMouseFoci and GetMouseFoci()) or (GetMouseFocus and { GetMouseFocus() })
+        local foci = GetMouseFoci()
         local anchorFrame = foci and foci[1]
         if IsFrameForbidden(anchorFrame) then anchorFrame = nil end
         if foci then
@@ -3670,7 +3668,6 @@ end
     -- Anchored to the border TEXTURES when they exist, so it tracks whatever
     -- atlas size the style uses instead of guessing. Anchoring OUR texture to
     -- THEIRS is still a write on ours only -- the widget tree is untouched.
-    local COVER_PAD_X = 9   -- fallback horizontal reach: template border offset + 1px
     -- Ceiling on the vertical overhang the cover will absorb. Blizzard's border
     -- run is a couple of px taller than the bar; a decorative END CAP atlas can
     -- be far taller, and following that is what made the bar giant.
@@ -3741,47 +3738,6 @@ end
         if pad < 0 then pad = 0 end
         if pad > MAX_VPAD then pad = MAX_VPAD end
         return pad
-    end
-
-    -- EVERY point comes from the BAR. Nothing is anchored to Blizzard's border
-    -- textures any more.
-    --
-    -- Anchoring to them was an attempt to track arbitrary atlas sizes, and it
-    -- kept producing garbage. On the PlayerChoice style BorderLeft/BorderRight
-    -- EXIST but are EMPTY -- no atlas, degenerate rect -- so they are neither
-    -- nil (which would take the fallback) nor meaningful. Anchoring LEFT/RIGHT
-    -- to them stretched one cover across the entire screen. They are also
-    -- invisible to /framestack, which only lists hit-testable regions, so they
-    -- read as "absent" while still being present.
-    --
-    -- A fixed pad is deterministic and cannot blow up: the template offsets the
-    -- border art 8px past each end of the bar, so 9 covers it with a pixel to
-    -- spare regardless of what the atlas does.
-    -- The occluder reaches the FULL measured overhang -- uncapped by MAX_VPAD,
-    -- which governs the VISIBLE bar's height only. Sanity-limited so a
-    -- decorative end-cap atlas cannot spread a huge dark rectangle.
-    local MAX_OCCLUDE = 14
-    local function AnchorOccluder(c, bar)
-        local occ = c.euiOcc
-        if not occ then return end
-        local okB, barH = pcall(bar.GetHeight, bar)
-        local grow = 0
-        if okB and type(barH) == "number" and barH > 0 then
-            local tallest = barH
-            for _, k in ipairs({ "BorderCenter", "BGCenter", "BorderLeft", "BorderRight" }) do
-                local okT, t = pcall(HUDGet, bar, k)
-                if okT and t then
-                    local okH, h = pcall(t.GetHeight, t)
-                    if okH and type(h) == "number" and h > tallest then tallest = h end
-                end
-            end
-            grow = (tallest - barH) / 2
-            if grow < 0 then grow = 0 end
-            if grow > MAX_OCCLUDE then grow = MAX_OCCLUDE end
-        end
-        occ:ClearAllPoints()
-        occ:SetPoint("TOPLEFT", bar, "TOPLEFT", -COVER_PAD_X, grow)
-        occ:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", COVER_PAD_X, -grow)
     end
 
     -- Minimum on-screen cover HEIGHT (real pixels) for PLATE-HOSTED bars, the cog

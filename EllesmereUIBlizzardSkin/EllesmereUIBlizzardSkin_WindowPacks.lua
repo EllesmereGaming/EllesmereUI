@@ -7936,8 +7936,8 @@ local function UpdateMerchantItemLevels()
                     else
                         fs:SetPoint("TOPLEFT", btn, "TOPLEFT", 1, -1)
                     end
-                    local path = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
-                    local flag = (EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE"
+                    local path = (EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
+                    local flag = (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE"
                     fs:SetFont(path, 12, flag)
                     GetFFD(btn).merchantILvl = fs
                 end

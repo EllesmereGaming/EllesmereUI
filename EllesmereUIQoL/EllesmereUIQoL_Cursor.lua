@@ -27,9 +27,9 @@ local min, max = math.min, math.max
 local sin, cos = _G.sin or math.sin, _G.cos or math.cos  -- WoW globals are degree-based
 local GetTime = GetTime
 local GetCursorPosition = GetCursorPosition
-local GetSpellCooldown = C_Spell and C_Spell.GetSpellCooldown or GetSpellCooldown
-local UnitCastingInfo = UnitCastingInfo or CastingInfo
-local UnitChannelInfo = UnitChannelInfo or ChannelInfo
+local GetSpellCooldown = C_Spell.GetSpellCooldown
+local UnitCastingInfo = UnitCastingInfo
+local UnitChannelInfo = UnitChannelInfo
 
 local f, t, reticle
 local lastX, lastY
@@ -593,7 +593,7 @@ UpdateVisibility = function()
         shouldShow = InCombatLockdown() and true or false
     end
     -- Standard visibility options (returns true if should HIDE)
-    if shouldShow and EllesmereUI.CheckVisibilityOptions and EllesmereUI.CheckVisibilityOptions(p) then
+    if shouldShow and EllesmereUI.CheckVisibilityOptions(p) then
         shouldShow = false
     end
     -- Standard visibility mode (mouseover treated as always for cursor)
@@ -1344,9 +1344,7 @@ function ECL:OnInitialize()
     _G._ECL_Apply = Apply
     _G._ECL_UpdateVisibility = UpdateVisibility
     _G._ECL_ApplyCombatOnlyEvents = ApplyCombatOnlyEvents
-    if EllesmereUI and EllesmereUI.RegisterVisibilityUpdater then
-        EllesmereUI.RegisterVisibilityUpdater(UpdateVisibility)
-    end
+    EllesmereUI.RegisterVisibilityUpdater(UpdateVisibility)
     _G._ECL_ApplyGCDCircle = ApplyGCDCircle
     _G._ECL_ApplyCastCircle = ApplyCastCircle
     _G._ECL_RegisterUnlock = RegisterUnlockElements
@@ -1396,15 +1394,13 @@ function ECL:OnEnable()
     -- before the core resolves the profile accent, so Apply() above painted
     -- the parse-time fallback and is never called again. Also covers a
     -- mid-session accent change, which nothing pushed to us before.
-    if EllesmereUI.RegAccent then
-        EllesmereUI.RegAccent({ type = "callback", fn = function()
-            local p = ECL.db and ECL.db.profile
-            if not p then return end
-            if p.useAccentColor then Apply() end
-            if p.gcd and p.gcd.useAccentColor then ApplyGCDCircle() end
-            if p.castCircle and p.castCircle.useAccentColor then ApplyCastCircle() end
-        end })
-    end
+    EllesmereUI.RegAccent({ type = "callback", fn = function()
+        local p = ECL.db and ECL.db.profile
+        if not p then return end
+        if p.useAccentColor then Apply() end
+        if p.gcd and p.gcd.useAccentColor then ApplyGCDCircle() end
+        if p.castCircle and p.castCircle.useAccentColor then ApplyCastCircle() end
+    end })
 
     -- Apply GCD / Cast circles (creates on demand only when enabled)
     C_Timer.After(0.5, function()

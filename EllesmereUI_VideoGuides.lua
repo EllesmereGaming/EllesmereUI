@@ -141,45 +141,14 @@ local function BuildShell()
 
     -- Dimmer: eats stray clicks/wheel; clicking anywhere outside the panel
     -- closes the guide (the popup itself is mouse-enabled, so clicks over it
-    -- never reach this handler).
-    local dimmer = CreateFrame("Frame", "EUIVideoGuideDimmer", UIParent)
-    dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
-    dimmer:SetAllPoints(UIParent)
-    dimmer:EnableMouse(true)
-    dimmer:EnableMouseWheel(true)
-    dimmer:SetScript("OnMouseWheel", function() end)
-    dimmer:SetScript("OnMouseDown", Dismiss)
-    local dimTex = dimmer:CreateTexture(nil, "BACKGROUND")
-    dimTex:SetAllPoints()
-    dimTex:SetColorTexture(0, 0, 0, 0.35)
+    -- never reach this handler). No bump: Show() scales both frames per open,
+    -- so the edge width is read unscaled here, as before. Escape closes (the
+    -- EditBox path handles it while focused; this covers an unfocused box).
+    local dimmer, popup = EllesmereUI.BuildPopupShell("EUIVideoGuide", {
+        w = POPUP_W, h = POPUP_H, onDimmerDown = Dismiss, onEscape = Dismiss,
+    })
     ui.dimmer = dimmer
-
-    -- Panel
-    local popup = CreateFrame("Frame", "EUIVideoGuidePopup", dimmer)
-    popup:SetFrameStrata("FULLSCREEN_DIALOG")
-    popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
-    PP.Size(popup, POPUP_W, POPUP_H)
-    popup:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-    popup:EnableMouse(true)
     ui.popup = popup
-
-    local bg = popup:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(0.06, 0.08, 0.10, 1)
-
-    -- 1 physical-pixel white border (announcement chrome), scale-derived.
-    local onePhys = 1 / (popup:GetEffectiveScale() or 1)
-    local BRD_A = 0.15
-    local function MakeEdge()
-        local t = popup:CreateTexture(nil, "BORDER")
-        t:SetColorTexture(1, 1, 1, BRD_A)
-        if t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false); t:SetTexelSnappingBias(0) end
-        return t
-    end
-    local spT = MakeEdge(); spT:SetPoint("TOPLEFT", 0, 0); spT:SetPoint("TOPRIGHT", 0, 0); spT:SetHeight(onePhys)
-    local spB = MakeEdge(); spB:SetPoint("BOTTOMLEFT", 0, 0); spB:SetPoint("BOTTOMRIGHT", 0, 0); spB:SetHeight(onePhys)
-    local spL = MakeEdge(); spL:SetPoint("TOPLEFT", spT, "BOTTOMLEFT"); spL:SetPoint("BOTTOMLEFT", spB, "TOPLEFT"); spL:SetWidth(onePhys)
-    local spR = MakeEdge(); spR:SetPoint("TOPRIGHT", spT, "BOTTOMRIGHT"); spR:SetPoint("BOTTOMRIGHT", spB, "TOPRIGHT"); spR:SetWidth(onePhys)
 
     -- Art band: full-bleed dark well flush to the top edge, accent rule
     -- underneath. Per-guide art containers are children created in SetGuide.
@@ -321,14 +290,6 @@ local function BuildShell()
     footnote:SetJustifyH("CENTER")
     PP.Point(footnote, "BOTTOM", popup, "BOTTOM", 0, 16)
     ui.footnote = footnote
-
-    -- Escape closes (the EditBox path handles it while focused; this path
-    -- covers an unfocused box). Propagate everything else.
-    popup:EnableKeyboard(true)
-    popup:SetScript("OnKeyDown", function(self, key)
-        self:SetPropagateKeyboardInput(key ~= "ESCAPE")
-        if key == "ESCAPE" then Dismiss() end
-    end)
 end
 
 --- Populates the shared shell for one guide: texts, accent retints, art swap.
@@ -462,9 +423,9 @@ local function Show(id)
     local def = guides[id]
     if not def then return false end
     -- The trigger's widget tooltip is still on screen at click time.
-    if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+    EllesmereUI.HideWidgetTooltip()
     BuildShell()
-    local ppScale = (EllesmereUI.GetPopupScale and EllesmereUI.GetPopupScale()) or 1
+    local ppScale = (EllesmereUI.GetPopupScale()) or 1
     ui.dimmer:SetScale(ppScale)
     ui.popup:SetScale(EllesmereUI.PopupBump(1.15))
     SetGuide(id, def)
@@ -506,9 +467,7 @@ local function AttachTip(region, tipId, opts)
     local EG = EllesmereUI.ELLESMERE_GREEN
     if EG then
         icon:SetVertexColor(EG.r, EG.g, EG.b, 1)
-        if EllesmereUI.RegAccent then
-            EllesmereUI.RegAccent({ type = "vertex", obj = icon })
-        end
+        EllesmereUI.RegAccent({ type = "vertex", obj = icon })
     else
         icon:SetVertexColor(1, 1, 1, 0.9)
     end
@@ -523,14 +482,14 @@ local function AttachTip(region, tipId, opts)
     tip:SetScript("OnEnter", function(self)
         self:SetAlpha(1)
         if EllesmereUI.ShowWidgetTooltip then
-            local t = (EllesmereUI.L and EllesmereUI.L(tipText)) or tipText
-            local hint = (EllesmereUI.L and EllesmereUI.L("Shift + right click to hide video guide icons"))
+            local t = (EllesmereUI.L(tipText)) or tipText
+            local hint = (EllesmereUI.L("Shift + right click to hide video guide icons"))
                 or "Shift + right click to hide video guide icons"
             EllesmereUI.ShowWidgetTooltip(self, t .. "\n|cff909090" .. hint .. "|r")
         end
     end)
     tip:SetScript("OnLeave", function(self)
-        if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+        EllesmereUI.HideWidgetTooltip()
         self:SetAlpha(0.8)
     end)
     tip:RegisterForClicks("LeftButtonUp", "RightButtonUp")
@@ -542,16 +501,16 @@ local function AttachTip(region, tipId, opts)
             if not IsShiftKeyDown() then return end
             if not EllesmereUIDB then EllesmereUIDB = {} end
             EllesmereUIDB.tutorialTipsDisabled = true
-            if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+            EllesmereUI.HideWidgetTooltip()
             RefreshTips()
             -- Re-run the active page's widget refreshers so the Global
             -- Settings toggle flips live if it is on screen right now.
-            if EllesmereUI.RefreshPage then EllesmereUI:RefreshPage() end
+            EllesmereUI:RefreshPage()
             return
         end
         -- One shot: retire forever, then open the guide.
         MarkTipSeen(tipId)
-        if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+        EllesmereUI.HideWidgetTooltip()
         self:Hide()
         Show(opts.guide or tipId)
     end)

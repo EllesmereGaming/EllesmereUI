@@ -355,9 +355,9 @@ end
 -------------------------------------------------------------------------------
 local function ApplyFont(fs, size)
     if not fs then return end
-    local font = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or "Fonts/FRIZQT__.TTF"
-    local flag = EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("blizzardSkin") or ""
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, flag == "") end
+    local font = EllesmereUI.GetFontPath("blizzardSkin") or "Fonts/FRIZQT__.TTF"
+    local flag = EllesmereUI.GetFontOutlineFlag("blizzardSkin") or ""
+    EllesmereUI.PrimeFontShadow(fs, flag == "")
     fs:SetFont(font, size or 12, flag)
 end
 

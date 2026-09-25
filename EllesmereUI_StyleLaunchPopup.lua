@@ -71,46 +71,12 @@ local function ShowStyleLaunchPopup()
     local CARDS_TOP = 132
     local POPUP_W = 700
     local POPUP_H = CARDS_TOP + (EllesmereUI.STYLE_CARD_DISPLAY_H or 248) + 22 + 82
-    local ppScale = (EllesmereUI.GetPopupScale and EllesmereUI.GetPopupScale()) or 1
-
-    -- Dimmer (eats clicks; no close on outside click)
-    local dimmer = CreateFrame("Frame", "EUIStyleLaunchIntroDimmer", UIParent)
-    dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
-    dimmer:SetAllPoints(UIParent)
-    dimmer:EnableMouse(true)
-    dimmer:EnableMouseWheel(true)
-    dimmer:SetScript("OnMouseWheel", function() end)
-    dimmer:SetScale(ppScale)
-    local dimTex = dimmer:CreateTexture(nil, "BACKGROUND")
-    dimTex:SetAllPoints()
-    dimTex:SetColorTexture(0, 0, 0, 0.35)
-
-    -- Panel
-    local popup = CreateFrame("Frame", "EUIStyleLaunchIntroPopup", dimmer)
-    popup:SetScale((EllesmereUI.PopupBump and EllesmereUI.PopupBump(1.15)) or 1.15)
-    popup:SetFrameStrata("FULLSCREEN_DIALOG")
-    popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
-    PP.Size(popup, POPUP_W, POPUP_H)
-    popup:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-    popup:EnableMouse(true)
-
-    local bg = popup:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(0.06, 0.08, 0.10, 1)
-
-    -- 1 physical-pixel white border (alpha 0.15), scale-derived so each edge
-    -- stays exactly one physical pixel. Four edge textures, snap disabled.
-    local onePhys = 1 / (popup:GetEffectiveScale() or 1)
-    local function MakeEdge()
-        local t = popup:CreateTexture(nil, "BORDER")
-        t:SetColorTexture(1, 1, 1, 0.15)
-        if t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false); t:SetTexelSnappingBias(0) end
-        return t
-    end
-    local spT = MakeEdge(); spT:SetPoint("TOPLEFT", 0, 0); spT:SetPoint("TOPRIGHT", 0, 0); spT:SetHeight(onePhys)
-    local spB = MakeEdge(); spB:SetPoint("BOTTOMLEFT", 0, 0); spB:SetPoint("BOTTOMRIGHT", 0, 0); spB:SetHeight(onePhys)
-    local spL = MakeEdge(); spL:SetPoint("TOPLEFT", spT, "BOTTOMLEFT"); spL:SetPoint("BOTTOMLEFT", spB, "TOPLEFT"); spL:SetWidth(onePhys)
-    local spR = MakeEdge(); spR:SetPoint("TOPRIGHT", spT, "BOTTOMRIGHT"); spR:SetPoint("BOTTOMRIGHT", spB, "TOPRIGHT"); spR:SetWidth(onePhys)
+    -- Dimmer eats clicks (no close on outside click). Escape = Got It.
+    local Finish
+    local dimmer, popup = EllesmereUI.BuildPopupShell("EUIStyleLaunchIntro", {
+        w = POPUP_W, h = POPUP_H, bump = 1.15,
+        onEscape = function() Finish(false) end,
+    })
 
     -- Eyebrow
     local eyebrow = popup:CreateFontString(nil, "OVERLAY")
@@ -140,16 +106,14 @@ local function ShowStyleLaunchPopup()
     EllesmereUI.BuildStyleCards(popup, -CARDS_TOP, { display = true })
 
     -- Stamp + close. openStyle=true opens Global Settings > Style.
-    local function Finish(openStyle)
+    Finish = function(openStyle)
         if not EllesmereUIDB then EllesmereUIDB = {} end
         EllesmereUIDB.styleLaunchIntroShown = true
         dimmer:Hide()
         ReleaseConflictCheck()
         if not openStyle then return end
         if InCombatLockdown() then
-            if EllesmereUI.Print then
-                EllesmereUI.Print("|cffff6060[EllesmereUI]|r Cannot open options during combat. The looks are under Global Settings > Style.")
-            end
+            EllesmereUI.PrintError("Cannot open options during combat. The looks are under Global Settings > Style.")
             return
         end
         if EllesmereUI.NavigateToElementSettings then
@@ -159,40 +123,14 @@ local function ShowStyleLaunchPopup()
         end
     end
 
-    -- Bordered button matching the EUI style (primary = accent, secondary =
-    -- dim white that brightens on hover -- nothing destructive here).
-    local BTN_W, BTN_H, BTN_GAP = 200, 38, 14
-    local function MakeActionButton(text, r, g, b, secondary)
-        local btn = CreateFrame("Button", nil, popup)
-        btn:SetFrameLevel(popup:GetFrameLevel() + 2)
-        PP.Size(btn, BTN_W, BTN_H)
-        local bbg = btn:CreateTexture(nil, "BACKGROUND")
-        bbg:SetAllPoints()
-        bbg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
-        local brd = MakeBorder(btn, r, g, b, secondary and 0.35 or 0.9, PP)
-        local lbl = btn:CreateFontString(nil, "OVERLAY")
-        lbl:SetFont(FONT, 15, "")
-        PP.Point(lbl, "CENTER", btn, "CENTER", 0, 0)
-        lbl:SetTextColor(r, g, b, secondary and 0.55 or 0.9)
-        lbl:SetText(text)
-        btn:SetScript("OnEnter", function()
-            lbl:SetTextColor(r, g, b, 1)
-            brd:SetColor(r, g, b, secondary and 0.8 or 1)
-        end)
-        btn:SetScript("OnLeave", function()
-            lbl:SetTextColor(r, g, b, secondary and 0.55 or 0.9)
-            brd:SetColor(r, g, b, secondary and 0.35 or 0.9)
-        end)
-        return btn
-    end
-
     -- Primary "Restyle My UI" on the left, secondary "Got It" on the
     -- right, centered as a pair around the popup's bottom center.
-    local openBtn = MakeActionButton(EllesmereUI.L("Restyle My UI"), EG.r, EG.g, EG.b, false)
+    local BTN_W, BTN_GAP = 200, 14
+    local openBtn = EllesmereUI.MakeActionButton(popup, FONT, EllesmereUI.L("Restyle My UI"), EG.r, EG.g, EG.b, { w = BTN_W })
     PP.Point(openBtn, "BOTTOMRIGHT", popup, "BOTTOM", -BTN_GAP / 2, 44)
     openBtn:SetScript("OnClick", function() Finish(true) end)
 
-    local gotBtn = MakeActionButton(EllesmereUI.L("Got It"), 1, 1, 1, true)
+    local gotBtn = EllesmereUI.MakeActionButton(popup, FONT, EllesmereUI.L("Got It"), 1, 1, 1, { w = BTN_W, secondary = true, hoverA = 0.8 })
     PP.Point(gotBtn, "BOTTOMLEFT", popup, "BOTTOM", BTN_GAP / 2, 44)
     gotBtn:SetScript("OnClick", function() Finish(false) end)
 
@@ -204,14 +142,6 @@ local function ShowStyleLaunchPopup()
     footnote:SetJustifyH("CENTER")
     PP.Point(footnote, "BOTTOM", popup, "BOTTOM", 0, 16)
     footnote:SetText(EllesmereUI.L("Global Settings > Style sets the look for the whole UI or for each module."))
-
-    -- Escape = Got It (non-destructive default). Consume Escape, propagate
-    -- other keys so chat/UI shortcuts still work behind the dimmer.
-    popup:EnableKeyboard(true)
-    popup:SetScript("OnKeyDown", function(self, key)
-        self:SetPropagateKeyboardInput(key ~= "ESCAPE")
-        if key == "ESCAPE" then Finish(false) end
-    end)
 
     dimmer:Show()
 end

@@ -1,0 +1,20 @@
+## Interface: 16001
+## AllowLoadGameType: camelot
+## Title: |cff0cd29fEllesmereUI|r Forever Essentials
+## Category: |cff0cd29fEllesmere|rUI
+## Group: EllesmereUI
+## Notes: Essential tools for WoW Forever.
+## Author: Ellesmere
+## Version: 9.2.9
+## Dependencies: EllesmereUI
+## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
+
+# Main Lua
+EllesmereUIForeverEssentials.lua
+
+# Travel (flight timer)
+EllesmereUIForeverEssentials_FlightTimerData.lua
+EllesmereUIForeverEssentials_FlightTimer.lua
+
+# Threat (threat meter)
+EllesmereUIForeverEssentials_ThreatMeter.lua

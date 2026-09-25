@@ -828,7 +828,11 @@ do
             local EG2 = ELLESMERE_GREEN
             for _, row in ipairs(allCheckboxes) do
                 if not row._locked and not row._disabled and not row._lockedOn and row._specID then
-                    local _, _, _, _, specRole = GetSpecializationInfoByID(row._specID)
+                    -- The by-id lookup is not registered on WoW Forever: no role there.
+                    local specRole
+                    if GetSpecializationInfoByID then
+                        specRole = select(5, GetSpecializationInfoByID(row._specID))
+                    end
                     if specRole == role then
                         row._checked = true
                         assignments[row._specID] = true

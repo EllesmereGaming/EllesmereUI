@@ -15,49 +15,7 @@ local PP = EllesmereUI.PP
 
 -- Per-addon border texture defaults (size key = borderSize 0-4); shared by
 -- TBB, class/power/health bars, and cast bar
-do
-    local function AllSizes(ox, oy, sx, sy)
-        local t = {}
-        for k = 0, 4 do t[k] = { offsetX = ox, offsetY = oy, shiftX = sx, shiftY = sy } end
-        return t
-    end
-    EllesmereUI.RegisterBorderDefaults("resourcebars", {
-        ["glow"] = {
-            defaultSize = 1,
-            sizes = AllSizes(0, 0, 0, 0),
-        },
-        ["blizz"] = {
-            defaultSize = 3,
-            sizes = {
-                [0] = { offsetX = 0, offsetY = 0, shiftX = 0, shiftY = 0 },
-                [1] = { offsetX = 2, offsetY = 1, shiftX = 0, shiftY = 0 },
-                [2] = { offsetX = 3, offsetY = 2, shiftX = 1, shiftY = 0 },
-                [3] = { offsetX = 4, offsetY = 2, shiftX = 1, shiftY = 0 },
-                [4] = { offsetX = 4, offsetY = 2, shiftX = 1, shiftY = 0 },
-            },
-        },
-        ["dialog"] = {
-            defaultSize = 1,
-            sizes = {
-                [0] = { offsetX = 0, offsetY = 0, shiftX = 0, shiftY = 0 },
-                [1] = { offsetX = 3, offsetY = 3, shiftX = 0, shiftY = 0 },
-                [2] = { offsetX = 3, offsetY = 5, shiftX = 0, shiftY = 0 },
-                [3] = { offsetX = 3, offsetY = 5, shiftX = 0, shiftY = 0 },
-                [4] = { offsetX = 5, offsetY = 10, shiftX = 0, shiftY = 0 },
-            },
-        },
-        ["sm:Blizzard Achievement Wood"] = {
-            defaultSize = 1,
-            sizes = {
-                [0] = { offsetX = 0, offsetY = 0, shiftX = 0, shiftY = 0 },
-                [1] = { offsetX = 1, offsetY = 1, shiftX = 0, shiftY = 0 },
-                [2] = { offsetX = 1, offsetY = 1, shiftX = 0, shiftY = 0 },
-                [3] = { offsetX = 1, offsetY = 6, shiftX = 0, shiftY = 0 },
-                [4] = { offsetX = 1, offsetY = 8, shiftX = 0, shiftY = 0 },
-            },
-        },
-    })
-end
+EllesmereUI.RegisterBorderDefaults("resourcebars", EllesmereUI.BORDER_DEFAULTS_BARS)
 
 -- Snap x/y to the physical pixel grid. Optional `pos` (CENTER/CENTER anchor)
 -- gets dim-aware snapping, preserving the +0.5 offset odd-pixel-dim frames
@@ -94,25 +52,8 @@ local GetInventoryItemID = GetInventoryItemID
 -------------------------------------------------------------------------------
 --  Constants
 -------------------------------------------------------------------------------
-local RB_FONT_FALLBACK = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
-local function GetRBFont()
-    if EllesmereUI and EllesmereUI.GetFontPath then
-        return EllesmereUI.GetFontPath("resourceBars")
-    end
-    return RB_FONT_FALLBACK
-end
-local function GetRBOutline()
-    return (EllesmereUI and EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("resourceBars")) or ""
-end
-local function GetRBUseShadow()
-    return not EllesmereUI or not EllesmereUI.GetFontUseShadow or EllesmereUI.GetFontUseShadow("resourceBars")
-end
-local function SetRBFont(fs, font, size)
-    if not (fs and fs.SetFont) then return end
-    local f = GetRBOutline()
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, f == "") end
-    fs:SetFont(font, size, f)
-end
+local function GetRBFont() return EllesmereUI.GetFontPath("resourceBars") end
+local function SetRBFont(fs, font, size) EllesmereUI.ApplyModuleFont(fs, font, size, "resourceBars") end
 -- Shared with EUI_ResourceBars_SwingTimer.lua (same font lane as the cast bar text).
 ns.GetRBFont = GetRBFont
 ns.SetRBFont = SetRBFont
@@ -336,8 +277,6 @@ ns._crAtlasClass = {
 function ns.GetBlizzardPowerAtlas(powerKey)
     local resolved = ResolvePowerKey(powerKey) or powerKey
     local suffix = ns._crAtlasSuffix[resolved]
-    local dbg = { power = powerKey, resolved = resolved, suffix = suffix }
-    _G._ERB_AtlasDebug = dbg
     if not suffix or not (C_Texture and C_Texture.GetAtlasInfo) then return nil end
     -- Try Midnight family first (e.g. "Unit_Druid_AstralPower_Fill"), then classless
     -- and legacy HUD spellings; each candidate is validated, so a miss falls back.
@@ -350,11 +289,9 @@ function ns.GetBlizzardPowerAtlas(powerKey)
     candidates[#candidates + 1] = "Unit_" .. suffix .. "_Fill"
     candidates[#candidates + 1] = "UI-HUD-UnitFrame-Player-PortraitOff-Bar-" .. suffix
     candidates[#candidates + 1] = "UI-HUD-UnitFrame-Player-PortraitOn-Bar-" .. suffix
-    dbg.tried = candidates
     for i = 1, #candidates do
         local name = candidates[i]
         if C_Texture.GetAtlasInfo(name) then
-            dbg.hit = name
             return name
         end
     end
@@ -726,13 +663,14 @@ end
 local BAR_TYPE_SPECS = {}
 
 local function BuildBarTypeSpecMap()
-    -- Vanilla-based clients (WoW Forever) have classes but no specialization
-    -- API at all, so the map stays empty there.
-    if not (GetNumClasses and GetNumSpecializationsForClassID and GetSpecializationInfoForClassID) then return end
+    -- The spec positions below are retail's: WoW Forever's specs are its
+    -- vanilla talent trees, none of which has these resources, so the map
+    -- stays empty there.
+    if EllesmereUI.IS_FOREVER then return end
     for classID = 1, GetNumClasses() do
         local _, classFile = GetClassInfo(classID)
         if classFile then
-            local numSpecs = GetNumSpecializationsForClassID(classID) or 0
+            local numSpecs = C_SpecializationInfo.GetNumSpecializationsForClassID(classID) or 0
             for specIndex = 1, numSpecs do
                 local specID = GetSpecializationInfoForClassID(classID, specIndex)
                 if specID then
@@ -1240,6 +1178,8 @@ local DEFAULTS = {
             borderTexture = "solid",
             darkTheme   = false,
             useBlizzardAtlas = false,  -- bar-style class resources use Blizzard's player-frame power atlas as the fill
+            blizzardClassArt = false,  -- Blizzard's own class resource frame replaces this bar (specs that have one)
+            blizzardClassArtScale = 1,
             classColored = true,
             resourceColored = false,  -- "Class Resource Color" fill mode (per-spec resource/power color); takes precedence over classColored when on
             fillR       = 0.95, fillG = 0.90, fillB = 0.60, fillA = 1,
@@ -1401,7 +1341,7 @@ local DEFAULTS = {
             gradientDir   = "HORIZONTAL",  -- "HORIZONTAL","VERTICAL"
             texture       = "none",
             showSpark     = false,
-            depleteFill   = false,  -- start full and deplete instead of filling up
+            depleteFill   = true,   -- start full and deplete instead of filling up
             idleShowFill  = nil,    -- true = idle row sits full of its fill colour
             hideWhenIdle  = false,  -- hide the whole bar while no swing is running
             showTime      = true,   -- remaining seconds on each row
@@ -1409,17 +1349,19 @@ local DEFAULTS = {
             showMH        = true,   -- per-row toggles (a row also needs a weapon in the slot)
             showOH        = true,
             showR         = true,
+            combineHands  = false,  -- off hand as a spark on the Main Hand bar instead of its own row
             textSize      = 11,
             rangeCheck    = true,   -- dim rows whose target is out of auto-attack range
             outOfRangeAlpha = 0.4,
             queueHighlight = true,  -- melee rows take the queue colour + spell name while an on-next-swing attack is queued
-            queueR = 1, queueG = 0.70, queueB = 0.20, queueA = 1,
+            queueR = 1, queueG = 0.70, queueB = 0.20, queueA = 1,   -- Heroic Strike / Maul
+            queueCleaveR = 0.95, queueCleaveG = 0.35, queueCleaveB = 0.25, queueCleaveA = 1,   -- Cleave
             borderSize    = 1,
             borderR       = 0, borderG = 0, borderB = 0, borderA = 1,
             borderTexture = "solid",
             bgR           = 0, bgG = 0, bgB = 0, bgA = 0.7,
             frameStrata   = "MEDIUM",
-            visibility    = "always",
+            visibility    = "in_combat",   -- swing_timer_visibility_in_combat_v1 moves old "always" profiles
             visHideHousing = false,
             visOnlyInstances = false,
             visHideMounted = false,
@@ -2844,14 +2786,14 @@ local function ApplyBarAnchor(frame, anchorKey, anchorPos, offsetX, offsetY, gro
         end)
         return true
     elseif anchorKey == "partyframe" then
-        local partyFrame = EllesmereUI and EllesmereUI.FindPlayerPartyFrame and EllesmereUI.FindPlayerPartyFrame()
+        local partyFrame = EllesmereUI.FindPlayerPartyFrame()
         if not partyFrame then return false end
         local framePoint, targetPoint = GetAnchorPoints()
         frame:ClearAllPoints()
         frame:SetPoint(framePoint, partyFrame, targetPoint, offsetX, offsetY)
         return true
     elseif anchorKey == "playerframe" then
-        local playerFrame = EllesmereUI and EllesmereUI.FindPlayerUnitFrame and EllesmereUI.FindPlayerUnitFrame()
+        local playerFrame = EllesmereUI.FindPlayerUnitFrame()
         if not playerFrame then return false end
         local framePoint, targetPoint = GetAnchorPoints()
         frame:ClearAllPoints()
@@ -3290,8 +3232,9 @@ local function BuildBars()
                 EllesmereUI.BorderPx(hp.borderSizePx, hp.borderSize, hp.borderTexture))
         end
 
-        -- Bar texture (must be applied before colors since SetStatusBarTexture resets vertex color)
-        ApplyBarTexture(healthBar, g.barTexture or "none")
+        -- Bar texture (must be applied before colors since SetStatusBarTexture resets vertex color).
+        -- "Choose texture per bar" (splitTex) gives health its own key; nil follows the main row.
+        ApplyBarTexture(healthBar, (p.splitTex == true and hp.barTexture) or g.barTexture or "none")
 
         -- Colors: custom colored > class color. Gradient is additive: when enabled
         -- it fills from the resolved custom/class base to the gradient end color.
@@ -3467,8 +3410,9 @@ local function BuildBars()
                 EllesmereUI.BorderPx(pp.borderSizePx, pp.borderSize, pp.borderTexture))
         end
 
-        -- Bar texture (must be applied before colors since SetStatusBarTexture resets vertex color)
-        ApplyBarTexture(primaryBar, g.barTexture or "none")
+        -- Bar texture (must be applied before colors since SetStatusBarTexture resets vertex color).
+        -- Same per-bar rule as health: power's own key only while splitTex is on.
+        ApplyBarTexture(primaryBar, (p.splitTex == true and pp.barTexture) or g.barTexture or "none")
 
         -- Colors: custom colored > power type color. Gradient is additive: when on
         -- it fills from the resolved custom/power base to the gradient end color.
@@ -3554,6 +3498,11 @@ local function BuildBars()
         secondaryFrame:SetFrameStrata(g.frameStrata or "MEDIUM")
         secondaryFrame:SetFrameLevel(10)
     end
+    -- Blizzard Class Resource Art (EUI_ResourceBars_BlizzClassArt.lua): claims or
+    -- hands back Blizzard's class resource frame and sets ns._erbArtOn, which
+    -- stands the pips down at the end of this block while the slot keeps its
+    -- size and position for anchors, the unlock mover, shift and expand.
+    if ns.ERB_BlizzArtSync then ns.ERB_BlizzArtSync(sp, cachedSecondary, secondaryFrame) end
     if sp.enabled ~= false and not IsSpecDisabled(sp) and cachedSecondary then
 
         local maxPts = cachedSecondary.max or 5
@@ -4111,7 +4060,12 @@ local function BuildBars()
         end
 
         secondaryFrame:Show()
-        secondaryFrame:SetAlpha(ns.ResolveBarAlpha(sp))
+        if ns._erbArtOn then
+            -- Blizzard's frame stands in: the slot stays shown and sized at zero alpha.
+            EllesmereUI.SetElementVisibility(secondaryFrame, false)
+        else
+            secondaryFrame:SetAlpha(ns.ResolveBarAlpha(sp))
+        end
     elseif secondaryFrame then
         -- Enabled but no resource for this spec: keep the frame positioned
         -- at zero alpha so anchored elements have a valid target.
@@ -5406,6 +5360,8 @@ IP.UpdateText = function()
 end
 
 local function UpdateSecondaryResource()
+    -- Blizzard Class Resource Art stands in: the pips are unseen, paint nothing.
+    if ns._erbArtOn then return end
     if not secondaryFrame or not secondaryFrame:IsShown() then return end
     if not cachedSecondary then return end
 
@@ -6706,7 +6662,7 @@ end
 local function ShouldShowSecondary()
     local sp = _G._ERB_ResolveSecondaryCfg()
     -- Check visibility options first
-    if EllesmereUI and EllesmereUI.CheckVisibilityOptions and EllesmereUI.CheckVisibilityOptions(sp) then return false end
+    if EllesmereUI.CheckVisibilityOptions(sp) then return false end
     -- Multi-select / dragonriding path (nil = legacy single mode below)
     if EllesmereUI and EllesmereUI.EvalVisibilityExtended then
         local st = ERB._visState
@@ -6738,7 +6694,7 @@ end
 
 local function ShouldShowBar(barProfile)
     -- Check visibility options first
-    if EllesmereUI and EllesmereUI.CheckVisibilityOptions and EllesmereUI.CheckVisibilityOptions(barProfile) then return false end
+    if EllesmereUI.CheckVisibilityOptions(barProfile) then return false end
     -- Multi-select / dragonriding path (nil = legacy single mode below)
     if EllesmereUI and EllesmereUI.EvalVisibilityExtended then
         local st = ERB._visState
@@ -6835,8 +6791,20 @@ local function UpdateVisibility()
         local sp = _G._ERB_ResolveSecondaryCfg()
         local vis = sp and sp.enabled ~= false and not IsSpecDisabled(sp) and not _G._ERB_BarHiddenByForm(sp, true) and cachedSecondary and not inVehicle and ShouldShowSecondary()
         ERB._moEligible.secondary = (vis == "mouseover")
-        if grp then ns._erbGrpS = (vis == true) and not secondaryFrame._erbMouseTrack end
-        if vis == true then
+        -- Blizzard Class Resource Art: the host holding Blizzard's frame takes
+        -- this visibility; while that frame stands in for the pips the slot
+        -- stays at zero alpha and out of the Border Around All group.
+        local artOn, artHost = ns._erbArtOn, ns._erbArtHost
+        if grp then ns._erbGrpS = (vis == true) and not artOn and not secondaryFrame._erbMouseTrack end
+        if artHost then
+            if vis == true then
+                EllesmereUI.SetElementVisibility(artHost, true)
+                artHost:SetAlpha(ns.ResolveBarAlpha(sp))
+            else
+                EllesmereUI.SetElementVisibility(artHost, false)
+            end
+        end
+        if vis == true and not artOn then
             secondaryFrame:Show()
             EllesmereUI.SetElementVisibility(secondaryFrame, true)
             secondaryFrame:SetAlpha(ns.ResolveBarAlpha(sp))
@@ -6915,7 +6883,10 @@ end, 1 / 30)
 -- behavior is identical when cs exists; the difference is only that execution
 -- can now fall through to the new Power/Health checks when it doesn't.
 ns.PollTick = EllesmereUI.Tick.NewAnimTicker(CreateFrame("Frame"), function()    local cs = cachedSecondary
-    if cs then
+    -- Blizzard Class Resource Art stands in: nothing to poll for the pips. Gated
+    -- per CRB section rather than returning early, so Power/Health buff polling
+    -- below keeps running; with nothing left to poll the ticker still stops.
+    if cs and not ns._erbArtOn then
         local pwr, typ = cs.power, cs.type
         if _essenceNextTick and pwr == PT.ESSENCE then
             UpdateSecondaryResource()
@@ -6924,7 +6895,7 @@ ns.PollTick = EllesmereUI.Tick.NewAnimTicker(CreateFrame("Frame"), function()   
     end
     ns._pollFlip = not ns._pollFlip
     if ns._pollFlip then return true end
-    if cs then
+    if cs and not ns._erbArtOn then
         local pwr, typ = cs.power, cs.type
         if typ == "runes" or typ == "custom" or typ == "bar" or cs.frac then
             -- cs.frac (Destruction shard fragments): sub-unit movement, including
@@ -6971,7 +6942,8 @@ end, 0.05)
 -- condition here) or be event-driven -- NEVER a per-frame OnUpdate.
 function ns.ArmTick()
     local cs = cachedSecondary
-    if cs then
+    -- Blizzard Class Resource Art stands in for the pips: arm nothing for them.
+    if cs and not ns._erbArtOn then
         local pwr, typ = cs.power, cs.type
         if pwr == "IRONFUR_BAR" or pwr == "IGNOREPAIN_BAR" then
             ns.MotionTick.Start()
@@ -7177,8 +7149,11 @@ function ns.ERB_CastClassic() return ns.ERB_CastStyle() == "classic" end
 -- profile; the dropdown stays the user's afterwards. Run by the Style page
 -- on the switch to either stock style and at enable for a profile that
 -- arrived already switched (an import, an older build).
--- The cast bar keys the Style page keeps per style (its SLOT_KEYS).
+-- The cast bar and bar keys the Style page keeps per style (its SLOT_KEYS).
 ns._erbCastSlotKeys = { "texture" }
+ns._erbBarsSlotKeys = { "general.barTexture", "splitTex", "health.barTexture", "primary.barTexture",
+    "general.classicBorderAll", "general.classicBorderAllSepSize",
+    "general.classicBorderAllSepR", "general.classicBorderAllSepG", "general.classicBorderAllSepB" }
 function ns.ERB_SeedStockCast(cb)
     if not cb or cb.stockTextureSeeded then return end
     cb.stockTextureSeeded = true
@@ -7187,7 +7162,8 @@ end
 -- Classic WoW UI on the health, power and class resource bars, once per
 -- profile (the controls stay the user's afterwards): Border Around All on
 -- when the shown bars already sit as one anchored stack, and "Plating" as
--- the bar texture. Run by the Style page on the switch and at enable for a
+-- the bar texture (on the health and power keys too while "Choose texture per
+-- bar" is on). Run by the Style page on the switch and at enable for a
 -- profile that arrives already switched.
 function ns.ERB_SeedStockBars(p, styleKey)
     local g = p and p.general
@@ -7205,6 +7181,9 @@ function ns.ERB_SeedStockBars(p, styleKey)
     if g.classicTextureSeeded then return end
     g.classicTextureSeeded = true
     g.barTexture = "plating"
+    if p.splitTex == true then
+        p.health.barTexture, p.primary.barTexture = "plating", "plating"
+    end
 end
 -- The style the health, power and class resource bars render this session,
 -- latched like the cast bar's. Blizzard Style: the personal resource
@@ -7526,7 +7505,8 @@ function ns.ERB_GroupCheck(p)
             v = pp and IsVerticalOrientation(pp.orientation or g.orientation)
             l = (pp and pp.width) or 214
         else
-            inBar = sp and sp.enabled ~= false and hasRes
+            -- Blizzard Class Resource Art stands outside the group frame.
+            inBar = sp and sp.enabled ~= false and hasRes and not ns._erbArtOn
                 and not (secondaryFrame and secondaryFrame._erbMouseTrack
                     or (not secondaryFrame and NormalizeAnchorKey(sp.anchorTo) == "mouse"))
                 and sp.visibility ~= "never" and ShouldShowSecondary() ~= "mouseover"
@@ -8172,9 +8152,7 @@ BuildCastBar = function()
     -- ResourceBars only claims Blizzard's player cast bar while its own
     -- replacement bar is active. The shared helper arbitrates ownership
     -- across EUI modules and releases control cleanly for other addons.
-    if EllesmereUI and EllesmereUI.SetPlayerCastBarSuppressed then
-        EllesmereUI.SetPlayerCastBarSuppressed("ResourceBars", cb.enabled)
-    end
+    EllesmereUI.SetPlayerCastBarSuppressed("ResourceBars", cb.enabled)
 
     if not cb.enabled then
         if castBarFrame then EllesmereUI.SetElementVisibility(castBarFrame, false) end
@@ -10439,7 +10417,7 @@ local function LayoutTotemBar()
     local timerSize = tb.timerSize or 11
     local scaledTimerSize = math.max(6, math.floor(timerSize / iconScale + 0.5))
     local fontPath = GetRBFont()
-    local outlineMode = GetRBOutline()
+    local outlineMode = EllesmereUI.GetFontOutlineFlag("resourceBars")
 
     wipe(_totemActiveSet)
     for i, btn in ipairs(buttons) do
@@ -10846,7 +10824,7 @@ function ERB:ApplyAll()
     -- condition). Secure frame creation + RegisterStateDriver both need combat OOC.
     if not ERB._vehicleProxy then
         local function InitVehicleProxy()
-            if ERB._vehicleProxy or not EllesmereUI.SecureSnippetsOK() then return end
+            if ERB._vehicleProxy then return end
             ERB._vehicleProxy = CreateFrame("Frame", nil, UIParent, "SecureHandlerStateTemplate")
             ERB._vehicleProxy:SetAttribute("_onstate-erbvehicle", [[
                 self:CallMethod("OnVehicleStateChanged", newstate)
@@ -10880,9 +10858,7 @@ function ERB:ApplyAll()
 end
 
 local function ScheduleRosterApply()
-    if EllesmereUI and EllesmereUI.InvalidateFrameCache then
-        EllesmereUI.InvalidateFrameCache()
-    end
+    EllesmereUI.InvalidateFrameCache()
     C_Timer.After(0.2, function()
         ERB:ApplyAll()
     end)
@@ -11113,9 +11089,7 @@ local function OnEvent(self, event, ...)
             HandleIronfurCast(spellID)
             IP.HandleCast(spellID)
             if EllesmereUI then
-                if EllesmereUI.HandleTipOfTheSpear then
-                    EllesmereUI.HandleTipOfTheSpear(event, unit, castGUID, spellID)
-                end
+                EllesmereUI.HandleTipOfTheSpear(event, unit, castGUID, spellID)
             end
             if cachedSecondary and (cachedSecondary.type == "custom"
                or cachedSecondary.power == "IRONFUR_BAR") then
@@ -11128,9 +11102,7 @@ local function OnEvent(self, event, ...)
         ironfurGoEUntil = 0
         IP.hashEndTime = 0
         if EllesmereUI then
-            if EllesmereUI.HandleTipOfTheSpear then
-                EllesmereUI.HandleTipOfTheSpear(event)
-            end
+            EllesmereUI.HandleTipOfTheSpear(event)
         end
     elseif event == "PLAYER_ENTERING_WORLD" then
         C_Timer.After(0.5, function()
@@ -11398,7 +11370,12 @@ function ERB:OnEnable()
         end
         RegisterBarHover("health", function() return healthBar end)
         RegisterBarHover("primary", function() return primaryBar end)
-        RegisterBarHover("secondary", function() return secondaryFrame end)
+        -- Blizzard Class Resource Art: hover reveals the host holding Blizzard's
+        -- frame (nil while it waits to be claimed at login).
+        RegisterBarHover("secondary", function()
+            if ns._erbArtOn then return ns._erbArtHost end
+            return secondaryFrame
+        end)
     end
     eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
     eventFrame:RegisterUnitEvent("UNIT_AURA", "player")
@@ -11453,7 +11430,16 @@ function ERB:OnEnable()
         end
         ns.ERB_SeedStockCast(cb)
     end
-    if ns.ERB_BarsClassic() then ns.ERB_SeedStockBars(self.db.profile, "classic") end
+    -- The same for the bars: an unseeded profile keeps its own values in the
+    -- EllesmereUI slot before the Classic seed writes over them.
+    if ns.ERB_BarsClassic() then
+        local p = self.db.profile
+        local g = p and p.general
+        if g and not g.classicTextureSeeded and not g.borderAllSeeded and EllesmereUI.BankEuiStyleSlot then
+            EllesmereUI.BankEuiStyleSlot(p, ns._erbBarsSlotKeys)
+        end
+        ns.ERB_SeedStockBars(p, "classic")
+    end
 
     -- Apply immediately at PLAYER_LOGIN so positions are set before combat
     -- lockdown blocks ApplySavedPositions. The PLAYER_ENTERING_WORLD handler
@@ -11464,42 +11450,34 @@ function ERB:OnEnable()
     -- Re-render when the global Dark Mode palette changes so the class resource
     -- bar's dark colours update live (colours are fetched live each render, so a
     -- plain rebuild is enough). ApplyAll touches secure positioning, so guard combat.
-    if EllesmereUI.RegisterDarkModeRefresh then
-        EllesmereUI.RegisterDarkModeRefresh(function()
-            if InCombatLockdown() then return end
-            ERB:ApplyAll()
-        end)
-    end
+    EllesmereUI.RegisterDarkModeRefresh(function()
+        if InCombatLockdown() then return end
+        ERB:ApplyAll()
+    end)
 
     -- Global Dark Mode master: expose the class resource bar's darkTheme flag so
     -- the parent addon's master toggle can flip it alongside other modules.
     -- Combat-guarded like the palette refresher above.
-    if EllesmereUI.RegisterDarkModeToggle then
-        EllesmereUI.RegisterDarkModeToggle({
-            id = "resourceBars",
-            isOn = function()
-                return (ERB.db and ERB.db.profile and ERB.db.profile.secondary
-                    and ERB.db.profile.secondary.darkTheme) or false
-            end,
-            setOn = function(on)
-                if not (ERB.db and ERB.db.profile and ERB.db.profile.secondary) then return end
-                ERB.db.profile.secondary.darkTheme = on
-                if not InCombatLockdown() then ERB:ApplyAll() end
-            end,
-        })
-    end
+    EllesmereUI.RegisterDarkModeToggle({
+        id = "resourceBars",
+        isOn = function()
+            return (ERB.db and ERB.db.profile and ERB.db.profile.secondary
+                and ERB.db.profile.secondary.darkTheme) or false
+        end,
+        setOn = function(on)
+            if not (ERB.db and ERB.db.profile and ERB.db.profile.secondary) then return end
+            ERB.db.profile.secondary.darkTheme = on
+            if not InCombatLockdown() then ERB:ApplyAll() end
+        end,
+    })
 
     -- Collapse/restore expandIfNoResource when EUI options panel opens/closes
-    if EllesmereUI.RegisterOnShow then
-        EllesmereUI:RegisterOnShow(function()
-            if _G._ERB_SuppressExpand then _G._ERB_SuppressExpand() end
-        end)
-    end
-    if EllesmereUI.RegisterOnHide then
-        EllesmereUI:RegisterOnHide(function()
-            if _G._ERB_RestoreExpand then _G._ERB_RestoreExpand() end
-        end)
-    end
+    EllesmereUI:RegisterOnShow(function()
+        if _G._ERB_SuppressExpand then _G._ERB_SuppressExpand() end
+    end)
+    EllesmereUI:RegisterOnHide(function()
+        if _G._ERB_RestoreExpand then _G._ERB_RestoreExpand() end
+    end)
 end
 
 -- Slash commands
@@ -11514,8 +11492,91 @@ SlashCmdList.ERB = function(msg)
         return
     end
     if InCombatLockdown and InCombatLockdown() then return end
-    if EllesmereUI and EllesmereUI.ShowModule then
-        EllesmereUI:ShowModule("EllesmereUIResourceBars")
-    end
+    EllesmereUI:ShowModule("EllesmereUIResourceBars")
 end
 
+-------------------------------------------------------------------------------
+--  Party Mode: spinning resource and power bars (EllesmereUI.PartySpin_Create).
+--  Resource Bars: pips / runes orbit the class resource bar's centre.
+--  Power Bars: the health and primary power bars orbit the screen centre.
+-------------------------------------------------------------------------------
+-- Wrapped in a function: this main chunk sits at Lua 5.1's 200-local cap.
+;(function()
+-- Party Mode visibility axis: no game event; the core fires its own edge.
+if EllesmereUI.RegisterVisEdge then
+    EllesmereUI.RegisterVisEdge(function() UpdateVisibility() end)
+end
+do
+    -- The backdrop, gap fills and ticks are drawn on the bar and cannot turn,
+    -- and empty pips are transparent, so while spinning those layers fade out
+    -- and each pip gets its own backing. Restore puts the saved alphas back.
+    local resGroups, resList = {}, {}
+    local resGroup = { frames = resList }
+    local savedA = {}          -- texture -> alpha before we faded it
+    local backings = {}        -- pip/rune -> our backing texture
+
+    local function Fade(tex)
+        if tex and savedA[tex] == nil then
+            savedA[tex] = tex:GetAlpha()
+            tex:SetAlpha(0)
+        elseif tex then
+            tex:SetAlpha(0)    -- re-assert: a rebuild may have reset it
+        end
+    end
+    local function Back(piece)
+        local t = backings[piece]
+        if not t then
+            t = piece:CreateTexture(nil, "BACKGROUND", nil, -8)
+            t:SetAllPoints(piece)
+            t:SetColorTexture(0, 0, 0, 0.5)
+            backings[piece] = t
+        end
+        t:Show()
+    end
+
+    EllesmereUI.PartySpin_Create({
+        target = "resource",
+        collect = function()
+            wipe(resGroups); wipe(resList)
+            if secondaryFrame and not ns._erbArtOn then
+                for i = 1, #pips do
+                    local p = pips[i]
+                    if p and p:IsShown() then resList[#resList + 1] = p end
+                end
+                for i = 1, #runeFrames do
+                    local r = runeFrames[i]
+                    if r and r:IsShown() then resList[#resList + 1] = r end
+                end
+                resGroup.pivot = secondaryFrame
+                resGroups[1] = resGroup
+            end
+            return resGroups
+        end,
+        onClaim = function()
+            if not secondaryFrame or #resList == 0 then return end
+            Fade(secondaryFrame._barBg)
+            local gf = secondaryFrame._gapFills
+            if gf then for i = 1, #gf do Fade(gf[i]) end end
+            for i = 1, #secondaryPipTicks do Fade(secondaryPipTicks[i]) end
+            for i = 1, #resList do Back(resList[i]) end
+        end,
+        onRestore = function()
+            for tex, a in pairs(savedA) do tex:SetAlpha(a) end
+            wipe(savedA)
+            for _, t in pairs(backings) do t:Hide() end
+        end,
+    })
+
+    local powList = {}
+    local powGroups = { { pivot = UIParent, frames = powList } }
+    EllesmereUI.PartySpin_Create({
+        target = "power",
+        collect = function()
+            wipe(powList)
+            if healthBar then powList[#powList + 1] = healthBar end
+            if primaryBar then powList[#powList + 1] = primaryBar end
+            return powGroups
+        end,
+    })
+end
+end)()

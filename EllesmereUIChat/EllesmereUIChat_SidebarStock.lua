@@ -438,7 +438,7 @@ function ECHAT.SB_MakeCount(btn, sidebar, key)
     local e = btn._sbEntry
     local inside = e and e.count == "inside"
     local fs = btn:CreateFontString(nil, "OVERLAY")
-    if EUI.PrimeFontShadow then EUI.PrimeFontShadow(fs, true) end
+    EUI.PrimeFontShadow(fs, true)
     fs:SetFont(ECHAT.GetFont(), 10, "")
     fs:SetTextColor(1, 1, 1, 1)
     if inside then
@@ -485,7 +485,7 @@ function ECHAT.SB_ApplyScale(d, s, force)
     for i = 1, #COUNT_REF do
         local fs = d[COUNT_REF[i]]
         if fs then
-            if EUI.PrimeFontShadow then EUI.PrimeFontShadow(fs, true) end
+            EUI.PrimeFontShadow(fs, true)
             fs:SetFont(font, fsz, "")
             fs._freeMoveH = fsz
             local owner = d[COUNT_OWNER[COUNT_REF[i]]]

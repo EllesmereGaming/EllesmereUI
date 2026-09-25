@@ -70,9 +70,9 @@ local function TabFontPath()
     local cfg = DB()
     local fontKey = cfg.tabFont or "__global"
     if fontKey == "__global" then
-        return (EUI.GetFontPath and EUI.GetFontPath("chat")) or STANDARD_TEXT_FONT
+        return (EUI.GetFontPath("chat")) or STANDARD_TEXT_FONT
     end
-    return (EUI.ResolveFontName and EUI.ResolveFontName(fontKey)) or STANDARD_TEXT_FONT
+    return (EUI.ResolveFontName(fontKey)) or STANDARD_TEXT_FONT
 end
 
 -- Outline flag for the tab labels: the chat module's own resolver first (the Chat
@@ -80,7 +80,7 @@ end
 -- then the module font entry, then none.
 local function TabFontFlag()
     return (ECHAT.GetOutlineFlag and ECHAT.GetOutlineFlag())
-        or (EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("chat")) or ""
+        or (EUI.GetFontOutlineFlag("chat")) or ""
 end
 
 -- Resolve a color table honoring the shared custom/accent/class mode keys.

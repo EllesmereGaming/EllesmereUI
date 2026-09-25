@@ -135,131 +135,20 @@ initFrame:SetScript("OnEvent", function(self)
         -- an override binding on the secure toggle button, so pressing it
         -- works in combat; only the (re)binding itself waits for combat end.
         if not EllesmereUI._prebuilding then
-            local PP  = EllesmereUI.PanelPP
             local rgn = kbRow._rightRegion
-            local kbBtn = CreateFrame("Button", nil, rgn)
-            PP.Size(kbBtn, 126, 29)
-            PP.Point(kbBtn, "RIGHT", rgn, "RIGHT", -20, 0)
-            kbBtn:SetFrameLevel(rgn:GetFrameLevel() + 4)
-            kbBtn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-            local kbBg = EllesmereUI.SolidTex(kbBtn, "BACKGROUND", EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
-            kbBg:SetAllPoints()
-            kbBtn._border = EllesmereUI.MakeBorder(kbBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
-            local kbLbl = EllesmereUI.MakeFont(kbBtn, 12, nil, 1, 1, 1)
-            kbLbl:SetAlpha(EllesmereUI.DD_TXT_A)
-            kbLbl:SetPoint("CENTER")
-
-            local listening = false
-
-            local function FormatKey(key)
-                if not key or key == "" then return EllesmereUI.L("Not Bound") end
-                local parts = {}
-                for mod in key:gmatch("(%u+)%-") do
-                    parts[#parts + 1] = mod:sub(1, 1) .. mod:sub(2):lower()
-                end
-                parts[#parts + 1] = key:match("[^%-]+$") or key
-                return table.concat(parts, " + ")
-            end
-
-            local function RefreshLabel()
-                if listening then return end
-                local k = Cfg("toggleKey")
-                if k == false then k = nil end
-                kbLbl:SetText(FormatKey(k))
-            end
-
-            local function RefreshState()
-                local off = Disabled()
-                kbBtn:SetAlpha(off and 0.3 or 1)
-                kbBtn:EnableMouse(not off)
-                if rgn._label then rgn._label:SetAlpha(off and 0.3 or 1) end
-                if off and listening then
-                    listening = false
-                    kbBtn:EnableKeyboard(false)
-                end
-                RefreshLabel()
-            end
-
-            kbBtn:SetScript("OnClick", function(self, button)
-                if Disabled() then return end
-                if button == "RightButton" then
-                    if listening then listening = false; self:EnableKeyboard(false) end
-                    Set("toggleKey", false)
+            local kbBtn, refresh = EllesmereUI.BuildKeybindButton(rgn, {
+                w = 126, h = 29, level = 4,
+                get = function() return Cfg("toggleKey") end,
+                set = function(v)
+                    Set("toggleKey", v or false)
                     Refresh()
-                    RefreshLabel()
-                    if EllesmereUI._NotifySettingWrite then EllesmereUI._NotifySettingWrite(rgn) end
-                    return
-                end
-                if listening then return end
-                listening = true
-                kbLbl:SetText(EllesmereUI.L("Press a key..."))
-                self:EnableKeyboard(true)
-            end)
-
-            kbBtn:SetScript("OnKeyDown", function(self, key)
-                if not listening then self:SetPropagateKeyboardInput(true); return end
-                if key == "LSHIFT" or key == "RSHIFT" or key == "LCTRL" or key == "RCTRL"
-                   or key == "LALT" or key == "RALT" or key == "LMETA" or key == "RMETA" then
-                    self:SetPropagateKeyboardInput(true); return
-                end
-                self:SetPropagateKeyboardInput(false)
-                if key == "ESCAPE" then
-                    listening = false; self:EnableKeyboard(false); RefreshLabel(); return
-                end
-                -- Blizzard's canonical chord order is ALT-CTRL-SHIFT-KEY, and
-                -- CreateKeyChordStringUsingMetaKeyState is what produces it.
-                -- Hand-rolling the modifiers built SHIFT-CTRL-ALT-KEY, a chord
-                -- string the engine never generates, so any bind using more
-                -- than one modifier was stored in a form nothing could match.
-                -- Single-modifier binds happen to agree, which is why this
-                -- survived.
-                local fullKey
-                if CreateKeyChordStringUsingMetaKeyState then
-                    fullKey = CreateKeyChordStringUsingMetaKeyState(key)
-                else
-                    local mods = ""
-                    if IsAltKeyDown() then mods = mods .. "ALT-" end
-                    if IsControlKeyDown() then mods = mods .. "CTRL-" end
-                    if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
-                    if IsMetaKeyDown and IsMetaKeyDown() then
-                        mods = mods .. "META-"
-                    end
-                    fullKey = mods .. key
-                end
-                Set("toggleKey", fullKey)
-                Refresh()
-                listening = false
-                self:EnableKeyboard(false)
-                RefreshLabel()
-                if EllesmereUI._NotifySettingWrite then EllesmereUI._NotifySettingWrite(rgn) end
-            end)
-
-            kbBtn:SetScript("OnEnter", function(self)
-                if Disabled() then
-                    EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("Show Raid Tools"))
-                    return
-                end
-                kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
-                if kbBtn._border and kbBtn._border.SetColor then kbBtn._border:SetColor(1, 1, 1, 0.3) end
-                EllesmereUI.ShowWidgetTooltip(self, "Toggles the Raid Tools panels, in or out of combat.\n\nLeft-click to set a keybind.\nRight-click to unbind.")
-            end)
-            kbBtn:SetScript("OnLeave", function()
-                if listening then return end
-                kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
-                if kbBtn._border and kbBtn._border.SetColor then kbBtn._border:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A) end
-                EllesmereUI.HideWidgetTooltip()
-            end)
-            kbBtn:SetScript("OnHide", function()
-                -- Closing the EUI window mid-capture must cancel the capture
-                -- AND hide the tooltip. OnLeave skips the hide while listening
-                -- (and may not fire at all if the mouse never left), so the
-                -- tooltip would otherwise linger after the window is gone.
-                if listening then listening = false; kbBtn:EnableKeyboard(false); RefreshLabel() end
-                EllesmereUI.HideWidgetTooltip()
-            end)
-
-            RefreshState()
-            EllesmereUI.RegisterWidgetRefresh(RefreshState)
+                    EllesmereUI._NotifySettingWrite(rgn)
+                end,
+                disabled = Disabled, disabledTip = "Show Raid Tools",
+                tooltip = "Toggles the Raid Tools panels, in or out of combat.\n\nLeft-click to set a keybind.\nRight-click to unbind.",
+            })
+            EllesmereUI.PanelPP.Point(kbBtn, "RIGHT", rgn, "RIGHT", -20, 0)
+            EllesmereUI.RegisterWidgetRefresh(refresh)
 
             -- Spec Overrides capture: bespoke widget, so its SLOT opts in with a
             -- synthetic accessor (the label cfg carries no get/set of its own).
@@ -269,7 +158,7 @@ initFrame:SetScript("OnEvent", function(self)
                 setValue = function(v)
                     Set("toggleKey", v)
                     Refresh()
-                    RefreshLabel()
+                    refresh()
                 end,
             })
         end
@@ -349,172 +238,19 @@ initFrame:SetScript("OnEvent", function(self)
             local PP = EllesmereUI.PanelPP
 
             local function AddQuickFireKeybind(region, key)
-                local button = CreateFrame("Button", nil, region)
-                PP.Size(button, 126, 29)
-                PP.Point(button, "RIGHT", region, "RIGHT", -20, 0)
-                button:SetFrameLevel(region:GetFrameLevel() + 4)
-                button:RegisterForClicks("AnyUp")
-
-                local bg = EllesmereUI.SolidTex(button, "BACKGROUND",
-                    EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G,
-                    EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
-                bg:SetAllPoints()
-                button._border = EllesmereUI.MakeBorder(button, 1, 1, 1,
-                    EllesmereUI.DD_BRD_A, PP)
-                local label = EllesmereUI.MakeFont(button, 12, nil, 1, 1, 1)
-                label:SetAlpha(EllesmereUI.DD_TXT_A)
-                label:SetPoint("CENTER")
-
-                local listening = false
-
-                local function FormatKey(value)
-                    if not value or value == "" then
-                        return EllesmereUI.L("Not Bound")
-                    end
-                    local parts = {}
-                    for mod in value:gmatch("(%u+)%-") do
-                        parts[#parts + 1] = mod:sub(1, 1) .. mod:sub(2):lower()
-                    end
-                    parts[#parts + 1] = value:match("[^%-]+$") or value
-                    return table.concat(parts, " + ")
-                end
-
-                local function RefreshState()
-                    local off = QuickFireDisabled()
-                    button:SetAlpha(off and 0.3 or 1)
-                    button:EnableMouse(not off)
-                    if region._label then region._label:SetAlpha(off and 0.3 or 1) end
-                    if off and listening then
-                        listening = false
-                        button:EnableKeyboard(false)
-                    end
-                    if not listening then label:SetText(FormatKey(Cfg(key))) end
-                end
-
-                button:SetScript("OnClick", function(self, mouseButton)
-                    if QuickFireDisabled() then return end
-                    -- OnKeyDown never fires for mouse buttons, so a listening
-                    -- capture takes them here instead. Plain Left/Right stay
-                    -- excluded (arm/unbind); modified Left/Right are fine.
-                    if listening and ((mouseButton ~= "LeftButton" and mouseButton ~= "RightButton")
-                        or IsModifierKeyDown()) then
-                        listening = false
-                        self:EnableKeyboard(false)
-                        Set(key, CreateKeyChordStringUsingMetaKeyState(
-                            GetConvertedKeyOrButton(mouseButton)))
+                local button, refresh = EllesmereUI.BuildKeybindButton(region, {
+                    w = 126, h = 29, level = 4, mouse = true,
+                    get = function() return Cfg(key) end,
+                    set = function(v)
+                        Set(key, v or false)
                         Refresh()
-                        RefreshState()
-                        if EllesmereUI._NotifySettingWrite then
-                            EllesmereUI._NotifySettingWrite(region)
-                        end
-                        return
-                    end
-                    if mouseButton == "RightButton" then
-                        if listening then
-                            listening = false
-                            self:EnableKeyboard(false)
-                        end
-                        Set(key, false)
-                        Refresh()
-                        RefreshState()
-                        if EllesmereUI._NotifySettingWrite then
-                            EllesmereUI._NotifySettingWrite(region)
-                        end
-                        return
-                    end
-                    -- Only a plain left click arms the capture: with AnyUp
-                    -- registered, an idle side-button click would otherwise
-                    -- fall through here and start listening.
-                    if mouseButton ~= "LeftButton" then return end
-                    if listening then return end
-                    listening = true
-                    label:SetText(EllesmereUI.L("Press a key..."))
-                    self:EnableKeyboard(true)
-                end)
-
-                button:SetScript("OnKeyDown", function(self, pressed)
-                    if not listening then
-                        self:SetPropagateKeyboardInput(true)
-                        return
-                    end
-                    if pressed == "LSHIFT" or pressed == "RSHIFT"
-                       or pressed == "LCTRL" or pressed == "RCTRL"
-                       or pressed == "LALT" or pressed == "RALT"
-                       or pressed == "LMETA" or pressed == "RMETA" then
-                        self:SetPropagateKeyboardInput(true)
-                        return
-                    end
-                    self:SetPropagateKeyboardInput(false)
-                    if pressed == "ESCAPE" then
-                        listening = false
-                        self:EnableKeyboard(false)
-                        RefreshState()
-                        return
-                    end
-                    -- Blizzard's canonical chord order is ALT-CTRL-SHIFT-KEY,
-                    -- and CreateKeyChordStringUsingMetaKeyState is what
-                    -- produces it. Hand-rolling the modifiers built
-                    -- SHIFT-CTRL-ALT-KEY, a chord string the engine never
-                    -- generates, so any bind using more than one modifier was
-                    -- stored in a form nothing could match. Single-modifier
-                    -- binds happen to agree, which is why this survived.
-                    local fullPressed
-                    if CreateKeyChordStringUsingMetaKeyState then
-                        fullPressed = CreateKeyChordStringUsingMetaKeyState(pressed)
-                    else
-                        local mods = ""
-                        if IsAltKeyDown() then mods = mods .. "ALT-" end
-                        if IsControlKeyDown() then mods = mods .. "CTRL-" end
-                        if IsShiftKeyDown() then mods = mods .. "SHIFT-" end
-                        if IsMetaKeyDown and IsMetaKeyDown() then
-                            mods = mods .. "META-"
-                        end
-                        fullPressed = mods .. pressed
-                    end
-                    Set(key, fullPressed)
-                    Refresh()
-                    listening = false
-                    self:EnableKeyboard(false)
-                    RefreshState()
-                    if EllesmereUI._NotifySettingWrite then
                         EllesmereUI._NotifySettingWrite(region)
-                    end
-                end)
-
-                button:SetScript("OnEnter", function(self)
-                    if QuickFireDisabled() then
-                        EllesmereUI.ShowWidgetTooltip(self,
-                            EllesmereUI.DisabledTooltip("Enable Quick Fire"))
-                        return
-                    end
-                    bg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G,
-                        EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
-                    if button._border and button._border.SetColor then
-                        button._border:SetColor(1, 1, 1, 0.3)
-                    end
-                    EllesmereUI.ShowWidgetTooltip(self,
-                        "Left-click to set a keybind.\nRight-click to unbind.")
-                end)
-                button:SetScript("OnLeave", function()
-                    if listening then return end
-                    bg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G,
-                        EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
-                    if button._border and button._border.SetColor then
-                        button._border:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A)
-                    end
-                    EllesmereUI.HideWidgetTooltip()
-                end)
-                button:SetScript("OnHide", function()
-                    if listening then
-                        listening = false
-                        button:EnableKeyboard(false)
-                        RefreshState()
-                    end
-                    EllesmereUI.HideWidgetTooltip()
-                end)
-
-                RefreshState()
-                EllesmereUI.RegisterWidgetRefresh(RefreshState)
+                    end,
+                    disabled = QuickFireDisabled,
+                    disabledTip = function() return Disabled() and "Show Raid Tools" or "Enable Quick Fire" end,
+                })
+                PP.Point(button, "RIGHT", region, "RIGHT", -20, 0)
+                EllesmereUI.RegisterWidgetRefresh(refresh)
                 EllesmereUI.AddCaptureAccessor(region, {
                     type = "keybind",
                     text = region._label and region._label:GetText() or key,
@@ -522,7 +258,7 @@ initFrame:SetScript("OnEvent", function(self)
                     setValue = function(v)
                         Set(key, v)
                         Refresh()
-                        RefreshState()
+                        refresh()
                     end,
                 })
             end
@@ -598,8 +334,8 @@ initFrame:SetScript("OnEvent", function(self)
     -- callback re-enters the preview when our page is still the one in front.
     -- The page string must match PAGE_RAIDTOOLS in EUI_QoL_Options.lua.
     EllesmereUI:RegisterOnShow(function()
-        if EllesmereUI.GetActiveModule and EllesmereUI:GetActiveModule() == "EllesmereUIQoL"
-           and EllesmereUI.GetActivePage and EllesmereUI:GetActivePage() == "Raid Tools"
+        if EllesmereUI:GetActiveModule() == "EllesmereUIQoL"
+           and EllesmereUI:GetActivePage() == "Raid Tools"
            and _G._EUI_RaidTools_Preview then
             _G._EUI_RaidTools_Preview(true)
         end

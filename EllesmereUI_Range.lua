@@ -88,8 +88,8 @@ local DRUID_MELEE_FORMS = { [1] = true, [2] = true } -- Bear, Cat
 -- Range_GetAttackCutoff below).
 local function SpecAttackCutoff(holyPaladinMelee)
     local _, classFile = UnitClass("player")
-    local specIndex = GetSpecialization()
-    local specID = specIndex and GetSpecializationInfo(specIndex)
+    local specIndex = C_SpecializationInfo.GetSpecialization()
+    local specID = specIndex and C_SpecializationInfo.GetSpecializationInfo(specIndex)
     if not specID then return 5 end
 
     if classFile == "DRUID" then
@@ -248,7 +248,7 @@ end
 -- a restricted query degrades to nil (no display) instead of a blocked action.
 local function ItemChecksAllowed(unit)
     if not (InCombatLockdown()
-        or (EllesmereUI.InProtectedInstance and EllesmereUI.InProtectedInstance())) then
+        or (EllesmereUI.InProtectedInstance())) then
         return true
     end
     local can = UnitCanAttack("player", unit)

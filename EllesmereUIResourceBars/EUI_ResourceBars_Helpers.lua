@@ -100,7 +100,7 @@ ns.ERB_SimpleOverrideOverlay = function(parent, topY, botY, sectionKey)
 		p.barDisplayMode = "advanced"
 		EllesmereUI:RefreshPage(true)
 		-- Clicking to edit navigates to the top of the Advanced page
-		if EllesmereUI.ScrollToTop then EllesmereUI:ScrollToTop() end
+		EllesmereUI:ScrollToTop()
 	end)
 end
 

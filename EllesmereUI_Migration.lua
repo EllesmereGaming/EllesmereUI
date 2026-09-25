@@ -8,22 +8,6 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 
 local floor = math.floor
 
---- Round all width/height values in a table to whole pixels. Call from each child
---- addon's OnInitialize after its DB loads. keys: field names to round (e.g.
---- {"width", "height"}); tables: profile sub-tables to scan.
-function EllesmereUI.RoundSizeFields(keys, tables)
-    for _, tbl in ipairs(tables) do
-        if type(tbl) == "table" then
-            for _, key in ipairs(keys) do
-                local v = tbl[key]
-                if type(v) == "number" then
-                    tbl[key] = floor(v + 0.5)
-                end
-            end
-        end
-    end
-end
-
 --------------------------------------------------------------------------------
 --  ONE-TIME MIGRATION RUNNER
 --
@@ -4415,6 +4399,41 @@ EllesmereUI.RegisterMigration({
                             sh.shBarHeight = conv(sh.shBarHeight, 20)
                             sh.iconSize    = conv(sh.iconSize, 36)
                         end
+                    end
+                    stamps[ID] = true
+                end
+            end
+        end
+    end,
+})
+
+-- The Swing Timer's default visibility is In Combat (was Always). A profile left
+-- on the old default stores nothing (Lite strips defaults at logout) and follows
+-- the new default by itself; this moves the ones that carry an explicit plain
+-- "always" (no conditions, no hide lanes) as well. GLOBAL with per-profile stamps,
+-- gated on existing profiles: a fresh install stamps and never runs it, so a new
+-- user's deliberate Always choice is never flipped, and a stamped profile keeps
+-- its stamp through exports.
+EllesmereUI.RegisterMigration({
+    id          = "swing_timer_visibility_in_combat_v1",
+    scope       = "global",
+    description = "Move the Swing Timer's visibility from Always to In Combat, the new default.",
+    body        = function(ctx)
+        local ID = "swing_timer_visibility_in_combat_v1"
+        local db = ctx.db
+        if not (db and type(db.profiles) == "table" and next(db.profiles)) then return end
+        for _, profData in pairs(db.profiles) do
+            if type(profData) == "table" then
+                local stamps = profData._migrations
+                if type(stamps) ~= "table" then
+                    stamps = {}
+                    profData._migrations = stamps
+                end
+                if not stamps[ID] then
+                    local erb = type(profData.addons) == "table" and profData.addons.EllesmereUIResourceBars
+                    local st = type(erb) == "table" and erb.swingTimer
+                    if type(st) == "table" and st.visibility == "always" and st.visibilityModes == nil then
+                        st.visibility = "in_combat"
                     end
                     stamps[ID] = true
                 end

@@ -90,7 +90,7 @@ end
 -- leave it alone.
 local function CharSheetProfile()
     if not NS("EllesmereUIBlizzardSkin") then return nil end
-    return EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+    return EllesmereUI.GetActiveProfileData()
 end
 local function FriendsProfile()
     local d = _G._EFR_DB
@@ -261,7 +261,7 @@ Register("raidframes",   "EllesmereUIRaidFrames",      "Raid Frames",
         if rf and rf.RF_SeedStock then rf.RF_SeedStock(p, styleKey) end
     end)
 Register("charsheet",    "EllesmereUIBlizzardSkin",    "Character Sheet",
-    "Blizzard's own character sheet with the EllesmereUI stats and slot text added; the socket panel and Calc tab stay with the EllesmereUI look.",
+    "Blizzard's own character sheet with the EllesmereUI stats, slot text and socket panel added; the Calc tab stays with the EllesmereUI look.",
     CharSheetProfile, "charSheetUseBlizzardStyle", "charSheetUseClassicStyle", "CharSheetStyle")
 -- The module to enable is Blizz UI Enhanced, not a "Character Sheet" one.
 BY_KEY.charsheet.enableName = "Blizz UI Enhanced"
@@ -317,13 +317,20 @@ local SLOT_KEYS = {
     castbar      = { stamps = { "stockTextureSeeded" }, keys = { "texture" }, prefix = "castBar",
                      seededBy = function() return "stockTextureSeeded" end },
     -- Border Around All (one key set shared by both stock styles) rides the
-    -- slots too, so each style keeps its own choice.
+    -- slots too, so each style keeps its own choice. So does "Choose texture
+    -- per bar" (splitTex) with the health and power textures it enables (the
+    -- Classic seed writes those). splitTex shares their stamp so a first
+    -- EllesmereUI visit with no saved slot clears it with them: one texture,
+    -- never the split with empty per-bar keys.
     resourcebars = { stamps = { "general.classicTextureSeeded", "general.borderAllSeeded" },
-                     keys = { "general.barTexture", "general.classicBorderAll",
+                     keys = { "general.barTexture", "splitTex", "health.barTexture", "primary.barTexture",
+                              "general.classicBorderAll",
                               "general.classicBorderAllSepSize", "general.classicBorderAllSepR",
                               "general.classicBorderAllSepG", "general.classicBorderAllSepB" },
                      seededBy = function(key)
-                         if key == "general.barTexture" then return "general.classicTextureSeeded" end
+                         if key == "splitTex" or key:find("barTexture", 1, true) then
+                             return "general.classicTextureSeeded"
+                         end
                          return true
                      end },
     damagemeters = { stamps = { "blizzBgAlphaSeeded", "classicSeeded" },
@@ -342,6 +349,7 @@ local SLOT_KEYS = {
                      keys = { "healthBarTexture", "party_healthBarTexture", "cellSpacing", "groupSpacing",
                               "partyCellSpacing", "roleIconStyle", "party_roleIconStyle",
                               "absorbStyle", "party_absorbStyle", "absorbOpacity", "party_absorbOpacity",
+                              "absorbGlowLine", "party_absorbGlowLine",
                               "healAbsorbStyle", "party_healAbsorbStyle",
                               "partyFrameStyle", "partyKitScale", "partyKitSpacing",
                               "partyKitDebuffSize", "partyKitDebuffX", "partyKitDebuffY",
@@ -437,11 +445,29 @@ local function SwitchModuleStyle(m, to)
                         if st == true or (st and PathGet(p, st)) then PathSet(p, keys[i], nil) end
                     end
                 end
-            elseif from ~= "eui" and type(slots.eui) == "table" then
+            elseif from ~= "eui" then
                 -- From the other stock style: start from the EllesmereUI
                 -- look's values, so a first visit gives the same result
-                -- whichever look it is reached from.
+                -- whichever look it is reached from. A profile that reached
+                -- its first stock style before the slots existed never banked
+                -- that look: bank it now as the EllesmereUI first visit would
+                -- leave the profile (what a seed wrote goes back to the install
+                -- default, read before the stamps clear below), so the return
+                -- to EllesmereUI can load it instead of keeping this style's
+                -- seeds.
                 local base = slots.eui
+                if type(base) ~= "table" then
+                    base = {}
+                    local by = spec.seededBy
+                    for i = 1, #keys do
+                        local k = keys[i]
+                        local st = by and by(k)
+                        if not (st == true or (st and PathGet(p, st))) then
+                            base[k] = PathGet(p, k)
+                        end
+                    end
+                    slots.eui = base
+                end
                 for i = 1, #keys do PathSet(p, keys[i], base[keys[i]]) end
             end
             if stamps then
@@ -549,7 +575,7 @@ local function ApplyWholeUIFont(styleKey, legacy)
     s.active = styleKey
     db._styleSlots = s
     db.fontStockSeeded = nil
-    if EllesmereUI.InvalidateFontCache then EllesmereUI.InvalidateFontCache() end
+    EllesmereUI.InvalidateFontCache()
 end
 -- The same two callers also swap the Blizz UI Enhanced window skins through
 -- their own per-style slots (EllesmereUI.SwapWindowSkinStyle: first visit
@@ -566,7 +592,7 @@ local function ApplyWholeUIWindows(styleKey, legacy)
     local swap = EllesmereUI.SwapWindowSkinStyle
     if not swap then return end
     swap(styleKey, false, legacy or InferredStockStyle())
-    local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+    local prof = EllesmereUI.GetActiveProfileData()
     if prof then prof.windowSkinLook = styleKey end
 end
 
@@ -681,7 +707,7 @@ function BlizzStyle.Note(parent, y, key)
     PP.Size(row, parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2, ROW_H)
     PP.Point(row, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
     row._skipRowDivider = true
-    if EllesmereUI.RowBg then EllesmereUI.RowBg(row, parent) end
+    EllesmereUI.RowBg(row, parent)
 
     local lbl = EllesmereUI.MakeFont(row, 12, nil, 1, 1, 1)
     lbl:SetAlpha(0.6)
@@ -722,9 +748,7 @@ local function PromptStyleChanges(changes, wholeUIStyle)
             -- these writes then land on the profile itself, where an open
             -- session's logout sweep would have turned them into overrides
             -- for the group being edited.
-            if EllesmereUI.SpecOverrides_CloseEditSessions then
-                EllesmereUI.SpecOverrides_CloseEditSessions()
-            end
+            EllesmereUI.SpecOverrides_CloseEditSessions()
             local legacy = wholeUIStyle and InferredStockStyle()
             for i = 1, #changes do
                 SwitchModuleStyle(changes[i].m, changes[i].key)

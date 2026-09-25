@@ -130,23 +130,10 @@ local function SkinRaidRoleIcon(icon)
     -- No-op: CreateTexture on protected parent taints
 end
 
-local function SkinRaidRoleCount(frame)
-    if not frame or GetFFD(frame).skinned then return end
-    GetFFD(frame).skinned = true
-    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
-    for i = 1, select("#", frame:GetRegions()) do
-        local region = select(i, frame:GetRegions())
-        if region:IsObjectType("FontString") then
-            region:SetFont(fontPath, 10, "")
-            region:SetTextColor(1, 1, 1, 0.8)
-        end
-    end
-end
-
 local function SkinRaidTabButton(btn)
     if not btn or GetFFD(btn).btnSkinned then return end
     GetFFD(btn).btnSkinned = true
-    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
+    local fontPath = EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
     for i = 1, select("#", btn:GetRegions()) do
         local region = select(i, btn:GetRegions())
         if region and region:IsObjectType("Texture") then
@@ -215,7 +202,7 @@ local RAID_TAB_BUTTONS = {
 local function SkinCheckbox(checkbox)
     if not checkbox or GetFFD(checkbox).skinned then return end
     GetFFD(checkbox).skinned = true
-    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
+    local fontPath = EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
     if checkbox.SetNormalTexture then checkbox:SetNormalTexture("") end
     if checkbox.SetPushedTexture then checkbox:SetPushedTexture("") end
     if checkbox.SetHighlightTexture then checkbox:SetHighlightTexture("") end
@@ -236,7 +223,7 @@ end
 local function SkinRaidGroup(group)
     if not group or GetFFD(group).skinned then return end
     GetFFD(group).skinned = true
-    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
+    local fontPath = EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
     local ar, ag, ab = EG.r, EG.g, EG.b
     local groupName = group:GetName()
     for i = 1, select("#", group:GetRegions()) do
@@ -260,14 +247,14 @@ local function SkinRaidGroup(group)
         for i = 1, select("#", labelFrame:GetRegions()) do
             local region = select(i, labelFrame:GetRegions())
             if region and region:IsObjectType("FontString") then
-                if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(region, true) end
+                EllesmereUI.PrimeFontShadow(region, true)
                 region:SetFont(fontPath, 10, "")
                 region:SetTextColor(ar, ag, ab, 1)
             end
         end
         local fontString = labelFrame.GetFontString and labelFrame:GetFontString()
         if fontString and fontString.SetFont then
-            if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fontString, true) end
+            EllesmereUI.PrimeFontShadow(fontString, true)
             fontString:SetFont(fontPath, 10, "")
             fontString:SetTextColor(ar, ag, ab, 1)
         end
@@ -277,7 +264,7 @@ end
 local function SkinRaidSlot(slot)
     if not slot or GetFFD(slot).skinned then return end
     GetFFD(slot).skinned = true
-    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
+    local fontPath = EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
     for i = 1, select("#", slot:GetRegions()) do
         local region = select(i, slot:GetRegions())
         if region and region:IsObjectType("Texture") then
@@ -311,7 +298,7 @@ end
 local function SkinRaidGroupButton(btn)
     if not btn or GetFFD(btn).skinned then return end
     GetFFD(btn).skinned = true
-    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
+    local fontPath = EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
     for i = 1, select("#", btn:GetRegions()) do
         local region = select(i, btn:GetRegions())
         if region and region:IsObjectType("Texture") then
@@ -763,7 +750,7 @@ local function _getClassColorCode(classFile)
     if code then return code end
     local cc = RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
     if not cc then return nil end
-    code = format("|cff%02x%02x%02x", cc.r * 255, cc.g * 255, cc.b * 255)
+    code = EllesmereUI.HexColor(cc.r, cc.g, cc.b)
     _classColorCodes[classFile] = code
     return code
 end
@@ -841,11 +828,11 @@ local function SkinFriendButton(button)
     if GetFFD(button).skinned then return end
     GetFFD(button).skinned = true
 
-    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
+    local fontPath = EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
 
     local function ApplyFont(fs, size)
         if not fs or not fs.SetFont then return end
-        if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, true) end
+        EllesmereUI.PrimeFontShadow(fs, true)
         fs:SetFont(fontPath, size, "")
     end
 
@@ -968,7 +955,7 @@ local function PostUpdateFriendButton(button)
             if origInfo ~= "" then
                 infoText:SetText(origInfo .. "  |cff888888|  " .. userNote .. "|r")
             else
-                infoText:SetText("|cff888888" .. userNote .. "|r")
+                infoText:SetText(EllesmereUI.COLOR_CODES.DIM .. userNote .. "|r")
             end
         end
     end
@@ -1046,12 +1033,10 @@ local function PostUpdateFriendButton(button)
                 rb._tex:SetAllPoints()
                 rb._tex:SetAlpha(0.25)
                 rb:SetScript("OnEnter", function(self)
-                    if EllesmereUI.ShowWidgetTooltip then
-                        EllesmereUI.ShowWidgetTooltip(self, self._regionLabel or "")
-                    end
+                    EllesmereUI.ShowWidgetTooltip(self, self._regionLabel or "")
                 end)
                 rb:SetScript("OnLeave", function()
-                    if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+                    EllesmereUI.HideWidgetTooltip()
                 end)
                 local hh = button:GetHeight()
                 local iconH = math.floor(hh * 0.8)
@@ -1245,7 +1230,7 @@ local function SkinBottomButton(btn)
     if not btn or GetFFD(btn).btnSkinned then return end
     GetFFD(btn).btnSkinned = true
 
-    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
+    local fontPath = EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
 
     StripTextures(btn)
 
@@ -1345,7 +1330,7 @@ local function SkinFriendsFrame()
     if not frame or friendsSkinned then return end
     friendsSkinned = true
     local p = EBS.db.profile.friends
-    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
+    local fontPath = EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
 
     if frame.NineSlice then frame.NineSlice:Hide() end
     if frame.Bg then frame.Bg:Hide() end
@@ -2069,12 +2054,10 @@ local function SkinFriendsFrame()
                 end
             end)
             orbBtn:SetScript("OnEnter", function(self)
-                if EllesmereUI.ShowWidgetTooltip then
-                    EllesmereUI.ShowWidgetTooltip(self, "Status: " .. GetPlayerStatusName() .. "\nClick to change")
-                end
+                EllesmereUI.ShowWidgetTooltip(self, "Status: " .. GetPlayerStatusName() .. "\nClick to change")
             end)
             orbBtn:SetScript("OnLeave", function()
-                if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+                EllesmereUI.HideWidgetTooltip()
             end)
 
             -- Listener runs only while the panel is shown; the Show hook repaints once on open to catch flags changed while closed.
@@ -2099,12 +2082,10 @@ local function SkinFriendsFrame()
             bcIcon:SetVertexColor(1, 1, 1)
             bcBtn:SetAlpha(0.6)
             bcBtn:SetScript("OnEnter", function(self)
-                if EllesmereUI.ShowWidgetTooltip then
-                    EllesmereUI.ShowWidgetTooltip(self, "Set Status Message")
-                end
+                EllesmereUI.ShowWidgetTooltip(self, "Set Status Message")
             end)
             bcBtn:SetScript("OnLeave", function()
-                if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+                EllesmereUI.HideWidgetTooltip()
             end)
             bcBtn:SetScript("OnClick", function()
                 if InCombatLockdown() then return end
@@ -2232,89 +2213,6 @@ local function SkinFriendsFrame()
         ddBg:SetAllPoints()
         ddBg:SetColorTexture(0.04, 0.05, 0.06, 0.97)
         PP.CreateBorder(dropdown, 1, 1, 1, 0.15, 1, "OVERLAY", 7)
-
-        -- Accent border flash highlight (matches EUI options panel search flash)
-        local _searchHL
-        local function GetSearchHL()
-            if _searchHL then return _searchHL end
-            local hl = CreateFrame("Frame", nil, UIParent)
-            hl:SetFrameStrata("HIGH")
-            hl:Hide()
-            local c = EG
-            local function MkEdge()
-                local t = hl:CreateTexture(nil, "OVERLAY", nil, 7)
-                t:SetColorTexture(c.r, c.g, c.b, 1)
-                return t
-            end
-            hl._top = MkEdge()
-            hl._bot = MkEdge()
-            hl._lft = MkEdge()
-            hl._rgt = MkEdge()
-            local ppM = PP.mult or 1
-            PP.DisablePixelSnap(hl._top)
-            PP.DisablePixelSnap(hl._bot)
-            PP.DisablePixelSnap(hl._lft)
-            PP.DisablePixelSnap(hl._rgt)
-            hl._top:SetHeight(ppM)
-            hl._top:SetPoint("TOPLEFT"); hl._top:SetPoint("TOPRIGHT")
-            hl._bot:SetHeight(ppM)
-            hl._bot:SetPoint("BOTTOMLEFT"); hl._bot:SetPoint("BOTTOMRIGHT")
-            hl._lft:SetWidth(ppM)
-            hl._lft:SetPoint("TOPLEFT", hl._top, "BOTTOMLEFT")
-            hl._lft:SetPoint("BOTTOMLEFT", hl._bot, "TOPLEFT")
-            hl._rgt:SetWidth(ppM)
-            hl._rgt:SetPoint("TOPRIGHT", hl._top, "BOTTOMRIGHT")
-            hl._rgt:SetPoint("BOTTOMRIGHT", hl._bot, "TOPRIGHT")
-            _searchHL = hl
-            return hl
-        end
-
-        local function FlashHighlightOnButton(targetBtn)
-            local hl = GetSearchHL()
-            -- Position using absolute coords (don't anchor to Blizzard button)
-            local left = targetBtn:GetLeft()
-            local top = targetBtn:GetTop()
-            local right = targetBtn:GetRight()
-            local bottom = targetBtn:GetBottom()
-            if not left or not top then return end
-            local scale = targetBtn:GetEffectiveScale()
-            local ovScale = hl:GetEffectiveScale()
-            local ratio = scale / ovScale
-            hl:ClearAllPoints()
-            hl:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left * ratio, top * ratio)
-            hl:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMLEFT", right * ratio, bottom * ratio)
-            hl:SetFrameLevel(20)
-            hl:SetAlpha(0)
-            hl:Show()
-            -- Fade in 0.15s, hold 0.6s, fade out 0.3s
-            local elapsed = 0
-            local phase = "in"
-            hl:SetScript("OnUpdate", function(self, dt)
-                elapsed = elapsed + dt
-                if phase == "in" then
-                    if elapsed >= 0.15 then
-                        self:SetAlpha(0.8)
-                        phase = "hold"
-                        elapsed = 0
-                    else
-                        self:SetAlpha(0.8 * (elapsed / 0.15))
-                    end
-                elseif phase == "hold" then
-                    if elapsed >= 0.6 then
-                        phase = "out"
-                        elapsed = 0
-                    end
-                elseif phase == "out" then
-                    if elapsed >= 0.3 then
-                        self:SetAlpha(0)
-                        self:Hide()
-                        self:SetScript("OnUpdate", nil)
-                    else
-                        self:SetAlpha(0.8 * (1 - elapsed / 0.3))
-                    end
-                end
-            end)
-        end
 
         local ROW_H = 24
         local MAX_RESULTS = 8
@@ -2908,7 +2806,7 @@ local function SkinFriendsFrame()
     SkinRaidTab()
     do
         local BTN_H = 22
-        local btnFont = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
+        local btnFont = EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
         local addBtn = _G.FriendsFrameAddFriendButton
         local msgBtn = _G.FriendsFrameSendMessageButton
         local fp8 = EBS.db and EBS.db.profile and EBS.db.profile.friends
@@ -3204,9 +3102,7 @@ function EBS:OnInitialize()
     local function RegisterVis()
         if visRegistered then return end
         visRegistered = true
-        if EllesmereUI.RegisterVisibilityUpdater then
-            EllesmereUI.RegisterVisibilityUpdater(UpdateFriendsVisibility)
-        end
+        EllesmereUI.RegisterVisibilityUpdater(UpdateFriendsVisibility)
         if visProxy then
             EllesmereUI.RegisterMouseoverTarget(visProxy, VisWantsHover)
         end
@@ -3214,9 +3110,7 @@ function EBS:OnInitialize()
     local function UnregisterVis()
         if not visRegistered then return end
         visRegistered = false
-        if EllesmereUI.UnregisterVisibilityUpdater then
-            EllesmereUI.UnregisterVisibilityUpdater(UpdateFriendsVisibility)
-        end
+        EllesmereUI.UnregisterVisibilityUpdater(UpdateFriendsVisibility)
         if visProxy and EllesmereUI.UnregisterMouseoverTarget then
             EllesmereUI.UnregisterMouseoverTarget(visProxy)
         end

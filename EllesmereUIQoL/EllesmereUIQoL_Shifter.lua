@@ -156,9 +156,7 @@ local function SavePos(name, point, relPoint, x, y)
     EllesmereUIDB.shifterPositions[name] = {
         point = point, relPoint = relPoint, x = x, y = y,
     }
-    if EllesmereUI.RefreshPage then
-        EllesmereUI:RefreshPage(true)
-    end
+    EllesmereUI:RefreshPage(true)
 end
 
 local function GetSavedScale(name)
@@ -188,7 +186,7 @@ end
 -------------------------------------------------------------------------------
 local securePositioner = CreateFrame("Frame", nil, UIParent, "SecureHandlerBaseTemplate")
 local function SecureSetPoint(frame, point, relPoint, x, y)
-    if InCombatLockdown() or not EllesmereUI.SecureSnippetsOK() then return false end
+    if InCombatLockdown() then return false end
     securePositioner:SetFrameRef("f", frame)
     securePositioner:SetAttribute("p", point)
     securePositioner:SetAttribute("rp", relPoint)
@@ -230,7 +228,7 @@ end
 local SCALE_MIN, SCALE_MAX, SCALE_STEP = 0.5, 2, 0.1
 
 local function SecureSetScale(frame, scale)
-    if InCombatLockdown() or not EllesmereUI.SecureSnippetsOK() then return false end
+    if InCombatLockdown() then return false end
     securePositioner:SetFrameRef("f", frame)
     securePositioner:SetAttribute("s", scale)
     securePositioner:Execute([[

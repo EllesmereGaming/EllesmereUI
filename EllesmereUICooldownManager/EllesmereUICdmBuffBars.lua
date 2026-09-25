@@ -61,22 +61,7 @@ local function FormatTime(remaining)
     return format("%.1f", remaining)
 end
 
-local CDM_FONT_FALLBACK = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
-local function GetFont()
-    return (ns.GetCDMFont and ns.GetCDMFont()) or CDM_FONT_FALLBACK
-end
-local function GetOutline()
-    if EllesmereUI and EllesmereUI.GetFontOutlineFlag then
-        return EllesmereUI.GetFontOutlineFlag("cdm")
-    end
-    return "OUTLINE, SLUG"
-end
-local function SetFont(fs, size)
-    if not (fs and fs.SetFont) then return end
-    local useShadow = EllesmereUI and EllesmereUI.GetFontUseShadow and EllesmereUI.GetFontUseShadow("cdm")
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, useShadow) end
-    fs:SetFont(GetFont(), size, GetOutline())
-end
+local function SetFont(fs, size) EllesmereUI.ApplyModuleFont(fs, nil, size, "cdm") end
 
 local function SetTBBTextColor(fs, cfg, prefix)
     if not fs or not cfg then return end
@@ -395,14 +380,7 @@ end
 --  system covers an empty slot.
 -------------------------------------------------------------------------------
 do
-    local function CopyEntry(v)
-        if type(v) ~= "table" then return v end
-        local t = {}
-        for k, x in pairs(v) do
-            t[k] = type(x) == "table" and CopyEntry(x) or x
-        end
-        return t
-    end
+    local CopyEntry = EllesmereUI.Lite.DeepCopy
 
     local function LiveStores(create)
         local db = EllesmereUIDB
@@ -783,7 +761,7 @@ function ns.AddBarToAllSpecs(srcIdx)
     local added = 0
     local numSpecs = GetNumSpecializations and GetNumSpecializations() or 0
     for i = 1, numSpecs do
-        local specID = GetSpecializationInfo(i)
+        local specID = C_SpecializationInfo.GetSpecializationInfo(i)
         if specID then
             local key = tostring(specID)
             if key ~= activeKey then
@@ -860,7 +838,7 @@ function ns.RemoveBarFromAllSpecs(srcIdx)
     local removed = 0
     local numSpecs = GetNumSpecializations and GetNumSpecializations() or 0
     for i = 1, numSpecs do
-        local specID = GetSpecializationInfo(i)
+        local specID = C_SpecializationInfo.GetSpecializationInfo(i)
         if specID then
             local specKey = tostring(specID)
             if specKey ~= activeKey then
@@ -1082,10 +1060,6 @@ function ns.TBBSetBarGroup(cfg, gid)
     cfg.groupId = gid
     -- Legacy mirror: older versions only know one group ("checked" bars).
     cfg.grouped = (gid ~= 0)
-end
-
-function ns.TBBBarGrouped(cfg)
-    return ns.TBBBarGroupID(cfg) ~= 0
 end
 
 -- Sorted list of group ids currently used by at least one bar.
@@ -2088,12 +2062,6 @@ function ns.PropagateTBBGroupSize(srcIdx, dim, value)
         end
     end
     _tbbGroupSizing = false
-end
-
-function ns.HasBuffBars()
-    if not ECME or not ECME.db then return false end
-    local tbb = ns.GetTrackedBuffBars()
-    return tbb and tbb.bars and #tbb.bars > 0
 end
 
 function ns.IsTBBRebuildPending() return _tbbRebuildPending end
@@ -3116,16 +3084,23 @@ ns.ApplyTBBBarSettings = ApplyTrackedBuffBarSettings
 -- in bar units, for its unlock element's getMatchPad: exactly the arguments
 -- ApplyTrackedBuffBarSettings passes to ApplyBorderStyle (the numeric step as the
 -- "resourcebars" size key, alpha 1, no scale normalizing). nil under the stock
--- styles (no EUI border) and for a border that draws nothing outside.
-function ns.TBBBorderMatchPad(cfg)
+-- styles (no EUI border) and for a border that draws nothing outside. `frame` is
+-- the bar: its effective scale (a position scale rides on it) is the grid the
+-- border's anchors snap to.
+function ns.TBBBorderMatchPad(cfg, frame)
     if not cfg or not EllesmereUI.BorderMatchPad or ns.CdmBlizzBars() then return nil end
     local bSz = cfg.borderSize or 0
     local textureKey = cfg.borderTexture or "solid"
     if textureKey == "solid" then return nil end
+    local es
+    if frame then
+        local ok, s = pcall(frame.GetEffectiveScale, frame)
+        if ok then es = s end
+    end
     return EllesmereUI.BorderMatchPad(bSz, textureKey,
         cfg.borderTextureOffset, cfg.borderTextureOffsetY,
         cfg.borderTextureShiftX, cfg.borderTextureShiftY,
-        "resourcebars", bSz, EllesmereUI.BorderPx(cfg.borderSizePx, bSz, textureKey), nil, 1)
+        "resourcebars", bSz, EllesmereUI.BorderPx(cfg.borderSizePx, bSz, textureKey), nil, 1, es)
 end
 
 -- "TBB_" .. index and "TBBG_" .. group key, each built once, so the per-build
@@ -3930,29 +3905,6 @@ function ns.QueueTBBAutoAdd()
     end)
 end
 
---- Frame-based check: is a spellID present in Essential or Utility viewers? Same pattern as IsSpellInBuffBarViewer but for CD/Utility bars.
-function ns.IsSpellInCDUtilViewer(spellID)
-    if not spellID or spellID <= 0 then return false end
-    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
-    if not gci then return false end
-    local viewers = { "EssentialCooldownViewer", "UtilityCooldownViewer" }
-    for _, vName in ipairs(viewers) do
-        local viewer = _G[vName]
-        if viewer and viewer.itemFramePool then
-            for frame in viewer.itemFramePool:EnumerateActive() do
-                local cdID = frame.cooldownID
-                if cdID then
-                    local info = gci(cdID)
-                    if info and MatchesSID(info, spellID) then
-                        return true
-                    end
-                end
-            end
-        end
-    end
-    return false
-end
-
 -------------------------------------------------------------------------------
 --  Stacks Helper (reads Blizzard child Applications frame)
 -------------------------------------------------------------------------------
@@ -4187,12 +4139,6 @@ local function MirrorEngineTimer(bar, cfg)
         bar._tbbAlphaGated = nil
     end
     return wrote
-end
-
---- Does a TBB config have a matching frame in BuffBarCooldownViewer? Uses FindChild
---- (frame-based MatchFrameToConfig) rather than spell-ID cache lookups, so it is robust against ID mismatches.
-local function IsTrackedInCDM(cfg)
-    return FindChild(cfg) ~= nil
 end
 
 -------------------------------------------------------------------------------
@@ -5405,13 +5351,12 @@ local function TBBFillVisState()
 end
 
 local function TBBVisibilityHides(cfg)
-    if EllesmereUI.CheckVisibilityOptions and EllesmereUI.CheckVisibilityOptions(cfg) then
+    if EllesmereUI.CheckVisibilityOptions(cfg) then
         return true
     end
 
     local vis = cfg.barVisibility or "always"
-    local visExt = EllesmereUI.EvalVisibilityExtended
-        and EllesmereUI.EvalVisibilityExtended(cfg, "barVisibility", _tbbVisState, EllesmereUI.VIS_CAPS_DEFAULT)
+    local visExt = EllesmereUI.EvalVisibilityExtended(cfg, "barVisibility", _tbbVisState, EllesmereUI.VIS_CAPS_DEFAULT)
     if visExt ~= nil then return not visExt end
     if vis == "never" then return true end
     if vis == "in_combat" then return not _tbbVisState.inCombat end
@@ -5479,8 +5424,8 @@ function ns.UpdateTrackedBuffBarTimers()
 
     -- Self-heal placeholder mode when the user navigates away from Tracking Bars
     if ns._tbbPlaceholderMode then
-        local am = EllesmereUI and EllesmereUI.GetActiveModule and EllesmereUI:GetActiveModule()
-        local ap = EllesmereUI and EllesmereUI.GetActivePage and EllesmereUI:GetActivePage()
+        local am = EllesmereUI:GetActiveModule()
+        local ap = EllesmereUI:GetActivePage()
         if am ~= "EllesmereUICooldownManager" or ap ~= "Tracking Bars" then
             ns._tbbPlaceholderMode = false
             if ns.HideTBBPlaceholders then ns.HideTBBPlaceholders() end
@@ -6395,7 +6340,7 @@ function ns.RegisterTBBUnlockElements()
                 getMatchPad = function()
                     local t = ns.GetTrackedBuffBars()
                     local c = t and t.bars and t.bars[idx]
-                    return ns.TBBBorderMatchPad(c)
+                    return ns.TBBBorderMatchPad(c, tbbFrames[idx])
                 end,
                 isHidden = function()
                     local t = ns.GetTrackedBuffBars()
@@ -6562,7 +6507,7 @@ function ns.RegisterTBBUnlockElements()
                     local ai = gid and ns.TBBGroupAnchorIndex(gid)
                     local t = ai and ns.GetTrackedBuffBars()
                     local c = t and t.bars and t.bars[ai]
-                    return ns.TBBBorderMatchPad(c)
+                    return ns.TBBBorderMatchPad(c, ai and tbbFrames[ai])
                 end,
                 isHidden = function()
                     local gid = ns.TBBLocalGidForGlobal(gk)
