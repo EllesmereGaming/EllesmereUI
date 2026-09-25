@@ -135,6 +135,7 @@ local defaults = {
     absorbStyle = "blizzard",
     absorbCleanAlpha = 30,
     absorbColor = { r = 1, g = 1, b = 1 },
+    arenaNumberNames = "none",
     hostile = { r = 0.39, g = 0.11, b = 0.09 },
     neutral = { r = 0.81, g = 0.72, b = 0.19 },
     tapped  = { r = 0.50, g = 0.50, b = 0.50 },
@@ -189,7 +190,7 @@ local defaults = {
     dpsNoAggroOverrideMiniBoss = false,  -- on: overrides Mini-Boss (above priority step 7); off = stays low
     dpsNoAggroOverrideCaster = false,  -- on: overrides Caster (above priority step 8); off = Casters keep own color
     dpsNoAggroOverrideBoss = true,  -- on (default, the pre-toggle behaviour): overrides Boss (step 10b); off = Bosses keep own color
-    interruptReady = { r = 0.92, g = 0.35, b = 0.20 },  
+    interruptReady = { r = 0.92, g = 0.35, b = 0.20 },
     castBar = { r = 0.70, g = 0.40, b = 0.90 },
     interruptMidCastEnabled = false,
     interruptMidCastColor = { r = 0.318, g = 0.820, b = 0.357 },
@@ -7733,6 +7734,32 @@ function NameplateFrame:UpdateName()
     el = el and GetTextSlot(el) or "enemyName"
     local name = EllesmereUI.WithSurname(UnitName(unit))
     if type(name) == "string" then
+        if p and p.arenaNumberNames and p.arenaNumberNames ~= "none" then
+            local _, instanceType = IsInInstance()
+            if instanceType == "arena" then
+                for i = 1, 3 do
+                    local aUnit = "arena" .. i
+                    local isMatch = UnitIsUnit(unit, aUnit)
+                    if not isMatch then
+                        local ok, match = pcall(function() return name and name == UnitName(aUnit) end)
+                        isMatch = ok and match
+                    end
+                    
+                    if isMatch then
+                        local safeName = UnitName(aUnit) or "Unknown"
+                        if p.arenaNumberNames == "full" then
+                            name = tostring(i)
+                        elseif p.arenaNumberNames == "prefix" then
+                            name = tostring(i) .. " " .. safeName
+                        elseif p.arenaNumberNames == "postfix" then
+                            name = safeName .. " " .. tostring(i)
+                        end
+                        break
+                    end
+                end
+            end
+        end
+
         ns.SetNameElementText(self.name, el, name, unit)
         if p and p.nameRaidMarkerEnabled == true then self:RefreshNamePosition(true) end
     end
@@ -8554,7 +8581,7 @@ function NameplateFrame:UpdateCast()
         self.castShieldFrame:Show()
         self:ApplyCastColor(kickProtected)
     end
-    
+
     if UnitCastingDuration and self.cast.SetTimerDuration then
         if isChannel then
             local castDuration
@@ -10224,5 +10251,3 @@ ns._oocPlatesCtl:SetScript("OnEvent", function(self, event)
     end
 end)
 ns._oocPlatesCtl:RegisterEvent("PLAYER_LOGIN")
-
-
