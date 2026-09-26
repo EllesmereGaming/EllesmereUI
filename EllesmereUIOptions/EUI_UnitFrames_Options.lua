@@ -875,6 +875,16 @@ initFrame:SetScript("OnEvent", function(self)
     }
     local portraitArtOrder = { "3d", "2d", "class" }
 
+    -- What a NON-player unit shows while Art Style is the class icon: the 2D
+    -- portrait is the Blizzard-parity default (class art is player-only), "none"
+    -- leaves the portrait empty and "3d" renders the model instead.
+    local portraitNonPlayerValues = {
+        ["2d"]   = "2D Portrait",
+        ["none"] = "Nothing",
+        ["3d"]   = "3D Portrait",
+    }
+    local portraitNonPlayerOrder = { "2d", "none", "3d" }
+
     -- Portrait mode dropdown values; "none" hides the portrait entirely.
     local portraitModeValues2 = {
         ["none"]     = "None",
@@ -6299,6 +6309,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Forward declarations for cross-row updates
         local sharedDetShapeRow
         local sharedDetSizeRow
+        local sharedNonPlayerRow
 
         -- Row 1: Portrait Mode + Art Style
         local sharedPortraitModeRow
@@ -6463,6 +6474,68 @@ initFrame:SetScript("OnEvent", function(self)
                     onApply       = function(checkedKeys)
                         local v = UNIT_DB_MAP[selectedUnit]().portraitMode
                         for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().portraitMode = v end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                },
+            })
+        end
+
+        -- Row 1b: Non-Player Portrait. Class art is player-only (UnitClass reports
+        -- most NPCs as warriors), so in class mode a mob or NPC falls back to its 2D
+        -- portrait -- the Blizzard-parity default. This picks a different fallback:
+        -- no art at all, or the 3D model. Kept visible but disabled outside class
+        -- mode (and under Blizzard Style, which owns both answers itself) instead of
+        -- hidden, so the rows below never shift when Art Style changes. Same rule as
+        -- the Size row's full-sentence disabled tooltip: rawTooltip passes the
+        -- sentence through verbatim, so each case names its own requirement.
+        local function PortraitNonPlayerTip()
+            if EllesmereUI.BlizzStyle.Get("unitframes") then
+                return "This option requires " .. EllesmereUI.BlizzStyle.Label("unitframes") .. " to be disabled."
+            end
+            local v = SVal("portraitMode", "2d")
+            local name = (v == "3d") and portraitArtValues["3d"] or "2D Portrait"
+            return "This option requires Art Style to be set to Class (currently " .. name .. ")."
+        end
+        sharedNonPlayerRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Non-Player Portrait", values=portraitNonPlayerValues, order=portraitNonPlayerOrder,
+              disabled=function()
+                  if EllesmereUI.BlizzStyle.Get("unitframes") then return true end
+                  return SVal("portraitMode", "2d") ~= "class"
+              end,
+              disabledTooltip=PortraitNonPlayerTip, rawTooltip=true,
+              getValue=function() return SVal("portraitNonPlayer", "2d") end,
+              setValue=function(v) SSet("portraitNonPlayer", v); UpdatePreview() end },
+            { type="label", text = "" });  y = y - h
+        -- Sync icon: Non-Player Portrait. Per-frame like every other portrait row
+        -- (the global is only a dormant default), so applying it everywhere is the
+        -- common case -- a mob lands on whichever frame happens to be watching it.
+        if not EllesmereUI._prebuilding then
+            local rgn = sharedNonPlayerRow._leftRegion
+            EllesmereUI.BuildSyncIcon({
+                region  = rgn,
+                tooltip = "Apply Non-Player Portrait to all Frames",
+                onClick = function()
+                    local v = SVal("portraitNonPlayer", "2d")
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if key ~= selectedUnit then UNIT_DB_MAP[key]().portraitNonPlayer = v end
+                    end
+                    ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                end,
+                isSynced = function()
+                    local v = SVal("portraitNonPlayer", "2d")
+                    for _, key in ipairs(GROUP_UNIT_ORDER) do
+                        if (UNIT_DB_MAP[key]().portraitNonPlayer or "2d") ~= v then return false end
+                    end
+                    return true
+                end,
+                flashTargets = function() return { rgn } end,
+                multiApply = {
+                    elementKeys   = GROUP_UNIT_ORDER,
+                    elementLabels = SHORT_LABELS,
+                    getCurrentKey = function() return selectedUnit end,
+                    onApply       = function(checkedKeys)
+                        local v = SVal("portraitNonPlayer", "2d")
+                        for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().portraitNonPlayer = v end
                         ReloadAndUpdate(); EllesmereUI:RefreshPage()
                     end,
                 },
