@@ -218,7 +218,7 @@ initFrame:SetScript("OnEvent", function(self)
     local PAN_GLOW_ORDER  = { 0, -1 }
     if ns.GLOW_STYLES then
         for i, entry in ipairs(ns.GLOW_STYLES) do
-            if not entry.shapeGlow then
+            if not entry.shapeGlow and not entry.solidFill then
                 PAN_GLOW_VALUES[i] = entry.name
                 PAN_GLOW_ORDER[#PAN_GLOW_ORDER + 1] = i
             end
@@ -532,6 +532,15 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
         return false
+    end
+
+    -- Blackout masks itself to the icon silhouette, so it survives a custom
+    -- shape instead of being forced to Shape Glow (mirrors CdmBarGlows).
+    local function ResolveBarGlowStyle(barIdx, style)
+        style = tonumber(style) or 1
+        local e = ns.GLOW_STYLES and ns.GLOW_STYLES[style]
+        if BarHasCustomShape(barIdx) and not (e and e.solidFill) then return 2 end
+        return style
     end
 
     -- Preview glow state tracking
@@ -1470,7 +1479,7 @@ initFrame:SetScript("OnEvent", function(self)
                         if not _bgPreviewGlowActive[pvKey] then return end
                         local ov = _bgPreviewGlowOverlays[pvKey]
                         if not ov then return end
-                        local style = BarHasCustomShape(curBar) and 2 or (entry.glowStyle or 1)
+                        local style = ResolveBarGlowStyle(curBar, entry.glowStyle)
                         local cr, cg, cb
                         if entry.colorMode == "class" then
                             local cc = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
@@ -1505,8 +1514,7 @@ initFrame:SetScript("OnEvent", function(self)
                           disabled = function() return BarHasCustomShape(curBar) end,
                           disabledTooltip = "This option is not available for custom shaped icons",
                           getValue = function()
-                              if BarHasCustomShape(curBar) then return 2 end
-                              return entry.glowStyle or 1
+                              return ResolveBarGlowStyle(curBar, entry.glowStyle)
                           end,
                           setValue = function(v)
                               entry.glowStyle = tonumber(v) or 1
@@ -1580,7 +1588,7 @@ initFrame:SetScript("OnEvent", function(self)
                                     -- Restore accent border
                                     if previewBtn._accentBrd then previewBtn._accentBrd:Show() end
                                 else
-                                    local style = BarHasCustomShape(curBar) and 2 or (entry.glowStyle or 1)
+                                    local style = ResolveBarGlowStyle(curBar, entry.glowStyle)
                                     local cr, cg, cb
                                     if entry.colorMode == "class" then
                                         local cc = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
@@ -8577,7 +8585,7 @@ initFrame:SetScript("OnEvent", function(self)
                     AB.AnyResourceAwareGlowSaved = function()
                         local function hit(b)
                             local e2 = b and b.cdStateEffect
-                            return e2 == "pixelGlowReadyUsable" or e2 == "buttonGlowReadyUsable"
+                            return ns.IsCdStateGlowUsable and ns.IsCdStateGlowUsable(e2)
                         end
                         local st = ns.GetSpellSettingsStore and ns.GetSpellSettingsStore(barKey)
                         if st then
@@ -9411,6 +9419,7 @@ initFrame:SetScript("OnEvent", function(self)
                         { val = 5,    label = "GCD" },
                         { val = 6,    label = "Modern WoW Glow" },
                         { val = 7,    label = "Classic WoW Glow" },
+                        { val = 8,    label = "Blackout" },
                     }
                     local ACTIVE_GLOW_ITEMS = {
                         { val = nil,  label = "None" },
@@ -9421,6 +9430,7 @@ initFrame:SetScript("OnEvent", function(self)
                         { val = 5,    label = "GCD" },
                         { val = 6,    label = "Modern WoW Glow" },
                         { val = 7,    label = "Classic WoW Glow" },
+                        { val = 8,    label = "Blackout" },
                     }
                     local ACTIVE_SWIPE_ITEMS = {
                         { val = "custom",  label = "CD Swipe Color" },
@@ -9489,8 +9499,10 @@ initFrame:SetScript("OnEvent", function(self)
                         { val = "hiddenReadyShift", label = "Hidden CD Ready (Shift Icons)" },
                         { val = "hiddenOnCD",      label = "Hidden (On CD)" },
                         { val = "hiddenReady",     label = "Hidden (CD Ready)" },
+                        { val = "blackoutOnCD",   label = "Blackout (On CD)" },
                         { val = "pixelGlowReady",  label = "Pixel Glow (CD Ready)" },
                         { val = "buttonGlowReady", label = "Button Glow (CD Ready)" },
+                        { val = "blackoutReady",   label = "Blackout (CD Ready)" },
                         -- Resource Aware variants: also require the spell to be castable
                         -- (resources/form) via the event-driven usability watcher. That watcher has
                         -- a small cost, so these are separate opt-in values (with a confirm popup) and the plain variants above stay cost-free.
@@ -9498,6 +9510,8 @@ initFrame:SetScript("OnEvent", function(self)
                           tooltip = "Pixel Glow CD Ready (Resource Aware)" },
                         { val = "buttonGlowReadyUsable", label = "Button Glow CD Ready (Resource Aware)",
                           tooltip = "Button Glow CD Ready (Resource Aware)" },
+                        { val = "blackoutReadyUsable",   label = "Blackout CD Ready (Resource Aware)",
+                          tooltip = "Blackout CD Ready (Resource Aware)" },
                     }
                     -- Reverse Swipe single-select (per-spell / per-preset), shared by both the regular-spell (ss) and preset/custom (cas) menus below.
                     local REVERSE_SWIPE_ITEMS = {
@@ -9798,8 +9812,7 @@ initFrame:SetScript("OnEvent", function(self)
                                                 return item.val
                                             end,
                                             confirmRA = rowApply and rowApply.confirmRA
-                                                and (item.val == "pixelGlowReadyUsable"
-                                                  or item.val == "buttonGlowReadyUsable"),
+                                                and ns.IsCdStateGlowUsable and ns.IsCdStateGlowUsable(item.val),
                                             -- No flyout rebuild here: rebuilding would destroy the strip's
                                             -- owner item and hide the strip mid-interaction (e.g. between "Apply
                                             -- to Bar" and "(All Specs)"). Flyout re-renders fresh on its next open; only the row's accent cue updates now.
@@ -10281,6 +10294,7 @@ initFrame:SetScript("OnEvent", function(self)
                             { val = 5,   label = "GCD" },
                             { val = 6,   label = "Modern WoW Glow" },
                             { val = 7,   label = "Classic WoW Glow" },
+                            { val = 8,   label = "Blackout" },
                         }
                         MakeSubnavRow("Buff Glow", BUFF_GLOW_ITEMS,
                             function() return ss.buffGlow end,
@@ -10868,8 +10882,10 @@ initFrame:SetScript("OnEvent", function(self)
                             { val = "hiddenReadyShift", label = "Hidden CD Ready (Shift Icons)" },
                             { val = "hiddenOnCD",      label = "Hidden (On CD)" },
                             { val = "hiddenReady",     label = "Hidden (CD Ready)" },
+                            { val = "blackoutOnCD",   label = "Blackout (On CD)" },
                             { val = "pixelGlowReady",  label = "Pixel Glow (CD Ready)" },
                             { val = "buttonGlowReady", label = "Button Glow (CD Ready)" },
+                            { val = "blackoutReady",   label = "Blackout (CD Ready)" },
                         }
                         local KEEP_COLORED_ITEMS = {
                             { val = nil,  label = "None" },
@@ -11206,12 +11222,11 @@ initFrame:SetScript("OnEvent", function(self)
                         function(si, item)
                             local isGlow = item.val and item.val > 0
                             local cse = ss.cdStateEffect
-                            if isGlow and (cse == "pixelGlowReady" or cse == "buttonGlowReady"
-                               or cse == "pixelGlowReadyUsable" or cse == "buttonGlowReadyUsable") then
+                            if isGlow and ns.IsAnyCdStateGlow and ns.IsAnyCdStateGlow(cse) then
                                 si:SetAlpha(0.35)
                                 si:SetScript("OnClick", function() end)
                                 si:SetScript("OnEnter", function()
-                                    EllesmereUI.ShowWidgetTooltip(si, "Disable CD Ready glow first")
+                                    EllesmereUI.ShowWidgetTooltip(si, "Disable Cooldown State glow first")
                                 end)
                                 si:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                             end
@@ -11463,7 +11478,7 @@ initFrame:SetScript("OnEvent", function(self)
                             -- FIRST enable in the current spec pays the cost. Prompt only when no
                             -- spell on any bar in this spec already has a Resource Aware glow (a
                             -- spell's own current value counts, so pixel<->button switches and re-selects never prompt). Plain CD Ready glows are cost-free and never prompt.
-                            local isGlow = (v == "pixelGlowReadyUsable" or v == "buttonGlowReadyUsable")
+                            local isGlow = ns.IsCdStateGlowUsable and ns.IsCdStateGlowUsable(v)
                             if isGlow and not AB.AnyResourceAwareGlowSaved() then
                                 menu:Hide()
                                 EllesmereUI:ShowConfirmPopup({
@@ -11498,8 +11513,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 end)
                                 return
                             end
-                            local isGlow = (item.val == "pixelGlowReady" or item.val == "buttonGlowReady"
-                                or item.val == "pixelGlowReadyUsable" or item.val == "buttonGlowReadyUsable")
+                            local isGlow = ns.IsAnyCdStateGlow and ns.IsAnyCdStateGlow(item.val)
                             if isGlow and ss.procGlow and ss.procGlow > 0 then
                                 si:SetAlpha(0.35)
                                 si:SetScript("OnClick", function() end)

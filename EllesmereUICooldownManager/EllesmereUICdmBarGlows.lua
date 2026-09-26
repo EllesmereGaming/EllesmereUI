@@ -409,11 +409,14 @@ local function UpdateOverlayVisuals()
                 if shouldGlow then
                     StopNativeGlow(overlay)
                     local style = entry.glowStyle or 1
-                    -- Force Custom Shape Glow for custom-shaped icons
+                    -- Force Custom Shape Glow for custom-shaped icons. Blackout
+                    -- is exempt: it masks itself to the icon silhouette.
                     local glowParent = overlay:GetParent()
                     local gpfc = glowParent and ns._ecmeFC and ns._ecmeFC[glowParent]
                     local shapeName = gpfc and gpfc.shapeName
-                    if shapeName and shapeName ~= "square" and shapeName ~= "csquare" and shapeName ~= "none" then
+                    local styleEntry = ns.GLOW_STYLES and ns.GLOW_STYLES[style]
+                    if shapeName and shapeName ~= "square" and shapeName ~= "csquare" and shapeName ~= "none"
+                       and not (styleEntry and styleEntry.solidFill) then
                         style = 2
                     end
                     local cr, cg, cb

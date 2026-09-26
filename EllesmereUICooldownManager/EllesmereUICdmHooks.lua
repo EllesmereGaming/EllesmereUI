@@ -3140,6 +3140,13 @@ local function DecorateFrame(frame, barData)
     end
     fd.tex = iconWidget
     fd.cooldown = frame.Cooldown
+    -- Captured once (never on a later re-decorate): the offset from the icon's
+    -- live level to Blizzard's native swipe/countdown level, so Blackout can
+    -- lift the Cooldown widget above its opaque fill and restore it exactly
+    -- afterwards, without hardcoding Blizzard's own default.
+    if fd.cooldown and fd._cdLevelOffset == nil then
+        fd._cdLevelOffset = fd.cooldown:GetFrameLevel() - baseLvl
+    end
 
     -- Swiftmend brightness (druid only; retried from the decorated early-return).
     TryHookSwiftmend(frame, fd)
@@ -4264,8 +4271,8 @@ local function DecorateFrame(frame, barData)
                 end
                 local cseInfo = C_Spell.GetSpellCooldown(liveSid)
                 local onCD = cseInfo and cseInfo.isActive and not cseInfo.isOnGCD
-                if cse == "pixelGlowReady" or cse == "buttonGlowReady" then
-                    -- Plain CD Ready Glow: cooldown state only, decided right here
+                if ns.IsCdStateGlow(cse) or ns.IsCdStateOnCdGlow(cse) then
+                    -- Plain CD-state Glow (ready or on-CD): cooldown state only, decided right here
                     -- -- no usability reads, no deferral, no events for genuine
                     -- Blizzard frames (Blizzard calls SetDesaturated on them at
                     -- every cd transition, re-firing this hook). EUI's own custom
@@ -4290,14 +4297,14 @@ local function DecorateFrame(frame, barData)
                             fd._cdStateGlowOn = false
                         end
                     end
-                    if not onCD then
+                    if ns.CdStateGlowWants(cse, onCD) then
                         -- procGlowActive gate: the proc glow shares this
                         -- overlay and has priority -- never start over it
                         -- (ShowProcGlow clears the memo, so this is the
                         -- explicit gate that replaces the old accidental one).
                         if fd.glowOverlay and not fd._cdStateGlowOn
                             and not fd.procGlowActive then
-                            local style = cse == "pixelGlowReady" and 1 or 3
+                            local style = ns.CdStateGlowStyle(cse)
                             local gr, gg, gb = ns.ResolveGlowColor(ss2)
                             ns.StartNativeGlow(fd.glowOverlay, style, gr or 1, gg or 1, gb or 1)
                             fd._cdStateGlowOn = true
@@ -4306,7 +4313,7 @@ local function DecorateFrame(frame, barData)
                         if fd.glowOverlay then ns.StopNativeGlow(fd.glowOverlay) end
                         fd._cdStateGlowOn = false
                     end
-                elseif cse == "pixelGlowReadyUsable" or cse == "buttonGlowReadyUsable" then
+                elseif ns.IsCdStateGlowUsable(cse) then
                     -- Resource Aware CD Ready Glow: also requires the spell to
                     -- be castable (resources/form/lockout).
                     -- Pool reassignment reset, same as the plain variants.
@@ -4359,7 +4366,7 @@ local function DecorateFrame(frame, barData)
                                 -- overlay -- never start over a live proc.
                                 if fd.glowOverlay and not fd._cdStateGlowOn
                                     and not fd.procGlowActive then
-                                    local style = self.cse == "pixelGlowReadyUsable" and 1 or 3
+                                    local style = ns.CdStateGlowStyle(self.cse)
                                     local gr, gg, gb = ns.ResolveGlowColor(self.ss2)
                                     ns.StartNativeGlow(fd.glowOverlay, style, gr or 1, gg or 1, gb or 1)
                                     fd._cdStateGlowOn = true
@@ -4979,8 +4986,8 @@ do
                and not (ns.PresetHasCdState and ns.PresetHasCdState(frame)) then
                 local ss2 = RSP(frame, sid2, ns.GetBarSpellData(bk2))
                 local cse2 = ns.GetSpellCdStateEffect(frame, ss2)
-                local plainGlow = cse2 == "pixelGlowReady" or cse2 == "buttonGlowReady"
-                local usableGlow = cse2 == "pixelGlowReadyUsable" or cse2 == "buttonGlowReadyUsable"
+                local plainGlow = ns.IsCdStateGlow(cse2) or ns.IsCdStateOnCdGlow(cse2)
+                local usableGlow = ns.IsCdStateGlowUsable(cse2)
                 if plainGlow or usableGlow then
                     keep = true
                     -- Pool reassignment: glow state inherited from a previous
@@ -4999,26 +5006,28 @@ do
                     local ci = C_Spell.GetSpellCooldown(liveSid)
                     local onCD = ci and ci.isActive and not ci.isOnGCD
                     local shouldGlow
-                    if onCD then
-                        -- On cooldown always stops the glow -- a safety net
-                        -- independent of the SetDesaturated hook, in case that
-                        -- hook doesn't fire for a given transition (it never does
-                        -- for EUI custom frames -- they use SetDesaturation).
-                        shouldGlow = false
-                    elseif usableGlow then
-                        -- Resource Aware: also require castability (resources,
-                        -- form, lockout). nil = no data yet -> not usable.
-                        shouldGlow = (C_Spell.IsSpellUsable and C_Spell.IsSpellUsable(liveSid)) == true
+                    if usableGlow then
+                        if onCD then
+                            -- On cooldown always stops the glow -- a safety net
+                            -- independent of the SetDesaturated hook, in case that
+                            -- hook doesn't fire for a given transition (it never does
+                            -- for EUI custom frames -- they use SetDesaturation).
+                            shouldGlow = false
+                        else
+                            -- Resource Aware: also require castability (resources,
+                            -- form, lockout). nil = no data yet -> not usable.
+                            shouldGlow = (C_Spell.IsSpellUsable and C_Spell.IsSpellUsable(liveSid)) == true
+                        end
                     else
-                        -- Plain: cooldown state only.
-                        shouldGlow = true
+                        -- Plain / on-CD: cooldown state only.
+                        shouldGlow = ns.CdStateGlowWants(cse2, onCD)
                     end
                     if shouldGlow then
                         -- procGlowActive: proc owns the shared overlay --
                         -- never start over a live proc; StopProcGlow queues
                         -- this flush again once the proc ends.
                         if not fd._cdStateGlowOn and not fd.procGlowActive then
-                            local style = (cse2 == "pixelGlowReady" or cse2 == "pixelGlowReadyUsable") and 1 or 3
+                            local style = ns.CdStateGlowStyle(cse2)
                             local gr, gg, gb = ns.ResolveGlowColor(ss2)
                             ns.StartNativeGlow(fd.glowOverlay, style, gr or 1, gg or 1, gb or 1)
                             fd._cdStateGlowOn = true
