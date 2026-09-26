@@ -830,6 +830,29 @@ initFrame:SetScript("OnEvent", function(self)
     }
     local allGrowthOrder        = { "DOWN", "UP", "RIGHT", "LEFT" }
 
+    -- Group Growth additionally offers the grid flow: ns._RF_GRID_ROWS groups
+    -- stack down the first column (G1 above G2) before the next column starts to
+    -- the right (G3 above G4) -- a 2x2 raid block instead of one long run. Unit
+    -- Growth has no such mode: a header's children only ever run along one axis.
+    local groupGrowthValues = {
+        DOWN      = "Down",
+        UP        = "Up",
+        RIGHT     = "Right",
+        LEFT      = "Left",
+        DOWNRIGHT = "Down and then Right",
+    }
+    local groupGrowthOrder  = { "DOWN", "UP", "RIGHT", "LEFT", "DOWNRIGHT" }
+
+    -- Merge Groups renders through Blizzard's flat header, which has a single
+    -- column axis and cannot wrap into a grid, so the grid flow degrades to the
+    -- plain RIGHT run there (same self-heal as ns._RFEffectiveGrowth in the
+    -- runtime). Report what actually renders instead of showing a value the
+    -- merged grid ignores.
+    local function ReadGroupGrowth(v)
+        if v == "DOWNRIGHT" and SVal("mergeGroups", false) then return "RIGHT" end
+        return v
+    end
+
     -- ns._RFGrowthIsVertical is the runtime module's single source of truth for
     -- this check (EllesmereUIRaidFrames.lua); reuse it here rather than a second copy.
     local GrowthIsVertical = ns._RFGrowthIsVertical
@@ -2472,10 +2495,10 @@ initFrame:SetScript("OnEvent", function(self)
                 icon = EllesmereUI.DIRECTIONS_ICON,
                 title = "Name Offset",
                 rows = {
-                    { type="slider", label="Offset X", min=-500, max=500, step=1,
+                    { type="slider", label="Offset X", min=-50, max=50, step=1,
                       get=function() return SVal("nameOffsetX", 0) end,
                       set=function(v) SSet("nameOffsetX", v) end },
-                    { type="slider", label="Offset Y", min=-500, max=500, step=1,
+                    { type="slider", label="Offset Y", min=-50, max=50, step=1,
                       get=function() return SVal("nameOffsetY", 0) end,
                       set=function(v) SSet("nameOffsetY", v) end },
                 },
@@ -2555,10 +2578,10 @@ initFrame:SetScript("OnEvent", function(self)
                 icon = EllesmereUI.DIRECTIONS_ICON,
                 title = "Health Text Offset",
                 rows = {
-                    { type="slider", label="Offset X", min=-150, max=150, step=1,
+                    { type="slider", label="Offset X", min=-50, max=50, step=1,
                       get=function() return SVal("healthTextOffsetX", 0) end,
                       set=function(v) SSet("healthTextOffsetX", v) end },
-                    { type="slider", label="Offset Y", min=-75, max=75, step=1,
+                    { type="slider", label="Offset Y", min=-50, max=50, step=1,
                       get=function() return SVal("healthTextOffsetY", 0) end,
                       set=function(v) SSet("healthTextOffsetY", v) end },
                 },
@@ -2646,10 +2669,10 @@ initFrame:SetScript("OnEvent", function(self)
                 disabledTooltip = "Heal Absorb Text",
                 title = "Heal Absorb Text Offset",
                 rows = {
-                    { type="slider", label="Offset X", min=-150, max=150, step=1,
+                    { type="slider", label="Offset X", min=-50, max=50, step=1,
                       get=function() return SVal("healAbsorbTextOffsetX", 0) end,
                       set=function(v) SSet("healAbsorbTextOffsetX", v) end },
-                    { type="slider", label="Offset Y", min=-75, max=75, step=1,
+                    { type="slider", label="Offset Y", min=-50, max=50, step=1,
                       get=function() return SVal("healAbsorbTextOffsetY", 0) end,
                       set=function(v) SSet("healAbsorbTextOffsetY", v) end },
                 },
@@ -3171,49 +3194,6 @@ initFrame:SetScript("OnEvent", function(self)
                 end, false, 20)
             swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = swatch
-        end
-
-        -- Show Group Numbers | Number Size (+ alpha swatch). Raid only: party has no groups. Size + color also drive the always-on preview group labels; the toggle gates only the real frames.
-        if not _partyCtx then
-            local gnRow
-            gnRow, h = W:DualRow(parent, y,
-                { type="toggle", text="Show Group Numbers",
-                  getValue=function() return SVal("showGroupNumbers", false) end,
-                  setValue=function(v) SSet("showGroupNumbers", v) end },
-                { type="slider", text="Number Size", min=6, max=30, step=1,
-                  getValue=function() return SVal("groupNumberSize", 10) end,
-                  setValue=function(v) SSet("groupNumberSize", v) end });  y = y - h
-            if not EllesmereUI._prebuilding then
-                local rgn = gnRow._rightRegion
-                local swatch = EllesmereUI.BuildColorSwatch(
-                    rgn, gnRow:GetFrameLevel() + 3,
-                    function()
-                        local c = SGet("groupNumberColor")
-                        if c then return c.r, c.g, c.b, c.a or 0.75 end
-                        return 1, 1, 1, 0.75
-                    end,
-                    function(r, g, b, a)
-                        SWrite("groupNumberColor", { r=r, g=g, b=b, a=a })
-                        ReloadAndUpdate()
-                    end, true, 20)
-                swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-                rgn._lastInline = swatch
-            end
-            if not EllesmereUI._prebuilding then
-                local rgn = gnRow._leftRegion
-                EllesmereUI.BuildInlineCog(rgn, {
-                    icon = EllesmereUI.DIRECTIONS_ICON,
-                    title = "Group Number Offset",
-                    rows = {
-                        { type="slider", label="Offset X", min=-50, max=50, step=1,
-                          get=function() return SVal("groupNumberOffsetX", 0) end,
-                          set=function(v) SSet("groupNumberOffsetX", v) end },
-                        { type="slider", label="Offset Y", min=-50, max=50, step=1,
-                          get=function() return SVal("groupNumberOffsetY", 0) end,
-                          set=function(v) SSet("groupNumberOffsetY", v) end },
-                    },
-                })
-            end
         end
 
         -- Ping Marker | Ping Marker Size (+ offset cog). The mark a group member's ping
@@ -4045,151 +4025,6 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -------------------------------------------------------------------
-        --  PET FRAMES (party and raid tabs, each with its own switch)
-        -------------------------------------------------------------------
-        -- Not a synced section: no onSection call, so the party tab never overlays it.
-        do
-            _, h = W:SectionHeader(parent, "PET FRAMES", y); y = y - h
-
-            local function PFSet()
-                local p = db.profile
-                if not p.petFrames then
-                    p.petFrames = { position = "right" }
-                end
-                return p.petFrames
-            end
-            local tabKey = _partyCtx and "party" or "raid"
-            local onParty = tabKey == "party"
-            local function PFEnabled()
-                return PFSet()[tabKey] == true
-            end
-            -- Only a preview already on screen: starting one here would show the raid preview on the
-            -- party tab, or a preview with Preview Mode set to None.
-            local function PFRefreshPreview()
-                if ns.previewActive and ns.previewActive() and ns.ShowPreview then ns.ShowPreview() end
-                if ns.partyPvActive and ns.partyPvActive() and ns.ShowPartyPreview then ns.ShowPartyPreview() end
-            end
-
-            row, h = W:DualRow(parent, y,
-                { type="toggle", text="Show Pets",
-                  tooltip="Adds your group's pets beside these frames, with their health, name, range and click-casting.",
-                  getValue = function() return PFEnabled() end,
-                  -- Rows below are HIDDEN while off; only the on/off flip forces the rebuild.
-                  setValue = EllesmereUI.DependentSetValue(PFEnabled, function(v)
-                      PFSet()[tabKey] = v and true or false
-                      if ns.PF_Apply then ns.PF_Apply() end
-                      -- The Move Frames button goes with the page rebuild; the overlay can't stay up.
-                      if not v and ns.PF_SetMoverShown then ns.PF_SetMoverShown(false) end
-                      PFRefreshPreview()
-                      EllesmereUI:RefreshPage()
-                  end) },
-                (not PFEnabled()) and { type="label", text="" } or
-                { type="dropdown", text="Position",
-                  -- Beside Owner is party only, and a flag over the shared position so the raid tab keeps its own.
-                  values = onParty
-                      and { left="Before First Group", right="After Last Group", free="Free Move", owner="Beside Owner" }
-                      or { left="Before First Group", right="After Last Group", free="Free Move" },
-                  order  = onParty and { "left", "right", "free", "owner" } or { "left", "right", "free" },
-                  getValue = function()
-                      if onParty and PFSet().ownerMode then return "owner" end
-                      return PFSet().position or "right"
-                  end,
-                  setValue = function(v)
-                      if onParty then PFSet().ownerMode = (v == "owner") or nil end
-                      if v ~= "owner" then PFSet().position = v end
-                      if v ~= "free" and ns.PF_SetMoverShown then ns.PF_SetMoverShown(false) end
-                      if ns.PF_Apply then ns.PF_Apply() end
-                      PFRefreshPreview()
-                      EllesmereUI:RefreshPage()
-                  end }); y = y - h
-
-            if PFEnabled() then
-            row, h = W:DualRow(parent, y,
-                { type="slider", text="Extra Width", min=-50, max=100, step=1,
-                  tooltip="Widens or narrows the pet frames relative to the frame size.",
-                  getValue = function() return PFSet().extraWidth or 0 end,
-                  setValue = function(v)
-                      PFSet().extraWidth = v
-                      if ns.PF_Apply then ns.PF_Apply() end
-                      if ns.PF_IsMoverShown and ns.PF_IsMoverShown() and ns.PF_SetMoverShown then
-                          ns.PF_SetMoverShown(true)
-                      end
-                      PFRefreshPreview()
-                  end },
-                { type="slider", text="Extra Height", min=-50, max=100, step=1,
-                  tooltip="Makes the pet frames taller or shorter relative to the frame size.",
-                  getValue = function() return PFSet().extraHeight or 0 end,
-                  setValue = function(v)
-                      PFSet().extraHeight = v
-                      if ns.PF_Apply then ns.PF_Apply() end
-                      if ns.PF_IsMoverShown and ns.PF_IsMoverShown() and ns.PF_SetMoverShown then
-                          ns.PF_SetMoverShown(true)
-                      end
-                      PFRefreshPreview()
-                  end }); y = y - h
-
-            row, h = W:DualRow(parent, y,
-                { type="label", text="Free Move Position" },
-                onParty and { type="dropdown", text="Pet Side",
-                  values = { right="Right", left="Left", below="Below" },
-                  order  = { "right", "left", "below" },
-                  disabled = function() return not PFSet().ownerMode end,
-                  disabledTooltip = "Position must be set to Beside Owner", rawTooltip = true,
-                  getValue = function()
-                      return PFSet().ownerSide or (db.profile.partyHorizontal and "below" or "right")
-                  end,
-                  setValue = function(v)
-                      PFSet().ownerSide = v
-                      if ns.PF_Apply then ns.PF_Apply() end
-                  end }
-                or { type="label", text="" }); y = y - h
-            if not EllesmereUI._prebuilding then
-                local btn = CreateFrame("Button", nil, row)
-                btn:SetSize(140, 26)
-                btn:SetPoint("RIGHT", row._leftRegion, "RIGHT", -20, 0)
-                btn:SetFrameLevel(row:GetFrameLevel() + 5)
-                local bbg = btn:CreateTexture(nil, "BACKGROUND")
-                bbg:SetAllPoints()
-                bbg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
-                EllesmereUI.MakeBorder(btn, 1, 1, 1, 0.25)
-                local lbl = btn:CreateFontString(nil, "OVERLAY")
-                EllesmereUI.ApplyModuleFont(lbl, nil, 13, "raidFrames")
-                lbl:SetPoint("CENTER", btn, "CENTER", 0, 0)
-                lbl:SetText(EllesmereUI.L("Move Frames"))
-
-                local function MoveAllowed()
-                    return PFSet().position == "free" and not (onParty and PFSet().ownerMode)
-                        and not InCombatLockdown()
-                end
-                local function UpdateMoveBtn()
-                    local active = ns.PF_IsMoverShown and ns.PF_IsMoverShown()
-                    lbl:SetText(active and EllesmereUI.L("Stop Moving") or EllesmereUI.L("Move Frames"))
-                    btn:SetAlpha(MoveAllowed() and 1 or 0.35)
-                end
-                btn:SetScript("OnEnter", function(self)
-                    if not MoveAllowed() then
-                        EllesmereUI.ShowWidgetTooltip(self,
-                            EllesmereUI.DisabledTooltip("Position must be set to Free Move"))
-                    else
-                        EllesmereUI.ShowWidgetTooltip(self,
-                            "Drag the overlay to position the frames, then click again to lock")
-                    end
-                end)
-                btn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                btn:SetScript("OnClick", function()
-                    if not MoveAllowed() then return end
-                    local active = ns.PF_IsMoverShown and ns.PF_IsMoverShown()
-                    if ns.PF_SetMoverShown then ns.PF_SetMoverShown(not active) end
-                    UpdateMoveBtn()
-                end)
-                EllesmereUI.RegisterWidgetRefresh(UpdateMoveBtn)
-                UpdateMoveBtn()
-            end
-            end
-            _secY = y
-        end
-
-        -------------------------------------------------------------------
         --  RANGE & TOOLTIP
         -------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "EXTRAS", y); y = y - h
@@ -4678,10 +4513,12 @@ initFrame:SetScript("OnEvent", function(self)
                                       ReloadAndUpdate()
                                   end },
                                 { type="dropdown", label="Group Growth",
-                                  values=growthValues, order=allGrowthOrder,
+                                  values=groupGrowthValues, order=groupGrowthOrder,
                                   get=function()
                                       local ov = db.profile.raidSizeOverrides
-                                      return ov and ov[tier] and ov[tier].groupGrowth or db.profile.groupGrowth or "RIGHT"
+                                      return ReadGroupGrowth(
+                                          ov and ov[tier] and ov[tier].groupGrowth
+                                          or db.profile.groupGrowth or "RIGHT")
                                   end,
                                   set=function(v)
                                       -- Separated groups allow every combination (see
@@ -5089,10 +4926,12 @@ initFrame:SetScript("OnEvent", function(self)
         -------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "LAYOUT", y); y = y - h
 
-        -- Group Growth | Unit Growth: separated groups (Merge Groups off) support all
-        -- 16 combinations, but merged mode's single Blizzard flat header can only make
-        -- its column direction perpendicular to Unit Growth, so a same-axis pair there
-        -- gets silently reinterpreted (see the colAnchor comment in EllesmereUIRaidFrames.lua)
+        -- Group Growth | Unit Growth: separated groups (Merge Groups off) support every
+        -- combination of the two axes (5 Group Growth values x 4 Unit Growth ones), but
+        -- merged mode's single Blizzard flat header can only make its column direction
+        -- perpendicular to Unit Growth, so a same-axis pair -- and the two-axis grid
+        -- flow, which it renders as a plain RIGHT run (ReadGroupGrowth above) -- gets
+        -- silently reinterpreted (see the colAnchor comment in EllesmereUIRaidFrames.lua)
         -- -- KeepGrowthPerpendicular bumps the other axis instead. A base edit can also
         -- leave a per-tier override same-axis (an override that only set one axis
         -- inherits the other from base), so fix those up too.
@@ -5109,8 +4948,8 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         _, h = W:DualRow(parent, y,
-            { type="dropdown", text="Group Growth", values=growthValues, order=allGrowthOrder,
-              getValue=function() return SVal("groupGrowth", "RIGHT") end,
+            { type="dropdown", text="Group Growth", values=groupGrowthValues, order=groupGrowthOrder,
+              getValue=function() return ReadGroupGrowth(SVal("groupGrowth", "RIGHT")) end,
               setValue=function(v)
                   db.profile.groupGrowth = v
                   if SVal("mergeGroups", false) then
@@ -5777,15 +5616,6 @@ initFrame:SetScript("OnEvent", function(self)
                       if ns.UpdateVisibility then ns.UpdateVisibility() end
                       if ns._UpdatePartyVisibility then ns._UpdatePartyVisibility() end
                   end
-              end });  y = y - h
-
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Enable Party Targets",
-              tooltip="Show a smaller secure target button beside each party frame. Left-click a button to target that party member's current target.",
-              getValue=function() return db.profile.partyShowTargets or false end,
-              setValue=function(v)
-                  db.profile.partyShowTargets = v
-                  if ns.PT_SetEnabled then ns.PT_SetEnabled(v) end
               end });  y = y - h
 
         -------------------------------------------------------------------

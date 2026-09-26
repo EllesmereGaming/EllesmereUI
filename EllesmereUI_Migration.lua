@@ -4312,3 +4312,39 @@ EllesmereUI.RegisterMigration({
         end
     end,
 })
+
+-- A custom raid size's Group/Unit Growth is read IN PREFERENCE to the base axes
+-- (ns._RFResolveTierOverride for the live layout, _ShowSizePreview for the size
+-- preview), but the LAYOUT dropdowns only ever show the base values -- nothing on
+-- that page said a tier was pinning its own. So a profile carrying a pin rendered
+-- its growth from the pin while the option the user was looking at said something
+-- else: a 40 Man override pinned to "RIGHT" kept laying groups out in one row long
+-- after "Down and then Right" was picked globally, and the preview showed 1-2-3-4
+-- across with no visible cause. Drop the pins once, so every tier follows the base
+-- axes and the visible option is the one in effect; the per-tier cog rows still
+-- write a pin, so a deliberate per-tier layout is one click away again.
+--
+-- Profile-scoped, so the stamp rides exports and a profile imported from an older
+-- build is normalized on the pass after it lands. Runs after
+-- rf_merge_groups_growth_axis_v1: that migration's per-tier perpendicular fixup
+-- only ever wrote ov.unitGrowth, which now falls back to the base pair it already
+-- fixed, and ns._RFEffectiveGrowth heals the pair at read time regardless.
+EllesmereUI.RegisterMigration({
+    id          = "rf_tier_growth_pins_v1",
+    scope       = "profile",
+    description = "Drop per-raid-size Group/Unit Growth pins so every tier follows the base LAYOUT growth axes instead of a hidden per-tier value.",
+    body = function(ctx)
+        local rf = ctx.profile.addons and ctx.profile.addons.EllesmereUIRaidFrames
+        if type(rf) ~= "table" then return end
+        local overrides = rf.raidSizeOverrides
+        if type(overrides) ~= "table" then return end
+        for _, ov in pairs(overrides) do
+            -- Only tier TABLES are content; the conversion markers
+            -- (_topLeftAnchored/_cornerAnchored) live here too and must stay.
+            if type(ov) == "table" then
+                ov.groupGrowth = nil
+                ov.unitGrowth = nil
+            end
+        end
+    end,
+})
