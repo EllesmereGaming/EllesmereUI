@@ -4055,24 +4055,9 @@ local function SkinCharacterSheet()
             upgradeTrackText, upgradeTrackColor = EUI_GetUpgradeTrack(itemLink)
         end
 
-        -- Item-level display color, resolved once: custom override > upgrade/crafted-track hue >
-        -- item rarity > white. Shared with the enchant name text when Show Enchant Names is on, so both read in the same color.
-        local ilvlColor
-        if EllesmereUIDB and EllesmereUIDB.charSheetItemLevelUseColor and EllesmereUIDB.charSheetItemLevelColor then
-            ilvlColor = EllesmereUIDB.charSheetItemLevelColor
-        elseif upgradeTrackText ~= "" and upgradeTrackColor then
-            ilvlColor = upgradeTrackColor
-        else
-            ilvlColor = EllesmereUI.GetCraftedTrackColor(itemLink)
-            if not ilvlColor then
-                if (not EllesmereUIDB or EllesmereUIDB.charSheetColorItemLevel ~= false) and itemQuality then
-                    local r, g, b = GetItemQualityColor(itemQuality)
-                    ilvlColor = { r = r, g = g, b = b }
-                else
-                    ilvlColor = { r = 1, g = 1, b = 1 }
-                end
-            end
-        end
+        -- Enchant names share the resolved item-level color.
+        local ilvlColor = EllesmereUI.GetItemLevelColor(itemLink, itemQuality,
+            upgradeTrackText, upgradeTrackColor)
 
         if GetFFD(slot).itemLevelLabel then
             local showItemLevel = (not EllesmereUIDB) or (EllesmereUIDB.showItemLevel ~= false)

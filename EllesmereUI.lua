@@ -2473,17 +2473,23 @@ do
             return color
         end
 
-        -- Item-level text color: custom override > upgrade-track hue > item rarity >
-        -- white. Shared by character sheet, inspect sheet and equipment flyout.
-        function EllesmereUI.GetItemLevelColor(itemLink, itemQuality)
+        -- Item-level text color: custom override > upgrade/crafted-track hue >
+        -- item rarity > white. Shared by character, inspect, equipment flyout
+        -- and merchant labels.
+        -- Callers displaying the rank can reuse their resolved upgrade values.
+        function EllesmereUI.GetItemLevelColor(itemLink, itemQuality, upgradeText, upgradeColor)
             if EllesmereUIDB and EllesmereUIDB.charSheetItemLevelUseColor
                 and EllesmereUIDB.charSheetItemLevelColor then
                 return EllesmereUIDB.charSheetItemLevelColor
             end
-            local upgradeText, upgradeColor = EllesmereUI.GetUpgradeTrack(itemLink)
+            if upgradeText == nil then
+                upgradeText, upgradeColor = EllesmereUI.GetUpgradeTrack(itemLink)
+            end
             if upgradeText and upgradeText ~= "" and upgradeColor then
                 return upgradeColor
             end
+            local craftedColor = EllesmereUI.GetCraftedTrackColor(itemLink)
+            if craftedColor then return craftedColor end
             if (not EllesmereUIDB or EllesmereUIDB.charSheetColorItemLevel ~= false) and itemQuality then
                 local r, g, b = C_Item.GetItemQualityColor(itemQuality)
                 return { r = r, g = g, b = b }

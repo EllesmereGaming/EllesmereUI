@@ -9,7 +9,6 @@ local ADDON_NAME, ns = ...
 local skinned = false
 local GetItemInfo = C_Item.GetItemInfo
 local GetItemInfoInstant = C_Item.GetItemInfoInstant
-local GetItemQualityColor = C_Item.GetItemQualityColor
 
 -- External weak-keyed lookup table for frame state (prevents tainting Blizzard frames)
 local FFD = setmetatable({}, { __mode = "k" })
@@ -122,20 +121,8 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
 
             ilvlText:SetText(ilvl)
 
-            local upgradeTrackText, upgradeTrackColor = EllesmereUI.GetUpgradeTrack(itemLink)
-            local displayColor
-            if EllesmereUIDB and EllesmereUIDB.charSheetItemLevelUseColor and EllesmereUIDB.charSheetItemLevelColor then
-                displayColor = EllesmereUIDB.charSheetItemLevelColor
-            elseif upgradeTrackText ~= "" and upgradeTrackColor then
-                displayColor = upgradeTrackColor
-            elseif (not EllesmereUIDB or EllesmereUIDB.charSheetColorItemLevel ~= false) then
-                local _, _, quality = GetItemInfo(itemLink)
-                if quality then
-                    local r, g, b = GetItemQualityColor(quality)
-                    displayColor = { r = r, g = g, b = b }
-                end
-            end
-            displayColor = displayColor or { r = 1, g = 1, b = 1 }
+            local _, _, quality = GetItemInfo(itemLink)
+            local displayColor = EllesmereUI.GetItemLevelColor(itemLink, quality)
             ilvlText:SetTextColor(displayColor.r, displayColor.g, displayColor.b, 0.9)
             ilvlText:Show()
 
