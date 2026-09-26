@@ -186,6 +186,11 @@ local defaults = {
         castbarColor = { r = 0.114, g = 0.655, b = 0.514 },
         portraitMode = "2d",
         portraitStyle = "attached",
+        -- What a NON-player unit shows while the frame's Art Style is the class
+        -- icon: "2d" (the 2D portrait, what Blizzard's own class portraits do),
+        -- "none" (nothing at all) or "3d" (the model). Only read in class mode --
+        -- "2d" keeps the pre-existing behavior for every existing profile.
+        portraitNonPlayer = "2d",
         healthBarTexture = "none",
         -- Cast bars follow the health bar texture ("inherit") unless this
         -- names one of their own ("blizzard" = the vanilla cast fill).
@@ -308,6 +313,7 @@ local defaults = {
             showPortrait = true,
             portraitStyle = "attached",
             portraitMode = "2d",
+            portraitNonPlayer = "2d",
             classThemeStyle = "modern",
             portraitSide = "left",
             portraitSize = 0,
@@ -571,6 +577,7 @@ local defaults = {
             showPortrait = true,
             portraitStyle = "attached",
             portraitMode = "2d",
+            portraitNonPlayer = "2d",
             classThemeStyle = "modern",
             portraitSide = "right",
             portraitSize = 0,
@@ -692,6 +699,7 @@ local defaults = {
             showPortrait = false,
             portraitSide = "left",
             portraitMode = "2d",
+            portraitNonPlayer = "2d",
             healthBarOpacity = 90,
             textSize = 12,
             leftTextContent = "name",
@@ -727,6 +735,7 @@ local defaults = {
             showPortrait = false,
             portraitSide = "left",
             portraitMode = "2d",
+            portraitNonPlayer = "2d",
             healthBarOpacity = 90,
             textSize = 12,
             leftTextContent = "name",
@@ -759,6 +768,7 @@ local defaults = {
             showPortrait = false,
             portraitSide = "left",
             portraitMode = "2d",
+            portraitNonPlayer = "2d",
             healthBarOpacity = 90,
             textSize = 12,
             leftTextContent = "name",
@@ -916,6 +926,7 @@ local defaults = {
             showPortrait = true,
             portraitStyle = "attached",
             portraitMode = "2d",
+            portraitNonPlayer = "2d",
             classThemeStyle = "modern",
             portraitSide = "right",
             portraitSize = 0,
@@ -1037,6 +1048,7 @@ local defaults = {
             showPortrait = false,
             portraitSide = "right",
             portraitMode = "2d",
+            portraitNonPlayer = "2d",
             healthBarOpacity = 90,
             powerBarOpacity = 100,
             onlyPlayerDebuffs = true,
@@ -3447,6 +3459,44 @@ function ns.UF_PaintClassIcon(tex, unit, style)
 end
 
 
+-- What a NON-player unit renders while the frame's Art Style is the class icon
+-- (portraitMode == "class"): "2d" the 2D portrait (Blizzard parity -- UnitClass
+-- reports most NPCs as warriors, so there is no class art to show them),
+-- "none" nothing at all, "3d" the model. Read per unit, so a target can differ
+-- from the player frame. The 3D answer is applied as a real mode swap by
+-- SwapPortraitMode (see the portrait painter) rather than by painting a model
+-- from this lane, so the model events, the blank-model heal and the re-show
+-- path all keep working for it. On ns, not a local: both the painter and
+-- SwapPortraitMode (declared far below) must reach it.
+function ns.UF_ClassFallback(u)
+    -- Blizzard Style masks the 2D art, never hides the portrait, and cannot mask
+    -- a 3D model: it owns both of those answers, so it overrides the choice.
+    if ns.UF_Blizz() then return "2d" end
+    local uKey = UnitToSettingsKey(u)
+    local s = uKey and db.profile[uKey]
+    return (s and s.portraitNonPlayer) or db.profile.portraitNonPlayer or "2d"
+end
+
+-- Whether this frame's CURRENT portrait object no longer matches what the unit
+-- now needs, because the non-player fallback moved the answer between class art
+-- and the 3D model. Only those two edges need a swap, and both directions count:
+-- an NPC on a class-mode frame asking for the model, and a PLAYER landing on a
+-- frame that is showing the model as a fallback (the setting still says class, so
+-- a portrait genuinely set to 3D is never disturbed).
+function ns.UF_ClassFallbackNeedsSwap(frame, unit)
+    local p = frame.Portrait
+    if not (unit and p) then return false end
+    if p.isClass then
+        return not UnitIsPlayer(unit) and ns.UF_ClassFallback(unit) == "3d"
+    end
+    if p:IsObjectType("PlayerModel") and UnitIsPlayer(unit) then
+        local uKey = UnitToSettingsKey(unit)
+        local s = uKey and db.profile[uKey]
+        return ((s and s.portraitMode) or db.profile.portraitMode or "2d") == "class"
+    end
+    return false
+end
+
 -- Shared portrait element Override (2D texture and 3D model objects; class texture
 -- keeps its own). The vendored oUF Update only guid-gates the eventless OnUpdate poll,
 -- so every other trigger (onShow, target-changed sweeps, any unit event) repaints
@@ -3459,6 +3509,7 @@ end
 -- runs only after a real repaint: 2D heals what SetPortraitTexture resets, 3D
 -- re-applies zoom after SetUnit -- nothing to heal without a repaint.
 local PortraitOverride  -- forward declaration; painter registrations below the definition
+local SwapPortraitMode  -- forward declaration; the portrait painter reconciles the 3D fallback through it
 function PortraitOverride(self, event, evtUnit)
     local element = self.Portrait
     if not element then return end
@@ -3544,13 +3595,22 @@ function PortraitOverride(self, event, evtUnit)
             -- Only players take class art (UnitClass reports most NPCs as
             -- warriors); anyone else shows its 2D portrait on the backdrop's
             -- 2D texture, as Blizzard's own class portraits do. UnitIsPlayer
-            -- is never secret.
+            -- is never secret. The configured fallback (ns.UF_ClassFallback)
+            -- can replace that 2D art with nothing at all; the 3D answer never
+            -- reaches this lane, because the painter reconciles the frame to a
+            -- real 3D mode swap before the paint runs.
             local npcTex = element.backdrop and element.backdrop._2d
             if isAvailable and npcTex and not UnitIsPlayer(u) then
                 element:Hide()
-                SetPortraitTexture(npcTex, u, npcTex._blizzNoMask)
-                if npcTex.PostUpdate then npcTex:PostUpdate(u) end
-                npcTex:Show()
+                if ns.UF_ClassFallback(u) == "2d" then
+                    SetPortraitTexture(npcTex, u, npcTex._blizzNoMask)
+                    if npcTex.PostUpdate then npcTex:PostUpdate(u) end
+                    npcTex:Show()
+                else
+                    -- "none": a stale 2D texture from a previous unit would
+                    -- otherwise stay visible, since nothing hides it on show.
+                    npcTex:Hide()
+                end
             else
                 if npcTex then npcTex:Hide() end
                 element:Show()
@@ -3590,6 +3650,16 @@ end
 -- icon: index lookup straight onto the icon texture.
 ns.Engine.SetPainter("portrait", function(frame, unit, event)
     if frame.Portrait and ns.Engine.ElementOn(frame, "Portrait") then
+        -- Class art is player-only, so a non-player on a class-mode frame has to
+        -- render the configured fallback (ns.UF_ClassFallback). "3D" is reconciled
+        -- as a real mode swap, which keeps the model events, the blank-model heal
+        -- and the re-show path working exactly as they do for a portrait genuinely
+        -- set to 3D. Reconciled HERE, before the paint, so the swap and the paint
+        -- that follows read the same unit: a target swap lands in the same dispatch
+        -- that notices it, and no intermediate 2D flash is ever painted.
+        if ns.UF_ClassFallbackNeedsSwap(frame, unit) then
+            SwapPortraitMode(frame)
+        end
         PortraitOverride(frame, event or "ForceUpdate", unit)
     end
 end)
@@ -8837,7 +8907,7 @@ end
 -- Swap portrait mode (3D/2D/class theme) without recreating frames: 2D and class
 -- textures already exist on the backdrop, 3D PlayerModel is lazy-created on first use;
 -- this just shows/hides and reassigns frame.Portrait.
-local function SwapPortraitMode(frame)
+function SwapPortraitMode(frame)
     local portrait = frame.Portrait
     if not portrait or not portrait.backdrop then return end
     local bd = portrait.backdrop
@@ -8849,6 +8919,16 @@ local function SwapPortraitMode(frame)
         local uKey = UnitToSettingsKey(unit2)
         local s = uKey and db.profile[uKey]
         wantMode = (s and s.portraitMode) or db.profile.portraitMode or "2d"
+        -- Class art is player-only, so a non-player on a class-mode frame swaps to
+        -- the same machinery a real 3D portrait uses when the fallback asks for the
+        -- model (ns.UF_ClassFallback). "none" is NOT mapped here: that would take
+        -- the whole portrait-off path, hiding the backdrop for players too, which
+        -- is not what "no art for non-players" means -- the painter just declines
+        -- to draw (see the class lane). A 3D model cannot be masked, and Blizzard
+        -- Style's own answer wins for both, so it runs after this.
+        if wantMode == "class" and not UnitIsPlayer(unit2) and ns.UF_ClassFallback(unit2) == "3d" then
+            wantMode = "3d"
+        end
         -- Blizzard Style masks the 2D art: a 3D model cannot be masked, and
         -- the portrait is never off.
         if (wantMode == "3d" or wantMode == "none") and ns.UF_Blizz() then wantMode = "2d" end
@@ -8873,7 +8953,8 @@ local function SwapPortraitMode(frame)
 
     if wantMode == "class" and bd._class then
         -- The art comes from the engine painter's class lane on the
-        -- repaint below (players: class art, anyone else: 2D portrait).
+        -- repaint below (players: class art, anyone else: the configured
+        -- non-player fallback -- the 2D portrait by default).
         bd._class:Show()
         bd._2d:Hide()
         bd._class.backdrop = bd
