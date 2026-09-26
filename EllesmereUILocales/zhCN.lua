@@ -8212,3 +8212,68 @@ L["Apply to This Spell and Apply to Bar no longer reset a picked Active State co
 L["Entering an instance with the taintLog or scriptProfile debug CVars enabled shows a one-time reminder with a button to disable them, since they cost performance."] = "开启 taintLog 或 scriptProfile 调试控制台变量 (CVar) 进入副本时会显示一次性提醒，附带一键禁用按钮以避免影响性能。"
 L["Brazilian Portuguese, Korean and Traditional Chinese caught up on the 9.1.4 strings (bank grouping, visibility overrides, the queue timer style and more)."] = "巴西葡萄牙语、韩语与繁体中文跟进了 9.1.4 字符串（银行分组、可见性覆盖、队列计时器样式等）。"
 L["Simplified Chinese caught up on the recent additions (chat recall, the performance reminder, Ignore Pain tracking and more)."] = "简体中文跟进了最近的新增内容（聊天记录回溯、性能提醒、无视苦痛追踪等）。"
+
+-- == 本地化补全：风格/Look 选择器 (Style chooser & launch popups) =============
+L["CHOOSE YOUR LOOK"] = "选择你的外观"
+L["Your UI, Restyled in Seconds"] = "几秒内为你的界面换上新风格"
+L["Restyle My UI"] = "为我的界面换风格"
+L["NEW IN ELLESMEREUI"] = "ELLESMEREUI 新功能"
+L["Global Settings > Style sets the look for the whole UI or for each module."] = "“全局设置 > 样式”可设置整个界面或各模块的外观。"
+L["Same setup, same EllesmereUI features, a new look: switch to Blizzard Style or the new Classic WoW UI in one click, and switch back any time."] = "相同的设置、相同的 EllesmereUI 功能，全新的外观：一键切换为暴雪风格或全新的经典 WoW 界面，随时都能切换回来。"
+L["Your setup and every EllesmereUI feature carry over; only the look changes. Apply a style to every module in one click, or set each module below. Changing a style reloads the UI."] = "你的设置与 EllesmereUI 的所有功能都会保留，只有外观改变。可一键将样式应用到所有模块，或在下方逐一设置各模块。更改样式会重载界面。"
+L["%1$s is active. Settings that only apply to the EllesmereUI look are hidden."] = "%1$s 已启用。仅适用于 EllesmereUI 外观的设置已隐藏。"
+L["%1$s is active: chat keeps Blizzard's own background and tab art."] = "%1$s 已启用：聊天窗口保留暴雪原生的背景与标签美术。"
+L["%1$s is active: the tracker keeps Blizzard's own text."] = "%1$s 已启用：追踪器保留暴雪原生的文字。"
+L["Enable %1$s to change its style."] = "启用 %1$s 才能更改它的样式。"
+L["Style changed for this profile. A UI reload is needed to apply it."] = "此配置的样式已更改。需要重载界面才能应用。"
+L["View EUI Legends"] = "查看 EUI 名人堂"
+L["Special thanks to:"] = "特别感谢："
+
+-- == 本地化补全：配置 / 重载对话框 (Profiles & reload) =======================
+L["A reload is required to apply this."] = "需要重载界面才能应用。"
+L["Reload the UI now?"] = "要立即重载界面吗？"
+L["Type /reload in chat to apply."] = "在聊天窗口输入 /reload 以应用。"
+L["Cannot reload during combat. Type /reload instead."] = "战斗中无法重载界面。请改为输入 /reload。"
+L["Reload to finish importing."] = "重载界面以完成导入。"
+L["Reload to finish switching to the new profile."] = "重载界面以完成切换到新配置。"
+
+-- == 本地化补全：大秘境计时器战报 (MythicTimer RunSummary) ====================
+L["No runs recorded yet"] = "尚未记录任何战报"
+L["No loot recorded for this player in this run."] = "本场未记录到这位玩家的拾取。"
+L["Run Summary is disabled in Mythic+ Tools."] = "“战报总览”已在大秘境工具中禁用。"
+L["Blizzard damage meter is off"] = "暴雪伤害统计已关闭"
+L["Damage meter was reset mid-run, some numbers are low"] = "伤害统计在进行途中被重置，部分数字会偏低"
+L["Combat data stayed restricted for this run"] = "本场的战斗数据全程受到限制"
+L["Depleted"] = "已耗尽"
+L["(%1$d Chest)"] = "（%1$d 箱）"
+
+-- == 本地化补全：冷却管理 / 光环与减益过滤 (CooldownManager & aura filters) ===
+L["Match Mode"] = "匹配模式"
+L["Match All Filters"] = "匹配所有筛选器"
+L["Match Any Filter"] = "匹配任一筛选器"
+L["Shows debuffs that match any checked Show filter (the default)."] = "显示匹配任一已勾选“显示”筛选器的减益（默认）。"
+L["Shows only debuffs that match every checked Show filter (dispel types count as one); opposites like Non-Player Auras with Cast By You show nothing."] = "仅显示匹配所有已勾选“显示”筛选器的减益（驱散类型视为一项）；互斥的组合，例如“非玩家光环”加“由你施放”，不会显示任何效果。"
+L["Shows only debuffs that match every checked Show filter (dispel types count as one); opposites like Non-Player Auras with Cast By You, or a filter an indicator shows, show nothing."] = "仅显示匹配所有已勾选“显示”筛选器的减益（驱散类型视为一项）；互斥的组合，例如“非玩家光环”加“由你施放”，或某个指示器已显示的筛选器，不会显示任何效果。"
+L["Uncheck All Debuffs to choose how the Show filters combine."] = "取消勾选“所有减益”即可选择“显示”筛选器的组合方式。"
+L["Replace with Buff"] = "替换为增益"
+L["None (use cooldown icon)"] = "无（使用冷却图标）"
+L["Show a tracked buff in this slot while it is active."] = "当追踪的增益生效时，在此槽位显示该增益。"
+L["Middle Click a reminder to hide it until the next load screen"] = "中键点击提醒即可将其隐藏，直到下次读取画面"
+L["Camp"] = "营地"
+
+-- == 本地化补全：团队框架排序 (RaidFrames group order) =======================
+L["Custom Group Order"] = "自定义队伍顺序"
+L["Display separated raid groups in your chosen order."] = "按你选择的顺序显示分开的团队队伍。"
+L["Drag to Reorder Groups"] = "拖拽重新排序队伍"
+L["Unavailable in combat"] = "战斗中无法使用"
+
+-- == 本地化补全：解锁模式 / 锚点 (UnlockMode) ===============================
+L["Anchored to: %1$s"] = "已锚定到：%1$s"
+L["Corner options place the bar flush with that corner of the target and set its grow direction to keep it there as bars change size."] = "角落选项会将条与目标的该角落对齐，并设置其增长方向，让条在大小改变时保持在该位置。"
+
+-- == 本地化补全：背包 / 宝石 / 聊天 / 单位框体 杂项 (Misc) ===================
+L["Split this stack into empty slots repeatedly until only the chosen amount or less remains. Alt+Enter does the same."] = "重复将此堆叠分割到空槽位，直到剩余数量等于或少于所选数量为止。Alt+Enter 效果相同。"
+L["Next sockets"] = "下一组插槽"
+L["Previous sockets"] = "上一组插槽"
+L["Only works outside of Instances"] = "仅在副本外有效"
+L["Size matching is unavailable with Blizzard Style Unit Frames."] = "使用暴雪风格单位框体时，无法启用大小匹配功能。"
