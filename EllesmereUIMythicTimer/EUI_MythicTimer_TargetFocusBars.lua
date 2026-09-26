@@ -839,13 +839,26 @@ evt:SetScript("OnEvent", function(_, event, unit, ...)
         bar._kickGeoDirty = true
         UpdateCast(bar)
     elseif event == "UNIT_SPELLCAST_STOP"
-        or event == "UNIT_SPELLCAST_FAILED"
-        or event == "UNIT_SPELLCAST_EMPOWER_STOP" then
+        or event == "UNIT_SPELLCAST_FAILED" then
         UpdateCast(bar)
+    elseif event == "UNIT_SPELLCAST_EMPOWER_STOP" then
+        -- An interrupted empower carries the interrupter GUID as the 4th arg
+        -- after unit (castGUID, spellID, complete, interrupterGUID).
+        local _, _, _, interrupterGUID = ...
+        if type(interrupterGUID) ~= "nil" then
+            TeardownCast(bar)
+            if not bar._interrupted then ShowInterruptedFlash(bar, interrupterGUID) end
+        else
+            UpdateCast(bar)
+        end
     elseif event == "UNIT_SPELLCAST_CHANNEL_STOP" then
         -- Direct teardown: in restricted execution UnitCastingInfo can return
         -- secret values (not nil) for a stale channel (nameplate lesson).
+        -- An interrupted channel carries the interrupter GUID as the 3rd arg
+        -- after unit (castGUID, spellID, interrupterGUID); nil on a natural end.
         TeardownCast(bar)
+        local _, _, interrupterGUID = ...
+        if not bar._interrupted then ShowInterruptedFlash(bar, interrupterGUID) end
     elseif event == "UNIT_SPELLCAST_INTERRUPTED" then
         local _, _, interrupterGUID = ...
         ShowInterruptedFlash(bar, interrupterGUID)
