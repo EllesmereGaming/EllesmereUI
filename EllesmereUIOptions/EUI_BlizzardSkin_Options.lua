@@ -2853,6 +2853,58 @@ initFrame:SetScript("OnEvent", function(self)
         -- Everything below Row 1 (the rest of GENERAL plus the LAYOUT and
         -- SPEED BAR sections) is HIDDEN entirely while the bar is off.
         if EDR_Cfg("enabled") == true then
+        -- Two independent choices: the bars' art (Bar Style) and how charges
+        -- are shown (Vigor Style), so the classic gems work with either art.
+        local function EDR_IsGems() return EDR_Cfg("vigorStyle") == "gems" end
+        local function EDR_IsBlizzBars() return EDR_Cfg("barStyle") == "blizzard" end
+        local gemsOnlyTip    = "This option requires the Classic Gems vigor style"
+        local notBlizzTip    = "This option is not available with the Blizzard bar style"
+        local notGemsTip     = "This option is not available with the Classic Gems vigor style"
+        _, h = W:DualRow(parent, y,
+            { type = "dropdown", text = "Bar Style",
+              values = { modern = "Modern", blizzard = "Blizzard", classic = "Classic WoW UI" },
+              order  = { "modern", "blizzard", "classic" },
+              tooltip = "Blizzard and Classic WoW UI frame the bars and the Whirling Surge icon the same way as the Resource Bars' Blizzard Style and Classic WoW UI.",
+              getValue = function() return EDR_Cfg("barStyle") or "modern" end,
+              -- Full page rebuild: Border Size changes meaning under Classic WoW UI.
+              setValue = function(v)
+                  EDR_Set("barStyle", v); EDR_Rebuild()
+                  EllesmereUI:RefreshPage(true)
+              end },
+            { type = "dropdown", text = "Vigor Style",
+              values = { bars = "Bars", gems = "Classic Gems" },
+              order  = { "bars", "gems" },
+              tooltip = "Classic Gems brings back Blizzard's original vigor display above the bars.",
+              getValue = function() return EDR_Cfg("vigorStyle") or "bars" end,
+              setValue = function(v) EDR_Set("vigorStyle", v); EDR_Rebuild() end }
+        ); y = y - h
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Play Sound on Full Charge",
+              tooltip = "Plays Blizzard's vigor chime each time a skyriding charge fills.",
+              getValue = function() return EDR_Cfg("chargeSound") == true end,
+              setValue = function(v) EDR_Set("chargeSound", v) end },
+            { type = "slider", text = "Classic Gem Scale", min = 0.5, max = 2.0, step = 0.05,
+              disabled = function() return not EDR_IsGems() end,
+              disabledTooltip = gemsOnlyTip,
+              getValue = function() return EDR_Cfg("classicScale") or 1 end,
+              setValue = function(v) EDR_Set("classicScale", v); EDR_Rebuild() end }
+        ); y = y - h
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Show Speed Bar",
+              getValue = function() return EDR_Cfg("showSpeed") ~= false end,
+              setValue = function(v) EDR_Set("showSpeed", v); EDR_Rebuild() end },
+            { type = "toggle", text = "Show Second Wind",
+              getValue = function() return EDR_Cfg("showSecondWind") ~= false end,
+              setValue = function(v) EDR_Set("showSecondWind", v); EDR_Rebuild() end }
+        ); y = y - h
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Show Whirling Surge",
+              getValue = function() return EDR_Cfg("showWhirlingSurge") ~= false end,
+              setValue = function(v) EDR_Set("showWhirlingSurge", v); EDR_Rebuild() end },
+            { type = "toggle", text = "Show Icon Cooldown Text",
+              getValue = function() return EDR_Cfg("whirlingSurgeText") and EDR_Cfg("whirlingSurgeText").enabled ~= false end,
+              setValue = function(v) EDR_SetField("whirlingSurgeText", "enabled", v); EDR_Redraw() end }
+        ); y = y - h
         _, h = W:DualRow(parent, y,
             { type = "slider", text = "Width", min = 80, max = 600, step = 1,
               getValue = function() return EDR_Cfg("width") end,
@@ -2861,17 +2913,16 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return EDR_Cfg("gap") end,
               setValue = function(v) EDR_Set("gap", v); EDR_Rebuild() end }
         ); y = y - h
-        _, h = W:DualRow(parent, y,
-            { type = "slider", pixel = true, text = "Stack Spacing", min = 0, max = 10, step = 1,
-              getValue = function() return EDR_Cfg("stackSpacing") end,
-              setValue = function(v) EDR_Set("stackSpacing", v); EDR_Rebuild() end },
-            { type = "toggle", text = "Show Icon Cooldown Text",
-              getValue = function() return EDR_Cfg("whirlingSurgeText") and EDR_Cfg("whirlingSurgeText").enabled ~= false end,
-              setValue = function(v) EDR_SetField("whirlingSurgeText", "enabled", v); EDR_Redraw() end }
-        ); y = y - h
         local borderRow
         borderRow, h = W:DualRow(parent, y,
-            { type = "slider", text = "Border Size", min = 0, max = 4, step = 1,
+            -- Classic WoW UI: the slot sizes the vanilla frame, as the Resource
+            -- Bars' Border Size does under that style.
+            (EDR_Cfg("barStyle") == "classic" and EllesmereUI.BlizzStyle
+                and EllesmereUI.BlizzStyle.ClassicBorderSizeCfg(
+                    function() return EDR_Cfg("classicFrameSize") end,
+                    function(v) EDR_Set("classicFrameSize", v); EDR_Rebuild() end))
+            or { type = "slider", text = "Border Size", min = 0, max = 4, step = 1,
+              disabled = EDR_IsBlizzBars, disabledTooltip = notBlizzTip,
               getValue = function() return EDR_Cfg("borderThickness") or 0 end,
               setValue = function(v) EDR_Set("borderThickness", v); EDR_Redraw() end },
             { type = "dropdown", text = "Bar Texture",
@@ -2879,7 +2930,8 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return EDR_Cfg("barTexture") or "none" end,
               setValue = function(v) EDR_Set("barTexture", v); EDR_Redraw() end }
         ); y = y - h
-        if not EllesmereUI._prebuilding then
+        -- Border colour only for the EllesmereUI border (the modern style).
+        if not EllesmereUI._prebuilding and (EDR_Cfg("barStyle") or "modern") == "modern" then
             local rgn = borderRow._leftRegion
             local ctrl = rgn._control
             local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
@@ -2890,14 +2942,22 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.PanelPP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
             EllesmereUI.RegisterWidgetRefresh(updateSwatch)
         end
+        _, h = W:DualRow(parent, y,
+            { type = "slider", pixel = true, text = "Stack Spacing", min = 0, max = 10, step = 1,
+              getValue = function() return EDR_Cfg("stackSpacing") end,
+              setValue = function(v) EDR_Set("stackSpacing", v); EDR_Rebuild() end },
+            { type = "label", text = "" }
+        ); y = y - h
         _, h = W:Spacer(parent, y, 20); y = y - h
 
         _, h = W:SectionHeader(parent, "LAYOUT", y); y = y - h
         _, h = W:DualRow(parent, y,
             { type = "slider", text = "Charge Height", min = 2, max = 24, step = 1,
+              disabled = EDR_IsGems, disabledTooltip = notGemsTip,
               getValue = function() return EDR_Cfg("skyridingHeight") end,
               setValue = function(v) EDR_Set("skyridingHeight", v); EDR_Rebuild() end },
             { type = "multiSwatch", text = "Charge Color",
+              disabled = EDR_IsGems, disabledTooltip = notGemsTip,
               swatches = {
                 { text = "Background",
                   getValue = function() local t = EDR_Cfg("skyridingBg"); return t.r, t.g, t.b, t.a end,
@@ -2928,6 +2988,18 @@ initFrame:SetScript("OnEvent", function(self)
                   hasAlpha = true,
                   tooltip = "Second Wind" },
               } }
+        ); y = y - h
+        _, h = W:DualRow(parent, y,
+            { type = "slider", text = "Whirling Surge Icon Size", min = 16, max = 80, step = 1,
+              disabled = function() return EDR_Cfg("showWhirlingSurge") == false end,
+              disabledTooltip = "Show Whirling Surge",
+              -- Until set, the icon follows the bar column's height; show that.
+              getValue = function()
+                  local v = EDR_Cfg("iconSize") or (ns.edrIconSize and ns.edrIconSize()) or 34
+                  return math.floor(v + 0.5)
+              end,
+              setValue = function(v) EDR_Set("iconSize", v); EDR_Rebuild() end },
+            { type = "label", text = "" }
         ); y = y - h
         _, h = W:Spacer(parent, y, 20); y = y - h
 

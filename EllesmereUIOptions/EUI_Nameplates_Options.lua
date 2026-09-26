@@ -4177,6 +4177,19 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
+        -- Row 7 (WoW Forever warriors only): Show Sunder Armor.
+        if EllesmereUI.IS_FOREVER and select(2, UnitClass("player")) == "WARRIOR" then
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Show Sunder Armor",
+                  tooltip="Shows Sunder Armor and its stacks on enemy nameplates, including stacks applied by other warriors.",
+                  getValue=function() return DBVal("showSunderArmor") == true end,
+                  setValue=function(v)
+                    DB().showSunderArmor = v
+                    if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
+                  end },
+                { type="label", text="" });  y = y - h
+        end
+
         return math.abs(y)
     end
 

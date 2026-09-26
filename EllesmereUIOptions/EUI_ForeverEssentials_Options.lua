@@ -49,8 +49,6 @@ initFrame:SetScript("OnEvent", function(self)
             local TM = EllesmereUI._ThreatMeter
             if TM then
                 TM.Apply()
-                TM.ApplyStyle()
-                TM.ApplyPosition()
             end
             EllesmereUI:InvalidatePageCache()
         end,

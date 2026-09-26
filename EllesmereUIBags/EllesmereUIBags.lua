@@ -5569,6 +5569,18 @@ end
 -------------------------------------------------------------------------------
 --  RefreshInventory
 -------------------------------------------------------------------------------
+local function FormatSlots(used, total, reagent, format)
+    if format == "free" then
+        if reagent then return EllesmereUI.Lf("%d Reagent slots free", total - used) end
+        return EllesmereUI.Lf("%d Bag slots free", total - used)
+    elseif format == "free_total" then
+        if reagent then return EllesmereUI.Lf("%d / %d Reagent slots free", total - used, total) end
+        return EllesmereUI.Lf("%d / %d Bag slots free", total - used, total)
+    end
+    if reagent then return EllesmereUI.Lf("%d / %d Reagent slots", used, total) end
+    return EllesmereUI.Lf("%d / %d Bag slots", used, total)
+end
+
 function EUI_Bags:RefreshInventory()
     if not EUI_Bags:IsVisible() then return end
 
@@ -7156,25 +7168,14 @@ function EUI_Bags:RefreshInventory()
         -- Capacity describes physical slots, independent of categories and merged stacks.
         local format = BP().bagSlotCountFormat
         local separate = BP().bagSeparateReagentSlots ~= false
-        local function FormatSlots(used, total, reagent)
-            if format == "free" then
-                if reagent then return EllesmereUI.Lf("%d Reagent slots free", total - used) end
-                return EllesmereUI.Lf("%d Bag slots free", total - used)
-            elseif format == "free_total" then
-                if reagent then return EllesmereUI.Lf("%d / %d Reagent slots free", total - used, total) end
-                return EllesmereUI.Lf("%d / %d Bag slots free", total - used, total)
-            end
-            if reagent then return EllesmereUI.Lf("%d / %d Reagent slots", used, total) end
-            return EllesmereUI.Lf("%d / %d Bag slots", used, total)
-        end
         local countText
         if separate then
-            countText = FormatSlots(regularUsed, regularTotal, false)
+            countText = FormatSlots(regularUsed, regularTotal, false, format)
             if reagentTotal > 0 then
-                countText = countText .. "\n" .. FormatSlots(reagentUsed, reagentTotal, true)
+                countText = countText .. "\n" .. FormatSlots(reagentUsed, reagentTotal, true, format)
             end
         else
-            countText = FormatSlots(regularUsed + reagentUsed, regularTotal + reagentTotal, false)
+            countText = FormatSlots(regularUsed + reagentUsed, regularTotal + reagentTotal, false, format)
         end
         EUI_Bags.Header.itemCount:SetText(countText)
     end

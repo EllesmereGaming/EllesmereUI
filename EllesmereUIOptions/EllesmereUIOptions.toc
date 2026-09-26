@@ -24,6 +24,7 @@ EUI_Bags_Options.lua
 EUI_BlizzardSkin_Options.lua
 EUI_Chat_Options.lua
 EUI_CooldownManager_Options.lua
+EUI_CooldownManager_TalentConditions.lua
 EUI_DamageMeters_Options.lua
 EllesmereUIDataBars_Options.lua
 EUI_ForeverEssentials_Options.lua
