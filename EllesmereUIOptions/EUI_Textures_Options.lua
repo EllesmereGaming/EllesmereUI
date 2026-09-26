@@ -28,7 +28,7 @@ local GLOBAL_KEY = "_EUIGlobal"
 -- Session-only card expand state (never saved).
 local _txExpanded = {}
 
-local function NS(folder) return EllesmereUI._ModuleNS and EllesmereUI._ModuleNS[folder] end
+local NS = EllesmereUI.ModuleNS
 
 -------------------------------------------------------------------------------
 --  Statusbar catalogue helpers
@@ -42,9 +42,7 @@ local function OwnBarCatalogue(key, includeExtras)
     local c = _ownCat[key]
     if not c then
         local tex, names, order = EllesmereUI.BuildBarTextureTables(includeExtras)
-        if EllesmereUI.AppendSharedMediaTextures then
-            EllesmereUI.AppendSharedMediaTextures(names, order, nil, tex)
-        end
+        EllesmereUI.AppendSharedMediaTextures(names, order, nil, tex)
         c = { lookup = tex, names = names, order = order }
         _ownCat[key] = c
     end
@@ -90,49 +88,10 @@ local function AppendSmTail(values, orders, moduleNames, moduleOrder)
 end
 
 -------------------------------------------------------------------------------
---  Shared row helpers (same shapes as the Fonts page)
+--  Shared row helpers (EllesmereUI_Widgets.lua, shared with the Fonts page)
 -------------------------------------------------------------------------------
 
-local function BLANK() return { type = "label", text = "" } end
-
-local function LinkRow(parent, y, label, module, page, section, highlight)
-    local PP = EllesmereUI.PanelPP
-    local ROW_H = 40
-    local row = CreateFrame("Frame", nil, parent)
-    PP.Size(row, parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2, ROW_H)
-    PP.Point(row, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
-    row._skipRowDivider = true
-    if EllesmereUI.RowBg then EllesmereUI.RowBg(row, parent) end
-
-    local lbl = EllesmereUI.MakeFont(row, 13, nil, 1, 1, 1)
-    lbl:SetAlpha(0.9)
-    lbl:SetPoint("LEFT", row, "LEFT", 20, 0)
-    lbl:SetText(EllesmereUI.L(label))
-
-    local btn = CreateFrame("Button", nil, row)
-    PP.Size(btn, 122, 26)
-    btn:SetPoint("RIGHT", row, "RIGHT", -20, 0)
-    btn:SetFrameLevel(row:GetFrameLevel() + 2)
-    EllesmereUI.MakeStyledButton(btn, "Open Settings", 11, EllesmereUI.WB_COLOURS, function()
-        EllesmereUI:NavigateToElementSettings(module, page, section, nil, highlight)
-    end)
-
-    return y - ROW_H
-end
-
-local function NoteRow(parent, y, text)
-    local PP = EllesmereUI.PanelPP
-    local ROW_H = 34
-    local row = CreateFrame("Frame", nil, parent)
-    PP.Size(row, parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2, ROW_H)
-    PP.Point(row, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
-    row._skipRowDivider = true
-    local lbl = EllesmereUI.MakeFont(row, 12, nil, 1, 1, 1)
-    lbl:SetAlpha(0.45)
-    lbl:SetPoint("LEFT", row, "LEFT", 20, 0)
-    lbl:SetText(EllesmereUI.L(text))
-    return y - ROW_H
-end
+local BLANK, LinkRow, NoteRow = EllesmereUI.BlankRowCfg, EllesmereUI.BuildLinkRow, EllesmereUI.BuildNoteRow
 
 local function DisabledTile(parent, y, W, tile)
     return NoteRow(parent, y, EllesmereUI.Lf("Enable %1$s to edit its texture settings.", EllesmereUI.L(tile.display)))
@@ -146,15 +105,13 @@ local function TileActionBars(parent, y, W, tile)
     local ns = NS(tile.folder)
     if not ns then return DisabledTile(parent, y, W, tile) end
     local EAB = ns.EAB
-    if EllesmereUI.AppendSharedMediaTextures then
-        EllesmereUI.AppendSharedMediaTextures(ns.dataBarTextureNames or {}, ns.dataBarTextureOrder or {}, nil, ns.dataBarTextures)
-    end
+    EllesmereUI.AppendSharedMediaTextures(ns.dataBarTextureNames or {}, ns.dataBarTextureOrder or {}, nil, ns.dataBarTextures)
     local lookup = ns.dataBarTextures or {}
     -- AB's own preview resolves sm: keys through ResolveTexturePath.
     local values, order = CopyBarDD(ns.dataBarTextureNames, ns.dataBarTextureOrder, lookup, false,
         function(key)
             if not key or key == "---" or key == "none" then return nil end
-            return EllesmereUI.ResolveTexturePath and EllesmereUI.ResolveTexturePath(lookup, key, nil)
+            return EllesmereUI.ResolveTexturePath(lookup, key, nil)
         end)
     local function barTexCfg(label, barKey)
         return { type = "dropdown", text = label, values = values, order = order,
@@ -186,9 +143,7 @@ local function TileNameplates(parent, y, W, tile)
     if not ns then return DisabledTile(parent, y, W, tile) end
     local function db() return ns.db and ns.db.profile end
     local DEF = ns.defaults or {}
-    if EllesmereUI.AppendSharedMediaTextures then
-        EllesmereUI.AppendSharedMediaTextures(ns.healthBarTextureNames or {}, ns.healthBarTextureOrder or {}, nil, ns.healthBarTextures)
-    end
+    EllesmereUI.AppendSharedMediaTextures(ns.healthBarTextureNames or {}, ns.healthBarTextureOrder or {}, nil, ns.healthBarTextures)
     local hbtValues, hbtOrder = CopyBarDD(ns.healthBarTextureNames, ns.healthBarTextureOrder, ns.healthBarTextures, false)
     -- Health + cast bar textures repaint live plates the way the module's own
     -- RefreshAllTextures does: full reapply plus the friendly-plate loop.
@@ -331,9 +286,7 @@ local function TileUnitFrames(parent, y, W, tile)
     local ns = NS(tile.folder)
     if not ns then return DisabledTile(parent, y, W, tile) end
     local function db() return ns.db and ns.db.profile end
-    if EllesmereUI.AppendSharedMediaTextures then
-        EllesmereUI.AppendSharedMediaTextures(ns.healthBarTextureNames or {}, ns.healthBarTextureOrder or {}, nil, ns.healthBarTextures)
-    end
+    EllesmereUI.AppendSharedMediaTextures(ns.healthBarTextureNames or {}, ns.healthBarTextureOrder or {}, nil, ns.healthBarTextures)
     -- UF's own dropdown copy drops the separator.
     local hbtValues, hbtOrder = CopyBarDD(ns.healthBarTextureNames, ns.healthBarTextureOrder, ns.healthBarTextures, true)
 
@@ -411,11 +364,32 @@ local function TileUnitFrames(parent, y, W, tile)
                 UFReload()
             end }
     end
+    -- Cast bars follow the unit's bar texture ("Inherit") unless this names
+    -- one of their own; "Blizzard" is the vanilla cast bar's fill (the same
+    -- entry the Resource Bars cast bar offers), and the stock styles seed it.
+    -- Under Blizzard Style the stock fill art draws instead, so the row is
+    -- gated there; Classic WoW UI keeps the user's fill, so it stays live.
+    local cbtValues, cbtOrder = CopyBarDD(ns.healthBarTextureNames, ns.healthBarTextureOrder, ns.healthBarTextures, true)
+    cbtValues.inherit, cbtValues.blizzard = "Inherit", "Blizzard"
+    table.insert(cbtOrder, 1, "inherit")
+    table.insert(cbtOrder, 2, "blizzard")
+    local castTexCfg = { type = "dropdown", text = "Cast Bar Texture", values = cbtValues, order = cbtOrder,
+        tooltip = "Texture for every unit frame cast bar. Inherit follows each unit's bar texture.",
+        getValue = function()
+            local p = db()
+            return (p and p.castBarTexture) or "inherit"
+        end,
+        setValue = function(v)
+            local p = db(); if not p then return end
+            p.castBarTexture = v
+            UFReload()
+        end }
+    if EllesmereUI.BlizzStyle.Active("unitframes") == "blizzard" then EllesmereUI.BlizzStyle.Gate("unitframes", castTexCfg) end
     local _, h = W:DualRow(parent, y, barTexCfg("player"), barTexCfg("target"));  y = y - h
     _, h = W:DualRow(parent, y, barTexCfg("focus"), absorbCfg("player"));  y = y - h
     _, h = W:DualRow(parent, y, absorbCfg("target"), absorbCfg("focus"));  y = y - h
     _, h = W:DualRow(parent, y, healAbsorbCfg("player"), healAbsorbCfg("target"));  y = y - h
-    _, h = W:DualRow(parent, y, healAbsorbCfg("focus"), BLANK());  y = y - h
+    _, h = W:DualRow(parent, y, healAbsorbCfg("focus"), castTexCfg);  y = y - h
     y = LinkRow(parent, y, "Pet, Target-of-Target & Boss Bar Textures",
         tile.folder, "Mini Frames", "DISPLAY", "Bar Texture")
     y = LinkRow(parent, y, "Frame, Power & Aura Border Styles",
@@ -427,9 +401,7 @@ local function TileRaidFrames(parent, y, W, tile)
     local ns = NS(tile.folder)
     if not ns then return DisabledTile(parent, y, W, tile) end
     local function db() return ns.db and ns.db.profile end
-    if EllesmereUI.AppendSharedMediaTextures then
-        EllesmereUI.AppendSharedMediaTextures(ns.healthBarTextureNames or {}, ns.healthBarTextureOrder or {}, nil, ns.healthBarTextures)
-    end
+    EllesmereUI.AppendSharedMediaTextures(ns.healthBarTextureNames or {}, ns.healthBarTextureOrder or {}, nil, ns.healthBarTextures)
     -- RF's own copy keeps the separator in the order array.
     local hbtValues, hbtOrder = CopyBarDD(ns.healthBarTextureNames, ns.healthBarTextureOrder, ns.healthBarTextures, false)
     local function RFReload()
@@ -452,16 +424,19 @@ local function TileRaidFrames(parent, y, W, tile)
         ["largeStripes"]          = "Large Stripes",
         ["largeStripesR"]         = "Large Stripes R",
         ["maxHealthStripes"]      = "Max Health Stripes",
+        ["blizzardRaid"]          = "Blizzard Raid Bar",
     }
-    local absorbStyleOrder = { "none", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "blizzardModern", "largeStripes", "largeStripesR" }
-    local healAbsorbStyleOrder = { "none", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "healBlizzModern", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR" }
-    local maxHealthStyleOrder = { "none", "maxHealthStripes", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "healBlizzModern", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR" }
+    local absorbStyleOrder = { "none", "blizzardModern", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "largeStripes", "largeStripesR", "blizzardRaid" }
+    local healAbsorbStyleOrder = { "none", "healBlizzModern", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR", "blizzardRaid" }
+    local maxHealthStyleOrder = { "none", "maxHealthStripes", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "healBlizzModern", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR", "blizzardRaid" }
     AppendSmTail(absorbStyleValues, { absorbStyleOrder, healAbsorbStyleOrder, maxHealthStyleOrder }, ns.healthBarTextureNames, ns.healthBarTextureOrder)
+    -- Default Blizz Frames' swatch draws its in-game compound (see the Raid Frames page).
+    local modernSwatch = { base = { 0.776, 0.784, 1.0 }, tint = { 0.569, 0.588, 1.0 }, tile = true }
     absorbStyleValues._menuOpts = {
         itemHeight = 28,
         background = function(key)
             if not key or key == "---" or key == "none" then return nil end
-            if key == "blizzardModern" then return ns.ResolveAbsorbStyleTex and ns.ResolveAbsorbStyleTex("striped") end
+            if key == "blizzardModern" then return ns.ResolveAbsorbStyleTex and ns.ResolveAbsorbStyleTex("striped"), modernSwatch end
             if key == "maxHealthStripes" then return "Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\striped-maxhp.png" end
             return ns.ResolveAbsorbStyleTex and ns.ResolveAbsorbStyleTex(key) or nil
         end,
@@ -488,6 +463,12 @@ local function TileRaidFrames(parent, y, W, tile)
           end,
           setValue = function(v)
               local p = db(); if not p then return end
+              -- Blizzard Glow Line follows the pick (see the Raid Frames page).
+              if v == "blizzardModern" then
+                  p.absorbGlowLine = true
+              elseif p.absorbStyle == "blizzardModern" then
+                  p.absorbGlowLine = false
+              end
               p.absorbStyle = v
               if v == "clean" then
                   p.absorbOpacity = 30
@@ -548,9 +529,16 @@ local function TileResourceBars(parent, y, W, tile)
     local gcdValues, gcdOrder = CopyBarDD(_G._ERB_BarTextureNames, _G._ERB_BarTextureOrder, _G._ERB_BarTextures, false)
     -- Cast bar tables carry the module-side "blizzard" ATLAS entry.
     local castValues, castOrder = CopyBarDD(_G._ERB_CastBarTextureNames, _G._ERB_CastBarTextureOrder, _G._ERB_CastBarTextures, false)
+    -- "Choose texture per bar" (the module's Texture cog): Bar Texture narrows to the
+    -- class resource and Health / Power get their own rows, as on the module page. The
+    -- cog drops this page's cached build, so reading the flag at build time holds.
+    local p0 = db()
+    local split = p0 and p0.splitTex == true
     local _, h = W:DualRow(parent, y,
-        { type = "dropdown", text = "Bar Texture", values = barValues, order = barOrder,
-          tooltip = "Texture for the health, power and class resource bars.",
+        { type = "dropdown", text = split and "Bar Texture (Class Resource)" or "Bar Texture",
+          values = barValues, order = barOrder,
+          tooltip = split and "Texture for the class resource bar."
+              or "Texture for the health, power and class resource bars.",
           getValue = function()
               local p = db()
               return (p and p.general and p.general.barTexture) or "none"
@@ -571,6 +559,31 @@ local function TileResourceBars(parent, y, W, tile)
               RBApply()
               if EllesmereUI.NotifyElementResized then EllesmereUI.NotifyElementResized("ERB_CastBar") end
           end });  y = y - h
+    if split then
+        local hpValues, hpOrder = CopyBarDD(_G._ERB_BarTextureNames, _G._ERB_BarTextureOrder, _G._ERB_BarTextures, false)
+        local ppValues, ppOrder = CopyBarDD(_G._ERB_BarTextureNames, _G._ERB_BarTextureOrder, _G._ERB_BarTextures, false)
+        _, h = W:DualRow(parent, y,
+            { type = "dropdown", text = "Health Bar Texture", values = hpValues, order = hpOrder,
+              getValue = function()
+                  local p = db()
+                  return (p and p.health and (p.health.barTexture or (p.general and p.general.barTexture))) or "none"
+              end,
+              setValue = function(v)
+                  local p = db(); if not (p and p.health) then return end
+                  p.health.barTexture = v
+                  RBApply()
+              end },
+            { type = "dropdown", text = "Power Bar Texture", values = ppValues, order = ppOrder,
+              getValue = function()
+                  local p = db()
+                  return (p and p.primary and (p.primary.barTexture or (p.general and p.general.barTexture))) or "none"
+              end,
+              setValue = function(v)
+                  local p = db(); if not (p and p.primary) then return end
+                  p.primary.barTexture = v
+                  RBApply()
+              end });  y = y - h
+    end
     _, h = W:DualRow(parent, y,
         { type = "dropdown", text = "GCD Bar Texture", values = gcdValues, order = gcdOrder,
           getValue = function()
@@ -595,6 +608,13 @@ local function TileChat(parent, y, W, tile)
     local ECHAT = ns.ECHAT
     local function db()
         return _G._ECHAT_DB and _G._ECHAT_DB.profile and _G._ECHAT_DB.profile.chat
+    end
+    -- Stock styles (Style page): Blizzard's own chat background, and either
+    -- Blizzard's tabs or the painted vanilla tab sheet -- none take a texture,
+    -- and the linked border row is hidden there too.
+    local BS = EllesmereUI.BlizzStyle
+    if BS and BS.Get("chat") then
+        return NoteRow(parent, y, EllesmereUI.Lf("%1$s is active: chat keeps Blizzard's own background and tab art.", EllesmereUI.L(BS.Label("chat"))))
     end
     if ECHAT and ECHAT.RefreshBgTextureCatalogue then ECHAT.RefreshBgTextureCatalogue() end
     -- Chat's own copies drop the separator.
@@ -635,9 +655,7 @@ local function TileQoL(parent, y, W, tile)
     local mt = EllesmereUI._MovementBarTextures
     local maCfg
     if mt then
-        if EllesmereUI.AppendSharedMediaTextures then
-            EllesmereUI.AppendSharedMediaTextures(mt.names, mt.order, nil, mt.lookup)
-        end
+        EllesmereUI.AppendSharedMediaTextures(mt.names, mt.order, nil, mt.lookup)
         local values, order = CopyBarDD(mt.names, mt.order, mt.lookup, false)
         maCfg = { type = "dropdown", text = "Movement Alert Bar Texture", values = values, order = order,
             tooltip = "Used by the movement alert's Bar display mode.",
@@ -767,9 +785,7 @@ local function TileDamageMeters(parent, y, W, tile)
     local function db()
         return _G._EDM_DB and _G._EDM_DB.profile and _G._EDM_DB.profile.dm
     end
-    if EllesmereUI.AppendSharedMediaTextures then
-        EllesmereUI.AppendSharedMediaTextures(_G._EDM_BarTextureNames or {}, _G._EDM_BarTextureOrder or {}, nil, _G._EDM_BarTextures)
-    end
+    EllesmereUI.AppendSharedMediaTextures(_G._EDM_BarTextureNames or {}, _G._EDM_BarTextureOrder or {}, nil, _G._EDM_BarTextures)
     -- DM keeps the separator in its order arrays.
     local dmValues, dmOrder = CopyBarDD(_G._EDM_BarTextureNames, _G._EDM_BarTextureOrder, _G._EDM_BarTextures, false)
     -- "Match" variant used by the breakdown + spell history rows.
@@ -898,154 +914,31 @@ end
 --  system, so the header hosts no dropdown)
 -------------------------------------------------------------------------------
 
-local TX_ARROW_DOWN = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-down3.png"
-local TX_ARROW_UP   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-up3.png"
-local TX_HEADER_H   = 54
-local TX_CARD_GAP   = 14
 local TX_GLYPH_TEX  = "Interface\\AddOns\\EllesmereUI\\media\\textures\\melli.tga"
 
 local function BuildTexCard(parent, y, W, tile)
-    local PP = EllesmereUI.PanelPP
-    local EG = EllesmereUI.ELLESMERE_GREEN
-    local L  = EllesmereUI.L
-    -- A disabled module's card is fully inert: no expand, no hover -- just a
-    -- dimmed header with a tooltip explaining why.
-    local enabled = NS(tile.folder) ~= nil
-    local expanded = enabled and _txExpanded[tile.key]
-    local cardTop = y
-    local brd
-
-    local cardW = parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2
-    local hdr = CreateFrame("Button", nil, parent)
-    PP.Size(hdr, cardW, TX_HEADER_H)
-    PP.Point(hdr, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
-    hdr:SetFrameLevel(parent:GetFrameLevel() + 3)
-
-    local searchName = tile.display .. " " .. (tile.desc or "")
-    hdr._isSectionHeader = true
-    hdr._sectionName = searchName
-    local searchNameLoc = L(tile.display) .. " " .. L(tile.desc or "")
-    if searchNameLoc ~= searchName then hdr._sectionNameLoc = searchNameLoc end
-    if EllesmereUI._RegisterSearchEntry then
-        local titleLoc = L(tile.display)
-        local descSearch = tile.desc or ""
-        local descLoc = L(tile.desc or "")
-        if descLoc ~= descSearch then descSearch = descSearch .. " " .. descLoc end
-        EllesmereUI._RegisterSearchEntry(tile.display,
-            titleLoc ~= tile.display and titleLoc or nil,
-            descSearch,
-            EllesmereUI._buildingModule, EllesmereUI._buildingPage,
-            searchName, nil, nil, true)
-    end
-
-    local hbg = EllesmereUI.SolidTex(hdr, "BACKGROUND", 0, 0, 0, 0)
-    hbg:SetAllPoints()
-
-    -- Mini statusbar glyph: a texture strip in a thin frame.
-    local glyph = CreateFrame("Frame", nil, hdr)
-    PP.Size(glyph, 26, 12)
-    PP.Point(glyph, "LEFT", hdr, "LEFT", 14, 0)
-    local glyphBrd = EllesmereUI.MakeBorder(glyph, 1, 1, 1, 0.3, PP)
-    local glyphTex = glyph:CreateTexture(nil, "ARTWORK")
-    glyphTex:SetPoint("TOPLEFT", glyph, "TOPLEFT", 1, -1)
-    glyphTex:SetPoint("BOTTOMRIGHT", glyph, "BOTTOMRIGHT", -1, 1)
-    glyphTex:SetTexture(TX_GLYPH_TEX)
-    glyphTex:SetVertexColor(EG.r, EG.g, EG.b, 0.8)
-
-    local title = EllesmereUI.MakeFont(hdr, 14, nil, 1, 1, 1, 0.9)
-    PP.Point(title, "TOPLEFT", hdr, "TOPLEFT", 50, -12)
-    title:SetText(L(tile.display))
-
-    local desc = EllesmereUI.MakeFont(hdr, 11, nil, 1, 1, 1, 0.42)
-    PP.Point(desc, "TOPLEFT", title, "BOTTOMLEFT", 0, -4)
-    desc:SetWidth(560)
-    desc:SetJustifyH("LEFT")
-    desc:SetWordWrap(false)
-    desc:SetText(L(tile.desc or ""))
-
-    if not enabled then
-        glyphTex:SetVertexColor(1, 1, 1, 0.15)
-        title:SetAlpha(0.4)
-        desc:SetAlpha(0.22)
-    end
-
-    local chev
-    if enabled then
-        chev = hdr:CreateTexture(nil, "OVERLAY")
-        PP.Size(chev, 16, 16)
-        PP.Point(chev, "RIGHT", hdr, "RIGHT", -16, 0)
-        chev:SetTexture(expanded and TX_ARROW_UP or TX_ARROW_DOWN)
-        chev:SetAlpha(0.45)
-        if expanded then chev:SetVertexColor(EG.r, EG.g, EG.b) end
-    end
-
-    local strip
-    local function ApplyHeaderHover()
-        hbg:SetColorTexture(1, 1, 1, 0.05)
-        title:SetAlpha(1)
-        if chev then chev:SetAlpha(0.85) end
-        if brd then brd:SetColor(1, 1, 1, 0.22) end
-    end
-    local function ClearHeaderHover()
-        if hdr:IsMouseOver() then return end
-        hbg:SetColorTexture(0, 0, 0, 0)
-        title:SetAlpha(0.9)
-        if chev then chev:SetAlpha(0.45) end
-        if brd then brd:SetColor(1, 1, 1, expanded and 0.16 or 0.12) end
-    end
-    if enabled then
-        hdr:SetScript("OnEnter", ApplyHeaderHover)
-        hdr:SetScript("OnLeave", ClearHeaderHover)
-        hdr:SetScript("OnClick", function()
-            _txExpanded[tile.key] = not _txExpanded[tile.key]
-            EllesmereUI:RefreshPage(true)
-        end)
-    else
-        local tag = EllesmereUI.MakeFont(hdr, 11, nil, 1, 1, 1)
-        tag:SetAlpha(0.3)
-        PP.Point(tag, "RIGHT", hdr, "RIGHT", -16, 0)
-        tag:SetText(L("Module Disabled"))
-        hdr:SetScript("OnEnter", function(self)
-            EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.Lf("Enable %1$s to edit these settings.", L(tile.display)))
-        end)
-        hdr:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-    end
-
-    y = y - TX_HEADER_H
-
-    if expanded then
-        local div = hdr:CreateTexture(nil, "ARTWORK")
-        div:SetColorTexture(1, 1, 1, 0.07)
-        div:SetHeight(1)
-        PP.Point(div, "BOTTOMLEFT", hdr, "BOTTOMLEFT", 1, 0)
-        PP.Point(div, "BOTTOMRIGHT", hdr, "BOTTOMRIGHT", -1, 0)
-        PP.DisablePixelSnap(div)
-
-        y = y - 8
-        y = tile.buildContent(parent, y, W, tile)
-        y = y - 8
-    end
-
-    local bg = CreateFrame("Frame", nil, hdr)
-    bg:SetFrameLevel(parent:GetFrameLevel())
-    PP.Size(bg, cardW, cardTop - y)
-    PP.Point(bg, "TOPLEFT", hdr, "TOPLEFT", 0, 0)
-    local fill = EllesmereUI.SolidTex(bg, "BACKGROUND", 0.06, 0.08, 0.10, 0.5)
-    fill:SetAllPoints()
-    brd = EllesmereUI.MakeBorder(bg, 1, 1, 1, expanded and 0.16 or 0.12, PP)
-
-    strip = bg:CreateTexture(nil, "ARTWORK")
-    strip:SetWidth(2)
-    if enabled then
-        strip:SetColorTexture(EG.r, EG.g, EG.b, 0.7)
-    else
-        strip:SetColorTexture(1, 1, 1, 0.10)
-    end
-    PP.Point(strip, "TOPLEFT", hdr, "TOPLEFT", 1, -1)
-    PP.Point(strip, "BOTTOMLEFT", hdr, "BOTTOMLEFT", 1, 1)
-    if strip.SetSnapToPixelGrid then strip:SetSnapToPixelGrid(false); strip:SetTexelSnappingBias(0) end
-
-    return y - TX_CARD_GAP
+    return EllesmereUI.BuildModuleCard(parent, y, W, tile, {
+        enabled = NS(tile.folder) ~= nil,
+        expanded = _txExpanded, descW = 560,
+        -- Mini statusbar glyph: a texture strip in a thin frame.
+        glyph = function(hdr, enabled)
+            local PP = EllesmereUI.PanelPP
+            local EG = EllesmereUI.ELLESMERE_GREEN
+            local glyph = CreateFrame("Frame", nil, hdr)
+            PP.Size(glyph, 26, 12)
+            PP.Point(glyph, "LEFT", hdr, "LEFT", 14, 0)
+            EllesmereUI.MakeBorder(glyph, 1, 1, 1, 0.3, PP)
+            local glyphTex = glyph:CreateTexture(nil, "ARTWORK")
+            glyphTex:SetPoint("TOPLEFT", glyph, "TOPLEFT", 1, -1)
+            glyphTex:SetPoint("BOTTOMRIGHT", glyph, "BOTTOMRIGHT", -1, 1)
+            glyphTex:SetTexture(TX_GLYPH_TEX)
+            if enabled then
+                glyphTex:SetVertexColor(EG.r, EG.g, EG.b, 0.8)
+            else
+                glyphTex:SetVertexColor(1, 1, 1, 0.15)
+            end
+        end,
+    })
 end
 
 -------------------------------------------------------------------------------

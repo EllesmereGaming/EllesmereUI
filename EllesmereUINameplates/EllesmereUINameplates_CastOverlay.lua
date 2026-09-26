@@ -85,18 +85,3 @@ function ns.RefreshCastOverlay(plate)
         plate._castLiftScale = nil
     end
 end
-
--- Kill switch: hand every active plate's cast bar back to its plate now, and bump the
--- appearance generation so pooled (inactive) plates restore on their next spawn.
-function ns.ClearAllCastOverlays()
-    for _, plate in pairs(ns.plates) do
-        if plate._castOverlayLifted then
-            plate.cast:SetParent(plate)
-            plate.cast:SetFrameStrata(plate:GetFrameStrata())
-            if plate.castTextFrame then plate.castTextFrame:SetFrameStrata("MEDIUM") end
-            plate._castOverlayLifted = nil
-            plate._castLiftScale = nil
-        end
-    end
-    ns._npAppearanceGen = (ns._npAppearanceGen or 0) + 1
-end

@@ -27,8 +27,6 @@ local IsInInstance     = IsInInstance
 local IsShiftKeyDown   = IsShiftKeyDown
 local IsControlKeyDown = IsControlKeyDown
 local IsAltKeyDown     = IsAltKeyDown
-local GetSpecialization     = GetSpecialization
-local GetSpecializationInfo = GetSpecializationInfo
 local C_Spell      = C_Spell
 local C_SpellBook  = C_SpellBook
 local C_Timer      = C_Timer
@@ -239,18 +237,21 @@ _G._ERF_IsHoverCastEnabled = function()
     return (cc and cc.enabled) or false
 end
 
+-- The namespaced lookups (the legacy globals are not registered on WoW
+-- Forever). A spec-less character answers id 0 there; that is "no spec".
 local function GetCurrentSpecID()
-    local idx = GetSpecialization()
-    return idx and (GetSpecializationInfo(idx)) or nil
+    local idx = C_SpecializationInfo.GetSpecialization()
+    local id = idx and (C_SpecializationInfo.GetSpecializationInfo(idx))
+    return (id and id ~= 0) and id or nil
 end
 local function GetCurrentSpecName()
-    local idx = GetSpecialization()
-    if idx then local _, n = GetSpecializationInfo(idx); return n end
-    return "No Spec"
+    if not GetCurrentSpecID() then return "No Spec" end
+    local _, n = C_SpecializationInfo.GetSpecializationInfo(C_SpecializationInfo.GetSpecialization())
+    return n or "No Spec"
 end
 local function GetCurrentSpecIcon()
-    local idx = GetSpecialization()
-    if idx then local _, _, _, ic = GetSpecializationInfo(idx); return ic end
+    local idx = GetCurrentSpecID() and C_SpecializationInfo.GetSpecialization()
+    if idx then local _, _, _, ic = C_SpecializationInfo.GetSpecializationInfo(idx); return ic end
     return nil
 end
 
@@ -1925,30 +1926,6 @@ function ns.CC_RemoveGlobalBinding(index)
     ns.CC_ApplyBindings()
 end
 
-function ns.CC_SetGlobalBindingKey(bindingType, newKey)
-    local cc = GetClickCastDB()
-    if not cc then return end
-    for _, b in ipairs(cc.globals) do
-        if b.type == bindingType then
-            b.key = newKey
-            break
-        end
-    end
-    ns.CC_ApplyBindings()
-end
-
-function ns.CC_ToggleBinding(binding)
-    binding.enabled = not binding.enabled
-    ns.CC_ApplyBindings()
-end
-
-function ns.CC_FindBinding(keyStr)
-    for _, b in ipairs(GetActiveBindings()) do
-        if b.key == keyStr then return b end
-    end
-    return nil
-end
-
 -- Expose getters
 ns.CC_GetActiveBindings  = GetActiveBindings
 ns.CC_GetSpecBindings    = GetSpecBindings
@@ -1979,8 +1956,7 @@ local function ForEachKeySharer(excludeBinding, fn)
             return true
         end
     end
-    local specIdx = GetSpecialization and GetSpecialization()
-    local specID = specIdx and select(1, GetSpecializationInfo(specIdx))
+    local specID = GetCurrentSpecID()
     local activeList = specID and cc.specs[specID]
     if activeList then
         for _, b in ipairs(activeList) do
@@ -2131,7 +2107,8 @@ end
 local specReadyTicker
 local function ReapplyWhenSpecReady()
     if InCombatLockdown() then pendingApply = true; return end
-    if GetCurrentSpecID() then ns.CC_ApplyBindings(); return end
+    -- WoW Forever characters have no spec to wait for.
+    if GetCurrentSpecID() or EllesmereUI.IS_FOREVER then ns.CC_ApplyBindings(); return end
     -- Spec not ready: only start the readiness poll when enabled -- a disabled
     -- install has nothing to re-apply, so polling would be idle cost otherwise.
     local cc = GetClickCastDB()
@@ -2143,8 +2120,11 @@ local function ReapplyWhenSpecReady()
         if GetCurrentSpecID() then
             t:Cancel(); specReadyTicker = nil
             if not InCombatLockdown() then ns.CC_ApplyBindings() else pendingApply = true end
-        elseif tries >= 20 then  -- ~5s safety cap: give up if the char has no spec
+        elseif tries >= 20 then  -- ~5s safety cap: the char has no spec
             t:Cancel(); specReadyTicker = nil
+            -- Still apply: the global bindings do not need a spec (WoW Forever
+            -- characters and low-level ones have none).
+            if not InCombatLockdown() then ns.CC_ApplyBindings() else pendingApply = true end
         end
     end)
 end
@@ -2283,8 +2263,8 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     local cc = GetClickCastDB()
     if not cc then return 0 end
 
-    local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("raidFrames")) or "Fonts\\FRIZQT__.TTF"
-    local outlineFlag = (EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("raidFrames")) or ""
+    local fontPath = (EllesmereUI.GetFontPath("raidFrames")) or "Fonts\\FRIZQT__.TTF"
+    local outlineFlag = (EllesmereUI.GetFontOutlineFlag("raidFrames")) or ""
     local useShadow = not EllesmereUI.GetFontUseShadow or EllesmereUI.GetFontUseShadow("raidFrames")
     local accentColor = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
 
@@ -2318,7 +2298,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
 
     local function MakeFont(p, size, r, g, b, a)
         local fs = p:CreateFontString(nil, "OVERLAY")
-        if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, outlineFlag == "" and useShadow) end
+        EllesmereUI.PrimeFontShadow(fs, outlineFlag == "" and useShadow)
         fs:SetFont(fontPath, size, outlineFlag)
         fs:SetTextColor(r or 1, g or 1, b or 1, a or 1)
         return fs

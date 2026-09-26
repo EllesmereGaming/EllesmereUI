@@ -105,52 +105,6 @@ end
 -- and the tracker read the same truth).
 local MOVEMENT_DEFAULT_OFF = EllesmereUI._MovementDefaultOff or {}
 
--- Reuses EllesmereUI._groupDeathSoundPaths/_groupDeathSoundNames/_groupDeathSoundOrder
--- (built by EllesmereUIQoL.lua, merged with every LibSharedMedia-3.0 "sound" entry at
--- login via EllesmereUI.AppendSharedMediaSounds) instead of querying LSM directly a
--- second time -- one sound-list implementation in the addon, not two. Values can be a
--- file path (string) or a Blizzard SoundKitID (number, most LSM-registered SOUNDKIT.*
--- entries); PlayLSMSound (shared from EllesmereUIQoL_MovementAlert.lua, which loads
--- first per the .toc order) routes preview playback by type.
-local function PlayLSMSound(value)
-    if EllesmereUI._PlayLSMSound then
-        EllesmereUI._PlayLSMSound(value)
-        return
-    end
-    if not value or value == 1 then return end
-    if type(value) == "number" then
-        PlaySound(value, "Master")
-    else
-        PlaySoundFile(value, "Master")
-    end
-end
-
-local function SoundDropdownValues()
-    local paths = EllesmereUI._groupDeathSoundPaths or {}
-    local names = EllesmereUI._groupDeathSoundNames or { none = "None" }
-    local order = EllesmereUI._groupDeathSoundOrder or { "none" }
-    local values = {}
-    for k, v in pairs(names) do values[k] = v end
-    values._menuOpts = {
-        itemHeight = 26,
-        maxTextWidthPct = 0.8,
-        searchable = true,
-        iconAtlas = function(key)
-            if key == "none" or not paths[key] then return nil end
-            return "common-icon-sound"
-        end,
-        iconPressedAtlas = function(key)
-            if key == "none" or not paths[key] then return nil end
-            return "common-icon-sound-pressed"
-        end,
-        iconOnClick = function(key)
-            PlayLSMSound(paths[key])
-        end,
-        iconTooltip = function() return "Preview Sound" end,
-    }
-    return values, order
-end
-
 -- Voices are enumerated live from C_VoiceChat rather than a static list --
 -- availability varies by client/OS. Falls back to a single "Default" entry
 -- (voiceID 0) if the API or voice list isn't available.
@@ -506,7 +460,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
     -- Display/alert settings as page rows (moved out of the old cog popup):
     -- every slot keeps the exact profile keys and side-effects the popup rows had;
     -- RefreshPage() is added only where a value gates another widget's disabled state.
-    local sndValues, sndOrder = SoundDropdownValues()
+    local sndValues, sndOrder = EllesmereUI.BuildSoundDropdownValues()
     local ttsValues, ttsOrder = TTSVoiceDropdownValues()
 
     -- Bar texture dropdown: identical catalog + SharedMedia merge +
@@ -515,9 +469,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
     do
         local mt = EllesmereUI._MovementBarTextures
         if mt then
-            if EllesmereUI.AppendSharedMediaTextures then
-                EllesmereUI.AppendSharedMediaTextures(mt.names, mt.order, nil, mt.lookup)
-            end
+            EllesmereUI.AppendSharedMediaTextures(mt.names, mt.order, nil, mt.lookup)
             for _, key in ipairs(mt.order) do
                 if key ~= "---" then barTexValues[key] = mt.names[key] or key end
                 barTexOrder[#barTexOrder + 1] = key
@@ -590,7 +542,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
     if not EllesmereUI._prebuilding then
         local rgn = dmRow._rightRegion
         local function BarCogOff() return maOff() or ma.displayMode ~= "bar" end
-        local _, barCogShow = EllesmereUI.BuildCogPopup({
+        EllesmereUI.BuildInlineCog(rgn, {
             title = "Bar Settings",
             rows = {
                 { type="toggle", label="Show Icon on Bar",
@@ -600,33 +552,8 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
                   get=function() return ma.barShowDuration ~= false end,
                   set=function(v) ma.barShowDuration = v; Refresh() end },
             },
+            gap = 9, disabled = BarCogOff, disabledTooltip = "Requires Bar display mode",
         })
-        local cogBtn = CreateFrame("Button", nil, rgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -9, 0)
-        rgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        cogBtn:SetAlpha(BarCogOff() and 0.15 or 0.4)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
-        cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(BarCogOff() and 0.15 or 0.4) end)
-        cogBtn:SetScript("OnClick", function(self) barCogShow(self) end)
-
-        local cogBlock = CreateFrame("Frame", nil, cogBtn)
-        cogBlock:SetAllPoints()
-        cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10)
-        cogBlock:EnableMouse(true)
-        cogBlock:SetScript("OnEnter", function()
-            EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Requires Bar display mode"))
-        end)
-        cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        EllesmereUI.RegisterWidgetRefresh(function()
-            local off = BarCogOff()
-            cogBtn:SetAlpha(off and 0.15 or 0.4)
-            if off then cogBlock:Show() else cogBlock:Hide() end
-        end)
-        if BarCogOff() then cogBlock:Show() else cogBlock:Hide() end
     end
 
     -- Inline controls on the Display Mode slot, mirroring the Unit Frames
@@ -684,7 +611,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
         UpdateDmSwatches()
 
         -- Resize cog (leftmost): Text Size / Icon Size, each gated to its mode.
-        local _, dmCogShow = EllesmereUI.BuildCogPopup({
+        EllesmereUI.BuildInlineCog(leftRgn, {
             title = "Display Size",
             rows = {
                 -- Never disabled: sizes the free text, the bar's number, and
@@ -710,33 +637,8 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
                   get=function() return (tonumber(ma.precision) or 1) > 0 end,
                   set=function(v) ma.precision = v and 1 or 0; Refresh() end },
             },
+            icon = EllesmereUI.RESIZE_ICON, gap = 9, disabled = maOff, disabledTooltip = "Select an Enabled Class",
         })
-        local cogBtn = CreateFrame("Button", nil, leftRgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
-        leftRgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-        cogBtn:SetAlpha(maOff() and 0.15 or 0.4)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-        cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(maOff() and 0.15 or 0.4) end)
-        cogBtn:SetScript("OnClick", function(self) dmCogShow(self) end)
-
-        local cogBlock = CreateFrame("Frame", nil, cogBtn)
-        cogBlock:SetAllPoints()
-        cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10)
-        cogBlock:EnableMouse(true)
-        cogBlock:SetScript("OnEnter", function()
-            EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Select an Enabled Class"))
-        end)
-        cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        EllesmereUI.RegisterWidgetRefresh(function()
-            local off = maOff()
-            cogBtn:SetAlpha(off and 0.15 or 0.4)
-            if off then cogBlock:Show() else cogBlock:Hide() end
-        end)
-        if maOff() then cogBlock:Show() else cogBlock:Hide() end
     end
 
     -- TTS Voice doubles as the TTS enable ("None" = off, the default) -- a
@@ -770,40 +672,15 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
     if not EllesmereUI._prebuilding then
         local leftRgn = ttsRow._rightRegion
         local function TtsCogOff() return maOff() or not ma.maTtsEnabled end
-        local _, ttsCogShow = EllesmereUI.BuildCogPopup({
+        EllesmereUI.BuildInlineCog(leftRgn, {
             title = "Text-to-Speech Settings",
             rows = {
                 { type="slider", label="TTS Volume", min=0, max=100, step=5,
                   get=function() return ma.maTtsVolume or 100 end,
                   set=function(v) ma.maTtsVolume = v end },
             },
+            gap = 9, disabled = TtsCogOff, disabledTooltip = "Select a TTS Voice",
         })
-        local cogBtn = CreateFrame("Button", nil, leftRgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
-        leftRgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-        cogBtn:SetAlpha(TtsCogOff() and 0.15 or 0.4)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
-        cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(TtsCogOff() and 0.15 or 0.4) end)
-        cogBtn:SetScript("OnClick", function(self) ttsCogShow(self) end)
-
-        local cogBlock = CreateFrame("Frame", nil, cogBtn)
-        cogBlock:SetAllPoints()
-        cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10)
-        cogBlock:EnableMouse(true)
-        cogBlock:SetScript("OnEnter", function()
-            EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Select a TTS Voice"))
-        end)
-        cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        EllesmereUI.RegisterWidgetRefresh(function()
-            local off = TtsCogOff()
-            cogBtn:SetAlpha(off and 0.15 or 0.4)
-            if off then cogBlock:Show() else cogBlock:Hide() end
-        end)
-        if TtsCogOff() then cogBlock:Show() else cogBlock:Hide() end
     end
 
     _, h = W:Spacer(parent, y, 16);  y = y - h
@@ -1123,9 +1000,9 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
     -- Time Spiral settings cog (left slot)
     if not EllesmereUI._prebuilding then
         local leftRgn = extraRow._leftRegion
-        local sndValues2, sndOrder2 = SoundDropdownValues()
+        local sndValues2, sndOrder2 = EllesmereUI.BuildSoundDropdownValues()
         local ttsValues2, ttsOrder2 = TTSVoiceDropdownValues()
-        local _, cogShow = EllesmereUI.BuildCogPopup({
+        EllesmereUI.BuildInlineCog(leftRgn, {
             title = "Time Spiral Settings",
             minWidth = 300,
             rows = {
@@ -1164,41 +1041,16 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
                   set=function(v) ma.tsTtsVolume = v end },
             },
             footer = { unlockKey = "EUI_TimeSpiralAlert" },
+            gap = 9, disabled = tsOff, disabledTooltip = "Enable Time Spiral Tracker",
         })
-        local cogBtn = CreateFrame("Button", nil, leftRgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
-        leftRgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-        cogBtn:SetAlpha(tsOff() and 0.15 or 0.4)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
-        cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(tsOff() and 0.15 or 0.4) end)
-        cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
-
-        local cogBlock = CreateFrame("Frame", nil, cogBtn)
-        cogBlock:SetAllPoints()
-        cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10)
-        cogBlock:EnableMouse(true)
-        cogBlock:SetScript("OnEnter", function()
-            EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Enable Time Spiral Tracker"))
-        end)
-        cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        EllesmereUI.RegisterWidgetRefresh(function()
-            local off = tsOff()
-            cogBtn:SetAlpha(off and 0.15 or 0.4)
-            if off then cogBlock:Show() else cogBlock:Hide() end
-        end)
-        if tsOff() then cogBlock:Show() else cogBlock:Hide() end
     end
 
     -- Gateway Shard settings cog (right slot); Combat Only lives in here.
     if not EllesmereUI._prebuilding then
         local rgn = extraRow._rightRegion
-        local sndValues2, sndOrder2 = SoundDropdownValues()
+        local sndValues2, sndOrder2 = EllesmereUI.BuildSoundDropdownValues()
         local ttsValues2, ttsOrder2 = TTSVoiceDropdownValues()
-        local _, cogShow = EllesmereUI.BuildCogPopup({
+        EllesmereUI.BuildInlineCog(rgn, {
             title = "Gateway Shard Settings",
             minWidth = 300,
             rows = {
@@ -1241,33 +1093,8 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
                   set=function(v) ma.gwTtsVolume = v end },
             },
             footer = { unlockKey = "EUI_GatewayShardAlert" },
+            gap = 9, disabled = gwOff, disabledTooltip = "Enable Gateway Shard Alert",
         })
-        local cogBtn = CreateFrame("Button", nil, rgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -9, 0)
-        rgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        cogBtn:SetAlpha(gwOff() and 0.15 or 0.4)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
-        cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(gwOff() and 0.15 or 0.4) end)
-        cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
-
-        local cogBlock = CreateFrame("Frame", nil, cogBtn)
-        cogBlock:SetAllPoints()
-        cogBlock:SetFrameLevel(cogBtn:GetFrameLevel() + 10)
-        cogBlock:EnableMouse(true)
-        cogBlock:SetScript("OnEnter", function()
-            EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip("Enable Gateway Shard Alert"))
-        end)
-        cogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        EllesmereUI.RegisterWidgetRefresh(function()
-            local off = gwOff()
-            cogBtn:SetAlpha(off and 0.15 or 0.4)
-            if off then cogBlock:Show() else cogBlock:Hide() end
-        end)
-        if gwOff() then cogBlock:Show() else cogBlock:Hide() end
     end
 
     _, h = W:Spacer(parent, y, 20);  y = y - h

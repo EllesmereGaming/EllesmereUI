@@ -420,9 +420,9 @@ local function Layout(f, cfg)
     -- ECHAT's own resolvers, not EUI.GetFontPath("chat") directly: the Chat page carries its
     -- own font and outline pickers that override the module font, and a bubble is chat output.
     local path = (ECHAT.GetFont and ECHAT.GetFont())
-        or (EUI.GetFontPath and EUI.GetFontPath("chat")) or "Fonts\\FRIZQT__.TTF"
+        or (EUI.GetFontPath("chat")) or "Fonts\\FRIZQT__.TTF"
     local flag = (ECHAT.GetOutlineFlag and ECHAT.GetOutlineFlag())
-        or (EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("chat")) or ""
+        or (EUI.GetFontOutlineFlag("chat")) or ""
     local fontSize = cfg.fontSize or d.fontSize or 12
     -- SetFont answers false for a path that no longer resolves (a media addon uninstalled
     -- since the setting was made) and leaves the FontString with NO font at all, which makes

@@ -25,7 +25,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  twice during a fight).
 -------------------------------------------------------------------------------
 
-local L = function(s) return EllesmereUI.L and EllesmereUI.L(s) or s end
+local L = function(s) return EllesmereUI.L(s) or s end
 
 -------------------------------------------------------------------------------
 --  Condition definitions (ordered display list for the picker UI).
@@ -38,7 +38,7 @@ local L = function(s) return EllesmereUI.L and EllesmereUI.L(s) or s end
 -- mirrors that checkbox's own read (_dmNotRB in EUI__General_Options.lua).
 local function _dmMainFilter(p) return p.id ~= "resourceBars" end
 local function DarkModeMasterOn()
-    return (EllesmereUI.IsDarkModeAllOn and EllesmereUI.IsDarkModeAllOn(_dmMainFilter)) or false
+    return (EllesmereUI.IsDarkModeAllOn(_dmMainFilter)) or false
 end
 
 EllesmereUI.CONDITIONS = {
@@ -155,11 +155,6 @@ function EllesmereUI.Conditions_ActiveGroup()
     return nil
 end
 
-function EllesmereUI.Conditions_ActiveGid()
-    local g = EllesmereUI.Conditions_ActiveGroup()
-    return g and g.id or nil
-end
-
 -------------------------------------------------------------------------------
 --  Flip machinery: flag-and-recompute, never replay. The override system's
 --  transition handler (SpecOverrides_CondTransition) owns the actual
@@ -178,7 +173,7 @@ local _establish = false       -- post profile-apply: apply-only, no harvests
 -- the overlay into the conditional DEFAULT maps -- permanent baseline loss on every
 -- /reload or login with a conditional active.
 local function PersistAppliedGid(gid)
-    local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+    local prof = EllesmereUI.GetActiveProfileData()
     if prof then prof.condAppliedGid = gid end
 end
 
@@ -187,9 +182,9 @@ function EllesmereUI.Conditions_AppliedGid()
     -- Stale windows (fresh login, profile-apply MarkStale before the establish Recheck
     -- lands): fall back to the persisted pointer, validated against the active
     -- profile's groups (a hand-edited or imported store may point at a deleted group).
-    local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+    local prof = EllesmereUI.GetActiveProfileData()
     local gid = prof and prof.condAppliedGid
-    if gid and EllesmereUI.Conditions_GroupById and EllesmereUI.Conditions_GroupById(gid) then
+    if gid and EllesmereUI.Conditions_GroupById(gid) then
         return gid
     end
     return nil
@@ -273,9 +268,7 @@ function EllesmereUI.Conditions_Recheck()
         applied = EllesmereUI.Conditions_AppliedGid()
         if gid == applied then
             _appliedGid = applied
-            if EllesmereUI.SpecOverrides_ResumeDefaultView then
-                EllesmereUI.SpecOverrides_ResumeDefaultView()
-            end
+            EllesmereUI.SpecOverrides_ResumeDefaultView()
             return
         end
     end

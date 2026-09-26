@@ -156,9 +156,7 @@ local function SavePos(name, point, relPoint, x, y)
     EllesmereUIDB.shifterPositions[name] = {
         point = point, relPoint = relPoint, x = x, y = y,
     }
-    if EllesmereUI.RefreshPage then
-        EllesmereUI:RefreshPage(true)
-    end
+    EllesmereUI:RefreshPage(true)
 end
 
 local function GetSavedScale(name)

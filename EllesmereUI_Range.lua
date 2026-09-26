@@ -83,13 +83,34 @@ end
 
 local DRUID_MELEE_FORMS = { [1] = true, [2] = true } -- Bear, Cat
 
+local EnsureLadder -- defined below; the no-spec fallback reads the ladder
+
 -- Spec-derived attack cutoff, form check NOT included (that is the one live
 -- input; everything here only moves on spec/talent changes and is cached by
 -- Range_GetAttackCutoff below).
 local function SpecAttackCutoff(holyPaladinMelee)
     local _, classFile = UnitClass("player")
-    local specIndex = GetSpecialization()
-    local specID = specIndex and GetSpecializationInfo(specIndex)
+    local CSI = C_SpecializationInfo
+    local specIndex = CSI and CSI.GetSpecialization and CSI.GetSpecialization()
+    local specID = specIndex and CSI.GetSpecializationInfo and CSI.GetSpecializationInfo(specIndex)
+    -- WoW Forever has no specs, so specID is nil for everyone. Caster cutoff
+    -- (Druid, Priest, Mage, Warlock) = the longest harmful spellbook rung
+    -- (<= 40 yd), so the cutoff lands on a real spell (Wrath, Shadow Bolt) that
+    -- Range_BeyondCutoff can probe directly, and follows talent range
+    -- extensions. Hunter (min-range shots are excluded from the ladder) and
+    -- hybrids (no spec to tell caster from melee) stay at 5, as before.
+    if not specID and EllesmereUI.IS_FOREVER == true then
+        if classFile == "DRUID" or classFile == "PRIEST" or classFile == "MAGE" or classFile == "WARLOCK" then
+            EnsureLadder()
+            local best
+            for i = 1, #RG.ladder do
+                local r = RG.ladder[i].range
+                if r > 5 and r <= 40 then best = r end
+            end
+            if best then return best end
+        end
+        return 5
+    end
     if not specID then return 5 end
 
     if classFile == "DRUID" then
@@ -199,7 +220,7 @@ local function BuildLadder()
     table.sort(RG.ladder, function(a, b) return a.range < b.range end)
 end
 
-local function EnsureLadder()
+EnsureLadder = function()
     if RG.dirty or not RG.ladderBuilt then BuildLadder() end
 end
 
@@ -248,7 +269,7 @@ end
 -- a restricted query degrades to nil (no display) instead of a blocked action.
 local function ItemChecksAllowed(unit)
     if not (InCombatLockdown()
-        or (EllesmereUI.InProtectedInstance and EllesmereUI.InProtectedInstance())) then
+        or (EllesmereUI.InProtectedInstance())) then
         return true
     end
     local can = UnitCanAttack("player", unit)

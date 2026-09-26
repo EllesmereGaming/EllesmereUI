@@ -71,15 +71,15 @@ local SavePosition, ApplySavedPosition, ApplyDisableVisibility
 --  Font helpers (mirror the /keys popup)
 -------------------------------------------------------------------------------
 local function ResolveFont()
-    return (EUI and EUI.GetFontPath and EUI.GetFontPath("extras")) or "Fonts\\FRIZQT__.TTF"
+    return (EUI.GetFontPath("extras")) or "Fonts\\FRIZQT__.TTF"
 end
 local function ResolveOutline()
-    return (EUI and EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("extras")) or ""
+    return (EUI.GetFontOutlineFlag("extras")) or ""
 end
 local function MakeLabel(parent, size, r, g, b, a)
     local fs = parent:CreateFontString(nil, "OVERLAY")
     local flags = ResolveOutline()
-    if EUI and EUI.PrimeFontShadow then EUI.PrimeFontShadow(fs, flags == "") end
+    EUI.PrimeFontShadow(fs, flags == "")
     fs:SetFont(ResolveFont(), size, flags)
     if r then fs:SetTextColor(r, g or 1, b or 1, a or 1) end
     return fs
@@ -219,20 +219,18 @@ BuildPopup = function()
         local sid = pendingSpellID
         if not sid then return end
         if not IsPlayerSpell(sid) then
-            if EUI.ShowWidgetTooltip then
-                EUI.ShowWidgetTooltip(self, "You have not learned this dungeon teleport yet.")
-            end
+            EUI.ShowWidgetTooltip(self, "You have not learned this dungeon teleport yet.")
             return
         end
         local cdInfo = C_Spell and C_Spell.GetSpellCooldown and C_Spell.GetSpellCooldown(sid)
         if cdInfo and cdInfo.duration and cdInfo.duration > 0 then
-            if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Teleport on Cooldown") end
+            EUI.ShowWidgetTooltip(self, "Teleport on Cooldown")
         elseif EUI.ShowWidgetTooltip then
             EUI.ShowWidgetTooltip(self, "Teleport to " .. (pendingName or "dungeon"))
         end
     end)
     secureBtn:SetScript("OnLeave", function()
-        if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+        EUI.HideWidgetTooltip()
     end)
 
     -- "Disable Feature" text below the teleport button. Clicking it turns the

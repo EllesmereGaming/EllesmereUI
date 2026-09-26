@@ -1093,3 +1093,50 @@ EllesmereUI.Glows = {
     StopAllGlows        = StopAllGlows,
 }
 
+-------------------------------------------------------------------------------
+--  Blizzard Border: the static art Blizzard's own target frame puts on a buff
+--  it can steal or purge. No driver and no animation, so it renders the same
+--  in and out of restricted content on engine aura buttons (where a glow host
+--  belongs to a purgeable GROUP, never to a per-aura read). Its picker value
+--  sits outside the STYLES list. The texture is made on first use (the
+--  flipbook glows create theirs on the same hosts the same way); Show/Hide
+--  then only resize, tint and toggle it.
+-------------------------------------------------------------------------------
+do
+    local G = EllesmereUI.Glows
+    local TEX = "Interface\\TargetingFrame\\UI-TargetingFrame-Stealable"
+    -- Blizzard draws it 24 px on a 21 px buff icon.
+    local SCALE = 24 / 21
+    G.STEALABLE_BORDER = 99
+
+    function G.EnsureStealableBorder(host)
+        local tex = host._euiStealTex
+        if not tex then
+            tex = host:CreateTexture(nil, "OVERLAY")
+            tex:SetTexture(TEX)
+            tex:SetBlendMode("ADD")
+            tex:SetPoint("CENTER")
+            tex:Hide()
+            host._euiStealTex = tex
+        end
+        return tex
+    end
+
+    -- w/h: the icon's size; nil color = Blizzard's own look. A tint
+    -- desaturates first, like the flipbook glows, so the pick reads true.
+    function G.ShowStealableBorder(host, w, h, cr, cg, cb)
+        local tex = G.EnsureStealableBorder(host)
+        w = w or 24
+        h = h or w
+        tex:SetSize(w * SCALE, h * SCALE)
+        tex:SetDesaturated(cr ~= nil)
+        tex:SetVertexColor(cr or 1, cg or 1, cb or 1)
+        tex:Show()
+    end
+
+    function G.HideStealableBorder(host)
+        local tex = host and host._euiStealTex
+        if tex then tex:Hide() end
+    end
+end
+

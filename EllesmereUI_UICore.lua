@@ -13,7 +13,6 @@ local PP         = EllesmereUI.PanelPP
 local SolidTex   = EllesmereUI.SolidTex
 local MakeFont   = EllesmereUI.MakeFont
 local MakeBorder = EllesmereUI.MakeBorder
-local lerp       = EllesmereUI.lerp
 local ELLESMERE_GREEN = EllesmereUI.ELLESMERE_GREEN
 
 -- Button visual constants
@@ -296,9 +295,9 @@ EllesmereUI.GetAccentColor = function()
     return ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b
 end
 
---- Active theme name (default "EllesmereUI")
+--- Active theme name (default per client: EllesmereUI.DEFAULT_THEME)
 EllesmereUI.GetActiveTheme = function()
-    return EllesmereUIDB and EllesmereUIDB.activeTheme or "EllesmereUI"
+    return EllesmereUIDB and EllesmereUIDB.activeTheme or EllesmereUI.DEFAULT_THEME
 end
 
 --- Internal: resolve the accent color for a given theme name
@@ -340,73 +339,8 @@ local function UpdateAccentElements(r, g, b)
     end
 end
 
---- Accent color transition state
-local ACCENT_FADE_DURATION, ACCENT_REFRESH_INTERVAL = 0.5, 0.067  -- ~15fps for widget refreshes
-local accentFadeFrom = { r = 0, g = 0, b = 0 }
-local accentFadeTo   = { r = 0, g = 0, b = 0 }
-local accentFadeProgress = 1  -- 1 = done
-local accentRefreshAccum = 0
-local accentGCFrame, accentGCDelay  -- reused for deferred GC after fade
-local accentFadeTicker = CreateFrame("Frame")
-accentFadeTicker:Hide()
-accentFadeTicker:SetScript("OnUpdate", function(self, elapsed)
-    accentFadeProgress = accentFadeProgress + elapsed / ACCENT_FADE_DURATION
-    if accentFadeProgress >= 1 then
-        accentFadeProgress = 1
-        self:Hide()
-        ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b = accentFadeTo.r, accentFadeTo.g, accentFadeTo.b
-        UpdateAccentElements(accentFadeTo.r, accentFadeTo.g, accentFadeTo.b)
-        -- Fast-path refresh only: widget callbacks re-read the accent. NEVER force-rebuild (RefreshPage(true)) here -- a full teardown+rebuild in one frame hitches the renderer into a visible blink, and UpdateAccentElements already snapped every one-time element.
-        for i = 1, #EllesmereUI._widgetRefreshList do EllesmereUI._widgetRefreshList[i]() end
-        -- Deferred full GC, 2 frames out: collecting in the same frame as the transition completion hitches the renderer into a visible blink; by frame +2 the GC is the only work in the tick.
-        if not accentGCFrame then
-            accentGCFrame = CreateFrame("Frame")
-        end
-        accentGCDelay = 2
-        accentGCFrame:SetScript("OnUpdate", function(gcSelf)
-            accentGCDelay = accentGCDelay - 1
-            if accentGCDelay <= 0 then
-                gcSelf:SetScript("OnUpdate", nil)
-                collectgarbage("collect")
-            end
-        end)
-        return
-    end
-    local t = accentFadeProgress  -- smooth ease-in-out
-    t = t < 0.5 and (2 * t * t) or (1 - (-2 * t + 2) * (-2 * t + 2) / 2)
-    local r = lerp(accentFadeFrom.r, accentFadeTo.r, t)
-    local g = lerp(accentFadeFrom.g, accentFadeTo.g, t)
-    local b = lerp(accentFadeFrom.b, accentFadeTo.b, t)
-    ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b = r, g, b
-    -- RegAccent elements (sidebar, tabs, footer) are cheap: every frame.
-    UpdateAccentElements(r, g, b)
-    -- Widget refreshes (toggles, sliders, checkboxes) are heavier: throttled.
-    accentRefreshAccum = accentRefreshAccum + elapsed
-    if accentRefreshAccum >= ACCENT_REFRESH_INTERVAL then
-        accentRefreshAccum = 0
-        for i = 1, #EllesmereUI._widgetRefreshList do EllesmereUI._widgetRefreshList[i]() end
-    end
-end)
-
---- Internal: apply accent with animated transition (for theme switches)
-local function ApplyAccentAnimated(r, g, b)
-    accentFadeFrom.r, accentFadeFrom.g, accentFadeFrom.b = ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b
-    accentFadeTo.r, accentFadeTo.g, accentFadeTo.b = r, g, b
-    accentFadeProgress = 0
-    accentRefreshAccum = 0
-
-    -- Invalidate cached popups so they rebuild with the new accent
-    EllesmereUI._InvalidateConfirmPopup()
-
-    -- OnUpdate lerps ELLESMERE_GREEN and refreshes widgets each tick
-    accentFadeTicker:Show()
-end
-
 --- Internal: apply accent instantly (for color picker dragging, resets, etc.)
 local function ApplyAccentLive(r, g, b)
-    accentFadeTicker:Hide()  -- stop any running transition
-    accentFadeProgress = 1
-
     -- Canonical colour table updated in place, then registered one-time elements
     ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b = r, g, b
     UpdateAccentElements(r, g, b)
@@ -543,13 +477,18 @@ EllesmereUI.ResetTheme = function()
 end
 
 -------------------------------------------------------------------------------
---  ShowContextMenu(anchor, items)
+--  ShowContextMenu(anchor, items, opts)
 --  Shared pooled context menu used by Blizz UI Enhanced (character sheet gear-set cog, etc.). Pops up at the cursor.
 --  items = { { text = "Foo", onClick = fn, isDisabled = fn? }, ... }
---  Behavior: click-outside-to-dismiss (polled ~10hz); auto-closes on combat entry so insecure clicks can't taint protected paths while lockdown is active.
+--  opts (optional): below = true hangs the menu off `anchor`'s bottom-left edge
+--  instead of the cursor (the dropdown placement of the options widgets);
+--  minWidth widens the menu to the anchor's width so it reads as a dropdown.
+--  Behavior: click-outside-to-dismiss (polled ~10hz); a second call from the same
+--  anchor while its menu is open closes it (toggle); auto-closes on combat entry so
+--  insecure clicks can't taint protected paths while lockdown is active.
 -------------------------------------------------------------------------------
 local _ctxMenu
-local function ShowContextMenu(anchor, items)
+local function ShowContextMenu(anchor, items, opts)
     local PP_L = EllesmereUI.PP
     if not _ctxMenu then
         _ctxMenu = CreateFrame("Frame", nil, UIParent)
@@ -576,13 +515,18 @@ local function ShowContextMenu(anchor, items)
             self._elapsed = self._elapsed + dt
             if self._elapsed < 0.1 then return end
             self._elapsed = 0
-            if not self:IsMouseOver() and IsMouseButtonDown("LeftButton") then
+            -- A click on the owner is left to the owner: its OnClick reaches
+            -- ShowContextMenu with the menu still open and toggles it closed.
+            local owner = self._owner
+            if not self:IsMouseOver() and IsMouseButtonDown("LeftButton")
+               and not (owner and owner.IsMouseOver and owner:IsMouseOver()) then
                 self:Hide()
             end
         end
 
         _ctxMenu:HookScript("OnHide", function(self)
             self:SetScript("OnUpdate", nil)
+            self._owner = nil
         end)
 
         -- Combat entry closes the menu to avoid tainting protected paths.
@@ -590,13 +534,20 @@ local function ShowContextMenu(anchor, items)
         _ctxMenu:SetScript("OnEvent", function(self) self:Hide() end)
     end
 
+    -- Toggle: the owner's click while its own menu is open closes it.
+    if anchor and _ctxMenu:IsShown() and _ctxMenu._owner == anchor then
+        _ctxMenu:Hide()
+        return
+    end
+    _ctxMenu._owner = anchor
+
     -- Hide pooled rows past the current item count
     for _, btn in ipairs(_ctxMenu._items) do btn:Hide() end
 
     local ITEM_H = 26
     local MENU_PAD = 4
-    local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
-    local outline  = (EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag()) or ""
+    local fontPath = (EllesmereUI.GetFontPath()) or STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
+    local outline  = (EllesmereUI.GetFontOutlineFlag()) or ""
 
     if not _ctxMenu._measureFS then
         _ctxMenu._measureFS = _ctxMenu:CreateFontString(nil, "OVERLAY")
@@ -612,7 +563,7 @@ local function ShowContextMenu(anchor, items)
     mfs:SetText("")
     mfs:Hide()
 
-    local MENU_W = math.max(140, maxTextW + 40)
+    local MENU_W = math.max((opts and opts.minWidth) or 140, maxTextW + 40)
     local EG = EllesmereUI.ELLESMERE_GREEN
     local hlAlpha = EllesmereUI.DD_ITEM_HL_A or 0.08
 
@@ -669,11 +620,17 @@ local function ShowContextMenu(anchor, items)
 
     _ctxMenu:SetSize(MENU_W, MENU_PAD * 2 + #items * ITEM_H)
 
-    -- Position at cursor
-    local scale = _ctxMenu:GetEffectiveScale()
-    local cx, cy = GetCursorPosition()
     _ctxMenu:ClearAllPoints()
-    _ctxMenu:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", cx / scale, cy / scale)
+    if opts and opts.below and anchor then
+        -- Dropdown placement: under the anchor, left edges aligned (screen
+        -- clamping still applies).
+        _ctxMenu:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -2)
+    else
+        -- Position at cursor
+        local scale = _ctxMenu:GetEffectiveScale()
+        local cx, cy = GetCursorPosition()
+        _ctxMenu:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", cx / scale, cy / scale)
+    end
     _ctxMenu:Show()
 
     _ctxMenu._elapsed = 0
@@ -681,3 +638,41 @@ local function ShowContextMenu(anchor, items)
 end
 
 EllesmereUI.ShowContextMenu = ShowContextMenu
+
+-------------------------------------------------------------------------------
+--  Unit display names. WoW Forever characters carry a surname, which
+--  UnitName hands back as its second value (retail: the realm), and
+--  Blizzard's own frames show "First Last". Pass UnitName's two returns in:
+--      EllesmereUI.WithSurname(UnitName(unit))
+--  Retail gets the first value back unchanged. A secret name (protected
+--  content) comes back as is, first name only: it cannot be inspected or
+--  joined. Your own surname follows Blizzard's show-surname preference.
+--  Joined names are cached per name pair, so repaints build no strings.
+-------------------------------------------------------------------------------
+do
+    local IS_FOREVER = EllesmereUI.IS_FOREVER == true
+    local SEP = Constants and Constants.CharacterNameSeparatorConsts
+        and Constants.CharacterNameSeparatorConsts.CHARACTERNAME_SURNAME_SEPARATOR or " "
+    local joined = {}   -- [name][surname] = the display string
+
+    function EllesmereUI.WithSurname(name, surname)
+        if not IS_FOREVER then return name end
+        if issecretvalue(name) or issecretvalue(surname) then return name end
+        if type(name) ~= "string" or type(surname) ~= "string" or surname == "" then return name end
+        local PI = C_PlayerInfo
+        if PI and PI.ShouldDisplaySurname and not PI.ShouldDisplaySurname() then
+            local myName, mySurname = (UnitNameUnmodified or UnitName)("player")
+            if name == myName and surname == mySurname then return name end
+        end
+        local row = joined[name]
+        if not row then row = {}; joined[name] = row end
+        local full = row[surname]
+        if not full then
+            local tail = SEP .. surname
+            -- Some units already carry it in the first value.
+            full = (name:sub(-#tail) == tail) and name or (name .. tail)
+            row[surname] = full
+        end
+        return full
+    end
+end

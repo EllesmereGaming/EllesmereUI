@@ -1,10 +1,10 @@
-## Interface: 120000, 120001, 120005, 120007, 120100
+## Interface: 120000, 120001, 120005, 120007, 120100, 16001
 ## Title: |cff0cd29fEllesmereUI|r Nameplates
 ## Category: |cff0cd29fEllesmere|rUI
 ## Group: EllesmereUI
 ## Notes: Clean, lightweight nameplates with endless customization.
 ## Author: Ellesmere
-## Version: 9.1.8
+## Version: 9.2.9
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUINameplatesDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -13,6 +13,7 @@
 EllesmereUINameplates.lua
 EUI_Nameplates_AuraContainers.lua
 EllesmereUINameplatesFriendly.lua
+EllesmereUINameplates_Faction.lua
 EllesmereUINameplates_CastOverlay.lua
 
 # Options

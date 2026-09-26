@@ -58,6 +58,7 @@ local GROUPS = {
         header = "QoL Addons",
         entries = {
             { label = "Quality of Life",     addon = "EllesmereUIQoL" },
+            { label = "Forever Essentials",  addon = "EllesmereUIForeverEssentials" },
             { label = "AuraBuff Reminders",  addon = "EllesmereUIAuraBuffReminders" },
             { label = "DataBars",            addon = "EllesmereUIDataBars" },
             { label = "Quickdraw",           addon = "EllesmereUIQuickdraw" },
@@ -80,6 +81,21 @@ local GROUPS = {
         },
     },
 }
+
+-- Addons the running client leaves out (switched off on WoW Forever, or
+-- Forever-only everywhere else) leave the picker (the sets live with the
+-- roster in EllesmereUI.lua).
+do
+    local hidden = EllesmereUI._CLIENT_HIDDEN_ADDONS
+    for _, group in ipairs(GROUPS) do
+        for i = #group.entries, 1, -1 do
+            local addon = group.entries[i].addon
+            if addon and hidden[addon] then
+                table.remove(group.entries, i)
+            end
+        end
+    end
+end
 
 local function IsAddonEnabled(folder)
     if not folder then return true end
@@ -123,52 +139,12 @@ local function ShowFirstInstallPopup()
     local contentH = HEADER_H + HEADER_PAD + tallestRows * ROW_H
     local POPUP_H  = CONTENT_TOP + contentH + 110  -- room for links + button
 
-    local ppScale = (EllesmereUI.GetPopupScale and EllesmereUI.GetPopupScale()) or 1
-
-    -- Dimmer
-    local dimmer = CreateFrame("Frame", "EUIFirstInstallDimmer", UIParent)
-    dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
-    dimmer:SetAllPoints(UIParent)
-    dimmer:EnableMouse(true)
-    dimmer:EnableMouseWheel(true)
-    dimmer:SetScript("OnMouseWheel", function() end)
-    dimmer:SetScale(ppScale)
-    local dimTex = dimmer:CreateTexture(nil, "BACKGROUND")
-    dimTex:SetAllPoints()
-    dimTex:SetColorTexture(0, 0, 0, 0.35)
-
-    -- Popup
-    local popup = CreateFrame("Frame", "EUIFirstInstallPopup", dimmer)
-    popup:SetScale(EllesmereUI.PopupBump(1))
-    popup:SetFrameStrata("FULLSCREEN_DIALOG")
-    popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
-    PP.Size(popup, POPUP_W, POPUP_H)
-    -- This popup is modal and has no Escape route, so it must never exceed the
-    -- display (see ClampPopupToScreen).
-    if EllesmereUI.ClampPopupToScreen then
-        EllesmereUI.ClampPopupToScreen(popup, POPUP_W, POPUP_H)
-    end
-    popup:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-    popup:EnableMouse(true)
-
-    local bg = popup:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(0.06, 0.08, 0.10, 1)
-
-    -- 1 physical-pixel white border (announcement-popup chrome), scale-derived
-    -- so each edge stays exactly one physical pixel. Snap disabled.
-    local onePhys = 1 / (popup:GetEffectiveScale() or 1)
-    local BRD_A = 0.15
-    local function MakeEdge()
-        local t = popup:CreateTexture(nil, "BORDER")
-        t:SetColorTexture(1, 1, 1, BRD_A)
-        if t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false); t:SetTexelSnappingBias(0) end
-        return t
-    end
-    local spT = MakeEdge(); spT:SetPoint("TOPLEFT", 0, 0); spT:SetPoint("TOPRIGHT", 0, 0); spT:SetHeight(onePhys)
-    local spB = MakeEdge(); spB:SetPoint("BOTTOMLEFT", 0, 0); spB:SetPoint("BOTTOMRIGHT", 0, 0); spB:SetHeight(onePhys)
-    local spL = MakeEdge(); spL:SetPoint("TOPLEFT", spT, "BOTTOMLEFT"); spL:SetPoint("BOTTOMLEFT", spB, "TOPLEFT"); spL:SetWidth(onePhys)
-    local spR = MakeEdge(); spR:SetPoint("TOPRIGHT", spT, "BOTTOMRIGHT"); spR:SetPoint("BOTTOMRIGHT", spB, "TOPRIGHT"); spR:SetWidth(onePhys)
+    -- Escape is disabled (no onEscape): the user must click Reload UI so their
+    -- addon selection always takes effect. The popup is modal with no Escape
+    -- route, so it is clamped to never exceed the display.
+    local dimmer, popup = EllesmereUI.BuildPopupShell("EUIFirstInstall", {
+        w = POPUP_W, h = POPUP_H, bump = 1, clamp = true,
+    })
 
     -- Decorative header visual (announcement-popup style): three mini module
     -- cards echoing the three picker columns below, each with the green top
@@ -284,11 +260,8 @@ local function ShowFirstInstallPopup()
     uncheckAllBtn:SetScript("OnEnter", function() uncheckAllLbl:SetTextColor(1, 1, 1, 0.80) end)
     uncheckAllBtn:SetScript("OnLeave", function() uncheckAllLbl:SetTextColor(1, 1, 1, 0.45) end)
 
-    -- Track all checkbox rows for check-all / uncheck-all + change detection
+    -- Track all checkbox rows for check-all / uncheck-all
     local allRows = {}
-
-    -- Track initial states so we can tell if user changed anything
-    local initialState = {}
 
     -- Build the three columns
     for colIdx, group in ipairs(GROUPS) do
@@ -349,7 +322,6 @@ local function ShowFirstInstallPopup()
             else
                 checked = false
             end
-            initialState[entry.label] = checked
 
             row._entry = entry
             row._checked = checked
@@ -383,15 +355,13 @@ local function ShowFirstInstallPopup()
             end)
             row:SetScript("OnEnter", function(self)
                 if self._informational then
-                    if EllesmereUI.ShowWidgetTooltip then
-                        EllesmereUI.ShowWidgetTooltip(self, "Coming soon")
-                    end
+                    EllesmereUI.ShowWidgetTooltip(self, "Coming soon")
                     return
                 end
                 self._lbl:SetTextColor(1, 1, 1, 0.90)
             end)
             row:SetScript("OnLeave", function(self)
-                if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+                EllesmereUI.HideWidgetTooltip()
                 if self._informational then return end
                 self._lbl:SetTextColor(1, 1, 1, 0.65)
             end)
@@ -423,15 +393,6 @@ local function ShowFirstInstallPopup()
         doneLbl:SetTextColor(EG.r, EG.g, EG.b, 0.9)
         doneBrd:SetColor(EG.r, EG.g, EG.b, 0.9)
     end)
-
-    local function HasChanges()
-        for _, row in ipairs(allRows) do
-            if not row._informational and row._checked ~= initialState[row._entry.label] then
-                return true
-            end
-        end
-        return false
-    end
 
     local function RefreshButtonLabel()
         -- Picking addons always ends in a reload so the enable/disable choices
@@ -475,6 +436,9 @@ local function ShowFirstInstallPopup()
         if not EllesmereUIDB then EllesmereUIDB = {} end
         EllesmereUIDB.firstInstallPopupShown = true
         EllesmereUIDB.bagsUserChosen = true
+        -- The style picker (EllesmereUI_StyleChoicePopup.lua) follows on the
+        -- next login, after this popup's reload: EllesmereUI look or Blizzard.
+        EllesmereUIDB.styleChoicePending = true
         EllesmereUI._firstInstallPending = nil
 
         -- Write QoL cursor setting directly into the profile table so it
@@ -510,7 +474,11 @@ local function ShowFirstInstallPopup()
                     SetAddonEnabled(row._entry.addon, row._checked)
                 end
             end
-            ReloadUI()
+            EllesmereUI.RequestReload()
+            -- On the Forever client the reload waits on its popup: close the
+            -- picker so "Later" leaves the game usable (the choices are saved
+            -- and apply at the next reload). Retail is already reloading.
+            dimmer:Hide()
             return
         end
 
@@ -527,13 +495,6 @@ local function ShowFirstInstallPopup()
     doneBtn:SetScript("OnClick", function()
         -- Always reload so the addon enable/disable selections take effect.
         Close(true)
-    end)
-
-    -- Escape is disabled: the user must click Reload UI so their addon
-    -- selection always takes effect. Consume Escape; let other keys propagate.
-    popup:EnableKeyboard(true)
-    popup:SetScript("OnKeyDown", function(self, key)
-        self:SetPropagateKeyboardInput(key ~= "ESCAPE")
     end)
 
     dimmer:Show()
@@ -586,6 +547,11 @@ loader:SetScript("OnEvent", function(self, event, addonName)
         if addonName ~= "EllesmereUI" then return end
         self:UnregisterEvent("ADDON_LOADED")
         _showPopupOnLogin = ComputeShowOnLogin()
+        -- WoW Forever: a fresh install starts from the base layout, seeded
+        -- before any module opens its profile (EllesmereUI_ForeverLayout.lua).
+        if _showPopupOnLogin and EllesmereUI.SeedForeverBaseLayout then
+            EllesmereUI.SeedForeverBaseLayout()
+        end
         if _showPopupOnLogin then
             -- Handshake for other first-login popups (e.g. CDM's Edit Mode
             -- reload prompt): the picker is coming and ALWAYS ends in its own

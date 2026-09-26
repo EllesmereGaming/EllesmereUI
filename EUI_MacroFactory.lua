@@ -6,140 +6,6 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 
 -------------------------------------------------------------------------------
---  Dynamic Health Recovery (disabled -- kept for future use)
--------------------------------------------------------------------------------
---[[ DYNAMIC_HEALTH_RECOVERY
-local EUI_HEALTH_MACRO_NAME = "EUI_Health"
-
-local HEALTH_RECOVERY_STONES = { 5512, 224464 }
-local HEALTH_RECOVERY_POTS = {
-    241304, 241305,
-}
-
-local function HealthMacroItemCount(itemID)
-    return GetItemCount(itemID, false) or 0
-end
-
-local function CollectHealthRecoveryItems()
-    local items = {}
-    for _, itemID in ipairs(HEALTH_RECOVERY_STONES) do
-        if HealthMacroItemCount(itemID) > 0 then
-            items[#items + 1] = itemID
-            if #items >= #HEALTH_RECOVERY_STONES then
-                break
-            end
-        end
-    end
-    for _, itemID in ipairs(HEALTH_RECOVERY_POTS) do
-        if HealthMacroItemCount(itemID) > 0 then
-            items[#items + 1] = itemID
-            break
-        end
-    end
-    return items
-end
-
-local function HealthRecoverySequenceKey(items)
-    return table.concat(items, ",")
-end
-
-local function GetHealthMacroDB()
-    if not EllesmereUIDB then EllesmereUIDB = {} end
-    if not EllesmereUIDB.macroFactory then EllesmereUIDB.macroFactory = {} end
-    if not EllesmereUIDB.macroFactory[EUI_HEALTH_MACRO_NAME] then
-        EllesmereUIDB.macroFactory[EUI_HEALTH_MACRO_NAME] = {}
-    end
-    return EllesmereUIDB.macroFactory[EUI_HEALTH_MACRO_NAME]
-end
-
-local lastHealthRecoveryKey = nil
-local healthMacroPendingUpdate = false
-
-local function ApplyHealthRecoveryMacro(items)
-    items = items or CollectHealthRecoveryItems()
-    local key = HealthRecoverySequenceKey(items)
-
-    local idx = GetMacroIndexByName(EUI_HEALTH_MACRO_NAME)
-    if idx == 0 then
-        lastHealthRecoveryKey = key
-        healthMacroPendingUpdate = false
-        return
-    end
-
-    if InCombatLockdown() then
-        if key ~= lastHealthRecoveryKey then
-            healthMacroPendingUpdate = true
-        end
-        return
-    end
-
-    if key == lastHealthRecoveryKey then
-        healthMacroPendingUpdate = false
-        return
-    end
-
-    EditMacro(idx, nil, nil, EllesmereUI.BuildHealthRecoveryMacroBody(GetHealthMacroDB(), items))
-    lastHealthRecoveryKey = key
-    healthMacroPendingUpdate = false
-end
-
-function EllesmereUI.BuildHealthRecoveryMacroBody(db, items)
-    db = db or {}
-    items = items or CollectHealthRecoveryItems()
-    local lines = {}
-
-    if db.showTooltip ~= false then
-        local tip = (items[1] and ("item:" .. items[1])) or "Recuperate"
-        lines[#lines + 1] = "#showtooltip " .. tip
-    end
-
-    lines[#lines + 1] = "/stopcasting"
-    lines[#lines + 1] = "/cast [nocombat] Recuperate"
-
-    if #items > 0 then
-        local seqParts = {}
-        for _, itemID in ipairs(items) do
-            seqParts[#seqParts + 1] = "item:" .. itemID
-        end
-        lines[#lines + 1] = "/castsequence [@player,combat] reset=combat "
-            .. table.concat(seqParts, ", ")
-    end
-
-    if #lines == 0 then return "" end
-    return table.concat(lines, "\n")
-end
-
-do
-    local f = CreateFrame("Frame")
-    local bagPending = false
-    f:RegisterEvent("PLAYER_LOGIN")
-    f:RegisterEvent("PLAYER_ENTERING_WORLD")
-    f:RegisterEvent("PLAYER_REGEN_ENABLED")
-    f:RegisterEvent("BAG_UPDATE")
-    f:SetScript("OnEvent", function(_, event)
-        if event == "PLAYER_REGEN_ENABLED" then
-            if healthMacroPendingUpdate then
-                healthMacroPendingUpdate = false
-                ApplyHealthRecoveryMacro()
-            end
-            return
-        end
-        if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
-            C_Timer.After(1, ApplyHealthRecoveryMacro)
-            return
-        end
-        if bagPending then return end
-        bagPending = true
-        C_Timer.After(0.5, function()
-            bagPending = false
-            ApplyHealthRecoveryMacro()
-        end)
-    end)
-end
-DYNAMIC_HEALTH_RECOVERY]]
-
-
--------------------------------------------------------------------------------
 --  Set Focus extras -- auto raid marker, ping and group announce
 --
 --  All three are plain macro lines appended by the def's extraBody below, and
@@ -184,7 +50,7 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
     local SPEC_ICON_GAP = 70
     local FIRST_ICON_Y = -34
     local ROW_STRIDE = 66
-    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath() or STANDARD_TEXT_FONT
+    local fontPath = EllesmereUI.GetFontPath() or STANDARD_TEXT_FONT
     local EG = EllesmereUI.ELLESMERE_GREEN
     local y = startY
 
@@ -290,7 +156,7 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                     -- baked when written, so a later game-language switch keeps
                     -- the old wording until a toggle is touched -- inherent to
                     -- macros).
-                    local focusWord = (EllesmereUI.L and EllesmereUI.L("Focus")) or "Focus"
+                    local focusWord = (EllesmereUI.L("Focus")) or "Focus"
                     lines[#lines + 1] = db.autoMark
                         and ("/p " .. focusWord .. ": {rt" .. mark .. "} %f")
                         or ("/p " .. focusWord .. ": %f")
@@ -618,10 +484,10 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
     }
 
     -- Detect current spec and class
-    local specIndex = GetSpecialization()
+    local specIndex = C_SpecializationInfo.GetSpecialization()
     local activeSpecID, activeSpecName
     if specIndex then
-        activeSpecID, activeSpecName = GetSpecializationInfo(specIndex)
+        activeSpecID, activeSpecName = C_SpecializationInfo.GetSpecializationInfo(specIndex)
     end
     local activeClassName = UnitClass("player") or "Unknown"
     -- All spec macro bodies use spell-ID {n} tokens (localized at build time via
@@ -653,7 +519,7 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
             local cb = cbs[idx]
             if cb and db[cb.key] ~= false then
                 for _, itemID in ipairs(cb.items) do
-                    if (GetItemCount(itemID, false) or 0) > 0 then
+                    if (C_Item.GetItemCount(itemID, false) or 0) > 0 then
                         return itemID
                     end
                 end
@@ -663,9 +529,6 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
     end
 
     local function GetMacroInventoryKey(def, db)
-        if def.healthRecovery then
-            return lastHealthRecoveryKey or HealthRecoverySequenceKey(CollectHealthRecoveryItems())
-        end
         return GetFirstAvailableItemID(def, db)
     end
 
@@ -727,8 +590,6 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
             end
             if #lines == 0 then return "" end
             return body .. table.concat(lines, "\n")
-        elseif def.healthRecovery then
-            return EllesmereUI.BuildHealthRecoveryMacroBody(db, nil)
         elseif def.fixedBody then
             local fbody = ResolveSpellTokens(def.fixedBody, def.spells)
             if fbody == nil then return nil end -- spell data not cached; skip write
@@ -769,10 +630,6 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
     local pendingMacroUpdates = {}
 
     local function UpdateMacro(def, db)
-        if def.healthRecovery then
-            ApplyHealthRecoveryMacro()
-            return
-        end
         local idx = GetMacroIndexByName(def.name)
         if idx ~= 0 then
             if InCombatLockdown() then
@@ -858,9 +715,6 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
         local iconAnchor = container
         local scrollCenterX = centerX
         if maxVisibleRows and totalRows > maxVisibleRows then
-            local SCROLL_STEP_LOCAL = 45
-            local SMOOTH_SPEED_LOCAL = 12
-
             local visH = math.abs(FIRST_ICON_Y) + maxVisibleRows * ROW_STRIDE
             local contentH = math.abs(FIRST_ICON_Y) + totalRows * ROW_STRIDE
 
@@ -875,110 +729,7 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
             sc:SetSize(halfW, contentH)
             sf:SetScrollChild(sc)
 
-            -- Scrollbar track
-            local scrollTrack = CreateFrame("Frame", nil, sf)
-            scrollTrack:SetWidth(4)
-            scrollTrack:SetPoint("TOPRIGHT", sf, "TOPRIGHT", -70, -32)
-            scrollTrack:SetPoint("BOTTOMRIGHT", sf, "BOTTOMRIGHT", -70, 8)
-            scrollTrack:SetFrameLevel(sf:GetFrameLevel() + 2)
-            scrollTrack:Hide()
-            local trackBg = scrollTrack:CreateTexture(nil, "BACKGROUND")
-            trackBg:SetAllPoints(); trackBg:SetColorTexture(1, 1, 1, 0.02)
-
-            local scrollThumb = CreateFrame("Button", nil, scrollTrack)
-            scrollThumb:SetWidth(4); scrollThumb:SetHeight(60)
-            scrollThumb:SetPoint("TOP", scrollTrack, "TOP", 0, 0)
-            scrollThumb:SetFrameLevel(scrollTrack:GetFrameLevel() + 1)
-            scrollThumb:EnableMouse(true)
-            scrollThumb:RegisterForDrag("LeftButton")
-            scrollThumb:SetScript("OnDragStart", function() end)
-            scrollThumb:SetScript("OnDragStop", function() end)
-            local thumbTex = scrollThumb:CreateTexture(nil, "ARTWORK")
-            thumbTex:SetAllPoints(); thumbTex:SetColorTexture(1, 1, 1, 0.27)
-
-            local scrollTarget = 0
-            local isSmoothing = false
-            local smoothFrame = CreateFrame("Frame"); smoothFrame:Hide()
-
-            local function UpdateThumb()
-                local maxScroll = EllesmereUI.SafeScrollRange(sf)
-                if maxScroll <= 0 then scrollTrack:Hide(); return end
-                scrollTrack:Show()
-                local trackH = scrollTrack:GetHeight()
-                local ratio = visH / (visH + maxScroll)
-                local thumbH = math.max(30, trackH * ratio)
-                scrollThumb:SetHeight(thumbH)
-                local scrollRatio = (tonumber(sf:GetVerticalScroll()) or 0) / maxScroll
-                scrollThumb:ClearAllPoints()
-                scrollThumb:SetPoint("TOP", scrollTrack, "TOP", 0, -(scrollRatio * (trackH - thumbH)))
-            end
-
-            smoothFrame:SetScript("OnUpdate", function(_, elapsed)
-                local cur = sf:GetVerticalScroll()
-                local maxScroll = EllesmereUI.SafeScrollRange(sf)
-                scrollTarget = math.max(0, math.min(maxScroll, scrollTarget))
-                local diff = scrollTarget - cur
-                if math.abs(diff) < 0.3 then
-                    sf:SetVerticalScroll(scrollTarget)
-                    UpdateThumb()
-                    isSmoothing = false
-                    smoothFrame:Hide()
-                    return
-                end
-                local newScroll = cur + diff * math.min(1, SMOOTH_SPEED_LOCAL * elapsed)
-                newScroll = math.max(0, math.min(maxScroll, newScroll))
-                sf:SetVerticalScroll(newScroll)
-                UpdateThumb()
-            end)
-
-            local function SmoothScrollTo(target)
-                local maxScroll = EllesmereUI.SafeScrollRange(sf)
-                scrollTarget = math.max(0, math.min(maxScroll, target))
-                if not isSmoothing then isSmoothing = true; smoothFrame:Show() end
-            end
-
-            sf:SetScript("OnMouseWheel", function(self, delta)
-                local maxScroll = EllesmereUI.SafeScrollRange(self)
-                if maxScroll <= 0 then return end
-                local base = isSmoothing and scrollTarget or self:GetVerticalScroll()
-                SmoothScrollTo(base - delta * SCROLL_STEP_LOCAL)
-            end)
-            sf:SetScript("OnScrollRangeChanged", function() UpdateThumb() end)
-
-            -- Thumb drag
-            local isDragging = false
-            local dragStartY, dragStartScroll
-            local function StopDrag()
-                if not isDragging then return end
-                isDragging = false
-                scrollThumb:SetScript("OnUpdate", nil)
-            end
-            scrollThumb:SetScript("OnMouseDown", function(self, button)
-                if button ~= "LeftButton" then return end
-                isSmoothing = false; smoothFrame:Hide()
-                isDragging = true
-                local _, cy = GetCursorPosition()
-                dragStartY = cy / self:GetEffectiveScale()
-                dragStartScroll = sf:GetVerticalScroll()
-                self:SetScript("OnUpdate", function(self2)
-                    if not IsMouseButtonDown("LeftButton") then StopDrag(); return end
-                    isSmoothing = false; smoothFrame:Hide()
-                    local _, cy2 = GetCursorPosition()
-                    cy2 = cy2 / self2:GetEffectiveScale()
-                    local deltaY = dragStartY - cy2
-                    local trackH = scrollTrack:GetHeight()
-                    local maxTravel = trackH - self2:GetHeight()
-                    if maxTravel <= 0 then return end
-                    local maxScroll = EllesmereUI.SafeScrollRange(sf)
-                    local newScroll = math.max(0, math.min(maxScroll, dragStartScroll + (deltaY / maxTravel) * maxScroll))
-                    scrollTarget = newScroll
-                    sf:SetVerticalScroll(newScroll)
-                    UpdateThumb()
-                end)
-            end)
-            scrollThumb:SetScript("OnMouseUp", function(_, button)
-                if button == "LeftButton" then StopDrag() end
-            end)
+            EllesmereUI.AttachSmoothScrollbar(sf, { rightInset = 70, topInset = 32, bottomInset = 8 })
 
             iconParent = sc
             iconAnchor = sc
@@ -1079,11 +830,6 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                             if icon then break end
                         end
                     end
-                elseif def.healthRecovery then
-                    local tipID = tonumber((lastHealthRecoveryKey or ""):match("^(%d+)"))
-                    if tipID and C_Item.GetItemIconByID then
-                        icon = C_Item.GetItemIconByID(tipID)
-                    end
                 elseif def.fixedTooltip then
                     local slot = tonumber(def.fixedTooltip)
                     if slot then
@@ -1148,16 +894,11 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                     if InCombatLockdown() then return end
                     if MacroExists() then
                         DeleteMacro(def.name)
-                        if def.healthRecovery then lastHealthRecoveryKey = nil end
                     else
                         local db = GetDB()
                         local body = BuildMacroBody(def, db)
                         if body == nil then return end -- spell data not cached yet
                         CreateMacro(def.name, ResolveMacroIcon(def), body, nil)
-                        if def.healthRecovery then
-                            lastHealthRecoveryKey = nil
-                            ApplyHealthRecoveryMacro()
-                        end
                         lastAvailableItems[def.name] = GetMacroInventoryKey(def, db)
                         PlayFlash()
                         C_Timer.After(0.15, function()
@@ -1545,10 +1286,6 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                 local body = BuildMacroBody(def, db)
                 if body == nil then return end -- spell data not cached yet
                 CreateMacro(def.name, ResolveMacroIcon(def), body, nil)
-                if def.healthRecovery then
-                    lastHealthRecoveryKey = nil
-                    ApplyHealthRecoveryMacro()
-                end
                 lastAvailableItems[def.name] = GetMacroInventoryKey(def, db)
                 self._playFlash()
                 C_Timer.After(0.1, RefreshState)
@@ -1591,12 +1328,6 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                         lastAvailableItems[mdef.name] = newKey
                         UpdateMacro(mdef, db)
                     end
-                end
-            elseif mdef and btn._tex and mdef.healthRecovery then
-                local newKey = lastHealthRecoveryKey or GetMacroInventoryKey(mdef, GetMacroDB(mdef.name))
-                if newKey ~= lastAvailableItems[mdef.name] then
-                    lastAvailableItems[mdef.name] = newKey
-                    if btn._refreshIcon then btn._refreshIcon() end
                 end
             end
         end
@@ -1681,8 +1412,8 @@ function EllesmereUI.RefreshMacroFactory()
     if not mf or not mf.parent or not mf.parent.IsObjectType then return end
     -- PLAYER_SPECIALIZATION_CHANGED can fire several times for one switch; skip
     -- the rebuild if the spec that's already built hasn't actually changed.
-    local idx = GetSpecialization()
-    local curSpecID = idx and GetSpecializationInfo(idx) or nil
+    local idx = C_SpecializationInfo.GetSpecialization()
+    local curSpecID = idx and C_SpecializationInfo.GetSpecializationInfo(idx) or nil
     if curSpecID == mf.builtSpecID then return end
     local oldContainer = mf.container
 
@@ -1705,9 +1436,9 @@ EllesmereUI._macroSpecWatcher = EllesmereUI._macroSpecWatcher or CreateFrame("Fr
 EllesmereUI._macroSpecWatcher:UnregisterAllEvents()
 EllesmereUI._macroSpecWatcher:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 EllesmereUI._macroSpecWatcher:SetScript("OnEvent", function()
-    if EllesmereUI.RefreshMacroFactory then EllesmereUI.RefreshMacroFactory() end
+    EllesmereUI.RefreshMacroFactory()
     -- Also re-run the active page's in-place widget refreshers so other
     -- spec-dependent controls update, as the old per-build event frame did.
     -- No-arg (fast path) => re-reads values only, no frame teardown, no flash.
-    if EllesmereUI.RefreshPage then EllesmereUI:RefreshPage() end
+    EllesmereUI:RefreshPage()
 end)

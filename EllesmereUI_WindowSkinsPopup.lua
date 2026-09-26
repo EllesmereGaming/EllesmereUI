@@ -70,48 +70,12 @@ local function ShowWindowSkinsPopup()
     local FONT = EllesmereUI._font or ("Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf")
     local EG = ELLESMERE_GREEN
     local POPUP_W, POPUP_H = 470, 384
-    local ppScale = (EllesmereUI.GetPopupScale and EllesmereUI.GetPopupScale()) or 1
-
-    -- Dimmer (eats clicks; no close on outside click)
-    local dimmer = CreateFrame("Frame", "EUIWindowSkinsIntroDimmer", UIParent)
-    dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
-    dimmer:SetAllPoints(UIParent)
-    dimmer:EnableMouse(true)
-    dimmer:EnableMouseWheel(true)
-    dimmer:SetScript("OnMouseWheel", function() end)
-    dimmer:SetScale(ppScale)
-    local dimTex = dimmer:CreateTexture(nil, "BACKGROUND")
-    dimTex:SetAllPoints()
-    dimTex:SetColorTexture(0, 0, 0, 0.35)
-
-    -- Panel
-    local popup = CreateFrame("Frame", "EUIWindowSkinsIntroPopup", dimmer)
-    popup:SetScale(EllesmereUI.PopupBump(1.15))
-    popup:SetFrameStrata("FULLSCREEN_DIALOG")
-    popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
-    PP.Size(popup, POPUP_W, POPUP_H)
-    popup:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-    popup:EnableMouse(true)
-
-    local bg = popup:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(0.06, 0.08, 0.10, 1)
-
-    -- 1 physical-pixel white border (alpha 0.15). Thickness is derived from the
-    -- popup's effective scale (after the 1.15x SetScale above) so each edge stays
-    -- exactly one physical pixel on screen. Four edge textures, snap disabled.
-    local onePhys = 1 / (popup:GetEffectiveScale() or 1)
-    local BRD_A = 0.15
-    local function MakeEdge()
-        local t = popup:CreateTexture(nil, "BORDER")
-        t:SetColorTexture(1, 1, 1, BRD_A)
-        if t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false); t:SetTexelSnappingBias(0) end
-        return t
-    end
-    local spT = MakeEdge(); spT:SetPoint("TOPLEFT", 0, 0); spT:SetPoint("TOPRIGHT", 0, 0); spT:SetHeight(onePhys)
-    local spB = MakeEdge(); spB:SetPoint("BOTTOMLEFT", 0, 0); spB:SetPoint("BOTTOMRIGHT", 0, 0); spB:SetHeight(onePhys)
-    local spL = MakeEdge(); spL:SetPoint("TOPLEFT", spT, "BOTTOMLEFT"); spL:SetPoint("BOTTOMLEFT", spB, "TOPLEFT"); spL:SetWidth(onePhys)
-    local spR = MakeEdge(); spR:SetPoint("TOPRIGHT", spT, "BOTTOMRIGHT"); spR:SetPoint("BOTTOMRIGHT", spB, "TOPRIGHT"); spR:SetWidth(onePhys)
+    -- Dimmer eats clicks (no close on outside click). Escape = Keep Enabled.
+    local Finish
+    local dimmer, popup = EllesmereUI.BuildPopupShell("EUIWindowSkinsIntro", {
+        w = POPUP_W, h = POPUP_H, bump = 1.15,
+        onEscape = function() Finish(false) end,
+    })
 
     -- Decorative header visual: three mini Blizzard "windows", each with a
     -- colored title bar (green/blue/purple, hinting the recolorable theme) and
@@ -226,59 +190,34 @@ local function ShowWindowSkinsPopup()
 
     -- Stamp + close. disable=true turns off every window reskin and reloads
     -- (the reskins install at load, so the change needs a fresh UI).
-    local function Finish(disable)
+    Finish = function(disable)
         if not EllesmereUIDB then EllesmereUIDB = {} end
         EllesmereUIDB.windowSkinsIntroShown = true
         if disable then
             if EllesmereUI.DisableAllBlizzWindowSkins then
                 EllesmereUI.DisableAllBlizzWindowSkins()
             end
-            ReloadUI()
+            EllesmereUI.RequestReload()
+            -- On the Forever client the reload waits on its popup: close the
+            -- announcement and clear its pending flag so the popups queued
+            -- behind it stop waiting. Retail is already reloading.
+            dimmer:Hide()
+            EllesmereUI._windowSkinsIntroPending = nil
             return
         end
         dimmer:Hide()
         ReleaseConflictCheck()
     end
 
-    -- Bordered button matching the EUI style (primary = green, secondary = dim
-    -- white that warms to the power-button red on hover).
-    local BTN_W, BTN_H, BTN_GAP = 184, 38, 14
-    local function MakeActionButton(text, r, g, b, secondary)
-        local btn = CreateFrame("Button", nil, popup)
-        btn:SetFrameLevel(popup:GetFrameLevel() + 2)
-        PP.Size(btn, BTN_W, BTN_H)
-        local bbg = btn:CreateTexture(nil, "BACKGROUND")
-        bbg:SetAllPoints()
-        bbg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
-        local brd = MakeBorder(btn, r, g, b, secondary and 0.35 or 0.9, PP)
-        local lbl = btn:CreateFontString(nil, "OVERLAY")
-        lbl:SetFont(FONT, 15, "")
-        PP.Point(lbl, "CENTER", btn, "CENTER", 0, 0)
-        lbl:SetTextColor(r, g, b, secondary and 0.55 or 0.9)
-        lbl:SetText(text)
-        btn:SetScript("OnEnter", function()
-            if secondary then
-                lbl:SetTextColor(DISABLE_R, DISABLE_G, DISABLE_B, 1)
-                brd:SetColor(DISABLE_R, DISABLE_G, DISABLE_B, 0.95)
-            else
-                lbl:SetTextColor(r, g, b, 1)
-                brd:SetColor(r, g, b, 1)
-            end
-        end)
-        btn:SetScript("OnLeave", function()
-            lbl:SetTextColor(r, g, b, secondary and 0.55 or 0.9)
-            brd:SetColor(r, g, b, secondary and 0.35 or 0.9)
-        end)
-        return btn
-    end
-
-    -- Primary "Keep Enabled" on the left, secondary "Disable" on the right,
-    -- centered as a pair around the popup's bottom center.
-    local keepBtn = MakeActionButton("Keep Enabled", EG.r, EG.g, EG.b, false)
+    -- Primary "Keep Enabled" on the left, secondary "Disable" (warms to the
+    -- power-button red on hover) on the right, centered as a pair.
+    local BTN_W, BTN_GAP = 184, 14
+    local keepBtn = EllesmereUI.MakeActionButton(popup, FONT, "Keep Enabled", EG.r, EG.g, EG.b, { w = BTN_W })
     PP.Point(keepBtn, "BOTTOMRIGHT", popup, "BOTTOM", -BTN_GAP / 2, 40)
     keepBtn:SetScript("OnClick", function() Finish(false) end)
 
-    local disBtn = MakeActionButton("Disable", 1, 1, 1, true)
+    local disBtn = EllesmereUI.MakeActionButton(popup, FONT, "Disable", 1, 1, 1,
+        { w = BTN_W, secondary = true, hoverRGB = { DISABLE_R, DISABLE_G, DISABLE_B } })
     PP.Point(disBtn, "BOTTOMLEFT", popup, "BOTTOM", BTN_GAP / 2, 40)
     disBtn:SetScript("OnClick", function() Finish(true) end)
 
@@ -290,14 +229,6 @@ local function ShowWindowSkinsPopup()
     footnote:SetJustifyH("CENTER")
     PP.Point(footnote, "BOTTOM", popup, "BOTTOM", 0, 16)
     footnote:SetText("Style each window your own way.")
-
-    -- Escape = Keep Enabled (the non-destructive default). Consume Escape,
-    -- propagate other keys so chat/UI shortcuts still work behind the dimmer.
-    popup:EnableKeyboard(true)
-    popup:SetScript("OnKeyDown", function(self, key)
-        self:SetPropagateKeyboardInput(key ~= "ESCAPE")
-        if key == "ESCAPE" then Finish(false) end
-    end)
 
     dimmer:Show()
 end

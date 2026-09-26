@@ -19,9 +19,7 @@
 -- bmSimple/bmDisplayMode, override-banked configs) are LEFT INTACT and
 -- ignored: profiles are shared with the 12.0 client through SavedVariables,
 -- so wiping them here would destroy the user's retail Buff Manager. Physical
--- deletion belongs to the at-launch cleanup pass. This file also overrides
--- the coexistence shims: under v2 the simple grid is retired (BM_BaseActive
--- false) and indicators are always the system (BM_CustomActive true).
+-- deletion belongs to the at-launch cleanup pass.
 
 local _, ns = ...
 local EllesmereUI = _G.EllesmereUI
@@ -467,12 +465,11 @@ end
 -- "nonhealer" bucket -- every spec outside the editor's healer list shares ONE
 -- config (class-agnostic display; filters resolve it at runtime).
 -- Resolved WITHOUT borrow (BM_SpecKeyForSpecID, never BM_CurrentSpecKey):
--- BM_CurrentSpecKey routes Ret/Prot -> Holy and Ele/Enh -> Resto, which is the
--- LEGACY simple-grid model where a castability strip then narrowed the borrowed
--- set to the spec's own spells. v2 disabled that strip, so borrowing here handed
--- Ret/Prot Holy's FULL healer config and kept them out of the All Non Healers/Aug
--- bucket (field reports, maintainer ruling 2026-08-13: non-healer specs edit and
--- render the shared bucket; the simple grid keeps its borrow separately).
+-- BM_CurrentSpecKey routes Ret/Prot -> Holy and Ele/Enh -> Resto, and v2 has no
+-- castability strip to narrow a borrowed set, so borrowing here would hand
+-- Ret/Prot Holy's FULL healer config and keep them out of the All Non
+-- Healers/Aug bucket (maintainer ruling 2026-08-13: non-healer specs edit and
+-- render the shared bucket).
 function ns.BM2_SpecKey()
     local specIdx = GetSpecialization and GetSpecialization()
     local specID = specIdx and GetSpecializationInfo and GetSpecializationInfo(specIdx)
@@ -678,17 +675,6 @@ function ns.BM2_AddIndicator(indType, key)
     return ind
 end
 
-function ns.BM2_DeleteIndicator(id)
-    local b = Store()
-    if not b then return end
-    local spec = b.specs[ns.BM2_SpecKey()]
-    if not spec then return end
-    for i = #spec.inds, 1, -1 do
-        if spec.inds[i].id == id then table.remove(spec.inds, i) end
-    end
-    ns.BM2_Invalidate()
-end
-
 -------------------------------------------------------------------------------
 -- Resolution: indicator -> effective spell array
 -------------------------------------------------------------------------------
@@ -806,7 +792,30 @@ end
 -- pass, so a fresh table per call freezes position/growth edits until reload.
 local bm2ViewCache = setmetatable({}, { __mode = "k" })
 
-function ns.BM2_SpecIndicators()
+-- Show In as rendered: an Anchor To member continues its root's run, so the
+-- terminal root's value decides (the member's own is not offered while it is
+-- anchored). list = the indicator's own bucket (Anchor To links stay inside
+-- it). nil = raid and party.
+function ns.BM2_EffectiveShowIn(ind, list)
+    local src = ind
+    if list and src.anchorTo ~= nil then
+        for _ = 1, #list do
+            local tid = src.anchorTo
+            if tid == nil then break end
+            local nxt
+            for j = 1, #list do
+                if list[j].id == tid then nxt = list[j]; break end
+            end
+            if not nxt or nxt == ind then break end
+            src = nxt
+        end
+    end
+    return src.showIn
+end
+
+-- frameKind ("raid" | "party", nil = every indicator): the frames asking.
+-- Indicators whose Show In names the other kind are left out.
+function ns.BM2_SpecIndicators(frameKind)
     local inds, specKey = ns.BM2_SpecInds()
     -- Additive union buckets: "allspecs" renders for EVERY spec, the role
     -- group ("tanks"/"dps"/"healers") for specs of that role, and a spec
@@ -843,6 +852,11 @@ function ns.BM2_SpecIndicators()
         for i = 1, #list do
             local ind = list[i]
             local drop = groupKey and inhDis and inhDis[groupKey .. ":" .. ind.id]
+            if not drop and frameKind then
+                local showIn = ns.BM2_EffectiveShowIn(ind, list)
+                if showIn == "raid" then drop = frameKind == "party"
+                elseif showIn == "party" then drop = frameKind ~= "party" end
+            end
             local resolved = not drop and ns.BM2_ResolveSpells(ind) or nil
             if resolved and #resolved > 0 then
                 local v = bm2ViewCache[ind]
@@ -876,47 +890,25 @@ function ns.BM2_SpecIndicators()
 end
 
 -------------------------------------------------------------------------------
--- Activation flag. ACTIVE: v2 runs INSIDE the legacy page shell (storage
--- accessor swap + Assigned Filters section + modal Filter Editor). Set false
--- and the runtime adapter and page redirect go inert, the legacy Buff Manager
--- (page + storage + Base Icons coexistence) runs untouched, and the
--- coexistence shims stay owned by the Debuff Manager file.
--------------------------------------------------------------------------------
-ns.BM2_Enabled = true
-
--- Retirement overrides (simple grid off, indicators always on) apply only
--- while v2 is live: dormant v2 must not perturb the legacy coexistence.
-if ns.BM2_Enabled then
-    function ns.BM_BaseActive()
-        return false
-    end
-    function ns.BM_CustomActive()
-        return true
-    end
-end
-
--------------------------------------------------------------------------------
 -- Cross-module filter bridge (parent-published): the ONE-TIME filter copies
 -- between this library and Player Aura Bars ride it (both Filter Editors'
--- copy buttons). Absence of the table = this module (or v2) is off, and the
+-- copy buttons). Absence of the table = this module is off, and the
 -- other side's button hides, so consumers must read it lazily at call time.
 -- Mutators already Invalidate internally; Refresh repaints raid frames after
 -- a copy lands new spell content here.
 -------------------------------------------------------------------------------
-if ns.BM2_Enabled then
-    EllesmereUI._BM2FilterBridge = {
-        Filters        = function() return ns.BM2_Filters() end,
-        GetFilter      = function(id) return ns.BM2_GetFilter(id) end,
-        AddFilter      = function(name) return ns.BM2_AddFilter(name) end,
-        SetSpellState  = function(id, spellID, state) return ns.BM2_SetSpellState(id, spellID, state) end,
-        AddCustomSpell = function(id, spellID) return ns.BM2_AddCustomSpell(id, spellID) end,
-        PresetAlts     = function() return ns.BM2_PresetAlts end,
-        CuratedSpells  = function(presetKey) return presetKey and DEFAULT_FILTER_SPELLS[presetKey] or nil end,
-        Refresh        = function()
-            if ns.BM2_Invalidate then ns.BM2_Invalidate() end
-            if ns.ReloadFrames then ns.ReloadFrames() end
-        end,
-    }
-end
+EllesmereUI._BM2FilterBridge = {
+    Filters        = function() return ns.BM2_Filters() end,
+    GetFilter      = function(id) return ns.BM2_GetFilter(id) end,
+    AddFilter      = function(name) return ns.BM2_AddFilter(name) end,
+    SetSpellState  = function(id, spellID, state) return ns.BM2_SetSpellState(id, spellID, state) end,
+    AddCustomSpell = function(id, spellID) return ns.BM2_AddCustomSpell(id, spellID) end,
+    PresetAlts     = function() return ns.BM2_PresetAlts end,
+    CuratedSpells  = function(presetKey) return presetKey and DEFAULT_FILTER_SPELLS[presetKey] or nil end,
+    Refresh        = function()
+        if ns.BM2_Invalidate then ns.BM2_Invalidate() end
+        if ns.ReloadFrames then ns.ReloadFrames() end
+    end,
+}
 
 

@@ -7,6 +7,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 local skinned = false
+local GetItemInfo = C_Item.GetItemInfo
+local GetItemInfoInstant = C_Item.GetItemInfoInstant
+local GetItemQualityColor = C_Item.GetItemQualityColor
 
 -- External weak-keyed lookup table for frame state (prevents tainting Blizzard frames)
 local FFD = setmetatable({}, { __mode = "k" })
@@ -15,20 +18,6 @@ local function GetFFD(frame)
     if not d then d = {}; FFD[frame] = d end
     return d
 end
-
-local MP_COLOR_BRACKETS = {
-    { 3850, "ff8000" }, { 3695, "f9753f" }, { 3575, "f16961" },
-    { 3455, "e75e7f" }, { 3335, "db529c" }, { 3215, "cc47b9" },
-    { 3095, "b83dd6" }, { 2965, "9c3eed" }, { 2845, "715be5" },
-    { 2725, "2c6dde" }, { 2565, "3b7fcd" }, { 2445, "5292b9" },
-    { 2325, "5ca6a4" }, { 2205, "5fba8d" }, { 2085, "5cce75" },
-    { 1965, "50e258" }, { 1845, "35f72d" }, { 1725, "3eff26" },
-    { 1600, "5eff43" }, { 1475, "74ff58" }, { 1350, "88ff6b" },
-    { 1225, "98ff7d" }, { 1100, "a8ff8d" }, { 975,  "b6ff9e" },
-    { 850,  "c3ffae" }, { 725,  "cfffbd" }, { 600,  "dbffcd" },
-    { 475,  "e7ffdd" }, { 350,  "f2ffec" }, { 225,  "fdfffc" },
-    { 200,  "ffffff" },
-}
 
 -- Equipment slot lists
 local EUI_ALL_SLOTS = {
@@ -59,22 +48,6 @@ local slotGridMap = {
     InspectTrinket1Slot = {col = 1, row = 7},
     InspectMainHandSlot = {slot = "MainHand"},
     InspectSecondaryHandSlot = {slot = "SecondaryHand"},
-}
-
--- Slots that can have enchants in current expansion (mirrors CharacterSheet)
-local INSPECT_ENCHANT_SLOTS = {
-    [INVSLOT_HEAD] = true,
-    [INVSLOT_SHOULDER] = true,
-    [INVSLOT_BACK] = false,
-    [INVSLOT_CHEST] = true,
-    [INVSLOT_WRIST] = false,
-    [INVSLOT_LEGS] = true,
-    [INVSLOT_FEET] = true,
-    [INVSLOT_FINGER1] = true,
-    [INVSLOT_FINGER2] = true,
-    [INVSLOT_MAINHAND] = true,
-    -- INVSLOT_OFFHAND deliberately absent: checked dynamically below (weapon vs.
-    -- shield/held item), like CharacterSheet.
 }
 
 -- Drop every label a previous styling pass left on this slot. The widgets
@@ -109,7 +82,7 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
     local inspectUnit = InspectFrame and InspectFrame.unit
     if not inspectUnit then return end
 
-    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
+    local fontPath = EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
     local itemLink = GetInventoryItemLink(inspectUnit, slotID)
     GetFFD(slot).itemLink = itemLink
 
@@ -174,29 +147,7 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
     if itemLink and not GetFFD(slot).enchantText and not skipLabels then
         local enchantSize = EllesmereUIDB and EllesmereUIDB.charSheetEnchantSize or 9
         local enchantText = EllesmereUI.GetEnchantText(slotID, inspectUnit)
-        local canHaveEnchant = INSPECT_ENCHANT_SLOTS[slotID]
-        if slotID == INVSLOT_OFFHAND then
-            local _, _, _, _, _, classID = GetItemInfoInstant(itemLink)
-            canHaveEnchant = (classID == Enum.ItemClass.Weapon)
-        end
-        local inspLvl = UnitLevel(inspectUnit)
-        local atEnchantLevel = inspLvl and not (issecretvalue and issecretvalue(inspLvl)) and inspLvl >= 90 or false
-        local isMissing = atEnchantLevel and canHaveEnchant and itemLink and (enchantText == "" or not enchantText)
-        local hasEnchant = enchantText and enchantText ~= ""
-
-        local iconOnly, tooltipText
-        if isMissing then
-            iconOnly    = "|A:Professions-ChatIcon-Quality-Tier5:14:14:0:0:229:73:73|a"
-            tooltipText = "Enchant missing"
-        elseif hasEnchant then
-            local icons = {}
-            for atlas in enchantText:gmatch("|A:[^|]+|a") do
-                icons[#icons + 1] = atlas
-            end
-            iconOnly    = table.concat(icons, "")
-            tooltipText = enchantText:gsub("|A:[^|]+|a", ""):gsub("^%s+", ""):gsub("%s+$", "")
-            tooltipText = tooltipText:gsub("^.-%s*%-%s*", "")
-        end
+        local iconOnly, tooltipText = ns.ParseEnchantLabel(enchantText, slotID, itemLink, inspectUnit)
 
         local showEnchants = (not EllesmereUIDB) or (EllesmereUIDB.inspectShowEnchants ~= false)
 
@@ -241,7 +192,7 @@ local function EUI_UpdateSlotStyle(slotName, slotID, textOverlayFrame, isRightCo
                 end
             end)
             hoverFrame:SetScript("OnLeave", function()
-                if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+                EllesmereUI.HideWidgetTooltip()
             end)
             hoverFrame:Show()
 
@@ -346,40 +297,9 @@ local function SkinInspectSheet()
     if GetFFD(frame).bg then
         GetFFD(frame).bg:Show()
     else
-        local BG_ASPECT = 561 / 433
-        local bg = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
-        bg:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
-        bg:SetAllPoints(frame)
-        bg:SetAlpha(1)
+        local bg, bgOverlay = ns.SheetBackdrop(frame)
         GetFFD(frame).bg = bg
-        GetFFD(frame).bgOverlay = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
-        GetFFD(frame).bgOverlay:SetColorTexture(0, 0, 0, 0.62)
-        GetFFD(frame).bgOverlay:SetAllPoints(frame)
-        -- Aspect-ratio-preserving cover mode (matches character sheet)
-        local BASE_L, BASE_R, BASE_T, BASE_B = 0.25, 1, 0, 0.75
-        local BASE_U = BASE_R - BASE_L
-        local BASE_V = BASE_B - BASE_T
-        local function UpdateBgTexCoords()
-            local fw, fh = frame:GetSize()
-            -- Secrecy test BEFORE the zero check: that check is itself a
-            -- comparison and throws on a secret size. Matches the engine.
-            if issecretvalue and (issecretvalue(fw) or issecretvalue(fh)) then return end
-            if fw == 0 or fh == 0 then return end
-            local frameAspect = fw / fh
-            if frameAspect > BG_ASPECT then
-                local visV = BASE_V * (BG_ASPECT / frameAspect)
-                local trimV = (BASE_V - visV) / 2
-                bg:SetTexCoord(BASE_L, BASE_R, BASE_T + trimV, BASE_B - trimV)
-            else
-                local visU = BASE_U * (frameAspect / BG_ASPECT)
-                local trimU = (BASE_U - visU) / 2
-                bg:SetTexCoord(BASE_L + trimU, BASE_R - trimU, BASE_T, BASE_B)
-            end
-        end
-        -- One script hook instead of three setter hooks; also fires for
-        -- anchor-driven resizes (same shape as WSkin.Shell).
-        frame:HookScript("OnSizeChanged", UpdateBgTexCoords)
-        UpdateBgTexCoords()
+        GetFFD(frame).bgOverlay = bgOverlay
         -- Follows the Character Sheet window's style pick (the two share one
         -- enable + style setting).
         if ns.WSkin and ns.WSkin.AdoptShell then
@@ -587,41 +507,13 @@ local function SkinInspectSheet()
 
     -- Style close button
     local closeBtn = frame.CloseButton or _G.InspectFrameCloseButton
-    if closeBtn then
-        if closeBtn.SetNormalTexture then closeBtn:SetNormalTexture("") end
-        if closeBtn.SetPushedTexture then closeBtn:SetPushedTexture("") end
-        if closeBtn.SetHighlightTexture then closeBtn:SetHighlightTexture("") end
-        if closeBtn.SetDisabledTexture then closeBtn:SetDisabledTexture("") end
-
-        for i = 1, select("#", closeBtn:GetRegions()) do
-            local region = select(i, closeBtn:GetRegions())
-            if region and region:IsObjectType("Texture") and region ~= GetFFD(closeBtn).x then
-                region:SetAlpha(0)
-            end
-        end
-
-        if not GetFFD(closeBtn).x then
-            local closeX = closeBtn:CreateTexture(nil, "OVERLAY")
-            closeX:SetAtlas("uitools-icon-close")
-            closeX:SetSize(14, 14)
-            closeX:SetPoint("CENTER", -2, 0)
-            closeX:SetVertexColor(1, 1, 1, 0.75)
-            GetFFD(closeBtn).x = closeX
-
-            closeBtn:HookScript("OnEnter", function()
-                if GetFFD(closeBtn).x then GetFFD(closeBtn).x:SetVertexColor(1, 1, 1, 1) end
-            end)
-            closeBtn:HookScript("OnLeave", function()
-                if GetFFD(closeBtn).x then GetFFD(closeBtn).x:SetVertexColor(1, 1, 1, 0.75) end
-            end)
-        end
-    end
+    if closeBtn and ns.WSkin and ns.WSkin.CloseButton then ns.WSkin.CloseButton(closeBtn) end
 
     -- Restyle Blizzard's Talents + View (dressing room) buttons in place.
     -- User clicks the actual Blizzard button so the secure handler fires
     -- natively with no addon taint in the call stack.
     do
-        local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
+        local fontPath = EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
         local BTN_W, BTN_H = 90, 21
         local BTN_Y = 8
 
@@ -798,13 +690,11 @@ local function SkinInspectSheet()
         end)
         eyeBtn:SetScript("OnEnter", function(self)
             self:SetAlpha(0.8)
-            if EllesmereUI.ShowWidgetTooltip then
-                EllesmereUI.ShowWidgetTooltip(self, GetFFD(frame).textHidden and "Show Item Text" or "Hide Item Text", { width = 135 })
-            end
+            EllesmereUI.ShowWidgetTooltip(self, GetFFD(frame).textHidden and "Show Item Text" or "Hide Item Text", { width = 135 })
         end)
         eyeBtn:SetScript("OnLeave", function(self)
             self:SetAlpha(0.4)
-            if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+            EllesmereUI.HideWidgetTooltip()
         end)
         GetFFD(frame).textEyeBtn = eyeBtn
     end
@@ -845,7 +735,7 @@ local function SkinInspectSheet()
     -- Average item level + M+ score, centered below the title/level text.
     -- Anchored to frame TOP so they sit below the character info header.
     do
-        local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
+        local fontPath = EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
 
         -- Text overlay frame above model bg and fade
         if not GetFFD(frame).textOverlay then
@@ -893,12 +783,7 @@ local function SkinInspectSheet()
             end
         end
         if mpScore > 0 then
-            local hex = "ffffff"
-            for i = 1, #MP_COLOR_BRACKETS do
-                if mpScore >= MP_COLOR_BRACKETS[i][1] then
-                    hex = MP_COLOR_BRACKETS[i][2]; break
-                end
-            end
+            local hex = ns.GetMPScoreHex(mpScore)
             GetFFD(frame).mPlusScoreText:SetFormattedText("M+ Score: |cff%s%d|r", hex, math.floor(mpScore))
             GetFFD(frame).mPlusScoreText:Show()
         else
@@ -907,7 +792,7 @@ local function SkinInspectSheet()
     end
 
     -- Style Tabs (InspectFrameTab1, 2, 3)
-    local fontPath = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
+    local fontPath = EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
     local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.51, g = 0.784, b = 1 }
     local FRAME_BG_R, FRAME_BG_G, FRAME_BG_B = 0.03, 0.045, 0.05
 
@@ -994,9 +879,7 @@ local function SkinInspectSheet()
                 underline:SetPoint("BOTTOMLEFT", tab, "BOTTOMLEFT", 0, 0)
                 underline:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", 0, 0)
                 underline:SetColorTexture(EG.r or 0.51, EG.g or 0.784, EG.b or 1, 1)
-                if EllesmereUI and EllesmereUI.RegAccent then
-                    EllesmereUI.RegAccent({ type = "solid", obj = underline, a = 1 })
-                end
+                EllesmereUI.RegAccent({ type = "solid", obj = underline, a = 1 })
                 underline:Hide()
                 GetFFD(tab).underline = underline
             else

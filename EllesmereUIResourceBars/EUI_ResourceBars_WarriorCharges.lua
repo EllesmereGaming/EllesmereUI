@@ -40,10 +40,10 @@ local function FillColor(sp, powerKey)
     elseif sp.classColored == false then
         return sp.fillR or 1, sp.fillG or 1, sp.fillB or 1, 1
     else
-        local pc = EllesmereUI.GetPowerColor and EllesmereUI.GetPowerColor(powerKey)
+        local pc = EllesmereUI.GetPowerColor(powerKey)
         if pc then return pc.r, pc.g, pc.b, 1 end
     end
-    local cc = EllesmereUI.GetClassColor and EllesmereUI.GetClassColor(PLAYER_CLASS)
+    local cc = EllesmereUI.GetClassColor(PLAYER_CLASS)
     if cc then return cc.r, cc.g, cc.b, 1 end
     return 1, 1, 1, 1
 end

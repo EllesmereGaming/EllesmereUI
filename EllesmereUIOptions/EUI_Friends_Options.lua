@@ -74,61 +74,6 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
-    --  Border color multiSwatch builder
-    ---------------------------------------------------------------------------
-    local function MakeBorderSwatch(getCfg, refreshFn)
-        return {
-            { tooltip = "Custom Color",
-              hasAlpha = false,
-              getValue = function()
-                  local c = getCfg()
-                  if not c then return 0.05, 0.05, 0.05 end
-                  return c.borderR, c.borderG, c.borderB
-              end,
-              setValue = function(r, g, b)
-                  local c = getCfg(); if not c then return end
-                  c.borderR, c.borderG, c.borderB = r, g, b
-                  refreshFn()
-              end,
-              onClick = function(self)
-                  local c = getCfg(); if not c then return end
-                  if c.useClassColor then
-                      c.useClassColor = false
-                      refreshFn(); EllesmereUI:RefreshPage()
-                      return
-                  end
-                  if self._eabOrigClick then self._eabOrigClick(self) end
-              end,
-              refreshAlpha = function()
-                  local c = getCfg()
-                  if not c or not c.enabled then return 0.15 end
-                  return c.useClassColor and 0.3 or 1
-              end },
-            { tooltip = "Accent Color",
-              hasAlpha = false,
-              getValue = function()
-                  local ar, ag, ab = EllesmereUI.GetAccentColor()
-                  return ar, ag, ab
-              end,
-              setValue = function() end,
-              -- Flag name stays `useClassColor` for backwards compat with
-              -- users who already have it stamped in their SavedVariables.
-              -- Only the color resolution changes -- the flag now means
-              -- "use live accent" rather than "use class color".
-              onClick = function()
-                  local c = getCfg(); if not c then return end
-                  c.useClassColor = true
-                  refreshFn(); EllesmereUI:RefreshPage()
-              end,
-              refreshAlpha = function()
-                  local c = getCfg()
-                  if not c or not c.enabled then return 0.15 end
-                  return c.useClassColor and 1 or 0.3
-              end },
-        }
-    end
-
-    ---------------------------------------------------------------------------
     --  Chat Page
     ---------------------------------------------------------------------------
 
@@ -155,44 +100,12 @@ initFrame:SetScript("OnEvent", function(self)
         "arcade", "legend", "midnight", "runic",
     }
 
-    -- Inline cog button. When disabledFn/disabledLabel are given, the cog dims
-    -- and blocks (with a requirement tooltip) while disabledFn() is true --
-    -- the standard inline-control disabled-state pattern.
-    local function MakeCogBtn(rgn, showFn, disabledFn, disabledLabel)
-        local cogBtn = CreateFrame("Button", nil, rgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        local function baseAlpha()
-            return (disabledFn and disabledFn()) and 0.15 or 0.4
-        end
-        cogBtn:SetAlpha(baseAlpha())
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints()
-        cogTex:SetTexture(EllesmereUI.COGS_ICON)
-        cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
-        cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(baseAlpha()) end)
-        cogBtn:SetScript("OnClick", function(s) showFn(s) end)
-
-        if disabledFn then
-            local block = CreateFrame("Frame", nil, cogBtn)
-            block:SetAllPoints()
-            block:SetFrameLevel(cogBtn:GetFrameLevel() + 10)
-            block:EnableMouse(true)
-            block:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(cogBtn, EllesmereUI.DisabledTooltip(disabledLabel))
-            end)
-            block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            local function UpdateState()
-                local off = disabledFn()
-                cogBtn:SetAlpha(off and 0.15 or 0.4)
-                if off then block:Show() else block:Hide() end
-            end
-            EllesmereUI.RegisterWidgetRefresh(UpdateState)
-            UpdateState()
-        end
-        return cogBtn
+    -- Live repaint after a display toggle: the legacy list's row pass, plus a
+    -- decoration-only pass over the 12.1 cards (never Blizzard's view:Refresh,
+    -- which regenerates the list data from our execution and taints whispers).
+    local function RepaintFriendRows()
+        if _G._EFR_ProcessFriendButtons then _G._EFR_ProcessFriendButtons() end
+        if _G._EFR_RedecorateTiles then _G._EFR_RedecorateTiles() end
     end
 
     local function BuildFriendsPage(pageName, parent, yOffset)
@@ -202,9 +115,21 @@ initFrame:SetScript("OnEvent", function(self)
 
         EllesmereUI:ClearContentHeader()
 
+        -- Stock styles (Blizzard Style / Classic WoW UI) keep Blizzard's own
+        -- window and rows on either friends window (12.1 Social UI or the
+        -- legacy one) and add the class icon, class-coloured name and region
+        -- mark to them, so those rows and auto-accept stay. The border and
+        -- accent rows drive only the EllesmereUI skin of the legacy window,
+        -- faction banners also the 12.1 tiles; all three hide under stock.
+        local BS = EllesmereUI.BlizzStyle
+        local function Gate(cfg)
+            if BS then BS.Gate("friends", cfg) end
+            return cfg
+        end
 
         -- DISPLAY
         _, h = W:SectionHeader(parent, "DISPLAY", y);  y = y - h
+        if BS then y = BS.Note(parent, y, "friends") end
 
         -- Class Icon Theme | Class Color Names
         _, h = W:DualRow(parent, y,
@@ -217,28 +142,28 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                 local f = FriendsDB(); if not f then return end
                 f.iconStyle = v
-                if _G._EFR_ProcessFriendButtons then _G._EFR_ProcessFriendButtons() end
+                RepaintFriendRows()
               end },
             { type="toggle", text="Class Color Names",
               getValue=function() local f = FriendsDB(); return f and f.classColorNames end,
               setValue=function(v)
                 local f = FriendsDB(); if not f then return end
                 f.classColorNames = v
-                if _G._EFR_ProcessFriendButtons then _G._EFR_ProcessFriendButtons() end
+                RepaintFriendRows()
               end }
         );  y = y - h
 
         -- Border Size | Border Color
         _, h = W:DualRow(parent, y,
-            { type="slider", text="Border Size", min=0, max=4, step=1,
+            Gate({ type="slider", text="Border Size", min=0, max=4, step=1,
               getValue=function() local f = FriendsDB(); return f and f.borderSize or 0 end,
               setValue=function(v)
                 local f = FriendsDB(); if not f then return end
                 f.borderSize = v
                 RefreshFriends()
                 EllesmereUI:RefreshPage()
-              end },
-            { type="multiSwatch", text="Border Color",
+              end }),
+            Gate({ type="multiSwatch", text="Border Color",
               disabled=function()
                 local f = FriendsDB()
                 return not f or (f.borderSize or 0) == 0
@@ -288,25 +213,25 @@ initFrame:SetScript("OnEvent", function(self)
                       if not c or not c.enabled then return 0.15 end
                       return c.useClassColor and 1 or 0.3
                   end },
-              } }
+              } })
         );  y = y - h
 
         -- Enable Accent Colors | Enable Faction Banners
         _, h = W:DualRow(parent, y,
-            { type="toggle", text="Enable Accent Colors",
+            Gate({ type="toggle", text="Enable Accent Colors",
               getValue=function() local f = FriendsDB(); return f and (f.accentColors ~= false) end,
               setValue=function(v)
                 local f = FriendsDB(); if not f then return end
                 f.accentColors = v
                 RefreshFriends()
-              end },
-            { type="toggle", text="Enable Faction Banners",
+              end }),
+            Gate({ type="toggle", text="Enable Faction Banners",
               getValue=function() local f = FriendsDB(); return f and (f.factionBanners ~= false) end,
               setValue=function(v)
                 local f = FriendsDB(); if not f then return end
                 f.factionBanners = v
-                if _G._EFR_ProcessFriendButtons then _G._EFR_ProcessFriendButtons() end
-              end }
+                RepaintFriendRows()
+              end })
         );  y = y - h
 
         -- Show Region Icons | Auto-Accept Friend Invites
@@ -317,7 +242,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                 local f = FriendsDB(); if not f then return end
                 f.showRegionIcons = v
-                if _G._EFR_ProcessFriendButtons then _G._EFR_ProcessFriendButtons() end
+                RepaintFriendRows()
               end },
             { type="toggle", text="Auto-Accept Friend Invites",
               tooltip="Auto-accepts all group invites from people on your friends list",
@@ -325,6 +250,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                 local f = FriendsDB(); if not f then return end
                 f.autoAcceptFriendInvites = v
+                if _G._EFR_SyncAutoAccept then _G._EFR_SyncAutoAccept() end
                 EllesmereUI:RefreshPage()  -- update the auto-accept cog disabled state
               end }
         );  y = y - h
@@ -337,7 +263,7 @@ initFrame:SetScript("OnEvent", function(self)
             local f = FriendsDB()
             return not (f and f.autoAcceptFriendInvites)
         end
-        local _, cogShow = EllesmereUI.BuildCogPopup({
+        EllesmereUI.BuildInlineCog(rgn, {
             title = "Auto Accept Settings",
             rows = {
                 { type="toggle", label="Accept Invites from Guildmates",
@@ -347,8 +273,8 @@ initFrame:SetScript("OnEvent", function(self)
                     f.autoAcceptGuildInvites = v
                   end }
             },
+            disabled = autoAcceptOff, disabledTooltip = "Auto-Accept Friend Invites",
         })
-        MakeCogBtn(rgn, cogShow, autoAcceptOff, "Auto-Accept Friend Invites")
         end
 
         return math.abs(y)
@@ -370,8 +296,8 @@ initFrame:SetScript("OnEvent", function(self)
             end
             EllesmereUI:InvalidatePageCache()
             if _G._EFR_ApplyFriends then _G._EFR_ApplyFriends() end
-            if _G._EFR_ProcessFriendButtons then _G._EFR_ProcessFriendButtons() end
-            if _G._EFR_RepaintTiles then _G._EFR_RepaintTiles() end
+            if _G._EFR_SyncAutoAccept then _G._EFR_SyncAutoAccept() end
+            RepaintFriendRows()
         end,
     })
 
