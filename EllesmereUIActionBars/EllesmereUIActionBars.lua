@@ -2351,6 +2351,9 @@ local function GetClassPagingConditions()
             conditions = conditions .. "[bonusbar:1,stealth] 7; [bonusbar:1] 7; [bonusbar:3] 9; [bonusbar:4] 10; "
         elseif class == "ROGUE" then
             conditions = conditions .. "[bonusbar:1] 7; "
+        elseif class == "WARRIOR" then
+            -- Stances only page on Forever; retail warriors never have a bonusbar.
+            conditions = conditions .. "[bonusbar:1] 7; [bonusbar:2] 8; [bonusbar:3] 9; "
         end
     end
 
