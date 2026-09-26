@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Clean, lightweight nameplates with endless customization.
 ## Author: Ellesmere
-## Version: 9.2.6
+## Version: 9.2.9
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUINameplatesDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -13,6 +13,7 @@
 EllesmereUINameplates.lua
 EUI_Nameplates_AuraContainers.lua
 EllesmereUINameplatesFriendly.lua
+EllesmereUINameplates_Faction.lua
 EllesmereUINameplates_CastOverlay.lua
 
 # Options

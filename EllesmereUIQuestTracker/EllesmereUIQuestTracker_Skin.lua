@@ -162,21 +162,15 @@ local function GetFont()
     return "Fonts/FRIZQT__.TTF"
 end
 
-local function GetOutline()
-    if EllesmereUI and EllesmereUI.GetFontOutlineFlag then
-        return EllesmereUI.GetFontOutlineFlag("questTracker") or ""
-    end
-    return ""
-end
 
 local function ApplyShadow(fs)
     if not fs then return end
-    local useShadow = (EllesmereUI and EllesmereUI.GetFontUseShadow and EllesmereUI.GetFontUseShadow("questTracker")) and true or false
+    local useShadow = (EllesmereUI.GetFontUseShadow("questTracker")) and true or false
     -- 12.0.7: instance shadows no longer render; shadow must ride a FontObject.
     -- These are Blizzard objective-tracker strings, so capture and restore the
     -- current font face around PrimeFontShadow to preserve Blizzard's typeface.
     local _pf, _ps, _pfl = fs:GetFont()
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, useShadow) end
+    EllesmereUI.PrimeFontShadow(fs, useShadow)
     if _pf then fs:SetFont(_pf, _ps, _pfl) end
 end
 
@@ -192,8 +186,8 @@ local function StyleFontStringSized(fs, size)
         local _, cur = fs:GetFont()
         size = cur or 12
     end
-    local ok = pcall(fs.SetFont, fs, GetFont(), size, GetOutline())
-    if not ok then fs:SetFont("Fonts/FRIZQT__.TTF", size, GetOutline()) end
+    local ok = pcall(fs.SetFont, fs, GetFont(), size, EllesmereUI.GetFontOutlineFlag("questTracker"))
+    if not ok then fs:SetFont("Fonts/FRIZQT__.TTF", size, EllesmereUI.GetFontOutlineFlag("questTracker")) end
     ApplyShadow(fs)
     _eqtFontRegistry[fs] = true
 end
@@ -221,7 +215,7 @@ function EQT.RefreshFonts()
     for fs in pairs(_eqtFontRegistry) do
         if fs and fs.GetFont then
             local _, size = fs:GetFont()
-            pcall(fs.SetFont, fs, GetFont(), size or 12, GetOutline())
+            pcall(fs.SetFont, fs, GetFont(), size or 12, EllesmereUI.GetFontOutlineFlag("questTracker"))
             ApplyShadow(fs)
         end
     end

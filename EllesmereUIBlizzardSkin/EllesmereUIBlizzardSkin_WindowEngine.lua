@@ -71,8 +71,8 @@ local function ResolveTheme()
     Theme.bgR, Theme.bgG, Theme.bgB, Theme.bgA = 0.08, 0.08, 0.08, 0.92
     Theme.insetR, Theme.insetG, Theme.insetB, Theme.insetA = 0.04, 0.04, 0.04, 0.85
     Theme.brdR, Theme.brdG, Theme.brdB, Theme.brdA = 0.2, 0.2, 0.2, 1
-    Theme.fontPath = (EUI and EUI.GetFontPath and EUI.GetFontPath("blizzardSkin")) or STANDARD_TEXT_FONT
-    Theme.fontFlag = (EUI and EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("blizzardSkin")) or ""
+    Theme.fontPath = (EUI.GetFontPath("blizzardSkin")) or STANDARD_TEXT_FONT
+    Theme.fontFlag = (EUI.GetFontOutlineFlag("blizzardSkin")) or ""
     -- Drop shadow only in no-outline mode, honoring the user's shadow toggle.
     Theme.fontShadow = (Theme.fontFlag == "")
         and (not (EUI and EUI.GetFontUseShadow) or EUI.GetFontUseShadow("blizzardSkin"))
@@ -384,20 +384,6 @@ function WSkin.AtlasBorder(frame)
     tex:SetAllPoints(ov)
 end
 
--- Content shade: the 25% black wash the reskins lay behind their content areas
--- so text zones read darker than the shell art.
-function WSkin.ContentShade(frame, p1, x1, y1, p2, x2, y2, alpha)
-    if not frame or frame:IsForbidden() then return end
-    local d = GetFFD(frame)
-    if d.rightShade then return d.rightShade end
-    local shade = frame:CreateTexture(nil, "BACKGROUND", nil, -6)
-    shade:SetColorTexture(0, 0, 0, alpha or 0.25)
-    shade:SetPoint(p1 or "TOPLEFT", frame, p1 or "TOPLEFT", x1 or 0, y1 or 0)
-    shade:SetPoint(p2 or "BOTTOMRIGHT", frame, p2 or "BOTTOMRIGHT", x2 or 0, y2 or 0)
-    d.rightShade = shade
-    return shade
-end
-
 -------------------------------------------------------------------------------
 --  Primitive skinners. All idempotent (guarded via FFD), all visual-only.
 -------------------------------------------------------------------------------
@@ -440,7 +426,7 @@ function WSkin.Font(fs, r, g, b)
     if size and issecretvalue(size) then return end
     -- 12.0.7: shadows only render from a FontObject, never from instance
     -- SetShadowOffset. Prime BEFORE SetFont (SetFont then restores the face).
-    if EUI and EUI.PrimeFontShadow then EUI.PrimeFontShadow(fs, Theme.fontShadow) end
+    EUI.PrimeFontShadow(fs, Theme.fontShadow)
     fs:SetFont(Theme.fontPath, size or 12, Theme.fontFlag or "")
     if r then fs:SetTextColor(r, g, b or r) end
 end
@@ -1437,9 +1423,7 @@ function WSkin.RefreshLooks()
     for _, fn in ipairs(_lookCallbacks) do pcall(fn) end
 end
 if EUI then EUI._WSkinRefreshLooks = WSkin.RefreshLooks end
-if EUI and EUI.RegAccent then
-    EUI.RegAccent({ type = "callback", fn = function() WSkin.RefreshLooks() end })
-end
+EUI.RegAccent({ type = "callback", fn = function() WSkin.RefreshLooks() end })
 
 -------------------------------------------------------------------------------
 --  Targeted art sweeps. Used at SKIN TIME (or debounced repaint hooks), never

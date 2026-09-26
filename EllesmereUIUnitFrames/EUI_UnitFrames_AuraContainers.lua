@@ -122,12 +122,20 @@ ns.UF_CandidateClasses = CANDIDATE_CLASSES
 -- the engine-evaluated Dispellable token, and only the purgeable group wears
 -- the glow style (see BuildChain / PurgeGlow.Register). Off, or on a
 -- character with no offensive dispel, every chain stays byte-identical.
-local PurgeGlow = { TOKEN = "RAID_PLAYER_DISPELLABLE" }
+-- friendly[unit] = last assistable answer, watch[unit] = glow on for that unit
+-- (both read by the friendly gate beside IncGate, below).
+local PurgeGlow = { TOKEN = "RAID_PLAYER_DISPELLABLE", friendly = {}, watch = {} }
 
 function PurgeGlow.On(unit, s)
     if unit == "player" then return false end
     local g = s and s.buffPurgeGlow
     if type(g) ~= "number" or g < 1 then return false end
+    -- Nothing to glow while the buff row is hidden (Buff Display None and not
+    -- riding the debuff stack): no split, no friendly watch. Showing it again
+    -- is a settings change, so the reload re-reads this.
+    if s.showBuffs == false and not (s.debuffAnchorBuffs == true and (s.debuffAnchor or "none") ~= "none") then
+        return false
+    end
     AK = AK or EllesmereUI.AuraKit
     if not (AK and AK.OffensiveDispelTypes) then return false end
     if not PurgeGlow.watching then
@@ -364,7 +372,7 @@ local function BuildChain(base, isBuff, s, unit)
     -- elements and the player frame's debuff legacy path (PlayerDebuffChain
     -- delegates here for the class-checkbox model).
     if not isBuff and unit ~= "player" then return NonPlayerDebuffChain(s, unit) end
-    local glowOn = isBuff and PurgeGlow.On(unit, s)
+    local glowOn = isBuff and PurgeGlow.Active(unit, s)
     local chain, negations = {}, {}
     local subCand, negDispelTypes, npNegOwned, anyNegOwned
 
@@ -1327,7 +1335,7 @@ local function StyleTableFP(st, font)
         b and b.texture, b and b.size, b and b.edgePx, b and b[1], b and b[2], b and b[3], b and b[4],
         b and b.offsetX, b and b.offsetY, b and b.shiftX, b and b.shiftY,
         b and b.behind, b and b.behindUnitFrame, b and b.unitFrameLevel,
-        st.noTooltips, st.blizzBorder)
+        st.noTooltips, st.blizzBorder, st.dispelBorder)
 end
 
 -- Declares one chain group and records it in the element's declared-set
@@ -1426,6 +1434,11 @@ local function BuildStyle(unit, base, s, unitFrame)
         -- dispel color itself -- the user palette cannot apply under secrecy
         -- (same documented delta as the RF debuff border).
         dispel = (not isBuff and s.debuffDispelBorder) and true or nil
+        -- Buffs on target/focus/boss (opt-in): the same engine ring, tinted by
+        -- the buff's dispel type (Magic blue). Untyped buffs get no ring.
+        if isBuff and unit ~= "player" and s.buffDispelBorder == true then
+            dispel = true
+        end
     end
 
     return {
@@ -1457,10 +1470,11 @@ local function BuildStyle(unit, base, s, unitFrame)
         -- goes off with the tooltips; clicks (player buff cancel) unaffected.
         noTooltips = (s.showAuraTooltips == false) or nil,
         dispelBorder = dispel,
+        dispelHelpful = (isBuff and dispel) or nil,
         -- Resolved once per (fingerprint-gated) style rebuild instead of on
         -- every ApplyUFText call -- GetFontPath's result only changes when
         -- font settings change, which already forces a fresh style table.
-        fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("unitFrames")) or FALLBACK_FONT,
+        fontPath = (EllesmereUI.GetFontPath("unitFrames")) or FALLBACK_FONT,
         applyExtra = ApplyUFText,
     }
 end
@@ -1493,6 +1507,23 @@ function PurgeGlow.Extra(button, d, style)
     end
     local g, w, h = style.purgeGlow, style.width, style.height
     local cr, cg, cb = style.purgeR, style.purgeG, style.purgeB
+    -- Blizzard Border: Blizzard's static stealable art instead of a glow.
+    if g == Glows.STEALABLE_BORDER then
+        if host._pgS ~= g or host._pgW ~= w or host._pgH ~= h
+           or host._pgR ~= cr or host._pgG ~= cg or host._pgB ~= cb then
+            if host._euiGlowActive then Glows.StopGlow(host) end
+            host:SetAlpha(1)
+            Glows.ShowStealableBorder(host, w, h, cr, cg, cb)
+            host._pgBorder = true
+            host._pgS, host._pgW, host._pgH = g, w, h
+            host._pgR, host._pgG, host._pgB = cr, cg, cb
+        end
+        return
+    end
+    if host._pgBorder then
+        Glows.HideStealableBorder(host)
+        host._pgBorder = nil
+    end
     if (not host._euiGlowActive) or host._pgS ~= g or host._pgW ~= w or host._pgH ~= h
        or host._pgR ~= cr or host._pgG ~= cg or host._pgB ~= cb then
         -- C-side animations only (engine-button subtree); nil color = the
@@ -1872,11 +1903,13 @@ function IncGate.Answer(unit)
 end
 
 -- UNIT_FACTION follows the live state: registered per unit only while it holds
--- keys. The unit change events ride the always-on unitWatcher instead, so a
+-- keys or wears the Purgeable Buff Glow (PurgeGlow.watch, the same friendly
+-- flip). The unit change events ride the always-on unitWatcher instead, so a
 -- target swap runs the gate before its one aura re-parse.
 function IncGate.Sync()
-    local st = IncGate.state
-    local sig = (st.target and 1 or 0) + (st.focus and 2 or 0)
+    local st, pw = IncGate.state, PurgeGlow.watch
+    local wantT, wantF = st.target or pw.target, st.focus or pw.focus
+    local sig = (wantT and 1 or 0) + (wantF and 2 or 0)
     if IncGate.sig == sig then return end
     IncGate.sig = sig
     local f = IncGate.frame
@@ -1890,9 +1923,9 @@ function IncGate.Sync()
         f:SetScript("OnEvent", IncGate.OnEvent)
     end
     f:UnregisterEvent("UNIT_FACTION")
-    if st.target and st.focus then
+    if wantT and wantF then
         f:RegisterUnitEvent("UNIT_FACTION", "target", "focus")
-    elseif st.target then
+    elseif wantT then
         f:RegisterUnitEvent("UNIT_FACTION", "target")
     else
         f:RegisterUnitEvent("UNIT_FACTION", "focus")
@@ -1942,8 +1975,8 @@ end
 function IncGate.Flush()
     local t, f = IncGate.pendT, IncGate.pendF
     IncGate.pendT, IncGate.pendF = nil, nil
-    if t then IncGate.Apply("target") end
-    if f then IncGate.Apply("focus") end
+    if t then IncGate.Apply("target"); PurgeGlow.Check("target") end
+    if f then IncGate.Apply("focus"); PurgeGlow.Check("focus") end
 end
 
 function IncGate.OnEvent(_, _, unit)
@@ -1951,6 +1984,49 @@ function IncGate.OnEvent(_, _, unit)
         if not (IncGate.pendT or IncGate.pendF) then C_Timer.After(0, IncGate.Flush) end
         if unit == "target" then IncGate.pendT = true else IncGate.pendF = true end
     end
+end
+
+------------------------------------------------------------------------------
+-- Purgeable Buff Glow on a FRIENDLY target / focus: a friend's buffs are not
+-- the player's to purge, and the Dispellable token also matches a friend's
+-- helpful Magic, so an assistable unit keeps the plain show-all row
+-- (BuildChain reads PurgeGlow.Active). Same check as the Tracked Auras gate
+-- above: live while the unit exists, else the last answer (a focus out of
+-- range keeps its state). A flip re-runs the unit's reload; only the buff
+-- element's chain signature moves, so only its config pass is forced (and
+-- after the first flip each way every group is already declared).
+-- Re-checked on target/focus changes (unitWatcher), the frame's own show,
+-- the player's faction flips (the player recovery watcher) and the unit's
+-- UNIT_FACTION (IncGate.Sync holds it while PurgeGlow.watch[unit] is set, i.e.
+-- only while the glow is on for that unit).
+------------------------------------------------------------------------------
+function PurgeGlow.Friendly(unit)
+    if UnitExists(unit) then PurgeGlow.friendly[unit] = IncGate.Assistable(unit) end
+    return PurgeGlow.friendly[unit] == true
+end
+
+function PurgeGlow.Active(unit, s)
+    return PurgeGlow.On(unit, s) and not PurgeGlow.Friendly(unit)
+end
+
+-- noParse: the caller re-parses right after (unitWatcher's RefreshUnit).
+function PurgeGlow.Check(unit, noParse)
+    if not PurgeGlow.watch[unit] then return end
+    local entry = registry[unit]
+    if not (entry and entry.buffs) or entry.building then return end
+    if not UnitExists(unit) then return end
+    if IncGate.Assistable(unit) == (PurgeGlow.friendly[unit] == true) then return end
+    if entry.frame and ns.UF_ReloadAuraContainers then ns.UF_ReloadAuraContainers(entry.frame, unit) end
+    if not noParse then entry.buffs:UpdateAllAuras() end
+end
+
+-- Held by the unit's reload: set while the glow is on for target / focus.
+function PurgeGlow.SetWatch(unit, on)
+    if unit ~= "target" and unit ~= "focus" then return end
+    if on then on = true else on = nil end
+    if PurgeGlow.watch[unit] == on then return end
+    PurgeGlow.watch[unit] = on
+    IncGate.Sync()
 end
 
 local function ApplyGroupConfig(container, unit, base, s, chain, declared)
@@ -2499,7 +2575,7 @@ function ns.UF_ReloadAuraContainers(frame, unit)
         return
     end
 
-    local font = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("unitFrames")) or ""
+    local font = (EllesmereUI.GetFontPath("unitFrames")) or ""
     -- Containers hidden outside the fingerprinted flow (boss preview) must
     -- re-drive anchor/config/visibility even with matching fingerprints.
     -- cfgDirty: the degradation-recovery lane below (cinematic/faction/
@@ -2526,6 +2602,7 @@ function ns.UF_ReloadAuraContainers(frame, unit)
         end
         if base == "HELPFUL" and unit ~= "player" then
             PurgeGlow.Register(unit, s, entry.frame, font)
+            PurgeGlow.SetWatch(unit, PurgeGlow.On(unit, s))
         end
 
         -- Groups are ADDITIVE and the container is NEVER swapped: a changed chain
@@ -2621,6 +2698,8 @@ do
             -- unless that unit holds include groups and the answer flipped).
             IncGate.Apply("target")
             IncGate.Apply("focus")
+            PurgeGlow.Check("target")
+            PurgeGlow.Check("focus")
             local entry = registry.player
             if not entry or entry.building then return end
             entry.cfgDirty = true
@@ -2646,9 +2725,11 @@ unitWatcher:SetScript("OnEvent", function(_, event)
     -- debuff groups), then the one re-parse.
     if event == "PLAYER_TARGET_CHANGED" then
         IncGate.Apply("target", true)
+        PurgeGlow.Check("target", true)
         RefreshUnit("target")
     elseif event == "PLAYER_FOCUS_CHANGED" then
         IncGate.Apply("focus", true)
+        PurgeGlow.Check("focus", true)
         RefreshUnit("focus")
     elseif event == "PLAYER_REGEN_ENABLED" then
         -- Filter-set swaps requested during combat run now.
@@ -2712,11 +2793,9 @@ do
         C_Timer.After(2, Queue)
         C_Timer.After(5, Queue)
     end)
-    if EllesmereUI.RegisterUnlockModeListener then
-        EllesmereUI:RegisterUnlockModeListener("EUF_AuraContainers", function(unlockActive)
-            if not unlockActive then Queue() end
-        end)
-    end
+    EllesmereUI:RegisterUnlockModeListener("EUF_AuraContainers", function(unlockActive)
+        if not unlockActive then Queue() end
+    end)
 end
 
 -- One element shell, born directly on our frame (combat-legal since 68914).
@@ -2750,7 +2829,7 @@ local function BuildUnitContainers(frame, unit)
         -- consumes them for the pre-created button batches. Prime their
         -- fingerprints too: the final-stage reload would otherwise queue a
         -- restyle of buttons that were decorated from these exact tables.
-        local font = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("unitFrames")) or ""
+        local font = (EllesmereUI.GetFontPath("unitFrames")) or ""
         for _, base in ipairs({ "HELPFUL", "HARMFUL" }) do
             local key = StyleKey(unit, base)
             local style = BuildStyle(unit, base, s, frame)
@@ -2771,7 +2850,7 @@ local function BuildUnitContainers(frame, unit)
         -- after this. A no-op unless the unit holds include groups.
         if (unit == "target" or unit == "focus") and not IncGate.hooked[frame] then
             IncGate.hooked[frame] = true
-            frame:HookScript("OnShow", function() IncGate.Apply(unit) end)
+            frame:HookScript("OnShow", function() IncGate.Apply(unit); PurgeGlow.Check(unit) end)
         end
         return "again"
     end

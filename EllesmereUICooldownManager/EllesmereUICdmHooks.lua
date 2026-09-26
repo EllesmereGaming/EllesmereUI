@@ -7731,6 +7731,28 @@ local function CollectAndReanchor()
         end
     end
 
+    -- Talent Conditions: a cooldown whose per-spell conditions do not hold this pass is
+    -- dropped like an unlearned spell -- it takes the unclaimed park in Phase 4 and the
+    -- icons after it close the gap. A replacement buff carries its cooldown's identity,
+    -- so it follows the cooldown; hosted buffs are buff-family and never carry the
+    -- setting. Session-gated: skipped entirely until some spell has a condition.
+    if ns._cdmAnyTalentCond then
+        for bk, frames in pairs(cdFrames) do
+            for i = #frames, 1, -1 do
+                local frame = frames[i]
+                local fc = _ecmeFC[frame]
+                local sid = fc and not fc.isHostedBuff and fc.spellID
+                if sid and sid > 0 then
+                    local ss = ns.ResolveSpellSettings(frame, sid, false, bk)
+                    local conds = ss and rawget(ss, "talentConditions")
+                    if conds and not ns.TalentConditionsHold(conds) then
+                        table.remove(frames, i)
+                    end
+                end
+            end
+        end
+    end
+
     -- Pre-build claim set for racial/custom spell checks: collect all spellIDs already
     -- claimed by Blizzard frames across all bars. This replaces the O(frames *
     -- FindSpellOverrideByID) inner loop with a set lookup.
@@ -9094,7 +9116,7 @@ function _AC.BuildStyle(bd, fixedIcon)
         if cc then brdR, brdG, brdB = cc.r, cc.g, cc.b end
     end
     local brdA = (bd and bd.borderA) or 1
-    local cdFont = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("cdm"))
+    local cdFont = (EllesmereUI.GetFontPath("cdm"))
         or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
 
     -- Icon rect. A shaped icon samples OUTSIDE its texture to fill the mask, so
@@ -9104,7 +9126,8 @@ function _AC.BuildStyle(bd, fixedIcon)
     local texCoord
     local SH = ns.CDM_SHAPES
     if shape == "cropped" then
-        texCoord = { zoom, 1 - zoom, zoom + 0.10, 1 - zoom - 0.10 }
+        local trim = ns.CdmCropTrim(bd)
+        texCoord = { zoom, 1 - zoom, zoom + trim, 1 - zoom - trim }
     elseif customShape and SH and SH.masks[shape] then
         local visRatio = (128 - 2 * (SH.insets[shape] or 17)) / 128
         local grow = ((1 / visRatio) - 1) * 0.5
@@ -9131,7 +9154,7 @@ function _AC.BuildStyle(bd, fixedIcon)
     return {
         width = SZ,
         height = (shape == "cropped")
-            and _AC.SnapPx(math.floor(rawSZ * 0.80 + 0.5)) or SZ,
+            and _AC.SnapPx(math.floor(rawSZ * ns.CdmCropFactor(bd) + 0.5)) or SZ,
         iconCrop = true, iconZoom = zoom,
         texCoord = texCoord,
         cooldownReverse = true,
@@ -9589,7 +9612,7 @@ function _AC.Build(rec, barKey, bd, sids, sig, cis)
         -- elementWidth/Height feed the engine's flow math (the style sizes the
         -- button itself). Without them the flow spaces icons at the engine
         -- default, so any bar not at that size overlaps or gaps -- and a cropped
-        -- bar, whose buttons are 0.80 tall, is off on both axes. Every group
+        -- bar, whose buttons are shorter (ns.CdmCropFactor), is off on both axes. Every group
         -- shares one layout: their styles differ only in the fixed art.
         local st = AK.styles[styleKey]
         local gapPx = _AC.SnapPx(gap)
@@ -9840,6 +9863,10 @@ function ns.UpdateCustomBuffAuraTracking()
                             .. "|" .. tostring(bd.growDirection or "CENTER")
                             .. "|" .. (bd.verticalOrientation and 1 or 0)
                             .. "|" .. tostring(bd.spacing or 2)
+                            -- Adjust Crop changes the button height the flow lays out, so it
+                            -- is geometry. Appended only while cropped: every other bar keeps
+                            -- its exact signature.
+                            .. ((bd.iconShape == "cropped") and ("|crop" .. ns.CdmCropPercent(bd)) or "")
                             .. (ciSig or "")
                         local rec = _AC.bars[bd.key]
                         if not rec then rec = {}; _AC.bars[bd.key] = rec end

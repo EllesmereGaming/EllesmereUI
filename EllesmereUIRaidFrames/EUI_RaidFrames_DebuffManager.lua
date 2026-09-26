@@ -26,9 +26,6 @@
 -- at ns.db.profile.dmDebuff (shared raid/party/extra, absent = off = zero cost), all keys NEW/additive as a
 -- nondestructive view over the existing debuff display keys (size/spacing/cap/position); legacy debuffFilter is
 -- untouched and resumes control if the manager is disabled.
---
--- Also owns BUFF MANAGER effective-state accessors (base grid + custom indicators render together; legacy
--- bmDisplayMode never written, only shimmed).
 
 local _, ns = ...
 local EllesmereUI = _G.EllesmereUI
@@ -58,26 +55,6 @@ local function FlowDir(token)
     if token == "UP" then return FD.Up end
     if token == "DOWN" then return FD.Down end
     return FD.Right
-end
-
--------------------------------------------------------------------------------
--- Buff Manager effective-state accessors (coexistence shims). Legacy bmDisplayMode is read ONLY here as the
--- default for older profiles; new keys are written only by the options page. Base grid and custom indicators enable independently and render together.
--------------------------------------------------------------------------------
-function ns.BM_BaseActive()
-    local p = ns.db and ns.db.profile
-    if not p then return false end
-    local v = p.bmBaseEnabled
-    if v == nil then return p.bmDisplayMode == "simple" end
-    return v == true
-end
-
-function ns.BM_CustomActive()
-    local p = ns.db and ns.db.profile
-    if not p then return false end
-    local v = p.bmIndicatorsEnabled
-    if v == nil then return (p.bmDisplayMode or "custom") == "custom" end
-    return v == true
 end
 
 -------------------------------------------------------------------------------
@@ -791,7 +768,7 @@ local function EnsureEater(d, slot, host, container, active, pinHost, point, cor
         -- secure unit menu. Click-cast re-writes these when it is enabled.
         e:SetAttribute("type1", "target")
         e:SetAttribute("*type1", "target")
-        if EllesmereUI.AttachSecureUnitMenu then EllesmereUI.AttachSecureUnitMenu(e) end
+        EllesmereUI.AttachSecureUnitMenu(e)
         -- HookScript, not SetScript: the click-cast header wraps these same
         -- script slots securely, and a hook never displaces a wrap. The Lua
         -- side forwards the unit button's own hover (highlight, unit tooltip).
@@ -2184,7 +2161,7 @@ local function EnsureTileStyle(d, s, t, szOv, szCat)
     local st = dmTileFP[key]
     if not st then st = {}; dmTileFP[key] = st end
 
-    local font = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("raidFrames")) or ""
+    local font = (EllesmereUI.GetFontPath("raidFrames")) or ""
     local v
     if isGrid then
         -- Rebuild handles for DM_RefreshSizedStyles (base-style edits re-derive this key without an apply pass).
@@ -2259,7 +2236,7 @@ local function EnsureBaseSizeStyle(d, s, cat, size)
     if not st then st = { cls = cls, cat = cat }; dmSizeFP[key] = st end
     st.rawSize = size
     size = EffectiveIconSizeForClass(size, cls)
-    local font = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("raidFrames")) or ""
+    local font = (EllesmereUI.GetFontPath("raidFrames")) or ""
     local v = ((ns.RFC_DebuffStyleFP and ns.RFC_DebuffStyleFP(s, font)) or "")
         .. "|" .. tostring(size)
     if st.style ~= v and ns.RFC_BuildDebuffStyle then
@@ -2283,7 +2260,7 @@ function ns.DM_RefreshSizedStyles(baseStyleKey, s)
     if not AK then return end
     local cls = baseStyleKey:match("^rf:debuff:(.+)$")
     if not cls then return end
-    local font = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("raidFrames")) or ""
+    local font = (EllesmereUI.GetFontPath("raidFrames")) or ""
     for key, st in pairs(dmSizeFP) do
         if st.cls == cls and st.style and st.rawSize then
             local size = EffectiveIconSizeForClass(st.rawSize, cls)
@@ -3213,14 +3190,8 @@ function ns.DM_CopyTile(src, bucketKey)
     local t = ns.DM_AddTile(src.type, bucketKey)
     if not t then return nil end
     local keep = t.id
-    local function Copy(v)
-        if type(v) ~= "table" then return v end
-        local o = {}
-        for k, v2 in pairs(v) do o[k] = Copy(v2) end
-        return o
-    end
     for k in pairs(t) do t[k] = nil end
-    for k, v in pairs(src) do t[k] = Copy(v) end
+    for k, v in pairs(CopyTable(src)) do t[k] = v end
     t.id = keep
     return t
 end
@@ -3257,13 +3228,6 @@ end
 -- Both hooks run EnsureMigrated first, so the one-shot preset mapping always precedes any fork traffic.
 -------------------------------------------------------------------------------
 
-local function DmLayerCopy(v)
-    if type(v) ~= "table" then return v end
-    local t = {}
-    for k, x in pairs(v) do t[k] = DmLayerCopy(x) end
-    return t
-end
-
 -- Snapshot of the live Debuff Manager config for layer harvests.
 function _G._ERF_DMHarvestFork()
     local p = ns.db and ns.db.profile
@@ -3271,7 +3235,7 @@ function _G._ERF_DMHarvestFork()
     EnsureMigrated()
     local dm = p.dmDebuff
     if type(dm) ~= "table" then return nil end
-    return DmLayerCopy(dm)
+    return CopyTable(dm)
 end
 
 -- Applies a SpecOverrides DM layer into the live profile (wipe + refill in place: open manager pages capture
@@ -3284,7 +3248,7 @@ function _G._ERF_DMApplyLayer(dm, noPageRefresh)
     local live = p.dmDebuff
     if type(live) ~= "table" then live = {}; p.dmDebuff = live end
     wipe(live)
-    for k, v in pairs(dm) do live[k] = DmLayerCopy(v) end
+    for k, v in pairs(CopyTable(dm)) do live[k] = v end
     if ns.RFC_ReloadAll then ns.RFC_ReloadAll() end
     if not noPageRefresh and ns._dmRoot and EllesmereUI and EllesmereUI.RefreshPage then
         EllesmereUI:RefreshPage(true)

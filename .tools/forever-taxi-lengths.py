@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate EllesmereUIQoL/EllesmereUIQoL_FlightTimerData.lua.
+"""Regenerate EllesmereUIForeverEssentials/EllesmereUIForeverEssentials_FlightTimerData.lua.
 
 Pulls the TaxiPath and TaxiPathNode tables for a WoW Forever build from
 wago.tools and writes the flown length of every route, in yards, keyed by
@@ -15,7 +15,8 @@ import urllib.request
 from collections import defaultdict
 from pathlib import Path
 
-OUT = Path(__file__).resolve().parent.parent / "EllesmereUIQoL" / "EllesmereUIQoL_FlightTimerData.lua"
+OUT = (Path(__file__).resolve().parent.parent / "EllesmereUIForeverEssentials"
+       / "EllesmereUIForeverEssentials_FlightTimerData.lua")
 
 
 def fetch(table, build):

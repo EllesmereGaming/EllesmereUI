@@ -36,7 +36,7 @@ local GetItemGemFn     = C_Item and C_Item.GetItemGem
 local GetItemStatsFn   = C_Item and C_Item.GetItemStats
 local GetInfoInstant   = C_Item and C_Item.GetItemInfoInstant
 local GetIconByID      = C_Item and C_Item.GetItemIconByID
-local GetItemCountFn   = (C_Item and C_Item.GetItemCount) or _G.GetItemCount
+local GetItemCountFn   = C_Item.GetItemCount
 local CClear           = _G.ClearCursor
 local CHasItem         = _G.CursorHasItem
 
@@ -521,21 +521,17 @@ local function AcquireIcon(i)
             GameTooltip:Show()
         else
             -- Empty socket: plain-text hint uses the EUI widget tooltip.
-            if EllesmereUI and EllesmereUI.ShowWidgetTooltip then
-                EllesmereUI.ShowWidgetTooltip(self,
-                    EllesmereUI.L(rec.emptyName or "Empty Socket")
-                        .. EllesmereUI.L("\nPick a gem from the list to socket it."),
-                    { anchor = "right" })
-            end
+            EllesmereUI.ShowWidgetTooltip(self,
+                EllesmereUI.L(rec.emptyName or "Empty Socket")
+                    .. EllesmereUI.L("\nPick a gem from the list to socket it."),
+                { anchor = "right" })
         end
     end)
     btn:SetScript("OnLeave", function()
         StopSlotGlow()
         MaybeCloseHoverFlyout()
         GameTooltip:Hide()
-        if EllesmereUI and EllesmereUI.HideWidgetTooltip then
-            EllesmereUI.HideWidgetTooltip()
-        end
+        EllesmereUI.HideWidgetTooltip()
     end)
     btn:SetScript("OnClick", function(self)
         local rec = self.euiSock
@@ -664,7 +660,7 @@ local function ChangeSocketPage(delta)
     CloseFlyout()
     StopSlotGlow()
     GameTooltip:Hide()
-    if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+    EllesmereUI.HideWidgetTooltip()
     socketPage = page
     LayoutSockets()
 end
@@ -794,7 +790,7 @@ local function AcquireGemRow(i)
     icon:SetPoint("LEFT", row, "LEFT", 2, 0)
     row.icon = icon
 
-    local fontPath = (EllesmereUI and EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin")) or STANDARD_TEXT_FONT
+    local fontPath = (EllesmereUI.GetFontPath("blizzardSkin")) or STANDARD_TEXT_FONT
     local label = row:CreateFontString(nil, "OVERLAY")
     label:SetFont(fontPath, 11, "")
     label:SetPoint("LEFT", icon, "RIGHT", 5, 0)

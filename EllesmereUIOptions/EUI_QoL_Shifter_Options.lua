@@ -21,7 +21,7 @@ _G._EUI_BuildShifterPage = function(pageName, parent, yOffset)
 
     -- Info text (top of page, matching bags pattern)
     do
-        local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath())
+        local fontPath = (EllesmereUI.GetFontPath())
             or "Fonts\\FRIZQT__.TTF"
         local infoFrame = CreateFrame("Frame", nil, parent)
         infoFrame:SetSize(parent:GetWidth(), 34)

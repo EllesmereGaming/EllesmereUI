@@ -90,7 +90,7 @@ end
 -- leave it alone.
 local function CharSheetProfile()
     if not NS("EllesmereUIBlizzardSkin") then return nil end
-    return EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+    return EllesmereUI.GetActiveProfileData()
 end
 local function FriendsProfile()
     local d = _G._EFR_DB
@@ -575,7 +575,7 @@ local function ApplyWholeUIFont(styleKey, legacy)
     s.active = styleKey
     db._styleSlots = s
     db.fontStockSeeded = nil
-    if EllesmereUI.InvalidateFontCache then EllesmereUI.InvalidateFontCache() end
+    EllesmereUI.InvalidateFontCache()
 end
 -- The same two callers also swap the Blizz UI Enhanced window skins through
 -- their own per-style slots (EllesmereUI.SwapWindowSkinStyle: first visit
@@ -592,7 +592,7 @@ local function ApplyWholeUIWindows(styleKey, legacy)
     local swap = EllesmereUI.SwapWindowSkinStyle
     if not swap then return end
     swap(styleKey, false, legacy or InferredStockStyle())
-    local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+    local prof = EllesmereUI.GetActiveProfileData()
     if prof then prof.windowSkinLook = styleKey end
 end
 
@@ -707,7 +707,7 @@ function BlizzStyle.Note(parent, y, key)
     PP.Size(row, parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2, ROW_H)
     PP.Point(row, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
     row._skipRowDivider = true
-    if EllesmereUI.RowBg then EllesmereUI.RowBg(row, parent) end
+    EllesmereUI.RowBg(row, parent)
 
     local lbl = EllesmereUI.MakeFont(row, 12, nil, 1, 1, 1)
     lbl:SetAlpha(0.6)
@@ -748,9 +748,7 @@ local function PromptStyleChanges(changes, wholeUIStyle)
             -- these writes then land on the profile itself, where an open
             -- session's logout sweep would have turned them into overrides
             -- for the group being edited.
-            if EllesmereUI.SpecOverrides_CloseEditSessions then
-                EllesmereUI.SpecOverrides_CloseEditSessions()
-            end
+            EllesmereUI.SpecOverrides_CloseEditSessions()
             local legacy = wholeUIStyle and InferredStockStyle()
             for i = 1, #changes do
                 SwitchModuleStyle(changes[i].m, changes[i].key)

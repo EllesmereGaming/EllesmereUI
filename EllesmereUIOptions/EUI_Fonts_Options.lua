@@ -111,50 +111,7 @@ local function ModuleOutlineCfg(folder, display)
         end }
 end
 
--- Fresh table per call: DualRow configs must never be shared across rows.
-local function BLANK() return { type = "label", text = "" } end
-
--- Custom link row: label on the left, an Open Settings button on the right,
--- jumping to the module page that owns a selection-bound settings family.
-local function LinkRow(parent, y, label, module, page, section, highlight)
-    local PP = EllesmereUI.PanelPP
-    local ROW_H = 40
-    local row = CreateFrame("Frame", nil, parent)
-    PP.Size(row, parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2, ROW_H)
-    PP.Point(row, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
-    row._skipRowDivider = true
-    if EllesmereUI.RowBg then EllesmereUI.RowBg(row, parent) end
-
-    local lbl = EllesmereUI.MakeFont(row, 13, nil, 1, 1, 1)
-    lbl:SetAlpha(0.9)
-    lbl:SetPoint("LEFT", row, "LEFT", 20, 0)
-    lbl:SetText(EllesmereUI.L(label))
-
-    local btn = CreateFrame("Button", nil, row)
-    PP.Size(btn, 122, 26)
-    btn:SetPoint("RIGHT", row, "RIGHT", -20, 0)
-    btn:SetFrameLevel(row:GetFrameLevel() + 2)
-    EllesmereUI.MakeStyledButton(btn, "Open Settings", 11, EllesmereUI.WB_COLOURS, function()
-        EllesmereUI:NavigateToElementSettings(module, page, section, nil, highlight)
-    end)
-
-    return y - ROW_H
-end
-
--- Dim note row shown inside a card when its module is disabled.
-local function NoteRow(parent, y, text)
-    local PP = EllesmereUI.PanelPP
-    local ROW_H = 34
-    local row = CreateFrame("Frame", nil, parent)
-    PP.Size(row, parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2, ROW_H)
-    PP.Point(row, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
-    row._skipRowDivider = true
-    local lbl = EllesmereUI.MakeFont(row, 12, nil, 1, 1, 1)
-    lbl:SetAlpha(0.45)
-    lbl:SetPoint("LEFT", row, "LEFT", 20, 0)
-    lbl:SetText(EllesmereUI.L(text))
-    return y - ROW_H
-end
+local BLANK, LinkRow, NoteRow = EllesmereUI.BlankRowCfg, EllesmereUI.BuildLinkRow, EllesmereUI.BuildNoteRow
 
 -------------------------------------------------------------------------------
 --  Per-module card content builders
@@ -165,7 +122,7 @@ end
 --  namespace is nil and the card shows only the module font/outline layer.
 -------------------------------------------------------------------------------
 
-local function NS(folder) return EllesmereUI._ModuleNS and EllesmereUI._ModuleNS[folder] end
+local NS = EllesmereUI.ModuleNS
 
 local function TileActionBars(parent, y, W, tile)
     local ns = NS(tile.folder)
@@ -1133,6 +1090,7 @@ local TILE_BUILDERS = {
     EllesmereUIResourceBars      = { TileResourceBars,     "Health, power, class resource, cast and totem bar text" },
     EllesmereUIAuraBuffReminders = { TileAuraBuffReminders,"Reminder names, item counts and the mana warning" },
     EllesmereUIQoL               = { TileQoL,              "Alerts, trackers, battle res and popup text" },
+    EllesmereUIForeverEssentials = { TileFontOnly,         "Font face and outline only" },
     EllesmereUIBlizzardSkin      = { TileBlizzardSkin,     "Tooltip text scale, enchant text and dragonriding speed" },
     EllesmereUIFriends           = { TileFontOnly,         "Font face and outline only" },
     EllesmereUIMythicTimer       = { TileMythicTimer,      "M+ timer, objectives, thresholds and spell bar text" },
@@ -1169,200 +1127,58 @@ end
 --  Font card (adapted from the Window Skins card pattern)
 -------------------------------------------------------------------------------
 
-local FT_ARROW_DOWN = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-down3.png"
-local FT_ARROW_UP   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-up3.png"
-local FT_HEADER_H   = 54
-local FT_CARD_GAP   = 14
-
 local function BuildFontCard(parent, y, W, tile)
-    local PP = EllesmereUI.PanelPP
-    local EG = EllesmereUI.ELLESMERE_GREEN
-    local L  = EllesmereUI.L
-    -- A disabled module's card is fully inert (same treatment as settings-less
-    -- Window Skins cards): no expand, no header dropdown, no hover -- just a
-    -- dimmed header with a tooltip explaining why.
-    local enabled = (not tile.folder) or NS(tile.folder) ~= nil
-    local expanded = enabled and _ftExpanded[tile.key]
-    local cardTop = y
-    local brd
-
-    -- Explicit size + single TOPLEFT anchor (the widget contract; see the
-    -- Window Skins card for why a second point would zero the width).
-    local cardW = parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2
-    local hdr = CreateFrame("Button", nil, parent)
-    PP.Size(hdr, cardW, FT_HEADER_H)
-    PP.Point(hdr, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
-    hdr:SetFrameLevel(parent:GetFrameLevel() + 3)
-
-    -- Search metadata: the header acts as its own pseudo-section so searching
-    -- the module name lands on the card; the deep-link pre-hook below expands
-    -- all cards first.
-    local searchName = tile.display .. " " .. (tile.desc or "")
-    hdr._isSectionHeader = true
-    hdr._sectionName = searchName
-    local searchNameLoc = L(tile.display) .. " " .. L(tile.desc or "")
-    if searchNameLoc ~= searchName then hdr._sectionNameLoc = searchNameLoc end
-    if EllesmereUI._RegisterSearchEntry then
-        local titleLoc = L(tile.display)
-        local descSearch = tile.desc or ""
-        local descLoc = L(tile.desc or "")
-        if descLoc ~= descSearch then descSearch = descSearch .. " " .. descLoc end
-        EllesmereUI._RegisterSearchEntry(tile.display,
-            titleLoc ~= tile.display and titleLoc or nil,
-            descSearch,
-            EllesmereUI._buildingModule, EllesmereUI._buildingPage,
-            searchName, nil, nil, true)
-    end
-
-    local hbg = EllesmereUI.SolidTex(hdr, "BACKGROUND", 0, 0, 0, 0)
-    hbg:SetAllPoints()
-
-    -- "Aa" glyph rendered in the module's currently resolved face, so the
-    -- card shows the active font at a glance.
-    local glyph = CreateFrame("Frame", nil, hdr)
-    PP.Size(glyph, 26, 20)
-    PP.Point(glyph, "LEFT", hdr, "LEFT", 14, 0)
-    local glyphText = glyph:CreateFontString(nil, "OVERLAY")
-    glyphText:SetPoint("CENTER")
-    local addonKey = tile.folder and EllesmereUI._folderToAddonKey and EllesmereUI._folderToAddonKey[tile.folder]
-    local glyphPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath(addonKey))
-        or "Fonts\\FRIZQT__.TTF"
-    glyphText:SetFont(glyphPath, 15, "")
-    glyphText:SetTextColor(1, 1, 1, 0.85)
-    glyphText:SetText("Aa")
-
-    local title = EllesmereUI.MakeFont(hdr, 14, nil, 1, 1, 1, 0.9)
-    PP.Point(title, "TOPLEFT", hdr, "TOPLEFT", 50, -12)
-    title:SetText(L(tile.display))
-
-    local desc = EllesmereUI.MakeFont(hdr, 11, nil, 1, 1, 1, 0.42)
-    PP.Point(desc, "TOPLEFT", title, "BOTTOMLEFT", 0, -4)
-    desc:SetWidth(440)
-    desc:SetJustifyH("LEFT")
-    desc:SetWordWrap(false)
-    desc:SetText(L(tile.desc or ""))
-
-    if not enabled then
-        glyphText:SetTextColor(1, 1, 1, 0.3)
-        title:SetAlpha(0.4)
-        desc:SetAlpha(0.22)
-    end
-
-    local chev
-    if enabled then
-        chev = hdr:CreateTexture(nil, "OVERLAY")
-        PP.Size(chev, 16, 16)
-        PP.Point(chev, "RIGHT", hdr, "RIGHT", -16, 0)
-        chev:SetTexture(expanded and FT_ARROW_UP or FT_ARROW_DOWN)
-        chev:SetAlpha(0.45)
-        if expanded then chev:SetVertexColor(EG.r, EG.g, EG.b) end
-    end
-
-    -- Module font dropdown on the header: the per-module override layer
-    -- (the old PER ADDON FONTS entry), editable without expanding the card.
-    local dd
-    if tile.hasFontDD and enabled then
-        local fontValues, fontOrder = EllesmereUI.BuildFontDropdownData()
-        dd = EllesmereUI.BuildDropdownControl(hdr, 190, hdr:GetFrameLevel() + 2,
-            fontValues, fontOrder,
-            function()
-                local entry = FindModuleFontEntry(tile.folder)
-                return (entry and entry.font) or "__global"
-            end,
-            function(v)
-                local entry = FindModuleFontEntry(tile.folder)
-                local cur = (entry and entry.font) or "__global"
-                if v == cur then return end
-                if v == "__global" then
-                    if entry then
-                        entry.font = "__global"
-                        PruneModuleFontEntry(tile.folder)
+    return EllesmereUI.BuildModuleCard(parent, y, W, tile, {
+        enabled = (not tile.folder) or NS(tile.folder) ~= nil,
+        expanded = _ftExpanded, descW = 440,
+        -- "Aa" glyph rendered in the module's currently resolved face, so the
+        -- card shows the active font at a glance.
+        glyph = function(hdr, enabled)
+            local PP = EllesmereUI.PanelPP
+            local glyph = CreateFrame("Frame", nil, hdr)
+            PP.Size(glyph, 26, 20)
+            PP.Point(glyph, "LEFT", hdr, "LEFT", 14, 0)
+            local glyphText = glyph:CreateFontString(nil, "OVERLAY")
+            glyphText:SetPoint("CENTER")
+            local addonKey = tile.folder and EllesmereUI._folderToAddonKey and EllesmereUI._folderToAddonKey[tile.folder]
+            local glyphPath = (EllesmereUI.GetFontPath(addonKey))
+                or "Fonts\\FRIZQT__.TTF"
+            glyphText:SetFont(glyphPath, 15, "")
+            glyphText:SetTextColor(1, 1, 1, enabled and 0.85 or 0.3)
+            glyphText:SetText("Aa")
+        end,
+        -- Module font dropdown on the header: the per-module override layer
+        -- (the old PER ADDON FONTS entry), editable without expanding the card.
+        headerDD = tile.hasFontDD and function(hdr)
+            local fontValues, fontOrder = EllesmereUI.BuildFontDropdownData()
+            local dd = EllesmereUI.BuildDropdownControl(hdr, 190, hdr:GetFrameLevel() + 2,
+                fontValues, fontOrder,
+                function()
+                    local entry = FindModuleFontEntry(tile.folder)
+                    return (entry and entry.font) or "__global"
+                end,
+                function(v)
+                    local entry = FindModuleFontEntry(tile.folder)
+                    local cur = (entry and entry.font) or "__global"
+                    if v == cur then return end
+                    if v == "__global" then
+                        if entry then
+                            entry.font = "__global"
+                            PruneModuleFontEntry(tile.folder)
+                        end
+                    else
+                        EnsureModuleFontEntry(tile.folder, tile.display).font = v
                     end
-                else
-                    EnsureModuleFontEntry(tile.folder, tile.display).font = v
-                end
-                FontReload()
-            end)
-        PP.Point(dd, "RIGHT", hdr, "RIGHT", -44, 0)
-        -- A module whose stock style keeps Blizzard's own text: the override
-        -- has nothing to apply to there.
-        local styleKey = TILE_STYLE_KEYS[tile.folder]
-        if styleKey and EllesmereUI.BlizzStyle then EllesmereUI.BlizzStyle.BlockInline(styleKey, dd) end
-    end
-
-    local strip
-    local function ApplyHeaderHover()
-        hbg:SetColorTexture(1, 1, 1, 0.05)
-        title:SetAlpha(1)
-        if chev then chev:SetAlpha(0.85) end
-        if brd then brd:SetColor(1, 1, 1, 0.22) end
-    end
-    local function ClearHeaderHover()
-        if hdr:IsMouseOver() then return end
-        hbg:SetColorTexture(0, 0, 0, 0)
-        title:SetAlpha(0.9)
-        if chev then chev:SetAlpha(0.45) end
-        if brd then brd:SetColor(1, 1, 1, expanded and 0.16 or 0.12) end
-    end
-    if enabled then
-        hdr:SetScript("OnEnter", ApplyHeaderHover)
-        hdr:SetScript("OnLeave", ClearHeaderHover)
-        if dd then
-            dd:HookScript("OnEnter", ApplyHeaderHover)
-            dd:HookScript("OnLeave", ClearHeaderHover)
-        end
-        hdr:SetScript("OnClick", function()
-            _ftExpanded[tile.key] = not _ftExpanded[tile.key]
-            EllesmereUI:RefreshPage(true)
-        end)
-    else
-        local tag = EllesmereUI.MakeFont(hdr, 11, nil, 1, 1, 1)
-        tag:SetAlpha(0.3)
-        PP.Point(tag, "RIGHT", hdr, "RIGHT", -16, 0)
-        tag:SetText(L("Module Disabled"))
-        hdr:SetScript("OnEnter", function(self)
-            EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.Lf("Enable %1$s to edit these settings.", L(tile.display)))
-        end)
-        hdr:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-    end
-
-    y = y - FT_HEADER_H
-
-    if expanded then
-        local div = hdr:CreateTexture(nil, "ARTWORK")
-        div:SetColorTexture(1, 1, 1, 0.07)
-        div:SetHeight(1)
-        PP.Point(div, "BOTTOMLEFT", hdr, "BOTTOMLEFT", 1, 0)
-        PP.Point(div, "BOTTOMRIGHT", hdr, "BOTTOMRIGHT", -1, 0)
-        PP.DisablePixelSnap(div)
-
-        y = y - 8
-        y = tile.buildContent(parent, y, W, tile)
-        y = y - 8
-    end
-
-    -- Card background + border spanning header and expanded content (header
-    -- child so inline search re-flows it with the header; see WS card notes).
-    local bg = CreateFrame("Frame", nil, hdr)
-    bg:SetFrameLevel(parent:GetFrameLevel())
-    PP.Size(bg, cardW, cardTop - y)
-    PP.Point(bg, "TOPLEFT", hdr, "TOPLEFT", 0, 0)
-    local fill = EllesmereUI.SolidTex(bg, "BACKGROUND", 0.06, 0.08, 0.10, 0.5)
-    fill:SetAllPoints()
-    brd = EllesmereUI.MakeBorder(bg, 1, 1, 1, expanded and 0.16 or 0.12, PP)
-
-    strip = bg:CreateTexture(nil, "ARTWORK")
-    strip:SetWidth(2)
-    if enabled then
-        strip:SetColorTexture(EG.r, EG.g, EG.b, 0.7)
-    else
-        strip:SetColorTexture(1, 1, 1, 0.10)
-    end
-    PP.Point(strip, "TOPLEFT", hdr, "TOPLEFT", 1, -1)
-    PP.Point(strip, "BOTTOMLEFT", hdr, "BOTTOMLEFT", 1, 1)
-    if strip.SetSnapToPixelGrid then strip:SetSnapToPixelGrid(false); strip:SetTexelSnappingBias(0) end
-
-    return y - FT_CARD_GAP
+                    FontReload()
+                end)
+            EllesmereUI.PanelPP.Point(dd, "RIGHT", hdr, "RIGHT", -44, 0)
+            -- A module whose stock style keeps Blizzard's own text: the override
+            -- has nothing to apply to there.
+            local styleKey = TILE_STYLE_KEYS[tile.folder]
+            if styleKey and EllesmereUI.BlizzStyle then EllesmereUI.BlizzStyle.BlockInline(styleKey, dd) end
+            return dd
+        end or nil,
+    })
 end
 
 -------------------------------------------------------------------------------
@@ -1455,9 +1271,7 @@ function _G._EUI_BuildFontsPage(pageName, parent, yOffset)
                 font = EllesmereUI.MEDIA_PATH .. "fonts\\Expressway.TTF" }
             fontDropOrder[#fontDropOrder + 1] = EllesmereUI.EXPRESSWAY_FORCED_KEY
         end
-        if EllesmereUI.AppendExternalSharedMediaFonts then
-            EllesmereUI.AppendExternalSharedMediaFonts(fontDropValues, fontDropOrder)
-        end
+        EllesmereUI.AppendExternalSharedMediaFonts(fontDropValues, fontDropOrder)
     else
         -- Blizzard Default first: the client's own standard UI font. The
         -- glyph-restricted branch above skips it (its "System Default" entry
@@ -1478,9 +1292,7 @@ function _G._EUI_BuildFontsPage(pageName, parent, yOffset)
                 fontDropOrder[#fontDropOrder + 1] = name
             end
         end
-        if EllesmereUI.AppendSharedMediaFonts then
-            EllesmereUI.AppendSharedMediaFonts(fontDropValues, fontDropOrder, { keyByName = true })
-        end
+        EllesmereUI.AppendSharedMediaFonts(fontDropValues, fontDropOrder, { keyByName = true })
     end
 
     local outlineModeValues = {

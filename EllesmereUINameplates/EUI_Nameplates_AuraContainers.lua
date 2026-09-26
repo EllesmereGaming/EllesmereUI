@@ -65,11 +65,6 @@ local function FP(...)
     return table.concat(FP_JOIN, "|")
 end
 
-local function Prof()
-    local p = ns.NP_GetProfile and ns.NP_GetProfile()
-    return p or (ns.NP_GetDefaults and ns.NP_GetDefaults()) or {}
-end
-
 local function PVal(key)
     local p = ns.NP_GetProfile and ns.NP_GetProfile()
     if p and p[key] ~= nil then return p[key] end
@@ -174,7 +169,7 @@ local function ApplyNPText(button, d, style)
             button:SetMouseMotionEnabled(motion)
         end
     end
-    local path = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("nameplates")) or "Fonts\\FRIZQT__.TTF"
+    local path = (EllesmereUI.GetFontPath("nameplates")) or "Fonts\\FRIZQT__.TTF"
     if d.duration then
         local fontKey = path .. "|" .. (style.durSize or 11)
         if d.npDurFont ~= fontKey then
@@ -325,6 +320,26 @@ local function ApplyNPBuffExtra(button, d, style)
         -- Every buff in this row is dispellable (the group filter says so), so the glow
         -- rides the button's own visibility -- no readback of per-aura state.
         host:SetAlpha(1)
+        -- Blizzard Border: Blizzard's static stealable art instead of a glow,
+        -- tinted like the glow (nil = Blizzard's own look).
+        if style.purgeStyle == Glows.STEALABLE_BORDER then
+            local cr, cg, cb = style.purgeR, style.purgeG, style.purgeB
+            local w, h = style.width or 24, style.height
+            if host._npStyle ~= style.purgeStyle or host._npW ~= w or host._npH ~= h
+               or host._npR ~= cr or host._npG ~= cg or host._npB ~= cb then
+                if host._euiGlowActive then Glows.StopGlow(host) end
+                host:SetAlpha(1)
+                Glows.ShowStealableBorder(host, w, h, cr, cg, cb)
+                host._npBorder = true
+                host._npStyle, host._npW, host._npH = style.purgeStyle, w, h
+                host._npR, host._npG, host._npB = cr, cg, cb
+            end
+            return
+        end
+        if host._npBorder then
+            Glows.HideStealableBorder(host)
+            host._npBorder = nil
+        end
         -- C-side animations only: identical in and out of restricted content.
         -- StartEngineGlow renders Pixel as the genuine dash march and routes the other
         -- driver styles to their FlipBook equivalents. purgeStyle carries a
@@ -407,8 +422,14 @@ local function BuildNPStyle(kind, variant)
         local glow, dispelType = NPB.GroupGlow(variant == 2 and 2 or 1)
         style.purgeGlow = glow
         style.purgeStyle = (ns.GetDispelGlowStyle and ns.GetDispelGlowStyle()) or 2
-        if ns.GetDispelGlowColor then
-            style.purgeR, style.purgeG, style.purgeB = ns.GetDispelGlowColor(dispelType)
+        -- Blizzard Border keeps Blizzard's own art until a colour is picked.
+        local colorOf = ns.GetDispelGlowColor
+        if style.purgeStyle == (EllesmereUI.Glows and EllesmereUI.Glows.STEALABLE_BORDER)
+            and ns.GetDispelBorderColor then
+            colorOf = ns.GetDispelBorderColor
+        end
+        if colorOf then
+            style.purgeR, style.purgeG, style.purgeB = colorOf(dispelType)
         end
         style.applyExtra = ApplyNPBuffExtra
     end
@@ -634,6 +655,17 @@ local NPF_ONCE_DEBUFFS = {
     [55078] = true,   -- Blood Plague
 }
 
+-- WoW Forever: Sunder Armor is one debuff per target that every warrior's
+-- casts stack onto, so it renders from any caster. Each rank is its own id.
+local NPF_SUNDER_IDS = {
+    [7386] = true, [7405] = true, [8380] = true, [11596] = true, [11597] = true,
+}
+local _, playerClass = UnitClass("player")
+local function NPF_SunderOn()
+    return EllesmereUI.IS_FOREVER and playerClass == "WARRIOR"
+        and PVal("showSunderArmor") == true
+end
+
 -- Active-only include maps for engine candidates (false entries stay
 -- stored but must never reach the C validator). Two maps: any-caster
 -- opt-outs feed the npinc group, everything else (the default) feeds
@@ -694,6 +726,12 @@ local function NPF_Cand(extra, side)
     -- render a copy. Option off = the id is an ordinary debuff again.
     if side ~= "cc" and PVal("hideBloodPlagueCopies") ~= false then
         for id in pairs(NPF_ONCE_DEBUFFS) do
+            m = m or {}
+            m[id] = true
+        end
+    end
+    if side ~= "cc" and NPF_SunderOn() then
+        for id in pairs(NPF_SUNDER_IDS) do
             m = m or {}
             m[id] = true
         end
@@ -784,6 +822,36 @@ local function NPF_ApplyContainer(container, kindKey, styleKey, cap)
                 else
                     container:SetAuraGroupMaxFrameCount(gkey, 1)
                 end
+            end
+        end
+    end
+    -- Sunder Armor (Forever warriors, opt-in): any caster, one icon. Ids the
+    -- user already lists in Tracked Auras keep going through those lists.
+    if side ~= "cc" and NPF_SunderOn() then
+        local ex, inc = ns.NPF_Exclude(side), ns.NPF_Include(side)
+        local ids
+        for id in pairs(NPF_SUNDER_IDS) do
+            if not (ex and ex[id]) and not (inc and inc[id]) then
+                ids = ids or {}
+                ids[id] = true
+            end
+        end
+        if ids then
+            wanted.npsunder = true
+            if not declared.npsunder then
+                AK.AddGroupToContainer(container, {
+                    key = "npsunder", filter = { "HARMFUL", "INCLUDE_NAME_PLATE_ONLY" },
+                    maxFrameCount = 1,
+                    candidateFilters = { includeSpellIDs = ids },
+                    sortMethod = SORT_IMPORTANT, style = styleKey,
+                    layout = { elementWidth = 24, elementHeight = 24,
+                               elementSpacing = 4, lineSpacing = 4 },
+                })
+                declared.npsunder = true
+                declaredNew = true
+            else
+                container:SetAuraGroupCandidateFilters("npsunder", { includeSpellIDs = ids })
+                container:SetAuraGroupMaxFrameCount("npsunder", 1)
             end
         end
     end
@@ -1533,7 +1601,7 @@ local function StyleFPFor(kind, idx)
     local durFP = FP(dur.size, dur.x, dur.y, dur.pos, dur.color.r, dur.color.g, dur.color.b)
     local stkFP = FP(stk.size, stk.x, stk.y, stk.pos, stk.color.r, stk.color.g, stk.color.b)
     return FP(kind, size, height, durFP, stkFP, purge,
-        EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("nameplates") or "",
+        EllesmereUI.GetFontPath("nameplates") or "",
         -- NOT `fn(kind) or true`: the getter legitimately returns false, and
         -- `false or true` would pin this fingerprint input to a constant so
         -- the toggle never restyles (the ternary-falsy trap).
@@ -1567,7 +1635,8 @@ local function CfgFP()
     -- NPB.Split decides how many groups the buff row runs, so it belongs
     -- with the container config rather than with the styles.
     return FP(PVal("maxDebuffs"), PVal("showAllDebuffs"), BuffMode(), NPB.Split(),
-        PVal("debuffIncludeCC"), ns.NPF_FP(), PVal("hideBloodPlagueCopies") ~= false)
+        PVal("debuffIncludeCC"), ns.NPF_FP(), PVal("hideBloodPlagueCopies") ~= false,
+        NPF_SunderOn())
 end
 
 local function ReanchorActive()

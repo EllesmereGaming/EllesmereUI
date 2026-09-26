@@ -46,7 +46,7 @@ local function EvalVisibility(cfg)
         ext = EUI.EvalVisibilityExtended and EUI.EvalVisibilityExtended(cfg, "visibility", nil, DISPATCHER_CAPS)
         if ext ~= nil then return ext end
     end
-    if EUI.CheckVisibilityOptions and EUI.CheckVisibilityOptions(cfg) then
+    if EUI.CheckVisibilityOptions(cfg) then
         return false
     end
     ext = EUI.EvalVisibilityExtended and EUI.EvalVisibilityExtended(cfg, "visibility", nil, DISPATCHER_CAPS)
@@ -693,7 +693,7 @@ local function EvalAnyMatch(store, legacyKey, vm, state, caps)
     -- So is a firing Hide lane: the match mode governs how the SHOW side combines, a
     -- Hide lane always hides. Mouseover included -- a hover must not reveal what a Hide
     -- lane hid (same rule as UF-3 in VisibilityCombineOr_MasterBriefing.md).
-    if EUI.VisOptionHideVeto and EUI.VisOptionHideVeto(store) then return false end
+    if EUI.VisOptionHideVeto(store) then return false end
     state = state or FillDispatchState()
     -- Same rule for the mode rows' Hide lanes.
     if EUI.VisModeHideVeto(sel, state, caps) then return false end
@@ -1044,7 +1044,7 @@ local function AnyDriverLaneFixups(store, edges)
 
     if store.visOnlyMounted or store.visHideMounted then
         local formOnly = not (IsMounted and IsMounted())
-            and EUI.IsPlayerMountedLike and EUI.IsPlayerMountedLike()
+            and EUI.IsPlayerMountedLike()
         if formOnly then
             -- Show lane: [mounted] misses the form the probe counts as mounted.
             if store.visOnlyMounted and not store.visHideMounted then

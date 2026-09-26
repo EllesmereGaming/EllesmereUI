@@ -17,7 +17,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- bottom. A row exists while UnitAttackSpeed reports a speed for its slot
 -- (Main Hand always does); the frame shrinks to the rows shown. Each row is a
 -- StatusBar in a clip frame with bg, PP border, spark and two FontStrings
--- (remaining time, slot tag).
+-- (remaining time, slot tag). Combine Hands takes the Off Hand row out of the
+-- stack: it is laid over the Main Hand row with no bg, border, text or fill of
+-- its own, so only its spark shows, riding its own engine-timed fill edge along
+-- the Main Hand bar (no Lua per frame there either).
 --
 -- Cost on: PLAYER_SWING re-sets the row's C_DurationUtil duration object and
 -- arms the bar timer (SetTimerDuration), so the engine animates the fill with
@@ -61,14 +64,20 @@ local ROWS = {
 
 -- On-next-swing attacks per class (base spell IDs; ranks resolve to the same
 -- name): Warrior Heroic Strike / Cleave, Druid Maul. While one is queued the
--- melee rows take the queue colour and carry the spell name, so the swing that
--- will consume it is visible. Names resolve once per session and only for a
--- class that has one: ACTIONBAR_UPDATE_STATE storms in combat and is
--- registered only while there are names to compare (the paint is a name
--- compare that touches the rows only on a change).
+-- melee rows take that attack's colour and carry its name, so the swing that
+-- will consume it is visible. `key` is the colour-key prefix in the store
+-- (queueR/G/B/A, queueCleaveR/...), r/g/b its fallback. Names resolve once per
+-- session and only for a class that has one: ACTIONBAR_UPDATE_STATE storms in
+-- combat and is registered only while there are names to compare (the paint
+-- touches the rows only when the queued attack changes).
 local QUEUE_SPELLS = {
-    WARRIOR = { 78, 845 },
-    DRUID   = { 6807 },
+    WARRIOR = {
+        { id = 78,  key = "queue",       r = 1,    g = 0.70, b = 0.20 },  -- Heroic Strike
+        { id = 845, key = "queueCleave", r = 0.95, g = 0.35, b = 0.25 },  -- Cleave
+    },
+    DRUID   = {
+        { id = 6807, key = "queue", r = 1, g = 0.70, b = 0.20 },  -- Maul
+    },
 }
 
 -- Shell + ticker host at FILE SCOPE (attribution rule, see _erbEventFrame in the
@@ -77,12 +86,12 @@ local shell = CreateFrame("Frame", "ERB_SwingTimerFrame", UIParent)
 shell:Hide()
 local tickFrame = CreateFrame("Frame")
 
--- built, rows[i] (row frames in ROWS order), byType[swingType] = row, shown (row
--- count on screen), live (rows mid-swing), rangeOn[swingType] = bool, sample
--- (unlock mode preview on), moHooked, unlockHooked, lastH (frame height last laid
--- out), queueNames (resolved on-next-swing spell names), queued (name painted,
--- false = none)
-local S = { rows = {}, byType = {}, shown = 0, live = 0, rangeOn = {}, queueNames = {}, queued = false }
+-- built, rows[i] (row frames in ROWS order), byType[swingType] = row, shown (rows
+-- stacked on screen; a combined off hand takes no slot), live (rows mid-swing),
+-- rangeOn[swingType] = bool, sample (unlock mode preview on), moHooked,
+-- unlockHooked, lastH (frame height last laid out), queueSpells (this class's
+-- QUEUE_SPELLS entries, name resolved), queued (the entry painted, false = none)
+local S = { rows = {}, byType = {}, shown = 0, live = 0, rangeOn = {}, queueSpells = {}, queued = false }
 
 -------------------------------------------------------------------------------
 --  Settings access
@@ -118,13 +127,18 @@ local function RowWanted(def, cfg)
     return CanSwing(def.type) and (not cfg or cfg[def.show] ~= false)
 end
 
--- Rows the frame would show right now (from the live rows once built, from the
+-- Rows the frame would stack right now (from the live rows once built, from the
 -- weapon slots before). Feeds the unlock mover's size before the first build.
+-- A combined off hand rides the Main Hand bar and takes no row (RefreshRows).
 local function ShownCount()
     if S.built then return math.max(S.shown, 1) end
     local cfg = P()
     local n = 0
     for i = 1, #ROWS do if RowWanted(ROWS[i], cfg) then n = n + 1 end end
+    -- ROWS[1] / ROWS[2] = Main Hand / Off Hand
+    if cfg and cfg.combineHands and RowWanted(ROWS[1], cfg) and RowWanted(ROWS[2], cfg) then
+        n = n - 1
+    end
     return math.max(n, 1)
 end
 
@@ -205,7 +219,7 @@ local function BuildRow(def)
     time:SetPoint("RIGHT", row, "RIGHT", -4, 0)
     time:SetJustifyH("RIGHT")
     time:SetWordWrap(false)
-    time:SetText("0.0")
+    time:SetText("")
     row._time = time
 
     row._outOfRange = false
@@ -213,13 +227,16 @@ local function BuildRow(def)
 end
 
 -- Out-of-range look: Blizzard dims the whole row to 0.4 and paints the text
--- red. Unlock mode suppresses the dimming without touching the state.
+-- red. Unlock mode suppresses the dimming without touching the state. A
+-- combined off-hand row keeps no bg or border (alpha, not Hide: a border
+-- re-apply shows its frame again); its range dims the clip, i.e. its spark.
 local function ApplyRangeLook(row, cfg)
     cfg = cfg or P()
     local oor = row._outOfRange and not S.sample
     local alpha = oor and ((cfg and cfg.outOfRangeAlpha) or 0.4) or 1
-    row._bg:SetAlpha(alpha)
-    row._border:SetAlpha(alpha)
+    local frameAlpha = row._merged and 0 or alpha
+    row._bg:SetAlpha(frameAlpha)
+    row._border:SetAlpha(frameAlpha)
     row._clip:SetAlpha(alpha)
     if oor then
         row._tag:SetTextColor(1, 0.1, 0.1, 1)
@@ -266,8 +283,22 @@ local function UpdateRangeAll()
     end
 end
 
+-- Spark visibility, set on the row's edges only (swing start, swing end, look
+-- apply), never per frame. Show Spark's spark shows only while its row is
+-- mid-swing. A combined off-hand row's spark IS the off-hand display: it
+-- ignores Show Spark and shows only mid-swing. Unlock movers up show both.
+local function UpdateSpark(row, cfg)
+    local on
+    if row._merged then
+        on = row._live or S.sample
+    else
+        on = cfg and cfg.showSpark and (row._live or S.sample)
+    end
+    row._spark:SetShown(on and true or false)
+end
+
 -- Idle render: empty (background) by default, full of the fill colour with
--- idleShowFill. Time reads 0.0 like Blizzard's bar. This is also the disarm:
+-- idleShowFill. The time text is blank (no "0.0"). This is also the disarm:
 -- the bar timer is re-armed on a finished duration, whose terminal state is
 -- static (RemainingTime paints empty, ElapsedTime full: the GCD bar's idle
 -- recipe), so the engine has nothing left to animate. The SetValue keeps the
@@ -276,6 +307,7 @@ local function IdleRow(row, cfg)
     if row._live then
         row._live = nil
         S.live = S.live - 1
+        UpdateSpark(row, cfg)
     end
     row._end = nil
     local full = cfg and cfg.idleShowFill == true
@@ -283,7 +315,7 @@ local function IdleRow(row, cfg)
     obj:SetTimeFromStart(GetTime() - 1, 1)
     row._bar:SetTimerDuration(obj, IMMEDIATE, full and DIR.ElapsedTime or DIR.RemainingTime)
     row._bar:SetValue(full and 1 or 0)
-    row._time:SetText("0.0")
+    row._time:SetText("")
 end
 
 -- The fill is the engine's: the row's duration object takes this swing and the
@@ -298,6 +330,7 @@ local function StartRow(row, dur, cfg)
     if not row._live then
         row._live = true
         S.live = S.live + 1
+        UpdateSpark(row, cfg)
     end
     local obj = row._durObj
     obj:SetTimeFromStart(now, dur)
@@ -323,7 +356,10 @@ ns.STTick = EllesmereUI.Tick.NewAnimTicker(tickFrame, function()
             if rem <= 0 then
                 IdleRow(row, cfg)
             else
-                if cfg.showTime ~= false then row._time:SetFormattedText("%.1f", rem) end
+                if cfg.showTime ~= false and not row._merged then
+                    -- Under 0.05s would print "0.0": blank until the end edge.
+                    if rem >= 0.05 then row._time:SetFormattedText("%.1f", rem) else row._time:SetText("") end
+                end
                 any = true
             end
         end
@@ -336,18 +372,24 @@ end, 0.05)
 --  Layout + look
 -------------------------------------------------------------------------------
 
--- Fill colour: the row's own (or class) colour, or the queue colour on a melee
--- row while an on-next-swing attack is queued.
+-- Fill colour: the row's own (or class) colour, or the queued attack's own
+-- colour on a melee row while an on-next-swing attack is queued. A combined
+-- off-hand row paints no fill: its bar keeps running under its spark, unseen.
 local function ApplyRowFill(row, cfg)
     local fillTex = row._bar:GetStatusBarTexture()
-    local queued = S.queued and row._def.melee
+    if row._merged then
+        ns.ApplyBarFlat(fillTex, 0, 0, 0, 0)
+        return
+    end
+    local q = row._def.melee and S.queued
     local fR, fG, fB, fA
-    if queued then
-        fR, fG, fB, fA = cfg.queueR or 1, cfg.queueG or 0.70, cfg.queueB or 0.20, cfg.queueA or 1
+    if q then
+        local k = q.key
+        fR, fG, fB, fA = cfg[k .. "R"] or q.r, cfg[k .. "G"] or q.g, cfg[k .. "B"] or q.b, cfg[k .. "A"] or 1
     else
         fR, fG, fB, fA = RowColor(cfg, row._def)
     end
-    if cfg.gradientEnabled and not queued then
+    if cfg.gradientEnabled and not q then
         ns.ApplyBarGradient(fillTex, cfg.gradientDir or "HORIZONTAL", fR, fG, fB, fA,
             cfg.gradientR, cfg.gradientG, cfg.gradientB, cfg.gradientA)
     else
@@ -359,29 +401,30 @@ end
 local function ApplyRowTag(row, cfg)
     local def = row._def
     if S.queued and def.melee then
-        row._tag:SetText(def.tag .. " - " .. S.queued)
+        row._tag:SetText(def.tag .. " - " .. S.queued.name)
     else
         row._tag:SetText(def.tag)
     end
 end
 
--- Which on-next-swing attack is queued right now, or false. Reads only the
--- names resolved at build; a restricted answer counts as not queued.
-local function QueuedName()
-    local names = S.queueNames
-    if #names == 0 or not (C_Spell and C_Spell.IsCurrentSpell) then return false end
-    for i = 1, #names do
-        local cur = C_Spell.IsCurrentSpell(names[i])
-        if Plain(cur) and cur then return names[i] end
+-- Which on-next-swing attack is queued right now (its QUEUE_SPELLS entry), or
+-- false. Reads only the names resolved at build; a restricted answer counts as
+-- not queued.
+local function QueuedSpell()
+    local list = S.queueSpells
+    if #list == 0 or not (C_Spell and C_Spell.IsCurrentSpell) then return false end
+    for i = 1, #list do
+        local cur = C_Spell.IsCurrentSpell(list[i].name)
+        if Plain(cur) and cur then return list[i] end
     end
     return false
 end
 
--- Delta paint: touches the melee rows only when the queued name changed.
+-- Delta paint: touches the melee rows only when the queued attack changed.
 local function PaintQueue(cfg)
     cfg = cfg or P()
     if not (cfg and S.built) then return end
-    local queued = cfg.queueHighlight ~= false and QueuedName() or false
+    local queued = cfg.queueHighlight ~= false and QueuedSpell() or false
     if queued == S.queued then return end
     S.queued = queued
     for i = 1, #S.rows do
@@ -393,8 +436,9 @@ local function PaintQueue(cfg)
     end
 end
 
--- Stack the applicable rows and size the frame to them. Returns true when the
--- frame height changed (anchored neighbours need a nudge).
+-- Stack the applicable rows and size the frame to them; a combined off-hand
+-- row is laid over the Main Hand row instead of taking a slot. Returns true
+-- when the frame height changed (anchored neighbours need a nudge).
 local function Layout(cfg)
     local h = cfg.height or 12
     local sp = cfg.rowSpacing or 0
@@ -404,9 +448,13 @@ local function Layout(cfg)
         local row = S.rows[i]
         if row:IsShown() then
             row:ClearAllPoints()
-            row:SetPoint("TOPLEFT", shell, "TOPLEFT", 0, -idx * (h + sp))
-            row:SetSize(w, h)
-            idx = idx + 1
+            if row._merged then
+                row:SetAllPoints(S.byType[SWING.MainHand])
+            else
+                row:SetPoint("TOPLEFT", shell, "TOPLEFT", 0, -idx * (h + sp))
+                row:SetSize(w, h)
+                idx = idx + 1
+            end
         end
     end
     S.shown = idx
@@ -454,24 +502,32 @@ local function ApplyRowLook(row, cfg, w, h)
     ApplyRowFill(row, cfg)
 
     -- Leading-edge spark: anchored to the fill texture's moving edge so it
-    -- tracks the fill (the GCD bar's horizontal case).
+    -- tracks the fill (the GCD bar's horizontal case). On a combined off-hand
+    -- row it is the whole display, tinted the Off Hand colour.
     local spark = row._spark
-    if cfg.showSpark then
-        local fillTex = bar:GetStatusBarTexture()
-        spark:ClearAllPoints()
-        spark:SetSize(8, h)
-        spark:SetPoint("CENTER", fillTex, "RIGHT", 0, 0)
-        spark:Show()
+    spark:ClearAllPoints()
+    spark:SetSize(8, h)
+    spark:SetPoint("CENTER", bar:GetStatusBarTexture(), "RIGHT", 0, 0)
+    if row._merged then
+        spark:SetVertexColor(RowColor(cfg, row._def))
     else
-        spark:Hide()
+        spark:SetVertexColor(1, 1, 1, 1)
     end
+    UpdateSpark(row, cfg)
 
     local size = cfg.textSize or 11
     ns.SetRBFont(row._tag, ns.GetRBFont(), size)
     ns.SetRBFont(row._time, ns.GetRBFont(), size)
+    -- Label on the left, time on the right, each with its own offsets.
+    row._tag:ClearAllPoints()
+    row._tag:SetPoint("LEFT", row, "LEFT", 4 + (cfg.labelX or 0), cfg.labelY or 0)
+    row._time:ClearAllPoints()
+    row._time:SetPoint("RIGHT", row, "RIGHT", -4 + (cfg.timeX or 0), cfg.timeY or 0)
     ApplyRowTag(row, cfg)
-    if cfg.showLabel ~= false then row._tag:Show() else row._tag:Hide() end
-    if cfg.showTime ~= false then row._time:Show() else row._time:Hide() end
+    -- A combined off-hand row shows no text; the Main Hand row keeps its own.
+    local merged = row._merged
+    if cfg.showLabel ~= false and not merged then row._tag:Show() else row._tag:Hide() end
+    if cfg.showTime ~= false and not merged then row._time:Show() else row._time:Hide() end
     ApplyRangeLook(row, cfg)
 end
 
@@ -481,26 +537,41 @@ local function ApplyLook(cfg)
 end
 
 -- Show/hide rows to the weapon slots, then re-stack. Also the range-check
--- registration: on for every shown row while the option is on, off otherwise.
+-- registration: on for every shown row while the option is on, off otherwise
+-- (a combined off hand keeps its own: it still needs its swings, and its range
+-- dims its spark). Combine Hands merges the Off Hand row only while the Main
+-- Hand row is shown too (ROWS puts Main Hand first). Returns the row whose
+-- merge flipped: ST_Apply restyles every row once the frame is placed, the
+-- weapon-slot events restyle just that one (an off hand equipped or dropped
+-- mid-session takes the right look without an options apply).
 local function RefreshRows(cfg)
     cfg = cfg or P()
     if not (cfg and S.built) then return end
     local wantRange = cfg.enabled and cfg.rangeCheck ~= false
+    local mhShown, flipped = false, nil
     for i = 1, #S.rows do
         local row = S.rows[i]
-        local can = RowWanted(row._def, cfg)
+        local def = row._def
+        local can = RowWanted(def, cfg)
         if can then
             row:Show()
         else
             row:Hide()
             if row._live then IdleRow(row, cfg) end
         end
-        SetRangeCheck(row._def.type, wantRange and can)
+        if def.type == SWING.MainHand then mhShown = can end
+        local merged = (def.type == SWING.OffHand and can and mhShown and cfg.combineHands) and true or nil
+        if merged ~= row._merged then
+            row._merged = merged
+            flipped = row
+        end
+        SetRangeCheck(def.type, wantRange and can)
     end
     if Layout(cfg) and EllesmereUI.NotifyElementResized then
         EllesmereUI.NotifyElementResized(UNLOCK_KEY)
     end
     UpdateRangeAll()
+    return flipped
 end
 
 -- Position: the unlock anchor chain first, then a saved unlock position, then
@@ -560,7 +631,8 @@ shell:SetScript("OnEvent", function(self, event, a1, a2, a3)
         UpdateRangeAll()
     else
         -- WEAPON_SLOT_CHANGED / UNIT_ATTACK_SPEED / PLAYER_ENTERING_WORLD
-        RefreshRows(cfg)
+        local flipped = RefreshRows(cfg)
+        if flipped then ApplyRowLook(flipped, cfg, cfg.width or 220, cfg.height or 12) end
     end
 end)
 
@@ -580,7 +652,7 @@ end
 -- the one chatty event here).
 local function ApplyQueueEvents(cfg)
     if not S.events then return end
-    if cfg.queueHighlight ~= false and #S.queueNames > 0 then
+    if cfg.queueHighlight ~= false and #S.queueSpells > 0 then
         shell:RegisterEvent("ACTIONBAR_UPDATE_STATE")
     else
         shell:UnregisterEvent("ACTIONBAR_UPDATE_STATE")
@@ -611,9 +683,11 @@ local function EnsureBuilt()
     local queueList = QUEUE_SPELLS[classFile]
     if queueList and C_Spell and C_Spell.GetSpellName then
         for i = 1, #queueList do
-            local name = C_Spell.GetSpellName(queueList[i])
+            local q = queueList[i]
+            local name = C_Spell.GetSpellName(q.id)
             if Plain(name) and name then
-                S.queueNames[#S.queueNames + 1] = name
+                q.name = name
+                S.queueSpells[#S.queueSpells + 1] = q
             end
         end
     end
@@ -704,9 +778,12 @@ function ns.ST_Apply()
         local row = S.rows[i]
         local obj = row._durObj
         if S.sample then
+            -- A combined off hand parks empty, so its spark shows at the far
+            -- end from a full Main Hand bar's.
+            local oh = row._merged
             obj:SetTimeFromStart(GetTime() - 1, 1)
-            row._bar:SetTimerDuration(obj, IMMEDIATE, DIR.ElapsedTime)
-            row._bar:SetValue(1)
+            row._bar:SetTimerDuration(obj, IMMEDIATE, oh and DIR.RemainingTime or DIR.ElapsedTime)
+            row._bar:SetValue(oh and 0 or 1)
             row._time:SetText("1.2")
         elseif row._live and row._dur then
             obj:SetTimeFromStart(row._end - row._dur, row._dur)

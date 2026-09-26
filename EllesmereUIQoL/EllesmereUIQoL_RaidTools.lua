@@ -390,7 +390,7 @@ local function TrackFont(owner, fs, size)
     return fs
 end
 local function ApplyFonts()
-    local path = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath(FONT_KEY)
+    local path = EllesmereUI.GetFontPath(FONT_KEY)
     if not path then return end
     for _, owner in ipairs(fontOwners) do
         local t = owner._fonts
@@ -1079,7 +1079,7 @@ do
     local TIP_PAD, TIP_ROW_GAP, TIP_COL_GAP, TIP_FONT_SIZE = 10, 3, 18, 12
 
     local function SetTipFont(fs)
-        local path = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath(FONT_KEY)
+        local path = EllesmereUI.GetFontPath(FONT_KEY)
         local _, _, flags = fs:GetFont()
         if not path and GameFontNormal then
             local fallbackPath, _, fallbackFlags = GameFontNormal:GetFont()
@@ -2190,10 +2190,6 @@ end
 -- protected as Hide). So in combat the whole request is parked behind applyPending,
 -- with the REGEN listener guaranteed alive to finish it.
 function Apply()
-    -- Secure handlers end to end (state-driven shells, click handlers):
-    -- stands down on a client that cannot compile snippets (WoW Forever
-    -- beta). Nothing is built, so there is nothing to tear down either.
-    if not EllesmereUI.SecureSnippetsOK() then return end
     if InCombatLockdown() then
         applyPending = true
         EnsureEvents()

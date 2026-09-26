@@ -97,30 +97,6 @@ function ns.GetBarGlows()
     return prof.barGlows
 end
 
---- Get assignments for an action bar button (index-based)
-function ns.GetButtonAssignments(barIdx, btnIdx)
-    local bg = ns.GetBarGlows()
-    local key = barIdx .. "_" .. btnIdx
-    return bg.assignments[key]
-end
-
---- Get assignments for a CDM bar icon (cooldownID-based)
-function ns.GetCDMButtonAssignments(cooldownID)
-    local bg = ns.GetBarGlows()
-    local key = "cdm_" .. cooldownID
-    return bg.assignments[key]
-end
-
---- Returns true if the user has at least one bar glow assignment
-function ns.HasBarGlowAssignments()
-    local bg = ns.GetBarGlows()
-    if not bg or not bg.assignments then return false end
-    for _, buffList in pairs(bg.assignments) do
-        if buffList and #buffList > 0 then return true end
-    end
-    return false
-end
-
 --- Collect all tracked buff spells across all CDM buff bars
 --- Returns tracked (displayed in CDM) and untracked (known but not displayed)
 function ns.GetAllCDMBuffSpells()

@@ -1160,7 +1160,7 @@ ECHAT.EngineQueueRebuildAll = QueueRebuildAll
 -- lines received while dormant. No-op while the state is unchanged, so the
 -- PEW edge and the per-message probe cost one comparison.
 EngineUpdateProtectedState = function()
-    local prot = (EUI.InProtectedInstance and EUI.InProtectedInstance()) and true or false
+    local prot = (EUI.InProtectedInstance()) and true or false
     if prot == _protActive then return end
     _protActive = prot
     QueueRebuildAll()
@@ -1271,12 +1271,6 @@ function ECHAT.EngineBackfillLine(cf, text, r, g, b, id)
     cf:BackFillMessage(display, r, g, b, id)
     win.smf:BackFillMessage(display, r, g, b, id)
     return true
-end
-
-function ECHAT.EngineNumMessages(cf)
-    local win = WINS[cf]
-    if not win then return 0 end
-    return win.smf:GetNumMessages()
 end
 
 -- Full-hide passthrough support: our display simply hides (a hidden frame

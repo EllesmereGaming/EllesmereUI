@@ -32,32 +32,15 @@ local GetRaidTargetIndex, SetRaidTargetIconTexture = GetRaidTargetIndex, SetRaid
 local C_CVar, NamePlateConstants, Enum = C_CVar, NamePlateConstants, Enum
 local _, PLAYER_CLASS = UnitClass("player")
 
-local function GetFont()
-    if EllesmereUI and EllesmereUI.GetFontPath then
-        return EllesmereUI.GetFontPath("nameplates")
-    end
-    -- `defaults` is declared below this function, so use the literal path.
-    return (p and p.font) or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
-end
-local function GetNPOutline()
-    -- Slug-gated at the source (GetFontOutlineFlag); SetFSFont gates the
-    -- explicit-flag path too, so aura literals are covered.
-    return (EllesmereUI and EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("nameplates")) or "OUTLINE, SLUG"
-end
-local function GetNPUseShadow()
-    return not EllesmereUI or not EllesmereUI.GetFontUseShadow or EllesmereUI.GetFontUseShadow("nameplates")
-end
+local function GetFont() return EllesmereUI.GetFontPath("nameplates") end
+-- Slug-gated at the source (GetFontOutlineFlag); SetFSFont gates the
+-- explicit-flag path too, so aura literals are covered.
+local function GetNPOutline() return EllesmereUI.GetFontOutlineFlag("nameplates") end
+local function GetNPUseShadow() return EllesmereUI.GetFontUseShadow("nameplates") end
 local function SetFSFont(fs, size, flags)
-  if not (fs and fs.SetFont) then return end
-  local f = flags or GetNPOutline()
   -- "Never Show Slug": gates the explicit-flag path so hardcoded aura
   -- "OUTLINE, SLUG" literals drop the slug (body text is gated at the source).
-  if EllesmereUI and EllesmereUI.SlugFlag then f = EllesmereUI.SlugFlag(f) end
-  -- Drop shadows only render from a FontObject; prime before SetFont.
-  if EllesmereUI and EllesmereUI.PrimeFontShadow then
-    EllesmereUI.PrimeFontShadow(fs, f == "")
-  end
-  fs:SetFont(GetFont(), size or 11, f)
+  EllesmereUI.ApplyModuleFont(fs, nil, size or 11, "nameplates", EllesmereUI.SlugFlag(flags or GetNPOutline()))
 end
 
 ns.GetFont = GetFont
@@ -118,6 +101,7 @@ function ns._appendDisplayPresetKeys(t)
         "ccDurationTextSize", "ccDurationTextX", "ccDurationTextY", "ccDurationTextColor",
         "buffTextSize", "buffTextColor", "ccTextSize", "ccTextColor",
         "raidMarkerPos", "classificationSlot", "classificationShowInInstances",
+        "factionSlot", "classificationIncludeFaction",
         "castNameSize", "castNameColor", "castCombineNameTarget",
         "castTargetSize", "castTargetClassColor", "castTargetColor",
         "showCastTimer", "castTimerSize", "castTimerColor", "targetScale",
@@ -346,6 +330,13 @@ local defaults = {
     raidMarkerSize = 24,
     classificationSlot = "topleft",
     classificationShowInInstances = false,  -- Rare/Quest "Show In Instances" (slot cog): lifts the open-world-only gate in UpdateClassification + IsQuestMob
+    -- Faction badge (Horde/Alliance), a Core Positions slot element; rules in ns.NP_FactionBadge.
+    factionSlot = "none",
+    factionStyle = "pvp",  -- Icon Style: a key of EllesmereUI.FACTION_ART
+    classificationIncludeFaction = false,  -- "Rare/Quest + Faction": the badge shares the classification slot
+    factionOppositeOnly = false,
+    factionPlayersOnly = false,
+    factionPvP = "dim",  -- "dim" greys unflagged units, "only" hides them, "ignore" draws both alike
     rareEliteIconSize = 20,
     castBarHeight = 17,
     castBarOffsetY = 0,
@@ -420,6 +411,7 @@ local defaults = {
     pandemicGlowBackgroundColor = { r = 0, g = 0, b = 0 },
     lowHpGlow = false,  -- Execute Pulse Glow (Extras): red glow around plates below 30% health
     hideBloodPlagueCopies = true,  -- Extras (Blood DK only): collapse the Blood Plague copies to one debuff icon
+    showSunderArmor = false,  -- Extras (Forever warriors only): Sunder Armor from any warrior on enemy plates
     dispelGlow = false,
     dispelGlowStyle = 2,
     -- Swatch display only: the getter returns nil while the user has never
@@ -817,7 +809,7 @@ function ns.NP_UpdateClassicLevel(plate)
         return
     end
     sk:Hide()
-    fs:SetText(ns.GetUnitLevelText(unit))
+    fs:SetText(ns.GetUnitLevelText(unit, true))
     -- The stock yellow, and the difficulty colour only where difficulty means
     -- something: a unit you cannot attack is never colour-ranked.
     local r, g, b = 1, 0.82, 0
@@ -1340,9 +1332,6 @@ local function GetDebuffTextColor()
     return c.r, c.g, c.b, 1
 end
 ns.GetDebuffTextColor = GetDebuffTextColor
-local function GetPandemicGlow()
-    return (p and p.pandemicGlow) or defaults.pandemicGlow
-end
 
 -- Pandemic glow style definitions.
 -- 1 = Pixel Glow (procedural ants), 2 = Action Button Glow (animated ants texture),
@@ -1376,10 +1365,6 @@ local function GetPandemicGlowStyle()
     return 1
 end
 ns.GetPandemicGlowStyle = GetPandemicGlowStyle
-local function GetPandemicGlowColor()
-    local c = (p and p.pandemicGlowColor) or defaults.pandemicGlowColor
-    return c.r, c.g, c.b
-end
 local function GetPandemicGlowLines()
     return (p and p.pandemicGlowLines) or defaults.pandemicGlowLines
 end
@@ -1392,14 +1377,6 @@ local function GetPandemicGlowSpeed()
     return (p and p.pandemicGlowSpeed) or defaults.pandemicGlowSpeed
 end
 ns.GetPandemicGlowSpeed = GetPandemicGlowSpeed
--- On ns, not file-scope locals (Lua 5.1 200-local cap); both still close over the p/defaults upvalues.
-function ns.GetPandemicGlowBackground()
-    return p and p.pandemicGlowBackground == true
-end
-function ns.GetPandemicGlowBackgroundColor()
-    local c = (p and p.pandemicGlowBackgroundColor) or defaults.pandemicGlowBackgroundColor
-    return c.r or 0, c.g or 0, c.b or 0
-end
 
 -- Offensive dispel capability: the shared parent detector (AuraKit), which
 -- asks what the PLAYER knows, never what an aura is, so it keeps working in
@@ -1453,6 +1430,16 @@ do
         local c = p and p.dispelGlowColor
         if not c then return nil, nil, nil end
         return c.r, c.g, c.b
+    end
+    -- Blizzard Border tint: the glow colour, except the untouched default gold
+    -- (the profile merge fills the key, so it is compared, not nil-tested)
+    -- keeps Blizzard's own stealable art. Per-type colours always tint.
+    ns.GetDispelBorderColor = function(dispelType)
+        local r, g, b = ns.GetDispelGlowColor(dispelType)
+        if dispelType and ns.GetDispelGlowUseTypeColor() then return r, g, b end
+        local d = defaults.dispelGlowColor
+        if r == nil or (d and r == d.r and g == d.g and b == d.b) then return nil, nil, nil end
+        return r, g, b
     end
 end
 local function GetCastBarHeight()
@@ -1663,6 +1650,53 @@ local function GetRareEliteIconSize()
     return (p and p[pos .. "SlotSize"]) or defaults[pos .. "SlotSize"] or 20
 end
 ns.GetRareEliteIconSize = GetRareEliteIconSize
+-- Faction badge slot and size (same per-slot size as every Core Positions element).
+-- With "Rare/Quest + Faction" the badge rides the classification slot.
+function ns.NP_GetFactionSlot()
+    if p and p.classificationIncludeFaction then return GetClassificationSlot() end
+    return (p and p.factionSlot) or defaults.factionSlot
+end
+function ns.NP_GetFactionIconSize()
+    local pos = ns.NP_GetFactionSlot()
+    if pos == "none" then return 20 end
+    return (p and p[pos .. "SlotSize"]) or defaults[pos .. "SlotSize"] or 20
+end
+function ns.NP_GetFactionStyle()
+    return (p and p.factionStyle) or defaults.factionStyle
+end
+-- Which faction badge a unit gets: its faction ("Horde"/"Alliance", drawn with
+-- EllesmereUI.SetFactionArt in the Icon Style) and whether to dim it, or nil for none.
+-- Neutral units and unreadable (secret) values show nothing; an unreadable PvP flag
+-- counts as flagged, so nothing is hidden or greyed on a guess. Faction NPCs count
+-- unless Players Only is on. Art matches Blizzard's Forever target frame badge.
+function ns.NP_FactionBadge(unit)
+    if not unit or ns.NP_GetFactionSlot() == "none" then return nil end
+    -- Both toggles default off, so an unset key reads the same as its default.
+    if p and p.factionPlayersOnly then
+        local isPlayer = UnitIsPlayer(unit)
+        if issecretvalue(isPlayer) or not isPlayer then return nil end
+    end
+    local fac = UnitFactionGroup(unit)
+    if issecretvalue(fac) or (fac ~= "Horde" and fac ~= "Alliance") then return nil end
+    if p and p.factionOppositeOnly then
+        local mine = UnitFactionGroup("player")
+        if issecretvalue(mine) then return nil end
+        -- Mercenary mode: the player fights for the other faction.
+        if UnitIsMercenary("player") then
+            if mine == "Horde" then mine = "Alliance" elseif mine == "Alliance" then mine = "Horde" end
+        end
+        if mine == fac then return nil end
+    end
+    local dim = false
+    local pvpMode = (p and p.factionPvP) or defaults.factionPvP
+    if pvpMode ~= "ignore" then
+        local pvp = UnitIsPVP(unit)
+        local unflagged = not issecretvalue(pvp) and not pvp
+        if unflagged and pvpMode == "only" then return nil end
+        dim = unflagged and pvpMode == "dim"
+    end
+    return fac, dim
+end
 local function GetNameYOffset()
     return (p and p.nameYOffset) or defaults.nameYOffset
 end
@@ -1730,11 +1764,22 @@ do
     end
     -- Display string for the unit's EFFECTIVE level (so scaling/Chromie time read as the game
     -- ranks them). "??" for skull-ranked (-1) or unreadable (secret) levels, matching default UI.
-    function ns.GetUnitLevelText(unit)
+    -- Level Difficulty Color (text-slot cog) wraps it in Blizzard's difficulty
+    -- color; an unreadable (secret) level stays a plain "??". plain skips the
+    -- wrap for a level that paints its own colour (the Classic plate level).
+    function ns.GetUnitLevelText(unit, plain)
         local lvl = UnitEffectiveLevel(unit)
-        if type(lvl) ~= "number" or (issecretvalue and issecretvalue(lvl))
-           or lvl < 0 then
+        local col = not plain and p and p.levelDifficultyColor
+        if type(lvl) ~= "number" or (issecretvalue and issecretvalue(lvl)) then
             return "??"
+        end
+        if lvl < 0 then
+            if col then return EllesmereUI.ColorText("??", EllesmereUI.GetLevelDifficultyColor(-1)) end
+            return "??"
+        end
+        if col then
+            return EllesmereUI.ColorText(tostring(lvl),
+                EllesmereUI.GetLevelColor(unit, lvl, p.levelDifficultyColorFriendly))
         end
         return tostring(lvl)
     end
@@ -2135,6 +2180,9 @@ function ns.ApplySlotStrata(plate)
     if plate.classFrame then
         plate.classFrame:SetFrameStrata(StrataFor(GetClassificationSlot()))
     end
+    if plate.factionFrame then
+        plate.factionFrame:SetFrameStrata(StrataFor(ns.NP_GetFactionSlot()))
+    end
     local ds, bs, cs = GetAuraSlots()
     local dStr, bStr, cStr = StrataFor(ds), StrataFor(bs), StrataFor(cs)
     if plate.debuffs then
@@ -2181,19 +2229,23 @@ local function StopDispelGlow(slot)
     if dg.animGroup then dg.animGroup:Stop() end
     if dg.flipTex then dg.flipTex:Hide() end
     -- One unified stop: pixel/ABG/autocast plus the ABG preview's engine
-    -- substitute (flipbook + halo) on the wrapper.
+    -- substitute (flipbook + halo) on the wrapper, and the Blizzard Border.
     _G_Glows.StopAllGlows(dg.wrapper)
+    if _G_Glows.HideStealableBorder then _G_Glows.HideStealableBorder(dg.wrapper) end
     dg.wrapper:Hide()
     dg.active = false
 end
 
 -- Preview only: the live nameplate glow runs through EllesmereUI.Glows on the
 -- engine buttons. dispelType is "magic" / "enrage" / nil.
-local function StartDispelGlow(slot, slotSize, dispelType)
+-- slotH: the icon height (cropped icons); the Blizzard Border fits it.
+local function StartDispelGlow(slot, slotSize, dispelType, slotH)
     local dg = slot.dispelGlow
     local styleIdx = ns.GetDispelGlowStyle()
     local styles = PANDEMIC_GLOW_STYLES
-    if styleIdx < 1 or styleIdx > #styles then styleIdx = 2 end
+    -- Blizzard Border sits outside the style list (the static stealable art).
+    local blizz = _G_Glows.STEALABLE_BORDER
+    if styleIdx ~= blizz and (styleIdx < 1 or styleIdx > #styles) then styleIdx = 2 end
     local entry = styles[styleIdx]
     local sz = slotSize or 26
 
@@ -2221,9 +2273,21 @@ local function StartDispelGlow(slot, slotSize, dispelType)
         StopDispelGlow(slot)
     end
 
-    local cr, cg, cb = ns.GetDispelGlowColor(dispelType)
+    local cr, cg, cb
+    if styleIdx == blizz then
+        cr, cg, cb = ns.GetDispelBorderColor(dispelType)
+    else
+        cr, cg, cb = ns.GetDispelGlowColor(dispelType)
+    end
 
-    if entry.procedural then
+    if styleIdx == blizz then
+        dg.flipTex:Hide()
+        dg.animGroup:Stop()
+        StopProceduralAnts(dg.wrapper)
+        StopButtonGlow(dg.wrapper)
+        StopAutoCastShine(dg.wrapper)
+        _G_Glows.ShowStealableBorder(dg.wrapper, sz, slotH or sz, cr, cg, cb)
+    elseif entry.procedural then
         dg.flipTex:Hide()
         dg.animGroup:Stop()
         StopButtonGlow(dg.wrapper)
@@ -2415,6 +2479,7 @@ local auraSlotToDBKey = {
     ccSlot         = "ccSlot",
     classification = "classificationSlot",
     raidMarker     = "raidMarkerPos",
+    faction        = "factionSlot",
 }
 local function GetAuraSlotOffsets(slotKey)
     local dbKey = auraSlotToDBKey[slotKey]
@@ -2569,6 +2634,17 @@ PositionArrowsOutsideAuras = function(plate)
     elseif clSlot == "right" and plate.classFrame and plate.classFrame:IsShown() then
         local cxOff = select(1, GetAuraSlotOffsets("classification"))
         rightExtent = math.max(rightExtent, sideOff + rightPush + clSz + cxOff)
+    end
+    -- Account for the faction badge in side slots (its own, or Rare/Quest + Faction)
+    local fcSlot = ns.NP_GetFactionSlot()
+    if (fcSlot == "left" or fcSlot == "right") and plate.factionFrame and plate.factionFrame:IsShown() then
+        local fxOff = GetSlotOffsets(fcSlot)
+        local fcSz = ns.NP_GetFactionIconSize()
+        if fcSlot == "left" then
+            leftExtent = math.max(leftExtent, sideOff + leftPush + fcSz - fxOff)
+        else
+            rightExtent = math.max(rightExtent, sideOff + rightPush + fcSz + fxOff)
+        end
     end
     -- Restricted-tree rendering: inside the aspect-restricted nameplate subtree, SINGLE-POINT +
     -- SetSize regions render displaced from their anchor, while rects fully defined by anchors
@@ -3407,6 +3483,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.classFrame:Hide()
     plate.class = plate.classFrame:CreateTexture(nil, "ARTWORK")
     plate.class:SetAllPoints()
+    -- The faction badge (plate.factionFrame) is built on first use by UpdateFaction.
     plate.cast = CreateFrame("StatusBar", nil, plate)
     -- Cast bar spans the health bar width; by default the icon hangs outside left, and with
     -- "Make Icon Part of the Bar" the bar shrinks to fit it. Must run after plate.health exists.
@@ -3910,11 +3987,8 @@ do
     end)
 end
 
-local function InitDB()
-    -- No-op stub (NewDB + DeepMergeDefaults handles defaults); kept so stray call sites don't error.
-end
 function ns.GetActiveKickSpell()
-    return EllesmereUI and EllesmereUI.GetActiveKickSpell and EllesmereUI.GetActiveKickSpell()
+    return EllesmereUI.GetActiveKickSpell()
 end
 -- Cast overlay uses the same tint as the on-plate cast bar.
 ns.ComputeCastBarTint = function(readyTint, baseTint)
@@ -3981,13 +4055,6 @@ function ns.RefreshCastBorderColor()
         if plate.ApplyCastBorderColor then plate:ApplyCastBorderColor() end
     end
     if ns.GetWrapBorderCastbar() then ns.ApplyBorderWrapToAll() end
-end
-function ns.RefreshNameplateYOffset()
-    local yOff = GetNameplateYOffset()
-    for _, plate in pairs(ns.plates) do
-        plate.health:ClearAllPoints()
-        plate.health:SetPoint("CENTER", plate, "CENTER", 0, yOff)
-    end
 end
 
 function ns.RefreshStackingBounds()
@@ -4113,6 +4180,8 @@ function ns.RefreshAllSettings()
     -- (override group, profile switch, import) flipped the checkbox while plates kept
     -- the old behaviour. Self-guarded, so an unchanged key costs nothing.
     if ns.ApplyOOCPlates then ns.ApplyOOCPlates() end
+    -- Friendly faction badges: redraw for this profile's faction settings.
+    ns.NP_RefreshFriendlyFaction()
 end
 
 -------------------------------------------------------------------------------
@@ -4520,12 +4589,12 @@ local function GetClassPipColor(classFile, powerKey)
         if powerKey then
             local alias = powerKey:match("^(.+)_BAR$")
             local key = alias or powerKey
-            local c = EllesmereUI.GetPowerColor and EllesmereUI.GetPowerColor(key)
+            local c = EllesmereUI.GetPowerColor(key)
             if c then return { c.r, c.g, c.b } end
         end
-        local rc = EllesmereUI.GetResourceColor and EllesmereUI.GetResourceColor(classFile)
+        local rc = EllesmereUI.GetResourceColor(classFile)
         if rc then return { rc.r, rc.g, rc.b } end
-        local cc = EllesmereUI.GetClassColor and EllesmereUI.GetClassColor(classFile)
+        local cc = EllesmereUI.GetClassColor(classFile)
         if cc then return { cc.r, cc.g, cc.b } end
     end
     return CP_DEFAULT_COLOR
@@ -5324,16 +5393,12 @@ local function EnableClassPowerWatcher()
                 end
                 local unit, castGUID, spellID = ...
                 if unit == "player" and EllesmereUI then
-                    if EllesmereUI.HandleTipOfTheSpear then
-                        EllesmereUI.HandleTipOfTheSpear(event, unit, castGUID, spellID)
-                    end
+                    EllesmereUI.HandleTipOfTheSpear(event, unit, castGUID, spellID)
                 end
                 RefreshClassPower()
             elseif event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" then
                 if not _G._ERB_AceDB and EllesmereUI then
-                    if EllesmereUI.HandleTipOfTheSpear then
-                        EllesmereUI.HandleTipOfTheSpear(event)
-                    end
+                    EllesmereUI.HandleTipOfTheSpear(event)
                 end
                 RefreshClassPower()
             elseif event == "PLAYER_REGEN_ENABLED" then
@@ -6173,13 +6238,6 @@ local hookedSoftTargetIcons = {}
 local npOffscreenParent = CreateFrame("Frame")
 npOffscreenParent:Hide()
 local storedParents = {}
-local function HideBlizzardElement(element)
-    if element then
-        element:SetAlpha(0)
-        element:Hide()
-        if element.SetScale then element:SetScale(0.001) end
-    end
-end
 local function MoveToOffscreen(element, unit)
     if not element then return end
     -- PERF: skip SetParent if already offscreen (saves ~14 calls per plate respawn)
@@ -7083,6 +7141,7 @@ function NameplateFrame:SetUnit(unit, nameplate)
             end
             self:UpdateName()
             self:UpdateClassification()
+            if not (p and p.classificationIncludeFaction) then self:UpdateFaction() end
             self:UpdateRaidIcon()
             if p and p.nameRaidMarkerEnabled == true then self:RefreshNamePosition(true) end
             self:ApplyTarget()
@@ -7099,6 +7158,7 @@ function NameplateFrame:SetUnit(unit, nameplate)
 end
 function NameplateFrame:ClearUnit()
     self:UnregisterAllEvents()
+    self._factionEv = nil
 
     -- Classic WoW UI: blank the level in the border's plate. Plates are
     -- pooled, so a recycled one would otherwise carry the last unit's level
@@ -7192,6 +7252,9 @@ function NameplateFrame:ClearUnit()
     self._castTex = nil
     self._castLockout = nil
     self._nameRaidMarkerShown = nil
+    -- A recycled frame's first health paint must not treat the new occupant as
+    -- the old target (the hash line reads this flag).
+    self._isTarget = nil
     self.cast:Hide()
     self.castShieldFrame:Hide()
     self.castShieldFrame:SetAlpha(1)
@@ -7213,6 +7276,7 @@ function NameplateFrame:ClearUnit()
     if self.nameRaidFrame then self.nameRaidFrame:Hide() end
     self.raidFrame:Hide()
     self.classFrame:Hide()
+    if self.factionFrame then self.factionFrame:Hide() end
     if self.classText then self.classText:Hide() end
     if self.focusLetter then self.focusLetter:Hide() end
     if self.leftArrow then self.leftArrow:Hide() end
@@ -7292,7 +7356,7 @@ function NameplateFrame:UpdateHealthValues()
             -- restores. ClearHoverExtras restores hover size then re-runs
             -- ApplyTarget; the direct call covers its no-hover-fx early-out
             -- and re-evaluates target state for the new unit.
-            if ns.ClearHoverExtras then ns.ClearHoverExtras(self) end
+            ns.ClearHoverExtras(self)
             self:ApplyTarget()
         end
     end
@@ -7881,6 +7945,11 @@ function NameplateFrame:UpdateName()
             -- paint takes the full absorb path for the new unit; the cached max
             -- belongs to the old unit, drop it too.
             self._absorbHidden = nil
+            -- Repaint target/hover styling for the new occupant so the old one's
+            -- paint cannot stick; mirrors the UpdateHealthValues swap.
+            -- ApplyTarget re-owns the shared target-plate cache as a side effect.
+            ns.ClearHoverExtras(self)
+            self:ApplyTarget()
             self._maxHPValid = nil
             self._absMode = nil
         end
@@ -7896,7 +7965,7 @@ function NameplateFrame:UpdateName()
     -- combo. A nil slot keeps the plain-name write (RefreshNamePosition hides it).
     local el = ns.FindNameSlot()
     el = el and GetTextSlot(el) or "enemyName"
-    local name = UnitName(unit)
+    local name = EllesmereUI.WithSurname(UnitName(unit))
     if type(name) == "string" then
         ns.SetNameElementText(self.name, el, name, unit)
         if p and p.nameRaidMarkerEnabled == true then self:RefreshNamePosition(true) end
@@ -8005,6 +8074,119 @@ function NameplateFrame:UpdateClassification()
     self.classFrame:Show()
     self:UpdateNameWidth()
 end
+-- "Rare/Quest + Faction": the faction badge's step-aside depends on whether the
+-- classification icon shows, and some passes (quest objective refreshes) redraw only
+-- the classification, so re-place the badge after every classification pass.
+NameplateFrame._UpdateClassificationBase = NameplateFrame.UpdateClassification
+function NameplateFrame:UpdateClassification()
+    self:_UpdateClassificationBase()
+    if p and p.classificationIncludeFaction then self:UpdateFaction() end
+end
+-- Faction badge (Horde/Alliance): a Core Positions slot element, placed exactly like
+-- the Rare/Quest indicator above. Which badge (if any) comes from ns.NP_FactionBadge,
+-- shared with the friendly plates.
+-- artOnly (the plate's own UNIT_FACTION): a badge already up in this slot only
+-- needs its art checked; every layout input moves through a layout caller.
+function NameplateFrame:UpdateFaction(artOnly)
+    local slot = ns.NP_GetFactionSlot()
+    local unit = self.unit
+    -- Zero cost while the slot is None: no badge frame, no events.
+    if unit and slot ~= "none" then
+        -- Faction and PvP flag changes both arrive as UNIT_FACTION (the one event
+        -- Blizzard's own unit frames repaint their PvP badge on).
+        if self._factionEv ~= unit then
+            self:RegisterUnitEvent("UNIT_FACTION", unit)
+            self._factionEv = unit
+        end
+        if not self.factionFrame then
+            -- Same indicator tier as the classification icon, one level below it, so
+            -- a stacked Rare/Quest + Faction pair draws Rare/Quest on top.
+            local f = CreateFrame("Frame", nil, self)
+            f:SetFrameStrata(ns.GetSlotRaiseStrata(slot) and "HIGH" or "MEDIUM")
+            f:SetFrameLevel(self.health:GetFrameLevel() + 2)
+            f:Hide()
+            self.faction = f:CreateTexture(nil, "ARTWORK")
+            self.faction:SetAllPoints()
+            self.factionFrame = f
+        end
+    elseif self._factionEv then
+        self:UnregisterEvent("UNIT_FACTION")
+        self._factionEv = nil
+    end
+    local atlas, dim
+    if unit and slot ~= "none" then atlas, dim = ns.NP_FactionBadge(unit) end
+    if not atlas then
+        if self.factionFrame and self.factionFrame:IsShown() then
+            self.factionFrame:Hide()
+            self:UpdateNameWidth()
+            -- A side-slot badge had pushed the target arrows out: pull them back in.
+            if self._facSlot == "left" or self._facSlot == "right" then
+                PositionArrowsOutsideAuras(self)
+                if ns.NPC_ReanchorArrows then ns.NPC_ReanchorArrows(self) end
+            end
+        end
+        return
+    end
+    -- Repaint only when the art or the dim changes (inputs: faction, Icon Style, dim).
+    -- The texture keeps its art across pool recycles, so the memo never goes stale.
+    local style = ns.NP_GetFactionStyle()
+    if self._facArt ~= atlas or self._facStyle ~= style then
+        EllesmereUI.SetFactionArt(self.faction, style, atlas)
+        self._facArt, self._facStyle = atlas, style
+    end
+    if self._facDim ~= dim then
+        self.faction:SetDesaturated(dim)
+        self.faction:SetAlpha(dim and 0.6 or 1)
+        self._facDim = dim
+    end
+    if artOnly and self._facSlot == slot and self.factionFrame:IsShown() then return end
+    local cpPush = GetClassPowerTopPush(self)
+    local fxOff, fyOff = GetSlotOffsets(slot)
+    -- "Rare/Quest + Faction" with the classification icon showing too: the faction
+    -- badge stacks behind it, overlapping by 40% (classification is a frame level
+    -- above, so it draws on top); up, or down in the Bottom slot so it clears the cast bar.
+    if p and p.classificationIncludeFaction and self.classFrame:IsShown() then
+        local step = math.floor(GetRareEliteIconSize() * 0.6 + 0.5)
+        fyOff = fyOff + ((slot == "bottom") and -step or step)
+    end
+    local sz = ns.NP_GetFactionIconSize()
+    PP.Size(self.factionFrame, sz, sz)
+    self.factionFrame:ClearAllPoints()
+    if slot == "top" then
+        PP.Point(self.factionFrame, "BOTTOM", self.health, "TOP",
+            fxOff, GetDebuffYOffset() + cpPush + fyOff)
+    elseif slot == "left" then
+        local iconRes, iconSide = ns.GetCastIconReserve(self)
+        local classicL = ns.NP_ClassicBarReserve()
+        local iconPush = ((iconSide == "left") and iconRes or 0) + classicL
+        PP.Point(self.factionFrame, "RIGHT", self.health, "LEFT",
+            -GetSideAuraXOffset() - iconPush + fxOff, fyOff)
+    elseif slot == "right" then
+        local iconRes, iconSide = ns.GetCastIconReserve(self)
+        local _, classicR = ns.NP_ClassicBarReserve()
+        local iconPush = ((iconSide == "right") and iconRes or 0) + classicR
+        PP.Point(self.factionFrame, "LEFT", self.health, "RIGHT",
+            GetSideAuraXOffset() + iconPush + fxOff, fyOff)
+    elseif slot == "topleft" then
+        PP.Point(self.factionFrame, "BOTTOMLEFT", self.health, "TOPLEFT", fxOff, 2 + cpPush + fyOff)
+    elseif slot == "topright" then
+        PP.Point(self.factionFrame, "BOTTOMRIGHT", self.health, "TOPRIGHT", fxOff, 2 + cpPush + fyOff)
+    elseif slot == "bottom" then
+        PP.Point(self.factionFrame, "TOP", self.cast, "BOTTOM", fxOff, -2 + fyOff)
+    end
+    local wasShown = self.factionFrame:IsShown()
+    local lastSlot = self._facSlot
+    self._facSlot = slot
+    self.factionFrame:Show()
+    if not wasShown then self:UpdateNameWidth() end
+    -- A side-slot badge pushes the target arrows out, like the classification icon:
+    -- re-flank them when it appears or moves into or out of a side slot.
+    if (not wasShown or lastSlot ~= slot)
+        and (slot == "left" or slot == "right" or lastSlot == "left" or lastSlot == "right") then
+        PositionArrowsOutsideAuras(self)
+        if ns.NPC_ReanchorArrows then ns.NPC_ReanchorArrows(self) end
+    end
+end
 function NameplateFrame:UpdateNameWidth()
     local barW = GetHealthBarWidth()
     -- Width % scales the computed (bar-derived) width; 100 = historical behaviour.
@@ -8022,6 +8204,12 @@ function NameplateFrame:UpdateNameWidth()
         local clSlot = GetClassificationSlot()
         if clSlot ~= "none" and self.classFrame:IsShown() then
             nameW = nameW - (GetRareEliteIconSize() + 4)
+        end
+        -- Stacked with the classification icon ("Rare/Quest + Faction") it takes
+        -- no extra width; alone it reserves its own.
+        local stacked = p and p.classificationIncludeFaction and self.classFrame:IsShown()
+        if self.factionFrame and self.factionFrame:IsShown() and not stacked then
+            nameW = nameW - (ns.NP_GetFactionIconSize() + 4)
         end
         PP.Width(self.name, math.max(nameW * pct / 100, 20))
     elseif nameSlot then
@@ -8061,6 +8249,7 @@ end
 function NameplateFrame:RefreshCastIconSideReserve()
     if not (GetShowCastIcon() and ns.GetCastIconFullSize()) then return end
     self:UpdateClassification()
+    if not (p and p.classificationIncludeFaction) then self:UpdateFaction() end
     self:UpdateRaidIcon()
     PositionArrowsOutsideAuras(self)
     -- Without this, a cast bar showing/hiding shoves an already container-hugging
@@ -8153,6 +8342,7 @@ function NameplateFrame:RefreshNamePosition(localOnly)
     end
     if localOnly then return end
     self:UpdateClassification()
+    if not (p and p.classificationIncludeFaction) then self:UpdateFaction() end
 end
 function NameplateFrame:UpdateRaidIcon()
     if not self.unit then return end
@@ -8207,7 +8397,22 @@ end
 function NameplateFrame:ApplyTarget()
     if not self.unit then return end
     local isTarget = UnitIsUnit(self.unit, "target")
+    -- The hash line is painted by the health pass from this cached flag, so a
+    -- flip queues one coalesced repaint (only while the line is enabled).
+    if p and p.hashLineEnabled and (self._isTarget == true) ~= (isTarget == true) then
+        self:MarkHealthDirty()
+    end
     self._isTarget = isTarget  -- cached for hot-path hash line check
+    -- Cache ownership lives here so EVERY painter keeps it coherent:
+    -- SetUnit's deferred setup (pending-watcher promotion), the UpdateHealthValues
+    -- token swap and PLAYER_TARGET_CHANGED all funnel through this method. Gaining
+    -- target claims the slot; a recycled plate that lost target frees it, so a
+    -- stale entry can never skip the un-paint on the next target change.
+    if isTarget then
+        ns._cachedTargetPlate = self
+    elseif ns._cachedTargetPlate == self then
+        ns._cachedTargetPlate = nil
+    end
     -- EllesmereUI: background glow around the plate, tinted + faded with the
     -- target Glow Color/Opacity (re-applied on show so live edits update).
     if isTarget and ns.GetTargetGlowEllesmereUI() then
@@ -9071,7 +9276,7 @@ function NameplateFrame:ShowInterrupted(interrupterGUID)
         self.castName:SetWidth(hasInterrupter and math.max(castW - 8, 20) or castW * cnWPct / 100)
     end
 
-    local interruptedText = (EllesmereUI and EllesmereUI.L and EllesmereUI.L("Interrupted")) or "Interrupted"
+    local interruptedText = (EllesmereUI.L("Interrupted")) or "Interrupted"
     if hasInterrupter then
         -- The base FontString color carries SECRET class RGB; only the clean
         -- localized label/punctuation uses an inline profile-color escape.
@@ -9180,6 +9385,11 @@ function NameplateFrame:UNIT_NAME_UPDATE()
 end
 function NameplateFrame:UNIT_THREAT_LIST_UPDATE()
     self:UpdateHealthColor()
+end
+-- Faction badge: faction and PvP flag changes. The tap-state repaint rides the
+-- shared UNIT_FACTION handler (factionFrame), not this one.
+function NameplateFrame:UNIT_FACTION()
+    self:UpdateFaction(true)
 end
 function NameplateFrame:UNIT_SPELLCAST_START()
     self._castDirtyFull = true
@@ -9441,6 +9651,9 @@ CreateEnemyWatcher = function(unit)
         local plate = ns.plates[u]
         if plate then
             if ns._ClearMouseoverPlate then ns._ClearMouseoverPlate(plate) end
+            -- Same cached-ref release as NAME_PLATE_UNIT_REMOVED.
+            if ns._cachedTargetPlate == plate then ns._cachedTargetPlate = nil end
+            if ns._cachedFocusPlate  == plate then ns._cachedFocusPlate  = nil end
             plate:ClearUnit()
             frameCache:Release(plate)
             ns.plates[u] = nil
@@ -9530,7 +9743,13 @@ factionFrame:SetScript("OnEvent", function(_, event, unit)
     end
     -- Tap state changes arrive here, not on any per-plate event.
     local plate = ns.plates[unit]
-    if plate then plate:UpdateHealthColor() end
+    if plate then
+        plate:UpdateHealthColor()
+    else
+        -- A friendly full plate's faction badge: PvP flag and faction changes.
+        local fp = ns.friendlyPlates[unit]
+        if fp then ns.NP_FriendlyFactionRefresh(fp) end
+    end
 end)
 -- Unified mouseover monitor (enemy + friendly). UPDATE_MOUSEOVER_UNIT fires when a mouseover
 -- STARTS but never when it clears, so a single shared 0.1s ticker (alive only while a mouseover
@@ -9554,10 +9773,13 @@ function ns._ClearMouseoverPlate(plate)
         ns._currentMouseoverPlate = nil
         if ns._mouseoverTicker then ns._mouseoverTicker:Cancel(); ns._mouseoverTicker = nil end
     end
-    -- Pooled frames recycle: drop the hover-extras flags without a restore
-    -- pass (the reuse path re-runs ApplyBorder/ApplyTarget anyway).
+    -- Pooled enemy frames recycle without re-running ApplyBorder, so a
+    -- hover-sized border is restored here before its flag is dropped.
+    if plate._hoverBorderSized then
+        plate._hoverBorderSized = nil
+        if plate.ApplyBorder then plate:ApplyBorder() end
+    end
     plate._hoverFxOn = nil
-    plate._hoverBorderSized = nil
 end
 
 function ns._UpdateMouseover()
@@ -9952,14 +10174,12 @@ function npAddon:OnInitialize()
     -- so the apply loop no-ops; SetUnit fades new plates as they spawn).
     if ns.NT_RefreshSetting then ns.NT_RefreshSetting() end
     -- Append SharedMedia textures to runtime tables so SM texture keys resolve at runtime
-    if EllesmereUI.AppendSharedMediaTextures then
-        EllesmereUI.AppendSharedMediaTextures(
-            ns.healthBarTextureNames,
-            ns.healthBarTextureOrder,
-            nil,
-            ns.healthBarTextures
-        )
-    end
+    EllesmereUI.AppendSharedMediaTextures(
+        ns.healthBarTextureNames,
+        ns.healthBarTextureOrder,
+        nil,
+        ns.healthBarTextures
+    )
 end
 function npAddon:OnEnable()
     -- Re-read profile: PreSeedSpecProfile may have re-pointed db.profile between OnInitialize and OnEnable.
