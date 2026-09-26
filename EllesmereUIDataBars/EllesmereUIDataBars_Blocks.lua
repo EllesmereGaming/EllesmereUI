@@ -5764,8 +5764,9 @@ end
 ns.BlockFactories.ilvl = function(blockCfg, slot, content, barCtx)
     local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
     inst.key = InstKey(barCtx, blockCfg)
+    -- PLAYER_REGEN_ENABLED: geometry and the secure click overlay both wait for regen, so the block needs a pass there.
     inst.events = { "PLAYER_AVG_ITEM_LEVEL_UPDATE", "PLAYER_EQUIPMENT_CHANGED",
-                    "PLAYER_ENTERING_WORLD" }
+                    "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED" }
 
     local ILVL_TEX = MEDIA .. "micromenu\\menu-character.png"
     local mouseOver = false
@@ -5782,6 +5783,9 @@ ns.BlockFactories.ilvl = function(blockCfg, slot, content, barCtx)
     icon:SetTexture(ILVL_TEX)
     local ilvlText = button:CreateFontString(nil, "OVERLAY")
     AttachTextOffset(inst, ilvlText)
+
+    local clickBtn
+    local EnsureClickButton -- defined below, after the hover scripts it reuses
 
     -- Item level returns can be secret values, which detonate the moment they
     -- reach format() or a tooltip width measure (see the micro menu's char
@@ -5806,6 +5810,8 @@ ns.BlockFactories.ilvl = function(blockCfg, slot, content, barCtx)
     end
 
     function inst:Refresh()
+        EnsureClickButton()
+
         local s = D()
         local barCfg = BC()
         local barH = barCtx.GetThickness()
@@ -5849,6 +5855,22 @@ ns.BlockFactories.ilvl = function(blockCfg, slot, content, barCtx)
         end
 
         ns.SetFont(ilvlText, fontSize, barCfg)
+        do
+            local ir, ig, ib = IconColorOf(blockCfg)
+            icon:SetVertexColor(ir, ig, ib, 1)
+        end
+        if mouseOver then
+            ilvlText:SetTextColor(ns.GetAccent())
+        else
+            ilvlText:SetTextColor(BlockColorOf(blockCfg))
+        end
+        -- Sizing and anchoring are protected once the secure click overlay exists
+        -- (it puts this block's whole bar under protection): in lockdown only the
+        -- text updates, geometry waits for PLAYER_REGEN_ENABLED.
+        if InCombatLockdown() then
+            ilvlText:SetText(text)
+            return
+        end
         if isSide then
             local slotW = VSlotW(inst)
             local innerW = max(24, slotW - 8)
@@ -5890,15 +5912,6 @@ ns.BlockFactories.ilvl = function(blockCfg, slot, content, barCtx)
             button:SetSize(max(totalW, 10), barH)
         end
 
-        do
-            local ir, ig, ib = IconColorOf(blockCfg)
-            icon:SetVertexColor(ir, ig, ib, 1)
-        end
-        if mouseOver then
-            ilvlText:SetTextColor(ns.GetAccent())
-        else
-            ilvlText:SetTextColor(BlockColorOf(blockCfg))
-        end
         MaybeRelayout(inst)
     end
 
@@ -5933,24 +5946,61 @@ ns.BlockFactories.ilvl = function(blockCfg, slot, content, barCtx)
         ns.Tip_Hide(button)
         inst:Refresh()
     end)
+    -- Fallback only: used until the secure overlay exists (block built mid-combat,
+    -- or no CharacterMicroButton). ToggleCharacter from addon Lua taints
+    -- CharacterFrame's show path (secret health values -> TextStatusBar error).
     button:SetScript("OnClick", function(_, mb)
         if mb == "LeftButton" and ToggleCharacter then
             ToggleCharacter("PaperDollFrame")
         end
     end)
 
+    -- Secure click passthrough to Blizzard's CharacterMicroButton, same mechanism as
+    -- the location and micro menu blocks: the click runs inside Blizzard's own
+    -- handler, so the character sheet opens untainted. Created lazily, never in
+    -- lockdown; PLAYER_REGEN_ENABLED drives Refresh's retry.
+    EnsureClickButton = function()
+        if clickBtn or InCombatLockdown() then return clickBtn end
+        local micro = _G.CharacterMicroButton
+        if not micro then return nil end
+        clickBtn = CreateFrame("Button", "EWB_ILVL_" .. inst.key, button,
+            "SecureActionButtonTemplate,SecureHandlerStateTemplate")
+        clickBtn:SetAllPoints(button)
+        clickBtn:SetAttribute("*clickbutton1", micro)
+        -- Without this, the ActionButtonUseKeyDown CVar makes the secure handler act on key-down only, discarding our "AnyUp" clicks.
+        clickBtn:SetAttribute("useOnKeyDown", false)
+        clickBtn:SetAttribute("*type1", "click")
+        clickBtn:EnableMouse(true)
+        clickBtn:RegisterForClicks("AnyUp")
+        -- Combat: drop the click ACTION only, from inside the secure env. Stays mouse-enabled so hover works; a click while *type1 is nil does nothing.
+        RegisterStateDriver(clickBtn, "combatlock", "[combat] combat; nocombat")
+        clickBtn:SetAttribute("_onstate-combatlock", [[
+            if newstate == 'combat' then
+                self:SetAttribute('*type1', nil)
+            else
+                self:SetAttribute('*type1', 'click')
+            end
+        ]])
+        -- Overlay covers the block and owns hover from here.
+        clickBtn:SetScript("OnEnter", button:GetScript("OnEnter"))
+        clickBtn:SetScript("OnLeave", button:GetScript("OnLeave"))
+        return clickBtn
+    end
+
     inst.eventFrame = MakeEventFrame(inst, function(self)
         self:Refresh()
     end)
 
     function inst:Enable()
-        content:Show()
+        if not content:IsShown() and not InCombatLockdown() then content:Show() end
+        EnsureClickButton()
         RegisterInstEvents(self)
     end
 
     function inst:Disable()
         UnregisterInstEvents(self)
-        content:Hide()
+        -- Protected once the secure click overlay exists.
+        if not InCombatLockdown() then content:Hide() end
     end
 
     function inst:GetAutoLength()
@@ -5962,7 +6012,11 @@ ns.BlockFactories.ilvl = function(blockCfg, slot, content, barCtx)
 
     function inst:Destroy()
         self._dead = true
-        content:Hide()
+        if clickBtn then
+            ParkSecureFrame(clickBtn, self.key .. "_ilvl")
+            clickBtn = nil
+        end
+        if not InCombatLockdown() then content:Hide() end
     end
 
     return inst

@@ -11744,6 +11744,55 @@ initFrame:SetScript("OnEvent", function(self)
                         mH = mH + ITEM_H
                     end
 
+                    -- Talent Conditions (cd/util family, real spells only; per-spell ONLY like
+                    -- Replace with Buff -- no tiers, no apply strip). The icon shows only while
+                    -- every picked condition holds (EllesmereUICdmTalentConditions.lua); the
+                    -- tree popup lives in EUI_CooldownManager_TalentConditions.lua. Closes the menu (popup flow).
+                    if ns.ShowCDMTalentConditionsPopup
+                       and not isBuffBar and not isHostedBuff and not (bd and bd.isGhostBar)
+                       and type(spellID) == "number" and spellID > 0
+                       and not ((ns._myRacialsSet and ns._myRacialsSet[spellID])
+                                or (sd.customSpellIDs and sd.customSpellIDs[spellID])) then
+                        local tcConds = rawget(ss, "talentConditions")
+                        local tcCount = type(tcConds) == "table" and #tcConds or 0
+                        local tcRow = CreateFrame("Button", nil, inner)
+                        tcRow:SetHeight(ITEM_H)
+                        tcRow:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+                        tcRow:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+                        tcRow:SetFrameLevel(menu:GetFrameLevel() + 2)
+                        local tcLbl = tcRow:CreateFontString(nil, "OVERLAY")
+                        tcLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                        tcLbl:SetPoint("LEFT", 10, 0); tcLbl:SetPoint("RIGHT", -10, 0)
+                        tcLbl:SetJustifyH("LEFT"); tcLbl:SetWordWrap(false); tcLbl:SetMaxLines(1)
+                        tcLbl:SetText(EllesmereUI.L("Talent Conditions") .. ": "
+                            .. (tcCount > 0 and tostring(tcCount) or EllesmereUI.L("None")))
+                        tcLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                        local tcHl = tcRow:CreateTexture(nil, "ARTWORK")
+                        tcHl:SetAllPoints(); tcHl:SetColorTexture(1, 1, 1, 0); tcHl:SetAlpha(0)
+                        tcRow:SetScript("OnEnter", function()
+                            tcLbl:SetTextColor(1, 1, 1, 1)
+                            tcHl:SetColorTexture(1, 1, 1, hlA); tcHl:SetAlpha(1)
+                            if menu._openSub and menu._openSub:IsShown() then menu._openSub:Hide() end
+                            EllesmereUI.ShowWidgetTooltip(tcRow, EllesmereUI.L("Show this icon only while the talents you pick are taken, or not taken."))
+                        end)
+                        tcRow:SetScript("OnLeave", function()
+                            tcLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA); tcHl:SetAlpha(0)
+                            EllesmereUI.HideWidgetTooltip()
+                        end)
+                        tcRow:SetScript("OnClick", function()
+                            EllesmereUI.HideWidgetTooltip()
+                            menu:Hide()
+                            ns.ShowCDMTalentConditionsPopup(spellID, tcConds, function(newConds)
+                                EnsureSS()
+                                ss.talentConditions = newConds
+                                -- Live-arm the session gate (monotonic; the login rescan covers already-saved settings).
+                                if newConds then ns._cdmAnyTalentCond = true end
+                                RefreshCDPreview()
+                            end)
+                        end)
+                        mH = mH + ITEM_H
+                    end
+
                     -- Custom Icon (per-spell ONLY -- deliberately outside the Apply-to-Bar
                     -- tiers: an icon replacement is a per-slot identity choice, so no tiers, no
                     -- apply strip, no false-blocking; a plain nil write removes it). The render
@@ -14560,8 +14609,15 @@ initFrame:SetScript("OnEvent", function(self)
             -- (always learned), and custom-buff / focuskick ids are arbitrary
             -- spell ids IsPlayerSpell can't vouch for.
             local unlearnedSet
+            -- Talent Conditions (same CD/utility gate): assigned id -> "on" (conditions
+            -- hold) / "off" (not met: renders dimmed like an unlearned spell, so it can
+            -- still be right-clicked). nil for non-users.
+            local tcSet
             if bd.key ~= "buffs" and not isBuffBar and not isCustomBuffBar
                and not isFocusKick and IsPlayerSpell then
+                if ns._cdmAnyTalentCond and ns.TalentCondPreviewSet then
+                    tcSet = ns.TalentCondPreviewSet(bd.key, tracked)
+                end
                 local sdUn = ns.GetBarSpellData(bd.key)
                 local customUn  = sdUn and sdUn.customSpellIDs
                 local cdursUn   = sdUn and sdUn.customSpellDurations
@@ -14800,7 +14856,8 @@ initFrame:SetScript("OnEvent", function(self)
                         if tex then
                             slot._icon:SetTexture(tex)
                             slot._icon:SetTexCoord(zoom, 1 - zoom, zoom, 1 - zoom)
-                            local pvUnlearned = (unlearnedSet and unlearnedSet[id]) or false
+                            local pvUnlearned = (unlearnedSet and unlearnedSet[id])
+                                or (tcSet and tcSet[id] == "off") or false
                             slot._icon:SetDesaturated(pvUnlearned)
                             slot._icon:SetAlpha(pvUnlearned and 0.55 or 1)
                         else slot._icon:SetTexture(nil) end
@@ -14812,6 +14869,10 @@ initFrame:SetScript("OnEvent", function(self)
                     slot._previewCdID = nil
                     slot._previewItemID = nil
                     slot._previewHostedBuff = nil
+                end
+                -- Talent Conditions corner mark (built on first use; slots are shared across bars, so always repainted once it exists).
+                if tcSet or slot._tcMark then
+                    ns.PaintTalentCondMark(slot, tcSet and i <= count and tcSet[tracked[i]] or nil)
                 end
 
                 local bSz = bd.borderSize or 1

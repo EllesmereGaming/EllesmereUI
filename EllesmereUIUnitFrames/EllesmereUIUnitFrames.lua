@@ -2241,18 +2241,28 @@ EllesmereUI.IsSmartPowerPercent = EUI_IsSmartPowerPercent
 --   _G._EUI_AbbrevDecimalCfg = this table when on, nil when off
 --   _G._EUI_TextDecimals     = true/false, selects "%.1f" vs "%d" for percents
 --   _G._EUI_PctTrim          = { curve, cfg } trimming the percent, nil when off
-ns._decimalAbbrevConfig = { breakpointData = {
-    { breakpoint = 1e9, abbreviation = "b", significandDivisor = 1e8, fractionDivisor = 10, abbreviationIsGlobal = false },
-    { breakpoint = 1e6, abbreviation = "m", significandDivisor = 1e5, fractionDivisor = 10, abbreviationIsGlobal = false },
-    { breakpoint = 1e3, abbreviation = "k", significandDivisor = 1e2, fractionDivisor = 10, abbreviationIsGlobal = false },
-} }
+-- Per band: significandDivisor = breakpoint / d, fractionDivisor = d (d = 10 for
+-- one decimal, 100 for two). Ten-thousand-grouping locales (koKR/zhCN/zhTW) take
+-- the shared number engine's thousand/wan/yi units instead of k/m/b, so these
+-- frames read the same as Damage Meters and the gold bar on those clients.
+local function DecimalAbbrevConfig(d)
+    local g = EllesmereUI.NumberAbbrevGlyphs and EllesmereUI.NumberAbbrevGlyphs()
+    if g then
+        return { breakpointData = {
+            { breakpoint = 1e8, abbreviation = g[3], significandDivisor = 1e8 / d, fractionDivisor = d, abbreviationIsGlobal = false },
+            { breakpoint = 1e4, abbreviation = g[2], significandDivisor = 1e4 / d, fractionDivisor = d, abbreviationIsGlobal = false },
+            { breakpoint = 1e3, abbreviation = g[1], significandDivisor = 1e3 / d, fractionDivisor = d, abbreviationIsGlobal = false },
+        } }
+    end
+    return { breakpointData = {
+        { breakpoint = 1e9, abbreviation = "b", significandDivisor = 1e9 / d, fractionDivisor = d, abbreviationIsGlobal = false },
+        { breakpoint = 1e6, abbreviation = "m", significandDivisor = 1e6 / d, fractionDivisor = d, abbreviationIsGlobal = false },
+        { breakpoint = 1e3, abbreviation = "k", significandDivisor = 1e3 / d, fractionDivisor = d, abbreviationIsGlobal = false },
+    } }
+end
+ns._decimalAbbrevConfig = DecimalAbbrevConfig(10)
 -- Two-decimal variant for boss frames ("Show 2 for Boss"): 240.55k / 2.45m.
--- Per band: significandDivisor = breakpoint / 100, fractionDivisor = 100.
-ns._decimalAbbrevConfig2 = { breakpointData = {
-    { breakpoint = 1e9, abbreviation = "b", significandDivisor = 1e7, fractionDivisor = 100, abbreviationIsGlobal = false },
-    { breakpoint = 1e6, abbreviation = "m", significandDivisor = 1e4, fractionDivisor = 100, abbreviationIsGlobal = false },
-    { breakpoint = 1e3, abbreviation = "k", significandDivisor = 1e1, fractionDivisor = 100, abbreviationIsGlobal = false },
-} }
+ns._decimalAbbrevConfig2 = DecimalAbbrevConfig(100)
 -- "Hide Trailing Zeros": AbbreviateNumbers drops a zero fraction ("100") but keeps a
 -- real one ("99.5"), which "%.1f" cannot do and a SECRET percent forbids doing with
 -- Lua string ops. It TRUNCATES though, so a fractional significandDivisor reads a tenth

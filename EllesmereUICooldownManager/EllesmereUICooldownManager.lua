@@ -7858,6 +7858,7 @@ BuildAllCDMBars = function()
     ns.RescanThresholdTextFlag()  -- set the Threshold Text gate (once) before refresh
     ns.RescanCustomIconFlag()     -- set the per-spell Custom Icon gate (once) before refresh
     ns.RescanActiveGlowFlag()     -- set the Active State Glow gate (once) before refresh
+    ns.RescanTalentCondFlag()     -- set the Talent Conditions gate (once) before refresh
 
     local p = ECME.db.profile
 
@@ -10813,6 +10814,8 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         -- inside the debounce window would otherwise resolve against the pre-swap book. The rebuild
         -- wipes it again, which still matters: this early rebuild can read a book the client has not finished updating, and that second wipe corrects it.
         if ns.WipeCdmBookNameCache then ns.WipeCdmBookNameCache() end
+        -- Talent Conditions read node ranks from a cache; the rebuild's reanchor re-evaluates them.
+        if ns._cdmAnyTalentCond then ns.TalentCondInvalidate() end
         ScheduleTalentRebuild()
         return
     end

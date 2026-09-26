@@ -635,12 +635,10 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v) db.profile.enableGoldTracking = v end }
             ); y = y - h
 
-            -- Inline cog for Show Sort Icon: "Sort to Bottom"
+            -- Sorting options remain available when the header icon is hidden.
             if not EllesmereUI._prebuilding then
                 EllesmereUI.BuildInlineCog(sortRow._leftRegion, {
                     chain = false,
-                    disabled = function() return db.profile.bagShowSortIcon == false end,
-                    disabledTooltip = "Show Sort Icon",
                     title = "Sort Options",
                     rows = {
                         { type="dropdown", label="Gear sort order",

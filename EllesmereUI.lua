@@ -2490,7 +2490,7 @@ do
         for _, firstBonus in ipairs({ 12769, 12777, 12785, 12793, 12801 }) do
             for rank = 0, 5 do previousSeasonBonuses[firstBonus + rank] = true end
         end
-        function EllesmereUI.GetSeasonItemLevelColor(itemLink, greyPreviousSeason)
+        local function ParseSeasonItemLevelColor(itemLink)
             if type(itemLink) ~= "string" then return nil end
             local payload = itemLink:match("item:([^|]+)")
             if not payload then return nil end
@@ -2512,9 +2512,25 @@ do
                 end
             end
             if previousSeason and not currentSeason then
-                return greyPreviousSeason and GR or nil, false
+                return GR, false
             end
             return W, currentSeason
+        end
+
+        -- Cache classification, not the grey preference, so toggles apply immediately.
+        local seasonCache, seasonCacheN = {}, 0
+        function EllesmereUI.GetSeasonItemLevelColor(itemLink, greyPreviousSeason)
+            if type(itemLink) ~= "string" then return nil end
+            local hit = seasonCache[itemLink]
+            if not hit then
+                local color, current = ParseSeasonItemLevelColor(itemLink)
+                if seasonCacheN >= 4000 then wipe(seasonCache); seasonCacheN = 0 end
+                hit = { color = color, current = current }
+                seasonCache[itemLink] = hit
+                seasonCacheN = seasonCacheN + 1
+            end
+            if hit.color == GR and not greyPreviousSeason then return nil, false end
+            return hit.color, hit.current
         end
 
         -- Item-level text color: custom override > upgrade-track hue > item rarity >

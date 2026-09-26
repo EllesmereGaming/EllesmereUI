@@ -3,8 +3,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EUI_RaidFrames_Stock.lua
 --
 --  Blizzard Style / Classic WoW UI on the raid frames: raid and party buttons
---  (party in its "Raid Frames" layout), Friendly Boss, Extra Frames and the
---  options preview. The stock per-frame edge stands in for the EllesmereUI
+--  (party in its "Raid Frames" layout), Friendly Boss, Extra Frames, Pet
+--  Frames and the options preview. The stock per-frame edge stands in for the EllesmereUI
 --  border, the stock target and aggro highlights for the EllesmereUI target
 --  and threat borders, and Classic draws the stock health/power divider.
 --  Every other EllesmereUI feature is untouched.

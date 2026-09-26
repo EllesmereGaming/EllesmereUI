@@ -655,6 +655,17 @@ local NPF_ONCE_DEBUFFS = {
     [55078] = true,   -- Blood Plague
 }
 
+-- WoW Forever: Sunder Armor is one debuff per target that every warrior's
+-- casts stack onto, so it renders from any caster. Each rank is its own id.
+local NPF_SUNDER_IDS = {
+    [7386] = true, [7405] = true, [8380] = true, [11596] = true, [11597] = true,
+}
+local _, playerClass = UnitClass("player")
+local function NPF_SunderOn()
+    return EllesmereUI.IS_FOREVER and playerClass == "WARRIOR"
+        and PVal("showSunderArmor") == true
+end
+
 -- Active-only include maps for engine candidates (false entries stay
 -- stored but must never reach the C validator). Two maps: any-caster
 -- opt-outs feed the npinc group, everything else (the default) feeds
@@ -715,6 +726,12 @@ local function NPF_Cand(extra, side)
     -- render a copy. Option off = the id is an ordinary debuff again.
     if side ~= "cc" and PVal("hideBloodPlagueCopies") ~= false then
         for id in pairs(NPF_ONCE_DEBUFFS) do
+            m = m or {}
+            m[id] = true
+        end
+    end
+    if side ~= "cc" and NPF_SunderOn() then
+        for id in pairs(NPF_SUNDER_IDS) do
             m = m or {}
             m[id] = true
         end
@@ -805,6 +822,36 @@ local function NPF_ApplyContainer(container, kindKey, styleKey, cap)
                 else
                     container:SetAuraGroupMaxFrameCount(gkey, 1)
                 end
+            end
+        end
+    end
+    -- Sunder Armor (Forever warriors, opt-in): any caster, one icon. Ids the
+    -- user already lists in Tracked Auras keep going through those lists.
+    if side ~= "cc" and NPF_SunderOn() then
+        local ex, inc = ns.NPF_Exclude(side), ns.NPF_Include(side)
+        local ids
+        for id in pairs(NPF_SUNDER_IDS) do
+            if not (ex and ex[id]) and not (inc and inc[id]) then
+                ids = ids or {}
+                ids[id] = true
+            end
+        end
+        if ids then
+            wanted.npsunder = true
+            if not declared.npsunder then
+                AK.AddGroupToContainer(container, {
+                    key = "npsunder", filter = { "HARMFUL", "INCLUDE_NAME_PLATE_ONLY" },
+                    maxFrameCount = 1,
+                    candidateFilters = { includeSpellIDs = ids },
+                    sortMethod = SORT_IMPORTANT, style = styleKey,
+                    layout = { elementWidth = 24, elementHeight = 24,
+                               elementSpacing = 4, lineSpacing = 4 },
+                })
+                declared.npsunder = true
+                declaredNew = true
+            else
+                container:SetAuraGroupCandidateFilters("npsunder", { includeSpellIDs = ids })
+                container:SetAuraGroupMaxFrameCount("npsunder", 1)
             end
         end
     end
@@ -1588,7 +1635,8 @@ local function CfgFP()
     -- NPB.Split decides how many groups the buff row runs, so it belongs
     -- with the container config rather than with the styles.
     return FP(PVal("maxDebuffs"), PVal("showAllDebuffs"), BuffMode(), NPB.Split(),
-        PVal("debuffIncludeCC"), ns.NPF_FP(), PVal("hideBloodPlagueCopies") ~= false)
+        PVal("debuffIncludeCC"), ns.NPF_FP(), PVal("hideBloodPlagueCopies") ~= false,
+        NPF_SunderOn())
 end
 
 local function ReanchorActive()

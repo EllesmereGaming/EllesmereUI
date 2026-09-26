@@ -386,8 +386,6 @@ do
                         if craftedColor then
                             rank = _trackRank[craftedColor] or rank
                         end
-                        -- Compare crafted and upgraded gear using the same item level.
-                        if rank > 0 then ilvl = C_Item.GetDetailedItemLevelInfo(d.itemLink) or ilvl end
                     end
                     c = { name = name or "", quality = quality or 0, ilvl = ilvl or 0,
                           itemType = itemType or "", rank = rank, complete = name ~= nil }
@@ -406,7 +404,7 @@ do
                 d._sortTrackRank = c.rank
                 d._sortGear = d.categoryIndex and IsGearCategory(d.categoryIndex) or false
                 local sortOrder = BP().bagGearSortOrder
-                if d._sortGear and (sortOrder == "seasonTrack" or sortOrder == "seasonIlvl" or sortOrder == "ilvl") then
+                if d._sortGear then
                     if c.detailedIlvl == nil then c.detailedIlvl = C_Item.GetDetailedItemLevelInfo(d.itemLink) end
                     d._sortIlvl = c.detailedIlvl or c.ilvl
                 end

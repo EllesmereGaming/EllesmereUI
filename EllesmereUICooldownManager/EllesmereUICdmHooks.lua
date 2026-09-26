@@ -7731,6 +7731,28 @@ local function CollectAndReanchor()
         end
     end
 
+    -- Talent Conditions: a cooldown whose per-spell conditions do not hold this pass is
+    -- dropped like an unlearned spell -- it takes the unclaimed park in Phase 4 and the
+    -- icons after it close the gap. A replacement buff carries its cooldown's identity,
+    -- so it follows the cooldown; hosted buffs are buff-family and never carry the
+    -- setting. Session-gated: skipped entirely until some spell has a condition.
+    if ns._cdmAnyTalentCond then
+        for bk, frames in pairs(cdFrames) do
+            for i = #frames, 1, -1 do
+                local frame = frames[i]
+                local fc = _ecmeFC[frame]
+                local sid = fc and not fc.isHostedBuff and fc.spellID
+                if sid and sid > 0 then
+                    local ss = ns.ResolveSpellSettings(frame, sid, false, bk)
+                    local conds = ss and rawget(ss, "talentConditions")
+                    if conds and not ns.TalentConditionsHold(conds) then
+                        table.remove(frames, i)
+                    end
+                end
+            end
+        end
+    end
+
     -- Pre-build claim set for racial/custom spell checks: collect all spellIDs already
     -- claimed by Blizzard frames across all bars. This replaces the O(frames *
     -- FindSpellOverrideByID) inner loop with a set lookup.
