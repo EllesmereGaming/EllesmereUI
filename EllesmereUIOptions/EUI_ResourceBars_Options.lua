@@ -4433,6 +4433,19 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.SpecOverrides_AttachEditLock(powerColorRow._rightRegion,
                 "Thresholds have their own per-spec system and can't be edited while editing a spec group")
         end
+        -- WoW Forever: mana regen spark (EllesmereUI_ManaRegenSpark.lua)
+        if EllesmereUI.IS_FOREVER and not ctx.advanced then
+            _, h = W:DualRow(parent, y,
+                { type = "toggle", text = "Mana Regen Spark",
+                  tooltip = "While the bar shows mana, a spark sweeps it every 2 seconds in time with regen ticks, and for 5 seconds after you spend mana (the five second rule, when Spirit regeneration is paused).",
+                  getValue = function() local c = cfg(); return c and c.manaRegenSpark or false end,
+                  setValue = function(v)
+                      local c = cfg(); if not c then return end
+                      c.manaRegenSpark = v; RebuildPower()
+                  end },
+                { type = "label", text = "" }
+            );  y = y - h
+        end
         end   -- close Power Bar hidden-while-disabled gate
 
         -- Synced overlay covers the built content so the height stays constant

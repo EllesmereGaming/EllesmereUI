@@ -8893,6 +8893,13 @@ initFrame:SetScript("OnEvent", function(self)
                     EllesmereUI.HideWidgetTooltip()
                 end)
             end
+            -- Mana regen spark (EllesmereUI_ManaRegenSpark.lua)
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Mana Regen Spark",
+                  tooltip="While the bar shows mana, a spark sweeps it every 2 seconds in time with regen ticks, and for 5 seconds after you spend mana (the five second rule, when Spirit regeneration is paused).",
+                  getValue=function() return SVal("manaRegenSpark", false) == true end,
+                  setValue=function(v) SSet("manaRegenSpark", v) end },
+                { type="label", text="" });  y = y - h
         end
 
         -- Row 6: Power Type override (player-only, spec-dependent)

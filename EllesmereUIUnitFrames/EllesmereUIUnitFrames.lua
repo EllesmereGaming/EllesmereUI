@@ -225,6 +225,7 @@ local defaults = {
             powerPercentPowerColor = true,
             powerBgPowerColored = false,
             powerPercentTextPowerColor = false,
+            manaRegenSpark = false,  -- WoW Forever: mana regen spark (2s ticks, 5s rule) while the bar shows mana
             healthClassColored = true,
             customBgColor = { r = 0.067, g = 0.067, b = 0.067 },
             bgClassColored = false,
@@ -2149,6 +2150,9 @@ do
         element.displayType = ptype
         local pnum, ptoken
         if ptype then pnum = ptype else pnum, ptoken = UnitPowerType(unit) end
+        if element._manaRegenSpark then
+            EllesmereUI.ManaRegenSpark.SetMana("uf", not (issecretvalue and issecretvalue(pnum)) and pnum == Enum.PowerType.Mana)
+        end
         local max = UnitPowerMax(unit, pnum)
         element:SetMinMaxValues(0, max)
         local cur
@@ -12632,6 +12636,17 @@ ReloadFramesBody = function()
             -- Apply power bar opacity
             if frame.Power then
                 ApplyPowerBarAlpha(frame.Power, UnitToSettingsKey(unit))
+
+                -- WoW Forever: mana regen spark (EllesmereUI_ManaRegenSpark.lua)
+                if unit == "player" and EllesmereUI.ManaRegenSpark then
+                    if settings.manaRegenSpark and settings.powerPosition ~= "none" then
+                        EllesmereUI.ManaRegenSpark.Attach("uf", frame.Power)
+                        frame.Power._manaRegenSpark = true
+                    else
+                        EllesmereUI.ManaRegenSpark.Detach("uf")
+                        frame.Power._manaRegenSpark = nil
+                    end
+                end
 
                 -- Re-apply power bar fill color based on powerPercentPowerColor toggle.
                 -- Gradient (additive) layers on top of the resolved custom/power-type color.

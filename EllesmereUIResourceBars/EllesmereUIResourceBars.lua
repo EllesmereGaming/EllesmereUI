@@ -1162,6 +1162,7 @@ local DEFAULTS = {
             -- power (e.g. BM/MM Hunter, Focus shows as class resource). "None"/"Up"/
             -- "Down", visual-only.
             shiftElementsIfNoPower = "None",
+            manaRegenSpark = false,  -- WoW Forever: mana regen spark (2s ticks, 5s rule) while the bar shows mana
         },
         secondary = {
             -- Off by default on WoW Forever (vanilla content), on everywhere else.
@@ -3482,6 +3483,14 @@ local function BuildBars()
         end
         EllesmereUI.SetElementVisibility(primaryBar, false)
     end
+    -- WoW Forever: mana regen spark (EllesmereUI_ManaRegenSpark.lua)
+    if EllesmereUI.ManaRegenSpark then
+        if pp.enabled ~= false and pp.manaRegenSpark then
+            EllesmereUI.ManaRegenSpark.Attach("erb", primaryBar._sb)
+        else
+            EllesmereUI.ManaRegenSpark.Detach("erb")
+        end
+    end
 
 
     -- Class resource (secondary: pips / runes)
@@ -4310,6 +4319,9 @@ local function UpdatePrimaryBar()
     local pp = pc.pp
 
     cachedPrimary = pc.primary
+    if pp.manaRegenSpark and EllesmereUI.ManaRegenSpark then
+        EllesmereUI.ManaRegenSpark.SetMana("erb", cachedPrimary == Enum.PowerType.Mana)
+    end
     if not cachedPrimary then return end
     -- Park the engine-slot overlay when the primary is no longer Ebon Might.
     if ns.EMB121_Gate then ns.EMB121_Gate(cachedPrimary == "EBON_MIGHT") end

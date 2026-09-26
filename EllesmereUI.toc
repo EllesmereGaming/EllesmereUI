@@ -59,6 +59,7 @@ EllesmereUI_ClassicArt.lua
 EllesmereUI_Range.lua
 EllesmereUI_AuraKit.lua
 EllesmereUI_WarriorCharges.lua
+EllesmereUI_ManaRegenSpark.lua
 EllesmereUI_ForeverLayout.lua
 EllesmereUI_FirstInstall.lua
 EllesmereUI_RaidFramesPopup.lua
