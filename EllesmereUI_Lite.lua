@@ -3,13 +3,19 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EllesmereUI_Lite.lua
 --  Lightweight replacement for AceAddon-3.0, AceEvent-3.0, and AceDB-3.0
 --  Zero-overhead event dispatch (direct frame handlers, no CallbackHandler)
---  Reads existing AceDB SavedVariables format — no migration needed
+--  Reads existing AceDB SavedVariables format -- no migration needed
 --------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 
 local EUILite = {}
 EllesmereUI = EllesmereUI or {}
 EllesmereUI.Lite = EUILite
+
+-- WoW Forever (game type "camelot"): the 12.1 engine reporting a 1.60+ toc.
+-- Stamped by EllesmereUI_ClientGate.lua before any other file runs. Content
+-- that vanilla lacks gates on this, never on WOW_PROJECT_ID (Forever is
+-- classed as mainline on purpose).
+EllesmereUI.IS_FOREVER = (EUI_CLIENT_FOREVER == true)
 
 -- The options-panel scale is exposed as a fixed-step dropdown ("EUI Options
 -- Panel Scale"), NOT a free slider, and its getValue matches exact percentages
@@ -201,15 +207,7 @@ end
 
 local function DeepCopy(src)
     if type(src) ~= "table" then return src end
-    local copy = {}
-    for k, v in pairs(src) do
-        if type(v) == "table" then
-            copy[k] = DeepCopy(v)
-        else
-            copy[k] = v
-        end
-    end
-    return copy
+    return CopyTable(src)
 end
 
 EUILite.DeepCopy = DeepCopy

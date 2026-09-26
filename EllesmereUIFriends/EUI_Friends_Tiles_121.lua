@@ -20,9 +20,27 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Blizzard therefore owns: the ScrollBox, the provider, row creation, row
 --  population, the click handler and the right-click menu. We own: paint.
 -------------------------------------------------------------------------------
-local ADDON_NAME = ...
+local ADDON_NAME, ns = ...
 
 local EG = EllesmereUI.ELLESMERE_GREEN
+
+-- Style page choice for this module: "eui" | "blizzard" | "classic", read from
+-- the real profile once and latched for the session (a profile switch prompts
+-- for a reload instead). Both stock styles mean the same here -- there is no
+-- vanilla version of this list -- so they keep Blizzard's own list and cards
+-- and add only the EllesmereUI decoration (class icon, class-coloured name,
+-- region mark). The main file's legacy-skin switch reads it too.
+function ns.FR_Style()
+    local v = ns._frStyle
+    if v == nil then
+        local db = _G._EFR_DB
+        local p = db and db.profile and db.profile.friends
+        if not p then return "eui" end
+        v = (p.useClassicStyle and "classic") or (p.useBlizzardStyle and "blizzard") or "eui"
+        ns._frStyle = v
+    end
+    return v
+end
 
 -- External weak-keyed state. Never write custom keys onto a Blizzard frame.
 local FFD = setmetatable({}, { __mode = "k" })
@@ -145,7 +163,7 @@ local function Enabled()
 end
 
 local function FontPath()
-    return (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("friends")) or STANDARD_TEXT_FONT
+    return (EllesmereUI.GetFontPath("friends")) or STANDARD_TEXT_FONT
 end
 
 local classFileByLocalName = {}
@@ -265,7 +283,7 @@ local function SkinStructure(card)
     d.classIcon = card:CreateTexture(nil, "ARTWORK", nil, 2)
 
     d.name = card:CreateFontString(nil, "OVERLAY")
-    if EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(d.name, true) end
+    EllesmereUI.PrimeFontShadow(d.name, true)
     d.name:SetFont(FontPath(), TILE_NAME_SIZE, "")
     d.name:SetJustifyH("LEFT")
     d.name:SetWordWrap(false)
@@ -275,14 +293,14 @@ local function SkinStructure(card)
 
     -- Character name + level, its own line under the Battle.net name.
     d.charLine = card:CreateFontString(nil, "OVERLAY")
-    if EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(d.charLine, true) end
+    EllesmereUI.PrimeFontShadow(d.charLine, true)
     d.charLine:SetFont(FontPath(), TILE_CHAR_SIZE, "")
     d.charLine:SetJustifyH("LEFT")
     d.charLine:SetWordWrap(false)
     d.charLine:SetPoint("TOPLEFT", d.name, "BOTTOMLEFT", 0, TILE_LINE_GAP)
 
     d.info = card:CreateFontString(nil, "OVERLAY")
-    if EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(d.info, true) end
+    EllesmereUI.PrimeFontShadow(d.info, true)
     d.info:SetFont(FontPath(), TILE_INFO_SIZE, "")
     d.info:SetJustifyH("LEFT")
     d.info:SetWordWrap(false)
@@ -388,10 +406,26 @@ local function BuildInfo(accountInfo)
         if text ~= "" then
             text = text .. "  |cff888888|  " .. note .. "|r"
         else
-            text = "|cff888888" .. note .. "|r"
+            text = EllesmereUI.COLOR_CODES.DIM .. note .. "|r"
         end
     end
     return text
+end
+
+-- The chosen Class Icon Theme's art for one class on `icon`. Shared by the
+-- EllesmereUI tile and the stock-style decoration.
+local function SetClassIconTex(icon, style, classFile)
+    if style == "blizzard" then
+        icon:SetTexture("Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES")
+        local coords = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[classFile]
+        if coords then icon:SetTexCoord(unpack(coords)) end
+    else
+        local coords = CLASS_SPRITE_COORDS[classFile]
+        if coords then
+            icon:SetTexture(CLASS_ICON_SPRITE_TEX[style] or (CLASS_ICON_SPRITE_BASE .. style .. ".tga"))
+            icon:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
+        end
+    end
 end
 
 local function UpdateClassIcon(card, d, accountInfo)
@@ -415,18 +449,7 @@ local function UpdateClassIcon(card, d, accountInfo)
         local classFile = GetClassFile(accountInfo)
         if not classFile then icon:Hide(); return end
 
-        local style = p.iconStyle or "modern"
-        if style == "blizzard" then
-            icon:SetTexture("Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES")
-            local coords = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[classFile]
-            if coords then icon:SetTexCoord(unpack(coords)) end
-        else
-            local coords = CLASS_SPRITE_COORDS[classFile]
-            if coords then
-                icon:SetTexture(CLASS_ICON_SPRITE_TEX[style] or (CLASS_ICON_SPRITE_BASE .. style .. ".tga"))
-                icon:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
-            end
-        end
+        SetClassIconTex(icon, p.iconStyle or "modern", classFile)
         icon:SetDesaturated(false)
         icon:SetAlpha(1)
     else
@@ -495,6 +518,49 @@ local function UpdateOrb(d, accountInfo)
     orb:Show()
 end
 
+-- Stock styles: a plain region mark (no mouse, so the row keeps every click
+-- and hover; Blizzard's own tooltip already names a friend's region) in the
+-- free corner above the 12.1 card's party button, or in the legacy row's
+-- empty left gutter under its status icon (clear of the name, the favourite
+-- star, the info line and the logo).
+local STOCK_REGION_SIZE = 14
+local function UpdateStockRegion(card, d, accountInfo)
+    local p = FriendsDB()
+    local gi = accountInfo and accountInfo.gameAccountInfo
+    -- Same-region friends never carry a mark: skip the realm lookup for them.
+    if (p and p.showRegionIcons == false) or not gi or gi.isInCurrentRegion == true then
+        if d.regionMark then d.regionMark:Hide() end
+        return
+    end
+    local myFull = EllesmereUI.GetMyFullRegion and EllesmereUI.GetMyFullRegion()
+    local mini = EllesmereUI.GetFriendMiniRegion and EllesmereUI.GetFriendMiniRegion(gi)
+    local full = mini and EllesmereUI.GetFullRegion and EllesmereUI.GetFullRegion(mini)
+    if not (mini and full and full ~= myFull) then
+        if d.regionMark then d.regionMark:Hide() end
+        return
+    end
+    local mark = d.regionMark
+    if not mark then
+        mark = card:CreateTexture(nil, "OVERLAY", nil, 7)
+        mark:SetSize(STOCK_REGION_SIZE, STOCK_REGION_SIZE)
+        if card.PartyButton then
+            mark:SetPoint("BOTTOM", card.PartyButton, "TOP", 0, 1)
+        elseif card.status and card.gameIcon then
+            mark:SetSize(12, 12)
+            mark:SetPoint("TOP", card.status, "BOTTOM", 0, -1)
+        else
+            mark:SetPoint("TOPRIGHT", card, "TOPRIGHT", -12, -3)
+        end
+        d.regionMark = mark
+    end
+    if d.regionMini ~= mini then
+        d.regionMini = mini
+        mark:SetTexture(EllesmereUI.GetRegionIcon and EllesmereUI.GetRegionIcon(mini))
+        mark:SetTexCoord(0, 1, 0, 1)
+    end
+    mark:Show()
+end
+
 local function UpdateRegion(card, d, accountInfo)
     local p = FriendsDB()
     if p and p.showRegionIcons == false then
@@ -520,12 +586,10 @@ local function UpdateRegion(card, d, accountInfo)
         rb._tex:SetAllPoints()
         rb._tex:SetAlpha(0.25)
         rb:SetScript("OnEnter", function(self)
-            if EllesmereUI.ShowWidgetTooltip then
-                EllesmereUI.ShowWidgetTooltip(self, self._regionLabel or "")
-            end
+            EllesmereUI.ShowWidgetTooltip(self, self._regionLabel or "")
         end)
         rb:SetScript("OnLeave", function()
-            if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+            EllesmereUI.HideWidgetTooltip()
         end)
         local iconH = math.floor((card:GetHeight() or 40) * 0.8)
         rb:SetSize(iconH, iconH)
@@ -612,14 +676,269 @@ local function PaintCard(card)
 end
 
 -------------------------------------------------------------------------------
+--  Stock styles (Blizzard Style / Classic WoW UI): Blizzard's own card, laid
+--  out and drawn by Blizzard, with the EllesmereUI additions in its native
+--  slots only. No Blizzard region is moved or re-texted; the same write
+--  classes as the tile path (our regions on the card, SetAlpha on Blizzard's
+--  regions), so the decoration-only rule above still holds.
+--    class icon  -> over Blizzard's 20px game-icon slot (same-project friends)
+--    class name  -> our string over Blizzard's character name (Class Color Names)
+--    region mark -> the free corner above the party button (Show Region Icons)
+-------------------------------------------------------------------------------
+local function DecorateStockCard(card)
+    if not Enabled() then return end
+    local ed = card.elementData
+    local accountInfo = ed and ed.accountInfo
+    if not accountInfo then return end
+
+    local d = GetFFD(card)
+    local p = FriendsDB()
+    local gi = accountInfo.gameAccountInfo
+    local classFile
+    if IsSameProjectOnline(gi) then
+        classFile = (gi.classFilename ~= "" and gi.classFilename) or GetClassFile(accountInfo)
+    end
+
+    -- Class icon: a region of the holder, so it follows Blizzard's own show and
+    -- hide of the slot (hidden for offline friends and while the RAF summon
+    -- button takes the slot). Blizzard re-sets its Icon's alpha whenever it
+    -- shows the holder, so the logo needs no restore when ours stands down.
+    local holder = card.GameIconHolder
+    if holder then
+        local icon = d.stockClassIcon
+        -- Only a class the icon theme has art for takes the slot; any other
+        -- token (a special game-mode class) keeps Blizzard's own logo.
+        local style = (p and p.iconStyle) or "modern"
+        local hasArt = classFile and not (p and p.showClassIcons == false)
+            and ((style == "blizzard" and CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[classFile])
+                or (style ~= "blizzard" and CLASS_SPRITE_COORDS[classFile]))
+        if hasArt then
+            if not icon then
+                icon = holder:CreateTexture(nil, "OVERLAY")
+                icon:SetAllPoints(holder)
+                d.stockClassIcon = icon
+            end
+            if d.stockIconClass ~= classFile or d.stockIconStyle ~= style then
+                d.stockIconClass, d.stockIconStyle = classFile, style
+                SetClassIconTex(icon, style, classFile)
+            end
+            icon:Show()
+            if holder.Icon then holder.Icon:SetAlpha(0); d.stockLogoOff = true end
+        else
+            if icon then icon:Hide() end
+            -- A pooled card whose last friend wore our icon gets the logo back
+            -- (Blizzard restores it only when it re-shows the holder).
+            if d.stockLogoOff and holder.Icon then holder.Icon:SetAlpha(1) end
+            d.stockLogoOff = nil
+        end
+    end
+
+    -- Class-coloured character name: our string over Blizzard's (same font
+    -- object and rect, so its truncation still holds). Blizzard never resets
+    -- the name's alpha itself, so it is restored here whenever ours stands down.
+    local name = card.Name
+    if name then
+        local ov = d.stockName
+        local code = classFile and p and p.classColorNames and name:IsShown() and ClassColorCode(classFile)
+        if code then
+            if not ov then
+                ov = card:CreateFontString(nil, "OVERLAY")
+                local fo = name:GetFontObject()
+                if fo then ov:SetFontObject(fo) else ov:SetFont(name:GetFont()) end
+                ov:SetAllPoints(name)
+                ov:SetJustifyH("LEFT")
+                ov:SetJustifyV("MIDDLE")
+                ov:SetWordWrap(false)
+                d.stockName = ov
+            end
+            local charName = (FriendsListUtil and FriendsListUtil.GetFormattedCharacterName
+                and FriendsListUtil.GetFormattedCharacterName(accountInfo)) or gi.characterName or ""
+            ov:SetText(code .. charName .. "|r")
+            ov:Show()
+            name:SetAlpha(0)
+            d.stockNameHidden = true
+        else
+            if ov then ov:Hide() end
+            if d.stockNameHidden then
+                name:SetAlpha(1)
+                d.stockNameHidden = nil
+            end
+        end
+    end
+
+    UpdateStockRegion(card, d, accountInfo)
+end
+
+-------------------------------------------------------------------------------
+--  Stock styles on the legacy friends window (FriendsFrame, the one Blizzard
+--  shows while the Social UI is switched off server-side): the same three
+--  additions on Blizzard's own rows, again in native slots, again decoration
+--  only (our regions on the row, SetAlpha on Blizzard's).
+--    class icon  -> over Blizzard's 24px game logo (same-project friends; an
+--                   online character friend's logo slot is empty and takes it)
+--    class name  -> our string over Blizzard's name, built from the same
+--                   pieces Blizzard uses, the character part class-coloured
+--    region mark -> under the status icon (Show Region Icons)
+--  Runs from a post-hook on Blizzard's row update, after it has filled the
+--  row. A row updated while the list is hidden (or skipped by an options pass
+--  while hidden) is marked stale and caught up when the list shows.
+-------------------------------------------------------------------------------
+-- restore: an options-driven pass, where no Blizzard row update ran first to
+-- put its logo alpha back.
+local function DecorateStockRow(button, restore)
+    local bt = button.buttonType
+    local isBNet = bt ~= nil and bt == FRIENDS_BUTTON_TYPE_BNET
+    local isWoW  = bt ~= nil and bt == FRIENDS_BUTTON_TYPE_WOW
+    if not (isBNet or isWoW) or not button.id then return end
+    local d = GetFFD(button)
+    d.legacy = true
+    if not button:IsVisible() then d.stale = true; return end
+    d.stale = nil
+    if not Enabled() then return end
+
+    -- Every decoration off: stand down whatever is still painted and read no
+    -- friend data at all.
+    local p = FriendsDB()
+    if p and p.showClassIcons == false and not p.classColorNames and p.showRegionIcons == false then
+        if d.stockClassIcon then d.stockClassIcon:Hide() end
+        if d.stockLogoOff and restore and button.gameIcon then button.gameIcon:SetAlpha(1) end
+        d.stockLogoOff = nil
+        if d.stockName then d.stockName:Hide() end
+        if d.stockNameHidden and button.name then button.name:SetAlpha(1) end
+        d.stockNameHidden = nil
+        if d.regionMark then d.regionMark:Hide() end
+        return
+    end
+
+    local accountInfo, gi, info, classFile
+    if isBNet then
+        accountInfo = C_BattleNet.GetFriendAccountInfo(button.id)
+        gi = accountInfo and accountInfo.gameAccountInfo
+        if IsSameProjectOnline(gi) then
+            classFile = (gi.classFilename ~= "" and gi.classFilename) or GetClassFile(accountInfo)
+        end
+    else
+        info = C_FriendList.GetFriendInfoByIndex(button.id)
+        if info and info.connected and info.className then
+            BuildClassNameLookup()
+            classFile = classFileByLocalName[info.className]
+        end
+    end
+
+    -- Class icon over the logo's rect. A Battle.net friend's slot is Blizzard's
+    -- to show or hide (offline, or the summon button in it), so ours follows
+    -- the logo's shown state; Blizzard re-sets the logo's alpha on every row
+    -- update, so only an options pass has to give it back.
+    local logo = button.gameIcon
+    if logo then
+        local icon = d.stockClassIcon
+        local style = (p and p.iconStyle) or "modern"
+        local hasArt = (isWoW or logo:IsShown()) and classFile
+            and not (p and p.showClassIcons == false)
+            and ((style == "blizzard" and CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[classFile])
+                or (style ~= "blizzard" and CLASS_SPRITE_COORDS[classFile]))
+        if hasArt then
+            if not icon then
+                icon = button:CreateTexture(nil, "OVERLAY")
+                icon:SetAllPoints(logo)
+                d.stockClassIcon = icon
+            end
+            if d.stockIconClass ~= classFile or d.stockIconStyle ~= style then
+                d.stockIconClass, d.stockIconStyle = classFile, style
+                SetClassIconTex(icon, style, classFile)
+            end
+            icon:Show()
+            if isBNet then logo:SetAlpha(0); d.stockLogoOff = true end
+        else
+            if icon then icon:Hide() end
+            if d.stockLogoOff and restore then logo:SetAlpha(1) end
+            d.stockLogoOff = nil
+        end
+    end
+
+    -- Class-coloured name: our string over Blizzard's (same font object and
+    -- rect, Blizzard's own colour as the base), so the favourite star Blizzard
+    -- anchors at the end of its name still lines up. Blizzard never resets
+    -- the name's alpha itself, so it is restored whenever ours stands down.
+    -- A friend Blizzard greys out as unable to group keeps its grey.
+    local name = button.name
+    if name then
+        local code = classFile and p and p.classColorNames and ClassColorCode(classFile)
+        if code and isBNet and CanCooperateWithGameAccount
+            and not CanCooperateWithGameAccount(accountInfo) then
+            code = nil
+        end
+        local text
+        if code and isBNet then
+            local acct = FriendsFrame_GetBNetAccountNameAndStatus
+                and FriendsFrame_GetBNetAccountNameAndStatus(accountInfo, true)
+            local char = gi.characterName
+            if char and char ~= "" and FriendsFrame_GetFormattedCharacterName then
+                char = FriendsFrame_GetFormattedCharacterName(char, nil, gi.clientProgram, gi.timerunningSeasonID)
+            end
+            if acct and char and char ~= "" then
+                text = acct .. " " .. code .. "(" .. char .. ")|r"
+            end
+        elseif code and info and info.name and info.level and FRIENDS_LEVEL_TEMPLATE then
+            text = code .. info.name .. "|r, " .. format(FRIENDS_LEVEL_TEMPLATE, info.level, info.className)
+        end
+        local ov = d.stockName
+        if text then
+            if not ov then
+                ov = button:CreateFontString(nil, "OVERLAY")
+                local fo = name:GetFontObject()
+                if fo then ov:SetFontObject(fo) else ov:SetFont(name:GetFont()) end
+                ov:SetAllPoints(name)
+                ov:SetJustifyH(name:GetJustifyH())
+                ov:SetJustifyV(name:GetJustifyV())
+                ov:SetWordWrap(name:CanWordWrap())
+                d.stockName = ov
+            end
+            -- Colour only: a region's alpha and its colour alpha are one
+            -- channel on this client, and Blizzard's name sits at our alpha 0
+            -- from the last pass (its 3-arg SetTextColor keeps it), so a full
+            -- copy would hand ours alpha 0 from the second update on.
+            local r, g, b = name:GetTextColor()
+            ov:SetTextColor(r, g, b, 1)
+            ov:SetText(text)
+            ov:Show()
+            name:SetAlpha(0)
+            d.stockNameHidden = true
+        else
+            if ov then ov:Hide() end
+            if d.stockNameHidden then
+                name:SetAlpha(1)
+                d.stockNameHidden = nil
+            end
+        end
+    end
+
+    UpdateStockRegion(button, d, accountInfo)
+end
+
+-- The list shows: catch up the rows Blizzard updated, or an options pass
+-- skipped, while it was hidden (the latter with that pass's logo restore).
+local function CatchUpStaleRows()
+    for frame, d in pairs(FFD) do
+        if d.stale then
+            local restore = d.staleRestore
+            d.staleRestore = nil
+            DecorateStockRow(frame, restore)
+        end
+    end
+end
+
+-------------------------------------------------------------------------------
 --  Hook
 --
 --  Post-hook on the card mixin, installed at PLAYER_LOGIN -- before the friends
 --  list is first shown and therefore before any card frame exists, so every
 --  pooled card copies the hooked Initialize when Mixin() runs at creation.
 --
---  This is the ONLY contact point with Blizzard's list. We do not touch the
---  ScrollBox, the provider, or any element data.
+--  This is the ONLY contact point with Blizzard's list (under the stock
+--  styles, plus the same kind of post-hook on the legacy window's row update
+--  and that list's OnShow). We do not touch the ScrollBox, the provider, or
+--  any element data.
 -------------------------------------------------------------------------------
 -- Shrink the row. The extent previewer caches per template, so we overwrite the
 -- stored calculator and drop the cache; the next Refresh recalculates at our
@@ -643,11 +962,39 @@ local function ApplyCompactRowHeight()
     if view.ClearTemplateExtentCache then view:ClearTemplateExtentCache() end
 end
 
+-- The decorator the Initialize hook runs this session, chosen once from the
+-- style latch (pooled cards therefore never mix treatments).
+local activeDecorator
+
 local boot = CreateFrame("Frame")
 boot:RegisterEvent("PLAYER_LOGIN")
 boot:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
+    if ns.FR_Style() ~= "eui" then
+        -- Stock styles decorate whichever window Blizzard shows (the switch
+        -- is server-side and can flip mid-session). Blizzard keeps its own
+        -- selection highlight, so the SetSelected hook below is not needed.
+        activeDecorator = DecorateStockCard
+        if FriendsListSocialCardMixin then
+            hooksecurefunc(FriendsListSocialCardMixin, "Initialize", function(card)
+                DecorateStockCard(card)
+            end)
+        end
+        if FriendsFrame_UpdateFriendButton then
+            hooksecurefunc("FriendsFrame_UpdateFriendButton", function(button)
+                -- Blizzard has just re-set its logo alpha itself.
+                local d = FFD[button]
+                if d then d.staleRestore = nil end
+                DecorateStockRow(button)
+            end)
+            if FriendsListFrame then
+                FriendsListFrame:HookScript("OnShow", CatchUpStaleRows)
+            end
+        end
+        return
+    end
     if not FriendsListSocialCardMixin then return end
+    activeDecorator = PaintCard
     hooksecurefunc(FriendsListSocialCardMixin, "Initialize", function(card)
         PaintCard(card)
     end)
@@ -666,6 +1013,30 @@ boot:SetScript("OnEvent", function(self)
 
     ApplyCompactRowHeight()
 end)
+
+-- Options-driven repaint that never goes through Blizzard's view: re-run this
+-- session's decorator on every card or legacy row we have decorated that is on
+-- screen now, from the data Blizzard already gave it. (view:Refresh
+-- regenerates the data provider from our execution -- the whisper-taint class
+-- above.)
+_G._EFR_RedecorateTiles = function()
+    local fn = activeDecorator
+    if not fn then return end
+    for frame, d in pairs(FFD) do
+        if d.legacy then
+            -- A row kept shown under a hidden list (another Friends sub-tab)
+            -- is caught up when the list shows; a released row is
+            -- re-initialised by Blizzard when the pool reuses it.
+            if frame:IsVisible() then
+                DecorateStockRow(frame, true)
+            elseif frame:IsShown() then
+                d.stale, d.staleRestore = true, true
+            end
+        elseif frame.IsVisible and frame:IsVisible() and frame.elementData then
+            fn(frame)
+        end
+    end
+end
 
 _G._EFR_RepaintTiles = function()
     -- Options-driven refresh: ask Blizzard to redraw, which re-runs Initialize

@@ -154,6 +154,27 @@ end
 -- frame as its edit box shows and hides, and only that frame's text area moves.
 ECHAT.EngineLayoutWindow = LayoutWindowSMF
 
+-- Re-seat a window's text frame (and its scrollbar) at its creation offset
+-- above the panel after the panel's level moved. The stock styles need it:
+-- Blizzard's own chat background is revealed on the chat frame, which is
+-- toplevel and gets raised on interaction, so the text must follow the panel
+-- back above it. Compare-gated (write-free when settled).
+function ECHAT.EngineLevelWindow(cf)
+    local win = WINS[cf]
+    local d = CFD(cf)
+    if not (win and win.smf and d.bg) then return end
+    local want = d.bg:GetFrameLevel() + 4
+    if win.smf:GetFrameLevel() ~= want then win.smf:SetFrameLevel(want) end
+    if win.track and win.track:GetFrameLevel() ~= want + 2 then win.track:SetFrameLevel(want + 2) end
+end
+
+-- Whether a window's text is scrolled back (its thin scrollbar shows).
+function ECHAT.EngineIsScrolled(cf)
+    local w = WINS[cf]
+    local t = w and w.track
+    return (t and t:IsShown()) and true or false
+end
+
 -- Thin scrollbar: visible only while scrolled back (offset > 0) or dragging.
 -- Track/thumb are our frames; drag runs a temporary OnUpdate on the track
 -- that self-removes on release (no recurring work otherwise).
@@ -163,7 +184,12 @@ local function UpdateScrollbar(win)
     local range = smf:GetMaxScrollRange()
     local offset = smf:GetScrollOffset()
     local show = (offset > 0 or win.dragging) and range > 0
-    if track:IsShown() ~= show then track:SetShown(show) end
+    if track:IsShown() ~= show then
+        track:SetShown(show)
+        -- Stock sidebar: the scroll button flashes while scrolled back.
+        local fs = ECHAT.SB_FlashSync
+        if fs then fs() end
+    end
     if not show then return end
     local trackH = track:GetHeight()
     if not trackH or trackH <= 0 then return end
@@ -474,21 +500,24 @@ local CHANNEL_ABBR_LOOKUP = {
 }
 
 -- World channels use hyperlink keyword "channel:<N>": 1=General, 2=Trade,
--- 22=LocalDefense, 23=WorldDefense, 26=LookingForGroup.
-local WORLD_CHANNEL_ABBR = {
+-- 22=LocalDefense, 23=WorldDefense, 26=LookingForGroup. By default they show
+-- their channel number (what "/1" types); the Use Letters cog option paints
+-- these letters instead. A number with no letter stays a number either way.
+local WORLD_CHANNEL_LETTERS = {
     ["1"]  = "Ge",
     ["2"]  = "T",
     ["22"] = "LD",
     ["23"] = "WD",
     ["26"] = "LFG",
 }
+local _abbrevLetters = false  -- Shortened Channel Names > Use Letters user setting
 
 local function ShortChannelReplacer(hyperlinkTarget)
     local abbr = CHANNEL_ABBR_LOOKUP[hyperlinkTarget:upper()]
     if not abbr then
         local channelNum = hyperlinkTarget:match("^channel:(%d+)$")
         if channelNum then
-            abbr = WORLD_CHANNEL_ABBR[channelNum] or channelNum
+            abbr = (_abbrevLetters and WORLD_CHANNEL_LETTERS[channelNum]) or channelNum
         end
     end
     if not abbr then return nil end
@@ -529,6 +558,9 @@ end
 
 function ECHAT.EngineSetChannelAbbrev(on)
     _abbrevOn = on == true
+end
+function ECHAT.EngineSetChannelAbbrevLetters(on)
+    _abbrevLetters = on == true
 end
 
 -------------------------------------------------------------------------------
@@ -1128,7 +1160,7 @@ ECHAT.EngineQueueRebuildAll = QueueRebuildAll
 -- lines received while dormant. No-op while the state is unchanged, so the
 -- PEW edge and the per-message probe cost one comparison.
 EngineUpdateProtectedState = function()
-    local prot = (EUI.InProtectedInstance and EUI.InProtectedInstance()) and true or false
+    local prot = (EUI.InProtectedInstance()) and true or false
     if prot == _protActive then return end
     _protActive = prot
     QueueRebuildAll()
@@ -1239,12 +1271,6 @@ function ECHAT.EngineBackfillLine(cf, text, r, g, b, id)
     cf:BackFillMessage(display, r, g, b, id)
     win.smf:BackFillMessage(display, r, g, b, id)
     return true
-end
-
-function ECHAT.EngineNumMessages(cf)
-    local win = WINS[cf]
-    if not win then return 0 end
-    return win.smf:GetNumMessages()
 end
 
 -- Full-hide passthrough support: our display simply hides (a hidden frame

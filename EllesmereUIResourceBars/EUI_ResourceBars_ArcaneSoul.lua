@@ -141,7 +141,7 @@ local function GetASFont()
         local path = EllesmereUI.ResolveFontName(key)
         if path then return path end
     end
-    return (EllesmereUI and EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("resourceBars"))
+    return (EllesmereUI.GetFontPath("resourceBars"))
         or STANDARD_TEXT_FONT
 end
 
@@ -149,14 +149,14 @@ local function GetASOutline()
     local p = P()
     local mode = (p and p.outlineMode) or "__global"
     if mode == "outline" then
-        return (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG"
+        return (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG"
     end
     if mode == "thick" then
-        return (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("THICKOUTLINE, SLUG")) or "THICKOUTLINE, SLUG"
+        return (EllesmereUI.SlugFlag("THICKOUTLINE, SLUG")) or "THICKOUTLINE, SLUG"
     end
     if mode == "none" then return "" end
-    return (EllesmereUI and EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("resourceBars"))
-        or (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG"
+    return (EllesmereUI.GetFontOutlineFlag("resourceBars"))
+        or (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG"
 end
 
 -- Empty flags = Drop Shadow mode, primed via FontObject (instance shadow
@@ -166,9 +166,7 @@ end
 local function ApplyFsLook(phase, fs)
     if not fs then return end
     local flags = GetASOutline()
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then
-        EllesmereUI.PrimeFontShadow(fs, flags == "")
-    end
+    EllesmereUI.PrimeFontShadow(fs, flags == "")
     fs:SetFont(GetASFont(), TextSize(), flags)
     local r, g, b
     if phase == "soul" then r, g, b = SoulColor() else r, g, b = PreColor() end
@@ -642,9 +640,7 @@ local function ShowSample()
         S.sample = fs
     end
     local flags = GetASOutline()
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then
-        EllesmereUI.PrimeFontShadow(fs, flags == "")
-    end
+    EllesmereUI.PrimeFontShadow(fs, flags == "")
     fs:SetFont(GetASFont(), TextSize(), flags)
     fs:SetTextColor(PreColor())
     fs:SetText(PhaseMode("surge") == "gcd" and "Soul in 3" or "Soul in 3.2")

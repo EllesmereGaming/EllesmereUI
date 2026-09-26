@@ -32,32 +32,15 @@ local GetRaidTargetIndex, SetRaidTargetIconTexture = GetRaidTargetIndex, SetRaid
 local C_CVar, NamePlateConstants, Enum = C_CVar, NamePlateConstants, Enum
 local _, PLAYER_CLASS = UnitClass("player")
 
-local function GetFont()
-    if EllesmereUI and EllesmereUI.GetFontPath then
-        return EllesmereUI.GetFontPath("nameplates")
-    end
-    -- `defaults` is declared below this function, so use the literal path.
-    return (p and p.font) or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
-end
-local function GetNPOutline()
-    -- Slug-gated at the source (GetFontOutlineFlag); SetFSFont gates the
-    -- explicit-flag path too, so aura literals are covered.
-    return (EllesmereUI and EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("nameplates")) or "OUTLINE, SLUG"
-end
-local function GetNPUseShadow()
-    return not EllesmereUI or not EllesmereUI.GetFontUseShadow or EllesmereUI.GetFontUseShadow("nameplates")
-end
+local function GetFont() return EllesmereUI.GetFontPath("nameplates") end
+-- Slug-gated at the source (GetFontOutlineFlag); SetFSFont gates the
+-- explicit-flag path too, so aura literals are covered.
+local function GetNPOutline() return EllesmereUI.GetFontOutlineFlag("nameplates") end
+local function GetNPUseShadow() return EllesmereUI.GetFontUseShadow("nameplates") end
 local function SetFSFont(fs, size, flags)
-  if not (fs and fs.SetFont) then return end
-  local f = flags or GetNPOutline()
   -- "Never Show Slug": gates the explicit-flag path so hardcoded aura
   -- "OUTLINE, SLUG" literals drop the slug (body text is gated at the source).
-  if EllesmereUI and EllesmereUI.SlugFlag then f = EllesmereUI.SlugFlag(f) end
-  -- Drop shadows only render from a FontObject; prime before SetFont.
-  if EllesmereUI and EllesmereUI.PrimeFontShadow then
-    EllesmereUI.PrimeFontShadow(fs, f == "")
-  end
-  fs:SetFont(GetFont(), size or 11, f)
+  EllesmereUI.ApplyModuleFont(fs, nil, size or 11, "nameplates", EllesmereUI.SlugFlag(flags or GetNPOutline()))
 end
 
 ns.GetFont = GetFont
@@ -117,6 +100,7 @@ function ns._appendDisplayPresetKeys(t)
         "ccDurationTextSize", "ccDurationTextX", "ccDurationTextY", "ccDurationTextColor",
         "buffTextSize", "buffTextColor", "ccTextSize", "ccTextColor",
         "raidMarkerPos", "classificationSlot", "classificationShowInInstances",
+        "factionSlot", "classificationIncludeFaction",
         "castNameSize", "castNameColor", "castCombineNameTarget",
         "castTargetSize", "castTargetClassColor", "castTargetColor",
         "showCastTimer", "castTimerSize", "castTimerColor", "targetScale",
@@ -139,6 +123,15 @@ function ns._appendDisplayPresetKeys(t)
 end
 
 local defaults = {
+    -- Blizzard Style (Global Settings > Style): the stock nameplate's bar,
+    -- background, selection and cast bar art on our plates with every feature
+    -- intact. Default OFF; reload-gated.
+    useBlizzardStyle = false,
+    -- Classic WoW UI (Global Settings > Style): the flat vanilla plate -- the
+    -- user's fill inside a 1px black edge, square icons -- with every feature
+    -- intact. Default OFF; reload-gated. Set together with useBlizzardStyle
+    -- it wins.
+    useClassicStyle = false,
     absorbStyle = "blizzard",
     absorbCleanAlpha = 30,
     absorbColor = { r = 1, g = 1, b = 1 },
@@ -236,7 +229,8 @@ local defaults = {
     font = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF",
     textSlotTop = "enemyName",
     textSlotRight = "healthPercent",
-    textSlotLeft = "none",
+    -- WoW Forever shows the level by default (retail leaves the slot empty).
+    textSlotLeft = (EllesmereUI.IS_FOREVER == true) and "level" or "none",
     textSlotCenter = "none",
     showTargetArrows = false,
     targetArrowDouble = false,
@@ -247,7 +241,10 @@ local defaults = {
     classPowerPos = "bottom",
     classPowerYOffset = 1,
     classPowerXOffset = 0,
-    classPowerScale = 1.0,
+    -- The 8x3 base pip is reported as too small to read on Forever, where this is
+    -- the target-side display rather than a second one. The Size slider (0.5 to
+    -- 4.0) still overrides it.
+    classPowerScale = (EllesmereUI.IS_FOREVER == true) and 1.8 or 1.0,
     classPowerClassColors = true,
     classPowerCustomColor = { r = 1.00, g = 0.84, b = 0.30 },
     classPowerBgColor = { r = 0.082, g = 0.082, b = 0.082, a = 1.0 },
@@ -321,6 +318,13 @@ local defaults = {
     raidMarkerSize = 24,
     classificationSlot = "topleft",
     classificationShowInInstances = false,  -- Rare/Quest "Show In Instances" (slot cog): lifts the open-world-only gate in UpdateClassification + IsQuestMob
+    -- Faction badge (Horde/Alliance), a Core Positions slot element; rules in ns.NP_FactionBadge.
+    factionSlot = "none",
+    factionStyle = "pvp",  -- Icon Style: a key of EllesmereUI.FACTION_ART
+    classificationIncludeFaction = false,  -- "Rare/Quest + Faction": the badge shares the classification slot
+    factionOppositeOnly = false,
+    factionPlayersOnly = false,
+    factionPvP = "dim",  -- "dim" greys unflagged units, "only" hides them, "ignore" draws both alike
     rareEliteIconSize = 20,
     castBarHeight = 17,
     castBarOffsetY = 0,
@@ -372,6 +376,11 @@ local defaults = {
     -- "Wrap Border Around Castbar": health border extends down to enclose the cast bar while casting,
     -- forming one unified border. Fully additive: no wrap machinery runs unless enabled.
     wrapBorderCastbar = false,
+    -- Classic WoW UI: the level and the boss icon seated in the health
+    -- border's plate. A size of 0 follows the bar's own height; read only
+    -- while that style renders.
+    classicLevelSize = 0, classicLevelX = 0, classicLevelY = 0,
+    classicSkullSize = 0, classicSkullX = 0, classicSkullY = 0,
     -- Custom border (opt-in): shared EllesmereUI border engine (same as Unit Frames, full
     -- SharedMedia). When false, NONE of these keys are read; the simple border above renders instead.
     customBorderEnabled = false,
@@ -401,7 +410,7 @@ local defaults = {
     focusCastHeight = 100,
     questMobColorEnabled = false,
     questMobColor = { r = 0.157, g = 0.855, b = 0.475 },
-    replaceQuestIconWithObjective = false,
+    replaceQuestIconWithObjective = (EllesmereUI.IS_FOREVER == true) and true or false,
     questObjectiveTextSize = 14,
     showCastIcon = true,
     castIconScale = 1,
@@ -504,6 +513,9 @@ end
 -- so it never collides with the simple PP.CreateBorder on plate.health. ns fields, not new
 -- file-scope locals (local cap).
 function ns.IsCustomBorderEnabled()
+    -- Stock styles: the Blizzard background art, or the classic plate's plain
+    -- 1px edge, stands in for the custom border.
+    if ns.NP_Blizz() then return false end
     local v = p and p.customBorderEnabled
     if v == nil then return defaults.customBorderEnabled end
     return v
@@ -514,6 +526,10 @@ function ns.ApplyCustomBorderStyle(plate, szOverride)
     if not (EllesmereUI and EllesmereUI.ApplyBorderStyle) then return end
     local tex    = (p and p.customBorderTexture) or defaults.customBorderTexture
     local sz     = szOverride or (p and p.customBorderSize) or defaults.customBorderSize
+    -- Exact pixel size (customBorderSizePx) counts only for the plate's own size; a
+    -- target/hover effect size is a substitute and keeps the legacy path.
+    local px
+    if not szOverride then px = EllesmereUI.BorderPx(p and p.customBorderSizePx, sz, tex) end
     local col    = (p and p.customBorderColor) or defaults.customBorderColor
     local a      = (p and p.customBorderAlpha) or defaults.customBorderAlpha or 1
     local behind = p and p.customBorderBehind
@@ -532,7 +548,7 @@ function ns.ApplyCustomBorderStyle(plate, szOverride)
     EllesmereUI.ApplyBorderStyle(bf, sz, col.r, col.g, col.b, a, tex,
         p and p.customBorderOffset, p and p.customBorderOffsetY,
         p and p.customBorderShiftX, p and p.customBorderShiftY,
-        "nameplates", sz)
+        "nameplates", sz, nil, px)
 end
 function ns.ApplyCustomBorderColor(plate)
     if not plate or not plate._customBorder then return end
@@ -549,9 +565,641 @@ function ns.HideCustomBorder(plate)
     end
 end
 
+-------------------------------------------------------------------------------
+--  Stock styles (Global Settings > Style). Blizzard Style: the stock
+--  nameplate atlases on our own plates -- bar fill + shadowed background,
+--  target/focus selection ring, deselected overlay, and the stock cast bar
+--  art (background, fills per cast kind, pip, interrupt shield). Classic WoW
+--  UI: the flat vanilla plate -- the user's fill inside a fixed 1px black
+--  edge on the health and cast bars, square full-art icons, the stock
+--  dispel-type border on harmful auras; no ring, mask, panel or bevel. Every
+--  EUI feature keeps working; the EUI borders and textures step aside.
+--  Reload-gated per-profile flags, read only on build/restyle paths. Atlases
+--  are validated once per session so a missing one leaves that piece on the
+--  EUI look. ns fields (local cap).
+-------------------------------------------------------------------------------
+ns.NP_BLIZZ = {
+    bar = "UI-HUD-CoolDownManager-Bar", barBg = "UI-HUD-CoolDownManager-Bar-BG",
+    selected = "UI-HUD-Nameplates-Selected", deselected = "ui-hud-nameplates-deselected-overlay",
+    castBg = "ui-castingbar-background", cast = "ui-castingbar-filling-standard",
+    channel = "ui-castingbar-filling-channel", interrupted = "ui-castingbar-interrupted",
+    castShieldFill = "ui-castingbar-uninterruptable", castPip = "ui-castingbar-pip",
+    shield = "nameplates-InterruptShield",
+    auraMask = "UI-HUD-CoolDownManager-Mask", auraRing = "UI-HUD-CoolDownManager-IconOverlay",
+}
+-- Classic WoW UI kit. debuffBorder: the stock debuff border for an untyped
+-- debuff (the engine stamps the typed ones on the aura cells itself; our
+-- hand-built icons wear this one). The rest is the vanilla nameplate border
+-- art: a long window with a plate on one end (the level's on the health
+-- border's right, the spell icon's on the cast border's left), drawn as
+-- three pieces so the two plates keep their shape at any bar width while
+-- the window between them stretches.
+--
+-- EVERY number below is in BAR-HEIGHT units: multiply by the bar's own
+-- height. They come from measuring an in-game render of each file (the
+-- copies the CDN serves differ from what the client draws, so the files
+-- themselves cannot be trusted for this). The art's texcoords are its
+-- opaque extent, `c1`/`c2` cut it at the window's two ends, `capL`/`capR`
+-- are the pieces' widths and `reachL`/`reachR` how far the art reaches past
+-- the bar. Each cap is a touch wider than its reach because the art's inner
+-- rim overlaps the bar's edge, which is the vanilla look. Confirmed against
+-- Blizzard's own Classic nameplate constants: the cast sheet's bar lands
+-- exactly on their 20.75 / 3.5 insets in a 16-tall border.
+ns.NP_CLASSIC = {
+    debuffBorder = "ui-debuff-border-default-noicon",
+    -- health reachL carries a +0.08 nudge over its measured 0.057: the plain
+    -- end of the art is ROUNDED and our fill is a plain rectangle with no
+    -- corner mask, so at the measured reach the fill's square top-left and
+    -- bottom-left corners show past the curve. Pushing that end out covers
+    -- them and still leaves the rim overlapping the bar's left edge. The
+    -- plate end needs none of this: it is a filled box. (The cast sheet's
+    -- plain end already reaches 0.26 and covers its own corners.)
+    health = { file = "Interface\\Tooltips\\Nameplate-Border",
+               l = 0.0049, r = 0.5261, t = 0.5065, b = 0.9610, c1 = 0.0195, c2 = 0.4137,
+               capL = 0.187, capR = 1.440, reachL = 0.137, reachR = 1.310 },
+    cast   = { file = "Interface\\Tooltips\\Nameplate-Border-Castbar",
+               l = 0.0081, r = 0.9919, t = 0.5065, b = 0.9610, c1 = 0.1710, c2 = 0.9609,
+               capL = 2.086, capR = 0.390, reachL = 1.956, reachR = 0.260 },
+    spark = "Interface\\CastingBar\\UI-CastingBar-Spark",
+    shield = "Interface\\CastingBar\\UI-CastingBar-Small-Shield",
+    skull = "Interface\\TargetingFrame\\UI-TargetingFrame-Skull",
+    top = 0.230, bottom = 0.229,  -- the art's reach above and below the bar
+    gap = 0.35,                   -- clear space between the two borders
+    plateOffL = 0.924,            -- the cast icon's centre, left of the cast bar's left edge
+    plateOffR = 0.584,            -- the level's centre, right of the health bar's right edge
+    icon = 1.4,                   -- the cast icon's side, seated in its plate
+    -- The level and the boss icon while their sliders sit at 0 ("follow the
+    -- bar"): three quarters of what the bar's height would give, which
+    -- overfilled the plate. The Level Size and Elite Icon Size sliders
+    -- override each of them.
+    levelFont = 0.75, levelIcon = 1,
+    sparkSize = 3.2, sparkY = -0.1,
+    shieldL = 2.0, shieldT = 1.1, shieldR = 1.3, shieldB = 1.3,  -- the shield frame's reach past the cast bar
+}
+-- The cast icon's centre from the cast bar's LEFT, and the level's centre
+-- from the health bar's RIGHT (both plates are centred on the bar's own
+-- middle line).
+function ns.NP_ClassicIconOffset(k)
+    return -ns.NP_CLASSIC.plateOffL * k, 0
+end
+-- The level's and the elite icon's seat in the health border's plate: the
+-- plate's own centre plus the user's own offsets. Their size scales with the
+-- bar until the user sets one (0 = follow the bar).
+function ns.NP_ClassicLevelOffset(k)
+    return ns.NP_CLASSIC.plateOffR * k + ((p and p.classicLevelX) or 0), ((p and p.classicLevelY) or 0)
+end
+function ns.NP_ClassicSkullOffset(k)
+    return ns.NP_CLASSIC.plateOffR * k + ((p and p.classicSkullX) or 0), ((p and p.classicSkullY) or 0)
+end
+function ns.NP_ClassicLevelSize(k)
+    local v = p and p.classicLevelSize
+    if v and v > 0 then return v end
+    return math.max(6, ns.NP_CLASSIC.levelFont * k)
+end
+function ns.NP_ClassicSkullSize(k)
+    local v = p and p.classicSkullSize
+    if v and v > 0 then return v end
+    return ns.NP_CLASSIC.levelIcon * k
+end
+-- The Classic WoW UI border's reach past the health bar's two ends, 0 on
+-- every other style. The border is part of the bar as far as anything beside
+-- it is concerned -- its level plate hangs well past the bar's right edge --
+-- so the target arrows and every side-slot element clear this too. `k` =
+-- the bar's height (nil = the enemy plates'; friendly plates pass theirs).
+function ns.NP_ClassicBarReserve(k)
+    if not ns.NP_Classic() then return 0, 0 end
+    local C = ns.NP_CLASSIC
+    k = k or (ns.GetHealthBarHeight and ns.GetHealthBarHeight()) or 0
+    return C.health.reachL * k, C.health.reachR * k
+end
+-- One side of it ("left" | "right"), for the many places that gap a single
+-- element off one edge of the bar.
+function ns.NP_ClassicSide(side, k)
+    local l, r = ns.NP_ClassicBarReserve(k)
+    if side == "right" then return r end
+    return l
+end
+-- The cast bar's layout under the health bar: its shift right, its width
+-- over the footprint and its drop, so the two borders line up at their
+-- outer edges (plate under plain end, plain end under plate) with a clear
+-- gap between them. kh / kc are the two bars' heights.
+function ns.NP_ClassicCastLayout(footprintW, kh, kc)
+    local C = ns.NP_CLASSIC
+    local lh, rh = C.health.reachL * kh, C.health.reachR * kh
+    local lc, rc = C.cast.reachL * kc, C.cast.reachR * kc
+    return lc - lh, footprintW + (lh + rh) - (lc + rc), -((C.bottom + C.gap) * kh + C.top * kc)
+end
+-- Three pieces of a sheet on `host` (its art cut at the window's two ends);
+-- created once, seated by NP_SeatClassicBorder.
+function ns.NP_ClassicBorderPieces(host, sheet)
+    local p = { sheet = sheet }
+    for i = 1, 3 do
+        local t = host:CreateTexture(nil, "OVERLAY", nil, 0)
+        t:SetTexture(sheet.file)
+        t:SetSnapToPixelGrid(false)
+        t:SetTexelSnappingBias(0)
+        p[i] = t
+    end
+    p[1]:SetTexCoord(sheet.l, sheet.c1, sheet.t, sheet.b)
+    p[2]:SetTexCoord(sheet.c1, sheet.c2, sheet.t, sheet.b)
+    p[3]:SetTexCoord(sheet.c2, sheet.r, sheet.t, sheet.b)
+    return p
+end
+-- Seats the pieces round `bar` at k (the bar's height): both plates keep
+-- the art's own proportion, the window stretches between them. Memoized;
+-- every layout pass may call it.
+function ns.NP_SeatClassicBorder(p, bar, k)
+    if p._k == k and p._bar == bar then return end
+    p._k, p._bar = k, bar
+    local C = ns.NP_CLASSIC
+    local sheet = p.sheet
+    local l, r = sheet.reachL * k, sheet.reachR * k
+    local t, b = C.top * k, C.bottom * k
+    for i = 1, 3 do p[i]:ClearAllPoints() end
+    p[1]:SetPoint("TOPLEFT", bar, "TOPLEFT", -l, t)
+    p[1]:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", -l, -b)
+    p[1]:SetWidth(sheet.capL * k)
+    p[3]:SetPoint("TOPRIGHT", bar, "TOPRIGHT", r, t)
+    p[3]:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", r, -b)
+    p[3]:SetWidth(sheet.capR * k)
+    p[2]:SetPoint("TOPLEFT", p[1], "TOPRIGHT", 0, 0)
+    p[2]:SetPoint("BOTTOMRIGHT", p[3], "BOTTOMLEFT", 0, 0)
+end
+-- The vanilla health border round a plate's health bar (enemy and friendly
+-- plates alike) and, where the plate has a text frame, the unit's level in
+-- the border's plate. The pieces ride a host above the fill, the absorbs
+-- and the class icon and under the texts; a height change re-seats them.
+function ns.NP_ApplyClassicHealthArt(plate, h)
+    local health = plate and plate.health
+    if not health then return end
+    local C = ns.NP_CLASSIC
+    local host = plate._classicHealthHost
+    if not host then
+        host = CreateFrame("Frame", nil, health)
+        host:SetAllPoints(health)
+        host:EnableMouse(false)
+        plate._classicHealthHost = host
+        plate._classicHealthArt = ns.NP_ClassicBorderPieces(host, C.health)
+    end
+    host:SetFrameLevel(health:GetFrameLevel() + 6)
+    local k = h or health:GetHeight()
+    ns.NP_SeatClassicBorder(plate._classicHealthArt, health, k)
+    -- The art carries a level plate, so it must never render empty: a plate
+    -- with no text frame of its own (the friendly plates) gets a host here,
+    -- one level above the border art.
+    local tf = plate.healthTextFrame
+    if not tf then
+        tf = plate._classicLevelHost
+        if not tf then
+            tf = CreateFrame("Frame", nil, health)
+            tf:SetAllPoints(health)
+            tf:EnableMouse(false)
+            plate._classicLevelHost = tf
+        end
+        tf:SetFrameLevel(host:GetFrameLevel() + 1)
+    end
+    local fs, sk = plate._classicLevel, plate._classicSkull
+    if not fs then
+        fs = tf:CreateFontString(nil, "OVERLAY")
+        fs:SetJustifyH("CENTER")
+        plate._classicLevel = fs
+        sk = tf:CreateTexture(nil, "OVERLAY")
+        sk:SetTexture(C.skull)
+        sk:Hide()
+        plate._classicSkull = sk
+    end
+    -- The user's nameplate font, outline and shadow, like every other text
+    -- on the plate (and it guarantees a font before any SetText).
+    ns.SetFSFont(fs, ns.NP_ClassicLevelSize(k))
+    local lx, ly = ns.NP_ClassicLevelOffset(k)
+    fs:ClearAllPoints()
+    fs:SetPoint("CENTER", health, "RIGHT", lx, ly)
+    local sx, sy = ns.NP_ClassicSkullOffset(k)
+    local ss = ns.NP_ClassicSkullSize(k)
+    sk:ClearAllPoints()
+    sk:SetSize(ss, ss)
+    sk:SetPoint("CENTER", health, "RIGHT", sx, sy)
+    ns.NP_UpdateClassicLevel(plate)
+end
+-- The level in the health border's plate: the effective level in its
+-- difficulty colour, the skull for a boss, "??" for a level the client keeps
+-- secret. Every unit read is treated as possibly secret.
+function ns.NP_UpdateClassicLevel(plate)
+    local fs, sk = plate._classicLevel, plate._classicSkull
+    if not fs then return end
+    local unit = plate.unit
+    if not unit or not UnitExists(unit) then fs:Hide(); sk:Hide(); return end
+    local lvl = UnitEffectiveLevel(unit)
+    local secret = issecretvalue and issecretvalue(lvl)
+    if not secret and type(lvl) == "number" and lvl < 0 then
+        fs:Hide(); sk:Show()
+        return
+    end
+    sk:Hide()
+    fs:SetText(ns.GetUnitLevelText(unit, true))
+    -- The stock yellow, and the difficulty colour only where difficulty means
+    -- something: a unit you cannot attack is never colour-ranked.
+    local r, g, b = 1, 0.82, 0
+    local canAttack = UnitCanAttack("player", unit)
+    if issecretvalue and issecretvalue(canAttack) then canAttack = false end
+    if canAttack and not secret and C_PlayerInfo and C_PlayerInfo.GetContentDifficultyCreatureForPlayer then
+        local diff = C_PlayerInfo.GetContentDifficultyCreatureForPlayer(unit)
+        if not (issecretvalue and issecretvalue(diff)) and GetDifficultyColor then
+            local color = GetDifficultyColor(diff)
+            if color then r, g, b = color.r, color.g, color.b end
+        end
+    end
+    fs:SetTextColor(r, g, b, 1)
+    fs:Show()
+end
+-- The vanilla cast border round a plate's cast bar, with the spell icon
+-- lifted above it into its plate, the vanilla spark on the fill's edge and
+-- the vanilla shield frame round the bar for an uninterruptible cast. The
+-- pieces ride a host above the fill and the background; LayoutCastBar calls
+-- this on every re-layout (memo in the seat, the per-height work behind
+-- its own memo).
+function ns.NP_ApplyClassicCastArt(plate, castH)
+    local cast = plate and plate.cast
+    if not cast then return end
+    local C = ns.NP_CLASSIC
+    local k = castH or cast:GetHeight()
+    local host = plate._classicCastHost
+    if not host then
+        host = CreateFrame("Frame", nil, cast)
+        host:SetAllPoints(cast)
+        host:EnableMouse(false)
+        plate._classicCastHost = host
+        plate._classicCastArt = ns.NP_ClassicBorderPieces(host, C.cast)
+    end
+    host:SetFrameLevel(cast:GetFrameLevel() + 2)
+    ns.NP_SeatClassicBorder(plate._classicCastArt, cast, k)
+    -- The pool builds the cast bar BEFORE its icon frame, spark, shield and
+    -- seam line, and lays the bar out in between, so the first pass through
+    -- here has none of them. Stamping the memo then would claim this height
+    -- as done and the art below would never be applied to any of them: wait
+    -- until they all exist.
+    if not (plate.castIconFrame and plate.castSpark and plate.castShield and plate.castShieldFrame and plate.castLeftBorder) then return end
+    if plate._classicCastK == k then return end
+    plate._classicCastK = k
+    -- Above the border art AND above the health bar, as the pool intended:
+    -- the cast bar is a plain child of the plate, so the host's own level
+    -- alone would drop the icon below the health bar rather than lift it.
+    plate.castIconFrame:SetFrameLevel(math.max(host:GetFrameLevel() + 1, plate.health:GetFrameLevel() + 1))
+    ns.NP_ClassicSpark(plate, k)
+    plate.castShield:SetTexture(C.shield)
+    plate.castShieldFrame:ClearAllPoints()
+    plate.castShieldFrame:SetPoint("TOPLEFT", cast, "TOPLEFT", -C.shieldL * k, C.shieldT * k)
+    plate.castShieldFrame:SetPoint("BOTTOMRIGHT", cast, "BOTTOMRIGHT", C.shieldR * k, -C.shieldB * k)
+    plate.castLeftBorder:Hide()
+end
+-- The vanilla spark: a square on the fill's leading edge, not a bar-tall
+-- sliver. Every caller that sizes the spark for the EUI look routes here
+-- under Classic WoW UI instead, so none of them can squash it back.
+function ns.NP_ClassicSpark(plate, k)
+    local cast, spark = plate and plate.cast, plate and plate.castSpark
+    if not (cast and spark) then return end
+    local C = ns.NP_CLASSIC
+    spark:SetTexture(C.spark)
+    spark:SetSize(C.sparkSize * k, C.sparkSize * k)
+    spark:ClearAllPoints()
+    spark:SetPoint("CENTER", cast:GetStatusBarTexture(), "RIGHT", 0, C.sparkY * k)
+end
+-- One chokepoint for "size the spark to this cast height": the square under
+-- Classic WoW UI, the bar-tall sliver otherwise.
+function ns.NP_SetSparkHeight(plate, castH)
+    if ns.NP_Classic() then ns.NP_ClassicSpark(plate, castH); return end
+    if plate and plate.castSpark then plate.castSpark:SetHeight(castH) end
+end
+ns._npAtlasMemo = {}
+-- The style this module RENDERS this session -- "eui" | "blizzard" |
+-- "classic" -- read from the profile once (first call with a profile present)
+-- and latched: a live profile switch never flips the look under the one-time
+-- art setup; the profile system prompts for a reload instead. Both flags set
+-- resolves as classic.
+function ns.NP_Style()
+    local v = ns._npStyle
+    if v == nil then
+        if not p then return "eui" end
+        v = (p.useClassicStyle and "classic") or (p.useBlizzardStyle and "blizzard") or "eui"
+        ns._npStyle = v
+    end
+    return v
+end
+-- Stock-art mode: true for both stock styles (the geometry, gating and
+-- chrome they share -- zoom 0 icons, no EUI icon borders, no custom border).
+function ns.NP_Blizz() return ns.NP_Style() ~= "eui" end
+function ns.NP_Classic() return ns.NP_Style() == "classic" end
+function ns.NP_AtlasOK(name)
+    local memo = ns._npAtlasMemo
+    local v = memo[name]
+    if v == nil then
+        v = (name and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(name)) and true or false
+        memo[name] = v
+    end
+    return v
+end
+-- Inner shadow on the health bar: the stock fill art bakes this bevel in,
+-- and under the style the fill is the user's own texture, so it is drawn
+-- here: four regions of the bar at OVERLAY -3 (above the fill, under the
+-- hash line, the overlays and the ring), created once, re-sized per pass.
+ns._npShadeClear  = CreateColor(0, 0, 0, 0)
+ns._npShadeTop    = CreateColor(0, 0, 0, 0.55)
+ns._npShadeBottom = CreateColor(0, 0, 0, 0.30)
+ns._npShadeEnd    = CreateColor(0, 0, 0, 0.35)
+function ns.NP_BlizzBarShadow(bar, h, mask)
+    local sh = bar._blizzShadow
+    if not sh then
+        sh = {}
+        bar._blizzShadow = sh
+        for i = 1, 4 do
+            local tex = bar:CreateTexture(nil, "OVERLAY", nil, -3)
+            tex:SetTexture("Interface\\Buttons\\WHITE8X8")
+            if tex.SetSnapToPixelGrid then tex:SetSnapToPixelGrid(false); tex:SetTexelSnappingBias(0) end
+            sh[i] = tex
+        end
+        -- VERTICAL runs bottom -> top, HORIZONTAL left -> right.
+        sh[1]:SetGradient("VERTICAL", ns._npShadeClear, ns._npShadeTop)
+        sh[2]:SetGradient("VERTICAL", ns._npShadeBottom, ns._npShadeClear)
+        sh[3]:SetGradient("HORIZONTAL", ns._npShadeEnd, ns._npShadeClear)
+        sh[4]:SetGradient("HORIZONTAL", ns._npShadeClear, ns._npShadeEnd)
+    end
+    h = h or bar:GetHeight() or 10
+    -- The strips hang off the bar's edges, so only the height sizes them:
+    -- one compare per plate show once laid out (plates show constantly).
+    if sh._h ~= h then
+        sh._h = h
+        local top, bottom, ends = math.max(2, math.floor(h * 0.2)), math.max(1, math.floor(h * 0.1)), math.max(2, math.floor(h * 0.15))
+        sh[1]:ClearAllPoints(); sh[1]:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0); sh[1]:SetPoint("TOPRIGHT", bar, "TOPRIGHT", 0, 0); sh[1]:SetHeight(top)
+        sh[2]:ClearAllPoints(); sh[2]:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", 0, 0); sh[2]:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 0, 0); sh[2]:SetHeight(bottom)
+        sh[3]:ClearAllPoints(); sh[3]:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0); sh[3]:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", 0, 0); sh[3]:SetWidth(ends)
+        sh[4]:ClearAllPoints(); sh[4]:SetPoint("TOPRIGHT", bar, "TOPRIGHT", 0, 0); sh[4]:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 0, 0); sh[4]:SetWidth(ends)
+        for i = 1, 4 do sh[i]:Show() end
+    end
+    -- Bar-shape mask, seated once per mask object.
+    if mask and sh._mask ~= mask then
+        for i = 1, 4 do
+            if sh._mask then pcall(sh[i].RemoveMaskTexture, sh[i], sh._mask) end
+            sh[i]:AddMaskTexture(mask)
+        end
+        sh._mask = mask
+    end
+end
+-- Health bar: the stock shadowed background hugging the bar the way the
+-- stock plate anchors it, plus the bar's inner shadow. The fill keeps the
+-- user's own Bar Texture (the stock fill art is pre-coloured and darkened
+-- every colour rule), so colours, textures and opacity render as on the
+-- EUI look.
+function ns.NP_ApplyBlizzBarArt(plate)
+    local health = plate.health
+    local B = ns.NP_BLIZZ
+    local bg = plate.healthBG
+    if bg and not plate._blizzBarBg and ns.NP_AtlasOK(B.barBg) then
+        plate._blizzBarBg = true
+        bg:SetAtlas(B.barBg)
+        bg:SetVertexColor(1, 1, 1, 1)
+        bg:ClearAllPoints()
+        bg:SetPoint("TOPLEFT", health, "TOPLEFT", -2, 3)
+        bg:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 6, -6)
+    end
+    -- The stock fill art's own footprint (rounded, soft-edged, inside the
+    -- background's rim) as a mask over the bar for the fill, the highlights
+    -- and the shadow: the user's texture sits inside the rim exactly as the
+    -- stock fill does instead of painting over it. Seated per texture object
+    -- (a status bar texture path swap mints a new fill object).
+    local mask = plate._blizzBarMask
+    if not mask and ns.NP_AtlasOK(B.bar) then
+        mask = health:CreateMaskTexture()
+        mask:SetAtlas(B.bar)
+        mask:SetAllPoints(health)
+        plate._blizzBarMask = mask
+    end
+    if mask then
+        local fill = health:GetStatusBarTexture()
+        if fill and plate._blizzMaskedFill ~= fill then
+            pcall(fill.RemoveMaskTexture, fill, mask)
+            fill:AddMaskTexture(mask)
+            plate._blizzMaskedFill = fill
+        end
+        if plate.highlight and not plate._blizzMaskedHover then
+            plate.highlight:AddMaskTexture(mask)
+            plate._blizzMaskedHover = true
+        end
+        if plate.targetHighlight and not plate._blizzMaskedTarget then
+            plate.targetHighlight:AddMaskTexture(mask)
+            plate._blizzMaskedTarget = true
+        end
+    end
+    ns.NP_BlizzBarShadow(health, nil, mask)
+end
+-- Hand-built aura icons (the cast-lockout icon, the options preview mocks):
+-- the stock nameplate aura item look -- the rounded mask over the icon art
+-- and the ring overlay hung 6px by 5px past a 25px item, scaled to the
+-- frame. Our own frames, so the state lives on them: one-time structure,
+-- size-memoized ring geometry. The engine cells get the same look through
+-- AuraKit's blizzRoundArt lane (EUI_Nameplates_AuraContainers BuildNPStyle).
+function ns.NP_ApplyBlizzIconArt(frame, icon, w, h)
+    if not (frame and icon) then return end
+    local B = ns.NP_BLIZZ
+    if not (ns.NP_AtlasOK(B.auraMask) and ns.NP_AtlasOK(B.auraRing)) then return end
+    local ring = frame._blizzIconRing
+    if not ring then
+        local mask = frame:CreateMaskTexture()
+        mask:SetAtlas(B.auraMask)
+        mask:SetAllPoints(frame)
+        icon:AddMaskTexture(mask)
+        frame._blizzIconMask = mask
+        ring = frame:CreateTexture(nil, "OVERLAY", nil, 5)
+        ring:SetAtlas(B.auraRing)
+        ring:SetSnapToPixelGrid(false)
+        ring:SetTexelSnappingBias(0)
+        frame._blizzIconRing = ring
+    end
+    w = w or frame:GetWidth()
+    h = h or frame:GetHeight()
+    if frame._blizzIconW ~= w or frame._blizzIconH ~= h then
+        frame._blizzIconW, frame._blizzIconH = w, h
+        ring:ClearAllPoints()
+        ring:SetPoint("TOPLEFT", frame, "TOPLEFT", -w * 0.24, h * 0.2)
+        ring:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", w * 0.24, -h * 0.2)
+    end
+end
+-- Hand-built harmful aura icons under Classic WoW UI (the cast-lockout icon,
+-- the options preview mocks): the stock debuff border hung a sixth of the
+-- icon past each edge, as the engine draws it round the aura cells, over the
+-- square full-art icon. The border sits on a child frame two levels above
+-- its host so it draws over the host's cooldown swipe (a child Cooldown
+-- renders above every region of its parent). Our own frames, so the state
+-- lives on them: one-time structure, size-memoized geometry. The engine
+-- cells get theirs through AuraKit's blizzBorder lane
+-- (EUI_Nameplates_AuraContainers BuildNPStyle).
+function ns.NP_ApplyClassicIconArt(frame, w, h)
+    if not frame then return end
+    local atlas = ns.NP_CLASSIC.debuffBorder
+    if not ns.NP_AtlasOK(atlas) then return end
+    local host = frame._classicIconHost
+    local border = frame._classicIconBorder
+    if not border then
+        host = CreateFrame("Frame", nil, frame)
+        host:SetAllPoints(frame)
+        host:EnableMouse(false)
+        border = host:CreateTexture(nil, "OVERLAY", nil, 5)
+        border:SetAtlas(atlas)
+        border:SetSnapToPixelGrid(false)
+        border:SetTexelSnappingBias(0)
+        frame._classicIconHost = host
+        frame._classicIconBorder = border
+    end
+    -- Re-asserted each pass: the host follows any relevel of its frame.
+    host:SetFrameLevel(frame:GetFrameLevel() + 2)
+    w = w or frame:GetWidth()
+    h = h or frame:GetHeight()
+    if frame._classicIconW ~= w or frame._classicIconH ~= h then
+        frame._classicIconW, frame._classicIconH = w, h
+        border:ClearAllPoints()
+        border:SetPoint("TOPLEFT", frame, "TOPLEFT", -w / 6, h / 6)
+        border:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", w / 6, -h / 6)
+    end
+end
+-- Target / focus selection ring and the deselected overlay every other plate
+-- carries. Called from the target/focus change paths (never per tick);
+-- isTarget is passed by callers that already resolved it.
+function ns.NP_ApplyBlizzSelection(plate, isTarget)
+    local health = plate and plate.health
+    if not health or not plate.unit then return end
+    local B = ns.NP_BLIZZ
+    local sel, desel = plate._blizzSelected, plate._blizzDeselected
+    if not sel then
+        if not (ns.NP_AtlasOK(B.selected) and ns.NP_AtlasOK(B.deselected)) then return end
+        local bg = plate.healthBG or health
+        sel = health:CreateTexture(nil, "OVERLAY", nil, 5)
+        sel:SetAtlas(B.selected)
+        sel:SetPoint("TOPLEFT", bg, "TOPLEFT", -1, 1)
+        sel:SetPoint("BOTTOMRIGHT", bg, "BOTTOMRIGHT", -3, 3)
+        sel:Hide()
+        plate._blizzSelected = sel
+        desel = health:CreateTexture(nil, "OVERLAY", nil, 4)
+        desel:SetAtlas(B.deselected)
+        desel:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 1)
+        desel:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, -1)
+        plate._blizzDeselected = desel
+    end
+    if isTarget == nil then isTarget = UnitIsUnit(plate.unit, "target") end
+    local isFocus = not isTarget and UnitIsUnit(plate.unit, "focus")
+    -- State memo: a plate show with the same selection state repaints nothing.
+    local state = (isTarget and "target") or (isFocus and "focus") or false
+    if plate._blizzSelState == state then return end
+    plate._blizzSelState = state
+    if isTarget or isFocus then
+        local c
+        if isTarget then c = NAMEPLATE_BORDER_TARGET_COLOR else c = NAMEPLATE_BORDER_FOCUS_TARGET_COLOR end
+        if c and c.r then
+            sel:SetVertexColor(c.r, c.g, c.b)
+        elseif isTarget then
+            sel:SetVertexColor(1, 1, 1)
+        else
+            sel:SetVertexColor(1, 0.8, 0)
+        end
+        sel:Show()
+        desel:Hide()
+    else
+        sel:Hide()
+        desel:Show()
+    end
+end
+-- Cast fill per cast kind ("cast" | "channel" | "interrupted"); one field test
+-- when the style is off, memoized per plate.
+function ns.NP_SetBlizzCastFill(plate, kind)
+    if not plate._blizzCastArt then return end
+    kind = kind or "cast"
+    if plate._blizzCastKind == kind then return end
+    local atlas = ns.NP_BLIZZ[kind]
+    if not ns.NP_AtlasOK(atlas) then return end
+    plate._blizzCastKind = kind
+    plate.cast:GetStatusBarTexture():SetAtlas(atlas)
+end
+-- Cast bar: stock background, fills, pip and shield; the uninterruptible
+-- overlay becomes the stock grey fill art (still shown through the same
+-- SetAlphaFromBoolean gate).
+function ns.NP_ApplyBlizzCastArt(plate)
+    local cast = plate.cast
+    local B = ns.NP_BLIZZ
+    -- The fill object and the overlay art are seated once per plate (nothing
+    -- else touches them under the style); every later show only follows the
+    -- cast kind, memoized in NP_SetBlizzCastFill.
+    if not plate._blizzCastArt then
+        cast:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+        plate._blizzCastArt = true
+        plate._blizzCastKind = nil
+        if plate.castBarOverlay then
+            plate.castBarOverlay:SetTexture("Interface\\Buttons\\WHITE8x8")
+            if ns.NP_AtlasOK(B.castShieldFill) then
+                plate.castBarOverlay:SetAtlas(B.castShieldFill)
+                -- The overlay is the grey fill art: the cast path paints it white.
+                plate._blizzShieldFill = true
+            end
+        end
+    end
+    ns.NP_SetBlizzCastFill(plate, plate.isCasting and plate._blizzCastLastKind or "cast")
+    if plate._blizzCastChrome then return end
+    plate._blizzCastChrome = true
+    if plate.castBG and ns.NP_AtlasOK(B.castBg) then
+        plate.castBG:SetAtlas(B.castBg)
+        plate.castBG:SetVertexColor(1, 1, 1, 1)
+        plate.castBG:ClearAllPoints()
+        plate.castBG:SetPoint("TOPLEFT", cast, "TOPLEFT", 1, 0)
+        plate.castBG:SetPoint("BOTTOMRIGHT", cast, "BOTTOMRIGHT", -1, 0)
+    end
+    if plate.castSpark and ns.NP_AtlasOK(B.castPip) then
+        plate.castSpark:SetAtlas(B.castPip)
+        plate.castSpark:SetWidth(4)
+    end
+    if plate.castShield and ns.NP_AtlasOK(B.shield) then plate.castShield:SetAtlas(B.shield) end
+    if plate.castLeftBorder then plate.castLeftBorder:Hide() end
+    if plate.castIcon then plate.castIcon:SetTexCoord(0, 1, 0, 1) end
+end
+
 -- Health bar texture overlay tables (stored on ns to avoid local count pressure)
 ns.healthBarTextures, ns.healthBarTextureNames, ns.healthBarTextureOrder =
     EllesmereUI.BuildBarTextureTables(true)
+-- Extra entry, second in the list: the game's own bar fill, pointed at
+-- directly so it needs no SharedMedia registration. Same file the meters'
+-- "Blizzard" uses, which also means the shared appender drops the library's
+-- identical entry instead of listing a second "Blizzard" further down. A
+-- plain file path, so every consumer resolves it through ResolveTexturePath
+-- with no special case. Both stock styles seed it.
+-- (The client's own Classic nameplate draws UI-TargetingFrame-BarFill here
+-- instead; swapping this one constant is all that would take.)
+ns.NP_BLIZZ_BAR_TEX = "Interface\\TargetingFrame\\UI-StatusBar"
+ns.healthBarTextures["blizzard"] = ns.NP_BLIZZ_BAR_TEX
+ns.healthBarTextureNames["blizzard"] = "Blizzard"
+table.insert(ns.healthBarTextureOrder, 2, "blizzard")
+-- The one-time stock-style seed on the profile `p`: that fill on the health
+-- and cast bars, once per profile. The dropdowns stay the user's afterwards.
+-- Run by the Style page the moment either stock style is switched on, and at
+-- enable for a profile that arrived already switched (an import, an older
+-- build).
+-- The keys the Style page keeps per style for this module (its SLOT_KEYS).
+ns._npStyleSlotKeys = { "healthBarTexture", "castBarTexture",
+    "castBgColor", "castBgAlpha", "castBarUninterruptible" }
+-- The one-time Classic WoW UI cast seed: the vanilla plate's half-black
+-- window behind the fill and a light grey for an uninterruptible cast, so
+-- the grey fill reads against its background (the EllesmereUI look's dark
+-- background and mid grey are nearly one tone on the classic bar fill).
+-- Once per profile; the controls stay the user's afterwards.
+ns._npClassicCastKeys = { "castBgColor", "castBgAlpha", "castBarUninterruptible" }
+function ns.NP_SeedClassic(prof)
+    if not prof or prof.classicCastSeeded then return end
+    prof.classicCastSeeded = true
+    prof.castBgColor = { r = 0, g = 0, b = 0 }
+    prof.castBgAlpha = 0.5
+    prof.castBarUninterruptible = { r = 0.7, g = 0.7, b = 0.7 }
+end
+function ns.NP_SeedStock(prof)
+    if not prof or prof.stockBarTextureSeeded then return end
+    prof.stockBarTextureSeeded = true
+    prof.healthBarTexture = "blizzard"
+    prof.castBarTexture = "blizzard"
+end
 
 local function NoTintFlag(db, key)
     local v = db and db[key]
@@ -565,6 +1213,10 @@ local function ApplyHealthBarTexture(plate)
     local texKey = (p and p.healthBarTexture) or defaults.healthBarTexture or "none"
     local path   = EllesmereUI.ResolveTexturePath(ns.healthBarTextures, texKey, "Interface\\Buttons\\WHITE8x8")
     health:SetStatusBarTexture(path)
+    -- Blizzard Style: the user's fill under the stock background art, plus
+    -- the bar's inner shadow (re-sized here on every appearance pass). The
+    -- classic plate is the bare fill inside its 1px edge (the border path).
+    if ns.NP_Style() == "blizzard" then ns.NP_ApplyBlizzBarArt(plate) end
 end
 ns.ApplyHealthBarTexture = ApplyHealthBarTexture
 
@@ -573,6 +1225,9 @@ ns.ApplyHealthBarTexture = ApplyHealthBarTexture
 function ns.ApplyCastBarTexture(plate)
     local cast = plate.cast
     if not cast then return end
+    -- Blizzard Style: the stock cast bar art replaces the texture. The classic
+    -- cast bar is the user's texture inside its 1px edge (ApplyCastBorder).
+    if ns.NP_Style() == "blizzard" then ns.NP_ApplyBlizzCastArt(plate); return end
     local texKey = (p and p.castBarTexture) or defaults.castBarTexture or "none"
     local path   = EllesmereUI.ResolveTexturePath(ns.healthBarTextures, texKey, "Interface\\Buttons\\WHITE8x8")
     cast:SetStatusBarTexture(path)
@@ -664,9 +1319,6 @@ local function GetDebuffTextColor()
     return c.r, c.g, c.b, 1
 end
 ns.GetDebuffTextColor = GetDebuffTextColor
-local function GetPandemicGlow()
-    return (p and p.pandemicGlow) or defaults.pandemicGlow
-end
 
 -- Pandemic glow style definitions.
 -- 1 = Pixel Glow (procedural ants), 2 = Action Button Glow (animated ants texture),
@@ -700,10 +1352,6 @@ local function GetPandemicGlowStyle()
     return 1
 end
 ns.GetPandemicGlowStyle = GetPandemicGlowStyle
-local function GetPandemicGlowColor()
-    local c = (p and p.pandemicGlowColor) or defaults.pandemicGlowColor
-    return c.r, c.g, c.b
-end
 local function GetPandemicGlowLines()
     return (p and p.pandemicGlowLines) or defaults.pandemicGlowLines
 end
@@ -716,102 +1364,22 @@ local function GetPandemicGlowSpeed()
     return (p and p.pandemicGlowSpeed) or defaults.pandemicGlowSpeed
 end
 ns.GetPandemicGlowSpeed = GetPandemicGlowSpeed
--- On ns, not file-scope locals (Lua 5.1 200-local cap); both still close over the p/defaults upvalues.
-function ns.GetPandemicGlowBackground()
-    return p and p.pandemicGlowBackground == true
-end
-function ns.GetPandemicGlowBackgroundColor()
-    local c = (p and p.pandemicGlowBackgroundColor) or defaults.pandemicGlowBackgroundColor
-    return c.r or 0, c.g or 0, c.b or 0
-end
 
--- Offensive dispel capability. This asks what the PLAYER knows, never what an
--- aura is, so it keeps working in restricted content, where a tainted addon's
--- aura reads are denied outright rather than merely classified.
+-- Offensive dispel capability: the shared parent detector (AuraKit), which
+-- asks what the PLAYER knows, never what an aura is, so it keeps working in
+-- restricted content.
 do
-    local _, playerClass = UnitClass("player")
-    -- { spellID, category ("Magic", "Enrage", or "Both"), requiredClass or nil, requiredTalent or nil }
-    local OFFENSIVE_DISPEL_SPELLS = {
-        { 370,    "Magic",  nil       },  -- Purge (Shaman)
-        { 378773, "Magic",  nil       },  -- Greater Purge (Shaman)
-        { 528,    "Magic",  nil       },  -- Dispel Magic (Priest)
-        { 32375,  "Magic",  nil       },  -- Mass Dispel (Priest)
-        { 278326, "Magic",  nil       },  -- Consume Magic (Demon Hunter)
-        { 19505,  "Magic",  "WARLOCK" },  -- Devour Magic (Felhunter)
-        { 19801,  "Both",   nil       },  -- Tranquilizing Shot (Hunter)
-        { 2908,   "Enrage", nil       },  -- Soothe (Druid)
-        { 30449,  "Magic",  nil       },  -- Spellsteal (Mage)
-        { 115078, "Enrage", "MONK", 450432 },  -- Paralysis (w/ Pressure Points talent)
-    }
-    local canDispelMagic, canDispelEnrage = false, false
-    local built = false
-    local BANK = Enum and Enum.SpellBookSpellBank
-
-    -- IsSpellKnown answers "does the player have this", which is the question a
-    -- PASSIVE talent needs -- IsSpellInSpellBook says no for one. The globals
-    -- this used to call (IsPlayerSpell, IsSpellKnown) exist only in
-    -- Blizzard_DeprecatedSpellBook, behind the loadDeprecationFallbacks CVar and
-    -- removed next expansion; with that CVar off the talent branch never fired.
-    local function Knows(spellID, bank)
-        if not (C_SpellBook and C_SpellBook.IsSpellKnown and BANK) then return false end
-        local ok, v = pcall(C_SpellBook.IsSpellKnown, spellID, bank or BANK.Player)
-        return ok and v == true
-    end
-    local function InBook(spellID, bank)
-        if not (C_SpellBook and BANK) then return false end
-        if not C_SpellBook.IsSpellKnownOrInSpellBook then return Knows(spellID, bank) end
-        local ok, v = pcall(C_SpellBook.IsSpellKnownOrInSpellBook, spellID, bank or BANK.Player)
-        return ok and v == true
-    end
-
-    local function RebuildDispelTypes()
-        local wasMagic, wasEnrage = canDispelMagic, canDispelEnrage
-        canDispelMagic, canDispelEnrage = false, false
-        for _, entry in ipairs(OFFENSIVE_DISPEL_SPELLS) do
-            local spellID, cat, reqClass, reqTalent = entry[1], entry[2], entry[3], entry[4]
-            if not (reqClass and playerClass ~= reqClass) then
-                local known
-                if reqTalent then
-                    known = Knows(reqTalent)
-                elseif reqClass then
-                    -- Pet bank: true only while that pet is actually out, which
-                    -- is why UNIT_PET is registered below.
-                    known = InBook(spellID, BANK and BANK.Pet)
-                else
-                    known = InBook(spellID)
-                end
-                if known then
-                    if cat == "Magic" or cat == "Both" then canDispelMagic = true end
-                    if cat == "Enrage" or cat == "Both" then canDispelEnrage = true end
-                end
-            end
-        end
-        -- Capability picks the buff row's candidate filter, so a change has to
-        -- rebuild the containers, not merely repaint them. The first pass has
-        -- nothing to compare against and nothing built yet, so it never
-        -- notifies -- the pool build reads capability when it runs.
-        if built and (wasMagic ~= canDispelMagic or wasEnrage ~= canDispelEnrage) then
-            if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
-        end
-        built = true
-    end
-    local dispelFrame = CreateFrame("Frame")
-    dispelFrame:RegisterEvent("SPELLS_CHANGED")
-    dispelFrame:RegisterEvent("UNIT_PET")
-    -- A talent swap does not reliably reach SPELLS_CHANGED first, and without
-    -- these a talent-gated entry is only correct after a /reload.
-    dispelFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
-    dispelFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    dispelFrame:SetScript("OnEvent", function(_, event, unit)
-        if event == "UNIT_PET" and unit ~= "player" then return end
-        RebuildDispelTypes()
+    local AKd = EllesmereUI.AuraKit
+    -- Capability picks the buff row's candidate filter, so a change has to
+    -- rebuild the containers, not merely repaint them.
+    AKd.OnOffensiveDispelChange(function()
+        if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
     end)
-    RebuildDispelTypes()
 
     -- canDispelMagic, canDispelEnrage. Consumed by the buff row to pick its
     -- candidate filter and by the glow gate.
     ns.GetOffensiveDispelTypes = function()
-        return canDispelMagic, canDispelEnrage
+        return AKd.OffensiveDispelTypes()
     end
 
     ns.GetDispelGlow = function()
@@ -849,6 +1417,16 @@ do
         local c = p and p.dispelGlowColor
         if not c then return nil, nil, nil end
         return c.r, c.g, c.b
+    end
+    -- Blizzard Border tint: the glow colour, except the untouched default gold
+    -- (the profile merge fills the key, so it is compared, not nil-tested)
+    -- keeps Blizzard's own stealable art. Per-type colours always tint.
+    ns.GetDispelBorderColor = function(dispelType)
+        local r, g, b = ns.GetDispelGlowColor(dispelType)
+        if dispelType and ns.GetDispelGlowUseTypeColor() then return r, g, b end
+        local d = defaults.dispelGlowColor
+        if r == nil or (d and r == d.r and g == d.g and b == d.b) then return nil, nil, nil end
+        return r, g, b
     end
 end
 local function GetCastBarHeight()
@@ -897,16 +1475,27 @@ end
 function ns.LayoutCastBar(plate, footprintW, castH)
     local iconW = 0
     local shiftX = 0
-    if GetShowCastIcon() and ns.GetCastIconInWidth() and not ns.GetCastIconFullSize() then
+    local w = footprintW
+    local classic = ns.NP_Classic()
+    -- Cast Bar Y Offset: + up, - down; `or` fallback only fires when nil (0 is truthy in Lua).
+    local offsetY = (p and p.castBarOffsetY) or defaults.castBarOffsetY
+    if classic then
+        -- Classic WoW UI: the vanilla cast border hangs under the health
+        -- border with its icon plate under the health border's plain end,
+        -- so the bar shifts right by the two plates' difference, keeps the
+        -- footprint (widened by that difference when the bars' heights
+        -- differ) and sits the stock gap lower; the icon rides in the plate.
+        local drop
+        shiftX, w, drop = ns.NP_ClassicCastLayout(footprintW, GetHealthBarHeight(), castH)
+        offsetY = offsetY + drop
+    elseif GetShowCastIcon() and ns.GetCastIconInWidth() and not ns.GetCastIconFullSize() then
         iconW = castH * (GetCastIconScale() or 1)
         if not ns.GetCastIconOnRight() then
             shiftX = iconW
         end
     end
     plate.cast:ClearAllPoints()
-    plate.cast:SetSize(math.max(1, footprintW - iconW), castH)
-    -- Cast Bar Y Offset: + up, - down; `or` fallback only fires when nil (0 is truthy in Lua).
-    local offsetY = (p and p.castBarOffsetY) or defaults.castBarOffsetY
+    plate.cast:SetSize(math.max(1, w - iconW), castH)
     -- Snap to whole physical pixels at the plate's own scale (nameplates have their own scale
     -- stack, not UIParent's) so the health-bottom/cast-top gap stays constant instead of
     -- oscillating +/-1px as the plate slides to fractional screen positions.
@@ -916,6 +1505,7 @@ function ns.LayoutCastBar(plate, footprintW, castH)
         offsetY = math.floor(offsetY / onePx + 0.5) * onePx
     end
     plate.cast:SetPoint("TOPLEFT", plate.health, "BOTTOMLEFT", shiftX, offsetY)
+    if classic then ns.NP_ApplyClassicCastArt(plate, castH) end
 end
 
 -- Size + anchor the cast spell icon; always square. Normal: cast-bar height, hangs off the
@@ -928,6 +1518,17 @@ function ns.LayoutCastIcon(plate, castH)
     local xOff = (p and p.castIconOffsetX) or defaults.castIconOffsetX
     local yOff = (p and p.castIconOffsetY) or defaults.castIconOffsetY
     icon:ClearAllPoints()
+    if ns.NP_Classic() then
+        -- Classic WoW UI: the icon in the vanilla cast border's plate, a
+        -- fixed square at the plate's centre (the border's middle sits half
+        -- a sheet row under the bar's); the offsets still nudge it.
+        local C = ns.NP_CLASSIC
+        local ix, iy = ns.NP_ClassicIconOffset(castH)
+        icon:SetScale(1)
+        icon:SetSize(C.icon * castH, C.icon * castH)
+        icon:SetPoint("CENTER", plate.cast, "LEFT", ix + xOff, iy + yOff)
+        return
+    end
     if ns.GetCastIconFullSize() then
         local side = GetHealthBarHeight() + castH
         icon:SetScale(1)
@@ -962,6 +1563,10 @@ end
 -- being shown; a settings-only query (no plate) assumes the space is reserved.
 function ns.GetCastIconReserve(plate)
     if not GetShowCastIcon() then return 0, nil end
+    -- Classic WoW UI seats the icon inside the cast border's own plate, which
+    -- ns.NP_ClassicBarReserve already accounts for, so a stored Icon on Right
+    -- or Full Sized reserves a gap nothing occupies there.
+    if ns.NP_Classic() then return 0, nil end
     local onRight = ns.GetCastIconOnRight()
     local side = onRight and "right" or "left"
     if ns.GetCastIconFullSize() then
@@ -1032,6 +1637,53 @@ local function GetRareEliteIconSize()
     return (p and p[pos .. "SlotSize"]) or defaults[pos .. "SlotSize"] or 20
 end
 ns.GetRareEliteIconSize = GetRareEliteIconSize
+-- Faction badge slot and size (same per-slot size as every Core Positions element).
+-- With "Rare/Quest + Faction" the badge rides the classification slot.
+function ns.NP_GetFactionSlot()
+    if p and p.classificationIncludeFaction then return GetClassificationSlot() end
+    return (p and p.factionSlot) or defaults.factionSlot
+end
+function ns.NP_GetFactionIconSize()
+    local pos = ns.NP_GetFactionSlot()
+    if pos == "none" then return 20 end
+    return (p and p[pos .. "SlotSize"]) or defaults[pos .. "SlotSize"] or 20
+end
+function ns.NP_GetFactionStyle()
+    return (p and p.factionStyle) or defaults.factionStyle
+end
+-- Which faction badge a unit gets: its faction ("Horde"/"Alliance", drawn with
+-- EllesmereUI.SetFactionArt in the Icon Style) and whether to dim it, or nil for none.
+-- Neutral units and unreadable (secret) values show nothing; an unreadable PvP flag
+-- counts as flagged, so nothing is hidden or greyed on a guess. Faction NPCs count
+-- unless Players Only is on. Art matches Blizzard's Forever target frame badge.
+function ns.NP_FactionBadge(unit)
+    if not unit or ns.NP_GetFactionSlot() == "none" then return nil end
+    -- Both toggles default off, so an unset key reads the same as its default.
+    if p and p.factionPlayersOnly then
+        local isPlayer = UnitIsPlayer(unit)
+        if issecretvalue(isPlayer) or not isPlayer then return nil end
+    end
+    local fac = UnitFactionGroup(unit)
+    if issecretvalue(fac) or (fac ~= "Horde" and fac ~= "Alliance") then return nil end
+    if p and p.factionOppositeOnly then
+        local mine = UnitFactionGroup("player")
+        if issecretvalue(mine) then return nil end
+        -- Mercenary mode: the player fights for the other faction.
+        if UnitIsMercenary("player") then
+            if mine == "Horde" then mine = "Alliance" elseif mine == "Alliance" then mine = "Horde" end
+        end
+        if mine == fac then return nil end
+    end
+    local dim = false
+    local pvpMode = (p and p.factionPvP) or defaults.factionPvP
+    if pvpMode ~= "ignore" then
+        local pvp = UnitIsPVP(unit)
+        local unflagged = not issecretvalue(pvp) and not pvp
+        if unflagged and pvpMode == "only" then return nil end
+        dim = unflagged and pvpMode == "dim"
+    end
+    return fac, dim
+end
 local function GetNameYOffset()
     return (p and p.nameYOffset) or defaults.nameYOffset
 end
@@ -1099,11 +1751,22 @@ do
     end
     -- Display string for the unit's EFFECTIVE level (so scaling/Chromie time read as the game
     -- ranks them). "??" for skull-ranked (-1) or unreadable (secret) levels, matching default UI.
-    function ns.GetUnitLevelText(unit)
+    -- Level Difficulty Color (text-slot cog) wraps it in Blizzard's difficulty
+    -- color; an unreadable (secret) level stays a plain "??". plain skips the
+    -- wrap for a level that paints its own colour (the Classic plate level).
+    function ns.GetUnitLevelText(unit, plain)
         local lvl = UnitEffectiveLevel(unit)
-        if type(lvl) ~= "number" or (issecretvalue and issecretvalue(lvl))
-           or lvl < 0 then
+        local col = not plain and p and p.levelDifficultyColor
+        if type(lvl) ~= "number" or (issecretvalue and issecretvalue(lvl)) then
             return "??"
+        end
+        if lvl < 0 then
+            if col then return EllesmereUI.ColorText("??", EllesmereUI.GetLevelDifficultyColor(-1)) end
+            return "??"
+        end
+        if col then
+            return EllesmereUI.ColorText(tostring(lvl),
+                EllesmereUI.GetLevelColor(unit, lvl, p.levelDifficultyColorFriendly))
         end
         return tostring(lvl)
     end
@@ -1236,13 +1899,15 @@ do
     -- so the texture keeps its proportions; uncropped is the original square zoom.
     function ns.SetAuraIconCrop(icon, cropped, w, h)
         if not icon then return end
+        -- Stock styles draw the whole icon (zoom 0), as the engine cells do.
+        local z = ns.NP_Blizz() and 0 or AURA_ZOOM
         if cropped and w and h and w > 0 then
-            local uSpan = 1 - 2 * AURA_ZOOM
+            local uSpan = 1 - 2 * z
             local vSpan = uSpan * (h / w)
             local v0 = 0.5 - vSpan / 2
-            icon:SetTexCoord(AURA_ZOOM, 1 - AURA_ZOOM, v0, 1 - v0)
+            icon:SetTexCoord(z, 1 - z, v0, 1 - v0)
         else
-            icon:SetTexCoord(AURA_ZOOM, 1 - AURA_ZOOM, AURA_ZOOM, 1 - AURA_ZOOM)
+            icon:SetTexCoord(z, 1 - z, z, 1 - z)
         end
     end
     -- Size + crop a single aura slot and its icon together so they never drift
@@ -1392,6 +2057,10 @@ function ns.GetClassPowerBorderSize()
     return (p and p.classPowerBorderSize) or defaults.classPowerBorderSize
 end
 local function IsBorderEnabled()
+    -- The stock styles carry their own art instead of an EUI border: the
+    -- stock background art (Blizzard Style), the vanilla border sheets
+    -- (Classic WoW UI, ns.NP_ApplyClassicHealthArt).
+    if ns.NP_Blizz() then return false end
     local v = p and p.showBorder
     if v == nil then return defaults.showBorder end
     return v
@@ -1401,6 +2070,10 @@ ns.IsBorderEnabled = IsBorderEnabled
 -- (old profiles without the key keep their borders). Setting a hide key
 -- to true hides the border; false shows it.
 function ns.GetIconBorderEnabled(kind)
+    -- Stock styles: the stock cast icon has no border, and the aura items
+    -- carry the rounded ring overlay (Blizzard) or the stock dispel-type
+    -- border (classic) instead of a 1px border.
+    if ns.NP_Blizz() then return false end
     local key
     if kind == "cast" then
         key = "hideCastIconBorder"
@@ -1438,10 +2111,24 @@ function ns.ApplyFrameIconBorder(frame, enabled, adjustIconInset)
     end
 end
 local function GetBorderColor()
+    -- Classic WoW UI: the plate's edge is always black.
+    if ns.NP_Classic() then return 0, 0, 0 end
     local c = (p and p.borderColor) or defaults.borderColor
     return c.r, c.g, c.b
 end
 ns.GetBorderColor = GetBorderColor
+-- Health border size: the classic plate's fixed 1px edge, else the profile's
+-- Border Size. Friendly plates mirror it.
+function ns.NP_BorderSize()
+    if ns.NP_Classic() then return 1 end
+    return (p and p.borderSize) or defaults.borderSize
+end
+-- Cast bar border colour: black under Classic WoW UI, else the profile's.
+function ns.NP_CastBorderColor()
+    if ns.NP_Classic() then return 0, 0, 0 end
+    local c = (p and p.castBorderColor) or defaults.castBorderColor
+    return c.r, c.g, c.b
+end
 -- "Wrap Border Around Castbar". The cast-visibility hook reads this on every
 -- cast show/hide, so it must stay a trivial table lookup.
 function ns.GetWrapBorderCastbar()
@@ -1479,6 +2166,9 @@ function ns.ApplySlotStrata(plate)
     end
     if plate.classFrame then
         plate.classFrame:SetFrameStrata(StrataFor(GetClassificationSlot()))
+    end
+    if plate.factionFrame then
+        plate.factionFrame:SetFrameStrata(StrataFor(ns.NP_GetFactionSlot()))
     end
     local ds, bs, cs = GetAuraSlots()
     local dStr, bStr, cStr = StrataFor(ds), StrataFor(bs), StrataFor(cs)
@@ -1526,19 +2216,23 @@ local function StopDispelGlow(slot)
     if dg.animGroup then dg.animGroup:Stop() end
     if dg.flipTex then dg.flipTex:Hide() end
     -- One unified stop: pixel/ABG/autocast plus the ABG preview's engine
-    -- substitute (flipbook + halo) on the wrapper.
+    -- substitute (flipbook + halo) on the wrapper, and the Blizzard Border.
     _G_Glows.StopAllGlows(dg.wrapper)
+    if _G_Glows.HideStealableBorder then _G_Glows.HideStealableBorder(dg.wrapper) end
     dg.wrapper:Hide()
     dg.active = false
 end
 
 -- Preview only: the live nameplate glow runs through EllesmereUI.Glows on the
 -- engine buttons. dispelType is "magic" / "enrage" / nil.
-local function StartDispelGlow(slot, slotSize, dispelType)
+-- slotH: the icon height (cropped icons); the Blizzard Border fits it.
+local function StartDispelGlow(slot, slotSize, dispelType, slotH)
     local dg = slot.dispelGlow
     local styleIdx = ns.GetDispelGlowStyle()
     local styles = PANDEMIC_GLOW_STYLES
-    if styleIdx < 1 or styleIdx > #styles then styleIdx = 2 end
+    -- Blizzard Border sits outside the style list (the static stealable art).
+    local blizz = _G_Glows.STEALABLE_BORDER
+    if styleIdx ~= blizz and (styleIdx < 1 or styleIdx > #styles) then styleIdx = 2 end
     local entry = styles[styleIdx]
     local sz = slotSize or 26
 
@@ -1566,9 +2260,21 @@ local function StartDispelGlow(slot, slotSize, dispelType)
         StopDispelGlow(slot)
     end
 
-    local cr, cg, cb = ns.GetDispelGlowColor(dispelType)
+    local cr, cg, cb
+    if styleIdx == blizz then
+        cr, cg, cb = ns.GetDispelBorderColor(dispelType)
+    else
+        cr, cg, cb = ns.GetDispelGlowColor(dispelType)
+    end
 
-    if entry.procedural then
+    if styleIdx == blizz then
+        dg.flipTex:Hide()
+        dg.animGroup:Stop()
+        StopProceduralAnts(dg.wrapper)
+        StopButtonGlow(dg.wrapper)
+        StopAutoCastShine(dg.wrapper)
+        _G_Glows.ShowStealableBorder(dg.wrapper, sz, slotH or sz, cr, cg, cb)
+    elseif entry.procedural then
         dg.flipTex:Hide()
         dg.animGroup:Stop()
         StopButtonGlow(dg.wrapper)
@@ -1677,14 +2383,15 @@ local function PositionAuraSlot(frames, count, slot, plate, sizeW, sizeH, gap, x
                 (i - (count + 1) / 2) * spacing + xOff, y)
         end
     elseif slot == "left" then
-        local sideOff = GetSideAuraXOffset()
+        -- Classic WoW UI: gap off the border art, not the bare bar edge.
+        local sideOff = GetSideAuraXOffset() + ns.NP_ClassicSide("left")
         for i = 1, count do
             frames[i]:ClearAllPoints()
             PP.Point(frames[i], "BOTTOMRIGHT", plate.health, "BOTTOMLEFT",
                 -sideOff - (i - 1) * spacing + xOff, yOff)
         end
     elseif slot == "right" then
-        local sideOff = GetSideAuraXOffset()
+        local sideOff = GetSideAuraXOffset() + ns.NP_ClassicSide("right")
         for i = 1, count do
             frames[i]:ClearAllPoints()
             PP.Point(frames[i], "BOTTOMLEFT", plate.health, "BOTTOMRIGHT",
@@ -1759,6 +2466,7 @@ local auraSlotToDBKey = {
     ccSlot         = "ccSlot",
     classification = "classificationSlot",
     raidMarker     = "raidMarkerPos",
+    faction        = "factionSlot",
 }
 local function GetAuraSlotOffsets(slotKey)
     local dbKey = auraSlotToDBKey[slotKey]
@@ -1855,12 +2563,14 @@ do
         if shown == 0 then return leftExtent, rightExtent end
         local sp = gap + sz
         local xOff = slotKey and (select(1, GetAuraSlotOffsets(slotKey))) or 0
+        -- Classic WoW UI: the rows themselves sit past the border art, so the
+        -- extent the arrow clears counts it too (same term the rows use).
         if slot == "left" then
             -- Left edge of leftmost icon: -(sideOff + (shown-1)*sp + sz) + xOff
-            local ext = sideOff + (shown - 1) * sp + sz - xOff
+            local ext = sideOff + ns.NP_ClassicSide("left") + (shown - 1) * sp + sz - xOff
             leftExtent = math.max(leftExtent, ext)
         elseif slot == "right" then
-            local ext = sideOff + (shown - 1) * sp + sz + xOff
+            local ext = sideOff + ns.NP_ClassicSide("right") + (shown - 1) * sp + sz + xOff
             rightExtent = math.max(rightExtent, ext)
         end
         return leftExtent, rightExtent
@@ -1879,6 +2589,10 @@ PositionArrowsOutsideAuras = function(plate)
     local iconRes, iconSide = ns.GetCastIconReserve(plate)
     local leftPush = (iconRes > 0 and iconSide == "left") and iconRes or 0
     local rightPush = (iconRes > 0 and iconSide == "right") and iconRes or 0
+    -- Classic WoW UI: the border art counts as part of the bar, so everything
+    -- beside the bar clears its reach (mostly the level plate on the right).
+    local classicL, classicR = ns.NP_ClassicBarReserve()
+    leftPush, rightPush = leftPush + classicL, rightPush + classicR
     if leftPush > 0 then leftExtent = math.max(leftExtent, leftPush) end
     if rightPush > 0 then rightExtent = math.max(rightExtent, rightPush) end
     local debuffSz = GetDebuffIconSize()
@@ -1907,6 +2621,17 @@ PositionArrowsOutsideAuras = function(plate)
     elseif clSlot == "right" and plate.classFrame and plate.classFrame:IsShown() then
         local cxOff = select(1, GetAuraSlotOffsets("classification"))
         rightExtent = math.max(rightExtent, sideOff + rightPush + clSz + cxOff)
+    end
+    -- Account for the faction badge in side slots (its own, or Rare/Quest + Faction)
+    local fcSlot = ns.NP_GetFactionSlot()
+    if (fcSlot == "left" or fcSlot == "right") and plate.factionFrame and plate.factionFrame:IsShown() then
+        local fxOff = GetSlotOffsets(fcSlot)
+        local fcSz = ns.NP_GetFactionIconSize()
+        if fcSlot == "left" then
+            leftExtent = math.max(leftExtent, sideOff + leftPush + fcSz - fxOff)
+        else
+            rightExtent = math.max(rightExtent, sideOff + rightPush + fcSz + fxOff)
+        end
     end
     -- Restricted-tree rendering: inside the aspect-restricted nameplate subtree, SINGLE-POINT +
     -- SetSize regions render displaced from their anchor, while rects fully defined by anchors
@@ -2202,12 +2927,19 @@ end
 -- target ever shows it), kept SEPARATE from plate.highlight (mouseover) so the two never fight.
 local function EnsureTargetHighlight(plate)
     if plate.targetHighlight then return end
-    local t = plate.health:CreateTexture(nil, "OVERLAY", nil, 5)
+    -- Blizzard Style: under the stock selection ring and deselected overlay
+    -- (OVERLAY 4/5), still above the fill; the EUI and classic looks keep it on top.
+    local t = plate.health:CreateTexture(nil, "OVERLAY", nil, ns.NP_Style() == "blizzard" and 0 or 5)
     t:SetAllPoints(plate.health)
     local c = ns.GetTargetHighlightColor()
     t:SetColorTexture(c.r, c.g, c.b, ns.GetTargetHighlightAlpha())
     t:Hide()
     plate.targetHighlight = t
+    -- Blizzard Style: inside the stock bar shape like the fill.
+    if plate._blizzBarMask then
+        t:AddMaskTexture(plate._blizzBarMask)
+        plate._blizzMaskedTarget = true
+    end
 end
 
 -- Target arrow styles: key -> { l=left texture, r=right texture, w=drawn width at height 16
@@ -2597,13 +3329,20 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     local bc = { r = 0, g = 0, b = 0 }
     bc.r, bc.g, bc.b = GetBorderColor()
     if PP and PP.CreateBorder then
-        local sz = (p and p.borderSize) or defaults.borderSize
+        local sz = ns.NP_BorderSize()
         PP.CreateBorder(plate.health, bc.r, bc.g, bc.b, 1, sz, "OVERLAY", 7, true)  -- scaleGuard: NP frame
-        if not IsBorderEnabled() then PP.HideBorder(plate.health) end
+        if not IsBorderEnabled() or ns.NP_Classic() then PP.HideBorder(plate.health) end
     end
 
     function plate:ApplyBorder()
         if not PP then return end
+        if ns.NP_Classic() then
+            -- Classic WoW UI: the vanilla border art replaces every EUI border.
+            PP.HideBorder(plate.health)
+            ns.HideCustomBorder(plate)
+            ns.NP_ApplyClassicHealthArt(plate)
+            return
+        end
         if ns.IsCustomBorderEnabled() then
             -- Custom border replaces the simple one: hide the PP strips on the
             -- health bar and render the custom border on its own child frame.
@@ -2612,8 +3351,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
         else
             ns.HideCustomBorder(plate)
             if IsBorderEnabled() then
-                local sz = (p and p.borderSize) or defaults.borderSize
-                PP.SetBorderSize(plate.health, sz)
+                PP.SetBorderSize(plate.health, ns.NP_BorderSize())
                 PP.ShowBorder(plate.health)
             else
                 PP.HideBorder(plate.health)
@@ -2654,7 +3392,9 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.levelText:Hide()
     -- Mouseover highlight: parented to the health bar (not the higher-level text
     -- frame) so it renders BEHIND the border (a child at health level + 1).
-    plate.highlight = plate.health:CreateTexture(nil, "OVERLAY", nil, 6)
+    -- Blizzard Style: under the stock ring / deselected overlay (OVERLAY 4/5),
+    -- above the target wash (0). The EUI and classic looks keep it at 6.
+    plate.highlight = plate.health:CreateTexture(nil, "OVERLAY", nil, ns.NP_Style() == "blizzard" and 1 or 6)
     plate.highlight:SetAllPoints(plate.health)
     local _hc = (p and p.hoverColor) or defaults.hoverColor
     local _ha = (p and p.hoverAlpha) or defaults.hoverAlpha
@@ -2707,6 +3447,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.classFrame:Hide()
     plate.class = plate.classFrame:CreateTexture(nil, "ARTWORK")
     plate.class:SetAllPoints()
+    -- The faction badge (plate.factionFrame) is built on first use by UpdateFaction.
     plate.cast = CreateFrame("StatusBar", nil, plate)
     -- Cast bar spans the health bar width; by default the icon hangs outside left, and with
     -- "Make Icon Part of the Bar" the bar shrinks to fit it. Must run after plate.health exists.
@@ -2724,13 +3465,16 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     function plate:ApplyCastBorder()
         if not PP or not PP.CreateBorder then return end
         local sz = (p and p.castBorderSize) or defaults.castBorderSize or 0
+        -- The stock styles carry their own cast bar art (the stock art, the
+        -- vanilla cast border): no EUI border.
+        if ns.NP_Blizz() then sz = 0 end
         if sz and sz > 0 then
             if PP.GetBorders(plate.cast) then
                 PP.SetBorderSize(plate.cast, sz)
                 PP.ShowBorder(plate.cast)
             else
-                local cc = (p and p.castBorderColor) or defaults.castBorderColor
-                PP.CreateBorder(plate.cast, cc.r, cc.g, cc.b, 1, sz, "OVERLAY", 7, true)  -- scaleGuard: NP frame
+                local cr, cg, cb = ns.NP_CastBorderColor()
+                PP.CreateBorder(plate.cast, cr, cg, cb, 1, sz, "OVERLAY", 7, true)  -- scaleGuard: NP frame
             end
         elseif PP.GetBorders(plate.cast) then
             PP.HideBorder(plate.cast)
@@ -2738,8 +3482,8 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     end
     function plate:ApplyCastBorderColor()
         if not PP or not PP.GetBorders or not PP.GetBorders(plate.cast) then return end
-        local cc = (p and p.castBorderColor) or defaults.castBorderColor
-        PP.SetBorderColor(plate.cast, cc.r, cc.g, cc.b, 1)
+        local cr, cg, cb = ns.NP_CastBorderColor()
+        PP.SetBorderColor(plate.cast, cr, cg, cb, 1)
     end
     -- "Wrap Border Around Castbar" (opt-in). While cast bar shown + feature on, health + cast
     -- get ONE continuous border from two pieces: the REAL health border (top+sides, untouched
@@ -2755,13 +3499,15 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     -- border = no-op (one piece, cannot merge). shouldWrap requires the simple PP border.
     function plate:UpdateBorderWrap()
         if not PP or not PP.GetBorders then return end
+        -- Classic WoW UI: no EUI borders to wrap (the vanilla art is drawn).
+        if ns.NP_Classic() then return end
         local shouldWrap = ns.GetWrapBorderCastbar()
             and plate.cast and plate.cast:IsShown()
             and IsBorderEnabled() and not ns.IsCustomBorderEnabled()
         if shouldWrap then
             local hb = PP.GetBorders(plate.health)
             if hb then
-                local sz = (p and p.borderSize) or defaults.borderSize
+                local sz = ns.NP_BorderSize()
                 -- The target border-size effect (ApplyTarget) already resized the health
                 -- border before the cast bar showed; carry that size into the wrap instead
                 -- of falling back to the base size, or starting a cast on your target visibly
@@ -2834,7 +3580,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
             local hb = PP.GetBorders(plate.health)
             if hb then
                 hb._hideBottom = nil
-                local sz = (p and p.borderSize) or defaults.borderSize
+                local sz = ns.NP_BorderSize()
                 if plate._targetBorderSized then
                     local tbsz = ns.GetTargetBorderSizeValue()
                     if tbsz then sz = tbsz end
@@ -2879,7 +3625,12 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.castIcon:SetPoint("TOPLEFT", plate.castIconFrame, "TOPLEFT", 0, 0)
     plate.castIcon:SetPoint("BOTTOMRIGHT", plate.castIconFrame, "BOTTOMRIGHT", 0, 0)
     if PP and PP.DisablePixelSnap then PP.DisablePixelSnap(plate.castIcon) end
-    plate.castIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    -- Stock styles draw the whole icon (zoom 0); the EUI look trims the art's rim.
+    if ns.NP_Blizz() then
+        plate.castIcon:SetTexCoord(0, 1, 0, 1)
+    else
+        plate.castIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    end
     plate.castSpark = plate.cast:CreateTexture(nil, "OVERLAY", nil, 1)
     plate.castSpark:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\cast_spark.tga")
     plate.castSpark:SetSize(8, CAST_H)
@@ -3200,11 +3951,8 @@ do
     end)
 end
 
-local function InitDB()
-    -- No-op stub (NewDB + DeepMergeDefaults handles defaults); kept so stray call sites don't error.
-end
 function ns.GetActiveKickSpell()
-    return EllesmereUI and EllesmereUI.GetActiveKickSpell and EllesmereUI.GetActiveKickSpell()
+    return EllesmereUI.GetActiveKickSpell()
 end
 -- Cast overlay uses the same tint as the on-plate cast bar.
 ns.ComputeCastBarTint = function(readyTint, baseTint)
@@ -3271,13 +4019,6 @@ function ns.RefreshCastBorderColor()
         if plate.ApplyCastBorderColor then plate:ApplyCastBorderColor() end
     end
     if ns.GetWrapBorderCastbar() then ns.ApplyBorderWrapToAll() end
-end
-function ns.RefreshNameplateYOffset()
-    local yOff = GetNameplateYOffset()
-    for _, plate in pairs(ns.plates) do
-        plate.health:ClearAllPoints()
-        plate.health:SetPoint("CENTER", plate, "CENTER", 0, yOff)
-    end
 end
 
 function ns.RefreshStackingBounds()
@@ -3403,6 +4144,8 @@ function ns.RefreshAllSettings()
     -- (override group, profile switch, import) flipped the checkbox while plates kept
     -- the old behaviour. Self-guarded, so an unchanged key costs nothing.
     if ns.ApplyOOCPlates then ns.ApplyOOCPlates() end
+    -- Friendly faction badges: redraw for this profile's faction settings.
+    ns.NP_RefreshFriendlyFaction()
 end
 
 -------------------------------------------------------------------------------
@@ -3810,12 +4553,12 @@ local function GetClassPipColor(classFile, powerKey)
         if powerKey then
             local alias = powerKey:match("^(.+)_BAR$")
             local key = alias or powerKey
-            local c = EllesmereUI.GetPowerColor and EllesmereUI.GetPowerColor(key)
+            local c = EllesmereUI.GetPowerColor(key)
             if c then return { c.r, c.g, c.b } end
         end
-        local rc = EllesmereUI.GetResourceColor and EllesmereUI.GetResourceColor(classFile)
+        local rc = EllesmereUI.GetResourceColor(classFile)
         if rc then return { rc.r, rc.g, rc.b } end
-        local cc = EllesmereUI.GetClassColor and EllesmereUI.GetClassColor(classFile)
+        local cc = EllesmereUI.GetClassColor(classFile)
         if cc then return { cc.r, cc.g, cc.b } end
     end
     return CP_DEFAULT_COLOR
@@ -4189,7 +4932,16 @@ local function UpdateClassPowerOnPlate(plate)
         end
         cur, maxP = count, 5
     else
-        cur = UnitPower("player", classPowerType) or 0
+        -- Forever combo points belong to the target, and UnitPower still reports
+        -- the previous target's count at the moment PLAYER_TARGET_CHANGED fires
+        -- (measured on 1.60.1: up=3 while gcp=0 on the swap), with no later event
+        -- to correct it. Blizzard's own classic ComboFrame reads GetComboPoints.
+        if EllesmereUI.IS_FOREVER == true and classPowerType == Enum.PowerType.ComboPoints
+           and GetComboPoints then
+            cur = GetComboPoints("player", "target") or 0
+        else
+            cur = UnitPower("player", classPowerType) or 0
+        end
         maxP = UnitPowerMax("player", classPowerType) or classPowerMax
         if maxP <= 0 then maxP = classPowerMax end
         -- Runes: UnitPower doesn't return ready-rune count; iterate cooldowns
@@ -4201,6 +4953,10 @@ local function UpdateClassPowerOnPlate(plate)
             end
         end
     end
+    -- The resource kind alone does not decide this: which values the client
+    -- classifies depends on the client, and combo points come back secret on
+    -- Forever. The pip fill below compares against cur, which raises on one.
+    if not isSecret and issecretvalue and issecretvalue(cur) then isSecret = true end
     if maxP <= 0 then
         for i = 1, #plate._cpPips do
             plate._cpPips[i]:Hide()
@@ -4527,6 +5283,13 @@ local ApplyClassPowerSetting
 local function EnableClassPowerWatcher()
     if classPowerWatcher then return end  -- already active
     local info = CLASS_POWER_MAP[PLAYER_CLASS]
+    -- Vanilla content has no specializations, so the spec-keyed entries above never
+    -- resolve on Forever, and the flat ones name resources that client does not
+    -- have. This is the whole set that exists there.
+    if EllesmereUI.IS_FOREVER == true then
+        info = (PLAYER_CLASS == "ROGUE" or PLAYER_CLASS == "DRUID")
+            and { Enum.PowerType.ComboPoints, 5 } or nil
+    end
     if not info then return end  -- class has no trackable resource
 
     -- Resolve spec-specific entries: if info has numeric specID keys, look up current spec
@@ -4539,10 +5302,15 @@ local function EnableClassPowerWatcher()
 
     classPowerType = info[1]
     classPowerMax = info[2]
-    -- Druid Resto: cat form required. Feral always shows.
-    local specIdx = C_SpecializationInfo and C_SpecializationInfo.GetSpecialization()
-    local isResto = (PLAYER_CLASS == "DRUID" and specIdx == 4)
-    classPowerFormReq = isResto and 1 or nil
+    -- Druid Resto: cat form required. Feral always shows. On Forever there are no
+    -- specs to tell them apart and combo points are cat-only for every druid.
+    if EllesmereUI.IS_FOREVER == true then
+        classPowerFormReq = (PLAYER_CLASS == "DRUID") and (DRUID_CAT_FORM or 1) or nil
+    else
+        local specIdx = C_SpecializationInfo and C_SpecializationInfo.GetSpecialization()
+        local isResto = (PLAYER_CLASS == "DRUID" and specIdx == 4)
+        classPowerFormReq = isResto and (DRUID_CAT_FORM or 1) or nil
+    end
     classPowerWatcher = CreateFrame("Frame")
 
     -- String-type resources (custom-tracked): use OnUpdate poll + events
@@ -4589,16 +5357,12 @@ local function EnableClassPowerWatcher()
                 end
                 local unit, castGUID, spellID = ...
                 if unit == "player" and EllesmereUI then
-                    if EllesmereUI.HandleTipOfTheSpear then
-                        EllesmereUI.HandleTipOfTheSpear(event, unit, castGUID, spellID)
-                    end
+                    EllesmereUI.HandleTipOfTheSpear(event, unit, castGUID, spellID)
                 end
                 RefreshClassPower()
             elseif event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" then
                 if not _G._ERB_AceDB and EllesmereUI then
-                    if EllesmereUI.HandleTipOfTheSpear then
-                        EllesmereUI.HandleTipOfTheSpear(event)
-                    end
+                    EllesmereUI.HandleTipOfTheSpear(event)
                 end
                 RefreshClassPower()
             elseif event == "PLAYER_REGEN_ENABLED" then
@@ -5319,13 +6083,6 @@ local hookedSoftTargetIcons = {}
 local npOffscreenParent = CreateFrame("Frame")
 npOffscreenParent:Hide()
 local storedParents = {}
-local function HideBlizzardElement(element)
-    if element then
-        element:SetAlpha(0)
-        element:Hide()
-        if element.SetScale then element:SetScale(0.001) end
-    end
-end
 local function MoveToOffscreen(element, unit)
     if not element then return end
     -- PERF: skip SetParent if already offscreen (saves ~14 calls per plate respawn)
@@ -5677,6 +6434,9 @@ function NameplateFrame:ApplyAppearance()
     self.health:SetPoint("CENTER", self, "CENTER", 0, GetNameplateYOffset())
     self.health:SetSize(GetHealthBarWidth(), GetHealthBarHeight())
     self.absorb:SetSize(GetHealthBarWidth(), GetHealthBarHeight())
+    -- (Classic WoW UI seats its health border from self:ApplyBorder below,
+    -- once the bar carries its new size. A second seat here would repeat the
+    -- level's font, anchors and unit reads for nothing.)
     ns.ApplyLowHpGlow(self)
     -- Width may have changed: clear the overlay gates so the next apply re-runs geometry (the
     -- stripe texcoord crop derives from the settings width, which the gates never watch).
@@ -5691,7 +6451,7 @@ function NameplateFrame:ApplyAppearance()
         self.castIconFrame:Hide()
     end
     self.castLeftBorder:SetWidth(1)
-    self.castSpark:SetHeight(castH)
+    ns.NP_SetSparkHeight(self, castH)
     -- Show Spark (Cast Color cog): default on; explicit false hides it.
     self.castSpark:SetShown(not (p and p.castBarSparkEnabled == false))
     self.kickMarker:SetSize(GetHealthBarWidth(), castH)
@@ -6190,7 +6950,7 @@ function NameplateFrame:SetUnit(unit, nameplate)
                     local castH = math.floor(GetCastBarHeight() * pct / 100 + 0.5)
                     ns.LayoutCastBar(self, ns.GetHealthBarWidth(), castH)
                     ns.LayoutCastIcon(self, castH)
-                    self.castSpark:SetHeight(castH)
+                    ns.NP_SetSparkHeight(self, castH)
                     self.kickMarker:SetSize(GetHealthBarWidth(), castH)
                 end
             end
@@ -6226,6 +6986,7 @@ function NameplateFrame:SetUnit(unit, nameplate)
             end
             self:UpdateName()
             self:UpdateClassification()
+            if not (p and p.classificationIncludeFaction) then self:UpdateFaction() end
             self:UpdateRaidIcon()
             if p and p.nameRaidMarkerEnabled == true then self:RefreshNamePosition(true) end
             self:ApplyTarget()
@@ -6242,6 +7003,15 @@ function NameplateFrame:SetUnit(unit, nameplate)
 end
 function NameplateFrame:ClearUnit()
     self:UnregisterAllEvents()
+    self._factionEv = nil
+
+    -- Classic WoW UI: blank the level in the border's plate. Plates are
+    -- pooled, so a recycled one would otherwise carry the last unit's level
+    -- until its first paint.
+    if self._classicLevel then
+        self._classicLevel:SetText("")
+        if self._classicSkull then self._classicSkull:Hide() end
+    end
 
     -- Non-Target Opacity: released pool frames always go back at full
     -- alpha (nil _ntCurAlpha = never faded, keeps this a no-op).
@@ -6321,6 +7091,9 @@ function NameplateFrame:ClearUnit()
     self._castTex = nil
     self._castLockout = nil
     self._nameRaidMarkerShown = nil
+    -- A recycled frame's first health paint must not treat the new occupant as
+    -- the old target (the hash line reads this flag).
+    self._isTarget = nil
     self.cast:Hide()
     self.castShieldFrame:Hide()
     self.castShieldFrame:SetAlpha(1)
@@ -6342,6 +7115,7 @@ function NameplateFrame:ClearUnit()
     if self.nameRaidFrame then self.nameRaidFrame:Hide() end
     self.raidFrame:Hide()
     self.classFrame:Hide()
+    if self.factionFrame then self.factionFrame:Hide() end
     if self.classText then self.classText:Hide() end
     if self.focusLetter then self.focusLetter:Hide() end
     if self.leftArrow then self.leftArrow:Hide() end
@@ -6421,7 +7195,7 @@ function NameplateFrame:UpdateHealthValues()
             -- restores. ClearHoverExtras restores hover size then re-runs
             -- ApplyTarget; the direct call covers its no-hover-fx early-out
             -- and re-evaluates target state for the new unit.
-            if ns.ClearHoverExtras then ns.ClearHoverExtras(self) end
+            ns.ClearHoverExtras(self)
             self:ApplyTarget()
         end
     end
@@ -6937,6 +7711,11 @@ function NameplateFrame:UpdateName()
             -- paint takes the full absorb path for the new unit; the cached max
             -- belongs to the old unit, drop it too.
             self._absorbHidden = nil
+            -- Repaint target/hover styling for the new occupant so the old one's
+            -- paint cannot stick; mirrors the UpdateHealthValues swap.
+            -- ApplyTarget re-owns the shared target-plate cache as a side effect.
+            ns.ClearHoverExtras(self)
+            self:ApplyTarget()
             self._maxHPValid = nil
             self._absMode = nil
         end
@@ -6946,11 +7725,13 @@ function NameplateFrame:UpdateName()
     if self.levelText and self.levelText:IsShown() then
         self.levelText:SetText(ns.GetUnitLevelText(unit))
     end
+    -- Classic WoW UI: the level in the vanilla border's plate.
+    if self._classicLevel then ns.NP_UpdateClassicLevel(self) end
     -- The slotted name-family variant decides what renders: name or a level+name
     -- combo. A nil slot keeps the plain-name write (RefreshNamePosition hides it).
     local el = ns.FindNameSlot()
     el = el and GetTextSlot(el) or "enemyName"
-    local name = UnitName(unit)
+    local name = EllesmereUI.WithSurname(UnitName(unit))
     if type(name) == "string" then
         ns.SetNameElementText(self.name, el, name, unit)
         if p and p.nameRaidMarkerEnabled == true then self:RefreshNamePosition(true) end
@@ -7003,7 +7784,18 @@ function NameplateFrame:UpdateClassification()
         if self.classText then self.classText:Hide() end
         self.class:Show()
         local c = UnitClassification(self.unit)
-        if c == "elite" or c == "worldboss" then
+        -- Classic WoW UI carries elite rank in the plate's own art, so the
+        -- indicator marks RARITY alone there: a plain elite shows nothing,
+        -- and a rare elite takes the rare mark rather than the elite one.
+        if ns.NP_Classic() then
+            if c == "rare" or c == "rareelite" then
+                self.class:SetAtlas("nameplates-icon-rareelite")
+            else
+                self.classFrame:Hide()
+                self:UpdateNameWidth()
+                return
+            end
+        elseif c == "elite" or c == "worldboss" then
             self.class:SetAtlas("nameplates-icon-elite-gold")
         elseif c == "rareelite" then
             self.class:SetAtlas("nameplates-icon-elite-silver")
@@ -7027,13 +7819,15 @@ function NameplateFrame:UpdateClassification()
     elseif slot == "left" then
         local sideOff = GetSideAuraXOffset()
         local iconRes, iconSide = ns.GetCastIconReserve(self)
-        local iconPush = (iconSide == "left") and iconRes or 0
+        local classicL = ns.NP_ClassicBarReserve()
+        local iconPush = ((iconSide == "left") and iconRes or 0) + classicL
         PP.Point(self.classFrame, "RIGHT", self.health, "LEFT",
             -sideOff - iconPush + cxOff, cyOff)
     elseif slot == "right" then
         local sideOff = GetSideAuraXOffset()
         local iconRes, iconSide = ns.GetCastIconReserve(self)
-        local iconPush = (iconSide == "right") and iconRes or 0
+        local _, classicR = ns.NP_ClassicBarReserve()
+        local iconPush = ((iconSide == "right") and iconRes or 0) + classicR
         PP.Point(self.classFrame, "LEFT", self.health, "RIGHT",
             sideOff + iconPush + cxOff, cyOff)
     elseif slot == "topleft" then
@@ -7045,6 +7839,119 @@ function NameplateFrame:UpdateClassification()
     end
     self.classFrame:Show()
     self:UpdateNameWidth()
+end
+-- "Rare/Quest + Faction": the faction badge's step-aside depends on whether the
+-- classification icon shows, and some passes (quest objective refreshes) redraw only
+-- the classification, so re-place the badge after every classification pass.
+NameplateFrame._UpdateClassificationBase = NameplateFrame.UpdateClassification
+function NameplateFrame:UpdateClassification()
+    self:_UpdateClassificationBase()
+    if p and p.classificationIncludeFaction then self:UpdateFaction() end
+end
+-- Faction badge (Horde/Alliance): a Core Positions slot element, placed exactly like
+-- the Rare/Quest indicator above. Which badge (if any) comes from ns.NP_FactionBadge,
+-- shared with the friendly plates.
+-- artOnly (the plate's own UNIT_FACTION): a badge already up in this slot only
+-- needs its art checked; every layout input moves through a layout caller.
+function NameplateFrame:UpdateFaction(artOnly)
+    local slot = ns.NP_GetFactionSlot()
+    local unit = self.unit
+    -- Zero cost while the slot is None: no badge frame, no events.
+    if unit and slot ~= "none" then
+        -- Faction and PvP flag changes both arrive as UNIT_FACTION (the one event
+        -- Blizzard's own unit frames repaint their PvP badge on).
+        if self._factionEv ~= unit then
+            self:RegisterUnitEvent("UNIT_FACTION", unit)
+            self._factionEv = unit
+        end
+        if not self.factionFrame then
+            -- Same indicator tier as the classification icon, one level below it, so
+            -- a stacked Rare/Quest + Faction pair draws Rare/Quest on top.
+            local f = CreateFrame("Frame", nil, self)
+            f:SetFrameStrata(ns.GetSlotRaiseStrata(slot) and "HIGH" or "MEDIUM")
+            f:SetFrameLevel(self.health:GetFrameLevel() + 2)
+            f:Hide()
+            self.faction = f:CreateTexture(nil, "ARTWORK")
+            self.faction:SetAllPoints()
+            self.factionFrame = f
+        end
+    elseif self._factionEv then
+        self:UnregisterEvent("UNIT_FACTION")
+        self._factionEv = nil
+    end
+    local atlas, dim
+    if unit and slot ~= "none" then atlas, dim = ns.NP_FactionBadge(unit) end
+    if not atlas then
+        if self.factionFrame and self.factionFrame:IsShown() then
+            self.factionFrame:Hide()
+            self:UpdateNameWidth()
+            -- A side-slot badge had pushed the target arrows out: pull them back in.
+            if self._facSlot == "left" or self._facSlot == "right" then
+                PositionArrowsOutsideAuras(self)
+                if ns.NPC_ReanchorArrows then ns.NPC_ReanchorArrows(self) end
+            end
+        end
+        return
+    end
+    -- Repaint only when the art or the dim changes (inputs: faction, Icon Style, dim).
+    -- The texture keeps its art across pool recycles, so the memo never goes stale.
+    local style = ns.NP_GetFactionStyle()
+    if self._facArt ~= atlas or self._facStyle ~= style then
+        EllesmereUI.SetFactionArt(self.faction, style, atlas)
+        self._facArt, self._facStyle = atlas, style
+    end
+    if self._facDim ~= dim then
+        self.faction:SetDesaturated(dim)
+        self.faction:SetAlpha(dim and 0.6 or 1)
+        self._facDim = dim
+    end
+    if artOnly and self._facSlot == slot and self.factionFrame:IsShown() then return end
+    local cpPush = GetClassPowerTopPush(self)
+    local fxOff, fyOff = GetSlotOffsets(slot)
+    -- "Rare/Quest + Faction" with the classification icon showing too: the faction
+    -- badge stacks behind it, overlapping by 40% (classification is a frame level
+    -- above, so it draws on top); up, or down in the Bottom slot so it clears the cast bar.
+    if p and p.classificationIncludeFaction and self.classFrame:IsShown() then
+        local step = math.floor(GetRareEliteIconSize() * 0.6 + 0.5)
+        fyOff = fyOff + ((slot == "bottom") and -step or step)
+    end
+    local sz = ns.NP_GetFactionIconSize()
+    PP.Size(self.factionFrame, sz, sz)
+    self.factionFrame:ClearAllPoints()
+    if slot == "top" then
+        PP.Point(self.factionFrame, "BOTTOM", self.health, "TOP",
+            fxOff, GetDebuffYOffset() + cpPush + fyOff)
+    elseif slot == "left" then
+        local iconRes, iconSide = ns.GetCastIconReserve(self)
+        local classicL = ns.NP_ClassicBarReserve()
+        local iconPush = ((iconSide == "left") and iconRes or 0) + classicL
+        PP.Point(self.factionFrame, "RIGHT", self.health, "LEFT",
+            -GetSideAuraXOffset() - iconPush + fxOff, fyOff)
+    elseif slot == "right" then
+        local iconRes, iconSide = ns.GetCastIconReserve(self)
+        local _, classicR = ns.NP_ClassicBarReserve()
+        local iconPush = ((iconSide == "right") and iconRes or 0) + classicR
+        PP.Point(self.factionFrame, "LEFT", self.health, "RIGHT",
+            GetSideAuraXOffset() + iconPush + fxOff, fyOff)
+    elseif slot == "topleft" then
+        PP.Point(self.factionFrame, "BOTTOMLEFT", self.health, "TOPLEFT", fxOff, 2 + cpPush + fyOff)
+    elseif slot == "topright" then
+        PP.Point(self.factionFrame, "BOTTOMRIGHT", self.health, "TOPRIGHT", fxOff, 2 + cpPush + fyOff)
+    elseif slot == "bottom" then
+        PP.Point(self.factionFrame, "TOP", self.cast, "BOTTOM", fxOff, -2 + fyOff)
+    end
+    local wasShown = self.factionFrame:IsShown()
+    local lastSlot = self._facSlot
+    self._facSlot = slot
+    self.factionFrame:Show()
+    if not wasShown then self:UpdateNameWidth() end
+    -- A side-slot badge pushes the target arrows out, like the classification icon:
+    -- re-flank them when it appears or moves into or out of a side slot.
+    if (not wasShown or lastSlot ~= slot)
+        and (slot == "left" or slot == "right" or lastSlot == "left" or lastSlot == "right") then
+        PositionArrowsOutsideAuras(self)
+        if ns.NPC_ReanchorArrows then ns.NPC_ReanchorArrows(self) end
+    end
 end
 function NameplateFrame:UpdateNameWidth()
     local barW = GetHealthBarWidth()
@@ -7063,6 +7970,12 @@ function NameplateFrame:UpdateNameWidth()
         local clSlot = GetClassificationSlot()
         if clSlot ~= "none" and self.classFrame:IsShown() then
             nameW = nameW - (GetRareEliteIconSize() + 4)
+        end
+        -- Stacked with the classification icon ("Rare/Quest + Faction") it takes
+        -- no extra width; alone it reserves its own.
+        local stacked = p and p.classificationIncludeFaction and self.classFrame:IsShown()
+        if self.factionFrame and self.factionFrame:IsShown() and not stacked then
+            nameW = nameW - (ns.NP_GetFactionIconSize() + 4)
         end
         PP.Width(self.name, math.max(nameW * pct / 100, 20))
     elseif nameSlot then
@@ -7102,6 +8015,7 @@ end
 function NameplateFrame:RefreshCastIconSideReserve()
     if not (GetShowCastIcon() and ns.GetCastIconFullSize()) then return end
     self:UpdateClassification()
+    if not (p and p.classificationIncludeFaction) then self:UpdateFaction() end
     self:UpdateRaidIcon()
     PositionArrowsOutsideAuras(self)
     -- Without this, a cast bar showing/hiding shoves an already container-hugging
@@ -7194,6 +8108,7 @@ function NameplateFrame:RefreshNamePosition(localOnly)
     end
     if localOnly then return end
     self:UpdateClassification()
+    if not (p and p.classificationIncludeFaction) then self:UpdateFaction() end
 end
 function NameplateFrame:UpdateRaidIcon()
     if not self.unit then return end
@@ -7223,13 +8138,15 @@ function NameplateFrame:UpdateRaidIcon()
     elseif pos == "left" then
         local sideOff = GetSideAuraXOffset()
         local iconRes, iconSide = ns.GetCastIconReserve(self)
-        local iconPush = (iconSide == "left") and iconRes or 0
+        local classicL = ns.NP_ClassicBarReserve()
+        local iconPush = ((iconSide == "left") and iconRes or 0) + classicL
         PP.Point(self.raidFrame, "RIGHT", self.health, "LEFT",
             -sideOff - iconPush + rxOff, ryOff)
     elseif pos == "right" then
         local sideOff = GetSideAuraXOffset()
         local iconRes, iconSide = ns.GetCastIconReserve(self)
-        local iconPush = (iconSide == "right") and iconRes or 0
+        local _, classicR = ns.NP_ClassicBarReserve()
+        local iconPush = ((iconSide == "right") and iconRes or 0) + classicR
         PP.Point(self.raidFrame, "LEFT", self.health, "RIGHT",
             sideOff + iconPush + rxOff, ryOff)
     elseif pos == "topleft" then
@@ -7246,7 +8163,22 @@ end
 function NameplateFrame:ApplyTarget()
     if not self.unit then return end
     local isTarget = UnitIsUnit(self.unit, "target")
+    -- The hash line is painted by the health pass from this cached flag, so a
+    -- flip queues one coalesced repaint (only while the line is enabled).
+    if p and p.hashLineEnabled and (self._isTarget == true) ~= (isTarget == true) then
+        self:MarkHealthDirty()
+    end
     self._isTarget = isTarget  -- cached for hot-path hash line check
+    -- Cache ownership lives here so EVERY painter keeps it coherent:
+    -- SetUnit's deferred setup (pending-watcher promotion), the UpdateHealthValues
+    -- token swap and PLAYER_TARGET_CHANGED all funnel through this method. Gaining
+    -- target claims the slot; a recycled plate that lost target frees it, so a
+    -- stale entry can never skip the un-paint on the next target change.
+    if isTarget then
+        ns._cachedTargetPlate = self
+    elseif ns._cachedTargetPlate == self then
+        ns._cachedTargetPlate = nil
+    end
     -- EllesmereUI: background glow around the plate, tinted + faded with the
     -- target Glow Color/Opacity (re-applied on show so live edits update).
     if isTarget and ns.GetTargetGlowEllesmereUI() then
@@ -7297,6 +8229,9 @@ function NameplateFrame:ApplyTarget()
     -- If this plate is wrapping its border around the cast bar, the colour just set landed on
     -- the HIDDEN health border: re-sync the visible unified border. One field read unless live.
     if self._wrapActive then self:UpdateBorderWrap() end
+    -- Blizzard Style: stock selection ring / deselected overlay. The classic
+    -- plate marks its target through the EUI effects above alone.
+    if ns.NP_Style() == "blizzard" then ns.NP_ApplyBlizzSelection(self, isTarget) end
     -- Highlight: translucent wash across the health bar (color + opacity are
     -- configurable; re-applied on show so live edits and pooled textures update)
     if isTarget and ns.GetTargetGlowHighlight() then
@@ -7602,7 +8537,20 @@ function NameplateFrame:UpdateCast()
         end
         local cfg = p or defaults
         local unintColor = cfg.castBarUninterruptible or defaults.castBarUninterruptible
-        self.castBarOverlay:SetVertexColor(unintColor.r, unintColor.g, unintColor.b)
+        if self._blizzCastArt then
+            -- Blizzard Style: the overlay IS the stock grey fill art (painted
+            -- white; the user's colour stays if that atlas never seated), and
+            -- the fill atlas follows the cast kind.
+            if self._blizzShieldFill then
+                self.castBarOverlay:SetVertexColor(1, 1, 1)
+            else
+                self.castBarOverlay:SetVertexColor(unintColor.r, unintColor.g, unintColor.b)
+            end
+            self._blizzCastLastKind = isChannel and "channel" or "cast"
+            ns.NP_SetBlizzCastFill(self, self._blizzCastLastKind)
+        else
+            self.castBarOverlay:SetVertexColor(unintColor.r, unintColor.g, unintColor.b)
+        end
         self.castShieldFrame:Show()
         self:ApplyCastColor(kickProtected)
     end
@@ -7726,6 +8674,14 @@ function NameplateFrame:ApplyCastColor(uninterruptible)
     local cfg = p or defaults
     local kickReadyTint = cfg.interruptReady or defaults.interruptReady
     local normalCastTint = cfg.castBar or defaults.castBar
+    -- Blizzard Style: the fill atlas is its own colour, so the normal and
+    -- uninterruptible tints are white; the kick-ready and Important tints
+    -- still layer on top exactly as before. No per-call allocation.
+    local blizzCast = self._blizzCastArt
+    if blizzCast then
+        if not ns._npWhite then ns._npWhite = { r = 1, g = 1, b = 1 } end
+        normalCastTint = ns._npWhite
+    end
     -- Important Cast Color (opt-in): a cast the game flags important shows the Important
     -- colour instead of Interruptible. The flag may be SECRET, so blend per channel via
     -- EvaluateColorValueFromBoolean (ifTrue=Important, ifFalse=Interruptible), never branch on
@@ -7751,7 +8707,7 @@ function NameplateFrame:ApplyCastColor(uninterruptible)
     -- Match the base cast fill to uninterruptible casts so plate opacity
     -- doesn't reveal the interruptible color underneath the overlay.
     if C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean then
-        local unintColor = cfg.castBarUninterruptible or defaults.castBarUninterruptible
+        local unintColor = blizzCast and ns._npWhite or (cfg.castBarUninterruptible or defaults.castBarUninterruptible)
         -- The settings-refresh callers pass the stored _kickProtected stamp,
         -- which is nil until the first cast event -- and a nil reaching the
         -- fold throws. type() is the secret-legal nil test (a plain == nil
@@ -8034,8 +8990,14 @@ function NameplateFrame:ShowInterrupted(interrupterGUID)
     self.cast:SetReverseFill(false)
     self.cast:SetMinMaxValues(0, 1)
     self.cast:SetValue(1)
-    local fc = (p and p.interruptedFlashColor) or defaults.interruptedFlashColor
-    self.cast:GetStatusBarTexture():SetVertexColor(fc.r, fc.g, fc.b)
+    if self._blizzCastArt then
+        -- Blizzard Style: the stock interrupted fill art, untinted.
+        ns.NP_SetBlizzCastFill(self, "interrupted")
+        self.cast:GetStatusBarTexture():SetVertexColor(1, 1, 1)
+    else
+        local fc = (p and p.interruptedFlashColor) or defaults.interruptedFlashColor
+        self.cast:GetStatusBarTexture():SetVertexColor(fc.r, fc.g, fc.b)
+    end
 
     -- GetPlayerInfoByGUID accepts the event's SECRET interrupter GUID and may
     -- return a SECRET name/class. Keep those values opaque until native sinks.
@@ -8080,7 +9042,7 @@ function NameplateFrame:ShowInterrupted(interrupterGUID)
         self.castName:SetWidth(hasInterrupter and math.max(castW - 8, 20) or castW * cnWPct / 100)
     end
 
-    local interruptedText = (EllesmereUI and EllesmereUI.L and EllesmereUI.L("Interrupted")) or "Interrupted"
+    local interruptedText = (EllesmereUI.L("Interrupted")) or "Interrupted"
     if hasInterrupter then
         -- The base FontString color carries SECRET class RGB; only the clean
         -- localized label/punctuation uses an inline profile-color escape.
@@ -8189,6 +9151,11 @@ function NameplateFrame:UNIT_NAME_UPDATE()
 end
 function NameplateFrame:UNIT_THREAT_LIST_UPDATE()
     self:UpdateHealthColor()
+end
+-- Faction badge: faction and PvP flag changes. The tap-state repaint rides the
+-- shared UNIT_FACTION handler (factionFrame), not this one.
+function NameplateFrame:UNIT_FACTION()
+    self:UpdateFaction(true)
 end
 function NameplateFrame:UNIT_SPELLCAST_START()
     self._castDirtyFull = true
@@ -8450,6 +9417,9 @@ CreateEnemyWatcher = function(unit)
         local plate = ns.plates[u]
         if plate then
             if ns._ClearMouseoverPlate then ns._ClearMouseoverPlate(plate) end
+            -- Same cached-ref release as NAME_PLATE_UNIT_REMOVED.
+            if ns._cachedTargetPlate == plate then ns._cachedTargetPlate = nil end
+            if ns._cachedFocusPlate  == plate then ns._cachedFocusPlate  = nil end
             plate:ClearUnit()
             frameCache:Release(plate)
             ns.plates[u] = nil
@@ -8537,6 +9507,15 @@ factionFrame:SetScript("OnEvent", function(_, event, unit)
         local w = enemyWatchers[unit]
         w:GetScript("OnEvent")(w, "UNIT_FACTION", unit)
     end
+    -- Tap state changes arrive here, not on any per-plate event.
+    local plate = ns.plates[unit]
+    if plate then
+        plate:UpdateHealthColor()
+    else
+        -- A friendly full plate's faction badge: PvP flag and faction changes.
+        local fp = ns.friendlyPlates[unit]
+        if fp then ns.NP_FriendlyFactionRefresh(fp) end
+    end
 end)
 -- Unified mouseover monitor (enemy + friendly). UPDATE_MOUSEOVER_UNIT fires when a mouseover
 -- STARTS but never when it clears, so a single shared 0.1s ticker (alive only while a mouseover
@@ -8560,10 +9539,13 @@ function ns._ClearMouseoverPlate(plate)
         ns._currentMouseoverPlate = nil
         if ns._mouseoverTicker then ns._mouseoverTicker:Cancel(); ns._mouseoverTicker = nil end
     end
-    -- Pooled frames recycle: drop the hover-extras flags without a restore
-    -- pass (the reuse path re-runs ApplyBorder/ApplyTarget anyway).
+    -- Pooled enemy frames recycle without re-running ApplyBorder, so a
+    -- hover-sized border is restored here before its flag is dropped.
+    if plate._hoverBorderSized then
+        plate._hoverBorderSized = nil
+        if plate.ApplyBorder then plate:ApplyBorder() end
+    end
     plate._hoverFxOn = nil
-    plate._hoverBorderSized = nil
 end
 
 function ns._UpdateMouseover()
@@ -8768,6 +9750,8 @@ manager:SetScript("OnEvent", function(self, event, unit)
         local function UpdateFocusPlate(plate)
             if not plate or not plate.unit then return end
             plate:UpdateHealthColor()
+            -- Blizzard Style: the focus ring follows the focus, not just the target.
+            if ns.NP_Style() == "blizzard" then ns.NP_ApplyBlizzSelection(plate) end
             if focusPct ~= 100 then
                 local castH = GetCastBarHeight()
                 if UnitIsUnit(plate.unit, "focus") then
@@ -8775,7 +9759,7 @@ manager:SetScript("OnEvent", function(self, event, unit)
                 end
                 ns.LayoutCastBar(plate, ns.GetHealthBarWidth(), castH)
                 ns.LayoutCastIcon(plate, castH)
-                plate.castSpark:SetHeight(castH)
+                ns.NP_SetSparkHeight(plate, castH)
                 plate.kickMarker:SetHeight(castH)
             end
         end
@@ -8956,18 +9940,43 @@ function npAddon:OnInitialize()
     -- so the apply loop no-ops; SetUnit fades new plates as they spawn).
     if ns.NT_RefreshSetting then ns.NT_RefreshSetting() end
     -- Append SharedMedia textures to runtime tables so SM texture keys resolve at runtime
-    if EllesmereUI.AppendSharedMediaTextures then
-        EllesmereUI.AppendSharedMediaTextures(
-            ns.healthBarTextureNames,
-            ns.healthBarTextureOrder,
-            nil,
-            ns.healthBarTextures
-        )
-    end
+    EllesmereUI.AppendSharedMediaTextures(
+        ns.healthBarTextureNames,
+        ns.healthBarTextureOrder,
+        nil,
+        ns.healthBarTextures
+    )
 end
 function npAddon:OnEnable()
     -- Re-read profile: PreSeedSpecProfile may have re-pointed db.profile between OnInitialize and OnEnable.
     p = ENP.db.profile
+    -- A profile already on a stock style gets its one-time bar texture seed
+    -- before the first plate builds (the Style page seeds on the switch);
+    -- its own textures go to the EllesmereUI slot first, so a switch back
+    -- restores them.
+    if ns.NP_Blizz() then
+        if not p.stockBarTextureSeeded and EllesmereUI.BankEuiStyleSlot then
+            EllesmereUI.BankEuiStyleSlot(p, ns._npStyleSlotKeys)
+        end
+        ns.NP_SeedStock(p)
+    end
+    -- The same for the Classic cast colours. An EllesmereUI slot banked before
+    -- they rode the slots gains their current values first, so a switch back
+    -- still restores the user's own.
+    if ns.NP_Classic() and not p.classicCastSeeded then
+        local slots = p._styleSlots
+        local eui = type(slots) == "table" and slots.eui
+        if type(eui) == "table" then
+            local keys = ns._npClassicCastKeys
+            for i = 1, #keys do
+                local k = keys[i]
+                if eui[k] == nil then eui[k] = p[k] end
+            end
+        elseif EllesmereUI.BankEuiStyleSlot then
+            EllesmereUI.BankEuiStyleSlot(p, ns._npStyleSlotKeys)
+        end
+        ns.NP_SeedClassic(p)
+    end
     RawSetTex = (PP and PP.RawSetTexture) or function(t, v) t:SetTexture(v) end
     SetupAuraCVars()
     ApplyClassPowerSetting()

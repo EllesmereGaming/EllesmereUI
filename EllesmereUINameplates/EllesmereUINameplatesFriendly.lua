@@ -199,7 +199,7 @@ local _sfFile, _sfSize, _sfFlags
 local function ApplySubtitleFont()
     local file = GetFont()
     local size = GetSubTextSize()
-    local flags = (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG"
+    local flags = (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG"
     if file == _sfFile and size == _sfSize and flags == _sfFlags then return end
     _sfFile, _sfSize, _sfFlags = file, size, flags
     subtitleFont:SetFont(file, size, flags)
@@ -232,13 +232,27 @@ local function ApplyFriendlyFontOverride(force)
         end
         fontOverrideApplied = false
     end
+    -- Blizzard picks the name's font object by Nameplate Style: Modern/Block
+    -- anchor the name inside the bar and use _Outlined (stock NORMAL outline),
+    -- Classic anchors it above and uses the plain object (stock SLUG only), so
+    -- Classic-style users got name-only player names with no outline at all.
+    -- Friendly names are always outlined (the full plates force it), so the
+    -- one thing added here is OUTLINE where the object's own flags lack one.
+    -- Everything else the object carries (SLUG, an outline already present)
+    -- stays exactly as read, so already-outlined names render unchanged.
+    local function WithOutline(flags)
+        flags = flags or ""
+        if flags:find("OUTLINE", 1, true) then return flags end
+        if flags == "" then return "OUTLINE" end
+        return flags .. ", OUTLINE"
+    end
     if SystemFont_NamePlate and SystemFont_NamePlate.SetFont then
         local _, _, flags = SystemFont_NamePlate:GetFont()
-        SystemFont_NamePlate:SetFont(font, size, flags or GetNPOutline())
+        SystemFont_NamePlate:SetFont(font, size, WithOutline(flags))
     end
     if SystemFont_NamePlate_Outlined and SystemFont_NamePlate_Outlined.SetFont then
         local _, _, flags = SystemFont_NamePlate_Outlined:GetFont()
-        SystemFont_NamePlate_Outlined:SetFont(font, size, flags or GetNPOutline())
+        SystemFont_NamePlate_Outlined:SetFont(font, size, WithOutline(flags))
     end
     _ffFile, _ffSize = font, size
     fontOverrideApplied = true
@@ -341,11 +355,6 @@ local function EnsureNameUnconstrained(nameFS)
     if nameFS.SetTextHeight then hooksecurefunc(nameFS, "SetTextHeight", ApplyNameTextHeight) end
 end
 
-local function ApplyFontToNameplate(nameplate)
-    -- No-op: font is applied globally via the SystemFont_NamePlate override.
-end
-ns.ApplyFontToNameplate = ApplyFontToNameplate
-
 -- Exposed so the options panel can live-apply a new friendly name-only size.
 -- Re-running the override re-reads GetFriendlyNameSize and resizes the shared
 -- font object; the name FontStrings inherit it on the next render.
@@ -387,19 +396,6 @@ local function ScheduleNameSizeReapply(force)
         -- the existing debounce, so a burst costs one sweep.
         if ReanchorAllPlayerNames then ReanchorAllPlayerNames() end
     end)
-end
-
--- Exposed so the options panel can trigger a refresh after font changes
-function ns.RefreshFriendlyFontOverride()
-    if IsNameOnlyMode() then
-        -- Re-style all currently visible friendly nameplates
-        for i, nameplate in ipairs(C_NamePlate.GetNamePlates(true)) do
-            local unit = nameplate.namePlateUnitToken
-            if unit and not UnitCanAttack("player", unit) and not UnitIsUnit(unit, "player") then
-                ApplyFontToNameplate(nameplate)
-            end
-        end
-    end
 end
 
 -------------------------------------------------------------------------------
@@ -682,7 +678,7 @@ local function UpdateNameOnlyText(nameFS)
 
     local want
     if ModeHasTitle(mode) and isPlayer then want = GetTitledName(unit) end
-    if not want then want = UnitName(unit) end
+    if not want then want = EllesmereUI.WithSurname(UnitName(unit)) end
     if not want or (issecretvalue and issecretvalue(want)) then return end
 
     local guild
@@ -1008,13 +1004,21 @@ local friendlyFrameCache = CreateFramePool("Frame", UIParent, nil, nil, false, f
     local PP = EllesmereUI and EllesmereUI.PP
     if PP and PP.CreateBorder then
         local cr, cg, cb = ns.GetBorderColor()
-        local sz = (FP() and FP().borderSize) or ns.defaults.borderSize
+        -- The classic plate's fixed 1px edge, else the friendly profile's own size.
+        local sz = ns.NP_Classic() and 1 or ((FP() and FP().borderSize) or ns.defaults.borderSize)
         PP.CreateBorder(plate.health, cr, cg, cb, 1, sz, "OVERLAY", 7, true)  -- scaleGuard: NP frame
-        if not ns.IsBorderEnabled() then PP.HideBorder(plate.health) end
+        if not ns.IsBorderEnabled() or ns.NP_Classic() then PP.HideBorder(plate.health) end
     end
 
     function plate:ApplyBorder()
         if not PP then return end
+        if ns.NP_Classic() then
+            -- Classic WoW UI: the vanilla border art replaces every EUI border.
+            PP.HideBorder(plate.health)
+            ns.HideCustomBorder(plate)
+            ns.NP_ApplyClassicHealthArt(plate, GetFriendlyHealthBarHeight())
+            return
+        end
         if ns.IsCustomBorderEnabled() then
             -- Custom border mirrors the enemy custom-border settings 1:1.
             PP.HideBorder(plate.health)
@@ -1022,8 +1026,7 @@ local friendlyFrameCache = CreateFramePool("Frame", UIParent, nil, nil, false, f
         else
             ns.HideCustomBorder(plate)
             if ns.IsBorderEnabled() then
-                local sz = (FP() and FP().borderSize) or ns.defaults.borderSize
-                PP.SetBorderSize(plate.health, sz)
+                PP.SetBorderSize(plate.health, ns.NP_Classic() and 1 or ((FP() and FP().borderSize) or ns.defaults.borderSize))
                 PP.ShowBorder(plate.health)
             else
                 PP.HideBorder(plate.health)
@@ -1101,8 +1104,12 @@ local friendlyFrameCache = CreateFramePool("Frame", UIParent, nil, nil, false, f
     -- Forced crisp outline; SetFSFont applies the global "Never Show Slug" gate.
     SetFSFont(plate.hpText, 10, "OUTLINE, SLUG")
     plate.hpText:SetPoint("RIGHT", plate.health, -2, 0)
+    -- Blizzard Style: above the deselected overlay / ring (OVERLAY 4/5).
+    if ns.NP_Style and ns.NP_Style() == "blizzard" then plate.hpText:SetDrawLayer("OVERLAY", 7) end
 
-    plate.highlight = plate.health:CreateTexture(nil, "OVERLAY", nil, 6)
+    -- Blizzard Style: under the stock ring / deselected overlay (OVERLAY 4/5);
+    -- the EUI and classic looks keep it at 6.
+    plate.highlight = plate.health:CreateTexture(nil, "OVERLAY", nil, (ns.NP_Style and ns.NP_Style() == "blizzard") and 1 or 6)
     plate.highlight:SetAllPoints()
     local _hc = (FP() and FP().hoverColor) or ns.defaults.hoverColor
     local _ha = (FP() and FP().hoverAlpha) or ns.defaults.hoverAlpha
@@ -1190,6 +1197,7 @@ function FriendlyFrame:SetUnit(unit, nameplate)
     self:SetFrameLevel(nameplate:GetFrameLevel() + 1)
     self:Show()
 
+    -- (Classic WoW UI: the border art is seated by ApplyBorder below.)
     self.health:SetSize(GetFriendlyHealthBarWidth(), GetFriendlyHealthBarHeight())
 
     -- Suppress Blizzard UF via reparenting (immediate, no OnUpdate needed)
@@ -1224,6 +1232,7 @@ function FriendlyFrame:SetUnit(unit, nameplate)
     self:UpdateHealth()
     self:UpdateName()
     self:UpdateRaidIcon()
+    ns.NP_FriendlyFactionRefresh(self)
     self:ApplyTarget()
     -- Re-apply the enemy border settings every spawn: a pooled plate may have
     -- been released while the user changed the border size/color/toggle.
@@ -1244,6 +1253,8 @@ function FriendlyFrame:ClearUnit()
     end
     -- Restore Blizzard UF before clearing our reference
     if self.unit then RestoreBlizzardUF(self.unit) end
+    -- Its faction badge lives on the nameplate, not on this frame.
+    ns.NP_FriendlyFactionHide(self)
     self.unit = nil
     self.nameplate = nil
     self.glow:Hide()
@@ -1292,7 +1303,7 @@ function FriendlyFrame:UpdateName()
     if ModeHasTitle(GetBelowNameMode()) and UnitIsPlayer(unit) then
         unitName = GetTitledName(unit)
     end
-    if not unitName then unitName = UnitName(unit) end
+    if not unitName then unitName = EllesmereUI.WithSurname(UnitName(unit)) end
     self.name:SetText(unitName or "")
     self:UpdateSubText()
 end
@@ -1347,9 +1358,11 @@ function FriendlyFrame:UpdateRaidIcon()
     if pos == "top" then
         self.raidFrame:SetPoint("BOTTOM", self.health, "TOP", 0, ns.GetDebuffYOffset())
     elseif pos == "left" then
-        self.raidFrame:SetPoint("RIGHT", self.health, "LEFT", -ns.GetSideAuraXOffset(), 0)
+        -- Classic WoW UI: gap off the border art (sized by the friendly bar's
+        -- own height), not the bare bar edge.
+        self.raidFrame:SetPoint("RIGHT", self.health, "LEFT", -(ns.GetSideAuraXOffset() + ns.NP_ClassicSide("left", GetFriendlyHealthBarHeight())), 0)
     elseif pos == "right" then
-        self.raidFrame:SetPoint("LEFT", self.health, "RIGHT", ns.GetSideAuraXOffset(), 0)
+        self.raidFrame:SetPoint("LEFT", self.health, "RIGHT", ns.GetSideAuraXOffset() + ns.NP_ClassicSide("right", GetFriendlyHealthBarHeight()), 0)
     elseif pos == "topleft" then
         -- Flush with the nameplate's left edge (PP borders inset -> bar corner is
         -- the outer edge; offset 0 = flush). Matches the enemy plate convention.
@@ -1378,6 +1391,8 @@ function FriendlyFrame:ApplyTarget()
     end
     self.leftArrow:SetShown(showArrows or false)
     self.rightArrow:SetShown(showArrows or false)
+    -- Blizzard Style: stock selection ring / deselected overlay on friendly plates too.
+    if ns.NP_Style and ns.NP_Style() == "blizzard" then ns.NP_ApplyBlizzSelection(self) end
 end
 
 function FriendlyFrame:UNIT_HEALTH()  self:UpdateHealth() end
@@ -1461,6 +1476,8 @@ function ns.RemoveFriendlyPlateNoRestore(unit)
     end
     -- Clear modifiedUFs entry so the friendly SetAlpha hook stops interfering
     modifiedUFs[unit] = nil
+    -- Promoted to an enemy plate, which draws its own faction badge.
+    ns.NP_FriendlyFactionHide(plate)
     plate.unit = nil
     plate.nameplate = nil
     plate.glow:Hide()
@@ -1531,8 +1548,16 @@ end
 function ns.RefreshFriendlyPlateSize()
     local h = GetFriendlyHealthBarHeight()
     local w = GetFriendlyHealthBarWidth()
+    -- Classic WoW UI: the vanilla border scales with the bar, so it re-seats
+    -- with every size change (the seat memoizes, so an unchanged size is free).
+    local classic = ns.NP_Classic()
     for _, plate in pairs(friendlyPlates) do
         plate.health:SetSize(w, h)
+        if classic then
+            ns.NP_ApplyClassicHealthArt(plate, h)
+            -- A side raid marker gaps off the border, which moved with it.
+            plate:UpdateRaidIcon()
+        end
     end
 end
 

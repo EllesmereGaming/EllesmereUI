@@ -61,22 +61,7 @@ local function FormatTime(remaining)
     return format("%.1f", remaining)
 end
 
-local CDM_FONT_FALLBACK = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
-local function GetFont()
-    return (ns.GetCDMFont and ns.GetCDMFont()) or CDM_FONT_FALLBACK
-end
-local function GetOutline()
-    if EllesmereUI and EllesmereUI.GetFontOutlineFlag then
-        return EllesmereUI.GetFontOutlineFlag("cdm")
-    end
-    return "OUTLINE, SLUG"
-end
-local function SetFont(fs, size)
-    if not (fs and fs.SetFont) then return end
-    local useShadow = EllesmereUI and EllesmereUI.GetFontUseShadow and EllesmereUI.GetFontUseShadow("cdm")
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, useShadow) end
-    fs:SetFont(GetFont(), size, GetOutline())
-end
+local function SetFont(fs, size) EllesmereUI.ApplyModuleFont(fs, nil, size, "cdm") end
 
 local function SetTBBTextColor(fs, cfg, prefix)
     if not fs or not cfg then return end
@@ -395,14 +380,7 @@ end
 --  system covers an empty slot.
 -------------------------------------------------------------------------------
 do
-    local function CopyEntry(v)
-        if type(v) ~= "table" then return v end
-        local t = {}
-        for k, x in pairs(v) do
-            t[k] = type(x) == "table" and CopyEntry(x) or x
-        end
-        return t
-    end
+    local CopyEntry = EllesmereUI.Lite.DeepCopy
 
     local function LiveStores(create)
         local db = EllesmereUIDB
@@ -443,6 +421,27 @@ do
         end
     end
 
+    -- A TBB child's Extra Width / Height rides its bucket beside its link (wmx /
+    -- hmx; liveField = the account store). The live stores can exist empty
+    -- (profile restores write them), so a missing bucket table is created only
+    -- once the store holds a TBB entry.
+    local function BankExtra(b, field, liveField)
+        local db = EllesmereUIDB
+        local store = db and db[liveField]
+        local dest = b[field]
+        if not dest then
+            if not store then return end
+            local any
+            for k in pairs(store) do
+                if type(k) == "string" and k:find("^TBB_%d+$") then any = true; break end
+            end
+            if not any then return end
+            dest = {}
+            b[field] = dest
+        end
+        BankOne(store, dest)
+    end
+
     local function Bank(profileName, specKey)
         local b = Bucket(profileName, specKey, true)
         if not b then return end
@@ -450,6 +449,8 @@ do
         BankOne(an, b.anchors)
         BankOne(wm, b.wm)
         BankOne(hm, b.hm)
+        BankExtra(b, "wmx", "unlockWidthMatchExtra")
+        BankExtra(b, "hmx", "unlockHeightMatchExtra")
     end
 
     -- Replace a live store's TBB child entries with a bucket table's.
@@ -467,6 +468,21 @@ do
         for slot, v in pairs(src) do
             store["TBB_" .. slot] = CopyEntry(v)
         end
+    end
+
+    -- Swap a bucket's extras into the account store: a spec without extras (no
+    -- wmx / hmx, or empty) clears every live TBB extra, and a missing store is
+    -- created only to hold one. NO_EXTRA is read-only (SwapOne never writes src).
+    local NO_EXTRA = {}
+    local function SwapExtra(liveField, src)
+        local db = EllesmereUIDB
+        local store = db[liveField]
+        if not store then
+            if not src or next(src) == nil then return end
+            store = {}
+            db[liveField] = store
+        end
+        SwapOne(store, src or NO_EXTRA)
     end
 
     local function SwapIn(profileName, specKey)
@@ -495,10 +511,24 @@ do
                     for _, slot in ipairs(drop) do set[slot] = nil end
                 end
             end
+            -- Extras seed and prune like their links.
+            BankExtra(b, "wmx", "unlockWidthMatchExtra")
+            BankExtra(b, "hmx", "unlockHeightMatchExtra")
+            local xsets = { b.wmx, b.hmx }
+            for i = 1, 2 do
+                local set = xsets[i]
+                if set then
+                    for slot in pairs(set) do
+                        if not bars[tonumber(slot)] then set[slot] = nil end
+                    end
+                end
+            end
         end
         SwapOne(an, b.anchors)
         SwapOne(wm, b.wm)
         SwapOne(hm, b.hm)
+        SwapExtra("unlockWidthMatchExtra", b.wmx)
+        SwapExtra("unlockHeightMatchExtra", b.hmx)
         -- Modules memoize views over the anchor DB (extent watch etc.).
         EllesmereUI._anchorLinksStamp = (EllesmereUI._anchorLinksStamp or 0) + 1
     end
@@ -527,6 +557,19 @@ do
     -- copies of whichever spec last saved unlock mode, so the active spec's own entries are re-asserted here.
     EllesmereUI._TBBRestoreUnlockLinks = function()
         ns.SyncTBBUnlockLinks(true)
+    end
+
+    -- Unlock Save & Exit: bank the active spec's live TBB links and extras into its
+    -- bucket (only while live belongs to it), so a profile restore before the next
+    -- bar build cannot swap an older bucket over them.
+    EllesmereUI._TBBBankUnlockLinks = function()
+        if not EllesmereUIDB then return end
+        local own = EllesmereUIDB._tbbLinkOwner
+        local profName = ns.GetActiveProfileName and ns.GetActiveProfileName()
+        local specKey  = ns.GetActiveSpecKey and ns.GetActiveSpecKey()
+        if own and own.profile == profName and own.spec == specKey then
+            Bank(profName, specKey)
+        end
     end
 end
 
@@ -718,7 +761,7 @@ function ns.AddBarToAllSpecs(srcIdx)
     local added = 0
     local numSpecs = GetNumSpecializations and GetNumSpecializations() or 0
     for i = 1, numSpecs do
-        local specID = GetSpecializationInfo(i)
+        local specID = C_SpecializationInfo.GetSpecializationInfo(i)
         if specID then
             local key = tostring(specID)
             if key ~= activeKey then
@@ -795,7 +838,7 @@ function ns.RemoveBarFromAllSpecs(srcIdx)
     local removed = 0
     local numSpecs = GetNumSpecializations and GetNumSpecializations() or 0
     for i = 1, numSpecs do
-        local specID = GetSpecializationInfo(i)
+        local specID = C_SpecializationInfo.GetSpecializationInfo(i)
         if specID then
             local specKey = tostring(specID)
             if specKey ~= activeKey then
@@ -1017,10 +1060,6 @@ function ns.TBBSetBarGroup(cfg, gid)
     cfg.groupId = gid
     -- Legacy mirror: older versions only know one group ("checked" bars).
     cfg.grouped = (gid ~= 0)
-end
-
-function ns.TBBBarGrouped(cfg)
-    return ns.TBBBarGroupID(cfg) ~= 0
 end
 
 -- Sorted list of group ids currently used by at least one bar.
@@ -1701,9 +1740,10 @@ local TBB_STYLE_KEYS = {
     "iconDisplay", "iconSize", "iconX", "iconY", "iconBorderSize",
     "stacksPosition", "stacksSize", "stacksX", "stacksY",
     "stacksTextR", "stacksTextG", "stacksTextB", "stacksTextA",
-    "borderSize", "borderTexture", "borderR", "borderG", "borderB",
+    "borderSize", "borderSizePx", "borderTexture", "borderR", "borderG", "borderB",
     "borderTextureOffset", "borderTextureOffsetY",
     "borderTextureShiftX", "borderTextureShiftY", "borderBehind",
+    "stockBorderScale",
     "pandemicGlow", "pandemicGlowStyle", "pandemicGlowColor",
     "pandemicGlowLines", "pandemicGlowThickness", "pandemicGlowSpeed",
 }
@@ -2024,12 +2064,6 @@ function ns.PropagateTBBGroupSize(srcIdx, dim, value)
     _tbbGroupSizing = false
 end
 
-function ns.HasBuffBars()
-    if not ECME or not ECME.db then return false end
-    local tbb = ns.GetTrackedBuffBars()
-    return tbb and tbb.bars and #tbb.bars > 0
-end
-
 function ns.IsTBBRebuildPending() return _tbbRebuildPending end
 
 -- No-ops kept because options/main file may still reference them.
@@ -2194,11 +2228,13 @@ local function TBBMultiThresholdList(cfg)
     return list
 end
 
-local function ApplyTBBThresholdOverlay(overlay, sb, texPath, orient, reverse, i, r, g, b, a, value)
+local function ApplyTBBThresholdOverlay(overlay, sb, texPath, orient, reverse, i, r, g, b, a, value, blizzAtlas)
     overlay:SetStatusBarTexture(texPath)
     overlay:SetOrientation(orient)
     overlay:SetReverseFill(reverse)
     local tex = overlay:GetStatusBarTexture()
+    -- Blizzard Style: the segment takes the same atlas as the fill it covers.
+    if blizzAtlas then tex:SetAtlas("UI-HUD-CoolDownManager-Bar") end
     tex:SetVertexColor(r, g, b, a)
     tex:SetDrawLayer("ARTWORK", i)
     overlay:ClearAllPoints()
@@ -2229,7 +2265,7 @@ local function SetupTBBThresholdOverlay(bar, cfg)
             local overlay = EnsureTBBThresholdOverlay(bar, i)
             if not overlay then break end
             ApplyTBBThresholdOverlay(overlay, sb, texPath, orient, reverse, i,
-                t.r or 0.8, t.g or 0.1, t.b or 0.1, t.a or 1, t.value or 5)
+                t.r or 0.8, t.g or 0.1, t.b or 0.1, t.a or 1, t.value or 5, bar._blizzFillAtlas)
             n = i
         end
     else
@@ -2238,7 +2274,7 @@ local function SetupTBBThresholdOverlay(bar, cfg)
             ApplyTBBThresholdOverlay(overlay, sb, texPath, orient, reverse, 1,
                 cfg.stackThresholdR or 0.8, cfg.stackThresholdG or 0.1,
                 cfg.stackThresholdB or 0.1, cfg.stackThresholdA or 1,
-                cfg.stackThreshold or 5)
+                cfg.stackThreshold or 5, bar._blizzFillAtlas)
             n = 1
         end
     end
@@ -2541,12 +2577,18 @@ local function AnchorTBBSparkState(bar, anchor, isVert, reverse, flushToEdge)
        and bar._sparkAnchorBarH == barH then
         return
     end
+    -- Blizzard Style pip is an atlas: an 8-coord rotation would sample the
+    -- whole sheet, so its coords are left to the atlas (vertical bars keep the
+    -- upright pip).
+    -- The classic pip is the vanilla cast bar spark, a 32px square on a 13px
+    -- bar, scaled by the bar's thickness (the overlay clips it to the bar).
+    local classicSz = bar._classicSpark and ((isVert and barW or barH) * (32 / 13))
     if isVert then
-        spark:SetSize(barW, 8)
-        spark:SetTexCoord(0, 1, 1, 1, 0, 0, 1, 0)
+        if classicSz then spark:SetSize(classicSz, classicSz) else spark:SetSize(barW, 8) end
+        if not bar._blizzSpark then spark:SetTexCoord(0, 1, 1, 1, 0, 0, 1, 0) end
     else
-        spark:SetSize(8, barH)
-        spark:SetTexCoord(0, 0, 0, 1, 1, 0, 1, 1)
+        if classicSz then spark:SetSize(classicSz, classicSz) else spark:SetSize(8, barH) end
+        if not bar._blizzSpark then spark:SetTexCoord(0, 0, 0, 1, 1, 0, 1, 1) end
     end
     spark:ClearAllPoints()
     if isVert then
@@ -2570,6 +2612,84 @@ local function AnchorTBBSpark(bar, cfg, anchor, flushToEdge)
         cfg.reverseFill, flushToEdge)
 end
 
+-- Stock style icon art for a tracked bar's icon over the full spell art,
+-- sized to the icon square. Blizzard Style: the viewer's rounded mask and
+-- ring overlay (same proportional inset as the CDM icons). Classic WoW UI:
+-- the vanilla action button ring round the square icon, no mask. One-time
+-- structure, size-memoized geometry; never runs unless a style is on. On ns
+-- for the local cap.
+ns.ApplyTBBBlizzIconArt = function(bar, iSize)
+    local icon = bar._icon
+    local tex = icon and icon._tex
+    if not tex then return end
+    local classic = ns.CdmClassicBars()
+    if not bar._blizzIconOverlay then
+        tex:SetTexCoord(0, 1, 0, 1)
+        if not classic then
+            local mask = icon:CreateMaskTexture()
+            mask:SetAtlas(ns.CDM_BLIZZ_MASK)
+            mask:SetAllPoints(icon)
+            tex:AddMaskTexture(mask)
+            bar._blizzIconMask = mask
+        end
+        local ov = icon:CreateTexture(nil, "OVERLAY", nil, 5)
+        if classic then ov:SetTexture(ns.CDM_CLASSIC_RING) else ov:SetAtlas(ns.CDM_BLIZZ_OVERLAY) end
+        ov:SetSnapToPixelGrid(false)
+        ov:SetTexelSnappingBias(0)
+        bar._blizzIconOverlay = ov
+    end
+    -- The ring overhangs the bar, so the icon draws above the fill (the
+    -- viewer levels its icon above its bar the same way) and, under classic,
+    -- above the cast bar chrome (+6) whose end caps reach under it;
+    -- re-asserted here because a strata change collapses child levels.
+    if bar._bar then
+        local lvl = bar._bar:GetFrameLevel() + (classic and 7 or 3)
+        if icon:GetFrameLevel() ~= lvl then icon:SetFrameLevel(lvl) end
+    end
+    if bar._blizzIconSize ~= iSize then
+        bar._blizzIconSize = iSize
+        local ov = bar._blizzIconOverlay
+        if classic then
+            ns.CdmPlaceClassicRing(ov, icon, iSize, iSize)
+        else
+            ov:ClearAllPoints()
+            ov:SetPoint("TOPLEFT", icon, "TOPLEFT", -iSize * ns.CDM_BLIZZ_RING_X, iSize * ns.CDM_BLIZZ_RING_Y)
+            ov:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", iSize * ns.CDM_BLIZZ_RING_X, -iSize * ns.CDM_BLIZZ_RING_Y)
+        end
+    end
+end
+
+-- Classic WoW UI bar chrome: the vanilla cast bar frame (the shared
+-- nine-slice in EllesmereUI_ClassicArt.lua, caps and rims at the sheet's own
+-- pixel size, only the window stretching) laid over the tracked bar's fill on
+-- an art frame above the fill, its threshold overlays, spark, ticks and
+-- charge hash lines, below the texts and the icon. The frame's reach (14.5
+-- left and right, 12 above and 11 below the fill at full size) is fixed
+-- whatever the bar's size, scaled only by the bar's own Border Size
+-- percentage (`pct`, nil = the shared default), so a bar in a tight group
+-- never paints across its neighbour; a vertical bar turns the art a quarter
+-- turn counter-clockwise. One-time regions, geometry memoized by the seat.
+-- On ns for the local cap.
+ns.CDM_CLASSIC_BAR_SPARK  = "Interface\\CastingBar\\UI-CastingBar-Spark"
+ns.ApplyTBBClassicChrome = function(bar, sb, isVert, thick, pct)
+    local CF = EllesmereUI.ClassicFrame
+    if not CF then return end
+    local art = bar._classicArt
+    if not art then
+        art = CreateFrame("Frame", nil, bar)
+        art:SetAllPoints(sb)
+        art:EnableMouse(false)
+        bar._classicArt = art
+        bar._classicChrome = CF.Create(art, "OVERLAY", 0)
+    end
+    -- Above the fill, threshold overlays (+2), the spark's own host, ticks
+    -- (+4) and the charge hash lines (+5); below the icon (+7) and the text
+    -- overlay (+7). Re-asserted because a strata change collapses child levels.
+    local lvl = sb:GetFrameLevel() + 6
+    if art:GetFrameLevel() ~= lvl then art:SetFrameLevel(lvl) end
+    CF.Seat(bar._classicChrome, art, CF.ScaleK(pct), isVert)
+end
+
 -- Defined with the charge renderer below. ApplySettings calls it whenever a
 -- pooled bar frame is restyled so stale composite geometry cannot leak into a
 -- different bar after deletion, reordering or a tracking-type change.
@@ -2582,6 +2702,31 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
     if not bar or not cfg then return end
     local sb = bar._bar
     if not sb then return end
+    -- Stock styles (Global Settings > Style) with every setting still
+    -- applied: Blizzard Style = the viewer's bar, background and pip art;
+    -- Classic WoW UI = the vanilla cast bar frame and spark round the user's
+    -- own fill and background. Reload-gated, so the per-bar one-time setup
+    -- below never has to be undone.
+    local blizzBar = ns.CdmBlizzBars()
+    local classicBar = ns.CdmClassicBars()
+    if blizzBar and not classicBar and not bar._blizzSpark and bar._spark then
+        bar._blizzSpark = true
+        bar._spark:SetAtlas("UI-HUD-CoolDownManager-Bar-Pip")
+        bar._spark:SetBlendMode("BLEND")
+    elseif classicBar and not bar._classicSpark and bar._spark then
+        bar._classicSpark = true
+        bar._spark:SetTexture(ns.CDM_CLASSIC_BAR_SPARK)
+        -- The vanilla spark stands taller than the bar: its host leaves the
+        -- clipping StatusBar for the wrap (same rect) so it can overhang, as
+        -- the cast bar's does; the strata block below levels it over the chrome.
+        local so = bar._sparkOverlay
+        if so then
+            so:SetParent(bar)
+            so:ClearAllPoints()
+            so:SetAllPoints(sb)
+            so:SetClipsChildren(false)
+        end
+    end
     if _restoreTBBNormalFill then _restoreTBBNormalFill(bar, cfg) end
 
     -- User-selectable strata for the whole bar (options setter keeps grouped bars
@@ -2606,8 +2751,9 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
         -- Spark sits one level ABOVE the threshold overlays: at equal level it
         -- loses the tie to them (created lazily, so they win) and vanishes the
         -- moment a threshold is crossed. Ticks and charge hash lines shift up
-        -- in step to keep their order.
-        if bar._sparkOverlay then bar._sparkOverlay:SetFrameLevel(sb:GetFrameLevel() + 3) end
+        -- in step to keep their order. The classic spark rides above the
+        -- chrome (+6) instead, as the vanilla spark draws over its frame.
+        if bar._sparkOverlay then bar._sparkOverlay:SetFrameLevel(sb:GetFrameLevel() + (classicBar and 7 or 3)) end
         -- Tick overlay MUST be re-asserted here too: SetFrameStrata collapses descendant levels, so otherwise ticks land at a default level.
         if bar._tickOverlay then bar._tickOverlay:SetFrameLevel(sb:GetFrameLevel() + 4) end
         if bar._chargeHashOverlay then bar._chargeHashOverlay:SetFrameLevel(sb:GetFrameLevel() + 5) end
@@ -2673,7 +2819,18 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
 
     -- Texture
     local texPath = EllesmereUI.ResolveTexturePath(TBB_TEXTURES, cfg.texture or "none", "Interface\\Buttons\\WHITE8x8")
-    if bar._lastTexPath ~= texPath then
+    if blizzBar and not classicBar then
+        -- The viewer's bar atlas (tinted by Fill Color below). _lastTexPath
+        -- stays a real file path: the charge hash fill re-reads it. Classic
+        -- keeps the user's texture: its frame is chrome round the fill.
+        texPath = "Interface\\Buttons\\WHITE8x8"
+        if not bar._blizzFillAtlas then
+            sb:SetStatusBarTexture(texPath)
+            sb:GetStatusBarTexture():SetAtlas("UI-HUD-CoolDownManager-Bar")
+            bar._lastTexPath = texPath
+            bar._blizzFillAtlas = true
+        end
+    elseif bar._lastTexPath ~= texPath then
         sb:SetStatusBarTexture(texPath)
         bar._lastTexPath = texPath
     end
@@ -2689,12 +2846,28 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
     bar._baseFillR, bar._baseFillG, bar._baseFillB, bar._baseFillA = fR, fG, fB, fA
 
     -- Background
-    if bar._bg then
+    if blizzBar and not classicBar then
+        -- The viewer's shadowed bar background overhangs the fill, so it lives
+        -- on the wrap (the StatusBar clips its own regions).
+        if bar._bg then bar._bg:Hide() end
+        local bbg = bar._blizzBg
+        if not bbg then
+            bbg = bar:CreateTexture(nil, "BACKGROUND")
+            bbg:SetAtlas("UI-HUD-CoolDownManager-Bar-BG")
+            -- Anchored once: the fill StatusBar is the bar's for life.
+            bbg:SetPoint("TOPLEFT", sb, "TOPLEFT", -2, 2)
+            bbg:SetPoint("BOTTOMRIGHT", sb, "BOTTOMRIGHT", 4, -7)
+            bar._blizzBg = bbg
+        end
+        bbg:Show()
+    elseif bar._bg then
         bar._bg:SetColorTexture(cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgA or 0.4)
     end
+    -- Classic WoW UI: the vanilla cast bar frame over the fill and background.
+    if classicBar then ns.ApplyTBBClassicChrome(bar, sb, isVert, isVert and w or h, cfg.stockBorderScale) end
 
-    -- Gradient
-    if cfg.gradientEnabled then
+    -- Gradient (an EUI-look effect; the stock styles keep their flat fill)
+    if cfg.gradientEnabled and not blizzBar then
         local dir = cfg.gradientDir or "HORIZONTAL"
         fillTex:SetVertexColor(1, 1, 1, 0)
         if not bar._gradClip then
@@ -2838,6 +3011,7 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
                 bar._icon:SetPoint("TOPRIGHT", bar, "TOPRIGHT", 0, 0)
             end
         end
+        if blizzBar then ns.ApplyTBBBlizzIconArt(bar, iSize) end
         bar._icon:Show()
     elseif bar._icon then
         bar._icon:Hide()
@@ -2868,11 +3042,14 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
         end
     end
 
-    -- Border (PP or textured via ApplyBorderStyle)
+    -- Border (PP or textured via ApplyBorderStyle; none under Blizzard Style)
     if bar._barBorder then
         bar._barBorder:SetAllPoints(bar)
-        local bSz = cfg.borderSize or 0
+        local bSz = blizzBar and 0 or (cfg.borderSize or 0)
         local textureKey = cfg.borderTexture or "solid"
+        -- Exact size (borderSizePx) for the bar's own step; a stock style forces 0 and stays legacy.
+        local edgePx
+        if not blizzBar then edgePx = EllesmereUI.BorderPx(cfg.borderSizePx, bSz, textureKey) end
         -- Border container is a child of the bar: +6 draws in front of the fill AND above
         -- the tick marks at sb+4 (=bar+5, which would tie and lose to the lazily-created
         -- tick overlay); "Show Behind" uses level-1. Set BEFORE ApplyBorderStyle so the textured backdrop inherits it.
@@ -2882,7 +3059,7 @@ local function ApplyTrackedBuffBarSettings(bar, cfg)
             cfg.borderR or 0, cfg.borderG or 0, cfg.borderB or 0, 1,
             textureKey, cfg.borderTextureOffset, cfg.borderTextureOffsetY,
             cfg.borderTextureShiftX, cfg.borderTextureShiftY,
-            "resourcebars", bSz)
+            "resourcebars", bSz, nil, edgePx)
     end
 
     -- Threshold overlay + tick marks
@@ -2902,6 +3079,42 @@ end
 -- Exposed for the options popout preview: preview bars are built and skinned by the SAME code as live bars, so the preview cannot drift from rendering.
 ns.CreateTBBBarFrame  = CreateTrackedBuffBarFrame
 ns.ApplyTBBBarSettings = ApplyTrackedBuffBarSettings
+
+-- The width and height a tracking bar's textured border draws OUTSIDE the bar,
+-- in bar units, for its unlock element's getMatchPad: exactly the arguments
+-- ApplyTrackedBuffBarSettings passes to ApplyBorderStyle (the numeric step as the
+-- "resourcebars" size key, alpha 1, no scale normalizing). nil under the stock
+-- styles (no EUI border) and for a border that draws nothing outside. `frame` is
+-- the bar: its effective scale (a position scale rides on it) is the grid the
+-- border's anchors snap to.
+function ns.TBBBorderMatchPad(cfg, frame)
+    if not cfg or not EllesmereUI.BorderMatchPad or ns.CdmBlizzBars() then return nil end
+    local bSz = cfg.borderSize or 0
+    local textureKey = cfg.borderTexture or "solid"
+    if textureKey == "solid" then return nil end
+    local es
+    if frame then
+        local ok, s = pcall(frame.GetEffectiveScale, frame)
+        if ok then es = s end
+    end
+    return EllesmereUI.BorderMatchPad(bSz, textureKey,
+        cfg.borderTextureOffset, cfg.borderTextureOffsetY,
+        cfg.borderTextureShiftX, cfg.borderTextureShiftY,
+        "resourcebars", bSz, EllesmereUI.BorderPx(cfg.borderSizePx, bSz, textureKey), nil, 1, es)
+end
+
+-- "TBB_" .. index and "TBBG_" .. group key, each built once, so the per-build
+-- pad notifier builds no strings.
+ns._tbbUKey = setmetatable({}, { __index = function(t, k)
+    local v = "TBB_" .. k
+    t[k] = v
+    return v
+end })
+ns._tbbgUKey = setmetatable({}, { __index = function(t, k)
+    local v = "TBBG_" .. k
+    t[k] = v
+    return v
+end })
 
 -------------------------------------------------------------------------------
 --  CDM Child Lookup
@@ -3692,29 +3905,6 @@ function ns.QueueTBBAutoAdd()
     end)
 end
 
---- Frame-based check: is a spellID present in Essential or Utility viewers? Same pattern as IsSpellInBuffBarViewer but for CD/Utility bars.
-function ns.IsSpellInCDUtilViewer(spellID)
-    if not spellID or spellID <= 0 then return false end
-    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
-    if not gci then return false end
-    local viewers = { "EssentialCooldownViewer", "UtilityCooldownViewer" }
-    for _, vName in ipairs(viewers) do
-        local viewer = _G[vName]
-        if viewer and viewer.itemFramePool then
-            for frame in viewer.itemFramePool:EnumerateActive() do
-                local cdID = frame.cooldownID
-                if cdID then
-                    local info = gci(cdID)
-                    if info and MatchesSID(info, spellID) then
-                        return true
-                    end
-                end
-            end
-        end
-    end
-    return false
-end
-
 -------------------------------------------------------------------------------
 --  Stacks Helper (reads Blizzard child Applications frame)
 -------------------------------------------------------------------------------
@@ -3949,12 +4139,6 @@ local function MirrorEngineTimer(bar, cfg)
         bar._tbbAlphaGated = nil
     end
     return wrote
-end
-
---- Does a TBB config have a matching frame in BuffBarCooldownViewer? Uses FindChild
---- (frame-based MatchFrameToConfig) rather than spell-ID cache lookups, so it is robust against ID mismatches.
-local function IsTrackedInCDM(cfg)
-    return FindChild(cfg) ~= nil
 end
 
 -------------------------------------------------------------------------------
@@ -4405,6 +4589,7 @@ local function _styleTBBChargeHashFill(bar, cfg)
     end
 
     fill:SetTexture(texPath)
+    if bar._blizzFillAtlas then fill:SetAtlas("UI-HUD-CoolDownManager-Bar") end
     fill:ClearAllPoints()
     if gradientEnabled then
         -- Gradients stay mapped across the full bar and are revealed by the moving clip, matching the stock gradient path.
@@ -5166,13 +5351,12 @@ local function TBBFillVisState()
 end
 
 local function TBBVisibilityHides(cfg)
-    if EllesmereUI.CheckVisibilityOptions and EllesmereUI.CheckVisibilityOptions(cfg) then
+    if EllesmereUI.CheckVisibilityOptions(cfg) then
         return true
     end
 
     local vis = cfg.barVisibility or "always"
-    local visExt = EllesmereUI.EvalVisibilityExtended
-        and EllesmereUI.EvalVisibilityExtended(cfg, "barVisibility", _tbbVisState, EllesmereUI.VIS_CAPS_DEFAULT)
+    local visExt = EllesmereUI.EvalVisibilityExtended(cfg, "barVisibility", _tbbVisState, EllesmereUI.VIS_CAPS_DEFAULT)
     if visExt ~= nil then return not visExt end
     if vis == "never" then return true end
     if vis == "in_combat" then return not _tbbVisState.inCombat end
@@ -5240,8 +5424,8 @@ function ns.UpdateTrackedBuffBarTimers()
 
     -- Self-heal placeholder mode when the user navigates away from Tracking Bars
     if ns._tbbPlaceholderMode then
-        local am = EllesmereUI and EllesmereUI.GetActiveModule and EllesmereUI:GetActiveModule()
-        local ap = EllesmereUI and EllesmereUI.GetActivePage and EllesmereUI:GetActivePage()
+        local am = EllesmereUI:GetActiveModule()
+        local ap = EllesmereUI:GetActivePage()
         if am ~= "EllesmereUICooldownManager" or ap ~= "Tracking Bars" then
             ns._tbbPlaceholderMode = false
             if ns.HideTBBPlaceholders then ns.HideTBBPlaceholders() end
@@ -6092,6 +6276,20 @@ function ns.BuildTrackedBuffBars()
 
     -- 12.1 engine-driven decimal timer text (nil on 12.0: module self-gates)
     if ns.TBBDecimals_Sync then ns.TBBDecimals_Sync() end
+
+    -- Match pads follow each bar's border settings: a bar or group whose pad
+    -- changed is re-pushed through its match once, deferred (compare-only here).
+    if EllesmereUI.MatchPadChanged then
+        for i = 1, #bars do
+            EllesmereUI.MatchPadChanged(ns._tbbUKey[i])
+        end
+        local greg = ns.GetTBBGlobalGroups and ns.GetTBBGlobalGroups()
+        if greg then
+            for gk in pairs(greg) do
+                EllesmereUI.MatchPadChanged(ns._tbbgUKey[gk])
+            end
+        end
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -6137,6 +6335,13 @@ function ns.RegisterTBBUnlockElements()
                 -- driven by its own CDM sliders/dynamic content, so it should never be a sizing reference.
                 allowMatchSource  = true,
                 noSizeMatchTarget = true,
+                -- Outside reach of the bar's textured border: taken off a width /
+                -- height it is matched to, so what it draws is what matches.
+                getMatchPad = function()
+                    local t = ns.GetTrackedBuffBars()
+                    local c = t and t.bars and t.bars[idx]
+                    return ns.TBBBorderMatchPad(c, tbbFrames[idx])
+                end,
                 isHidden = function()
                     local t = ns.GetTrackedBuffBars()
                     local b = t and t.bars
@@ -6295,6 +6500,15 @@ function ns.RegisterTBBUnlockElements()
                 noResize = true,
                 allowMatchSource  = true,
                 noSizeMatchTarget = true,
+                -- The group anchor bar's border reach (its frame is the group's);
+                -- nil for a memberless spec's stand-in, which draws no border.
+                getMatchPad = function()
+                    local gid = ns.TBBLocalGidForGlobal(gk)
+                    local ai = gid and ns.TBBGroupAnchorIndex(gid)
+                    local t = ai and ns.GetTrackedBuffBars()
+                    local c = t and t.bars and t.bars[ai]
+                    return ns.TBBBorderMatchPad(c, ai and tbbFrames[ai])
+                end,
                 isHidden = function()
                     local gid = ns.TBBLocalGidForGlobal(gk)
                     return not gid or not ns.TBBGroupAnchorIndex(gid)

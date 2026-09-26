@@ -1,4 +1,5 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
+if EllesmereUI and EllesmereUI.IS_FOREVER then return end -- WoW Forever: talent reminders are retail-only (its options page is not built there)
 -------------------------------------------------------------------------------
 --  EllesmereUIABR_TalentReminders.lua
 --  Standalone talent reminder system. Zero dependency on ABR aura/buff logic.
@@ -7,7 +8,6 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local floor = math.floor
 local ICON_SIZE = 40
-local FONT_FALLBACK = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
 
 -------------------------------------------------------------------------------
 --  Helpers (self-contained, no ABR imports)
@@ -22,20 +22,6 @@ local function Tex(id)
     local t = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id)
     if t then texCache[id] = t end
     return t
-end
-
-local function GetFontPath()
-    if EllesmereUI and EllesmereUI.GetFontPath then
-        return EllesmereUI.GetFontPath("auraBuff")
-    end
-    return FONT_FALLBACK
-end
-
-local function SetTRFont(fs, font, size)
-    if not (fs and fs.SetFont) then return end
-    local outline = (EllesmereUI and EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("auraBuff")) or ""
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, outline == "") end
-    fs:SetFont(font, size, outline)
 end
 
 local function InCombat()
@@ -146,7 +132,7 @@ local function GetOrCreateIcon(index)
     if PP then PP.CreateBorder(btn, 0, 0, 0, 1, 1, "OVERLAY", 7) end
     local text = btn:CreateFontString(nil, "OVERLAY")
     text:SetPoint("TOP", btn, "BOTTOM", 0, -2)
-    SetTRFont(text, GetFontPath(), 11)
+    EllesmereUI.ApplyModuleFont(text, nil, 11, "auraBuff")
     text:SetTextColor(1, 1, 1, 1)
     btn._text = text
     talentIconPool[index] = btn
@@ -168,7 +154,7 @@ end
 local function ShowIcon(iconIdx, entry)
     local btn = GetOrCreateIcon(iconIdx)
     SetupIcon(btn, entry)
-    SetTRFont(btn._text, GetFontPath(), 11)
+    EllesmereUI.ApplyModuleFont(btn._text, nil, 11, "auraBuff")
     btn._text:SetTextColor(1, 1, 1, 1)
     btn._text:Show()
     btn:Show()

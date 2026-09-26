@@ -32,9 +32,7 @@ ns.barTextureOrder = barTextureOrder
 ns.barTextureNames = barTextureNames
 
 -- Seed SharedMedia statusbar textures once at load so a saved LSM key resolves at login; the parent helper also registers for late LSM packs.
-if EllesmereUI.AppendSharedMediaTextures then
-    EllesmereUI.AppendSharedMediaTextures(barTextureNames, barTextureOrder, nil, barTextures)
-end
+EllesmereUI.AppendSharedMediaTextures(barTextureNames, barTextureOrder, nil, barTextures)
 
 
 -- Upvalues
@@ -704,7 +702,7 @@ ns.BlockFactories.clock = function(blockCfg, slot, content, barCtx)
         if button == "MiddleButton" and IsShiftKeyDown() then
             -- Never reload mid-combat: it drops the player out of the fight.
             if InCombatLockdown() then return end
-            ReloadUI()
+            EllesmereUI.RequestReload(EllesmereUI.L("Reload UI"), EllesmereUI.L("Reload the UI now?"))
         elseif button == "LeftButton" then
             if ToggleCalendar then ToggleCalendar() end
         elseif button == "RightButton" then
@@ -2029,7 +2027,7 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
             else r, g, b = BlockColorOf(blockCfg) end
             goldText:SetTextColor(r, g, b, 1)
         elseif mouseOver then
-            goldText:SetText(ns.FormatMoneyPlain(money, dg.showSmall == true, ci, ab, fe))
+            goldText:SetText(ns.FormatMoney(money, false, dg.showSmall == true, ci, ab, fe))
             local r, g, b = ns.GetAccent()
             goldText:SetTextColor(r, g, b, 1)
         else
@@ -2100,7 +2098,7 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
         else
             local slotW = HBudget(inst, 100)
             -- Fit against BOTH money formats so font/icon size and frame width stay identical hovered or not; otherwise it resizes on mouseover.
-            local plainText = ns.FormatMoneyPlain(money, dg.showSmall == true, ci, ab, fe)
+            local plainText = ns.FormatMoney(money, false, dg.showSmall == true, ci, ab, fe)
             local fancyText = ns.FormatMoney(money, blockCfg.useCoinColor == true, dg.showSmall == true, ci, ab, fe)
             local moneyText
             if mouseOver then moneyText = plainText else moneyText = fancyText end
@@ -3368,16 +3366,19 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
     local function D() return blockCfg.settings or {} end
     local function BC() return barCtx.cfg end
 
+    -- Spec reads go through C_SpecializationInfo: the legacy globals are not
+    -- registered on WoW Forever (same native functions on retail). The loot
+    -- spec pair and GetNumSpecializations are plain globals on both clients.
     local function BuildSpecCache()
         specCache = {}; numSpecs = GetNumSpecializations() or 0
         for i = 1, numSpecs do
-            local id, name, _, icon, role = GetSpecializationInfo(i)
+            local id, name, _, icon, role = C_SpecializationInfo.GetSpecializationInfo(i)
             if id then specCache[i] = { id = id, name = name, icon = icon, role = role } end
         end
     end
 
     local function UpdateCurrentSpec()
-        currentSpecIdx    = GetSpecialization()
+        currentSpecIdx    = C_SpecializationInfo.GetSpecialization()
         currentLootSpecID = GetLootSpecialization() or 0
     end
 
@@ -3732,7 +3733,7 @@ ns.BlockFactories.spec = function(blockCfg, slot, content, barCtx)
         local inCombat = InCombatLockdown()
         BuildPopup(lootPool, specButton, L["CHANGE_LOOT_SPEC"], entries, function(e)
             local id = 0
-            if e.specIndex > 0 then id = select(1, GetSpecializationInfo(e.specIndex)) or 0 end
+            if e.specIndex > 0 then id = select(1, C_SpecializationInfo.GetSpecializationInfo(e.specIndex)) or 0 end
             SetLootSpecialization(id)
         end, inCombat, nil, true)
         if inCombat and hoverWatch then
@@ -4258,7 +4259,7 @@ local function MakeProfessionBlock(blockCfg, slot, content, barCtx, secondary)
                 ns.Tip_AddLine(" ")
                 local function AddLine(p)
                     if not p or not p.name then return end
-                    ns.Tip_AddDouble(p.name, "|cffFFFFFF" .. p.rank .. "|r / " .. p.maxRank, 1, 1, 1, 1, 1, 1)
+                    ns.Tip_AddDouble(p.name, EllesmereUI.COLOR_CODES.WHITE .. p.rank .. "|r / " .. p.maxRank, 1, 1, 1, 1, 1, 1)
                 end
                 if prof1.idx then AddLine(prof1) end
                 if prof2.idx then AddLine(prof2) end
@@ -4468,7 +4469,7 @@ mmClickFunctions.menu = function(_, button)
     if button == "LeftButton" then
         if not InCombatLockdown() then ToggleFrame(GameMenuFrame) end
     elseif button == "RightButton" then
-        if IsShiftKeyDown() then C_UI.Reload()
+        if IsShiftKeyDown() then EllesmereUI.RequestReload(EllesmereUI.L("Reload UI"), EllesmereUI.L("Reload the UI now?"))
         elseif not InCombatLockdown() then ToggleFrame(AddonList) end
     end
 end
@@ -4590,9 +4591,9 @@ end
 local CS_DIM = "|cffaaaaaa"
 
 local function MMPrimaryStat()
-    local specIndex = GetSpecialization and GetSpecialization()
+    local specIndex = C_SpecializationInfo.GetSpecialization()
     if not specIndex or specIndex <= 0 then return nil end
-    local _, _, _, _, _, statID = GetSpecializationInfo(specIndex)
+    local _, _, _, _, _, statID = C_SpecializationInfo.GetSpecializationInfo(specIndex)
     if statID == LE_UNIT_STAT_STRENGTH  then return SPELL_STAT1_NAME or "Strength",  1 end
     if statID == LE_UNIT_STAT_AGILITY   then return SPELL_STAT2_NAME or "Agility",   2 end
     if statID == LE_UNIT_STAT_INTELLECT then return SPELL_STAT4_NAME or "Intellect", 4 end
@@ -4633,6 +4634,15 @@ local function MMAddCharStats()
         end
     end
 
+    -- WoW Forever has no Mastery or Versatility.
+    if EllesmereUI.IS_FOREVER then
+        local crit, critCR = EllesmereUI.ForeverCritChance()
+        local haste, hasteCR = EllesmereUI.ForeverHaste()
+        pctRating(STAT_CRITICAL_STRIKE or "Critical Strike", crit,  GetCombatRating(critCR))
+        pctRating(STAT_HASTE or "Haste",                     haste, GetCombatRating(hasteCR))
+        return
+    end
+
     pctRating(STAT_CRITICAL_STRIKE or "Critical Strike", GetCritChance(),    GetCombatRating(CR_CRIT_MELEE))
     pctRating(STAT_HASTE or "Haste",                     GetHaste(),         GetCombatRating(CR_HASTE_MELEE))
     pctRating(STAT_MASTERY or "Mastery",                 GetMasteryEffect(), GetCombatRating(CR_MASTERY))
@@ -4663,9 +4673,9 @@ local function MMOpenWhisper(charName, bnetName)
     -- as a real Mythic+. InProtectedInstance() itself reports true in dev mode; the
     -- separate branch exists only for the clearer message.
     local blocked
-    if EllesmereUI and EllesmereUI.IsDevModeActive and EllesmereUI.IsDevModeActive() then
+    if EllesmereUI.IsDevModeActive() then
         blocked = "This action is protected while dev mode (/euidev) is on."
-    elseif EllesmereUI and EllesmereUI.InProtectedInstance and EllesmereUI.InProtectedInstance() then
+    elseif EllesmereUI.InProtectedInstance() then
         blocked = "This action is protected in Mythic+ and raid combat."
     end
     if blocked then
@@ -4710,9 +4720,22 @@ local function MMBuildSocialTip()
             if acc.isDND or ga.isGameBusy then icon = FRIENDS_TEXTURE_DND end
             -- Left text carries NO |c codes so hover recolor (Tip_Show) shows; its blue rides the left-color args. Right column keeps its codes.
             local left  = format("|T%s:16|t %s", icon, acc.accountName or "?")
-            local right = format("|cffecd672%s|r %s", charName or "?", ga.areaName or "")
+            -- A cross-faction BNet friend's characterName can be secret; format("%s", ...)
+            -- rejects it outright, so display text uses a nil'd-out copy. The real
+            -- charName below is kept whole for BuildFullName (invite/whisper). The
+            -- area name rides the same format call and the faction feeds a compare,
+            -- so a secret in either is dropped the same way: no area shown, and a
+            -- friend whose faction cannot be read is treated as not ours to invite.
+            local displayCharName, displayArea = charName, ga.areaName
+            local secretFaction = false
+            if issecretvalue then
+                if issecretvalue(displayCharName) then displayCharName = nil end
+                if issecretvalue(displayArea) then displayArea = nil end
+                secretFaction = issecretvalue(faction)
+            end
+            local right = format("|cffecd672%s|r %s", displayCharName or "?", displayArea or "")
             local bnetName   = acc.accountName
-            local sameFaction = (not faction) or (faction == playerFaction)
+            local sameFaction = (not secretFaction) and ((not faction) or (faction == playerFaction))
             -- Fix "Name-Realm-Realm" to "Name-Realm"
             local inviteName  = EllesmereUI.BuildFullName(charName, realmName)
             ns.Tip_AddClickable(left, right, function(mouseButton)
@@ -5967,8 +5990,7 @@ local function GVTokenColor(state)
 end
 
 local function GVColorize(text, r, g, b)
-    return format("|cff%02x%02x%02x%s|r",
-        floor(r * 255 + 0.5), floor(g * 255 + 0.5), floor(b * 255 + 0.5), text)
+    return format("%s%s|r", EllesmereUI.HexColor(r, g, b), text)
 end
 
 local function GVSortActivities(a, b)
@@ -6216,14 +6238,11 @@ local function GVBuildPartyRows()
 end
 
 local function GVToggleVault()
-    local IsLoaded = (C_AddOns and C_AddOns.IsAddOnLoaded) or _G.IsAddOnLoaded
-    local Load     = (C_AddOns and C_AddOns.LoadAddOn)     or _G.LoadAddOn
-    if Load and IsLoaded and not IsLoaded("Blizzard_WeeklyRewards") then
-        Load("Blizzard_WeeklyRewards")
+    if not C_AddOns.IsAddOnLoaded("Blizzard_WeeklyRewards") then
+        C_AddOns.LoadAddOn("Blizzard_WeeklyRewards")
     end
     local wrf = _G.WeeklyRewardsFrame
     if not wrf then return end
-    if EllesmereUI.RegisterEscapeClose then EllesmereUI.RegisterEscapeClose(wrf) end
     wrf:SetShown(not wrf:IsShown())
 end
 
@@ -6391,6 +6410,8 @@ ns.BlockFactories.greatvault = function(blockCfg, slot, content, barCtx)
 
     return inst
 end
+-- No Great Vault on WoW Forever: no factory, so no instance, no keystone feed (the main file drops the block from BLOCK_TYPES too).
+if EllesmereUI.IS_FOREVER then ns.BlockFactories.greatvault = nil end
 
 -------------------------------------------------------------------------------
 --  SPACER (transparent block; the slot's optional bg tint still applies)

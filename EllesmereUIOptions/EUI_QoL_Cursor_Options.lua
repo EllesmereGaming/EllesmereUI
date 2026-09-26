@@ -93,25 +93,6 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
-    --  MakeCogBtn helper
-    ---------------------------------------------------------------------------
-    local function MakeCogBtn(rgn, showFn, anchorTo, iconPath)
-        local cogBtn = CreateFrame("Button", nil, rgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", anchorTo or rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        cogBtn:SetAlpha(0.4)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints()
-        cogTex:SetTexture(iconPath or EllesmereUI.COGS_ICON)
-        cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-        cogBtn:SetScript("OnClick", function(self) showFn(self) end)
-        return cogBtn
-    end
-
-    ---------------------------------------------------------------------------
     --  Ring texture dropdown values (shared by GCD + Cast)
     ---------------------------------------------------------------------------
     local ringTexValues = { normal = "Ring Normal", light = "Ring Light", thin = "Ring Thin", heavy = "Ring Heavy", thick = "Ring Thick" }
@@ -589,37 +570,22 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Inline cog on Enable Cast Bar Circle for "Show Spark"
-        if not EllesmereUI._prebuilding then
-            local leftRgn = row._leftRegion
-            local _, cogShowFn = EllesmereUI.BuildCogPopup({
-                title = "Cast Bar Settings",
-                rows = {
-                    { type="toggle", label="Show Spark",
-                      get=function()
-                        local c = Cast_DB()
-                        return c.sparkEnabled ~= false
-                      end,
-                      set=function(v)
-                        Cast_DB().sparkEnabled = v
-                        RefreshCast()
-                      end },
-                },
-            })
-            local cogBtn = MakeCogBtn(leftRgn, cogShowFn)
-            local function UpdateCastCog()
-                if not Cast_DB().enabled then
-                    cogBtn:SetAlpha(0.15)
-                    cogBtn:EnableMouse(false)
-                    cogBtn._disabledTooltip = "Cast Bar Circle"
-                else
-                    cogBtn:SetAlpha(0.4)
-                    cogBtn:EnableMouse(true)
-                    cogBtn._disabledTooltip = nil
-                end
-            end
-            UpdateCastCog()
-            EllesmereUI.RegisterWidgetRefresh(UpdateCastCog)
-        end
+        EllesmereUI.BuildInlineCog(row._leftRegion, {
+            title = "Cast Bar Settings",
+            disabled = function() return not Cast_DB().enabled end,
+            disabledTooltip = "Cast Bar Circle",
+            rows = {
+                { type="toggle", label="Show Spark",
+                  get=function()
+                    local c = Cast_DB()
+                    return c.sparkEnabled ~= false
+                  end,
+                  set=function(v)
+                    Cast_DB().sparkEnabled = v
+                    RefreshCast()
+                  end },
+            },
+        })
 
         -- Rows below are HIDDEN entirely while the Cast Bar Circle is off
         -- (the toggle's DependentSetValue forces the rebuild on flips).

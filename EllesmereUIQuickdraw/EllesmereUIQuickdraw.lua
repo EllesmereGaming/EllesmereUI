@@ -634,14 +634,6 @@ local APPEARANCE_KEYS = {
 }
 ns.APPEARANCE_KEYS = APPEARANCE_KEYS
 
--- The overrides table for a palette, created on demand. Only the options page
--- writes here; everything else reads through the view below.
-function ns.PaletteAppearance(palette, create)
-    if not palette then return nil end
-    if not palette.appearance and create then palette.appearance = {} end
-    return palette.appearance
-end
-
 -- One READ-ONLY view per palette, with that palette's overrides in front of
 -- the profile. Handing this back as `p` is what let the whole renderer stay
 -- written as `p.layout`: the fallback lives in one metatable instead of at
@@ -2533,13 +2525,12 @@ local function ApplyModuleFont(fs)
     if fs.eqdIconText and EllesmereUI.GetIconTextOutlineFlag then
         flags = EllesmereUI.GetIconTextOutlineFlag(FONT_KEY)
     else
-        flags = EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag(FONT_KEY) or ""
+        flags = EllesmereUI.GetFontOutlineFlag(FONT_KEY) or ""
     end
     -- Runtime SetShadowOffset no longer renders on 12.x; the shadow has to be
     -- carried by a FontObject, primed BEFORE the typeface call.
     if EllesmereUI.PrimeFontShadow then
-        local useShadow = flags == "" and EllesmereUI.GetFontUseShadow
-            and EllesmereUI.GetFontUseShadow()
+        local useShadow = flags == "" and EllesmereUI.GetFontUseShadow()
         EllesmereUI.PrimeFontShadow(fs, useShadow and true or false)
     end
     fs:SetFont(EllesmereUI.GetFontPath(FONT_KEY), size, flags)
@@ -2655,10 +2646,11 @@ local function CreateSlotWidget(view, index)
     AdoptFontString(w.count, true)
 
     -- "This world marker is on the ground right now", in the corner the count
-    -- does not use. Drawn above the border host so a selected entry does not
-    -- bury it. Shown only by PaletteView:MarkerPip, which is also what sizes
-    -- and colors it; created here unconditionally because a widget is reused
-    -- for whatever entry the next open puts in it.
+    -- does not use. Shown only by PaletteView:MarkerPip, which is also what
+    -- sizes and colors it, and which moves it onto a host frame the first time
+    -- the widget holds a marker entry (see there); created here unconditionally
+    -- because a widget is reused for whatever entry the next open puts in it.
+    -- It draws under the border host.
     w.markerPip = w:CreateTexture(nil, "OVERLAY", nil, 7)
     w.markerPip:SetTexture("Interface\\Buttons\\WHITE8X8")
     w.markerPip:SetPoint("TOPLEFT", w, "TOPLEFT", 2, -2)
@@ -3602,16 +3594,10 @@ end
 -- entry drawn farthest from the centre is half the palette out and not the
 -- whole of it. Measured over the whole count the strip was fitted to about
 -- twice its own drawn length -- the preview shrank its icons to half what the
--- panel had room for. The hover reach next door counts the same way.
+-- panel had room for.
 function ns.FanReach(count, iconSize, gap, decay)
     return FanOffset(count * 0.5, iconSize, gap, decay, FAN_EDIT_MIN_SCALE)
            + iconSize + iconSize * (SelectedZoom() - 1) * 0.5
-end
-
--- The same measurement for a hover fan, which is evenly spaced at full pitch
--- because its zoomed entry is drawn at 1.0 and must not overlap its neighbours.
-function ns.FanHoverReach(count, iconSize, gap)
-    return count * 0.5 * (iconSize + gap) + iconSize * 0.5 * SelectedZoom()
 end
 
 -- Position every widget from self.fanVisual, the CONTINUOUS centre. Called
@@ -5677,9 +5663,15 @@ end
 -- entry closes the menu (see the release handler), so a press never updates a
 -- pip the presser can still see.
 --
--- IsRaidMarkerActive is unrestricted and answers a plain bool -- it is neither
--- protected nor a secret value, unlike GetRaidTargetIndex beside it in the
--- documentation -- so this reads the same in combat as out of it.
+-- IsRaidMarkerActive answers a SECRET boolean during chat messaging lockdown
+-- (SecretInChatMessagingLockdown in RaidMarkersDocumentation.lua): on every
+-- dungeon and raid map, in or out of combat, and through boss encounters,
+-- keystones and PvP matches -- which is where a marker menu does most of its
+-- work. So the answer is never tested, compared or kept here. It goes
+-- straight into SetAlphaFromBoolean on the pip's host frame, which takes a
+-- secret from our code and lets the client resolve it; a plain answer takes
+-- the same call, so the pip is right in both states on one path. Nothing
+-- else about the pip (size, color, shown) depends on the answer.
 --
 -- Every other kind hides the pip rather than leaving it alone: one widget is
 -- reused for whatever the next open puts in it, and a stale pip would claim a
@@ -5723,8 +5715,7 @@ function PaletteView:MarkerPip(w, slot, iconSize)
             id = CycleNext(slot)
         end
     end
-    if not id or id < 1 or id > 8
-       or not IsRaidMarkerActive(WORLD_MARKER_ENGINE[id]) then
+    if not id or id < 1 or id > 8 then
         pip:Hide()
         return
     end
@@ -5738,6 +5729,18 @@ function PaletteView:MarkerPip(w, slot, iconSize)
         ar, ag, ab = EllesmereUI.ResolveActiveAccent()
     end
     pip:SetVertexColor(ar, ag, ab, 1)
+    -- Whether the marker is down reaches the screen through the host's alpha
+    -- alone (see above); the pip itself is shown for every marker entry. The
+    -- host is made the first time this widget holds a marker entry, at the
+    -- default child level: under the border host, where the pip always drew.
+    local host = w.markerPipHost
+    if not host then
+        host = CreateFrame("Frame", nil, w)
+        host:SetAllPoints(w)
+        w.markerPipHost = host
+        pip:SetParent(host)
+    end
+    host:SetAlphaFromBoolean(IsRaidMarkerActive(WORLD_MARKER_ENGINE[id]), 1, 0)
     pip:Show()
 end
 

@@ -96,30 +96,14 @@ local function DB()
     return sh
 end
 
-local function GetDMFont()
-    if EUI and EUI.GetFontPath then return EUI.GetFontPath("damageMeters") end
-    return "Fonts\\FRIZQT__.TTF"
-end
+local function SetFont(fs, size) EllesmereUI.ApplyModuleFont(fs, nil, size, "damageMeters") end
 
-local function GetDMOutline()
-    return (EUI and EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("damageMeters")) or ""
-end
-
-local function SetFont(fs, size)
-    if not (fs and fs.SetFont) then return end
-    local font, flags = GetDMFont(), GetDMOutline()
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, flags == "") end
-    fs:SetFont(font, size, flags)
-end
-
--- Snapped through PP.Scale so accumulated row offsets (stride * index) don't drift off the pixel
--- grid from float dust -- without this, a spacing of 1 can round to 0px on some rows and 2px on others.
-local function PhysicalPixels(val)
+-- Icon size is a coordinate value like the window width and icon spacing, so it
+-- keeps its proportion at any UI scale; only snapped onto the pixel grid.
+local function SnapSize(val)
     local PP = EUI and EUI.PP
-    local mult = (PP and PP.mult) or 1
-    local value = (val or 0) * mult
-    if PP and PP.Scale then return PP.Scale(value) end
-    return value
+    if PP and PP.Snap then return PP.Snap(val or 0) end
+    return val or 0
 end
 
 local function GetBarTexturePath()
@@ -485,7 +469,7 @@ local ANIM_SLIDE_PX = 6
 -- the history length or growth direction never makes the row wander.
 local function IconStripGeometry(count)
     local sh = DB()
-    local iconSz = PhysicalPixels(sh.iconSize or 24)
+    local iconSz = SnapSize(sh.iconSize or 24)
     local gap = sh.iconSpacing or 1
     local dir = sh.growDirection or "LEFT"
     count = max(1, count or sh.iconCount or 5)
@@ -807,7 +791,7 @@ BuildIconStrip = function()
         -- during animation. No strip-level background needed.
     end
 
-    local iconSz = PhysicalPixels(sh.iconSize or 24)
+    local iconSz = SnapSize(sh.iconSize or 24)
     local gap = sh.iconSpacing or 1
     local dir = sh.growDirection or "LEFT"
     local iconZoom = sh.iconZoom or 0.08
@@ -1059,6 +1043,12 @@ local function MakeHistoryBar(parent)
     bar.fill:SetMinMaxValues(0, 1)
     bar.fill:SetValue(1)
     bar.fill:SetStatusBarTexture(BAR_TEX)
+    -- Blizzard Style: the same track and edge as the meter's own rows
+    -- (Classic WoW UI rows stay plain).
+    if ns.DMStyle() == "blizzard" then
+        bar._bg = bar.row:CreateTexture(nil, "BACKGROUND")
+        ns.DMApplyBlizzBarBg(bar)
+    end
 
     local tf = CreateFrame("Frame", nil, bar.fill)
     tf:SetAllPoints(bar.fill)
@@ -1111,10 +1101,11 @@ local function BuildBarWindow()
         frame._bg = frame:CreateTexture(nil, "BACKGROUND")
         frame._bg:SetAllPoints()
 
-        -- Header
+        -- Header (inside the classic box's line; flush on every other look)
+        local ci = ns.DMClassicInset()
         local hdr = CreateFrame("Frame", nil, frame)
         hdr:SetHeight(22)
-        hdr:SetPoint("TOPLEFT"); hdr:SetPoint("TOPRIGHT")
+        hdr:SetPoint("TOPLEFT", frame, "TOPLEFT", ci, -ci); hdr:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -ci, -ci)
         hdr:SetFrameLevel(frame:GetFrameLevel() + 5)
         hdr:EnableMouse(true)
         frame._hdr = hdr
@@ -1132,29 +1123,36 @@ local function BuildBarWindow()
         -- Header icons (right-aligned, matching DM window style)
         local ICON_A = 0.4
         local ICON_HA = 0.9
-        local btnSize = 22
-        local btnPad = -2
+        -- Size and gap follow the style (the main window's rule at its
+        -- fixed 22 base): ns.DMHdrIconSize / ns.DMHdrIconPad.
+        local btnSize = ns.DMHdrIconSize(nil)
+        local btnPad = ns.DMHdrIconPad()
 
-        local function MakeHdrBtn(texFile, xOff, tooltip, onClick)
+        -- artKey: the header key whose stock-style art replaces the glyph
+        -- under a stock style (ns.DM_HDR_ART); the glyph stays where none exists.
+        local function MakeHdrBtn(texFile, xOff, tooltip, onClick, artKey)
             local btn = CreateFrame("Button", nil, hdr)
             btn:SetSize(btnSize, btnSize)
             btn:SetPoint("RIGHT", hdr, "RIGHT", xOff, 0)
             btn:SetFrameLevel(hdr:GetFrameLevel() + 2)
             local icon = btn:CreateTexture(nil, "ARTWORK")
             icon:SetAllPoints()
-            icon:SetTexture(texFile)
-            icon:SetDesaturated(true)
-            icon:SetVertexColor(1, 1, 1, ICON_A)
+            btn._hdrIcon = icon
+            if not ns.DMPaintHdrArt(icon, artKey) then
+                icon:SetTexture(texFile)
+                icon:SetDesaturated(true)
+                icon:SetVertexColor(1, 1, 1, ICON_A)
+            end
             btn:SetScript("OnEnter", function()
-                icon:SetVertexColor(1, 1, 1, ICON_HA)
-                if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(btn, tooltip) end
+                if not ns.DMHdrHover(icon, true) then icon:SetVertexColor(1, 1, 1, ICON_HA) end
+                EUI.ShowWidgetTooltip(btn, tooltip)
             end)
             btn:SetScript("OnLeave", function()
-                icon:SetVertexColor(1, 1, 1, ICON_A)
-                if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+                if not ns.DMHdrHover(icon, false) then icon:SetVertexColor(1, 1, 1, ICON_A) end
+                EUI.HideWidgetTooltip()
             end)
             btn:SetScript("OnClick", function()
-                if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+                EUI.HideWidgetTooltip()
                 onClick(btn)
             end)
             btn._icon = icon
@@ -1164,16 +1162,16 @@ local function BuildBarWindow()
         -- Btn 1 (rightmost): Settings
         MakeHdrBtn(MEDIA .. "dm_settings.png", -(btnPad + 2), "Settings", function()
             if ns._optionsOpen then
-                if EUI.Hide then EUI:Hide() end
+                EUI:Hide()
                 return
             end
             if EUI.ShowModule then
                 EUI:ShowModule("EllesmereUIDamageMeters")
                 C_Timer.After(0, function()
-                    if EUI.SelectPage then EUI:SelectPage("Spell History") end
+                    EUI:SelectPage("Spell History")
                 end)
             end
-        end)
+        end, "settings")
 
         -- Btn 2: Lock/Unlock
         local lockBtnHdr = MakeHdrBtn(
@@ -1182,15 +1180,17 @@ local function BuildBarWindow()
             function()
                 frame._locked = not frame._locked
                 DB().barLocked = frame._locked
-                frame._lockBtn._icon:SetTexture(frame._locked and (MEDIA .. "dm_locked_top.png") or (MEDIA .. "dm_unlock_top.png"))
-            end
+                local ic = frame._lockBtn._icon
+                if not ns.DMPaintHdrArt(ic, frame._locked and "locked" or "unlocked") then
+                    ic:SetTexture(frame._locked and (MEDIA .. "dm_locked_top.png") or (MEDIA .. "dm_unlock_top.png"))
+                end
+            end,
+            frame._locked and "locked" or "unlocked"
         )
         frame._lockBtn = lockBtnHdr
         lockBtnHdr:SetScript("OnEnter", function()
-            lockBtnHdr._icon:SetVertexColor(1, 1, 1, ICON_HA)
-            if EUI.ShowWidgetTooltip then
-                EUI.ShowWidgetTooltip(lockBtnHdr, frame._locked and "Locked" or "Unlocked")
-            end
+            if not ns.DMHdrHover(lockBtnHdr._icon, true) then lockBtnHdr._icon:SetVertexColor(1, 1, 1, ICON_HA) end
+            EUI.ShowWidgetTooltip(lockBtnHdr, frame._locked and "Locked" or "Unlocked")
         end)
 
         -- Btn 3: Resize (width drag)
@@ -1251,12 +1251,13 @@ local function BuildBarWindow()
 
     end
 
-    -- Apply styling (bg from spell history settings, header from DM settings)
-    _barWin._bg:SetColorTexture(sh.bgR or 0, sh.bgG or 0, sh.bgB or 0, sh.bgAlpha or 0.25)
+    -- Apply styling (bg from spell history settings, header from DM settings;
+    -- the classic header shade follows this window's own colour)
+    ns.DMPaintWindowBg(_barWin._bg, sh.bgR or 0, sh.bgG or 0, sh.bgB or 0, sh.bgAlpha or 0.25, true)
 
     local hc = dmCfg.hdrBgColor
     local hR, hG, hB = hc and hc.r or 0x1B/255, hc and hc.g or 0x1B/255, hc and hc.b or 0x1B/255
-    _barWin._hdrBg:SetColorTexture(hR, hG, hB, dmCfg.hdrBgAlpha or 1)
+    ns.DMPaintHeaderBg(_barWin._hdrBg, hR, hG, hB, dmCfg.hdrBgAlpha or 1, sh.bgR or 0, sh.bgG or 0, sh.bgB or 0)
 
     local tR, tG, tB
     if dmCfg.hdrTextUseAccent ~= false then tR, tG, tB = GetAccentRGB()
@@ -1265,20 +1266,22 @@ local function BuildBarWindow()
 
     -- Hide/show top bar
     local hideTop = sh.hideTopBar
+    local ci = ns.DMClassicInset()
     if hideTop then _barWin._hdr:Hide() else _barWin._hdr:Show() end
     _barWin._content:ClearAllPoints()
     if hideTop then
-        _barWin._content:SetPoint("TOPLEFT", _barWin, "TOPLEFT", 0, 0)
+        _barWin._content:SetPoint("TOPLEFT", _barWin, "TOPLEFT", ci, -ci)
     else
         _barWin._content:SetPoint("TOPLEFT", _barWin._hdr, "BOTTOMLEFT", 0, 0)
     end
-    _barWin._content:SetPoint("BOTTOMRIGHT", _barWin, "BOTTOMRIGHT", 0, 0)
+    _barWin._content:SetPoint("BOTTOMRIGHT", _barWin, "BOTTOMRIGHT", -ci, ci)
 
-    -- Size: width from DB, height auto-calculated from maxBars
+    -- Size: width from DB, height auto-calculated from maxBars (plus the
+    -- classic box's inset above and below)
     local hdrH = hideTop and 0 or 22
     local maxBars = sh.maxBars or 5
     local _, _, stride = ns._RowMetrics(sh.shBarHeight or 18, dmCfg.barSpacing or 2, _barWin:GetEffectiveScale())
-    local autoH = hdrH + maxBars * stride
+    local autoH = hdrH + maxBars * stride + ci * 2
     _barWin:SetSize(sh.barWidth or 300, autoH)
     _barWin._locked = sh.barLocked or false
     local pos = sh.barPos
@@ -1318,7 +1321,7 @@ RefreshBarWindow = function()
     else local tc = sh.textColor; txR = tc and tc.r or 1; txG = tc and tc.g or 1; txB = tc and tc.b or 1 end
 
     -- Re-apply fonts to ALL pool bars when settings change (not just visible ones)
-    local fontKey = fontSize .. "|" .. GetDMFont() .. "|" .. GetDMOutline()
+    local fontKey = fontSize .. "|" .. EUI.GetFontPath("damageMeters") .. "|" .. EUI.GetFontOutlineFlag("damageMeters")
     local fontChanged = (fontKey ~= _barFontCache)
     if fontChanged then
         _barFontCache = fontKey
@@ -1363,6 +1366,9 @@ RefreshBarWindow = function()
                 bar.row:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, y)
                 bar.row:SetHeight(barH)
                 bar.fill:SetStatusBarTexture(texPath)
+                -- Blizzard Style: the stock bevel over the user's texture
+                -- (none under Classic WoW UI).
+                if ns.DMStyle() == "blizzard" then ns.DMApplyBlizzFill(bar.fill) end
                 bar.icon:SetSize(barH, barH)
                 bar._cachedEntry = nil -- force content rebuild
             end
@@ -1500,14 +1506,6 @@ end
 function ns.RefreshSpellHistoryProfile()
     _shDB = nil
     _iconLayoutKey = ""
-    ns.ApplySpellHistory()
-end
-
-function ns.ClearSpellHistory()
-    wipe(_history)
-    wipe(_pendingCasts)
-    wipe(_pendingTargets)
-    _activeChannelSpell = nil
     ns.ApplySpellHistory()
 end
 

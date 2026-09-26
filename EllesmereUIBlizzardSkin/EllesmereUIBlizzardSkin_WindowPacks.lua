@@ -5447,6 +5447,9 @@ local function HookRCScrollBox(box, isCurrency)
 end
 
 local function Skin_RepCurrency()
+    -- Stock character sheet styles (Style page) keep Blizzard's whole sheet,
+    -- these tabs included.
+    if ns.CharSheetStock and ns.CharSheetStock() then return end
     local rep = _G.ReputationFrame
     if rep then
         if rep.filterDropdown then WSkin.Dropdown(rep.filterDropdown) end
@@ -7019,6 +7022,10 @@ local function Skin_MicroMenu()
     end
 end
 
+-- WoW Forever keeps Blizzard's micro menu art (user decision): the pack is not
+-- registered there, so nothing above runs and the UpdateMicroButtons hook is
+-- never installed. The options card is dropped on that client to match.
+if not EllesmereUI.IS_FOREVER then
 WSkin.RegisterWindow({
     key = "micromenu",
     apply = function()
@@ -7035,6 +7042,7 @@ WSkin.RegisterWindow({
         pcall(Skin_MicroMenu)
     end,
 })
+end -- not IS_FOREVER
 
 -------------------------------------------------------------------------------
 --  Dressing Room (DressUpFrame). Chrome + action buttons; the 3D model scene
@@ -7928,8 +7936,8 @@ local function UpdateMerchantItemLevels()
                     else
                         fs:SetPoint("TOPLEFT", btn, "TOPLEFT", 1, -1)
                     end
-                    local path = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
-                    local flag = (EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE"
+                    local path = (EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
+                    local flag = (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE"
                     fs:SetFont(path, 12, flag)
                     GetFFD(btn).merchantILvl = fs
                 end
@@ -11552,6 +11560,10 @@ end
 function SP.Apply()
     local f = _G.SocialUIFrame
     if not f then return end
+    -- The Friends List stock styles (Style page) keep Blizzard's whole Social
+    -- window, its frame included; the Window Skins card is blocked meanwhile.
+    local fr = EllesmereUI._ModuleNS and EllesmereUI._ModuleNS.EllesmereUIFriends
+    if fr and fr.FR_Style and fr.FR_Style() ~= "eui" then return end
 
     WSkin.Shell("socialui", f)
     WSkin.RemovePortrait(f)

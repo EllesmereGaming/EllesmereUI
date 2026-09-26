@@ -35,8 +35,7 @@ end
 -- frames we do; running both crashes the client on the loading screen. Detect
 -- and no-op our entire module so the user can at least log in.
 do
-    local isLoaded = C_AddOns and C_AddOns.IsAddOnLoaded or IsAddOnLoaded
-    if isLoaded and isLoaded("Ayije_CDM") then
+    if C_AddOns.IsAddOnLoaded("Ayije_CDM") then
         -- Skip the generic conflict checker so our Disable & Reload popup takes priority.
         _G._EUI_ECME_HandledAyijeCDM = true
         local function ShowCrashPopup()
@@ -75,13 +74,13 @@ do
             end
 
             local title = popup:CreateFontString(nil, "OVERLAY")
-            title:SetFont(FONT, 16, EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("cdm") or "")
+            title:SetFont(FONT, 16, EllesmereUI.GetFontOutlineFlag("cdm") or "")
             title:SetTextColor(1, 1, 1)
             title:SetPoint("TOP", popup, "TOP", 0, -20)
             title:SetText("CDM Addon Conflict")
 
             local msg = popup:CreateFontString(nil, "OVERLAY")
-            msg:SetFont(FONT, 12, EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("cdm") or "")
+            msg:SetFont(FONT, 12, EllesmereUI.GetFontOutlineFlag("cdm") or "")
             msg:SetTextColor(1, 1, 1, 0.75)
             msg:SetPoint("TOP", title, "BOTTOM", 0, -14)
             msg:SetWidth(POPUP_W - 60)
@@ -103,7 +102,7 @@ do
             btnBg:SetPoint("BOTTOMRIGHT", -1, 1)
             btnBg:SetColorTexture(0.06, 0.08, 0.10, 0.92)
             local btnLbl = btn:CreateFontString(nil, "OVERLAY")
-            btnLbl:SetFont(FONT, 12, EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("cdm") or "")
+            btnLbl:SetFont(FONT, 12, EllesmereUI.GetFontOutlineFlag("cdm") or "")
             btnLbl:SetTextColor(EG.r, EG.g, EG.b, 0.9)
             btnLbl:SetPoint("CENTER")
             btnLbl:SetText("Disable & Reload")
@@ -116,9 +115,11 @@ do
                 btnLbl:SetTextColor(EG.r, EG.g, EG.b, 0.9)
             end)
             btn:SetScript("OnClick", function()
-                local disable = C_AddOns and C_AddOns.DisableAddOn or DisableAddOn
-                if disable then disable("EllesmereUICooldownManager") end
-                ReloadUI()
+                C_AddOns.DisableAddOn("EllesmereUICooldownManager")
+                -- Take this popup down first: its dimmer (level 150) would sit over
+                -- the reload popup RequestReload opens on the Forever client.
+                dimmer:Hide()
+                EllesmereUI.RequestReload()
             end)
         end
 
@@ -135,41 +136,81 @@ do
 end
 
 -- Per-addon border texture defaults (same as Action Bars -- same size system)
-do
-    local ALL_SIZES = { "none", "thin", "normal", "heavy", "strong" }
-    local function AllSizes(ox, oy, sx, sy)
-        local t = {}
-        for _, k in ipairs(ALL_SIZES) do t[k] = { offsetX = ox, offsetY = oy, shiftX = sx, shiftY = sy } end
-        return t
-    end
-    EllesmereUI.RegisterBorderDefaults("cdm", {
-        ["glow"] = {
-            defaultSize = "normal",
-            sizes = AllSizes(0, 0, 0, 0),
-        },
-        ["blizz"] = {
-            defaultSize = "heavy",
-            sizes = {
-                none   = { offsetX = 0, offsetY = 0, shiftX = 0, shiftY = 0 },
-                thin   = { offsetX = 2, offsetY = 1, shiftX = 0, shiftY = 0 },
-                normal = { offsetX = 3, offsetY = 2, shiftX = 0, shiftY = 0 },
-                heavy  = { offsetX = 4, offsetY = 2, shiftX = 1, shiftY = 0 },
-                strong = { offsetX = 4, offsetY = 2, shiftX = 2, shiftY = 0 },
-            },
-        },
-        ["dialog"] = {
-            defaultSize = "normal",
-            sizes = AllSizes(4, 4, 0, 0),
-        },
-        ["sm:Blizzard Achievement Wood"] = {
-            defaultSize = "thin",
-            sizes = AllSizes(1, 1, 0, 0),
-        },
-    })
-end
+EllesmereUI.RegisterBorderDefaults("cdm", EllesmereUI.BORDER_DEFAULTS_BUTTONS)
 
 local ECME = EllesmereUI.Lite.NewAddon("EllesmereUICooldownManager")
 ns.ECME = ECME
+
+-- Style flags (Global Settings > Style: EllesmereUI, Blizzard or Classic WoW
+-- UI). Reload-gated: each is read from the profile ONCE (first call with a
+-- profile present) and latched for the session, so a live profile switch can
+-- never flip the look under the one-time art setup below; the profile system
+-- prompts for a reload when a switched-to profile carries a different flag.
+-- Every call site is a build/restyle path, never a per-tick one.
+-- The style this module RENDERS on its icons this session: "eui" | "blizzard" | "classic".
+function ns.CdmIconStyle()
+    local v = ns._cdmIconStyle
+    if v == nil then
+        local p = ECME.db and ECME.db.profile
+        if not p then return "eui" end
+        v = (p.useClassicStyle and "classic") or (p.useBlizzardStyle and "blizzard") or "eui"
+        ns._cdmIconStyle = v
+    end
+    return v
+end
+-- Stock-art mode: true for both stock styles (the geometry, gating and chrome they share).
+function ns.CdmBlizzIcons() return ns.CdmIconStyle() ~= "eui" end
+function ns.CdmClassicIcons() return ns.CdmIconStyle() == "classic" end
+-- The style the tracked buff bars render this session, latched the same way.
+function ns.CdmBarStyle()
+    local v = ns._cdmBarStyle
+    if v == nil then
+        local p = ECME.db and ECME.db.profile
+        if not p then return "eui" end
+        v = (p.useClassicStyleBars and "classic") or (p.useBlizzardStyleBars and "blizzard") or "eui"
+        ns._cdmBarStyle = v
+    end
+    return v
+end
+function ns.CdmBlizzBars() return ns.CdmBarStyle() ~= "eui" end
+function ns.CdmClassicBars() return ns.CdmBarStyle() == "classic" end
+-- Blizzard's cooldown viewer art: the rounded icon mask, the bevel ring drawn
+-- around every icon, and the rounded swipe file the viewer's Cooldown uses.
+ns.CDM_BLIZZ_MASK    = "UI-HUD-CoolDownManager-Mask"
+ns.CDM_BLIZZ_OVERLAY = "UI-HUD-CoolDownManager-IconOverlay"
+ns.CDM_BLIZZ_SWIPE   = "Interface\\HUD\\UI-HUD-CoolDownManager-Icon-Swipe"
+-- Ring inset as a fraction of the icon size (the viewer anchors its 50px
+-- essential icons at -9/+8, i.e. the ring sits proportionally outside the icon).
+ns.CDM_BLIZZ_RING_X  = 0.18
+ns.CDM_BLIZZ_RING_Y  = 0.16
+-- Classic WoW UI icon art: the vanilla action button ring, a plain 66px
+-- texture on a 36px button centred one pixel low, sized by the icon it rings.
+-- Classic icons are square: no mask, full art, EUI's own square swipe.
+ns.CDM_CLASSIC_RING       = "Interface\\Buttons\\UI-Quickslot2"
+ns.CDM_CLASSIC_RING_SCALE = 66 / 36
+ns.CDM_CLASSIC_RING_Y     = -1 / 36
+-- Places a classic ring texture round a w x h icon region.
+function ns.CdmPlaceClassicRing(ov, anchor, w, h)
+    ov:ClearAllPoints()
+    ov:SetSize(w * ns.CDM_CLASSIC_RING_SCALE, h * ns.CDM_CLASSIC_RING_SCALE)
+    ov:SetPoint("CENTER", anchor, "CENTER", 0, h * ns.CDM_CLASSIC_RING_Y)
+end
+-- The swipe file the latched icon style draws: the viewer's rounded swipe
+-- under Blizzard Style, EUI's square swipe otherwise.
+function ns.CdmSwipeFile()
+    if ns.CdmIconStyle() == "blizzard" then return ns.CDM_BLIZZ_SWIPE end
+    return "Interface\\AddOns\\EllesmereUI\\media\\white-square.png"
+end
+-- Creation-time crop for icons on frames we build ourselves (trinkets,
+-- placeholders, custom buffs, item presets): the EUI 8% zoom, or the full art
+-- under a stock style (RefreshCDMIconAppearance re-applies the same rule).
+function ns.CdmOwnIconCrop(tex)
+    if ns.CdmBlizzIcons() then
+        tex:SetTexCoord(0, 1, 0, 1)
+    else
+        tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    end
+end
 
 -- Snap to whole physical pixels at the bar's effective scale (same convert-round-convert approach as the border system).
 local function SnapForScale(x, barScale)
@@ -188,28 +229,9 @@ ns.DEFAULT_MAPPING_NAME = "Buff Name (eg: Divine Purpose)"
 --  Shape Constants (shared with action bars)
 -------------------------------------------------------------------------------
 local CDM_SHAPES = {
-    masks = {
-        circle   = "Interface\\AddOns\\EllesmereUI\\media\\portraits\\circle_mask.tga",
-        csquare  = "Interface\\AddOns\\EllesmereUI\\media\\portraits\\csquare_mask.tga",
-        diamond  = "Interface\\AddOns\\EllesmereUI\\media\\portraits\\diamond_mask.tga",
-        hexagon  = "Interface\\AddOns\\EllesmereUI\\media\\portraits\\hexagon_mask.tga",
-        portrait = "Interface\\AddOns\\EllesmereUI\\media\\portraits\\portrait_mask.tga",
-        shield   = "Interface\\AddOns\\EllesmereUI\\media\\portraits\\shield_mask.tga",
-        square   = "Interface\\AddOns\\EllesmereUI\\media\\portraits\\square_mask.tga",
-    },
-    borders = {
-        circle   = "Interface\\AddOns\\EllesmereUI\\media\\portraits\\circle_border.tga",
-        csquare  = "Interface\\AddOns\\EllesmereUI\\media\\portraits\\csquare_border.tga",
-        diamond  = "Interface\\AddOns\\EllesmereUI\\media\\portraits\\diamond_border.tga",
-        hexagon  = "Interface\\AddOns\\EllesmereUI\\media\\portraits\\hexagon_border.tga",
-        portrait = "Interface\\AddOns\\EllesmereUI\\media\\portraits\\portrait_border.tga",
-        shield   = "Interface\\AddOns\\EllesmereUI\\media\\portraits\\shield_border.tga",
-        square   = "Interface\\AddOns\\EllesmereUI\\media\\portraits\\square_border.tga",
-    },
-    insets = {
-        circle = 17, csquare = 17, diamond = 14,
-        hexagon = 17, portrait = 17, shield = 13, square = 17,
-    },
+    masks = EllesmereUI.SHAPE_MASKS,
+    borders = EllesmereUI.SHAPE_BORDERS,
+    insets = EllesmereUI.SHAPE_INSETS,
     iconExpand = 7,
     iconExpandOffsets = {
         circle = 2, csquare = 4, diamond = 2, hexagon = 4,
@@ -229,6 +251,23 @@ ns.CDM_SHAPE_MASKS   = CDM_SHAPES.masks
 ns.CDM_SHAPE_BORDERS = CDM_SHAPES.borders
 ns.CDM_SHAPE_ZOOM_DEFAULTS = CDM_SHAPES.zoomDefaults
 ns.CDM_SHAPE_EDGE_SCALES = CDM_SHAPES.edgeScales
+-- Cropped shape, per-bar Adjust Crop (mirrors Nameplates' ns.GetAuraCrop). iconCropPercent is the
+-- per-side trim %, 5-25; unset = 10, which yields exactly the classic fixed crop (height factor
+-- 0.80, 0.10 texcoord trim per side), so bars that never touch it are unchanged. Only called from
+-- "cropped" branches. do/end + ns functions: no new main-chunk locals.
+do
+    local CROP_DEFAULT_PCT = 10
+    local function CropPercent(bd)
+        local pct = tonumber(bd and bd.iconCropPercent) or CROP_DEFAULT_PCT
+        if pct < 5 then pct = 5 elseif pct > 25 then pct = 25 end
+        return pct
+    end
+    ns.CdmCropPercent = CropPercent
+    -- Icon height as a fraction of width.
+    function ns.CdmCropFactor(bd) return 1 - 2 * (CropPercent(bd) / 100) end
+    -- Vertical texcoord trim per side, added on top of the bar's zoom.
+    function ns.CdmCropTrim(bd) return CropPercent(bd) / 100 end
+end
 -- Forward declarations for glow helpers (defined later, used by consolidated helpers)
 local StartNativeGlow, StopNativeGlow
 
@@ -582,6 +621,16 @@ local DEFAULTS = {
     profile = {
         -- CDM Look
         reskinBorders   = true,
+        -- Style flags (Global Settings > Style). All default OFF and are
+        -- reload-gated. Blizzard Style: icons keep Blizzard's rounded mask,
+        -- overlay ring and swipe art; tracked buff bars use Blizzard's bar
+        -- art. Classic WoW UI: square icons in the vanilla action button
+        -- ring; tracked buff bars in the vanilla cast bar frame. Every EUI
+        -- feature keeps working; only the EUI-look settings are disabled.
+        useBlizzardStyle     = false,
+        useBlizzardStyleBars = false,
+        useClassicStyle      = false,
+        useClassicStyleBars  = false,
         -- Bar Glows (per-spec)
         spec            = {},
         activeSpecKey   = "0",
@@ -830,18 +879,6 @@ function ns.GetBarSpellData(barKey)
         prof.barSpells[barKey] = bs
     end
     memo.sd[barKey] = bs
-    return bs
-end
-
--- Variant that accepts an explicit specKey (for validation, migration, etc.)
-function ns.GetBarSpellDataForSpec(barKey, specKey)
-    if not specKey or specKey == "0" then return nil end
-    local sp = SpellStore.GetSpecProfiles()
-    local prof = sp[specKey]
-    if not prof then return nil end
-    if not prof.barSpells then return nil end
-    local bs = prof.barSpells[barKey]
-    if not bs then return nil end
     return bs
 end
 
@@ -1658,7 +1695,7 @@ local _cachedSpecKey = nil
 
 function ns.GetActiveSpecKey()
     if _cachedSpecKey then return _cachedSpecKey end
-    local specIndex = GetSpecialization and GetSpecialization()
+    local specIndex = C_SpecializationInfo.GetSpecialization()
     if not specIndex or specIndex == 0 then return nil end
     local specID = select(1, C_SpecializationInfo.GetSpecializationInfo(specIndex))
     if not specID or specID == 0 then return nil end
@@ -1675,7 +1712,7 @@ end
 
 -- Live spec key from the game API without touching the cache; nil if not ready.
 local function ComputeLiveSpecKey()
-    local specIndex = GetSpecialization and GetSpecialization()
+    local specIndex = C_SpecializationInfo.GetSpecialization()
     if not specIndex or specIndex == 0 then return nil end
     local specID = select(1, C_SpecializationInfo.GetSpecializationInfo(specIndex))
     if not specID or specID == 0 then return nil end
@@ -1953,9 +1990,7 @@ local function ProcessSpecChange(newSpecKey)
     end
 
     -- Signal the profile system that CDM's spec rebuild is complete: clears _specProfileSwitching and re-applies width/height matches.
-    if EllesmereUI and EllesmereUI.OnSpecSwitchComplete then
-        EllesmereUI.OnSpecSwitchComplete()
-    end
+    EllesmereUI.OnSpecSwitchComplete()
 
     -- Refresh the CDM options pages now that _cachedSpecKey is swapped: their own
     -- PLAYER_SPECIALIZATION_CHANGED watcher can fire before SPELLS_CHANGED, so driving it
@@ -1983,85 +2018,8 @@ ns.CDM_BAR_ROOTS = {
 }
 
 -------------------------------------------------------------------------------
---  Action Button Lookup (supports Blizzard and popular bar addons)
--------------------------------------------------------------------------------
-local blizzBarNames = {
-    [1] = "ActionButton",
-    [2] = "MultiBarBottomLeftButton",
-    [3] = "MultiBarBottomRightButton",
-    [4] = "MultiBarRightButton",
-    [5] = "MultiBarLeftButton",
-    [6] = "MultiBar5Button",
-    [7] = "MultiBar6Button",
-    [8] = "MultiBar7Button",
-}
-
--- EAB slot offsets match BAR_SLOT_OFFSETS in EllesmereUIActionBars.lua
-local eabSlotOffsets = { 0, 60, 48, 24, 36, 144, 156, 168 }
-
-local actionButtonCache = {}
-
-local function GetActionButton(bar, i)
-    bar = bar or 1
-    local cacheKey = bar * 100 + i
-    if actionButtonCache[cacheKey] then return actionButtonCache[cacheKey] end
-    -- EABButton first (EllesmereUIActionBars creates these when Blizzard buttons are unavailable, e.g. another addon hid ActionButton1-12), then Blizzard.
-    local eabSlot = (eabSlotOffsets[bar] or 0) + i
-    local btn = _G["EABButton" .. eabSlot]
-    if not btn then
-        local prefix = blizzBarNames[bar]
-        btn = prefix and _G[prefix .. i]
-    end
-    if btn then actionButtonCache[cacheKey] = btn end
-    return btn
-end
-
--------------------------------------------------------------------------------
 --  CDM Slot Helpers
 -------------------------------------------------------------------------------
-local function FindCooldown(frame)
-    if not frame then return end
-    local cd = frame.cooldown or frame.Cooldown
-    if cd then return cd end
-    for i = 1, frame:GetNumChildren() do
-        local child = select(i, frame:GetChildren())
-        if child and child.GetObjectType and child:GetObjectType() == "Cooldown" then
-            return child
-        end
-    end
-end
-
-local function SlotSortComparator(a, b)
-    local ax, ay = a:GetCenter()
-    local bx, by = b:GetCenter()
-    ax, ay, bx, by = ax or 0, ay or 0, bx or 0, by or 0
-    if math.abs(ay - by) > 2 then return ay > by end
-    return ax < bx
-end
-
-local cachedSlots, cacheTime = nil, 0
-
-local function GetSortedSlots(forceRefresh)
-    local now = GetTime()
-    if not forceRefresh and cachedSlots and (now - cacheTime) < 0.5 then
-        return cachedSlots
-    end
-    local root = _G.BuffIconCooldownViewer
-    if not root or not root.GetChildren then cachedSlots = nil; return nil end
-    local slots = {}
-    for i = 1, root:GetNumChildren() do
-        local c = select(i, root:GetChildren())
-        if c and c.GetCenter and FindCooldown(c) then
-            slots[#slots + 1] = c
-        end
-    end
-    if #slots == 0 then cachedSlots = nil; return nil end
-    table.sort(slots, SlotSortComparator)
-    cachedSlots = slots
-    cacheTime = now
-    return slots
-end
-
 local function GetAllCDMSlots(root)
     if not root or not root.GetChildren then return {} end
     local slots = {}
@@ -2072,30 +2030,6 @@ local function GetAllCDMSlots(root)
         end
     end
     return slots
-end
-
-local function GetCDMBarButton(barKey, slotIndex)
-    local rootName = ns.CDM_BAR_ROOTS[barKey]
-    if not rootName then return nil end
-    local root = _G[rootName]
-    if not root or not root.GetChildren then return nil end
-    local slots = {}
-    for i = 1, root:GetNumChildren() do
-        local c = select(i, root:GetChildren())
-        if c and c.GetWidth and c:GetWidth() > 5 then
-            slots[#slots + 1] = c
-        end
-    end
-    if #slots == 0 then return nil end
-    table.sort(slots, SlotSortComparator)
-    return slots[slotIndex]
-end
-
-local function GetTargetButton(actionBar, actionButtonIndex)
-    if type(actionBar) == "string" and ns.CDM_BAR_ROOTS[actionBar] then
-        return GetCDMBarButton(actionBar, actionButtonIndex)
-    end
-    return GetActionButton(tonumber(actionBar) or 1, actionButtonIndex)
 end
 
 -------------------------------------------------------------------------------
@@ -2991,18 +2925,7 @@ InstallProcGlowHooks()
 --  CDM Bars: Our replacement for Blizzard's Cooldown Manager
 --  Captures Blizzard positions on first login, then creates our own bars.
 -------------------------------------------------------------------------------
-local CDM_FONT_FALLBACK = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
-local function GetCDMFont()
-    if EllesmereUI and EllesmereUI.GetFontPath then
-        return EllesmereUI.GetFontPath("cdm")
-    end
-    return CDM_FONT_FALLBACK
-end
-local function GetCDMOutline()
-    -- Forced crisp outline; global "Never Show Slug" toggle drops the slug.
-    if EllesmereUI and EllesmereUI.SlugFlag then return EllesmereUI.SlugFlag("OUTLINE, SLUG") end
-    return "OUTLINE, SLUG"
-end
+local function GetCDMFont() return EllesmereUI.GetFontPath("cdm") end
 local function SetBlizzCDMFont(fs, font, size, r, g, b)
     if not (fs and fs.SetFont) then return end
     EllesmereUI.ApplyIconTextFont(fs, font, size, "cdm")
@@ -3179,10 +3102,9 @@ local function ShowManualEditModeFixPopup()
             disclaimer = "This will keep appearing each login until the layout is correct.",
             confirmText = "Disable CDM & Reload",
             cancelText = "Not Now",
+            reload = true,
             onConfirm = function()
-                local disable = C_AddOns and C_AddOns.DisableAddOn or DisableAddOn
-                if disable then disable("EllesmereUICooldownManager") end
-                ReloadUI()
+                C_AddOns.DisableAddOn("EllesmereUICooldownManager")
             end,
         })
     end)
@@ -3298,19 +3220,15 @@ local function EnforceCooldownViewerEditModeSettings()
     end
 
     -- Forced (non-dismissable) reload popup. On first install the Welcome picker is
-    -- pending/open and ALWAYS ends in its own forced ReloadUI, which applies the layout we
+    -- pending/open and ALWAYS ends in its own reload, which applies the layout we
     -- just saved -- a second forced popup would stomp the picker, so stay silent and ride that reload.
     if EllesmereUI and EllesmereUI._firstInstallPending then return end
     C_Timer.After(0, function()
-        if not EllesmereUI or not EllesmereUI.ShowConfirmPopup then
-            ReloadUI()
-            return
-        end
         EllesmereUI:ShowConfirmPopup({
             title = "Edit Mode Update",
             message = "EllesmereUI has updated your CDM Edit Mode settings to ensure cooldown tracking works correctly.\n\nA UI reload is required for the changes to take effect.",
             confirmText = "Reload UI",
-            onConfirm = function() ReloadUI() end,
+            reload    = true,
         })
         -- Force: no cancel, no escape, no click-outside dismiss.
         local popup = _G["EUIConfirmPopup"]
@@ -4314,7 +4232,7 @@ local function ComputeCDMBarSize(barData, count)
     local iW = barData.iconSize or 36
     local iH = iW
     if (barData.iconShape or "none") == "cropped" then
-        iH = math.floor((barData.iconSize or 36) * 0.80 + 0.5)
+        iH = math.floor((barData.iconSize or 36) * ns.CdmCropFactor(barData) + 0.5)
     end
     local sp = barData.spacing or 2
     -- EFFECTIVE row count from ComputeTopRowStride: collapses to 1 while a
@@ -4357,6 +4275,80 @@ local function GetStableCDMBarSize(barKey, frame, barData)
     return EMPTY_CDM_BAR_SIZE[1], EMPTY_CDM_BAR_SIZE[2]
 end
 
+-- A width/height match target that draws inside a larger box (getInsets:
+-- Blizzard Style unit frames) matches by its visible art, converted into the
+-- bar's scale, as the unlock-mode match does. nil for every other target (the
+-- raw frame read stands).
+function ns.CdmMatchInsetSize(targetKey, targetFrame, bar)
+    local elems = EllesmereUI._unlockRegisteredElements
+    local elem = elems and elems[targetKey]
+    if not (elem and elem.getInsets) then return nil end
+    local l, r, t, b = elem.getInsets(targetKey)
+    if not l then return nil end
+    local k = targetFrame:GetEffectiveScale() / bar:GetEffectiveScale()
+    return (targetFrame:GetWidth() - l - r) * k, (targetFrame:GetHeight() - t - b) * k
+end
+
+-- "CDM_" .. barKey, built once per bar key, so the layout and pad paths look a
+-- bar's unlock element up without building a string each pass.
+ns._cdmUKey = setmetatable({}, { __index = function(t, k)
+    local v = "CDM_" .. k
+    t[k] = v
+    return v
+end })
+
+-- The width and height a CDM bar's own textured icon border draws OUTSIDE the
+-- bar frame, in bar units, from exactly the arguments the icon border renderer
+-- passes (bar-level size, texture, offsets and shifts, the "cdm" registry keyed
+-- by the thickness label, the exact px, the colour's alpha). The outer icons sit
+-- flush with the bar's edges, so their reach is the bar's. The renderer
+-- normalizes the icon's scale away (UIParent / icon), so in bar units the ratio
+-- is UIParent / bar. nil for buff-family bars (never in a match), the stock
+-- looks (no EUI border), custom shapes (the ring sits inside the icon) and a
+-- border that draws nothing outside. Reads settings and scales only.
+function ns.CdmBarMatchPad(barKey)
+    local bd = barDataByKey[barKey]
+    local f = cdmBarFrames[barKey]
+    if not bd or not f or not EllesmereUI.BorderMatchPad then return nil end
+    local tex = bd.borderTexture or "solid"
+    if tex == "solid" then return nil end
+    if ns.IsBarBuffFamily(bd) or bd.barType == "custom_buff" then return nil end
+    if ns.CdmBlizzIcons() then return nil end
+    local shape = bd.iconShape or "none"
+    if shape ~= "none" and shape ~= "cropped" then return nil end
+    local es, uiES = f:GetEffectiveScale(), UIParent:GetEffectiveScale()
+    local ratio = 1
+    if es and es > 0.01 and uiES and uiES > 0 then ratio = uiES / es end
+    local sz = bd.borderSize or 1
+    return EllesmereUI.BorderMatchPad(sz, tex, bd.borderTextureOffset, bd.borderTextureOffsetY,
+        bd.borderTextureShiftX, bd.borderTextureShiftY, "cdm", bd.borderThickness or "thin",
+        EllesmereUI.BorderPx(bd.borderSizePx, sz, tex), ratio, bd.borderA or 1)
+end
+
+-- Border-aware CDM match, added to LayoutCDMBar's raw target read in the same
+-- units: what the target draws outside its own rect (its getMatchPad on this
+-- axis; 0 when its inset art was read, which already is the visible size) minus
+-- what this bar's own icon border draws outside. Only positive pads count, as in
+-- the unlock-mode match. Exactly 0 when neither side has one.
+function ns.CdmMatchAdj(barKey, targetKey, isWidth, insetUsed)
+    local t, o = 0, 0
+    if not insetUsed then
+        local elems = EllesmereUI._unlockRegisteredElements
+        local elem = elems and elems[targetKey]
+        if elem and elem.getMatchPad then
+            local pw, ph = elem.getMatchPad(targetKey)
+            local v
+            if isWidth then v = pw else v = ph end
+            if v and v > 0 then t = v end
+        end
+    end
+    local ow, oh = ns.CdmBarMatchPad(barKey)
+    local v
+    if isWidth then v = ow else v = oh end
+    if v and v > 0 then o = v end
+    return t - o
+end
+
 -------------------------------------------------------------------------------
 --  Layout icons within a CDM bar
 -------------------------------------------------------------------------------
@@ -4367,6 +4359,7 @@ LayoutCDMBar = function(barKey)
 
     local barData = barDataByKey[barKey]
     if not barData or not barData.enabled then return end
+    local blizzIcons = ns.CdmBlizzIcons()
 
     -- A visibility-hidden cursor bar must NEVER be laid back on-screen: its glue is parked and
     -- cannot re-glue it. Park here instead; the visibility show edge re-runs LayoutCDMBar via its deferred call.
@@ -4445,9 +4438,24 @@ LayoutCDMBar = function(barKey)
     if widthMatchTarget and #icons > 0 then
         local targetFrame = GetMatchTargetFrame(widthMatchTarget)
         local targetW = targetFrame and targetFrame:GetWidth() or 0
+        if targetFrame then
+            local artW = ns.CdmMatchInsetSize(widthMatchTarget, targetFrame, frame)
+            if artW then targetW = artW end
+            -- Border-aware match (ns.CdmMatchAdj). Skipped at 0 (no textured
+            -- border on either side, or equal ones cancelling); never moves the
+            -- targetW > 1 gate below either way.
+            if targetW > 1 then
+                local adj = ns.CdmMatchAdj(barKey, widthMatchTarget, true, artW ~= nil)
+                if math.abs(adj) > 1e-6 and targetW + adj > 1 then targetW = targetW + adj end
+            end
+        end
         local curDim = CurWidthDim()
         if targetW > 1 and curDim and curDim > 0 then
             local physTarget = math.floor(targetW / onePx + 0.5)
+            -- The match's Extra Width: whole physical px on the floored target,
+            -- so no second rounding. nil = none stored.
+            local mx = EllesmereUI.GetMatchExtra and EllesmereUI.GetMatchExtra("w", ns._cdmUKey[barKey])
+            if mx then physTarget = physTarget + mx end
             local physSp = math.floor(spacing / onePx + 0.5)
             local rawPhysIcon = (physTarget - (curDim - 1) * physSp) / curDim
             if rawPhysIcon < 8 then rawPhysIcon = 8 end
@@ -4461,11 +4469,23 @@ LayoutCDMBar = function(barKey)
     elseif heightMatchTarget and #icons > 0 then
         local targetFrame = GetMatchTargetFrame(heightMatchTarget)
         local targetH = targetFrame and targetFrame:GetHeight() or 0
+        if targetFrame then
+            local _, artH = ns.CdmMatchInsetSize(heightMatchTarget, targetFrame, frame)
+            if artH then targetH = artH end
+            -- Border-aware match, as for width.
+            if targetH > 1 then
+                local adj = ns.CdmMatchAdj(barKey, heightMatchTarget, false, artH ~= nil)
+                if math.abs(adj) > 1e-6 and targetH + adj > 1 then targetH = targetH + adj end
+            end
+        end
         local curDim = CurHeightDim()
         if targetH > 1 and curDim and curDim > 0 then
             local shape = barData.iconShape or "none"
-            local cropFactor = (shape == "cropped") and 0.80 or 1.0
+            local cropFactor = (shape == "cropped") and ns.CdmCropFactor(barData) or 1.0
             local physTarget = math.floor(targetH / onePx + 0.5)
+            -- The match's Extra Height, as for width.
+            local mx = EllesmereUI.GetMatchExtra and EllesmereUI.GetMatchExtra("h", ns._cdmUKey[barKey])
+            if mx then physTarget = physTarget + mx end
             local physSp = math.floor(spacing / onePx + 0.5)
             local rawPhysIcon = (physTarget - (curDim - 1) * physSp) / curDim / cropFactor
             if rawPhysIcon < 8 then rawPhysIcon = 8 end
@@ -4489,15 +4509,15 @@ LayoutCDMBar = function(barKey)
     if shape == "cropped" then
         if widthMatchApplied then
             -- Width-matched: cropped height from the MATCHED icon width, so the icon keeps the
-            -- same ~0.80 aspect as the non-matched path. Computed in physical px to stay on the
-            -- pixel grid (matched iconW is already a clean pixel multiple). Aspect intent, not exact value: the non-matched branch rounds 0.80 in coord space, so the two can differ 1px at non-perfect scales.
+            -- same crop aspect as the non-matched path. Computed in physical px to stay on the
+            -- pixel grid (matched iconW is already a clean pixel multiple). Aspect intent, not exact value: the non-matched branch rounds the crop factor in coord space, so the two can differ 1px at non-perfect scales.
             local wPx = math.floor(iconW / onePx + 0.5)
-            iconH = math.floor(wPx * 0.80 + 0.5) * onePx
+            iconH = math.floor(wPx * ns.CdmCropFactor(barData) + 0.5) * onePx
         elseif heightMatchIconHPx then
             -- Height-matched: the EXACT basePhysIconH the height-match math computed. MUST match precisely so per-icon height stays in lockstep with the container's extraPixelsH distribution.
             iconH = heightMatchIconHPx * onePx
         else
-            iconH = math.floor((barData.iconSize or 36) * 0.80 + 0.5)
+            iconH = math.floor((barData.iconSize or 36) * ns.CdmCropFactor(barData) + 0.5)
         end
     end
 
@@ -4559,7 +4579,7 @@ LayoutCDMBar = function(barKey)
         local function RowSizePx(sz)
             if sz < 16 then sz = 16 end          -- clamp to the Icon Scale minimum
             local wpx = math.floor(sz / onePx + 0.5)
-            local hCoord = (shape == "cropped") and math.floor(sz * 0.80 + 0.5) or sz
+            local hCoord = (shape == "cropped") and math.floor(sz * ns.CdmCropFactor(barData) + 0.5) or sz
             local hpx = math.floor(hCoord / onePx + 0.5)
             return wpx, hpx
         end
@@ -4682,6 +4702,7 @@ LayoutCDMBar = function(barKey)
 
             FC(icon).matchExpanded = nil
             icon:SetSize(wPx * onePx * iS, hPx * onePx * iS)
+            if blizzIcons then ns.CdmApplyBlizzIconArt(icon) end
 
             if isMouseBar then
                 icon:SetFrameStrata("TOOLTIP")
@@ -4797,6 +4818,7 @@ LayoutCDMBar = function(barKey)
         end
         FC(icon).matchExpanded = (expandedCol or expandedRow) or nil
         icon:SetSize(thisIconW * iS, thisIconH * iS)
+        if blizzIcons then ns.CdmApplyBlizzIconArt(icon) end
 
         -- Cumulative offsets: each prior expanded icon shifts later icons by 1 physical pixel on
         -- the same axis (extraBefore = growth axis/col; extraBeforeR = perpendicular axis/row).
@@ -5113,6 +5135,12 @@ ApplyShapeToCDMIcon = function(icon, shape, barData, ssb)
     end
 
     local ifc = FC(icon)
+    -- Stock styles: the style's ring replaces every EUI shape and the square
+    -- border, and the icon shows its full art (no zoom) exactly as the viewer
+    -- draws it (rounded by the viewer mask under Blizzard Style, square under
+    -- Classic WoW UI).
+    local blizzArt = ns.CdmBlizzIcons()
+    if blizzArt then shape = "none"; zoom = 0 end
     if shape == "none" or shape == "cropped" or not shape then
         -- Remove shape mask if previously applied
         if ifc.shapeMask then
@@ -5129,14 +5157,20 @@ ApplyShapeToCDMIcon = function(icon, shape, barData, ssb)
         -- Restore square borders (PP or textured via ApplyBorderStyle). The border lives on
         -- fd.borderFrame (child of icon) so Blizzard's secure frames are never tainted; PP.GetBorders(icon) is the fallback for CDM-owned frames that skip DecorateFrame's child wrapper.
         local bdrTarget = (fd and fd.borderFrame) or icon
-        if fd and fd.borderFrame or EllesmereUI.PP.GetBorders(icon) then
+        if blizzArt then
+            -- Blizzard Style draws no EUI border (the ring overlay is the frame).
+        elseif fd and fd.borderFrame or EllesmereUI.PP.GetBorders(icon) then
             local texKey = barData.borderTexture or "solid"
+            -- Exact size (borderSizePx) belongs to the bar's own step: a per-icon
+            -- override that differs from it fails the step compare and stays legacy,
+            -- one equal to it takes the bar's px like the other two paint paths.
+            local edgePx = EllesmereUI.BorderPx(barData.borderSizePx, borderSz, texKey)
             -- "Show Behind": set the border frame's level BEFORE styling so the
             -- textured backdrop inherits it. +13 = in front, level-1 = behind.
             if fd and fd.borderFrame then
                 fd.borderFrame:SetFrameLevel(barData.borderBehind and math.max(0, icon:GetFrameLevel() - 1) or (icon:GetFrameLevel() + 13))
             end
-            EllesmereUI.ApplyBorderStyle(bdrTarget, borderSz, brdR, brdG, brdB, brdA, texKey, barData.borderTextureOffset, barData.borderTextureOffsetY, barData.borderTextureShiftX, barData.borderTextureShiftY, "cdm", barData.borderThickness or "thin", true)
+            EllesmereUI.ApplyBorderStyle(bdrTarget, borderSz, brdR, brdG, brdB, brdA, texKey, barData.borderTextureOffset, barData.borderTextureOffsetY, barData.borderTextureShiftX, barData.borderTextureShiftY, "cdm", barData.borderThickness or "thin", true, edgePx)
         end
 
         -- Restore icon texture, filling the entire frame: PP.CreateBorder renders the border on top, so no inset is needed.
@@ -5148,13 +5182,19 @@ ApplyShapeToCDMIcon = function(icon, shape, barData, ssb)
                 local baseW = barData.iconSize or 36
                 extraCrop = (1 - 2 * zoom) / (2 * (baseW + 1))
             end
-            if shape == "cropped" then
+            if blizzArt then
+                -- Full art, as the viewer draws it (rounded by the viewer mask
+                -- under Blizzard Style, square under Classic WoW UI).
+                if tex.SetSnapToPixelGrid then tex:SetSnapToPixelGrid(true) end
+                tex:SetTexCoord(0, 1, 0, 1)
+            elseif shape == "cropped" then
                 -- Cropped applies a heavy vertical TexCoord crop. With default pixel/texel
                 -- snapping the cropped image edge can round to a different physical pixel than
                 -- the unsnapped cooldown swipe (1px swipe/icon split at some effective scales), so snapping is disabled to render the exact rect. No size change.
                 if tex.SetSnapToPixelGrid then tex:SetSnapToPixelGrid(false) end
                 if tex.SetTexelSnappingBias then tex:SetTexelSnappingBias(0) end
-                tex:SetTexCoord(zoom, 1 - zoom, zoom + 0.10 + extraCrop, 1 - zoom - 0.10 - extraCrop)
+                local trim = ns.CdmCropTrim(barData)
+                tex:SetTexCoord(zoom, 1 - zoom, zoom + trim + extraCrop, 1 - zoom - trim - extraCrop)
             else
                 -- Restore default grid snapping so an icon switched away from cropped stays crisp.
                 if tex.SetSnapToPixelGrid then tex:SetSnapToPixelGrid(true) end
@@ -5166,7 +5206,7 @@ ApplyShapeToCDMIcon = function(icon, shape, barData, ssb)
         if cd then
             cd:ClearAllPoints()
             cd:SetAllPoints(icon)
-            pcall(cd.SetSwipeTexture, cd, "Interface\\AddOns\\EllesmereUI\\media\\white-square.png")
+            pcall(cd.SetSwipeTexture, cd, ns.CdmSwipeFile())
             if cd.SetUseCircularEdge then pcall(cd.SetUseCircularEdge, cd, false) end
         end
 
@@ -5600,6 +5640,10 @@ local function RefreshCDMIconAppearance(barKey)
 
     local borderSize = barData.borderSize or 1
     local zoom = barData.iconZoom or 0.08
+    -- Blizzard Style: full art, no EUI border/background; the ring overlay and
+    -- rounded mask are (re)applied after the shape pass below.
+    local blizzArt = ns.CdmBlizzIcons()
+    if blizzArt then zoom = 0 end
 
     for _, icon in ipairs(icons) do
         local fd = _getFD(icon)
@@ -5862,12 +5906,15 @@ local function RefreshCDMIconAppearance(barKey)
         end
         -- Update border (PP or textured via ApplyBorderStyle)
         local bdrTgt = (fd and fd.borderFrame) or icon
-        if fd and fd.borderFrame or EllesmereUI.PP.GetBorders(icon) then
+        if blizzArt then
+            -- Blizzard Style: no EUI border or background (ring + mask instead).
+        elseif fd and fd.borderFrame or EllesmereUI.PP.GetBorders(icon) then
             local textureKey = barData.borderTexture or "solid"
-            EllesmereUI.ApplyBorderStyle(bdrTgt, borderSize, barData.borderR or 0, barData.borderG or 0, barData.borderB or 0, barData.borderA or 1, textureKey, barData.borderTextureOffset, barData.borderTextureOffsetY, barData.borderTextureShiftX, barData.borderTextureShiftY, "cdm", barData.borderThickness or "thin", true)
+            EllesmereUI.ApplyBorderStyle(bdrTgt, borderSize, barData.borderR or 0, barData.borderG or 0, barData.borderB or 0, barData.borderA or 1, textureKey, barData.borderTextureOffset, barData.borderTextureOffsetY, barData.borderTextureShiftX, barData.borderTextureShiftY, "cdm", barData.borderThickness or "thin", true,
+                EllesmereUI.BorderPx(barData.borderSizePx, borderSize, textureKey))
         end
         -- Update background
-        if bg then
+        if bg and not blizzArt then
             bg:SetColorTexture(barData.bgR or 0.08, barData.bgG or 0.08, barData.bgB or 0.08, barData.bgA or 0.6)
         end
         -- Style Blizzard's native stack/charge text elements: raise their sub-frames above our
@@ -5962,6 +6009,7 @@ local function RefreshCDMIconAppearance(barKey)
         -- settings so the buff-family Border override (size + color) applies on the authoritative border render, square or shaped.
         local shape = barData.iconShape or "none"
         ApplyShapeToCDMIcon(icon, shape, barData, ssb)
+        if blizzArt then ns.CdmApplyBlizzIconArt(icon) end
         -- A restyle just reset this icon's mask + border level out from under any live fake-active
         -- overlay (border size/shape change while the active window is open). Re-sync the overlay so it re-shapes and re-lifts the border above itself instead of waiting for the next trigger.
         if ns.FakeActive_OnIconRestyled then ns.FakeActive_OnIconRestyled(icon) end
@@ -6726,11 +6774,11 @@ local function FRSetFontSafe(fs, path, size, flags)
 end
 local function FRApplyFontShadow(fs)
     if not fs then return end
-    local useShadow = (EllesmereUI and EllesmereUI.GetFontUseShadow and EllesmereUI.GetFontUseShadow("cdm")) and true or false
+    local useShadow = (EllesmereUI.GetFontUseShadow("cdm")) and true or false
     -- Font is set by FRSetFontSafe before this call; capture and restore it so
     -- priming the shadow FontObject does not change the typeface.
     local _pf, _ps, _pfl = fs:GetFont()
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, useShadow) end
+    EllesmereUI.PrimeFontShadow(fs, useShadow)
     if _pf then fs:SetFont(_pf, _ps, _pfl) end
 end
 
@@ -6887,8 +6935,8 @@ local _HEALER_NO_KICK = {
 local function UpdateFocusKickContext()
     local _, instanceType = IsInInstance()
     local nowInDungeon = (instanceType == "party")
-    local specID = GetSpecializationInfo and GetSpecialization
-        and GetSpecialization() and GetSpecializationInfo(GetSpecialization())
+    local specIndex = C_SpecializationInfo.GetSpecialization()
+    local specID = specIndex > 0 and C_SpecializationInfo.GetSpecializationInfo(specIndex)
     local nowNoKick = specID and _HEALER_NO_KICK[specID] or false
     local changed = (nowInDungeon ~= _focusKickInDungeon) or (nowNoKick ~= _focusKickNoKick)
     _focusKickInDungeon = nowInDungeon
@@ -7149,8 +7197,7 @@ _CDMApplyVisibility = function()
             local shouldHide = false
 
             -- Multi-select/dragonriding path: non-nil owns the mode step (priority 3); the legacy single-mode chain below is untouched.
-            local visExt = EllesmereUI.EvalVisibilityExtended
-                and EllesmereUI.EvalVisibilityExtended(barData, "barVisibility", visState, EllesmereUI.VIS_CAPS_DEFAULT)
+            local visExt = EllesmereUI.EvalVisibilityExtended(barData, "barVisibility", visState, EllesmereUI.VIS_CAPS_DEFAULT)
 
             -- Priority 1: vehicle always hides
             if inVehicle then
@@ -7356,31 +7403,36 @@ local UpdateCDMKeybinds
 do
 
 -- Action bar slot -> binding name map, with the priority tier each source
--- feeds into _SetKeybind (lower wins). These bars have fixed slots and never
--- page, so they outrank every main-bar page: if a spell sits on both, the
--- dedicated bar's key is the one that always works.
+-- feeds into _SetKeybind (lower wins). Tiers ascend with bar number, so a
+-- spell bound on multiple bars shows the lowest-numbered bar's key -- the one
+-- most players expect.
 -- The main bar (ACTIONBUTTON1-12) is not listed here -- it needs per-page slot
 -- math and is scanned separately below.
 local _barBindingDefs = {
-    { prefix = "MULTIACTIONBAR1BUTTON", startSlot = 61,  tier = 1 },  -- bar 2 bottom left
-    { prefix = "MULTIACTIONBAR2BUTTON", startSlot = 49,  tier = 2 },  -- bar 3 bottom right
-    { prefix = "MULTIACTIONBAR3BUTTON", startSlot = 25,  tier = 3 },  -- bar 4 right
-    { prefix = "MULTIACTIONBAR4BUTTON", startSlot = 37,  tier = 4 },  -- bar 5 left
-    { prefix = "MULTIACTIONBAR5BUTTON", startSlot = 145, tier = 5 },  -- bar 6
-    { prefix = "MULTIACTIONBAR6BUTTON", startSlot = 157, tier = 6 },  -- bar 7
-    { prefix = "MULTIACTIONBAR7BUTTON", startSlot = 169, tier = 7 },  -- bar 8
+    { prefix = "MULTIACTIONBAR1BUTTON", startSlot = 61,  tier = 2 },  -- bar 2 bottom left
+    { prefix = "MULTIACTIONBAR2BUTTON", startSlot = 49,  tier = 3 },  -- bar 3 bottom right
+    { prefix = "MULTIACTIONBAR3BUTTON", startSlot = 25,  tier = 4 },  -- bar 4 right
+    { prefix = "MULTIACTIONBAR4BUTTON", startSlot = 37,  tier = 5 },  -- bar 5 left
+    { prefix = "MULTIACTIONBAR5BUTTON", startSlot = 145, tier = 6 },  -- bar 6
+    { prefix = "MULTIACTIONBAR6BUTTON", startSlot = 157, tier = 7 },  -- bar 7
+    { prefix = "MULTIACTIONBAR7BUTTON", startSlot = 169, tier = 8 },  -- bar 8
     -- EUI bars 9/10 have no native binding command: their keys are routed
     -- through the button with SetOverrideBindingClick against the custom
     -- commands declared in the Action Bars module's Bindings.xml. Because that
     -- route always reads the button's live "action" attr, resolve the slot from
     -- the button when it exists and only fall back to the base page slot when
     -- the Action Bars module is not loaded (handled where this def is consumed).
-    { prefix = "EUI_BAR9_BUTTON",       startSlot = 13,  tier = 8, eabButton = true },  -- bar 9  (action page 2)
-    { prefix = "EUI_BAR10_BUTTON",      startSlot = 109, tier = 9, eabButton = true },  -- bar 10 (action page 10)
+    { prefix = "EUI_BAR9_BUTTON",       startSlot = 13,  tier = 9,  eabButton = true },  -- bar 9  (action page 2)
+    { prefix = "EUI_BAR10_BUTTON",      startSlot = 109, tier = 10, eabButton = true },  -- bar 10 (action page 10)
 }
 
--- Main-bar tiers. Page 1 is the "home" state and outranks the form/stealth/
--- skyriding bonus pages.
+-- Main-bar tiers. Page 1 is bar 1 -- tier 1, ahead of every other bar (see
+-- above). Bonus pages (form/stealth/skyriding) rank last: they're situational,
+-- not an explicit per-bar assignment like the tiers above.
+-- RULING (2026-09-17): lowest bar number wins, deliberately over the earlier
+-- "dedicated bar first" order. Accepted cost: in stable mode a spell that sits
+-- on page 1 AND a dedicated bar labels page 1's key even while a bonus page is
+-- active, when only the dedicated bar's key would fire. Do not flip it back.
 --
 -- Pages 2-6 (manual paging, e.g. Shift+MouseWheel -- a stock WoW binding, not
 -- an EAB-specific feature) are deliberately NOT scanned. Unlike page 1 and the
@@ -7395,9 +7447,7 @@ local _barBindingDefs = {
 -- pages don't have this problem: multibars are explicit EAB bar assignments,
 -- and bonus pages are gated by real, meaningful game state (stealth/form/
 -- skyriding), not "whatever a stray scroll last revealed."
--- Tiers 8-9 are taken by EUI_BAR9_BUTTON/EUI_BAR10_BUTTON above (also
--- non-main-bar, so they outrank the main bar the same way).
-local _TIER_MAINBAR_HOME  = 10   -- page 1        -> slots 1-12
+local _TIER_MAINBAR_HOME  = 1    -- page 1        -> slots 1-12
 local _TIER_MAINBAR_BONUS = 11   -- pages 7-11    -> slots 73-132  (+ pg - 7)
 -- A macro-sourced bind is always outranked by a direct one, whatever the bar.
 local _RANK_MACRO_PENALTY = 100
@@ -7595,6 +7645,11 @@ local function _ResolveSlotBinding(slot, key, tier)
             -- Legacy took Blizzard's single answer as final. Stable mode falls
             -- through to the body scan, which is the whole point: that answer
             -- is state-dependent and hides the other branches.
+            if not _stableMode then return end
+        elseif subType == "item" and id then
+            -- Same contract, item side (e.g. "/use 13" trinket macros): `id`
+            -- is the actual itemID, straight from Blizzard, not the body scan.
+            _SetKeybind(-id, formatted, macroRank)
             if not _stableMode then return end
         end
         -- For everything else `id` from GetActionInfo is NOT a reliable
@@ -7973,6 +8028,14 @@ BuildAllCDMBars = function()
 
     -- Every full rebuild re-evaluates the FocusKick demand gate, so assigning the first kick spell (or removing the last) flips the feature family on/off live.
     if ns.RefreshFocusKickProxies then ns.RefreshFocusKickProxies() end
+
+    -- Match pads follow each bar's border settings: a bar whose pad changed is
+    -- re-pushed through its matches once, deferred (compare-only here).
+    if EllesmereUI.MatchPadChanged then
+        for _, bd in ipairs(p.cdmBars.bars) do
+            if bd.key then EllesmereUI.MatchPadChanged(ns._cdmUKey[bd.key]) end
+        end
+    end
 end
 
 -- Expose for options
@@ -8003,7 +8066,6 @@ ns.HideBlizzardCDM = HideBlizzardCDM
 --  For cosmetic-only changes (icon size, fonts, glows) call
 --  BuildAllCDMBars() directly.
 -------------------------------------------------------------------------------
-local _rebuildGen = 0
 
 -- Rewrite stored racial spell IDs on CD/utility bars to this character's active racial: a shared
 -- profile keeps whichever race's racial each character added, so collapse them to a single
@@ -8091,7 +8153,6 @@ function ns.NormalizeRacialAssignments()
 end
 
 function ns.FullCDMRebuild(reason)
-    _rebuildGen = _rebuildGen + 1
     ns._spellOrderDirty = true  -- force spell order cache rebuild
     -- Full-wipe reasons: clear per-frame caches and run a direct reanchor.
     -- Used for talent change and any path where spell IDs behind
@@ -8206,10 +8267,6 @@ function ns.FullCDMRebuild(reason)
     -- window (login/reload); this queued pass corrects them once the API is
     -- trustworthy again. No-ops instantly when no icon uses a ready-glow effect.
     if ns.QueueCDGlowResourceCheck then ns.QueueCDGlowResourceCheck() end
-end
-
-function ns.GetRebuildGen()
-    return _rebuildGen
 end
 
 -- Interactive Preview Helpers loaded from EllesmereUICdmSpellPicker.lua
@@ -9369,6 +9426,9 @@ RegisterCDMUnlockElements = function()
                 linkedKeys = linked,
                 noAnchorTarget = isDynamic,
                 noResize = isDynamic,
+                -- Outside reach of the bar's textured icon border for size matching
+                -- (nil for dynamic bars, stock looks, custom shapes, solid borders).
+                getMatchPad = function() return ns.CdmBarMatchPad(key) end,
                 isHidden = function()
                     -- If this bar key is no longer in the current profile's barDataByKey, it is a stale registration from a previous profile and should not get a mover.
                     return not barDataByKey[key]
@@ -9831,6 +9891,9 @@ end
 
 function ECME:OnCDMFirstLogin()
     self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+    -- WoW Forever starts every install from the base layout, never from a
+    -- snapshot of Blizzard's cooldown viewer (EllesmereUI_ForeverLayout.lua).
+    if EllesmereUI.IS_FOREVER then self.db.sv._capturedOnce_CDM = true end
     -- A profile import can stamp the capture flag mid-session (imported data is a chosen layout).
     -- Honor the stamp here so a still-pending capture never overwrites the imported profile; just finish the deferred setup.
     if not self.db.sv._capturedOnce_CDM then
@@ -9890,7 +9953,7 @@ function ECME:CDMFinishSetup()
                             local iconW = barData.iconSize or 36
                             local iconH = iconW
                             if (barData.iconShape or "none") == "cropped" then
-                                iconH = math.floor((barData.iconSize or 36) * 0.80 + 0.5)
+                                iconH = math.floor((barData.iconSize or 36) * ns.CdmCropFactor(barData) + 0.5)
                             end
                             local spacing = barData.spacing or 2
                             local grow = barData.growDirection or "CENTER"
@@ -9963,13 +10026,11 @@ function ECME:CDMFinishSetup()
         end)
     end
     -- SharedMedia sounds feed the options dropdowns; append regardless.
-    if EllesmereUI.AppendSharedMediaSounds then
-        EllesmereUI.AppendSharedMediaSounds(
-            FOCUSKICK_SOUND_PATHS,
-            FOCUSKICK_SOUND_NAMES,
-            FOCUSKICK_SOUND_ORDER
-        )
-    end
+    EllesmereUI.AppendSharedMediaSounds(
+        FOCUSKICK_SOUND_PATHS,
+        FOCUSKICK_SOUND_NAMES,
+        FOCUSKICK_SOUND_ORDER
+    )
 
     -- One-time vehicle/petbattle proxy. Drives _CDMApplyVisibility on state change so CDM bars hide while the vehicle UI or pet battle UI is active.
     if not _cdmVehicleProxy then
@@ -10095,7 +10156,7 @@ end
 local function _rotResolveColor(cfg)
     local mode = cfg and cfg.rotationAssistColorMode or "default"
     if mode == "class" then
-        local c = EllesmereUI.GetClassColor and EllesmereUI.GetClassColor(EllesmereUI._playerClass)
+        local c = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
         if c then return c.r, c.g, c.b end
     elseif mode == "custom" then
         return cfg.rotationAssistColorR or 1,
@@ -10548,6 +10609,7 @@ eventFrame:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED")
 -- covers. One debounced rebuild re-evaluates; fires rarely (login, and
 -- Blizzard-side data refreshes).
 eventFrame:RegisterEvent("COOLDOWN_VIEWER_DATA_LOADED")
+eventFrame:RegisterEvent("COOLDOWN_VIEWER_TABLE_HOTFIXED")
 -- Cinematic/cutscene end: Blizzard restores hidden frames, so re-hide ours
 eventFrame:RegisterEvent("CINEMATIC_STOP")
 eventFrame:RegisterEvent("STOP_MOVIE")
@@ -10559,6 +10621,10 @@ eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
 -- Resting: IsResting() has no dedicated poll, so without this the Resting
 -- axis only re-evaluated when some unrelated event above happened to fire.
 eventFrame:RegisterEvent("PLAYER_UPDATE_RESTING")
+-- Party Mode axis: no game event; the core fires its own edge.
+if EllesmereUI.RegisterVisEdge then
+    EllesmereUI.RegisterVisEdge(function() _CDMApplyVisibility() end)
+end
 -- Vehicle edges for the In Vehicle axis (player-filtered; same reasoning).
 eventFrame:RegisterUnitEvent("UNIT_ENTERED_VEHICLE", "player")
 eventFrame:RegisterUnitEvent("UNIT_EXITED_VEHICLE", "player")
@@ -10650,9 +10716,7 @@ local function ScheduleRosterRebuild()
     -- Roster changes (promote, join, leave) don't change spells or bar
     -- routing. Only party frame anchoring needs a refresh. A full
     -- BuildAllCDMBars was causing massive single-frame CPU spikes.
-    if EllesmereUI and EllesmereUI.InvalidateFrameCache then
-        EllesmereUI.InvalidateFrameCache()
-    end
+    EllesmereUI.InvalidateFrameCache()
     if InCombatLockdown() then
         _rosterRebuildPending = true
         return
@@ -10719,8 +10783,11 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         end)
         return
     end
-    if event == "COOLDOWN_VIEWER_DATA_LOADED" then
-        -- Native viewer data arrived (usually after login init): re-evaluate the
+    if event == "COOLDOWN_VIEWER_DATA_LOADED" or event == "COOLDOWN_VIEWER_TABLE_HOTFIXED" then
+        -- Native viewer data arrived (usually after login init), or a server
+        -- hotfix rewrote the cooldown tables mid-session (the viewer then
+        -- releases and re-acquires its whole item pool, which the CD/utility
+        -- hooks deliberately do not follow): re-evaluate the
         -- frames-as-truth injection decisions against the now-live frame set.
         -- Rides the same debounced rebuild as talent changes; the reanchor sweep
         -- hides any injected racial frame the native viewer now covers. The spell
@@ -10843,7 +10910,15 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         return
     end
     if event == "PLAYER_ENTERING_WORLD" then
-        _inCombat = InCombatLockdown and InCombatLockdown() or false
+        -- UnitAffectingCombat, not InCombatLockdown: the latter reads false in
+        -- the login window of a combat /reload, which seeded "out of combat"
+        -- for the rest of the pull (in-combat visibility modes and the OOC
+        -- fade then hid every bar). Secret in restricted content: fall back.
+        local c = UnitAffectingCombat and UnitAffectingCombat("player")
+        if c == nil or (issecretvalue and issecretvalue(c)) then
+            c = InCombatLockdown and InCombatLockdown() or false
+        end
+        _inCombat = c == true
         -- Re-read the gate (a profile may have loaded), then reconcile against
         -- the combat state sampled just above: the regen events never fire for
         -- a zone-in that lands mid-combat. At the very first world entry nothing
@@ -10892,9 +10967,7 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         ns.DisarmOverrideRanges()   -- the new spec's overrides re-arm on their own events
         -- Non-rebuild work only. The actual spec change rebuild is driven by SPELLS_CHANGED above
         -- (which fires for both manual and auto swaps). This handler just invalidates caches that need immediate clearing.
-        if EllesmereUI and EllesmereUI.InvalidateFrameCache then
-            EllesmereUI.InvalidateFrameCache()
-        end
+        EllesmereUI.InvalidateFrameCache()
     end
     RequestUpdate()
 end)
@@ -10907,9 +10980,7 @@ SLASH_ECME2 = "/cdmeffects"
 SLASH_ECME3 = "/ecdm"
 SlashCmdList.ECME = function(msg)
     if InCombatLockdown and InCombatLockdown() then return end
-    if EllesmereUI and EllesmereUI.ShowModule then
-        EllesmereUI:ShowModule("EllesmereUICooldownManager")
-    end
+    EllesmereUI:ShowModule("EllesmereUICooldownManager")
 end
 
 

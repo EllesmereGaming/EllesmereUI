@@ -7,25 +7,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 
 local BREZ_SPELL_ID = 20484  -- Rebirth -- canonical shared brez pool spell ID
 
-local SHAPE_MEDIA = "Interface\\AddOns\\EllesmereUI\\media\\portraits\\"
-local SHAPE_MASKS = {
-    circle   = SHAPE_MEDIA .. "circle_mask.tga",
-    csquare  = SHAPE_MEDIA .. "csquare_mask.tga",
-    diamond  = SHAPE_MEDIA .. "diamond_mask.tga",
-    hexagon  = SHAPE_MEDIA .. "hexagon_mask.tga",
-    portrait = SHAPE_MEDIA .. "portrait_mask.tga",
-    shield   = SHAPE_MEDIA .. "shield_mask.tga",
-    square   = SHAPE_MEDIA .. "square_mask.tga",
-}
-local SHAPE_BORDERS = {
-    circle   = SHAPE_MEDIA .. "circle_border.tga",
-    csquare  = SHAPE_MEDIA .. "csquare_border.tga",
-    diamond  = SHAPE_MEDIA .. "diamond_border.tga",
-    hexagon  = SHAPE_MEDIA .. "hexagon_border.tga",
-    portrait = SHAPE_MEDIA .. "portrait_border.tga",
-    shield   = SHAPE_MEDIA .. "shield_border.tga",
-    square   = SHAPE_MEDIA .. "square_border.tga",
-}
+local SHAPE_MASKS = EllesmereUI.SHAPE_MASKS
+local SHAPE_BORDERS = EllesmereUI.SHAPE_BORDERS
 
 -- Sits under EllesmereUIQoLDB.profile.battleRes so we don't clobber the
 -- existing cursor / QoL feature data that already lives in that SavedVariable.
@@ -47,6 +30,7 @@ local defaults = {
             countSize      = 11,
             countOffsetX   = 0,
             countOffsetY   = 0,
+            desaturateNoCharges = true,  -- grey the icon at 0 charges (icon display only)
             textSize       = 14,
             textCountColor = { r = 1, g = 1, b = 1 },
             textTimerColor = { r = 1, g = 1, b = 1 },
@@ -73,6 +57,7 @@ local defaults = {
             readyColor   = { r = 1, g = 1, b = 1 },
             readyOffsetX = 0,
             readyOffsetY = 0,
+            desaturateSated = true,  -- own key, independent of battleRes.desaturateNoCharges
         },
     },
 }
@@ -111,17 +96,17 @@ local function GetBrezFont()
         local path = EllesmereUI.ResolveFontName(key)
         if path then return path end
     end
-    return (EllesmereUI and EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT
+    return (EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT
 end
 
 local function GetBrezOutline()
     local p = P()
     local mode = (p and p.outlineMode) or "__global"
-    if mode == "outline" then return (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG" end
-    if mode == "thick" then return (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("THICKOUTLINE, SLUG")) or "THICKOUTLINE, SLUG" end
+    if mode == "outline" then return (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG" end
+    if mode == "thick" then return (EllesmereUI.SlugFlag("THICKOUTLINE, SLUG")) or "THICKOUTLINE, SLUG" end
     if mode == "none" then return "" end
-    return (EllesmereUI and EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("qol"))
-        or (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG"
+    return (EllesmereUI.GetFontOutlineFlag("qol"))
+        or (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG"
 end
 
 -- ONLY the text display ("2 | 4:14") routes through this; the icon's
@@ -131,9 +116,7 @@ end
 local function SetBrezFont(fs, size)
     if not fs then return end
     local flags = GetBrezOutline()
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then
-        EllesmereUI.PrimeFontShadow(fs, flags == "")
-    end
+    EllesmereUI.PrimeFontShadow(fs, flags == "")
     fs:SetFont(GetBrezFont(), size, flags)
 end
 
@@ -141,7 +124,7 @@ end
 -- outline (slug-gated), untouched by the Font / Font Outline settings.
 local function SetBrezIconFont(fs, size)
     if not fs then return end
-    fs:SetFont((EllesmereUI and EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, size, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
+    fs:SetFont((EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, size, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
 end
 
 -------------------------------------------------------------------------------
@@ -309,14 +292,11 @@ end
 --  Alternative to the icon, toggled via displayMode; shares the same frame,
 --  position, visibility, and unlock element.
 -------------------------------------------------------------------------------
-local _cntPfx, _timPfx = "|cffffffff", "|cffffffff"
+local _cntPfx, _timPfx = EllesmereUI.COLOR_CODES.WHITE, EllesmereUI.COLOR_CODES.WHITE
 local _txtCount, _txtTime, _txtZero
 
 local function _colorPrefix(c)
-    local r = math.floor(((c and c.r) or 1) * 255 + 0.5)
-    local g = math.floor(((c and c.g) or 1) * 255 + 0.5)
-    local b = math.floor(((c and c.b) or 1) * 255 + 0.5)
-    return string.format("|cff%02x%02x%02x", r, g, b)
+    return EllesmereUI.HexColor((c and c.r) or 1, (c and c.g) or 1, (c and c.b) or 1)
 end
 
 -- Compose the line only when a part actually changed (once per second while
@@ -403,6 +383,10 @@ local _state = {
     inChallenge     = false,
 }
 
+-- Keystone/encounter state writers, shared with the Bloodlust tracker through
+-- ns (this file loads first). Each icon passes its own state table.
+local ns = select(2, ...)
+
 local function _activeKeystoneLevel()
     -- IsChallengeModeActive only returns true when the timer is running,
     -- not just from having a keystone in bags inside a dungeon.
@@ -415,6 +399,54 @@ local function _activeKeystoneLevel()
         return (lvl and lvl > 0) and lvl or nil
     end
     return nil
+end
+
+-- Re-read encounter and keystone state directly (zone-in, or events re-registered).
+function ns.RefreshInstanceState(st)
+    st.inEncounter = IsEncounterInProgress() or false
+    if st.inEncounter then
+        local _, instanceType = GetInstanceInfo()
+        st.encounterIsRaid = (instanceType == "raid")
+    else
+        st.encounterIsRaid = false
+    end
+    st.inChallenge = _activeKeystoneLevel() ~= nil
+end
+
+-- Mirrors EllesmereUIMythicTimer's keystone events plus ENCOUNTER_START/END
+-- for raid bosses. Other events are ignored.
+function ns.ApplyInstanceEvent(st, event)
+    if event == "ENCOUNTER_START" then
+        st.inEncounter = true
+        local _, instanceType = GetInstanceInfo()
+        st.encounterIsRaid = (instanceType == "raid")
+    elseif event == "ENCOUNTER_END" then
+        st.inEncounter = false
+        st.encounterIsRaid = false
+    elseif event == "CHALLENGE_MODE_START" or event == "WORLD_STATE_TIMER_START" then
+        st.inChallenge = _activeKeystoneLevel() ~= nil
+    elseif event == "CHALLENGE_MODE_COMPLETED"
+        or event == "CHALLENGE_MODE_RESET"
+        or event == "WORLD_STATE_TIMER_STOP" then
+        st.inChallenge = false
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        ns.RefreshInstanceState(st)
+    end
+end
+
+-- Unlock-mode loadPos/clearPos for an icon whose slice (P()) stores pos as a center offset.
+function ns.CenterPosFns(P)
+    local function loadPos()
+        local p = P()
+        if p and p.pos then
+            return { point = "CENTER", relPoint = "CENTER", x = p.pos.centerX, y = p.pos.centerY }
+        end
+        return nil
+    end
+    local function clearPos()
+        local p = P(); if p then p.pos = nil end
+    end
+    return loadPos, clearPos
 end
 
 local function ShouldShow()
@@ -450,8 +482,8 @@ local function FormatTime(s)
     return string.format("%d:%02d", m, sec)
 end
 -- Shared with the Bloodlust tracker (identical display contract; this file
--- loads first). select() form: this file never binds the vararg table.
-select(2, ...).FormatTime = FormatTime
+-- loads first).
+ns.FormatTime = FormatTime
 
 local _lastCountText, _lastDurText, _lastCountColor
 local function _setCount(s, isZero)
@@ -470,6 +502,14 @@ local function _setDur(s)
     if s ~= _lastDurText then
         durationFS:SetText(s)
         _lastDurText = s
+    end
+end
+local _lastDesat = false
+local function _setDesat(want)
+    want = want and true or false
+    if want ~= _lastDesat then
+        iconTex:SetDesaturated(want)
+        _lastDesat = want
     end
 end
 
@@ -493,6 +533,7 @@ local function _showPreviewCharges()
     end
     _setCount("2", false)
     _setDur(timeText)
+    _setDesat(false)
 end
 
 local function PollCharges()
@@ -504,7 +545,7 @@ local function PollCharges()
         if textMode then
             _setTextDisplay("", "", false)
         else
-            _setCount("", false); _setDur("")
+            _setCount("", false); _setDur(""); _setDesat(false)
         end
         return
     end
@@ -524,6 +565,8 @@ local function PollCharges()
 
     _setCount(tostring(charges), charges <= 0)
     _setDur(timeText)
+    local p = P()
+    _setDesat(p and p.desaturateNoCharges ~= false and charges <= 0)
     if cooldownFrame then
         if recharging then
             cooldownFrame:SetCooldown(start, dur)
@@ -647,42 +690,11 @@ end
 _G._EUI_BattleRes_Apply = Apply
 
 -------------------------------------------------------------------------------
---  Event handler -- mirrors EllesmereUIMythicTimer's keystone events plus
---  ENCOUNTER_START/END (BigWigs's pattern for raid bosses).
+--  Event handler (state writes live in ns.ApplyInstanceEvent above)
 -------------------------------------------------------------------------------
 local _eventFrame
-local function _refreshKeystoneState()
-    _state.inChallenge = _activeKeystoneLevel() ~= nil
-end
-
-local function _refreshEncounterState()
-    _state.inEncounter = IsEncounterInProgress() or false
-    if _state.inEncounter then
-        local _, instanceType = GetInstanceInfo()
-        _state.encounterIsRaid = (instanceType == "raid")
-    else
-        _state.encounterIsRaid = false
-    end
-end
-
-local function OnEvent(_, event, encounterID, encounterName, difficultyID, groupSize, success)
-    if event == "ENCOUNTER_START" then
-        _state.inEncounter = true
-        local _, instanceType = GetInstanceInfo()
-        _state.encounterIsRaid = (instanceType == "raid")
-    elseif event == "ENCOUNTER_END" then
-        _state.inEncounter = false
-        _state.encounterIsRaid = false
-    elseif event == "CHALLENGE_MODE_START" or event == "WORLD_STATE_TIMER_START" then
-        _refreshKeystoneState()
-    elseif event == "CHALLENGE_MODE_COMPLETED"
-        or event == "CHALLENGE_MODE_RESET"
-        or event == "WORLD_STATE_TIMER_STOP" then
-        _state.inChallenge = false
-    elseif event == "PLAYER_ENTERING_WORLD" then
-        _refreshEncounterState()
-        _refreshKeystoneState()
-    end
+local function OnEvent(_, event)
+    ns.ApplyInstanceEvent(_state, event)
     UpdateVisibility()
 end
 
@@ -710,8 +722,7 @@ _syncEventRegistration = function()
         _eventFrame:RegisterEvent("WORLD_STATE_TIMER_START")
         _eventFrame:RegisterEvent("WORLD_STATE_TIMER_STOP")
         _eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-        _refreshEncounterState()
-        _refreshKeystoneState()
+        ns.RefreshInstanceState(_state)
     else
         if _eventFrame then _eventFrame:UnregisterAllEvents() end
     end
@@ -724,6 +735,7 @@ local function RegisterUnlock()
     if not EllesmereUI or not EllesmereUI.RegisterUnlockElements then return end
     local MK = EllesmereUI.MakeUnlockElement
     if not MK then return end
+    local loadPos, clearPos = ns.CenterPosFns(P)
 
     EllesmereUI:RegisterUnlockElements({
         MK({
@@ -794,16 +806,8 @@ local function RegisterUnlock()
                     p.pos = { centerX = x, centerY = y }
                 end
             end,
-            loadPos = function()
-                local p = P()
-                if p and p.pos then
-                    return { point = "CENTER", relPoint = "CENTER", x = p.pos.centerX, y = p.pos.centerY }
-                end
-                return nil
-            end,
-            clearPos = function()
-                local p = P(); if p then p.pos = nil end
-            end,
+            loadPos = loadPos,
+            clearPos = clearPos,
             applyPos = function()
                 ApplyPosition()
             end,

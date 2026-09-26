@@ -78,7 +78,7 @@ local WINDOW_ENABLE_KEYS = {
 --- PRESERVED while killed. Skins install at load, so crossings need a reload
 --- (callers show the popup). Queue Popup, Pause Menu, and Dragon Riding are not windows and stay untouched.
 function EllesmereUI.BlizzWindowSkinsKilled()
-    local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+    local prof = EllesmereUI.GetActiveProfileData()
     return (prof and prof.disableWindowSkins) and true or false
 end
 
@@ -137,13 +137,84 @@ do
             end
         end
     end
+    -- The font look record a whole-UI style switch writes beside the window
+    -- swap (fonts._styleSlots.active); the active profile's lives in the live
+    -- font store, every other profile's in its own snapshot.
+    local function FontLookOf(db, name, prof)
+        local fonts = (name == (db.activeProfile or "Default")) and db.fonts or prof.fonts
+        local fs = type(fonts) == "table" and fonts._styleSlots
+        local look = type(fs) == "table" and fs.active
+        if look == "eui" or look == "blizzard" or look == "classic" then return look end
+        return nil
+    end
+
+    -- The Character Sheet style lives on each profile's root. Style flags
+    -- found on the ACCOUNT root (older builds kept them there, and an older
+    -- export string's Window Skins bundle can still write them) are handed
+    -- to every profile whose whole-UI look (the font look record, written
+    -- by the same switch) is that style -- the switch that set it -- or, when
+    -- no profile matches (the row was set on its own), to the active
+    -- profile; the root flags are then cleared.
+    local function AdoptLegacyCharSheetStyle(db)
+        if db.charSheetUseClassicStyle == nil and db.charSheetUseBlizzardStyle == nil then return end
+        local legacy = (db.charSheetUseClassicStyle and "classic")
+            or (db.charSheetUseBlizzardStyle and "blizzard") or nil
+        db.charSheetUseClassicStyle, db.charSheetUseBlizzardStyle = nil, nil
+        local profiles = db.profiles
+        if not legacy or type(profiles) ~= "table" then return end
+        local function Give(p)
+            p.charSheetUseBlizzardStyle = (legacy == "blizzard") or nil
+            p.charSheetUseClassicStyle  = (legacy == "classic") or nil
+        end
+        local matched = false
+        for name, p in pairs(profiles) do
+            if type(p) == "table" and FontLookOf(db, name, p) == legacy then
+                Give(p)
+                matched = true
+            end
+        end
+        if not matched then
+            local p = profiles[db.activeProfile or "Default"]
+            if type(p) == "table" then Give(p) end
+        end
+    end
+
+    -- Once per account: windows on a stock look with NO profile recording a
+    -- look (no windowSkinLook, no font look record -- a glyph-fallback locale
+    -- never writes the latter) -- the active profile adopts the look its
+    -- windows are on, so nothing moves.
+    local function AdoptLegacyWindowLook(db)
+        if db.windowLookPerProfile then return end
+        db.windowLookPerProfile = true
+        local slots = db.windowSkinStyleSlots
+        local live = type(slots) == "table" and slots.active
+        if not live or live == "eui" or type(db.profiles) ~= "table" then return end
+        for name, p in pairs(db.profiles) do
+            if type(p) == "table" and (p.windowSkinLook or FontLookOf(db, name, p)) then return end
+        end
+        local p = db.profiles[db.activeProfile or "Default"]
+        if type(p) == "table" then p.windowSkinLook = live end
+    end
+
     local seedFrame = CreateFrame("Frame")
     seedFrame:RegisterEvent("ADDON_LOADED")
-    seedFrame:SetScript("OnEvent", function(self, _, name)
+    -- Registered here, first among this addon's frames, so the login pass
+    -- runs after the spec profile pre-seed and before any window skin or
+    -- character sheet reads its settings.
+    seedFrame:RegisterEvent("PLAYER_LOGIN")
+    seedFrame:SetScript("OnEvent", function(self, event, name)
+        if event == "PLAYER_LOGIN" then
+            self:UnregisterEvent("PLAYER_LOGIN")
+            EllesmereUI.ReconcileWindowSkinLook()
+            return
+        end
         if name ~= ADDON_NAME then return end
         self:UnregisterEvent("ADDON_LOADED")
         if not EllesmereUIDB then EllesmereUIDB = {} end
         for _, batch in ipairs(BATCHES) do SeedBatch(batch.marker, batch.keys) end
+        AdoptLegacyCharSheetStyle(EllesmereUIDB)
+        AdoptLegacyWindowLook(EllesmereUIDB)
+        EllesmereUI.ReconcileWindowSkinLook()
     end)
 end
 
@@ -168,10 +239,24 @@ end
 --- the SkinAPI dispatcher (reload-bound there), so live refreshes only ever swap between the two themes.
 function EllesmereUI.GetThirdPartySkinStyle()
     local eui, modern = 0, 0
-    for winKey in pairs(WINDOW_ENABLE_KEYS) do
-        local s = EllesmereUI.GetBlizzWindowStyle(winKey)
-        if s == "modern" then modern = modern + 1
-        elseif s == "eui" then eui = eui + 1 end
+    local styles = EllesmereUIDB and EllesmereUIDB.blizzWindowSkinStyles
+    -- Under a stock look (windowSkinStyleSlots.active) a window still votes
+    -- as it stands in the EllesmereUI look's slot, so switching the whole UI
+    -- leaves the vote where it was.
+    local slots = EllesmereUIDB and EllesmereUIDB.windowSkinStyleSlots
+    local euiSlot = type(slots) == "table" and slots.active and slots.active ~= "eui"
+        and type(slots.eui) == "table" and slots.eui or nil
+    local killed = EllesmereUI.BlizzWindowSkinsKilled()
+    for winKey, ek in pairs(WINDOW_ENABLE_KEYS) do
+        -- The inspect sheet renders in the character sheet's style: one vote.
+        if winKey ~= "inspect" then
+            local s = EllesmereUI.GetBlizzWindowStyle(winKey)
+            if s == "off" and not killed and euiSlot and euiSlot[ek] ~= false then
+                s = (styles and styles[winKey] == "modern") and "modern" or "eui"
+            end
+            if s == "modern" then modern = modern + 1
+            elseif s == "eui" then eui = eui + 1 end
+        end
     end
     return (modern > eui) and "modern" or "eui"
 end
@@ -183,6 +268,104 @@ function EllesmereUI.DisableAllBlizzWindowSkins()
     for _, ek in pairs(WINDOW_ENABLE_KEYS) do
         EllesmereUIDB[ek] = false
     end
+end
+
+-- A style chosen for the whole UI (the first-install picker, the Style page's
+-- Apply to All) swaps the window skins through per-style slots:
+-- EllesmereUIDB.windowSkinStyleSlots = { active = the look whose windows are
+-- live, eui/blizzard/classic = that look's enable keys }. Leaving a look saves
+-- its windows into its slot; entering one loads its slot, so each look comes
+-- back as it was left, per-window picks included. First visit: a stock look
+-- (Blizzard Style, Classic WoW UI) keeps Blizzard's own windows, every one at
+-- Blizz Default; the EllesmereUI look puts every one back to its default
+-- (on). The character sheet (and the inspect sheet riding its card) stays out
+-- of the slots: its Style row owns it. The Friends List window rides them
+-- whatever the Friends module's state (its pack stands down by itself under a
+-- stock Friends style), so a key saved in one swap is always loaded back in
+-- the next. A slot holds on/off booleans; a window a slot never recorded (one
+-- added later) takes the look's first-visit value. Styles
+-- (blizzWindowSkinStyles) are never touched, so a window turned back on keeps
+-- its skin. A one-way seed record from before the slots
+-- (windowSkinsStockSeeded) converts on the first swap: its windows were on
+-- under the EllesmereUI look, and legacyStock names the look it belongs to.
+-- dryRun: only report whether the whole UI's window look would change.
+local function WindowInSlots(winKey)
+    return winKey ~= "charsheet" and winKey ~= "inspect"
+end
+function EllesmereUI.SwapWindowSkinStyle(to, dryRun, legacyStock)
+    if not EllesmereUIDB then EllesmereUIDB = {} end
+    local slots = EllesmereUIDB.windowSkinStyleSlots
+    if type(slots) ~= "table" then slots = nil end
+    local rec = EllesmereUIDB.windowSkinsStockSeeded
+    local from = (slots and slots.active)
+        or (type(rec) == "table" and (legacyStock or "blizzard")) or "eui"
+    if from == to then return false end
+    if dryRun then return true end
+    if not slots then
+        slots = {}
+        if type(rec) == "table" then
+            local eui = {}
+            for winKey, ek in pairs(WINDOW_ENABLE_KEYS) do
+                if WindowInSlots(winKey) then
+                    eui[ek] = rec[winKey] and true or (EllesmereUIDB[ek] ~= false)
+                end
+            end
+            slots.eui = eui
+        end
+        EllesmereUIDB.windowSkinStyleSlots = slots
+    end
+    EllesmereUIDB.windowSkinsStockSeeded = nil
+    local out = {}
+    for winKey, ek in pairs(WINDOW_ENABLE_KEYS) do
+        if WindowInSlots(winKey) then out[ek] = EllesmereUIDB[ek] ~= false end
+    end
+    slots[from] = out
+    local saved = slots[to]
+    if type(saved) ~= "table" then saved = nil end
+    for winKey, ek in pairs(WINDOW_ENABLE_KEYS) do
+        if WindowInSlots(winKey) then
+            local v = saved and saved[ek]
+            if v == nil then v = (to == "eui") end
+            -- On = nil (the install default), off = false. An explicit
+            -- branch: `x and false or nil` can only ever yield nil.
+            if v then EllesmereUIDB[ek] = nil else EllesmereUIDB[ek] = false end
+        end
+    end
+    slots.active = to
+    return true
+end
+
+-- The whole-UI window look belongs to a PROFILE: the look the whole-UI
+-- switch last gave it (profile-root windowSkinLook; a profile from before
+-- that key falls back to its font look record, written by the same switch).
+-- A profile no whole-UI switch ever touched is on the EllesmereUI look --
+-- once the account's windows have been switched at all; before that there
+-- is nothing to follow (nil). liveFonts: the live font store, for the
+-- active profile (its own snapshot is stale until the next switch).
+function EllesmereUI.ProfileWindowSkinLook(prof, liveFonts)
+    if type(prof) ~= "table" then return nil end
+    local look = prof.windowSkinLook
+    if look == "eui" or look == "blizzard" or look == "classic" then return look end
+    local fonts = liveFonts or prof.fonts
+    local fs = type(fonts) == "table" and fonts._styleSlots
+    look = type(fs) == "table" and fs.active
+    if look == "eui" or look == "blizzard" or look == "classic" then return look end
+    if EllesmereUIDB and type(EllesmereUIDB.windowSkinStyleSlots) == "table" then return "eui" end
+    return nil
+end
+
+-- Swap the account-wide window skins to the active profile's look (a no-op
+-- when they are on it already). Runs at this addon's load, at login after the
+-- spec profile pre-seed, and on every profile switch (RepointAllDBs), so each
+-- profile keeps its own window look and a per-window pick always banks into
+-- the look it was made under. Skins install at load: a switch that changes
+-- the look offers the reload (ProfileChangesWindowSkins).
+function EllesmereUI.ReconcileWindowSkinLook()
+    local db = EllesmereUIDB
+    if type(db) ~= "table" then return end
+    local prof = EllesmereUI.GetActiveProfileData()
+    local look = EllesmereUI.ProfileWindowSkinLook(prof, db.fonts)
+    if look then EllesmereUI.SwapWindowSkinStyle(look, false, look ~= "eui" and look or nil) end
 end
 
 -------------------------------------------------------------------------------
@@ -254,10 +437,13 @@ end
         -- glow overlay sits at +5 on the same buttons and a tie goes to the later-created sibling, so the border must never bury it.
         data.configBorder:SetFrameLevel(db[prefix .. "BorderBehind"]
             and math.max(0, ownerLevel - 1) or (ownerLevel + 4))
+        local tex = db[prefix .. "BorderTexture"] or "solid"
+        -- Exact Border Size (the <prefix>BorderThicknessPx companion); nil = the legacy step above, unchanged.
+        local px = EllesmereUI.BorderPx(db[prefix .. "BorderThicknessPx"], size, tex)
         EllesmereUI.ApplyBorderStyle(data.configBorder, size, color.r, color.g, color.b, alpha,
-            db[prefix .. "BorderTexture"] or "solid", db[prefix .. "BorderOffsetX"],
+            tex, db[prefix .. "BorderOffsetX"],
             db[prefix .. "BorderOffsetY"], db[prefix .. "BorderShiftX"], db[prefix .. "BorderShiftY"],
-            "blizzardSkin", key)
+            "blizzardSkin", key, nil, px)
     end
     EllesmereUI._applyBlizzardConfiguredBorder = _applyConfiguredBorder
 
@@ -311,8 +497,8 @@ end
 
     local function _ttFonts(tt, startFrom)
         if not tt or tt:IsForbidden() or not _enabled() then return end
-        local fp = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
-        local ol = EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("blizzardSkin") or ""
+        local fp = EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
+        local ol = EllesmereUI.GetFontOutlineFlag("blizzardSkin") or ""
         local scale = EllesmereUIDB and EllesmereUIDB.tooltipFontScale or 1.0
         local titleSize = math.floor(13 * scale + 0.5)
         local bodySize  = math.floor(11 * scale + 0.5)
@@ -357,14 +543,35 @@ end
         return _elementColorMode() ~= "native"
     end
 
-    -- Unified inspect system: one NotifyInspect per GUID, one INSPECT_READY handler that feeds both tooltip ilvl cache and inspect sheet reskin.
+    -- Unified inspect system: while Show Item Level is active, one INSPECT_READY handler fills the tooltip ilvl cache from every inspect, whoever requested it; the tooltip's own requests are paced below.
     local _ilvlCache = {}       -- guid -> { ilvl = number, time = GetTime() }
     local _ilvlCacheTTL = 120
     -- Mount-name cache: short TTL, just enough to survive one hover's refresh ticks so an unmounted player is scanned once, not per tick. name=false means "scanned, none".
     local _mountCache = {}      -- guid -> { name = string|false, collected = bool|nil, time = GetTime() }
     local _mountCacheTTL = 3
     local _inspectPendingGUID = nil
-    local _userInspectUntil = 0
+    -- Inspect request pacing, one table so this chunk gains a single local. The server
+    -- silently drops requests that arrive in a burst, and a dropped one yields no
+    -- INSPECT_READY, so Blizzard's inspect window (which only opens on a matching one)
+    -- stays shut. Hovering across raid frames used to fire one request per frame.
+    -- Timings are tuned from one in-game log; the server's real limits are undocumented.
+    local _insp = {
+        active = false,         -- Show Item Level live: event registered, hooks doing work
+        pruneAt = 0,            -- next time expired _ilvlCache entries are swept
+        lastAny = 0,            -- last NotifyInspect from ANY source (ours, Blizzard, other addons)
+        lastForeign = 0,        -- last NotifyInspect that was not ours
+        prevForeign = 0,        -- lastForeign before the latest foreign call
+        ourAt = -1,             -- GetTime() of our own last call; same frame in the hook = ours
+        pendingAt = 0,          -- when our outstanding tooltip request went out
+        dwellGUID = nil,        -- latest guid the tooltip wants inspected
+        dwellAt = 0,            -- when that guid was first requested
+        dwellArmed = false,     -- one dwell timer at a time
+        MIN_GAP = 2,            -- seconds a tooltip request keeps clear of the previous one, whoever sent it
+        DWELL = 0.9,            -- cursor must rest on the same unit this long before we ask; long enough that a
+                                -- quick hover-then-Inspect never puts our request right before Blizzard's
+        FOREIGN_WINDOW = 10,    -- another addon polling this recently: stay passive, use its data
+        PENDING_TTL = 5,        -- our own request counts as lost after this, so a retry is allowed
+    }
     -- GUID the visible GameTooltip was last populated for (set by the Unit post-call, cleared on hide); lets the async inspect handler confirm identity before touching it.
     local _tipShownGUID = nil
     -- True when any left line already shows label, so an appended score/ilvl line never duplicates one another Unit post-call produced. Matches label as a plain (non-pattern) substring, so "+" is literal.
@@ -429,21 +636,51 @@ end
         end
         return nil
     end
-    hooksecurefunc("InspectUnit", function()
-        _userInspectUntil = GetTime() + 2
-    end)
-    local _inspectFrame = CreateFrame("Frame")
-    _inspectFrame:SetScript("OnEvent", function(self, _, guid)
-        self:UnregisterEvent("INSPECT_READY")
-        _inspectPendingGUID = nil
+    -- InspectFrame_Show's NotifyInspect ran just before this post-hook, in the same frame,
+    -- and was counted as foreign. It is the user's own inspect, not another addon
+    -- polling, so it must not switch the tooltip to passive mode.
+    local function _onInspectUnit()
+        if _insp.active and _insp.lastForeign == GetTime() then
+            _insp.lastForeign = _insp.prevForeign
+        end
+    end
+    -- Caches every INSPECT_READY, including the ones other addons asked for, which is
+    -- what lets the tooltip stay passive while such an addon polls the group.
+    local _inspectFrame
+    local function _onInspectReady(self, _, guid)
+        -- Option turned off this session: stop listening; the next unit tooltip with it
+        -- on re-activates. Same test as the tooltip pass, so the two never flip-flop
+        -- (the reskin master only takes effect on /reload, when nothing is activated).
+        if EllesmereUIDB and EllesmereUIDB.tooltipItemLevel == false then
+            self:UnregisterEvent("INSPECT_READY")
+            _insp.active = false
+            return
+        end
         if not guid or (_isSecret and _isSecret(guid)) then return end
+        if guid == _inspectPendingGUID then _inspectPendingGUID = nil end
         -- Read item level through a token derived from THAT GUID, so it is captured even after the cursor left the unit and cached under the right GUID.
         if C_PaperDollInfo and C_PaperDollInfo.GetInspectItemLevel and _G.UnitTokenFromGUID then
             local u = _G.UnitTokenFromGUID(guid)
             if u and not (_isSecret and _isSecret(u)) and UnitExists(u) then
                 local val = C_PaperDollInfo.GetInspectItemLevel(u)
                 if val and not (_isSecret and _isSecret(val)) and val > 0 then
-                    _ilvlCache[guid] = { ilvl = math.floor(val), time = GetTime() }
+                    -- One request fires a burst of 10+ events; update in place instead of allocating per event.
+                    local entry = _ilvlCache[guid]
+                    local now = GetTime()
+                    if entry then
+                        entry.ilvl = math.floor(val)
+                        entry.time = now
+                    else
+                        -- Every inspect source feeds the cache now, so sweep expired
+                        -- entries at most once per TTL, only when a new one is added.
+                        if now >= _insp.pruneAt then
+                            _insp.pruneAt = now + _ilvlCacheTTL
+                            for g, e in pairs(_ilvlCache) do
+                                if (now - e.time) >= _ilvlCacheTTL then _ilvlCache[g] = nil end
+                            end
+                        end
+                        _ilvlCache[guid] = { ilvl = math.floor(val), time = now }
+                    end
                 end
             end
         end
@@ -452,16 +689,46 @@ end
         local ttd = GetFFD(_GameTooltip)
         if cached and _GameTooltip:IsShown() and _tipShownGUID == guid
             and not ttd.ilvlShown
-            and EllesmereUIDB and EllesmereUIDB.tooltipItemLevel ~= false
             and not _tipHasLine(_GameTooltip, EllesmereUI.L("Item Level")) then
             local nBefore = _GameTooltip:NumLines() or 0
             _GameTooltip:AddDoubleLine(EllesmereUI.L("Item Level:"), cached.ilvl, 1, 1, 1, 1, 1, 1)
             _ttFonts(_GameTooltip, nBefore + 1)
-            _GameTooltip:Show()
+            -- Runs for every source's result, also in combat; pcall'd like the re-Show in
+            -- _ttOnShow, since a tainted re-Show can be denied as forbidden access.
+            pcall(_GameTooltip.Show, _GameTooltip)
             ttd.ilvlShown = true
         end
-    end)
-    -- Shared with the inspect sheet.
+    end
+    -- Built and registered only while Show Item Level is on (from _ttInitData at login,
+    -- or from the first unit tooltip after it is turned back on), so with it or the
+    -- tooltip reskin off after a /reload nothing is registered, hooked or created.
+    -- hooksecurefunc cannot be undone: after a mid-session toggle-off the hook returns
+    -- at once. Passive mode starts only once another addon's request is actually seen;
+    -- the first request just waits MIN_GAP, so it cannot land inside that polling.
+    _insp.Activate = function()
+        if _insp.active then return end
+        _insp.active = true
+        _insp.lastAny = GetTime()
+        if not _inspectFrame then
+            _inspectFrame = CreateFrame("Frame")
+            _inspectFrame:SetScript("OnEvent", _onInspectReady)
+            -- Every inspect request passes here, whoever sent it. A call is ours when it
+            -- happens in the frame we stamped (GetTime() is fixed per frame), so a call
+            -- that raised can never leave a stuck "ours" flag behind.
+            hooksecurefunc("NotifyInspect", function()
+                if not _insp.active then return end
+                local t = GetTime()
+                _insp.lastAny = t
+                if _insp.ourAt ~= t then
+                    _insp.prevForeign = _insp.lastForeign
+                    _insp.lastForeign = t
+                end
+            end)
+            if InspectUnit then hooksecurefunc("InspectUnit", _onInspectUnit) end
+        end
+        _inspectFrame:RegisterEvent("INSPECT_READY")
+    end
+    -- Exposed on EllesmereUI; nothing outside this file reads it today.
     EllesmereUI._inspectCache = _ilvlCache
 
     -- Re-derive a CLEAN literal group unit token for a GUID by matching it against
@@ -485,6 +752,104 @@ end
             end
         end
         return nil
+    end
+
+    -- Hard blocks for a tooltip request, checked before the dwell and again in it: the
+    -- inspect window is open or waiting on this player, the talent frame is inspecting
+    -- someone (ClearInspectPlayer would retarget it), or another addon is polling
+    -- (passive mode). Timed hold-offs are not blocks; _dwellTick waits them out.
+    local function _inspBlocked(guid, now)
+        local psf = PlayerSpellsFrame
+        if psf and psf.IsInspecting and psf:IsInspecting() then return true end
+        if (now - _insp.lastForeign) < _insp.FOREIGN_WINDOW then return true end
+        local f = InspectFrame
+        if f then
+            if f:IsShown() then return true end
+            -- Blizzard keeps .unit on a window that never opened and shows it on any
+            -- later matching INSPECT_READY, so never ask for that person ourselves.
+            local u = f.unit
+            if u and not (_isSecret and _isSecret(u)) then
+                local g = UnitGUID(u)
+                if g and not (_isSecret and _isSecret(g)) and g == guid then return true end
+            end
+        end
+        return false
+    end
+    -- Tooltip-side inspect request, paced. It never fires straight out of the tooltip
+    -- pass: a dwell timer runs first, so sweeping the cursor across raid frames costs
+    -- one request instead of one per frame. It then yields to the shared request
+    -- budget, and stays silent entirely while another addon is polling the group --
+    -- the INSPECT_READY handler caches whatever that addon asked for, so in a raid
+    -- with such an addon running the tooltip contributes no requests at all.
+    -- The price is that an uncached player's item level appears a moment later.
+    -- One named timer function, rescheduled while needed, so no closure per hover.
+    local function _dwellTick()
+        _insp.dwellArmed = false
+        local guid = _insp.dwellGUID
+        if not guid then return end
+        local db = EllesmereUIDB
+        -- Cursor moved on, option turned off, or combat started: drop it; the next tooltip pass re-arms.
+        if _tipShownGUID ~= guid or not _GameTooltip:IsShown()
+            or not (db and db.tooltipItemLevel ~= false) or InCombatLockdown() then
+            _insp.dwellGUID = nil
+            return
+        end
+        local now = GetTime()
+        local cached = _ilvlCache[guid]
+        if cached and (now - cached.time) < _ilvlCacheTTL then
+            _insp.dwellGUID = nil
+            return
+        end
+        if _inspBlocked(guid, now) then
+            _insp.dwellGUID = nil
+            return
+        end
+        -- Timing gates only postpone: wait for the dwell, the gap after anyone's last
+        -- request (the user's own Inspect included), and our outstanding request's expiry.
+        -- Raid frames never refresh their tooltip, so a dropped hover would stay blank.
+        local readyAt = math.max(_insp.dwellAt + _insp.DWELL, _insp.lastAny + _insp.MIN_GAP)
+        if guid == _inspectPendingGUID then
+            readyAt = math.max(readyAt, _insp.pendingAt + _insp.PENDING_TTL)
+        end
+        if readyAt > now then
+            _insp.dwellArmed = true
+            C_Timer.After(readyAt - now, _dwellTick)
+            return
+        end
+        _insp.dwellGUID = nil
+        local unit = _CleanTokenForGUID(guid)
+        if not unit and _G.UnitTokenFromGUID then
+            local tu = _G.UnitTokenFromGUID(guid)
+            if tu and not (_isSecret and _isSecret(tu)) then unit = tu end
+        end
+        -- Same last resort as _resolveTipIdentity: "mouseover" only when it provably maps to this guid.
+        if not unit and UnitExists("mouseover") then
+            local mg = UnitGUID("mouseover")
+            if mg and not (_isSecret and _isSecret(mg)) and mg == guid then unit = "mouseover" end
+        end
+        if not unit or not UnitExists(unit) or not CanInspect(unit) then return end
+        _inspectPendingGUID = guid
+        _insp.pendingAt = now
+        _insp.ourAt = now
+        ClearInspectPlayer()
+        NotifyInspect(unit)
+    end
+    -- Caller has already found no cached item level for guid.
+    local function _requestTooltipInspect(guid)
+        -- The pending dwell re-checks every gate itself; skip them on each refresh meanwhile.
+        if _insp.dwellArmed and _insp.dwellGUID == guid then return end
+        local now = GetTime()
+        -- Blocked now: arm nothing; a later tooltip refresh or re-hover asks again.
+        if _inspBlocked(guid, now) then return end
+        -- Always track the latest unit; a running timer picks up the retarget.
+        if _insp.dwellGUID ~= guid then
+            _insp.dwellGUID = guid
+            _insp.dwellAt = now
+        end
+        if not _insp.dwellArmed then
+            _insp.dwellArmed = true
+            C_Timer.After(_insp.DWELL, _dwellTick)
+        end
     end
 
     -- Resolve who this unit tooltip was populated for. SetUnit(u) stamps u's GUID into
@@ -706,6 +1071,8 @@ end
         _ttTargetLine(tt, unit)
         -- Item Level. Cache keyed strictly by the authoritative GUID so reads/writes can never land under a different person.
         if db and db.tooltipItemLevel ~= false then
+            -- Re-activates after a mid-session toggle back on (login activation is in _ttInitData).
+            if not _insp.active then _insp.Activate() end
             local ilvl
             if unit and UnitIsUnit(unit, "player") then
                 local _, equipped = GetAverageItemLevel()
@@ -723,12 +1090,10 @@ end
                         end
                     end
                     local inspOpen = InspectFrame and InspectFrame:IsShown()
-                    if not ilvl and not inspOpen and GetTime() > _userInspectUntil
-                        and guid ~= _inspectPendingGUID and CanInspect(unit) and not InCombatLockdown() then
-                        _inspectPendingGUID = guid
-                        ClearInspectPlayer()
-                        _inspectFrame:RegisterEvent("INSPECT_READY")
-                        NotifyInspect(unit)
+                    if not ilvl and not inspOpen
+                        and CanInspect(unit) and not InCombatLockdown() then
+                        -- Paced and re-checked there; timed gaps are waited out, not dropped.
+                        _requestTooltipInspect(guid)
                     end
                 end
             end
@@ -783,6 +1148,9 @@ end
         _ttDataInited = true
         -- Clear the recorded identity on hide so a late inspect result can never append to a closed/switched tooltip. HookScript (never SetScript) keeps the secure OnHide handler intact.
         _GameTooltip:HookScript("OnHide", function() _tipShownGUID = nil end)
+        -- Item level inspect pacing starts at login, so the request history from other
+        -- addons is already being tracked before the first hover.
+        if not EllesmereUIDB or EllesmereUIDB.tooltipItemLevel ~= false then _insp.Activate() end
         -- Accent-color the title line for spells/macros (not items or units)
         local function _ttAccentTitle(tt)
             if tt ~= _GameTooltip or tt:IsForbidden() or not _accentEnabled() then return end
@@ -1408,9 +1776,9 @@ end
             local db = EllesmereUIDB or {}
             local QT = EllesmereUI.QUEUE_TIMER
             local c = db.queueTimerTextColor
-            local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras"))
+            local fontPath = (EllesmereUI.GetFontPath("extras"))
                 or "Fonts\\FRIZQT__.TTF"
-            if EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(timerText, true) end
+            EllesmereUI.PrimeFontShadow(timerText, true)
             timerText:SetFont(fontPath, db.queueTimerTextSize or QT.TEXT_SIZE, "")
             timerText:SetTextColor((c and c.r) or QT.TEXT_R, (c and c.g) or QT.TEXT_G,
                 (c and c.b) or QT.TEXT_B, 1)
@@ -1442,14 +1810,12 @@ end
 
                 timerText = timerBar:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 
-                if EllesmereUI.RegAccent then
-                    EllesmereUI.RegAccent({ type = "callback", fn = function()
-                        if GetFFD(timerBar).style then
-                            local r, g, b = EllesmereUI.GetAccentColor()
-                            timerBar:SetStatusBarColor(r, g, b, 0.75)
-                        end
-                    end })
-                end
+                EllesmereUI.RegAccent({ type = "callback", fn = function()
+                    if GetFFD(timerBar).style then
+                        local r, g, b = EllesmereUI.GetAccentColor()
+                        timerBar:SetStatusBarColor(r, g, b, 0.75)
+                    end
+                end })
             end
 
             -- Anchor to the dialog, not the popup wrapper, so the timer follows it when a mover addon drags the dialog independently.
@@ -1547,6 +1913,52 @@ end
             status:HookScript("OnShow", function() SkinQueueStatus() end)
         end
 
+        -- Accept/Decline both inherit stock UIPanelButtonTemplate and were never
+        -- touched, same treatment as SkinQueuePopup's enterButton/leaveButton.
+        local function SkinRoleCheckButton(btn)
+            if not btn then return end
+            for j = 1, select("#", btn:GetRegions()) do
+                local r = select(j, btn:GetRegions())
+                if r and r:IsObjectType("Texture") and not GetFFD(r).owned and r ~= btn:GetFontString() then
+                    r:SetAlpha(0)
+                end
+            end
+            if btn.Left then btn.Left:SetAlpha(0) end
+            if btn.Middle then btn.Middle:SetAlpha(0) end
+            if btn.Right then btn.Right:SetAlpha(0) end
+            if not GetFFD(btn).skinned then
+                GetFFD(btn).skinned = true
+                for _, texKey in ipairs({ "Left", "Middle", "Right" }) do
+                    local tex = btn[texKey]
+                    if tex and tex.SetAlpha then
+                        hooksecurefunc(tex, "SetAlpha", function(self, a)
+                            if a > 0 then self:SetAlpha(0) end
+                        end)
+                    end
+                end
+                local btnBg = btn:CreateTexture(nil, "BACKGROUND", nil, -6)
+                btnBg:SetAllPoints()
+                GetFFD(btnBg).owned = true
+                GetFFD(btn).bg = btnBg
+                local hov = btn:CreateTexture(nil, "HIGHLIGHT")
+                hov:SetColorTexture(1, 1, 1, 0.1)
+                hov:SetAllPoints()
+                GetFFD(hov).owned = true
+            end
+            local c = EllesmereUIDB and EllesmereUIDB.popupMenuButtonBackgroundColor or { r=.1,g=.1,b=.1,a=.8 }
+            if GetFFD(btn).bg then GetFFD(btn).bg:SetColorTexture(c.r,c.g,c.b,c.a == nil and .8 or c.a) end
+            _applyConfiguredBorder(btn, "popupMenuButton", 1)
+            local fs = btn:GetFontString()
+            if fs then
+                if _elementColorMode() == "native" then
+                    fs:SetTextColor(1, 1, 1, 1)
+                else
+                    local r, g, b = _getElementColor()
+                    fs:SetTextColor(r, g, b, 1)
+                end
+            end
+        end
+
         -- The "Confirm your role" popup shown to the whole party when ANYONE queues
         -- (leader or otherwise) and roles aren't already locked in. LFG_PROPOSAL_SHOW
         -- only fires for the later group-found step, so this frame is hooked directly.
@@ -1576,6 +1988,8 @@ end
                     _PP.CreateBorder(popup, 1, 1, 1, RS.BRD_ALPHA, 1, "OVERLAY", 7)
                 end
             end
+            SkinRoleCheckButton(_G.LFDRoleCheckPopupAcceptButton)
+            SkinRoleCheckButton(_G.LFDRoleCheckPopupDeclineButton)
         end
 
         -- Not gated behind any LFG event: unlike the proposal/status popups above,
@@ -1588,6 +2002,10 @@ end
             if not popup then return end
             _roleCheckHooked = true
             popup:HookScript("OnShow", function() SkinRoleCheckPopup() end)
+            -- Blizzard may have already called :Show() before we got here (e.g. a
+            -- party member who never opened the LFG UI themselves) -- HookScript
+            -- only catches future shows, so skin the current one too.
+            if popup:IsShown() then SkinRoleCheckPopup() end
         end
         HookRoleCheckOnShow()
 
@@ -1853,7 +2271,7 @@ do
     local function SkinApplicationDialog()
         local dialog = _G.LFGListApplicationDialog
         if not dialog then return end
-        if not EllesmereUIDB or not EllesmereUIDB.reskinQueuePopup then return end
+        if EllesmereUIDB and EllesmereUIDB.reskinQueuePopup == false then return end
         if GetFFD(dialog).skinned then return end
         GetFFD(dialog).skinned = true
 
@@ -1981,7 +2399,7 @@ do
             if headerText and headerText.SetTextColor then
                 local r, g, b = EllesmereUI._getPopupMenuButtonTextColor()
                 headerText:SetTextColor(r, g, b, 1)
-                local euiFont = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or "Fonts\\FRIZQT__.TTF"
+                local euiFont = EllesmereUI.GetFontPath("blizzardSkin") or "Fonts\\FRIZQT__.TTF"
                 local _, hSize = headerText:GetFont()
                 headerText:SetFont(euiFont, hSize or 16, "")
             end
@@ -2015,7 +2433,7 @@ do
                 for btn in GameMenuFrame.buttonPool:EnumerateActive() do ApplyButtonStyle(btn) end
             end
             -- The EUI/Unlock custom buttons are created by the PARENT addon and stored in ITS namespace FFD (EllesmereUI._GetFFD), not this file's local FFD; wrong table = dead code.
-            local pd = EllesmereUI._GetFFD and EllesmereUI._GetFFD(GameMenuFrame)
+            local pd = EllesmereUI._GetFFD(GameMenuFrame)
             if pd and pd.euiBtn then ApplyButtonStyle(pd.euiBtn) end
             if pd and pd.unlockBtn then ApplyButtonStyle(pd.unlockBtn) end
         end
@@ -2057,7 +2475,7 @@ do
                     hl:SetColorTexture(1, 1, 1, 0.1)
                     local fs = menuBtn:GetFontString()
                     if fs then
-                        local euiFont = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or nil
+                        local euiFont = EllesmereUI.GetFontPath("blizzardSkin") or nil
                         local _, size, flags = fs:GetFont()
                         fs:SetFont(euiFont or "Fonts\\FRIZQT__.TTF", (size or 14) - 2, flags or "")
                     end
@@ -2268,7 +2686,7 @@ do
     local anchorFrame
 
     local function ActiveProfile()
-        return EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+        return EllesmereUI.GetActiveProfileData()
     end
 
     -- Fixed mode is the permanent baseline: no toggle. Only the reskin master (off = vanilla tooltips) and Anchor to Cursor sideline it.
@@ -2998,7 +3416,7 @@ do
         return frame and frame.IsProtected and frame:IsProtected()
     end
     local function FireHoveredOnEnter()
-        local foci = (GetMouseFoci and GetMouseFoci()) or (GetMouseFocus and { GetMouseFocus() })
+        local foci = GetMouseFoci()
         local anchorFrame = foci and foci[1]
         if IsFrameForbidden(anchorFrame) then anchorFrame = nil end
         if foci then
@@ -3432,7 +3850,6 @@ end
     -- Anchored to the border TEXTURES when they exist, so it tracks whatever
     -- atlas size the style uses instead of guessing. Anchoring OUR texture to
     -- THEIRS is still a write on ours only -- the widget tree is untouched.
-    local COVER_PAD_X = 9   -- fallback horizontal reach: template border offset + 1px
     -- Ceiling on the vertical overhang the cover will absorb. Blizzard's border
     -- run is a couple of px taller than the bar; a decorative END CAP atlas can
     -- be far taller, and following that is what made the bar giant.
@@ -3503,47 +3920,6 @@ end
         if pad < 0 then pad = 0 end
         if pad > MAX_VPAD then pad = MAX_VPAD end
         return pad
-    end
-
-    -- EVERY point comes from the BAR. Nothing is anchored to Blizzard's border
-    -- textures any more.
-    --
-    -- Anchoring to them was an attempt to track arbitrary atlas sizes, and it
-    -- kept producing garbage. On the PlayerChoice style BorderLeft/BorderRight
-    -- EXIST but are EMPTY -- no atlas, degenerate rect -- so they are neither
-    -- nil (which would take the fallback) nor meaningful. Anchoring LEFT/RIGHT
-    -- to them stretched one cover across the entire screen. They are also
-    -- invisible to /framestack, which only lists hit-testable regions, so they
-    -- read as "absent" while still being present.
-    --
-    -- A fixed pad is deterministic and cannot blow up: the template offsets the
-    -- border art 8px past each end of the bar, so 9 covers it with a pixel to
-    -- spare regardless of what the atlas does.
-    -- The occluder reaches the FULL measured overhang -- uncapped by MAX_VPAD,
-    -- which governs the VISIBLE bar's height only. Sanity-limited so a
-    -- decorative end-cap atlas cannot spread a huge dark rectangle.
-    local MAX_OCCLUDE = 14
-    local function AnchorOccluder(c, bar)
-        local occ = c.euiOcc
-        if not occ then return end
-        local okB, barH = pcall(bar.GetHeight, bar)
-        local grow = 0
-        if okB and type(barH) == "number" and barH > 0 then
-            local tallest = barH
-            for _, k in ipairs({ "BorderCenter", "BGCenter", "BorderLeft", "BorderRight" }) do
-                local okT, t = pcall(HUDGet, bar, k)
-                if okT and t then
-                    local okH, h = pcall(t.GetHeight, t)
-                    if okH and type(h) == "number" and h > tallest then tallest = h end
-                end
-            end
-            grow = (tallest - barH) / 2
-            if grow < 0 then grow = 0 end
-            if grow > MAX_OCCLUDE then grow = MAX_OCCLUDE end
-        end
-        occ:ClearAllPoints()
-        occ:SetPoint("TOPLEFT", bar, "TOPLEFT", -COVER_PAD_X, grow)
-        occ:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", COVER_PAD_X, -grow)
     end
 
     -- Minimum on-screen cover HEIGHT (real pixels) for PLATE-HOSTED bars, the cog
