@@ -333,7 +333,7 @@ initFrame:SetScript("OnEvent", function(self)
                 })
             end
 
-            -- Category Title Size | Show Item Level (+ inline cog: Gear Track Rank)
+            -- Category Title Size | Show Item Level (+ inline options cog)
             local ilvlRow
             ilvlRow, h = W:DualRow(parent, y,
                 { type="slider", text="Category Title Size", min=8, max=16, step=1,
@@ -353,20 +353,38 @@ initFrame:SetScript("OnEvent", function(self)
                   end }
             ); y = y - h
 
-            -- Inline cog on Show Item Level (right region): Show Gear Track Rank
-            -- (gated by Show Item Level; the rank only renders when ilvl is shown).
+            -- Item level options are gated by Show Item Level.
             if not EllesmereUI._prebuilding then
                 EllesmereUI.BuildInlineCog(ilvlRow._rightRegion, {
                     chain = false,
                     disabled = function() return db.profile.showItemlevelInBags == false end,
                     disabledTooltip = "Show Item Level",
                     title = "Item Level Options",
+                    minWidth = 340,
                     rows = {
                         { type="toggle", label="Show Gear Track Rank",
                           get=function() return db.profile.bagShowTrackRank or false end,
                           set=function(v)
                               db.profile.bagShowTrackRank = v
                               if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                          end },
+                        { type="toggle", label="Season-aware colours",
+                          tooltip="Reserve track colours for recognised current-season gear in bags and bank. Untracked item levels become white. Older gear uses rarity colours unless grey text is enabled. Custom colours take priority.",
+                          get=function() return db.profile.bagSeasonColors or false end,
+                          set=function(v)
+                              db.profile.bagSeasonColors = v
+                              if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                              local bank = _G.EUI_BankFrame
+                              if bank and bank.RefreshBank then bank:RefreshBank() end
+                          end },
+                        { type="toggle", label="Grey out previous-season item levels",
+                          tooltip="With Season-aware colours enabled, use grey item-level text for recognised previous-season gear in bags and bank. Custom item-level colours take priority.",
+                          get=function() return db.profile.bagGreyPreviousSeason or false end,
+                          set=function(v)
+                              db.profile.bagGreyPreviousSeason = v
+                              if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                              local bank = _G.EUI_BankFrame
+                              if bank and bank.RefreshBank then bank:RefreshBank() end
                           end },
                     },
                 })
@@ -617,14 +635,22 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v) db.profile.enableGoldTracking = v end }
             ); y = y - h
 
-            -- Inline cog for Show Sort Icon: "Sort to Bottom"
+            -- Sorting options remain available when the header icon is hidden.
             if not EllesmereUI._prebuilding then
                 EllesmereUI.BuildInlineCog(sortRow._leftRegion, {
                     chain = false,
-                    disabled = function() return db.profile.bagShowSortIcon == false end,
-                    disabledTooltip = "Show Sort Icon",
                     title = "Sort Options",
                     rows = {
+                        { type="dropdown", label="Gear sort order",
+                          ddWidth=180,
+                          tooltip="Choose the sorting priority in bag equipment categories. Season puts recognised current-season gear first. Ilvl means item level, highest first. Track sorts Myth before Hero and lower tracks. The other gear priority breaks ties. Blizzard's bank and MultiBag sorting are unchanged.",
+                          values={ track="Track > ilvl", seasonTrack="Season > track", seasonIlvl="Season > ilvl", ilvl="Ilvl > track" },
+                          order={ "track", "seasonTrack", "seasonIlvl", "ilvl" },
+                          get=function() return db.profile.bagGearSortOrder or "track" end,
+                          set=function(v)
+                              db.profile.bagGearSortOrder = v
+                              if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                          end },
                         { type="toggle", label="Sort to Bottom",
                           tooltip="Sorting normally packs your items into the first free slots, at the top of the grid. Turn this on to pack them into the last slots instead, so the empty slots end up at the top. The item order itself does not change. This affects the OneBag, MultiBag and bank views -- category views fill their own grid with no gaps, so there is nothing to move. MultiBag and the bank use Blizzard's own sorting, so while this is on it also flips Blizzard's cleanup direction; turning it back off restores the direction you had.",
                           get=function() return db.profile.bagSortToBottom == true end,

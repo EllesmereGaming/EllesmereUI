@@ -2142,18 +2142,18 @@ function EUI_Bank:RefreshBank()
                 if showIlvl then
                     btn.ItemLevelText:SetText(giIlvl or "")
                     local r, g, b
-                    if GetUpgradeTrack then
-                        local rankText, trackColor = GetUpgradeTrack(itemLink)
-                        if BP().itemlevelUseCustomColor and BP().itemlevelCustomColor then
-                            r, g, b = BP().itemlevelCustomColor.r, BP().itemlevelCustomColor.g, BP().itemlevelCustomColor.b
-                        elseif rankText and rankText ~= "" and trackColor then
-                            r, g, b = trackColor.r, trackColor.g, trackColor.b
+                    if BP().itemlevelUseCustomColor and BP().itemlevelCustomColor then
+                        r, g, b = BP().itemlevelCustomColor.r, BP().itemlevelCustomColor.g, BP().itemlevelCustomColor.b
+                    else
+                        local trackColor
+                        if BP().bagSeasonColors then
+                            trackColor = EUI.GetSeasonItemLevelColor(itemLink, BP().bagGreyPreviousSeason)
                         else
-                            local craftedColor = EUI.GetCraftedTrackColor(itemLink)
-                            if craftedColor then
-                                r, g, b = craftedColor.r, craftedColor.g, craftedColor.b
-                            end
+                            local rankText
+                            rankText, trackColor = GetUpgradeTrack(itemLink)
+                            if not rankText or rankText == "" then trackColor = EUI.GetCraftedTrackColor(itemLink) end
                         end
+                        if trackColor then r, g, b = trackColor.r, trackColor.g, trackColor.b end
                     end
                     if not r then
                         r, g, b = GetItemQualityColor(quality)
