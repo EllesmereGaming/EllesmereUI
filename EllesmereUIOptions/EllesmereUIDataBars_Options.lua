@@ -279,11 +279,11 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     local _edbPopout
     local function PreviewPopoutAllowed()
-        if not (EllesmereUI.IsShown and EllesmereUI:IsShown()) then return false end
+        if not (EllesmereUI:IsShown()) then return false end
         -- nil = mid-build (page state not stamped yet); only a definite
         -- mismatch blocks, mirroring the TBB popout gate.
-        local am = EllesmereUI.GetActiveModule and EllesmereUI:GetActiveModule()
-        local ap = EllesmereUI.GetActivePage and EllesmereUI:GetActivePage()
+        local am = EllesmereUI:GetActiveModule()
+        local ap = EllesmereUI:GetActivePage()
         if am and ap and (am ~= "EllesmereUIDataBars" or ap ~= PAGE_DATABARS) then
             return false
         end
@@ -1459,56 +1459,9 @@ initFrame:SetScript("OnEvent", function(self)
         --  current build's closure through the _edbNavigateFn upvalue so a
         --  cached/restored header never fires a stale closure.
         -------------------------------------------------------------------
-        local _navGlowFrame
-        -- holdWhile (optional): keeps the glow pulsing for as long as it
-        -- returns true, instead of the one-shot fade. Used when the glow is
-        -- pointing at a setting the player still has to fill in -- a 0.75s
-        -- flash is gone before they have finished reading the page. The pulse
-        -- also releases when the target stops being visible (page rebuilt,
-        -- options closed), so the shared frame can never strand its OnUpdate.
-        local function PlaySettingGlow(targetFrame, holdWhile)
-            if not targetFrame then return end
-            if not _navGlowFrame then
-                _navGlowFrame = CreateFrame("Frame")
-                local c = EllesmereUI.ELLESMERE_GREEN
-                local function MkEdge()
-                    local t = _navGlowFrame:CreateTexture(nil, "OVERLAY", nil, 7)
-                    t:SetColorTexture(c.r, c.g, c.b, 1)
-                    return t
-                end
-                local top, bot, lft, rgt = MkEdge(), MkEdge(), MkEdge(), MkEdge()
-                top:SetHeight(2); top:SetPoint("TOPLEFT"); top:SetPoint("TOPRIGHT")
-                bot:SetHeight(2); bot:SetPoint("BOTTOMLEFT"); bot:SetPoint("BOTTOMRIGHT")
-                lft:SetWidth(2)
-                lft:SetPoint("TOPLEFT", top, "BOTTOMLEFT"); lft:SetPoint("BOTTOMLEFT", bot, "TOPLEFT")
-                rgt:SetWidth(2)
-                rgt:SetPoint("TOPRIGHT", top, "BOTTOMRIGHT"); rgt:SetPoint("BOTTOMRIGHT", bot, "TOPRIGHT")
-            end
-            _navGlowFrame:SetParent(targetFrame)
-            _navGlowFrame:SetAllPoints(targetFrame)
-            _navGlowFrame:SetFrameLevel(targetFrame:GetFrameLevel() + 5)
-            _navGlowFrame:SetAlpha(1)
-            _navGlowFrame:Show()
-            local elapsed = 0
-            _navGlowFrame:SetScript("OnUpdate", function(glowSelf, dt)
-                elapsed = elapsed + dt
-                if holdWhile then
-                    if targetFrame:IsVisible() and holdWhile() then
-                        glowSelf:SetAlpha(0.35 + 0.65 * math.abs(math.sin(elapsed * 3)))
-                        return
-                    end
-                    -- Released: drop the predicate and restart the clock so the
-                    -- fade plays from full alpha instead of expiring at once.
-                    holdWhile, elapsed = nil, 0
-                end
-                if elapsed >= 0.75 then
-                    glowSelf:Hide()
-                    glowSelf:SetScript("OnUpdate", nil)
-                    return
-                end
-                glowSelf:SetAlpha(1 - elapsed / 0.75)
-            end)
-        end
+        -- Second arg holdWhile keeps the glow pulsing while the setting still
+        -- needs filling in (a 0.75s flash is gone before they finish reading).
+        local PlaySettingGlow = EllesmereUI.MakeSettingGlow({ color = EllesmereUI.ELLESMERE_GREEN })
 
         local function GlowTargetOf(m)
             if not m.slotSide then return m.target end
@@ -1626,25 +1579,6 @@ initFrame:SetScript("OnEvent", function(self)
             ns.ApplyBar(barId)
         end
 
-        -- Standard inline cog button (house pattern): sits left of the row's
-        -- control, opens a BuildCogPopup with extra rows.
-        local function MakeCogBtn(rgn, showFn, anchorTo, iconPath)
-            local anchor = anchorTo or (rgn and (rgn._lastInline or rgn._control)) or rgn
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", anchor, "LEFT", -8, 0)
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(iconPath or EllesmereUI.RESIZE_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(self) showFn(self) end)
-            if rgn then rgn._lastInline = cogBtn end
-            return cogBtn
-        end
-
         -- Sizing mode: centered segmented two-button toggle (same recipe as
         -- the Buff Manager's Simple/Custom switch), in its OWN space between
         -- the preview header and BAR SETTINGS with 15px above and below.
@@ -1732,7 +1666,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- is a set-once setting that should not cost a row.
         do
             local leftRgn = visRow._leftRegion
-            local _, cogShow = EllesmereUI.BuildCogPopup({
+            EllesmereUI.BuildInlineCog(leftRgn, { icon = EllesmereUI.COGS_ICON,
                 title = "Bar Layer",
                 rows = {
                     { type = "dropdown", label = "Bar Strata",
@@ -1751,7 +1685,6 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            MakeCogBtn(leftRgn, cogShow, nil, EllesmereUI.COGS_ICON)
         end
 
         -- Orientation | Theme (inline cog = EllesmereUI Backdrop Dim)
@@ -1798,56 +1731,35 @@ initFrame:SetScript("OnEvent", function(self)
                   ns.ApplyTheme(barId)
                   HardRefresh()
               end });  y = y - h
-        do
-            local rgn = themeRow._rightRegion
-            local _, cogShow = EllesmereUI.BuildCogPopup({
-                title = "EllesmereUI Background",
-                rows = {
-                    { type = "slider", label = "Backdrop Dim", min = 0, max = 100, step = 1,
-                      get = function()
-                          local a = theme.euiAlpha
-                          if a == nil then a = 0.5 end
-                          return floor(a * 100 + 0.5)
-                      end,
-                      set = function(v)
-                          theme.euiAlpha = v / 100
-                          ns.ApplyTheme(barId)
-                          RefreshPreviewTheme()
-                      end },
-                },
-            })
-            local cog = MakeCogBtn(rgn, cogShow, nil, EllesmereUI.COGS_ICON)
-            if theme.style ~= "eui" then
-                -- Disabled state (house pattern): dimmed cog + blocking
-                -- overlay with the requirement tooltip. Theme changes
-                -- HardRefresh, so this re-evaluates on switch.
-                cog:SetAlpha(0.15)
-                cog:SetScript("OnEnter", nil)
-                cog:SetScript("OnLeave", nil)
-                cog:SetScript("OnClick", nil)
-                local blk = CreateFrame("Frame", nil, cog)
-                blk:SetAllPoints()
-                blk:SetFrameLevel(cog:GetFrameLevel() + 5)
-                blk:EnableMouse(true)
-                blk:SetScript("OnEnter", function()
-                    EllesmereUI.ShowWidgetTooltip(cog, EllesmereUI.DisabledTooltip("the EllesmereUI theme"))
-                end)
-                blk:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            end
-        end
+        EllesmereUI.BuildInlineCog(themeRow._rightRegion, {
+            title = "EllesmereUI Background",
+            disabled = function() return theme.style ~= "eui" end,
+            disabledTooltip = "the EllesmereUI theme",
+            rows = {
+                { type = "slider", label = "Backdrop Dim", min = 0, max = 100, step = 1,
+                  get = function()
+                      local a = theme.euiAlpha
+                      if a == nil then a = 0.5 end
+                      return floor(a * 100 + 0.5)
+                  end,
+                  set = function(v)
+                      theme.euiAlpha = v / 100
+                      ns.ApplyTheme(barId)
+                      RefreshPreviewTheme()
+                  end },
+            },
+        })
 
         -- Bar Texture: 1:1 with the Unit Frames picker -- same built-in texture set
         -- plus SharedMedia statusbars appended live on every build (late-registered
         -- packs always appear), with texture preview backgrounds on the menu items.
         local function BuildBarTexDropdown()
-            if EllesmereUI.AppendSharedMediaTextures then
-                EllesmereUI.AppendSharedMediaTextures(
-                    ns.barTextureNames or {},
-                    ns.barTextureOrder or {},
-                    nil,
-                    ns.barTextures
-                )
-            end
+            EllesmereUI.AppendSharedMediaTextures(
+                ns.barTextureNames or {},
+                ns.barTextureOrder or {},
+                nil,
+                ns.barTextures
+            )
             local btValues, btOrder = {}, {}
             local texNames = ns.barTextureNames or {}
             local texOrder = ns.barTextureOrder or {}
@@ -2203,7 +2115,7 @@ initFrame:SetScript("OnEvent", function(self)
                 do
                     -- Text Position cog: offsets the TEXT only (factories
                     -- inject these into every text anchor; icons stay put).
-                    local _, cogShow = EllesmereUI.BuildCogPopup({
+                    EllesmereUI.BuildInlineCog(alignRow._leftRegion, { icon = EllesmereUI.DIRECTIONS_ICON,
                         title = "Text Position",
                         rows = {
                             { type = "slider", label = "X Offset", min = -50, max = 50, step = 1,
@@ -2228,11 +2140,10 @@ initFrame:SetScript("OnEvent", function(self)
                               end },
                         },
                     })
-                    MakeCogBtn(alignRow._leftRegion, cogShow, nil, EllesmereUI.DIRECTIONS_ICON)
 
                     -- Content Position cog (next to Content Scale): offsets
                     -- the WHOLE block content group, text included.
-                    local _, cogShowAll = EllesmereUI.BuildCogPopup({
+                    EllesmereUI.BuildInlineCog(alignRow._rightRegion, { icon = EllesmereUI.DIRECTIONS_ICON,
                         title = "Content Position",
                         rows = {
                             { type = "slider", label = "X Offset", min = -50, max = 50, step = 1,
@@ -2251,7 +2162,6 @@ initFrame:SetScript("OnEvent", function(self)
                               set = function(v) b.yOff = v; Apply() end },
                         },
                     })
-                    MakeCogBtn(alignRow._rightRegion, cogShowAll, nil, EllesmereUI.DIRECTIONS_ICON)
                 end
             end
 
@@ -2912,7 +2822,7 @@ initFrame:SetScript("OnEvent", function(self)
                 -- grouping tables in EllesmereUI_NumberFormat.lua); every other
                 -- locale already gets K/M/B, so the toggle would be a no-op.
                 -- Mirrors the Damage Meters options row (EUI_DamageMeters_Options.lua).
-                if EllesmereUI.LocaleHasNumberAbbreviation and EllesmereUI.LocaleHasNumberAbbreviation() then
+                if EllesmereUI.LocaleHasNumberAbbreviation() then
                     typeRows[#typeRows + 1] = MkToggle("Force English Units (K/M/B)", "forceEnglishUnits",
                         "Always use K/M/B instead of localized units.")
                 end

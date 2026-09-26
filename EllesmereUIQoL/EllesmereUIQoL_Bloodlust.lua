@@ -49,25 +49,8 @@ local SATED_DEBUFFS = {
     390435,  -- Exhaustion (Fury of the Aspects)
 }
 
-local SHAPE_MEDIA = "Interface\\AddOns\\EllesmereUI\\media\\portraits\\"
-local SHAPE_MASKS = {
-    circle   = SHAPE_MEDIA .. "circle_mask.tga",
-    csquare  = SHAPE_MEDIA .. "csquare_mask.tga",
-    diamond  = SHAPE_MEDIA .. "diamond_mask.tga",
-    hexagon  = SHAPE_MEDIA .. "hexagon_mask.tga",
-    portrait = SHAPE_MEDIA .. "portrait_mask.tga",
-    shield   = SHAPE_MEDIA .. "shield_mask.tga",
-    square   = SHAPE_MEDIA .. "square_mask.tga",
-}
-local SHAPE_BORDERS = {
-    circle   = SHAPE_MEDIA .. "circle_border.tga",
-    csquare  = SHAPE_MEDIA .. "csquare_border.tga",
-    diamond  = SHAPE_MEDIA .. "diamond_border.tga",
-    hexagon  = SHAPE_MEDIA .. "hexagon_border.tga",
-    portrait = SHAPE_MEDIA .. "portrait_border.tga",
-    shield   = SHAPE_MEDIA .. "shield_border.tga",
-    square   = SHAPE_MEDIA .. "square_border.tga",
-}
+local SHAPE_MASKS = EllesmereUI.SHAPE_MASKS
+local SHAPE_BORDERS = EllesmereUI.SHAPE_BORDERS
 local BORDER_PX = { none = 0, thin = 1, normal = 2, heavy = 3, strong = 4 }
 
 -------------------------------------------------------------------------------
@@ -115,14 +98,16 @@ local function EP_borderColor()
     return { r = 0, g = 0, b = 0, a = 1 }
 end
 
--- Ready-display keys are OWN keys: BattleRes has no ready state, so they read
--- straight from the bloodlust slice instead of EP()'s proxy chain.
+-- Ready-display keys and desaturateSated are OWN keys: they have no BattleRes
+-- counterpart to follow, so they read straight from the bloodlust slice
+-- instead of EP()'s proxy chain.
 local READY_DEFAULTS = {
     showSated    = true,
     showReady    = false,
     readySize    = 12,
     readyOffsetX = 0,
     readyOffsetY = 0,
+    desaturateSated = true,
 }
 
 local function RP(key)
@@ -139,7 +124,7 @@ end
 
 local frame, iconTex, borderTex, durationFS, countFS, cooldownFrame
 local textOverlay, buffTextOverlay, readyFS  -- text layers (see CreateBloodlustFrame for the level stack)
-local buffOverlay, buffTex, buffCooldown, buffDurationFS  -- the 40s active-lust overlay (sits on top of the debuff icon)
+local buffOverlay, buffTex, buffCooldown, buffDurationFS, buffBorderTex  -- the 40s active-lust overlay (sits on top of the debuff icon)
 local _satedActive = false
 local _readyShown = false       -- ready label currently rendered (idempotence for the 0.5s poll)
 local _previewOwner             -- options page frame driving the live preview (nil = none)
@@ -187,6 +172,48 @@ local function _snapOff(v)
     return v
 end
 
+-- Border for one icon layer: PP edge strips for "none"/"cropped", the
+-- shape-matching atlas (shapeTex) otherwise. Applied to the debuff icon AND to
+-- the 40s buff overlay, whose opaque icon would otherwise cover the debuff
+-- icon's border. level pins the PP strip container (see CreateBloodlustFrame).
+local function _applyBorder(host, shapeTex, level)
+    local PP = EllesmereUI and EllesmereUI.PP
+    local shape = EP("shape") or "none"
+    local bs = BORDER_PX[EP("borderSize") or "thin"] or 1
+
+    if shape == "none" or shape == "cropped" then
+        shapeTex:Hide()
+        if PP then
+            if not PP.GetBorders(host) then PP.CreateBorder(host, 0, 0, 0, 1, 1, "OVERLAY", 2) end
+            local brd = PP.GetBorders(host)
+            if brd then brd:SetFrameLevel(level) end
+            if bs > 0 then
+                local r, g, b, a = _resolveBorderColor()
+                PP.UpdateBorder(host, bs, r, g, b, a)
+                PP.ShowBorder(host)
+            else
+                PP.HideBorder(host)
+            end
+        end
+        return
+    end
+
+    if PP and PP.GetBorders(host) then PP.HideBorder(host) end
+    local borderPath = SHAPE_BORDERS[shape]
+    if borderPath and bs > 0 then
+        local bsp = _snapOff(bs)
+        shapeTex:SetTexture(borderPath)
+        shapeTex:ClearAllPoints()
+        shapeTex:SetPoint("TOPLEFT", host, "TOPLEFT", -bsp, bsp)
+        shapeTex:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", bsp, -bsp)
+        local r, g, b, a = _resolveBorderColor()
+        shapeTex:SetVertexColor(r, g, b, a)
+        shapeTex:Show()
+    else
+        shapeTex:Hide()
+    end
+end
+
 -- Configure the buff overlay (texture coords + optional shape mask) so it
 -- visually matches the debuff icon underneath it. The overlay owns its OWN mask
 -- so the debuff icon's mask lifecycle is never touched.
@@ -199,9 +226,10 @@ local function _applyBuffShape()
     buffTex:SetAllPoints(buffOverlay)
     buffCooldown:ClearAllPoints()
     buffCooldown:SetAllPoints(buffOverlay)
+    _applyBorder(buffOverlay, buffBorderTex, buffCooldown:GetFrameLevel() + 1)
 
     -- Match the debuff icon's duration text exactly (font, size, position).
-    buffDurationFS:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, EP("durationSize") or 12, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
+    buffDurationFS:SetFont((EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, EP("durationSize") or 12, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     buffDurationFS:ClearAllPoints()
     buffDurationFS:SetPoint("CENTER", frame, "CENTER",
         _snapOff(EP("durationOffsetX") or 0), _snapOff(EP("durationOffsetY") or 0))
@@ -250,7 +278,6 @@ local function ApplyShape()
 
     local PP = EllesmereUI and EllesmereUI.PP
     local shape = EP("shape") or "none"
-    local bs = BORDER_PX[EP("borderSize") or "thin"] or 1
 
     local size = EP("iconSize") or 40
     local fw, fh = size, size
@@ -268,12 +295,12 @@ local function ApplyShape()
     -- Duration text (centered) and count text (bottom-right). Sated debuffs
     -- have no stacks so the count string stays empty, but we keep the field for
     -- 1:1 parity with the BattleRes icon layout.
-    durationFS:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, EP("durationSize") or 12, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
+    durationFS:SetFont((EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, EP("durationSize") or 12, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     durationFS:ClearAllPoints()
     durationFS:SetPoint("CENTER", frame, "CENTER",
         _snapOff(EP("durationOffsetX") or 0), _snapOff(EP("durationOffsetY") or 0))
 
-    countFS:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, EP("countSize") or 11, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
+    countFS:SetFont((EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, EP("countSize") or 11, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     countFS:ClearAllPoints()
     countFS:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT",
         _snapOff(-2 + (EP("countOffsetX") or 0)), _snapOff(2 + (EP("countOffsetY") or 0)))
@@ -282,7 +309,7 @@ local function ApplyShape()
     -- size, colour and offset. Dropped back to hidden so the next poll re-renders
     -- it with the new style instead of leaving a stale string on screen.
     if readyFS then
-        readyFS:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, RP("readySize") or 12, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
+        readyFS:SetFont((EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, RP("readySize") or 12, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
         readyFS:ClearAllPoints()
         readyFS:SetPoint("CENTER", frame, "CENTER",
             _snapOff(RP("readyOffsetX") or 0), _snapOff(RP("readyOffsetY") or 0))
@@ -290,6 +317,12 @@ local function ApplyShape()
         readyFS:Hide()
         _readyShown = false
     end
+
+    -- PP.CreateBorder parents its container to frame+1, the SAME level
+    -- cooldownFrame sits at -- a level TIE the border only won by creation
+    -- order. Pin it to its slot in the stack documented at CreateBloodlustFrame
+    -- instead of an implicit tie-break a future overlay could flip.
+    _applyBorder(frame, borderTex, frame:GetFrameLevel() + 2)
 
     -----------------------------------------------------------------------
     --  BASE CASE: "none" or "cropped" -- plain texture, no mask
@@ -309,7 +342,6 @@ local function ApplyShape()
             iconTex._mask:Hide()
             iconTex._mask = nil
         end
-        borderTex:Hide()
 
         local z = (EP("iconZoom") or 11) / 100
         if shape == "cropped" then
@@ -319,31 +351,12 @@ local function ApplyShape()
         else
             iconTex:SetTexCoord(0, 1, 0, 1)
         end
-
-        if PP then
-            if not PP.GetBorders(frame) then PP.CreateBorder(frame, 0, 0, 0, 1, 1, "OVERLAY", 2) end
-            -- PP.CreateBorder parents its container to frame+1, the SAME level
-            -- cooldownFrame sits at -- a level TIE the border only won by creation
-            -- order. Pin it to its slot in the stack documented at CreateBloodlustFrame
-            -- instead of an implicit tie-break a future overlay could flip.
-            local brd = PP.GetBorders(frame)
-            if brd then brd:SetFrameLevel(frame:GetFrameLevel() + 2) end
-            if bs > 0 then
-                local r, g, b, a = _resolveBorderColor()
-                PP.UpdateBorder(frame, bs, r, g, b, a)
-                PP.ShowBorder(frame)
-            else
-                PP.HideBorder(frame)
-            end
-        end
         return
     end
 
     -----------------------------------------------------------------------
-    --  CUSTOM SHAPE: apply mask + shape-matching border overlay
+    --  CUSTOM SHAPE: apply mask (the shape border is set by _applyBorder)
     -----------------------------------------------------------------------
-    if PP then PP.HideBorder(frame) end
-
     local maskPath = SHAPE_MASKS[shape]
     if maskPath then
         if not iconTex._mask then
@@ -367,20 +380,6 @@ local function ApplyShape()
         if cooldownFrame.SetSwipeTexture then
             pcall(cooldownFrame.SetSwipeTexture, cooldownFrame, "")
         end
-    end
-
-    local borderPath = SHAPE_BORDERS[shape]
-    if borderPath and bs > 0 then
-        local bsp = _snapOff(bs)
-        borderTex:SetTexture(borderPath)
-        borderTex:ClearAllPoints()
-        borderTex:SetPoint("TOPLEFT", frame, "TOPLEFT", -bsp, bsp)
-        borderTex:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", bsp, -bsp)
-        local r, g, b, a = _resolveBorderColor()
-        borderTex:SetVertexColor(r, g, b, a)
-        borderTex:Show()
-    else
-        borderTex:Hide()
     end
 end
 
@@ -620,6 +619,18 @@ local function _hideReadyState()
     _readyShown = false
 end
 
+-- Grey the base icon while it shows a lockout (real or preview), never in the
+-- ready state. The 40s buff overlay is its own texture and stays in colour.
+local _lastDesat = false
+local function _syncDesat()
+    if not iconTex then return end
+    local want = (RP("desaturateSated") and not _readyShown) and true or false
+    if want ~= _lastDesat then
+        iconTex:SetDesaturated(want)
+        _lastDesat = want
+    end
+end
+
 local function _hideBuffOverlay()
     _buffExpiry = 0
     if buffOverlay then
@@ -633,37 +644,13 @@ end
 --  Content state (mirrors the BattleRes icon so "M+"/"Raid" mean the same
 --  thing: M+ = an active keystone run, Raid = a raid encounter in progress).
 -------------------------------------------------------------------------------
+-- Written by ns.RefreshInstanceState / ns.ApplyInstanceEvent (BattleRes file).
 local _state = {
     inEncounter     = false,
     encounterIsRaid = false,
     inChallenge     = false,
 }
-
-local function _activeKeystoneLevel()
-    if not C_ChallengeMode then return nil end
-    if not C_ChallengeMode.IsChallengeModeActive or not C_ChallengeMode.IsChallengeModeActive() then
-        return nil
-    end
-    if C_ChallengeMode.GetActiveKeystoneInfo then
-        local lvl = C_ChallengeMode.GetActiveKeystoneInfo()
-        return (lvl and lvl > 0) and lvl or nil
-    end
-    return nil
-end
-
-local function _refreshKeystoneState()
-    _state.inChallenge = _activeKeystoneLevel() ~= nil
-end
-
-local function _refreshEncounterState()
-    _state.inEncounter = IsEncounterInProgress() or false
-    if _state.inEncounter then
-        local _, instanceType = GetInstanceInfo()
-        _state.encounterIsRaid = (instanceType == "raid")
-    else
-        _state.encounterIsRaid = false
-    end
-end
+local ns = select(2, ...)
 
 -------------------------------------------------------------------------------
 --  Visibility / text
@@ -703,7 +690,7 @@ local function ShouldShow()
     return false
 end
 
-FormatTime = select(2, ...).FormatTime
+FormatTime = ns.FormatTime
 
 local _lastDurText
 local function _setDur(s)
@@ -751,6 +738,7 @@ local function PollSated()
             if _ticker then _ticker:Cancel(); _ticker = nil end
             _setDur("")
             _showReadyState()
+            _syncDesat()
             return
         end
         if _previewActive() then
@@ -759,6 +747,7 @@ local function PollSated()
             -- label when it is on, everything else previews the lockout, including
             -- the both-off case where the icon has no live state of its own.
             _showPreviewLockout()
+            _syncDesat()
             return
         end
         _setDur("")
@@ -782,6 +771,7 @@ local function PollSated()
     else
         _setDur("")
     end
+    _syncDesat()
 end
 
 function UpdateVisibility()
@@ -877,19 +867,6 @@ local function _onEvent(_, event, _, updateInfo)
     elseif event == "PLAYER_DEAD" then
         -- Buffs drop on death; hide the active-lust overlay even if 40s remain.
         _hideBuffOverlay()
-    elseif event == "ENCOUNTER_START" then
-        _state.inEncounter = true
-        local _, instanceType = GetInstanceInfo()
-        _state.encounterIsRaid = (instanceType == "raid")
-    elseif event == "ENCOUNTER_END" then
-        _state.inEncounter = false
-        _state.encounterIsRaid = false
-    elseif event == "CHALLENGE_MODE_START" or event == "WORLD_STATE_TIMER_START" then
-        _refreshKeystoneState()
-    elseif event == "CHALLENGE_MODE_COMPLETED"
-        or event == "CHALLENGE_MODE_RESET"
-        or event == "WORLD_STATE_TIMER_STOP" then
-        _state.inChallenge = false
     elseif event == "PLAYER_ENTERING_WORLD" then
         _lustIconResolved = false
         _lustIconCache = nil
@@ -899,8 +876,9 @@ local function _onEvent(_, event, _, updateInfo)
         -- suppress edges briefly while the zone's aura table settles.
         _satedWasPresent = _satedActive
         _buffZoneGuard = GetTime() + 1.5
-        _refreshEncounterState()
-        _refreshKeystoneState()
+        ns.RefreshInstanceState(_state)
+    else
+        ns.ApplyInstanceEvent(_state, event)
     end
     UpdateVisibility()
 end
@@ -957,24 +935,24 @@ local function CreateBloodlustFrame()
     -- top of the buff icon and its 40s number). Level stack inside the frame:
     --   +0 iconTex   +1 cooldownFrame   +2 PP border (pinned in ApplyShape)
     --   +3 debuff text: duration / count / ready
-    --   +5 buffOverlay   +6 buffCooldown   +7 buff text
+    --   +5 buffOverlay   +6 buffCooldown   +7 buff PP border   +8 buff text
     textOverlay = CreateFrame("Frame", nil, frame)
     textOverlay:SetAllPoints(frame)
     textOverlay:SetFrameLevel(frame:GetFrameLevel() + 3)
 
     durationFS = textOverlay:CreateFontString(nil, "OVERLAY")
-    durationFS:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, 14, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
+    durationFS:SetFont((EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, 14, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     durationFS:SetText("")
 
     -- SetFont FIRST: SetText on a fontstring that has no font yet errors out, and
     -- this runs before ApplyShape ever styles it.
     readyFS = textOverlay:CreateFontString(nil, "OVERLAY")
-    readyFS:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, 12, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
+    readyFS:SetFont((EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, 12, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     readyFS:SetText("")
     readyFS:Hide()
 
     countFS = textOverlay:CreateFontString(nil, "OVERLAY")
-    countFS:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, 12, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
+    countFS:SetFont((EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, 12, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     countFS:SetText("")
 
     -- 40s active-lust overlay. Sits ABOVE the debuff icon and its swipe; shown
@@ -988,20 +966,24 @@ local function CreateBloodlustFrame()
     buffTex = buffOverlay:CreateTexture(nil, "ARTWORK")
     buffTex:SetAllPoints(buffOverlay)
 
+    buffBorderTex = buffOverlay:CreateTexture(nil, "OVERLAY")
+    buffBorderTex:Hide()
+
     buffCooldown = CreateFrame("Cooldown", nil, buffOverlay, "CooldownFrameTemplate")
     buffCooldown:SetAllPoints(buffOverlay)
     buffCooldown:SetDrawEdge(false)
     buffCooldown:SetHideCountdownNumbers(true)
+    buffCooldown:SetReverse(true)  -- active buff: starts bright and darkens as it runs out
     buffCooldown:SetFrameLevel(buffOverlay:GetFrameLevel() + 1)
 
     -- Parented to the overlay, not to frame: the 40s text hides with the window
     -- it belongs to instead of relying on every hide path to blank the string.
     buffTextOverlay = CreateFrame("Frame", nil, buffOverlay)
     buffTextOverlay:SetAllPoints(buffOverlay)
-    buffTextOverlay:SetFrameLevel(buffCooldown:GetFrameLevel() + 1)
+    buffTextOverlay:SetFrameLevel(buffCooldown:GetFrameLevel() + 2)
 
     buffDurationFS = buffTextOverlay:CreateFontString(nil, "OVERLAY")
-    buffDurationFS:SetFont((EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, 12, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
+    buffDurationFS:SetFont((EllesmereUI.GetFontPath("extras")) or STANDARD_TEXT_FONT, 12, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     buffDurationFS:SetText("")
 
     return frame
@@ -1024,8 +1006,7 @@ local function Apply()
         -- Baseline so a debuff already present when the tracker is enabled does
         -- not retroactively pop the 40s buff overlay.
         _satedWasPresent = _satedActive
-        _refreshEncounterState()
-        _refreshKeystoneState()
+        ns.RefreshInstanceState(_state)
     end
     UpdateVisibility()
 end
@@ -1038,6 +1019,7 @@ local function RegisterUnlock()
     if not EllesmereUI or not EllesmereUI.RegisterUnlockElements then return end
     local MK = EllesmereUI.MakeUnlockElement
     if not MK then return end
+    local loadPos, clearPos = ns.CenterPosFns(P)
 
     EllesmereUI:RegisterUnlockElements({
         MK({
@@ -1085,16 +1067,8 @@ local function RegisterUnlock()
                     p.pos = { centerX = x, centerY = y }
                 end
             end,
-            loadPos = function()
-                local p = P()
-                if p and p.pos then
-                    return { point = "CENTER", relPoint = "CENTER", x = p.pos.centerX, y = p.pos.centerY }
-                end
-                return nil
-            end,
-            clearPos = function()
-                local p = P(); if p then p.pos = nil end
-            end,
+            loadPos = loadPos,
+            clearPos = clearPos,
             applyPos = function()
                 ApplyPosition()
             end,

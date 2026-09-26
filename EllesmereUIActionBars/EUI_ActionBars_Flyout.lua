@@ -167,8 +167,11 @@ local function OnBlizzardFlyoutShow(flyout)
 
     local shape = s.buttonShape or "none"
     local zoom = ((s.iconZoom or prof.iconZoom or 5.5)) / 100
-    local brdSz = ResolveBorderThickness(s)
+    local brdSz, brdPx = ResolveBorderThickness(s)
     local brdOn = brdSz > 0
+    -- The flyout border is always solid strips: the bar's exact size flows only
+    -- when the bar itself is solid (a textured bar's exact size is its edge art).
+    if brdPx and (s.borderTexture or "solid") == "solid" then brdSz = brdPx end
     local brdColor = s.borderColor or { r = 0, g = 0, b = 0, a = 1 }
     local cr, cg, cb, ca = brdColor.r, brdColor.g, brdColor.b, brdColor.a or 1
     if s.borderClassColor then
@@ -197,11 +200,19 @@ local function OnBlizzardFlyoutShow(flyout)
         if flyout.Background.VerticalMiddle then flyout.Background.VerticalMiddle:SetAlpha(0) end
     end
 
-    -- Skin each visible button
+    -- Skin each visible button. Classic WoW UI: the vanilla ring at the
+    -- flyout button's own size in place of the EUI shape/border skin, painted
+    -- once per button (its size never changes; the paint stamps classicArt
+    -- in the button's record).
+    local classic = ns.AB_Style() == "classic"
     for i = 1, flyout:GetNumChildren() do
         local child = select(i, flyout:GetChildren())
         if child and child:IsShown() and child.icon then
-            SkinBlizzardFlyoutButton(child, shape, zoom, brdOn, cr, cg, cb, ca, sbR, sbG, sbB, sbA, brdSz)
+            if classic then
+                if not ns.EFD(child).classicArt then ns.AB_PaintClassicButton(child) end
+            else
+                SkinBlizzardFlyoutButton(child, shape, zoom, brdOn, cr, cg, cb, ca, sbR, sbG, sbB, sbA, brdSz)
+            end
         end
     end
 end

@@ -1,4 +1,5 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
+if EllesmereUI and EllesmereUI.IS_FOREVER then return end -- no skyriding on WoW Forever: no DB, no events, no HUD; its options tab is not registered there
 -------------------------------------------------------------------------------
 --  EllesmereUIBlizzardSkin_DragonRiding.lua - Skyriding HUD
 -------------------------------------------------------------------------------
@@ -354,9 +355,9 @@ end
 -------------------------------------------------------------------------------
 local function ApplyFont(fs, size)
     if not fs then return end
-    local font = EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("blizzardSkin") or "Fonts/FRIZQT__.TTF"
-    local flag = EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("blizzardSkin") or ""
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, flag == "") end
+    local font = EllesmereUI.GetFontPath("blizzardSkin") or "Fonts/FRIZQT__.TTF"
+    local flag = EllesmereUI.GetFontOutlineFlag("blizzardSkin") or ""
+    EllesmereUI.PrimeFontShadow(fs, flag == "")
     fs:SetFont(font, size or 12, flag)
 end
 

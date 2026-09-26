@@ -1,10 +1,10 @@
-## Interface: 120000, 120001, 120005, 120007, 120100
+## Interface: 120000, 120001, 120005, 120007, 120100, 16001
 ## Title: |cff0cd29fEllesmereUI|r Chat
 ## Category: |cff0cd29fEllesmere|rUI
 ## Group: EllesmereUI
 ## Notes: Modern chat enhancements with useful utilities.
 ## Author: Ellesmere
-## Version: 9.1.8
+## Version: 9.2.9
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIChatDB
 ## SavedVariablesPerCharacter: EllesmereUIChatScrollDB
@@ -20,6 +20,9 @@ EllesmereUIChat_Engine.lua
 # Owned tab strip: our buttons over Blizzard's window storage (hidden dock
 # stays the routing backend; all management via the C config API).
 EllesmereUIChat_Tabs.lua
+
+# Stock-style sidebar kits (Blizzard Style / Classic WoW UI chat button column)
+EllesmereUIChat_SidebarStock.lua
 
 # Chat bubbles: Blizzard's own bubbles stay on, we blank their chrome and draw a styled
 # frame on the frame that carries their position.

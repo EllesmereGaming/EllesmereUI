@@ -16,7 +16,7 @@ for i = 1, 40 do RANK_STRINGS[i] = i .. "." end
 local MIN_W, MIN_H      = 150, 50
 local TICK_COMBAT       = 1
 local REFRESH_RATE_FLOOR      = 0.5  -- default floor; skipped when unsafeRefreshRate is on
-local REFRESH_RATE_HARD_FLOOR = 0.05 -- absolute floor regardless of unsafeRefreshRate: guards against a corrupt/imported 0 or negative value reaching the ticker
+local REFRESH_RATE_HARD_FLOOR = 0.2  -- absolute floor regardless of unsafeRefreshRate (the Unsafe slider's minimum); also guards a corrupt/imported 0 or negative value reaching the ticker
 ns._REFRESH_RATE_FLOOR = REFRESH_RATE_FLOOR -- published so the options page's toggle-off snap-back uses the same value instead of a second hardcoded 0.5
 local PEAK_BUDGET       = 1.5
 local BAR_TEX           = "Interface\\Buttons\\WHITE8X8"
@@ -100,6 +100,12 @@ local DM_DEFAULTS = {
             showSpellTooltips = true,     -- game spell tooltip on breakdown-row hover
             breakdownAnchorPoint = "row", -- "row" (Above Row) | "center" (Center of Screen)
             breakdownBarTexture = "match",
+            -- Global Settings > Style: the stock meter's window, header and
+            -- bar art (Blizzard Style) or the vanilla tooltip box (Classic
+            -- WoW UI) with every feature intact. Both default OFF;
+            -- reload-gated; both set resolves as classic.
+            useBlizzardStyle = false,
+            useClassicStyle  = false,
             barColorUseAccent = true,
             barColor        = { r = 0.35, g = 0.55, b = 0.8 },
             barFillAlpha    = 1,
@@ -164,93 +170,9 @@ local DM_DEFAULTS = {
 }
 
 -- Per-addon border texture defaults (same as resourcebars/cdm)
-do
-    local function AllSizes(ox, oy, sx, sy)
-        local t = {}
-        for k = 0, 4 do t[k] = { offsetX = ox, offsetY = oy, shiftX = sx, shiftY = sy } end
-        return t
-    end
-    EllesmereUI.RegisterBorderDefaults("damagemeters", {
-        ["glow"] = {
-            defaultSize = 1,
-            sizes = AllSizes(0, 0, 0, 0),
-        },
-        ["blizz"] = {
-            defaultSize = 3,
-            sizes = {
-                [0] = { offsetX = 0, offsetY = 0, shiftX = 0, shiftY = 0 },
-                [1] = { offsetX = 2, offsetY = 1, shiftX = 0, shiftY = 0 },
-                [2] = { offsetX = 3, offsetY = 2, shiftX = 1, shiftY = 0 },
-                [3] = { offsetX = 4, offsetY = 2, shiftX = 1, shiftY = 0 },
-                [4] = { offsetX = 4, offsetY = 2, shiftX = 1, shiftY = 0 },
-            },
-        },
-        ["dialog"] = {
-            defaultSize = 1,
-            sizes = {
-                [0] = { offsetX = 0, offsetY = 0, shiftX = 0, shiftY = 0 },
-                [1] = { offsetX = 3, offsetY = 3, shiftX = 0, shiftY = 0 },
-                [2] = { offsetX = 3, offsetY = 5, shiftX = 0, shiftY = 0 },
-                [3] = { offsetX = 3, offsetY = 5, shiftX = 0, shiftY = 0 },
-                [4] = { offsetX = 5, offsetY = 10, shiftX = 0, shiftY = 0 },
-            },
-        },
-        ["sm:Blizzard Achievement Wood"] = {
-            defaultSize = 1,
-            sizes = {
-                [0] = { offsetX = 0, offsetY = 0, shiftX = 0, shiftY = 0 },
-                [1] = { offsetX = 1, offsetY = 1, shiftX = 0, shiftY = 0 },
-                [2] = { offsetX = 1, offsetY = 1, shiftX = 0, shiftY = 0 },
-                [3] = { offsetX = 1, offsetY = 6, shiftX = 0, shiftY = 0 },
-                [4] = { offsetX = 1, offsetY = 8, shiftX = 0, shiftY = 0 },
-            },
-        },
-    })
-end
+EllesmereUI.RegisterBorderDefaults("damagemeters", EllesmereUI.BORDER_DEFAULTS_BARS)
 
-do
-    local function AllSizes(ox, oy, sx, sy)
-        local t = {}
-        for k = 0, 4 do t[k] = { offsetX = ox, offsetY = oy, shiftX = sx, shiftY = sy } end
-        return t
-    end
-    EllesmereUI.RegisterBorderDefaults("damagemeters_icon", {
-        ["glow"] = {
-            defaultSize = 1,
-            sizes = AllSizes(0, 0, 0, 0),
-        },
-        ["blizz"] = {
-            defaultSize = 3,
-            sizes = {
-                [0] = { offsetX = 0, offsetY = 0, shiftX = 0, shiftY = 0 },
-                [1] = { offsetX = 2, offsetY = 1, shiftX = 0, shiftY = 0 },
-                [2] = { offsetX = 3, offsetY = 2, shiftX = 1, shiftY = 0 },
-                [3] = { offsetX = 4, offsetY = 2, shiftX = 1, shiftY = 0 },
-                [4] = { offsetX = 4, offsetY = 2, shiftX = 1, shiftY = 0 },
-            },
-        },
-        ["dialog"] = {
-            defaultSize = 1,
-            sizes = {
-                [0] = { offsetX = 0, offsetY = 0, shiftX = 0, shiftY = 0 },
-                [1] = { offsetX = 3, offsetY = 3, shiftX = 0, shiftY = 0 },
-                [2] = { offsetX = 3, offsetY = 5, shiftX = 0, shiftY = 0 },
-                [3] = { offsetX = 3, offsetY = 5, shiftX = 0, shiftY = 0 },
-                [4] = { offsetX = 5, offsetY = 10, shiftX = 0, shiftY = 0 },
-            },
-        },
-        ["sm:Blizzard Achievement Wood"] = {
-            defaultSize = 1,
-            sizes = {
-                [0] = { offsetX = 0, offsetY = 0, shiftX = 0, shiftY = 0 },
-                [1] = { offsetX = 1, offsetY = 1, shiftX = 0, shiftY = 0 },
-                [2] = { offsetX = 1, offsetY = 1, shiftX = 0, shiftY = 0 },
-                [3] = { offsetX = 1, offsetY = 6, shiftX = 0, shiftY = 0 },
-                [4] = { offsetX = 1, offsetY = 8, shiftX = 0, shiftY = 0 },
-            },
-        },
-    })
-end
+EllesmereUI.RegisterBorderDefaults("damagemeters_icon", EllesmereUI.BORDER_DEFAULTS_BARS)
 
 local _dmDB
 local function EnsureDB()
@@ -290,6 +212,431 @@ end
 local function DB() return ns.EDM.DB() end
 local function GetHeaderH() local c = DB(); return c.hdrHeight or 22 end
 
+-------------------------------------------------------------------------------
+--  Stock styles (Global Settings > Style) on our own windows and rows:
+--  Blizzard Style = the stock meter's atlases; Classic WoW UI = the stock
+--  meter's shape in vanilla art: the tiled tooltip background inside the
+--  vanilla chat tab's border (the classic chat tabs' own art) as the window,
+--  a lighter band of the same tile under a rim-grey hairline as the header,
+--  and the user's bar texture
+--  over a plain track (seeded a quarter black on the first switch). Reload-gated
+--  per-profile flags; every read is on a build/refresh path. On ns so the
+--  spell history window shares the painters.
+-------------------------------------------------------------------------------
+ns.DM_BLIZZ_BAR_BG   = "ui-damagemeters-bar-shadowbg"
+ns.DM_BLIZZ_BAR_EDGE = "ui-damagemeters-bar-shadowedge"
+ns.DM_BLIZZ_HEADER   = "ui-damagemeters-header-bar"
+ns.DM_CLASSIC_BG        = "Interface\\Tooltips\\UI-Tooltip-Background"
+ns.DM_CLASSIC_EDGE      = "Interface\\ChatFrame\\ChatFrameTab"
+ns.DM_CLASSIC_EDGE_SIZE = 5    -- one edge piece at 1x: shadow (2), rim (1), bevel (2)
+ns.DM_CLASSIC_BODY      = 3    -- the tile starts this far inside the rect (under the bevel)
+ns.DM_CLASSIC_INSET     = 5    -- the header and rows start this far inside the rect (past the bevel)
+ns.DM_CLASSIC_HDR_SHADE = 1.6  -- the header's tint relative to the window's (a lighter band)
+ns.DM_CLASSIC_HDR_LIFT  = 0.05 -- plus this, so a black window still gets a visible header band
+-- The style this module RENDERS this session: "eui" | "blizzard" | "classic".
+-- Read from the profile once (first call with a real profile) and latched for
+-- the session: a live profile switch never flips the look under the one-time
+-- art setup; the profile system prompts for a reload instead. Both flags set
+-- resolves as classic (the Style page never writes both).
+function ns.DMStyle()
+    local v = ns._dmStyle
+    if v == nil then
+        local d = _G._EDM_DB
+        local dm = d and d.profile and d.profile.dm
+        if not dm then return "eui" end
+        v = (dm.useClassicStyle and "classic") or (dm.useBlizzardStyle and "blizzard") or "eui"
+        ns._dmStyle = v
+    end
+    return v
+end
+-- Stock-art mode: true for both stock styles (what they share: no EUI window
+-- or bar borders, no header bottom border).
+function ns.DMBlizz() return ns.DMStyle() ~= "eui" end
+function ns.DMClassic() return ns.DMStyle() == "classic" end
+-- The one-time Classic WoW UI seed on a profile `p`: a near-black window
+-- (#101010), the game's own bar fill as the bar texture and a quarter-black
+-- track behind every bar (once per profile; the controls stay the user's
+-- afterwards). Run by the Style page on the switch and at login for a
+-- profile that arrived with the flag already set (an import, an older
+-- build).
+function ns.DMSeedClassic(p)
+    if p.classicSeeded then return end
+    p.classicSeeded = true
+    p.bgR, p.bgG, p.bgB = 16 / 255, 16 / 255, 16 / 255
+    p.barTexture = "blizzard"
+    p.barBgR, p.barBgG, p.barBgB, p.barBgAlpha = 0, 0, 0, 0.25
+    p.barBgUseClassColor = false
+end
+-------------------------------------------------------------------------------
+--  Header art by style and header key. Classic WoW UI takes vanilla button
+--  art (each sheet cropped to its visible art: the lock and red X sheets
+--  are 32x32 with a 19x18 button at columns 6..24, rows 7..24; the refresh
+--  and plus buttons fill their 16x16; the quest log book fills its 64x64
+--  bar a texel) and vanilla spell icons for the meter types, drawn a little
+--  smaller than the EUI glyphs with a gap between them (the art fills its
+--  crop, the glyphs carry their own margin). Blizzard Style keeps the EUI
+--  glyphs (no entries). A key with no entry keeps the glyph. Stock art is
+--  coloured: no desaturation, no Icon Colour tint, hover is a brightness
+--  step, and an entry with hover art swaps it in.
+-------------------------------------------------------------------------------
+ns.DM_HDR_ART = {
+    classic = {
+        -- `scale` insets the art inside its button (a full-bleed icon reads
+        -- larger than a glyph in the same box); the button keeps its size.
+        settings = { file = "Interface\\Icons\\Trade_Engineering", crop = 0.08, scale = 0.9 },
+        segment  = { file = "Interface\\QuestFrame\\UI-QuestLog-BookIcon", l = 0.015625, r = 0.96875, t = 0.03125, b = 0.96875 },
+        reset    = { file = "Interface\\Buttons\\UI-RefreshButton", scale = 0.9 },
+        open     = { file = "Interface\\Buttons\\UI-PlusButton-Up" },
+        close    = { file = "Interface\\Buttons\\UI-Panel-MinimizeButton-Up", l = 0.1875, r = 0.78125, t = 0.21875, b = 0.78125 },
+        locked   = { file = "Interface\\Buttons\\LockButton-Locked-Up",   l = 0.1875, r = 0.78125, t = 0.21875, b = 0.78125 },
+        unlocked = { file = "Interface\\Buttons\\LockButton-Unlocked-Up", l = 0.1875, r = 0.78125, t = 0.21875, b = 0.78125 },
+        types = {
+            [Enum.DamageMeterType.DamageDone]           = { file = "Interface\\Icons\\INV_Sword_04", crop = 0.08, scale = 0.85 },
+            [Enum.DamageMeterType.HealingDone]          = { file = "Interface\\Icons\\Spell_Holy_Heal", crop = 0.08, scale = 0.85 },
+            [Enum.DamageMeterType.DamageTaken]          = { file = "Interface\\Icons\\Ability_Warrior_ShieldWall", crop = 0.08, scale = 0.85 },
+            [Enum.DamageMeterType.AvoidableDamageTaken] = { file = "Interface\\Icons\\Spell_Fire_Fire", crop = 0.08, scale = 0.85 },
+            [Enum.DamageMeterType.EnemyDamageTaken]     = { file = "Interface\\Icons\\INV_Sword_27", crop = 0.08, scale = 0.85 },
+            [Enum.DamageMeterType.Interrupts]           = { file = "Interface\\Icons\\Ability_Kick", crop = 0.08, scale = 0.85 },
+            [Enum.DamageMeterType.Dispels]              = { file = "Interface\\Icons\\Spell_Holy_DispelMagic", crop = 0.08, scale = 0.85 },
+            [Enum.DamageMeterType.Deaths]               = { file = "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01", crop = 0.08, scale = 0.85 },
+        },
+    },
+}
+ns.DM_HDR_IDLE, ns.DM_HDR_HOVER = 0.85, 1
+ns.DM_HDR_CLASSIC_SCALE, ns.DM_HDR_CLASSIC_PAD = 0.85, 2
+-- The stock-style art entry for a header key this session (nil = EUI glyph).
+function ns.DMHdrArt(key)
+    local set = ns.DM_HDR_ART[ns.DMStyle()]
+    return set and set[key] or nil
+end
+-- Header button size for a config (the Icon Size setting; the Spell History
+-- header passes nil for its fixed 22), and the gap between buttons: the
+-- classic art draws at 85% with a 2px gap, the glyphs at full size 2px
+-- overlapped (their margin is in the file).
+function ns.DMHdrIconSize(cfg)
+    local sz = (cfg and cfg.hdrIconSize) or 22
+    if ns.DMStyle() == "classic" then sz = math.floor(sz * ns.DM_HDR_CLASSIC_SCALE + 0.5) end
+    return sz
+end
+function ns.DMHdrIconPad()
+    if ns.DMStyle() == "classic" then return ns.DM_HDR_CLASSIC_PAD end
+    return -2
+end
+-- Seats a header icon texture in its button: full-bleed, or inset to its
+-- art entry's `scale` (relative anchors, so the button's current size
+-- decides; re-run after a resize).
+function ns.DMSeatHdrArt(tex, size)
+    local btn = tex:GetParent()
+    local art = tex._hdrArt
+    local k = art and art.scale
+    tex:ClearAllPoints()
+    if k and k < 1 then
+        local inset = ((size or btn:GetWidth()) * (1 - k)) / 2
+        tex:SetPoint("TOPLEFT", btn, "TOPLEFT", inset, -inset)
+        tex:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -inset, inset)
+    else
+        tex:SetAllPoints(btn)
+    end
+end
+-- Paints an art entry on a header icon texture and stamps it (tex._hdrArt)
+-- for the hover pass. An atlas is never followed by SetTexCoord.
+function ns.DMApplyHdrArt(tex, art)
+    tex._hdrArt = art
+    tex:SetDesaturated(false)
+    if art.atlas then
+        tex:SetAtlas(art.atlas)
+    else
+        tex:SetTexture(art.file)
+        if art.crop then
+            tex:SetTexCoord(art.crop, 1 - art.crop, art.crop, 1 - art.crop)
+        else
+            tex:SetTexCoord(art.l or 0, art.r or 1, art.t or 0, art.b or 1)
+        end
+    end
+    local k = ns.DM_HDR_IDLE
+    tex:SetVertexColor(k, k, k, 1)
+    ns.DMSeatHdrArt(tex)
+end
+-- Paints a header key's stock art on a texture; false when the key keeps
+-- the EUI glyph (the caller paints that).
+function ns.DMPaintHdrArt(tex, key)
+    local art = ns.DMHdrArt(key)
+    if not art then tex._hdrArt = nil; return false end
+    ns.DMApplyHdrArt(tex, art)
+    return true
+end
+-- Hover / idle (and the dimmed state a locked window puts on its close
+-- icon) on a stock-art texture; false when the texture carries the EUI
+-- glyph, whose tint the caller owns.
+function ns.DMHdrHover(tex, hover, dimmed)
+    local art = tex._hdrArt
+    if not art then return false end
+    if art.hover then tex:SetAtlas(hover and art.hover or art.atlas) end
+    local k = hover and ns.DM_HDR_HOVER or ns.DM_HDR_IDLE
+    tex:SetVertexColor(k, k, k, dimmed and 0.5 or 1)
+    return true
+end
+-- The mode button's icon for a meter type: the vanilla spell icon under
+-- Classic WoW UI, the EUI glyph otherwise (its desaturation and tint were
+-- set when the button was built and stay).
+function ns.DMSetTypeIcon(tex, dmType)
+    local set = ns.DM_HDR_ART[ns.DMStyle()]
+    local art = set and set.types and set.types[dmType]
+    if art then ns.DMApplyHdrArt(tex, art); return end
+    tex._hdrArt = nil
+    tex:SetTexture(DM_TYPE_ICONS[dmType] or DM_TYPE_ICONS[Enum.DamageMeterType.DamageDone])
+end
+-- A texture as the tiled tooltip background in the given colour and opacity
+-- (the file is near-white; the vertex colour is the tone). Tiling is set up
+-- once per texture; every call re-tints.
+function ns.DMClassicTint(tex, r, g, b, a)
+    if not tex._classicTiled then
+        tex._classicTiled = true
+        tex:SetHorizTile(true); tex:SetVertTile(true)
+        tex:SetTexture(ns.DM_CLASSIC_BG, "REPEAT", "REPEAT")
+    end
+    tex:SetVertexColor(r or 0, g or 0, b or 0, a or 1)
+end
+-- Header background: the stock atlas (opacity still applies) under Blizzard
+-- Style; under Classic WoW UI the window's tooltip background again as a
+-- lighter band (the header's own colour is not used, its opacity is), the
+-- way the stock meter's header stands off its body: the window colour is the
+-- trailing winR/winG/winB when given (a window body tinted from its own
+-- settings), the main meter's otherwise; the configured colour on the EUI
+-- look.
+function ns.DMPaintHeaderBg(tex, r, g, b, a, winR, winG, winB)
+    local style = ns.DMStyle()
+    if style == "blizzard" then
+        tex:SetAtlas(ns.DM_BLIZZ_HEADER)
+        tex:SetVertexColor(1, 1, 1, a)
+    elseif style == "classic" then
+        local c, k, lift = ns.EDM.DB(), ns.DM_CLASSIC_HDR_SHADE, ns.DM_CLASSIC_HDR_LIFT
+        ns.DMClassicTint(tex,
+            math.min(1, (winR or c.bgR or 0) * k + lift),
+            math.min(1, (winG or c.bgG or 0) * k + lift),
+            math.min(1, (winB or c.bgB or 0) * k + lift), a)
+    else
+        tex:SetColorTexture(r, g, b, a)
+    end
+end
+-- Classic WoW UI window edge: the vanilla chat tab's own border, the art the
+-- classic chat tabs wear, cut from Interface\ChatFrame\ChatFrameTab (64x32,
+-- greyscale; measured on the sheet): a 2px soft black shadow outside, a 1px
+-- opaque grey rim (row 11 on top, brighter than the side rims at columns 4
+-- and 59) and a 2px darker bevel inside, rounded top corners stepping in
+-- about 2px, a flat 40% black inside and an open bottom. So every piece is
+-- 5x5 at 1x: the top corners at columns 2..6 / 57..61, rows 9..13; the top
+-- edge from one uniform block of the top rim (columns 24..31); the side
+-- edges from rows 20..23; the bottom pieces are the top ones flipped (the
+-- art carries no top-to-bottom lighting). Edges stretch along their length
+-- (a cut from a sheet cannot tile). Corners first in this table:
+-- { point, left, right, top, bottom }.
+ns.DM_CLASSIC_EDGE_UV = {
+    { "TOPLEFT",     0.03125,  0.109375, 0.28125, 0.4375  },
+    { "TOPRIGHT",    0.890625, 0.96875,  0.28125, 0.4375  },
+    { "BOTTOMLEFT",  0.03125,  0.109375, 0.4375,  0.28125 },
+    { "BOTTOMRIGHT", 0.890625, 0.96875,  0.4375,  0.28125 },
+    { "TOP",         0.375,    0.5,      0.28125, 0.4375  },
+    { "BOTTOM",      0.375,    0.5,      0.4375,  0.28125 },
+    { "LEFT",        0.03125,  0.109375, 0.625,   0.75    },
+    { "RIGHT",       0.890625, 0.96875,  0.625,   0.75    },
+}
+-- The eight edge pieces as regions of the window frame, lying along the
+-- INSIDE of its rect (the window's rect is the box; the header and rows sit
+-- DM_CLASSIC_INSET inside it, past the rim and bevel): corners pinned to the
+-- window's corners, edges spanning between them. Built once per window.
+function ns.DMClassicEdge(win, e)
+    local p = {}
+    for i = 1, 8 do
+        local spec = ns.DM_CLASSIC_EDGE_UV[i]
+        local t = win:CreateTexture(nil, "BORDER")
+        t:SetTexture(ns.DM_CLASSIC_EDGE)
+        t:SetTexCoord(spec[2], spec[3], spec[4], spec[5])
+        if i <= 4 then t:SetSize(e, e) end
+        p[spec[1]] = t
+    end
+    -- Inside the window's rect: the rim sits two pixels in from the edge,
+    -- the tile starts under the bevel, the header and rows sit past it.
+    p.TOPLEFT:SetPoint("TOPLEFT", win, "TOPLEFT", 0, 0)
+    p.TOPRIGHT:SetPoint("TOPRIGHT", win, "TOPRIGHT", 0, 0)
+    p.BOTTOMLEFT:SetPoint("BOTTOMLEFT", win, "BOTTOMLEFT", 0, 0)
+    p.BOTTOMRIGHT:SetPoint("BOTTOMRIGHT", win, "BOTTOMRIGHT", 0, 0)
+    p.TOP:SetPoint("TOPLEFT", p.TOPLEFT, "TOPRIGHT", 0, 0)
+    p.TOP:SetPoint("BOTTOMRIGHT", p.TOPRIGHT, "BOTTOMLEFT", 0, 0)
+    p.BOTTOM:SetPoint("TOPLEFT", p.BOTTOMLEFT, "TOPRIGHT", 0, 0)
+    p.BOTTOM:SetPoint("BOTTOMRIGHT", p.BOTTOMRIGHT, "BOTTOMLEFT", 0, 0)
+    p.LEFT:SetPoint("TOPLEFT", p.TOPLEFT, "BOTTOMLEFT", 0, 0)
+    p.LEFT:SetPoint("BOTTOMRIGHT", p.BOTTOMLEFT, "TOPRIGHT", 0, 0)
+    p.RIGHT:SetPoint("TOPLEFT", p.TOPRIGHT, "BOTTOMLEFT", 0, 0)
+    p.RIGHT:SetPoint("BOTTOMRIGHT", p.BOTTOMRIGHT, "TOPRIGHT", 0, 0)
+end
+-- Classic WoW UI window background. Without `edged` the bg texture paints
+-- nothing: the panel sits inside a window that already wears the box (the
+-- breakdown source panel, shown over the window's own tile). With it the
+-- window carrying the texture wears the whole classic box: the tinted
+-- tooltip tile spanning the window rect inside the rim, the eight chat tab
+-- edge pieces along the rect's inside, and the bg texture itself paints
+-- nothing. The tab's own inside is pure black (no vertex tint could colour
+-- it), so the window keeps the tile as its body. All regions of the window
+-- frame, under every child; built once per bg texture, re-tinted per call.
+function ns.DMPaintClassicBg(tex, r, g, b, a, edged)
+    if not edged then
+        tex:SetTexture(nil)
+        tex:SetColorTexture(0, 0, 0, 0)
+        return
+    end
+    local tile = tex._classicBg
+    if not tile then
+        local win = tex:GetParent()
+        local e, inset = ns.DM_CLASSIC_EDGE_SIZE, ns.DM_CLASSIC_BODY
+        tile = win:CreateTexture(nil, "BACKGROUND", nil, -8)
+        -- The tile starts right under the bevel: the rim's opaque corner
+        -- pixels cover its square corners (so the corners read rounded) and
+        -- the bevel darkens its edge rather than showing the world through.
+        tile:SetPoint("TOPLEFT", win, "TOPLEFT", inset, -inset)
+        tile:SetPoint("BOTTOMRIGHT", win, "BOTTOMRIGHT", -inset, inset)
+        ns.DMClassicEdge(win, e)
+        tex._classicBg = tile
+        tex:SetTexture(nil)
+        tex:SetColorTexture(0, 0, 0, 0)
+    end
+    ns.DMClassicTint(tile, r, g, b, a)
+end
+-- How far the header and the row area sit inside the window under Classic
+-- WoW UI (past the rim and bevel), zero on every other look so the anchors
+-- below are exactly what they were.
+function ns.DMClassicInset()
+    if ns.DMClassic() then return ns.DM_CLASSIC_INSET end
+    return 0
+end
+-- The header's bottom line under Classic WoW UI: one hairline (h = the
+-- caller's physical pixel) in the chat tab rim's own grey (0x68 on the top
+-- rim), whatever the header border setting says (that line is an EUI-look
+-- control). Returns true when it painted.
+function ns.DMClassicSeparator(tex, h)
+    if not ns.DMClassic() then return false end
+    tex:SetHeight(h)
+    tex:SetColorTexture(0.41, 0.41, 0.41, 1)
+    tex:Show()
+    return true
+end
+-- Window background: the configured colour on the EUI look; the classic box
+-- above under Classic WoW UI (`edged` = this texture's window wears the edge).
+-- Under Blizzard Style the stock panel atlas is plain black with an alpha ramp
+-- baked in -- transparent at the top edge, opaque about a third of the way
+-- down (50 of its 148 rows, stretched with the window), and a short fade at
+-- the bottom -- far too heavy on a tall window. Drawn from parts instead
+-- (user ruling: half the strength, the top 20px only, no bottom fade): a
+-- 20px top band running from half the body alpha up to it over a flat black
+-- body, both hung off the bg texture's own rect (the window code owns that
+-- rect and re-anchors it under the header), which itself paints nothing.
+-- Parts are created once per bg texture; every call re-colours them with
+-- the configured opacity multiplied in.
+ns.DM_BLIZZ_BG_BODY = 245 / 255
+ns._dmBgLo = CreateColor(0, 0, 0, 1)
+ns._dmBgHi = CreateColor(0, 0, 0, 0.5)
+function ns.DMPaintWindowBg(tex, r, g, b, a, edged)
+    local style = ns.DMStyle()
+    if style == "eui" then
+        tex:SetColorTexture(r, g, b, a)
+        return
+    elseif style == "classic" then
+        ns.DMPaintClassicBg(tex, r, g, b, a, edged)
+        return
+    end
+    local parts = tex._blizzParts
+    if not parts then
+        local parent = tex:GetParent()
+        local layer, sub = tex:GetDrawLayer()
+        parts = {}
+        for i = 1, 2 do
+            local t = parent:CreateTexture(nil, layer or "BACKGROUND", nil, sub or 0)
+            t:SetTexture("Interface\\Buttons\\WHITE8X8")
+            if t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false); t:SetTexelSnappingBias(0) end
+            parts[i] = t
+        end
+        parts[1]:SetPoint("TOPLEFT", tex, "TOPLEFT", 0, 0)
+        parts[1]:SetPoint("TOPRIGHT", tex, "TOPRIGHT", 0, 0)
+        parts[1]:SetHeight(20)
+        parts[2]:SetPoint("TOPLEFT", tex, "TOPLEFT", 0, -20)
+        parts[2]:SetPoint("BOTTOMRIGHT", tex, "BOTTOMRIGHT", 0, 0)
+        tex._blizzParts = parts
+        tex:SetTexture(nil)
+        tex:SetColorTexture(0, 0, 0, 0)
+    end
+    local body = ns.DM_BLIZZ_BG_BODY * (a or 1)
+    ns._dmBgLo:SetRGBA(0, 0, 0, body)
+    ns._dmBgHi:SetRGBA(0, 0, 0, body * 0.5)
+    -- VERTICAL gradients run bottom -> top.
+    parts[1]:SetGradient("VERTICAL", ns._dmBgLo, ns._dmBgHi)
+    parts[2]:SetGradient("VERTICAL", ns._dmBgLo, ns._dmBgLo)
+end
+-- Bar fill: the user's own texture keeps its colour (the stock fill art is
+-- pre-coloured and halves every tint, the ruling the unit frames and plates
+-- follow), and the bevel that art bakes in is drawn over the filled part:
+-- four gradient strips anchored to the fill TEXTURE so they follow the
+-- value, above the fill and under the edge highlight and the texts. Created
+-- once per fill; re-anchored only when the texture object or the height
+-- changes (a path swap mints a new texture object), so refresh passes pay
+-- two compares.
+ns._dmShadeClear  = CreateColor(0, 0, 0, 0)
+ns._dmShadeTop    = CreateColor(0, 0, 0, 0.55)
+ns._dmShadeBottom = CreateColor(0, 0, 0, 0.30)
+ns._dmShadeEnd    = CreateColor(0, 0, 0, 0.35)
+function ns.DMApplyBlizzFill(fill)
+    local sh = fill._blizzShadow
+    if not sh then
+        sh = {}
+        fill._blizzShadow = sh
+        for i = 1, 4 do
+            local tex = fill:CreateTexture(nil, "OVERLAY", nil, -3)
+            tex:SetTexture("Interface\\Buttons\\WHITE8X8")
+            if tex.SetSnapToPixelGrid then tex:SetSnapToPixelGrid(false); tex:SetTexelSnappingBias(0) end
+            sh[i] = tex
+        end
+        -- VERTICAL runs bottom -> top, HORIZONTAL left -> right.
+        sh[1]:SetGradient("VERTICAL", ns._dmShadeClear, ns._dmShadeTop)
+        sh[2]:SetGradient("VERTICAL", ns._dmShadeBottom, ns._dmShadeClear)
+        sh[3]:SetGradient("HORIZONTAL", ns._dmShadeEnd, ns._dmShadeClear)
+        sh[4]:SetGradient("HORIZONTAL", ns._dmShadeClear, ns._dmShadeEnd)
+    end
+    local ft = fill:GetStatusBarTexture()
+    local h = fill:GetHeight()
+    -- A bar carrying secret values (the tooltip preview rows in combat)
+    -- reports a secret height; the last plain height stands in, then the
+    -- row default, so nothing here ever compares a secret.
+    if issecretvalue and issecretvalue(h) then h = sh._h or 18 end
+    h = h or 0
+    if h <= 0 then h = 18 end
+    if not ft or (sh._tex == ft and sh._h == h) then return end
+    sh._tex, sh._h = ft, h
+    local top, bottom, ends = math.max(2, math.floor(h * 0.2)), math.max(1, math.floor(h * 0.1)), math.max(2, math.floor(h * 0.15))
+    sh[1]:ClearAllPoints(); sh[1]:SetPoint("TOPLEFT", ft, "TOPLEFT", 0, 0); sh[1]:SetPoint("TOPRIGHT", ft, "TOPRIGHT", 0, 0); sh[1]:SetHeight(top)
+    sh[2]:ClearAllPoints(); sh[2]:SetPoint("BOTTOMLEFT", ft, "BOTTOMLEFT", 0, 0); sh[2]:SetPoint("BOTTOMRIGHT", ft, "BOTTOMRIGHT", 0, 0); sh[2]:SetHeight(bottom)
+    sh[3]:ClearAllPoints(); sh[3]:SetPoint("TOPLEFT", ft, "TOPLEFT", 0, 0); sh[3]:SetPoint("BOTTOMLEFT", ft, "BOTTOMLEFT", 0, 0); sh[3]:SetWidth(ends)
+    sh[4]:ClearAllPoints(); sh[4]:SetPoint("TOPRIGHT", ft, "TOPRIGHT", 0, 0); sh[4]:SetPoint("BOTTOMRIGHT", ft, "BOTTOMRIGHT", 0, 0); sh[4]:SetWidth(ends)
+    for i = 1, 4 do sh[i]:Show() end
+end
+-- Row background: the stock shadowed track under the fill plus its edge
+-- highlight over it, both hugging the fill's rect (the shadow style's own
+-- insets: the track sits 2px outside the fill on every side, exactly under
+-- its edge). One-time per row.
+function ns.DMApplyBlizzBarBg(bar)
+    local bg = bar._bg
+    if not bg or not bar.fill then return end
+    if bar._blizzBgOn then return end
+    bar._blizzBgOn = true
+    bg:SetAtlas(ns.DM_BLIZZ_BAR_BG)
+    bg:SetVertexColor(1, 1, 1, 1)
+    bg:ClearAllPoints()
+    bg:SetPoint("TOPLEFT", bar.fill, "TOPLEFT", -2, 2)
+    bg:SetPoint("BOTTOMRIGHT", bar.fill, "BOTTOMRIGHT", 2, -2)
+    local edge = bar.fill:CreateTexture(nil, "OVERLAY", nil, 6)
+    edge:SetAtlas(ns.DM_BLIZZ_BAR_EDGE)
+    edge:SetPoint("TOPLEFT", bar.fill, "TOPLEFT", -2, 2)
+    edge:SetPoint("BOTTOMRIGHT", bar.fill, "BOTTOMRIGHT", 2, -2)
+end
+
 -- Header icon visibility (hide until title bar hovered)
 local function ResetButtonHidden(cfg)
     cfg = cfg or DB()
@@ -310,10 +657,14 @@ end
 
 local function LayoutHeaderButtons(W, cfg, iconSz)
     if not W or not W.header or not W.hdrBtns then return end
-    local btnPad = -2
+    local btnPad = ns.DMHdrIconPad()
     local layoutBtns = GetHeaderLayoutButtons(W, cfg)
     for bi, btn in ipairs(layoutBtns) do
-        if iconSz then btn:SetSize(iconSz, iconSz) end
+        if iconSz then
+            btn:SetSize(iconSz, iconSz)
+            -- Inset stock art follows the new size.
+            if btn._hdrIcon and btn._hdrIcon._hdrArt then ns.DMSeatHdrArt(btn._hdrIcon, iconSz) end
+        end
         btn:ClearAllPoints()
         btn:SetPoint("RIGHT", W.header, "RIGHT", -(iconSz * (bi - 1) + btnPad * bi + 2), 0)
     end
@@ -498,6 +849,34 @@ ns.RegisterDMUnlock = function()
                 local wdb = idx and WinDB(idx)
                 return wdb and wdb.width or 375, wdb and wdb.height or 150
             end,
+            -- A textured window border's reach past the window's edges, so size
+            -- matching lines up with what is on screen. Mirrors ns.ApplyWindowBorder:
+            -- the border hugs an overlay target set out by the Width/Height
+            -- Offsets, and its top starts below the header when the header is
+            -- left out. Each side clamped at 0. nil under a stock look or solid.
+            getMatchPad = function()
+                if ns.DMBlizz() then return nil end
+                local cfg = DB()
+                local size = tonumber(cfg.windowBorderSize) or 0
+                local texture = cfg.windowBorderTexture or "solid"
+                if size <= 0 or texture == "solid" then return nil end
+                local color = cfg.windowBorderColor
+                local l, r, t, b = EUI.BorderReach(size, texture, nil, nil, nil, nil, nil, nil,
+                    EUI.BorderPx(cfg.windowBorderSizePx, size, texture), nil, color and color.a or 1)
+                if not l then return nil end
+                local ox = tonumber(cfg.windowBorderOffsetX) or 0
+                local oy = tonumber(cfg.windowBorderOffsetY) or 0
+                l, r, b = l + ox, r + ox, b + oy
+                if cfg.windowBorderIncludeHeader ~= false then
+                    t = t + oy
+                else
+                    t = t + oy - GetHeaderH()
+                end
+                local pw = (l > 0 and l or 0) + (r > 0 and r or 0)
+                local ph = (t > 0 and t or 0) + (b > 0 and b or 0)
+                if pw <= 0 and ph <= 0 then return nil end
+                return pw, ph
+            end,
             setWidth = function(key, newW)
                 local w, idx = winOf(key)
                 if not w or not w.frame then return end
@@ -571,6 +950,13 @@ ns.RegisterDMUnlock = function()
         if not (spellHistory and spellHistory.iconEnabled) then
             EUI:UnregisterUnlockElement("EDM_IconHistory")
         end
+    end
+    -- Windows paint their border before they register (build, profile swap,
+    -- new window), so ApplyWindowBorder's pad report found no element yet:
+    -- record each window's pad now, or the first border edit after login
+    -- would only be recorded, never re-pushed.
+    if EUI.MatchPadChanged then
+        for i = 1, #_windows do EUI.MatchPadChanged("EDM_Win" .. i) end
     end
 end
 local _combatEndTime = 0       -- GetTime() at combat end; control-flow sentinel (ticker teardown / freeze-once)
@@ -861,25 +1247,8 @@ local function SetCVarSafe(name, value)
     end
 end
 
--- Font helpers
-local function GetDMFont()
-    if EUI and EUI.GetFontPath then
-        return EUI.GetFontPath("damageMeters")
-    end
-    return "Fonts\\FRIZQT__.TTF"
-end
-
-local function GetDMOutline()
-    return (EUI and EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("damageMeters")) or ""
-end
-
 local function SetDMFont(fs, size, flagsOverride, fontOverride)
-    if not (fs and fs.SetFont) then return end
-    local font = fontOverride or GetDMFont()
-    local flags = flagsOverride
-    if flags == nil then flags = GetDMOutline() end
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, flags == "") end
-    fs:SetFont(font, size, flags)
+    EllesmereUI.ApplyModuleFont(fs, fontOverride, size, "damageMeters", flagsOverride)
 end
 
 -- Accent color helper
@@ -894,6 +1263,12 @@ end
 -- Bar texture tables
 local DM_BAR_TEXTURES, DM_BAR_TEXTURE_NAMES, DM_BAR_TEXTURE_ORDER =
     EllesmereUI.BuildBarTextureTables(true)
+-- Meter-only extra entry, second in the list: the game's own bar fill (the
+-- vanilla status bar), pointed at directly so it needs no SharedMedia
+-- registration; Classic WoW UI seeds it.
+DM_BAR_TEXTURES["blizzard"]      = "Interface\\TargetingFrame\\UI-StatusBar"
+DM_BAR_TEXTURE_NAMES["blizzard"] = "Blizzard"
+table.insert(DM_BAR_TEXTURE_ORDER, 2, "blizzard")
 _G._EDM_BarTextures     = DM_BAR_TEXTURES
 _G._EDM_BarTextureOrder = DM_BAR_TEXTURE_ORDER
 _G._EDM_BarTextureNames = DM_BAR_TEXTURE_NAMES
@@ -983,6 +1358,10 @@ local function ClearThinLine(fill)
 end
 
 local function ApplyBarTexture(fill, texPath, texKey)
+    -- Blizzard Style: the user's texture as below, plus the stock bevel over
+    -- it (strips on the fill, independent of the texture path). Classic WoW
+    -- UI bars are plain rectangles: no strips.
+    if ns.DMStyle() == "blizzard" then ns.DMApplyBlizzFill(fill) end
     local edge = THIN_LINE_KEYS[texKey]
     if edge then
         fill:SetStatusBarTexture(BAR_TEX)
@@ -1004,24 +1383,22 @@ local function PhysicalPixels(userValue)
     return value
 end
 
--- Row geometry with both terms on ONE pixel grid. barHeight is stored as a
--- physical pixel count (plain slider), barSpacing in coordinate units (pixel
--- slider), so it carries the UI scale it was set at. Snapping only the height
--- left the stride between two grids and -((i-1) * stride) drifted down the
--- list: a spacing of 1 then rendered as 0px on some rows and 2px on others, at
--- a fractional UI scale and equally at a pixel-perfect one whenever the value
--- had been saved at another scale.
+-- Row geometry with both terms on ONE pixel grid. barHeight and barSpacing are
+-- both coordinate units, like the window width and fonts, so bars keep their
+-- proportion to the window at any UI scale and a shared profile renders the
+-- same relative size for everyone. Both are snapped against the same effective
+-- scale: a stride between two grids drifts down the list (-((i-1) * stride)),
+-- rendering a spacing of 1 as 0px on some rows and 2px on others.
 -- Returns barH, barSp, stride and one physical pixel, in coordinate units.
-local function RowMetrics(heightPx, spacingCoord, es)
+local function RowMetrics(height, spacingCoord, es)
     local PP = EUI and EUI.PP
     if PP and PP.perfect and PP.SnapForES then
         if not es or es <= 0 then es = (UIParent and UIParent:GetEffectiveScale()) or 1 end
-        local onePixel = PP.perfect / es
-        local barH = PP.SnapForES((heightPx or 18) * onePixel, es)
+        local barH = PP.SnapForES(height or 18, es)
         local barSp = PP.SnapForES(spacingCoord or 2, es)
-        return barH, barSp, barH + barSp, onePixel
+        return barH, barSp, barH + barSp, PP.perfect / es
     end
-    local barH, barSp = PhysicalPixels(heightPx or 18), spacingCoord or 2
+    local barH, barSp = height or 18, spacingCoord or 2
     return barH, barSp, barH + barSp, (PP and PP.mult) or 1
 end
 -- On ns as well: CreateDMWindow sits at Lua 5.1's 60-upvalue cap, so its call
@@ -1609,7 +1986,7 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
         _ttFrame._hdrText:SetText(EllesmereUI.Lf("%1$s's %2$s Breakdown", playerName, typeName))
         local cfg = DB()
         local hc = cfg.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
-        _ttFrame._hdrBg:SetColorTexture(hR, hG, hB, cfg.hdrBgAlpha or 1)
+        ns.DMPaintHeaderBg(_ttFrame._hdrBg, hR, hG, hB, cfg.hdrBgAlpha or 1)
         local tR, tG, tB
         if cfg.hdrTextUseAccent ~= false then tR, tG, tB = GetAccentRGB()
         else local tc = cfg.hdrTextColor; tR = tc and tc.r or 1; tG = tc and tc.g or 1; tB = tc and tc.b or 1 end
@@ -1820,11 +2197,26 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
             local entry = _ttSorted[i]
             local spell = entry.spell
             local hasIcon = false
-            if spell.spellID then
-                local spIcon = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spell.spellID)
-                if spIcon then
-                    hasIcon = true
-                    b.spellIcon:SetTexture(spIcon); b.spellIcon:Show()
+            -- A combatSpells spellID is secret in combat. GetSpellTexture takes a
+            -- secret id (AllowedWhenTainted; Blizzard's own meter passes it straight
+            -- in) but rejects some outright ("bad argument #1": open-world non-group
+            -- participants), so a secret id goes through pcall and its result is
+            -- tested by type() only, never by truthiness (it may come back secret).
+            local spID = spell.spellID
+            local getTex = C_Spell and C_Spell.GetSpellTexture
+            if spID and getTex then
+                if IsSecret(spID) then
+                    local ok, spIcon = pcall(getTex, spID)
+                    if ok and type(spIcon) ~= "nil" then
+                        hasIcon = true
+                        b.spellIcon:SetTexture(spIcon); b.spellIcon:Show()
+                    end
+                else
+                    local spIcon = getTex(spID)
+                    if spIcon then
+                        hasIcon = true
+                        b.spellIcon:SetTexture(spIcon); b.spellIcon:Show()
+                    end
                 end
             end
             if not hasIcon then b.spellIcon:Hide() end
@@ -2012,8 +2404,8 @@ end
 local function EnsureMenuRow(menu, idx)
     local row = menu._pool[idx]
     if row then return row end
-    local fontPath = (EUI.GetFontPath and EUI.GetFontPath("damageMeters")) or "Fonts\\FRIZQT__.TTF"
-    local outline = (EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("damageMeters")) or ""
+    local fontPath = (EUI.GetFontPath("damageMeters")) or "Fonts\\FRIZQT__.TTF"
+    local outline = (EUI.GetFontOutlineFlag("damageMeters")) or ""
     row = CreateFrame("Button", nil, menu)
     row._hl = row:CreateTexture(nil, "BACKGROUND", nil, 1); row._hl:SetAllPoints()
     row._lbl = row:CreateFontString(nil, "OVERLAY"); row._lbl:SetFont(fontPath, CTX_FONT_SZ, outline)
@@ -2032,8 +2424,8 @@ end
 
 local function LayoutMenu(menu, items, onDismiss, isChild)
     ApplyInheritedBlizzardBorder(menu, "popupMenu")
-    local fontPath = (EUI.GetFontPath and EUI.GetFontPath("damageMeters")) or "Fonts\\FRIZQT__.TTF"
-    local outline = (EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("damageMeters")) or ""
+    local fontPath = (EUI.GetFontPath("damageMeters")) or "Fonts\\FRIZQT__.TTF"
+    local outline = (EUI.GetFontOutlineFlag("damageMeters")) or ""
     local EG = EUI.ELLESMERE_GREEN
     local hlAlpha = EUI.DD_ITEM_HL_A or 0.08
     for _, r in ipairs(menu._pool) do r:Hide() end
@@ -2141,7 +2533,7 @@ local function LayoutMenu(menu, items, onDismiss, isChild)
                     elseif not isChild and _edmSub then _edmSub:Hide() end
                 end)
                 row:SetScript("OnLeave", function(self)
-                    if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+                    EUI.HideWidgetTooltip()
                     self._hl:SetColorTexture(1, 1, 1, active and hlAlpha or 0)
                     if active and EG then self._lbl:SetTextColor(EG.r, EG.g, EG.b, 1) else self._lbl:SetTextColor(1, 1, 1, 1) end
                     if isChild then return end
@@ -2178,7 +2570,7 @@ local function ShowEDMMenu(items, anchorBtn)
         _edmMenu:HookScript("OnHide", function()
             if _edmSub then _edmSub:Hide() end
             _edmMenuAnchor = nil
-            if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+            EUI.HideWidgetTooltip()
         end)
     end
 
@@ -2253,7 +2645,9 @@ local function CreateDMWindow(winIdx)
         function bar.ApplyBorder()
             local c = DB()
             local sz = c.borderSize or 0
-            if sz <= 0 then
+            -- Stock-style rows carry no EUI border: Blizzard Style draws the
+            -- stock shadow edge, Classic WoW UI a plain bar.
+            if sz <= 0 or ns.DMBlizz() then
                 if bar._borderFrame then bar._borderFrame:Hide() end
                 if bar._fillBorder then bar._fillBorder:Hide() end
                 return
@@ -2309,10 +2703,12 @@ local function CreateDMWindow(winIdx)
             end
             bar._borderFrame:Show()
             local tex = c.borderTexture or "solid"
+            -- Exact size (nil = the legacy step path) only while it still pairs with sz + tex.
+            local px = EllesmereUI.BorderPx(c.borderSizePx, sz, tex)
             EllesmereUI.ApplyBorderStyle(bar._borderFrame, sz,
                 c.borderR or 0, c.borderG or 0, c.borderB or 0, c.borderA or 1,
                 tex, c.borderTextureOffset, c.borderTextureOffsetY,
-                c.borderTextureShiftX, c.borderTextureShiftY, "damagemeters", sz)
+                c.borderTextureShiftX, c.borderTextureShiftY, "damagemeters", sz, nil, px)
         end
         bar.ApplyBorder()
         function bar.ApplyIconBorder()
@@ -2332,10 +2728,11 @@ local function CreateDMWindow(winIdx)
             -- class (secret/NPC rows), and a frame anchored to a hidden texture would still render a floating border
             bar._iconBorderFrame:SetShown(bar.classIcon:IsShown())
             local tex = c.iconBorderTexture or "solid"
+            local px = EllesmereUI.BorderPx(c.iconBorderSizePx, sz, tex)
             EllesmereUI.ApplyBorderStyle(bar._iconBorderFrame, sz,
                 c.iconBorderR or 0, c.iconBorderG or 0, c.iconBorderB or 0, c.iconBorderA or 1,
                 tex, c.iconBorderTextureOffset, c.iconBorderTextureOffsetY,
-                c.iconBorderTextureShiftX, c.iconBorderTextureShiftY, "damagemeters_icon", sz)
+                c.iconBorderTextureShiftX, c.iconBorderTextureShiftY, "damagemeters_icon", sz, nil, px)
         end
         bar.ApplyIconBorder()
         -- Per-bar track background (behind the fill). Default alpha 0 = invisible.
@@ -2343,6 +2740,9 @@ local function CreateDMWindow(winIdx)
         bar._bg:SetAllPoints(bar.row)
         function bar.ApplyBg()
             local c = DB()
+            -- Blizzard Style: the stock track and edge; Classic WoW UI keeps
+            -- the plain track below.
+            if ns.DMStyle() == "blizzard" then ns.DMApplyBlizzBarBg(bar); return end
             local a = c.barBgAlpha or 0
             -- Class-colored track when enabled: tint the bg with this bar's class color (x bg
             -- alpha), else the custom bg color. classFile can be secret, so guard before indexing
@@ -2436,7 +2836,7 @@ local function CreateDMWindow(winIdx)
                     _ttFrame._hdrText:SetText(EllesmereUI.Lf("%1$s's Death Recap", playerName))
                     local cfg2 = DB()
                     local hc = cfg2.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
-                    _ttFrame._hdrBg:SetColorTexture(hR, hG, hB, cfg2.hdrBgAlpha or 1)
+                    ns.DMPaintHeaderBg(_ttFrame._hdrBg, hR, hG, hB, cfg2.hdrBgAlpha or 1)
                     local tR, tG, tB
                     if cfg2.hdrTextUseAccent ~= false then tR, tG, tB = GetAccentRGB()
                     else local tc = cfg2.hdrTextColor; tR = tc and tc.r or 1; tG = tc and tc.g or 1; tB = tc and tc.b or 1 end
@@ -2467,7 +2867,7 @@ local function CreateDMWindow(winIdx)
                 _ttFrame._hdrText:SetText(EllesmereUI.Lf("%1$s's %2$s Breakdown", playerName, typeName))
                 local cfg2 = DB()
                 local hc = cfg2.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
-                _ttFrame._hdrBg:SetColorTexture(hR, hG, hB, cfg2.hdrBgAlpha or 1)
+                ns.DMPaintHeaderBg(_ttFrame._hdrBg, hR, hG, hB, cfg2.hdrBgAlpha or 1)
                 local tR, tG, tB
                 if cfg2.hdrTextUseAccent ~= false then tR, tG, tB = GetAccentRGB()
                 else local tc = cfg2.hdrTextColor; tR = tc and tc.r or 1; tG = tc and tc.g or 1; tB = tc and tc.b or 1 end
@@ -2515,6 +2915,12 @@ local function CreateDMWindow(winIdx)
         local bar = {}
         bar.row = CreateFrame("Button", nil, parent); bar.row:SetHeight(18); bar.row:EnableMouse(true); bar.row:RegisterForClicks("AnyUp")
         bar.fill = CreateFrame("StatusBar", nil, bar.row); bar.fill:SetMinMaxValues(0, 1); bar.fill:SetValue(0); bar.fill:SetStatusBarTexture(BAR_TEX)
+        -- Blizzard Style: the same track and edge as the main rows (Classic
+        -- WoW UI rows stay plain).
+        if ns.DMStyle() == "blizzard" then
+            bar._bg = bar.row:CreateTexture(nil, "BACKGROUND")
+            ns.DMApplyBlizzBarBg(bar)
+        end
         bar.classIcon = bar.fill:CreateTexture(nil, "OVERLAY"); bar.classIcon:SetSize(18, 18); bar.classIcon:SetPoint("LEFT", bar.row, "LEFT", 0, 0); bar.classIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92); bar.classIcon:Hide()
         local tf = CreateFrame("Frame", nil, bar.fill); tf:SetAllPoints(bar.fill); tf:SetFrameLevel(bar.fill:GetFrameLevel() + 2)
         bar.label = tf:CreateFontString(nil, "OVERLAY"); bar.label:SetPoint("LEFT", tf, "LEFT", 3, 0); bar.label:SetPoint("RIGHT", tf, "RIGHT", -70, 0); bar.label:SetJustifyH("LEFT"); SetDMFont(bar.label, 11)
@@ -2540,11 +2946,12 @@ local function CreateDMWindow(winIdx)
     frame._bg = frame:CreateTexture(nil, "BACKGROUND")
     frame._bg:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -GetHeaderH())
     frame._bg:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
-    frame._bg:SetColorTexture(cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgAlpha or 0.75)
+    ns.DMPaintWindowBg(frame._bg, cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgAlpha or 0.75, true)
 
-    -- Header
+    -- Header (inside the classic box's line; flush on every other look)
+    local ci = ns.DMClassicInset()
     local header = CreateFrame("Frame", nil, frame)
-    header:SetHeight(GetHeaderH()); header:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0); header:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+    header:SetHeight(GetHeaderH()); header:SetPoint("TOPLEFT", frame, "TOPLEFT", ci, -ci); header:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -ci, -ci)
     header:SetFrameLevel(frame:GetFrameLevel() + 5)
     W.header = header
 
@@ -2555,16 +2962,16 @@ local function CreateDMWindow(winIdx)
     W.windowBorderTarget = windowBorderTarget
 
     do local hc = cfg.hdrBgColor; local hR = hc and hc.r or 0x1B/255; local hG = hc and hc.g or 0x1B/255; local hB = hc and hc.b or 0x1B/255
-    header._hdrBg = header:CreateTexture(nil, "BACKGROUND"); header._hdrBg:SetAllPoints(); header._hdrBg:SetColorTexture(hR, hG, hB, cfg.hdrBgAlpha or 1) end
+    header._hdrBg = header:CreateTexture(nil, "BACKGROUND"); header._hdrBg:SetAllPoints(); ns.DMPaintHeaderBg(header._hdrBg, hR, hG, hB, cfg.hdrBgAlpha or 1) end
     header._bottomBorder = header:CreateTexture(nil, "OVERLAY", nil, 7)
     header._bottomBorder:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", 0, 0)
     header._bottomBorder:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", 0, 0)
-    do
+    if not ns.DMClassicSeparator(header._bottomBorder, PhysicalPixels(1)) then
         local size = cfg.hdrBottomBorderSize or 0
         local color = cfg.hdrBottomBorderColor or {}
         header._bottomBorder:SetHeight(PhysicalPixels(size))
         header._bottomBorder:SetColorTexture(color.r or 0, color.g or 0, color.b or 0, color.a or 1)
-        header._bottomBorder:SetShown(size > 0)
+        header._bottomBorder:SetShown(size > 0 and not ns.DMBlizz())
     end
 
     local hdrFS = cfg.hdrFontSize or 11
@@ -2591,16 +2998,18 @@ local function CreateDMWindow(winIdx)
             local c = DB()
             if c.hdrTextUseAccent ~= false then W.titleText:SetTextColor(r, g, b, 1) end
             if c.iconColorUseAccent then
-                for _, ic in ipairs(W.hdrIcons) do ic:SetVertexColor(r, g, b, ICON_ALPHA) end
+                for _, ic in ipairs(W.hdrIcons) do
+                    if not ic._hdrArt then ic:SetVertexColor(r, g, b, ICON_ALPHA) end
+                end
             end
             W.Refresh()
             if homeFrame and homeFrame:IsShown() then RefreshHome() end
         end })
     end
 
-    -- Header buttons
-    local btnSize = cfg.hdrIconSize or 22
-    local btnPad = -2
+    -- Header buttons (size and gap follow the style: ns.DMHdrIconSize)
+    local btnSize = ns.DMHdrIconSize(cfg)
+    local btnPad = ns.DMHdrIconPad()
 
     W.hdrIcons = {}
     local function GetIconColor()
@@ -2609,26 +3018,35 @@ local function CreateDMWindow(winIdx)
         local ic = c.iconColor; return ic and ic.r or 1, ic and ic.g or 1, ic and ic.b or 1
     end
 
-    local function MakeHeaderBtn(texFile, xOff, tooltip, onClick)
+    -- artKey: the header key whose stock-style art replaces the EUI glyph
+    -- under a stock style (ns.DM_HDR_ART); the glyph stays where none exists.
+    local function MakeHeaderBtn(texFile, xOff, tooltip, onClick, artKey)
         local btn = CreateFrame("Button", nil, header)
         btn:SetSize(btnSize, btnSize); btn:SetPoint("RIGHT", header, "RIGHT", xOff, 0)
         btn:SetFrameLevel(header:GetFrameLevel() + 2)
         local ir, ig, ib = GetIconColor()
         local icon = btn:CreateTexture(nil, "ARTWORK"); icon:SetAllPoints()
-        icon:SetTexture(MEDIA .. texFile); icon:SetDesaturated(true); icon:SetVertexColor(ir, ig, ib, ICON_ALPHA)
+        btn._hdrIcon = icon
+        if not ns.DMPaintHdrArt(icon, artKey) then
+            icon:SetTexture(MEDIA .. texFile); icon:SetDesaturated(true); icon:SetVertexColor(ir, ig, ib, ICON_ALPHA)
+        end
         W.hdrIcons[#W.hdrIcons + 1] = icon
         btn:SetScript("OnEnter", function(self)
-            local r, g, b = GetIconColor(); icon:SetVertexColor(r, g, b, ICON_HOVER_ALPHA)
+            if not ns.DMHdrHover(icon, true) then
+                local r, g, b = GetIconColor(); icon:SetVertexColor(r, g, b, ICON_HOVER_ALPHA)
+            end
             -- Suppress tooltip while this button's menu is open
             if _edmMenu and _edmMenu:IsShown() and _edmMenuAnchor == self then return end
-            if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, tooltip) end
+            EUI.ShowWidgetTooltip(self, tooltip)
         end)
         btn:SetScript("OnLeave", function()
-            local r, g, b = GetIconColor(); icon:SetVertexColor(r, g, b, ICON_ALPHA)
-            if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+            if not ns.DMHdrHover(icon, false) then
+                local r, g, b = GetIconColor(); icon:SetVertexColor(r, g, b, ICON_ALPHA)
+            end
+            EUI.HideWidgetTooltip()
         end)
         btn:SetScript("OnClick", function(self)
-            if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+            EUI.HideWidgetTooltip()
             onClick(self)
         end)
         return btn
@@ -2720,10 +3138,10 @@ local function CreateDMWindow(winIdx)
               tooltip = L("Set your window to this Meter Type on dungeon start"),
               children = mStartChildren },
             { text = L("Settings"), onClick = function()
-                if EUI.ShowModule then EUI:ShowModule("EllesmereUIDamageMeters") end
+                EUI:ShowModule("EllesmereUIDamageMeters")
             end },
         }, W.settingsBtn)
-    end)
+    end, "settings")
 
     W.segmentBtn = MakeHeaderBtn("dm_sheet.png", -(btnSize + btnPad * 2 + 2), L("Select Segment"), function()
         local items = {}
@@ -2755,7 +3173,7 @@ local function CreateDMWindow(winIdx)
             }
         end
         ShowEDMMenu(items, W.segmentBtn)
-    end)
+    end, "segment")
 
     -- Switch this window to a meter type (data + icon + refresh). Shared by the
     -- mode button and the "Default on M+ Start" key-start hook so both stay in sync.
@@ -2763,9 +3181,7 @@ local function CreateDMWindow(winIdx)
         W.curDMType = dmType; wdb.curDMType = dmType
         if W.CloseSource then W.CloseSource() end
         W.Refresh()
-        if W._modeIcon then
-            W._modeIcon:SetTexture(DM_TYPE_ICONS[dmType] or DM_TYPE_ICONS[Enum.DamageMeterType.DamageDone])
-        end
+        if W._modeIcon then ns.DMSetTypeIcon(W._modeIcon, dmType) end
     end
 
     W.modeBtn = MakeHeaderBtn("dm_arrow.png", -(btnSize * 2 + btnPad * 3 + 2), "Switch Meter Type", function()
@@ -2787,11 +3203,12 @@ local function CreateDMWindow(winIdx)
     end)
     -- Set mode icon to current DM type icon
     W._modeIcon = W.hdrIcons[#W.hdrIcons]
-    W._modeIcon:SetTexture(DM_TYPE_ICONS[W.curDMType] or DM_TYPE_ICONS[Enum.DamageMeterType.DamageDone])
+    ns.DMSetTypeIcon(W._modeIcon, W.curDMType)
 
     -- + (new window) or x (close window) button, left of mode icon
     local winActionIcon = (winIdx == 1) and (MEDIA .. "dm_open.png") or (MEDIA .. "dm_close.png")
     local winActionTip = (winIdx == 1) and L("New Window") or L("Close Window")
+    local winActionKey = (winIdx == 1) and "open" or "close"
     W.winActionBtn = MakeHeaderBtn("dm_settings.png", -(btnSize * 4 + btnPad * 5 + 2), winActionTip, function()
         if winIdx ~= 1 and W.windowLocked then return end
         if winIdx == 1 then
@@ -2833,13 +3250,15 @@ local function CreateDMWindow(winIdx)
         else
             W.Destroy()
         end
-    end)
-    -- Override icon texture; close icon 2px larger for visibility
+    end, winActionKey)
+    -- Override icon texture (the stock art, when any, was painted by key);
+    -- close icon 2px larger for visibility
     do
         local iconTex = W.hdrIcons[#W.hdrIcons]
-        iconTex:SetTexture(winActionIcon)
+        if not iconTex._hdrArt then iconTex:SetTexture(winActionIcon) end
         if winIdx ~= 1 then W._closeIconTex = iconTex end
-        if winIdx ~= 1 then
+        -- (The thin glyph only; the vanilla red X fills its crop already.)
+        if winIdx ~= 1 and not iconTex._hdrArt then
             iconTex:ClearAllPoints()
             iconTex:SetSize(btnSize + 2, btnSize + 2)
             iconTex:SetPoint("CENTER", W.winActionBtn, "CENTER", 0, 0)
@@ -2849,23 +3268,23 @@ local function CreateDMWindow(winIdx)
             W.winActionBtn:HookScript("OnEnter", function(self)
                 if #_windows >= MAX_WINDOWS then
                     iconTex:SetAlpha(0.2)
-                    if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
-                    if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, EllesmereUI.Lf("You may only have %1$d windows active", MAX_WINDOWS)) end
+                    EUI.HideWidgetTooltip()
+                    EUI.ShowWidgetTooltip(self, EllesmereUI.Lf("You may only have %1$d windows active", MAX_WINDOWS))
                 end
             end)
         else
             W.winActionBtn:HookScript("OnEnter", function(self)
                 if W.windowLocked then
                     local ir, ig, ib = GetIconColor()
-                    iconTex:SetVertexColor(ir, ig, ib, ICON_ALPHA * 0.5)
-                    if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
-                    if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Unlock Window to Close") end
+                    if not ns.DMHdrHover(iconTex, false, true) then iconTex:SetVertexColor(ir, ig, ib, ICON_ALPHA * 0.5) end
+                    EUI.HideWidgetTooltip()
+                    EUI.ShowWidgetTooltip(self, "Unlock Window to Close")
                 end
             end)
             W.winActionBtn:HookScript("OnLeave", function()
                 if W.windowLocked then
                     local ir, ig, ib = GetIconColor()
-                    iconTex:SetVertexColor(ir, ig, ib, ICON_ALPHA * 0.5)
+                    if not ns.DMHdrHover(iconTex, false, true) then iconTex:SetVertexColor(ir, ig, ib, ICON_ALPHA * 0.5) end
                 end
             end)
         end
@@ -2873,7 +3292,7 @@ local function CreateDMWindow(winIdx)
     -- Apply initial close icon dimming if window starts locked
     if winIdx ~= 1 and W.windowLocked and W._closeIconTex then
         local ir, ig, ib = GetIconColor()
-        W._closeIconTex:SetVertexColor(ir, ig, ib, ICON_ALPHA * 0.5)
+        if not ns.DMHdrHover(W._closeIconTex, false, true) then W._closeIconTex:SetVertexColor(ir, ig, ib, ICON_ALPHA * 0.5) end
     end
 
     -- Reset Data button, left of win action button
@@ -2883,7 +3302,7 @@ local function CreateDMWindow(winIdx)
             _combatEndTime = 0; _curViewFrozenDur = 0
             for _, w in ipairs(_windows) do w.Refresh() end
         end
-    end)
+    end, "reset")
 
     -- Ordered list of header buttons for live resize/reposition
     W.hdrBtns = { W.settingsBtn, W.segmentBtn, W.modeBtn, W.resetBtn, W.winActionBtn }
@@ -2896,7 +3315,7 @@ local function CreateDMWindow(winIdx)
         if not fs or not full then return end
         fs:SetText(full)
         local c = DB()
-        local iconSz = c.hdrIconSize or 22
+        local iconSz = ns.DMHdrIconSize(c)
         local n = #GetHeaderLayoutButtons(W, c)
         -- Icons hidden until hover occupy no space, so the title gets the whole header instead of truncating against a gap that isn't there
         if W._hdrIconsShown == false then n = 0 end
@@ -2925,41 +3344,6 @@ local function CreateDMWindow(winIdx)
 
     -- Snap helpers (X-axis alignment + width matching against other DM windows)
     local SNAP_THRESH = 6
-
-    local function SnapDragPosition()
-        local myLeft = frame:GetLeft()
-        local myRight = frame:GetRight()
-        if not myLeft or not myRight then return end
-        local snappedX = myLeft
-        local bestDist = SNAP_THRESH + 1
-        for _, otherW in ipairs(_windows) do
-            if otherW ~= W and otherW.frame and otherW.frame:IsShown() then
-                local oLeft = otherW.frame:GetLeft()
-                local oRight = otherW.frame:GetRight()
-                if oLeft then
-                    -- Snap my left to their left
-                    local d = math.abs(myLeft - oLeft)
-                    if d < bestDist then bestDist = d; snappedX = oLeft end
-                    -- Snap my right to their right
-                    if oRight then
-                        local d2 = math.abs(myRight - oRight)
-                        if d2 < bestDist then bestDist = d2; snappedX = oRight - (myRight - myLeft) end
-                    end
-                    -- Snap my left to their right
-                    local d3 = math.abs(myLeft - oRight)
-                    if d3 < bestDist then bestDist = d3; snappedX = oRight end
-                    -- Snap my right to their left
-                    local d4 = math.abs(myRight - oLeft)
-                    if d4 < bestDist then bestDist = d4; snappedX = oLeft - (myRight - myLeft) end
-                end
-            end
-        end
-        if bestDist <= SNAP_THRESH then
-            local top = frame:GetTop()
-            frame:ClearAllPoints()
-            frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", snappedX, top)
-        end
-    end
 
     -- Find the closest other DM window by 2D edge-to-edge distance; optional left/top overrides let drag pass an unsnapped target position
     local function FindClosestWindow(overrideL, overrideT)
@@ -3077,7 +3461,7 @@ local function CreateDMWindow(winIdx)
 
     header:SetScript("OnMouseDown", function(_, button)
         if button ~= "LeftButton" or W.windowLocked then return end
-        if EUI.InProtectedInstance and EUI.InProtectedInstance() then return end
+        if EUI.InProtectedInstance() then return end
         local cx, cy = GetCursorPosition(); local es = frame:GetEffectiveScale()
         dragStartCX = cx/es; dragStartCY = cy/es
         dragStartLeft = frame:GetLeft(); dragStartTop = frame:GetTop()
@@ -3111,7 +3495,7 @@ local function CreateDMWindow(winIdx)
     -- the header; sits behind the viewport so bar clicks pass through normally.
     local rightClickCatcher = CreateFrame("Button", nil, frame)
     rightClickCatcher:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, 0)
-    rightClickCatcher:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+    rightClickCatcher:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -ci, ci)
     rightClickCatcher:SetFrameLevel(frame:GetFrameLevel() + 1)
     rightClickCatcher:RegisterForClicks("RightButtonUp")
     rightClickCatcher:EnableMouseWheel(false)
@@ -3121,7 +3505,7 @@ local function CreateDMWindow(winIdx)
     -- Viewport + scroll
     local viewport = CreateFrame("ScrollFrame", nil, frame)
     viewport:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, 0)
-    viewport:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+    viewport:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -ci, ci)
     W.viewport = viewport
 
     local content = CreateFrame("Frame", nil, viewport); content:SetSize(1, 1)
@@ -3172,10 +3556,10 @@ local function CreateDMWindow(winIdx)
     -- Source window
     W.sourceFrame = CreateFrame("Frame", nil, frame)
     W.sourceFrame:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, 0)
-    W.sourceFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+    W.sourceFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -ci, ci)
     W.sourceFrame:SetFrameLevel(frame:GetFrameLevel() + 20); W.sourceFrame:EnableMouse(true); W.sourceFrame:Hide()
     W.sourceFrame._bg = W.sourceFrame:CreateTexture(nil, "BACKGROUND"); W.sourceFrame._bg:SetAllPoints()
-    W.sourceFrame._bg:SetColorTexture(cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgAlpha or 0.75)
+    ns.DMPaintWindowBg(W.sourceFrame._bg, cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgAlpha or 0.75)
 
     W.srcViewport = CreateFrame("ScrollFrame", nil, W.sourceFrame); W.srcViewport:SetAllPoints()
     W.srcContent = CreateFrame("Frame", nil, W.srcViewport); W.srcContent:SetSize(1, 1); W.srcViewport:SetScrollChild(W.srcContent)
@@ -3216,34 +3600,36 @@ local function CreateDMWindow(winIdx)
     W.lockBtn:EnableMouse(true); W.lockBtn:SetAlpha(0)
     local lockTex = W.lockBtn:CreateTexture(nil, "ARTWORK"); lockTex:SetAllPoints()
     lockTex:SetDesaturated(true); lockTex:SetVertexColor(1, 1, 1)
+    -- The vanilla lock art is a square button: give it a square to sit in.
+    if ns.DMHdrArt("locked") then W.lockBtn:SetSize(18, 18) end
 
     local function UpdateLockIcon()
         if W.windowLocked then
-            lockTex:SetTexture(MEDIA .. "dm_locked.png")
+            if not ns.DMPaintHdrArt(lockTex, "locked") then lockTex:SetTexture(MEDIA .. "dm_locked.png") end
             W.lockBtn:ClearAllPoints()
             W.lockBtn:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -4, 4)
         else
-            lockTex:SetTexture(MEDIA .. "dm_unlocked.png")
+            if not ns.DMPaintHdrArt(lockTex, "unlocked") then lockTex:SetTexture(MEDIA .. "dm_unlocked.png") end
             W.lockBtn:ClearAllPoints()
             W.lockBtn:SetPoint("RIGHT", W.resizeGrip, "LEFT", -2, 0)
         end
         -- Dim close icon when locked (non-window-1 only)
         if winIdx ~= 1 and W._closeIconTex then
             local ir, ig, ib = GetIconColor()
-            W._closeIconTex:SetVertexColor(ir, ig, ib, W.windowLocked and (ICON_ALPHA * 0.5) or ICON_ALPHA)
+            if not ns.DMHdrHover(W._closeIconTex, false, W.windowLocked) then
+                W._closeIconTex:SetVertexColor(ir, ig, ib, W.windowLocked and (ICON_ALPHA * 0.5) or ICON_ALPHA)
+            end
         end
     end
     UpdateLockIcon()
 
     W.lockBtn:SetScript("OnEnter", function(self)
         self:SetAlpha(0.7)
-        if EUI.ShowWidgetTooltip then
-            EUI.ShowWidgetTooltip(self, W.windowLocked and "Locked" or "Unlocked")
-        end
+        EUI.ShowWidgetTooltip(self, W.windowLocked and "Locked" or "Unlocked")
     end)
     W.lockBtn:SetScript("OnLeave", function(self)
         self:SetAlpha(W.isHovered and 0.3 or 0)
-        if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+        EUI.HideWidgetTooltip()
     end)
     W.lockBtn:SetScript("OnClick", function()
         W.windowLocked = not W.windowLocked
@@ -3257,10 +3643,8 @@ local function CreateDMWindow(winIdx)
             W.resizeGrip:SetAlpha(a)
             W.lockBtn:SetAlpha(a)
         end
-        if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
-        if EUI.ShowWidgetTooltip then
-            EUI.ShowWidgetTooltip(W.lockBtn, W.windowLocked and "Locked" or "Unlocked")
-        end
+        EUI.HideWidgetTooltip()
+        EUI.ShowWidgetTooltip(W.lockBtn, W.windowLocked and "Locked" or "Unlocked")
     end)
     W._updateLockIcon = UpdateLockIcon
 
@@ -3309,7 +3693,7 @@ local function CreateDMWindow(winIdx)
 
     W.resizeGrip:SetScript("OnMouseDown", function(_, button)
         if button ~= "LeftButton" or W.windowLocked then return end
-        if EUI.InProtectedInstance and EUI.InProtectedInstance() then return end
+        if EUI.InProtectedInstance() then return end
         local left, top = frame:GetLeft(), frame:GetTop()
         if left and top then
             frame:ClearAllPoints(); frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
@@ -3400,11 +3784,12 @@ local function CreateDMWindow(winIdx)
     local function ResetScrollAnchors()
         if not viewport or not header or not frame then return end
         W.stickyGuard = true
+        -- ci: the classic box's inset (0 on every other look), as at creation.
         viewport:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, 0)
-        viewport:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+        viewport:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -ci, ci)
         -- Clamp scroll
         if content then
-            local viewH = frame:GetHeight() - GetHeaderH()
+            local viewH = frame:GetHeight() - GetHeaderH() - 2 * ci
             if viewH < 1 then viewH = 1 end
             local totalH = content:GetHeight()
             local maxScr = math.max(0, totalH - viewH)
@@ -3445,7 +3830,7 @@ local function CreateDMWindow(winIdx)
         if not playerIdx then W.stickyPlayer.row:Hide(); W.stickySep:Hide(); ResetScrollAnchors(); W.stickyAtTop = false; return end
         local barH, _, stride, pxMult = ns._RowMetrics(c.barHeight or 18, c.barSpacing or 2, frame:GetEffectiveScale())
         local scrollVal = viewport:GetVerticalScroll() or 0
-        local fullViewH = frame:GetHeight() - GetHeaderH()
+        local fullViewH = frame:GetHeight() - GetHeaderH() - 2 * ci
         if fullViewH < 1 then fullViewH = 1 end
         local barTop = (playerIdx - 1) * stride
         local barBot = barTop + barH
@@ -3460,14 +3845,14 @@ local function CreateDMWindow(winIdx)
             W.stickyPlayer.row:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, 0); W.stickyPlayer.row:SetPoint("TOPRIGHT", header, "BOTTOMRIGHT", 0, 0)
             W.stickySep:SetPoint("TOPLEFT", W.stickyPlayer.row, "BOTTOMLEFT", 0, 0); W.stickySep:SetPoint("TOPRIGHT", W.stickyPlayer.row, "BOTTOMRIGHT", 0, 0)
         else
-            W.stickyPlayer.row:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0); W.stickyPlayer.row:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+            W.stickyPlayer.row:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", ci, ci); W.stickyPlayer.row:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -ci, ci)
             W.stickySep:SetPoint("BOTTOMLEFT", W.stickyPlayer.row, "TOPLEFT", 0, 0); W.stickySep:SetPoint("BOTTOMRIGHT", W.stickyPlayer.row, "TOPRIGHT", 0, 0)
         end
         W.stickyGuard = true
         if pinTop then
-            viewport:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -pinnedH); viewport:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+            viewport:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -pinnedH); viewport:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -ci, ci)
         else
-            viewport:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, 0); viewport:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, pinnedH)
+            viewport:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, 0); viewport:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -ci, pinnedH + ci)
         end
         -- Clamp scroll after viewport resize
         local newViewH = viewport:GetHeight()
@@ -4060,11 +4445,23 @@ local function CreateDMWindow(winIdx)
                 bar.row:SetPoint("TOPRIGHT", W.srcContent, "TOPRIGHT", 0, yOff2)
                 bar.row:SetHeight(barH)
                 local iconOffset = 0
-                if spell.spellID then
-                    local spIcon = C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spell.spellID)
+                -- Same secret-spellID handling as the tooltip breakdown above: a
+                -- secret id goes through pcall and its result is tested by type().
+                local spID = spell.spellID
+                local getTex = C_Spell and C_Spell.GetSpellTexture
+                local spIcon, haveIcon
+                if spID and getTex then
+                    if IsSecret(spID) then
+                        local ok, tex = pcall(getTex, spID)
+                        if ok and type(tex) ~= "nil" then spIcon, haveIcon = tex, true end
+                    else
+                        spIcon = getTex(spID)
+                        haveIcon = spIcon and true or false
+                    end
+                end
+                if haveIcon then
                     local _cz = DB().classIconZoom or 0.06
-                    if spIcon then bar.classIcon:SetTexture(spIcon); bar.classIcon:SetTexCoord(_cz, 1 - _cz, _cz, 1 - _cz); bar.classIcon:SetSize(barH, barH); bar.classIcon:Show(); iconOffset = barH
-                    else bar.classIcon:Hide() end
+                    bar.classIcon:SetTexture(spIcon); bar.classIcon:SetTexCoord(_cz, 1 - _cz, _cz, 1 - _cz); bar.classIcon:SetSize(barH, barH); bar.classIcon:Show(); iconOffset = barH
                 else bar.classIcon:Hide() end
                 bar.fill:ClearAllPoints(); bar.fill:SetPoint("TOPLEFT", bar.row, "TOPLEFT", iconOffset, 0)
                 bar.fill:SetPoint("TOPRIGHT", bar.row, "TOPRIGHT", 0, 0); bar.fill:SetHeight(barH)
@@ -4206,8 +4603,8 @@ local function CreateDMWindow(winIdx)
         card._accent:SetPoint("BOTTOMLEFT", card, "BOTTOMLEFT", 0, 0)
         card._accent:Hide()
 
-        local fontPath = (EUI.GetFontPath and EUI.GetFontPath("damageMeters")) or "Fonts\\FRIZQT__.TTF"
-        local outline = (EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("damageMeters")) or ""
+        local fontPath = (EUI.GetFontPath("damageMeters")) or "Fonts\\FRIZQT__.TTF"
+        local outline = (EUI.GetFontOutlineFlag("damageMeters")) or ""
         local iconSz = CARD_H - 2
         card._icon = card:CreateTexture(nil, "OVERLAY")
         card._icon:SetSize(iconSz, iconSz)
@@ -4234,13 +4631,17 @@ local function CreateDMWindow(winIdx)
     RefreshHome = function()
         if not homeFrame or not homeFrame:IsShown() then return end
         local bookmarks = GetBookmarks()
-        local fontPath = (EUI.GetFontPath and EUI.GetFontPath("damageMeters")) or "Fonts\\FRIZQT__.TTF"
-        local outline = (EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("damageMeters")) or ""
+        local fontPath = (EUI.GetFontPath("damageMeters")) or "Fonts\\FRIZQT__.TTF"
+        local outline = (EUI.GetFontOutlineFlag("damageMeters")) or ""
         local EG = EUI.ELLESMERE_GREEN
         local acR, acG, acB = GetAccentRGB()
 
-        -- Calculate column width from scroll frame
+        -- Calculate column width from scroll frame. An unplaced window (an
+        -- unlock-anchored one before the login anchor pass lands) has no
+        -- width yet; laying out from zero would collapse every card. The
+        -- scroll frame's size hook runs this again once the width arrives.
         local totalW = homeScroll and homeScroll:GetWidth() or homeFrame:GetWidth()
+        if not totalW or totalW < 1 then return end
         local colW = (totalW - CARD_PAD_X * 2 - CARD_COL_GAP) / 2
 
         -- Hide all existing cards
@@ -4306,7 +4707,7 @@ local function CreateDMWindow(winIdx)
                     RefreshHome()
                 elseif button == "LeftButton" then
                     W.curDMType = dmType; wdb.curDMType = dmType
-                    W._modeIcon:SetTexture(DM_TYPE_ICONS[dmType] or DM_TYPE_ICONS[Enum.DamageMeterType.DamageDone])
+                    ns.DMSetTypeIcon(W._modeIcon, dmType)
                     W.HideHome(); W.CloseSource(); W.Refresh()
                 end
             end)
@@ -4404,7 +4805,13 @@ local function CreateDMWindow(winIdx)
             homeChild = CreateFrame("Frame", nil, homeScroll)
             homeChild:SetSize(1, 1)
             homeScroll:SetScrollChild(homeChild)
-            homeScroll:SetScript("OnSizeChanged", function(_, w) homeChild:SetWidth(w) end)
+            homeScroll:SetScript("OnSizeChanged", function(_, w)
+                homeChild:SetWidth(w)
+                -- The grid is laid out from this width: re-flow it when the
+                -- width changes while the page is up (first placement of an
+                -- anchored window, a resize).
+                if w and w > 1 and homeFrame:IsShown() then RefreshHome() end
+            end)
 
             -- Mouse wheel scrolling (no visual scrollbar)
             local function HomeWheel(_, delta)
@@ -4426,7 +4833,7 @@ local function CreateDMWindow(winIdx)
         if W.stickyPlayer then W.stickyPlayer.row:Hide() end
         if W.stickySep then W.stickySep:Hide() end
         if frame._bg then frame._bg:Hide() end
-        homeFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+        homeFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -ci, ci)
         homeFrame:Show()
         RefreshHome()
     end
@@ -4450,7 +4857,7 @@ local function CreateDMWindow(winIdx)
         if EUI._unlockActive or ns._optionsOpen then frame:SetAlpha(1); frame:EnableMouse(true); frame:Show(); return end
         -- Hotkey toggle outranks every configured rule but yields to the two modes above
         if ns._toggleHidden then frame:Hide(); return end
-        local vis = EUI.EvalVisibility and EUI.EvalVisibility(c)
+        local vis = EUI.EvalVisibility(c)
         if not vis or vis == false then frame:Hide(); return end
         -- Per-window instance visibility
         local _, iType = IsInInstance()
@@ -4463,7 +4870,7 @@ local function CreateDMWindow(winIdx)
         else frame:SetAlpha(1); frame:EnableMouse(true); frame:Show() end
     end
 
-    if EUI.RegisterVisibilityUpdater then EUI.RegisterVisibilityUpdater(W.UpdateVisibility) end
+    EUI.RegisterVisibilityUpdater(W.UpdateVisibility)
     if EUI.RegisterMouseoverTarget then
         -- Hover-gated sets only reveal while their conditions pass; a legacy single "mouseover" behaves exactly as before
         EUI.RegisterMouseoverTarget(frame, function()
@@ -4481,7 +4888,7 @@ local function CreateDMWindow(winIdx)
         if W._hoverTicker then W._hoverTicker:Cancel() end
         resizeFrame:SetScript("OnUpdate", nil)
         -- Unregister from global visibility system (prevents ghost resurrection)
-        if EUI.UnregisterVisibilityUpdater then EUI.UnregisterVisibilityUpdater(W.UpdateVisibility) end
+        EUI.UnregisterVisibilityUpdater(W.UpdateVisibility)
         frame:Hide(); frame:SetParent(nil)
         -- Remove from runtime array
         local oldCount = #_windows
@@ -4598,15 +5005,21 @@ ns.ApplyBackground = function()
     local cfg = DB()
     local r, g, b, a = cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgAlpha or 0.75
     for _, w in ipairs(_windows) do
-        if w.frame and w.frame._bg then w.frame._bg:SetColorTexture(r, g, b, a) end
-        if w.sourceFrame and w.sourceFrame._bg then w.sourceFrame._bg:SetColorTexture(r, g, b, a) end
+        if w.frame and w.frame._bg then ns.DMPaintWindowBg(w.frame._bg, r, g, b, a, true) end
+        if w.sourceFrame and w.sourceFrame._bg then ns.DMPaintWindowBg(w.sourceFrame._bg, r, g, b, a) end
     end
+    -- Under Classic WoW UI the header tint is shaded from the window colour.
+    if ns.DMClassic() then ns.ApplyHeader() end
 end
 
 ns.ApplyWindowBorder = function()
     local cfg = DB()
-    local size = tonumber(cfg.windowBorderSize) or 0
+    -- Stock-style windows carry their own frame art (the stock panel, the
+    -- classic tooltip edge), no EUI border.
+    local size = ns.DMBlizz() and 0 or (tonumber(cfg.windowBorderSize) or 0)
     local texture = cfg.windowBorderTexture or "solid"
+    -- Exact size (nil = the legacy step path); a stock style forces size 0, no px.
+    local px = size > 0 and EUI.BorderPx(cfg.windowBorderSizePx, size, texture) or nil
     local color = cfg.windowBorderColor or {}
     local r, g, b, a = color.r or 0, color.g or 0, color.b or 0, color.a or 1
     local includeHeader = cfg.windowBorderIncludeHeader ~= false
@@ -4626,8 +5039,13 @@ ns.ApplyWindowBorder = function()
             end
             target:SetPoint("BOTTOMRIGHT", w.frame, "BOTTOMRIGHT", offsetX, -offsetY)
             -- Offsets are represented by the target geometry itself, which also makes them work for the solid four-strip border implementation
-            EUI.ApplyBorderStyle(target, size, r, g, b, a, texture)
+            EUI.ApplyBorderStyle(target, size, r, g, b, a, texture, nil, nil, nil, nil, nil, nil, nil, px)
         end
+    end
+    -- Border reach counts in size matching (each window's getMatchPad reads
+    -- these settings): re-push a window's matches when it moved (deferred).
+    if EUI.MatchPadChanged then
+        for i = 1, #_windows do EUI.MatchPadChanged("EDM_Win" .. i) end
     end
 end
 
@@ -4640,17 +5058,17 @@ ns.ApplyHeader = function()
     else local c = cfg.hdrTextColor; tR = c and c.r or 1; tG = c and c.g or 1; tB = c and c.b or 1 end
     local hdrFS = cfg.hdrFontSize or 11
     local hdrH = GetHeaderH()
-    local iconSz = cfg.hdrIconSize or 22
+    local iconSz = ns.DMHdrIconSize(cfg)
     for _, w in ipairs(_windows) do
         if w.header then
             w.header:SetHeight(hdrH)
-            if w.header._hdrBg then w.header._hdrBg:SetColorTexture(hR, hG, hB, hA) end
-            if w.header._bottomBorder then
+            if w.header._hdrBg then ns.DMPaintHeaderBg(w.header._hdrBg, hR, hG, hB, hA) end
+            if w.header._bottomBorder and not ns.DMClassicSeparator(w.header._bottomBorder, PhysicalPixels(1)) then
                 local size = cfg.hdrBottomBorderSize or 0
                 local color = cfg.hdrBottomBorderColor or {}
                 w.header._bottomBorder:SetHeight(PhysicalPixels(size))
                 w.header._bottomBorder:SetColorTexture(color.r or 0, color.g or 0, color.b or 0, color.a or 1)
-                w.header._bottomBorder:SetShown(size > 0)
+                w.header._bottomBorder:SetShown(size > 0 and not ns.DMBlizz())
             end
         end
         if w.frame and w.frame._bg then
@@ -4688,7 +5106,10 @@ ns.ApplyIconColor = function()
     if cfg.iconColorUseAccent then r, g, b = GetAccentRGB()
     else local c = cfg.iconColor; r = c and c.r or 1; g = c and c.g or 1; b = c and c.b or 1 end
     for _, w in ipairs(_windows) do
-        for _, icon in ipairs(w.hdrIcons) do icon:SetVertexColor(r, g, b, ICON_ALPHA) end
+        for _, icon in ipairs(w.hdrIcons) do
+            -- Stock-style art carries its own colours.
+            if not icon._hdrArt then icon:SetVertexColor(r, g, b, ICON_ALPHA) end
+        end
     end
 end
 
@@ -5136,15 +5557,13 @@ do
 end
 
 -- Accent color callback for standalone timer
-if EUI.RegAccent then
-    EUI.RegAccent({ type = "callback", fn = function()
-        if not _saTimer or not _saTimerFS then return end
-        local cfg = DB()
-        if cfg.standaloneTimerUseAccent then
-            ApplySATimerColor()
-        end
-    end })
-end
+EUI.RegAccent({ type = "callback", fn = function()
+    if not _saTimer or not _saTimerFS then return end
+    local cfg = DB()
+    if cfg.standaloneTimerUseAccent then
+        ApplySATimerColor()
+    end
+end })
 
 -- Unlock-mode element for the standalone timer, built on demand by ns.RegisterDMUnlock (lives here since the closures need the _saTimer upvalues above). Sizes to its text and would shift children, so it may anchor TO elements but never serve as an anchor target.
 ns.MakeSATimerUnlockElement = function(MK)
@@ -5519,6 +5938,9 @@ initFrame:SetScript("OnEvent", function(self)
     EnsureDB()
     -- DB is now available; rebuild number format so a saved forceEnglishUnits preference applies at login (load-time build ran before the DB existed)
     if ns.RebuildNumberFormat then ns.RebuildNumberFormat() end
+    -- A profile already on Classic WoW UI gets its one-time seed here (the
+    -- Style page seeds on the switch; flags make both idempotent).
+    if ns.DMClassic() then ns.DMSeedClassic(DB()) end
     -- Disable Blizzard's built-in damage meter UI; C_DamageMeter API still works
     SetCVarSafe("damageMeterEnabled", 0)
     AppendDMSharedMedia()

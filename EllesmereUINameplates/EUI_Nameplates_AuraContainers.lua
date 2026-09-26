@@ -65,11 +65,6 @@ local function FP(...)
     return table.concat(FP_JOIN, "|")
 end
 
-local function Prof()
-    local p = ns.NP_GetProfile and ns.NP_GetProfile()
-    return p or (ns.NP_GetDefaults and ns.NP_GetDefaults()) or {}
-end
-
 local function PVal(key)
     local p = ns.NP_GetProfile and ns.NP_GetProfile()
     if p and p[key] ~= nil then return p[key] end
@@ -84,19 +79,22 @@ end
 -- vertical texcoords derive from the shared crop math.
 ------------------------------------------------------------------------------
 
-local function CropCoords(cropped)
+local function CropCoords(cropped, zoom)
+    -- Horizontal zoom 0.08 (Blizzard Style passes 0: the stock item draws the
+    -- whole icon under its rounded mask, same as PAB and the unit frames).
+    local z = zoom or 0.08
     if cropped then
-        -- Horizontal zoom 0.08; vertical span scaled to the cropped aspect so
-        -- the artwork never squishes (same math as ns.SetAuraIconCrop).
+        -- Vertical span scaled to the cropped aspect so the artwork never
+        -- squishes (same math as ns.SetAuraIconCrop).
         -- `cropped` carries the height factor from GetAuraCrop (Adjust Crop
         -- slider); plain true from a legacy caller falls back to the classic
         -- 0.80, which reproduces the old fixed coords exactly (0.164/0.836).
         local factor = (type(cropped) == "number") and cropped or 0.80
-        local vSpan = (1 - 2 * 0.08) * factor
+        local vSpan = (1 - 2 * z) * factor
         local v0 = 0.5 - vSpan / 2
-        return { 0.08, 0.92, v0, 1 - v0 }
+        return { z, 1 - z, v0, 1 - v0 }
     end
-    return { 0.08, 0.92, 0.08, 0.92 }
+    return { z, 1 - z, z, 1 - z }
 end
 
 local function NPSize(kind)
@@ -171,7 +169,7 @@ local function ApplyNPText(button, d, style)
             button:SetMouseMotionEnabled(motion)
         end
     end
-    local path = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("nameplates")) or "Fonts\\FRIZQT__.TTF"
+    local path = (EllesmereUI.GetFontPath("nameplates")) or "Fonts\\FRIZQT__.TTF"
     if d.duration then
         local fontKey = path .. "|" .. (style.durSize or 11)
         if d.npDurFont ~= fontKey then
@@ -322,6 +320,26 @@ local function ApplyNPBuffExtra(button, d, style)
         -- Every buff in this row is dispellable (the group filter says so), so the glow
         -- rides the button's own visibility -- no readback of per-aura state.
         host:SetAlpha(1)
+        -- Blizzard Border: Blizzard's static stealable art instead of a glow,
+        -- tinted like the glow (nil = Blizzard's own look).
+        if style.purgeStyle == Glows.STEALABLE_BORDER then
+            local cr, cg, cb = style.purgeR, style.purgeG, style.purgeB
+            local w, h = style.width or 24, style.height
+            if host._npStyle ~= style.purgeStyle or host._npW ~= w or host._npH ~= h
+               or host._npR ~= cr or host._npG ~= cg or host._npB ~= cb then
+                if host._euiGlowActive then Glows.StopGlow(host) end
+                host:SetAlpha(1)
+                Glows.ShowStealableBorder(host, w, h, cr, cg, cb)
+                host._npBorder = true
+                host._npStyle, host._npW, host._npH = style.purgeStyle, w, h
+                host._npR, host._npG, host._npB = cr, cg, cb
+            end
+            return
+        end
+        if host._npBorder then
+            Glows.HideStealableBorder(host)
+            host._npBorder = nil
+        end
         -- C-side animations only: identical in and out of restricted content.
         -- StartEngineGlow renders Pixel as the genuine dash march and routes the other
         -- driver styles to their FlipBook equivalents. purgeStyle carries a
@@ -357,11 +375,23 @@ local function BuildNPStyle(kind, variant)
     local kindKey = (kind == "debuffs" and "debuff") or (kind == "buffs" and "buff") or "cc"
     local dur = AuraDurCfg(kindKey)
     local stk = StackCfg()
+    -- Stock styles: the whole icon (zoom 0), no EUI border (GetIconBorderEnabled
+    -- is false for every kind under them). Blizzard Style: the stock nameplate
+    -- aura item -- the rounded mask with the ring overlay (AuraKit
+    -- blizzRoundArt). Classic WoW UI: square icons, buffs borderless, debuffs
+    -- and crowd control on the engine-stamped stock dispel-type border (AuraKit
+    -- blizzBorder). Text, stacks, sizes and the dispel glow all stay the user's.
+    local blizz = ns.NP_Blizz()
+    local classic = blizz and ns.NP_Classic()
+    local harmfulClassic = (classic and kind ~= "buffs") or nil
     local style = {
         width = size,
         height = height,
-        texCoord = CropCoords(cropped),
+        texCoord = CropCoords(cropped, blizz and 0 or nil),
         border = (not ns.GetIconBorderEnabled or ns.GetIconBorderEnabled(kind)) and { 0, 0, 0, 1, size = 1 } or false,
+        blizzRoundArt = (blizz and not classic) or nil,
+        dispelBorder = harmfulClassic,
+        blizzBorder = harmfulClassic,
         cooldownReverse = true,
         noDefaultFonts = true,
         noTooltips = true,
@@ -392,8 +422,14 @@ local function BuildNPStyle(kind, variant)
         local glow, dispelType = NPB.GroupGlow(variant == 2 and 2 or 1)
         style.purgeGlow = glow
         style.purgeStyle = (ns.GetDispelGlowStyle and ns.GetDispelGlowStyle()) or 2
-        if ns.GetDispelGlowColor then
-            style.purgeR, style.purgeG, style.purgeB = ns.GetDispelGlowColor(dispelType)
+        -- Blizzard Border keeps Blizzard's own art until a colour is picked.
+        local colorOf = ns.GetDispelGlowColor
+        if style.purgeStyle == (EllesmereUI.Glows and EllesmereUI.Glows.STEALABLE_BORDER)
+            and ns.GetDispelBorderColor then
+            colorOf = ns.GetDispelBorderColor
+        end
+        if colorOf then
+            style.purgeR, style.purgeG, style.purgeB = colorOf(dispelType)
         end
         style.applyExtra = ApplyNPBuffExtra
     end
@@ -1134,11 +1170,15 @@ local function AnchorNPContainer(container, kind, plate, slotVal)
         container:SetPoint("TOP", plate.cast or plate.health, "BOTTOM", xOff, -2 + yOff)
         anchorPoint, gH, gV = "TOPLEFT", "RIGHT", "DOWN"
     elseif slotVal == "left" then
-        local sideOff = (ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2
+        -- Classic WoW UI: gap off the border art, not the bare bar edge
+        -- (ns.NP_ClassicSide is 0 on every other style).
+        local sideOff = ((ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2)
+            + ((ns.NP_ClassicSide and ns.NP_ClassicSide("left")) or 0)
         container:SetPoint("BOTTOMRIGHT", plate.health, "BOTTOMLEFT", -sideOff + xOff, yOff)
         anchorPoint, gH, gV = "BOTTOMRIGHT", "LEFT", "UP"
     elseif slotVal == "right" then
-        local sideOff = (ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2
+        local sideOff = ((ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2)
+            + ((ns.NP_ClassicSide and ns.NP_ClassicSide("right")) or 0)
         container:SetPoint("BOTTOMLEFT", plate.health, "BOTTOMRIGHT", sideOff + xOff, yOff)
         anchorPoint, gH, gV = "BOTTOMLEFT", "RIGHT", "UP"
     elseif slotVal == "topleft" or slotVal == "topright" then
@@ -1239,10 +1279,13 @@ local function PositionLockout(plate, f, slotVal)
     elseif slotVal == "bottom" then
         f:SetPoint("TOP", plate.cast or plate.health, "BOTTOM", xOff, -2 + yOff)
     elseif slotVal == "left" then
-        local sideOff = (ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2
+        -- Classic WoW UI: gap off the border art, as the containers above do.
+        local sideOff = ((ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2)
+            + ((ns.NP_ClassicSide and ns.NP_ClassicSide("left")) or 0)
         f:SetPoint("BOTTOMRIGHT", plate.health, "BOTTOMLEFT", -sideOff + xOff, yOff)
     elseif slotVal == "right" then
-        local sideOff = (ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2
+        local sideOff = ((ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2)
+            + ((ns.NP_ClassicSide and ns.NP_ClassicSide("right")) or 0)
         f:SetPoint("BOTTOMLEFT", plate.health, "BOTTOMRIGHT", sideOff + xOff, yOff)
     else -- topleft / topright
         local debuffY = (ns.GetDebuffYOffset and ns.GetDebuffYOffset()) or 2
@@ -1265,12 +1308,19 @@ function ns.NPC_UpdateLockout(plate)
             f:SetFrameStrata("MEDIUM")
             f:SetFrameLevel(800)
             f.icon = f:CreateTexture(nil, "ARTWORK")
-            f.icon:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1)
-            f.icon:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1)
+            -- Stock styles: no border, so the icon fills the cell; Blizzard
+            -- Style also takes the stock rounded swipe under its ring (the
+            -- classic square icon keeps the default swipe).
+            local px = ns.NP_Blizz() and 0 or 1
+            f.icon:SetPoint("TOPLEFT", f, "TOPLEFT", px, -px)
+            f.icon:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -px, px)
             f.cd = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
             f.cd:SetAllPoints(f)
             f.cd:SetReverse(true)
             f.cd:SetDrawEdge(false)
+            local kit = AK or EllesmereUI.AuraKit
+            local swipe = px == 0 and not ns.NP_Classic() and kit and kit.BLIZZ_ROUND_SWIPE
+            if swipe and f.cd.SetSwipeTexture then f.cd:SetSwipeTexture(swipe) end
             local PP = EllesmereUI.PP
             if PP and PP.CreateBorder then PP.CreateBorder(f, 0, 0, 0, 1, 1) end
             if ns.ApplyFrameIconBorder then
@@ -1281,10 +1331,20 @@ function ns.NPC_UpdateLockout(plate)
         local size = NPSize("cc")
         local height, cropped = NPHeight("cc", size)
         f:SetSize(size, height)
-        local tc = CropCoords(cropped)
+        local blizz = ns.NP_Blizz()
+        local tc = CropCoords(cropped, blizz and 0 or nil)
         f.icon:SetTexture(lockout.icon)
         f.icon:SetTexCoord(tc[1], tc[2], tc[3], tc[4])
         f.cd:SetCooldown(lockout.start, lockout.duration)
+        -- Blizzard Style: the stock rounded mask and ring, sized with the cell.
+        -- Classic WoW UI: the stock debuff border round the square icon.
+        if blizz then
+            if ns.NP_Classic() then
+                if ns.NP_ApplyClassicIconArt then ns.NP_ApplyClassicIconArt(f, size, height) end
+            elseif ns.NP_ApplyBlizzIconArt then
+                ns.NP_ApplyBlizzIconArt(f, f.icon, size, height)
+            end
+        end
         PositionLockout(plate, f, cs)
         if ns.ApplyFrameIconBorder then
             ns.ApplyFrameIconBorder(f, ns.GetIconBorderEnabled and ns.GetIconBorderEnabled("ccs"))
@@ -1494,7 +1554,7 @@ local function StyleFPFor(kind, idx)
     local durFP = FP(dur.size, dur.x, dur.y, dur.pos, dur.color.r, dur.color.g, dur.color.b)
     local stkFP = FP(stk.size, stk.x, stk.y, stk.pos, stk.color.r, stk.color.g, stk.color.b)
     return FP(kind, size, height, durFP, stkFP, purge,
-        EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("nameplates") or "",
+        EllesmereUI.GetFontPath("nameplates") or "",
         -- NOT `fn(kind) or true`: the getter legitimately returns false, and
         -- `false or true` would pin this fingerprint input to a constant so
         -- the toggle never restyles (the ternary-falsy trap).
