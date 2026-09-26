@@ -1409,6 +1409,7 @@ local REFRESH_ADDON_STEPS = {
     end,
     -- Damage Meters
     function() if _G._EDM_Apply then _G._EDM_Apply() end end,
+    function() if EllesmereUI._ThreatMeter then EllesmereUI._ThreatMeter.Apply() end end,
     -- DataBars (bar set + blocks + layout + positions are all per-profile)
     function() if _G._EDB_Apply then _G._EDB_Apply() end end,
     -- Quickdraw (enable state + palette count drive the override bindings),

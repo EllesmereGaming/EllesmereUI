@@ -1,279 +1,241 @@
-if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
-if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end -- Forever Essentials loads on WoW Forever only
--------------------------------------------------------------------------------
---  EUI_ForeverEssentials_Threat_Options.lua
---  Builds the "Threat" page inside the Forever Essentials module.
--------------------------------------------------------------------------------
-if not EllesmereUI._ModuleNS["EllesmereUIForeverEssentials"] then return end  -- module disabled: no options page
+if EUI_CLIENT_BLOCKED then return end
+local EUI = EllesmereUI
+local module = EUI._ModuleNS["EllesmereUIForeverEssentials"]
+local ns = module and module.ThreatMeter
+if not ns then return end
 
-_G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
-    local W = EllesmereUI.Widgets
-    local TM = EllesmereUI._ThreatMeter
-    local y = yOffset
-    local _, h
+_G._EUI_BuildThreatMeterPage = function(_, parent, y)
+    ns.BarTextures()
+    EUI:SetContentHeader(function(header, width)
+        local building = true
+        local view = ns.CreateSettingsPreview(header, width, function(height)
+            if not building and header:IsVisible() and math.abs(header:GetHeight() - height) > 1 then
+                EUI:SetContentHeaderHeightSilent(height)
+            end
+        end)
+        building = false
+        return view.previewHeight
+    end)
+    local W, start = EUI.Widgets, y
     parent._showRowDivider = true
-
-    local function off()
-        return not TM.Get("enabled")
+    local function Section(text)
+        local _, h = W:SectionHeader(parent, text, y); y = y - h
     end
-    local function Set(key, v)
-        TM.Cfg()[key] = v
-        TM.ApplyStyle()
-    end
-    local function SetAndRefresh(key, v)
-        Set(key, v)
-        EllesmereUI:RefreshPage()
-    end
-    local function Swatch(region, tooltip, prefix, disabled, disabledTooltip)
-        EllesmereUI.BuildInlineSwatches(region, {
-            { tooltip = tooltip,
-              disabled = disabled, disabledTooltip = disabledTooltip,
-              getValue = function() return TM.Get(prefix .. "R"), TM.Get(prefix .. "G"), TM.Get(prefix .. "B"), 1 end,
-              setValue = function(r, g, b)
-                  local c = TM.Cfg()
-                  c[prefix .. "R"], c[prefix .. "G"], c[prefix .. "B"] = r, g, b
-                  TM.ApplyStyle()
-              end },
-        }, { disabled = off, disabledTooltip = "Threat Meter" })
-    end
-
-    ---------------------------------------------------------------------------
-    --  GENERAL
-    ---------------------------------------------------------------------------
-    _, h = W:SectionHeader(parent, "THREAT METER", y);  y = y - h
-
-    _, h = W:DualRow(parent, y,
-        { type = "toggle", text = "Enable Threat Meter",
-          tooltip = "Shows everyone's threat on your target, highest first. With a friendly target, it shows the threat on what they are fighting.",
-          getValue = function() return not off() end,
-          setValue = function(v)
-              TM.Cfg().enabled = v
-              TM.Apply()
-              EllesmereUI:RefreshPage()
-          end },
-        { type = "labeledButton", text = "Preview", buttonText = "Show Bars",
-          disabled = off,
-          disabledTooltip = "Threat Meter",
-          onClick = function() TM.Preview() end }
-    );  y = y - h
-
-    local pullRow
-    pullRow, h = W:DualRow(parent, y,
-        { type = "toggle", text = "Pull Aggro Bar",
-          tooltip = "An extra bar showing how much threat takes aggro from the tank.",
-          disabled = off, disabledTooltip = "Threat Meter",
-          getValue = function() return TM.Get("pullBar") end,
-          setValue = function(v) SetAndRefresh("pullBar", v) end },
-        { type = "toggle", text = "Ignore Pets",
-          tooltip = "Leaves pets out of the list.",
-          disabled = off, disabledTooltip = "Threat Meter",
-          getValue = function() return TM.Get("ignorePets") end,
-          setValue = function(v) Set("ignorePets", v) end }
-    );  y = y - h
-    if not EllesmereUI._prebuilding then
-        Swatch(pullRow._leftRegion, "Pull Aggro Bar Color", "pull",
-            function() return off() or not TM.Get("pullBar") end, "Pull Aggro Bar")
-    end
-
-    _, h = EllesmereUI.BuildVisibilityRow(W, parent, y,
-        { getStore = function() return TM.Cfg() end,
-          legacyKey = "visibility",
-          caps = { partyIncludesRaid = false, luaDragonriding = true, noMouseover = true },
-          disabledFn = off, disabledTooltip = "Threat Meter",
-          onChanged = function() EllesmereUI.RequestVisibilityUpdate() end,
-          onOptionChanged = function() EllesmereUI.RequestVisibilityUpdate() end });  y = y - h
-
-    _, h = W:Spacer(parent, y, 20);  y = y - h
-
-    ---------------------------------------------------------------------------
-    --  WARNING
-    ---------------------------------------------------------------------------
-    _, h = W:SectionHeader(parent, "WARNING", y);  y = y - h
-
-    local function warnOff()
-        return off() or not TM.Get("warnSound")
-    end
-    local sndValues, sndOrder = EllesmereUI.BuildSoundDropdownValues(TM.Sounds())
-    _, h = W:DualRow(parent, y,
-        { type = "toggle", text = "Warning Sound",
-          tooltip = "Plays once when your threat climbs past the threshold, and again only after it has dropped back below.",
-          disabled = off, disabledTooltip = "Threat Meter",
-          getValue = function() return TM.Get("warnSound") end,
-          setValue = function(v) SetAndRefresh("warnSound", v) end },
-        { type = "dropdown", text = "Sound", values = sndValues, order = sndOrder,
-          disabled = warnOff, disabledTooltip = "Warning Sound",
-          getValue = function() return TM.Get("warnSoundKey") end,
-          setValue = function(v) Set("warnSoundKey", v) end }
-    );  y = y - h
-
-    _, h = W:DualRow(parent, y,
-        { type = "slider", text = "Warn At (%)", min = 50, max = 100, step = 1,
-          tooltip = "100% is where you pull aggro.",
-          disabled = warnOff, disabledTooltip = "Warning Sound",
-          getValue = function() return TM.Get("warnAt") end,
-          setValue = function(v) Set("warnAt", v) end },
-        { type = "toggle", text = "Not While Tanking",
-          tooltip = "No warning while you have the tank role, or are in Bear Form or Defensive Stance.",
-          disabled = warnOff, disabledTooltip = "Warning Sound",
-          getValue = function() return TM.Get("warnSkipTank") end,
-          setValue = function(v) Set("warnSkipTank", v) end }
-    );  y = y - h
-
-    _, h = W:Spacer(parent, y, 20);  y = y - h
-
-    ---------------------------------------------------------------------------
-    --  LAYOUT
-    ---------------------------------------------------------------------------
-    _, h = W:SectionHeader(parent, "LAYOUT", y);  y = y - h
-
-    _, h = W:DualRow(parent, y,
-        { type = "slider", text = "Width", min = 80, max = 500, step = 1,
-          disabled = off, disabledTooltip = "Threat Meter",
-          getValue = function() return TM.Get("width") end,
-          setValue = function(v) Set("width", v) end },
-        { type = "slider", text = "Bar Height", min = 8, max = 40, step = 1,
-          disabled = off, disabledTooltip = "Threat Meter",
-          getValue = function() return TM.Get("barHeight") end,
-          setValue = function(v) Set("barHeight", v) end }
-    );  y = y - h
-
-    _, h = W:DualRow(parent, y,
-        { type = "slider", text = "Max Bars", min = 1, max = 40, step = 1,
-          disabled = off, disabledTooltip = "Threat Meter",
-          getValue = function() return TM.Get("maxBars") end,
-          setValue = function(v) Set("maxBars", v) end },
-        { type = "slider", text = "Bar Spacing", min = 0, max = 10, step = 1,
-          disabled = off, disabledTooltip = "Threat Meter",
-          getValue = function() return TM.Get("spacing") end,
-          setValue = function(v) Set("spacing", v) end }
-    );  y = y - h
-
-    _, h = W:DualRow(parent, y,
-        { type = "toggle", text = "Show Header",
-          tooltip = "A title row with the name of the mob whose threat is shown.",
-          disabled = off, disabledTooltip = "Threat Meter",
-          getValue = function() return TM.Get("showHeader") end,
-          setValue = function(v) Set("showHeader", v) end },
-        { type = "toggle", text = "Grow Upward",
-          tooltip = "Stacks the bars upward from the bottom edge instead of down from the top.",
-          disabled = off, disabledTooltip = "Threat Meter",
-          getValue = function() return TM.Get("growUp") end,
-          setValue = function(v) Set("growUp", v) end }
-    );  y = y - h
-
-    _, h = W:Spacer(parent, y, 20);  y = y - h
-
-    ---------------------------------------------------------------------------
-    --  DISPLAY
-    ---------------------------------------------------------------------------
-    _, h = W:SectionHeader(parent, "DISPLAY", y);  y = y - h
-
-    local texValues, texOrder = {}, {}
-    do
-        local t = TM.textures
-        EllesmereUI.AppendSharedMediaTextures(t.names, t.order, nil, t.lookup)
-        for _, key in ipairs(t.order) do
-            if key ~= "---" then texValues[key] = t.names[key] or key end
-            texOrder[#texOrder + 1] = key
+    local function Row(left, right)
+        local row, h = W:DualRow(parent, y, left, right or { type = "label", text = "" }); y = y - h
+        if EUI._prebuilding then return end
+        for i, cfg in ipairs({ left, right }) do
+            local region = i == 1 and row._leftRegion or row._rightRegion
+            if cfg.inlineColor then
+                local color = cfg.inlineColor
+                color.tooltip = color.text
+                EUI.BuildInlineSwatches(region, { color })
+            end
+            if cfg.textOffsets then
+                local sliders = {}
+                for _, slider in ipairs(cfg.textOffsets) do
+                    sliders[#sliders + 1] = { type = "slider", label = slider.text,
+                        min = slider.min, max = slider.max, step = slider.step,
+                        get = slider.getValue, set = slider.setValue }
+                end
+                EUI.BuildInlineCog(region, { title = cfg.text .. " Position", rows = sliders,
+                    disabled = cfg.disabled })
+            end
         end
     end
-
-    local borderRow
-    borderRow, h = W:DualRow(parent, y,
-        { type = "slider", text = "Border Size", min = 0, max = 4, step = 1,
-          disabled = off, disabledTooltip = "Threat Meter",
-          getValue = function() return TM.Get("borderSize") end,
-          setValue = function(v) SetAndRefresh("borderSize", v) end },
-        { type = "dropdown", text = "Bar Texture", values = texValues, order = texOrder,
-          disabled = off, disabledTooltip = "Threat Meter",
-          getValue = function() return TM.Get("texture") end,
-          setValue = function(v) Set("texture", v) end }
-    );  y = y - h
-    if not EllesmereUI._prebuilding then
-        -- Nothing to colour at size 0 (the slider + inline swatch pattern).
-        Swatch(borderRow._leftRegion, "Border Color", "border",
-            function() return off() or TM.Get("borderSize") == 0 end, "Border Size")
+    local function Decorate(cfg, color, offsets)
+        cfg.inlineColor, cfg.textOffsets = color, offsets
+        return cfg
+    end
+    local function Refresh()
+        ns.ApplyStyle()
+        if EUI.RefreshPage then EUI:RefreshPage() end
+    end
+    local function ConfigSetting(key, text, kind, options)
+        local cfg = { type = kind, text = text,
+            getValue = function() return ns.Config()[key] end,
+            setValue = function(v)
+                ns.Config()[key] = v
+                Refresh()
+            end }
+        for k, v in pairs(options or {}) do cfg[k] = v end
+        return cfg
+    end
+    local function Toggle(key, text)
+        return ConfigSetting(key, text, "toggle")
+    end
+    local function Setting(group, key, text, kind, more)
+        local cfg = { type = kind, text = text,
+            disabled = function()
+                if group == "header" then return not ns.Config().showHeader end
+                if key == "rightTextOffsetX" or key == "rightTextOffsetY" or key == "rightTextUseClassColor" then
+                    return ns.GetDisplayedValue() == "none"
+                end
+                return false
+            end,
+            getValue = function() return ns.GetStyleGroup(group)[key] end,
+            setValue = function(v) ns.SetStyleValues(group, { [key] = v }) end }
+        for k, v in pairs(more or {}) do cfg[k] = v end
+        return cfg
+    end
+    local function Slider(group, key, text, low, high, step)
+        return Setting(group, key, text, "slider", { min = low, max = high, step = step or 1 })
+    end
+    local function ConfigSlider(key, text, low, high)
+        return ConfigSetting(key, text, "slider", { min = low, max = high, step = 1 })
+    end
+    local function ConfigColor(key, text)
+        return { type = "colorpicker", text = text, hasAlpha = false,
+            disabled = function()
+                local c = ns.Config()
+                if key == "pullColor" then return not c.pullBar end
+                if key == "playerColor" then return not c.playerColorOn end
+                if key == "tankColor" then return not c.tankColorOn end
+                return false
+            end,
+            getValue = function() local c = ns.Config()[key]; return c.r, c.g, c.b end,
+            setValue = function(r, g, b) ns.Config()[key] = { r = r, g = g, b = b }; Refresh() end }
+    end
+    local function Color(group, key, text, extra)
+        return { type = "colorpicker", text = text, hasAlpha = false,
+            disabled = function()
+                if group == "header" then return not ns.Config().showHeader end
+                return key == "rightTextColor" and ns.GetDisplayedValue() == "none"
+            end,
+            getValue = function()
+                local values = ns.GetStyleGroup(group)
+                if type(key) == "table" then return values[key[1]], values[key[2]], values[key[3]] end
+                local c = values[key]; return c.r, c.g, c.b
+            end,
+            setValue = function(r, g, b)
+                local values = {}
+                for k, v in pairs(extra or {}) do values[k] = v end
+                if type(key) == "table" then values[key[1]], values[key[2]], values[key[3]] = r, g, b
+                else values[key] = { r = r, g = g, b = b, a = 1 } end
+                ns.SetStyleValues(group, values)
+            end }
+    end
+    local borderValues, borderOrder = EUI.GetBorderTextureDropdown()
+    local function BorderStyle(key, text, window)
+        return Setting("borders", key, text, "dropdown", {
+            values = borderValues, order = borderOrder,
+            setValue = function(v)
+                local color = EUI.GetBorderStyleSelectDefaults(v)
+                local size = EUI.GetBorderDefaultSize("damagemeters", v) or 1
+                local patch = { [key] = v }
+                if window then
+                    patch.windowBorderSize, patch.windowBorderSizePx = size, false
+                    patch.windowBorderColor = { r = color.r, g = color.g, b = color.b, a = 1 }
+                else
+                    patch.borderSize, patch.borderSizePx = size, false
+                    patch.borderR, patch.borderG, patch.borderB = color.r, color.g, color.b
+                    patch.borderTextureOffset, patch.borderTextureOffsetY = false, false
+                    patch.borderTextureShiftX, patch.borderTextureShiftY = 0, 0
+                end
+                ns.SetStyleValues("borders", patch)
+            end })
+    end
+    local function BorderSize(key, exactKey, text)
+        local textureKey = key == "windowBorderSize" and "windowBorderTexture" or "borderTexture"
+        local function Set(k, v)
+            local c = ns.Config()
+            c.appearance.borders = c.appearance.borders or {}
+            c.appearance.borders[k] = v
+        end
+        return EUI.BorderPxSliderCfg({ text = text,
+            getStep = function() return ns.GetStyleGroup("borders")[key] end,
+            setStep = function(v) Set(key, v) end,
+            getTex = function() return ns.GetStyleGroup("borders")[textureKey] end,
+            getPx = function() return ns.GetStyleGroup("borders")[exactKey] end,
+            setPx = function(v) Set(exactKey, v) end,
+            apply = Refresh })
     end
 
-    _, h = W:DualRow(parent, y,
-        { type = "slider", text = "Bar Opacity", min = 0, max = 100, step = 1,
-          disabled = off, disabledTooltip = "Threat Meter",
-          getValue = function() return TM.Get("barOpacity") end,
-          setValue = function(v) Set("barOpacity", v) end },
-        { type = "slider", text = "Background", min = 0, max = 100, step = 1,
-          disabled = off, disabledTooltip = "Threat Meter",
-          getValue = function() return math.floor(TM.Get("bgA") * 100 + 0.5) end,
-          setValue = function(v) Set("bgA", v / 100) end }
-    );  y = y - h
-
-    do
-        local fontValues, fontOrder = EllesmereUI.BuildFontDropdownData()
-        local outlineValues = {
-            ["__global"] = { text = "EUI Global Default" },
-            ["none"]     = { text = "Drop Shadow" },
-            ["outline"]  = { text = "Outline" },
-            ["thick"]    = { text = "Thick Outline" },
-        }
-        _, h = W:DualRow(parent, y,
-            { type = "dropdown", text = "Font", values = fontValues, order = fontOrder,
-              disabled = off, disabledTooltip = "Threat Meter",
-              getValue = function() return TM.Get("font") end,
-              setValue = function(v) Set("font", v) end },
-            { type = "dropdown", text = "Font Outline", values = outlineValues,
-              order = { "__global", "none", "outline", "thick" },
-              disabled = off, disabledTooltip = "Threat Meter",
-              getValue = function() return TM.Get("outlineMode") end,
-              setValue = function(v) Set("outlineMode", v) end }
-        );  y = y - h
+    Section("GENERAL")
+    Row(Toggle("enabled", "Show Threat Meter"), Toggle("locked", "Lock Position"))
+    Row(ConfigSetting("focusEnabled", "Enable Focus Tracking", "toggle", {
+        tooltip = "Shows a Target/Focus selector in the meter header. When disabled, always tracks your target. For a friendly unit, tracks the enemy they are targeting.",
+        setValue = function(v) ns.SetFocusEnabled(v); Refresh() end }), Toggle("pets", "Include Pets"))
+    if EUI.BuildVisibilityRow then
+        local _, h = EUI.BuildVisibilityRow(W, parent, y, {
+            getStore = ns.Config, legacyKey = "visibility",
+            caps = { partyIncludesRaid = false, luaDragonriding = true, noMouseover = true },
+            onChanged = Refresh, onOptionChanged = Refresh,
+        }); y = y - h
     end
 
-    _, h = W:DualRow(parent, y,
-        { type = "slider", text = "Text Size", min = 8, max = 24, step = 1,
-          disabled = off, disabledTooltip = "Threat Meter",
-          getValue = function() return TM.Get("textSize") end,
-          setValue = function(v) Set("textSize", v) end },
-        { type = "toggle", text = "Show Threat Value",
-          tooltip = "The threat number on each bar, for example 12.3k.",
-          disabled = off, disabledTooltip = "Threat Meter",
-          getValue = function() return TM.Get("showValue") end,
-          setValue = function(v) Set("showValue", v) end }
-    );  y = y - h
+    Section("AGGRO WARNING")
+    local soundValues, soundOrder = EUI.BuildSoundDropdownValues(ns.Sounds())
+    local function warningOff() return not ns.Config().warnSound end
+    Row(Toggle("warnSound", "Warning Sound"), ConfigSetting("warnSoundKey", "Warning Sound Selection", "dropdown", {
+        values = soundValues, order = soundOrder, disabled = warningOff }))
+    local warnAt = ConfigSlider("warnAt", "Warn At (%)", 50, 100)
+    warnAt.disabled = warningOff
+    warnAt.tooltip = "100% means taking aggro. Plays once when crossing the threshold; rearms after dropping below it."
+    Row(warnAt, Toggle("warnSkipTank", "Skip Tank Role / Stance"))
+    Row({ type = "labeledButton", text = "Test Warning Sound", buttonText = "Play",
+        onClick = function() ns.PlaySoundKey(ns.Config().warnSoundKey) end })
 
-    _, h = W:DualRow(parent, y,
-        { type = "toggle", text = "Show Threat Percent",
-          tooltip = "How close each player is to pulling aggro. 100% takes it.",
-          disabled = off, disabledTooltip = "Threat Meter",
-          getValue = function() return TM.Get("showPercent") end,
-          setValue = function(v) Set("showPercent", v) end },
-        { type = "label", text = "" }
-    );  y = y - h
+    Section("BARS & ICONS")
+    Row(ConfigSlider("barHeight", "Bar Height", 12, 32), Toggle("growUp", "Grow Bars Upward"))
+    Row(Setting("bars", "barTexture", "Bar Texture", "dropdown", { values = ns.BarTextureNames, order = ns.BarTextureOrder }),
+        Setting("colors", "showClassColor", "Class-Colored Bars", "toggle"))
+    Row(ConfigSlider("barSpacing", "Bar Spacing", 0, 10),
+        Setting("bars", "iconStyle", "Class Icon Style", "dropdown", {
+            values = { none = "None", blizzard = "Blizzard", modern = "Modern", pixel = "Pixel", glyph = "Glyph",
+                arcade = "Arcade", legend = "Legend", midnight = "Midnight", runic = "Runic" },
+            order = { "none", "---", "blizzard", "modern", "pixel", "glyph", "arcade", "legend", "midnight", "runic" } }))
 
-    _, h = W:Spacer(parent, y, 20);  y = y - h
+    Section("HEADER")
+    Row(Toggle("showHeader", "Show Header"), Slider("header", "hdrHeight", "Header Height", 14, 40))
+    Row(Decorate(Slider("header", "hdrFontSize", "Header Text Size", 8, 20), nil, {
+            Slider("header", "hdrTextOffX", "Header Text X", -20, 20), Slider("header", "hdrTextOffY", "Header Text Y", -20, 20) }),
+        Decorate(Setting("header", "hdrTextUseAccent", "Accent Header Text", "toggle"),
+            Color("header", "hdrTextColor", "Header Text Color", { hdrTextUseAccent = false })))
+    Row(Decorate(Slider("header", "hdrBgAlpha", "Header Opacity", 0, 1, 0.01), Color("header", "hdrBgColor", "Header Background")),
+        Decorate(Slider("header", "hdrBottomBorderSize", "Header Bottom Border", 0, 4), Color("header", "hdrBottomBorderColor", "Header Border Color")))
 
-    ---------------------------------------------------------------------------
-    --  COLORS
-    ---------------------------------------------------------------------------
-    _, h = W:SectionHeader(parent, "COLORS", y);  y = y - h
+    Section("BAR COLORS")
+    Row(Decorate(Toggle("pullBar", "Pull Aggro Bar"), ConfigColor("pullColor", "Pull Aggro Color")),
+        Decorate(Toggle("playerColorOn", "Custom Player Color"), ConfigColor("playerColor", "Player Color")))
+    Row(Decorate(Toggle("tankColorOn", "Custom Tank Color"), ConfigColor("tankColor", "Tank Color")),
+        Decorate(Setting("colors", "barColorUseAccent", "Accent Bar Color", "toggle", {
+            setValue = function(v)
+                local values = { barColorUseAccent = v }
+                if v then values.showClassColor = false end
+                ns.SetStyleValues("colors", values)
+            end }),
+            Color("colors", "barColor", "Custom Bar Color", { showClassColor = false, barColorUseAccent = false })))
+    Row(Slider("colors", "barFillAlpha", "Bar Opacity", 0, 1, 0.01), Slider("colors", "barBgAlpha", "Bar Background Opacity", 0, 1, 0.01))
+    Row(Decorate(Setting("colors", "barBgUseClassColor", "Class-Colored Background", "toggle"),
+        Color("colors", { "barBgR", "barBgG", "barBgB" }, "Bar Background", { barBgUseClassColor = false })))
 
-    local colorRow
-    colorRow, h = W:DualRow(parent, y,
-        { type = "toggle", text = "Custom Player Color",
-          tooltip = "Your own bar in a fixed color instead of your class color.",
-          disabled = off, disabledTooltip = "Threat Meter",
-          getValue = function() return TM.Get("playerColorOn") end,
-          setValue = function(v) SetAndRefresh("playerColorOn", v) end },
-        { type = "toggle", text = "Custom Tank Color",
-          tooltip = "The bar of whoever holds aggro in a fixed color instead of their class color.",
-          disabled = off, disabledTooltip = "Threat Meter",
-          getValue = function() return TM.Get("tankColorOn") end,
-          setValue = function(v) SetAndRefresh("tankColorOn", v) end }
-    );  y = y - h
-    if not EllesmereUI._prebuilding then
-        Swatch(colorRow._leftRegion, "Player Color", "player",
-            function() return off() or not TM.Get("playerColorOn") end, "Custom Player Color")
-        Swatch(colorRow._rightRegion, "Tank Color", "tank",
-            function() return off() or not TM.Get("tankColorOn") end, "Custom Tank Color")
+    Section("BAR TEXT")
+    Row(ConfigSlider("fontSize", "Font Size", 8, 18), { type = "dropdown", text = "Displayed Value",
+        tooltip = "Tank %: 100% equals the aggro holder's threat. Pull %: 100% is your personal aggro threshold. Warnings always use Pull %. The Pull Aggro reference shows its threshold value, or 100% when only percentages are displayed.",
+        values = ns.DisplayValues, order = ns.DisplayOrder,
+        getValue = ns.GetDisplayedValue,
+        setValue = function(v) ns.SetDisplayedValue(v); Refresh() end })
+    if EUI.BuildFontDropdownData then
+        local values, order = EUI.BuildFontDropdownData()
+        Row(ConfigSetting("font", "Font", "dropdown", { values = values, order = order }),
+            ConfigSetting("outlineMode", "Font Outline", "dropdown", {
+            values = { __global = "EUI Global Default", none = "Drop Shadow", outline = "Outline", thick = "Thick Outline" },
+            order = { "__global", "none", "outline", "thick" } }))
     end
+    Row(Decorate(Setting("colors", "leftTextUseClassColor", "Class-Colored Names", "toggle"),
+            Color("colors", "leftTextColor", "Name Color", { leftTextUseClassColor = false }), {
+                Slider("bars", "leftTextOffsetX", "Name X Offset", -20, 20), Slider("bars", "leftTextOffsetY", "Name Y Offset", -20, 20) }),
+        Decorate(Setting("colors", "rightTextUseClassColor", "Class-Colored Values", "toggle"),
+            Color("colors", "rightTextColor", "Value Color", { rightTextUseClassColor = false }), {
+                Slider("bars", "rightTextOffsetX", "Value X Offset", -20, 20), Slider("bars", "rightTextOffsetY", "Value Y Offset", -20, 20) }))
 
-    return math.abs(y)
+    Section("WINDOW & BORDERS")
+    Row(Decorate(Slider("colors", "bgAlpha", "Window Opacity", 0, 1, 0.01), Color("colors", { "bgR", "bgG", "bgB" }, "Window Background")),
+        Setting("borders", "windowBorderIncludeHeader", "Include Header in Border", "toggle"))
+    Row(BorderStyle("windowBorderTexture", "Window Border Style", true),
+        Decorate(BorderSize("windowBorderSize", "windowBorderSizePx", "Window Border Size"), Color("borders", "windowBorderColor", "Window Border Color")))
+    Row(BorderStyle("borderTexture", "Bar Border Style", false),
+        Decorate(BorderSize("borderSize", "borderSizePx", "Bar Border Size"), Color("borders", { "borderR", "borderG", "borderB" }, "Bar Border Color")))
+    return start - y
 end

@@ -17,4 +17,5 @@ EllesmereUIForeverEssentials_FlightTimerData.lua
 EllesmereUIForeverEssentials_FlightTimer.lua
 
 # Threat (threat meter)
+Lib\ThreatData.lua
 EllesmereUIForeverEssentials_ThreatMeter.lua
