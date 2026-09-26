@@ -628,7 +628,7 @@ end
 -- its known widgets register; dev mode announces the gap so the stub gets
 -- added per the maintenance contract.
 setmetatable(AbsorberW, { __index = function(_, k)
-    if EllesmereUI.IsDevModeActive and EllesmereUI.IsDevModeActive() then
+    if EllesmereUI.IsDevModeActive() then
         print("|cffff6060EUI GlobalSearch:|r no absorber stub for W:" .. tostring(k)
             .. " -- its rows are invisible to search until built live. Add a stub.")
     end
@@ -658,7 +658,7 @@ local function PrebuildOnce(config, folder, page, selectorSetter, selectorKey)
     -- Isolate the shared widget-refresh registry so this off-screen build's
     -- widgets can never leak their refresh closures into whatever page the
     -- user is actually looking at (or into that page's cache snapshot).
-    local refreshSnap = EllesmereUI._SnapshotAndClearWidgetRefreshList and EllesmereUI._SnapshotAndClearWidgetRefreshList()
+    local refreshSnap = EllesmereUI._SnapshotAndClearWidgetRefreshList()
     -- buildPage functions call some live game APIs (currency lists, class info)
     -- directly during construction, not only inside getValue closures. pcall so one
     -- module's edge case can never block indexing the rest; any such page simply falls
@@ -673,7 +673,7 @@ local function PrebuildOnce(config, folder, page, selectorSetter, selectorKey)
     EllesmereUI.Widgets = AbsorberW
     local ok, err = pcall(config.buildPage, page, wrapper, -6)
     EllesmereUI.Widgets = realWidgets
-    if not ok and EllesmereUI.IsDevModeActive and EllesmereUI.IsDevModeActive() then
+    if not ok and EllesmereUI.IsDevModeActive() then
         print("|cffff6060EUI GlobalSearch:|r prebuild failed for "
             .. tostring(folder) .. "::" .. tostring(page) .. ": " .. tostring(err))
     end
@@ -911,7 +911,7 @@ local function EnsureSearchUI()
     _searchUIBuilt = true
 
     local PP = EllesmereUI.PanelPP or EllesmereUI.PP
-    local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
+    local fontPath = (EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
 
     -- Results popup, anchored below the existing sidebar search box.
     popup = CreateFrame("Frame", nil, clickArea)
@@ -924,7 +924,7 @@ local function EnsureSearchUI()
     local popupBg = popup:CreateTexture(nil, "BACKGROUND")
     popupBg:SetAllPoints()
     popupBg:SetColorTexture(0.10, 0.10, 0.12, 0.97)
-    if EllesmereUI.MakeBorder then EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.12, PP) end
+    EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.12, PP)
 
     local resultsFrame = CreateFrame("Frame", nil, popup)
     resultsFrame:SetPoint("TOPLEFT", popup, "TOPLEFT", 4, -4)
@@ -942,7 +942,7 @@ local function EnsureSearchUI()
         hl:SetColorTexture(1, 1, 1, 0)
 
         local lbl = row:CreateFontString(nil, "OVERLAY")
-        if EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(lbl, true) end
+        EllesmereUI.PrimeFontShadow(lbl, true)
         lbl:SetFont(fontPath, 14, "")
         lbl:SetTextColor(0.85, 0.85, 0.88, 1)
         lbl:SetPoint("LEFT", row, "LEFT", 8, 8)
@@ -951,7 +951,7 @@ local function EnsureSearchUI()
         lbl:SetWordWrap(false)
 
         local sub = row:CreateFontString(nil, "OVERLAY")
-        if EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(sub, true) end
+        EllesmereUI.PrimeFontShadow(sub, true)
         sub:SetFont(fontPath, 12, "")
         sub:SetTextColor(1, 1, 1, 0.45)
         sub:SetPoint("LEFT", row, "LEFT", 8, -9)
@@ -1000,9 +1000,7 @@ local function EnsureSearchUI()
         -- Accent-colored "Page:"/"Section:" prefixes. Hex is computed per
         -- search, so a live accent change is picked up on the next keystroke.
         local EG = EllesmereUI.ELLESMERE_GREEN
-        local accentHex = EG and string.format("|cff%02x%02x%02x",
-            math.floor(EG.r * 255 + 0.5), math.floor(EG.g * 255 + 0.5),
-            math.floor(EG.b * 255 + 0.5)) or "|cffffffff"
+        local accentHex = EG and EllesmereUI.HexColor(EG.r, EG.g, EG.b) or EllesmereUI.COLOR_CODES.WHITE
         for i, row in ipairs(resultRows) do
             local entry = results[i]
             if entry then

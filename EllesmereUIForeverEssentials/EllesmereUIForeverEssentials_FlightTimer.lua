@@ -1,11 +1,11 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 -------------------------------------------------------------------------------
---  EllesmereUIQoL_FlightTimer.lua  (WoW Forever only)
+--  EllesmereUIForeverEssentials_FlightTimer.lua  (WoW Forever only)
 --  Progress bar with an ETA for flight-master flights. Route lengths come from
---  the game's TaxiPath data (EllesmereUIQoL_FlightTimerData.lua); the client
---  exposes no flight duration, so time is length / speed, with the speed
---  corrected by every flight that lands normally.
+--  the game's TaxiPath data (EllesmereUIForeverEssentials_FlightTimerData.lua);
+--  the client exposes no flight duration, so time is length / speed, with the
+--  speed corrected by every flight that lands normally.
 -------------------------------------------------------------------------------
 local DEFAULT_SPEED = 30.4 -- yards per second; fitted to measured Classic flight times
 local PREVIEW_SECONDS = 15
@@ -122,7 +122,7 @@ end
 local function TextFont()
     local key = Get("font")
     local path = key ~= "__global" and EllesmereUI.ResolveFontName(key)
-    return path or EllesmereUI.GetFontPath("extras")
+    return path or EllesmereUI.GetFontPath("essentials")
 end
 
 local function TextOutline()
@@ -130,7 +130,7 @@ local function TextOutline()
     if mode == "outline" then return EllesmereUI.SlugFlag("OUTLINE, SLUG") end
     if mode == "thick" then return EllesmereUI.SlugFlag("THICKOUTLINE, SLUG") end
     if mode == "none" then return "" end
-    return EllesmereUI.GetFontOutlineFlag("extras")
+    return EllesmereUI.GetFontOutlineFlag("essentials")
 end
 
 local function StyleText(fs, prefix, font, flag)
@@ -332,7 +332,7 @@ local function RegisterUnlock()
         MK({
             key      = "EUI_FlightTimer",
             label    = "Flight Timer",
-            group    = "Quality of Life",
+            group    = "Forever Essentials",
             order    = 730,
             isHidden = function() return not Enabled() end,
             -- Nothing is built while the feature is off (the unlock core calls
@@ -371,7 +371,7 @@ local function RegisterUnlock()
                 ApplyPosition()
             end,
         }),
-    })
+    }, "EllesmereUIForeverEssentials")
 end
 
 local boot = CreateFrame("Frame")

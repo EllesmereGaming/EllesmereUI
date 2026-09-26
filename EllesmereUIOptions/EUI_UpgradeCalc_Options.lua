@@ -76,7 +76,7 @@ local function BuildUpgradeCalcPage(pageName, parent, yOffset)
 
     -- Reposition hint
     do
-        local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
+        local fontPath = (EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
         local infoFrame = CreateFrame("Frame", nil, parent)
         infoFrame:SetSize(parent:GetWidth(), 20)
         infoFrame:SetPoint("TOP", parent, "TOP", 0, y - 10)

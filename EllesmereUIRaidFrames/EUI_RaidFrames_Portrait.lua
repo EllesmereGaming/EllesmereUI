@@ -23,18 +23,8 @@ local _, ns = ...
 
 local PP = EllesmereUI.PP
 
-local PORTRAIT_MEDIA = "Interface\\AddOns\\EllesmereUI\\media\\portraits\\"
-local MASKS, BORDERS = {}, {}
-do
-    local shapes = { "portrait", "circle", "square", "csquare", "diamond", "hexagon", "shield" }
-    for i = 1, #shapes do
-        local k = shapes[i]
-        MASKS[k] = PORTRAIT_MEDIA .. k .. "_mask.tga"
-        BORDERS[k] = PORTRAIT_MEDIA .. k .. "_border.tga"
-    end
-end
--- Pixels from a 128px mask's edge to its visible opening.
-local MASK_INSETS = { circle = 17, csquare = 17, diamond = 14, hexagon = 17, portrait = 17, shield = 13, square = 17 }
+local MASKS, BORDERS = EllesmereUI.SHAPE_MASKS, EllesmereUI.SHAPE_BORDERS
+local MASK_INSETS = EllesmereUI.SHAPE_INSETS
 local CLASS_ART = "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\\"
 local CLASS_SHEET = "Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES"
 local QMARK_MODEL = "Interface\\Buttons\\TalkToMeQuestionMark.m2"

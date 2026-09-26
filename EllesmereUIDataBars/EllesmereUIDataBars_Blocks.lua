@@ -32,9 +32,7 @@ ns.barTextureOrder = barTextureOrder
 ns.barTextureNames = barTextureNames
 
 -- Seed SharedMedia statusbar textures once at load so a saved LSM key resolves at login; the parent helper also registers for late LSM packs.
-if EllesmereUI.AppendSharedMediaTextures then
-    EllesmereUI.AppendSharedMediaTextures(barTextureNames, barTextureOrder, nil, barTextures)
-end
+EllesmereUI.AppendSharedMediaTextures(barTextureNames, barTextureOrder, nil, barTextures)
 
 
 -- Upvalues
@@ -704,7 +702,7 @@ ns.BlockFactories.clock = function(blockCfg, slot, content, barCtx)
         if button == "MiddleButton" and IsShiftKeyDown() then
             -- Never reload mid-combat: it drops the player out of the fight.
             if InCombatLockdown() then return end
-            ReloadUI()
+            EllesmereUI.RequestReload(EllesmereUI.L("Reload UI"), EllesmereUI.L("Reload the UI now?"))
         elseif button == "LeftButton" then
             if ToggleCalendar then ToggleCalendar() end
         elseif button == "RightButton" then
@@ -1636,7 +1634,7 @@ local function MakeLocationBlock(blockCfg, slot, content, barCtx, opts)
     -- click; PLAYER_REGEN_ENABLED drives Refresh's retry so a block built mid-fight becomes clickable once combat ends.
     local clickBtn
     local function EnsureClickButton()
-        if clickBtn or InCombatLockdown() or not EllesmereUI.SecureSnippetsOK() then return clickBtn end
+        if clickBtn or InCombatLockdown() then return clickBtn end
         local micro = _G.QuestLogMicroButton
         if not micro then return nil end
         clickBtn = CreateFrame("Button", "EWB_LOC_" .. inst.key, frame,
@@ -2029,7 +2027,7 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
             else r, g, b = BlockColorOf(blockCfg) end
             goldText:SetTextColor(r, g, b, 1)
         elseif mouseOver then
-            goldText:SetText(ns.FormatMoneyPlain(money, dg.showSmall == true, ci, ab, fe))
+            goldText:SetText(ns.FormatMoney(money, false, dg.showSmall == true, ci, ab, fe))
             local r, g, b = ns.GetAccent()
             goldText:SetTextColor(r, g, b, 1)
         else
@@ -2100,7 +2098,7 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
         else
             local slotW = HBudget(inst, 100)
             -- Fit against BOTH money formats so font/icon size and frame width stay identical hovered or not; otherwise it resizes on mouseover.
-            local plainText = ns.FormatMoneyPlain(money, dg.showSmall == true, ci, ab, fe)
+            local plainText = ns.FormatMoney(money, false, dg.showSmall == true, ci, ab, fe)
             local fancyText = ns.FormatMoney(money, blockCfg.useCoinColor == true, dg.showSmall == true, ci, ab, fe)
             local moneyText
             if mouseOver then moneyText = plainText else moneyText = fancyText end
@@ -4261,7 +4259,7 @@ local function MakeProfessionBlock(blockCfg, slot, content, barCtx, secondary)
                 ns.Tip_AddLine(" ")
                 local function AddLine(p)
                     if not p or not p.name then return end
-                    ns.Tip_AddDouble(p.name, "|cffFFFFFF" .. p.rank .. "|r / " .. p.maxRank, 1, 1, 1, 1, 1, 1)
+                    ns.Tip_AddDouble(p.name, EllesmereUI.COLOR_CODES.WHITE .. p.rank .. "|r / " .. p.maxRank, 1, 1, 1, 1, 1, 1)
                 end
                 if prof1.idx then AddLine(prof1) end
                 if prof2.idx then AddLine(prof2) end
@@ -4471,7 +4469,7 @@ mmClickFunctions.menu = function(_, button)
     if button == "LeftButton" then
         if not InCombatLockdown() then ToggleFrame(GameMenuFrame) end
     elseif button == "RightButton" then
-        if IsShiftKeyDown() then C_UI.Reload()
+        if IsShiftKeyDown() then EllesmereUI.RequestReload(EllesmereUI.L("Reload UI"), EllesmereUI.L("Reload the UI now?"))
         elseif not InCombatLockdown() then ToggleFrame(AddonList) end
     end
 end
@@ -4527,7 +4525,7 @@ local mmHiders = {}
 local function MMGetHider(frame)
     local hider = mmHiders[frame]
     if hider then return hider end
-    if InCombatLockdown() or not EllesmereUI.SecureSnippetsOK() then return nil end
+    if InCombatLockdown() then return nil end
     hider = CreateFrame("Frame", nil, nil, "SecureHandlerStateTemplate")
     hider:SetFrameRef("target", frame)
     hider:SetAttribute("_onstate-vis", [[
@@ -4636,6 +4634,15 @@ local function MMAddCharStats()
         end
     end
 
+    -- WoW Forever has no Mastery or Versatility.
+    if EllesmereUI.IS_FOREVER then
+        local crit, critCR = EllesmereUI.ForeverCritChance()
+        local haste, hasteCR = EllesmereUI.ForeverHaste()
+        pctRating(STAT_CRITICAL_STRIKE or "Critical Strike", crit,  GetCombatRating(critCR))
+        pctRating(STAT_HASTE or "Haste",                     haste, GetCombatRating(hasteCR))
+        return
+    end
+
     pctRating(STAT_CRITICAL_STRIKE or "Critical Strike", GetCritChance(),    GetCombatRating(CR_CRIT_MELEE))
     pctRating(STAT_HASTE or "Haste",                     GetHaste(),         GetCombatRating(CR_HASTE_MELEE))
     pctRating(STAT_MASTERY or "Mastery",                 GetMasteryEffect(), GetCombatRating(CR_MASTERY))
@@ -4666,9 +4673,9 @@ local function MMOpenWhisper(charName, bnetName)
     -- as a real Mythic+. InProtectedInstance() itself reports true in dev mode; the
     -- separate branch exists only for the clearer message.
     local blocked
-    if EllesmereUI and EllesmereUI.IsDevModeActive and EllesmereUI.IsDevModeActive() then
+    if EllesmereUI.IsDevModeActive() then
         blocked = "This action is protected while dev mode (/euidev) is on."
-    elseif EllesmereUI and EllesmereUI.InProtectedInstance and EllesmereUI.InProtectedInstance() then
+    elseif EllesmereUI.InProtectedInstance() then
         blocked = "This action is protected in Mythic+ and raid combat."
     end
     if blocked then
@@ -5009,7 +5016,7 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
         end
         local frame
         local gname = "EWB_MM_" .. inst.key .. "_" .. key
-        if microRef and EllesmereUI.SecureSnippetsOK() then
+        if microRef then
             -- Taint-safe: pass clicks through to the Blizzard MicroButton.
             frame = CreateFrame("Button", gname, content,
                 "SecureActionButtonTemplate,SecureHandlerStateTemplate")
@@ -5757,8 +5764,9 @@ end
 ns.BlockFactories.ilvl = function(blockCfg, slot, content, barCtx)
     local inst = { cfg = blockCfg, slot = slot, content = content, ctx = barCtx }
     inst.key = InstKey(barCtx, blockCfg)
+    -- PLAYER_REGEN_ENABLED: geometry and the secure click overlay both wait for regen, so the block needs a pass there.
     inst.events = { "PLAYER_AVG_ITEM_LEVEL_UPDATE", "PLAYER_EQUIPMENT_CHANGED",
-                    "PLAYER_ENTERING_WORLD" }
+                    "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED" }
 
     local ILVL_TEX = MEDIA .. "micromenu\\menu-character.png"
     local mouseOver = false
@@ -5775,6 +5783,9 @@ ns.BlockFactories.ilvl = function(blockCfg, slot, content, barCtx)
     icon:SetTexture(ILVL_TEX)
     local ilvlText = button:CreateFontString(nil, "OVERLAY")
     AttachTextOffset(inst, ilvlText)
+
+    local clickBtn
+    local EnsureClickButton -- defined below, after the hover scripts it reuses
 
     -- Item level returns can be secret values, which detonate the moment they
     -- reach format() or a tooltip width measure (see the micro menu's char
@@ -5799,6 +5810,8 @@ ns.BlockFactories.ilvl = function(blockCfg, slot, content, barCtx)
     end
 
     function inst:Refresh()
+        EnsureClickButton()
+
         local s = D()
         local barCfg = BC()
         local barH = barCtx.GetThickness()
@@ -5842,6 +5855,22 @@ ns.BlockFactories.ilvl = function(blockCfg, slot, content, barCtx)
         end
 
         ns.SetFont(ilvlText, fontSize, barCfg)
+        do
+            local ir, ig, ib = IconColorOf(blockCfg)
+            icon:SetVertexColor(ir, ig, ib, 1)
+        end
+        if mouseOver then
+            ilvlText:SetTextColor(ns.GetAccent())
+        else
+            ilvlText:SetTextColor(BlockColorOf(blockCfg))
+        end
+        -- Sizing and anchoring are protected once the secure click overlay exists
+        -- (it puts this block's whole bar under protection): in lockdown only the
+        -- text updates, geometry waits for PLAYER_REGEN_ENABLED.
+        if InCombatLockdown() then
+            ilvlText:SetText(text)
+            return
+        end
         if isSide then
             local slotW = VSlotW(inst)
             local innerW = max(24, slotW - 8)
@@ -5883,15 +5912,6 @@ ns.BlockFactories.ilvl = function(blockCfg, slot, content, barCtx)
             button:SetSize(max(totalW, 10), barH)
         end
 
-        do
-            local ir, ig, ib = IconColorOf(blockCfg)
-            icon:SetVertexColor(ir, ig, ib, 1)
-        end
-        if mouseOver then
-            ilvlText:SetTextColor(ns.GetAccent())
-        else
-            ilvlText:SetTextColor(BlockColorOf(blockCfg))
-        end
         MaybeRelayout(inst)
     end
 
@@ -5926,24 +5946,61 @@ ns.BlockFactories.ilvl = function(blockCfg, slot, content, barCtx)
         ns.Tip_Hide(button)
         inst:Refresh()
     end)
+    -- Fallback only: used until the secure overlay exists (block built mid-combat,
+    -- or no CharacterMicroButton). ToggleCharacter from addon Lua taints
+    -- CharacterFrame's show path (secret health values -> TextStatusBar error).
     button:SetScript("OnClick", function(_, mb)
         if mb == "LeftButton" and ToggleCharacter then
             ToggleCharacter("PaperDollFrame")
         end
     end)
 
+    -- Secure click passthrough to Blizzard's CharacterMicroButton, same mechanism as
+    -- the location and micro menu blocks: the click runs inside Blizzard's own
+    -- handler, so the character sheet opens untainted. Created lazily, never in
+    -- lockdown; PLAYER_REGEN_ENABLED drives Refresh's retry.
+    EnsureClickButton = function()
+        if clickBtn or InCombatLockdown() then return clickBtn end
+        local micro = _G.CharacterMicroButton
+        if not micro then return nil end
+        clickBtn = CreateFrame("Button", "EWB_ILVL_" .. inst.key, button,
+            "SecureActionButtonTemplate,SecureHandlerStateTemplate")
+        clickBtn:SetAllPoints(button)
+        clickBtn:SetAttribute("*clickbutton1", micro)
+        -- Without this, the ActionButtonUseKeyDown CVar makes the secure handler act on key-down only, discarding our "AnyUp" clicks.
+        clickBtn:SetAttribute("useOnKeyDown", false)
+        clickBtn:SetAttribute("*type1", "click")
+        clickBtn:EnableMouse(true)
+        clickBtn:RegisterForClicks("AnyUp")
+        -- Combat: drop the click ACTION only, from inside the secure env. Stays mouse-enabled so hover works; a click while *type1 is nil does nothing.
+        RegisterStateDriver(clickBtn, "combatlock", "[combat] combat; nocombat")
+        clickBtn:SetAttribute("_onstate-combatlock", [[
+            if newstate == 'combat' then
+                self:SetAttribute('*type1', nil)
+            else
+                self:SetAttribute('*type1', 'click')
+            end
+        ]])
+        -- Overlay covers the block and owns hover from here.
+        clickBtn:SetScript("OnEnter", button:GetScript("OnEnter"))
+        clickBtn:SetScript("OnLeave", button:GetScript("OnLeave"))
+        return clickBtn
+    end
+
     inst.eventFrame = MakeEventFrame(inst, function(self)
         self:Refresh()
     end)
 
     function inst:Enable()
-        content:Show()
+        if not content:IsShown() and not InCombatLockdown() then content:Show() end
+        EnsureClickButton()
         RegisterInstEvents(self)
     end
 
     function inst:Disable()
         UnregisterInstEvents(self)
-        content:Hide()
+        -- Protected once the secure click overlay exists.
+        if not InCombatLockdown() then content:Hide() end
     end
 
     function inst:GetAutoLength()
@@ -5955,7 +6012,11 @@ ns.BlockFactories.ilvl = function(blockCfg, slot, content, barCtx)
 
     function inst:Destroy()
         self._dead = true
-        content:Hide()
+        if clickBtn then
+            ParkSecureFrame(clickBtn, self.key .. "_ilvl")
+            clickBtn = nil
+        end
+        if not InCombatLockdown() then content:Hide() end
     end
 
     return inst
@@ -5983,8 +6044,7 @@ local function GVTokenColor(state)
 end
 
 local function GVColorize(text, r, g, b)
-    return format("|cff%02x%02x%02x%s|r",
-        floor(r * 255 + 0.5), floor(g * 255 + 0.5), floor(b * 255 + 0.5), text)
+    return format("%s%s|r", EllesmereUI.HexColor(r, g, b), text)
 end
 
 local function GVSortActivities(a, b)
@@ -6232,10 +6292,8 @@ local function GVBuildPartyRows()
 end
 
 local function GVToggleVault()
-    local IsLoaded = (C_AddOns and C_AddOns.IsAddOnLoaded) or _G.IsAddOnLoaded
-    local Load     = (C_AddOns and C_AddOns.LoadAddOn)     or _G.LoadAddOn
-    if Load and IsLoaded and not IsLoaded("Blizzard_WeeklyRewards") then
-        Load("Blizzard_WeeklyRewards")
+    if not C_AddOns.IsAddOnLoaded("Blizzard_WeeklyRewards") then
+        C_AddOns.LoadAddOn("Blizzard_WeeklyRewards")
     end
     local wrf = _G.WeeklyRewardsFrame
     if not wrf then return end

@@ -5,9 +5,6 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ADDON_NAME = "EllesmereUIQuickdraw"
 local ns = EllesmereUI._ModuleNS[ADDON_NAME]  -- module namespace (published by the module at its load)
 if not ns then return end  -- module disabled: no options page
--- Stood down for the session (secure snippets unavailable: WoW Forever beta):
--- the module is not running, so its page stays out of the sidebar.
-if (EllesmereUI.Lite.GetAddon(ADDON_NAME, true) or ns).standDown then return end
 
 local PAGE_DISPLAY = "Quickdraw"
 local BINDING_PREFIX = "EUI_RADIAL"
@@ -60,12 +57,12 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI:RefreshPage(true)
             return
         end
-        if EllesmereUI.RefreshPage then EllesmereUI:RefreshPage() end
+        EllesmereUI:RefreshPage()
     end
 
     local function RebuildPage()
         if _G._EQD_Apply then _G._EQD_Apply() end
-        if EllesmereUI.RefreshPage then EllesmereUI:RefreshPage(true) end
+        EllesmereUI:RefreshPage(true)
     end
 
     -- Which palette the ACTION MENU SETUP section is editing. Transient: the editor
@@ -161,10 +158,10 @@ initFrame:SetScript("OnEvent", function(self)
     --  driving ns.UpdateBindings, and the SaveBindings call fires
     --  UPDATE_BINDINGS so the palette re-routes its override binding by itself.
     --
-    --  The button is the Action Bars "Toggle Action Bar" keybind button: it
-    --  does its own listening -- left-click arms it, the next key press binds,
-    --  right-click unbinds, Escape cancels -- with no overlay of any kind.
-    --  The build lives in BuildKeybindButton below the page's selector.
+    --  The button is the shared keybind capture button: it does its own
+    --  listening -- left-click arms it, the next key press binds, right-click
+    --  unbinds, Escape cancels -- with no overlay of any kind. The page's
+    --  wrapper lives in BuildKeybindButton below the page's selector.
     ---------------------------------------------------------------------------
 
     -- The combat rejections below are the one case where EllesmereUI.Print is
@@ -307,8 +304,8 @@ initFrame:SetScript("OnEvent", function(self)
             local sig = PaletteKeySignature()
             if sig == lastKeySig then return end
             lastKeySig = sig
-            if EllesmereUI.InvalidatePageCache then EllesmereUI:InvalidatePageCache() end
-            if EllesmereUI.IsShown and EllesmereUI:IsShown() and EllesmereUI.RefreshPage then
+            EllesmereUI:InvalidatePageCache()
+            if EllesmereUI:IsShown() and EllesmereUI.RefreshPage then
                 EllesmereUI:RefreshPage(true)
             end
         end)
@@ -523,13 +520,11 @@ initFrame:SetScript("OnEvent", function(self)
                 .. "\n|cff66ccffLeft-click to pick an action from a list."
                 .. "\nYou can also drop an action from the cursor here.|r")
         end
-        if EllesmereUI.ShowWidgetTooltip then
-            EllesmereUI.ShowWidgetTooltip(widget, text)
-        end
+        EllesmereUI.ShowWidgetTooltip(widget, text)
     end
 
     local function HidePreviewTooltip()
-        if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+        EllesmereUI.HideWidgetTooltip()
     end
 
     -- Place whatever is on the cursor. An empty cursor is not an error: a bare
@@ -1141,7 +1136,7 @@ initFrame:SetScript("OnEvent", function(self)
     local function EnsurePickerMenu()
         if pickerMenu then return pickerMenu end
 
-        local FONT = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath())
+        local FONT = (EllesmereUI.GetFontPath())
             or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
         local bgR  = EllesmereUI.DD_BG_R or 0.075
         local bgG  = EllesmereUI.DD_BG_G or 0.113
@@ -2240,7 +2235,7 @@ initFrame:SetScript("OnEvent", function(self)
 
     local function RebuildMenuRows()
         local m = EnsureMenuMenu()
-        local FONT = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath())
+        local FONT = (EllesmereUI.GetFontPath())
             or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
         local mH = 4
         local count = PaletteCount()
@@ -2469,201 +2464,70 @@ initFrame:SetScript("OnEvent", function(self)
         return btn
     end
 
-    -- The Action Bars "Toggle Action Bar" keybind button, on the row's right
-    -- half: the button itself listens. Left-click arms it and the next key
-    -- press binds; right-click unbinds; Escape cancels; hiding the page (the
-    -- options window closes on entering combat) cancels too. Only the commit
-    -- differs from Action Bars: this edits the real EUI_RADIAL<n> binding
-    -- through CommitKey, theft dialog and all, not a saved key of our own.
-    -- The palette index is baked at build time like every other row here --
-    -- switching the edited menu rebuilds the page.
-    -- spec is nil for the palette's own keybind, which is the button this was
-    -- written for and still its default behaviour. The Select key passes one:
+    -- The shared keybind capture button, on the row's right half: left-click
+    -- arms it and the next key press binds; right-click unbinds; Escape
+    -- cancels; hiding the page (the options window closes on entering combat)
+    -- cancels too. By default it edits the real EUI_RADIAL<n> binding through
+    -- CommitKey, theft dialog and all, not a saved key of our own. The palette
+    -- index is baked at build time like every other row here -- switching the
+    -- edited menu rebuilds the page.
+    -- spec is nil for the palette's own keybind. The Select and Cancel keys
+    -- pass one:
     --
     --   read()          the chord currently held, or nil
     --   commit(chord)   store it; nil unbinds
     --   plainMouse      allow a bare left-click to bind BUTTON1
+    --   intro           what the key does, shown above the how-to-bind text
     --
-    -- plainMouse is the one real divergence, and it moves where the two
-    -- gestures live rather than adding one. The palette's key refuses bare left
-    -- and right clicks because they keep their widget meanings -- arm and
-    -- unbind -- and the Blizzard bindings page refuses them for the same
-    -- reason. A bare mouse button is precisely what a Select key is for, so
-    -- there the meaning follows the STATE instead of the button:
+    -- plainMouse moves where the two gestures live rather than adding one. The
+    -- palette's key refuses bare left and right clicks because they keep their
+    -- widget meanings -- arm and unbind -- and the Blizzard bindings page
+    -- refuses them for the same reason. A bare mouse button is precisely what
+    -- a Select key is for, so there the meaning follows the STATE instead of
+    -- the button:
     --
     --   resting     left arms the picker, right unbinds
     --   listening   any click is the chord, any key is the chord, Escape backs out
     --
     -- so BUTTON1 and BUTTON2 are both reachable and unbind is still one click.
+    -- The wheel stays uncapturable on purpose: a tick cannot be HELD, and hold
+    -- is the palette's whole input model -- key down opens, key up fires.
     local function BuildKeybindButton(rgn, spec)
-        local PPQ = EllesmereUI.PanelPP
-        local kbBtn = CreateFrame("Button", nil, rgn)
-        PPQ.Size(kbBtn, 126, 29)
-        PPQ.Point(kbBtn, "RIGHT", rgn, "RIGHT", -20, 0)
-        kbBtn:SetFrameLevel(rgn:GetFrameLevel() + 4)
-        kbBtn:RegisterForClicks("AnyUp")
-        local kbBg = EllesmereUI.SolidTex(kbBtn, "BACKGROUND", EllesmereUI.DD_BG_R,
-            EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
-        kbBg:SetAllPoints()
-        kbBtn._border = EllesmereUI.MakeBorder(kbBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, PPQ)
-        local kbLbl = EllesmereUI.MakeFont(kbBtn, 12, nil, 1, 1, 1)
-        kbLbl:SetAlpha(EllesmereUI.DD_TXT_A)
-        kbLbl:SetPoint("CENTER")
-
         local palette = editPalette
         local action = BINDING_PREFIX .. palette
-        local listening = false
-        local ReadKey = spec and spec.read or function() return GetBindingKey(action) end
-        local Commit = spec and spec.commit or function(chord) CommitKey(palette, chord) end
         local plainMouse = spec and spec.plainMouse
-        -- What the key IS, shown above the how-to-bind instructions: the
-        -- palette's own keybind row sits under a heading that already says,
-        -- but a spec-driven picker (the Select Key) has only its label.
-        local intro = spec and spec.intro
         -- BuildPage's own Disabled() is a local of that function and out of
         -- scope here, the same reason BuildMenuSelector reads Cfg directly.
-        -- A spec may widen the gate (the Select Key: also disabled while the
-        -- edited menu's Toggle Menu Open is off -- the key answers only
-        -- latched menus) and name the requirement for the disabled tooltip.
+        -- A spec may widen the gate and name the requirement for the disabled
+        -- tooltip.
         local Disabled = (spec and spec.disabled)
             or function() return Cfg("enabled") ~= true end
-        local disabledReason = (spec and spec.disabledReason) or "the module"
 
-        local function FormatKey(key)
-            if not key then return EllesmereUI.L("Not Bound") end
-            local parts = {}
-            for mod in key:gmatch("(%u+)%-") do
-                parts[#parts + 1] = mod:sub(1, 1) .. mod:sub(2):lower()
-            end
-            parts[#parts + 1] = key:match("[^%-]+$") or key
-            return table.concat(parts, " + ")
-        end
+        -- Right-click means two different things on a plainMouse picker
+        -- depending on whether it is armed, so it has to say which.
+        local tip = plainMouse
+            and EllesmereUI.L("Left-click to set a keybind, then press any key or\n"
+                .. "click any mouse button to use it.\n"
+                .. "Escape cancels. Right-click here to unbind.")
+            or EllesmereUI.L("Left-click to set a keybind.\nRight-click to unbind.")
+        -- The palette's own keybind row sits under a heading that already says
+        -- what the key is, but a spec-driven picker has only its label.
+        if spec and spec.intro then tip = EllesmereUI.L(spec.intro) .. "\n\n" .. tip end
 
-        -- Always AFTER the commit, never before it. Reading first and painting
-        -- the old key was the same answer for the palette's keybind -- a
-        -- CommitKey the user declines or combat refuses leaves the binding
-        -- alone, and one that lands rebuilds the whole page over this button --
-        -- but the Select key's commit only writes the profile, so a label
-        -- painted before it stayed a whole interaction behind the value: the
-        -- click that bound BUTTON1 still read "Not Bound", and the right-click
-        -- that unbound it still read BUTTON1. Reading after is correct for
-        -- both, because a refused commit leaves exactly what the pre-read was
-        -- there to preserve.
-        local function RefreshLabel()
-            kbLbl:SetText(FormatKey(ReadKey()))
-        end
-
-        kbBtn:SetScript("OnClick", function(self, button)
-            if Disabled() then return end
-            -- Mouse chords. OnKeyDown never fires for mouse buttons, so an
-            -- armed listener takes them from the click itself, through the
-            -- same conversion the keyboard path uses (GetConvertedKeyOrButton
-            -- maps "Button4" -> "BUTTON4" and so on). The extra buttons --
-            -- middle, Button4 and up -- bind bare or modified; left and right
-            -- bind only WITH a modifier held, since plain they keep their
-            -- widget meanings (left arms, right unbinds) -- the same rule the
-            -- Blizzard bindings page applies to mouse input. The wheel stays
-            -- uncapturable on purpose: a tick cannot be HELD, and hold is the
-            -- palette's whole input model -- key down opens, key up fires.
-            -- plainMouse takes every bare click while LISTENING as a chord,
-            -- left and right alike, which is what makes BUTTON1 and BUTTON2
-            -- reachable at all. It costs nothing: unbind moves to a right-click
-            -- from the resting state, which is where a user reaches for it
-            -- anyway, and Escape still backs out of an armed picker. Without
-            -- this the two most obvious Select keys are the two this widget
-            -- cannot take.
-            if listening and ((button ~= "LeftButton" and button ~= "RightButton")
-                or IsModifierKeyDown()
-                or plainMouse) then
-                listening = false
-                self:EnableKeyboard(false)
-                Commit(CreateKeyChordStringUsingMetaKeyState(
-                    GetConvertedKeyOrButton(button)))
-                RefreshLabel()
-                return
-            end
-            if button == "RightButton" then
-                if listening then
-                    listening = false
-                    self:EnableKeyboard(false)
-                end
-                Commit(nil)
-                RefreshLabel()
-                return
-            end
-            -- The extra mouse buttons only mean something while listening.
-            if button ~= "LeftButton" then return end
-            if listening then return end
-            if InCombatLockdown() then
+        local kbBtn = EllesmereUI.BuildKeybindButton(rgn, {
+            w = 126, h = 29, level = 4, mouse = true, plainMouse = plainMouse,
+            tooltip = tip,
+            disabled = Disabled,
+            disabledTip = (spec and spec.disabledReason) or "the module",
+            get = (spec and spec.read) or function() return GetBindingKey(action) end,
+            set = (spec and spec.commit) or function(chord) CommitKey(palette, chord) end,
+            canArm = function()
+                if not InCombatLockdown() then return true end
                 Complain("Quickdraw: keybinds can't be changed in combat.")
-                return
-            end
-            listening = true
-            kbLbl:SetText(EllesmereUI.L("Press a key..."))
-            self:EnableKeyboard(true)
-        end)
-
-        kbBtn:SetScript("OnKeyDown", function(self, key)
-            if not listening then self:SetPropagateKeyboardInput(true); return end
-            key = GetConvertedKeyOrButton(key)
-            -- Bare modifiers pass through so the user can hold them for the
-            -- chord; everything the binding system ignores does too.
-            if IsKeyPressIgnoredForBinding(key) then
-                self:SetPropagateKeyboardInput(true); return
-            end
-            self:SetPropagateKeyboardInput(false)
-            listening = false
-            self:EnableKeyboard(false)
-            if key ~= "ESCAPE" then
-                Commit(CreateKeyChordStringUsingMetaKeyState(key))
-            end
-            RefreshLabel()
-        end)
-
-        kbBtn:SetScript("OnEnter", function(self)
-            if Disabled() then
-                EllesmereUI.ShowWidgetTooltip(self,
-                    EllesmereUI.DisabledTooltip(disabledReason))
-                return
-            end
-            kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G,
-                EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
-            if kbBtn._border and kbBtn._border.SetColor then
-                kbBtn._border:SetColor(1, 1, 1, 0.3)
-            end
-            -- Right-click means two different things on a plainMouse picker
-            -- depending on whether it is armed, so it has to say which.
-            local tip = plainMouse
-                and EllesmereUI.L("Left-click to set a keybind, then press any key or\n"
-                    .. "click any mouse button to use it.\n"
-                    .. "Escape cancels. Right-click here to unbind.")
-                or EllesmereUI.L("Left-click to set a keybind.\nRight-click to unbind.")
-            if intro then tip = EllesmereUI.L(intro) .. "\n\n" .. tip end
-            EllesmereUI.ShowWidgetTooltip(self, tip)
-        end)
-        kbBtn:SetScript("OnLeave", function()
-            if listening then return end
-            kbBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G,
-                EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
-            if kbBtn._border and kbBtn._border.SetColor then
-                kbBtn._border:SetColor(1, 1, 1, EllesmereUI.DD_BRD_A)
-            end
-            EllesmereUI.HideWidgetTooltip()
-        end)
-        kbBtn:SetScript("OnHide", function()
-            -- Closing the window mid-capture must cancel the capture AND hide
-            -- the tooltip: OnLeave skips the hide while listening and may not
-            -- fire, so it would linger.
-            if listening then
-                listening = false
-                kbBtn:EnableKeyboard(false)
-                RefreshLabel()
-            end
-            EllesmereUI.HideWidgetTooltip()
-        end)
-
-        if Disabled() then kbBtn:SetAlpha(0.4) end
-        RefreshLabel()
+                return false
+            end,
+        })
+        EllesmereUI.PanelPP.Point(kbBtn, "RIGHT", rgn, "RIGHT", -20, 0)
         rgn._lastInline = kbBtn
         return kbBtn
     end
@@ -2896,12 +2760,10 @@ initFrame:SetScript("OnEvent", function(self)
             dimTex:SetAllPoints()
             dimTex:SetColorTexture(0.06, 0.08, 0.10, 0.70)
             dim:SetScript("OnEnter", function(self)
-                if EllesmereUI.ShowWidgetTooltip then
-                    EllesmereUI.ShowWidgetTooltip(self, "Enable the module to edit action menus.")
-                end
+                EllesmereUI.ShowWidgetTooltip(self, "Enable the module to edit action menus.")
             end)
             dim:SetScript("OnLeave", function()
-                if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
+                EllesmereUI.HideWidgetTooltip()
             end)
             previewBlock._dim = dim
         end
@@ -2948,28 +2810,6 @@ initFrame:SetScript("OnEvent", function(self)
             and (pal and #pal.slots or 0) > ((ACfg("fanVisible") or 2) * 2 + 1))
 
         return PREVIEW_H
-    end
-
-    ---------------------------------------------------------------------------
-    --  Inline cog button beside a DualRow region, opening a BuildCogPopup.
-    --  The same shape the other option pages use (EUI_AuraBuffReminders_
-    --  Options.lua:588): parked left of the region's control, dim until
-    --  hovered, and handing itself to showFn as the popup's anchor.
-    ---------------------------------------------------------------------------
-    local function MakeCogBtn(rgn, showFn, anchorTo, iconPath)
-        local cogBtn = CreateFrame("Button", nil, rgn)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", anchorTo or rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = cogBtn
-        cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        cogBtn:SetAlpha(0.4)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-        cogTex:SetAllPoints()
-        cogTex:SetTexture(iconPath or EllesmereUI.COGS_ICON)
-        cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-        cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-        cogBtn:SetScript("OnClick", function(self) showFn(self) end)
-        return cogBtn
     end
 
     ---------------------------------------------------------------------------
@@ -3142,8 +2982,8 @@ initFrame:SetScript("OnEvent", function(self)
             -- bespoke controls attached below. The selector is the custom
             -- Profiles-style dropdown whose rows carry the inline rename and
             -- delete buttons (panel-session state, never captured); the
-            -- keybind button is the Action Bars one, which does its own
-            -- listening and edits the real EUI_RADIAL<n> binding.
+            -- keybind button is the shared capture button, which does its
+            -- own listening and edits the real EUI_RADIAL<n> binding.
             { type="label", text="Editing Action Menu" },
             { type="label", text="Action Menu Keybind" })
         BuildMenuSelector(row._leftRegion)
@@ -3276,7 +3116,6 @@ initFrame:SetScript("OnEvent", function(self)
         -- go stale.
         local layoutMode = ACfg("layout") or "ARC"
 
-        local layoutCogShow
         local layoutCogTitle, layoutCogRows
         if layoutMode == "GRID" then
             layoutCogTitle = "Grid Settings"
@@ -3307,11 +3146,10 @@ initFrame:SetScript("OnEvent", function(self)
             -- (noCapture), so there is nothing for Spec Overrides to bank.
             -- Only the GRID builds a layout cog.
             if layoutCogRows then
-                layoutCogShow = select(2, EllesmereUI.BuildCogPopup({
+                EllesmereUI.BuildInlineCog(row._leftRegion, {
                     title = layoutCogTitle,
                     rows = layoutCogRows,
-                }))
-                MakeCogBtn(row._leftRegion, layoutCogShow)
+                })
             end
 
             -- The X/Y offsets are the ONLY way to place the palette: the
@@ -3323,8 +3161,11 @@ initFrame:SetScript("OnEvent", function(self)
             local fixedOnly = function()
                 return Disabled() or (ACfg("centerMode") or "CURSOR") ~= "SCREEN"
             end
-            local _, posCogShow = EllesmereUI.BuildCogPopup({
+            -- The cog disables with the offsets it opens, so the row still says they exist.
+            EllesmereUI.BuildInlineCog(row._rightRegion, {
                 title = "Fixed Position",
+                disabled = fixedOnly,
+                disabledTooltip = function() return Disabled() and "the module" or "Fixed Position mode" end,
                 rows = {
                     { type="slider", label="X Offset", noCapture=true,
                       min=-800, max=800, step=1,
@@ -3338,30 +3179,6 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) ASet("posY", v); Refresh() end },
                 },
             })
-            local posCogBtn = MakeCogBtn(row._rightRegion, posCogShow)
-
-            -- The offsets are dead ground in cursor mode, so the cog that
-            -- opens them disables with them: the blocking-overlay pattern
-            -- (clicks eaten, disabled tooltip) rather than a hidden button,
-            -- so the row still says the settings exist.
-            local posCogBlock = CreateFrame("Frame", nil, posCogBtn)
-            posCogBlock:SetAllPoints()
-            posCogBlock:SetFrameLevel(posCogBtn:GetFrameLevel() + 10)
-            posCogBlock:EnableMouse(true)
-            posCogBlock:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(posCogBtn, EllesmereUI.DisabledTooltip(
-                    Disabled() and "the module" or "Fixed Position mode"))
-            end)
-            posCogBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            local function UpdatePosCogDisabled()
-                if fixedOnly() then
-                    posCogBtn:SetAlpha(0.15); posCogBlock:Show()
-                else
-                    posCogBtn:SetAlpha(0.4); posCogBlock:Hide()
-                end
-            end
-            UpdatePosCogDisabled()
-            EllesmereUI.RegisterWidgetRefresh(UpdatePosCogDisabled)
         end
         y = y - h
 
@@ -3418,7 +3235,7 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue=function() return ACfg("arcSpan") or 360 end,
                   setValue=function(v) ASet("arcSpan", v); Refresh() end })
             do
-                local _, rotCogShow = EllesmereUI.BuildCogPopup({
+                EllesmereUI.BuildInlineCog(arcRow._rightRegion, {
                     title = "Arc Rotation",
                     rows = {
                         -- 360 is a full turn, and rotating a full circle is
@@ -3437,7 +3254,6 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v) ASet("arcRotation", v); Refresh() end },
                     },
                 })
-                MakeCogBtn(arcRow._rightRegion, rotCogShow)
             end
             y = y - h
         end
@@ -3470,7 +3286,7 @@ initFrame:SetScript("OnEvent", function(self)
             do
                 -- No captureRegion: every row here is per-menu (noCapture),
                 -- so there is nothing for Spec Overrides to bank.
-                local _, fanCogShow = EllesmereUI.BuildCogPopup({
+                EllesmereUI.BuildInlineCog(fanRow._leftRegion, {
                     title = "Fan Settings",
                     rows = {
                         -- The strip's hover channel: the entry under the
@@ -3492,7 +3308,6 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v) ASet("fanInvert", v); Refresh() end },
                     },
                 })
-                MakeCogBtn(fanRow._leftRegion, fanCogShow)
             end
             y = y - h
         end
@@ -3521,7 +3336,7 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue=function() return ACfg("nestScale") or 0.8 end,
                   setValue=function(v) ASet("nestScale", v); Refresh() end })
             if layoutMode == "ARC" then
-                local _, nestCogShow = EllesmereUI.BuildCogPopup({
+                EllesmereUI.BuildInlineCog(nestRow._leftRegion, {
                     title = "Arc Nest Shape",
                     rows = {
                         { type="dropdown", label="Nest Width", noCapture=true,
@@ -3546,9 +3361,8 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v) ASet("arcChildMaxSpan", v); Refresh() end },
                     },
                 })
-                MakeCogBtn(nestRow._leftRegion, nestCogShow)
             elseif layoutMode == "GRID" then
-                local _, nestCogShow = EllesmereUI.BuildCogPopup({
+                EllesmereUI.BuildInlineCog(nestRow._leftRegion, {
                     title = "Grid Nest Style",
                     rows = {
                         --   Lane     a halo hugging the block, centered on the
@@ -3570,7 +3384,6 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v) ASet("gridNestStyle", v); Refresh() end },
                     },
                 })
-                MakeCogBtn(nestRow._leftRegion, nestCogShow)
             end
             y = y - h
         end
@@ -3766,29 +3579,15 @@ initFrame:SetScript("OnEvent", function(self)
         y = y - h
 
         -- Inline cog on Toggle World Markers: the placed-marker pip opt-out.
-        if not EllesmereUI._prebuilding then
-            local rgn = wmRow._rightRegion
-            local _, wmCogShow = EllesmereUI.BuildCogPopup({
-                title = "World Marker Entries",
-                rows = {
-                    { type="toggle", label="Show Placed-Marker Pips",
-                      tooltip="Mark a world marker entry whose marker is on the ground with a small corner square, so you can see whether pressing it places or picks up.",
-                      get=function() return ACfg("worldMarkerPip") ~= false end,
-                      set=function(v) ASet("worldMarkerPip", v); Refresh() end },
-                },
-            })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            cogBtn:SetAlpha(0.4)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            cogBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-            cogBtn:SetScript("OnClick", function(self) wmCogShow(self) end)
-        end
+        EllesmereUI.BuildInlineCog(wmRow._rightRegion, {
+            title = "World Marker Entries",
+            rows = {
+                { type="toggle", label="Show Placed-Marker Pips",
+                  tooltip="Mark a world marker entry whose marker is on the ground with a small corner square, so you can see whether pressing it places or picks up.",
+                  get=function() return ACfg("worldMarkerPip") ~= false end,
+                  set=function(v) ASet("worldMarkerPip", v); Refresh() end },
+            },
+        })
 
         _, h = W:Spacer(parent, y, 10); y = y - h
 

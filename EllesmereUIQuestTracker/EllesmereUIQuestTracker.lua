@@ -152,8 +152,7 @@ loader:RegisterEvent("PLAYER_LOGIN")
 -- before our addon, so ADDON_LOADED for it never fires. Seed _sawOT from
 -- IsAddOnLoaded (or the frame's existence) so init still triggers.
 local _sawSelf, _sawOT, _loggedIn = false, false, false
-local _isLoaded = C_AddOns and C_AddOns.IsAddOnLoaded or IsAddOnLoaded
-if (_isLoaded and _isLoaded("Blizzard_ObjectiveTracker")) or _G.ObjectiveTrackerFrame then
+if C_AddOns.IsAddOnLoaded("Blizzard_ObjectiveTracker") or _G.ObjectiveTrackerFrame then
     _sawOT = true
 end
 
@@ -211,8 +210,6 @@ SlashCmdList.EQT = function(msg)
         if EQT.UpdateVisibility then EQT.UpdateVisibility() end
     else
         if InCombatLockdown and InCombatLockdown() then return end
-        if EllesmereUI and EllesmereUI.ShowModule then
-            EllesmereUI:ShowModule("EllesmereUIQuestTracker")
-        end
+        EllesmereUI:ShowModule("EllesmereUIQuestTracker")
     end
 end

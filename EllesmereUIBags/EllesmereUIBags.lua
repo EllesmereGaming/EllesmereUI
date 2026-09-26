@@ -3,7 +3,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EllesmereUIBags.lua -- Enhanced Bags System for EllesmereUI (Midnight): sidebar category filter + flat item grid layout.
 -------------------------------------------------------------------------------
 if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
-EllesmereUI._ModuleNS["EllesmereUIBags"] = select(2, ...)  -- LOD options files read this module ns via the registry
+local ns = select(2, ...)
+EllesmereUI._ModuleNS["EllesmereUIBags"] = ns  -- LOD options files read this module ns via the registry
 
 EUI_Bags = CreateFrame("Frame", "EUI_MainBagFrame", UIParent)
 EUI_Bags:Hide()
@@ -229,11 +230,10 @@ local function GetItemLevelAtLocation(loc, itemLink)
     end
     return itemLink and C_Item.GetDetailedItemLevelInfo(itemLink) or nil
 end
-local function GetFont() return (EUI.GetFontPath and EUI.GetFontPath("bags")) or "Fonts\\FRIZQT__.TTF" end
-local function GetOutline() return (EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("bags")) or "" end
+local function GetFont() return EUI.GetFontPath("bags") end
 local function SetBagFont(fs, size)
-    if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, true) end
-    fs:SetFont(GetFont(), size, GetOutline())
+    EllesmereUI.PrimeFontShadow(fs, true)
+    fs:SetFont(GetFont(), size, EUI.GetFontOutlineFlag("bags"))
 end
 local function GetAccentRGB()
     if EUI.GetAccentColor then return EUI.GetAccentColor() end
@@ -295,11 +295,6 @@ local FOOTER_H            = 28
 -- Runtime state (never persisted; always "All" on load)
 local selectedCategoryIndex = 0  -- 0 = All Items, -1 = OneBag, -2 = MultiBag, >0 = category index
 local selectedGroupName = nil    -- set when a group header is clicked (overrides selectedCategoryIndex)
-
-function EUI_Bags:SetSelectedView(idx)
-    selectedCategoryIndex = idx
-    selectedGroupName = nil
-end
 
 -- Invalidate categories after the equipment-set list changes (event or the
 -- split-mode toggle). Re-resolves the selection by stable key: the rebuild
@@ -949,25 +944,6 @@ local _lastCatCounts = {}      -- category counts from last full refresh
 local _lastTotalCount = 0      -- total item count from last full refresh
 
 -------------------------------------------------------------------------------
---  HSV helper (upgrade indicator)
--------------------------------------------------------------------------------
-local function HSVToRGB(h, s, v)
-    local i = math.floor(h * 6)
-    local f = h * 6 - i
-    local p = v * (1 - s)
-    local q = v * (1 - f * s)
-    local t = v * (1 - (1 - f) * s)
-    i = i % 6
-    if     i == 0 then return v, t, p
-    elseif i == 1 then return q, v, p
-    elseif i == 2 then return p, v, t
-    elseif i == 3 then return p, q, v
-    elseif i == 4 then return t, p, v
-    else                return v, p, q
-    end
-end
-
--------------------------------------------------------------------------------
 --  UI Components -- Header
 -------------------------------------------------------------------------------
 local function CreateHeader()
@@ -995,7 +971,7 @@ local function CreateHeader()
     local search = CreateFrame("EditBox", "EUI_BagSearchBox", header)
     search:SetSize(160, 22)
     search:SetPoint("RIGHT", -35, 0)
-    search:SetFont(GetFont(), 12, GetOutline())
+    search:SetFont(GetFont(), 12, EUI.GetFontOutlineFlag("bags"))
     search:SetAutoFocus(false)
     search:SetTextInsets(5, 26, 0, 0)
     search.bg = search:CreateTexture(nil, "BACKGROUND")
@@ -1020,11 +996,11 @@ local function CreateHeader()
 
     sort:SetScript("OnEnter", function(self)
         self.icon:SetAlpha(1)
-        if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Sort Items") end
+        EUI.ShowWidgetTooltip(self, "Sort Items")
     end)
     sort:SetScript("OnLeave", function(self)
         self.icon:SetAlpha(0.9)
-        if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+        EUI.HideWidgetTooltip()
     end)
 
     local sortLocked = false
@@ -1451,12 +1427,12 @@ local function CreateHeader()
     dice:SetScript("OnEnter", function(self)
         self.icon:SetVertexColor(0.88, 0.8, 0.7)
         self.icon:SetAlpha(1)
-        if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Randomize") end
+        EUI.ShowWidgetTooltip(self, "Randomize")
     end)
     dice:SetScript("OnLeave", function(self)
         self.icon:SetVertexColor(0.82, 0.7, 0.55)
         self.icon:SetAlpha(0.9)
-        if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+        EUI.HideWidgetTooltip()
     end)
     local function DoRandomize()
         LockSort()
@@ -1570,13 +1546,13 @@ local function CreateHeader()
     end)
     bagsBtn:SetScript("OnLeave", function(self)
         self.icon:SetAlpha(0.9)
-        if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+        EUI.HideWidgetTooltip()
     end)
     bagsBtn:SetScript("OnClick", function()
         if EUI_BagsWindow:IsVisible() then
             EUI_BagsWindow:Hide()
         else
-            if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+            EUI.HideWidgetTooltip()
             EUI_BagsWindow:Show()
             EUI_BagsWindow:RefreshBags()
         end
@@ -1662,19 +1638,6 @@ local function FormatNumberWithCommas(num)
     return result
 end
 
-local function FormatGoldWithPadding(gold)
-    local goldAmount = math.floor(gold / 10000)
-    local silverAmount = math.floor((gold % 10000) / 100)
-    local copperAmount = gold % 100
-    local result = ""
-    if goldAmount > 0 then
-        result = FormatNumberWithCommas(goldAmount) .. "|TInterface\\MoneyFrame\\UI-GoldIcon:17|t "
-    end
-    result = result .. string.format("%02d", silverAmount) .. "|TInterface\\MoneyFrame\\UI-SilverIcon:17|t "
-    result = result .. string.format("%02d", copperAmount) .. "|TInterface\\MoneyFrame\\UI-CopperIcon:17|t"
-    return result
-end
-
 local function FormatGoldOnly(gold)
     local goldAmount = math.floor(gold / 10000)
     return FormatNumberWithCommas(goldAmount) .. "|TInterface\\MoneyFrame\\UI-GoldIcon:14|t"
@@ -1701,12 +1664,6 @@ end
 local function InitializeCharacterGold()
     if not EllesmereUIDB then EllesmereUIDB = {} end
     if not EllesmereUIDB.characterGold then EllesmereUIDB.characterGold = {} end
-end
-
-local function ResetCurrentCharacterGold()
-    if not EllesmereUIDB or not EllesmereUIDB.characterGold then return end
-    local charID = GetCharacterIdentifier()
-    EllesmereUIDB.characterGold[charID] = nil
 end
 
 local function CaptureCurrentCharacterGold()
@@ -1818,8 +1775,8 @@ local function GetGoldTooltip()
 end
 
 local function EnsureGoldRows(count)
-    local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("bags")) or "Fonts\\FRIZQT__.TTF"
-    local fontFlags = (EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("bags")) or ""
+    local fontPath = (EllesmereUI.GetFontPath("bags")) or "Fonts\\FRIZQT__.TTF"
+    local fontFlags = (EllesmereUI.GetFontOutlineFlag("bags")) or ""
     local tt = GetGoldTooltip()
     for i = 1, count do
         if not _goldTTRows[i] then
@@ -2220,6 +2177,297 @@ local function SetInsetBorderThickness(btn, px)
     end
 end
 
+-------------------------------------------------------------------------------
+--  Shared with the bank (EllesmereUIBags_Bank.lua loads after this file) via ns
+-------------------------------------------------------------------------------
+ns.CreateInsetBorder = CreateInsetBorder
+ns.SetInsetBorderColor = SetInsetBorderColor
+
+-- Flat look for a ContainerFrameItemButtonTemplate slot, plus the text overlay
+-- (above the cooldown swipe) with Count, ItemLevelText and BindTypeText.
+-- Methods only: writing properties onto Blizzard template sub-objects taints.
+-- opts: anchorIcon (re-anchor icon to the button), cooldownFont (restyle the
+-- cooldown text), flatHighlight (bank: 8% white highlight, with highlight and
+-- pushed textures looked up by template field first). Returns the overlay.
+function ns.SkinItemButton(btn, opts)
+    if btn.NewItemTexture then btn.NewItemTexture:Hide(); btn.NewItemTexture:SetAlpha(0) end
+    if btn.BattlepayItemTexture then btn.BattlepayItemTexture:Hide(); btn.BattlepayItemTexture:SetAlpha(0) end
+    if btn.flash then btn.flash:Hide(); btn.flash:SetAlpha(0) end
+    if btn.newitemglowAnim then btn.newitemglowAnim:Stop() end
+
+    btn:SetSize(SLOT_SIZE, SLOT_SIZE)
+    if btn.icon then
+        local z = BP().bagItemIconZoom or 0.08
+        btn.icon:SetTexCoord(z, 1 - z, z, 1 - z)
+        if opts.anchorIcon then
+            btn.icon:ClearAllPoints()
+            btn.icon:SetAllPoints(btn)
+        end
+    end
+
+    local ht, pt
+    if opts.flatHighlight then
+        ht = btn.HighlightTexture or btn:GetHighlightTexture()
+        if ht then ht:SetTexture(nil); ht:SetColorTexture(1, 1, 1, 0.08) end
+        pt = btn.PushedTexture or btn:GetPushedTexture()
+    else
+        ht = btn:GetHighlightTexture()
+        pt = btn:GetPushedTexture()
+    end
+    if ht then ht:ClearAllPoints(); ht:SetAllPoints(btn) end
+    if pt then
+        pt:SetAtlas(nil)
+        pt:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\highlight-3.png")
+        pt:SetTexCoord(0, 1, 0, 1)
+        pt:ClearAllPoints(); pt:SetAllPoints(btn)
+        pt:SetVertexColor(0.973, 0.839, 0.604, 1)
+    end
+
+    if btn.NormalTexture then btn.NormalTexture:SetAlpha(0) end
+    if btn.IconBorder then btn.IconBorder:SetAlpha(0) end
+
+    if btn.icon and btn.IconMask then
+        btn.icon:RemoveMaskTexture(btn.IconMask)
+        btn.IconMask:Hide()
+        btn.IconMask:SetTexture(nil)
+        btn.IconMask:ClearAllPoints()
+        btn.IconMask:SetSize(0.001, 0.001)
+    end
+
+    if opts.cooldownFont and btn.Cooldown then
+        local cdText = btn.Cooldown:GetRegions()
+        if cdText and cdText.SetFont then
+            EllesmereUI.ApplyIconTextFont(cdText, GetFont(), 11, "bags")
+        end
+    end
+
+    CreateInsetBorder(btn)
+    SetInsetBorderColor(btn, 0.25, 0.25, 0.25, 1)
+
+    local textOverlay = CreateFrame("Frame", nil, btn)
+    textOverlay:SetAllPoints()
+    textOverlay:SetFrameLevel((btn.Cooldown and btn.Cooldown:GetFrameLevel() or btn:GetFrameLevel()) + 2)
+    btn._textOverlay = textOverlay
+
+    local fontPath = GetFont()
+    local outline = (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG"
+    local countFS = btn.Count
+    if countFS then
+        countFS:SetParent(textOverlay)
+        EllesmereUI.ApplyIconTextFont(countFS, fontPath, BP().bagCountFontSize or 11, "bags")
+        countFS:ClearAllPoints()
+        countFS:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -2, 2)
+    end
+
+    -- Item level text (top-left, gear only)
+    if not btn.ItemLevelText then
+        btn.ItemLevelText = textOverlay:CreateFontString(nil, "OVERLAY", nil, 7)
+        btn.ItemLevelText:SetPoint("TOPLEFT", btn, "TOPLEFT", 1, -1)
+        btn.ItemLevelText:SetTextColor(1, 1, 1, 1)
+    end
+    btn.ItemLevelText:SetFont(fontPath, BP().itemlevelFontSize or 12, outline)
+    btn.ItemLevelText:SetText("")
+
+    -- Bind Type text (bottom-left)
+    if not btn.BindTypeText then
+        btn.BindTypeText = textOverlay:CreateFontString(nil, "OVERLAY", nil, 7)
+        btn.BindTypeText:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 1, 2)
+        btn.BindTypeText:SetTextColor(1, 1, 1, 1)
+    end
+    btn.BindTypeText:SetFont(fontPath, BP().bagBindTypeFontSize or 11, outline)
+    btn.BindTypeText:SetText("")
+    return textOverlay
+end
+
+-- Sidebar header: label + collapse arrow for the profile flag dbKey. The
+-- caller's OnClick flips the flag, then calls the returned UpdateArrow.
+function ns.CreateSidebarHeader(sidebar, label, dbKey)
+    local hdr = CreateFrame("Frame", nil, sidebar)
+    hdr:SetHeight(24)
+    hdr:SetPoint("TOPLEFT", sidebar, "TOPLEFT", 0, 0)
+    hdr:SetPoint("TOPRIGHT", sidebar, "TOPRIGHT", 0, 0)
+
+    hdr._label = hdr:CreateFontString(nil, "OVERLAY")
+    SetBagFont(hdr._label, 10)
+    hdr._label:SetPoint("LEFT", hdr, "LEFT", 8, 0)
+    hdr._label:SetText(label)
+    hdr._label:SetTextColor(0.5, 0.5, 0.5)
+
+    local collapseBtn = CreateFrame("Button", nil, hdr)
+    collapseBtn:SetSize(12, 12)
+    collapseBtn:SetPoint("RIGHT", hdr, "RIGHT", -6, 0)
+    collapseBtn._icon = collapseBtn:CreateTexture(nil, "OVERLAY")
+    collapseBtn._icon:SetAllPoints()
+    collapseBtn._icon:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-left.png")
+    collapseBtn._icon:SetAlpha(0.4)
+
+    local function UpdateArrow()
+        collapseBtn:ClearAllPoints()
+        if BP()[dbKey] then
+            collapseBtn._icon:SetRotation(math.pi)
+            collapseBtn:SetPoint("CENTER", hdr, "CENTER", 0, 0)
+        else
+            collapseBtn._icon:SetRotation(0)
+            collapseBtn:SetPoint("RIGHT", hdr, "RIGHT", -6, 0)
+        end
+    end
+    UpdateArrow()
+
+    collapseBtn:SetScript("OnEnter", function(self)
+        self._icon:SetAlpha(0.9)
+        EUI.ShowWidgetTooltip(self, BP()[dbKey] and "Expand Sidebar" or "Collapse Sidebar")
+    end)
+    collapseBtn:SetScript("OnLeave", function(self)
+        self._icon:SetAlpha(0.4)
+        EUI.HideWidgetTooltip()
+    end)
+    return hdr, collapseBtn, UpdateArrow
+end
+
+-- Item-grid scrollbar: a 4px thumb in a 16px hit strip; the caller anchors the
+-- returned track. Scrolls instantly, not smoothed (so not AttachSmoothScrollbar).
+-- clamp: pull the scroll back into range on every update (content may have
+-- shrunk). rawWheel: the wheel reads sf's scroll range directly rather than the
+-- thumb metrics, which give up when the track is too short for a thumb.
+local SCROLLBAR_HIT_W = 16  -- invisible hit area width
+function ns.AttachGridScrollbar(host, sf, clamp, rawWheel)
+    local SCROLLBAR_W = 4   -- thumb width
+    local SCROLL_STEP = 40  -- pixels per mouse wheel tick
+    local THUMB_MIN_H = 20  -- minimum thumb height
+
+    local track = CreateFrame("Button", nil, host)
+    track:SetWidth(SCROLLBAR_HIT_W)
+    track:SetFrameLevel(sf:GetFrameLevel() + 5)
+
+    local trackBg = track:CreateTexture(nil, "BACKGROUND")
+    trackBg:SetWidth(SCROLLBAR_W)
+    trackBg:SetPoint("TOP", track, "TOP", 0, 0)
+    trackBg:SetPoint("BOTTOM", track, "BOTTOM", 0, 0)
+    trackBg:SetPoint("RIGHT", track, "RIGHT", 0, 0)
+    trackBg:SetColorTexture(1, 1, 1, 0.06)
+
+    local thumb = track:CreateTexture(nil, "ARTWORK")
+    thumb:SetWidth(SCROLLBAR_W)
+    thumb:SetColorTexture(1, 1, 1, 0.25)
+    thumb:Hide()
+
+    local _isDragging = false
+    local _dragStartY = 0
+    local _dragStartPct = 0
+
+    local function GetScrollMetrics()
+        local scrollRange = sf:GetVerticalScrollRange()
+        if not scrollRange or scrollRange <= 0 then return nil end
+        local trackH = track:GetHeight()
+        local ext = sf:GetHeight() / (sf:GetHeight() + scrollRange)
+        local thumbH = math.max(THUMB_MIN_H, trackH * ext)
+        local maxTravel = trackH - thumbH
+        if maxTravel <= 0 then return nil end
+        local pct = sf:GetVerticalScroll() / scrollRange
+        return pct, thumbH, maxTravel, scrollRange
+    end
+
+    local function UpdateThumb()
+        if clamp then
+            local range = sf:GetVerticalScrollRange() or 0
+            local cur = sf:GetVerticalScroll()
+            if cur > range then sf:SetVerticalScroll(range) end
+        end
+        local pct, thumbH, maxTravel = GetScrollMetrics()
+        if not pct then
+            thumb:Hide()
+            trackBg:Hide()
+            return
+        end
+        thumb:SetHeight(thumbH)
+        thumb:ClearAllPoints()
+        thumb:SetPoint("TOPRIGHT", track, "TOPRIGHT", 0, -(pct * maxTravel))
+        thumb:Show()
+        trackBg:Show()
+    end
+
+    -- On the scroll frame and on host (items might not cover the full area)
+    local function OnWheel(_, delta)
+        local scrollRange
+        if rawWheel then
+            scrollRange = sf:GetVerticalScrollRange()
+            if scrollRange and scrollRange <= 0 then scrollRange = nil end
+        else
+            scrollRange = select(4, GetScrollMetrics())
+        end
+        if not scrollRange then return end
+        local cur = sf:GetVerticalScroll()
+        local newVal = math.max(0, math.min(scrollRange, cur - delta * SCROLL_STEP))
+        sf:SetVerticalScroll(newVal)
+        UpdateThumb()
+    end
+    sf:SetScript("OnMouseWheel", OnWheel)
+    host:EnableMouseWheel(true)
+    host:SetScript("OnMouseWheel", OnWheel)
+
+    -- Thumb dragging (dragUpdate must be declared before OnMouseDown uses it)
+    local dragUpdate = CreateFrame("Frame")
+    dragUpdate:Hide()
+    dragUpdate:SetScript("OnUpdate", function(self)
+        if not _isDragging then self:Hide(); return end
+        if not IsMouseButtonDown("LeftButton") then
+            _isDragging = false; self:Hide()
+            thumb:SetColorTexture(1, 1, 1, 0.25)
+            return
+        end
+        local pct, thumbH, maxTravel, scrollRange = GetScrollMetrics()
+        if not pct then _isDragging = false; self:Hide(); return end
+        local scale = track:GetEffectiveScale()
+        local _, cy = GetCursorPosition()
+        local deltaY = (_dragStartY - cy / scale)
+        local deltaPct = deltaY / maxTravel
+        local newPct = math.max(0, math.min(1, _dragStartPct + deltaPct))
+        sf:SetVerticalScroll(newPct * scrollRange)
+        UpdateThumb()
+    end)
+
+    track:RegisterForDrag("LeftButton")
+    track:SetScript("OnMouseDown", function(_, button)
+        if button ~= "LeftButton" then return end
+        local pct, thumbH, maxTravel, scrollRange = GetScrollMetrics()
+        if not pct then return end
+
+        local scale = track:GetEffectiveScale()
+        local _, cy = GetCursorPosition()
+        local trackTop = track:GetTop() * scale
+        local cursorLocalY = (trackTop - cy) / scale
+
+        -- Check if cursor is on the thumb
+        local thumbTop = pct * maxTravel
+        local thumbBot = thumbTop + thumbH
+        if cursorLocalY >= thumbTop and cursorLocalY <= thumbBot then
+            _isDragging = true
+            _dragStartY = cy / scale
+            _dragStartPct = pct
+            dragUpdate:Show()
+        else
+            -- Click on track: jump to position
+            local clickPct = math.max(0, math.min(1, (cursorLocalY - thumbH / 2) / maxTravel))
+            sf:SetVerticalScroll(clickPct * scrollRange)
+            UpdateThumb()
+            _isDragging = true
+            _dragStartY = cy / scale
+            _dragStartPct = clickPct
+            dragUpdate:Show()
+        end
+    end)
+
+    track:SetScript("OnMouseUp", function()
+        _isDragging = false
+    end)
+
+    track:SetScript("OnEnter", function() thumb:SetColorTexture(1, 1, 1, 0.4) end)
+    track:SetScript("OnLeave", function()
+        if not _isDragging then thumb:SetColorTexture(1, 1, 1, 0.25) end
+    end)
+    return track, thumb, UpdateThumb
+end
+
 -- Gold border for quest items (overrides the normal quality border).
 local QUEST_BORDER_COLOR = { r = 1.0, g = 0.82, b = 0.0 }
 
@@ -2318,18 +2566,12 @@ do
         if win == EUI_Bags and EUI_Bags._unmergedLinks then wipe(EUI_Bags._unmergedLinks) end
     end
 
-    local function Clamp(n)
-        if n < 1 then return 1 end
-        if n > dialog._max then return dialog._max end
-        return n
-    end
-
     local function Current()
-        return Clamp(dialog._eb:GetNumber())
+        return Clamp(dialog._eb:GetNumber(), 1, dialog._max)
     end
 
     local function SetValue(n)
-        n = Clamp(n)
+        n = Clamp(n, 1, dialog._max)
         dialog._eb:SetText(tostring(n))
         dialog._eb:SetCursorPosition(#dialog._eb:GetText())
     end
@@ -2470,11 +2712,9 @@ do
         auto:SetPoint("BOTTOMRIGHT", d, "BOTTOMRIGHT", -10, 10)
         auto:SetScript("OnClick", function() DoSplit(true) end)
         auto:HookScript("OnEnter", function()
-            if EUI.ShowWidgetTooltip then
-                EUI.ShowWidgetTooltip(auto, EllesmereUI.L("Split this stack into empty slots repeatedly until only the chosen amount or less remains. Alt+Enter does the same."))
-            end
+            EUI.ShowWidgetTooltip(auto, EllesmereUI.L("Split this stack into empty slots repeatedly until only the chosen amount or less remains. Alt+Enter does the same."))
         end)
-        auto:HookScript("OnLeave", function() if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end end)
+        auto:HookScript("OnLeave", function() EUI.HideWidgetTooltip() end)
 
         d:SetScript("OnMouseWheel", function(_, delta) SetValue(Current() + (delta > 0 and 1 or -1)) end)
         d:SetScript("OnHide", function() eb:ClearFocus() end)
@@ -2704,76 +2944,9 @@ local function GetOrCreateSlot(idx)
         EUI_Bags.ShowStackSplitter(self, bag == 5 and { 5, 0, 1, 2, 3, 4 } or { 0, 1, 2, 3, 4 }, EUI_Bags)
     end)
 
-    -- Methods only: writing properties onto Blizzard template sub-objects taints
-    if btn.NewItemTexture then btn.NewItemTexture:Hide(); btn.NewItemTexture:SetAlpha(0) end
-    if btn.BattlepayItemTexture then btn.BattlepayItemTexture:Hide(); btn.BattlepayItemTexture:SetAlpha(0) end
-    if btn.flash then btn.flash:Hide(); btn.flash:SetAlpha(0) end
-    if btn.newitemglowAnim then btn.newitemglowAnim:Stop() end
-
-    btn:SetSize(SLOT_SIZE, SLOT_SIZE)
-    if btn.icon then
-        local z = BP().bagItemIconZoom or 0.08
-        btn.icon:SetTexCoord(z, 1 - z, z, 1 - z)
-        btn.icon:ClearAllPoints()
-        btn.icon:SetAllPoints(btn)
-    end
-
-    local ht = btn:GetHighlightTexture()
-    if ht then ht:ClearAllPoints(); ht:SetAllPoints(btn) end
-    local pt = btn:GetPushedTexture()
-    if pt then
-        pt:SetAtlas(nil)
-        pt:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\highlight-3.png")
-        pt:SetTexCoord(0, 1, 0, 1)
-        pt:ClearAllPoints(); pt:SetAllPoints(btn)
-        pt:SetVertexColor(0.973, 0.839, 0.604, 1)
-    end
-
-    if btn.NormalTexture then btn.NormalTexture:SetAlpha(0) end
-    if btn.IconBorder then btn.IconBorder:SetAlpha(0) end
-
-    if btn.icon and btn.IconMask then
-        btn.icon:RemoveMaskTexture(btn.IconMask)
-        btn.IconMask:Hide()
-        btn.IconMask:SetTexture(nil)
-        btn.IconMask:ClearAllPoints()
-        btn.IconMask:SetSize(0.001, 0.001)
-    end
-
-    if btn.Cooldown then
-        local cdText = btn.Cooldown:GetRegions()
-        if cdText and cdText.SetFont then
-            EllesmereUI.ApplyIconTextFont(cdText, GetFont(), 11, "bags")
-        end
-    end
-
-    CreateInsetBorder(btn)
-    SetInsetBorderColor(btn, 0.25, 0.25, 0.25, 1)
-
-    -- Text overlay frame: sits above Cooldown so count/ilvl aren't covered by swipe
-    local textOverlay = CreateFrame("Frame", nil, btn)
-    textOverlay:SetAllPoints()
-    textOverlay:SetFrameLevel((btn.Cooldown and btn.Cooldown:GetFrameLevel() or btn:GetFrameLevel()) + 2)
-    btn._textOverlay = textOverlay
-
+    local textOverlay = ns.SkinItemButton(btn, { anchorIcon = true, cooldownFont = true })
     local countSize = BP().bagCountFontSize or 11
-    local countFS = btn.Count
-    if countFS then
-        countFS:SetParent(textOverlay)
-        EllesmereUI.ApplyIconTextFont(countFS, GetFont(), countSize, "bags")
-        countFS:ClearAllPoints()
-        countFS:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -2, 2)
-    end
-
-    if not btn.ItemLevelText then
-        btn.ItemLevelText = textOverlay:CreateFontString(nil, "OVERLAY", nil, 7)
-        btn.ItemLevelText:SetPoint("TOPLEFT", btn, "TOPLEFT", 1, -1)
-        btn.ItemLevelText:SetTextColor(1, 1, 1, 1)
-    end
-    local fontSize = BP().itemlevelFontSize or 12
     local fontPath = GetFont()
-    btn.ItemLevelText:SetFont(fontPath, fontSize, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
-    btn.ItemLevelText:SetText("")
 
     -- Keystone level text (top-left, same as item level)
     if not btn.KeystoneText then
@@ -2781,7 +2954,7 @@ local function GetOrCreateSlot(idx)
         btn.KeystoneText:SetPoint("TOPLEFT", btn, "TOPLEFT", 1, -1)
         btn.KeystoneText:SetTextColor(1, 1, 1, 1)
     end
-    btn.KeystoneText:SetFont(fontPath, countSize, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
+    btn.KeystoneText:SetFont(fontPath, countSize, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     btn.KeystoneText:SetText("")
     -- Keystone dungeon abbreviation (bottom-right, same position as stack count)
     if not btn.KeystoneDungeonText then
@@ -2790,18 +2963,8 @@ local function GetOrCreateSlot(idx)
         btn.KeystoneDungeonText:SetTextColor(1, 1, 1, 1)
         btn.KeystoneDungeonText:SetJustifyH("RIGHT")
     end
-    btn.KeystoneDungeonText:SetFont(fontPath, math.max(countSize - 2, 7), (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
+    btn.KeystoneDungeonText:SetFont(fontPath, math.max(countSize - 2, 7), (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     btn.KeystoneDungeonText:SetText("")
-
-    -- Bind Type text (bottom-left)
-    if not btn.BindTypeText then
-        btn.BindTypeText = textOverlay:CreateFontString(nil, "OVERLAY", nil, 7)
-        btn.BindTypeText:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 1, 2)
-        btn.BindTypeText:SetTextColor(1, 1, 1, 1)
-    end
-    local bindTypeFontSize = BP().bagBindTypeFontSize or 11
-    btn.BindTypeText:SetFont(fontPath, bindTypeFontSize, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
-    btn.BindTypeText:SetText("")
 
     -- Equipment set name FontString is lazy-created in RenderButton: never
     -- built while Show Set Name on Gear is off (zero cost disabled).
@@ -2888,7 +3051,7 @@ local function GetOrCreateReagentSlot(idx)
         btn.ItemLevelText:SetTextColor(1, 1, 1, 1)
     end
     local fontSize = BP().itemlevelFontSize or 12
-    btn.ItemLevelText:SetFont(STANDARD_TEXT_FONT, fontSize, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
+    btn.ItemLevelText:SetFont(STANDARD_TEXT_FONT, fontSize, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     btn.ItemLevelText:SetText("")
 
     btn:HookScript("PostClick", function(self)
@@ -2981,15 +3144,15 @@ local function RefreshTextSizes()
     local bindTypeSize = BP().bagBindTypeFontSize or 11
     for _, btn in pairs(itemSlots) do
         if btn.Count then EllesmereUI.ApplyIconTextFont(btn.Count, fontPath, countSize, "bags") end
-        if btn.ItemLevelText then btn.ItemLevelText:SetFont(fontPath, ilvlSize, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG") end
-        if btn.KeystoneText then btn.KeystoneText:SetFont(fontPath, countSize, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG") end
-        if btn.KeystoneDungeonText then btn.KeystoneDungeonText:SetFont(fontPath, math.max(countSize - 2, 7), (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG") end
-        if btn.BindTypeText then btn.BindTypeText:SetFont(fontPath, bindTypeSize, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG") end
-        if btn.SetNameText then btn.SetNameText:SetFont(fontPath, BP().bagSetNameFontSize or 9, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG") end
+        if btn.ItemLevelText then btn.ItemLevelText:SetFont(fontPath, ilvlSize, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG") end
+        if btn.KeystoneText then btn.KeystoneText:SetFont(fontPath, countSize, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG") end
+        if btn.KeystoneDungeonText then btn.KeystoneDungeonText:SetFont(fontPath, math.max(countSize - 2, 7), (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG") end
+        if btn.BindTypeText then btn.BindTypeText:SetFont(fontPath, bindTypeSize, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG") end
+        if btn.SetNameText then btn.SetNameText:SetFont(fontPath, BP().bagSetNameFontSize or 9, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG") end
     end
     for _, btn in pairs(reagentSlots) do
         if btn.Count then EllesmereUI.ApplyIconTextFont(btn.Count, fontPath, countSize, "bags") end
-        if btn.ItemLevelText then btn.ItemLevelText:SetFont(STANDARD_TEXT_FONT, ilvlSize, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG") end
+        if btn.ItemLevelText then btn.ItemLevelText:SetFont(STANDARD_TEXT_FONT, ilvlSize, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG") end
     end
 end
 EUI_Bags.RefreshTextSizes = RefreshTextSizes
@@ -3182,7 +3345,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
                     btn.SetNameText:SetWordWrap(false)
                     btn.SetNameText:SetMaxLines(1)
                     btn.SetNameText:SetWidth(SLOT_SIZE - 4)
-                    btn.SetNameText:SetFont(GetFont(), BP().bagSetNameFontSize or 9, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
+                    btn.SetNameText:SetFont(GetFont(), BP().bagSetNameFontSize or 9, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
                 end
                 btn.SetNameText:SetText(data._setName)
             elseif btn.SetNameText then
@@ -3323,17 +3486,17 @@ local function GetOrCreatePinOverlay()
     ov.bg:SetAllPoints()
     ov.bg:SetColorTexture(0, 0, 0, 0.4)
     ov.plus = ov:CreateFontString(nil, "OVERLAY")
-    ov.plus:SetFont(GetFont(), 18, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
+    ov.plus:SetFont(GetFont(), 18, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     ov.plus:SetPoint("CENTER", 0, 0)
     ov.plus:SetText("+")
     ov.plus:SetTextColor(1, 1, 1, 0.5)
     ov:SetScript("OnEnter", function(self)
         self.plus:SetTextColor(1, 1, 1, 1)
-        if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Pin an Item") end
+        EUI.ShowWidgetTooltip(self, "Pin an Item")
     end)
     ov:SetScript("OnLeave", function(self)
         self.plus:SetTextColor(1, 1, 1, 0.5)
-        if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+        EUI.HideWidgetTooltip()
     end)
     ov:RegisterForDrag("LeftButton")
     ov:SetScript("OnReceiveDrag", function()
@@ -3369,7 +3532,7 @@ local function GetOrCreatePinOverlay()
             if EUI_Bags.RefreshInventory then EUI_Bags:RefreshInventory() end
             return
         end
-        if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+        EUI.HideWidgetTooltip()
         EnterPinSelectMode()
     end)
     ov:Hide()
@@ -3391,17 +3554,17 @@ local function GetOrCreateAssignOverlay()
     ov.bg:SetAllPoints()
     ov.bg:SetColorTexture(0, 0, 0, 0.4)
     ov.plus = ov:CreateFontString(nil, "OVERLAY")
-    ov.plus:SetFont(GetFont(), 18, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
+    ov.plus:SetFont(GetFont(), 18, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
     ov.plus:SetPoint("CENTER", 0, 0)
     ov.plus:SetText("+")
     ov.plus:SetTextColor(1, 1, 1, 0.5)
     ov:SetScript("OnEnter", function(self)
         self.plus:SetTextColor(1, 1, 1, 1)
-        if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Assign an item to this category") end
+        EUI.ShowWidgetTooltip(self, "Assign an item to this category")
     end)
     ov:SetScript("OnLeave", function(self)
         self.plus:SetTextColor(1, 1, 1, 0.5)
-        if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+        EUI.HideWidgetTooltip()
     end)
     local function DoAssign(self)
         local cursorType, itemID = GetCursorInfo()
@@ -3413,7 +3576,7 @@ local function GetOrCreateAssignOverlay()
         end
         -- No cursor item: enter assign select mode (like pin select)
         if self._assignCatKey then
-            if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+            EUI.HideWidgetTooltip()
             EnterAssignSelectMode(self._assignCatKey)
         end
     end
@@ -4431,51 +4594,8 @@ local function CreateSidebar()
     sidebar.sep:SetColorTexture(0.15, 0.15, 0.15, 1)
 
     -- Sidebar header: "Categories" label + collapse arrow
-    local SIDEBAR_HDR_H = 24
-    local sidebarHdr = CreateFrame("Frame", nil, sidebar)
-    sidebarHdr:SetHeight(SIDEBAR_HDR_H)
-    sidebarHdr:SetPoint("TOPLEFT", sidebar, "TOPLEFT", 0, 0)
-    sidebarHdr:SetPoint("TOPRIGHT", sidebar, "TOPRIGHT", 0, 0)
+    local sidebarHdr, collapseBtn, UpdateCollapseArrow = ns.CreateSidebarHeader(sidebar, EllesmereUI.L("Categories"), "bagSidebarCollapsed")
 
-    sidebarHdr._label = sidebarHdr:CreateFontString(nil, "OVERLAY")
-    SetBagFont(sidebarHdr._label, 10)
-    sidebarHdr._label:SetPoint("LEFT", sidebarHdr, "LEFT", 8, 0)
-    sidebarHdr._label:SetText(EllesmereUI.L("Categories"))
-    sidebarHdr._label:SetTextColor(0.5, 0.5, 0.5)
-
-    local ARROW_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-left.png"
-    local collapseBtn = CreateFrame("Button", nil, sidebarHdr)
-    collapseBtn:SetSize(12, 12)
-    collapseBtn:SetPoint("RIGHT", sidebarHdr, "RIGHT", -6, 0)
-    collapseBtn._icon = collapseBtn:CreateTexture(nil, "OVERLAY")
-    collapseBtn._icon:SetAllPoints()
-    collapseBtn._icon:SetTexture(ARROW_ICON)
-    collapseBtn._icon:SetAlpha(0.4)
-
-    local function UpdateCollapseArrow()
-        local collapsed = BP().bagSidebarCollapsed
-        collapseBtn:ClearAllPoints()
-        if collapsed then
-            collapseBtn._icon:SetRotation(math.pi)
-            collapseBtn:SetPoint("CENTER", sidebarHdr, "CENTER", 0, 0)
-        else
-            collapseBtn._icon:SetRotation(0)
-            collapseBtn:SetPoint("RIGHT", sidebarHdr, "RIGHT", -6, 0)
-        end
-    end
-    UpdateCollapseArrow()
-
-    collapseBtn:SetScript("OnEnter", function(self)
-        self._icon:SetAlpha(0.9)
-        local collapsed = BP().bagSidebarCollapsed
-        if EUI.ShowWidgetTooltip then
-            EUI.ShowWidgetTooltip(self, collapsed and "Expand Sidebar" or "Collapse Sidebar")
-        end
-    end)
-    collapseBtn:SetScript("OnLeave", function(self)
-        self._icon:SetAlpha(0.4)
-        if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
-    end)
     collapseBtn:SetScript("OnClick", function()
         local center = EUI_Bags:GetCenter()
         local screenW = UIParent:GetWidth()
@@ -4826,7 +4946,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                 local isSel = (self._isGroupHeader and self._groupName == selectedGroupName)
                     or (not self._isGroupHeader and self._catIdx == selectedCategoryIndex and not selectedGroupName)
                 if not isSel then self._bg:SetColorTexture(1, 1, 1, 0) end
-                if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+                EUI.HideWidgetTooltip()
             end)
             btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
             btn:SetScript("OnClick", function(self, button)
@@ -5379,13 +5499,11 @@ local function ShowRecentClearButton(hdr, hideBtn)
         cb._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
         cb:SetScript("OnEnter", function(self)
             self._fs:SetTextColor(1, 1, 1, 0.9)
-            if EUI.ShowWidgetTooltip then
-                EUI.ShowWidgetTooltip(self, "Clears the Recent Items list.")
-            end
+            EUI.ShowWidgetTooltip(self, "Clears the Recent Items list.")
         end)
         cb:SetScript("OnLeave", function(self)
             self._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
-            if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+            EUI.HideWidgetTooltip()
         end)
         cb:SetScript("OnClick", function()
             if EUI_Bags.ClearRecentItems then EUI_Bags:ClearRecentItems() end
@@ -5417,11 +5535,6 @@ end
 -------------------------------------------------------------------------------
 --  Scroll Frame + Scrollbar for item grid
 -------------------------------------------------------------------------------
-local SCROLLBAR_W     = 4   -- thumb width
-local SCROLLBAR_HIT_W = 16  -- invisible hit area width
-local SCROLL_STEP     = 40  -- pixels per mouse wheel tick
-local THUMB_MIN_H     = 20  -- minimum thumb height
-
 local function CreateBagScrollFrame()
     if EUI_Bags._scrollFrame then return end
 
@@ -5441,138 +5554,9 @@ local function CreateBagScrollFrame()
     sf:SetScrollChild(child)
 
     -- Track (always visible)
-    local track = CreateFrame("Button", nil, EUI_Bags)
-    track:SetWidth(SCROLLBAR_HIT_W)
+    local track, thumb, UpdateThumb = ns.AttachGridScrollbar(EUI_Bags, sf, true, false)
     track:SetPoint("TOPRIGHT", EUI_Bags, "TOPRIGHT", -1, -(HEADER_H + 1))
     track:SetPoint("BOTTOMRIGHT", EUI_Bags.Footer, "TOPRIGHT", -1, 0)
-    track:SetFrameLevel(sf:GetFrameLevel() + 5)
-
-    local trackBg = track:CreateTexture(nil, "BACKGROUND")
-    trackBg:SetWidth(SCROLLBAR_W)
-    trackBg:SetPoint("TOP", track, "TOP", 0, 0)
-    trackBg:SetPoint("BOTTOM", track, "BOTTOM", 0, 0)
-    trackBg:SetPoint("RIGHT", track, "RIGHT", 0, 0)
-    trackBg:SetColorTexture(1, 1, 1, 0.06)
-
-    local thumb = track:CreateTexture(nil, "ARTWORK")
-    thumb:SetWidth(SCROLLBAR_W)
-    thumb:SetColorTexture(1, 1, 1, 0.25)
-    thumb:Hide()
-
-    local _isDragging = false
-    local _dragStartY = 0
-    local _dragStartPct = 0
-
-    local function GetScrollMetrics()
-        local scrollRange = sf:GetVerticalScrollRange()
-        if not scrollRange or scrollRange <= 0 then return nil end
-        local trackH = track:GetHeight()
-        local ext = sf:GetHeight() / (sf:GetHeight() + scrollRange)
-        local thumbH = math.max(THUMB_MIN_H, trackH * ext)
-        local maxTravel = trackH - thumbH
-        if maxTravel <= 0 then return nil end
-        local pct = sf:GetVerticalScroll() / scrollRange
-        return pct, thumbH, maxTravel, scrollRange
-    end
-
-    local function UpdateThumb()
-        -- Clamp scroll to current range (content may have shrunk)
-        local range = sf:GetVerticalScrollRange() or 0
-        local cur = sf:GetVerticalScroll()
-        if cur > range then sf:SetVerticalScroll(range) end
-        local pct, thumbH, maxTravel = GetScrollMetrics()
-        if not pct then
-            thumb:Hide()
-            trackBg:Hide()
-            return
-        end
-        thumb:SetHeight(thumbH)
-        thumb:ClearAllPoints()
-        thumb:SetPoint("TOPRIGHT", track, "TOPRIGHT", 0, -(pct * maxTravel))
-        thumb:Show()
-        trackBg:Show()
-    end
-
-    sf:SetScript("OnMouseWheel", function(_, delta)
-        local _, _, _, scrollRange = GetScrollMetrics()
-        if not scrollRange then return end
-        local cur = sf:GetVerticalScroll()
-        local newVal = math.max(0, math.min(scrollRange, cur - delta * SCROLL_STEP))
-        sf:SetVerticalScroll(newVal)
-        UpdateThumb()
-    end)
-
-    -- Also enable mouse wheel on the main bag frame (items might not cover full area)
-    EUI_Bags:EnableMouseWheel(true)
-    EUI_Bags:SetScript("OnMouseWheel", function(_, delta)
-        local _, _, _, scrollRange = GetScrollMetrics()
-        if not scrollRange then return end
-        local cur = sf:GetVerticalScroll()
-        local newVal = math.max(0, math.min(scrollRange, cur - delta * SCROLL_STEP))
-        sf:SetVerticalScroll(newVal)
-        UpdateThumb()
-    end)
-
-    -- Thumb dragging (dragUpdate must be declared before OnMouseDown uses it)
-    local dragUpdate = CreateFrame("Frame")
-    dragUpdate:Hide()
-    dragUpdate:SetScript("OnUpdate", function(self)
-        if not _isDragging then self:Hide(); return end
-        if not IsMouseButtonDown("LeftButton") then
-            _isDragging = false; self:Hide()
-            thumb:SetColorTexture(1, 1, 1, 0.25)
-            return
-        end
-        local pct, thumbH, maxTravel, scrollRange = GetScrollMetrics()
-        if not pct then _isDragging = false; self:Hide(); return end
-        local scale = track:GetEffectiveScale()
-        local _, cy = GetCursorPosition()
-        local deltaY = (_dragStartY - cy / scale)
-        local deltaPct = deltaY / maxTravel
-        local newPct = math.max(0, math.min(1, _dragStartPct + deltaPct))
-        sf:SetVerticalScroll(newPct * scrollRange)
-        UpdateThumb()
-    end)
-
-    track:RegisterForDrag("LeftButton")
-    track:SetScript("OnMouseDown", function(_, button)
-        if button ~= "LeftButton" then return end
-        local pct, thumbH, maxTravel, scrollRange = GetScrollMetrics()
-        if not pct then return end
-
-        local scale = track:GetEffectiveScale()
-        local _, cy = GetCursorPosition()
-        local trackTop = track:GetTop() * scale
-        local cursorLocalY = (trackTop - cy) / scale
-
-        -- Check if cursor is on the thumb
-        local thumbTop = pct * maxTravel
-        local thumbBot = thumbTop + thumbH
-        if cursorLocalY >= thumbTop and cursorLocalY <= thumbBot then
-            _isDragging = true
-            _dragStartY = cy / scale
-            _dragStartPct = pct
-            dragUpdate:Show()
-        else
-            -- Click on track: jump to position
-            local clickPct = math.max(0, math.min(1, (cursorLocalY - thumbH / 2) / maxTravel))
-            sf:SetVerticalScroll(clickPct * scrollRange)
-            UpdateThumb()
-            _isDragging = true
-            _dragStartY = cy / scale
-            _dragStartPct = clickPct
-            dragUpdate:Show()
-        end
-    end)
-
-    track:SetScript("OnMouseUp", function()
-        _isDragging = false
-    end)
-
-    track:SetScript("OnEnter", function() thumb:SetColorTexture(1, 1, 1, 0.4) end)
-    track:SetScript("OnLeave", function()
-        if not _isDragging then thumb:SetColorTexture(1, 1, 1, 0.25) end
-    end)
 
     EUI_Bags._scrollFrame = sf
     EUI_Bags._scrollChild = child
@@ -5690,7 +5674,7 @@ function EUI_Bags:RefreshInventory()
         if EUI.ShowWidgetTooltip then
             EUI.ShowWidgetTooltip(EUI_Bags, "Positions can only be changed\nin the All Items, OneBag, or MultiBag views", { anchor = "cursor" })
             C_Timer.After(3, function()
-                if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+                EUI.HideWidgetTooltip()
             end)
         end
     end
@@ -6249,11 +6233,11 @@ function EUI_Bags:RefreshInventory()
                 hb._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
                 hb:SetScript("OnEnter", function(self)
                     self._fs:SetTextColor(1, 1, 1, 0.9)
-                    if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Hides Pinned Items. Re-show in settings.") end
+                    EUI.ShowWidgetTooltip(self, "Hides Pinned Items. Re-show in settings.")
                 end)
                 hb:SetScript("OnLeave", function(self)
                     self._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
-                    if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+                    EUI.HideWidgetTooltip()
                 end)
                 pinHdr._hideBtn = hb
             end
@@ -6342,11 +6326,11 @@ function EUI_Bags:RefreshInventory()
                 hb._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
                 hb:SetScript("OnEnter", function(self)
                     self._fs:SetTextColor(1, 1, 1, 0.9)
-                    if EUI.ShowWidgetTooltip then EUI.ShowWidgetTooltip(self, "Hides Recent Items. Re-show in settings.") end
+                    EUI.ShowWidgetTooltip(self, "Hides Recent Items. Re-show in settings.")
                 end)
                 hb:SetScript("OnLeave", function(self)
                     self._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
-                    if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+                    EUI.HideWidgetTooltip()
                 end)
                 recHdr._hideBtn = hb
             end
@@ -6565,13 +6549,11 @@ function EUI_Bags:RefreshInventory()
                     hb._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
                     hb:SetScript("OnEnter", function(self)
                         self._fs:SetTextColor(1, 1, 1, 0.9)
-                        if EUI.ShowWidgetTooltip then
-                            EUI.ShowWidgetTooltip(self, self._tooltip)
-                        end
+                        EUI.ShowWidgetTooltip(self, self._tooltip)
                     end)
                     hb:SetScript("OnLeave", function(self)
                         self._fs:SetTextColor(0.5, 0.5, 0.5, 0.7)
-                        if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+                        EUI.HideWidgetTooltip()
                     end)
                     hb:SetScript("OnClick", function(self)
                         BP()[self._dbKey] = false
@@ -7241,7 +7223,7 @@ function EUI_BagsReagent:RefreshInventory()
                             local loc = ItemLocation:CreateFromBagAndSlot(data.bag, data.slot)
                             local level = GetItemLevelAtLocation(loc, itemLink)
                             local fs = BP().itemlevelFontSize or 12
-                            btn.ItemLevelText:SetFont(STANDARD_TEXT_FONT, fs, (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
+                            btn.ItemLevelText:SetFont(STANDARD_TEXT_FONT, fs, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
                             btn.ItemLevelText:SetText(level or "")
                             local r, g, b
                             if BP().itemlevelUseCustomColor and BP().itemlevelCustomColor then
@@ -7329,7 +7311,7 @@ function EUI_BagsWindow:RefreshBags()
         end)
         btn:SetScript("OnLeave", function(self)
             SetInsetBorderColor(self, self._bdrR, self._bdrG, self._bdrB, 1)
-            if EUI.HideWidgetTooltip then EUI.HideWidgetTooltip() end
+            EUI.HideWidgetTooltip()
         end)
 
         parent:ClearAllPoints()
@@ -7868,7 +7850,7 @@ local function StartAddon()
             if EUI_Bags:IsVisible() then
                 SyncBagFrameToFooter()
             end
-            if EllesmereUI and EllesmereUI.RefreshPage then EllesmereUI:RefreshPage() end
+            EllesmereUI:RefreshPage()
         end, EUI_Bags)
     end
 

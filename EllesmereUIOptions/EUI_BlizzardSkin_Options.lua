@@ -75,19 +75,12 @@ initFrame:SetScript("OnEvent", function(self)
                   get=function() return EllesmereUIDB[prefix.."BorderBehind"] or false end,
                   set=function(v) EllesmereUIDB[prefix.."BorderBehind"]=v end },
             }
-            local _, showOffset = EllesmereUI.BuildCogPopup({ title="Border Options", rows=popupRows })
-            local cog=CreateFrame("Button",nil,left); cog:SetSize(26,26); cog:SetPoint("RIGHT",left._control,"LEFT",-8,0); cog:SetAlpha(.4)
-            local ico=cog:CreateTexture(nil,"OVERLAY"); ico:SetAllPoints(); ico:SetTexture(EllesmereUI.DIRECTIONS_ICON)
-            cog:SetScript("OnClick",function(self) showOffset(self) end); left._lastInline=cog
-            -- Gray + mouse-off with the row like the mode swatches below
-            -- (canonical cog disabled alphas: .15 off, .4 on). Applied once at
-            -- build time too -- widget refresh only fires on later changes.
-            local function UpdCogState()
-                local off=disabledFn and disabledFn()
-                cog:SetAlpha(off and .15 or .4); cog:EnableMouse(not off)
-            end
-            EllesmereUI.RegisterWidgetRefresh(UpdCogState)
-            UpdCogState()
+            EllesmereUI.BuildInlineCog(left, {
+                title = "Border Options", rows = popupRows,
+                icon = EllesmereUI.DIRECTIONS_ICON, anchorTo = left._control,
+                disabled = disabledFn,
+                disabledTooltip = prefix == "tooltip" and "Reskin Tooltip" or "Reskin Popups and Menus",
+            })
             end
 
             local function AddModeSwatch(anchor, mode, tip, getColor, custom)
@@ -140,15 +133,13 @@ initFrame:SetScript("OnEvent", function(self)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.reskinPopupsMenus = v
                   EllesmereUI:RefreshPage()  -- update the border cog + swatch disabled states
-                  if EllesmereUI.ShowConfirmPopup then
-                      EllesmereUI:ShowConfirmPopup({
-                          title       = "Reload Required",
-                          message     = "Reskin setting requires a UI reload to fully apply.",
-                          confirmText = "Reload Now",
-                          cancelText  = "Later",
-                          reload      = true,
-                      })
-                  end
+                  EllesmereUI:ShowConfirmPopup({
+                      title       = "Reload Required",
+                      message     = "Reskin setting requires a UI reload to fully apply.",
+                      confirmText = "Reload Now",
+                      cancelText  = "Later",
+                      reload      = true,
+                  })
               end },
             { type="toggle", text="Resurrect Accept Glow",
               tooltip="Adds a glowing, pulsating border around the Accept button of resurrection popups so a pending resurrect is hard to miss. Follows the Element & Text Color setting. Applies instantly, no reload needed.",
@@ -231,7 +222,7 @@ initFrame:SetScript("OnEvent", function(self)
             local rgn = queueRow._rightRegion
             local toggle = rgn._control
             if toggle then
-                local fontPath = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
+                local fontPath = (EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
                 local warnBtn = CreateFrame("Button", nil, rgn)
                 warnBtn:SetSize(28, 28)
                 warnBtn:SetPoint("RIGHT", toggle, "LEFT", -4, 0)
@@ -269,15 +260,13 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.reskinGameMenu = v
-                  if EllesmereUI.ShowConfirmPopup then
-                      EllesmereUI:ShowConfirmPopup({
-                          title       = "Reload Required",
-                          message     = "Changing the pause menu reskin requires a UI reload.",
-                          confirmText = "Reload Now",
-                          cancelText  = "Later",
-                          reload      = true,
-                      })
-                  end
+                  EllesmereUI:ShowConfirmPopup({
+                      title       = "Reload Required",
+                      message     = "Changing the pause menu reskin requires a UI reload.",
+                      confirmText = "Reload Now",
+                      cancelText  = "Later",
+                      reload      = true,
+                  })
               end }
         );  y = y - h
 
@@ -298,7 +287,10 @@ initFrame:SetScript("OnEvent", function(self)
                 if EllesmereUI.RefreshQueueTimerStyle then EllesmereUI.RefreshQueueTimerStyle() end
             end
 
-            local _, queueTimerStyleShow = EllesmereUI.BuildCogPopup({
+            local qtCog = EllesmereUI.BuildInlineCog(leftRgn, {
+                gap = 9,
+                disabled = timerOff,
+                disabledTooltip = "Show Queue Timer",
                 title = "Queue Timer Style",
                 rows = {
                     { type="slider", label="Text Size", min=6, max=24, step=1,
@@ -314,17 +306,6 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
 
-            local qtCog = CreateFrame("Button", nil, leftRgn)
-            qtCog:SetSize(26, 26)
-            qtCog:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
-            leftRgn._lastInline = qtCog
-            qtCog:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-            local qtCogTex = qtCog:CreateTexture(nil, "OVERLAY")
-            qtCogTex:SetAllPoints()
-            qtCogTex:SetTexture(EllesmereUI.COGS_ICON)
-            qtCog:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            qtCog:SetScript("OnLeave", function(self) self:SetAlpha(timerOff() and 0.15 or 0.4) end)
-            qtCog:SetScript("OnClick", function(self) queueTimerStyleShow(self) end)
 
             local qtSwatch, qtSwatchRefresh = EllesmereUI.BuildColorSwatch(leftRgn,
                 leftRgn:GetFrameLevel() + 5,
@@ -344,7 +325,6 @@ initFrame:SetScript("OnEvent", function(self)
             -- Called at build time too: the refresh list only runs on page show.
             local function UpdQueueTimerState()
                 local off = timerOff()
-                qtCog:SetAlpha(off and 0.15 or 0.4); qtCog:EnableMouse(not off)
                 qtSwatch:SetAlpha(off and 0.15 or 1); qtSwatch:EnableMouse(not off)
                 qtSwatchRefresh()
             end
@@ -378,15 +358,13 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUIDB.customTooltips = v
                   if EllesmereUI.SyncAuraTooltipSkin then EllesmereUI.SyncAuraTooltipSkin() end
                   EllesmereUI:RefreshPage()  -- gray/ungray the rest of the section now
-                  if EllesmereUI.ShowConfirmPopup then
-                      EllesmereUI:ShowConfirmPopup({
-                          title       = "Reload Required",
-                          message     = "Reskin setting requires a UI reload to fully apply.",
-                          confirmText = "Reload Now",
-                          cancelText  = "Later",
-                          reload      = true,
-                      })
-                  end
+                  EllesmereUI:ShowConfirmPopup({
+                      title       = "Reload Required",
+                      message     = "Reskin setting requires a UI reload to fully apply.",
+                      confirmText = "Reload Now",
+                      cancelText  = "Later",
+                      reload      = true,
+                  })
               end },
             { type="toggle", text="Anchor to Cursor",
               tooltip="Makes the game tooltip follow your mouse cursor instead of showing at its fixed screen position (drag the Tooltip box in Unlock Mode to change that). Use the arrows icon to pick the position relative to the cursor and fine-tune the X/Y offset.",
@@ -411,7 +389,10 @@ initFrame:SetScript("OnEvent", function(self)
             local function ttCursorOff()
                 return not (EllesmereUIDB and EllesmereUIDB.tooltipAnchorCursor)
             end
-            local _, ttCursorPosShow = EllesmereUI.BuildCogPopup({
+            EllesmereUI.BuildInlineCog(rightRgn, {
+                icon = EllesmereUI.DIRECTIONS_ICON, gap = 9,
+                disabled = ttCursorOff,
+                disabledTooltip = "Anchor to Cursor",
                 title = "Cursor Tooltip Position",
                 rows = {
                     { type="dropdown", label="Position",
@@ -440,36 +421,6 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            -- Manual position button (this file has no shared button helper)
-            local ttPosBtn = CreateFrame("Button", nil, rightRgn)
-            ttPosBtn:SetSize(26, 26)
-            ttPosBtn:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -9, 0)
-            rightRgn._lastInline = ttPosBtn
-            ttPosBtn:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
-            ttPosBtn:SetAlpha(ttCursorOff() and 0.15 or 0.4)
-            local ttPosTex = ttPosBtn:CreateTexture(nil, "OVERLAY")
-            ttPosTex:SetAllPoints()
-            ttPosTex:SetTexture(EllesmereUI.DIRECTIONS_ICON)
-            ttPosBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            ttPosBtn:SetScript("OnLeave", function(self) self:SetAlpha(ttCursorOff() and 0.15 or 0.4) end)
-            ttPosBtn:SetScript("OnClick", function(self) ttCursorPosShow(self) end)
-
-            -- Blocking overlay + disabled tooltip when the toggle is off
-            local ttPosBlock = CreateFrame("Frame", nil, ttPosBtn)
-            ttPosBlock:SetAllPoints()
-            ttPosBlock:SetFrameLevel(ttPosBtn:GetFrameLevel() + 10)
-            ttPosBlock:EnableMouse(true)
-            ttPosBlock:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(ttPosBtn, EllesmereUI.DisabledTooltip("Anchor to Cursor"))
-            end)
-            ttPosBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            local function UpdateTtPosState()
-                local off = ttCursorOff()
-                ttPosBtn:SetAlpha(off and 0.15 or 0.4)
-                if off then ttPosBlock:Show() else ttPosBlock:Hide() end
-            end
-            EllesmereUI.RegisterWidgetRefresh(UpdateTtPosState)
-            UpdateTtPosState()
         end
 
         -- Content cog on Reskin Tooltip (left region): the per-line tooltip content
@@ -478,7 +429,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- tooltip too; the reskin-driven rows gray out individually inside the popup.
         if not EllesmereUI._prebuilding then
             local leftRgn = ttCursorRow._leftRegion
-            local _, ttContentShow = EllesmereUI.BuildCogPopup({
+            EllesmereUI.BuildInlineCog(leftRgn, {
+                gap = 9,
                 title = "Tooltip Content",
                 rows = {
                     { type="toggle", label="Show Player Titles",
@@ -560,18 +512,6 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local ttContentBtn = CreateFrame("Button", nil, leftRgn)
-            ttContentBtn:SetSize(26, 26)
-            ttContentBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
-            leftRgn._lastInline = ttContentBtn
-            ttContentBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-            ttContentBtn:SetAlpha(0.4)
-            local ttContentTex = ttContentBtn:CreateTexture(nil, "OVERLAY")
-            ttContentTex:SetAllPoints()
-            ttContentTex:SetTexture(EllesmereUI.COGS_ICON)
-            ttContentBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            ttContentBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
-            ttContentBtn:SetScript("OnClick", function(self) ttContentShow(self) end)
         end
 
         -- Unified tooltip background: controls BOTH the Blizzard tooltip reskin
@@ -642,7 +582,10 @@ initFrame:SetScript("OnEvent", function(self)
             local function sidOff()
                 return not (EllesmereUIDB and EllesmereUIDB.showSpellID)
             end
-            local _, sidModShow = EllesmereUI.BuildCogPopup({
+            EllesmereUI.BuildInlineCog(rightRgn, {
+                gap = 9,
+                disabled = sidOff,
+                disabledTooltip = "Show Spell ID on Tooltip",
                 title = "Spell ID",
                 rows = {
                     { type="dropdown", label="Use Modifier",
@@ -670,35 +613,6 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local sidModBtn = CreateFrame("Button", nil, rightRgn)
-            sidModBtn:SetSize(26, 26)
-            sidModBtn:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -9, 0)
-            rightRgn._lastInline = sidModBtn
-            sidModBtn:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
-            sidModBtn:SetAlpha(sidOff() and 0.15 or 0.4)
-            local sidModTex = sidModBtn:CreateTexture(nil, "OVERLAY")
-            sidModTex:SetAllPoints()
-            sidModTex:SetTexture(EllesmereUI.COGS_ICON)
-            sidModBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            sidModBtn:SetScript("OnLeave", function(self) self:SetAlpha(sidOff() and 0.15 or 0.4) end)
-            sidModBtn:SetScript("OnClick", function(self) sidModShow(self) end)
-
-            -- Blocking overlay + disabled tooltip when Show Spell ID is off
-            local sidModBlock = CreateFrame("Frame", nil, sidModBtn)
-            sidModBlock:SetAllPoints()
-            sidModBlock:SetFrameLevel(sidModBtn:GetFrameLevel() + 10)
-            sidModBlock:EnableMouse(true)
-            sidModBlock:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(sidModBtn, EllesmereUI.DisabledTooltip("Show Spell ID on Tooltip"))
-            end)
-            sidModBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            local function UpdateSidModState()
-                local off = sidOff()
-                sidModBtn:SetAlpha(off and 0.15 or 0.4)
-                if off then sidModBlock:Show() else sidModBlock:Hide() end
-            end
-            EllesmereUI.RegisterWidgetRefresh(UpdateSidModState)
-            UpdateSidModState()
         end
 
         -- "Use Modifier" cog on Show Tooltips (left region): while the chosen
@@ -711,7 +625,12 @@ initFrame:SetScript("OnEvent", function(self)
                 if ttReskinOff() then return true end
                 return ((EllesmereUIDB and EllesmereUIDB.tooltipShowMode) or "always") == "always"
             end
-            local _, showModShow = EllesmereUI.BuildCogPopup({
+            EllesmereUI.BuildInlineCog(leftRgn, {
+                gap = 9,
+                disabled = showModOff,
+                disabledTooltip = function()
+                    return ttReskinOff() and "Reskin Tooltip" or "This option requires Show Tooltips to be set to hide tooltips"
+                end,
                 title = "Show Tooltips",
                 rows = {
                     { type="dropdown", label="Peek Modifier",
@@ -724,36 +643,6 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local showModBtn = CreateFrame("Button", nil, leftRgn)
-            showModBtn:SetSize(26, 26)
-            showModBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -9, 0)
-            leftRgn._lastInline = showModBtn
-            showModBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-            showModBtn:SetAlpha(showModOff() and 0.15 or 0.4)
-            local showModTex = showModBtn:CreateTexture(nil, "OVERLAY")
-            showModTex:SetAllPoints()
-            showModTex:SetTexture(EllesmereUI.COGS_ICON)
-            showModBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            showModBtn:SetScript("OnLeave", function(self) self:SetAlpha(showModOff() and 0.15 or 0.4) end)
-            showModBtn:SetScript("OnClick", function(self) showModShow(self) end)
-
-            local showModBlock = CreateFrame("Frame", nil, showModBtn)
-            showModBlock:SetAllPoints()
-            showModBlock:SetFrameLevel(showModBtn:GetFrameLevel() + 10)
-            showModBlock:EnableMouse(true)
-            showModBlock:SetScript("OnEnter", function()
-                local msg = ttReskinOff() and EllesmereUI.DisabledTooltip("Reskin Tooltip")
-                    or "This option requires Show Tooltips to be set to hide tooltips"
-                EllesmereUI.ShowWidgetTooltip(showModBtn, msg)
-            end)
-            showModBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            local function UpdateShowModState()
-                local off = showModOff()
-                showModBtn:SetAlpha(off and 0.15 or 0.4)
-                if off then showModBlock:Show() else showModBlock:Hide() end
-            end
-            EllesmereUI.RegisterWidgetRefresh(UpdateShowModState)
-            UpdateShowModState()
         end
 
         do
@@ -814,7 +703,10 @@ initFrame:SetScript("OnEvent", function(self)
             local function iStacksOff()
                 return not (EllesmereUIDB and EllesmereUIDB.showItemMaxStacks)
             end
-            local _, iStacksModShow = EllesmereUI.BuildCogPopup({
+            EllesmereUI.BuildInlineCog(rightRgn, {
+                gap = 9,
+                disabled = iStacksOff,
+                disabledTooltip = "Show Max Stack for Items",
                 title = "Item Stacks",
                 rows = {
                     { type="dropdown", label="Use Modifier",
@@ -827,35 +719,6 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local iStacksModBtn = CreateFrame("Button", nil, rightRgn)
-            iStacksModBtn:SetSize(26, 26)
-            iStacksModBtn:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -9, 0)
-            rightRgn._lastInline = iStacksModBtn
-            iStacksModBtn:SetFrameLevel(rightRgn:GetFrameLevel() + 5)
-            iStacksModBtn:SetAlpha(iStacksOff() and 0.15 or 0.4)
-            local iStacksModTex = iStacksModBtn:CreateTexture(nil, "OVERLAY")
-            iStacksModTex:SetAllPoints()
-            iStacksModTex:SetTexture(EllesmereUI.COGS_ICON)
-            iStacksModBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-            iStacksModBtn:SetScript("OnLeave", function(self) self:SetAlpha(iStacksOff() and 0.15 or 0.4) end)
-            iStacksModBtn:SetScript("OnClick", function(self) iStacksModShow(self) end)
-
-            -- Blocking overlay + disabled tooltip when Show Max Stack for Items is off
-            local iStacksModBlock = CreateFrame("Frame", nil, iStacksModBtn)
-            iStacksModBlock:SetAllPoints()
-            iStacksModBlock:SetFrameLevel(iStacksModBtn:GetFrameLevel() + 10)
-            iStacksModBlock:EnableMouse(true)
-            iStacksModBlock:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(iStacksModBtn, EllesmereUI.DisabledTooltip("Show Max Stack for Items"))
-            end)
-            iStacksModBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            local function UpdateIStacksModState()
-                local off = iStacksOff()
-                iStacksModBtn:SetAlpha(off and 0.15 or 0.4)
-                if off then iStacksModBlock:Show() else iStacksModBlock:Hide() end
-            end
-            EllesmereUI.RegisterWidgetRefresh(UpdateIStacksModState)
-            UpdateIStacksModState()
         end
 
         -----------------------------------------------------------------------
@@ -882,15 +745,13 @@ initFrame:SetScript("OnEvent", function(self)
                   -- Reload-bound, like the window packs: turned OFF, the skin
                   -- registers no events at all rather than running and
                   -- returning early, so the decision is taken once at login.
-                  if EllesmereUI.ShowConfirmPopup then
-                      EllesmereUI:ShowConfirmPopup({
-                          title       = "Reload Required",
-                          message     = "Widget bar reskin requires a UI reload to apply.",
-                          confirmText = "Reload Now",
-                          cancelText  = "Later",
-                          reload      = true,
-                      })
-                  end
+                  EllesmereUI:ShowConfirmPopup({
+                      title       = "Reload Required",
+                      message     = "Widget bar reskin requires a UI reload to apply.",
+                      confirmText = "Reload Now",
+                      cancelText  = "Later",
+                      reload      = true,
+                  })
               end },
             { type="toggle", text="Reskin Extra Action Buttons",
               tooltip="Squares the extra action and zone ability buttons and gives them a thin black border.\n\nOff by default. The size slider below works whether this is on or off.",
@@ -908,9 +769,19 @@ initFrame:SetScript("OnEvent", function(self)
         -- Bars": the floor below which a shrunken nameplate's bar scales itself
         -- up. 0 = off (default, mirror Blizzard's rect exactly).
         if hudRow and hudRow._leftRegion and not EllesmereUI._prebuilding then
-            local PP    = EllesmereUI.PanelPP
             local lrgn  = hudRow._leftRegion
-            local _, showMinSize = EllesmereUI.BuildCogPopup({
+            local function CogOff()
+                -- Same default-on test the toggle itself uses: nil means on.
+                return not (not EllesmereUIDB or EllesmereUIDB.reskinWidgetBars ~= false)
+            end
+            EllesmereUI.BuildInlineCog(lrgn, {
+                icon = EllesmereUI.RESIZE_ICON, anchorTo = lrgn._control,
+                disabled = CogOff, disabledTooltip = "Reskin Widget Bars",
+                tip = "Smallest on-screen size a reskinned bar is drawn at.\n\n" ..
+                    "Widget bars on a nameplate inherit that nameplate's scale, so " ..
+                    "they come out tiny on small units. Below this size the bar is " ..
+                    "scaled up instead, text and all.\n\nSet to 0 to mirror " ..
+                    "Blizzard's size exactly.",
                 title = "Widget Bar Size",
                 rows  = {
                     { type="slider", label="Minimum", min=0, max=24, step=1,
@@ -930,49 +801,6 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-
-            local cog = CreateFrame("Button", nil, lrgn)
-            cog:SetSize(26, 26)
-            PP.Point(cog, "RIGHT", lrgn._control or lrgn, "LEFT", -8, 0)
-            cog:SetFrameLevel(lrgn:GetFrameLevel() + 5)
-            local cogTex = cog:CreateTexture(nil, "OVERLAY")
-            cogTex:SetAllPoints()
-            cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-
-            local function CogOff()
-                -- Same default-on test the toggle itself uses: nil means on.
-                return not (not EllesmereUIDB or EllesmereUIDB.reskinWidgetBars ~= false)
-            end
-            -- Canonical cog alphas: .15 disabled, .4 idle, .75 hover. Applied
-            -- at build time as well as on refresh -- widget refresh only fires
-            -- on LATER changes, so without the call every cog opens lit.
-            local function UpdCogState()
-                local off = CogOff()
-                cog:SetAlpha(off and 0.15 or 0.4)
-                cog:EnableMouse(not off)
-            end
-            EllesmereUI.RegisterWidgetRefresh(UpdCogState)
-            UpdCogState()
-
-            cog:SetScript("OnClick", function(self)
-                if not CogOff() then showMinSize(self) end
-            end)
-            cog:SetScript("OnEnter", function(self)
-                if not CogOff() then self:SetAlpha(0.75) end
-                if EllesmereUI.ShowWidgetTooltip then
-                    EllesmereUI.ShowWidgetTooltip(self,
-                        "Smallest on-screen size a reskinned bar is drawn at.\n\n" ..
-                        "Widget bars on a nameplate inherit that nameplate's scale, so " ..
-                        "they come out tiny on small units. Below this size the bar is " ..
-                        "scaled up instead, text and all.\n\nSet to 0 to mirror " ..
-                        "Blizzard's size exactly.")
-                end
-            end)
-            cog:SetScript("OnLeave", function()
-                UpdCogState()
-                if EllesmereUI.HideWidgetTooltip then EllesmereUI.HideWidgetTooltip() end
-            end)
-            lrgn._lastInline = cog
         end
 
         return math.abs(y)
@@ -1061,31 +889,11 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(refresh); refresh()
 
             if cogOpts then
-                local _, cogShow = EllesmereUI.BuildCogPopup(cogOpts)
-                local cogBtn = CreateFrame("Button", nil, rgn)
-                cogBtn:SetSize(26, 26)
-                cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -9, 0)
-                rgn._lastInline = cogBtn
-                cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-                local cogTex = cogBtn:CreateTexture(nil, "OVERLAY")
-                cogTex:SetAllPoints()
-                cogTex:SetTexture(EllesmereUI.COGS_ICON)
-                cogBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-                cogBtn:SetScript("OnLeave", function(self)
-                    local parentEnabled = parentEnabledFn()
-                    self:SetAlpha(themedOff() and 0.15 or (parentEnabled and 0.4 or 0.15))
-                end)
-                cogBtn:SetScript("OnClick", function(self) cogShow(self) end)
-                local function cogRefresh()
-                    local parentEnabled = parentEnabledFn()
-                    if themedOff() then
-                        cogBtn:SetAlpha(0.15); cogBtn:EnableMouse(false)
-                    else
-                        cogBtn:SetAlpha(parentEnabled and 0.4 or 0.15)
-                        cogBtn:EnableMouse(parentEnabled)
-                    end
-                end
-                EllesmereUI.RegisterWidgetRefresh(cogRefresh); cogRefresh()
+                EllesmereUI.BuildInlineCog(rgn, {
+                    title = cogOpts.title, rows = cogOpts.rows, gap = 9,
+                    disabled = function() return themedOff() or not parentEnabledFn() end,
+                    disabledTooltip = function() return themedOff() and "Character Sheet" or rgn._cfg.text end,
+                })
             end
             end
         end
@@ -1101,7 +909,7 @@ initFrame:SetScript("OnEvent", function(self)
                          if EllesmereUI._updateStatCategoryVisibility then
                              EllesmereUI._updateStatCategoryVisibility()
                          end
-                         local sf = CharacterFrame and EllesmereUI._GetFFD and EllesmereUI._GetFFD(CharacterFrame).scrollFrame
+                         local sf = CharacterFrame and EllesmereUI._GetFFD(CharacterFrame).scrollFrame
                          if sf then sf:SetVerticalScroll(0) end
                          EllesmereUI:RefreshPage()
                      end }
@@ -1127,6 +935,9 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = WSCardSection(parent, "CORE OPTIONS", y);  y = y - h
         if BS then y = BS.Note(parent, y, "charsheet") end
 
+        -- WoW Forever shows neither (no Mythic+, and its slot text carries no
+        -- item level), so the whole row stays off there.
+        if not EllesmereUI.IS_FOREVER then
         local coreRow1
         coreRow1, h = W:DualRow(parent, y,
             { type="toggle", text="Show Mythic+ Rating",
@@ -1147,9 +958,14 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
         AttachDisabledOverlay(coreRow1)
+        end -- not IS_FOREVER
 
-        local upgradeTrackCfg = { type="toggle", text="Upgrade Track",
-              tooltip="Toggle visibility of upgrade track text on the character sheet.",
+        -- WoW Forever has no upgrade tracks: the same key shows each item's
+        -- main and secondary stat (or its armor when it has none) and each
+        -- weapon's damage per second there.
+        local upgradeTrackCfg = { type="toggle", text=EllesmereUI.IS_FOREVER and "Show Item Stats" or "Upgrade Track",
+              tooltip=EllesmereUI.IS_FOREVER and "Show each item's main and secondary stat (or its armor) and each weapon's damage per second beside its slot."
+                  or "Toggle visibility of upgrade track text on the character sheet.",
               getValue=function() return EllesmereUIDB and EllesmereUIDB.showUpgradeTrack ~= false end,
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
@@ -1226,7 +1042,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- only replaces the enchant icon when enchants are shown.
         if not EllesmereUI._prebuilding then
             local rgn = enchGemRow._leftRegion
-            local _, cogShow = EllesmereUI.BuildCogPopup({
+            EllesmereUI.BuildInlineCog(rgn, {
+                disabled = function() return not (EllesmereUIDB and EllesmereUIDB.showEnchants ~= false) end,
+                disabledTooltip = "Enchants",
                 title = "Enchant Settings",
                 rows = {
                     { type="toggle", label="Show Enchant Names",
@@ -1248,22 +1066,6 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY"); cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            local function enchantsOn() return EllesmereUIDB and EllesmereUIDB.showEnchants ~= false end
-            cogBtn:SetScript("OnEnter", function(s) if enchantsOn() then s:SetAlpha(0.7) end end)
-            cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(enchantsOn() and 0.4 or 0.15) end)
-            cogBtn:SetScript("OnClick", function(s) if enchantsOn() then cogShow(s) end end)
-            local function cogState()
-                local on = enchantsOn()
-                cogBtn:SetAlpha(on and 0.4 or 0.15)
-                cogBtn:EnableMouse(on)
-            end
-            EllesmereUI.RegisterWidgetRefresh(cogState); cogState()
         end
 
         -- Gear flyout item levels. Independent of the themed character sheet
@@ -1300,7 +1102,9 @@ initFrame:SetScript("OnEvent", function(self)
 
         if not EllesmereUI._prebuilding then
             local rgn = flyoutDurRow._rightRegion
-            local _, cogShow = EllesmereUI.BuildCogPopup({
+            EllesmereUI.BuildInlineCog(rgn, {
+                disabled = function() return not (EllesmereUIDB and EllesmereUIDB.showCharSheetDurability) end,
+                disabledTooltip = "Show Item Durability",
                 title = "Durability Settings",
                 rows = {
                     { type="dropdown", label="Location",
@@ -1325,22 +1129,6 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local cogBtn = CreateFrame("Button", nil, rgn)
-            cogBtn:SetSize(26, 26)
-            cogBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = cogBtn
-            cogBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            local cogTex = cogBtn:CreateTexture(nil, "OVERLAY"); cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.COGS_ICON)
-            local function durabilityOn() return EllesmereUIDB and EllesmereUIDB.showCharSheetDurability end
-            cogBtn:SetScript("OnEnter", function(s) if durabilityOn() then s:SetAlpha(0.7) end end)
-            cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(durabilityOn() and 0.4 or 0.15) end)
-            cogBtn:SetScript("OnClick", function(s) if durabilityOn() then cogShow(s) end end)
-            local function cogState()
-                local on = durabilityOn()
-                cogBtn:SetAlpha(on and 0.4 or 0.15)
-                cogBtn:EnableMouse(on)
-            end
-            EllesmereUI.RegisterWidgetRefresh(cogState); cogState()
         end
 
         _, h = W:Spacer(parent, y, 10);  y = y - h
@@ -1523,15 +1311,13 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.themedInspectSheet = v
-                  if EllesmereUI.ShowConfirmPopup then
-                      EllesmereUI:ShowConfirmPopup({
-                          title       = "Reload Required",
-                          message     = "Inspect Sheet theme setting requires a UI reload to fully apply.",
-                          confirmText = "Reload Now",
-                          cancelText  = "Later",
-                          reload      = true,
-                      })
-                  end
+                  EllesmereUI:ShowConfirmPopup({
+                      title       = "Reload Required",
+                      message     = "Inspect Sheet theme setting requires a UI reload to fully apply.",
+                      confirmText = "Reload Now",
+                      cancelText  = "Later",
+                      reload      = true,
+                  })
                   EllesmereUI:RefreshPage()
               end },
             { type="toggle", text="Show Enchants",
@@ -1678,19 +1464,17 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.merchantShowAsList = v
 
                 -- Enabling the setting breaks the UI immediately, a reload is required
-                if EllesmereUI.ShowConfirmPopup then
-                      EllesmereUI:ShowConfirmPopup({
-                          title       = "Reload Required",
-                          message     = "Merchant Show As List setting requires a UI reload to fully apply.",
-                          confirmText = "Reload Now",
-                          cancelText  = "Cancel",
-                          reload      = true,
-                          onCancel    = function()
-                              EllesmereUIDB.merchantShowAsList = previousValue;
-                              EllesmereUI:RefreshPage()
-                          end,
-                      })
-                  end
+                EllesmereUI:ShowConfirmPopup({
+                    title       = "Reload Required",
+                    message     = "Merchant Show As List setting requires a UI reload to fully apply.",
+                    confirmText = "Reload Now",
+                    cancelText  = "Cancel",
+                    reload      = true,
+                    onCancel    = function()
+                        EllesmereUIDB.merchantShowAsList = previousValue;
+                        EllesmereUI:RefreshPage()
+                    end,
+                })
               end },
             { type="slider", text="Row Height", min=24, max=40, step=1,
               disabled=merchantShowAsListOff, disabledTooltip="Show As List",
@@ -1786,15 +1570,13 @@ initFrame:SetScript("OnEvent", function(self)
     local _wsApplyAllStyle = "eui"  -- set-all dropdown pick (session-only)
 
     local function WSReloadPopup(message)
-        if EllesmereUI.ShowConfirmPopup then
-            EllesmereUI:ShowConfirmPopup({
-                title       = "Reload Required",
-                message     = message,
-                confirmText = "Reload Now",
-                cancelText  = "Later",
-                reload      = true,
-            })
-        end
+        EllesmereUI:ShowConfirmPopup({
+            title       = "Reload Required",
+            message     = message,
+            confirmText = "Reload Now",
+            cancelText  = "Later",
+            reload      = true,
+        })
     end
 
     -- Style vocabulary shared by the per-card dropdowns and the set-all row.
@@ -2609,7 +2391,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- EllesmereUI.BlizzWindowSkinsKilled(). Skins install at load, so every
     -- toggle shows the reload popup.
     local function WSKillSwitchSet(disabled)
-        local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+        local prof = EllesmereUI.GetActiveProfileData()
         if not prof then return end
         prof.disableWindowSkins = disabled and true or nil
         -- Structural change (settings <-> hero takeover): force a rebuild,
@@ -3010,7 +2792,7 @@ initFrame:SetScript("OnEvent", function(self)
         local t = EDR_Cfg(k); if t then t[field] = v end
     end
     local function EDR_Rebuild() if ns.edrRebuild then ns.edrRebuild() end
-        if EllesmereUI.RefreshPage then EllesmereUI:RefreshPage() end
+        EllesmereUI:RefreshPage()
     end
     local function EDR_Redraw() if ns.edrRedraw then ns.edrRedraw() end end
 
@@ -3030,14 +2812,12 @@ initFrame:SetScript("OnEvent", function(self)
         parent._showRowDivider = true
 
         -- Append SharedMedia textures (safe to call multiple times)
-        if EllesmereUI.AppendSharedMediaTextures then
-            EllesmereUI.AppendSharedMediaTextures(
-                EDR_BAR_TEXTURE_NAMES,
-                EDR_BAR_TEXTURE_ORDER,
-                nil,
-                EDR_BAR_TEXTURES
-            )
-        end
+        EllesmereUI.AppendSharedMediaTextures(
+            EDR_BAR_TEXTURE_NAMES,
+            EDR_BAR_TEXTURE_ORDER,
+            nil,
+            EDR_BAR_TEXTURES
+        )
         local edrTexValues = {}
         local edrTexOrder  = {}
         for _, key in ipairs(EDR_BAR_TEXTURE_ORDER) do
@@ -3073,6 +2853,58 @@ initFrame:SetScript("OnEvent", function(self)
         -- Everything below Row 1 (the rest of GENERAL plus the LAYOUT and
         -- SPEED BAR sections) is HIDDEN entirely while the bar is off.
         if EDR_Cfg("enabled") == true then
+        -- Two independent choices: the bars' art (Bar Style) and how charges
+        -- are shown (Vigor Style), so the classic gems work with either art.
+        local function EDR_IsGems() return EDR_Cfg("vigorStyle") == "gems" end
+        local function EDR_IsBlizzBars() return EDR_Cfg("barStyle") == "blizzard" end
+        local gemsOnlyTip    = "This option requires the Classic Gems vigor style"
+        local notBlizzTip    = "This option is not available with the Blizzard bar style"
+        local notGemsTip     = "This option is not available with the Classic Gems vigor style"
+        _, h = W:DualRow(parent, y,
+            { type = "dropdown", text = "Bar Style",
+              values = { modern = "Modern", blizzard = "Blizzard", classic = "Classic WoW UI" },
+              order  = { "modern", "blizzard", "classic" },
+              tooltip = "Blizzard and Classic WoW UI frame the bars and the Whirling Surge icon the same way as the Resource Bars' Blizzard Style and Classic WoW UI.",
+              getValue = function() return EDR_Cfg("barStyle") or "modern" end,
+              -- Full page rebuild: Border Size changes meaning under Classic WoW UI.
+              setValue = function(v)
+                  EDR_Set("barStyle", v); EDR_Rebuild()
+                  EllesmereUI:RefreshPage(true)
+              end },
+            { type = "dropdown", text = "Vigor Style",
+              values = { bars = "Bars", gems = "Classic Gems" },
+              order  = { "bars", "gems" },
+              tooltip = "Classic Gems brings back Blizzard's original vigor display above the bars.",
+              getValue = function() return EDR_Cfg("vigorStyle") or "bars" end,
+              setValue = function(v) EDR_Set("vigorStyle", v); EDR_Rebuild() end }
+        ); y = y - h
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Play Sound on Full Charge",
+              tooltip = "Plays Blizzard's vigor chime each time a skyriding charge fills.",
+              getValue = function() return EDR_Cfg("chargeSound") == true end,
+              setValue = function(v) EDR_Set("chargeSound", v) end },
+            { type = "slider", text = "Classic Gem Scale", min = 0.5, max = 2.0, step = 0.05,
+              disabled = function() return not EDR_IsGems() end,
+              disabledTooltip = gemsOnlyTip,
+              getValue = function() return EDR_Cfg("classicScale") or 1 end,
+              setValue = function(v) EDR_Set("classicScale", v); EDR_Rebuild() end }
+        ); y = y - h
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Show Speed Bar",
+              getValue = function() return EDR_Cfg("showSpeed") ~= false end,
+              setValue = function(v) EDR_Set("showSpeed", v); EDR_Rebuild() end },
+            { type = "toggle", text = "Show Second Wind",
+              getValue = function() return EDR_Cfg("showSecondWind") ~= false end,
+              setValue = function(v) EDR_Set("showSecondWind", v); EDR_Rebuild() end }
+        ); y = y - h
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Show Whirling Surge",
+              getValue = function() return EDR_Cfg("showWhirlingSurge") ~= false end,
+              setValue = function(v) EDR_Set("showWhirlingSurge", v); EDR_Rebuild() end },
+            { type = "toggle", text = "Show Icon Cooldown Text",
+              getValue = function() return EDR_Cfg("whirlingSurgeText") and EDR_Cfg("whirlingSurgeText").enabled ~= false end,
+              setValue = function(v) EDR_SetField("whirlingSurgeText", "enabled", v); EDR_Redraw() end }
+        ); y = y - h
         _, h = W:DualRow(parent, y,
             { type = "slider", text = "Width", min = 80, max = 600, step = 1,
               getValue = function() return EDR_Cfg("width") end,
@@ -3081,17 +2913,16 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return EDR_Cfg("gap") end,
               setValue = function(v) EDR_Set("gap", v); EDR_Rebuild() end }
         ); y = y - h
-        _, h = W:DualRow(parent, y,
-            { type = "slider", pixel = true, text = "Stack Spacing", min = 0, max = 10, step = 1,
-              getValue = function() return EDR_Cfg("stackSpacing") end,
-              setValue = function(v) EDR_Set("stackSpacing", v); EDR_Rebuild() end },
-            { type = "toggle", text = "Show Icon Cooldown Text",
-              getValue = function() return EDR_Cfg("whirlingSurgeText") and EDR_Cfg("whirlingSurgeText").enabled ~= false end,
-              setValue = function(v) EDR_SetField("whirlingSurgeText", "enabled", v); EDR_Redraw() end }
-        ); y = y - h
         local borderRow
         borderRow, h = W:DualRow(parent, y,
-            { type = "slider", text = "Border Size", min = 0, max = 4, step = 1,
+            -- Classic WoW UI: the slot sizes the vanilla frame, as the Resource
+            -- Bars' Border Size does under that style.
+            (EDR_Cfg("barStyle") == "classic" and EllesmereUI.BlizzStyle
+                and EllesmereUI.BlizzStyle.ClassicBorderSizeCfg(
+                    function() return EDR_Cfg("classicFrameSize") end,
+                    function(v) EDR_Set("classicFrameSize", v); EDR_Rebuild() end))
+            or { type = "slider", text = "Border Size", min = 0, max = 4, step = 1,
+              disabled = EDR_IsBlizzBars, disabledTooltip = notBlizzTip,
               getValue = function() return EDR_Cfg("borderThickness") or 0 end,
               setValue = function(v) EDR_Set("borderThickness", v); EDR_Redraw() end },
             { type = "dropdown", text = "Bar Texture",
@@ -3099,7 +2930,8 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return EDR_Cfg("barTexture") or "none" end,
               setValue = function(v) EDR_Set("barTexture", v); EDR_Redraw() end }
         ); y = y - h
-        if not EllesmereUI._prebuilding then
+        -- Border colour only for the EllesmereUI border (the modern style).
+        if not EllesmereUI._prebuilding and (EDR_Cfg("barStyle") or "modern") == "modern" then
             local rgn = borderRow._leftRegion
             local ctrl = rgn._control
             local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
@@ -3110,14 +2942,22 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.PanelPP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
             EllesmereUI.RegisterWidgetRefresh(updateSwatch)
         end
+        _, h = W:DualRow(parent, y,
+            { type = "slider", pixel = true, text = "Stack Spacing", min = 0, max = 10, step = 1,
+              getValue = function() return EDR_Cfg("stackSpacing") end,
+              setValue = function(v) EDR_Set("stackSpacing", v); EDR_Rebuild() end },
+            { type = "label", text = "" }
+        ); y = y - h
         _, h = W:Spacer(parent, y, 20); y = y - h
 
         _, h = W:SectionHeader(parent, "LAYOUT", y); y = y - h
         _, h = W:DualRow(parent, y,
             { type = "slider", text = "Charge Height", min = 2, max = 24, step = 1,
+              disabled = EDR_IsGems, disabledTooltip = notGemsTip,
               getValue = function() return EDR_Cfg("skyridingHeight") end,
               setValue = function(v) EDR_Set("skyridingHeight", v); EDR_Rebuild() end },
             { type = "multiSwatch", text = "Charge Color",
+              disabled = EDR_IsGems, disabledTooltip = notGemsTip,
               swatches = {
                 { text = "Background",
                   getValue = function() local t = EDR_Cfg("skyridingBg"); return t.r, t.g, t.b, t.a end,
@@ -3148,6 +2988,18 @@ initFrame:SetScript("OnEvent", function(self)
                   hasAlpha = true,
                   tooltip = "Second Wind" },
               } }
+        ); y = y - h
+        _, h = W:DualRow(parent, y,
+            { type = "slider", text = "Whirling Surge Icon Size", min = 16, max = 80, step = 1,
+              disabled = function() return EDR_Cfg("showWhirlingSurge") == false end,
+              disabledTooltip = "Show Whirling Surge",
+              -- Until set, the icon follows the bar column's height; show that.
+              getValue = function()
+                  local v = EDR_Cfg("iconSize") or (ns.edrIconSize and ns.edrIconSize()) or 34
+                  return math.floor(v + 0.5)
+              end,
+              setValue = function(v) EDR_Set("iconSize", v); EDR_Rebuild() end },
+            { type = "label", text = "" }
         ); y = y - h
         _, h = W:Spacer(parent, y, 20); y = y - h
 
@@ -3199,7 +3051,8 @@ initFrame:SetScript("OnEvent", function(self)
               setValue = function(v) EDR_SetField("speedText", "justify", v); EDR_Redraw() end }
         )
         if not EllesmereUI._prebuilding then
-        local _, cogShow = EllesmereUI.BuildCogPopup({
+        EllesmereUI.BuildInlineCog(speedTextRow._rightRegion, {
+            icon = EllesmereUI.RESIZE_ICON,
             title = "Speed Text Position",
             rows = {
                 { type = "slider", label = "Size",     min = 6,    max = 32,  step = 1,
@@ -3213,16 +3066,6 @@ initFrame:SetScript("OnEvent", function(self)
                   set = function(v) EDR_SetField("speedText", "offsetY", v); EDR_Redraw() end },
             },
         })
-        local cogBtn = CreateFrame("Button", nil, speedTextRow._rightRegion)
-        cogBtn:SetSize(26, 26)
-        cogBtn:SetPoint("RIGHT", speedTextRow._rightRegion._lastInline or speedTextRow._rightRegion._control, "LEFT", -8, 0)
-        speedTextRow._rightRegion._lastInline = cogBtn
-        cogBtn:SetFrameLevel(speedTextRow._rightRegion:GetFrameLevel() + 5)
-        cogBtn:SetAlpha(0.4)
-        local cogTex = cogBtn:CreateTexture(nil, "OVERLAY"); cogTex:SetAllPoints(); cogTex:SetTexture(EllesmereUI.RESIZE_ICON)
-        cogBtn:SetScript("OnEnter", function(s) s:SetAlpha(0.7) end)
-        cogBtn:SetScript("OnLeave", function(s) s:SetAlpha(0.4) end)
-        cogBtn:SetScript("OnClick", function(s) cogShow(s) end)
         end
         y = y - h
         _, h = W:Spacer(parent, y, 20); y = y - h
@@ -3261,7 +3104,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Per-profile master kill switch: reset re-enables skins for the
             -- ACTIVE profile (other profiles keep their own choice).
             do
-                local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+                local prof = EllesmereUI.GetActiveProfileData()
                 if prof then prof.disableWindowSkins = nil end
             end
             if EllesmereUIDB then
@@ -3285,7 +3128,7 @@ initFrame:SetScript("OnEvent", function(self)
                 -- Per-profile fixed tooltip position: clearing it re-seeds from
                 -- Blizzard's CURRENT Edit Mode spot on the next tooltip show.
                 do
-                    local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+                    local prof = EllesmereUI.GetActiveProfileData()
                     if prof then prof.tooltipFixedPos = nil end
                 end
                 EllesmereUIDB.uberTooltips = nil
@@ -3392,7 +3235,7 @@ initFrame:SetScript("OnEvent", function(self)
                 -- reload. Root copies are moved onto profiles at load, so
                 -- they are cleared too.
                 do
-                    local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+                    local prof = EllesmereUI.GetActiveProfileData()
                     if prof then
                         prof.charSheetUseBlizzardStyle = nil
                         prof.charSheetUseClassicStyle = nil

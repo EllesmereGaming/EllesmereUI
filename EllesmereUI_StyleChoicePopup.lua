@@ -26,7 +26,6 @@ local ELLESMERE_GREEN = EllesmereUI.ELLESMERE_GREEN
 local function Stamp()
     if not EllesmereUIDB then EllesmereUIDB = {} end
     EllesmereUIDB.styleChoicePending = nil
-    EllesmereUIDB.styleChoiceShown = true
 end
 
 -- Conflict-check handoff: while the picker is due this session the auto
@@ -53,12 +52,13 @@ local function ChooseStockStyle(styleKey, label, dimmer)
     local BS = EllesmereUI.BlizzStyle
     if BS and BS.ApplyAll then
         BS.ApplyAll(styleKey)
-        ReloadUI()
+        EllesmereUI.RequestReload(nil, EllesmereUI.L("Style changed for this profile. A UI reload is needed to apply it."))
+        -- On the Forever client the reload waits on its popup: the choice is
+        -- made, so the picker closes under it. Retail is already reloading.
+        if dimmer then dimmer:Hide() end
         return
     end
-    if EllesmereUI.Print then
-        EllesmereUI.Print("|cff00ff98EllesmereUI:|r " .. label .. " can be switched on under Global Settings > Style.")
-    end
+    EllesmereUI.Print("|cff00ff98EllesmereUI:|r " .. label .. " can be switched on under Global Settings > Style.")
     if dimmer then dimmer:Hide() end
     Release()
 end
@@ -72,42 +72,12 @@ local function ShowStyleChoicePopup()
         or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.ttf"
     local EG = ELLESMERE_GREEN
     local POPUP_W, POPUP_H = 700, 470
-    local ppScale = (EllesmereUI.GetPopupScale and EllesmereUI.GetPopupScale()) or 1
-
-    local dimmer = CreateFrame("Frame", "EUIStyleChoiceDimmer", UIParent)
-    dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
-    dimmer:SetAllPoints(UIParent)
-    dimmer:EnableMouse(true)
-    dimmer:EnableMouseWheel(true)
-    dimmer:SetScript("OnMouseWheel", function() end)
-    dimmer:SetScale(ppScale)
-    local dimTex = dimmer:CreateTexture(nil, "BACKGROUND")
-    dimTex:SetAllPoints()
-    dimTex:SetColorTexture(0, 0, 0, 0.45)
-
-    local popup = CreateFrame("Frame", "EUIStyleChoicePopup", dimmer)
-    popup:SetScale((EllesmereUI.PopupBump and EllesmereUI.PopupBump(1.15)) or 1.15)
-    popup:SetFrameStrata("FULLSCREEN_DIALOG")
-    popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
-    PP.Size(popup, POPUP_W, POPUP_H)
-    popup:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-    popup:EnableMouse(true)
-
-    local bg = popup:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    bg:SetColorTexture(0.06, 0.08, 0.10, 1)
-
-    local onePhys = 1 / (popup:GetEffectiveScale() or 1)
-    local function MakeEdge()
-        local t = popup:CreateTexture(nil, "BORDER")
-        t:SetColorTexture(1, 1, 1, 0.15)
-        if t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false); t:SetTexelSnappingBias(0) end
-        return t
-    end
-    local spT = MakeEdge(); spT:SetPoint("TOPLEFT", 0, 0); spT:SetPoint("TOPRIGHT", 0, 0); spT:SetHeight(onePhys)
-    local spB = MakeEdge(); spB:SetPoint("BOTTOMLEFT", 0, 0); spB:SetPoint("BOTTOMRIGHT", 0, 0); spB:SetHeight(onePhys)
-    local spL = MakeEdge(); spL:SetPoint("TOPLEFT", spT, "BOTTOMLEFT"); spL:SetPoint("BOTTOMLEFT", spB, "TOPLEFT"); spL:SetWidth(onePhys)
-    local spR = MakeEdge(); spR:SetPoint("TOPRIGHT", spT, "BOTTOMRIGHT"); spR:SetPoint("BOTTOMRIGHT", spB, "TOPRIGHT"); spR:SetWidth(onePhys)
+    -- Escape = the EllesmereUI look (the non-destructive default).
+    local ChooseEUI
+    local dimmer, popup = EllesmereUI.BuildPopupShell("EUIStyleChoice", {
+        w = POPUP_W, h = POPUP_H, bump = 1.15, dimAlpha = 0.45,
+        onEscape = function() ChooseEUI() end,
+    })
 
     local eyebrow = popup:CreateFontString(nil, "OVERLAY")
     eyebrow:SetFont(FONT, 13, "")
@@ -130,7 +100,7 @@ local function ShowStyleChoicePopup()
     PP.Point(desc, "TOP", title, "BOTTOM", 0, -10)
     desc:SetText("EllesmereUI's features work with every look. Change your mind any time under Global Settings > Style.")
 
-    local function ChooseEUI()
+    ChooseEUI = function()
         Stamp()
         dimmer:Hide()
         Release()
@@ -163,13 +133,6 @@ local function ShowStyleChoicePopup()
     PP.Point(footnote, "BOTTOM", popup, "BOTTOM", 0, 14)
     footnote:SetText("Blizzard Style and Classic WoW UI reload the UI once to apply. Each module can be switched separately later.")
 
-    -- Escape = the EllesmereUI look (the non-destructive default).
-    popup:EnableKeyboard(true)
-    popup:SetScript("OnKeyDown", function(self, key)
-        self:SetPropagateKeyboardInput(key ~= "ESCAPE")
-        if key == "ESCAPE" then ChooseEUI() end
-    end)
-
     dimmer:Show()
 end
 
@@ -189,17 +152,13 @@ loader:SetScript("OnEvent", function(self, event, addonName)
         -- Arm the conflict-check hold on the same conditions the login
         -- branch shows under (the first-install loader, earlier in the TOC,
         -- has already raised _firstInstallPending by now).
-        if not EllesmereUI.FOREVER_SV_BUG and EllesmereUIDB and EllesmereUIDB.styleChoicePending
+        if EllesmereUIDB and EllesmereUIDB.styleChoicePending
             and not EllesmereUI._firstInstallPending then
             EllesmereUI._styleChoicePending = true
         end
         return
     end
     self:UnregisterEvent("PLAYER_LOGIN")
-    -- TEMPORARY, WoW Forever only (EllesmereUI.FOREVER_SV_BUG): the style
-    -- choice needs a reload to apply, and a reload wipes settings on the beta
-    -- client, so the picker stays off there until Blizzard fixes it.
-    if EllesmereUI.FOREVER_SV_BUG then return end
     if not (EllesmereUIDB and EllesmereUIDB.styleChoicePending) then return end
     -- The picker itself is still due this session: it reloads, and its
     -- close path re-arms the stamp for the login after.

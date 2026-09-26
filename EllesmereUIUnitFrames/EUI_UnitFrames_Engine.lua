@@ -10,7 +10,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Design rules:
 --  - One tracker frame per unit token, created once, events registered via
 --    RegisterUnitEvent so the client filters delivery C-side. Tokens are fixed
---    for the session; nothing ever re-registers.
+--    for the session; nothing re-registers except an opt-in channel
+--    (Engine.SetChannelOn), whose events exist only while a setting wants it.
 --  - Vehicle handling is done at REGISTRATION, not remap time: the player
 --    frame's tracker registers every unit event for BOTH "player" and
 --    "vehicle", the pet frame's for both "pet" and "player". Painters read
@@ -22,7 +23,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --    completely idle -- whenever neither frame is shown.
 --  - Same-frame dedupe: each (frame, channel) paint is stamped with a global
 --    generation + GetTime pair; stacked triggers inside one frame collapse to
---    one paint.
+--    one paint (heal prediction adds one trailing next-frame paint for a
+--    deduped repeat, see predFlush).
 -------------------------------------------------------------------------------
 
 local ADDON_NAME, ns = ...
@@ -50,7 +52,8 @@ end
 --  Channel -> unit events. This mirrors the exact event set the old element
 --  wiring listened to, so update timing is indistinguishable to the user.
 --  (health carries connection/faction; text rides health+power+name/level;
---  absorb covers both absorb kinds plus heal prediction.)
+--  absorb covers both absorb kinds; incoming heals are the opt-in healpred
+--  channel, OPTIN_EVENTS below.)
 -------------------------------------------------------------------------------
 local CHANNEL_EVENTS = {
     -- UNIT_MAX_HEALTH_MODIFIERS_CHANGED rides health/text: modifier changes can
@@ -73,8 +76,8 @@ local CHANNEL_EVENTS = {
                  "UNIT_ABSORB_AMOUNT_CHANGED", "UNIT_HEAL_ABSORB_AMOUNT_CHANGED",
                  "UNIT_MAX_HEALTH_MODIFIERS_CHANGED", "UNIT_TARGET" },
     -- (UNIT_HEAL_PREDICTION deliberately absent: the absorb painter never
-    -- rendered incoming heals and early-returned on it; not delivering it at
-    -- all is the same behavior for less dispatch.)
+    -- renders incoming heals; they are the opt-in healpred channel, whose
+    -- events are registered only while a frame shows them.)
     -- UNIT_AURA deliberately absent (Blizzard parity): the timer-expiry
     -- shield with no event at all (VDH Infernal Strike field class) is
     -- covered by the armed-frames belt in the main file (ns.UF_AbArm), not
@@ -89,6 +92,15 @@ local CHANNEL_EVENTS = {
                  "UNIT_ABSORB_AMOUNT_CHANGED", "UNIT_HEAL_ABSORB_AMOUNT_CHANGED",
                  "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" },
     portrait = { "UNIT_PORTRAIT_UPDATE", "UNIT_MODEL_CHANGED", "UNIT_CONNECTION" },
+}
+
+-- Opt-in channels (Engine.SetChannelOn): not attached with the frame, routed
+-- only while a setting turns them on. healpred = incoming heals: its own
+-- event plus the range and heal-absorb edges that change what it draws. The
+-- calculator clamps to maximum health, so current health is not an input.
+local OPTIN_EVENTS = {
+    healpred = { "UNIT_HEAL_PREDICTION", "UNIT_MAXHEALTH",
+                 "UNIT_HEAL_ABSORB_AMOUNT_CHANGED", "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" },
 }
 
 -- Events consumed by the castbar channel; routed raw (event identity matters
@@ -408,6 +420,22 @@ local IDENTITY_EVENTS = {
     UNIT_NAME_UPDATE = true, UNIT_LEVEL = true, UNIT_CONNECTION = true, UNIT_FACTION = true,
 }
 
+-- Heal prediction's trailing flush: a same-frame repeat can carry state the
+-- first paint could not see (a heal landing and another cast starting, or a
+-- cast and a heal absorb in one frame), so a deduped repeat marks the frame
+-- and ONE next-frame pass repaints it from settled values. Idle while hidden.
+local predPending = {}   -- frame -> true
+local predFlush = CreateFrame("Frame")
+predFlush:Hide()
+predFlush:SetScript("OnUpdate", function(self)
+    self:Hide()
+    local fn = painters.healpred
+    for frame in pairs(predPending) do
+        predPending[frame] = nil
+        if fn and frame:IsShown() then fn(frame, frame._euiUnit, "Flush") end
+    end
+end)
+
 local function Paint(frame, channel, event)
     local fn = painters[channel]
     if not fn then return end
@@ -417,7 +445,13 @@ local function Paint(frame, channel, event)
     -- Castbar events are never deduped: each event name is a distinct edge.
     if channel ~= "castbar" and not IDENTITY_EVENTS[event] then
         local key = stamps[channel]
-        if key == gen then return end
+        if key == gen then
+            if channel == "healpred" then
+                predPending[frame] = true
+                predFlush:Show()
+            end
+            return
+        end
         stamps[channel] = gen
     end
     fn(frame, frame._euiUnit, event)
@@ -533,6 +567,59 @@ function Engine.Attach(frame, unit, channels)
                 local seen = false
                 for k = 1, #list do if list[k] == ch then seen = true break end end
                 if not seen then list[#list + 1] = ch end
+            end
+        end
+    end
+end
+
+--- Turns an opt-in channel on or off for one attached frame. On: the channel
+--- joins the frame's repaint list and its events' routes; an event no other
+--- channel uses is registered for the unit (plus its secondary token). Off:
+--- the channel leaves every route, and an event left with no channel is
+--- unregistered, so a channel that is off costs nothing. Idempotent; called
+--- from settings code, never from a paint.
+function Engine.SetChannelOn(frame, channel, on)
+    local info = attached[frame]
+    local events = OPTIN_EVENTS[channel]
+    if not (info and events) then return end
+    local chans = info.channels
+    local idx
+    for i = 1, #chans do
+        if chans[i] == channel then idx = i break end
+    end
+    if on and not idx then
+        chans[#chans + 1] = channel
+    elseif not on and idx then
+        table.remove(chans, idx)
+    end
+    local unit = info.unit
+    local t = trackers[unit]
+    if not t then return end
+    local byEvent = t._euiChannelsByEvent
+    local secondary = SECONDARY_TOKEN[unit]
+    for i = 1, #events do
+        local ev = events[i]
+        local list = byEvent[ev]
+        if on then
+            if not list then
+                list = {}
+                byEvent[ev] = list
+                if secondary then
+                    t:RegisterUnitEvent(ev, unit, secondary)
+                else
+                    t:RegisterUnitEvent(ev, unit)
+                end
+            end
+            local seen = false
+            for k = 1, #list do if list[k] == channel then seen = true break end end
+            if not seen then list[#list + 1] = channel end
+        elseif list then
+            for k = #list, 1, -1 do
+                if list[k] == channel then table.remove(list, k) end
+            end
+            if #list == 0 then
+                byEvent[ev] = nil
+                t:UnregisterEvent(ev)
             end
         end
     end
@@ -723,9 +810,7 @@ function Engine.SpawnUnitFrame(unit, name)
     frame:SetAttribute("unit", unit)
     frame:SetAttribute("*type1", "target")
     frame:SetAttribute("toggleForVehicle", true)
-    if EllesmereUI.AttachSecureUnitMenu then
-        EllesmereUI.AttachSecureUnitMenu(frame)
-    end
+    EllesmereUI.AttachSecureUnitMenu(frame)
     -- The secure environment rewrites the unit attribute on vehicle and pet
     -- transitions; re-resolve whenever it moves.
     frame:HookScript("OnAttributeChanged", function(self, attr)

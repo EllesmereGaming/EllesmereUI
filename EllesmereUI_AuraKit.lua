@@ -824,7 +824,8 @@ local function ApplyStyleToRegions(button, style)
                                 showWhenHelpful = false, showWithoutDispelType = true }
                         else
                             opts = { style = dispelTint, showWhenHarmful = true,
-                                showWhenHelpful = false, customDispelColorMap = style.dispelColorMap }
+                                showWhenHelpful = style.dispelHelpful == true,
+                                customDispelColorMap = style.dispelColorMap }
                         end
                         for i = 1, #dispelTexSet do
                             if not pcall(addFn, button, dispelTexSet[i], opts) then
@@ -1265,14 +1266,6 @@ end)
 function AK.RestyleSoon(styleKey)
     restyleQueue[styleKey] = true
     restyler:Show()
-end
-
--- Module hook: park a style key for the restriction-lift drain WITHOUT
--- queueing it now. For module-side pcall'd button calls that were denied
--- under secrecy -- re-queueing immediately would just spin while the
--- restriction holds; the lift watcher re-runs the key when it can succeed.
-function AK.DeferRestyle(styleKey)
-    if styleKey then deferredRestyles[styleKey] = true end
 end
 
 ------------------------------------------------------------------------------
@@ -1782,10 +1775,6 @@ end)
 function AK.RequestContainer(parent, unitToken, spec, callback)
     local container, slotFrames = AK.CreateContainer(parent, unitToken, spec)
     if callback then callback(container, slotFrames) end
-end
-
-function AK.GetContainerData(container)
-    return containerData[container]
 end
 
 -- Releases a swapped-out container's tracked slot buttons from the restyle registry.

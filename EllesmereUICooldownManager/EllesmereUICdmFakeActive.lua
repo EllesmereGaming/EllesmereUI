@@ -30,7 +30,7 @@ local _, ns = ...
 
 local GetTime                = GetTime
 local UnitClass              = UnitClass
-local GetSpecialization      = GetSpecialization
+local GetSpecialization      = C_SpecializationInfo.GetSpecialization
 local GetInventoryItemID     = GetInventoryItemID
 local CreateFrame            = CreateFrame
 local C_Timer                = C_Timer
@@ -691,7 +691,7 @@ end
                         tc:SetAllPoints(button)
                         tc:SetFrameLevel(cd:GetFrameLevel() + 5)
                         local fs = tc:CreateFontString(nil, "OVERLAY")
-                        local cdFont = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("cdm"))
+                        local cdFont = (EllesmereUI.GetFontPath("cdm"))
                             or "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
                         local fsScale = (scale and scale > 0.01) and scale or 1
                         local cdSize = ((ss and ss.cooldownFontSize) or (bd and bd.cooldownFontSize) or 12) / fsScale
@@ -1478,7 +1478,7 @@ function ns.FakeActive_Rearm()
 
     -- 1. Built-in rules (class/spec gated).
     local _, classFile = UnitClass("player")
-    local specIdx = GetSpecialization and GetSpecialization() or nil
+    local specIdx = GetSpecialization()
     for i = 1, #FAKE_ACTIVE_RULES do
         local rule = FAKE_ACTIVE_RULES[i]
         if (not rule.class or rule.class == classFile)

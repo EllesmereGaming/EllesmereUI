@@ -27,15 +27,7 @@ end
 --  Fonts: module-wide family/outline/shadow (surface key "mythicTimer"), only
 --  per-text sizes are settings -- same contract as every other bar surface.
 --------------------------------------------------------------------------------
-local FONT_FALLBACK = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF"
-local function SetFSFont(fs, size)
-    if not (fs and fs.SetFont) then return end
-    local path = (EllesmereUI.GetFontPath and EllesmereUI.GetFontPath("mythicTimer")) or FONT_FALLBACK
-    local outline = (EllesmereUI.GetFontOutlineFlag and EllesmereUI.GetFontOutlineFlag("mythicTimer")) or ""
-    local useShadow = EllesmereUI.GetFontUseShadow and EllesmereUI.GetFontUseShadow("mythicTimer")
-    if EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(fs, useShadow) end
-    fs:SetFont(path, size, outline)
-end
+local function SetFSFont(fs, size) EllesmereUI.ApplyModuleFont(fs, nil, size, "mythicTimer") end
 
 --------------------------------------------------------------------------------
 --  Shared engines consumed read-only (core addon, loaded before this module).
@@ -370,8 +362,7 @@ local function StyleBar(holder, cfg)
         holder.sb:SetPoint("BOTTOMRIGHT", holder, "BOTTOMRIGHT", 0, 0)
     end
 
-    local texPath = EllesmereUI.ResolveTexturePath
-        and EllesmereUI.ResolveTexturePath(ns.barTextures, cfg.texture or "none", "Interface\\Buttons\\WHITE8x8")
+    local texPath = EllesmereUI.ResolveTexturePath(ns.barTextures, cfg.texture or "none", "Interface\\Buttons\\WHITE8x8")
         or "Interface\\Buttons\\WHITE8x8"
     holder.sb:SetStatusBarTexture(texPath)
     local pp = EllesmereUI.PP

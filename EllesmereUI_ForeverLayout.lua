@@ -26,7 +26,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --       retail too; the Action Bars module only follows the micro menu and
 --       the bag bar), so those come from
 --       an account layout named "EllesmereUI Forever", written once the
---       layouts have loaded and only while no layout of that name exists.
+--       layouts have loaded while the account has none of ours; an older
+--       version of ours is upgraded in place instead (UpgradeLayout).
 --       Edit Mode keeps the layout account-wide but the active choice per
 --       character, so each character is switched to it once, on its first
 --       login (while still on a Blizzard preset), and owns its choice from
@@ -319,7 +320,10 @@ local function WriteEditModeLayout()
     local presetCount = #presets
     local fullName = LayoutFullName()
     for i, l in ipairs(info.layouts) do
-        if l.layoutName == fullName then
+        -- A layout of ours from a newer build (a tester build, then back to
+        -- this one) counts as current too: never renamed down, never re-stepped.
+        if l.layoutName == fullName
+            or (IsOurLayout(l.layoutName) and LayoutVersionOf(l.layoutName) > LAYOUT_VERSION) then
             -- Already written, by an earlier session or another character:
             -- the layout is account-wide, the active choice per character.
             -- A character still on a Blizzard preset has never had its
@@ -341,11 +345,11 @@ local function WriteEditModeLayout()
     end
 
     -- This character's layout before the list changes: it moves to ours only
-    -- from a Blizzard preset or an older version of ours; its own saved
-    -- layout stays its choice.
+    -- from a Blizzard preset; any saved layout, its own or ours, stays its choice.
     local wasActive = info.activeLayout or 0
     local activeSaved = wasActive > presetCount and info.layouts[wasActive - presetCount] or nil
-    local takeOver = activeSaved == nil or IsOurLayout(activeSaved.layoutName)
+    -- A character on our older layout needs no move: the upgrade keeps its slot.
+    local takeOver = activeSaved == nil
 
     -- SaveLayouts takes the whole set the way the game keeps it: the presets
     -- first (read-only, carried for index alignment), then the saved layouts,
@@ -441,7 +445,7 @@ end
 -- screen size once that is final, in the world, over the skin's own login
 -- seed (Blizzard's Edit Mode spot), and the box is re-parked at once.
 local function PlaceTooltipAnchor()
-    local prof = EllesmereUI.GetActiveProfileData and EllesmereUI.GetActiveProfileData()
+    local prof = EllesmereUI.GetActiveProfileData()
     if not prof then return end
     local uw, uh = UIParent:GetWidth(), UIParent:GetHeight()
     if not uw or not uh or uw <= 0 or uh <= 0 then return end
@@ -468,7 +472,7 @@ end
 
 -- Every login of a character that has not had its first look at this version
 -- of the layout (stamped by character with the version below, in the
--- account's saved data, so a rebuilt layout lands once more for everyone; a
+-- account's saved data, so a bump's in-place upgrade runs once more; a
 -- fresh install is such a login too), and never when an external installer
 -- owns the first run. Retried on the layouts event and a few times after
 -- entering the world; drops out for good once done, and at once for a

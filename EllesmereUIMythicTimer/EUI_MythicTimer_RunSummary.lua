@@ -306,7 +306,7 @@ end
 -- and by short name otherwise. Never overwrites an item already recorded.
 local ITEM_CLASS   = Enum and Enum.ItemClass
 local ITEM_QUALITY = Enum and Enum.ItemQuality
-local GetInstant = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
+local GetInstant = C_Item.GetItemInfoInstant
 
 local ITEM_BIND   = Enum and Enum.ItemBind
 local GetFullInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
@@ -1331,10 +1331,10 @@ end
 --------------------------------------------------------------------------------
 -- flags = nil follows the module's font setting; pass "" for an unbolded run.
 local function SetFS(fs, size, flags)
-    local path    = (EUI.GetFontPath and EUI.GetFontPath("mythicTimer")) or FONT_FALLBACK
+    local path    = (EUI.GetFontPath("mythicTimer")) or FONT_FALLBACK
     local outline = flags
     if outline == nil then
-        outline = (EUI.GetFontOutlineFlag and EUI.GetFontOutlineFlag("mythicTimer")) or ""
+        outline = (EUI.GetFontOutlineFlag("mythicTimer")) or ""
     end
     fs:SetFont(path, size or FONT_SZ, outline)
 end
@@ -1343,12 +1343,10 @@ local function Hex(r, g, b)
     return format("%02x%02x%02x", floor((r or 1) * 255), floor((g or 1) * 255), floor((b or 1) * 255))
 end
 
+-- Shared number engine: K/M/B, or thousand/wan/yi grouping on koKR/zhCN/zhTW.
 local function Abbrev(v)
     if type(v) ~= "number" then return nil end
-    if v >= 1e9 then return format("%.2fB", v / 1e9) end
-    if v >= 1e6 then return format("%.2fM", v / 1e6) end
-    if v >= 1e3 then return format("%.1fK", v / 1e3) end
-    return format("%d", floor(v))
+    return EllesmereUI.AbbreviateNumber(v)
 end
 
 local function Clock(seconds)
@@ -1361,7 +1359,7 @@ end
 -- shape Damage Meters already uses on its own rows.
 local function ClassHex(class)
     if class and not IsSecret(class) and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class] then
-        local cc = EUI.GetClassColor and EUI.GetClassColor(class)
+        local cc = EUI.GetClassColor(class)
         if cc then return Hex(cc.r, cc.g, cc.b) end
     end
     return "ffffff"
@@ -2027,7 +2025,7 @@ ShowPicker = function(anchor)
         items[1] = { text = EllesmereUI.L("No runs recorded yet"), isDisabled = function() return true end }
     end
     -- Hung below the picker, at least its width: a dropdown, not a cursor menu.
-    if EUI.ShowContextMenu then EUI.ShowContextMenu(anchor, items, { below = true, minWidth = PICKER_W }) end
+    EUI.ShowContextMenu(anchor, items, { below = true, minWidth = PICKER_W })
 end
 
 -- Opens the n-th most recent run (1 = newest).
@@ -2036,7 +2034,7 @@ function ns.RS_Show(index)
     if i < 1 then i = 1 end
     local rec = ns.RS_GetRuns()[i]
     if not rec then
-        EUI.Print("|cffff6060[EllesmereUI]|r " .. EllesmereUI.L("No runs recorded yet"))
+        EUI.PrintError(EllesmereUI.L("No runs recorded yet"))
         return
     end
     ShowWindow(rec)
@@ -2103,7 +2101,7 @@ SLASH_EUIMPLUS1 = "/ov"
 SLASH_EUIMPLUS2 = "/euimplus"
 SlashCmdList.EUIMPLUS = function(msg)
     if not Enabled() then
-        EUI.Print("|cffff6060[EllesmereUI]|r " .. EllesmereUI.L("Run Summary is disabled in Mythic+ Tools."))
+        EUI.PrintError(EllesmereUI.L("Run Summary is disabled in Mythic+ Tools."))
         return
     end
     local lower = msg and msg:lower() or ""

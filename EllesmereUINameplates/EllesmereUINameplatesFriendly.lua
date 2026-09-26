@@ -199,7 +199,7 @@ local _sfFile, _sfSize, _sfFlags
 local function ApplySubtitleFont()
     local file = GetFont()
     local size = GetSubTextSize()
-    local flags = (EllesmereUI and EllesmereUI.SlugFlag and EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG"
+    local flags = (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG"
     if file == _sfFile and size == _sfSize and flags == _sfFlags then return end
     _sfFile, _sfSize, _sfFlags = file, size, flags
     subtitleFont:SetFont(file, size, flags)
@@ -355,11 +355,6 @@ local function EnsureNameUnconstrained(nameFS)
     if nameFS.SetTextHeight then hooksecurefunc(nameFS, "SetTextHeight", ApplyNameTextHeight) end
 end
 
-local function ApplyFontToNameplate(nameplate)
-    -- No-op: font is applied globally via the SystemFont_NamePlate override.
-end
-ns.ApplyFontToNameplate = ApplyFontToNameplate
-
 -- Exposed so the options panel can live-apply a new friendly name-only size.
 -- Re-running the override re-reads GetFriendlyNameSize and resizes the shared
 -- font object; the name FontStrings inherit it on the next render.
@@ -401,19 +396,6 @@ local function ScheduleNameSizeReapply(force)
         -- the existing debounce, so a burst costs one sweep.
         if ReanchorAllPlayerNames then ReanchorAllPlayerNames() end
     end)
-end
-
--- Exposed so the options panel can trigger a refresh after font changes
-function ns.RefreshFriendlyFontOverride()
-    if IsNameOnlyMode() then
-        -- Re-style all currently visible friendly nameplates
-        for i, nameplate in ipairs(C_NamePlate.GetNamePlates(true)) do
-            local unit = nameplate.namePlateUnitToken
-            if unit and not UnitCanAttack("player", unit) and not UnitIsUnit(unit, "player") then
-                ApplyFontToNameplate(nameplate)
-            end
-        end
-    end
 end
 
 -------------------------------------------------------------------------------
@@ -696,7 +678,7 @@ local function UpdateNameOnlyText(nameFS)
 
     local want
     if ModeHasTitle(mode) and isPlayer then want = GetTitledName(unit) end
-    if not want then want = UnitName(unit) end
+    if not want then want = EllesmereUI.WithSurname(UnitName(unit)) end
     if not want or (issecretvalue and issecretvalue(want)) then return end
 
     local guild
@@ -1250,6 +1232,7 @@ function FriendlyFrame:SetUnit(unit, nameplate)
     self:UpdateHealth()
     self:UpdateName()
     self:UpdateRaidIcon()
+    ns.NP_FriendlyFactionRefresh(self)
     self:ApplyTarget()
     -- Re-apply the enemy border settings every spawn: a pooled plate may have
     -- been released while the user changed the border size/color/toggle.
@@ -1270,6 +1253,8 @@ function FriendlyFrame:ClearUnit()
     end
     -- Restore Blizzard UF before clearing our reference
     if self.unit then RestoreBlizzardUF(self.unit) end
+    -- Its faction badge lives on the nameplate, not on this frame.
+    ns.NP_FriendlyFactionHide(self)
     self.unit = nil
     self.nameplate = nil
     self.glow:Hide()
@@ -1318,7 +1303,7 @@ function FriendlyFrame:UpdateName()
     if ModeHasTitle(GetBelowNameMode()) and UnitIsPlayer(unit) then
         unitName = GetTitledName(unit)
     end
-    if not unitName then unitName = UnitName(unit) end
+    if not unitName then unitName = EllesmereUI.WithSurname(UnitName(unit)) end
     self.name:SetText(unitName or "")
     self:UpdateSubText()
 end
@@ -1491,6 +1476,8 @@ function ns.RemoveFriendlyPlateNoRestore(unit)
     end
     -- Clear modifiedUFs entry so the friendly SetAlpha hook stops interfering
     modifiedUFs[unit] = nil
+    -- Promoted to an enemy plate, which draws its own faction badge.
+    ns.NP_FriendlyFactionHide(plate)
     plate.unit = nil
     plate.nameplate = nil
     plate.glow:Hide()
