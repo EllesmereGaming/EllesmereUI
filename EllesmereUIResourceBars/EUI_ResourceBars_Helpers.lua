@@ -171,11 +171,13 @@ ns.SpecsConflict = function(aIDs, bIDs)
 	return false
 end
 
-ns.IsCRSpecClaimed = function(specID)
-	local p = DB()
-	local sec = p and p.secondary
-	if not sec or not sec.thresholdSpecs then return false end
-	for _, entry in ipairs(sec.thresholdSpecs) do
+-- bar: the resolved bar data table (p.secondary / p.primary / p.health). Was
+-- CRB-hardcoded (p.secondary only) as IsCRSpecClaimed/HasCRAllSpecs; generalized
+-- for reuse by Power Bar's and Health Bar's spec pickers too, since all three
+-- bars now share the same rich per-spec threshold editor.
+ns.IsSpecClaimed = function(bar, specID)
+	if not bar or not bar.thresholdSpecs then return false end
+	for _, entry in ipairs(bar.thresholdSpecs) do
 		if entry.specIDs then
 			for _, sid in ipairs(entry.specIDs) do
 				if sid == 0 then return true end
@@ -186,11 +188,9 @@ ns.IsCRSpecClaimed = function(specID)
 	return false
 end
 
-ns.HasCRAllSpecs = function()
-	local p = DB()
-	local sec = p and p.secondary
-	if not sec or not sec.thresholdSpecs then return false end
-	for _, entry in ipairs(sec.thresholdSpecs) do
+ns.HasBarAllSpecs = function(bar)
+	if not bar or not bar.thresholdSpecs then return false end
+	for _, entry in ipairs(bar.thresholdSpecs) do
 		if entry.specIDs then
 			for _, sid in ipairs(entry.specIDs) do
 				if sid == 0 then return true end
