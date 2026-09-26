@@ -399,6 +399,7 @@ local defaults = {
     pandemicGlowBackgroundColor = { r = 0, g = 0, b = 0 },
     lowHpGlow = false,  -- Execute Pulse Glow (Extras): red glow around plates below 30% health
     hideBloodPlagueCopies = true,  -- Extras (Blood DK only): collapse the Blood Plague copies to one debuff icon
+    showSunderArmor = false,  -- Extras (Forever warriors only): Sunder Armor from any warrior on enemy plates
     dispelGlow = false,
     dispelGlowStyle = 2,
     -- Swatch display only: the getter returns nil while the user has never

@@ -4634,6 +4634,15 @@ local function MMAddCharStats()
         end
     end
 
+    -- WoW Forever has no Mastery or Versatility.
+    if EllesmereUI.IS_FOREVER then
+        local crit, critCR = EllesmereUI.ForeverCritChance()
+        local haste, hasteCR = EllesmereUI.ForeverHaste()
+        pctRating(STAT_CRITICAL_STRIKE or "Critical Strike", crit,  GetCombatRating(critCR))
+        pctRating(STAT_HASTE or "Haste",                     haste, GetCombatRating(hasteCR))
+        return
+    end
+
     pctRating(STAT_CRITICAL_STRIKE or "Critical Strike", GetCritChance(),    GetCombatRating(CR_CRIT_MELEE))
     pctRating(STAT_HASTE or "Haste",                     GetHaste(),         GetCombatRating(CR_HASTE_MELEE))
     pctRating(STAT_MASTERY or "Mastery",                 GetMasteryEffect(), GetCombatRating(CR_MASTERY))

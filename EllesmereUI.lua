@@ -5325,6 +5325,63 @@ function EllesmereUI.GetClassColorForRestrictedUnit(unit, secretClassToken)
     return true, r, g, b
 end
 
+-- WoW Forever keeps melee, ranged and spell crit and haste apart (retail has one
+-- figure each). Show the highest with its matching rating, as Blizzard's Forever
+-- character pane does. The getters go secret while unit stats are restricted, so
+-- the source picked on the last readable update is reused until the next one;
+-- before any readable update casters get spell and everyone else melee.
+do
+    local FOREVER_CASTER = { MAGE = true, PRIEST = true, WARLOCK = true }
+    local foreverStatPick = {}
+    local foreverRangedHaste
+
+    local function ForeverFallbackPick(kind)
+        if foreverStatPick[kind] then return foreverStatPick[kind] end
+        local _, cls = UnitClass("player")
+        if not issecretvalue(cls) and FOREVER_CASTER[cls] then return "spell" end
+        return "melee"
+    end
+
+    local function ForeverHighest(spell, ranged, melee)
+        if spell >= ranged and spell >= melee then return "spell" end
+        if ranged >= melee then return "ranged" end
+        return "melee"
+    end
+
+    function EllesmereUI.ForeverCritChance()
+        local spell, ranged, melee = GetSpellCritChance(), GetRangedCritChance(), GetCritChance()
+        local pick
+        if issecretvalue(spell) or issecretvalue(ranged) or issecretvalue(melee) then
+            pick = ForeverFallbackPick("crit")
+        else
+            pick = ForeverHighest(spell, ranged, melee)
+            foreverStatPick.crit = pick
+        end
+        if pick == "spell" then return spell, CR_CRIT_SPELL end
+        if pick == "ranged" then return ranged, CR_CRIT_RANGED end
+        return melee, CR_CRIT_MELEE
+    end
+
+    function EllesmereUI.ForeverHaste()
+        local spell, melee = UnitSpellHaste("player"), GetMeleeHaste()
+        local rangedBase, quiver = GetRangedHaste()
+        local ranged, pick
+        if issecretvalue(spell) or issecretvalue(melee) or issecretvalue(rangedBase) or issecretvalue(quiver) then
+            pick = ForeverFallbackPick("haste")
+            -- The quiver bonus cannot be added to a secret; ranged shows the last readable total.
+            ranged = foreverRangedHaste
+        else
+            ranged = rangedBase + quiver
+            foreverRangedHaste = ranged
+            pick = ForeverHighest(spell, ranged, melee)
+            foreverStatPick.haste = pick
+        end
+        if pick == "spell" then return spell, CR_HASTE_SPELL end
+        if pick == "ranged" then return ranged, CR_HASTE_RANGED end
+        return melee, CR_HASTE_MELEE
+    end
+end
+
 -- Group role with the local player's spec as the authority. The role picked
 -- when listing a premade group sticks server-side through spec swaps (list a
 -- key as tank, swap to dps: UnitGroupRolesAssigned still answers TANK for the

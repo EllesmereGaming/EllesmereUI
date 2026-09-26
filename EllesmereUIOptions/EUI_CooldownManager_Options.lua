@@ -979,7 +979,7 @@ initFrame:SetScript("OnEvent", function(self)
                 scaledBtnH = scaledBtnH + shapeExp
             end
             if btnShape == "cropped" then
-                scaledBtnH = math.floor(scaledBtnH * 0.80 + 0.5)
+                scaledBtnH = math.floor(scaledBtnH * (isCDMBar and ns.CdmCropFactor(cdmBd) or 0.80) + 0.5)
             end
 
             local spacing = isCDMBar and ((cdmBd and cdmBd.spacing) or 2) or ((barSettings and barSettings.buttonPadding) or 2)
@@ -1075,7 +1075,8 @@ initFrame:SetScript("OnEvent", function(self)
                     if nonGlowable then iconTex:SetDesaturated(true) end
                     local z = zoom
                     if btnShape == "cropped" then
-                        iconTex:SetTexCoord(z, 1 - z, z + 0.10, 1 - z - 0.10)
+                        local t = isCDMBar and ns.CdmCropTrim(cdmBd) or 0.10
+                        iconTex:SetTexCoord(z, 1 - z, z + t, 1 - z - t)
                     elseif z > 0 or square then
                         iconTex:SetTexCoord(z, 1 - z, z, 1 - z)
                     else
@@ -14457,7 +14458,7 @@ initFrame:SetScript("OnEvent", function(self)
             local iconH = iconSize
             local pvShape = bd.iconShape or "none"
             if pvShape == "cropped" then
-                iconH = math.floor(iconSize * 0.80 + 0.5)
+                iconH = math.floor(iconSize * ns.CdmCropFactor(bd) + 0.5)
             end
             local spacing  = bd.spacing or 2
             local zoom     = bd.iconZoom or 0.08
@@ -16890,6 +16891,34 @@ initFrame:SetScript("OnEvent", function(self)
             return s ~= "none" and s ~= "cropped"
         end
 
+        -- Adjust Crop cog on Custom Icon Shape (both shape rows below). Writes the per-bar
+        -- iconCropPercent that ns.CdmCropFactor / ns.CdmCropTrim read; unset = 10 = the classic
+        -- crop. Disabled unless the shape is Cropped. Under a stock style both shape rows are
+        -- fully gated, so the row (and this cog with it) is hidden by the widget factory.
+        local function AttachCropCog(rgn)
+            EllesmereUI.BuildInlineCog(rgn, {
+                disabled = function() return (BD().iconShape or "none") ~= "cropped" end,
+                disabledTooltip = "This option requires Custom Icon Shape to be set to Cropped",
+                title = "Custom Icon Shape",
+                rows = {
+                    { type="slider", label="Adjust Crop", min=5, max=25, step=1,
+                      tooltip="How much is trimmed from the icon's top and bottom, as a percentage per side. 10% is the classic cropped look.",
+                      get=function() return ns.CdmCropPercent(BD()) end,
+                      set=function(v)
+                          local bd = BD()
+                          bd.iconCropPercent = v
+                          -- Icon height changes: drop the same match caches the shape setter drops.
+                          bd._matchIconPhys = nil
+                          bd._matchExtraPixels = nil
+                          bd._matchStride = nil
+                          bd._matchExtraPixelsH = nil
+                          bd._matchStrideH = nil
+                          ns.BuildAllCDMBars(); Refresh(); UpdateCDMPreviewAndResize()
+                      end },
+                },
+            })
+        end
+
         -- Shape dropdown values
         local SHAPE_VALUES = {
             none     = "None",
@@ -17101,6 +17130,8 @@ initFrame:SetScript("OnEvent", function(self)
                       ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
                   end }));  y = y - h
 
+            AttachCropCog(buffShapeZoomRow._leftRegion)
+
             -- Sync icon on Custom Icon Shape (left of row 3)
             if not EllesmereUI._prebuilding then
             EllesmereUI.BuildSyncIcon({
@@ -17110,16 +17141,18 @@ initFrame:SetScript("OnEvent", function(self)
                     local bd = BD()
                     local v = bd.iconShape or "none"
                     local zoom = bd.iconZoom or 0.08
+                    local crop = ns.CdmCropPercent(bd)
                     local synced = true
-                    ForEachSyncBar(function(b) if (b.iconShape or "none") ~= v or (b.iconZoom or 0.08) ~= zoom then synced = false end end)
+                    ForEachSyncBar(function(b) if (b.iconShape or "none") ~= v or (b.iconZoom or 0.08) ~= zoom or ns.CdmCropPercent(b) ~= crop then synced = false end end)
                     return synced
                 end,
                 onClick = function()
                     local bd = BD()
                     local v = bd.iconShape or "none"
                     local zoom = bd.iconZoom or 0.08
+                    local crop = bd.iconCropPercent
                     ForEachSyncBar(function(b)
-                        b.iconShape = v; b.iconZoom = zoom
+                        b.iconShape = v; b.iconZoom = zoom; b.iconCropPercent = crop
                         local isCS = (v ~= "none" and v ~= "cropped")
                         if isCS then b.borderThickness = "strong"; b.borderSize = BORDER_SIZES["strong"]
                         else b.borderThickness = "thin"; b.borderSize = BORDER_SIZES["thin"] end
@@ -17902,6 +17935,8 @@ initFrame:SetScript("OnEvent", function(self)
                     ns.RefreshCDMIconAppearance(BD().key); Refresh(); UpdateCDMPreview()
                 end }));  y = y - h
 
+        AttachCropCog(shapeRow._leftRegion)
+
         if not EllesmereUI._prebuilding then
         EllesmereUI.BuildSyncIcon({
             region  = shapeRow._leftRegion,
@@ -17910,16 +17945,18 @@ initFrame:SetScript("OnEvent", function(self)
                 local bd = BD()
                 local v = bd.iconShape or "none"
                 local zoom = bd.iconZoom or 0.08
+                local crop = ns.CdmCropPercent(bd)
                 local synced = true
-                ForEachSyncBar(function(b) if (b.iconShape or "none") ~= v or (b.iconZoom or 0.08) ~= zoom then synced = false end end)
+                ForEachSyncBar(function(b) if (b.iconShape or "none") ~= v or (b.iconZoom or 0.08) ~= zoom or ns.CdmCropPercent(b) ~= crop then synced = false end end)
                 return synced
             end,
             onClick = function()
                 local bd = BD()
                 local v = bd.iconShape or "none"
                 local zoom = bd.iconZoom or 0.08
+                local crop = bd.iconCropPercent
                 ForEachSyncBar(function(b)
-                    b.iconShape = v; b.iconZoom = zoom
+                    b.iconShape = v; b.iconZoom = zoom; b.iconCropPercent = crop
                     local isCS = (v ~= "none" and v ~= "cropped")
                     if isCS then b.borderThickness = "strong"; b.borderSize = BORDER_SIZES["strong"]
                     else b.borderThickness = "thin"; b.borderSize = BORDER_SIZES["thin"] end

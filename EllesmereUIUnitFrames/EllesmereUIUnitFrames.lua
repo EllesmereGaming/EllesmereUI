@@ -482,6 +482,12 @@ local defaults = {
             castbarInterruptMidCastEnabled = false,
             castbarInterruptMidCastColor = { r = 0.318, g = 0.820, b = 0.357 },
             castbarUninterruptibleColor = { r = 0.5, g = 0.5, b = 0.5 },
+            castbarImportantGlow = false,
+            castbarImportantGlowStyle = 1,
+            castbarImportantGlowColor = { r = 1, g = 0.2, b = 0.2 },
+            castbarImportantGlowLines = 8,
+            castbarImportantGlowThickness = 2,
+            castbarImportantGlowSpeed = 4,
             castbarClassColored = false,
             healthDisplay = "both",
             showBuffs = true,
@@ -848,6 +854,12 @@ local defaults = {
             castbarInterruptMidCastEnabled = false,
             castbarInterruptMidCastColor = { r = 0.318, g = 0.820, b = 0.357 },
             castbarUninterruptibleColor = { r = 0.5, g = 0.5, b = 0.5 },
+            castbarImportantGlow = false,
+            castbarImportantGlowStyle = 1,
+            castbarImportantGlowColor = { r = 1, g = 0.2, b = 0.2 },
+            castbarImportantGlowLines = 8,
+            castbarImportantGlowThickness = 2,
+            castbarImportantGlowSpeed = 4,
             castbarClassColored = false,
             healthDisplay = "perhp",
             -- WoW Forever shows level and name on the left (retail: name only).
@@ -2229,18 +2241,28 @@ EllesmereUI.IsSmartPowerPercent = EUI_IsSmartPowerPercent
 --   _G._EUI_AbbrevDecimalCfg = this table when on, nil when off
 --   _G._EUI_TextDecimals     = true/false, selects "%.1f" vs "%d" for percents
 --   _G._EUI_PctTrim          = { curve, cfg } trimming the percent, nil when off
-ns._decimalAbbrevConfig = { breakpointData = {
-    { breakpoint = 1e9, abbreviation = "b", significandDivisor = 1e8, fractionDivisor = 10, abbreviationIsGlobal = false },
-    { breakpoint = 1e6, abbreviation = "m", significandDivisor = 1e5, fractionDivisor = 10, abbreviationIsGlobal = false },
-    { breakpoint = 1e3, abbreviation = "k", significandDivisor = 1e2, fractionDivisor = 10, abbreviationIsGlobal = false },
-} }
+-- Per band: significandDivisor = breakpoint / d, fractionDivisor = d (d = 10 for
+-- one decimal, 100 for two). Ten-thousand-grouping locales (koKR/zhCN/zhTW) take
+-- the shared number engine's thousand/wan/yi units instead of k/m/b, so these
+-- frames read the same as Damage Meters and the gold bar on those clients.
+local function DecimalAbbrevConfig(d)
+    local g = EllesmereUI.NumberAbbrevGlyphs and EllesmereUI.NumberAbbrevGlyphs()
+    if g then
+        return { breakpointData = {
+            { breakpoint = 1e8, abbreviation = g[3], significandDivisor = 1e8 / d, fractionDivisor = d, abbreviationIsGlobal = false },
+            { breakpoint = 1e4, abbreviation = g[2], significandDivisor = 1e4 / d, fractionDivisor = d, abbreviationIsGlobal = false },
+            { breakpoint = 1e3, abbreviation = g[1], significandDivisor = 1e3 / d, fractionDivisor = d, abbreviationIsGlobal = false },
+        } }
+    end
+    return { breakpointData = {
+        { breakpoint = 1e9, abbreviation = "b", significandDivisor = 1e9 / d, fractionDivisor = d, abbreviationIsGlobal = false },
+        { breakpoint = 1e6, abbreviation = "m", significandDivisor = 1e6 / d, fractionDivisor = d, abbreviationIsGlobal = false },
+        { breakpoint = 1e3, abbreviation = "k", significandDivisor = 1e3 / d, fractionDivisor = d, abbreviationIsGlobal = false },
+    } }
+end
+ns._decimalAbbrevConfig = DecimalAbbrevConfig(10)
 -- Two-decimal variant for boss frames ("Show 2 for Boss"): 240.55k / 2.45m.
--- Per band: significandDivisor = breakpoint / 100, fractionDivisor = 100.
-ns._decimalAbbrevConfig2 = { breakpointData = {
-    { breakpoint = 1e9, abbreviation = "b", significandDivisor = 1e7, fractionDivisor = 100, abbreviationIsGlobal = false },
-    { breakpoint = 1e6, abbreviation = "m", significandDivisor = 1e4, fractionDivisor = 100, abbreviationIsGlobal = false },
-    { breakpoint = 1e3, abbreviation = "k", significandDivisor = 1e1, fractionDivisor = 100, abbreviationIsGlobal = false },
-} }
+ns._decimalAbbrevConfig2 = DecimalAbbrevConfig(100)
 -- "Hide Trailing Zeros": AbbreviateNumbers drops a zero fraction ("100") but keeps a
 -- real one ("99.5"), which "%.1f" cannot do and a SECRET percent forbids doing with
 -- Lua string ops. It TRUNCATES though, so a fractional significandDivisor reads a tenth
@@ -7208,10 +7230,90 @@ local function CreateCastBar(frame, unit, settings)
     return castbar
 end
 
+-- Important Cast Glow (target/focus), mirrors Nameplates.
+-- The secret IsSpellImportant flag only drives overlay alpha.
+ns.UF_IMPORTANT_GLOW_STYLES = { 1, 2, 3, 5, 6, 7 }
+do
+    local IMP_GLOW_COLOR = { r = 1, g = 0.2, b = 0.2 }
+    local IMP_GLOW_BG_COLOR = { r = 0, g = 0, b = 0 }
+
+    ns.ClearUnitFrameImportantGlow = function(castbar)
+        local ov = castbar and castbar._importantOverlay
+        if not ov or not castbar._impGlowActive then return end
+        local Glows = EllesmereUI.Glows
+        if Glows then Glows.StopAllGlows(ov) end
+        ov:SetAlpha(0)
+        ov:Hide()
+        castbar._impGlowActive = nil
+    end
+
+    -- Called from PostCastStart; the engine has already set castbar.spellID.
+    ns.UpdateUnitFrameImportantGlow = function(castbar)
+        local s = castbar and castbar._eufSettings
+        local Glows = EllesmereUI.Glows
+        if not (s and s.castbarImportantGlow and Glows and Glows.StartGlow
+                and C_Spell and C_Spell.IsSpellImportant) then
+            ns.ClearUnitFrameImportantGlow(castbar)
+            return
+        end
+
+        local ov = castbar._importantOverlay
+        if not ov then
+            ov = CreateFrame("Frame", nil, castbar)
+            ov:SetAllPoints(castbar)
+            ov:EnableMouse(false)
+            castbar._importantOverlay = ov
+            castbar._impGlowLook = {}
+        end
+        ov:SetFrameLevel(castbar:GetFrameLevel() + 5)
+
+        local style = 1
+        for _, idx in ipairs(ns.UF_IMPORTANT_GLOW_STYLES) do
+            if s.castbarImportantGlowStyle == idx then style = idx; break end
+        end
+        local c = s.castbarImportantGlowColor or IMP_GLOW_COLOR
+        local pW, pH = castbar:GetWidth(), castbar:GetHeight()
+        if pW < 5 then pW = 100 end
+        if pH < 5 then pH = 14 end
+        -- Lines/thickness/speed/background are Pixel Glow only; nil for other styles.
+        local N, th, period, bg
+        if style == 1 then
+            N = s.castbarImportantGlowLines or 8
+            th = s.castbarImportantGlowThickness or 2
+            period = s.castbarImportantGlowSpeed or 4
+            if s.castbarImportantGlowBackground == true then
+                bg = s.castbarImportantGlowBackgroundColor or IMP_GLOW_BG_COLOR
+            end
+        end
+
+        -- Restart only when the look changes so back-to-back casts don't reset the animation.
+        local L = castbar._impGlowLook
+        if not castbar._impGlowActive or L.style ~= style or L.r ~= c.r or L.g ~= c.g or L.b ~= c.b
+           or L.w ~= pW or L.h ~= pH or L.N ~= N or L.th ~= th or L.period ~= period
+           or L.bgR ~= (bg and bg.r) or L.bgG ~= (bg and bg.g) or L.bgB ~= (bg and bg.b) then
+            Glows.StartGlow(ov, style, pW, c.r, c.g, c.b,
+                style == 1 and { N = N, th = th, period = period, bg = bg } or nil, pH)
+            L.style, L.r, L.g, L.b, L.w, L.h = style, c.r, c.g, c.b, pW, pH
+            L.N, L.th, L.period = N, th, period
+            L.bgR, L.bgG, L.bgB = bg and bg.r, bg and bg.g, bg and bg.b
+            castbar._impGlowActive = true
+        end
+
+        ov:Show()
+        local ok, isImportant = pcall(C_Spell.IsSpellImportant, castbar.spellID or 0)
+        if ok then
+            ov:SetAlphaFromBoolean(isImportant)
+        else
+            ov:SetAlpha(0)
+        end
+    end
+end
+
 local function SetupShowOnCastBar(frame, unit)
     local castbar = frame.Castbar
     local castbarBg = castbar:GetParent()
     local iconFrame = castbar._iconFrame
+    local impGlowUnit = IsKickCastbarUnit(unit)
 
     -- Read the hide-when-inactive flag dynamically so closures always reflect the
     -- current setting rather than a value captured at frame-creation time.
@@ -7336,6 +7438,7 @@ local function SetupShowOnCastBar(frame, unit)
         end
         if savedCastHook then savedCastHook(self, ...) end
         UpdateUnitFrameKickTick(self)
+        if impGlowUnit then ns.UpdateUnitFrameImportantGlow(self) end
         NotifyCastbarStarted(self)
     end
     castbar.PostChannelStart = castbar.PostCastStart
@@ -7395,6 +7498,7 @@ local function SetupShowOnCastBar(frame, unit)
     -- frame would otherwise remain visible as a black rectangle.
     castbar:HookScript("OnHide", function(self)
         HideUnitFrameKickTick(self)
+        if impGlowUnit then ns.ClearUnitFrameImportantGlow(self) end
         NotifyCastbarEnded(self)
         if self._iconFrame then self._iconFrame:Hide() end
         if shouldHideWhenInactive() then

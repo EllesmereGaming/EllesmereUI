@@ -1255,7 +1255,9 @@ initFrame:SetScript("OnEvent", function(self)
         local row4
         row4, h = W:DualRow(parent, y,
             { type="toggle", text="Secondary Stat Display",
-              tooltip="Displays secondary stat percentages (Crit, Haste, Mastery, Vers) at the top left of the screen.",
+              tooltip=EllesmereUI.IS_FOREVER
+                  and "Displays secondary stat percentages (Crit, Haste) at the top left of the screen."
+                  or "Displays secondary stat percentages (Crit, Haste, Mastery, Vers) at the top left of the screen.",
               getValue=function()
                 return EllesmereUI.QoLExtrasGet("showSecondaryStats") or false
               end,

@@ -3244,7 +3244,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
 
             local IconHidden = function() return indType == "icon" and ind.hideIcon == true end
             local sizeRow = SettingsRow(
-                { type="slider", text="Size", min=4, max=40, step=1,
+                { type="slider", text="Size", min=4, max=80, step=1,
                   getValue=function() return ind.size or 12 end,
                   setValue=function(v) ind.size = v; ReloadAndUpdate() end },
                 { type="slider", pixel=true, text="Spacing", min=-1, max=10, step=1,

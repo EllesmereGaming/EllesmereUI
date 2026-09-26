@@ -21,9 +21,10 @@ local PAGE_UNLOCK    = "Unlock Mode"
 -- the boss page, which has none): its size matches read the frame's reach
 -- and are re-applied when it changes. `sync` (main frames page only) adds
 -- the apply-to-all icon: { units, labels, current(), db(unit), reload }; a
--- unit's element is "<unit>Castbar". Returns the row height, 0 (nothing
--- built) off the style. On ns: the page builders sit at the local cap.
-function ns.UF_ClassicCastBorderRow(W, parent, y, getS, key, onChange, sync, matchKey)
+-- unit's element is "<unit>Castbar". `right` (optional) fills the free right
+-- slot. Returns the row height, 0 (nothing built) off the style, and the row.
+-- On ns: the page builders sit at the local cap.
+function ns.UF_ClassicCastBorderRow(W, parent, y, getS, key, onChange, sync, matchKey, right)
     local BS = EllesmereUI.BlizzStyle
     if not (BS and BS.Active("unitframes") == "classic") then return 0 end
     local row, h = W:DualRow(parent, y,
@@ -34,7 +35,7 @@ function ns.UF_ClassicCastBorderRow(W, parent, y, getS, key, onChange, sync, mat
                 s[key] = v; onChange()
                 if matchKey and EllesmereUI.ReapplyMatchPads then EllesmereUI.ReapplyMatchPads(matchKey) end
             end),
-        { type = "label", text = "" })
+        right or { type = "label", text = "" })
     if sync and not EllesmereUI._prebuilding then
         local rgn = row._leftRegion
         local function apply(units)
@@ -72,7 +73,7 @@ function ns.UF_ClassicCastBorderRow(W, parent, y, getS, key, onChange, sync, mat
             },
         })
     end
-    return h
+    return h, row
 end
 
 -- Tracked Auras popup for target/focus/boss debuff filters ("Edit Tracked
@@ -5033,6 +5034,7 @@ initFrame:SetScript("OnEvent", function(self)
         castbarFillColor     = { player=true, target=true, focus=true },
         castbarInterruptReadyColor = { target=true, focus=true },
         castbarKickTickEnabled     = { target=true, focus=true },
+        castbarImportantGlow       = { target=true, focus=true },
         castCombineNameTarget      = { target=true, focus=true },
         showClassPowerBar    = { player=true },
         lockClassPowerToFrame= { player=true },
@@ -9839,8 +9841,40 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
         end
+        -- Important Cast Glow (target/focus); in Classic WoW UI it fills the Border Size row's free slot.
+        local impGlowCfg, impGlowOff
+        if selectedUnit == "target" or selectedUnit == "focus" then
+            impGlowOff = function() return not SValSupported("castbarImportantGlow", false) end
+            local impGlowValues, impGlowOrder = { [0] = "None" }, { 0 }
+            do
+                local styles = EllesmereUI.Glows and EllesmereUI.Glows.STYLES
+                for _, idx in ipairs(ns.UF_IMPORTANT_GLOW_STYLES) do
+                    local entry = styles and styles[idx]
+                    impGlowValues[idx] = entry and entry.name or ("Style " .. idx)
+                    impGlowOrder[#impGlowOrder + 1] = idx
+                end
+            end
+            impGlowCfg = { type="dropdown", text="Important Cast Glow",
+                values=impGlowValues, order=impGlowOrder,
+                getValue=function()
+                  if impGlowOff() then return 0 end
+                  local v = SValSupported("castbarImportantGlowStyle", 1)
+                  return impGlowValues[v] and v or 1
+                end,
+                setValue=function(v)
+                  local s = UNIT_DB_MAP[selectedUnit]()
+                  if v == 0 then
+                      s.castbarImportantGlow = false
+                  else
+                      s.castbarImportantGlow = true
+                      s.castbarImportantGlowStyle = v
+                  end
+                  ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage()
+                end,
+                tooltip="Show a glow on the cast bar when the unit is casting a spell Blizzard marks as important." }
+        end
         -- Classic WoW UI: Border Size closes the section (odd last slot).
-        y = y - ns.UF_ClassicCastBorderRow(W, parent, y,
+        local classicH, classicRow = ns.UF_ClassicCastBorderRow(W, parent, y,
             function() return UNIT_DB_MAP[selectedUnit]() end,
             ns.UF_CastClassicKey(selectedUnit),
             function() ReloadAndUpdate(); UpdatePreview() end,
@@ -9848,7 +9882,113 @@ initFrame:SetScript("OnEvent", function(self)
               current = function() return selectedUnit end,
               db = function(u) local f = UNIT_DB_MAP[u]; return f and f() end,
               reload = ReloadAndUpdate },
-            selectedUnit .. "Castbar")
+            selectedUnit .. "Castbar", impGlowCfg)
+        y = y - classicH
+        if impGlowCfg then
+            local impGlowRow, impGlowSide = classicRow, "_rightRegion"
+            if not impGlowRow then
+                impGlowRow, h = W:DualRow(parent, y, impGlowCfg, { type="label", text="" });  y = y - h
+                impGlowSide = "_leftRegion"
+            end
+            if not EllesmereUI._prebuilding then
+                local rgn = impGlowRow[impGlowSide]
+                -- Inline color swatch
+                local sw, updateSw = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
+                    function()
+                        local c = SValSupported("castbarImportantGlowColor", { r = 1, g = 0.2, b = 0.2 })
+                        return c.r, c.g, c.b, 1
+                    end,
+                    function(r, g, b)
+                        SSetSupported("castbarImportantGlowColor", { r = r, g = g, b = b })
+                    end, false, 20)
+                PP.Point(sw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
+                rgn._lastInline = sw
+                local function applySwState()
+                    local off = impGlowOff()
+                    sw:SetAlpha(off and 0.15 or 1)
+                    sw:EnableMouse(not off)
+                    if updateSw then updateSw() end
+                end
+                applySwState()
+                EllesmereUI.RegisterWidgetRefresh(applySwState)
+
+                -- Inline cog: Pixel Glow settings
+                EllesmereUI.BuildInlineCog(rgn, {
+                    gap = 6,
+                    tip = "Pixel Glow Settings",
+                    disabled = function()
+                        return impGlowOff() or SValSupported("castbarImportantGlowStyle", 1) ~= 1
+                    end,
+                    disabledTooltip = "This option requires Pixel Glow to be the selected glow type",
+                    title = "Pixel Glow Settings",
+                    rows = {
+                        { type = "slider", label = "Lines", min = 2, max = 16, step = 1,
+                          get = function() return SValSupported("castbarImportantGlowLines", 8) end,
+                          set = function(v) SSetSupported("castbarImportantGlowLines", v) end },
+                        { type = "slider", label = "Thickness", min = 1, max = 4, step = 1,
+                          get = function() return SValSupported("castbarImportantGlowThickness", 2) end,
+                          set = function(v) SSetSupported("castbarImportantGlowThickness", v) end },
+                        -- Stored as the animation period (lower = faster); shown inverted so right = faster.
+                        { type = "slider", label = "Speed", min = 1, max = 8, step = 1,
+                          get = function() return 9 - SValSupported("castbarImportantGlowSpeed", 4) end,
+                          set = function(v) SSetSupported("castbarImportantGlowSpeed", 9 - v) end },
+                        { type = "toggle", label = "Background",
+                          get = function() return SValSupported("castbarImportantGlowBackground", false) == true end,
+                          set = function(v) SSetSupported("castbarImportantGlowBackground", v and true or nil) end },
+                        { type = "colorpicker", label = "Background Color",
+                          get = function()
+                              local c = SValSupported("castbarImportantGlowBackgroundColor", { r = 0, g = 0, b = 0 })
+                              return c.r or 0, c.g or 0, c.b or 0
+                          end,
+                          set = function(r, g, b) SSetSupported("castbarImportantGlowBackgroundColor", { r = r, g = g, b = b }) end,
+                          disabled = function() return SValSupported("castbarImportantGlowBackground", false) ~= true end,
+                          disabledTooltip = "Pixel Glow Background" },
+                    },
+                })
+
+                -- Sync icon: apply glow settings to the other kick unit (target <-> focus)
+                local GLOW_KEYS = { "castbarImportantGlow", "castbarImportantGlowStyle",
+                    "castbarImportantGlowLines", "castbarImportantGlowThickness",
+                    "castbarImportantGlowSpeed", "castbarImportantGlowBackground" }
+                local GLOW_COLOR_KEYS = { "castbarImportantGlowColor", "castbarImportantGlowBackgroundColor" }
+                local function colEq(a, b)
+                    if a and b then return a.r == b.r and a.g == b.g and a.b == b.b end
+                    return a == b
+                end
+                EllesmereUI.BuildSyncIcon({
+                    region  = rgn,
+                    tooltip = "Apply Important Cast Glow to Target and Focus",
+                    onClick = function()
+                        local src = UNIT_DB_MAP[selectedUnit]()
+                        for _, key in ipairs({ "target", "focus" }) do
+                            if key ~= selectedUnit then
+                                local d = UNIT_DB_MAP[key]()
+                                for _, k in ipairs(GLOW_KEYS) do d[k] = src[k] end
+                                for _, k in ipairs(GLOW_COLOR_KEYS) do
+                                    local c = src[k]
+                                    d[k] = c and { r = c.r, g = c.g, b = c.b } or nil
+                                end
+                            end
+                        end
+                        ReloadAndUpdate(); EllesmereUI:RefreshPage()
+                    end,
+                    isSynced = function()
+                        local src = UNIT_DB_MAP[selectedUnit]()
+                        for _, key in ipairs({ "target", "focus" }) do
+                            local d = UNIT_DB_MAP[key]()
+                            for _, k in ipairs(GLOW_KEYS) do
+                                if d[k] ~= src[k] then return false end
+                            end
+                            for _, k in ipairs(GLOW_COLOR_KEYS) do
+                                if not colEq(d[k], src[k]) then return false end
+                            end
+                        end
+                        return true
+                    end,
+                    flashTargets = function() return { rgn } end,
+                })
+            end
+        end
         end   -- close Cast Bar hidden-while-disabled gate
 
         -------------------------------------------------------------------

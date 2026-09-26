@@ -933,7 +933,7 @@ end
 --
 --  Resolution order:
 --    1. Cached spec from lastSpecByChar (reliable across sessions)
---    2. Live GetSpecialization() API (available after ADDON_LOADED for
+--    2. Live C_SpecializationInfo.GetSpecialization() API (available after ADDON_LOADED for
 --       returning characters, may be nil for brand-new characters)
 --
 --  Returns: targetProfileName, resolvedSpecID, charKey  -- or nil if no
@@ -954,9 +954,9 @@ local function ResolveSpecProfile()
 
     -- Fall back to live API if no cached value
     if not resolvedSpecID then
-        local specIdx = GetSpecialization and GetSpecialization()
+        local specIdx = C_SpecializationInfo.GetSpecialization()
         if specIdx and specIdx > 0 then
-            local liveSpecID = GetSpecializationInfo(specIdx)
+            local liveSpecID = C_SpecializationInfo.GetSpecializationInfo(specIdx)
             if liveSpecID then
                 resolvedSpecID = liveSpecID
                 EllesmereUIDB.lastSpecByChar[charKey] = resolvedSpecID
@@ -1409,6 +1409,7 @@ local REFRESH_ADDON_STEPS = {
     end,
     -- Damage Meters
     function() if _G._EDM_Apply then _G._EDM_Apply() end end,
+    function() if EllesmereUI._ThreatMeter then EllesmereUI._ThreatMeter.Apply() end end,
     -- DataBars (bar set + blocks + layout + positions are all per-profile)
     function() if _G._EDB_Apply then _G._EDB_Apply() end end,
     -- Quickdraw (enable state + palette count drive the override bindings),
@@ -2370,7 +2371,7 @@ function EllesmereUI.GetCDMSpecInfo()
     local result = {}
     local numSpecs = GetNumSpecializations and GetNumSpecializations() or 0
     for i = 1, numSpecs do
-        local specID, sName, _, sIcon = GetSpecializationInfo(i)
+        local specID, sName, _, sIcon = C_SpecializationInfo.GetSpecializationInfo(i)
         if specID then
             local key = tostring(specID)
             result[#result + 1] = {
@@ -2956,8 +2957,8 @@ function EllesmereUI.ImportProfile(importStr, profileName)
     -- activating it correct rather than locked.
     local curSpecID
     do
-        local si = GetSpecialization and GetSpecialization() or 0
-        curSpecID = si and si > 0 and GetSpecializationInfo(si) or nil
+        local si = C_SpecializationInfo.GetSpecialization() or 0
+        curSpecID = si and si > 0 and C_SpecializationInfo.GetSpecializationInfo(si) or nil
     end
 
     if payload.type == "full" then
@@ -3724,9 +3725,9 @@ do
         ---------------------------------------------------------------
         --  Resolve the current spec via live API
         ---------------------------------------------------------------
-        local specIdx = GetSpecialization and GetSpecialization() or 0
+        local specIdx = C_SpecializationInfo.GetSpecialization() or 0
         local specID = specIdx and specIdx > 0
-            and GetSpecializationInfo(specIdx) or nil
+            and C_SpecializationInfo.GetSpecializationInfo(specIdx) or nil
 
         if not specID then
             -- Spec info not available yet (common on brand new characters).
@@ -3736,9 +3737,9 @@ do
                 local attempts = 0
                 specRetryTimer = C_Timer.NewTicker(1, function(ticker)
                     attempts = attempts + 1
-                    local idx = GetSpecialization and GetSpecialization() or 0
+                    local idx = C_SpecializationInfo.GetSpecialization() or 0
                     local sid = idx and idx > 0
-                        and GetSpecializationInfo(idx) or nil
+                        and C_SpecializationInfo.GetSpecializationInfo(idx) or nil
                     if sid then
                         ticker:Cancel()
                         specRetryTimer = nil

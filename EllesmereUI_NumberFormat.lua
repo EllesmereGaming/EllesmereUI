@@ -62,6 +62,14 @@ local function CJKBreakpoints(g)
     }
 end
 
+-- EllesmereUI.NumberAbbrevGlyphs(localeCode) -> { thousand, wan, yi } | nil
+--   The ten-thousand-grouping glyphs for localeCode (default: the current effective
+--   locale), nil for K/M/B locales. For modules that build their own breakpoint
+--   table (a fixed decimal count, say) but must show the same units as this engine.
+function EllesmereUI.NumberAbbrevGlyphs(localeCode)
+    return CJK_GLYPHS[localeCode or EllesmereUI.LOCALE]
+end
+
 -- Locale-specific algorithms: [localeCode] -> breakpoint-table builder.
 local localeBuilders = {
     zhCN = function() return CJKBreakpoints(CJK_GLYPHS.zhCN) end,

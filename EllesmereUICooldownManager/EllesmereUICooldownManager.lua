@@ -251,6 +251,23 @@ ns.CDM_SHAPE_MASKS   = CDM_SHAPES.masks
 ns.CDM_SHAPE_BORDERS = CDM_SHAPES.borders
 ns.CDM_SHAPE_ZOOM_DEFAULTS = CDM_SHAPES.zoomDefaults
 ns.CDM_SHAPE_EDGE_SCALES = CDM_SHAPES.edgeScales
+-- Cropped shape, per-bar Adjust Crop (mirrors Nameplates' ns.GetAuraCrop). iconCropPercent is the
+-- per-side trim %, 5-25; unset = 10, which yields exactly the classic fixed crop (height factor
+-- 0.80, 0.10 texcoord trim per side), so bars that never touch it are unchanged. Only called from
+-- "cropped" branches. do/end + ns functions: no new main-chunk locals.
+do
+    local CROP_DEFAULT_PCT = 10
+    local function CropPercent(bd)
+        local pct = tonumber(bd and bd.iconCropPercent) or CROP_DEFAULT_PCT
+        if pct < 5 then pct = 5 elseif pct > 25 then pct = 25 end
+        return pct
+    end
+    ns.CdmCropPercent = CropPercent
+    -- Icon height as a fraction of width.
+    function ns.CdmCropFactor(bd) return 1 - 2 * (CropPercent(bd) / 100) end
+    -- Vertical texcoord trim per side, added on top of the bar's zoom.
+    function ns.CdmCropTrim(bd) return CropPercent(bd) / 100 end
+end
 -- Forward declarations for glow helpers (defined later, used by consolidated helpers)
 local StartNativeGlow, StopNativeGlow
 
@@ -4215,7 +4232,7 @@ local function ComputeCDMBarSize(barData, count)
     local iW = barData.iconSize or 36
     local iH = iW
     if (barData.iconShape or "none") == "cropped" then
-        iH = math.floor((barData.iconSize or 36) * 0.80 + 0.5)
+        iH = math.floor((barData.iconSize or 36) * ns.CdmCropFactor(barData) + 0.5)
     end
     local sp = barData.spacing or 2
     -- EFFECTIVE row count from ComputeTopRowStride: collapses to 1 while a
@@ -4464,7 +4481,7 @@ LayoutCDMBar = function(barKey)
         local curDim = CurHeightDim()
         if targetH > 1 and curDim and curDim > 0 then
             local shape = barData.iconShape or "none"
-            local cropFactor = (shape == "cropped") and 0.80 or 1.0
+            local cropFactor = (shape == "cropped") and ns.CdmCropFactor(barData) or 1.0
             local physTarget = math.floor(targetH / onePx + 0.5)
             -- The match's Extra Height, as for width.
             local mx = EllesmereUI.GetMatchExtra and EllesmereUI.GetMatchExtra("h", ns._cdmUKey[barKey])
@@ -4492,15 +4509,15 @@ LayoutCDMBar = function(barKey)
     if shape == "cropped" then
         if widthMatchApplied then
             -- Width-matched: cropped height from the MATCHED icon width, so the icon keeps the
-            -- same ~0.80 aspect as the non-matched path. Computed in physical px to stay on the
-            -- pixel grid (matched iconW is already a clean pixel multiple). Aspect intent, not exact value: the non-matched branch rounds 0.80 in coord space, so the two can differ 1px at non-perfect scales.
+            -- same crop aspect as the non-matched path. Computed in physical px to stay on the
+            -- pixel grid (matched iconW is already a clean pixel multiple). Aspect intent, not exact value: the non-matched branch rounds the crop factor in coord space, so the two can differ 1px at non-perfect scales.
             local wPx = math.floor(iconW / onePx + 0.5)
-            iconH = math.floor(wPx * 0.80 + 0.5) * onePx
+            iconH = math.floor(wPx * ns.CdmCropFactor(barData) + 0.5) * onePx
         elseif heightMatchIconHPx then
             -- Height-matched: the EXACT basePhysIconH the height-match math computed. MUST match precisely so per-icon height stays in lockstep with the container's extraPixelsH distribution.
             iconH = heightMatchIconHPx * onePx
         else
-            iconH = math.floor((barData.iconSize or 36) * 0.80 + 0.5)
+            iconH = math.floor((barData.iconSize or 36) * ns.CdmCropFactor(barData) + 0.5)
         end
     end
 
@@ -4562,7 +4579,7 @@ LayoutCDMBar = function(barKey)
         local function RowSizePx(sz)
             if sz < 16 then sz = 16 end          -- clamp to the Icon Scale minimum
             local wpx = math.floor(sz / onePx + 0.5)
-            local hCoord = (shape == "cropped") and math.floor(sz * 0.80 + 0.5) or sz
+            local hCoord = (shape == "cropped") and math.floor(sz * ns.CdmCropFactor(barData) + 0.5) or sz
             local hpx = math.floor(hCoord / onePx + 0.5)
             return wpx, hpx
         end
@@ -5176,7 +5193,8 @@ ApplyShapeToCDMIcon = function(icon, shape, barData, ssb)
                 -- the unsnapped cooldown swipe (1px swipe/icon split at some effective scales), so snapping is disabled to render the exact rect. No size change.
                 if tex.SetSnapToPixelGrid then tex:SetSnapToPixelGrid(false) end
                 if tex.SetTexelSnappingBias then tex:SetTexelSnappingBias(0) end
-                tex:SetTexCoord(zoom, 1 - zoom, zoom + 0.10 + extraCrop, 1 - zoom - 0.10 - extraCrop)
+                local trim = ns.CdmCropTrim(barData)
+                tex:SetTexCoord(zoom, 1 - zoom, zoom + trim + extraCrop, 1 - zoom - trim - extraCrop)
             else
                 -- Restore default grid snapping so an icon switched away from cropped stays crisp.
                 if tex.SetSnapToPixelGrid then tex:SetSnapToPixelGrid(true) end
@@ -9935,7 +9953,7 @@ function ECME:CDMFinishSetup()
                             local iconW = barData.iconSize or 36
                             local iconH = iconW
                             if (barData.iconShape or "none") == "cropped" then
-                                iconH = math.floor((barData.iconSize or 36) * 0.80 + 0.5)
+                                iconH = math.floor((barData.iconSize or 36) * ns.CdmCropFactor(barData) + 0.5)
                             end
                             local spacing = barData.spacing or 2
                             local grow = barData.growDirection or "CENTER"

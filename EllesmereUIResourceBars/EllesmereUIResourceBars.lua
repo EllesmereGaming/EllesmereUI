@@ -9776,6 +9776,8 @@ end
 --  GCD Bar
 --  Uses the same detection logic as the cursor GCD Circle
 -------------------------------------------------------------------------------
+-- GCD reference spell: 61304 returns nil on Forever, which uses Classic's 29515
+local GCD_SPELL = EllesmereUI.IS_FOREVER == true and 29515 or 61304
 -- Idle fill render for the GCD bar. Debug-measured on the live client
 -- (2026-08-08): a COMPLETED bar timer keeps painting its finished state --
 -- SetValue(0) read back 0 while the fill still drew full -- so the idle
@@ -9796,7 +9798,7 @@ ns.GCDIdleFill = function(g)
         -- FINISHED object (ElapsedTime of finished paints full, proven);
         -- each side falls back to the other.
         local fresh = C_Spell and C_Spell.GetSpellCooldownDuration
-            and C_Spell.GetSpellCooldownDuration(61304)
+            and C_Spell.GetSpellCooldownDuration(GCD_SPELL)
         local obj
         if wantFull then
             obj = gcdBarFrame._gcdDurObj or fresh
@@ -9874,7 +9876,7 @@ BuildGCDBar = function()
         -- kept on the frame: the idle render re-arms it to repaint (see
         -- ns.GCDIdleFill).
         local function armNativeGCD(bar, deplete)
-            local durObj = C_Spell.GetSpellCooldownDuration(61304)
+            local durObj = C_Spell.GetSpellCooldownDuration(GCD_SPELL)
             if not durObj then return end
             gcdBarFrame._gcdDurObj = durObj
             bar:SetTimerDuration(durObj, nil,
@@ -9888,7 +9890,7 @@ BuildGCDBar = function()
         -- refresh an already-open lifecycle window, never open one --
         -- otherwise random cooldown chatter would flash an empty bar.
         local function captureGCD(self, gc, windowOnly)
-            local cd = getCD and getCD(61304)
+            local cd = getCD and getCD(GCD_SPELL)
             if not cd or not cd.startTime then return end
             -- Engine-true fill, same duration-object push-through as the
             -- action bar swipes: hand the GCD's duration object to the bar
@@ -10015,7 +10017,7 @@ BuildGCDBar = function()
             -- Stop events: clear the bar the moment the GCD is no longer active.
             if event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_INTERRUPTED"
                or event == "UNIT_SPELLCAST_STOP" then
-                local cd = getCD and getCD(61304)
+                local cd = getCD and getCD(GCD_SPELL)
                 local stillActive = false
                 if cd and cd.startTime then
                     local ok, act = pcall(function()

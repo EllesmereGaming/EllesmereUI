@@ -1343,12 +1343,10 @@ local function Hex(r, g, b)
     return format("%02x%02x%02x", floor((r or 1) * 255), floor((g or 1) * 255), floor((b or 1) * 255))
 end
 
+-- Shared number engine: K/M/B, or thousand/wan/yi grouping on koKR/zhCN/zhTW.
 local function Abbrev(v)
     if type(v) ~= "number" then return nil end
-    if v >= 1e9 then return format("%.2fB", v / 1e9) end
-    if v >= 1e6 then return format("%.2fM", v / 1e6) end
-    if v >= 1e3 then return format("%.1fK", v / 1e3) end
-    return format("%d", floor(v))
+    return EllesmereUI.AbbreviateNumber(v)
 end
 
 local function Clock(seconds)

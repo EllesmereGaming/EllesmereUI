@@ -449,7 +449,7 @@ local function BuildFxEffects(frame, sy, fxOwner)
             { type = "slider", text = "Border", min = 0, max = 4, step = 1, trackWidth = 120,
               getValue = function() return e.borderSize or 0 end,
               setValue = function(v) e.borderSize = v; DmApply() end },
-            { type = "slider", text = "Size", min = 0, max = 40, step = 1, trackWidth = 120,
+            { type = "slider", text = "Size", min = 0, max = 80, step = 1, trackWidth = 120,
               getValue = function() return e.size or 0 end,
               setValue = function(v)
                   e.size = (v and v > 0) and v or nil
@@ -742,7 +742,7 @@ local function BuildBaseDetailDM(frame, fontPath)
     -- Row: Size (+ Icon Zoom cog) | Max Debuffs
     local sizeRow
     sizeRow, hh = W:DualRow(frame, sy,
-        { type = "slider", text = "Size", min = 10, max = 40, step = 1, trackWidth = 120,
+        { type = "slider", text = "Size", min = 10, max = 80, step = 1, trackWidth = 120,
           getValue = function() return p.debuffSize or 18 end,
           setValue = function(v) p.debuffSize = v; DmApply() end },
         { type = "slider", text = "Max Debuffs", min = 1, max = 10, step = 1, trackWidth = 120,
@@ -1013,7 +1013,7 @@ local function BuildTileDetail(frame, fontPath, t)
         -- Row: Size (+ Icon Zoom cog) | Max Debuffs
         local sizeRow
         sizeRow, hh = W:DualRow(frame, sy,
-            { type = "slider", text = "Size", min = 10, max = 40, step = 1, trackWidth = 120,
+            { type = "slider", text = "Size", min = 10, max = 80, step = 1, trackWidth = 120,
               getValue = function() return t.size or 18 end,
               setValue = function(v) TSet("size", v) end },
             { type = "slider", text = "Max Debuffs", min = 1, max = 10, step = 1, trackWidth = 120,
