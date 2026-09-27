@@ -431,6 +431,102 @@ local function SkinSpellBookChrome(sb)
     end)
 end
 
+-------------------------------------------------------------------------------
+--  Talent-pane addon buttons (TalentTreeTweaks / TalentLoadoutManager)
+--
+--  Fields on a namespace table, NOT file locals: this chunk sits at Lua's hard
+--  ceiling of 200 locals per function, and a handful more silently kills the
+--  whole file ("main function has more than 200 local variables"). Anything
+--  added here must stay off the top-level local budget.
+-------------------------------------------------------------------------------
+ns.TalentAddonSkin = {}
+
+-- One action button -> house block with a white label. Icons under the usual
+-- keys are kept; a button that is ONLY an icon (no label, no 3-slice frame) is
+-- left alone, since flattening one erases the art it is made of. The label test
+-- can fail on a button not yet populated -- the re-sweeps below catch it later.
+ns.TalentAddonSkin.BTN_KEEP = { "Icon", "icon", "Texture", "texture" }
+function ns.TalentAddonSkin.SkinActionButton(b)
+    if not b or not b.GetObjectType or b:GetObjectType() ~= "Button" then return end
+    if b:IsForbidden() then return end
+    local fs = b.GetFontString and b:GetFontString()
+    local label = fs and fs.GetText and fs:GetText()
+    if not (b.Left and b.Middle and b.Right) and (label == nil or label == "") then return end
+    WSkin.Button(b, ns.TalentAddonSkin.BTN_KEEP)
+    -- StateButtonLabel, not White: these buttons disable themselves (TLM's Save
+    -- is dark unless the selected loadout differs from the current talents), and
+    -- a flat white label leaves a dead button reading as clickable.
+    WSkin.StateButtonLabel(b)
+end
+
+-- Buttons another addon hangs off a Blizzard talent frame under its own
+-- parentKey prefix. Foreign frames are skipped by every discovery sweep
+-- (ButtonsIn & co.), so they are opted in by name here. TalentTreeTweaks adds
+-- the "Import into current loadout" accept button on the import popup and the
+-- link-to-chat button on the talents pane; both would otherwise stay Blizzard-
+-- looking next to our flattened ones.
+function ns.TalentAddonSkin.SkinAddonButtons(frame, prefix)
+    if not frame or frame:IsForbidden() then return end
+    for k, v in pairs(frame) do
+        if type(k) == "string" and k:find(prefix, 1, true) == 1 and not issecretvalue(v) then
+            ns.TalentAddonSkin.SkinActionButton(v)
+        end
+    end
+end
+
+-- TalentLoadoutManager's sidebar on the talents pane. Unlike the TalentTreeTweaks
+-- buttons above there is nothing to name it by: the sidebar is created ANONYMOUS
+-- and is never stored on the talents tab (the addon keeps it on its own module
+-- table), so it is found by its button set instead.
+--
+-- Why ButtonsIn misses these four: they DO carry the 3-slice it keys off, but
+-- each is reachable as an addon-written parentKey on the sidebar, so
+-- IsForeignFrame calls them foreign and the sweep skips them. Naming them here
+-- is the documented opt-in. The sidebar's own background is a TLM color setting,
+-- so it stays untouched.
+ns.TalentAddonSkin.TLM_KEYS = { "CreateButton", "ImportButton", "SaveButton", "ConfigButton" }
+function ns.TalentAddonSkin.FindTLMSidebar(talentsTab)
+    if not talentsTab or not talentsTab.GetChildren or talentsTab:IsForbidden() then return nil end
+    for i = 1, select("#", talentsTab:GetChildren()) do
+        local c = select(i, talentsTab:GetChildren())
+        if c and not c:IsForbidden() then
+            local match = true
+            for _, k in ipairs(ns.TalentAddonSkin.TLM_KEYS) do
+                local b = c[k]
+                if not b or issecretvalue(b) or type(b) ~= "table"
+                   or not b.GetObjectType or b:GetObjectType() ~= "Button" then
+                    match = false
+                    break
+                end
+            end
+            if match then return c end
+        end
+    end
+    return nil
+end
+
+-- ToggleSideBarButton (the collapse arrow beside the sidebar) is an icon button:
+-- its art is the NormalTexture, it has no label. ButtonsIn means to leave those
+-- alone, but cannot tell here -- the button is parented to the TALENTS PANE, not
+-- the sidebar, so no addon-written key points at it, IsForeignFrame passes it,
+-- and its UIPanelButtonTemplate 3-slice makes it look like a plain text button.
+-- Flattening it blanks the arrow, so claim it before the sweep runs: `skinned`
+-- is the flag both ButtonsIn and WSkin.Button honour as "hands off".
+function ns.TalentAddonSkin.ProtectTLMIcons(talentsTab)
+    local bar = ns.TalentAddonSkin.FindTLMSidebar(talentsTab)
+    local tb = bar and bar.ToggleSideBarButton
+    if tb and not issecretvalue(tb) and type(tb) == "table" and tb.GetObjectType then
+        GetFFD(tb).skinned = true
+    end
+end
+
+function ns.TalentAddonSkin.SkinTLMSidebar(talentsTab)
+    local TA = ns.TalentAddonSkin
+    local bar = TA.FindTLMSidebar(talentsTab)
+    if not bar then return end
+    for _, k in ipairs(TA.TLM_KEYS) do TA.SkinActionButton(bar[k]) end
+end
+
 -- Talent loadout popups (import/edit): dark panel + border, white title, house
 -- buttons + inputs. Separate top-level frames created with the PlayerSpells
 -- addon, so skinning sticks on the talent pass even though shown on demand.
@@ -456,13 +552,15 @@ local function SkinTalentDialog(dialog)
         end
     end
     for _, k in ipairs({ "AcceptButton", "CancelButton", "DeleteButton" }) do
-        local b = dialog[k]
-        if b then
-            WSkin.Button(b)
-            local fs = b.GetFontString and b:GetFontString()
-            if fs then WSkin.White(fs) end
-        end
+        ns.TalentAddonSkin.SkinActionButton(dialog[k])
     end
+    -- TalentTreeTweaks builds its replacement accept button when the popup is
+    -- first shown, i.e. after this pass; a debounced re-sweep on each show
+    -- catches it (and any later one) without polling.
+    ns.TalentAddonSkin.SkinAddonButtons(dialog, "TalentTreeTweaks_")
+    WSkin.HookShow(dialog, WSkin.Debounce(function()
+        ns.TalentAddonSkin.SkinAddonButtons(dialog, "TalentTreeTweaks_")
+    end))
     -- Loadout-name input: down 15px, 20px shorter. Top+bottom anchored so
     -- SetHeight is ignored -- move anchors instead (top -15, bottom +5); falls
     -- back to SetHeight when there is no bottom anchor. One-shot.
@@ -491,6 +589,34 @@ local function SkinTalentDialog(dialog)
                 local h = eb:GetHeight()
                 if h and h > 20 then eb:SetHeight(h - 20) end
             end
+        end
+    end
+end
+
+-- TalentLoadoutManager's own import popup, opened by the sidebar's Import
+-- button. Anonymous again and parented to UIParent, so walking the talents pane
+-- cannot reach it -- but it is built on Blizzard's ClassTalentLoadoutDialogTemplate
+-- with the same part names, so SkinTalentDialog fits it unchanged. The handle
+-- comes from the addon's Ace module, the same one that owns the sidebar.
+function ns.TalentAddonSkin.SkinTLMImportDialog()
+    if not LibStub then return end
+    local ace = LibStub("AceAddon-3.0", true)
+    local tlm = ace and ace.GetAddon and ace:GetAddon("TalentLoadoutManager", true)
+    local mod = tlm and tlm.SideBarModule
+    local dialog = mod and mod.importDialog
+    if not dialog or issecretvalue(dialog) or type(dialog) ~= "table"
+       or not dialog.GetObjectType or not dialog.IsForbidden then return end
+    SkinTalentDialog(dialog)
+    -- Import-string box, as on Blizzard's dialog.
+    local ic = dialog.ImportControl
+    if ic and ic.InputContainer then WSkin.Panel(ic.InputContainer) end
+    -- Two extra checkboxes Blizzard's dialog has no equivalent of. Their labels
+    -- are plain child FontStrings (cb.text), not the template's, so white them here.
+    for _, k in ipairs({ "AutoApplyCheckbox", "ImportIntoCurrentLoadoutCheckbox" }) do
+        local cb = dialog[k]
+        if cb then
+            WSkin.Checkbox(cb)
+            if cb.text then WSkin.White(cb.text) end
         end
     end
 end
@@ -535,6 +661,8 @@ local function Skin_PlayerSpells()
         MaxMinGlyph(mm.MinimizeButton, "UI-QuestTrackerButton-Secondary-Collapse")
         MaxMinGlyph(mm.MaximizeButton, "UI-QuestTrackerButton-Secondary-Expand")
     end
+    -- Must precede the flatten sweeps below (and WSkin.ButtonsIn(f) at the end).
+    ns.TalentAddonSkin.ProtectTLMIcons(f.TalentsFrame)
     for _, key in ipairs({ "SpellBookFrame", "TalentsFrame", "InspectFrame" }) do
         local sub = f[key]
         if sub then
@@ -560,6 +688,16 @@ local function Skin_PlayerSpells()
                 -- Tree background is content: exempt from art sweeps, shown at 75%.
                 WSkin.ExemptArt(sub)
                 DimTalentArt(sub)
+                -- Addon buttons on this pane: TalentTreeTweaks' link-to-chat
+                -- button, TalentLoadoutManager's sidebar. Both are built lazily,
+                -- and the pane's own OnShow (tab switch) fires without the window
+                -- showing, so re-sweep there as well as on the window pass.
+                ns.TalentAddonSkin.SkinAddonButtons(sub, "TalentTreeTweaks_")
+                ns.TalentAddonSkin.SkinTLMSidebar(sub)
+                WSkin.HookShow(sub, WSkin.Debounce(function()
+                    ns.TalentAddonSkin.SkinAddonButtons(sub, "TalentTreeTweaks_")
+                    ns.TalentAddonSkin.SkinTLMSidebar(sub)
+                end))
                 -- Search box matches loadout dropdown height (one-shot, retries until laid out).
                 local dd = sub.LoadSystem and sub.LoadSystem.Dropdown
                 local sbx = sub.SearchBox
@@ -643,6 +781,7 @@ local function Skin_PlayerSpells()
         local chk = editD.UsesSharedActionBars and editD.UsesSharedActionBars.CheckButton
         if chk then WSkin.Checkbox(chk) end
     end
+    ns.TalentAddonSkin.SkinTLMImportDialog()
 
     WSkin.ButtonsIn(f)
     WSkin.ScrollBarsIn(f)
