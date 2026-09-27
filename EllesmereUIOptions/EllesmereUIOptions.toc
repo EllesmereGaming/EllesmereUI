@@ -47,5 +47,6 @@ EUI_Quickdraw_Options.lua
 EUI_RaidFrames_ManagerPages.lua
 EUI_RaidFrames_Options.lua
 EUI_ResourceBars_Options.lua
+EUI_ShoppingList_Options.lua
 EUI_UnitFrames_Options.lua
 EUI_PlayerAuraBars_ManagerPages.lua

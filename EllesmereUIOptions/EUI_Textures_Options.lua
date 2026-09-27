@@ -830,6 +830,24 @@ local function TileDamageMeters(parent, y, W, tile)
     return y
 end
 
+local function TileShoppingList(parent, y, W, tile)
+    local ns = NS(tile.folder)
+    if not ns then return DisabledTile(parent, y, W, tile) end
+    local lookup = ns.BarTextures()
+    local values, order = CopyBarDD(ns.BarTextureNames, ns.BarTextureOrder, lookup, false)
+    local _, h = W:DualRow(parent, y,
+        { type = "dropdown", text = "Bar Texture", values = values, order = order,
+          getValue = function() return ns.Get("barTexture") end,
+          setValue = function(v)
+              ns.Set("barTexture", v)
+              ns.ApplyStyle()
+          end },
+        BLANK());  y = y - h
+    y = LinkRow(parent, y, "Window & Bar Border Styles",
+        tile.folder, "Window", nil, "Border Style")
+    return y
+end
+
 local function TileDataBars(parent, y, W, tile)
     local ns = NS(tile.folder)
     if not ns then return DisabledTile(parent, y, W, tile) end
@@ -886,6 +904,7 @@ local TILE_BUILDERS = {
     EllesmereUIMinimap         = { TileMinimap,         "Minimap border style" },
     EllesmereUIChat            = { TileChat,            "Chat background and tab textures" },
     EllesmereUIDamageMeters    = { TileDamageMeters,    "Meter, breakdown and history bar textures" },
+    EllesmereUIShoppingList    = { TileShoppingList,    "List bar texture" },
     EllesmereUIDataBars        = { TileDataBars,        "Per-bar background textures" },
 }
 

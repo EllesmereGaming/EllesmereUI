@@ -4318,6 +4318,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIChat              = "Modern chat enhancements with useful utilities.",
                 EllesmereUIBags              = "A beautiful visual refresh of Blizzard Bags with intuitive organization.",
                 EllesmereUIQuickdraw         = "Hold a key to open a menu of actions; point or scroll to choose, release to fire.",
+                EllesmereUIShoppingList      = "Track recipes and see the reagents you still need to buy or gather.",
             }
 
             local iy = -30
@@ -5849,6 +5850,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIChat              = "Modern chat enhancements with useful utilities.",
                 EllesmereUIBags              = "A beautiful visual refresh of Blizzard Bags with intuitive organization.",
                 EllesmereUIQuickdraw         = "Hold a key to open a menu of actions; point or scroll to choose, release to fire.",
+                EllesmereUIShoppingList      = "Track recipes and see the reagents you still need to buy or gather.",
             }
 
             local SCROLL_MAX_H = 285

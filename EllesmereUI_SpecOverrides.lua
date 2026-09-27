@@ -178,6 +178,7 @@ local FOLDER_BLACKLIST = {
     EllesmereUIQoL               = true,
     EllesmereUIAuraBuffReminders = true,
     EllesmereUIForeverEssentials = true,
+    EllesmereUIShoppingList      = true,
     -- Minimap + Chat + CooldownManager ARE override-eligible; their
     -- spell/engine-coupled settings are excluded per-path via
     -- SETTING_BLACKLIST below (CDM spell data itself lives OUTSIDE the profile
@@ -3405,6 +3406,7 @@ local EXCLUDED_CONTEXTS = {
     ["EllesmereUIQoL"]               = true,   -- whole module
     ["EllesmereUIAuraBuffReminders"] = true,
     ["EllesmereUIForeverEssentials"] = true,
+    ["EllesmereUIShoppingList"]      = true,
     -- CDM: module eligible (bar settings override); these two tabs are
     -- spell/spec-coupled systems with their own per-spec storage.
     ["EllesmereUICooldownManager"] = {

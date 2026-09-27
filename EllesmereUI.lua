@@ -683,6 +683,7 @@ local ADDON_ROSTER = {
     { folder = "EllesmereUIBags",              display = "Bags",                 search_name = "EllesmereUI Bags"                    },
     { folder = "EllesmereUIDataBars",          display = "DataBars",             search_name = "EllesmereUI DataBars"                },
     { folder = "EllesmereUIQuickdraw",         display = "Quickdraw",            search_name = "EllesmereUI Quickdraw"               },
+    { folder = "EllesmereUIShoppingList",      display = "Shopping List",        search_name = "EllesmereUI Shopping List"           },
     { folder = "EllesmereUIPartyMode",         display = "Party Mode",           search_name = "EllesmereUI Party Mode",             alwaysLoaded = true },
 }
 
@@ -713,6 +714,7 @@ EllesmereUI.ADDON_GROUPS = {
             "EllesmereUIAuraBuffReminders",
             "EllesmereUIDataBars",
             "EllesmereUIQuickdraw",
+            "EllesmereUIShoppingList",
             "EllesmereUIPartyMode",
         },
     },
@@ -1307,6 +1309,12 @@ EllesmereUI.RegisterSyncExclusions("EllesmereUIDamageMeters", {
     "dm.windows.*.position",  -- per-window drag position
     "dm.windows.*.width",     -- per-window drag-resize width
     "dm.windows.*.height",    -- per-window drag-resize height
+})
+
+EllesmereUI.RegisterSyncExclusions("EllesmereUIShoppingList", {
+    "position",  -- drag / unlock-mode window position
+    "width",     -- drag-resize width
+    "height",    -- drag-resize height
 })
 
 -- DataBars per-bar geometry lives in the top-level bars array (wildcard shape as ActionBars).
@@ -5178,6 +5186,7 @@ EllesmereUI._addonKeyToFolder = {
     raidFrames   = "EllesmereUIRaidFrames",
     bags         = "EllesmereUIBags",
     quickdraw    = "EllesmereUIQuickdraw",
+    shoppingList = "EllesmereUIShoppingList",
 }
 EllesmereUI._moduleFontCache = {}
 EllesmereUI._moduleFontCacheVer = 0
@@ -11982,6 +11991,7 @@ function EllesmereUI:RegisterModule(folderName, config)
         EllesmereUIDataBars = true,
         EllesmereUIQuickdraw = true,
         EllesmereUIForeverEssentials = true,
+        EllesmereUIShoppingList = true,
     }
     if callerFolder and not ALLOWED[callerFolder] then return end
     -- Suite-core marker (module key is a suite folder), gating the toolbar whitelists:

@@ -62,6 +62,7 @@ local GROUPS = {
             { label = "AuraBuff Reminders",  addon = "EllesmereUIAuraBuffReminders" },
             { label = "DataBars",            addon = "EllesmereUIDataBars" },
             { label = "Quickdraw",           addon = "EllesmereUIQuickdraw" },
+            { label = "Shopping List",       addon = "EllesmereUIShoppingList" },
             -- Cursor Circle is a feature inside the QoL addon (cursor.enabled).
             -- The checkbox here is a front-end shortcut that writes directly to
             -- the QoL profile so users get a sensible default on first install.

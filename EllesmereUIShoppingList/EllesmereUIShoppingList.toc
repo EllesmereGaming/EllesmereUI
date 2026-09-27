@@ -1,0 +1,29 @@
+## Interface: 120000, 120001, 120005, 120007, 120100, 16001
+## Title: |cff0cd29fEllesmereUI|r Shopping List
+## Category: |cff0cd29fEllesmere|rUI
+## Group: EllesmereUI
+## Notes: Track recipes and see the reagents you still need to buy or gather.
+## Author: Ellesmere
+## Version: 9.3
+## Dependencies: EllesmereUI
+## SavedVariables: EllesmereUIShoppingListDB
+## SavedVariablesPerCharacter: EllesmereUIShoppingListCharDB
+## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
+
+# Main Lua (module, settings, per-character list, events)
+EllesmereUIShoppingList.lua
+
+# The list model: tracked recipes, reagent needs and counts
+EllesmereUIShoppingList_Data.lua
+
+# The window
+EllesmereUIShoppingList_Window.lua
+
+# Features
+EllesmereUIShoppingList_Profession.lua
+EllesmereUIShoppingList_Cooldowns.lua
+EllesmereUIShoppingList_Vendor.lua
+EllesmereUIShoppingList_Tooltip.lua
+EllesmereUIShoppingList_AuctionHouse.lua
+
+# Options page lives in the LoadOnDemand EllesmereUIOptions addon.

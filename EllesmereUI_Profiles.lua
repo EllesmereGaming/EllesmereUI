@@ -67,6 +67,7 @@ local ADDON_DB_MAP = {
     { folder = "EllesmereUIChat",             display = "Chat",                svName = "EllesmereUIChatDB",              suffix = "Chat"              },
     { folder = "EllesmereUIDataBars",         display = "DataBars",            svName = "EllesmereUIDataBarsDB",          suffix = "DataBars"          },
     { folder = "EllesmereUIQuickdraw",        display = "Quickdraw",           svName = "EllesmereUIQuickdrawDB",         suffix = "Quickdraw"         },
+    { folder = "EllesmereUIShoppingList",     display = "Shopping List",       svName = "EllesmereUIShoppingListDB",      suffix = "ShoppingList"      },
 }
 EllesmereUI._ADDON_DB_MAP = ADDON_DB_MAP
 
@@ -1409,6 +1410,8 @@ local REFRESH_ADDON_STEPS = {
     end,
     -- Damage Meters
     function() if _G._EDM_Apply then _G._EDM_Apply() end end,
+    -- Shopping List (enable state + feature toggles + window look)
+    function() if _G._ESL_Apply then _G._ESL_Apply() end end,
     -- DataBars (bar set + blocks + layout + positions are all per-profile)
     function() if _G._EDB_Apply then _G._EDB_Apply() end end,
     -- Quickdraw (enable state + palette count drive the override bindings),

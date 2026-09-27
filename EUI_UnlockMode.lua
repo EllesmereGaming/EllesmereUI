@@ -656,6 +656,9 @@ EllesmereUI._ELEMENT_SETTINGS_MAP = {
     ["EDM_CombatTimer"]    = { module = "EllesmereUIDamageMeters",    page = "Damage Meters",     sectionName = "STANDALONE COMBAT TIMER", highlightText = "Standalone Combat Timer" },
     ["EDM_IconHistory"]    = { module = "EllesmereUIDamageMeters",    page = "Spell History",     sectionName = "ICON HISTORY",      highlightText = "Enable Icon History" },
 
+    -- Shopping List: the window's look lives on its Window tab.
+    ["EUI_ShoppingList"]   = { module = "EllesmereUIShoppingList",    page = "Window",            sectionName = "WINDOW",            highlightText = "Border Style" },
+
     -- Raid + Party Frames (separate registered pages/tabs)
     ["RF_RaidFrames"]      = { module = "EllesmereUIRaidFrames",      page = "Raid",              sectionName = "FRAME SIZES",       highlightText = "20 Man Frame Width" },
     ["RF_PartyFrames"]     = { module = "EllesmereUIRaidFrames",      page = "Party",             sectionName = "FRAMES",            highlightText = "Frame Width" },
