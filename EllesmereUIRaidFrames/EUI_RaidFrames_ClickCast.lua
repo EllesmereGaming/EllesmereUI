@@ -875,7 +875,15 @@ local function BuildBaseMacroText(binding)
             -- /cast resolves by localized name; hardcoded English sp.name would
             -- silently fail on non-English clients. Fall back to sp.name only if
             -- the API is unavailable/empty.
-            local castName = (C_Spell.GetSpellName and C_Spell.GetSpellName(sp.id)) or sp.name
+            local castID = sp.id
+            if sp.pet and C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID
+                and C_UnitAuras.GetPlayerAuraBySpellID(196099) then
+                -- A sacrificed demon has no pet action for Singe Magic. Command
+                -- Demon remains the player-cast entry point and dispatches to the
+                -- sacrificed Imp's command when it is used.
+                castID = 119898
+            end
+            local castName = (C_Spell.GetSpellName and C_Spell.GetSpellName(castID)) or sp.name
             lines[#lines + 1] = "/cast [@mouseover,exists,nodead" .. guard .. "] " .. castName
         end
         if #lines == 0 then return nil end
