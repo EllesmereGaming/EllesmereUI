@@ -6010,20 +6010,7 @@ local function RefreshCDMIconAppearance(barKey)
 
         -- Update keybind text style
         if kbText then
-            EllesmereUI.ApplyIconTextFont(kbText, GetCDMFont(), (barData.keybindSize or 10) * fontScale, "cdm")
-            kbText:ClearAllPoints()
-            -- Scale-compensate the offset so it's visually consistent across icons with different Blizzard-assigned scales.
-            local kbX = (barData.keybindOffsetX or 2) * fontScale
-            local kbY = (barData.keybindOffsetY or -2) * fontScale
-            -- "right" alignment: anchor top-right and grow left (offset mirrored).
-            if barData.keybindAlign == "right" then
-                kbText:SetJustifyH("RIGHT")
-                kbText:SetPoint("TOPRIGHT", txOverlay, "TOPRIGHT", -kbX, kbY)
-            else
-                kbText:SetJustifyH("LEFT")
-                kbText:SetPoint("TOPLEFT", txOverlay, "TOPLEFT", kbX, kbY)
-            end
-            kbText:SetTextColor(barData.keybindR or 1, barData.keybindG or 1, barData.keybindB or 1, barData.keybindA or 0.9)
+            ns.StyleCDMKeybind(kbText, barData, txOverlay, fontScale, GetCDMFont())
         end
 
         -- Apply custom shape (overrides border/zoom set above). Pass the resolved per-icon
@@ -7827,6 +7814,7 @@ local function ApplyCachedKeybinds()
                 else
                     kbText:Hide()
                 end
+                ns.RefreshCDMKeybindBadge(kbText, bd)
             end
         end
     end

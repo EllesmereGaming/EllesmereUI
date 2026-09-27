@@ -11,6 +11,7 @@
 
 # Main Lua
 EllesmereUICooldownManager.lua
+EllesmereUICdmKeybindStyle.lua
 EllesmereUICdmHooks.lua
 EllesmereUICdmSpellPicker.lua
 EllesmereUICdmBarGlows.lua

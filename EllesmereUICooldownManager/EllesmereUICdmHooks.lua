@@ -3227,13 +3227,8 @@ local function DecorateFrame(frame, barData)
         local kt = fd.textOverlay:CreateFontString(nil, "OVERLAY")
         local kbScale = frame:GetScale() or 1
         if kbScale < 0.01 then kbScale = 1 end
-        EllesmereUI.ApplyIconTextFont(kt, GetCDMFont(), (barData.keybindSize or 10) / kbScale, "cdm")
-        kt:SetPoint("TOPLEFT", fd.textOverlay, "TOPLEFT",
-            barData.keybindOffsetX or 2, barData.keybindOffsetY or -2)
-        kt:SetJustifyH("LEFT")
-        kt:SetTextColor(barData.keybindR or 1, barData.keybindG or 1,
-            barData.keybindB or 1, barData.keybindA or 0.9)
         kt:Hide()
+        ns.StyleCDMKeybind(kt, barData, fd.textOverlay, 1 / kbScale, GetCDMFont())
         fd.keybindText = kt
     end
 
