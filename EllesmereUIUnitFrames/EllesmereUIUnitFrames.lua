@@ -237,6 +237,7 @@ local defaults = {
             powerBgPowerColored = false,
             powerPercentTextPowerColor = false,
             manaRegenSpark = false,  -- WoW Forever: mana regen spark (5s rule) while the bar shows mana
+            continuousEnergy = false,  -- WoW Forever: use frequent power events for the player Energy bar
             healthClassColored = true,
             customBgColor = { r = 0.067, g = 0.067, b = 0.067 },
             bgClassColored = false,
@@ -3045,7 +3046,7 @@ do
     -- reads the unit's target, so the name and level zones sit it out.
     local VALUE_EVENTS = {
         UNIT_HEALTH = true, UNIT_MAXHEALTH = true, UNIT_MAX_HEALTH_MODIFIERS_CHANGED = true,
-        UNIT_POWER_UPDATE = true, UNIT_MAXPOWER = true, UNIT_DISPLAYPOWER = true,
+        UNIT_POWER_UPDATE = true, UNIT_POWER_FREQUENT = true, UNIT_MAXPOWER = true, UNIT_DISPLAYPOWER = true,
         UNIT_ABSORB_AMOUNT_CHANGED = true, UNIT_HEAL_ABSORB_AMOUNT_CHANGED = true,
         UNIT_TARGET = true,
         Resettle = true, EUI_AbsorbEnd = true, EUI_AbsorbBelt = true,
@@ -12382,6 +12383,10 @@ ReloadFramesBody = function()
     -- Refresh the tag-readable decimal globals before the combat early-return so
     -- tags pick up the saved state at login and on any settings change.
     ns.ApplyTextDecimalGlobals()
+    local _, playerClass = UnitClass("player")
+    ns.Engine.SetChannelOn(frames.player, "energy",
+        EllesmereUI.IS_FOREVER == true and (playerClass == "ROGUE" or playerClass == "DRUID")
+        and db.profile.player.continuousEnergy == true)
     if InCombatLockdown() then
         return
     end

@@ -105,6 +105,7 @@ local OPTIN_EVENTS = {
     healpred = { "UNIT_HEAL_PREDICTION", "UNIT_MAXHEALTH",
                  "UNIT_HEAL_ABSORB_AMOUNT_CHANGED", "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" },
     absglow  = { "UNIT_HEALTH" },
+    energy   = { "UNIT_POWER_FREQUENT" },
 }
 
 -- Events consumed by the castbar channel; routed raw (event identity matters
@@ -459,6 +460,20 @@ local function Paint(frame, channel, event)
         stamps[channel] = gen
     end
     fn(frame, frame._euiUnit, event)
+end
+
+-- The frequent event is registered only for an opted-in player frame. Druid
+-- forms and the Forever power override can change the displayed power type.
+painters.energy = function(frame, unit, event)
+    if event ~= "UNIT_POWER_FREQUENT" or unit ~= "player"
+        or not (frame.Power and frame.Power:IsShown()) then return end
+    local power = frame.Power
+    local powerType = power.displayAltPower and power.GetDisplayPower
+        and power:GetDisplayPower(unit) or UnitPowerType(unit)
+    if issecretvalue and issecretvalue(powerType) then return end
+    if powerType ~= (Enum and Enum.PowerType and Enum.PowerType.Energy or 3) then return end
+    Paint(frame, "power", event)
+    Paint(frame, "text", event)
 end
 
 -- Full repaint of every attached channel on one frame (identity changes:

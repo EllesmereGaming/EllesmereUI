@@ -10008,9 +10008,9 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
         if selectedUnit == "player" and EllesmereUI.IS_FOREVER == true then
-            -- Mana Regen Spark (EllesmereUI_ManaRegenSpark.lua), the section's
-            -- last row; warriors and rogues get no spark engine, so no row. A
-            -- druid's Power Type shares it: one choice for every form, stored
+            -- Mana Regen Spark (EllesmereUI_ManaRegenSpark.lua); warriors and
+            -- rogues get no spark engine, so no row. A druid's Power Type
+            -- shares it: one choice for every form, stored
             -- under a string key so it can never meet a retail spec ID in the
             -- table.
             local sparkCfg = { type="toggle", text="Mana Regen Spark",
@@ -10041,6 +10041,14 @@ initFrame:SetScript("OnEvent", function(self)
                     sparkCfg);  y = y - h
             elseif EllesmereUI.ManaRegenSpark then
                 _, h = W:DualRow(parent, y, sparkCfg, EllesmereUI.BlankRowCfg());  y = y - h
+            end
+            if playerClass == "ROGUE" or playerClass == "DRUID" then
+                _, h = W:DualRow(parent, y,
+                    { type="toggle", text="Continuous Energy Updates",
+                      tooltip="Uses frequent power events to update the player Energy bar and power text. For druids, this runs only while the bar shows Energy.",
+                      getValue=function() return SVal("continuousEnergy", false) == true end,
+                      setValue=function(v) SSet("continuousEnergy", v) end },
+                    { type="label", text="" });  y = y - h
             end
         end
 
