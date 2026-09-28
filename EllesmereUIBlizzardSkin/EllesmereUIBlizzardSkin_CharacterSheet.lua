@@ -3410,6 +3410,9 @@ local function SkinCharacterSheet()
     hooksecurefunc("PaperDollFrame_UpdateSidebarTabs", SyncTopButtons)
     SyncTopButtons()
 
+    -- Reload-bound: disabling the equipment style installs only the original
+    -- character sheet integration, with no custom rows, actions or blocker.
+    if EllesmereUIDB and EllesmereUIDB.charSheetEquipmentDisplayStyle == true then
     -- Preserve the list's height and compensate its scaled artwork/fonts.
     -- Width changes can build Blizzard's equipment rows, so perform them in
     -- a restricted secure snippet (the same pattern as Inspect's positioner).
@@ -3422,7 +3425,7 @@ local function SkinCharacterSheet()
     -- Blizzard already separates rows by 2 units. Inset their artwork to
     -- preserve a visible 2px gap after scaling, without resizing native rows.
     local EM_ROW_INSET = (2 / EM_SCALE - 2) / 2
-    local equipmentToolbarLine
+    local equipmentToolbarLine, equipmentBackdropClip
     local function PaintEquipmentToolbar(btn)
         if not btn then return end
         local label = btn:GetFontString()
@@ -3451,6 +3454,18 @@ local function SkinCharacterSheet()
             -- remains visible if its width must wait until combat ends.
             emPane.ScrollBox:ClearAllPoints()
             emPane.ScrollBox:SetPoint("TOPLEFT", emPane, "TOPLEFT", 0, -22 / EM_SCALE)
+
+            -- Backdrops use a sibling clipping layer: the native ScrollBox
+            -- clips children to its narrower width until combat ends. Follow
+            -- its vertical bounds without measuring or resizing the list.
+            equipmentBackdropClip = CreateFrame("Frame", nil, emPane)
+            equipmentBackdropClip:SetFrameLevel(emPane:GetFrameLevel())
+            equipmentBackdropClip:EnableMouse(false)
+            equipmentBackdropClip:SetClipsChildren(true)
+            equipmentBackdropClip:SetPoint("TOPLEFT", emPane.ScrollBox, "TOPLEFT", 0, 0)
+            equipmentBackdropClip:SetPoint("BOTTOMLEFT", emPane.ScrollBox, "BOTTOMLEFT", 0, 0)
+            equipmentBackdropClip:SetWidth(EM_WIDTH / EM_SCALE)
+
             local function ApplyEquipmentListWidth()
                 if InCombatLockdown() then return false end
                 if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return true end
@@ -3477,6 +3492,80 @@ local function SkinCharacterSheet()
                     if ApplyEquipmentListWidth() then self:UnregisterAllEvents() end
                 end)
             end
+
+            -- Blocking defaults on within the opt-in equipment style. An
+            -- explicit false keeps the user's choice across master toggles.
+            if EllesmereUIDB.charSheetEquipmentBlockedInCombat ~= false then
+            -- Match the options panel's synced-section overlay. Only this
+            -- addon-owned frame consumes input; native handlers stay intact.
+            local combatBlock = CreateFrame("Frame", nil, emPane)
+            combatBlock:Hide()
+            combatBlock:SetFrameLevel(emPane:GetFrameLevel() + 50)
+            combatBlock:SetPoint("TOPLEFT", emPane, "TOPLEFT", 0, 0)
+            combatBlock:SetPoint("BOTTOMLEFT", emPane.ScrollBox, "BOTTOMLEFT", 0, 0)
+            combatBlock:SetWidth(190 / EM_SCALE)
+            combatBlock:EnableMouse(true)
+            combatBlock:EnableMouseWheel(true)
+            combatBlock:SetScript("OnMouseWheel", function() end)
+            -- Align the visible edge with the season shortcuts' 10px right
+            -- inset, while the input shield still covers the scrollbar gutter.
+            local blockPanel = CreateFrame("Frame", nil, combatBlock)
+            blockPanel:SetPoint("TOPLEFT", combatBlock, "TOPLEFT", 0, 0)
+            blockPanel:SetPoint("BOTTOMRIGHT", combatBlock, "BOTTOMRIGHT", -5 / EM_SCALE, 0)
+            local blockBG = blockPanel:CreateTexture(nil, "BACKGROUND")
+            blockBG:SetAllPoints()
+            blockBG:SetColorTexture(13 / 255, 17 / 255, 25 / 255, 0.98)
+            if EM_PP then EM_PP.CreateBorder(blockPanel, 1, 0.82, 0.25, 1, 2, "OVERLAY", 7) end
+            local blockLabel = blockPanel:CreateFontString(nil, "OVERLAY")
+            blockLabel:SetFont(fontPath, 13 / EM_SCALE, "")
+            blockLabel:SetPoint("LEFT", blockPanel, "LEFT", 8 / EM_SCALE, 0)
+            blockLabel:SetPoint("RIGHT", blockPanel, "RIGHT", -8 / EM_SCALE, 0)
+            blockLabel:SetJustifyH("CENTER")
+            blockLabel:SetTextColor(1, 1, 1, 0.56)
+            blockLabel:SetText(L("Unavailable in combat"))
+
+            -- Fade instead of hiding the native scrollbar: visibility changes
+            -- can relayout the list. Restore its original alpha on every exit.
+            local scrollbar = emPane.ScrollBar
+            if scrollbar then
+                local scrollbarAlpha
+                combatBlock:SetScript("OnShow", function()
+                    scrollbarAlpha = scrollbar:GetAlpha()
+                    scrollbar:SetAlpha(0)
+                end)
+                combatBlock:SetScript("OnHide", function()
+                    if scrollbarAlpha ~= nil then
+                        scrollbar:SetAlpha(scrollbarAlpha)
+                        scrollbarAlpha = nil
+                    end
+                end)
+            end
+
+            local function UpdateEquipmentCombatBlock(inCombat)
+                if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then
+                    combatBlock:UnregisterAllEvents()
+                    combatBlock:Hide()
+                    return
+                end
+                combatBlock:SetShown(inCombat)
+            end
+            local function WatchEquipmentCombat()
+                combatBlock:RegisterEvent("PLAYER_REGEN_DISABLED")
+                combatBlock:RegisterEvent("PLAYER_REGEN_ENABLED")
+                UpdateEquipmentCombatBlock(InCombatLockdown())
+            end
+            combatBlock:SetScript("OnEvent", function(_, event)
+                -- Combat-start dispatch precedes lockdown; use the event's
+                -- state instead of querying InCombatLockdown() during it.
+                UpdateEquipmentCombatBlock(event == "PLAYER_REGEN_DISABLED")
+            end)
+            emPane:HookScript("OnShow", WatchEquipmentCombat)
+            emPane:HookScript("OnHide", function()
+                combatBlock:UnregisterAllEvents()
+                combatBlock:Hide()
+            end)
+            if emPane:IsShown() then WatchEquipmentCombat() end
+            end -- charSheetEquipmentBlockedInCombat
         end
         if WSkin then
             for _, btn in ipairs({ emPane.EquipSet, emPane.SaveSet }) do
@@ -3563,15 +3652,15 @@ local function SkinCharacterSheet()
         if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
         local d = GetFFD(button)
         if not d.equipmentBackground then return end
-        d.equipmentBackground:SetColorTexture(1, 1, 1, selected and EM_ROW_ACTIVE_ALPHA or EM_ROW_ALPHA)
-        if button.HighlightBar then
-            -- Hover reaches the selected shade; it never stacks on top of it.
-            button.HighlightBar:SetAlpha(selected and 0 or (EM_ROW_ACTIVE_ALPHA - EM_ROW_ALPHA) / (1 - EM_ROW_ALPHA))
-        end
+        d.equipmentBackdrop:SetShown(button.setID ~= nil and button:IsShown())
+        -- A single fill keeps hover and selection at the same brightness.
+        local active = selected or button:IsMouseOver()
+        d.equipmentBackground:SetColorTexture(1, 1, 1, active and EM_ROW_ACTIVE_ALPHA or EM_ROW_ALPHA)
     end
     local SET_ROW_ART = { "BgTop", "BgMiddle", "BgBottom", "Stripe", "SpecRing", "Check" }
     local function SkinEquipmentSetRow(button)
         if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
+        if not equipmentBackdropClip then return end
         for i = 1, #SET_ROW_ART do
             local region = button[SET_ROW_ART[i]]
             if region then region:SetAlpha(0) end
@@ -3579,9 +3668,28 @@ local function SkinCharacterSheet()
         local EG = GetCategoryColor("Attributes")
         local d = GetFFD(button)
         if not d.equipmentStatus then
-            d.equipmentBackground = button:CreateTexture(nil, "BACKGROUND")
-            d.equipmentBackground:SetPoint("TOPLEFT", button, "TOPLEFT", 0, -EM_ROW_INSET)
-            d.equipmentBackground:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 0, EM_ROW_INSET)
+            d.equipmentBackdrop = CreateFrame("Frame", nil, equipmentBackdropClip)
+            d.equipmentBackdrop:SetFrameLevel(button:GetFrameLevel() - 1)
+            d.equipmentBackdrop:EnableMouse(false)
+            d.equipmentBackdrop:SetPoint("TOPLEFT", button, "TOPLEFT", 0, -EM_ROW_INSET)
+            d.equipmentBackdrop:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", 0, EM_ROW_INSET)
+            -- Blizzard's view has 3 units of left padding; end at the toolbar.
+            d.equipmentBackdrop:SetWidth(EM_WIDTH / EM_SCALE - 3)
+            d.equipmentBackground = d.equipmentBackdrop:CreateTexture(nil, "BACKGROUND")
+            d.equipmentBackground:SetAllPoints(d.equipmentBackdrop)
+
+            local function RefreshBackdrop()
+                PaintEquipmentSetSelection(button, button.SelectedBar and button.SelectedBar:IsShown())
+            end
+            button:HookScript("OnEnter", RefreshBackdrop)
+            button:HookScript("OnLeave", RefreshBackdrop)
+            button:HookScript("OnShow", RefreshBackdrop)
+            button:HookScript("OnHide", function() d.equipmentBackdrop:Hide() end)
+            -- Moving between a row and its action buttons must keep the fill.
+            for _, action in ipairs({ button.EditButton, button.DeleteButton }) do
+                action:HookScript("OnEnter", RefreshBackdrop)
+                action:HookScript("OnLeave", RefreshBackdrop)
+            end
 
             -- Stack the 12px name and 10px status in one compact block.
             -- Font line boxes already include leading; an extra gap makes
@@ -3638,13 +3746,7 @@ local function SkinCharacterSheet()
             selected:SetAlpha(a)
         end
         local hover = button.HighlightBar
-        if hover then
-            hover:ClearAllPoints()
-            hover:SetAllPoints(d.equipmentBackground)
-            hover:SetDrawLayer("BACKGROUND", 1)
-            hover:SetColorTexture(1, 1, 1, 1)
-            hover:SetBlendMode("BLEND")
-        end
+        if hover then hover:SetAlpha(0) end
         PaintEquipmentSetSelection(button, isSet and selected and selected:IsShown())
         -- Blizzard recycles the New Set row into saved sets (and back).
         -- Its stock plus stays hidden; saved sets regain their cropped icon.
@@ -3739,6 +3841,58 @@ local function SkinCharacterSheet()
     RefreshEquipmentColors()
     EllesmereUI.RegAccent({ type = "callback", fn = RefreshEquipmentColors })
     hooksecurefunc(EllesmereUI, "_refreshCharacterSheetColors", RefreshEquipmentColors)
+    else
+        -- Original equipment pane presentation. Preserve native list geometry;
+        -- moving/scaling the pane keeps it inside the themed character sheet.
+        local emPane = _G.PaperDollFrame and _G.PaperDollFrame.EquipmentManagerPane
+        if emPane then
+            local EM_PANE_SCALE = 0.85
+            emPane:SetScale(EM_PANE_SCALE)
+            emPane:ClearAllPoints()
+            emPane:SetPoint("TOPLEFT", statsPanel, "TOPLEFT", 0, -27 / EM_PANE_SCALE)
+            emPane:SetFrameLevel(statsPanel:GetFrameLevel() + 1)
+            if emPane.ScrollBox then
+                emPane.ScrollBox:ClearAllPoints()
+                emPane.ScrollBox:SetPoint("TOPLEFT", emPane, "TOPLEFT", 0, -23)
+            end
+        end
+
+        local SET_ROW_ART = { "BgTop", "BgMiddle", "BgBottom" }
+        hooksecurefunc("PaperDollEquipmentManagerPane_InitButton", function(button)
+            if EllesmereUIDB and (EllesmereUIDB.themedCharacterSheet == false or EllesmereUI.BlizzWindowSkinsKilled()) then return end
+            for i = 1, #SET_ROW_ART do
+                local region = button[SET_ROW_ART[i]]
+                if region then region:SetAlpha(0) end
+            end
+            local stripe = button.Stripe
+            if stripe then
+                stripe:SetColorTexture(1, 1, 1, 1)
+                stripe:SetAlpha(0.04)
+                stripe:Show()
+            end
+            local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.51, g = 0.784, b = 1 }
+            local selected = button.SelectedBar
+            if selected then
+                selected:SetColorTexture(EG.r, EG.g, EG.b, 1)
+                selected:SetBlendMode("BLEND")
+                selected:SetAlpha(0.2)
+            end
+            local hover = button.HighlightBar
+            if hover then
+                hover:SetColorTexture(1, 1, 1, 1)
+                hover:SetBlendMode("BLEND")
+                hover:SetAlpha(0.08)
+            end
+            local label = button.text
+            if label then
+                label:SetFont(fontPath, 11, "")
+                if button.setID then
+                    local _, _, _, _, _, _, _, numLost = C_EquipmentSet.GetEquipmentSetInfo(button.setID)
+                    if (numLost or 0) == 0 then label:SetTextColor(1, 1, 1, 1) end
+                end
+            end
+        end)
+    end -- charSheetEquipmentDisplayStyle
 
     -- Calc tab is created lazily by ApplyCharSheetCalcTab when showCalcButton is on.
     if EllesmereUI.ApplyCharSheetCalcTab then

@@ -1339,10 +1339,41 @@ initFrame:SetScript("OnEvent", function(self)
         if not stockSheet then
             _, h = WSCardSection(parent, "EQUIPMENT DISPLAY", y);  y = y - h
 
+            local function equipmentStyleOff()
+                return themedOff() or not (EllesmereUIDB and EllesmereUIDB.charSheetEquipmentDisplayStyle == true)
+            end
+            local function equipmentDisabledTooltip()
+                return themedOff() and "Character Sheet" or "Equipment Display Style"
+            end
+            local function SetEquipmentDisplayToggle(key, value)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB[key] = value
+                EllesmereUI:ShowConfirmPopup({
+                    title       = "Reload Required",
+                    message     = "Equipment display settings require a UI reload to apply.",
+                    confirmText = "Reload Now",
+                    cancelText  = "Later",
+                    reload      = true,
+                })
+                EllesmereUI:RefreshPage()
+            end
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Equipment Display Style",
+                  tooltip="Apply the custom equipment-set layout, row styling, action icons, scrollbar and colors. Requires a UI reload.",
+                  disabled=themedOff, disabledTooltip="Character Sheet",
+                  getValue=function() return EllesmereUIDB and EllesmereUIDB.charSheetEquipmentDisplayStyle == true end,
+                  setValue=function(v) SetEquipmentDisplayToggle("charSheetEquipmentDisplayStyle", v) end },
+                { type="toggle", text="Equipment Blocked in Combat",
+                  tooltip="Show a blocking overlay over the equipment controls and set list during combat. Defaults on while Equipment Display Style is enabled. Requires a UI reload.",
+                  disabled=equipmentStyleOff, disabledTooltip=equipmentDisabledTooltip,
+                  getValue=function() return not EllesmereUIDB or EllesmereUIDB.charSheetEquipmentBlockedInCombat ~= false end,
+                  setValue=function(v) SetEquipmentDisplayToggle("charSheetEquipmentBlockedInCombat", v) end }
+            );  y = y - h
+
             _, h = W:DualRow(parent, y,
                 { type="colorpicker", text="Select Indicator Color", hasAlpha=true,
                   tooltip="Color and opacity of the selection indicator beside the selected equipment set.",
-                  disabled=themedOff, disabledTooltip="Character Sheet",
+                  disabled=equipmentStyleOff, disabledTooltip=equipmentDisabledTooltip,
                   getValue=function()
                       return ns.GetCharSheetEquipmentColor("charSheetSelectIndicatorColor", 0.85)
                   end,
@@ -1353,7 +1384,7 @@ initFrame:SetScript("OnEvent", function(self)
                   end },
                 { type="colorpicker", text="Equipped Status Color", hasAlpha=true,
                   tooltip="Color and opacity of the icon border and Equipped text for equipped sets.",
-                  disabled=themedOff, disabledTooltip="Character Sheet",
+                  disabled=equipmentStyleOff, disabledTooltip=equipmentDisabledTooltip,
                   getValue=function()
                       return ns.GetCharSheetEquipmentColor("charSheetEquippedStatusColor", 1)
                   end,
@@ -3362,6 +3393,8 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.charSheetDurabilityLocation = nil
                 EllesmereUIDB.charSheetDurabilityShowLabel = nil
                 EllesmereUIDB.statCategoryColors = nil
+                EllesmereUIDB.charSheetEquipmentDisplayStyle = nil
+                EllesmereUIDB.charSheetEquipmentBlockedInCombat = nil
                 EllesmereUIDB.charSheetSelectIndicatorColor = nil
                 EllesmereUIDB.charSheetEquippedStatusColor = nil
                 EllesmereUIDB.statSectionsOrder = nil

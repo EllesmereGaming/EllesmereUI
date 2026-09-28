@@ -2012,6 +2012,7 @@ do
     add({
         -- Character Sheet card
         "statCategoryColors", "statCategoryUseColor", "statSectionsOrder",
+        "charSheetEquipmentDisplayStyle", "charSheetEquipmentBlockedInCombat",
         "charSheetSelectIndicatorColor", "charSheetEquippedStatusColor",
         "showMythicRating", "showItemLevel", "showUpgradeTrack", "showGems",
         "showEnchants", "showPvpItemLevel", "charSheetSocketPanel", "charSheetSeasonPanel",
