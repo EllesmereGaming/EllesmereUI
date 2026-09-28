@@ -443,6 +443,11 @@ local defaults = {
             showSolo = true,
             barVisibility = "always",
             showWhenHealthMissing = false,
+            missingSolo = false,       -- "Missing Power: Solo" scenario reveal (off by default)
+            missingParty = false,      -- "Missing Power: In Party"
+            missingRaid = false,       -- "Missing Power: In Raid Group"
+            missingInstances = false,  -- "Missing Power: Instances"
+            missingDungeons = false,   -- "Missing Power: Dungeons"
             oocFadeEnabled = false,  -- "Fade Out of Combat" toggle (off by default)
             oocAlpha       = 0.5,    -- whole-frame alpha while out of combat
             visHideHousing = false,
@@ -660,6 +665,8 @@ local defaults = {
             showSolo = true,
             barVisibility = "always",
             showWhenHealthMissing = false,
+            showWhenPowerMissing = false,  -- "Show When Power Missing" toggle (off by default)
+            powerMissingMode = "mana",     -- "mana" | "any" (rage reads inverted: zero rage is full)
             oocFadeEnabled = false,  -- "Fade Out of Combat" toggle (off by default)
             oocAlpha       = 0.5,    -- whole-frame alpha while out of combat
             visHideHousing = false,
@@ -1061,6 +1068,8 @@ local defaults = {
             showSolo = true,
             barVisibility = "always",
             showWhenHealthMissing = false,
+            showWhenPowerMissing = false,  -- "Show When Power Missing" toggle (off by default)
+            powerMissingMode = "mana",     -- "mana" | "any" (rage reads inverted: zero rage is full)
             oocFadeEnabled = false,  -- "Fade Out of Combat" toggle (off by default)
             oocAlpha       = 0.5,    -- whole-frame alpha while out of combat
             visHideHousing = false,
@@ -14741,7 +14750,7 @@ function ns.ResolveVisResting(s, frame, ext, hiddenByOpts, inCombat)
     if vis == "never" then return 0, false end
     if vis == "in_combat" then return inCombat and shownAlpha or 0, false end
     if vis == "out_of_combat" then return (not inCombat) and shownAlpha or 0, false end
-    if s.showWhenHealthMissing then
+    if s.showWhenHealthMissing or ns.MissingPowerConfigured(s) then
         if vis == "in_raid" then return IsInRaid() and shownAlpha or 0, false end
         if vis == "in_party" then return (IsInGroup() and not IsInRaid()) and shownAlpha or 0, false end
         if vis == "solo" then return (not IsInGroup()) and shownAlpha or 0, false end
@@ -14778,9 +14787,10 @@ function ns.VisMouseoverWired(s)
     return (EllesmereUI.VisOverrideValue(s)) == "mouseover"
 end
 
--- Health visibility is a display-only reveal. The curve result is always secret
--- (UnitHealthPercent returns secrets): hand it directly to alpha setters, never
--- use it as a Lua condition. Those frames' GetAlpha then reads secret too.
+-- Health and power visibility are display-only reveals. Curve results are always
+-- secret (UnitHealthPercent/UnitPowerPercent return secrets): hand them directly
+-- to alpha arithmetic, never use them as a Lua condition. Those frames' GetAlpha
+-- then reads secret too.
 function ns.HealthVisibilityEnabled(s, frame)
     if not s or not s.showWhenHealthMissing or not frame then return false end
     local unit = frame._euiUnit
@@ -14790,41 +14800,163 @@ function ns.HealthVisibilityEnabled(s, frame)
     return (override or s.barVisibility or "always") ~= "never"
 end
 
+-- Player scenario rows for the power reveal. Each row is a checkbox that
+-- reveals on missing power while its condition matches; the first matching row
+-- wins (display order), so an overlap like a dungeon party resolves to the
+-- higher row. The probes are the visibility engine's own (clean values).
+local MISSING_POWER_ROWS = {
+    { key = "missingSolo",      match = function() return not IsInGroup() end },
+    { key = "missingParty",     match = function() return IsInGroup() and not IsInRaid() end },
+    { key = "missingRaid",      match = function() return IsInRaid() end },
+    { key = "missingInstances", match = function() return EllesmereUI.IsInInstancedContent() end },
+    { key = "missingDungeons",  match = function() return EllesmereUI.IsInDungeon() end },
+}
+
+-- Setting-level truth: is any Missing Power scenario checked at all? Location
+-- independent, so it drives event registration and the cheap pre-checks; the
+-- per-scenario verdict lives in PowerVisibilityEnabled below.
+function ns.MissingPowerConfigured(s)
+    if not s then return false end
+    for _, row in ipairs(MISSING_POWER_ROWS) do
+        if s[row.key] == true then return true end
+    end
+    return false
+end
+
+-- Power twin of HealthVisibilityEnabled. Target and focus gate on their own
+-- toggle; the player runs the scenario resolver above instead.
+function ns.PowerVisibilityEnabled(s, frame)
+    if not s or not frame then return false end
+    local unit = frame._euiUnit
+    if unit == "player" then
+        if not ns.MissingPowerConfigured(s) then return false end
+        local override = EllesmereUI.VisOverrideValue(s)
+        if (override or s.barVisibility or "always") == "never" then return false end
+        for _, row in ipairs(MISSING_POWER_ROWS) do
+            if s[row.key] == true and row.match() then return true end
+        end
+        return false
+    end
+    if not s.showWhenPowerMissing then return false end
+    if unit ~= "target" and unit ~= "focus" then return false end
+    if ns.VisUnitDisabled(db.profile, unit) then return false end
+    local override = EllesmereUI.VisOverrideValue(s)
+    return (override or s.barVisibility or "always") ~= "never"
+end
+
+-- The power type the reveal watches (clean value), or nil when the axis does not
+-- apply to this unit. Mode "mana" watches mana only; anything else (including
+-- the player's scenario rows, which carry no mode key) watches the live display
+-- power (UnitPowerType is clean and branches for bar colors everywhere). A clean
+-- zero max means the unit has no bar of that type ("mana" on a warrior, any
+-- power on a barless NPC) and never triggers, mirroring the RaidFrames
+-- cleanNoPower rule: NEVER compare a secret max in Lua, a secret max is treated
+-- as "has power".
+local function VisPowerType(s, unit)
+    local pType
+    if s.powerMissingMode == "mana" then
+        pType = Enum.PowerType.Mana
+    else
+        pType = UnitPowerType(unit) or 0
+    end
+    local pmax = UnitPowerMax(unit, pType)
+    if not issecretvalue(pmax) and (not pmax or pmax == 0) then return nil end
+    return pType
+end
+
+-- Binary reveal curves. Each maps its C-side percent straight to the final
+-- alpha (full -> baseAlpha, triggered -> 1); the result is always secret and
+-- only ever reaches an alpha setter, never a Lua branch. Points rebuild only
+-- when their shape changes (base alpha, or the rage flag on the power curve),
+-- never per tick.
+local function HealthVisG(frame, baseAlpha)
+    local curve = frame._healthVisCurve
+    if not curve or frame._healthVisCurveAlpha ~= baseAlpha then
+        curve = curve or C_CurveUtil.CreateCurve()
+        curve:SetType(Enum.LuaCurveType.Step)
+        curve:ClearPoints()
+        curve:AddPoint(0, 1)
+        curve:AddPoint(1, baseAlpha)
+        frame._healthVisCurve = curve
+        frame._healthVisCurveAlpha = baseAlpha
+    end
+    return UnitHealthPercent(frame._euiUnit, false, curve)
+end
+
+-- Power twin of the health curve. Returns nil when the axis does not apply
+-- (barless unit); the frame then just rests at its base alpha.
+local function PowerVisG(s, frame, baseAlpha)
+    local pType = VisPowerType(s, frame._euiUnit)
+    if not pType then return nil end
+    -- Rage reads inverted by design: zero rage IS the full/at-rest state, so
+    -- any rage is the trigger. The curve maps that without branching on the
+    -- secret.
+    local rage = pType == Enum.PowerType.Rage
+    local curve = frame._powerVisCurve
+    if not curve or frame._powerVisRage ~= rage or frame._powerVisCurveAlpha ~= baseAlpha then
+        curve = curve or C_CurveUtil.CreateCurve()
+        curve:SetType(Enum.LuaCurveType.Step)
+        curve:ClearPoints()
+        if rage then
+            curve:AddPoint(0, baseAlpha)
+            curve:AddPoint(0.0001, 1)
+        else
+            curve:AddPoint(0, 1)
+            curve:AddPoint(1, baseAlpha)
+        end
+        frame._powerVisCurve = curve
+        frame._powerVisRage = rage
+        frame._powerVisCurveAlpha = baseAlpha
+    end
+    return UnitPowerPercent(frame._euiUnit, pType, false, curve)
+end
+
 -- Every writer of the reveal (the visibility pass, both hover handlers) goes
--- through here, so the curve always maps full health to the base alpha last
--- painted, and _healthVisLive says whether the reveal currently applies.
+-- through here, and _healthVisLive says whether the reveal currently applies.
+-- A full frame rests at the base alpha the visibility pass would paint and any
+-- triggered resource lifts it to 1. Secret percent results may only reach an
+-- alpha setter, so a reveal is one curve in, alpha out: the engine offers no
+-- way to compare or combine two secret reads, so the two toggles cannot watch
+-- at once -- with power enabled the health reveal is paused entirely (the
+-- options UI greys it out to match) and a unit without a watched power bar
+-- simply never triggers.
 function ns.HealthVisibilityAlpha(s, frame, baseAlpha, hoverGated, inCombat)
-    if not ns.HealthVisibilityEnabled(s, frame) then
+    local healthOn = ns.HealthVisibilityEnabled(s, frame)
+    local powerOn = ns.PowerVisibilityEnabled(s, frame)
+    if not healthOn and not powerOn then
         if frame then frame._healthVisLive = nil end
         return baseAlpha
     end
     frame._healthVisLive = true
     -- A visibility refresh must preserve an active mouseover reveal. Keep
-    -- this decision on clean UI state, before evaluating the health curve.
+    -- this decision on clean UI state, before evaluating the curves.
     if hoverGated and frame._healthVisHovered then
         baseAlpha = ns.ResolveFrameAlpha(s, inCombat)
     end
-    if not frame._healthVisCurve then
-        frame._healthVisCurve = C_CurveUtil.CreateCurve()
-        frame._healthVisCurve:SetType(Enum.LuaCurveType.Step)
-    end
-    if frame._healthVisCurveAlpha ~= baseAlpha then
-        frame._healthVisCurve:ClearPoints()
-        frame._healthVisCurve:AddPoint(0, 1)
-        frame._healthVisCurve:AddPoint(1, baseAlpha)
-        frame._healthVisCurveAlpha = baseAlpha
-    end
-    return UnitHealthPercent(frame._euiUnit, false, frame._healthVisCurve)
+    if powerOn then return PowerVisG(s, frame, baseAlpha) or baseAlpha end
+    if healthOn then return HealthVisG(frame, baseAlpha) end
+    return baseAlpha
 end
 
--- A health event moves only the curve's input: the base alpha and whether the
--- reveal applies change on visibility events and hover, which repaint through
--- HealthVisibilityAlpha above. So a health tick re-evaluates the stamped curve
--- and re-derives nothing (this runs on every UNIT_HEALTH in combat).
+-- A health or power event moves only the curve inputs: the base alpha and
+-- whether the reveal applies change on visibility events and hover, which
+-- repaint through HealthVisibilityAlpha above. So a tick re-derives the resting
+-- verdict (the curves again do the secret mapping) and re-applies the combined
+-- alpha (this runs on every UNIT_HEALTH / UNIT_POWER_UPDATE while the reveal
+-- is enabled).
 function ns.UpdateHealthVisibilityUnit(unit)
     local frame = frames[unit]
-    if not (frame and frame._healthVisLive and frame._healthVisCurve) then return end
-    local alpha = UnitHealthPercent(unit, false, frame._healthVisCurve)
+    if not (frame and frame._healthVisLive) then return end
+    local unitKey = unit:match("^boss%d$") and "boss" or unit
+    local s = db and db.profile and db.profile[unitKey]
+    if not s then return end
+    local alpha, hoverGated, hiddenByOpts = ns.ResolveVisRestingLive(s, frame)
+    if not hiddenByOpts then
+        alpha = ns.HealthVisibilityAlpha(s, frame, alpha, hoverGated, InCombatLockdown())
+    else
+        -- A Visibility Option hides it: health and power ticks must not reveal.
+        frame._healthVisLive = nil
+    end
     ;(frame._visWrap or frame):SetAlpha(alpha)
     local model = frame.Portrait and frame.Portrait.backdrop and frame.Portrait.backdrop._3d
     if model then model:SetAlpha(alpha) end
@@ -14838,7 +14970,11 @@ function ns.SyncHealthVisibilityEvents()
     local player = ns.HealthVisibilityEnabled(db.profile.player, frames.player)
     local target = ns.HealthVisibilityEnabled(db.profile.target, frames.target)
     local focus = ns.HealthVisibilityEnabled(db.profile.focus, frames.focus)
+    local pPlayer = ns.MissingPowerConfigured(db.profile.player)
+    local pTarget = ns.PowerVisibilityEnabled(db.profile.target, frames.target)
+    local pFocus = ns.PowerVisibilityEnabled(db.profile.focus, frames.focus)
     local mask = (player and 1 or 0) + (target and 2 or 0) + (focus and 4 or 0)
+        + (pPlayer and 8 or 0) + (pTarget and 16 or 0) + (pFocus and 32 or 0)
     local eventFrame = ns.healthVisibilityEvents
     if not eventFrame then
         if mask == 0 then return end
@@ -14856,12 +14992,25 @@ function ns.SyncHealthVisibilityEvents()
         local units = eventFrame.units or {}
         eventFrame.units = units
         wipe(units)
+        local powerUnits = eventFrame.powerUnits or {}
+        eventFrame.powerUnits = powerUnits
+        wipe(powerUnits)
         if player then units[#units + 1] = "player" end
         if target then units[#units + 1] = "target" end
         if focus then units[#units + 1] = "focus" end
-        eventFrame:RegisterUnitEvent("UNIT_HEALTH", unpack(units))
-        eventFrame:RegisterUnitEvent("UNIT_MAXHEALTH", unpack(units))
-        if focus then eventFrame:RegisterEvent("PLAYER_FOCUS_CHANGED") end
+        if pPlayer then powerUnits[#powerUnits + 1] = "player" end
+        if pTarget then powerUnits[#powerUnits + 1] = "target" end
+        if pFocus then powerUnits[#powerUnits + 1] = "focus" end
+        if #units > 0 then
+            eventFrame:RegisterUnitEvent("UNIT_HEALTH", unpack(units))
+            eventFrame:RegisterUnitEvent("UNIT_MAXHEALTH", unpack(units))
+        end
+        if #powerUnits > 0 then
+            eventFrame:RegisterUnitEvent("UNIT_POWER_UPDATE", unpack(powerUnits))
+            eventFrame:RegisterUnitEvent("UNIT_MAXPOWER", unpack(powerUnits))
+            eventFrame:RegisterUnitEvent("UNIT_DISPLAYPOWER", unpack(powerUnits))
+        end
+        if focus or pFocus then eventFrame:RegisterEvent("PLAYER_FOCUS_CHANGED") end
     end
 end
 
@@ -14870,7 +15019,7 @@ local function UnitFrame_OnEnter(self)
     if not unit then return end
     local unitKey = unit:match("^boss%d$") and "boss" or unit
     local s = db and db.profile and db.profile[unitKey]
-    if s and s.showWhenHealthMissing then self._healthVisHovered = true end
+    if s and (s.showWhenHealthMissing or ns.MissingPowerConfigured(s)) then self._healthVisHovered = true end
     if ns.VisMouseoverWired(s) then
         -- Reveal only what is actually hover-gated right now. Under Any the frame may
         -- already be shown on another passing disjunct, in which case there is nothing to
@@ -14879,7 +15028,7 @@ local function UnitFrame_OnEnter(self)
         local _, hoverGated = ns.ResolveVisRestingLive(s, self)
         if hoverGated then
             local a = ns.ResolveFrameAlpha(s, InCombatLockdown())
-            if s.showWhenHealthMissing then a = ns.HealthVisibilityAlpha(s, self, a) end
+            if s.showWhenHealthMissing or ns.MissingPowerConfigured(s) then a = ns.HealthVisibilityAlpha(s, self, a) end
             ;(self._visWrap or self):SetAlpha(a)
             -- 3D models don't inherit parent alpha: reveal the portrait too
             local bd3d = self.Portrait and self.Portrait.backdrop and self.Portrait.backdrop._3d
@@ -14926,7 +15075,7 @@ local function UnitFrame_OnLeave(self)
         -- 0: under Any a passing disjunct keeps the frame visible with no hover involved,
         -- and hiding it here would leave it wrong until the next visibility event fires.
         local leaveAlpha, _, hiddenByOpts = ns.ResolveVisRestingLive(s, self)
-        if s.showWhenHealthMissing and not hiddenByOpts then
+        if (s.showWhenHealthMissing or ns.MissingPowerConfigured(s)) and not hiddenByOpts then
             leaveAlpha = ns.HealthVisibilityAlpha(s, self, leaveAlpha)
         else
             self._healthVisLive = nil
@@ -16678,9 +16827,11 @@ function InitializeFrames()
                 -- must not pin anything, and an override of "never" must pin even though
                 -- the stored scalar says otherwise.
                 local visNever = (visOv or vis) == "never"
-                -- Health cannot be a secure macro condition. Keep the unit watch
-                -- active and let the secret-safe alpha curve reveal injured units.
-                if ns.HealthVisibilityEnabled(s, frame) then visTail = nil end
+                -- Health and power cannot be secure macro conditions. Keep the unit watch
+                -- active and let the secret-safe alpha curves reveal injured / resource-
+                -- drained units.
+                if ns.HealthVisibilityEnabled(s, frame) or ns.PowerVisibilityEnabled(s, frame)
+                    or ns.MissingPowerConfigured(s) then visTail = nil end
                 local wantDriver
                 if visNever then
                     -- Never is terminal, so it pins the secure driver instead of
@@ -16714,7 +16865,7 @@ function InitializeFrames()
                 -- a dismount inside a lockdown would otherwise hide it permanently.
                 -- _ufInCombat leads InCombatLockdown() on regen, so the ooc fade is instant.
                 local bodyAlpha, hoverGated = ns.ResolveVisResting(s, frame, ext, hiddenByOpts, _ufInCombat)
-                if s.showWhenHealthMissing and not hiddenByOpts then
+                if (s.showWhenHealthMissing or ns.MissingPowerConfigured(s)) and not hiddenByOpts then
                     bodyAlpha = ns.HealthVisibilityAlpha(s, frame, bodyAlpha, hoverGated, _ufInCombat)
                 else
                     -- Off, or a Visibility Option hides it: health ticks must not reveal.
@@ -16757,7 +16908,8 @@ function InitializeFrames()
                         -- answers false rather than nil, which would keep the frame
                         -- secure-Shown at alpha 0 and still eating clicks.
                         shouldShow = false
-                    elseif ns.HealthVisibilityEnabled(s, frame) then
+                    elseif ns.HealthVisibilityEnabled(s, frame) or ns.PowerVisibilityEnabled(s, frame)
+                        or ns.MissingPowerConfigured(s) then
                         shouldShow = true
                     elseif ext ~= nil then
                         -- Engine-owned: frame stays secure-Shown; the alpha

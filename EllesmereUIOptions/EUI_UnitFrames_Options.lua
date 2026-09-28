@@ -6265,36 +6265,101 @@ initFrame:SetScript("OnEvent", function(self)
         -- UpdateFrameVisibility (reacts to the regen path); reuses CDM fade strings
         -- for consistency. Fade rows appear only for the EllesmereUI source.
         local _visSrcIsEui = ns.GetUnitFrameSource(selectedUnit) == "eui"
-        if not EllesmereUI._prebuilding then
-        AttachFrameSourceCog(visRow._leftRegion, selectedUnit, {
-            title = _visSrcIsEui and "Frame Source & Visibility" or "Frame Source",
-            cogTooltip = _visSrcIsEui and "Frame Source & Visibility" or "Frame Source",
-            extraRows = _visSrcIsEui and {
+        local _visRows
+        if _visSrcIsEui then
+            if selectedUnit == "player" then
+                -- Player: the shipped health toggle plus the Track Power Instead
+                -- checkbox dropdown (all rows fixed: checkboxes only, no drag)
+                -- and the fade rows. While a checked scenario matches, the reveal
+                -- swaps to power; elsewhere the health toggle applies as usual.
+                _visRows = {
+                    { type = "toggle", label = "Show When Health Missing",
+                      tooltip = "Shows the frame while this unit is below full health; while enabled, a frame hidden by its visibility setting can still be clicked.",
+                      disabled = function() return InCombatLockdown() end,
+                      disabledTooltip = "Change health visibility out of combat",
+                      get = function() return SVal("showWhenHealthMissing", false) == true end,
+                      set = function(v)
+                          SSet("showWhenHealthMissing", v)
+                          if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
+                      end },
+                    { type = "reordercheck", label = "Track Power Instead", ddWidth = 170,
+                      items = {
+                          { key = "missingSolo", label = "Solo", fixed = true },
+                          { key = "missingParty", label = "Party", fixed = true },
+                          { key = "missingRaid", label = "Raid", fixed = true },
+                          { key = "missingInstances", label = "Instances", fixed = true },
+                          { key = "missingDungeons", label = "Dungeons", fixed = true },
+                      },
+                      hint = "",
+                      tooltip = "Reveals the frame on missing power instead of missing health on the applied scenarios. Because of limitations with addons, health and power cannot be tracked at the same time.\n\nOutside the checked scenarios, Show When Health Missing applies as usual.",
+                      get = function(k) return SVal(k, false) == true end,
+                      set = function(k, v)
+                          SSet(k, v)
+                          if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
+                      end },
+                }
+            else
+                -- Target and focus: the two-toggle reveal with a mode dropdown. The
+                -- engine can only watch one resource at a time, so the power toggle
+                -- pauses the health toggle while it is enabled.
+                _visRows = {
                 { type = "toggle", label = "Show When Health Missing",
                   tooltip = "Shows the frame while this unit is below full health; while enabled, a frame hidden by its visibility setting can still be clicked.",
-                  disabled = function() return InCombatLockdown() end,
-                  disabledTooltip = "Change health visibility out of combat",
+                  disabled = function() return InCombatLockdown() or SVal("showWhenPowerMissing", false) == true end,
+                  disabledTooltip = function()
+                      if InCombatLockdown() then return "Change health visibility out of combat" end
+                      return "Paused while Show When Power Missing is on. Because of limitations with addons, health and power cannot be tracked at the same time. Turn Show When Power Missing off to watch health again."
+                  end,
+                  rawTooltip = function() return not InCombatLockdown() and SVal("showWhenPowerMissing", false) == true end,
                   get = function() return SVal("showWhenHealthMissing", false) == true end,
                   set = function(v)
                       SSet("showWhenHealthMissing", v)
                       if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
                   end },
-                { type = "toggle", label = "Fade Out of Combat",
+                { type = "toggle", label = "Show When Power Missing",
+                  tooltip = "Shows the frame while this unit's watched power is in its trigger state; while enabled, a frame hidden by its visibility setting can still be clicked.\n\nEnabling this pauses Show When Health Missing. Because of limitations with addons, health and power cannot be tracked at the same time. Turning it off brings the health option back.",
+                  disabled = function() return InCombatLockdown() end,
+                  disabledTooltip = "Change power visibility out of combat",
+                  get = function() return SVal("showWhenPowerMissing", false) == true end,
+                  set = function(v)
+                      SSet("showWhenPowerMissing", v)
+                      if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
+                  end },
+                { type = "dropdown", label = "Power To Watch",
+                  values = { mana = "Mana", any = "Any Power" },
+                  order = { "mana", "any" },
+                  tooltip = "Which power the reveal watches.\n\nMana: the frame shows while mana is below full. A unit without a mana bar never triggers.\n\nAny: the unit's primary power. Rage reads inverted, so zero rage counts as full and any rage shows the frame.",
+                  disabled = function() return not SVal("showWhenPowerMissing", false) end,
+                  disabledTooltip = "Enable Show When Power Missing first",
+                  get = function() return SVal("powerMissingMode", "mana") end,
+                  set = function(v)
+                      SSet("powerMissingMode", v)
+                      if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
+                  end },
+                }
+            end
+            -- Common fade rows close the popup for both unit shapes.
+            _visRows[#_visRows + 1] = { type = "toggle", label = "Fade Out of Combat",
                   tooltip = "Fades the entire frame (portrait, health and power bars, text) while out of combat.",
                   get = function() return SVal("oocFadeEnabled", false) == true end,
                   set = function(v)
                       SSet("oocFadeEnabled", v)
                       if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
-                  end },
-                { type = "slider", label = "Out of Combat Alpha", min = 0, max = 100, step = 1,
+                  end }
+            _visRows[#_visRows + 1] = { type = "slider", label = "Out of Combat Alpha", min = 0, max = 100, step = 1,
                   disabled = function() return not SVal("oocFadeEnabled", false) end,
                   disabledTooltip = "Enable Fade Out of Combat first",
                   get = function() return math.floor((SVal("oocAlpha", 0.5)) * 100 + 0.5) end,
                   set = function(v)
                       SSet("oocAlpha", v / 100)
                       if ns.UpdateFrameVisibility then ns.UpdateFrameVisibility() end
-                  end },
-            },
+                  end }
+        end
+        if not EllesmereUI._prebuilding then
+        AttachFrameSourceCog(visRow._leftRegion, selectedUnit, {
+            title = _visSrcIsEui and "Frame Source & Visibility" or "Frame Source",
+            cogTooltip = _visSrcIsEui and "Frame Source & Visibility" or "Frame Source",
+            extraRows = _visRows,
         })
         end
 
