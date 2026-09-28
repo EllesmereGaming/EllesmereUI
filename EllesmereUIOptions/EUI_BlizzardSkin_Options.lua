@@ -1334,6 +1334,38 @@ initFrame:SetScript("OnEvent", function(self)
             { r = 0.671, g = 0.431, b = 0.349 }, StatCategoryEnabled("PvP"))
 
         ---------------------------------------------------------------------------
+        --  EQUIPMENT DISPLAY
+        ---------------------------------------------------------------------------
+        if not stockSheet then
+            _, h = WSCardSection(parent, "EQUIPMENT DISPLAY", y);  y = y - h
+
+            _, h = W:DualRow(parent, y,
+                { type="colorpicker", text="Select Indicator Color", hasAlpha=true,
+                  tooltip="Color and opacity of the selection indicator beside the selected equipment set.",
+                  disabled=themedOff, disabledTooltip="Character Sheet",
+                  getValue=function()
+                      return ns.GetCharSheetEquipmentColor("charSheetSelectIndicatorColor", 0.85)
+                  end,
+                  setValue=function(r, g, b, a)
+                      if not EllesmereUIDB then EllesmereUIDB = {} end
+                      EllesmereUIDB.charSheetSelectIndicatorColor = { r = r, g = g, b = b, a = a }
+                      if EllesmereUI._refreshCharacterSheetColors then EllesmereUI._refreshCharacterSheetColors() end
+                  end },
+                { type="colorpicker", text="Equipped Status Color", hasAlpha=true,
+                  tooltip="Color and opacity of the icon border and Equipped text for equipped sets.",
+                  disabled=themedOff, disabledTooltip="Character Sheet",
+                  getValue=function()
+                      return ns.GetCharSheetEquipmentColor("charSheetEquippedStatusColor", 1)
+                  end,
+                  setValue=function(r, g, b, a)
+                      if not EllesmereUIDB then EllesmereUIDB = {} end
+                      EllesmereUIDB.charSheetEquippedStatusColor = { r = r, g = g, b = b, a = a }
+                      if EllesmereUI._refreshCharacterSheetColors then EllesmereUI._refreshCharacterSheetColors() end
+                  end }
+            );  y = y - h
+        end
+
+        ---------------------------------------------------------------------------
         --  INSPECT SHEET
         ---------------------------------------------------------------------------
         _, h = WSCardSection(parent, "INSPECT SHEET", y);  y = y - h
@@ -3330,6 +3362,8 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.charSheetDurabilityLocation = nil
                 EllesmereUIDB.charSheetDurabilityShowLabel = nil
                 EllesmereUIDB.statCategoryColors = nil
+                EllesmereUIDB.charSheetSelectIndicatorColor = nil
+                EllesmereUIDB.charSheetEquippedStatusColor = nil
                 EllesmereUIDB.statSectionsOrder = nil
                 EllesmereUIDB.charSheetCollapsedSections = nil
                 -- Character Sheet style (the Style page row): per profile,
@@ -3356,6 +3390,7 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._applyTooltipHealthStrip then EllesmereUI._applyTooltipHealthStrip() end
             if EllesmereUI._refreshCharSheetSocketPanel then EllesmereUI._refreshCharSheetSocketPanel() end
             if EllesmereUI._refreshCharSheetSlotFlyoutArrows then EllesmereUI._refreshCharSheetSlotFlyoutArrows() end
+            if EllesmereUI._refreshCharacterSheetColors then EllesmereUI._refreshCharacterSheetColors() end
         end,
     })
 

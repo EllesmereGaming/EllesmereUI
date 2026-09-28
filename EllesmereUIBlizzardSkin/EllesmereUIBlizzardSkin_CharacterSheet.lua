@@ -77,6 +77,18 @@ function ns.CharSheetBlizzColor()
     return c
 end
 
+-- Equipment color overrides are shared with the options swatches. Until a
+-- color is chosen, retain the Attributes tint and each element's opacity.
+function ns.GetCharSheetEquipmentColor(key, defaultAlpha)
+    local custom = EllesmereUIDB and EllesmereUIDB[key]
+    local color = custom or (EllesmereUIDB and EllesmereUIDB.statCategoryColors
+        and EllesmereUIDB.statCategoryColors.Attributes)
+    if color then
+        return color.r, color.g, color.b, (custom and custom.a) or defaultAlpha
+    end
+    return 0.047, 0.824, 0.616, defaultAlpha
+end
+
 -- Same reading as the Chat sidebar icon and the DataBars block: the LOWEST
 -- percent across equipped slots 1-18 (the weakest item), floored.
 local function GetDurabilityPercent()
@@ -3616,13 +3628,14 @@ local function SkinCharacterSheet()
         if d.equipmentIconEdge then d.equipmentIconEdge:SetShown(isSet) end
         local selected = button.SelectedBar
         if selected then
+            local r, g, b, a = ns.GetCharSheetEquipmentColor("charSheetSelectIndicatorColor", 0.85)
             selected:ClearAllPoints()
             selected:SetPoint("TOPLEFT", d.equipmentBackground, "TOPLEFT", -2 / EM_SCALE, 0)
             selected:SetPoint("BOTTOMLEFT", d.equipmentBackground, "BOTTOMLEFT", -2 / EM_SCALE, 0)
             selected:SetWidth(2 / EM_SCALE)
-            selected:SetColorTexture(EG.r, EG.g, EG.b, 1)
+            selected:SetColorTexture(r, g, b, 1)
             selected:SetBlendMode("BLEND")
-            selected:SetAlpha(0.85)
+            selected:SetAlpha(a)
         end
         local hover = button.HighlightBar
         if hover then
@@ -3676,18 +3689,19 @@ local function SkinCharacterSheet()
                 label:SetTextColor(0.9, 0.9, 0.9, 1)
                 if d.equipmentIconEdge then
                     EM_PP.SetBorderSize(d.equipmentIconEdge, equipped and 2 or 1)
-                    if equipped then EM_PP.SetBorderColor(d.equipmentIconEdge, EG.r, EG.g, EG.b, 0.85)
+                    if equipped then EM_PP.SetBorderColor(d.equipmentIconEdge,
+                        ns.GetCharSheetEquipmentColor("charSheetEquippedStatusColor", 0.85))
                     else EM_PP.SetBorderColor(d.equipmentIconEdge, 0.28, 0.28, 0.28, 0.8) end
                 end
                 if (numLost or 0) > 0 then
                     d.equipmentStatus:SetText(string.format(L("Missing: %d"), numLost))
-                    d.equipmentStatus:SetTextColor(0.9, 0.42, 0.38)
+                    d.equipmentStatus:SetTextColor(0.9, 0.42, 0.38, 1)
                 elseif equipped then
                     d.equipmentStatus:SetText(L("Equipped"))
-                    d.equipmentStatus:SetTextColor(EG.r, EG.g, EG.b)
+                    d.equipmentStatus:SetTextColor(ns.GetCharSheetEquipmentColor("charSheetEquippedStatusColor", 1))
                 else
                     d.equipmentStatus:SetText((numEquipped or 0) .. " / " .. (numItems or 0))
-                    d.equipmentStatus:SetTextColor(0.65, 0.65, 0.65)
+                    d.equipmentStatus:SetTextColor(0.65, 0.65, 0.65, 1)
                 end
             else
                 -- Center the complete add action, rather than presenting it
