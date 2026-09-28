@@ -2929,6 +2929,50 @@ do
     P.tgtcol      = TagFns.tgtcol
     P.tgtname     = TagFns.tgtname
 
+    -- Gradient Naming (player frame, Extras > "Gradient Naming"): the player's
+    -- name renders as per-character colour escapes -- the primary CLASS COLORS
+    -- swatch colour holds for the first third of the name, then each character
+    -- blends towards the secondary swatch colour (Global Settings > Colors).
+    -- Player-only, so no SECRET value is ever touched; identity-zone repaints
+    -- (and ForceUpdate on colour changes) re-run this, nothing caches.
+    local function GradientName(name)
+        if type(name) ~= "string" or name == "" then return name end
+        local _, class = UnitClass("player")
+        if not class then return name end
+        local r1, g1, b1, r2, g2, b2 = EllesmereUI.GetClassColorPair(class)
+        local chars = {}
+        for c in name:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+            chars[#chars + 1] = c
+        end
+        local n = #chars
+        if n == 0 then return name end
+        -- Characters starting inside the first third stay the primary colour;
+        -- the rest blend by their start position, reaching the secondary on the
+        -- last character.
+        local third = n / 3
+        local out = {}
+        for i = 1, n do
+            local t = 0
+            if (i - 1) >= third then
+                t = (n - 1) > third and ((i - 1) - third) / ((n - 1) - third) or 1
+            end
+            out[#out + 1] = ("|cff%02x%02x%02x%s|r"):format(
+                math.floor((r1 + (r2 - r1) * t) * 255 + 0.5),
+                math.floor((g1 + (g2 - g1) * t) * 255 + 0.5),
+                math.floor((b1 + (b2 - b1) * t) * 255 + 0.5),
+                chars[i])
+        end
+        return table.concat(out)
+    end
+    local plainName = P.name
+    P.name = function(u)
+        if u == "player" and db and db.profile and db.profile.player
+           and db.profile.player.gradientNaming then
+            return GradientName(plainName(u))
+        end
+        return plainName(u)
+    end
+
     -- String-compiled tag methods get real equivalents (same logic, same
     -- _EUI_ globals; the compiled strings stay registered only while the tag
     -- engine still runs).

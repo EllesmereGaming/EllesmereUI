@@ -14850,6 +14850,24 @@ initFrame:SetScript("OnEvent", function(self)
             parent._ufFactionRow = factionRow
         end
 
+        -- Row 5d: Gradient Naming (player only). Instead of one solid colour the
+        -- player's name paints as a per-character gradient between the two CLASS
+        -- COLORS swatches (Global Settings > Colors): the first colour holds for
+        -- the first third of the name, then blends into the second colour.
+        if selectedUnit == "player" then
+            local gradientRow
+            gradientRow, h = W:DualRow(parent, y,
+                { type="toggle", text="Gradient Naming",
+                  tooltip="Paints the player's name as a gradient between the two CLASS COLORS swatches (Global Settings > Colors): the first colour holds for the first third of the name, then blends into the second colour.",
+                  getValue=function() return SValSupported("gradientNaming", false) == true end,
+                  setValue=function(v)
+                      SSetSupported("gradientNaming", v)
+                      EllesmereUI:RefreshPage()
+                  end },
+                nil);  y = y - h
+            parent._ufGradientRow = gradientRow
+        end
+
         -------------------------------------------------------------------
         --  Return click mapping targets + total height
         -------------------------------------------------------------------
@@ -14888,6 +14906,9 @@ initFrame:SetScript("OnEvent", function(self)
         end
         if (selectedUnit == "player" or selectedUnit == "target") and parent._ufFactionRow then
             parent._sharedClickTargets.factionIndicator = { section = sharedAddHeader, target = parent._ufFactionRow, slotSide = "left" }
+        end
+        if selectedUnit == "player" and parent._ufGradientRow then
+            parent._sharedClickTargets.gradientNaming = { section = sharedAddHeader, target = parent._ufGradientRow, slotSide = "left" }
         end
 
         return y

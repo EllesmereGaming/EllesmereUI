@@ -5583,6 +5583,21 @@ function EllesmereUI.GetClassColor(classToken)
     return EllesmereUI._colorCache.class[classToken] or EllesmereUI._COLOR_WHITE
 end
 
+-- The two CLASS COLORS swatch colours for a class (Global Settings > Colors):
+-- primary = custom override or the Blizzard default; secondary = its own custom
+-- override or the primary darkened by 25%. Returned as six 0-1 values.
+function EllesmereUI.GetClassColorPair(classToken)
+    local db = EllesmereUI.GetCustomColorsDB()
+    local c1 = (db.class and db.class[classToken])
+        or CLASS_COLOR_MAP[classToken] or { r = 1, g = 1, b = 1 }
+    local c2 = db.class2 and db.class2[classToken]
+    if not c2 then
+        local r, g, b = EllesmereUI.DarkenColor(c1.r, c1.g, c1.b, 0.25)
+        return c1.r, c1.g, c1.b, r, g, b
+    end
+    return c1.r, c1.g, c1.b, c2.r, c2.g, c2.b
+end
+
 -- Custom class colour for a unit whose identity is RESTRICTED (target-of-target, focus-target):
 -- UnitClass hands back a SECRET token there, and a secret cannot be a table key, so the palette
 -- above is unreachable and callers fall back to C_ClassColor.GetClassColor(secretToken) -- right
