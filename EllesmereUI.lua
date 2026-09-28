@@ -282,8 +282,33 @@ local NAV_HOVER_DISABLED_TEXT = { r = 1, g = 1, b = 1, a = 0.39 }
 
 -- Dropdown widget colours: widgets reference DD_BG_*, DD_BRD_*, DD_TXT_* directly
 
-local BG_WIDTH, BG_HEIGHT = 1500, 1154
-local CLICK_W, CLICK_H    = 1300, 946
+-- Art canvas: every theme background is authored at 1500x1154 and the
+-- pixel-mapped pieces (title-bar boxes, the mini window, texcoords) read it
+-- in these units. The panel itself is BG_EXTRA_W wider -- the Colors page's
+-- 4-column grid carries a second swatch+undo cluster per cell (20 swatch +
+-- 10 gap + 18 undo + 10 gap = 58 per column, x4 = 232) -- and that whole
+-- extra width lands to the right of the sidebar, so the art's right band
+-- (close box et al) rides the right edge while the left band stays put.
+local ART_W, ART_H        = 1500, 1154
+local BG_EXTRA_W          = 232
+local BG_WIDTH, BG_HEIGHT = ART_W + BG_EXTRA_W, ART_H
+local CLICK_W, CLICK_H    = 1300 + BG_EXTRA_W, 946
+-- Full-art layers are drawn as three horizontal slices: left/right keep their
+-- native size anchored to their edge, the middle band stretches to absorb
+-- BG_EXTRA_W. The cut points are per theme (THEME_BG_SLICES) so the stretched
+-- band only ever covers plain/soft texture, never a theme's centred watermark
+-- or sharp art.
+local BG_SLICE_DEF = { 400, 1100 }
+local THEME_BG_SLICES = {
+    ["EllesmereUI"]          = { 400, 1100 },
+    ["EllesmereUI Original"] = { 400, 1100 },
+    ["EllesmereUI Forever"]  = { 400, 780 },  -- centred crest watermark
+    ["Horde"]                = { 400, 660 },  -- centred faction crest
+    ["Alliance"]             = { 400, 660 },  -- centred faction crest
+    ["Midnight"]             = { 400, 660 },  -- centred figure
+    ["Dark"]                 = { 400, 1100 },
+    ["Pixels"]               = { 700, 1100 }, -- banner circuit traces left of 700
+}
 local SIDEBAR_W  = 295
 local HEADER_H   = 138      -- title + desc + banner glow + dark band for tabs
 local TAB_BAR_H  = 40
@@ -8355,20 +8380,54 @@ local function CreateMainFrame()
     bgFrame:EnableMouse(false)
     bgFrame:SetAlpha(1)  -- mainFrame controls overall window opacity
 
+    -- Full-art layers are drawn as three horizontal slices: the panel is
+    -- BG_EXTRA_W wider than the 1500-unit art canvas, so the left/right bands
+    -- keep their native size anchored to their edge (logo / close box stay
+    -- pixel-perfect) and the plain-dark middle band stretches to fill.
+    local function NewSlicedLayer(sublayer)
+        local layer = { t = {} }
+        for i = 1, 3 do
+            layer.t[i] = bgFrame:CreateTexture(nil, "BACKGROUND", nil, sublayer)
+        end
+        -- L/R = canvas cut points: left band [0,L) and right band [R,ART_W) keep
+        -- native size anchored to their edge; the middle stretches to fill.
+        function layer:SetSlices(L, R)
+            local l, m, r = self.t[1], self.t[2], self.t[3]
+            l:SetTexCoord(0, L / ART_W, 0, 1)
+            l:SetWidth(L)
+            l:ClearAllPoints()
+            l:SetPoint("TOPLEFT", bgFrame, "TOPLEFT", 0, 0)
+            l:SetPoint("BOTTOMLEFT", bgFrame, "BOTTOMLEFT", 0, 0)
+            m:SetTexCoord(L / ART_W, R / ART_W, 0, 1)
+            m:SetWidth(BG_WIDTH - L - (ART_W - R))
+            m:ClearAllPoints()
+            m:SetPoint("TOPLEFT", bgFrame, "TOPLEFT", L, 0)
+            m:SetPoint("BOTTOMLEFT", bgFrame, "BOTTOMLEFT", L, 0)
+            r:SetTexCoord(R / ART_W, 1, 0, 1)
+            r:SetWidth(ART_W - R)
+            r:ClearAllPoints()
+            r:SetPoint("TOPRIGHT", bgFrame, "TOPRIGHT", 0, 0)
+            r:SetPoint("BOTTOMRIGHT", bgFrame, "BOTTOMRIGHT", 0, 0)
+        end
+        layer:SetSlices(BG_SLICE_DEF[1], BG_SLICE_DEF[2])
+        function layer:SetTexture(p) for _, x in ipairs(self.t) do x:SetTexture(p) end end
+        function layer:SetAlpha(a) for _, x in ipairs(self.t) do x:SetAlpha(a) end end
+        function layer:GetAlpha() return self.t[1]:GetAlpha() end
+        function layer:SetDrawLayer(r, s) for _, x in ipairs(self.t) do x:SetDrawLayer(r, s) end end
+        return layer
+    end
+
     -- Permanent base background: backdrop shadow (always visible behind everything)
-    local bgBase = bgFrame:CreateTexture(nil, "BACKGROUND", nil, -1)
+    local bgBase = NewSlicedLayer(-1)
     bgBase:SetTexture(MEDIA_PATH .. "backgrounds\\eui-bg.png")
-    bgBase:SetAllPoints()
     bgBase:SetAlpha(1)
 
     -- Two crossfade layers (A = current, B = incoming). Only the active layer holds a
     -- texture; the idle one is cleared after each transition to free GPU memory.
-    local bgA = bgFrame:CreateTexture(nil, "BACKGROUND", nil, 0)
-    bgA:SetAllPoints()
+    local bgA = NewSlicedLayer(0)
     bgA:SetAlpha(1)
 
-    local bgB = bgFrame:CreateTexture(nil, "BACKGROUND", nil, 1)
-    bgB:SetAllPoints()
+    local bgB = NewSlicedLayer(1)
     bgB:SetAlpha(0)
 
     -- Track which layer is "front" (the one fading in)
@@ -8399,14 +8458,18 @@ local function CreateMainFrame()
         local bright = minBright + darkFactor * (maxBright - minBright)
         return math.min(floor + r * bright, 1), math.min(floor + g * bright, 1), math.min(floor + b * bright, 1)
     end
+    -- Accepts a single texture or a sliced layer table (layer.t).
     local function ApplyBgTintToLayer(layer, theme, r, g, b)
         local fr, fg, fb = tbox.TintColor(theme, r, g, b)
-        if fr then
-            layer:SetDesaturated(true)
-            layer:SetVertexColor(fr, fg, fb, 1)
-        else
-            layer:SetDesaturated(false)
-            layer:SetVertexColor(1, 1, 1, 1)
+        local texs = layer.t or { layer }
+        for _, t in ipairs(texs) do
+            if fr then
+                t:SetDesaturated(true)
+                t:SetVertexColor(fr, fg, fb, 1)
+            else
+                t:SetDesaturated(false)
+                t:SetVertexColor(1, 1, 1, 1)
+            end
         end
     end
 
@@ -8445,8 +8508,8 @@ local function CreateMainFrame()
     -- X's colours. owner holds the textures; canvas point (ox, oy) sits on
     -- anchor's TOPLEFT. With no glyph it is a hover glow instead: the border
     -- ring alone, additive, in owner's highlight layer.
-    function tbox.New(owner, anchor, ox, oy, dx, glyph)
-        local set = { anchor = anchor, ox = ox, oy = oy, dx = dx, glyph = glyph, alpha = 1, s = {} }
+    function tbox.New(owner, anchor, ox, oy, dx, glyph, rightFixed)
+        local set = { anchor = anchor, ox = ox, oy = oy, dx = dx, glyph = glyph, alpha = 1, s = {}, rightFixed = rightFixed }
         for i = 1, 4 do
             local t = owner:CreateTexture(nil, glyph and "BACKGROUND" or "HIGHLIGHT")
             if not glyph then t:SetBlendMode("ADD") end
@@ -8517,7 +8580,10 @@ local function CreateMainFrame()
             -- flat fill and the corners outside the rounded border never light up.
             local x, y, w, h, S = spec.x, spec.y, spec.w, spec.h, 6
             if not set.base then x, y, w, h, S = spec.bx, spec.by, spec.bw, spec.bh, spec.bd end
-            local px, py = x - set.dx - set.ox, y - set.oy
+            -- Right-fixed boxes (close/collapse) live in the art's right band,
+            -- which rides the panel's right edge: shift them by the extra width.
+            local shift = set.rightFixed and BG_EXTRA_W or 0
+            local px, py = x - set.dx - set.ox + shift, y - set.oy
             for i = 1, 4 do
                 local sx, sy, sw, sh = 0, 0, w, S                          -- top
                 if i == 2 then sy = h - S                                   -- bottom
@@ -8526,7 +8592,7 @@ local function CreateMainFrame()
                 end
                 local t = set.s[i]
                 t:SetTexture(path)
-                t:SetTexCoord((x + sx) / BG_WIDTH, (x + sx + sw) / BG_WIDTH, (y + sy) / BG_HEIGHT, (y + sy + sh) / BG_HEIGHT)
+                t:SetTexCoord((x + sx) / ART_W, (x + sx + sw) / ART_W, (y + sy) / ART_H, (y + sy + sh) / ART_H)
                 t:SetSize(sw, sh)
                 t:ClearAllPoints()
                 t:SetPoint("TOPLEFT", set.anchor, "TOPLEFT", px + sx, -(py + sy))
@@ -8534,7 +8600,7 @@ local function CreateMainFrame()
             end
             if set.base then
                 local tc = tbox.GLYPH[set.glyph]
-                local cx, cy = spec.gx - set.dx + tc[5] - set.ox, spec.gy + tc[6] - set.oy
+                local cx, cy = spec.gx - set.dx + tc[5] - set.ox + shift, spec.gy + tc[6] - set.oy
                 local gs = (spec.gs or 16) + (tc[7] or 0)   -- the rim is 2 units wider than the glyph
                 set.shadow:SetSize(gs + 2, gs + 2)
                 set.base:SetSize(gs, gs)
@@ -8556,8 +8622,8 @@ local function CreateMainFrame()
     -- Hover glow and tooltip for a title-bar box's hit area: the box border again,
     -- additive, shown by the button's highlight layer and brighter while pressed.
     -- Painted on enter from the art in use, so it costs nothing until hovered.
-    function tbox.Hover(btn, anchor, ox, oy, dx, tip)
-        local glow = tbox.New(btn, anchor, ox, oy, dx)
+    function tbox.Hover(btn, anchor, ox, oy, dx, tip, rightFixed)
+        local glow = tbox.New(btn, anchor, ox, oy, dx, nil, rightFixed)
         btn:SetScript("OnEnter", function(self)
             glow.alpha = 0.5
             tbox.Paint(glow, tbox.Theme())
@@ -8572,8 +8638,8 @@ local function CreateMainFrame()
 
     -- The collapse box: a front/back pair on bgFrame that swaps and crossfades
     -- with the theme art it is cut from (ApplyThemeBG, bgFadeTicker).
-    tbox.front = tbox.New(bgFrame, bgFrame, 0, 0, tbox.DX, "collapse")
-    tbox.back = tbox.New(bgFrame, bgFrame, 0, 0, tbox.DX, "collapse")
+    tbox.front = tbox.New(bgFrame, bgFrame, 0, 0, tbox.DX, "collapse", true)
+    tbox.back = tbox.New(bgFrame, bgFrame, 0, 0, tbox.DX, "collapse", true)
     tbox.Layer(tbox.front, 4, 1)
     tbox.Layer(tbox.back, 3, 0)
 
@@ -8645,8 +8711,22 @@ local function CreateMainFrame()
             return
         end
         if not ov then
-            ov = bgFrame:CreateTexture(nil, "BACKGROUND", nil, 2)
+            -- Like the theme art, the overlay band is drawn as three horizontal
+            -- slices so its left logo / right rule-end ride the panel edges while
+            -- the straight middle rule stretches with the extra panel width.
+            -- Slice cuts (PNG x) sit on the straight bottom rule.
+            local OL, OR = 298, 998
+            ov = { t = {}, _a = 0, _shown = false }
             bgFrame._accentOverlay = ov
+            for i = 1, 3 do ov.t[i] = bgFrame:CreateTexture(nil, "BACKGROUND", nil, 2) end
+            function ov:SetVertexColor(r, g, b, a) for _, x in ipairs(self.t) do x:SetVertexColor(r, g, b, a) end end
+            function ov:SetAlpha(a) self._a = a for _, x in ipairs(self.t) do x:SetAlpha(a) end end
+            function ov:GetAlpha() return self._a end
+            function ov:Show() self._shown = true for _, x in ipairs(self.t) do x:Show() end end
+            function ov:Hide() self._shown = false for _, x in ipairs(self.t) do x:Hide() end end
+            function ov:IsShown() return self._shown end
+            function ov:SetTexture(p) for _, x in ipairs(self.t) do x:SetTexture(p) end end
+            ov._slice = { OL, OR }
             ov:SetVertexColor(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
             -- A callback, not a "vertex" entry: on a texture the vertex alpha IS its
             -- alpha, and the vertex entry writes 1, which would stomp the crossfade
@@ -8658,9 +8738,23 @@ local function CreateMainFrame()
         local path = MEDIA_PATH .. spec.file
         -- A re-pick (or a return mid fade-out) keeps the art and fades on from its alpha.
         if not (ov:IsShown() and bgFrame._accentOverlayPath == path) then
-            ov:ClearAllPoints()
-            ov:SetPoint("TOPLEFT", bgFrame, "TOPLEFT", spec.x, -spec.y)
-            ov:SetSize(spec.w, spec.h)
+            local OL, OR = ov._slice[1], ov._slice[2]
+            local w, hgt = spec.w, spec.h
+            local rightInset = ART_W - spec.x - w
+            local midW = (BG_WIDTH - rightInset - (w - OR)) - (spec.x + OL)
+            local l, m, r = ov.t[1], ov.t[2], ov.t[3]
+            l:ClearAllPoints()
+            l:SetTexCoord(0, OL / w, 0, 1)
+            l:SetSize(OL, hgt)
+            l:SetPoint("TOPLEFT", bgFrame, "TOPLEFT", spec.x, -spec.y)
+            m:ClearAllPoints()
+            m:SetTexCoord(OL / w, OR / w, 0, 1)
+            m:SetSize(midW, hgt)
+            m:SetPoint("TOPLEFT", bgFrame, "TOPLEFT", spec.x + OL, -spec.y)
+            r:ClearAllPoints()
+            r:SetTexCoord(OR / w, 1, 0, 1)
+            r:SetSize(w - OR, hgt)
+            r:SetPoint("TOPRIGHT", bgFrame, "TOPRIGHT", -rightInset, -spec.y)
             ov:SetTexture(path)
             bgFrame._accentOverlayPath = path
             ov:SetAlpha(0)
@@ -8687,6 +8781,8 @@ local function CreateMainFrame()
         -- New front layer gets the target texture + tint on top; this SetTexture is also
         -- the lazy cleanup of the previous transition's idle layer.
         bgFront:SetTexture(newPath)
+        local sl = THEME_BG_SLICES[theme] or BG_SLICE_DEF
+        bgFront:SetSlices(sl[1], sl[2])
         ApplyBgTintToLayer(bgFront, theme, r, g, b)
         bgFront:SetDrawLayer("BACKGROUND", 1)
         bgFront:SetAlpha(0)
@@ -8728,6 +8824,8 @@ local function CreateMainFrame()
     local _initFile = THEME_BG_FILES[_initTheme] or THEME_BG_FILES["EllesmereUI"]
     local _initR, _initG, _initB = EllesmereUI.ResolveThemeColor(_initTheme)
     bgA:SetTexture(MEDIA_PATH .. _initFile)
+    local _initSl = THEME_BG_SLICES[_initTheme] or BG_SLICE_DEF
+    bgA:SetSlices(_initSl[1], _initSl[2])
     ApplyBgTintToLayer(bgA, _initTheme, _initR, _initG, _initB)
     tbox.Paint(tbox.front, _initTheme, _initR, _initG, _initB)
     ApplyThemeAccentOverlay(_initTheme, false)
@@ -8760,7 +8858,7 @@ local function CreateMainFrame()
     closeBtn:SetPoint("TOPRIGHT", clickArea, "TOPRIGHT", -14, -11)
     closeBtn:SetFrameLevel(clickArea:GetFrameLevel() + 20)
     closeBtn:SetScript("OnClick", function() EllesmereUI:Hide() end)
-    tbox.Hover(closeBtn, bgFrame, 0, 0, 0)
+    tbox.Hover(closeBtn, bgFrame, 0, 0, 0, nil, true)
     -- Controller cursor: its cancel press closes the window through this button.
     if EllesmereUI.PadCP() then mainFrame.CloseButton = closeBtn end
 
@@ -8774,7 +8872,7 @@ local function CreateMainFrame()
         collapseBtn:SetPoint("TOPRIGHT", clickArea, "TOPRIGHT", -(tbox.DX + 14), -11)
         collapseBtn:SetFrameLevel(clickArea:GetFrameLevel() + 20)
         collapseBtn:SetScript("OnClick", function() EllesmereUI._SetPanelCollapsed(true) end)
-        tbox.Hover(collapseBtn, bgFrame, 0, 0, tbox.DX, EllesmereUI.L("Collapse"))
+        tbox.Hover(collapseBtn, bgFrame, 0, 0, tbox.DX, EllesmereUI.L("Collapse"), true)
     end
 
     -- Built on the first collapse. Every piece is a rect of art the panel already
@@ -8786,11 +8884,14 @@ local function CreateMainFrame()
     function tbox.BuildMini()
         local MX, MY = 1206, 98   -- canvas point of the mini window's top-left
         local W, H = 197, 76
+        -- The mini shows the art's top-right corner, so it rides the right edge
+        -- (its right side is ART_W - (MX + W) = 97 canvas units in from it).
+        local MINI_RIGHT_INSET = ART_W - (MX + W)
         local MASK = MEDIA_PATH .. "portraits\\circle_mask.tga"
         local mini = CreateFrame("Frame", nil, mainFrame)
         mini:Hide()
         mini:SetSize(W, H)
-        mini:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", MX, -MY)
+        mini:SetPoint("TOPRIGHT", mainFrame, "TOPRIGHT", -MINI_RIGHT_INSET, -MY)
         mini:SetFrameLevel(mainFrame:GetFrameLevel() + 2)
         -- Composed as one image before the panel opacity applies, so at reduced
         -- opacity the stacked pieces (bar, ring, badge) never show through each other.
@@ -8816,7 +8917,7 @@ local function CreateMainFrame()
                 if half == 1 then top, bot = bot, top end
                 local t = mini:CreateTexture(nil, "BACKGROUND", nil, -8)
                 t:SetTexture(shadowFile)
-                t:SetTexCoord(x0 / BG_WIDTH, x1 / BG_WIDTH, top, bot)
+                t:SetTexCoord(x0 / ART_W, x1 / ART_W, top, bot)
                 t:SetSize(x1 - x0, 112)
                 t:SetPoint("TOPLEFT", mini, "TOPLEFT", x0 - MX, (half == 0) and 74 or -38)
                 if piece == 0 then t:SetGradient("HORIZONTAL", fadeFrom, fadeTo) end
@@ -8827,11 +8928,11 @@ local function CreateMainFrame()
         local barTop = mini:CreateTexture(nil, "BACKGROUND", nil, 0)
         barTop:SetSize(159, 57)
         barTop:SetPoint("TOPLEFT", mini, "TOPLEFT", 1244 - MX, -(101 - MY))
-        barTop:SetTexCoord(1244 / BG_WIDTH, 1403 / BG_WIDTH, 101 / BG_HEIGHT, 158 / BG_HEIGHT)
+        barTop:SetTexCoord(1244 / ART_W, 1403 / ART_W, 101 / BG_HEIGHT, 158 / BG_HEIGHT)
         local barCap = mini:CreateTexture(nil, "BACKGROUND", nil, 0)
         barCap:SetSize(159, 13)
         barCap:SetPoint("TOPLEFT", mini, "TOPLEFT", 1244 - MX, -(158 - MY))
-        barCap:SetTexCoord(1244 / BG_WIDTH, 1403 / BG_WIDTH, 114 / BG_HEIGHT, 101 / BG_HEIGHT)
+        barCap:SetTexCoord(1244 / ART_W, 1403 / ART_W, 114 / BG_HEIGHT, 101 / BG_HEIGHT)
         local barOv = mini:CreateTexture(nil, "BACKGROUND", nil, 1)
 
         -- Expand box and its hit areas (the close X is the painted one in the bar).
@@ -8903,7 +9004,7 @@ local function CreateMainFrame()
             ApplyBgTintToLayer(barCap, theme, tr, tg, tb)
             local ex, ey = spec.ex, spec.ey
             badge:SetTexture(path)
-            badge:SetTexCoord(ex / BG_WIDTH, (ex + H) / BG_WIDTH, ey / BG_HEIGHT, (ey + H) / BG_HEIGHT)
+            badge:SetTexCoord(ex / ART_W, (ex + H) / ART_W, ey / BG_HEIGHT, (ey + H) / BG_HEIGHT)
             ApplyBgTintToLayer(badge, theme, tr, tg, tb)
             local rr, rg, rb = tbox.Tinted(theme, tr, tg, tb, spec.rr, spec.rg, spec.rb)
             ring:SetColorTexture(rr, rg, rb, 1)

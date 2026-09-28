@@ -3512,6 +3512,11 @@ initFrame:SetScript("OnEvent", function(self)
         local GRID_PAD      = CONTENT_PAD
         local GRID_SIDE_PAD = 20
         local SWATCH_SZ     = 20
+        -- Room a secondary swatch cluster takes to the right of the primary one:
+        -- swatch (20) + gap (10) + its undo (18) + gap (10). The panel's BG_EXTRA_W
+        -- (EllesmereUI.lua) is exactly GRID_COLS * SWATCH2_OFF, so every cell keeps
+        -- the same label room and spacing with both swatch pairs on it.
+        local SWATCH2_OFF   = SWATCH_SZ + 10 + 18 + 10
 
         -- items = { { label, classToken, getColor, setColor, resetFn }, ... }
         local function BuildColorGrid(par, yPos, items)            local totalRows = math.ceil(#items / GRID_COLS)
@@ -3555,7 +3560,12 @@ initFrame:SetScript("OnEvent", function(self)
                     label:SetPoint("LEFT", cell, "LEFT", GRID_SIDE_PAD, 0)
                     label:SetText(item.label)
 
-                    -- Color swatch (right side)
+                    -- Color swatch (right side). Items that provide a secondary
+                    -- colour (getColor2/setColor2/resetFn2) get a second swatch of
+                    -- the same size/style to the RIGHT of the primary one; the
+                    -- primary cluster then shifts left by SWATCH2_OFF so both keep
+                    -- the identical undo-then-swatch element order and 10px gaps.
+                    local has2 = item.getColor2 ~= nil
                     local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(cell, cell:GetFrameLevel() + 2,
                         function()
                             local c = item.getColor()
@@ -3568,34 +3578,55 @@ initFrame:SetScript("OnEvent", function(self)
                             local rl = EllesmereUI._widgetRefreshList
                             if rl then for i2 = 1, #rl do rl[i2]() end end
                         end, false, SWATCH_SZ)
-                    swatch:SetPoint("RIGHT", cell, "RIGHT", -GRID_SIDE_PAD, 0)
+                    swatch:SetPoint("RIGHT", cell, "RIGHT", -(GRID_SIDE_PAD + (has2 and SWATCH2_OFF or 0)), 0)
                     -- Repaint on page refresh/show (SelectPage re-runs the refresh list on show) so swatches survive a profile/global-source change.
                     EllesmereUI.RegisterWidgetRefresh(updateSwatch)
 
-                    -- Undo (reset) button
-                    local undoBtn = CreateFrame("Button", nil, cell)
-                    undoBtn:SetSize(18, 18)
-                    undoBtn:SetPoint("RIGHT", swatch, "LEFT", -10, 0)
-                    undoBtn:SetFrameLevel(cell:GetFrameLevel() + 3)
-                    undoBtn:SetAlpha(0.3)
-                    local undoTex = undoBtn:CreateTexture(nil, "ARTWORK")
-                    undoTex:SetAllPoints()
-                    undoTex:SetTexture(EllesmereUI.UNDO_ICON)
-                    undoBtn:SetScript("OnEnter", function(self)
-                        self:SetAlpha(0.6)
-                        EllesmereUI.ShowWidgetTooltip(self, "Reset to default")
-                    end)
-                    undoBtn:SetScript("OnLeave", function(self)
-                        self:SetAlpha(0.3)
-                        EllesmereUI.HideWidgetTooltip()
-                    end)
-                    undoBtn:SetScript("OnClick", function()
-                        item.resetFn()
-                        EllesmereUI.ApplyColorsToOUF()
-                        updateSwatch()
-                        local rl = EllesmereUI._widgetRefreshList
-                        if rl then for i2 = 1, #rl do rl[i2]() end end
-                    end)
+                    local swatch2, updateSwatch2
+                    if has2 then
+                        swatch2, updateSwatch2 = EllesmereUI.BuildColorSwatch(cell, cell:GetFrameLevel() + 2,
+                            function()
+                                local c = item.getColor2()
+                                return c.r, c.g, c.b, 1
+                            end,
+                            function(r, g, b)
+                                item.setColor2({ r = r, g = g, b = b })
+                                local rl = EllesmereUI._widgetRefreshList
+                                if rl then for i2 = 1, #rl do rl[i2]() end end
+                            end, false, SWATCH_SZ)
+                        swatch2:SetPoint("RIGHT", cell, "RIGHT", -GRID_SIDE_PAD, 0)
+                        EllesmereUI.RegisterWidgetRefresh(updateSwatch2)
+                    end
+
+                    -- Undo (reset) button; one per swatch, left of its swatch.
+                    local function MakeUndo(anchorSwatch, resetFn, updateFn)
+                        local undoBtn = CreateFrame("Button", nil, cell)
+                        undoBtn:SetSize(18, 18)
+                        undoBtn:SetPoint("RIGHT", anchorSwatch, "LEFT", -10, 0)
+                        undoBtn:SetFrameLevel(cell:GetFrameLevel() + 3)
+                        undoBtn:SetAlpha(0.3)
+                        local undoTex = undoBtn:CreateTexture(nil, "ARTWORK")
+                        undoTex:SetAllPoints()
+                        undoTex:SetTexture(EllesmereUI.UNDO_ICON)
+                        undoBtn:SetScript("OnEnter", function(self)
+                            self:SetAlpha(0.6)
+                            EllesmereUI.ShowWidgetTooltip(self, "Reset to default")
+                        end)
+                        undoBtn:SetScript("OnLeave", function(self)
+                            self:SetAlpha(0.3)
+                            EllesmereUI.HideWidgetTooltip()
+                        end)
+                        undoBtn:SetScript("OnClick", function()
+                            resetFn()
+                            EllesmereUI.ApplyColorsToOUF()
+                            updateFn()
+                            local rl = EllesmereUI._widgetRefreshList
+                            if rl then for i2 = 1, #rl do rl[i2]() end end
+                        end)
+                        return undoBtn
+                    end
+                    MakeUndo(swatch, item.resetFn, updateSwatch)
+                    if has2 then MakeUndo(swatch2, item.resetFn2, updateSwatch2) end
                 end
             end
 
@@ -3796,6 +3827,22 @@ initFrame:SetScript("OnEvent", function(self)
                     local db = GetCustomColorsDB()
                     if db.class then db.class[token] = nil end
                 end,
+                -- Secondary colour: defaults to the effective primary colour
+                -- darkened by 25% until the user picks its own.
+                getColor2 = function()
+                    local db = GetCustomColorsDB()
+                    if db.class2 and db.class2[token] then return db.class2[token] end
+                    local c = (db.class and db.class[token]) or def
+                    local r, g, b = EllesmereUI.DarkenColor(c.r, c.g, c.b, 0.25)
+                    return { r = r, g = g, b = b }
+                end,
+                setColor2 = function(c)
+                    SaveColorEntry("class2", token, c)
+                end,
+                resetFn2 = function()
+                    local db = GetCustomColorsDB()
+                    if db.class2 then db.class2[token] = nil end
+                end,
             }
         end
 
@@ -3833,6 +3880,22 @@ initFrame:SetScript("OnEvent", function(self)
                 end,
                 resetFn = function()
                     EllesmereUI.ResetPowerColor(pk)
+                end,
+                -- Secondary colour: defaults to the effective primary colour
+                -- darkened by 25% until the user picks its own.
+                getColor2 = function()
+                    local db = GetCustomColorsDB()
+                    if db.power2 and db.power2[pk] then return db.power2[pk] end
+                    local c = (db.power and db.power[pk]) or def
+                    local r, g, b = EllesmereUI.DarkenColor(c.r, c.g, c.b, 0.25)
+                    return { r = r, g = g, b = b }
+                end,
+                setColor2 = function(c)
+                    SaveColorEntry("power2", pk, c)
+                end,
+                resetFn2 = function()
+                    local db = GetCustomColorsDB()
+                    if db.power2 then db.power2[pk] = nil end
                 end,
             }
         end
@@ -3882,6 +3945,23 @@ initFrame:SetScript("OnEvent", function(self)
                     resetFn = function()
                         local cdb = GetCustomColorsDB()
                         if cdb.classResource then cdb.classResource[key] = nil end
+                    end,
+                    -- Secondary colour: defaults to the effective primary colour
+                    -- darkened by 25% until the user picks its own.
+                    getColor2 = function()
+                        local cdb = GetCustomColorsDB()
+                        if cdb.classResource2 and cdb.classResource2[key] then return cdb.classResource2[key] end
+                        local c = EllesmereUI.GetClassResourceColor(key)
+                            or { r = 1, g = 1, b = 1 }
+                        local r, g, b = EllesmereUI.DarkenColor(c.r, c.g, c.b, 0.25)
+                        return { r = r, g = g, b = b }
+                    end,
+                    setColor2 = function(c)
+                        SaveColorEntry("classResource2", key, c)
+                    end,
+                    resetFn2 = function()
+                        local cdb = GetCustomColorsDB()
+                        if cdb.classResource2 then cdb.classResource2[key] = nil end
                     end,
                 }
             end
