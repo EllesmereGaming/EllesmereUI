@@ -963,7 +963,7 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
 			local p = DB()
 			return castOff() or not (p and p.castBar.rangeCheck)
 		end,
-		disabledTooltip = "Requires range check to be enabled.",
+		disabledTooltip = "range check",
 		values = { target = "Target", mouseover = "Mouseover" },
 		order = { "target", "mouseover" },
 		getValue = function()
