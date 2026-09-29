@@ -305,7 +305,7 @@ for _, info in ipairs(BAR_CONFIG) do BAR_LOOKUP[info.key] = info end
 for _, info in ipairs(EXTRA_BARS) do BAR_LOOKUP[info.key] = info end
 function ns.MasqueOwnsBar(key)
     local info = BAR_LOOKUP[key]
-    if not (ns.MasqueGroup and info and not info.isStance and not info.isPetBar) then return false end
+    if not (ns.MasqueGroup and info and not info.isStance) then return false end
     local bars = EAB and EAB.db and EAB.db.profile and EAB.db.profile.bars
     local settings = bars and bars[key]
     return settings and settings.masqueEnabled == true
@@ -3092,6 +3092,9 @@ ns.BuildBarButtons = function(info, frame, skipProtected)
         for i = 1, info.count do
             local btn = _G["PetActionButton" .. i]
             if btn then
+                -- Pet buttons bypass GetOrCreateButton. Mark ownership before
+                -- layout and styling, just as we do for our action buttons.
+                EFD(btn).masqueOwned = ns.MasqueOwnsBar(key) or nil
                 if not skipProtected then
                     ApplyShapeHitRects(btn, buttonShape)
                     btn:SetAttributeNoHandler("statehidden", nil)
@@ -6525,7 +6528,7 @@ local function LayoutBar(key)
             end
 
             -- Resize the autocast overlay to match the button size
-            if btn.AutoCastOverlay then
+            if btn.AutoCastOverlay and not ns.MasqueOwnsBar(key) then
                 btn.AutoCastOverlay:SetAllPoints(btn)
             end
 
@@ -7252,11 +7255,14 @@ function EAB_VTABLE.RegisterMasqueButtons()
                 for _, btn in ipairs(buttons) do
                     local fd = EFD(btn)
                     if not fd.masqueRegistered then
-                        ns.MasqueGroup:AddButton(btn)
+                        -- Pet uses Masque's pet-specific art and autocast regions.
+                        ns.MasqueGroup:AddButton(btn, nil, info.isPetBar and "Pet" or nil)
                         fd.masqueRegistered = true
                     end
-                    EAB_VTABLE.SyncMasqueCastAnimationMask(btn)
-                    EAB_VTABLE.SyncMasqueEmptySlotGloss(btn)
+                    if not info.isPetBar then
+                        EAB_VTABLE.SyncMasqueCastAnimationMask(btn)
+                        EAB_VTABLE.SyncMasqueEmptySlotGloss(btn)
+                    end
                 end
             end
         end

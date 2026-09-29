@@ -83,7 +83,7 @@ initFrame:SetScript("OnEvent", function(self)
         if not VISIBILITY_ONLY[key] then
             GROUP_BAR_ORDER[#GROUP_BAR_ORDER + 1] = key
             local info = BAR_LOOKUP[key]
-            if info and not info.isStance and not info.isPetBar then
+            if info and not info.isStance then
                 MASQUE_BAR_ORDER[#MASQUE_BAR_ORDER + 1] = key
             end
         end
@@ -4309,18 +4309,18 @@ initFrame:SetScript("OnEvent", function(self)
 
             _, h = W:DualRow(parent, y,
                 { type="toggle", text="Enable Masque Support",
-                  tooltip="Allows Masque to skin the buttons on Action Bars 1-10. Requires a UI reload to apply.",
+                  tooltip="Allows Masque to skin the buttons on Action Bars 1-10 and the Pet Bar. Requires a UI reload to apply.",
                   disabled=function() return not IsMasqueAvailable() end,
                   disabledTooltip=function()
                       if not IsMasqueAvailable() then return "Masque is not installed or enabled." end
-                      return "Masque is available for Action Bars 1-10."
+                      return "Masque is available for Action Bars 1-10 and the Pet Bar."
                   end,
                   requireState="disabled",
                   getValue=MasqueEnabledValue,
                   setValue=function(v)
                       EllesmereUI:ShowConfirmPopup({
                           title       = "Reload Required",
-                          message     = "Changing Masque for all action bars requires a UI reload.",
+                          message     = "Changing Masque for all action bars and the pet bar requires a UI reload.",
                           confirmText = "Reload Now",
                           cancelText  = "Cancel",
                           onConfirm   = function()
@@ -6243,7 +6243,7 @@ initFrame:SetScript("OnEvent", function(self)
     if EllesmereUI._RegisterSearchEntry then
         EllesmereUI._RegisterSearchEntry(
             "Enable Masque Support", nil,
-            "Allows Masque to skin the buttons on Action Bars 1-10. Requires a UI reload to apply.",
+            "Allows Masque to skin the buttons on Action Bars 1-10 and the Pet Bar. Requires a UI reload to apply.",
             "EllesmereUIActionBars", PAGE_DISPLAY, SECTION_ICON_APPEARANCE,
             EllesmereUI._setActionBarKey, "MainBar")
     end
